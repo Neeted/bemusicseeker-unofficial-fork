@@ -129,7 +129,7 @@ internal sealed class UpdaterPackageProbe
         var launchRequest = UpdaterProcessLaunchRequest.Create(
             request.UpdaterPath, workingDirectory, appDirectoryPath, packagePath,
             Path.Combine(appDirectoryPath, "update_backup"), readyPath, decisionPath,
-            Path.Combine(appDirectoryPath, "restart.exe"));
+            Path.Combine(appDirectoryPath, "restart.exe"), []);
         UpdaterLaunchReceipt receipt = gateway.Prepare(launchRequest).Start();
         Assert.IsNotNull(process);
         Assert.AreEqual("1", File.ReadAllText(readyPath).Trim());
@@ -168,7 +168,7 @@ internal sealed class UpdaterPackageProbe
                 return process;
             });
             UpdaterLaunchReceipt receipt = gateway.Prepare(UpdaterProcessLaunchRequest.Create(updater, current,
-                app, package, backup, ready, decision, Path.Combine(app, "restart.exe"))).Start();
+                app, package, backup, ready, decision, Path.Combine(app, "restart.exe"), ["--simple-restart-argument"])).Start();
             Assert.IsNotNull(process);
             Assert.IsTrue(File.Exists(Path.Combine(app, "update_work", "update-transaction.json")));
             receipt.Abort();

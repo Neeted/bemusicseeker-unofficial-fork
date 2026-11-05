@@ -46,7 +46,8 @@ public sealed class UpdaterPackageSyncTests
                 packagePath,
                 backupDirectoryPath,
                 processId: applicationProcessId,
-                publishProceed: false);
+                publishProceed: false,
+                restartArgumentsJson: JsonSerializer.Serialize(HardRestartArguments));
             try
             {
                 Assert.IsFalse(Commands.WaitForExit(process, 250));
@@ -83,6 +84,11 @@ public sealed class UpdaterPackageSyncTests
                 Assert.IsFalse(journal.GetProperty("BackupComplete").GetBoolean());
                 Assert.AreEqual(JsonValueKind.Array, journal.GetProperty("NewPackagePaths").ValueKind);
                 Assert.AreEqual(0, journal.GetProperty("NewPackagePaths").GetArrayLength());
+                // Versionは1のまま、再起動引数は任意項目として難集合をそのまま保持する。
+                Assert.AreEqual(JsonValueKind.Array, journal.GetProperty("RestartArguments").ValueKind);
+                CollectionAssert.AreEqual(
+                    HardRestartArguments,
+                    JsonSerializer.Deserialize<string[]>(journal.GetProperty("RestartArguments").GetRawText()));
             }
             finally
             {
@@ -244,9 +250,10 @@ public sealed class UpdaterPackageSyncTests
             string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
 
             WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
-            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "restarted" + Environment.NewLine);
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "restarted" + Environment.NewLine, argumentsFile: "restart-arguments.json");
             WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "package");
             WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            // 項目なしの旧形式journalは空配列として読み、--watchからの復旧でも引数なしで再起動する。
             WriteTextFile(
                 appDirectoryPath,
                 "update_work/update-transaction.json",
@@ -269,9 +276,221 @@ public sealed class UpdaterPackageSyncTests
 
             Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
             AssertRestartFileExists(Path.Combine(appDirectoryPath, "restart-marker.txt"));
+            AssertRecordedRestartArguments(appDirectoryPath, []);
             Assert.IsFalse(File.Exists(journalPath));
             Assert.IsFalse(Directory.Exists(backupDirectoryPath));
         });
+    }
+
+    /// <summary>
+    /// 明示復旧が旧版を復元した後、journalに記録された再起動引数を欠落・順序違い・引用崩れなく再起動先へ渡すことを保証する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
+    [TestMethod]
+    public void RecoverCommandRestartsRestoredApplicationWithJournalRestartArguments()
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "restarted" + Environment.NewLine, argumentsFile: "restart-arguments.json");
+            WriteTextFile(appDirectoryPath, "update_work/downloads/package.zip", "package");
+            WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            WriteTextFile(
+                appDirectoryPath,
+                "update_work/update-transaction.json",
+                JsonSerializer.Serialize(new
+                {
+                    Version = 1,
+                    Phase = "applying",
+                    AppDirectory = appDirectoryPath,
+                    PackagePath = packagePath,
+                    ApplicationProcessId = 0,
+                    BackupDirectory = backupDirectoryPath,
+                    PreviousDirectory = previousDirectoryPath,
+                    ExtractDirectory = extractDirectoryPath,
+                    RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
+                    BackupComplete = true,
+                    NewPackagePaths = new[] { "BeMusicSeeker.exe" },
+                    RestartArguments = HardRestartArguments
+                }));
+
+            Commands.RunUpdaterRecovery(appDirectoryPath);
+
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            AssertRestartFileExists(Path.Combine(appDirectoryPath, "restart-marker.txt"));
+            AssertRecordedRestartArguments(appDirectoryPath, HardRestartArguments);
+            Assert.IsFalse(File.Exists(journalPath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count, "Recovery must clear the recovery handoff.");
+        });
+    }
+
+    /// <summary>
+    /// journalに項目はあるが値がnull・配列でない・文字列でない要素・NULを含む場合は、再起動せず失敗記録と回復登録を残すことを保証する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
+    [TestMethod]
+    [DataRow("null")]
+    [DataRow("\"a\"")]
+    [DataRow("[1]")]
+    [DataRow("[null]")]
+    [DataRow("[\"a\\u0000b\"]")]
+    public void RecoverCommandRejectsInvalidJournalRestartArgumentsWithoutRestarting(string restartArgumentsJson)
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string previousDirectoryPath = Path.Combine(backupDirectoryPath, "previous");
+            string extractDirectoryPath = Path.Combine(appDirectoryPath, "update_work", "extracted");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "partial-new");
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "restarted" + Environment.NewLine, argumentsFile: "restart-arguments.json");
+            WriteTextFile(previousDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            string journalJson = JsonSerializer.Serialize(new
+            {
+                Version = 1,
+                Phase = "applying",
+                AppDirectory = appDirectoryPath,
+                PackagePath = packagePath,
+                ApplicationProcessId = 0,
+                BackupDirectory = backupDirectoryPath,
+                PreviousDirectory = previousDirectoryPath,
+                ExtractDirectory = extractDirectoryPath,
+                RestartExecutablePath = Path.Combine(appDirectoryPath, "restart.exe"),
+                BackupComplete = true,
+                NewPackagePaths = new[] { "BeMusicSeeker.exe" }
+            });
+            // 末尾の閉じ括弧の前へ、検査対象の生JSONを項目として足す。
+            journalJson = journalJson[..^1] + ",\"RestartArguments\":" + restartArgumentsJson + "}";
+            WriteTextFile(appDirectoryPath, "update_work/update-transaction.json", journalJson);
+
+            OwnedProcess process = Commands.StartUpdaterRecoveryProcess(appDirectoryPath);
+            Commands.WaitForExit(process);
+
+            Assert.AreNotEqual(0, process.RootExit.GetAwaiter().GetResult());
+            Assert.AreEqual("partial-new", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "restart-marker.txt")), "An invalid journal must not restart the application.");
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "restart-arguments.json")));
+            Assert.IsTrue(File.Exists(journalPath), "An invalid journal must remain for diagnosis.");
+            Assert.IsTrue(File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-failure.txt")));
+            Assert.AreEqual(1, GetRecoveryRunOnceValues(appDirectoryPath).Count, "The recovery handoff must be rearmed.");
+        });
+    }
+
+    /// <summary>
+    /// 難集合の再起動引数を渡した更新が成功すると、再起動先のMainが同じ列を受け取り、未指定・空配列では引数なしで再起動することを保証する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
+    [TestMethod]
+    [DataRow("inherited")]
+    [DataRow("omitted")]
+    [DataRow("empty")]
+    public void UpdaterRestartsAppliedApplicationWithRestartArgumentsUnchanged(string mode)
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+            const string managedPaths = "BeMusicSeeker.exe\nrestart.exe\nrestart.json";
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath);
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", managedPaths);
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(packageSourceDirectoryPath, "restart-marker.txt", "restarted", argumentsFile: "restart-arguments.json");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", managedPaths);
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+
+            string? restartArgumentsJson = mode switch
+            {
+                "inherited" => JsonSerializer.Serialize(HardRestartArguments),
+                "empty" => "[]",
+                _ => null
+            };
+            Commands.RunUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartArgumentsJson: restartArgumentsJson);
+
+            Assert.AreEqual("new-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            AssertRestartFileExists(Path.Combine(appDirectoryPath, "restart-marker.txt"));
+            AssertRecordedRestartArguments(appDirectoryPath, mode == "inherited" ? HardRestartArguments : []);
+            Assert.IsFalse(File.Exists(journalPath), "A committed transaction must remove its durable journal.");
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+        });
+    }
+
+    /// <summary>
+    /// 不正な再起動引数は受付通知より前に拒否し、journal・回復登録・本体・ZIPの変更や再起動を一切起こさないことを保証する。
+    /// </summary>
+    /// <remarks>独立Jobと固有パスを所有し、共有registryはこのアプリ領域の登録だけを回収する。</remarks>
+    [TestMethod]
+    [DataRow("[\"a\\u0000b\"]")]
+    [DataRow("[\"a\"")]
+    [DataRow("{\"0\":\"a\"}")]
+    [DataRow("\"a\"")]
+    [DataRow("null")]
+    [DataRow("[\"a\",1]")]
+    [DataRow("[\"a\",null]")]
+    [DataRow("[[\"a\"]]")]
+    public void UpdaterRejectsInvalidRestartArgumentsJsonBeforeReadyWithoutMutation(string restartArgumentsJson)
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string appDirectoryPath = Path.Combine(tempDirectoryPath, "app");
+            string packageSourceDirectoryPath = Path.Combine(tempDirectoryPath, "package-source");
+            string packagePath = Path.Combine(appDirectoryPath, "update_work", "downloads", "package.zip");
+            string backupDirectoryPath = Path.Combine(appDirectoryPath, "update_backup");
+            string journalPath = Path.Combine(appDirectoryPath, "update_work", "update-transaction.json");
+            string readyPath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
+            const string managedPaths = "BeMusicSeeker.exe\nrestart.exe\nrestart.json";
+
+            WriteTextFile(appDirectoryPath, "BeMusicSeeker.exe", "old-app");
+            CopyRestartExecutable(appDirectoryPath, "restart-marker.txt", "restarted", argumentsFile: "restart-arguments.json");
+            WriteTextFile(appDirectoryPath, "update-managed-files.txt", managedPaths);
+            WriteTextFile(packageSourceDirectoryPath, "BeMusicSeeker.exe", "new-app");
+            CopyRestartExecutable(packageSourceDirectoryPath, "restart-marker.txt", "restarted", argumentsFile: "restart-arguments.json");
+            WriteTextFile(packageSourceDirectoryPath, "update-managed-files.txt", managedPaths);
+            ZipFile.CreateFromDirectory(packageSourceDirectoryPath, packagePath);
+            string treeBefore = ComputeCanonicalTreeHash(appDirectoryPath);
+
+            Commands.RunUpdaterExpectFailure(appDirectoryPath, packagePath, backupDirectoryPath, restartArgumentsJson: restartArgumentsJson);
+
+            Assert.IsFalse(File.Exists(readyPath), "Invalid arguments must be rejected before the ready handshake.");
+            Assert.IsFalse(File.Exists(journalPath));
+            Assert.AreEqual(0, GetRecoveryRunOnceValues(appDirectoryPath).Count);
+            Assert.AreEqual(0, GetRecoverySupervisorValues(appDirectoryPath).Count);
+            Assert.AreEqual(treeBefore, ComputeCanonicalTreeHash(appDirectoryPath));
+            Assert.AreEqual("old-app", File.ReadAllText(Path.Combine(appDirectoryPath, "BeMusicSeeker.exe")));
+            Assert.IsTrue(File.Exists(packagePath));
+            Assert.IsFalse(Directory.Exists(backupDirectoryPath));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "restart-marker.txt")));
+            Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "restart-arguments.json")));
+        });
+    }
+
+    /// <summary>再起動先が記録したargvがJSON文字列配列として期待と完全一致することを、全プロセス終端後に照合します。</summary>
+    private static void AssertRecordedRestartArguments(string appDirectoryPath, IReadOnlyList<string> expected)
+    {
+        string recordedPath = Path.Combine(appDirectoryPath, "restart-arguments.json");
+        Assert.IsTrue(File.Exists(recordedPath), "The restarted application did not record its arguments.");
+        string commandLinePath = recordedPath + ".commandline.txt";
+        string commandLine = File.Exists(commandLinePath) ? File.ReadAllText(commandLinePath) : "(not recorded)";
+        CollectionAssert.AreEqual(
+            expected.ToArray(),
+            JsonSerializer.Deserialize<string[]>(File.ReadAllText(recordedPath)),
+            "Raw command line: " + commandLine);
     }
 
     /// <summary>

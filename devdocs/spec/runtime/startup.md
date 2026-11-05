@@ -16,7 +16,7 @@
 
 ### 起動時の配置と実行条件
 
-`ApplicationRuntimeOptions` は、起動境界で捕捉した配置、DB読取り方式、検証起動の識別情報、更新URL、ログ条件、再起動引数を変更不能な値として `ApplicationComposition` へ必須で渡します。再起動引数は実行ファイル名を除く引用前の配列を複製して保持します。更新URLの解決は選択元の優先順位を決める処理であり、通常CLIの不正URLを新たな必須起動失敗にはしません。通常CLIの値は従来の更新確認境界で検査します。
+`ApplicationRuntimeOptions` は、起動境界で捕捉した配置、DB読取り方式、検証起動の識別情報、更新URL、ログ条件、再起動引数を変更不能な値として `ApplicationComposition` へ必須で渡します。再起動引数は実行ファイル名を除く引用前の配列を複製して保持し、動作モード変更の再起動と更新後の再起動（[更新](../integration/portable-update.md#引数と境界)）が同じ値を使います。更新URLの解決は選択元の優先順位を決める処理であり、通常CLIの不正URLを新たな必須起動失敗にはしません。通常CLIの値は従来の更新確認境界で検査します。
 
 ログ条件は `ApplicationLoggingOptions` が未加工のCLI値から純粋に解決し、共有ログgetterを変更しません。`ApplicationRuntimeOptions` の直接構築でログ条件を省略した場合はInfoと空の不正値を使い、再起動argvを解析しません。値の意味は[ログ仕様](../core/logging.md#ファイルとレベル)に従います。共有窓口の `CommandLineSwitches` は適用された不変の条件を公開し、自らプロセス引数を読みません。適用は `Program` だけが並行処理の開始前に行い、headless構成や個別のcompositionでは共有条件を変更しません。
 

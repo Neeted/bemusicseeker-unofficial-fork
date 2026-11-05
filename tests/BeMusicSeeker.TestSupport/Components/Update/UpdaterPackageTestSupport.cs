@@ -14,6 +14,23 @@ namespace BeMusicSeeker.TestSupport.Components.Update;
 /// <summary>更新ケースの既存入力・registry・managed呼出しを一箇所で保持します。</summary>
 internal static class UpdaterPackageTestSupport
 {
+    /// <summary>再起動引数の受け渡しで順序・引用・空白・末尾の逆スラッシュの欠落を見分けるための難集合です。</summary>
+    internal static readonly string[] HardRestartArguments =
+    [
+        "a b",
+        "",
+        "\"quoted\"",
+        "C:\\dir with space\\",
+        "back\\\\\"slash",
+        "%PATH%",
+        "--app-dir",
+        "--update-manifest-url=http://127.0.0.1:1/u.json?x=1&y=2",
+        "  lead/trail  ",
+        "tab\there",
+        "日本語 フォルダ",
+        "𝄞"
+    ];
+
     /// <summary>一時物回収の実障害を再起動前後で観測する小さな実packageを作成します。</summary>
     internal static (string AppDirectory, string PackagePath, string BackupDirectory) PrepareCleanupFailurePackage(string tempDirectory)
     {
@@ -209,7 +226,8 @@ internal static class UpdaterPackageTestSupport
     /// <param name="markerFile">起動した版が生成するmarker名です。nullなら生成しません。</param>
     /// <param name="markerContents">版ごとのmarker内容です。</param>
     /// <param name="waitForRelease">準備通知と標準入力のreleaseで生存期間を制御する場合にtrueです。</param>
-    internal static void CopyRestartExecutable(string rootDirectoryPath, string? markerFile = null, string? markerContents = null, bool waitForRelease = false)
+    /// <param name="argumentsFile">指定すると、再起動先がMainの引数をJSON文字列配列としてこの名前で記録します。</param>
+    internal static void CopyRestartExecutable(string rootDirectoryPath, string? markerFile = null, string? markerContents = null, bool waitForRelease = false, string? argumentsFile = null)
     {
         Directory.CreateDirectory(rootDirectoryPath);
         File.Copy(
@@ -220,7 +238,8 @@ internal static class UpdaterPackageTestSupport
         {
             WaitForRelease = waitForRelease,
             MarkerFile = markerFile,
-            MarkerContents = markerContents
+            MarkerContents = markerContents,
+            ArgumentsFile = argumentsFile
         }));
     }
 
@@ -254,13 +273,15 @@ internal static class UpdaterPackageTestSupport
     }
 
     /// <summary>旧互換と公開updaterが共用する固定CLI要求です。PIDの意味と供給はcase側に残します。</summary>
+    /// <param name="restartArgumentsJson"><c>--restart-arguments-json</c>へ渡す生の値です。nullなら省略します。</param>
     internal static ProcessStartInfo CreateUpdaterStartInfo(
         string updaterPath,
         string appDirectoryPath,
         string packagePath,
         string backupDirectoryPath,
         string? restartExecutablePath,
-        string processId)
+        string processId,
+        string? restartArgumentsJson = null)
     {
         restartExecutablePath ??= Path.Combine(appDirectoryPath, "restart.exe");
         string readyFilePath = Path.Combine(appDirectoryPath, "update_work", "current", "updater-ready.txt");
@@ -288,6 +309,11 @@ internal static class UpdaterPackageTestSupport
         startInfo.ArgumentList.Add(processId);
         startInfo.ArgumentList.Add("--restart-exe");
         startInfo.ArgumentList.Add(restartExecutablePath);
+        if (restartArgumentsJson is not null)
+        {
+            startInfo.ArgumentList.Add("--restart-arguments-json");
+            startInfo.ArgumentList.Add(restartArgumentsJson);
+        }
         return startInfo;
     }
 

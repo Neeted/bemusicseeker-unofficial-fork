@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.ExceptionServices;
+using System.Text.Json;
 using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.TestSupport.Components.Update;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 
@@ -11,7 +13,8 @@ namespace BeMusicSeeker.Tests;
 public sealed class UpdaterProcessGatewayTests
 {
     /// <summary>
-    /// 異文化でも空白付きパスと固定整数のPIDを引用して渡し、作業ディレクトリ・非表示起動と引数の分割を保つ。
+    /// 異文化でも空白付きパスと固定整数のPIDを引数ごとの値で渡し、再起動引数を1つのJSONトークンで渡す。
+    /// 作業ディレクトリ・非表示起動と引数の分割を保ち、引用の形ではなく渡した値の欠落・順序違いを検出する。
     /// </summary>
     [TestMethod]
     [DoNotParallelize]
@@ -52,27 +55,40 @@ public sealed class UpdaterProcessGatewayTests
                 backupDirectory,
                 readyFilePath,
                 decisionFilePath,
-                restartExecutablePath);
+                restartExecutablePath,
+                UpdaterPackageTestSupport.HardRestartArguments);
 
             {
                 UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
 
                 Assert.IsNotNull(receipt);
-                ProcessStartInfo capturedStartInfo = captured!;
+                Assert.IsNotNull(captured);
+                ProcessStartInfo capturedStartInfo = captured;
                 Assert.AreEqual(request.ExecutablePath, capturedStartInfo.FileName);
                 Assert.AreEqual(request.WorkingDirectory, capturedStartInfo.WorkingDirectory);
                 Assert.IsFalse(capturedStartInfo.UseShellExecute);
                 Assert.IsTrue(capturedStartInfo.CreateNoWindow);
+                Assert.AreEqual(string.Empty, capturedStartInfo.Arguments);
                 int processId = Process.GetCurrentProcess().Id;
-                Assert.AreEqual(
-                    "\"--app-dir\" \"" + applicationDirectory + "\" "
-                        + "\"--package\" \"" + packagePath + "\" "
-                        + "\"--backup-dir\" \"" + backupDirectory + "\" "
-                        + "\"--ready-file\" \"" + readyFilePath + "\" "
-                        + "\"--decision-file\" \"" + decisionFilePath + "\" "
-                        + "\"--pid\" \"" + processId.ToString(CultureInfo.InvariantCulture) + "\" "
-                        + "\"--restart-exe\" \"" + restartExecutablePath + "\"",
-                    capturedStartInfo.Arguments);
+                string[] arguments = capturedStartInfo.ArgumentList.ToArray();
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        "--app-dir", applicationDirectory,
+                        "--package", packagePath,
+                        "--backup-dir", backupDirectory,
+                        "--ready-file", readyFilePath,
+                        "--decision-file", decisionFilePath,
+                        "--pid", processId.ToString(CultureInfo.InvariantCulture),
+                        "--restart-exe", restartExecutablePath
+                    },
+                    RemoveRestartArgumentsOption(arguments, out string? restartArgumentsJson));
+                // オプションの位置は問わず、トークンが1つであることとJSONの値の一致だけを判定する。
+                // 空でない列では省略できないため、オプションの存在も判定する。
+                Assert.IsNotNull(restartArgumentsJson);
+                CollectionAssert.AreEqual(
+                    UpdaterPackageTestSupport.HardRestartArguments,
+                    JsonSerializer.Deserialize<string[]>(restartArgumentsJson));
             }
 
         }
@@ -80,6 +96,84 @@ public sealed class UpdaterProcessGatewayTests
         {
             CultureInfo.CurrentCulture = previousCulture;
         }
+    }
+
+    /// <summary>
+    /// 再起動引数が空でも更新ツールへ空配列として渡し、引数なしの再起動を欠落や別の値と取り違える誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void WindowsGatewayPassesEmptyRestartArgumentsAsEmptyList()
+    {
+        ProcessStartInfo? captured = null;
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.RootDirectory;
+        Directory.CreateDirectory(root);
+        string readyFilePath = Path.Combine(root, "updater-ready.txt");
+        using Process fakeProcess = new();
+        var gateway = new WindowsUpdaterProcessGateway(startInfo =>
+        {
+            captured = startInfo;
+            File.WriteAllText(readyFilePath, "1");
+            return fakeProcess;
+        });
+        var request = UpdaterProcessLaunchRequest.Create(
+            @"C:\Be Music Seeker\update_work\BeMusicSeeker.Updater.exe",
+            @"C:\Be Music Seeker\update_work",
+            @"C:\Be Music Seeker",
+            @"C:\downloads\app.zip",
+            @"C:\Be Music Seeker\update_backup",
+            readyFilePath,
+            Path.Combine(root, "updater-decision.txt"),
+            @"C:\Be Music Seeker\BeMusicSeeker.exe",
+            []);
+
+        Assert.IsNotNull(gateway.Prepare(request).Start());
+
+        Assert.IsNotNull(captured);
+        RemoveRestartArgumentsOption(captured.ArgumentList.ToArray(), out string? restartArgumentsJson);
+        // 空列は`[]`でも省略でもよい。渡す場合は空配列であること。
+        if (restartArgumentsJson is not null)
+        {
+            CollectionAssert.AreEqual(Array.Empty<string>(), JsonSerializer.Deserialize<string[]>(restartArgumentsJson));
+        }
+    }
+
+    /// <summary>`--restart-arguments-json`が高々1つであることを確認し、その値を取り出して残りの引数を返します。</summary>
+    private static string[] RemoveRestartArgumentsOption(string[] arguments, out string? value)
+    {
+        int index = Array.IndexOf(arguments, "--restart-arguments-json");
+        Assert.AreEqual(Array.LastIndexOf(arguments, "--restart-arguments-json"), index, "オプションは1つだけです。");
+        if (index < 0)
+        {
+            value = null;
+            return arguments;
+        }
+        Assert.IsTrue(index + 1 < arguments.Length, "オプションの値が1トークンありません。");
+        value = arguments[index + 1];
+        return [.. arguments.Take(index), .. arguments.Skip(index + 2)];
+    }
+
+    /// <summary>
+    /// 復旧起動を空白入りのディレクトリでも独立した引数として渡し、引用文字列の組立てで値が崩れる誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void WindowsGatewayRecoveryPassesRecoverCommandTokens()
+    {
+        ProcessStartInfo? captured = null;
+        var gateway = new WindowsUpdaterProcessGateway(startInfo =>
+        {
+            captured = startInfo;
+            throw new InvalidOperationException("sentinel");
+        });
+        string applicationDirectory = @"C:\Be Music Seeker";
+
+        Assert.ThrowsExactly<InvalidOperationException>(
+            () => gateway.RecoverIncompleteTransaction(@"C:\Be Music Seeker\update_work\BeMusicSeeker.Updater.exe", applicationDirectory));
+
+        Assert.IsNotNull(captured);
+        Assert.IsFalse(captured.UseShellExecute);
+        Assert.AreEqual(string.Empty, captured.Arguments);
+        CollectionAssert.AreEqual(new[] { "--recover", "--app-dir", applicationDirectory }, captured.ArgumentList.ToArray());
     }
 
     /// <summary>
@@ -102,7 +196,8 @@ public sealed class UpdaterProcessGatewayTests
             @"C:\Be Music Seeker\update_backup",
             readyFilePath,
             decisionFilePath,
-            @"C:\Be Music Seeker\BeMusicSeeker.exe");
+            @"C:\Be Music Seeker\BeMusicSeeker.exe",
+            []);
 
         {
             UpdaterLaunchFailureException exception = Assert.ThrowsExactly<UpdaterLaunchFailureException>(

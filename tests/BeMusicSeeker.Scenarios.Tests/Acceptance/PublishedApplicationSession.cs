@@ -62,10 +62,7 @@ internal sealed class PublishedApplicationSession
         try { Assert.AreEqual(0, existing.Length, "既存の利用者appが占有しています。停止せず受入を失敗にします。"); }
         finally { foreach (Process process in existing) { process.Dispose(); } }
         ArchiveLogs(fixture.AppRoot);
-        var server = new SingleRequestHttpServer(operation.Token, Encoding.UTF8.GetBytes("""
-            {"schemaVersion":1,"version":"0.0.0.0","releaseTag":"v0.0.0.0","releasePageUrl":"https://example.invalid/release","packageFormatVersion":1,"minimumUpdaterVersion":"1","assets":[{"kind":"app","label":"fixture","fileName":"fixture.zip","url":"https://example.invalid/fixture.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000","sizeBytes":1,"includesChartInfoMetadata":false}]}
-            """));
-        servers.Add(server);
+        SingleRequestHttpServer server = StartNoUpdateServer();
         OwnedProcess owner = Start(Path.Combine(fixture.AppRoot, "BeMusicSeeker.exe"),
             ["--update-manifest-url=" + server.Address.AbsoluteUri], fixture.AppRoot, fixture.ChildEnvironment);
         var observation = Process.GetProcessById(owner.ProcessId);
@@ -76,6 +73,40 @@ internal sealed class PublishedApplicationSession
         // 更新用workを準備する前に、この起動が先に行う旧work回収とNoUpdate応答を完了させます。
         await server.Completion.WaitAsync(operation.Token);
         return (owner, observation);
+    }
+
+    /// <summary>
+    /// 現在版より小さい版（0.0.0.0）のmanifestを1回だけ返すloopback serverを、このsessionの所有・破棄対象として開始します。
+    /// 起動した元アプリと更新後の後継アプリが、それぞれ別のserverで更新なしの応答を受けるために使います。
+    /// </summary>
+    internal SingleRequestHttpServer StartNoUpdateServer()
+    {
+        var server = new SingleRequestHttpServer(operation.Token, Encoding.UTF8.GetBytes("""
+            {"schemaVersion":1,"version":"0.0.0.0","releaseTag":"v0.0.0.0","releasePageUrl":"https://example.invalid/release","packageFormatVersion":1,"minimumUpdaterVersion":"1","assets":[{"kind":"app","label":"fixture","fileName":"fixture.zip","url":"https://example.invalid/fixture.zip","sha256":"0000000000000000000000000000000000000000000000000000000000000000","sizeBytes":1,"includesChartInfoMetadata":false}]}
+            """));
+        servers.Add(server);
+        return server;
+    }
+
+    /// <summary>
+    /// 起動済みのprocessがserverへ更新確認を送ったことをsessionの期限内で待ちます。
+    /// 要求の前にprocessが終了した場合は、期限切れを待たず失敗にします。
+    /// </summary>
+    internal async Task WaitRequestAsync(SingleRequestHttpServer server, Process process)
+    {
+        Task exited = process.WaitForExitAsync(operation.Token);
+        Task finished = await Task.WhenAny(server.Completion, exited);
+        if (finished == exited && !server.Completion.IsCompleted)
+        {
+            // 期限による取り消しはappの終了と区別し、ExitCodeを参照せず期限切れとして伝える。
+            operation.Token.ThrowIfCancellationRequested();
+            if (process.HasExited)
+            {
+                throw new InvalidOperationException($"更新確認の要求前にappが終了しました: {process.ExitCode}");
+            }
+        }
+        await server.Completion.WaitAsync(operation.Token);
+        Assert.AreEqual(1, server.RequestTargets.Length, "更新確認の要求がちょうど1回届いていません。");
     }
 
     /// <summary>停止済みログだけを退避し、次の起動のmarkerと混同しません。</summary>

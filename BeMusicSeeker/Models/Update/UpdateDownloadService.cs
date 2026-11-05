@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -34,10 +35,22 @@ internal sealed class UpdateDownloadService
 
     private readonly IUpdaterProcessGateway updaterProcessGateway;
 
+    private readonly IReadOnlyList<string> restartArguments;
+
+    /// <summary>更新ZIPの取得と更新ツールの起動準備を担当するサービスを作成します。</summary>
+    /// <param name="applicationPathSnapshot">起動時に確定したアプリの配置です。</param>
+    /// <param name="updaterProcessGateway">更新ツールの起動窓口です。</param>
+    /// <param name="restartArguments">
+    /// アプリが起動時に捕捉した再起動引数です。動作モード変更の再起動と同じ値を、更新後の再起動へ引き継ぎます。
+    /// 引数なしで起動した場合は空の列を渡します。
+    /// </param>
     internal UpdateDownloadService(
         ApplicationPathSnapshot applicationPathSnapshot,
-        IUpdaterProcessGateway updaterProcessGateway)
+        IUpdaterProcessGateway updaterProcessGateway,
+        IReadOnlyList<string> restartArguments)
     {
+        this.restartArguments = restartArguments
+            ?? throw new ArgumentNullException(nameof(restartArguments));
         this.applicationPathSnapshot = applicationPathSnapshot
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
         this.updaterProcessGateway = updaterProcessGateway
@@ -166,7 +179,8 @@ internal sealed class UpdateDownloadService
                 Path.Combine(appDirectory, "update_backup"),
                 readyFilePath,
                 decisionFilePath,
-                applicationPathSnapshot.ExecutablePath));
+                applicationPathSnapshot.ExecutablePath,
+                restartArguments));
     }
 
     internal string GetUpdateWorkRoot()

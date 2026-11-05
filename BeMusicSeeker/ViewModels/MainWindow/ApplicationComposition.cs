@@ -480,6 +480,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         externalShellGateway ??= this.externalShellGateway;
         return new MainWindowChildComposition(
             RuntimeOptions.UpdateManifestUrl,
+            RuntimeOptions.RestartArguments,
             selectedChartAudioConversionExecutor ?? new BassSelectedChartAudioConversionExecutor(),
             mainChartList,
             playlistWorkspace,
@@ -709,8 +710,10 @@ internal sealed class MainWindowChildComposition
     /// <param name="exitForUnrestoredDestination">操作終端後に通常Closeを通さず最終終了する境界。</param>
     /// <param name="playlistOperationAdmission">構成寿命で共有するPの新規受付を閉じるための既存owner。</param>
     /// <param name="updateManifestUrl">起動時に捕捉済みの更新URL。妥当性の検査は更新確認処理へ委ねます。</param>
+    /// <param name="restartArguments">起動時に捕捉済みの再起動引数。動作モード変更の再起動と同じ値を更新後の再起動へ引き継ぎます。</param>
     internal MainWindowChildComposition(
         string updateManifestUrl,
+        IReadOnlyList<string> restartArguments,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
@@ -867,7 +870,8 @@ internal sealed class MainWindowChildComposition
             FolderAutoRenameWorkflow);
         UpdateDownloadService updateDownloadService = new(
             applicationPathSnapshot ?? throw new ArgumentNullException(nameof(applicationPathSnapshot)),
-            updaterProcessGateway ?? throw new ArgumentNullException(nameof(updaterProcessGateway)));
+            updaterProcessGateway ?? throw new ArgumentNullException(nameof(updaterProcessGateway)),
+            restartArguments ?? throw new ArgumentNullException(nameof(restartArguments)));
         UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
         StartupUpdateWorkflow = new StartupUpdateWorkflowOwner(
             () => updateCheckService.CheckAsync(updateManifestUrl),

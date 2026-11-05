@@ -50,7 +50,8 @@ public sealed class UpdateDownloadServiceTests
         {
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
-                new RecordingUpdaterProcessGateway());
+                new RecordingUpdaterProcessGateway(),
+                []);
 
             Assert.ThrowsExactly<InvalidOperationException>(() => service.PrepareUpdaterLaunch(Path.Combine(root, "update_work", "downloads", "app.zip")));
             Assert.AreEqual("external-sentinel", File.ReadAllText(Path.Combine(externalDirectory, "sentinel.txt")));
@@ -98,7 +99,8 @@ public sealed class UpdateDownloadServiceTests
         {
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
-                new RecordingUpdaterProcessGateway());
+                new RecordingUpdaterProcessGateway(),
+                []);
             Exception? warning = null;
 
             service.TryDeleteDownloadedPackage(Path.Combine(downloadsDirectory, "app.zip"), exception => warning = exception);

@@ -85,7 +85,8 @@ public sealed class StartupUpdateWorkflowOwnerTests
             using FileStream heldLock = File.Open(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
-                new UnexpectedUpdaterProcessGateway());
+                new UnexpectedUpdaterProcessGateway(),
+                []);
             StartupUpdateWorkflowOwner owner = CreateOwner(
                 () =>
                 {
@@ -162,7 +163,8 @@ public sealed class StartupUpdateWorkflowOwnerTests
             using FileStream heldDownload = File.Open(stalePackagePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe")),
-                new UnexpectedUpdaterProcessGateway());
+                new UnexpectedUpdaterProcessGateway(),
+                []);
             StartupUpdateWorkflowOwner owner = CreateOwner(
                 () =>
                 {

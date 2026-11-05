@@ -76,7 +76,7 @@ public sealed class UpdateMarkerReaderSharingTests
             var request = UpdaterProcessLaunchRequest.Create(
                 workspace.GetPath("BeMusicSeeker.Updater.exe"), root, root,
                 workspace.GetPath("package.zip"), workspace.GetPath("update_backup"), readyPath,
-                workspace.GetPath("updater-decision.txt"), workspace.GetPath("BeMusicSeeker.exe"));
+                workspace.GetPath("updater-decision.txt"), workspace.GetPath("BeMusicSeeker.exe"), []);
 
             UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
 

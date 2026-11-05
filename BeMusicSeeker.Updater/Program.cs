@@ -516,11 +516,10 @@ internal static partial class Program
             journal.Phase = TransactionPhase.Restarting;
             journal.RestartProcessId = -1;
             WriteTransactionJournal(journal);
-            Process restartProcess = startApplication(new ProcessStartInfo(restartExePath)
-            {
-                UseShellExecute = true,
-                WorkingDirectory = Path.GetDirectoryName(restartExePath) ?? appDirectory
-            });
+            Process restartProcess = startApplication(CreateRestartStartInfo(
+                restartExePath,
+                appDirectory,
+                journal.RestartArguments));
             if (restartProcess == null)
             {
                 throw new InvalidOperationException("The updated application could not be restarted.");
@@ -820,6 +819,7 @@ internal static partial class Program
             PreviousDirectory = Path.Combine(backupDirectory, "previous"),
             ExtractDirectory = Path.Combine(appDirectory, "update_work", "extracted"),
             RestartExecutablePath = NormalizeExistingFile(request.RestartExePath),
+            RestartArguments = [.. request.RestartArguments],
             Preflight = true,
             NewPackagePaths = []
         };
@@ -1007,16 +1007,37 @@ internal static partial class Program
         string appDirectory = NormalizeExistingDirectory(journal.AppDirectory);
         string restartExecutablePath = NormalizeExistingFile(journal.RestartExecutablePath);
         EnsurePathUnderDirectory(appDirectory, restartExecutablePath, "restart executable");
-        var restartProcess = Process.Start(new ProcessStartInfo(restartExecutablePath)
-        {
-            UseShellExecute = true,
-            WorkingDirectory = Path.GetDirectoryName(restartExecutablePath) ?? appDirectory
-        });
+        var restartProcess = Process.Start(CreateRestartStartInfo(
+            restartExecutablePath,
+            appDirectory,
+            journal.RestartArguments));
         if (restartProcess == null)
         {
             throw new InvalidOperationException("The recovered application could not be restarted.");
         }
         restartProcess.Dispose();
+    }
+
+    /// <summary>
+    /// アプリ再起動の起動情報を作ります。journalに記録された引数を<see cref="ProcessStartInfo.ArgumentList"/>で
+    /// そのまま渡し、更新前のアプリが捕捉した列を適用成功後と復旧後の両方で同じargvに保ちます。
+    /// </summary>
+    private static ProcessStartInfo CreateRestartStartInfo(
+        string restartExecutablePath,
+        string appDirectory,
+        IReadOnlyList<string> restartArguments)
+    {
+        var startInfo = new ProcessStartInfo(restartExecutablePath)
+        {
+            // 「管理者として実行」設定の本体も起動できるようShellExecuteを維持する（falseだと昇格要求で起動に失敗し得る）。
+            UseShellExecute = true,
+            WorkingDirectory = Path.GetDirectoryName(restartExecutablePath) ?? appDirectory
+        };
+        foreach (string argument in restartArguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+        return startInfo;
     }
 
     private static bool IsProcessRunningForExecutable(string executablePath, int excludedProcessId = 0)
@@ -1488,6 +1509,19 @@ internal static partial class Program
         foreach (string relativePath in journal.NewPackagePaths ?? [])
         {
             NormalizeRelativePackagePath(relativePath);
+        }
+
+        // 項目なしは空配列になる。項目があって値がnull・NUL入りの場合は不正なjournalとして扱う。
+        ValidateRestartArguments(journal.RestartArguments, "The updater transaction journal restart arguments were not valid.");
+    }
+
+    /// <summary>再起動引数が非null・非null要素・NULなしであることを検査し、違反は不正入力として拒否します。</summary>
+    private static void ValidateRestartArguments(IReadOnlyList<string> restartArguments, string message)
+    {
+        if (restartArguments == null
+            || restartArguments.Any(argument => argument == null || argument.Contains('\0')))
+        {
+            throw new InvalidOperationException(message);
         }
     }
 
@@ -2714,6 +2748,9 @@ internal static partial class Program
         public bool BackupComplete { get; set; }
 
         public List<string> NewPackagePaths { get; set; } = [];
+
+        /// <summary>更新を開始したアプリが捕捉した再起動引数です。項目がない旧journalは空配列として読みます。</summary>
+        public List<string> RestartArguments { get; set; } = [];
     }
 
     private sealed class RollbackFailureException : Exception
@@ -2813,6 +2850,9 @@ internal static partial class Program
 
         public string RestartExePath { get; private set; }
 
+        /// <summary>再起動時にアプリへ渡す引数です。<c>--restart-arguments-json</c>がなければ空です。</summary>
+        public IReadOnlyList<string> RestartArguments { get; private set; } = [];
+
         public static UpdateRequest Parse(string[] args)
         {
             Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
@@ -2844,8 +2884,45 @@ internal static partial class Program
                 ReadyFilePath = ReadRequired(values, "--ready-file"),
                 DecisionFilePath = ReadRequired(values, "--decision-file"),
                 ProcessId = processId,
-                RestartExePath = ReadRequired(values, "--restart-exe")
+                RestartExePath = ReadRequired(values, "--restart-exe"),
+                RestartArguments = values.TryGetValue("--restart-arguments-json", out string restartArgumentsJson)
+                    ? ParseRestartArguments(restartArgumentsJson)
+                    : []
             };
+        }
+
+        /// <summary>文字列だけのJSON配列を読み、それ以外とNUL入りの要素を不正引数として拒否します。</summary>
+        private static List<string> ParseRestartArguments(string json)
+        {
+            var arguments = new List<string>();
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                if (document.RootElement.ValueKind != JsonValueKind.Array)
+                {
+                    throw new ArgumentException("The --restart-arguments-json argument must be a JSON array of strings.");
+                }
+
+                foreach (JsonElement element in document.RootElement.EnumerateArray())
+                {
+                    if (element.ValueKind != JsonValueKind.String)
+                    {
+                        throw new ArgumentException("The --restart-arguments-json argument must be a JSON array of strings.");
+                    }
+                    arguments.Add(element.GetString());
+                }
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+            {
+                throw new ArgumentException("The --restart-arguments-json argument was not valid JSON.", exception);
+            }
+
+            // NULの拒否はJSON解析の失敗と区別し、診断文を拒否理由と一致させる。
+            if (arguments.Any(argument => argument == null || argument.Contains('\0')))
+            {
+                throw new ArgumentException("The --restart-arguments-json argument must not contain NUL characters.");
+            }
+            return arguments;
         }
 
         private static string ReadRequired(Dictionary<string, string> values, string key)

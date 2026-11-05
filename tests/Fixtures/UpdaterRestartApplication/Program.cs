@@ -7,14 +7,21 @@ namespace BeMusicSeeker.Tests.Fixtures.UpdaterRestartApplication;
 /// <summary>更新テストの再起動先を、consoleを作らない本番相当のGUIプロセスとして実行します。</summary>
 internal static class Program
 {
-    /// <summary>隣接する版ごとの入力からmarkerを生成するか、準備通知後に標準入力のreleaseを待ちます。入力不備は終了1で報告します。</summary>
-    private static int Main()
+    /// <summary>隣接する版ごとの入力からmarkerやargvの記録を生成するか、準備通知後に標準入力のreleaseを待ちます。入力不備は終了1で報告します。</summary>
+    private static int Main(string[] args)
     {
         try
         {
             string executable = Environment.ProcessPath ?? throw new InvalidOperationException("実行パスを取得できません。");
             Configuration configuration = JsonSerializer.Deserialize<Configuration>(File.ReadAllText(Path.ChangeExtension(executable, ".json")))
                 ?? throw new InvalidDataException("fixture入力がありません。");
+            if (configuration.ArgumentsFile is string argumentsFile)
+            {
+                // 受け取ったargvを製品と同じMainの引数から記録する。生のコマンドラインは診断用に別名で残す。
+                string argumentsDirectory = Path.GetDirectoryName(executable) ?? throw new InvalidDataException("実行ディレクトリがありません。");
+                File.WriteAllText(Path.Combine(argumentsDirectory, argumentsFile), JsonSerializer.Serialize(args));
+                File.WriteAllText(Path.Combine(argumentsDirectory, argumentsFile + ".commandline.txt"), Environment.CommandLine);
+            }
             if (configuration.WaitForRelease)
             {
                 Console.WriteLine("BMS_TEST_FIXTURE_READY");
@@ -38,6 +45,7 @@ internal static class Program
         }
     }
 
-    /// <summary>引数を追加せず、packageやbackupとともに移動する版固有のfixture入力です。</summary>
-    private sealed record Configuration(bool WaitForRelease, string? MarkerFile, string? MarkerContents);
+    /// <summary>packageやbackupとともに移動する版固有のfixture入力です。</summary>
+    /// <param name="ArgumentsFile">指定すると、起動時のargvをJSON文字列配列としてこの名前で実行ディレクトリへ記録します。</param>
+    private sealed record Configuration(bool WaitForRelease, string? MarkerFile, string? MarkerContents, string? ArgumentsFile = null);
 }

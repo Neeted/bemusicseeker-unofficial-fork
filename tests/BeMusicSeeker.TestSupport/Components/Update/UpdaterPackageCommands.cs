@@ -71,9 +71,9 @@ internal sealed class UpdaterPackageCommands(string updaterPath, ProcessDeadline
     }
 
     /// <summary>元の実適用要求を送り、全終端と終了コード0を確認します。</summary>
-    internal void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
+    internal void RunUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null, string? restartArgumentsJson = null)
     {
-        OwnedProcess process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
+        OwnedProcess process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId, restartArgumentsJson: restartArgumentsJson);
         WaitForExit(process);
 
         string standardOutput = process.StandardOutput.GetAwaiter().GetResult();
@@ -154,9 +154,9 @@ internal sealed class UpdaterPackageCommands(string updaterPath, ProcessDeadline
     }
 
     /// <summary>元の不正入力を実CLIへ渡し、成功終了していないことを確認します。</summary>
-    internal void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
+    internal void RunUpdaterExpectFailure(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null, string? restartArgumentsJson = null)
     {
-        OwnedProcess process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId);
+        OwnedProcess process = StartUpdater(appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId, restartArgumentsJson: restartArgumentsJson);
         WaitForExit(process);
 
         string output = process.StandardOutput.GetAwaiter().GetResult();
@@ -169,7 +169,7 @@ internal sealed class UpdaterPackageCommands(string updaterPath, ProcessDeadline
     }
 
     /// <summary>元のready判定とproceed公開順を保ち、全待機でcase期限を共有します。</summary>
-    internal OwnedProcess StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null, bool publishProceed = true)
+    internal OwnedProcess StartUpdater(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null, bool publishProceed = true, string? restartArgumentsJson = null)
     {
         restartExecutablePath ??= Path.Combine(appDirectoryPath, "restart.exe");
         processId ??= GetExitedProcessId().ToString();
@@ -190,7 +190,8 @@ internal sealed class UpdaterPackageCommands(string updaterPath, ProcessDeadline
             packagePath,
             backupDirectoryPath,
             restartExecutablePath,
-            processId));
+            processId,
+            restartArgumentsJson));
         bool validProcessId = int.TryParse(processId, out int parsedProcessId) && parsedProcessId > 0;
         if (validProcessId && WaitForReadyOrProcessExit(process, readyFilePath) && publishProceed)
         {
@@ -201,9 +202,9 @@ internal sealed class UpdaterPackageCommands(string updaterPath, ProcessDeadline
     }
 
     /// <summary>このcaseが選んだupdaterとPIDを、共用CLI要求へ渡します。</summary>
-    internal ProcessStartInfo CreateUpdaterStartInfo(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null)
+    internal ProcessStartInfo CreateUpdaterStartInfo(string appDirectoryPath, string packagePath, string backupDirectoryPath, string? restartExecutablePath = null, string? processId = null, string? restartArgumentsJson = null)
     {
-        return UpdaterPackageTestSupport.CreateUpdaterStartInfo(FindUpdaterExecutable(), appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId ?? GetExitedProcessId().ToString());
+        return UpdaterPackageTestSupport.CreateUpdaterStartInfo(FindUpdaterExecutable(), appDirectoryPath, packagePath, backupDirectoryPath, restartExecutablePath, processId ?? GetExitedProcessId().ToString(), restartArgumentsJson);
     }
 
     /// <summary>既存managed準備と同じ失敗callbackで、巻き戻しと元例外の保持を照合します。</summary>

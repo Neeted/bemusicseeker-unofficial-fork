@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Components.Update;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Verification;
 
@@ -46,7 +48,7 @@ public sealed class PublishedExistingDataAcceptanceTests
         await session.CompleteAsync(primary);
     }
 
-    /// <summary>Current→Currentの実handshake、旧App正常終了、実updater適用、自動後継の通常閉鎖を通し、旧意味/設定/元入力/未管理file保持、obsolete除去と更新後の正本配布配置を確認します。</summary>
+    /// <summary>Current→Currentの実handshake、旧App正常終了、実updater適用、引き継いだ引数で更新確認する自動後継の通常閉鎖を通し、旧意味/設定/元入力/未管理file保持、obsolete除去と更新後の正本配布配置を確認します。</summary>
     [TestMethod(DisplayName = "[SC-CurrentUpdate] 現行updaterが実アプリを自動再起動し既存データを保持する")]
     [TestCategory("SC-CurrentUpdate")]
     public async Task PublishedCurrentUpdater_RestartsRealApplicationAndPreservesExistingData()
@@ -84,19 +86,23 @@ public sealed class PublishedExistingDataAcceptanceTests
             string ready = Path.Combine(current, "updater-ready.txt");
             string decision = Path.Combine(current, "updater-decision.txt");
             DateTime earliestCreation = DateTime.UtcNow;
+            // 後継は引き継いだ引数で、元アプリのものとは別のloopbackへ更新確認を送る。
+            SingleRequestHttpServer successorManifest = session.StartNoUpdateServer();
+            string successorArguments = JsonSerializer.Serialize(new[] { "--update-manifest-url=" + successorManifest.Address.AbsoluteUri });
             OwnedProcess updater = session.Start(updaterPath,
                 ["--app-dir", app, "--package", package, "--backup-dir", Path.Combine(app, "update_backup"),
                  "--ready-file", ready, "--decision-file", decision, "--pid", original.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                 "--restart-exe", executable], current, fixture.ChildEnvironment);
+                 "--restart-exe", executable, "--restart-arguments-json", successorArguments], current, fixture.ChildEnvironment);
             await session.WaitHandshakeAsync(updater, ready);
             await session.CloseAsync(originalOwner, original, waitWholeJob: true);
             fixture.AssertSavedState();
             PublishedApplicationSession.ArchiveLogs(app);
-            File.WriteAllText(decision, "proceed", new UTF8Encoding(false));
+            UpdaterPackageTestSupport.PublishUpdaterDecision(decision, "proceed");
             Assert.AreEqual(0, await updater.WaitForRootExitAsync(session.Deadline));
-            // 自動後継はargv無しの通常公開manifest確認を維持します。通知を自動応答で隠しません。
+            // 自動後継は引き継いだ--update-manifest-urlのloopbackで更新なしの応答を受けます。公開サービスには依存せず、通知を自動応答で隠しません。
             Process successor = await session.FindSuccessorAsync(updater, executable, original.Id, earliestCreation);
             await session.WaitReadyAsync(successor, app, maintenance: false);
+            await session.WaitRequestAsync(successorManifest, successor);
             await session.CloseAsync(updater, successor, waitWholeJob: false);
             Assert.AreEqual(0, (await updater.WaitForExitAsync(session.Deadline)).ExitCode);
             fixture.AssertSavedState();

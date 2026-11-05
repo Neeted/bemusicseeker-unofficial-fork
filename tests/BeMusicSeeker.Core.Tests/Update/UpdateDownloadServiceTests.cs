@@ -1,6 +1,7 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Components.Update;
 using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.Tests;
@@ -38,9 +39,17 @@ public sealed class UpdateDownloadServiceTests
             File.WriteAllText(Path.Combine(root, "update_work", "current", legacyPayloadFileName), "legacy-updater");
         }
         var gateway = new RecordingUpdaterProcessGateway();
+        // 動作モード変更の再起動と同じ捕捉値（検証起動の絶対manifestパスや--test-sessionを含む）を件数・順序・値で引き継ぐ。
+        string[] restartArguments =
+        [
+            .. UpdaterPackageTestSupport.HardRestartArguments,
+            "--test-session",
+            Path.Combine(root, "manifest dir", "manifest.json")
+        ];
         var service = new UpdateDownloadService(
             ApplicationPathSnapshot.FromExecutablePath(applicationPath),
-            gateway);
+            gateway,
+            restartArguments);
 
         {
             IPreparedUpdaterLaunch preparedLaunch = service.PrepareUpdaterLaunch(packagePath);
@@ -59,6 +68,7 @@ public sealed class UpdateDownloadServiceTests
             Assert.AreEqual(Path.Combine(root, "update_work", "current", "updater-ready.txt"), gateway.Request.ReadyFilePath);
             Assert.AreEqual(Path.Combine(root, "update_work", "current", "updater-decision.txt"), gateway.Request.DecisionFilePath);
             Assert.AreEqual(applicationPath, gateway.Request.RestartExecutablePath);
+            CollectionAssert.AreEqual(restartArguments, gateway.Request.RestartArguments.ToArray());
         }
 
     }
@@ -91,7 +101,8 @@ public sealed class UpdateDownloadServiceTests
             File.WriteAllText(Path.Combine(workRoot, "downloads", "stale.zip"), "stale-package");
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
-                new RecordingUpdaterProcessGateway());
+                new RecordingUpdaterProcessGateway(),
+                []);
 
             service.CleanupPreviousWorkDirectory();
 
@@ -133,7 +144,8 @@ public sealed class UpdateDownloadServiceTests
         {
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
-                gateway);
+                gateway,
+                []);
 
             service.CleanupPreviousWorkDirectory();
 
@@ -175,7 +187,8 @@ public sealed class UpdateDownloadServiceTests
             using FileStream heldLock = File.Open(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
-                new RecordingUpdaterProcessGateway());
+                new RecordingUpdaterProcessGateway(),
+                []);
 
             UpdateFailureReceiptException exception = Assert.ThrowsExactly<UpdateFailureReceiptException>(
                 () => service.CleanupPreviousWorkDirectory());
@@ -217,7 +230,8 @@ public sealed class UpdateDownloadServiceTests
         {
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
-                new RecordingUpdaterProcessGateway());
+                new RecordingUpdaterProcessGateway(),
+                []);
 
             UpdateFailureReceiptException exception = Assert.ThrowsExactly<UpdateFailureReceiptException>(
                 () => service.CleanupPreviousWorkDirectory());
@@ -252,7 +266,8 @@ public sealed class UpdateDownloadServiceTests
         {
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
-                new RecordingUpdaterProcessGateway());
+                new RecordingUpdaterProcessGateway(),
+                []);
 
             Assert.ThrowsExactly<InvalidOperationException>(() => service.PrepareUpdaterLaunch(Path.Combine(root, "outside.zip")));
         }

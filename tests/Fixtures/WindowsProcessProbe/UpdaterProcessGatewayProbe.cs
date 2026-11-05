@@ -99,7 +99,7 @@ internal sealed class UpdaterProcessGatewayProbe
             });
             var request = UpdaterProcessLaunchRequest.Create(
                 executablePath, root, root, Path.Combine(root, "app.zip"), Path.Combine(root, "update_backup"),
-                readyFilePath, decisionPath, Path.Combine(root, "BeMusicSeeker.exe"));
+                readyFilePath, decisionPath, Path.Combine(root, "BeMusicSeeker.exe"), []);
             launchTask = Task.Factory.StartNew(
                 () => gateway.Prepare(request).Start(), CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             await TestUiDispatcherHost.AwaitNotificationAsync(processHandedOver.Task, launchTask, "updater-gateway.process-handoff");
@@ -295,7 +295,7 @@ internal sealed class UpdaterProcessGatewayProbe
             });
             var request = UpdaterProcessLaunchRequest.Create(
                 executablePath, root, root, Path.Combine(root, "app.zip"), Path.Combine(root, "update_backup"),
-                readyFilePath, decisionPath, Path.Combine(root, "BeMusicSeeker.exe"));
+                readyFilePath, decisionPath, Path.Combine(root, "BeMusicSeeker.exe"), []);
             UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
             string[] filesBeforePublication = Directory.GetFiles(root);
             UpdaterLaunchFailureException exception =
@@ -433,7 +433,7 @@ internal sealed class UpdaterProcessGatewayProbe
             });
             var request = UpdaterProcessLaunchRequest.Create(
                 executablePath, root, root, Path.Combine(root, "app.zip"), Path.Combine(root, "update_backup"),
-                readyFilePath, decisionPath, Path.Combine(root, "BeMusicSeeker.exe"));
+                readyFilePath, decisionPath, Path.Combine(root, "BeMusicSeeker.exe"), []);
             UpdaterLaunchReceipt receipt = gateway.Prepare(request).Start();
             string[] filesBeforePublication = Directory.GetFiles(root);
             AggregateException exception = Assert.ThrowsExactly<AggregateException>(() => receipt.Proceed());

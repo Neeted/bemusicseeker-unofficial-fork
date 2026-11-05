@@ -39,7 +39,8 @@ public sealed class UpdateDownloadServiceTests
             var gateway = new RecordingUpdaterProcessGateway();
             var service = new UpdateDownloadService(
                 ApplicationPathSnapshot.FromExecutablePath(applicationPath),
-                gateway);
+                gateway,
+                []);
             service.PrepareUpdaterLaunch(packagePath);
             string expectedWorkingDirectory = Path.Combine(root, "update_work", "current");
             string expectedExecutablePath = Path.Combine(expectedWorkingDirectory, "BeMusicSeeker.Updater.exe");

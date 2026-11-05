@@ -1,14 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 
 namespace BeMusicSeeker.Models.Update;
 
 internal sealed class UpdaterProcessLaunchRequest
 {
+    /// <summary>検証済みの値から更新ツール起動要求を作ります。外部からは<see cref="Create"/>を使います。</summary>
     private UpdaterProcessLaunchRequest(
         string executablePath,
         string workingDirectory,
@@ -17,7 +21,8 @@ internal sealed class UpdaterProcessLaunchRequest
         string backupDirectory,
         string readyFilePath,
         string decisionFilePath,
-        string restartExecutablePath)
+        string restartExecutablePath,
+        IReadOnlyList<string> restartArguments)
     {
         ExecutablePath = executablePath;
         WorkingDirectory = workingDirectory;
@@ -27,6 +32,7 @@ internal sealed class UpdaterProcessLaunchRequest
         ReadyFilePath = readyFilePath;
         DecisionFilePath = decisionFilePath;
         RestartExecutablePath = restartExecutablePath;
+        RestartArguments = restartArguments;
     }
 
     internal string ExecutablePath { get; }
@@ -45,6 +51,19 @@ internal sealed class UpdaterProcessLaunchRequest
 
     internal string RestartExecutablePath { get; }
 
+    /// <summary>更新後にアプリを再起動するときの引数です。実行ファイルのパスは含みません。</summary>
+    internal IReadOnlyList<string> RestartArguments { get; }
+
+    /// <summary>パスと再起動引数を検証し、変更不能な更新ツール起動要求を作ります。</summary>
+    /// <param name="executablePath">更新ツールの実行ファイルです。</param>
+    /// <param name="workingDirectory">更新ツールの作業ディレクトリです。</param>
+    /// <param name="applicationDirectory">更新対象のアプリのディレクトリです。</param>
+    /// <param name="packagePath">検証済みの更新ZIPです。</param>
+    /// <param name="backupDirectory">復元用の退避先です。</param>
+    /// <param name="readyFilePath">更新ツールの受付通知ファイルです。</param>
+    /// <param name="decisionFilePath">アプリの続行・取消の決定ファイルです。</param>
+    /// <param name="restartExecutablePath">更新後に再起動する実行ファイルです。</param>
+    /// <param name="restartArguments">更新後の再起動で渡す引数です。実行ファイルのパスは含めず、引数なしは空の列にします。</param>
     internal static UpdaterProcessLaunchRequest Create(
         string executablePath,
         string workingDirectory,
@@ -53,8 +72,10 @@ internal sealed class UpdaterProcessLaunchRequest
         string backupDirectory,
         string readyFilePath,
         string decisionFilePath,
-        string restartExecutablePath)
+        string restartExecutablePath,
+        IReadOnlyList<string> restartArguments)
     {
+        ArgumentNullException.ThrowIfNull(restartArguments);
         ValidatePath(executablePath, nameof(executablePath));
         ValidatePath(workingDirectory, nameof(workingDirectory));
         ValidatePath(applicationDirectory, nameof(applicationDirectory));
@@ -71,7 +92,8 @@ internal sealed class UpdaterProcessLaunchRequest
             backupDirectory,
             readyFilePath,
             decisionFilePath,
-            restartExecutablePath);
+            restartExecutablePath,
+            Array.AsReadOnly(restartArguments.ToArray()));
     }
 
     private static void ValidatePath(string value, string parameterName)
@@ -123,7 +145,10 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         }
     }
 
-    /// <summary>型付き要求とInvariantのPIDを既存の引用規則で非表示の更新プロセスへ渡す準備をします。</summary>
+    /// <summary>
+    /// 型付き要求とInvariantのPIDを<see cref="ProcessStartInfo.ArgumentList"/>で非表示の更新プロセスへ渡す準備をします。
+    /// 再起動引数は<c>--restart-arguments-json</c>へ文字列配列のJSON1トークンとして渡し、引用はArgumentListに委ねます。
+    /// </summary>
     public IPreparedUpdaterLaunch Prepare(UpdaterProcessLaunchRequest request)
     {
         if (request == null)
@@ -136,15 +161,17 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = request.WorkingDirectory,
-            Arguments = JoinArguments(
-                "--app-dir", request.ApplicationDirectory,
-                "--package", request.PackagePath,
-                "--backup-dir", request.BackupDirectory,
-                "--ready-file", request.ReadyFilePath,
-                "--decision-file", request.DecisionFilePath,
-                "--pid", Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture),
-                "--restart-exe", request.RestartExecutablePath)
         };
+        AddArguments(
+            startInfo,
+            "--app-dir", request.ApplicationDirectory,
+            "--package", request.PackagePath,
+            "--backup-dir", request.BackupDirectory,
+            "--ready-file", request.ReadyFilePath,
+            "--decision-file", request.DecisionFilePath,
+            "--pid", Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture),
+            "--restart-exe", request.RestartExecutablePath,
+            "--restart-arguments-json", JsonSerializer.Serialize(request.RestartArguments));
         return new PreparedUpdaterLaunch(() =>
         {
             Process process = null;
@@ -205,9 +232,9 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? applicationDirectory,
-            Arguments = JoinArguments("--recover", "--app-dir", applicationDirectory)
+            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? applicationDirectory
         };
+        AddArguments(startInfo, "--recover", "--app-dir", applicationDirectory);
         using Process process = startProcess(startInfo)
             ?? throw new UpdaterLaunchFailureException("Updater recovery process did not start.");
         if (!process.WaitForExit((int)recoveryTimeout.TotalMilliseconds))
@@ -438,50 +465,11 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         UpdateMarkerPublisher.Publish(decisionFilePath, overwrite: true, stream => stream.Write(bytes, 0, bytes.Length));
     }
 
-    private static string JoinArguments(params string[] values)
+    private static void AddArguments(ProcessStartInfo startInfo, params string[] values)
     {
-        string[] arguments = new string[values.Length];
-        for (int i = 0; i < values.Length; i++)
+        foreach (string value in values)
         {
-            arguments[i] = QuoteArgument(values[i]);
+            startInfo.ArgumentList.Add(value);
         }
-        return string.Join(" ", arguments);
-    }
-
-    private static string QuoteArgument(string value)
-    {
-        value ??= string.Empty;
-        if (value.Length == 0)
-        {
-            return "\"\"";
-        }
-
-        var quoted = new System.Text.StringBuilder();
-        quoted.Append('"');
-        int backslashCount = 0;
-        foreach (char c in value)
-        {
-            if (c == '\\')
-            {
-                backslashCount++;
-                continue;
-            }
-
-            if (c == '"')
-            {
-                quoted.Append('\\', backslashCount * 2 + 1);
-                quoted.Append('"');
-                backslashCount = 0;
-                continue;
-            }
-
-            quoted.Append('\\', backslashCount);
-            backslashCount = 0;
-            quoted.Append(c);
-        }
-
-        quoted.Append('\\', backslashCount * 2);
-        quoted.Append('"');
-        return quoted.ToString();
     }
 }
