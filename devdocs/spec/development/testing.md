@@ -199,9 +199,9 @@ Windowを使わなくしたことだけで `DoNotParallelize` を外さず、設
 
 標準入口は、次の分割でmoduleを実行します。具体的なworker数の算出と実行順の詳細は[所有と判定](../../../tools/BeMusicSeeker.Verify/README.md#所有と判定)に示します。
 
-- Windows moduleは同じアセンブリを、カテゴリ `Windows.Settings`、`Windows.Shell`（MainWindow・Playlist）、両カテゴリ以外の3実行に分け、各実行を1workerで動かします。カテゴリのないケースは3番目の実行へ入ります。追加のfilterは、分類条件とANDで組み合わせます。
-- CoreはWindowsと並行し、複数workerで実行します。
-- `dev`・`verify` のDaily Scenariosは、UIを使う実行の空き枠で開始します。`full` では、Windowsの全実行が終端してからScenariosを開始し、Scenariosの後にDesktopを実行します。
+- Windows moduleは同じアセンブリを、カテゴリ `Windows.Shell`（MainWindow・Playlist）、両カテゴリ以外、`Windows.Settings` の3実行に分け、各実行を1workerで動かします。カテゴリのないケースは両カテゴリ以外の実行へ入ります。追加のfilterは、分類条件とANDで組み合わせます。
+- CoreはWindowsと並行し、複数workerで実行します。各ケースの実パイプラインがスレッドプールのスレッドを同期的に占有するため、Coreのテストプロセスだけはworker下限を論理CPU数の8倍以上に設定し、全workerが新しいスレッドの注入を待って停滞しないようにします。設定できない場合は失敗です。
+- `dev`・`verify` のDaily Scenariosは、UIを使う実行の最初の枠で開始します。module全体で利用者セッションの排他を持つため、排他を取得するWindowsのケースとの重なりを段階の冒頭に限ります。`full` では、Windowsの全実行が終端してからScenariosを開始し、Scenariosの後にDesktopを実行します。
 - 同じprojectのビルドは一度だけ行い、実行ごとにrunsettings・TRX・実行領域・profile・プロセスの所有単位を分けます。
 
 ケースの分配はMTPのメソッド単位の並列化へ任せ、`DoNotParallelize` は標準属性として扱います。
@@ -214,7 +214,7 @@ UIの利用者セッションを専有するための排他（session lease）�
 | --- | --- |
 | Windows | module全体では取得しない。実Activateを使う `PlaylistLampViewerWindowManagerTests` だけが、UIスレッド外でケース前に取得し、Windowと開始済み処理の回収後に解放する。 |
 | Scenarios・Desktop・Compatibility・Performance | module全体で取得する。 |
-| Core | 取得しない。実Window・プロセス全体の可変設定を所有しない。 |
+| Core | 取得しない。実Window・プロセス全体の可変設定を所有しない（ケース開始前に一度だけ固定するスレッドプールのworker下限は、ケースが変更・復元しない実行条件として除く）。 |
 
 ### テスト区分
 

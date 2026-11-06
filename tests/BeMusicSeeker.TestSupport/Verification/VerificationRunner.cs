@@ -346,7 +346,10 @@ internal static class VerificationRunner
             {
                 bool daily = plan.Profile is "dev" or "verify";
                 using var uiSlots = new SemaphoreSlim(Math.Clamp(plan.Budget / 4, 1, 3));
-                await Task.WhenAll(plan.Modules.Where(module => module.Name == "Windows" || (daily && module.Name == "Scenarios")).Select(async module =>
+                // Daily Scenariosはmodule全体で利用者セッションの排他を持つ。最初の枠で開始し、排他を待つWindowsのケースと
+                // 段階の終盤で重なって最長の実行を延ばさないようにする。Windowsは計画の順（長いShell・Remainingを先に、最短のSettingsを最後）で続く。
+                await Task.WhenAll(plan.Modules.Where(module => module.Name == "Windows" || (daily && module.Name == "Scenarios"))
+                    .OrderBy(module => module.Name == "Scenarios" ? 0 : 1).Select(async module =>
                 {
                     await uiSlots.WaitAsync();
                     try { await RunModule(module); }

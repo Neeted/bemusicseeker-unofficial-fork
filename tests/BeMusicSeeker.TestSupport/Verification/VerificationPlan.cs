@@ -85,11 +85,12 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         }
         VerificationModule[] modules = profile switch
         {
+            // UI枠が足りないときは、通常の所要が最短のSettingsを最後に回し、長い2実行を先に開始します。
             "dev" or "verify" or "full" => [
                 new("Core", null, Math.Max(1, budget - Math.Clamp(budget / 4, 1, 3) - 1), false),
-                new("Windows", "TestCategory=Windows.Settings", 1, true) { ExecutionId = "Windows.Settings" },
                 new("Windows", "TestCategory=Windows.Shell", 1, true) { ExecutionId = "Windows.Shell" },
                 new("Windows", "(TestCategory!=Windows.Settings)&(TestCategory!=Windows.Shell)", 1, true) { ExecutionId = "Windows.Remaining" },
+                new("Windows", "TestCategory=Windows.Settings", 1, true) { ExecutionId = "Windows.Settings" },
                 new("Scenarios", full ? null : "TestCategory=Daily", 1, true),
                 .. full ? new VerificationModule[] { new("Desktop.E2E", null, 1, true) } : []],
             "compatibility" => [new("Compatibility", SuiteFilter(suite), 1, true)],

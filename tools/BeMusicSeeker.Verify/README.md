@@ -120,7 +120,7 @@ pwsh -NoProfile -File scripts/format-code.ps1 -Scope All -NoRestore
 - 起動・前提・本体・通常の回収・実際の終了にsuiteの一つの期限を共有し、Compatibilityと同じ子プロセス環境の共有期限を渡します。親の失敗検知から一回だけ開始する回収10秒は既存のrunnerが担当します。子プロセスが失敗した瞬間を親へ通知する追加のプロセス間通信の保証はありません。
 - 直接MTP実行のPredecodeは300秒の有限の既定値を使い、明示された不正・期限切れのsuite期限を既定値へ置き換えません。
 - 失敗後の回収期限は一回だけ確定し、Close・開始済みTaskの実際の終端を確認します。回収期限後も実Taskが未終端の場合だけ、診断とworkspaceを保持して専有のMTPを `FailFast` で非成功終了し、後続のケースや通常のmoduleの回収へ未終端のネイティブ処理を渡しません。失敗・取消でも実際に終端したTaskは、通常の原因の集約・回収を行います。同期的なネイティブ処理の中断を保証するものではありません。
-- スキャン・LR2同期・フォルダ変更・コピー・BMSONの検査は、準備・表明・回収と対象操作の経過を分けて記録します。既存の時計・割当・cold/warm区間は維持します。以前のテストホストのThreadPool下限は移植していないため、以前の値との同条件の基準とは扱いません。
+- スキャン・LR2同期・フォルダ変更・コピー・BMSONの検査は、準備・表明・回収と対象操作の経過を分けて記録します。既存の時計・割当・cold/warm区間は維持します。Performanceには以前のテストホストのThreadPool下限を移植していないため、以前の値との同条件の基準とは扱いません。
 - 実ネイティブ部品・必要なassets・書込み可能なworkspace等の能力不足は非成功です。suiteの成功は選択した固定仕事量の完了を示し、性能改善の証明とは区別します。
 
 ## 配布物の受渡し
@@ -177,10 +177,10 @@ pwsh -NoProfile -File scripts/format-code.ps1 -Scope All -NoRestore
 
 各選択moduleは、ビルド済みのMTP実行ファイルを直接起動し、専有の結果ディレクトリ、TRX、`--minimum-expected-tests 1`、標準のrunsettingsを渡します。
 
-Windowsは同じアセンブリを、`Windows.Settings`、`Windows.Shell`（MainWindow・Playlist）、両カテゴリ以外の3実行に分け、各1workerとします。カテゴリのないケースは3番目の実行へ入り、追加のfilterのOR全体を分類条件とANDします。
+Windowsは同じアセンブリを、`Windows.Shell`（MainWindow・Playlist）、両カテゴリ以外（`Windows.Remaining`）、`Windows.Settings` の3実行に分け、各1workerとします。カテゴリのないケースは `Windows.Remaining` へ入り、追加のfilterのOR全体を分類条件とANDします。UI枠へはこの順で要求し、通常の所要が最短の `Windows.Settings` を最後に回します。
 
 - CPU予算Bを1〜16へ制限し、UIを使う実行の同時数Wは `clamp(B/4の整数部, 1, 3)`、Coreは `max(1, B-W-1)` workerです。
-- CoreとWindowsを優先して並行させ、`dev`・`verify` のDaily Scenariosは同じ上限のUI枠への4番目の要求として、空いた枠で開始します。
+- CoreとUIを使う実行を並行させます。`dev`・`verify` のDaily Scenariosは同じ上限のUI枠への最初の要求として開始し、Windowsの3実行が続きます。Scenariosはmodule全体で利用者セッションの排他を持つため、段階の冒頭で終え、排他を取得するWindowsのケースが段階の終盤で最長の実行を待たせないようにします。
 - `full` だけは、全Windows実行の所有対象が終端した後にScenariosを開始します。
 - B=1のときだけ全体を逐次実行し、W=1でも3要求を省略しません。
 - 同じprojectのビルドは一度だけで、ExecutionId別にrunsettings・TRX・実行領域・profile・Jobを分離します。

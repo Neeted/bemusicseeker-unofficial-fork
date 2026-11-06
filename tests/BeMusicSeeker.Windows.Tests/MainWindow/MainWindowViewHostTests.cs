@@ -580,7 +580,7 @@ public sealed partial class MainWindowViewHostTests
         settings.BMSRootPath = directory;
         settings.StandaloneBmsRootPaths = directory;
         settings.BMSInstallDir = directory;
-        settings.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+        settings.TableListURL = UnreachableHttpEndpoint.TableListUrl;
         settings.EnablePlaylistUrlCompletion = false;
         settings.ScanBmsFilesOnStartup = false;
         settings.SkipInitPlaylistLoad = true;
@@ -1289,7 +1289,7 @@ public sealed partial class MainWindowViewHostTests
         settings.BMSRootPath = directory.Path;
         settings.StandaloneBmsRootPaths = directory.Path;
         settings.BMSInstallDir = directory.Path;
-        settings.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+        settings.TableListURL = UnreachableHttpEndpoint.TableListUrl;
         settings.EnablePlaylistUrlCompletion = false;
         settings.ScanBmsFilesOnStartup = false;
         settings.SkipInitPlaylistLoad = true;

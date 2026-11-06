@@ -14,9 +14,9 @@ public sealed class VerificationPlanTests
         var plan = VerificationPlan.Parse(["verify", "--filter", filter], 2);
         CollectionAssert.AreEqual(new[] { "Core", "Windows", "Windows", "Windows", "Scenarios" }, plan.Modules.Select(module => module.Name).ToArray());
         Assert.AreEqual(filter, plan.Modules[0].Filter);
-        Assert.AreEqual($"(TestCategory=Windows.Settings)&({filter})", plan.Modules[1].Filter);
-        Assert.AreEqual($"(TestCategory=Windows.Shell)&({filter})", plan.Modules[2].Filter);
-        Assert.AreEqual($"((TestCategory!=Windows.Settings)&(TestCategory!=Windows.Shell))&({filter})", plan.Modules[3].Filter);
+        Assert.AreEqual($"(TestCategory=Windows.Shell)&({filter})", plan.Modules[1].Filter);
+        Assert.AreEqual($"((TestCategory!=Windows.Settings)&(TestCategory!=Windows.Shell))&({filter})", plan.Modules[2].Filter);
+        Assert.AreEqual($"(TestCategory=Windows.Settings)&({filter})", plan.Modules[3].Filter);
         Assert.AreEqual($"(TestCategory=Daily)&({filter})", plan.Modules[4].Filter);
         CollectionAssert.AreEqual(new[] { "SC-01", "SC-02", "SC-09" }, plan.RequiredScenarioIds["Scenarios"].ToArray());
         Assert.AreEqual($"(TestCategory=Suite.chart-info-edge)&({filter})",
@@ -38,7 +38,7 @@ public sealed class VerificationPlanTests
         CollectionAssert.AreEqual(new[] { "Core", "Windows", "Windows", "Windows", "Scenarios" }, plan.Modules.Select(module => module.Name).ToArray());
         Assert.AreEqual(expectedBudget, plan.Budget);
         Assert.AreEqual("Release", plan.Configuration);
-        CollectionAssert.AreEqual(new[] { "Core", "Windows.Settings", "Windows.Shell", "Windows.Remaining", "Scenarios" }, plan.Modules.Select(module => module.ExecutionId).ToArray());
+        CollectionAssert.AreEqual(new[] { "Core", "Windows.Shell", "Windows.Remaining", "Windows.Settings", "Scenarios" }, plan.Modules.Select(module => module.ExecutionId).ToArray());
         Assert.AreEqual(1, plan.Modules.Where(module => module.Name == "Windows").Select(module => module.ProjectPath).Distinct().Count());
         Assert.AreEqual(coreWorkers, plan.Modules[0].Workers);
         Assert.AreEqual("TestCategory=Daily", plan.Modules[4].Filter);

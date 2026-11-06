@@ -1428,7 +1428,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                     values.UsePlayerLR2body = false;
                     values.UsePlayerBMIIDXView = false;
                     values.IsLR2BackupEnabled = false;
-                    values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+                    values.TableListURL = UnreachableHttpEndpoint.TableListUrl;
                 });
                 var messages = new List<UiMessageRequest>();
                 var dialogs = new CompletionDialogs { MessageObservedAsync = message => { messages.Add(message); return Task.CompletedTask; } };

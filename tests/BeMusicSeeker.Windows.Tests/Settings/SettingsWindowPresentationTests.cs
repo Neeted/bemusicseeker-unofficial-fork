@@ -4535,7 +4535,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 value.OperationModeLR2DB = false;
                 value.BMSRootPath = root; value.StandaloneBmsRootPaths = root; value.BMSInstallDir = root;
-                value.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+                value.TableListURL = UnreachableHttpEndpoint.TableListUrl;
                 value.EnablePlaylistUrlCompletion = false; value.ScanBmsFilesOnStartup = false; value.SkipInitPlaylistLoad = true;
                 value.UseBeatorajaScoreDb = false; value.EnableBeatorajaBmtOutput = false; value.UseExternalPanelImage = false;
                 value.UsePlayeruBMplay = false; value.UsePlayerLR2body = false; value.UsePlayerBMIIDXView = false;

@@ -792,7 +792,7 @@ public sealed class PlaylistLampViewerWindowManagerTests
                 values.BMSRootPath = settingsRoot;
                 values.StandaloneBmsRootPaths = settingsRoot;
                 values.BMSInstallDir = settingsRoot;
-                values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+                values.TableListURL = UnreachableHttpEndpoint.TableListUrl;
                 values.EnablePlaylistUrlCompletion = false;
                 values.ScanBmsFilesOnStartup = false;
                 values.SkipInitPlaylistLoad = true;

@@ -409,11 +409,16 @@ internal sealed class DistributionFixture : IDisposable
     }
 
     /// <summary>生成版だけをWin32 version resourceへ同長で埋め、実FileVersionInfo読取りを通します。</summary>
+    /// <remarks>
+    /// 元には同じビルド出力にある本体のapphost（実PE・同じ版resource）を使います。約10MBの本体DLLを
+    /// 各fixtureで複製・圧縮・hashすると、版と実体照合の保証に関係しない入出力が大半を占めるためです。
+    /// apphostがなければ読取りで失敗させ、別の元へ代替しません。
+    /// </remarks>
     internal DistributionArtifact Create(string variant, string? version = null)
     {
         string app = App(variant);
         Directory.CreateDirectory(app);
-        string original = typeof(BeMusicSeeker.App).Assembly.Location;
+        string original = System.IO.Path.ChangeExtension(typeof(BeMusicSeeker.App).Assembly.Location, ".exe");
         string actual = FileVersionInfo.GetVersionInfo(original).ProductVersion ?? throw new InvalidDataException("fixture元の版がありません。");
         version ??= actual;
         byte[] binary = File.ReadAllBytes(original);

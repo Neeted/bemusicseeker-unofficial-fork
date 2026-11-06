@@ -28,7 +28,7 @@ public sealed partial class ApplicationCompositionTests
         values.BMSRootPath = root;
         values.StandaloneBmsRootPaths = root;
         values.BMSInstallDir = root;
-        values.TableListURL = new Uri("http://127.0.0.1:1/table-list.json");
+        values.TableListURL = UnreachableHttpEndpoint.TableListUrl;
         values.EnablePlaylistUrlCompletion = false;
         values.ScanBmsFilesOnStartup = true;
         values.StartupSelectInstallPending = false;
