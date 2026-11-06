@@ -256,6 +256,9 @@ internal sealed partial class RegularChartListOwner
             await DeliverPendingLibraryChangesAsync(library, lease.Token).ConfigureAwait(false);
             lease.Token.ThrowIfCancellationRequested();
             bool ran = false;
+            // UI上の処理で例外を投げると、本番のDispatcherでは処理内の例外がCompletionへ入らず未処理例外としてアプリの終了へ広がる。
+            // 範囲不足は未採用の私有候補の失敗なので、処理内では記録だけして戻り、下の既存の失敗経路で閉じる。
+            string coverageFailure = null;
             IUiScheduledOperation operation = normalLibraryRefreshUiScheduler.Schedule(() =>
             {
                 ran = true;
@@ -265,18 +268,18 @@ internal sealed partial class RegularChartListOwner
                     if (presentation.CreateRowsRequest().Rows is not ChartListVirtualView view
                         || !view.TryApplyScoreChanges(normalBuildScoreChanges ?? [], out _)
                         || view.ScorePosition < requiredScore)
-                    { throw new InvalidOperationException("The delivered score range does not cover the candidate input."); }
+                    { coverageFailure = "The delivered score range does not cover the candidate input."; return; }
                     if (view.NormalInput != null)
                     {
                         _ = view.TryApplyLibraryChanges(normalBuildCommits ?? [], normalBuildReferenceCommits ?? [],
                             (row, source) => UpdateNormalRow(library, row, source), out _);
                         if (view.NormalInput.Snapshot.CatalogRevision < requiredCatalog || view.HasPendingReferenceChanges
                             || view.NormalInput.References.Revision < requiredReference)
-                        { throw new InvalidOperationException("The delivered catalog range does not cover the candidate input."); }
+                        { coverageFailure = "The delivered catalog range does not cover the candidate input."; return; }
                     }
                     else if (!view.TryApplySubsetLibraryChanges(normalBuildCommits ?? [], normalBuildReferenceCommits ?? [], out _)
                         || view.ReferencePosition < requiredReference)
-                    { throw new InvalidOperationException("The delivered reference range does not cover the subset input."); }
+                    { coverageFailure = "The delivered reference range does not cover the subset input."; return; }
                 }
                 _ = TryCommitCore(lease, presentation);
             }, UiSchedulePriority.Normal);
@@ -286,6 +289,7 @@ internal sealed partial class RegularChartListOwner
             await operation.Completion.ConfigureAwait(false);
             if (operation.IsAborted) { throw new OperationCanceledException("The candidate continuation was aborted."); }
             if (!ran) { throw new InvalidOperationException("The candidate continuation completed without execution."); }
+            if (coverageFailure != null) { throw new InvalidOperationException(coverageFailure); }
             // 別の実確定で必要位置が進んだ場合だけ、次の登録済みrangeを待てる。
             bool advanced;
             lock (syncRoot)

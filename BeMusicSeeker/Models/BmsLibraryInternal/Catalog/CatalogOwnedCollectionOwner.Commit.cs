@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -89,6 +90,10 @@ internal sealed partial class CatalogOwnedCollectionOwner
     internal NormalLibraryRefreshPublisher RefreshPublisher { get; set; }
 
     /// <summary>操作が writer 内で検証・保存した属性だけを現在値に適用し、版・索引・結果を同時確定します。</summary>
+    /// <remarks>
+    /// カタログ版は、確定結果を公開処理へ登録した後に公開します。任意のスレッドが観測できる版の確定結果は、登録済みです。
+    /// 確定区間の内部（索引の適用、依存の更新、確定結果の構築、登録）が例外で終わった場合は、現在値が変更済みのため版だけを公開し、確定結果は未登録のまま元の例外を呼出し元へ伝えます。
+    /// </remarks>
     internal CatalogCommitReceipt Commit(Action<OwnedChartCollectionState> apply, bool isFullReplacement = false)
     {
         using (WriteGate.GetWriterGuard())
@@ -152,11 +157,23 @@ internal sealed partial class CatalogOwnedCollectionOwner
                     failure?.Throw();
                     return new(baseRevision, baseRevision, [], false, CaptureSnapshot());
                 }
-                int revision = ++collectionVersion;
-                ApplyCommitIndexes(actual, candidateOrderKeyCharts, isFullReplacement, revision);
-                UpdateSpecializedDependencies(actual, isFullReplacement);
-                var receipt = new CatalogCommitReceipt(baseRevision, revision, actual, isFullReplacement, CaptureSnapshot(), reorderedCharts.Select(chart => chart.Token));
-                RefreshPublisher?.Register(receipt);
+                // 版Rは確定結果を公開処理へ登録した後に公開する。通常一覧の候補は観測した版の確定結果が配送で得られる前提で採用するため、
+                // 登録前にRを観測できると、その間に走った候補の採用が範囲不足になる。区間内の処理は明示した版Rで行い、旧版を読む箇所は排他で待たせる。
+                // 区間内の処理が例外で終わった場合は現在値が変更済みのため版Rだけを公開し（確定結果は未登録）、元の例外を呼出し元へ伝える。
+                int revision = baseRevision + 1;
+                CatalogCommitReceipt receipt;
+                try
+                {
+                    ApplyCommitIndexes(actual, candidateOrderKeyCharts, isFullReplacement, revision);
+                    UpdateSpecializedDependencies(actual, isFullReplacement);
+                    receipt = new CatalogCommitReceipt(baseRevision, revision, actual, isFullReplacement, CaptureSnapshot(revision: revision),
+                        reorderedCharts.Select(chart => chart.Token));
+                    RefreshPublisher?.Register(receipt);
+                }
+                finally
+                {
+                    Volatile.Write(ref collectionVersion, revision);
+                }
                 failure?.Throw();
                 return receipt;
             }

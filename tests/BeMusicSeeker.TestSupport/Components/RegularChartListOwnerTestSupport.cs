@@ -36,14 +36,15 @@ internal static class RegularChartListOwnerTestSupport
         ChartFileOperationSynchronizer? chartFileOperations = null,
         IUiDialogService? mutationDialogs = null,
         ChartMutationActivityOwner? chartMutationActivity = null,
-        IChartMutationPlaybackPort? mutationPlayback = null)
+        IChartMutationPlaybackPort? mutationPlayback = null,
+        Action<string>? logWarning = null)
     {
         return new RegularChartListOwner(
             table,
             workspace,
             log ?? (_ => { }),
             dispatchToUi,
-            _ => { },
+            logWarning ?? (_ => { }),
             pendingPackageWorkflow ?? CreatePendingPackageWorkflowOwner(),
             chartFileOperations ?? new ChartFileOperationSynchronizer(),
             chartMutationActivity ?? new ChartMutationActivityOwner(),

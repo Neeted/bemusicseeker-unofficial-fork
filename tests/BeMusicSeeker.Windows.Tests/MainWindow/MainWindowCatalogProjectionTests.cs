@@ -1,6 +1,7 @@
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -324,6 +325,109 @@ public sealed class MainWindowCatalogProjectionTests
                 finally { owner.SettingDialog.Dispose(); Directory.Delete(root, recursive: true); }
             }
         });
+    }
+
+    /// <summary>通常一覧の要求が全置換の前の版を捕捉し、全置換の確定後に候補が採用を試みても、未処理例外なく確定後のカタログへ収束して終了できることを確認します。</summary>
+    /// <remarks>
+    /// 起動直後の候補が、全置換の版の公開と確定結果の登録の間に採用を試みて、UIディスパッチャー上の例外でアプリを終了へ広げた故障の統合側の保証です。
+    /// 版の公開と登録の順序そのものは Core の確定のケースが分担し、このケースは修正前でも通る統合と収束の保証として標準構成の接続・Dispatcher・終了処理を通します。
+    /// 全置換は先行要求の行差し替えの途中で一回だけ同期的に行い、先行要求の候補が全置換前の入力を持つ状態を作ります。
+    /// </remarks>
+    [TestMethod]
+    public void FullReplacementDuringRegularRequest_ConvergesWithoutUnhandledDispatcherException()
+    {
+        TestUiDispatcherHost.Invoke(() => RegularChartListOwnerTestSupport.WithTemporarySongDb(songDb =>
+        {
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.StartupSelectInstallPending = false;
+                values.UseBeatorajaScoreDb = false;
+            });
+            var tasks = new RegularChartNavigationTestFixture.ProjectionTaskCollector(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+            MainWindowViewModel viewModel = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
+                settingsEditSession: new NoOpSettingsEditSession(settings), uiScheduler: tasks,
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                .CreateMainWindowViewModelForTest();
+            var unhandled = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+            DispatcherUnhandledExceptionEventHandler onUnhandled = (_, args) => { args.Handled = true; unhandled.TrySetResult(args.Exception); };
+            TestUiDispatcherHost.Dispatcher.UnhandledException += onUnhandled;
+            var lifetime = new MainWindowTestLifetime(viewModel, Task.CompletedTask);
+            EventHandler? replacing = null;
+            System.ComponentModel.PropertyChangedEventHandler? rowsChanged = null;
+            try
+            {
+                lifetime.Run(() =>
+                {
+                    string directory = Path.GetDirectoryName(songDb) ?? throw new AssertFailedException();
+                    ChartFile CreateChart(string name, char hash)
+                    {
+                        string path = Path.Combine(directory, name, "chart.bms");
+                        Directory.CreateDirectory(Path.GetDirectoryName(path) ?? throw new AssertFailedException());
+                        File.WriteAllText(path, "#PLAYER 1\n#TITLE " + name + "\n#ARTIST artist\n#BPM 120\n");
+                        return ChartTestValues.Empty() with { Path = path, Md5 = new string(hash, 32), Title = name, Artist = "artist" };
+                    }
+                    ChartFile[] before = [CreateChart("before-a", 'a'), CreateChart("before-b", 'b')];
+                    ChartFile[] after = [CreateChart("before-a", 'a'), CreateChart("after-c", 'c'), CreateChart("after-d", 'd')];
+                    ApplicationDatabaseScope databaseScope = MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope;
+                    using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDb)) { db.CreateTable<LR2SongDBExtended.bmson_song>(); }
+                    TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(databaseScope, songDb, settings, viewModel);
+                    library.BmsCharts = before;
+                    PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDb);
+                    TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(databaseScope, songDb, settings, library: library);
+                    IStartupLibraryApplicationPort application = viewModel;
+                    application.AttachStartupLibrary(library);
+                    application.AttachStartupServices(new StartupLibraryServices(new LibraryProfile(false, songDb, [directory],
+                        lr2ConfigOwner: null, lr2ScoreDbPath: null, canWriteLr2Config: false, canOutputLr2Folders: false,
+                        canUseLr2Backup: false, canUseLr2IrScore: false), library, playlist));
+                    viewModel.MaintenanceTree.AttachLibrary(library);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None),
+                        "full-replacement-initial-delivery");
+
+                    var replacedSignal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    replacing = (_, _) =>
+                    {
+                        if (replacedSignal.Task.IsCompleted) { return; }
+                        library.BmsCharts = after;
+                        replacedSignal.TrySetResult();
+                    };
+                    string[] expected = [.. after.Select(chart => chart.Path)];
+                    var converged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    void CheckConverged()
+                    {
+                        if (replacedSignal.Task.IsCompleted && viewModel.MainChartList.Rows is { } rows
+                            && rows.Cast<LibraryChartRow>().Select(row => row.path).Order(StringComparer.Ordinal)
+                                .SequenceEqual(expected.Order(StringComparer.Ordinal))) { converged.TrySetResult(); }
+                    }
+                    rowsChanged = (_, args) => { if (args.PropertyName == nameof(MainChartListViewModel.Rows)) { CheckConverged(); } };
+                    viewModel.MainChartList.PropertyChanged += rowsChanged;
+                    viewModel.MainChartList.RowsReplacing += replacing;
+                    Assert.IsTrue(viewModel.RegularChartList.NavigateTree(null));
+                    // 先行要求の行差し替えの途中で全置換が行われ、その時点の候補は全置換前の入力を持つ。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(replacedSignal.Task, unhandled.Task), "full-replacement-during-rows-replacing");
+                    Assert.IsFalse(unhandled.Task.IsCompleted, "未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                    Assert.IsTrue(replacedSignal.Task.IsCompleted);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(tasks.DrainPriorAsync(), unhandled.Task).Unwrap(), "full-replacement-prior-request-terminal");
+                    Assert.IsFalse(unhandled.Task.IsCompleted, "未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None),
+                        "full-replacement-delivery");
+                    CheckConverged();
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(Task.WhenAny(converged.Task, unhandled.Task).Unwrap(), "full-replacement-final-adoption");
+                    Assert.IsFalse(unhandled.Task.IsCompleted, "未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(tasks.DrainPriorAsync(), "full-replacement-presentation-drain");
+                    Assert.IsFalse(unhandled.Task.IsCompleted, "未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                    CollectionAssert.AreEquivalent(expected, viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.path).ToArray());
+                });
+                // 標準の終了処理の間に起きた未処理例外も検出する。
+                Assert.IsFalse(unhandled.Task.IsCompleted, "終了処理中の未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+            }
+            finally
+            {
+                if (replacing != null) { viewModel.MainChartList.RowsReplacing -= replacing; }
+                if (rowsChanged != null) { viewModel.MainChartList.PropertyChanged -= rowsChanged; }
+                TestUiDispatcherHost.Dispatcher.UnhandledException -= onUnhandled;
+            }
+        }));
     }
 
     /// <summary>実schedulerの任意作業の終端を観測し、次の手動操作の受付と競合させません。</summary>

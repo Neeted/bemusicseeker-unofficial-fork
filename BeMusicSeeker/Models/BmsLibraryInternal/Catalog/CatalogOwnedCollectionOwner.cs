@@ -33,7 +33,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     internal object Gate => gate;
     /// <summary>排他境界の内側で使用する共通現在値と索引の正本です。</summary>
     internal OwnedChartCollectionState Collection => collection;
-    /// <summary>所持現在値のすべての実変更を同時確定したカタログ版です。</summary>
+    /// <summary>所持現在値のすべての実変更を同時確定したカタログ版です。確定結果を公開処理へ登録した後に公開するため、観測できる版の確定結果は登録済みです（確定区間の内部の失敗時は版だけを公開し、確定結果は未登録のままです）。</summary>
     internal int CatalogRevision => Volatile.Read(ref collectionVersion);
 
 
@@ -45,14 +45,16 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <summary>現在の集合版だけを捕捉します。独立した保存行版は持ちません。</summary>
     internal OwnedChartCollectionVersionSnapshot CaptureVersionSnapshot() => new(CatalogRevision);
     /// <summary>形式別の共通現在値と集合版を、全件複製せず同じ排他境界で捕捉します。</summary>
-    internal CatalogChartCollectionSnapshot CaptureSnapshot(bool includeBmsonRows = true)
+    /// <param name="includeBmsonRows">BMSON の現在値も捕捉するか。</param>
+    /// <param name="revision">確定区間の内部で、まだ公開前の新しい版を明示して捕捉する場合の版。省略時は公開済みの版を読みます。</param>
+    internal CatalogChartCollectionSnapshot CaptureSnapshot(bool includeBmsonRows = true, int? revision = null)
     {
         lock (gate)
         {
             OwnedChartCollectionView view = collection.CreateCollectionView(includeBmsonRows);
             lock (lockPlaylistLibraryResolveIndexSnapshot)
             {
-                return new(view.BmsCharts, view.BmsonCharts, CatalogRevision, collection.MembershipOrderIdentity, view,
+                return new(view.BmsCharts, view.BmsonCharts, revision ?? CatalogRevision, collection.MembershipOrderIdentity, view,
                     playlistLibraryResolveIndexSnapshot);
             }
         }

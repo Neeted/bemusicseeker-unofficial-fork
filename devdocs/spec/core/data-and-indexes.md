@@ -105,7 +105,12 @@
 2. DB確定の後に限って、共通現在値へ一回適用する。順序の変更も同じ確定に含め、値の変更に偽装しない。
 3. 構築済みの索引へ、同じ旧新の事実を渡す。
 4. 同じ短い集合の排他の中で、確定結果を既存の公開処理へ登録する。
-5. 排他権を解放してから、登録した同じ確定結果を配送する。
+5. 登録した後に、カタログ版を公開する。
+6. 排他権を解放してから、登録した同じ確定結果を配送する。
+
+カタログ版の公開は、確定結果の登録より後です。任意のスレッドがカタログ版Rを観測できるとき、Rの確定結果は公開処理へ登録済みです。差分の確定と全置換の両方に適用します。通常一覧の候補は、観測した版の確定結果を配送で得られる前提で採用を判断するため、Rの公開が登録より先行すると、その間の採用が範囲不足の失敗になります。確定区間の内部の処理（索引の適用、依存の更新、確定結果の構築、登録）は、まだ公開していない新しい版Rを明示して使い、確定後は書込み主体のカタログ版、確定結果、確定時のスナップショットの版が同じRになります。確定区間の内部で旧い版が見えている間に、先に確定結果が登録されることは許容します。
+
+確定区間の内部の処理が例外で終わった場合は、現在値は変更済みなので版Rを公開し、確定結果は未登録のままにします。元の例外を維持して従来どおり呼出し元へ伝え、呼出し元の確定後の必須反映の失敗の扱いは変えません。このとき版Rを観測した通常一覧の候補は、配送でRを得られず、その候補の失敗として閉じます（[候補の範囲不足の閉じ方](../ui/table-view.md#候補の範囲不足の閉じ方)）。ハッシュ索引の結果の記述（[ハッシュと導入済みディレクトリ](#ハッシュと導入済みディレクトリ)）とは対象が異なります。参照の管理主体の同等の規則は[プレイリストの保存と更新](../playlist/storage-and-export.md)に従います。
 
 共通現在値と集合の版は、同じ既存の排他の中で捕捉・適用します。DBの失敗や確定前の取消で、現在値を先に変更しません。操作の成功集合と必須の後処理は、`LibraryMutationOwner` がまとめます（[変更セッション](../library/mutations.md#操作単位の変更セッション)）。
 
@@ -478,6 +483,7 @@ LR2IDが確定した後のプレイヤーのスコアXMLの取得は、次の契
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| カタログ版の公開と確定結果の登録の順序、全置換と差分の版の一致 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Commit.cs) | [`CatalogMaintenanceCurrentValueTests.CommittedRevision_IsRegisteredBeforeAnyThreadCanObserveIt`](../../../tests/BeMusicSeeker.Core.Tests/Catalog/CatalogMaintenanceCurrentValueTests.cs) が、確定区間の内部の索引の更新で別スレッドを止め、観測できる版が登録済みであること、確定後に三つの版が一致して確定結果がちょうど一つであること、全置換で `ResetsPriorNotifications` の印が立つことを確認する。[`MainWindowCatalogProjectionTests.FullReplacementDuringRegularRequest_ConvergesWithoutUnhandledDispatcherException`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowCatalogProjectionTests.cs) が、通常一覧の要求の途中の全置換から、未処理のDispatcher例外なく確定後のカタログへ収束して終了できることを確認する。確定区間の内部の失敗は静的に確認する。 |
 | 共通現在値の確定版、同値、確定順、旧いスナップショット、局所の仕事量 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Commit.cs) | [`CatalogMaintenanceCurrentValueTests`](../../../tests/BeMusicSeeker.Core.Tests/Catalog/CatalogMaintenanceCurrentValueTests.cs) が、共通の書込み主体と実際の待ち行列で、旧新の値、退役、対象外の件数を変えた条件での仕事量を確認する。実DBの保守・文字コードは [`BmsLibraryMaintenanceServiceTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) / [`BmsLibraryMaintenanceServiceTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) が担う。 |
 | 初回のBMSONの順序の確定と、構築済みの候補の整合 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.Commit.cs)、[`OwnedChartCollectionState`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/OwnedChartCollectionState.cs) | [`CatalogMaintenanceCurrentValueTests.FirstUpsert_CommitsExistingBmsonOrderAndWarmCandidatesTogether`](../../../tests/BeMusicSeeker.Core.Tests/Catalog/CatalogMaintenanceCurrentValueTests.cs) が、対象外の件数を変えた条件で、順序の差分、同じ確定の候補、旧いスナップショットの不変、次の通常の追加・更新の局所性を確認する。同じクラスの整列済み・単一のBMSONのケースが、既存の候補の除去・追加がないことを確認する。位置が変わらないキーと、後続の大文字小文字を区別した移転、位置が変わらない捕捉パスの再捕捉は、保持済みの索引と、新しく構築した全候補順で照合する。表示順と選択への接続は [`RegularChartNormalLibraryRefreshTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) / [`RegularChartNormalLibraryRefreshTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) が担う。 |
 | 保存行の順序、移転、一定の差分の仕事量 | [`CatalogOwnedCollectionOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogOwnedCollectionOwner.cs)、[`CatalogStorageIndexedSequence`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogStorageIndexedSequence.cs)、[`CatalogMutationOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogMutationOwner.cs) | [`CatalogMutationOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Catalog/CatalogMutationOwnerTests.cs) |

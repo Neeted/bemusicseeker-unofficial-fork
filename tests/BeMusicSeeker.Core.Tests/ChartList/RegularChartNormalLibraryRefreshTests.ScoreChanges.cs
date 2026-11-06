@@ -190,6 +190,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
     }
 
     /// <summary>配送Taskの成功と候補の必要位置coverを独立に確認します。既に配送済みのrangeを持たない旧候補は、番号補正・全再構築・同位置再試行をせず取消で終端します。</summary>
+    /// <remarks>範囲不足の失敗はUIスケジューラー上の処理で例外にせず、継続側の既存の失敗経路で診断を残して閉じます。本番のDispatcher.BeginInvokeでは処理内の例外がCompletionへ入らず未処理例外になるため、処理が例外を投げずに戻ること、StopAsyncが完了することも確認します。この共有補助のfixtureはowner生成時に警告出力先を渡さないため、診断の出力は同じ失敗経路を通るカタログ範囲不足のケース（`CatalogCandidate_WithoutDeliveredRangeRejectsCandidateAndStops`）で確認します。</remarks>
     [TestMethod]
     public void ScoreCandidate_SuccessfulDeliveryWithoutRequiredRangeRejectsCandidateAndStops()
     {
@@ -215,7 +216,9 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             Task noPending = fixture.Owner.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
             await noPending;
             ScheduledScoreOperation continuation = await fixture.Scheduler.NextAsync();
-            continuation.Run(); continuation.Complete();
+            continuation.Run();
+            Assert.IsFalse(continuation.Completion.IsFaulted, "範囲不足はUI上の処理の例外にせず、継続の失敗経路で閉じる。");
+            continuation.Complete();
             await cancelled.Task;
             Assert.AreSame(displayed, fixture.Table.Rows);
             Assert.IsTrue(oldCandidate.ScorePosition < fixture.Library.ScoreSnapshotVersion);

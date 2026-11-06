@@ -484,6 +484,92 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
         });
     }
 
+    /// <summary>配送済みのカタログ確定を持たない旧候補は、採用を試みても範囲不足として候補だけを取消で閉じます。</summary>
+    /// <remarks>
+    /// 確定結果の登録が版の公開より先になったため、通常の経路では、観測できる版に対して配送で範囲が得られない状況は生じません。この分岐は防御用であり、
+    /// 本番での到達は修正前の故障（起動直後の候補が版公開と登録の間に採用を試みた事象）で確認済みなので、ここでは採用境界を直接試します。配送の条件網羅は他のケースが担当します。
+    /// 範囲不足はUIスケジューラー上の処理で例外にせず、継続側の既存の失敗経路で閉じます。本番の <c>WpfUiScheduler</c> では処理内の例外が Completion に入らず未処理例外になるため、
+    /// 処理が例外を投げずに戻ること、表示が元のままであること、要求の取消、同じ位置の再試行がないこと、診断、StopAsync の完了を確認します。
+    /// </remarks>
+    [TestMethod]
+    public void CatalogCandidate_WithoutDeliveredRangeRejectsCandidateAndStops()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        WithTemporarySongDb(path => RunAsync(path).GetAwaiter().GetResult());
+        async Task RunAsync(string path)
+        {
+            string root = Path.GetDirectoryName(path) ?? throw new InvalidOperationException();
+            string file = Path.Combine(root, "candidate.bms");
+            File.WriteAllText(file, "#PLAYER 1\r\n#TITLE Z after あ\r\n", new System.Text.UTF8Encoding(false));
+            ChartFile first = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(file)) with
+            { Title = "A before", RawTitle = "A before" };
+            string secondPath = Path.Combine(root, "background.bms");
+            File.WriteAllText(secondPath, "#PLAYER 1\r\n#TITLE B background\r\n");
+            ChartFile second = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(secondPath));
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).UpsertSongs([first, second]);
+            var library = new TestBmsLibrary(databaseScope, path) { BmsCharts = [first, second] };
+            var table = new MainChartListViewModel();
+            var warnings = new System.Collections.Concurrent.ConcurrentQueue<string>();
+            using var scheduler = new ScoreDeliveryUiScheduler();
+            using RegularChartListOwner owner = CreateOwner(table, CreateWorkspaceForOwner(table), action => action(),
+                scheduler, logWarning: warnings.Enqueue);
+            var request = new RegularVirtualNormalLibraryApplyRequest
+            {
+                Library = library,
+                ModeFilter = ChartModeFilter.All,
+                SortColumnName = nameof(LibraryChartRow.Title),
+                SortDirection = System.ComponentModel.ListSortDirection.Ascending,
+                ColumnSelection = new MainChartListColumnSelection(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD), false, 0,
+                    MainViewUpdateMode.FullScanAllChartsFilterSelected, System.Windows.Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                Stopwatch = System.Diagnostics.Stopwatch.StartNew(),
+                Reason = "catalog_range_missing"
+            };
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+                Task initial = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                if (scheduler.TryTake(out ScheduledScoreOperation? pending)) { pending.Run(); pending.Complete(); }
+                await initial;
+                Assert.IsTrue(owner.TryApplyVirtualNormalLibrary(request).WasCommitted);
+                var displayed = (ChartListVirtualView)table.Rows;
+                var oldCandidate = new ChartListVirtualView(displayed.NormalInput, ChartListOrder.CreateTitleAscending(displayed.NormalInput),
+                    LibraryChartRow.FromSourceRow, scorePosition: displayed.ScorePosition);
+                ChartFile target = library.CaptureNormalLibraryChartSnapshot(false).BmsRows.Single(chart => chart.Path == file);
+                library.SetBMSFilesEncoding([target], "utf-8");
+                Task delivered = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                ScheduledScoreOperation operation = await scheduler.NextAsync();
+                operation.Run(); operation.Complete();
+                await delivered;
+                Assert.IsTrue(oldCandidate.NormalInput.Snapshot.CatalogRevision < library.CatalogRevision);
+                // 配送済みの確定を持たない旧候補の採用境界を直接試す。
+                Assert.IsTrue(owner.TryBeginVirtualRequest(library, out RegularChartListRequestLease lease));
+                var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                using CancellationTokenRegistration registration = lease.Token.Register(() => cancelled.TrySetResult());
+                Assert.IsFalse(owner.TryCommitVirtual(lease, CreateVirtualTerminalInput(oldCandidate)).WasCommitted);
+                await owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
+                ScheduledScoreOperation continuation = await scheduler.NextAsync();
+                continuation.Run();
+                Assert.IsFalse(continuation.Completion.IsFaulted, "範囲不足はUI上の処理の例外にせず、継続の失敗経路で閉じる。");
+                continuation.Complete();
+                await cancelled.Task;
+                Assert.AreSame(displayed, table.Rows);
+                Assert.AreEqual(0, scheduler.Count);
+                // 製品の失敗経路は取消の後に診断を出すため、候補の配送を待つStopAsyncの完了後に確認する。
+                await owner.StopAsync();
+                Assert.IsTrue(warnings.Any(message => message.Contains("normal_library_candidate delivery_failed", StringComparison.Ordinal)), "候補の配送失敗の診断が出ていない。");
+            }
+            finally
+            {
+                Task stop = owner.StopAsync();
+                scheduler.AbortOutstanding();
+                while (scheduler.TryTake(out ScheduledScoreOperation? pending)) { pending.Run(); pending.Complete(); }
+                await stop;
+                library.RequestShutdown("catalog_range_missing_test");
+            }
+        }
+    }
+
     /// <summary>実SQLiteの追加・同folder内/別folderへの移転・削除から正規commitと実配送を通し、形式範囲・検索・24/48選択の各表示件数、mode変更による加入/離脱、folder数と生存選択を確認します。</summary>
     [TestMethod]
     [DataRow(false, false)]

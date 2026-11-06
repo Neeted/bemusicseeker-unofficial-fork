@@ -477,6 +477,73 @@ public sealed class CatalogMaintenanceCurrentValueTests
         Assert.AreEqual("new raw title", read.Resolve(new PlaylistEntryLookupKey(PlaylistEntryLookupKeyKind.Md5, first.Md5.ToUpperInvariant())).RawTitle);
     }
 
+    /// <summary>
+    /// 確定区間の内部で別スレッドが観測できる版は、その確定結果が公開処理へ登録済みである。
+    /// 確定後は owner・受領・スナップショットの版が一致し、公開処理から得る確定結果にその版がちょうど一つある。
+    /// </summary>
+    /// <remarks>
+    /// 通常一覧の候補は観測した版の確定結果が配送で得られることを前提に採用するため、版の公開が登録より先行すると範囲不足で候補が失敗する。
+    /// 索引の更新は確定区間の内部の観測口で止めるので、実際の確定の途中を別スレッドから読める。
+    /// 区間内で版が旧版に見えている間に先に登録されることは許容する。成功した確定だけを対象とし、確定区間の中の失敗は静的レビューで確認する。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CommittedRevision_IsRegisteredBeforeAnyThreadCanObserveIt(bool fullReplacement)
+    {
+        var publisher = new NormalLibraryRefreshPublisher();
+        var owner = new CatalogOwnedCollectionOwner { RefreshPublisher = publisher };
+        owner.ReplaceCharts(Enumerable.Range(1, 8).Select(Chart), []);
+        _ = owner.GetHashIndexSnapshot(CancellationToken.None, out _, out _);
+        int baseRevision = owner.CatalogRevision;
+        int handled = publisher.Version;
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim(false);
+        int hookCalls = 0;
+        owner.StoreWorkObserver = name =>
+        {
+            if (name is not ("owned_hash_delta_apply" or "owned_hash_count_root_update" or "owned_hash_full_invalidate")) { return; }
+            if (Interlocked.Increment(ref hookCalls) != 1) { return; }
+            reached.TrySetResult();
+            release.Wait();
+        };
+        var commit = Task.Run(() =>
+        {
+            if (fullReplacement) { owner.ReplaceCharts(Enumerable.Range(1, 8).Select(Chart).Append(Chart(100)), []); }
+            else { Assert.IsTrue(owner.ApplyCommittedChartUpsert([Chart(100)], out _)); }
+        });
+        bool observedCompleted = false;
+        try
+        {
+            // 確定Taskがフック到達前に例外で終わった場合は到達を待ち続けず、その例外を表面化させる。
+            if (await Task.WhenAny(reached.Task, commit) == commit) { await commit; Assert.Fail("確定区間の内部の観測口へ到達する前に確定が終わった。"); }
+            int observed = owner.CatalogRevision;
+            if (observed > baseRevision)
+            {
+                CollectionAssert.Contains(publisher.GetNotificationsAfter(handled).CatalogCommits.Select(receipt => receipt.Revision).ToArray(), observed,
+                    "確定区間の内部で観測できる版は、確定結果が公開処理へ登録済みでなければならない。");
+            }
+            observedCompleted = true;
+        }
+        finally
+        {
+            // 表明が失敗しても確定Taskを解放して合流してから終える。失敗経路では元の失敗を優先し、成功経路では確定の例外を表面化させる。
+            release.Set();
+            try { await commit; }
+            catch when (!observedCompleted) { }
+        }
+        Assert.IsTrue(Volatile.Read(ref hookCalls) >= 1, "確定区間の内部の観測口が呼ばれていない。");
+        int revision = baseRevision + 1;
+        Assert.AreEqual(revision, owner.CatalogRevision);
+        Assert.AreEqual(revision, owner.CaptureSnapshot().CatalogRevision);
+        Assert.AreEqual(revision, owner.CaptureStateSnapshot().CatalogRevision);
+        NormalLibraryRefreshNotificationBatch batch = publisher.GetNotificationsAfter(handled);
+        CatalogCommitReceipt registered = batch.CatalogCommits.Single(receipt => receipt.Revision == revision);
+        Assert.AreEqual(revision, registered.Snapshot.CatalogRevision);
+        Assert.AreEqual(fullReplacement, registered.IsFullReplacement);
+        Assert.AreEqual(fullReplacement, batch.ResetsPriorNotifications);
+    }
+
     private static ChartFile Chart(int index) => ChartTestValues.Empty() with
     {
         Token = new OwnedChartToken(),
