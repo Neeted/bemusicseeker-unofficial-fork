@@ -2,56 +2,99 @@
 
 ## 目的と適用範囲
 
-固定旧版と現行の本番BMSパーサーによる譜面位置計算を比較する簡易開発ツールです。同じ本文による解析結果と同期解析時間を記録し、差の判断に使います。本番の通常読込み・入力受理・計算規則は[Ribbitの位置と時刻](../library/ribbit-timing.md)を正本とします。
+固定した旧版と現行の本番BMSパーサーによる譜面位置の計算を比較する、簡易な開発ツールです。同じ本文による解析結果と同期解析時間を記録し、差の判断に使います。本番の通常の読込み・入力の受理・計算規則は[Ribbitの位置と時刻](../library/ribbit-timing.md)を正本とします。
 
 ## 用語
 
-「入力行」はfileの指定対象またはscanのsong行です。「case」は入力行のsample・repeat一組です。「準備入力」は担当行で一度だけ読込・判別・復号した本文とencoding・MD5・byte数です。その他は[用語集](../glossary.md)に従います。
+その他は[用語集](../glossary.md)に従います。
+
+| 用語 | 意味 |
+| --- | --- |
+| 入力行 | `file` モードの指定対象、または `scan` モードの `song` 行。 |
+| ケース | 入力行のサンプル番号と反復番号の一組。 |
+| 準備入力 | ワーカーが担当する入力行について一度だけ読み込み、文字コードを判別・復号した本文と、文字コード・MD5・バイト数。 |
 
 ## 仕様
 
-### 入力と実行責務
+### 入力と実行の責務
 
-file/scan、out/song-db/chart-root、workers、random-samples/repeat/seed/random-choices、cultureを受けます。fileはワーカー1、scanは指定数のTaskワーカーを同一プロセスで使います。対応形式はBMS/BME/BML/PMSです。
+入力・出力・並列度・乱数・文化圏として、`file` / `scan`、`out` / `song-db` / `chart-root`、`workers`、`random-samples` / `repeat` / `seed` / `random-choices`、`culture` を受け付けます。`file` はワーカー1、`scan` は指定数のTaskワーカーを同じプロセスで使います。対応形式はBMS・BME・BML・PMSです。
 
-scanはSQLite ReadOnlyの一度のsnapshotをrowid順に採取して接続を閉じます。WALと重複行を保持し、本文の全件cacheは行いません。相対pathはchart-rootで解決します。空path・基準なし相対path・対象外形式・不正pathはskip、不在・拒否・空ファイルなどの準備失敗はinput-errorとして該当caseへ記録します。
+`scan` は、SQLiteを読取り専用で開いて一度だけスナップショットを `rowid` 順に採取し、接続を閉じます。WALと重複行を保持し、本文の全件キャッシュは行いません。相対パスは `chart-root` を基準に解決します。
 
-ワーカーは担当行を一度だけread・自動判別・復号・MD5採取し、準備入力を旧新の全sample/repeatへ共有します。読込みは本番と同じ共有モードとdecoderを使います。Random、Queue、BMSFileは呼出しごとに独立です。旧新の先行順は交互、同caseのsource/seed/choices/cultureは共通です。choicesの不足・余剰は従来のQueue規約に従い、元RandomPatternの相違はincomparableにします。
+| 入力の状態 | 分類 |
+| --- | --- |
+| 空のパス、基準のない相対パス、対象外の形式、不正なパス | `skip` |
+| 不在・アクセス拒否・空ファイルなどの準備の失敗 | `input-error` として該当ケースへ記録 |
+
+ワーカーは担当する入力行を一度だけ読み込み、文字コードの自動判別・復号・MD5の採取を行い、準備入力を旧版・現行の全サンプル・反復へ共有します。読込みは本番と同じ共有モードとデコーダーを使います。
+
+- `Random`、`Queue`、`BMSFile` は呼出しごとに独立させます。
+- 旧版と現行のどちらを先に実行するかは交互にし、同じケースの本文・シード・選択値・文化圏は共通にします。
+- 選択値の不足・余剰は既存の `Queue` の規約に従い、元の `RandomPattern` が異なる場合は `incomparable` にします。
 
 ### 計時と進捗
 
-run開始時、メモリ上の共通小本文を旧新各一回warmupします。parseMillisecondsは準備済み本文の同期BMSFile解析入口全体だけを計時します。allocatedBytesも同じスレッド・区間の差分です。read・判別・復号・hash、options・乱数・Queue・delegate準備、比較・表示・保存は計測外です。GCとJITはruntime既定に従います。
+実行の開始時に、メモリ上の共通の小さな本文で旧版・現行を各一回ウォームアップします。`parseMilliseconds` は、準備済み本文から同期的に `BMSFile` を解析する入口全体だけを計時します。`allocatedBytes` も同じスレッド・同じ区間の差分です。
 
-plannedは解決済み対応形式の入力行数で、重複・不在・拒否も含み、skipは除外します。startedはワーカーが担当行を開始するread前に一度加算します。sample/repeatで増えません。stderrに初期0・実行中の低頻度更新・終了値を日本語表示し、run.jsonにも保存します。
+読込み・判別・復号・ハッシュ、オプション・乱数・`Queue`・デリゲートの準備、比較・表示・保存は計測に含めません。GCとJITは実行環境の既定に従います。
+
+`planned` は、解決済みで対応形式の入力行数です。重複・不在・拒否を含み、`skip` は除きます。`started` は、ワーカーが担当する入力行を読み込む前に一度だけ加算し、サンプル・反復の数では増やしません。標準エラーには、初期値0・実行中の低頻度の更新・終了値を日本語で表示し、`run.json` にも保存します。
 
 ### 比較と集計値
 
-初期BPM、小節Length/starttick、全元noteの位置/kind/index/Value/tick、Durationを比較します。Controlの重複列を除きます。raw結果から一小節のnote参照と元順序だけを整列用に保持し、型付きstructを遅延列挙します。位置は正規BigInteger整数比と特殊値タグで、旧Fractionの算術・CompareTo・GetHashCodeに依存せず比較します。同じ位置・kind・indexの連続出現順で重複を区別します。
+比較する値は、初期BPM、小節の `Length` と開始tick、全元ノートの位置・種類・インデックス・`Value`・tick、`Duration` です。`Control` の重複列は除きます。
 
-追加・消失・Value差・tick差の全件数、最大絶対tick差・符号付き範囲・場所、Duration差、小節開始・小節線の差件数と最大境界差・場所を保存します。整数tick差は2^53超も厳密に扱います。差例は先頭20件だけ文字列化します。未対応Value型や列挙失敗はincomparableとし、全件依存集計・速度をnullにします。既知Duration差と取得済み上限付き差例は残します。
+- 生の結果から、一小節のノート参照と元の順序だけを整列用に保持し、型付きの構造体を遅延列挙します。
+- 位置は既約の `BigInteger` 整数比と特殊値のタグで比較し、旧版の `Fraction` の算術・`CompareTo`・`GetHashCode` に依存しません。
+- 同じ位置・種類・インデックスの連続した出現順で重複を区別します。
 
-分類はequal/numeric-diff/structural-diff、legacy-only-success/current-only-success/both-failed、skip/input-error/incomparableです。比較を完了した同RandomPatternの成功対だけに速度比と増加時間を付けます。
+保存する集計値は次のとおりです。
+
+- 追加・消失・`Value` の差・tickの差の全件数
+- tickの差の最大絶対値・符号付きの範囲・場所。整数tickの差は2^53を超えても厳密に扱います。
+- `Duration` の差
+- 小節開始・小節線の差の件数と、境界の差の最大値・場所
+- 差の例は先頭20件だけを文字列化します。
+
+未対応の `Value` 型や列挙の失敗は `incomparable` とし、全件に依存する集計と速度をnullにします。既知の `Duration` の差と、取得済みの上限付きの差の例は残します。
+
+| 観点 | 分類 |
+| --- | --- |
+| 比較結果 | `equal`、`numeric-diff`、`structural-diff` |
+| 片方・両方の失敗 | `legacy-only-success`、`current-only-success`、`both-failed` |
+| 比較しなかった理由 | `skip`、`input-error`、`incomparable` |
+
+比較を完了し、`RandomPattern` が同じで両方が成功した組だけに、速度比と増加時間を付けます。
 
 ### 保存・取消・失敗
 
-buffer付きStreamWriterでcases/results/comparisons.jsonlを保存します。比較後、既存一つのwriter lockでcase一行・旧新結果二行・compare一行をまとめて書き、全JSONLのcase順を一致させます。全ノーツの保存は行わず、raw結果は比較保存後に解放します。
+`cases.jsonl`・`results.jsonl`・`comparisons.jsonl` を保存します。比較後、一つの書込みロックの中で、ケース一行・旧版と現行の結果二行・比較一行をまとめて書き、全JSONLのケースの順序を一致させます。全ノートは保存せず、生の結果は比較の保存後に解放します。
 
-Ctrl+C後は受理済みcaseの旧新比較・保存を自然終了し、次case・rowを受理しません。解析拒否・比較不能は観測して次対象へ進み、出力IO失敗は全体errorです。run.jsonはcomplete/cancelled/errorと予定・開始・受理・完了・分類件数を保存します。正常回収の終了0と互換性判断は別です。
+Ctrl+Cの後は、受理済みのケースの比較・保存を自然に終え、次のケース・入力行を受理しません。解析の拒否・比較不能は記録して次の対象へ進み、出力のI/O失敗は全体の `error` です。`run.json` には、`complete` / `cancelled` / `error` の状態と、予定・開始・受理・完了・分類ごとの件数を保存します。正常に回収して終了コード0で終わることと、互換性の判断は別です。
 
 ### 解析後の集計と発行
 
-analyze.pyは3JSONLの完全prefixを同順に逐次読取り、Runnerの分類・速度・数値集計をそのまま使います。詳細CSVはcaseごとに即出力し、全件のpath・結果詳細を保持しません。速度比・増加時間の数値列から中央値・範囲・分位値を要約し、現行解析時間の分位値と(rowid,sample)の反復統計も維持します。比較完了対の追加・消失・Value・tick・小節開始・小節線の差件数は順次合計し、最大絶対tick差・最大境界差、符号付きtick差の全体範囲を整数のまま集計します。既知Duration差は比較不能のcaseも含めて全体範囲を保存します。tick差の全ケース列や場所・詳細の再整列は行いません。改行のない不完全末尾だけを完全prefix終了とし、完全行の不正JSONは分析失敗として返します。元譜面・DBへのアクセスはありません。任意の抽出閾値は候補の絞込みに使います。
+`analyze.py` は、3つのJSONLの完全な先頭部分を同じ順で逐次読み取り、Runnerの分類・速度・数値の集計をそのまま使います。
 
-publish.ps1はRelease/win-x64・自己完結型・未trimのRunnerと参照DLLを一folderへ発行し、licenseとZIPを添えます。固定旧sourceはrevision/blob/hashの出所と薄いconnection.patchを持ち、旧数学・制御・decoderを維持します。
+- 詳細CSVはケースごとに即時に出力し、全件のパス・結果の詳細を保持しません。
+- 速度比・増加時間の数値列から、中央値・範囲・分位値を要約します。現行の解析時間の分位値と、`(rowid, sample)` ごとの反復の統計も維持します。
+- 比較を完了した組の追加・消失・`Value`・tick・小節開始・小節線の差の件数を順次合計し、tickの差の最大絶対値・境界の差の最大値・符号付きのtickの差の全体の範囲を整数のまま集計します。
+- 既知の `Duration` の差は、比較不能のケースも含めて全体の範囲を保存します。
+- tickの差の全ケースの列や、場所・詳細の再整列は行いません。
+- 改行のない不完全な末尾だけを、完全な先頭部分の終わりとして扱います。完全な行の不正なJSONは分析の失敗として返します。
+- 元の譜面・DBにはアクセスしません。任意の抽出閾値は、候補の絞込みに使います。
+
+`publish.ps1` は、Release・win-x64・自己完結型・トリミングなしのRunnerと参照DLLを一つのフォルダーへ発行し、ライセンスとZIPを添えます。固定した旧版のソースは、リビジョン・blob・ハッシュの出所と薄い `connection.patch` を持ち、旧版の数学・制御・デコーダーを維持します。
 
 ## 実装とテストの対応
 
 | 仕様項目 | 実装 | 確認方法 |
 | --- | --- | --- |
-| 通常decoderと準備済み本文入口 | [BMSFile](../../../BeMusicSeeker/Ribbit/BMS/BMSFile.cs)、[Current接続](../../../tools/chart-parse-audit/Current/Engine.cs) | 本番の数値・時刻テストは従来の責務を維持。tool入口は対象Runnerビルドと差分点検。 |
-| 一度の入力準備・Task並列・計測・保存 | [AuditRunner](../../../tools/chart-parse-audit/Runner/AuditRunner.cs)、[Parser](../../../tools/chart-parse-audit/Shared/Parser.cs)、[Inputs](../../../tools/chart-parse-audit/Runner/Inputs.cs) | 対象RunnerのReleaseビルドと責務・計時境界の差分点検。恒常toolテストは設けません。 |
-| 遅延位置比較・整数集計・差例 | [Projection](../../../tools/chart-parse-audit/Shared/Projection.cs)、[Comparison](../../../tools/chart-parse-audit/Runner/Comparison.cs) | 型付きキー・重複・不完全集計の差分点検。実行計測は利用者が必要時に行います。 |
-| 逐次集計・発行 | [analyze.py](../../../tools/chart-parse-audit/analyze.py)、[publish.ps1](../../../tools/chart-parse-audit/publish.ps1) | 構文・参照と逐次読取りの差分点検。 |
+| 通常のデコーダーと準備済み本文の入口 | [BMSFile](../../../BeMusicSeeker/Ribbit/BMS/BMSFile.cs)、[現行版との接続](../../../tools/chart-parse-audit/Current/Engine.cs) | 本番の数値・時刻のテストは既存の責務を維持する。ツールの入口は対象のRunnerのビルドと差分の点検で確認する。 |
+| 一度の入力準備・Taskの並列実行・計測・保存 | [AuditRunner](../../../tools/chart-parse-audit/Runner/AuditRunner.cs)、[Parser](../../../tools/chart-parse-audit/Shared/Parser.cs)、[Inputs](../../../tools/chart-parse-audit/Runner/Inputs.cs) | 対象のRunnerのReleaseビルドと、責務・計時の境界の差分の点検。恒常的なツールのテストは設けない。 |
+| 遅延の位置比較・整数の集計・差の例 | [Projection](../../../tools/chart-parse-audit/Shared/Projection.cs)、[Comparison](../../../tools/chart-parse-audit/Runner/Comparison.cs) | 型付きのキー・重複・不完全な集計の差分の点検。実行計測は利用者が必要なときに行う。 |
+| 逐次の集計・発行 | [analyze.py](../../../tools/chart-parse-audit/analyze.py)、[publish.ps1](../../../tools/chart-parse-audit/publish.ps1) | 構文・参照と逐次読取りの差分の点検。 |
 
 ## 関連資料
 

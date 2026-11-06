@@ -23,8 +23,6 @@ internal sealed class ApplicationPathSnapshot
         TestSoundPath = Path.Combine(assetsDirectory, "test.mp3");
         LogDirectory = Path.Combine(profileDirectory, "log");
         TempDirectory = tempDirectory;
-        UpdateWorkDirectory = Path.Combine(profileDirectory, "update_work");
-        DownloadsDirectory = Path.Combine(UpdateWorkDirectory, "downloads");
         LegacySettingsDirectory = legacySettingsDirectory;
     }
 
@@ -63,12 +61,6 @@ internal sealed class ApplicationPathSnapshot
 
     /// <summary>管理一時セッションを作る親ディレクトリを取得します。</summary>
     internal string TempDirectory { get; }
-
-    /// <summary>更新の作業ディレクトリを取得します。</summary>
-    internal string UpdateWorkDirectory { get; }
-
-    /// <summary>更新パッケージのダウンロード先を取得します。</summary>
-    internal string DownloadsDirectory { get; }
 
     /// <summary>旧設定の移行元ディレクトリを取得します。</summary>
     internal string LegacySettingsDirectory { get; }

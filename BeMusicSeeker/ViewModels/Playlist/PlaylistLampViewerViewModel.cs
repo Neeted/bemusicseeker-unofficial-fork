@@ -560,6 +560,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             });
         }
         supplementaryStatistics.Add(new(Resources.PlaylistLampViewer_score_source, ScoreSourceText));
+        // プレイリストの最終更新は playlist.last_update だけを表示し、スコアの情報源の更新時刻で代替しません。
         supplementaryStatistics.Add(new(Resources.PlaylistLampViewer_playlist_last_update, FormatTimestamp(statistics?.PlaylistLastUpdated)));
     }
 

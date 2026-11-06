@@ -562,6 +562,11 @@ public sealed class ExternalAudioEncoderSmokeTests
         return (value & 0x0080_0000) == 0 ? value : value | unchecked((int)0xFF00_0000);
     }
 
+    /// <summary>復号器（<c>opusdec.exe</c>・<c>flac.exe</c>）を所有プロセスとして実行し、成功終了と回収を確認します。</summary>
+    /// <remarks>
+    /// 復号の待機は30秒と親suiteの残り時間の早い方までとします。回収期限は最初の失敗検出時に
+    /// <c>min(suiteの期限 + 10秒, 失敗検出時刻 + 10秒)</c> で一度だけ確定し、root・両pipe・Jobの終端を確認します。
+    /// </remarks>
     private static async Task RunDecoderProcessAsync(string executable, TestWorkspace workspace, ProcessDeadline suiteDeadline, params string[] arguments)
     {
         ProcessDeadline deadline = suiteDeadline.LimitRemaining(TimeSpan.FromSeconds(30));

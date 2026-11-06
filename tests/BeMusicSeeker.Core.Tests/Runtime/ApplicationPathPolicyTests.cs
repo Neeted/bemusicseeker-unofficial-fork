@@ -27,8 +27,6 @@ public sealed class ApplicationPathPolicyTests
         Assert.AreEqual(root, snapshot.ProfileDirectory);
         Assert.AreEqual(Path.Combine(root, "log"), snapshot.LogDirectory);
         Assert.AreEqual(Path.Combine(Path.GetTempPath(), "BeMusicSeeker"), snapshot.TempDirectory);
-        Assert.AreEqual(Path.Combine(root, "update_work"), snapshot.UpdateWorkDirectory);
-        Assert.AreEqual(Path.Combine(root, "update_work", "downloads"), snapshot.DownloadsDirectory);
         Assert.AreEqual(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BeMusicSeeker"), snapshot.LegacySettingsDirectory);
     }
 
@@ -58,8 +56,6 @@ public sealed class ApplicationPathPolicyTests
         Assert.AreEqual(Path.Combine(assets, "test.mp3"), snapshot.TestSoundPath);
         Assert.AreEqual(Path.Combine(profile, "log"), snapshot.LogDirectory);
         Assert.AreEqual(temp, snapshot.TempDirectory);
-        Assert.AreEqual(Path.Combine(profile, "update_work"), snapshot.UpdateWorkDirectory);
-        Assert.AreEqual(Path.Combine(profile, "update_work", "downloads"), snapshot.DownloadsDirectory);
         Assert.AreEqual(legacy, snapshot.LegacySettingsDirectory);
         Assert.IsFalse(Directory.Exists(root), "配置の計算だけでディレクトリを作成しません。");
     }

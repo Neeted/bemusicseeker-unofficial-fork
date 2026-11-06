@@ -15,6 +15,11 @@ internal sealed partial class ApplicationScenarioDialogs
     private bool removeTable;
 
     /// <summary>次の実設定画面のSQL操作だけを宣言します。実handler終端のTaskを返します。</summary>
+    /// <remarks>
+    /// 実modalの帰還と実handlerの終端は別の事象です。decoratorはmodalが閉じた時点で同期の呼出し元へ帰還し、
+    /// 返すTaskだけが同じ実handlerの終端・入力の消費・元の例外を表します。固定入力はhandlerのfinallyまで保持します。
+    /// modalの帰還を復元の成功として扱いません。
+    /// </remarks>
     internal Task ArmPlaylistSql(string path, bool restore)
     {
         var input = new SqlInput(path, restore);

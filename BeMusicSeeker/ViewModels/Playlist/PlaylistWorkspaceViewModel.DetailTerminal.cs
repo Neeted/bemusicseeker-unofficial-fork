@@ -398,6 +398,18 @@ public sealed partial class PlaylistWorkspaceViewModel
             + " playlistViewRowCount=" + (viewAlive ? CountDetailRows(viewRows) : 0));
     }
 
+    /// <summary>構築済みの詳細候補を確定入力へ追随させ、UIで一回だけ採用・公開します。</summary>
+    /// <remarks>
+    /// <para>
+    /// ワーカーは build→view のロック順で候補の追随を終え、同じ区間で既存の <c>DataChanged.Task</c> を捕捉します。
+    /// UI側は同じロック順で、取消・要求版・signalの不変と正本の必要版だけを純粋に再確認し、採用、Rows・列・主添字の公開、
+    /// 実Bindingへの選択復元を既存のUI schedulerの一処理で完結させます。
+    /// </para>
+    /// <para>
+    /// 再確認で新しいsignalを検出した場合は、同じ候補をワーカーへ戻して追随させます。未配送の版を待つ場合も、
+    /// 準備時に捕捉したsignalを待つため、採用より先に配送された変更でも起床を失いません。
+    /// </para>
+    /// </remarks>
     internal PlaylistDetailTerminalCommitResult ApplyDetailTerminal(
         PlaylistDetailTerminalRequest request)
     {

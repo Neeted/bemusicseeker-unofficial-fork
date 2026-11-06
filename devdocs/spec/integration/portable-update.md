@@ -12,9 +12,9 @@ ZIP配布のポータブル運用を維持したまま、更新確認・検証�
 
 ### 更新情報
 
-正本は次の `update.json` です。取得失敗、時間切れ、JSON不正、版の不一致、資産の検証失敗を、別形式の更新情報へ切り替えて隠しません。
+更新情報の正本は次の `update.json` です。取得失敗、時間切れ、JSON不正、版の不一致、資産の検証失敗を、別形式の更新情報へ切り替えて隠しません。
 
-JSON解析と整数トークンの範囲外変換だけを `UpdateManifestValidationException` へ変換し、元のJSON例外・`OverflowException` を取得・検証所有者の診断用に保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールプロトコルの検証は維持します。
+JSON解析と整数トークンの範囲外変換だけを `UpdateManifestValidationException` へ変換し、元のJSON例外・`OverflowException` を、取得・検証の管理主体が診断に使えるよう保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールプロトコルの検証は維持します。
 
 `minimumUpdaterVersion` と更新要求・監視要求のPIDは、既存の整数文法をInvariantで解析します。protocolの標準出力・ready内容、PIDの引数・marker、更新情報URLの時刻整数も地域に依存しない整数表現を使います。protocol値、PIDの正数条件、既存7組の引数の値、既存オプションの失敗条件は変えません（新しい `--restart-arguments-json` の拒否条件は[引数と境界](#引数と境界)に従います）。引数はアプリ側が `ArgumentList` で1つずつ渡すため、コマンドライン上の引用の形ではなく、更新ツールが受け取る引数の値で契約します。
 
@@ -26,7 +26,7 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 
 | フィールド | 契約 |
 | --- | --- |
-| `schemaVersion` / `packageFormatVersion` | いずれも1に対応する。`Int32`内の非対応版は従来の意味検証で拒否し、`Int32`範囲外は原因を保持する変換失敗とする。 |
+| `schemaVersion` / `packageFormatVersion` | いずれも1に対応する。`Int32`内の非対応版は既存の意味検証で拒否し、`Int32`範囲外は原因を保持する変換失敗とする。 |
 | `version` / `releaseTag` | 更新先の版と `v{version}`。 |
 | `releasePageUrl` | GitHub Releaseのページ。 |
 | `minimumUpdaterVersion` | 更新ツールのプロトコル版。対応版は1。 |
@@ -46,7 +46,27 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 
 ### 終了前の合意
 
-更新ツールは要求を解析できた時点で `current/updater-ready.txt` を公開します。アプリはこれを確認してから[終了準備](../runtime/shutdown.md)を実行し、成功した場合だけ `current/updater-decision.txt` に `proceed` を公開します。失敗・中断では `cancel` を公開します。cancel公開成功時は既存の停止期限内で更新ツールの正常終端を待ちます。公開失敗または期限超過時だけ、既存の強制停止と終端確認へ進みます。正常取消では更新ツール自身がjournalと回復登録を退役し、取引leaseを保持したまま所有watchdogを停止して実終了を確認します。watchdogは親終了を待つため、親は子の自然終了を待ちません。アプリ側も親終了だけからwatchdog終了を推測せず、次のcurrent更新ツール再配置へ接続します。更新要求が終了準備を開始済みなら更新失敗として扱ってアプリの終了を継続し、終了・モード変更が先着していた場合はその終了を継続します。受付確認前にツールが終了・起動失敗した場合は、アプリを終了せず更新失敗を通知します。
+#### 受付と決定
+
+1. 更新ツールは、要求を解析できた時点で `current/updater-ready.txt` を公開します。
+2. アプリはこれを確認してから[終了準備](../runtime/shutdown.md)を実行し、成功した場合だけ `current/updater-decision.txt` に `proceed` を公開します。終了準備の失敗・中断では `cancel` を公開します。
+3. 更新ツールは、決定を受け取ってから、親プロセスの終了待ちと適用を開始します。
+
+アプリの寿命は、どの時点で失敗したかで決まります。
+
+| 状況 | アプリ |
+| --- | --- |
+| 受付の確認前に、更新ツールが終了した・起動に失敗した | 終了せず、更新失敗を通知する。 |
+| 更新要求が終了準備を開始した後に失敗した | 更新失敗として扱い、アプリの終了を続ける。 |
+| 通常の終了・動作モードの変更が先着していた | 先着した終了を続ける。 |
+
+#### 取消後の更新ツールの終端
+
+`cancel` の公開に成功した場合は、既存の停止期限の中で、更新ツールの正常な終端を待ちます。公開に失敗した場合と期限を超えた場合だけ、既存の強制停止と終端の確認へ進みます。
+
+正常な取消では、更新ツール自身がジャーナルと回復登録を退役させ、更新トランザクションの排他権を保持したまま、所有する監視プロセスを停止して実際の終了を確認します。監視プロセスは親の終了を待つため、親は子の自然な終了を待ちません。アプリ側も、親の終了だけから監視プロセスの終了を推測せず、次回の `current/` への更新ツールの再配置へ接続します。
+
+#### 受付・決定マーカーの公開と読取り
 
 受付・決定マーカーは、完成名と同じディレクトリの一意な一時名へ全内容を書き、`Flush(true)` とクローズの完了後に完成名へ移動して公開します。書込み中は完成名を新たに公開せず、通常の読取り側は完成名の存在を確認した直後に読み取れます。受付は既存の完成名を拒否し、決定は既存の完成名を置換します。内容はUTF-8・改行なしとし、受付はInvariant整数のプロトコル版、決定は既存の `proceed` / `cancel` を維持します。境界・reparse pointの検査と更新ツールの長パス変換は呼出側が担います。
 
@@ -54,9 +74,14 @@ Windowsでは完成名への変更後も、移動用の `DELETE` 権限を持つ
 
 作成・出力・永続化・クローズ・移動の失敗を成功へ読み替えず、作成できた自分の一時ファイルだけ削除を試みます。他の書込み主体の一時物、旧固定名の `.tmp`、既存完成ファイルを回収しません。一時物の削除にも失敗した場合は元の公開失敗とスタックを保持し、残ったパスと回収失敗を補助診断へ添えることを試みます。強制終了で残った一時物の自動掃除や、読取り失敗の再試行は加えません。失敗記録・ジャーナル・管理ファイル一覧の保存と回復はそれぞれの既存契約に従います。
 
-受付期限はGatewayの起動処理が `Process` を返した後、受付待ち入口で一回だけ設定する既存の10秒です。親終了待ちの60秒、決定待ちの延長、回復・停止の期限とは独立し、厳密な10.000秒の精度は保証しません。受付公開の失敗・未公開の期限切れではreceiptを返さず、開始した更新プロセスの終端を確認します。アプリは終了準備を開始せず更新失敗を通知して存続します。receipt取得後に終了準備を受理した失敗は、前述の終了継続の契約に従います。
+#### 期限
 
-更新ツールは決定を受け取ってから親プロセスの終了待ちと適用を開始します。終了準備中にアプリが生存している間は決定待ちを延長し、終了待ちの60秒を先に消費しません。再起動したアプリは、動作中の更新ツールが使う `current/` を掃除しません。これは次回のツール準備で置き換えます。
+受付の期限は、更新ツールとのプロセス境界（Gateway）の起動処理が `Process` を返した後、受付を待つ入口で一回だけ設定する10秒です。親の終了待ちの60秒、決定待ちの延長、回復・停止の期限とは独立しており、厳密な10.000秒の精度は保証しません。
+
+- 受付の公開に失敗した場合と、未公開のまま期限が切れた場合は、受付の確認結果を返さず、開始した更新プロセスの終端を確認します。アプリは終了準備を開始せず、更新失敗を通知して存続します。
+- 受付の確認結果を得た後に終了準備を受理してから失敗した場合は、[受付と決定](#受付と決定)の終了継続に従います。
+
+アプリが終了準備中で生存している間は、更新ツールは決定待ちを延長し、親の終了待ちの60秒を先に消費しません。再起動したアプリは、動作中の更新ツールが使う `current/` を掃除せず、次回の更新ツールの準備で置き換えます。
 
 #### アプリと更新ツールの合意
 
@@ -86,8 +111,6 @@ sequenceDiagram
         Updater->>Updater: 適用せず終了
     end
 ```
-
-受付確認前のツール終了・起動失敗では、アプリを終了せず更新失敗を通知します。決定待ち中に親が生存している間は待機を延長し、親終了待ちの60秒を先に消費しません。
 
 ### 引数と境界
 
@@ -119,13 +142,18 @@ sequenceDiagram
 
 退避先は `update_backup/previous/` の1世代です。退避の入替えや本体変更の前に、既存管理ファイル全体を排他アクセスで確認します。確認できないパスが一つでもあれば、本体・退避世代を変更せず、ZIPと利用者データを保持して失敗を記録します。事前確認後の競合や電源断を完全に吸収する保証ではありません。
 
-再起動先の `Process.Start` 成功までは巻き戻せる段階です。適用失敗では今回のZIP・展開領域を整理し、退避内容から復元します。復元は本体を先に一括削除せず、隣接する作業領域へ退避内容をコピーしてから置換します。型が変わる項目は隣接領域へ隔離して入れ替えます。利用者の追加ファイルと保持対象は変更しません。通常の適用失敗では、復元後に旧アプリを自動起動せず、復元が成功した時点で退避とジャーナルを片付けて失敗記録だけを残します。
+再起動先の `Process.Start` 成功までは巻き戻せる段階です。適用失敗では、その更新のZIP・展開領域を整理し、退避内容から復元します。復元は本体を先に一括削除せず、隣接する作業領域へ退避内容をコピーしてから置換します。型が変わる項目は隣接領域へ隔離して入れ替えます。利用者の追加ファイルと保持対象は変更しません。通常の適用失敗では、復元後に旧アプリを自動起動せず、復元が成功した時点で退避とジャーナルを片付けて失敗記録だけを残します。
 
 復元にも失敗した場合は再起動・確定を行いません。適用と復元の両原因を記録し、唯一の退避内容、作業領域、ジャーナルを削除しません。障害解消後にジャーナルから、旧版または新版の完全な構成へ収束できる状態を維持します。
 
 再起動先の起動成功が更新の確定点です。ZIP・展開領域の後片付けは再起動前に試み、失敗は警告として次回起動へ引き継ぎます。再起動後に更新ツールが同じ一時領域を並行して掃除しません。
 
-ZIPと展開先の一時物回収は独立して試み、一方の削除失敗で他方を放棄しません。これは一時物に限る扱いであり、復元用バックアップ・ジャーナル・回復登録の退役順序を変更しません。再起動直後は属性取得でZIP・展開先の欠損を確認した場合だけ、バックアップ・ジャーナル・回復登録を既存順序で退役します。親プロセスの終了監視も同じ条件に従います。`Restarting`でも再起動PIDまたは既存の実行ファイル一致で起動を証明できれば、先に`Committed`を保存します。残存、型違い、読取り不能では確定済みジャーナル・バックアップ・回復登録を保持し、後日の回復所有者が一時物から整理します。削除原因と対象パスを診断しますが、標準エラー出力や原因の文字列化の失敗を、更新・再起動・実復元の成否へ加えません。終了コードと失敗結果記録の保存試行も診断の成否から独立させます。
+ZIPと展開先の一時物の回収は、それぞれ独立して試み、一方の削除失敗で他方を放棄しません。これは一時物に限る扱いであり、復元用の退避・ジャーナル・回復登録の退役順序は変えません。
+
+- 再起動の直後は、属性の取得でZIPと展開先がなくなったことを確認した場合だけ、退避・ジャーナル・回復登録を既存の順序で退役させます。親プロセスの終了の監視も、同じ条件に従います。
+- ジャーナルが `Restarting` でも、再起動したプロセスのPID、または既存の実行ファイルの一致で起動を証明できれば、先に `Committed` を保存します。
+- 一時物が残っている、型が異なる、読み取れない場合は、確定済みのジャーナル・退避・回復登録を保持し、後日の回復処理が一時物から整理します。
+- 削除の原因と対象のパスを診断しますが、標準エラー出力や原因の文字列化の失敗を、更新・再起動・実際の復元の成否へ加えません。終了コードと、失敗記録の保存の試行も、診断の成否から独立させます。
 
 #### 更新の確定点と復元
 
@@ -146,13 +174,13 @@ flowchart TB
     Restore -->|失敗| Keep["両原因・唯一の退避・作業領域・ジャーナルを保持"]
 ```
 
-再起動前の後片付けだけの失敗は警告として引き継ぎ、適用失敗とは区別します。再起動後に同じ一時領域を並行して掃除しません。
+再起動前の後片付けだけの失敗は警告として引き継ぎ、適用失敗とは区別します。
 
 ### 起動時の一時物回収と同期ロック
 
 新版アプリの起動直後は、ジャーナルの退役後も更新ツールまたは監視プロセスが `update_work/update-transaction.lock` を排他保持している場合があります。このファイルは一時物ではなく、ハンドルを閉じても削除せず、次の更新・回復で `OpenOrCreate` により同じパスを再利用する同期用ファイルです。起動時の回収では、保持中・解放済みにかかわらず削除対象から除外します。ロックの解放待ちや再試行は行いません。
 
-起動時は既存の未完了トランザクション回復を先に行い、回収できる古いdownloads等を削除します。更新ツールが使う `current`、同期ロック、未確認の失敗記録とその `.tmp` を保持します。同期ロックの保持だけで更新失敗を通知せず、失敗記録があればその本来の内容を通知します。失敗記録を通知した起動では更新確認を行わず、記録を消費した後の起動で確認します。他の一時物の削除失敗は従来どおり更新確認を止めて失敗を通知し、例外全体を抑制しません。
+起動時は既存の未完了トランザクション回復を先に行い、回収できる古いdownloads等を削除します。更新ツールが使う `current`、同期ロック、未確認の失敗記録とその `.tmp` を保持します。同期ロックの保持だけで更新失敗を通知せず、失敗記録があればその本来の内容を通知します。失敗記録を通知した起動では更新確認を行わず、記録を消費した後の起動で確認します。他の一時物の削除失敗では、更新確認を止めて失敗を通知し、例外全体を抑制しません。
 
 ### 失敗記録と回復要求
 
@@ -170,7 +198,18 @@ update_work/current/BeMusicSeeker.Updater.exe --recover --app-dir <app-dir>
 
 アプリと更新ツールは同じ版の組合せで動きます。アプリは自身の配置の更新ツールを `current/` へコピーして使うため、旧版の更新ツールを新しいアプリで使うのは配置を手で混在させた場合だけです。旧版の更新ツールは未知の `--key value` を読み捨て、ジャーナルの未知項目も無視して `Version` 1を要求するため、旧版は再起動引数なしで動作します。
 
-`--recover` と `--watch` の回復経路では、復元完了を `rolled-back` として保存し、旧アプリの起動成功後に退避・ジャーナルを整理します。後片付け中断で復元を繰り返しません。起動成功後に `Restarting` へ記録された正のPIDは確定の証拠として扱い、PIDがない未確定区間だけ実行ファイルの同一性で判定します。同じアプリが生存していても、有効な `prepared` は取引lease取得後、通常更新入口・明示回復の双方で既存回復分岐へ渡します。`Preflight` の両値とも本体と以前のbackupは未変更なので、展開状態とjournalを退役し、稼働中のアプリを重複起動しません。`backing-up`・`applying` など変更開始後のphaseは、生存中の本体を変更せず終了コード2と回復要求を残します。回復開始時に登録した次世代の要求をそのまま保持し、生存による延期だけでは重ねて登録しません。
+`--recover` と `--watch` の回復経路は、次のように進みます。
+
+- 復元の完了を `rolled-back` として保存し、旧アプリの起動に成功した後に、退避とジャーナルを整理します。後片付けが中断しても、復元を繰り返しません。
+- 起動の成功後に `Restarting` へ記録した正のPIDは、確定の証拠として扱います。PIDのない未確定の区間だけ、実行ファイルの同一性で判定します。
+
+同じアプリが生存している場合の扱いは、ジャーナルの段階で分かれます。
+
+| 段階 | 扱い |
+| --- | --- |
+| 有効な `prepared` | 更新トランザクションの排他権を取得した後、通常の更新入口・明示的な回復のどちらでも、既存の回復の分岐へ渡す。 |
+| `Preflight` の両方の値 | 本体と以前の退避は未変更なので、展開状態とジャーナルを退役させ、稼働中のアプリを重複して起動しない。 |
+| `backing-up`・`applying` など変更を始めた後の段階 | 生存中の本体を変更せず、終了コード2と回復要求を残す。回復の開始時に登録した次世代の要求をそのまま保持し、生存による延期だけでは重ねて登録しない。 |
 
 ### 配布形態と旧版互換
 
@@ -185,7 +224,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 | 完成名への変更後・移動用ハンドル解放前の読取り | [`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `WaitForLaunchDecision`、[`WindowsUpdaterProcessGateway`](../../../BeMusicSeeker/Models/Update/UpdaterProcessGateway.cs) の `WaitForReady` | [`UpdateMarkerReaderSharingTests`](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdateMarkerReaderSharingTests.cs) は実際に名前変更へ使ったDELETEハンドルを保持し、旧共有の読取りが共有違反32となる同じ区間で、本番のproceed/cancel判定・決定消費と、通常Gatewayのready receipt・完全bytes・読取りハンドル回収を確認する。更新テストが管理する限定反射は、既存managed fixtureの `UpdateRequest.Parse` と `WaitForLaunchDecision` だけに絞り、本番API追加と更新全体の準備を避ける。通常の狭い本番境界が責務整理で得られた時に退役する。公開処理と実CLIの保証は既存テストが分担する。 |
 | ローカル更新検証の配信先・起動案内 | [`prepare-local-update-test.ps1`](../../../scripts/prepare-local-update-test.ps1) の起動例と `StartServer` / `StopServer` | 恒久テストは設けず、python / pyの両経路で空白入り `OutputDir` からHTTPでmanifest・ZIPを取得し、サイズ・SHA-256を照合する実行確認を行う。案内する配布ZIP展開先の本体・Updaterの共存と、同じ `OutputDir` を指定した停止後の待受・所有プロセスの解放を確認する。 |
 | 不正JSONの分類と原因保持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ParseManifest` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_MalformedJsonRetainsValidationCause` は検証失敗への変換と元原因の保持を確認する。有効・無効マニフェストの資産検証は同クラスの既存ケースが分担する。 |
-| マニフェスト整数の`Int32`/`Int64`上下範囲外と`BigInteger`、表現可能な非対応版・非正数、最大サイズの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadRequiredInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・従来意味検証と正の上限受理を確認する。 |
+| マニフェスト整数の`Int32`/`Int64`上下範囲外と`BigInteger`、表現可能な非対応版・非正数、最大サイズの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadRequiredInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・既存の意味検証と正の上限受理を確認する。 |
 | 更新情報・資産選択・取得検証 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs)、[`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs)、[`UpdateDownloadServiceTests`（Coreの判断検査）](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateDownloadServiceTests`（実配布payload）](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateDownloadServiceTests`（reparse専用）](../../../tests/BeMusicSeeker.Compatibility.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateAvailableDialogViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateAvailableDialogViewModelTests.cs) |
 | 受付確認・終了準備・起動失敗 | [`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) | [`StartupUpdateWorkflowOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs)、[`UpdaterProcessGatewayTests`（Coreの判断検査）](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdaterProcessGatewayTests.cs)、[`UpdaterProcessGatewayTests`（Windowsの実プロセス検査）](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterProcessGatewayTests.cs) |
 | 起動時回収・同期ロックの寿命・本来の失敗通知 | [`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) の `CleanupPreviousWorkDirectory`、`StartupUpdateWorkflowOwner` | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` はjournal・receiptなしで解放済みlock/currentの元bytes保持とdownloads回収・同じロックパスの再利用を、`CleanupPreviousWorkDirectoryPublishesAndConsumesUpdaterFailureReceipt` は実排他保持中の本来のreceipt通知・lock/current/未確認receipt保持・downloads回収・確認後だけの消費を確認する。`StartupUpdateWorkflowOwnerTests.Start_CleansUpWithHeldTransactionLockAndPublishesNoUpdateTerminal` は実service清掃から実ownerの確認・NoUpdate終端までロック解放前に待ち、確認1回・終端1回・失敗提示なしを確認する。`CleanupFailurePublishesFailureBeforeCheckingForUpdates` は実download削除失敗の原因保持・提示1回・確認なしを分担する。receipt提示成功後の確認・提示失敗/延期/終了中の未確認保持は既存ownerケースが担う。実CLIのready・proceed前不変・適用・実再起動・journal退役は既存のProgram/Gateway検証が担い、標準compositionとactivationへの清掃接続は静的に点検する。これらの分担は単独では連続した流れの検証ではなく、失敗記録の公開から次回起動の通知・閉じた後だけの消費・配信を切り替えた次の更新までの連続した流れは、[`UpdateRestartFailureDesktopTests`](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update/UpdateRestartFailureDesktopTests.cs)のSC-15Cが担う。 |
@@ -195,12 +234,16 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 | 管理外の空ディレクトリと保存済み検索ルートの保持 | 更新ツールの `ApplyExtractedPackage`、`LibraryDirectoryPreflightService` | `UpdaterPackageSyncTests.UpdaterAppliesDriveRootPackageOnlyAfterProceedFromSameDriveChildDirectory` は実ZIP・manifest・CLI更新後の空Songsと別名の空階層、管理外ファイル・保護領域の保持を確認する。専用設定へ保存したルートを更新後の新しいreaderで読み戻し、実preflightへ渡して利用可能なことを確認する。アプリ全体の起動初期化とは分担し、空ルートの読取り専用検査と欠落時の拒否は [`LibraryDirectoryPreflightTests`](../../../tests/BeMusicSeeker.Core.Tests/Library/LibraryDirectoryPreflightTests.cs) が担う。 |
 | ドライブルート配置・同ドライブの子作業場所・長パス・受付と取消・巻き戻しと回復 | [`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `NormalizeDirectoryPath` / `EnsurePathUnderDirectory` / `GetRelativePath` / `CreateDestinationDirectory`、[`WindowsUpdaterProcessGateway`](../../../BeMusicSeeker/Models/Update/UpdaterProcessGateway.cs) | [`UpdaterPackageSyncTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Update/UpdaterPackageSyncTests.cs) の `UpdaterAppliesDriveRootPackageOnlyAfterProceedFromSameDriveChildDirectory` は非Zの所有ドライブで実CLIのready・proceed前保持・適用・長い管理ファイル・旧管理ファイル削除・保持領域・実再起動を確認し、`WindowsGatewayAcceptsDriveRootReadyReceiptAndCancelsWithoutApplying` は本番がArgumentListで渡す引数から実CLIのready receipt・cancelと全所有プロセスの回収へ接続する。`ApplyUpdate_RollbackRestoresAppManagedMetadataArtifactsAfterFailure` は同rootで本番準備・適用と呼出し単位の起動失敗代替から元例外・旧本体・メタデータ・利用者データ・失敗記録を確認し、`RecoverCommandDoesNotTrustReusedApplicationPidAfterRestart` は同rootの実`--recover`でPID再利用の誤認拒否・旧版復元・実再起動・journal退役を確認する。実CLI成功とmanaged境界の通常巻き戻しを分担し、専用領域外・再起動先・reparse pointの拒否は既存ケースを維持する。UNCは正規化・包含・URI基点の静的確認とし、実共有の更新成功は未確認とする。 |
 | 一時物回収・任意診断の分離 | [`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `ApplyUpdate` / `TryCleanupTemporaryUpdateArtifacts` / `WriteDiagnosticBestEffort` | [`UpdaterPackageSyncTests.ApplyUpdate_TemporaryCleanupAndDiagnosticFailurePreserveRestartFailure`](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdaterPackageSyncTests.cs) が再起動前の回収順と元起動失敗・旧版復元を、`ApplyUpdate_PostRestartDiagnosticFailureKeepsCommittedApplication` が実再起動と新版・残留ジャーナルの保持、削除可能なZIPを監視処理が保持して後続の明示回復だけが退役することを確認します。既存の配布プロセス検証と巻戻し二次故障の回復材料保持は継続します。 |
-| 再起動引数の引継ぎ（`--restart-arguments-json`、journalの`RestartArguments`、適用後・`--recover`・`--watch`の再起動、不正値の扱い） | [`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs)、[`WindowsUpdaterProcessGateway`](../../../BeMusicSeeker/Models/Update/UpdaterProcessGateway.cs) の `Prepare` / `RecoverIncompleteTransaction`、[`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `UpdateRequest.Parse` / `CreateRestartStartInfo` / `ValidateTransactionJournal` | Coreの [`UpdateDownloadServiceTests.PrepareUpdaterLaunchCopiesUpdaterAndPublishesTypedRequest`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateDownloadServiceTests.cs) は捕捉引数が要求へ件数・順序・値のまま渡ることを、[`UpdaterProcessGatewayTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdaterProcessGatewayTests.cs) の `WindowsGatewayMapsTypedRequestToUpdaterProcessStartInfo` / `WindowsGatewayPassesEmptyRestartArgumentsAsEmptyList` / `WindowsGatewayRecoveryPassesRecoverCommandTokens` は `ArgumentList` の値・JSON1トークン・空配列・復旧起動の引数を確認する。Scenarios/Updateの [`UpdaterPackageSyncTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdaterPackageSyncTests.cs) は、新設の `UpdaterRestartsAppliedApplicationWithRestartArgumentsUnchanged`（難集合の完全一致と、未指定・空配列で引数なし）、`UpdaterRejectsInvalidRestartArgumentsJsonBeforeReadyWithoutMutation`（不正値8件をready前に拒否し無変更）、`RecoverCommandRestartsRestoredApplicationWithJournalRestartArguments`（`--recover`）、`RecoverCommandRejectsInvalidJournalRestartArgumentsWithoutRestarting`（journalの不正値は失敗記録・回復登録の再設定・再起動なし）と、更新した `UpdaterWaitsForProceedDecisionBeforeApplyingOrWaitingForApplicationExit`（Version 1と項目の保持）・`WatchdogRecoversApplyingTransactionAndRestartsPreviousApplication`（項目なしの旧journalと`--watch`で引数なし）が分担する。SC-CurrentUpdateは引き継いだ `--update-manifest-url` の別loopbackで後継が更新確認することを確認する。標準compositionから `UpdateDownloadService` への捕捉引数の接続は静的に点検し、UIの更新ダイアログから再起動までの連続したE2Eは、[`CurrentToNextUpdateDesktopTests`](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update/CurrentToNextUpdateDesktopTests.cs)のSC-15Aが担う。 |
+| 再起動引数の引継ぎ（`--restart-arguments-json`、journalの`RestartArguments`、適用後・`--recover`・`--watch`の再起動、不正値の扱い） | [`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs)、[`WindowsUpdaterProcessGateway`](../../../BeMusicSeeker/Models/Update/UpdaterProcessGateway.cs) の `Prepare` / `RecoverIncompleteTransaction`、[`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `UpdateRequest.Parse` / `CreateRestartStartInfo` / `ValidateTransactionJournal` | Coreの [`UpdateDownloadServiceTests.PrepareUpdaterLaunchCopiesUpdaterAndPublishesTypedRequest`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateDownloadServiceTests.cs) は捕捉引数が要求へ件数・順序・値のまま渡ることを、[`UpdaterProcessGatewayTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdaterProcessGatewayTests.cs) の `WindowsGatewayMapsTypedRequestToUpdaterProcessStartInfo` / `WindowsGatewayPassesEmptyRestartArgumentsAsEmptyList` / `WindowsGatewayRecoveryPassesRecoverCommandTokens` は `ArgumentList` の値・JSON1トークン・空配列・復旧起動の引数を確認する。Scenarios/Updateの [`UpdaterPackageSyncTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdaterPackageSyncTests.cs) は、`UpdaterRestartsAppliedApplicationWithRestartArgumentsUnchanged`（難集合の完全一致と、未指定・空配列で引数なし）、`UpdaterRejectsInvalidRestartArgumentsJsonBeforeReadyWithoutMutation`（不正値8件をready前に拒否し無変更）、`RecoverCommandRestartsRestoredApplicationWithJournalRestartArguments`（`--recover`）、`RecoverCommandRejectsInvalidJournalRestartArgumentsWithoutRestarting`（journalの不正値は失敗記録・回復登録の再設定・再起動なし）と、`UpdaterWaitsForProceedDecisionBeforeApplyingOrWaitingForApplicationExit`（Version 1と項目の保持）・`WatchdogRecoversApplyingTransactionAndRestartsPreviousApplication`（項目なしの旧journalと`--watch`で引数なし）が分担する。SC-CurrentUpdateは引き継いだ `--update-manifest-url` の別loopbackで後継が更新確認することを確認する。標準compositionから `UpdateDownloadService` への捕捉引数の接続は静的に点検し、UIの更新ダイアログから再起動までの連続したE2Eは、[`CurrentToNextUpdateDesktopTests`](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update/CurrentToNextUpdateDesktopTests.cs)のSC-15Aが担う。 |
 | UIからの提示・適用・別PIDの再起動と、同じ配信での非循環 | [`UpdateAvailableDialog`](../../../BeMusicSeeker/Views/Dialogs/UpdateAvailableDialog.xaml)（AutomationIdは `UpdateAvailableDialog`、現在版 `UpdateCurrentVersion`、最新版 `UpdateLatestVersion`、package一覧 `UpdatePackages`、`UpdateApply`）、[`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs)、検証起動の外部shell記録窓口 [`ApplicationScenarioExternalShell`](../../../BeMusicSeeker/Runtime/ApplicationScenarioExternalShell.cs) | [`CurrentToNextUpdateDesktopTests`](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update/CurrentToNextUpdateDesktopTests.cs)（SC-15A）は、展開したCurrentをtest sessionで起動し、ダイアログの現在版・最新版・Next ZIPの項目をUIAで確認して適用する。外部shellの要求がmanifestの配布ページとちょうど一致し、loopback配信がpackageを1回送り切り、更新確認がAppliedで終端してCurrentがexit 0で退出し、別PIDの新版が同じ引数で `app` から再起動することを確認する。終了後は管理ファイルのNext ZIPとの一致、旧管理ファイルの除去、保持領域・管理外・profile設定の不変、回復登録の不在を確認し、新版の更新確認がNoUpdateで、配信の要求がmanifest・package・manifestの3件だけであることで循環しないことを示す。 |
 
-Windowsの実Gateway検査は既存 `WindowsProcessProbe` 内で実fixtureを起動し、親の `OwnedProcess` が全子孫を所有する。受付の10秒、復旧の50ms、停止後の実rootと両pipeを観測する5秒は製品・ケースの契約として維持し、親の全終端期限360秒と失敗回収10秒で置き換えない。公開関数のrestore/publish引数は [`UpdaterDeploymentBoundaryTests`](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterDeploymentBoundaryTests.cs) の既定出力・明示root・次版の3行で検査し、実R2R生成・配布出力はprepare-candidateの実publishが担い、Fullは指定した同じ候補を利用する。
+Windowsの実際のGatewayの検査は、既存の `WindowsProcessProbe` の中で実際のテスト用プロセスを起動し、親の `OwnedProcess` が全ての子孫を所有します。受付の10秒、復旧の50ミリ秒、停止後の実際のルートと両方のパイプを観測する5秒は、製品・ケースの契約として維持し、親の全終端の期限360秒と失敗時の回収10秒で置き換えません。公開関数の復元・公開の引数は、[`UpdaterDeploymentBoundaryTests`](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterDeploymentBoundaryTests.cs) の既定の出力・明示したルート・次版の3条件で検査します。実際のReadyToRunの生成と配布出力は公開候補の準備（prepare-candidate）の実際の公開処理が担い、`full` は指定した同じ候補を利用します。
 
-Fullの実配布更新境界は非Daily `Scenarios/Update` の35メソッド・53行で検査します。Current実updater・公開root・ZIPと固定Legacy ZIPをcatalogから受け取り、専有領域で元の故障入力・表明を保持します。公開旧版の配置を現行updaterで更新する保証は専用ケースを設けず、旧配置を旧updaterでCurrentへ更新する方向を `LegacyUpdaterDistributionMigrationTests`、旧データからの現行updaterによる適用と実再起動をSC-CurrentUpdate、旧manifestのない旧DLL配置への現行updaterの適用を [`UpdaterPackageSyncTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdaterPackageSyncTests.cs) が分担します。managed callbackだけは明示build fixtureを使用し、実Processが必要な生存延期・再起動診断は既存WindowsProcessProbeへ配置します。全親Job終端後のHKCU登録とtemp回収は親caseが所有します。
+`full` での実配布の更新境界は、非Dailyの `Scenarios/Update` 全体で検査します。現行版の実際の更新ツール・公開ルート・ZIPと、固定した旧版（Legacy）のZIPを配布候補の目録（`catalog.json`）から受け取り、専有の領域で元の故障入力と表明を保持します。
+
+- 公開済みの旧版の配置を現行の更新ツールで更新する保証には、専用のケースを設けません。旧配置を旧版の更新ツールで現行版へ更新する方向は `LegacyUpdaterDistributionMigrationTests`、旧データからの現行の更新ツールによる適用と実際の再起動はSC-CurrentUpdate、旧manifestのない旧DLL配置への現行の更新ツールの適用は [`UpdaterPackageSyncTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdaterPackageSyncTests.cs) が分担します。
+- マネージドのコールバックだけは明示的にビルドしたテスト用プロセスを使い、実際のプロセスが必要な生存による延期・再起動の診断は既存の `WindowsProcessProbe` に置きます。
+- 全ての親のJobの終端後のHKCUの登録と一時ファイルの回収は、親のケースが所有します。
 
 ## 関連資料
 

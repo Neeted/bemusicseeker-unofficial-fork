@@ -976,6 +976,18 @@ internal static class Lr2SongDbSyncService
         public int UnchangedCount { get; } = unchangedCount;
     }
 
+    /// <summary>譜面行を並列に読取り・評価し、単一の書き手が番号順に回収してチャンクごとに確定します。</summary>
+    /// <remarks>
+    /// <para>
+    /// 読み手は、番号順の回収までの先行数を制限する順序枠を取得してから対象を採番します。採番済みで未回収の項目は
+    /// 必ず枠を確保済みとし、先頭の不足番号が後続の結果で埋まった枠を待つ循環を防ぎます。
+    /// </para>
+    /// <para>
+    /// 読取り結果を待ち行列へ引き渡す前に末尾到達・終了・取消・例外で退出する読み手は、自分が取得した枠だけを返します。
+    /// 引渡しの成立後は、書き手が番号順に回収した時点で返します。評価ワーカーは枠を返しません。枠は一度だけ返し、
+    /// 過剰返却の例外を握りつぶしません。枠の返却はDB確定の成功を意味しません。
+    /// </para>
+    /// </remarks>
     private static SongRowSyncResult UpsertSongRows(
         LR2SongDBExtended songDb,
         IReadOnlyList<ChartFile> targetRows,
@@ -2165,6 +2177,11 @@ internal static class Lr2SongDbSyncService
         return new Lr2CompatibilityFactsWriteResult(updated, inserted);
     }
 
+    /// <summary>LR2互換性の保守行の一括反映に使う一時表を用意し、前回の行を消去します。</summary>
+    /// <remarks>
+    /// 主キーは既定のBINARY照合の <c>path TEXT PRIMARY KEY</c> とし、完全に一致するパスだけを最後の値へまとめます。
+    /// 大文字小文字だけが異なるパスは別の行として扱うため、<c>COLLATE NOCASE</c> にしません。
+    /// </remarks>
     private static void PrepareTempLr2CompatibilityMaintenanceTable(LR2SongDBExtended songDb)
     {
         songDb.Execute(
@@ -2251,6 +2268,11 @@ internal static class Lr2SongDbSyncService
     }
 
     /// <summary>原因と記録時の所有取消資格を一体で選び、後発取消による実故障の再分類を防ぎます。</summary>
+    /// <remarks>
+    /// 所有する取消は、記録時点で <see cref="OperationCanceledException"/> のトークンが要求トークンまたは連結した内部処理のトークンと
+    /// 一致し、かつ要求トークンの取消か管理主体の終了要求が成立している場合だけです。型とトークンが一致しない実故障では
+    /// 終了要求を照会しません。判定は記録時に一度だけ行い、先着した実故障や所有しない取消例外を後から再分類しません。
+    /// </remarks>
     private sealed class SongRowSyncPipelineFault(Exception cause, bool isOwnedCancellation)
     {
         public Exception Cause { get; } = cause;

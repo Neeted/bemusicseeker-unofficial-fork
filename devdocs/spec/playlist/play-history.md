@@ -6,7 +6,7 @@ LR2の導入後のプレイ履歴と、beatorajaのスコア更新履歴を、�
 
 ## 用語
 
-[共通用語集](../glossary.md)を参照します。コードの識別子は原表記を使います。
+[共通用語集](../glossary.md)に従います。
 
 ## 仕様
 
@@ -30,21 +30,21 @@ LR2要求はDBパス、連携プロファイルかどうか、開始を含み終
 
 ### キャッシュと表示用変換
 
-起動、意味のある成績取得元設定の変更、LR2履歴の導入・修復・削除後に、通常成績と全履歴・player時系列を一つの取得操作で読みます。`ScoreTableLoadResult.PlayHistorySnapshot` から `BMSLibrary.ScoreSnapshot.PlayHistorySnapshot` の一参照へ採用し、既存の `SourceGeneration` を取得世代として使います。複数DBをまたぐ原子的なスナップショットは保証しません。
+起動、意味のある成績取得元設定の変更、LR2履歴の導入・修復・削除の後に、通常成績と全履歴・プレイヤー時系列を一つの取得操作で読みます。取得した履歴は `BMSLibrary.ScoreSnapshot.PlayHistorySnapshot` の一つの参照として採用し、既存の `SourceGeneration` を取得世代として使います。複数のDBをまたぐ原子的なスナップショットは保証しません。
 
-期間の初回表示・再選択・変更、検索、整列、カード、表示対象、言語、ファイル差分、所属変更と同じライブラリの全再初期化は、通常成績と取得済みrawを保持します。全再初期化本体で通常成績と履歴の外部DBを再取得しませんが、設定で有効な既存IR・順位後続の成績更新は維持します。これらの表示用 `Version` だけの更新では同じ履歴参照と `SourceGeneration` を引き継ぎます。同値のscore設定確定では保存・再取得しません。現在のLR2プロファイルと一致する検査結果は設定の状態表示へ共有しますが、設定画面を開くためにDB照会しません。
+次の操作は、通常成績と取得済みの生の記録を保持します。期間の初回表示・再選択・変更、検索、整列、カード、表示対象、言語、ファイル差分、所属変更、同じライブラリの全再初期化です。全再初期化そのものでは通常成績と履歴の外部DBを再取得しませんが、設定で有効な既存のIR・順位に続く成績更新は維持します。これらの表示用の `Version` だけを進める更新では、同じ履歴参照と `SourceGeneration` を引き継ぎます。同値のスコア設定の確定では保存も再取得も行いません。現在のLR2プロファイルと一致する検査結果は設定の状態表示へ共有しますが、設定画面を開くためにDBへ問い合わせません。
 
-正常0件、利用不可、読取り失敗を区別し、失敗結果も今回の取得組に保持します。期間操作では再読取りせず、次の許可取得後にだけ新結果へ更新します。beatorajaのplayer時系列だけが利用不可なら、正常なscorelog行は維持します。取得時点のraw行・player時系列・ノーツ・スキーマ診断を後の成績値や外部DBから再計算しません。
+正常0件、利用不可、読取り失敗を区別し、失敗結果も今回の取得組に保持します。期間操作では再読取りせず、次の許可された取得の後にだけ新しい結果へ更新します。beatorajaのプレイヤー時系列だけが利用不可なら、正常な `scorelog` の行は維持します。取得時点の生の行・プレイヤー時系列・ノーツ・スキーマ診断は、後の成績値や外部DBから再計算しません。
 
-`PlayHistoryReadCache` は期間・確定状態・日索引の純投影であり、DB接続、取得元選択、rawの所有、読取り待機や取得世代を持ちません。同じ取得組の期間変更では最新一件の日索引結果だけを再利用し、全rawから日索引を毎回作り直しません。期間投影は同じraw record参照を返し、全範囲・全確定状態ではrawリストをそのまま再利用します。取消しは表示投影を止めるだけで、共有する取得組を破棄しません。
+期間・確定状態・日索引の投影は、DB接続、取得元の選択、生の記録の所有、読取りの待機、取得世代を持ちません。同じ取得組の期間変更では、最新一件の日索引結果だけを再利用し、全記録から日索引を毎回作り直しません。期間投影は同じ生の記録への参照を返し、全範囲・全確定状態では生の記録の一覧をそのまま再利用します。取消しは表示の投影を止めるだけで、共有する取得組を破棄しません。
 
-`PlayHistoryProjectionIndex` が生の記録を現在の所持譜面とプレイリストへ解決します。候補索引から表示用ChartFileを取得せず、MD5/SHA-256の候補解決と現在値を共通カタログ読取り区間で一括捕捉します。履歴自体の値と取得元別のスコアは独立した記録として維持します。古い要求・取消で構築が中断したら表示を更新しません。譜面を解決できない行は生のハッシュと診断を持つ未解決行として残せます。これはスキーマ不備や取得失敗を成功へ変える意味ではありません。
+生の記録は、現在の所持譜面とプレイリストへ解決します。候補索引から表示用の譜面を取得せず、MD5・SHA-256による候補の解決と現在値を、共通のカタログ読取り区間で一括して捕捉します。履歴自体の値と取得元別のスコアは、独立した記録として維持します。古い要求や取消で構築が中断したら、表示を更新しません。譜面を解決できない行は生のハッシュと診断を持つ未解決行として残せます。これはスキーマ不備や取得失敗を成功へ変える意味ではありません。
 
-通常一覧がdrainした同じ `NormalLibraryRefreshNotificationBatch` を履歴主体へ渡します。新しい取得組の公開と、カタログ・参照索引の有効な確定は、現在の期間・キーワード・カード・表示対象・整列を保つ新しい表示要求へ置き換え、旧要求を取消します。参照の表示差分が空でも確定版が進めば投影依存の更新として扱います。警告・保守表示だけの通知では全件を再投影しません。要求の正本は `ActiveRequest` とし、更新callbackは実行時の現在要求を使います。期間選択用の通知は実際の期間選択に限ります。
+通常一覧が取り出した同じ更新通知のまとまりを、履歴の管理主体へ渡します。新しい取得組の公開と、カタログ・参照索引の有効な確定は、現在の期間・キーワード・カード・表示対象・整列を保つ新しい表示要求へ置き換え、旧要求を取り消します。参照の表示差分が空でも確定版が進めば、投影に依存する更新として扱います。警告・保守表示だけの通知では全件を再投影しません。現在の要求だけを正とし、更新の呼出しは実行時の現在の要求を使います。期間選択用の通知は、実際の期間選択に限ります。
 
-明示された古い履歴要求のrefreshは、現在の画面受付や進行中の一覧構築へ副作用を与える前に拒否します。履歴から通常ツリーや完成済み重複一覧へ移った後に履歴の検索callbackが遅着しても、後発一覧の構築を取消さず、対象行の表示まで完了させます。現行要求の検索refreshは取得済み履歴へ適用します。
+明示された古い履歴要求の再表示は、現在の画面の受付や進行中の一覧構築へ副作用を与える前に拒否します。履歴から通常ツリーや完成済みの重複一覧へ移った後に、履歴の検索の呼出しが遅れて届いても、後発の一覧の構築は取り消さず、対象行の表示まで完了させます。現行要求の検索の再表示は、取得済みの履歴へ適用します。
 
-同じ取得組・期間・論理表示対象の投影依存更新は、raw record参照を履歴行の識別として既存の選択復元へ渡します。同じ譜面の別プレイを区別し、消失した行を旧添字の別行へ移しません。同対象の項目読込み完了、候補再構築による表参照の交換、同プリセットの確定参照先変更も既存の対象更新queueから選択維持へ接続します。明示的な別対象への切替は選択を解除し、その直後に項目完了が来ても採用済み一覧の対象識別を使って旧対象の選択を運びません。取得組・期間の実変更にも選択を持ち越しません。非表示化・要求置換では派生表示を失効させ、退役した一覧の取得組参照も解放します。
+同じ取得組・期間・論理表示対象での投影に依存する更新では、生の記録への参照を履歴行の識別として、既存の選択復元へ渡します。同じ譜面の別プレイを区別し、消失した行を旧添字の別行へ移しません。同じ対象の項目読込み完了、候補の再構築による表参照の交換、同じプリセットの確定参照先の変更でも、選択を維持します。明示的に別の対象へ切り替えたときは選択を解除し、その直後に項目の読込み完了が届いても、採用済み一覧の対象識別を使って旧対象の選択を運びません。取得組・期間が実際に変わるときも選択は持ち越しません。非表示化や要求の置換では派生した表示を失効させ、退役した一覧の取得組への参照も解放します。
 
 読取り・表示生成が失敗した場合は、現在要求の結果領域を取得失敗へ更新します。旧行・選択・集計カードを外し、行・カードに依存する操作だけを止めます。失敗表示に空の表示コレクションを使っても、正常0件の取得成功とは区別します。旧表示の保存・条件照合・復元は行わず、期間・表示対象の変更や他画面は利用できます。取消し・旧世代の拒否と取得失敗を区別し、古い成功・失敗結果は新しい要求へ適用しません。日付別の旧結果保存や自動再試行は行いません。
 
@@ -60,13 +60,17 @@ LR2のクリア2はEASYビットありをEASY、なしをASSISTとし、ASSIST�
 
 固定期間はすべて、今日、昨日、今日を含む最近7日・30日、未確定／診断です。年→月→日の過去日付ツリーはローカル日付でまとめ、降順に並べます。非同期の古い要求は新しい期間選択を上書きしません。
 
-時刻帯 `z` のローカル日付 `D` の開始境界 `Bz(D)` は、0時が有効ならそのUTC、重複するなら早いUTC、欠落するなら指定日以降の最初の有効なローカル境界の早いUTCです。日区間は `[Bz(D), Bz(D+1))` とし、隣接日は同じ境界を共有します。丸日欠落では両端が同値の空区間になります。今日・昨日・最近7日／30日と年・月・日の期間は、同じ境界変換を使います。
+日付の境界は次のとおり定めます。
 
-対象はアプリが使う `TimeZoneInfo.Local` とOS提供時刻帯です。変換では基準オフセット、各調整規則の基準差分を加えた値、さらに夏時間差分を加えた値を短命な候補集合にし、0時から候補を引いたUTCの逆変換が0時に一致する最小UTCを選びます。写像がなければ最大・最小候補オフセットが挟むUTC区間で、ローカル時刻が0時以上になる最初の境界をticksの二分探索で求めます。この区間は単独で連続する移行を前提とし、任意の人工時刻帯全域やOSデータ以上の歴史補正へ保証を広げません。時刻帯データは保存しません。
+- 時刻帯 `z` のローカル日付 `D` の開始境界 `Bz(D)` は、その日の0時のUTCです。0時が重複する場合は早いUTC、0時が存在しない場合は、指定日以降で最初に存在するローカル時刻の境界の早いUTCとします。
+- 日の区間は `[Bz(D), Bz(D+1))` とし、隣接する日は同じ境界を共有します。丸一日が存在しない日は、両端が同じ値の空の区間になります。
+- 今日・昨日・最近7日／30日と、年・月・日の期間は、同じ境界の変換を使います。
 
-一覧の日時はGregorianの `yyyy-MM-dd HH:mm:ss`、率は小数2桁で小数点を `.` として表示します。集計カードの件数は桁区切りなしの整数です。これらは表示書式の規則であり、演奏時間などの集計範囲は以下の取得元別の規則に従います。書式変更で元の成績値やカード検索集合は変えません。`PlayHistoryReadModelTests` は異文化の件数・率と既存カード条件を、`GridKeywordSearchQueryTests` はコピーした表示日時の検索を分担します。
+保証の対象は、アプリが使う `TimeZoneInfo.Local` と、OSが提供する時刻帯です。移行が単独で連続する時刻帯を前提とし、任意の人工的な時刻帯の全域や、OSのデータを超える歴史的な補正までは保証しません。時刻帯のデータは保存しません。
 
-表示言語の変更では採用済み終端の小集計だけを保持して、カード・可視診断・相対期間ラベル・表示対象ラベルを再整形します。未採用候補を含む `CurrentView` は再整形の入力にしません。行、日時境界、キーワード、カード選択、表示対象、一覧選択と要求の版は保ち、DB取得・検索を実行しません。正常0件・失敗・クリアも採用状態に反映します。通常一覧の件数は採用時の数値へ正規化し、`Preserve` で保持、明示文言で解除します。履歴の成功・正常0件・失敗では共通一覧要約へ明示的な空文字列を渡し、直前の通常件数を解除します。失敗は可視診断に表示します。言語購読はMainWindowのUI接続・解除の寿命に従います。
+一覧の日時はGregorianの `yyyy-MM-dd HH:mm:ss`、率は小数2桁で小数点を `.` として表示します。集計カードの件数は桁区切りなしの整数です。これらは表示書式の規則であり、演奏時間などの集計範囲は以下の取得元別の規則に従います。書式変更で元の成績値やカード検索の集合は変えません。
+
+表示言語の変更では、採用済みの終端の小さな集計だけを保持して、カード・可視診断・相対期間ラベル・表示対象ラベルを再整形します。未採用の候補を含む表示状態は、再整形の入力にしません。行、日時境界、キーワード、カード選択、表示対象、一覧の選択と要求の版は保ち、DB取得・検索は実行しません。正常0件・失敗・クリアも採用状態に反映します。通常一覧の件数は採用時の数値へ正規化し、保持の指定で保持し、明示した文言で解除します。履歴の成功・正常0件・失敗では、共通の一覧要約へ明示的な空文字列を渡し、直前の通常件数を解除します。失敗は可視診断に表示します。言語の購読は、メインウィンドウの画面接続・解除の寿命に従います。
 
 一覧とは別の集計帯に判定数、プレイ数、演奏時間、スコア/BP/COMBO/CLEAR更新数とクリア更新内訳を表示します。beatorajaだけEXH内訳を加えます。更新カードの複数選択はOR、キーワードとはANDで絞ります。カード選択を検索文字列や履歴へ書き込みません。
 
@@ -82,32 +86,40 @@ SCORE・BP・COMBO・CLEAR更新とクリア内訳は、所持・metadata解決�
 
 ### 検索と整列
 
-取得と表示用変換、表示対象の適用後に `GridKeywordSearchContext.PlayHistory` の検索を行い、最後に整列します。検索・整列・表示対象だけの変更は同じ期間の読込み・変換結果を使います。通常譜面一覧とは整列状態を共有せず、既定は時刻降順、同時刻は履歴ID降順です。履歴列が持つ `SortMemberPath` だけを受け付けます。
+取得と表示用の変換、表示対象の適用の後に、履歴用の検索を行い、最後に整列します。検索・整列・表示対象だけの変更は同じ期間の読込み・変換結果を使います。通常譜面一覧とは整列状態を共有せず、既定は時刻降順、同時刻は履歴ID降順です。履歴列が持つ `SortMemberPath` だけを受け付けます。
 
-| フィールド | 意味 |
+検索のフィールドは次のとおりです。
+
+| フィールド | 対象 |
 | --- | --- |
-| フィールド指定なし | 題名、作者、パス、フォルダの表示名、プレイリスト名、生のハッシュ、SHA-256、更新種別、取得元、プレイ日時を横断検索する。 |
-| `title:` / `artist:` / `path:` | 解決済み譜面の表示情報。未解決行では空。 |
-| `folder:` | 表示対象を適用した後の `FolderLabels`。「すべて」では表示用変換時の表記号、表単体では表内フォルダ、プリセットでは一致する難易度表の項目の `org_symbol + level`。`FOLDER: プリセット` では、プリセット外の行を空文字列として扱う。 |
+| 指定なし | 題名、作者、パス、フォルダの表示名、プレイリスト名、生のハッシュ、SHA-256、更新種別、取得元、プレイ日時を横断する。 |
+| `title:` / `artist:` / `path:` | 解決済みの譜面の表示情報。未解決の行では空。 |
+| `folder:` | 表示対象を適用した後のフォルダの表示（`FolderLabels`）。値は[表示対象](#表示対象とプリセット)ごとに異なる。`FOLDER: プリセット` では、プリセット外の行を空文字列として扱う。 |
 | `playlist:` / `ref:` / `table:` | 参照するプレイリストの表示名。 |
 | `md5:` | 解決した譜面のMD5。 |
-| `hash:` | 取得元の生ハッシュ。LR2ではMD5、beatorajaではSHA-256。 |
-| `sha256:` | 解決した譜面のSHA-256。未解決行では空。 |
-| `date:` | ローカル日付。`yyyy-MM-dd`、`yyyy/M/d`、`yyyy/MM/dd`、`yyyyMMdd` は表示上の一日全体、`yyyy-MM-dd HH:mm:ss` と既存の `yyyy/MM/dd HH:mm:ss` はローカル時刻の一秒、`date:"yyyy/MM/dd HH:mm:ss..yyyy/MM/dd HH:mm:ss"` は両端を含む範囲に一致する。範囲の両端でも新しいハイフン日時を受け付け、選択から生成するClauseは従来のslash表記を保つ。 |
-| `year:` | ローカル時刻の年との完全一致。 |
-| `month:` | ローカル時刻の月との完全一致。`M`、`MM`、`yyyy-M`、`yyyy-MM`、`yyyy/M`、`yyyy/MM` を受け付ける。 |
-| `type:` / `kind:` | `Kind` とLR2の `score_write_type`。主名は `type:`、互換別名は `kind:`。 |
-| `clear:` | LR2のベストクリアの変更前後の表示。`HC` など、既存のクリア種別の別名を使える。 |
-| `oldclear:` | LR2のベストクリアの変更前の表示。クリア種別の別名も使える。 |
-| `newclear:` | LR2のベストクリアの変更後の表示。クリア種別の別名も使える。 |
-| `finalized:` | `true` / `false`、`1` / `0`、`finalized` / `unfinalized` / `pending` を真偽値として扱う。 |
+| `hash:` | 取得元の生のハッシュ。LR2ではMD5、beatorajaではSHA-256。 |
+| `sha256:` | 解決した譜面のSHA-256。未解決の行では空。 |
+| `type:` / `kind:` | 更新種別（`Kind`）とLR2の `score_write_type`。主名は `type:`、互換の別名は `kind:`。 |
+| `clear:` / `oldclear:` / `newclear:` | LR2のベストクリアの、変更前後・変更前・変更後の表示。`HC` などの既存のクリア種別の別名を使える。 |
+| `finalized:` | 確定状態。`true` / `false`、`1` / `0`、`finalized` / `unfinalized` / `pending` を真偽値として扱う。 |
 | `source:` | 取得元の表示名とパス。 |
+| `date:` / `year:` / `month:` | ローカルの日時。次の表の書式で完全一致する。 |
 
-日付・年・月は部分一致でなく完全一致です。日時と範囲はローカル壁時計の秒で比較し、オフセットへ変換しません。日付範囲の両端は含みます。不正、逆順、空、片側なし、複数区切り、小数秒、オフセット、比較演算形式は警告して不一致とし、否定でも全件一致に変えません。有効なOR候補は通常どおり評価します。フィールドなしの貼付け日時を日付条件へ昇格しません。正規表現を指定した場合だけ表示文字列へ適用します。
+日時のフィールドは、部分一致ではなく完全一致です。ローカルの壁時計の秒で比較し、オフセットへ変換しません。
 
-`date:re:` はDATE列と共通の `yyyy-MM-dd HH:mm:ss` と、互換の `yyyy-MM-dd`・`yyyy/MM/dd` を候補にします。フィールド無指定の候補は日付だけを維持します。
+| 書式 | 一致する範囲 |
+| --- | --- |
+| `date:yyyy-MM-dd`、`yyyy/M/d`、`yyyy/MM/dd`、`yyyyMMdd` | 表示上の一日全体。 |
+| `date:yyyy-MM-dd HH:mm:ss`、`yyyy/MM/dd HH:mm:ss` | ローカル時刻の一秒。 |
+| `date:"開始..終了"` | 両端を含む範囲。両端には上の日時の書式を使える。 |
+| `year:yyyy` | ローカル時刻の年。 |
+| `month:` の `M`、`MM`、`yyyy-M`、`yyyy-MM`、`yyyy/M`、`yyyy/MM` | ローカル時刻の月。 |
 
-2行以上の選択でメニューを開くと、その時点の表示時刻の最小・最大を固定し、`date:"start..end"` を検索末尾へ追加できます。クリック前の選択・整列変更では値を変えず、同秒でも範囲で表します。
+不正、逆順、空、片側なし、複数の区切り、小数秒、オフセット、比較演算の形式は、警告して不一致とします。否定でも全件一致に変えません。有効なORの候補は通常どおり評価します。フィールドなしで貼り付けた日時を、日付の条件へ昇格しません。
+
+正規表現を指定した場合だけ、表示文字列へ適用します。`date:re:` は、DATE列と共通の `yyyy-MM-dd HH:mm:ss` と、互換の `yyyy-MM-dd`・`yyyy/MM/dd` を候補にします。日時の表示と検索候補は共通の整形を使い、時刻帯を変換しません。フィールドなしの候補は日付だけを維持します。
+
+2行以上の選択でメニューを開くと、その時点の表示時刻の最小・最大を固定し、`date:"開始..終了"` を検索の末尾へ追加できます。選択から作る条件は、slash区切りの `yyyy/MM/dd HH:mm:ss` の書式を使います。クリック前の選択・整列の変更では値を変えず、同じ秒でも範囲で表します。
 
 ### 表示対象とプリセット
 
@@ -143,10 +155,9 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 
 ## 実装とテストの対応
 
-`PlayHistoryReadModelTests.BuildReadView_Lr2OwnsReadPeriodProjectionPresentationAndCacheLifecycle` は実モデルの一括取得で3履歴を捕捉し、既定の時刻降順・同時刻ID降順を独立期待で確認する。DB削除後の暖まった期間検索で再読取りしないこと、新時刻の1履歴を追加した後の許可取得、昇順の異時刻関係を確認する。同時刻の昇順副キーは固定せず、取得組更新・取消拒否の保証を維持する。
-
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| LR2の履歴の一括取得、期間投影、既定の整列、取得組の更新 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs)、`PlayHistoryReadCache` | `PlayHistoryReadModelTests.BuildReadView_Lr2OwnsReadPeriodProjectionPresentationAndCacheLifecycle` は実モデルの一括取得で3履歴を捕捉し、既定の時刻降順・同時刻ID降順を独立期待で確認する。DB削除後の暖まった期間検索で再読取りしないこと、新時刻の1履歴を追加した後の許可取得、昇順の異時刻関係を確認する。同時刻の昇順副キーは固定せず、取得組更新・取消拒否の保証を維持する。 |
 | 通常成績と履歴の一括取得、表示版と取得世代、全再初期化の保持 | `BmsLibraryInitializationService.LoadScoreTable`、`BMSLibrary.ScoreSnapshot` | `BmsLibrarySavedScoreAvailabilityTests.InitializeStartup_AcquiresHistoryBeforeViewAndFullReinitializeKeepsCapturedBatch` と成否独立性、`ScoreSnapshotPublicationTests` の既存版・購読・非複製検証。取得済みrawの期間・確定状態・日索引とノーツ固定は `PlayHistoryReadModelTests`、DB変更・移動後もランプが捕捉組を使うことは `BmsLibraryPlaylistLampDataSourceTests` で分担する。 |
 | 取得元・期間・確定状態・未解決行・累計差分 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs)、[`BeatorajaPlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/BeatorajaPlayHistoryReader.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`BmsLibrarySavedScoreAvailabilityTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/BmsLibrarySavedScoreAvailabilityTests.cs) |
 | beatoraja旧新BPの未記録値と更新種別 | `BeatorajaPlayHistoryReader`、[`ScoreValueCalculator.NormalizeMinBp`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Score/ScoreValueCalculator.cs)、`PlayHistoryRow` | `PlayHistoryReadModelTests.BeatorajaReader_TreatsMaxValueOldMinBpAsUnplayed` で実scorelogの旧特殊値→実績10と旧新特殊値のクリア更新を読み、reader・表示行のnull、初回BP表示、BP更新なしとクリア更新の保持を確認する。 |
@@ -156,9 +167,9 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | 索引だけの失敗・正常行と集計の採用 | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs)、`PlayHistoryWorkflowOwner.BuildReadPresentation` | `PlayHistoryReadModelTests`で期間外の不正日時と正常な現在期間を使い、更新後の行・非ゼロ集計・過去日項目の除去・固定期間の継続を確認する。player表だけの障害は同テスト群で正常一覧と3実績の利用不可、次の許可取得後の復帰を確認する。 |
 | 読取り失敗の一次診断 | 両reader、[`Lr2PlayHistorySchemaService.Check`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs)、[`PlayHistoryReadDiagnostics`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/PlayHistoryReadDiagnostics.cs) | 上記reader・スキーマの実DB失敗テストを回帰実行し、元例外・取得元・段階・パスの局所ログ接続は静的に確認する。例外の表示用輸送やログ故障の組合せを保証に加えない。 |
 | 検索構文・日時範囲・表示フィルター | [`PlayHistoryReadCache`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryReadCache.cs) | [`GridKeywordSearchQueryTests`](../../../tests/BeMusicSeeker.Core.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`ChartListFilterViewModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/ChartListFilterViewModelTests.cs) |
-| 表単体・両プリセットの所属大小文字・重複一致・元データ不変 | [`PlayHistoryDisplayTargetIndex`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryDisplayTarget.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs)の `PlaylistTargetUsesPlaylistFolder` はMD5優先・SHA256単独の両条件でA/a各一回を確認する。`TargetSetFiltersRowsAndUsesOrgSymbolLevel` と `TargetSetProjectionOnlyKeepsRowsAndClearsUnmatchedFolder` はSATA/SATa各一回と非対象行の除外／保持・空欄化、全条件でentry捕捉値と元行FOLDERの不変を確認する。ハッシュの小文字正規化と、所属重複排除のOrdinal比較は静的レビューで分担する。ID限定・全件fastpath・旧要求拒否・MD5優先は同テスト群の既存ケースを維持する。 |
+| 表単体・両プリセットの所属大小文字・重複一致・元データ不変 | [`PlayHistoryDisplayTargetIndex`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryDisplayTarget.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs)の `PlayHistoryDisplayTargetIndex_PlaylistTargetUsesPlaylistFolder` はMD5優先・SHA256単独の両条件でA/a各一回を確認する。`PlayHistoryDisplayTargetIndex_TargetSetFiltersRowsAndUsesOrgSymbolLevel` と `PlayHistoryDisplayTargetIndex_TargetSetProjectionOnlyKeepsRowsAndClearsUnmatchedFolder` はSATA/SATa各一回と非対象行の除外／保持・空欄化、全条件でentry捕捉値と元行FOLDERの不変を確認する。ハッシュの小文字正規化と、所属重複排除のOrdinal比較は静的レビューで分担する。ID限定・全件fastpath・旧要求拒否・MD5優先は同テスト群の既存ケースを維持する。 |
 | 実画面の期間・明示メニュー操作・対象変更 | [`PlayHistoryWorkflowOwner`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.cs) | [`MainWindowPlayHistoryWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlayHistoryWpfTests.cs)、[`MainWindowContextMenuResourceTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/MainWindowContextMenuResourceTests.cs) / [`MainWindowContextMenuResourceTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowContextMenuResourceTests.cs)で実WPFの期間・明示メニュー操作・対象変更を自動検証する。実入力とフォーカスは[利用者に推奨する実機確認](../development/testing.md#利用者に推奨する実機確認)へ分ける。 |
-| 履歴のhash列と通常コピー・メニューの能力分離 | `CustomTableColumnFactory`、`PlayHistoryContextMenuState`、`PlayHistoryWorkflowOwner`、`MainWindow` | `CustomTableColumnFactoryTests.PlayHistoryHashColumns_UseProjectedHashesWithoutFallback` はLR2/beatorajaの実投影で所持譜面解決・未解決・所持譜面未解決のSHA単独metadata取得について、各本来値・RAW保持・表示/セル/TSVとMD5整列を確認する。SHA単独metadata条件ではMD5空/SHA正値を維持する。metadata条件は正しいSHA・空MD5で取得し、`ResolvedChart` なしとmetadata取得済みを分ける。`CustomTableNavigationTests.PlayHistoryCopyCurrentCell_UsesLatestSelectedRowAndReplacementSource` は実Ctrl+Cから現在行・列とsource交換後の実factory値を観測し、専用例外でClipboard前に止める。`CustomTableColumnSettingsTests.PlayHistoryHashLayouts_SaveAndReloadWithoutChangingExistingChoices` と既存補完caseは実provider読戻しと既存幅・順序・可視性を確認する。`MainWindowPlayHistoryWpfTests.PlayHistoryColumnMenu_TogglesMd5ColumnThroughCompiledBinding` は実列メニューの表示切替を確認する。`MainWindowContextMenuResourceTests.PlayHistoryContextMenuOwnerCreatesAssociatedTargetForResolvedRow` は未解決両方式・索引対象外のpath/MD5欠損行の元hash保持とローカル3操作拒否、正常BMSのscoreviewer hash/path/titleと空title受理を確認する。scoreviewerの欠損path/MD5条件自体は静的点検へ分担する。同WPFの `PlayHistoryContextMenu_DoesNotInferPrimaryActionsFromSecondaryRows` は空hashの主行state/input受理・ローカル能力なしと、副行にローカル能力があっても実メニューの関連付け/Explorer/viewer非表示・日付表示・主行文脈保持を確認する。同WPFの`PlayHistoryBmsonRowOffersConfiguredMd5WebAction`・`PlayHistoryUnresolvedBeatorajaRowOffersWebActionsForEveryChartKind`・`PlayHistoryResolvedRowOffersAssociatedOpenForExistingFile`は実クリックのhash/actionID/対象とcopy項目なし・separator合法を確認する。日付/行文脈・設定初期化・資源辞書整合は既存系列を維持する。 |
+| 履歴のハッシュ列と通常のコピー、メニューの能力の分離 | `CustomTableColumnFactory`、`PlayHistoryContextMenuState`、`PlayHistoryWorkflowOwner`、`MainWindow` | `CustomTableColumnFactoryTests.PlayHistoryHashColumns_UseProjectedHashesWithoutFallback`: LR2・beatorajaの解決済み・未解決・SHA-256だけの譜面情報の行で、MD5・SHA256・RAW HASHの各列が本来の値を表示・セル・TSV・整列に使い、SHA-256をMD5へ代用しないこと。`CustomTableNavigationTests.PlayHistoryCopyCurrentCell_UsesLatestSelectedRowAndReplacementSource`: Ctrl+Cが現在の行・列の値をコピーすること。`CustomTableColumnSettingsTests.PlayHistoryHashLayouts_SaveAndReloadWithoutChangingExistingChoices`: 列の幅・順序・表示の保存と復元。`MainWindowPlayHistoryWpfTests.PlayHistoryColumnMenu_TogglesMd5ColumnThroughCompiledBinding`: 列メニューの表示切替。`MainWindowContextMenuResourceTests.PlayHistoryContextMenuOwnerCreatesAssociatedTargetForResolvedRow`: 未解決の行の元のハッシュの保持とローカル操作の拒否。同WPFの `PlayHistoryContextMenu_DoesNotInferPrimaryActionsFromSecondaryRows`、`PlayHistoryBmsonRowOffersConfiguredMd5WebAction`、`PlayHistoryUnresolvedBeatorajaRowOffersWebActionsForEveryChartKind`、`PlayHistoryResolvedRowOffersAssociatedOpenForExistingFile`: 右クリックした行だけで能力を判断し、各操作のハッシュ・対象が正しく、コピー専用の項目と不要な区切りがないこと。 |
 | 終端適用・データ源退役診断・行所有権 | [`PlayHistoryWorkflowOwner.TerminalShell`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryWorkflowOwner.TerminalShell.cs)、[`PlaylistWorkspaceViewModel.DetailTerminal`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.DetailTerminal.cs) | [`ChartListVirtualViewTests.PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/ChartListVirtualViewTests.cs)で実履歴行、旧行の一回の回収、データ源解除、後続公開とログ故障時の成功を確認する。必須公開の失敗・取消・旧世代の拒否は同テスト群の既存終端ケースで確認する。 |
 | プリセットの確定名・継続編集・削除と候補分離 | [`SettingsDialogViewModel.TryApplyPlayHistoryFolderDisplayPresetEditSession`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs)、`RemoveSelectedPlayHistoryFolderDisplayPreset` | [`SettingsDialogBehaviorTests.PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsDialogBehaviorTests.cs) は ` 練習 ` の確定から対象変更・` 集中 ` への改名・削除を再表示せずに行い、新しいproviderの生JSONと同じ編集用プリセットの名前・対象・件数を確認する。別recordの取消候補とBMT候補の非混入・保持も同ケースが確認する。既存の `SettingDialogCustomFolderOutputBaseTests.PlayHistoryFolderDisplayPresetEditor_DraftsSaveValidationAndIdMatching` は空名・重複名・対象未選択の拒否、ID照合と実履歴への両表示モードの配送を分担する。 |
 | プリセットの検索・選択保持・有界表示 | [`PlayHistoryFolderDisplayPresetEditor`](../../../BeMusicSeeker/ViewModels/PlayHistory/PlayHistoryFolderDisplayPresetEditor.cs) | [`DialogPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs)、[`SettingDialogCustomFolderOutputBaseTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogCustomFolderOutputBaseTests.cs)。同一識別値で対象参照が変わる場合の再要求は `PlayHistoryDisplayTargetSelection_RequeuesWhenSameIdentityTargetSetChanges` が確認する。 |
@@ -170,11 +181,8 @@ DB読取り、LR2スキーマ検査、期間実績の取得で例外を結果へ
 | 保存成功のプリセット改名と希望識別の追従 | `SettingsDialogViewModel.TryApplyPlayHistoryFolderDisplayPresetEditSession`、`PlayHistoryWorkflowOwner.RefreshDisplayTargetSetsFromSettings` | `PlayHistoryReadModelTests.WorkflowOwner_ConfirmedPresetRenameKeepsLogicalSelection` が両モード・空白・大小文字・連続改名・別プリセットの選択不変を確認する。実providerの保存成功・失敗・取消は既存Settings系列へ分担する。 |
 | 履歴中だけキー数UIを隠す | MainWindowのキー数ボタン・メニューBinding | `MainWindowPlayHistoryWpfTests.PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState` が履歴への遷移と通常復帰、保存条件の不変を確認する。 |
 | DATE表示と正規表現の秒・互換候補 | 共通DATE表示、履歴のdate検索候補 | `GridKeywordSearchQueryTests.MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp` がLR2/beatorajaの実DATE GetText、秒・否定・旧日付候補を確認する。 |
+| 実アプリでの外部履歴の導入・取得・表示 | アプリ全体 | `PlayHistoryScenarioTests.ExternalHistory_RealSchemaSettingsAndPresentationPreserveSourceIdentity`: 設定画面からLR2履歴スキーマを導入しても既存のスコアから履歴を作らないこと、外部ゲーム相当の更新でトリガーが作った履歴が、再取得・期間選択・検索を通して事前に宣言したハッシュ・回数差・成績・集計と一致すること。beatorajaへ切り替えた後の日の境界、mode 0のSHA-256の更新記録、未所持の譜面と未知のプレイヤー実績、ランプビューアの採用結果、LR2への復帰と通常の終了までを接続する。readerの全入力条件は下位のテストに残す。 |
 | 単曲の取得条件、元DBの保持と5001件以上の表示・検索 | 両reader、`PlayHistoryReadCache`、`PlayHistoryWorkflowOwner` | `HistoryReader_SingleChartsAndPeriodIndexPreserveSourceRows` は実SQLiteの長さ・mode・未所持条件、元行保持と日索引を、`BuildReadView_AllRowsBeyondFiveThousandRemainSearchable` は両取得元の許可取得から全件表示と最古hash検索までを確認する。 |
-
-実Appの `PlayHistoryScenarioTests.ExternalHistory_RealSchemaSettingsAndPresentationPreserveSourceIdentity` は、専有プロファイルの実設定画面からLR2履歴スキーマを導入し、既存scoreから履歴が遡及生成されないことをraw SQLiteで確認します。外部ゲーム相当のscore/player更新から製品triggerが生成する履歴を通常成績再取得・実期間選択・陽性キーワード検索へ接続し、事前宣言したhash・回数差・成績・集計をrawと採用後の行へ別々に照合します。生成IDと実時刻だけを観測し、時刻は外部書込みの前後で区切ります。
-
-同ケースは設定節の実確定でbeatorajaの選択playerへ切り替え、固定日の開始・終了境界、mode 0のSHA-256更新記録、未所持identityと未知のplayer実績を確認します。通常一覧・重複一覧の非空path集合と実ランプWindowの採用結果、LR2への設定復帰、通常Close後の全所有プロセス終端までを接続します。内部の旧callback競合とreaderの全入力条件は既存Componentの保証に残します。期間・検索の観測は既存要求識別とその表示Taskの読取り専用通知を使い、処理の追加・再実行・成功結果の補完を行いません。
 
 ## 関連資料
 

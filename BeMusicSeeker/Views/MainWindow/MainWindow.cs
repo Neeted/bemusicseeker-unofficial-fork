@@ -3625,6 +3625,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     /// <summary>選択済み見出しの再クリックから、一件だけの取消可能な遅延編集開始を所有します。</summary>
+    /// <remarks>
+    /// 要求は見出しの PreviewMouseDown で作ります。Preview と bubble のイベント引数は別の参照のため、開始クリックの終端は
+    /// 引き継がれる入力属性と対象ツリー内の配送経路で照合します。要求の退役（現在参照の除去、DispatcherTimer の停止、
+    /// Tick と監視の解除）は、編集開始より先に終えます。
+    /// </remarks>
     private void playlistTableFolderClicked(object sender, MouseButtonEventArgs e)
     {
         if (!(e.ChangedButton == MouseButton.Left) || !(sender is EditableTextBlock { TemplatedParent: ContentPresenter contentPresenter } editableTextBlock))

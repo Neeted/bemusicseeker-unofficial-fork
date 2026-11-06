@@ -6,6 +6,10 @@ using BeMusicSeeker.ViewModels;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>実AppComposition・VM投影の通知完了まで、重複解析の受付を保持することを確認します。</summary>
+/// <remarks>
+/// 重複統合の実DB・ファイルシステム、ロールバック、結果記録は Core の同名クラスが headless scheduler で確認します。
+/// このモジュールには、実AppComposition と ViewModel への投影を必要とする確認だけを置きます。
+/// </remarks>
 [TestClass]
 public sealed class BmsLibraryDuplicateServiceTests
 {

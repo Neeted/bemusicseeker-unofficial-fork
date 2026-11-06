@@ -2,7 +2,7 @@
 
 ## 目的と適用範囲
 
-音声基盤で使用するマネージドパッケージとネイティブDLLの組合せを定めます。配布元の最新版を表す一覧ではなく、このリポジトリが採用している版の契約です。
+音声基盤で使用するマネージドパッケージとネイティブDLLの組合せを定めます。配布元の最新版ではなく、このリポジトリが採用している版を契約とします。
 
 ## 用語
 
@@ -30,15 +30,15 @@ DLLは `vendor/native/x64` で所有し、通常出力・配布とも `libs/x64`
 | `bassasio.dll` | 1.4.3.0 / `0x01040300` | https://www.un4seen.com/files/bassasio14.zip | `54BFE2F051338BB016B4CA08F840B93E72EE7EDFC9BF0245F08D7EDC6C72F45D` | `bassasio14\x64\bassasio.dll` | `73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96` | `libs/x64/bassasio.dll` |
 | `bms_vorbis.dll` | C ABI 1 / libogg 1.3.6・libvorbisfile 1.3.7 | `native/VorbisBridge/CMakeLists.txt`; https://downloads.xiph.org/releases/ogg/libogg-1.3.6.tar.xz; https://downloads.xiph.org/releases/vorbis/libvorbis-1.3.7.tar.xz | `5C8253428E181840CD20D41F3CA16557A9CC04BAD4A3D04CCE84808677FA1061` / `B33CC4934322BCBF6EFCBACF49E3CA01AADBEA4114EC9589D1B1E9D20F72954B` | `native/VorbisBridge/build/Release/bms_vorbis.dll` | `403287F5E79580C4987F5018AF7FFE5B180F63819B10D09EA744AF5465D360C9` | `libs/x64/bms_vorbis.dll` |
 
-`bms_vorbis.dll`は追跡対象のbridgeとハッシュ固定したXiph source archiveから、Windows x64・Release DLLとしてビルドします。liboggとlibvorbisはMSVC静的runtimeで静的リンクするため、別のXiph DLLはロードしません。`BassNativeRuntime`は他のnative DLLと同じ`libs/x64`からbridgeを読み込み、既存のプロセス保持generationに含めます。`VorbisDecoder`は所有済みhandleからC ABI exportを取得し、main assemblyのManagedBass DllImport resolverではbridgeを解決しません。
+`bms_vorbis.dll` は、追跡対象のブリッジとハッシュを固定したXiphのソースアーカイブから、Windows x64・ReleaseのDLLとしてビルドします。liboggとlibvorbisはMSVCの静的ランタイムで静的リンクするため、別のXiph DLLはロードしません。`BassNativeRuntime` は他のネイティブDLLと同じ `libs/x64` からブリッジを読み込み、プロセスが保持する同じ世代に含めます。`VorbisDecoder` は所有済みハンドルからC ABIの関数を取得し、ManagedBassのDllImportリゾルバーではブリッジを解決しません。
 
 ### 更新と配布の境界
 
-マネージドパッケージは呼出しの定義を供給し、ネイティブDLL一式はアプリ側で所有・検証します。出所を混同しません。現在の実装はBASS.NETの登録呼出しや登録情報を必要としません。更新処理が旧配置の `libs/Bass.Net.dll` を除去することは、旧インストールの互換清掃です。
+マネージドパッケージは呼出しの定義を供給し、ネイティブDLL一式はアプリ側で所有・検証します。出所を混同しません。BASS.NETの登録呼出しや登録情報は必要としません。更新処理が旧配置の `libs/Bass.Net.dll` を除去するのは、旧インストールの互換清掃です。
 
 依存更新では版、取得結果、アーカイブとDLLのハッシュ、PE形式、採用ファイル、固定済みパッケージ、出力を一つの互換単位として変更します。検証・コピーの失敗で戻す単位もネイティブDLL一式です。一部だけ違う版にして配布しません。
 
-ロード、正確なハンドルへの接続、版検証、ASIO・WASAPI、オフライン変換、形式の交渉、後片付けを既存の境界で検証します。物理機器不要のPCM取得、機器を使う確認、配布と更新、クリーンな環境のロードは別の確認範囲です。
+検証は、ロード、正確なハンドルへの接続、版の検証、ASIO・WASAPI、オフライン変換、形式の交渉、後片付けを既存の境界ごとに行います。物理機器を使わないPCM取得、機器を使う確認、配布と更新、クリーンな環境でのロードは、それぞれ別の確認範囲です。
 
 ## 実装とテストの対応
 

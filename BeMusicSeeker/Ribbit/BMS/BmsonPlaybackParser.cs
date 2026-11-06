@@ -29,6 +29,9 @@ internal static class BmsonPlaybackParser
     private static readonly Regex NumberSyntax = new(@"^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$", RegexOptions.CultureInvariant);
 
     /// <summary>一回のbyte読取りからmetadata、固定刻み時計、共有slice計画を作ります。playable競合は進行統計だけを回復し、正常完了時にWARNを集約します。</summary>
+    /// <remarks>
+    /// 演奏ノートの登録と範囲の判定には、解析中だけのレーン別の順序付き集合を使い、各登録で全ノート・LNを走査しません。
+    /// </remarks>
     internal static PlaybackChart Load(string path)
     {
         try

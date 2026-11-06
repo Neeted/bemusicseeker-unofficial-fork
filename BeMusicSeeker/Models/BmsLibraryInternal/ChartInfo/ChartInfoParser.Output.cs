@@ -124,6 +124,11 @@ internal static partial class ChartInfoParser
 
     private sealed partial class ChartModel
     {
+        /// <summary>譜面文字列に相当するUTF-8を、一つの伸長可能な連続バッファへ書き込みます。</summary>
+        /// <remarks>
+        /// 行ごとの中間文字列を作らず、各行を書いた後で出力の要否を判定し、出力しない行は行頭まで書込み位置を戻します。
+        /// 完成した領域は呼出し側が一回のSHA-256へ渡します。
+        /// </remarks>
         public ChartUtf8Buffer WriteChartUtf8(ParseTimeoutGuard timeoutGuard)
         {
             var output = new ChartUtf8Buffer();

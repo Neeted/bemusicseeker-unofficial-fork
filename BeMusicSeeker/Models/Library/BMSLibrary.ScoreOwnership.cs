@@ -28,6 +28,11 @@ internal sealed record ScoreSnapshotChange
 
 public partial class BMSLibrary
 {
+    /// <summary>スコアの購読表を保護します。</summary>
+    /// <remarks>
+    /// <see cref="lockScoreSnapshot"/> と同時に取得する場合は、必ずこのロックを先に取得します。
+    /// 個々のスコアのsetterからの変更公開と、全ルックアップの再公開はこの順序を共有し、逆順の取得を追加しません。
+    /// </remarks>
     private readonly object scoreSubscriptionGate = new();
     private readonly Dictionary<BMSScore, ScoreSubscription> scoreSubscriptions = [];
 

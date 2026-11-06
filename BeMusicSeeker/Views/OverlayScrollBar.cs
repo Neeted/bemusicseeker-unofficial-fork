@@ -16,6 +16,13 @@ public sealed class OverlayScrollBar : ScrollBar
     /// <summary>
     /// 論理スクロールのバー表示が切り替わるときだけ、接続済みの内容からpresenterまでを再測定対象にします。
     /// </summary>
+    /// <remarks>
+    /// 再測定は <see cref="UIElement.Visibility"/> が変わり、かつ <c>CanContentScroll=true</c> の場合に限ります。
+    /// WPFと同じ選択順で既存の <see cref="IScrollInfo"/> の候補を一つ選び、同じ <c>ScrollOwner</c> を持ち
+    /// <c>PART_ScrollContentPresenter</c> の子孫であることを確認してから、中間のラッパーを含む候補からpresenterまでの経路だけを無効化します。
+    /// 未実体化・対象なし・不適格・物理スクロールでは何もしません。別の候補への代替、項目の走査、追加の状態、予約、明示的なMeasure、
+    /// hover・drag・Valueの変更による発火は行いません。
+    /// </remarks>
     protected override void OnPropertyChanged(DependencyPropertyChangedEventArgs e)
     {
         base.OnPropertyChanged(e);

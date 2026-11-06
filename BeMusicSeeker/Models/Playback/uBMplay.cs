@@ -31,6 +31,11 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     /// <summary>最外要求だけが結果scopeを所有し、同期再入は借用します。例外終了でもロック解放後に確定順で通知し、同じ返却故障の通知は開始・停止の呼出元へ渡します。</summary>
     /// <param name="action">lock内で実行する既存要求。</param>
+    /// <remarks>
+    /// 結果scopeを所有するのは最外の開始・停止・終了イベントだけです。<c>HasExited</c> の確認で終了イベントが同期的に再入した場合は
+    /// scopeを借用し、捕捉したプロセス参照が現在の参照と同じときだけ一度整理します。scopeへの一時参照はロック内の finally で解除し、
+    /// 確定したコールバックの一覧は外側のロックを解放した後の finally で順に配送します。
+    /// </remarks>
     private void ExecuteWithExitNotifications(Action action)
     {
         ExitNotificationScope ownedScope = null;

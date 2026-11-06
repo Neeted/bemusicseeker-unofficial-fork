@@ -99,5 +99,9 @@ internal sealed class ExternalPlayerWaitPolicy
     }
 
     /// <summary>フォーカス・キー入力・埋込み後の待機を同じ境界へ渡します。0以下では実行権を譲ります。</summary>
+    /// <remarks>
+    /// 呼出し側の固定待機は、外部プレイヤーがフォーカス・埋込み・キー入力を処理するための猶予です。
+    /// uBMplay はフォーカスとキー送信の前後に50ms、BMIIDXView2015 は埋込み後に100ms、キー押下後に40ms待ちます。
+    /// </remarks>
     internal void Wait(int milliseconds) => wait(TimeSpan.FromMilliseconds(Math.Max(0, milliseconds)));
 }

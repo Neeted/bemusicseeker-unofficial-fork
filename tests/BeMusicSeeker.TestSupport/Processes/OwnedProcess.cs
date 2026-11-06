@@ -8,6 +8,12 @@ using Microsoft.Win32.SafeHandles;
 namespace BeMusicSeeker.TestSupport.Processes;
 
 /// <summary>実行体、UTF-8 出力、子孫の寿命を一つの所有境界として回収します。</summary>
+/// <remarks>
+/// Preparation は起動前に標準出力・標準エラーの文字コードを UTF-8 に設定し、子環境に
+/// <c>DOTNET_CLI_FORCE_UTF8_ENCODING=1</c> を設定します。Application は所有する両 pipe を UTF-8 の
+/// <see cref="StreamReader"/> で読み取ります。保存時の変換では読取り時の誤変換を直せないため、読取り側で文字コードを確定します。
+/// 親プロセスのコンソール・出力文字コード・カルチャ・環境変数は変更しません。
+/// </remarks>
 public sealed class OwnedProcess : IAsyncDisposable
 {
     private readonly Process process;

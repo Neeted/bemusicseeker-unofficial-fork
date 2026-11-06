@@ -421,6 +421,11 @@ internal sealed class SongTableFileCheckResult
     }
 }
 
+/// <summary>走査中の譜面ファイル一件の失敗を、パス・譜面の種類・段階・例外の型名・メッセージで保持します。</summary>
+/// <remarks>
+/// 段階は読取り（<c>read</c>）と解析（<c>parse</c>）を区別します。失敗は走査結果へ集約してログへ記録し、
+/// 大量の譜面で操作が止まらないよう、ファイルごとの確認画面は出しません。
+/// </remarks>
 internal sealed class ChartFileScanFailure(string path, string chartKind, string stage, string exceptionType, string message)
 {
     public string Path { get; } = path ?? string.Empty;

@@ -6,7 +6,7 @@ LR2のプレイヤー別スコアDBに追加する表・索引・トリガーと
 
 ## 用語
 
-[共通用語集](../glossary.md)を参照します。コードの識別子は原表記を使います。
+[共通用語集](../glossary.md)に従います。
 
 ## 仕様
 
@@ -77,7 +77,7 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 
 ### 検査結果と変更操作
 
-設定の導入・修復・撤去は、確定したLR2 rootと詳細XMLのplayerから対象DBを解決します。未確定XMLのplayerは使いません。対象を変える環境候補の破棄案内を既存の導入確認・撤去範囲選択へ統合し、取消・検証不成立・受付拒否では元候補と両環境のDBを保持します。既存L/P受付と最終対象検査を通った後に関係候補だけを戻し、cache失効・必要score再読込みまで同じTaskで待ちます。[設定の補助操作](../runtime/settings.md#補助操作の対象受付閉鎖)に従います。
+設定の導入・修復・撤去は、確定したLR2ルートと詳細XMLのプレイヤーから対象DBを解決します。未確定のXMLのプレイヤーは使いません。対象を変える環境候補の破棄案内を既存の導入確認・撤去範囲選択へ統合し、取消・検証不成立・受付拒否では、元の候補と両環境のDBを保持します。既存のLとPの受付と最終の対象検査を通った後に関係する候補だけを戻し、キャッシュの失効と必要なスコアの再読込みまで同じ処理で待ちます。[設定の補助操作](../runtime/settings.md#補助操作の対象受付閉鎖)に従います。
 
 | 状態 | 条件と操作 |
 | --- | --- |
@@ -90,11 +90,11 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 
 `InstallOrRepair` は未導入・修復可能の場合だけ書きます。削除はトリガーだけを外して記録停止・履歴保持とする方式、表と索引も外す方式を選べます。名前だけで異なる型のオブジェクトを消しません。必要な変更はトランザクションで行い、操作後に再検査します。
 
-設定画面は得られた状態を表示し、開くたびに再検査しません。明示操作前後と通常のスコア・履歴読込みで状態を更新します。成功後、稼働プロファイルでは通常成績と全履歴を一組として再取得し、その終端まで同じTaskで待ちます。稼働プロファイルがなければ再取得しません。再取得の失敗も今回の取得組として保持し、期間操作では読み直さず、次の許可取得で更新します。成績の取得状態と表示は[保存成績の再読込み](../library/chart-model.md#保存成績の再読込みと旧結果)に従います。
+設定画面は得られた状態を表示し、開くたびに再検査しません。明示操作前後と通常のスコア・履歴読込みで状態を更新します。成功後、稼働中のプロファイルでは通常成績と全履歴を一組として再取得し、その終端まで同じ処理で待ちます。稼働中のプロファイルがなければ再取得しません。再取得の失敗も今回の取得組として保持し、期間操作では読み直さず、次の許可取得で更新します。成績の取得状態と表示は[保存成績の再読込み](../library/chart-model.md#保存成績の再読込みと旧結果)に従います。
 
 ### 検査結果の表示言語
 
-検査serviceは状態・対象DBと詳細理由・診断を結果へ格納し、snapshotはその事実を保持します。presentationは現在の言語で状態と詳細を整形します。言語変更は設定の表示通知だけを行い、DBの再読込み・導入・修復・撤去を開始しません。未表示の詳細も現在語で表示し、同じ対象への再表示では結果・対象パス・操作可否を保持します。
+検査結果は、状態・対象DB・詳細な理由・診断を事実として保持します。表示は、現在の言語で状態と詳細を整形します。言語変更では設定の表示通知だけを行い、DBの再読込み・導入・修復・撤去は開始しません。未表示の詳細も現在語で表示し、同じ対象への再表示では結果・対象パス・操作可否を保持します。
 
 ## 実装とテストの対応
 
@@ -102,10 +102,9 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 | --- | --- | --- |
 | 検査理由から現在語表示への接続 | `Lr2PlayHistorySchemaService`、`Lr2PlayHistorySchemaStatusSnapshot`、`Lr2PlayHistorySchemaStatusPresentation`、設定の言語購読 | `Lr2PlayHistorySchemaServiceTests` が実DB由来の理由、Core/Windows `Lr2PlayHistorySchemaUiTests` が受渡しと可否、`SettingsWindowPresentationTests.Lr2SchemaBanners_ActualPagesRevertSeverityAndAutomationStatusAfterRepairBecomesUnavailable` が現在語の実Binding・詳細・同対象再表示を確認する。 |
 | 列・索引・トリガー・衝突・明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaServiceTests.cs) |
+| 設定からの対象選択・確認・受付 | 設定の補助操作 | `Lr2PlayHistorySchemaUiTests.SettingDialogViewModel_InstallUsesConfirmedPlayerAndPreservesCandidatesUntilAccepted` と既存の導入拒否・撤去の系列が、別XMLのプレイヤーDBを変更しないこと、候補の保持、キャッシュ失効、再読込みを確認する。導入・撤去の実ボタンの接続と閉じる操作の抑止は、`SettingsWindowPresentationTests` の導入・撤去の代表が分担する。 |
 | 状態表示・導入と削除の受付 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs)、[`Lr2PlayHistorySchemaUiTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs) |
 | 記録された値と読取り条件 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs) |
-
-設定からの対象選択・確認・受付は `Lr2PlayHistorySchemaUiTests` の `SettingDialogViewModel_InstallUsesConfirmedPlayerAndPreservesCandidatesUntilAccepted` と既存導入拒否/撤去系列で、別XMLのplayer DBを変更しないことと候補保持・cache失効・再読込みを確認します。実buttonの接続とClose抑止は `SettingsWindowPresentationTests` の導入/撤去代表が分担します。
 
 ## 関連資料
 

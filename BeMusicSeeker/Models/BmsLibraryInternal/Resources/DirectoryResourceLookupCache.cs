@@ -38,6 +38,11 @@ internal sealed class DirectoryResourceLookupCache
 
         public int ReplacedDirectoryCount { get; } = replacedDirectoryCount;
 
+        /// <summary>逆引きのハッシュ候補を更新した遷移の回数です。</summary>
+        /// <remarks>
+        /// ディレクトリの差替えでは、同じハッシュでも除去と追加をそれぞれ一回と数えるため、正味の書込み件数ではありません。
+        /// 最終の候補一覧が同一でも遷移として数えます。パスの書換えでは、候補が実際に変わったハッシュごとに一回と数えます。
+        /// </remarks>
         public int UpdatedHashCount { get; } = updatedHashCount;
 
         public bool CancelledWarmup { get; } = cancelledWarmup;

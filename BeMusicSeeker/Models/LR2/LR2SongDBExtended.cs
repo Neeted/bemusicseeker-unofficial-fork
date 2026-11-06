@@ -1241,6 +1241,13 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 $"sqlite3_finalize returned result {result} ({(SQLite3.Result)result}): {message}");
         }
 
+        /// <summary>生のSQLite文を解放し、解放の失敗を実行失敗の有無に応じて扱います。</summary>
+        /// <remarks>
+        /// <c>sqlite3_finalize</c> が直前の実行失敗を返した場合も、文自体は破棄済みとして扱います。実行失敗がある場合、
+        /// 解放の二次診断はログだけに置き、<see cref="Exception.Data"/> へは追加せず元の失敗を維持します。
+        /// 解放APIの呼出し自体が例外で終わり解放を確認できない場合は、未解決の後片付けとして元の失敗とともに返します。
+        /// 実行失敗がない場合の解放エラーは、そのまま操作の失敗とします。
+        /// </remarks>
         private void FinalizeRawStatement(sqlite3_stmt statement, Exception primaryException)
         {
             int result;

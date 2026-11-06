@@ -121,6 +121,13 @@ internal sealed class BmsLibraryPlaylistReferenceOwner
         if (receipt != null) { wake?.Invoke(); }
         return receipt;
     }
+
+    /// <summary>索引の変更結果を既存の公開先へ登録し、参照版を一つ進めて公開します。</summary>
+    /// <remarks>
+    /// 呼出し側の排他の中で、索引の変更・変更不能な結果・公開先への登録を揃えた後、その終端で
+    /// <see cref="Volatile.Write(ref long, long)"/> により版を公開します。結果の構築や登録が失敗しても、
+    /// 索引は変更済みのため版は <c>finally</c> で公開し、元の例外を維持します。変更が無い結果では版を進めません。
+    /// </remarks>
     private PlaylistReferenceCommitReceipt Register(PlaylistReferenceIndex.ChangeResult result)
     {
         if (!result.HasChanges) { return null; }

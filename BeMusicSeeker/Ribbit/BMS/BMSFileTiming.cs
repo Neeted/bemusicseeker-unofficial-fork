@@ -112,6 +112,12 @@ public partial class BMSFile
         return result;
     }
 
+    /// <summary>各小節の制御とノーツへ、小節内位置から確定した絶対時刻を設定します。</summary>
+    /// <remarks>
+    /// 区間係数 <c>2,400,000,000 × L / b</c> は、0でない位置の進行に初めて必要になった時点で取得し、同じ有効BPMの区間で再利用します。
+    /// BPMが変わったときは取得済みの係数を無効にするだけで先行計算しません。末尾のBPM 0のように係数を使わない小節を失敗させないためです。
+    /// 小節ごとの作業状態は解析中のローカル変数に集約し、ノーツには元の位置と確定した絶対時刻だけを保持します。
+    /// </remarks>
     private void CalculateMeasureTiming()
     {
         BmsNumber currentBpm = Bpm.GetValueOrDefault();

@@ -6,23 +6,23 @@
 
 ## 用語
 
-[共通用語集](../glossary.md)を参照します。コードの識別子は原表記を使います。
+[共通用語集](../glossary.md)に従います。
 
 ## 仕様
 
 ### 受付とURIの境界
 
-取得は変更不能入力の確保です。導入との受付分離は[競合ポリシー](../core/operation-concurrency-policy.md#音声と独立した読取り)に従います。全取得pathとその所有情報を一つの `DroppedInstallBatchRequest` にまとめ、`PackageInstallWorkflowOwner.TryEnqueue` へ一度渡します。未受理なら `Warn_PackageInstallUnavailable` を一度表示します。導入の予約、ブラウザー代替、自動再試行へ変換しません。取得成功と導入受理・確定を別々に報告します。
+取得は変更不能入力の確保です。導入との受付分離は[競合ポリシー](../core/operation-concurrency-policy.md#音声と独立した読取り)に従います。取得した全ファイルのパスとその所有情報を一つの導入要求にまとめ、導入の受付へ一度渡します。未受理なら導入不可の警告を一度表示し、導入の予約、ブラウザー代替、自動再試行へは変換しません。取得成功と導入受理・確定を別々に報告します。
 
-アプリ所有stagingは未受理時に要求が一回だけ回収し、取得Taskは回収の実終端を待ちます。受理した入力の寿命は待ち行列へ移し、導入開始前の取消・世代退役でも未消費入力の回収と実idleまで待ちます。導入開始直前に導入側へ所有権を移し、その後は[導入側の保全・回収規則](../core/managed-temp-files.md#削除の時機)に従います。取得Taskの終端では無条件に削除しません。
+アプリが所有する一時保存領域は、未受理のとき要求が一回だけ回収し、取得処理は回収の終端を待ちます。受理した入力の寿命は待ち行列へ移します。導入開始前の取消・世代退役でも、未消費の入力の回収と待ち行列が空になるまでを待ちます。導入開始直前に導入側へ所有権を移し、その後は[導入側の保全・回収規則](../core/managed-temp-files.md#削除の時機)に従います。取得処理の終端では無条件に削除しません。
 
-実推定後も保留へ残る単体譜面は、保留理由によらず実ファイルとバイト列を保持し、後の明示手動導入に使えます。導入の入力使用終端は、保留入力の寿命の終端ではありません。持込み入力・利用者指定保存物へ削除を広げません。
+導入先の推定後も保留に残る単体譜面は、保留理由によらずファイルとその内容を保持し、後の明示的な手動導入に使えます。導入が入力を使い終えることは、保留入力の寿命の終端ではありません。持込み入力や利用者が指定した保存物へは、削除を広げません。
 
 初期URI、HTTP転送後の最終URI、HTML/JSONから辿る各URIはHTTP(S)だけを許可します。ローカルパス、UNC、`file:`、FTP、独自スキームは入力エラーとして取得・一時保存・ブラウザー代替・登録を始めません。これは保存済み表の外部同期元がローカルパスを扱う契約とは別です。
 
 ### 単体URLと複数行
 
-右クリックの「本体URLをブラウザで開く」「差分URLをブラウザで開く」は、有効行が1行なら指定列の元の絶対HTTP(S) URLをブラウザーで一度開きます。`AutoInstall` に依存せず、取得用の共有URL正規化、通信、一時保存、導入、確認、取得進捗、ツリー展開を始めません。0行、空・相対・非HTTP(S) URLは無作用です。ブラウザー起動は既存のUI配送を使い、その終端を待ち、起動・配送の失敗は呼出元の通知経路へ返します。取得中の入口抑止とメニュー可否は維持します。
+右クリックの「本体URLをブラウザで開く」「差分URLをブラウザで開く」は、有効行が1行なら指定列の元の絶対HTTP(S) URLをブラウザーで一度開きます。`AutoInstall` に依存せず、取得用の共有URLの正規化、通信、一時保存、導入、確認、取得進捗、ツリー展開は始めません。0行、空・相対・非HTTP(S) URLは無作用です。ブラウザーの起動は既存のUI配送を使ってその終端を待ち、起動・配送の失敗は呼出元の通知経路へ返します。取得中の入口抑止とメニュー可否は維持します。
 
 URLセルクリックの単体操作は、`AutoInstall` が有効で起動時ファイル検査を省略していなければ、自動取得を先に試みます。対応ファイルを得たら導入へ渡します。サイズ上限超過と不対応スキーム、導入未受理ではブラウザーを開きません。自動取得条件を満たさない場合も、通常取得失敗や未対応ページの場合も、許可済みHTTP(S)の元URLをブラウザーで開きます。
 
@@ -51,7 +51,7 @@ MD5ごとに逐次処理し、取消後は新しい問合せ・取得を始め�
 
 ### ファイル判定と上限
 
-対応譜面は `.bme`、`.bms`、`.bml`、`.pms`、`.bmson`、アーカイブは `.zip`、`.7z`、`.rar`、`.lzh` です。保存名はContent-Dispositionを最優先とし、その指定がなければ、対応する名前を持つ最終応答URI、Location、要求URIの順に求めます。元URLのquery有無で優先を変えません。最終応答URIの名前が無効ならLocation、Locationの名前も無効なら要求URIの名前を使います。取得済み応答の候補だけを使い、名前を得るための追加通信や拡張子の推測は行いません。既知の共有ページでは末尾の拡張子よりページ解決を優先します。HTML型の応答をアーカイブとして保存しません。
+対応譜面は `.bme`、`.bms`、`.bml`、`.pms`、`.bmson`、アーカイブは `.zip`、`.7z`、`.rar`、`.lzh` です。保存名は `Content-Disposition` を最優先とし、その指定がなければ、対応する名前を持つ最終応答のURI、`Location`、要求URIの順に求めます。元URLのクエリの有無で優先を変えません。最終応答のURIの名前が無効なら `Location`、`Location` の名前も無効なら要求URIの名前を使います。取得済み応答の候補だけを使い、名前を得るための追加通信や拡張子の推測は行いません。既知の共有ページでは末尾の拡張子よりページ解決を優先します。HTML型の応答をアーカイブとして保存しません。
 
 `Content-Length=0` は要ブラウザー、宣言長または実コピー量が512 MiBを超えた場合はサイズ上限です。HTML解析は2 MiBまでです。`filename*` をRFC 5987として優先し、`filename` がUTF-8をLatin-1として読んだ文字化けなら復元します。URIの名前はパーセント復号します。
 
@@ -71,9 +71,9 @@ Driveのキーは一度復号した値をクエリ値として符号化し、繰
 
 通常一括・外部API一括の成功済み集合、外部APIの失敗済み集合、共有ページの循環、venueの非CORE除外に同じ大小文字の意味を使います。先行失敗はcaseが異なる別実体を塞がず、同じ失敗実体は操作内で再取得しません。循環にはfragmentを除いたURI全体を使い、確認フォーム等に必要なquery遷移を保ちます。成功・失敗・非CORE除外には共有ファイルID等の実体キーを使います。比較のための通信・再試行・操作をまたぐキャッシュは追加しません。
 
-取得済みHTMLはSgmlReader、JSONはNewtonsoft.Jsonで構造として読みます。復号はBOM、有効なHTTP charset、本文先頭meta、UTF-8の順です。不明charsetはmetaへ進み、http-equivのShift-JISも扱います。属性とJSON文字列は一回だけ復号し、parserへ通信を委譲しません。
+取得済みのHTMLとJSONは、構造として解析します。文字コードは、BOM、有効なHTTPの `charset`、本文先頭の `meta`、UTF-8の順に決めます。不明な `charset` は `meta` へ進み、`http-equiv` のShift-JISも扱います。属性とJSON文字列は一回だけ復号し、解析器に通信を委ねません。
 
-当該作品の配布候補とそのscheme検査は同じ集合を使います。無関係なmailto/javascriptで取得や元ページへのBrowserFallbackを拒否しません。本体候補が非HTTPだけなら入力エラーとし、非HTTPへ要求しません。対応候補を選んで通信を開始した後は別候補へ再試行しません。
+当該作品の配布候補とそのscheme検査は同じ集合を使います。無関係な `mailto` や `javascript` を理由に、取得や元ページへのブラウザー代替を拒否しません。本体候補が非HTTPだけなら入力エラーとし、非HTTPへ要求しません。対応候補を選んで通信を開始した後は別候補へ再試行しません。
 
 | HTMLの取得元 | 解決方法と制限 |
 | --- | --- |
@@ -87,13 +87,13 @@ Driveのキーは一度復号した値をクエリ値として符号化し、繰
 
 Driveフォルダ、JavaScript操作、CAPTCHA、ログイン、同意フォーム、ブラウザーの取得イベントが必要な配布元は自動解決しません。埋込み解析は現在の形式に依存し、形式変更を成功と推定しません。
 
-venueはURLのaliasとnumberに一致するbms.downloadLinksのCORE、BMS SEARCHはURLの作品IDに一致しdownloads[].urlを持つ完全データを使います。同ID省略形・relatedLinks・別作品・イベントpackagesは除きます。当該配布構造が読めたら除外物をanchorで復活させません。既知Next文字列を文書順に連結し、通常JSONレコードだけを読み、I/HL等や汎用Flight参照解決は扱いません。識別子なしの旧埋込みとanchorだけの既存入力は維持します。固定gatewayの `PlaylistUrlAcquisitionOwnershipTests.DownloadCandidate_SelectsOnlyCurrentWorkDistribution` と既存共有ページケースで確認します。
+venueはURLのaliasとnumberに一致するbms.downloadLinksのCORE、BMS SEARCHはURLの作品IDに一致しdownloads[].urlを持つ完全データを使います。同ID省略形・relatedLinks・別作品・イベントpackagesは除きます。当該配布構造が読めたら除外物をanchorで復活させません。既知Next文字列を文書順に連結し、通常JSONレコードだけを読み、I/HL等や汎用Flight参照解決は扱いません。識別子なしの旧埋込みとanchorだけの既存入力は維持します。
 
 ### URL本文の無受信期限と終了
 
-単発・一括・外部API候補のURL取得は、ヘッダー受信まで既存の30秒期限を使います。本文は各`ReadAsync`に無受信30秒を設け、受信後の次readで更新します。総転送時間、ローカル書込み、解析はこの無受信期限に含めません。単発取得も進捗行から取消できます。利用者・終了の取消を通常失敗やブラウザー代替へ変換せず、遅延Dispatcher配送でも取消を再確認します。
+単発・一括・外部API候補のURL取得は、ヘッダー受信まで既存の30秒期限を使います。本文は各読取りに無受信30秒を設け、受信するたびに更新します。総転送時間、ローカル書込み、解析はこの無受信期限に含めません。単発取得も進捗行から取消できます。利用者・終了の取消を通常失敗やブラウザー代替へ変換せず、遅延Dispatcher配送でも取消を再確認します。
 
-取得表示と新規取得の抑止は導入引渡し待ちの前に終了し、先行要求の導入待ち中に次の取得を許可します。終了ではその表示状態と別に、取得開始から導入引渡し・未受理入力回収までの全実Taskを取り消して回収します。応答・一時入力・受付は実I/Oと必要なcleanupの終端まで保持します。
+取得表示と新規取得の抑止は導入引渡し待ちの前に終了し、先行要求の導入待ち中に次の取得を許可します。終了では、その表示状態とは別に、取得開始から導入引渡し・未受理入力の回収までの全処理を取り消して回収します。応答・一時入力・受付は、実際のI/Oと必要な後片付けが終わるまで保持します。
 
 ### 外部表の転送と相対参照
 
@@ -109,13 +109,13 @@ venueはURLのaliasとnumberに一致するbms.downloadLinksのCORE、BMS SEARCH
 
 ### 外部表の通信期限
 
-通常の外部難度表の HTTP GET と汎用フォーム POST は、送信開始から本文読取り完了まで一つの要求期限と呼出し元の取消を使います。ヘッダー受信で期限を更新せず、本文 I/O を取り消してから応答・ストリームを破棄します。途中本文を成功で返しません。同じバッファ方式の同期 GET・フォーム POST・テキスト POST にも適用します。大容量取得、multipart 送信、ストリームを返す API の期限とは区別します。
+通常の外部難度表のHTTP GETと汎用のフォームPOSTは、送信開始から本文読取り完了まで一つの要求期限と呼出し元の取消を使います。ヘッダー受信で期限を更新せず、本文 I/O を取り消してから応答・ストリームを破棄します。途中本文を成功で返しません。同じ全文読込み方式の同期GET・フォームPOST・テキストPOSTにも適用します。大容量取得、multipart送信、ストリームを返すAPIの期限とは区別します。
 
-内蔵の推定表・リコメンド表は通信せず、[ローカル計算の契約](local-recommendations.md)に従います。一般の外部表取込み、URL 補完、利用者のダウンロードの通信と取消は維持します。
+内蔵の推定表・リコメンド表は通信せず、[ローカル計算の契約](local-recommendations.md)に従います。一般の外部表取込み、URL補完、利用者のダウンロードの通信と取消は維持します。
 
 ### 失敗と事後通知の境界
 
-通常の通信・本文I/O・入力形式の失敗は取得対象内で扱い、単体のブラウザー代替や外部APIの次候補という既存の条件を維持します。内部故障・資源不足・未解決のstaging回収は通常取得失敗へ変換せず、操作を止めて所有する入力を回収します。所有する取消し要求がない例外を利用者取消し件数へ加えません。
+通常の通信・本文I/O・入力形式の失敗は取得対象内で扱い、単体のブラウザー代替や外部APIの次候補という既存の条件を維持します。内部故障・資源不足・未解決の一時保存領域の回収は通常取得失敗へ変換せず、操作を止めて所有する入力を回収します。所有する取消し要求がない例外を利用者取消し件数へ加えません。
 
 進捗、結果・受付拒否の案内、診断の失敗は局所で記録し、取得済みファイルの導入引渡しや取得結果へ戻しません。進捗は購読先ごとに分離し、他の購読先への終端通知を妨げません。開始確認、導入への引渡し、入力使用の実終端、必要な回収は任意通知ではありません。
 
@@ -137,7 +137,7 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 
 `playlist_url_download` と `playlist_external_package_lookup` で解決、対象外、重複、サイズ、保存、失敗、取消を記録します。引渡し後の展開は `auto_install extract_start` / `extract_done` / `extract_failed` に対象、展開先、項目数、経過時間を記録します。
 
-通信期限のテストは要求ごとのHttpClientとTimeProviderで、送信・ヘッダー・本文到達を観測して時計を進めます。実時間の競争ではなく実際の読取りtokenの取消とストリーム解放を確認します。切断確認は後片付けより先に行い、試験側の接続終了を成功に数えません。共有設定やグローバル時計を変更しません。
+通信期限のテストは、要求ごとのHTTPクライアントと時計の差替えで、送信・ヘッダー・本文の到達を観測しながら時計を進めます。実時間の競争ではなく、実際の読取りの取消とストリームの解放を確認します。切断の確認は後片付けより先に行い、試験側の接続終了を成功に数えません。共有設定やグローバルな時計は変更しません。
 
 ## 実装とテストの対応
 
@@ -154,6 +154,7 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 | Driveのresourcekeyを保持する正規化・初回要求・保存と導入引渡し | `PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `MainWindowContextMenuResourceTests.PlaylistUrlDownload_NormalizesCloudStorageShareUrls` は四形式・キー有無・予約文字・繰返し正規化を確認し、`PlaylistUrlDownload_ResolvesKnownSharedDownloadPages` は確認フォームのhidden値を分担する。`PlaylistUrlAcquisitionOwnershipTests.GoogleDriveResourceKey_FirstRequestSavesAndHandsOffFromSingleAndBulk` はセルと設定非依存の複数行本体取得から初回gateway要求・完全な保存bytes・一回の導入引渡しを確認する。HTTP転送自体と実WPF配送は既存の各代表へ分担する。 |
 | queryキー/値・共有IDの有意なcaseと同実体抑止 | `PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey`、`DownloadCandidateAsync` | `DownloadCandidate_PreservesSignificantUrlCaseAndSuppressesSameFile` はqueryキー/値、Drive/MediaFire IDを別本文・実書込みで区別し、scheme/host/fragment・共有別表記・resourcekeyや揮発tokenの差は一保存へ抑止する。 |
 | 循環と非CORE除外でのcase保持 | `PlaylistUrlAcquisitionWorkflow` | `DownloadCandidate_SharedPageDistinguishesCaseAndStopsFragmentCycle` はcase別ページの実保存とfragment循環の早期停止を要求順で区別する。`DownloadCandidate_NonCoreExclusionPreservesCaseDistinctAnchor` は同じ非COREの表記違いを除外し、case別anchorだけを取得・保存する。 |
+| 作品の配布構造に一致する候補の採用 | `PlaylistUrlAcquisitionWorkflow` | `PlaylistUrlAcquisitionOwnershipTests.DownloadCandidate_SelectsOnlyCurrentWorkDistribution` と既存の共有ページのケース。 |
 | API候補・優先順・重複・取消 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs) | [`PlaylistExternalPackageLookupServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistExternalPackageLookupServiceTests.cs) |
 | 失敗実体の再試行抑止とcase別候補への続行 | `PlaylistExternalPackageLookupService`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `LookupService_TriesNextProviderWhenDownloadFails` / `LookupService_DoesNotRetryFailedUrlInSameRun` は優先順、別MD5での同実体抑止とcase別候補の成功を確認する。`LookupService_DoesNotRetryRedirectedFailedUrlInSameRun` は元・最終失敗キー、`LookupService_SkipsAlreadyDownloadedUrlWithoutTryingLowerPriorityProvider` は成功重複後の下位照会なしを維持する。`ExternalPackageLookup_FailedUrlSuppressesOnlySameCaseFile` はworkspace所有集合から実取得・保存・一回sinkまでを確認する。 |
 | 取得完了と取消の交差、取得済み入力の集約 | [`PlaylistExternalPackageLookupService`](../../../BeMusicSeeker/Models/Playlist/PlaylistExternalPackageLookupService.cs)、[`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PlaylistUrlAcquisition.cs) | `LookupService_StopsAtFirstProviderWhenDownloadSucceeds` は成功返却直前の取消でも成功pathを保持する。`DownloadedPackages_CancellationDuringResponseDisposalHandsOffCompletedDownloadsOnce` はAPI・URL一括双方でquery値のcaseだけ違う二本文を保存し、二件目の応答解放中に取り消す。解放前の未引渡し、開始済み取得の終端、二取得物の一回引渡し、次対象の未開始と受理後保持を確認する。導入の受理・利用終端は既存の所有テストへ分担する。 |
@@ -167,7 +168,7 @@ TSVとStellaの開始済み取得はともに終端まで待ちます。複数�
 | 無受信期限・単発取消・全取得Taskの終了回収 | `PlaylistUrlAcquisitionWorkflow`、`PlaylistWorkspaceViewModel.PlaylistUrlAcquisition` | `PlaylistUrlAcquisitionOwnershipTests.BodyDeadline_ResetsOnDataAndJoinsCancelledRead`、`BodyDeadline_DoesNotLimitLocalWrite`、`SingleBodyCancellation_JoinsIoBeforeRemovingProgressAndNeverFallsBack`、`WindowClose_JoinsEarlierCleanupAndLaterBodyIndependently`、`SingleBodyCancellation_DisconnectsRealPeerBeforeFixtureDisposal`、`BrowserFallback_DeferredPresentationObservesShutdown` |
 | HTMLの再取得なし・通常の相対表現保持 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | `BmsPlaylistExternalLoadTests.LoadExternalTableAsync_UsesFetchedHtmlWithoutParserNetworkRequests` はraw相対header/data、取得集合と回数、別表・外部DTDの未取得を確認する。BOM・ローカル入力、drive/file/UNC解決は同クラスの既存ケースが分担する。 |
 | 実転送後の相対header/data/entryと同期元保持 | `PlaylistExternalSyncOwner.LoadExternalTableAsync` | [`BmsPlaylistExternalLoadTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalLoadTests.cs) の `LoadExternalTableAsync_RedirectedPageResolvesRelativeHeaderAndData`、`LoadExternalTableAsync_RedirectedDirectHeaderPreservesSourceAndResolvesData` はslash付きページ・直接headerの実HTTP転送から要求pathと回数、既知のentry本体・差分を照合する。data転送の登録・DB読戻しは[保存仕様](storage-and-export.md#実装とテストの対応)へ分担する。 |
-| 転送先本文の取消と応答解放 | `PlaylistExternalSyncOwner.GetExternalContentAsync` | `BmsPlaylistExternalLoadTests.LoadExternalTableAsync_RedirectedBodyCancellationDisposesResponse` は実本文prefix到達後に取り消し、取得Taskの取消終端とfixture解放前のpeer切断を確認する。上限は `ExternalPlaylistContentReaderTests` / `BmsPlaylistExternalLimitTests`、全対象の寿命・確定済み結果保持は `BmsPlaylistExternalReloadTests.ReloadPlaylistTargetsAsync_PartialCancellationRetainsConfirmedReferenceUntilAllTasksEnd` が分担する。 |
+| 転送先本文の取消と応答解放 | `PlaylistExternalSyncOwner.GetExternalContentAsync` | `BmsPlaylistExternalLoadTests.LoadExternalTableAsync_RedirectedBodyCancellationDisposesResponse` は実本文prefix到達後に取り消し、取得Taskの取消終端とfixture解放前のpeer切断を確認する。上限は `ExternalPlaylistContentReaderTests` と、[`BmsPlaylistExternalLimitTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalLimitTests.cs)、全対象の寿命・確定済み結果保持は `BmsPlaylistExternalReloadTests.ReloadPlaylistTargetsAsync_PartialCancellationRetainsConfirmedReferenceUntilAllTasksEnd` が分担する。 |
 | 補完元の通常失敗・内部故障と退役 | `BMSPlaylist.UrlCompletion` | `PlaylistUrlCompletionTests.BMSPlaylist_UrlCompletionDistinguishesUnavailableSourceFromInternalFailure` は旧補完と次の明示要求、`BMSPlaylist_UrlCompletionUsesInjectedOptionsAndRetiredResultDoesNotApply` は停止token、取消終端と旧行への適用拒否を確認する。 |
 | 補完元と候補のHTTP有意case・percent・既存同値条件 | [`PlaylistUrlCompletionSupport.UriEquals`](../../../BeMusicSeeker/Models/Playlist/PlaylistUrlCompletionSupport.cs)、`BMSPlaylist.UrlCompletion`、`BMSTableEntry.UrlCompletion` | [`PlaylistUrlCompletionTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistUrlCompletionTests.cs) の `BMSTableEntry_RuntimeUrlCompletionPreservesSignificantUriCase` はURL1/2個別にpath/queryキー・値、実percent-triplet・二重escape・予約/非予約文字、scheme/host・fragment/userinfo・file/非HTTP・nullを確認する。`BMSPlaylist_UrlCompletionFetchesSourcesOnceAndRefetchesTsvWhenUriChanges` は専用設定への保存・別readerの再読込みから実HTTPのcase別targetと新本文の両実効URLまで、同一元cacheとTSV優先を確認する。 |
 | 候補case差の確定差分と同じ表示行への通常配送、保存の分担 | `BMSPlaylist.UrlCompletion`、`BMSTableEntry.UrlCompletion`、`PlaylistWorkspaceViewModel.DetailChanges` | `PlaylistUrlCompletionTests.PlaylistDetailVirtualView_CandidateCaseChangesFlowThroughReceiptAndUpdateSameRow` はcase以外も異なる別名sourceのTSV取得からURL1/2のruntime/effective・版と旧新値のreceipt・実VirtualView同一行を確認し、同値候補では差分を作らない。空の保存URLでも両実効値を表示する保証を含む。永続URL優先/上書き・解除は同クラスのentryテスト群、通常補完のDB非材料化・日時保持は `BMSPlaylist_StellaFullSettingDisablesFetchAndClearsStellaRuntimeCompletion`、明示保存と外部非材料化は `DetailEdit_LocalPlaylistMaterializesEffectiveUrlsIntoDatabase` / `DetailEdit_ExternalSyncPlaylistDoesNotMaterializeEffectiveUrls`、編集中の通常配送は `DetailDraft_NormalUrlCompletionThenMemoCommitUsesLatestInput` に分担する。 |

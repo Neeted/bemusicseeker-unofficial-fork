@@ -7,6 +7,11 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>
 /// 譜面・パッケージ変更の生存中の活動期間を数え、表示へ開始・終了を知らせます。モデルの変更権限は所有しません。
 /// </summary>
+/// <remarks>
+/// 活動期間の数と <see cref="IsActive"/> はこの型のロックの内側で更新します。最も外側の開始と最後の解放の通知は
+/// ロックを解放してから行い、購読者の処理中にロックを保持しません。通知の順序は保証しないため、購読者は
+/// <see cref="IsActive"/> を読み直して状態を判断します。
+/// </remarks>
 internal sealed class ChartMutationActivityOwner
 {
     private readonly object syncRoot = new();

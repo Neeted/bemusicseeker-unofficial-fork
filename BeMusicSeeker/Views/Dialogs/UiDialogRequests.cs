@@ -281,7 +281,7 @@ internal sealed class UiWindowDialogRequest<TWindow, TResult>
 }
 
 /// <summary>
-/// file picker の要求を表します。Unit 5 で詳細な picker option をここへ集約します。
+/// file picker の要求を表します。picker の表示 option はこの要求へ集約します。
 /// </summary>
 internal sealed class UiFilePickerRequest
 {
@@ -327,7 +327,7 @@ internal sealed class UiFilePickerRequest
 }
 
 /// <summary>
-/// folder picker の要求を表します。Unit 5 で詳細な picker option をここへ集約します。
+/// folder picker の要求を表します。picker の表示 option はこの要求へ集約します。
 /// </summary>
 internal sealed class UiFolderPickerRequest
 {
@@ -353,7 +353,7 @@ internal sealed class UiFolderPickerRequest
 }
 
 /// <summary>
-/// save file picker の要求を表します。Unit 5 で詳細な picker option をここへ集約します。
+/// save file picker の要求を表します。picker の表示 option はこの要求へ集約します。
 /// </summary>
 internal sealed class UiSaveFilePickerRequest
 {
@@ -387,7 +387,7 @@ internal sealed class UiSaveFilePickerRequest
 }
 
 /// <summary>
-/// progress operation の要求を表します。Unit 4 で progress 表示と operation context をここへ集約します。
+/// progress operation の要求を表します。progress 表示の設定はこの要求へ集約します。
 /// </summary>
 internal sealed class UiProgressRequest
 {

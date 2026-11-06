@@ -2,87 +2,145 @@
 
 ## 目的と適用範囲
 
-通知、確認、ファイル選択、進捗、子ウィンドウ、重ね合わせ表示を、共通の表示窓口へ接続します。表示の親ウィンドウ、UIスレッド、完了・失敗を明示し、機能側に直接表示や隠れた代替経路を増やしません。
+通知、確認、ファイル選択、進捗、子ウィンドウ、重ね合わせ表示を、共通の表示窓口へ接続する境界を定めます。各要求について、親ウィンドウ、UIスレッド、完了と失敗の表し方を明示し、機能側が直接表示や隠れた代替経路を持たないようにします。
+
+選択画面の対象・既定名・拡張子は[ファイルとフォルダの選択](file-dialogs.md)、表示部品の外観は[外観](appearance.md)に従います。
 
 ## 用語
 
-共通語は[用語集](../glossary.md)を参照します。「親ウィンドウ」はWPFの `Owner`、「表示窓口」は `IUiDialogService` とその実装 `UiDialogCoordinator`、「緊急表示」は通常の表示基盤を使えない場合の `EmergencyDialog` を指します。
+共通語は[用語集](../glossary.md)を参照します。
+
+| 用語 | 意味 |
+| --- | --- |
+| 親ウィンドウ | WPFの `Owner`。モーダル表示の所有元。 |
+| 表示窓口 | `IUiDialogService` と、その実装 `UiDialogCoordinator`。 |
+| 緊急表示 | 通常の表示基盤を使えない場合に `App` だけが使う `EmergencyDialog`。 |
+| 所有する入口 | 確認や通知を伴う操作を受け付け、その結果と失敗の案内に責任を持つ画面側の入口。 |
 
 ## 仕様
 
 ### 共通の表示経路
 
-機能側は、通知・確認・選択・進捗・子ウィンドウの意図を型付きの要求として渡します。`MainWindowViewModel` の通常通知・確認は共通表示窓口へ接続し、画面固有の非通知操作は型付きイベントで `MainWindow` へ渡します。文字列のメッセージキーから処理内容を選ぶ経路は設けません。
+機能側は、通知・確認・選択・進捗・子ウィンドウの意図を型付きの要求として表示窓口へ渡します。文字列のメッセージキーから処理内容を選ぶ経路は設けません。
 
-`MainWindow` は進捗を `RunWithProgressAsync`、ファイル・フォルダ選択を表示窓口、モーダルの子ウィンドウを `ShowWindowAsync` へ渡します。重ね合わせ表示は `ShowOverlayDialog` / `HideOverlayDialog` で管理し、初期言語画面から設定画面への遷移も明示します。
+| 呼出元 | 経路 |
+| --- | --- |
+| `MainWindowViewModel` の通常の通知・確認 | 表示窓口。画面固有の非通知操作は、型付きのイベントで `MainWindow` へ渡す。 |
+| `MainWindow` の進捗 | `RunWithProgressAsync` |
+| `MainWindow` のファイル・フォルダ選択 | 表示窓口の選択要求 |
+| モーダルの子ウィンドウ | `ShowWindowAsync` |
+| 重ね合わせ表示 | `ShowOverlayDialog` / `HideOverlayDialog`。初期言語の画面から設定画面への遷移も、この経路で明示的に扱う。 |
 
-ライブラリ操作は [BmsLibraryDialogService](../../../BeMusicSeeker/Models/BmsLibraryInternal/Dialogs/BmsLibraryDialogService.cs) と[変更結果の表示](../library/mutations.md)の境界に従います。表示処理の統一を理由に、モデルの排他権を保持したまま画面の応答を待ちません。
+ライブラリ操作の表示は、[BmsLibraryDialogService](../../../BeMusicSeeker/Models/BmsLibraryInternal/Dialogs/BmsLibraryDialogService.cs)と[変更結果の表示](../library/mutations.md)の境界に従います。表示経路を統一するために、モデルの排他権を保持したまま画面の応答を待つことはしません。
 
 ### 直接表示を許可する実装
 
-下表は表示部品の実装境界です。一般の機能コードが直接 `ShowDialog`、標準メッセージボックス、選択画面、進捗画面を呼ぶことは許可しません。構造検証は、本番コードで検出した直接呼出しを含むファイル集合と、この表を比較します。
+次の表は直接表示を許可する範囲です。一般の機能コードは、`ShowDialog`、標準のメッセージボックス、選択画面、進捗画面を直接呼びません。構造検証は、本番コードで直接呼出しを含むファイルの集合を、この表と比較します。
 
 | ファイル | 責務 |
 | --- | --- |
 | `BeMusicSeeker/Views/ThemedMessageBox.cs` | テーマに従うメッセージ画面の表示部品。 |
 | `BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs` | 通常の表示基盤を使えない場合の標準メッセージボックス。 |
-| `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | 進捗、選択、子ウィンドウ等の実表示。 |
-
-### 独立した非モーダルウィンドウ
-
-ランプビューアと[譜面プロパティ](chart-properties.md)は、画面側の専用managerが直接 `Show` と窓・開始済み処理の寿命を所有します。共通モーダルAPIへ非モーダルの意味を混ぜません。ランプビューアは集計・sessionの回収を持ち、譜面プロパティは要求ごとに新しい窓と一回の読取りを持ちます。プロパティは初期配置だけ一時Ownerを使い、表示後はOwnerを外してタスクバーへ個別表示します。
-
-譜面プロパティの表示失敗は実WindowのCloseで回収し、終了受付前だけshellへ一度通知します。終了後の遅い通知を抑止しても元原因のログと開始済み処理の回収を省きません。取得・解析失敗は各プロパティ画面内で扱います。
+| `BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs` | 進捗、選択、子ウィンドウなどの実際の表示。 |
 
 ### 要求と失敗の扱い
 
-確認の表示失敗は承認にも利用者取消にも置き換えず、その操作を開始しません。列初期化は明示的なOKだけで実行します。サマリー一括編集の外部同期確認は実 `applyTask` と閉鎖抑止に含め、確認・実適用・必要な回収・再有効化まで待ちます。確認または本体の失敗は所有入口で一度案内し、その任意通知が失敗しても元結果・確定済み変更・編集値の意味を変えません。検索ルート選択、子編集画面やランプビューアの初回表示も呼出し前から同じ所有入口で保護し、実際に開始したTaskを通知監視で代用しません。
+表示要求ごとに、意図、親ウィンドウ、スレッド境界、結果と失敗の表し方を定めます。表示の失敗を成功や取消に読み替えず、別の表示手段へ暗黙に切り替えません。`UiDialogRoute` は共通窓口へ接続するための同期用の補助であり、表示の失敗を隠しません。
 
-要求には意図、親ウィンドウ、スレッド境界、結果と失敗の表し方を定めます。通知の失敗を成功や取消へ読み替えず、別の表示手段へ隠れて切り替えません。`UiDialogRoute` は共通窓口へ接続する同期用の補助であり、表示失敗を隠しません。
+#### 確認の結果
 
-一時試聴のコピー回収と局所診断は[音声](../runtime/audio.md#曲の再生と解放)に従います。`App` の緊急表示は `EmergencyDialog` に限定し、通常画面からの緊急経路の流用は認めません。
+| 条件 | 扱い |
+| --- | --- |
+| 確認の表示に失敗した | 承認にも利用者の取消にも置き換えず、その操作を開始しない。 |
+| 列の初期化 | 明示的なOKだけで実行する。 |
+| フォルダー全体の確認 | Yesは全体、Noは譜面のみ、Cancel・閉じる・Escは全操作の取消。 |
+
+#### 失敗の案内
+
+確認または本体の失敗は、所有する入口で一度だけ案内します。この案内は任意通知であり、案内自体が失敗しても、元の結果、確定済みの変更、編集値の意味を変えません。
+
+所有する入口は、確認や表示の呼出しより前から、開始した実際のTaskの終端までを保護します。通知の監視で開始済みのTaskの終端を代用しません。この規則は次の入口にも適用します。
+
+- 検索ルートの選択
+- 子の編集画面
+- ランプビューアの初回表示
+- サマリーの一括編集で行う外部同期の確認。確認、実際の適用（`applyTask`）、必要な回収、再有効化までを画面の閉鎖抑止の範囲に含める。
+
+一時試聴のコピーが残った場合の通知と局所診断は、[音声の一時導入試聴のコピーと回収](../runtime/audio.md#コピーと回収)に従います。
+
+#### 緊急表示
+
+`App` の緊急表示は `EmergencyDialog` に限ります。通常画面から緊急経路を流用しません。
+
+### 独立した非モーダルウィンドウ
+
+ランプビューアと[譜面プロパティ](chart-properties.md)は、画面側の専用の管理主体（`PlaylistLampViewerWindowManager`、`ChartPropertiesWindowManager`）が、`Show` の呼出し、窓の寿命、開始済みの処理の寿命を所有します。共通のモーダル表示APIに非モーダルの意味を混ぜません。
+
+| 画面 | 管理主体が所有するもの |
+| --- | --- |
+| ランプビューア | 集計と、その取得処理の回収。 |
+| 譜面プロパティ | 要求ごとの新しい窓と一回の読取り。初期配置のときだけ一時的な親ウィンドウを使い、表示後は親を外してタスクバーに個別表示する。 |
+
+譜面プロパティの表示に失敗した場合は、作成済みのWindowを閉じて回収し、終了の受付前に限り、画面の枠組みへ一度だけ通知します。終了後の遅れた通知を抑止しても、元の原因のログと開始済みの処理の回収は省きません。取得・解析の失敗は、プロパティ画面の中で扱います。
 
 ### 確認ボタンの言語と応答
 
-通常の確認画面のOK・Yes・No・Cancelは、表示時点の言語資源を実ボタンの文言に使います。OK・Yes・Noには専用の確認ボタン資源、Cancelには共通の取消資源を使い、言語変更後の次の表示から新しい文言を反映します。開いているモーダルの言語変更購読や翻訳のキャッシュは持ちません。
+通常の確認画面（`ThemedMessageBox`）のOK・Yes・No・Cancelは、表示時点の言語リソースを実際のボタンの文言に使います。
 
-上記の「開いているモーダルの言語変更購読を持たない」は確認画面（ThemedMessageBox）の記述です。表プロパティと進捗ダイアログの取消ボタンは、`Resources.Cancel` へのBindingにより、新しく開いた画面で現在語を表示します。取消動作・AutomationId・Esc・通常閉鎖は変わりません。
+- OK・Yes・Noは確認ボタン専用のリソース、Cancelは共通の取消のリソースを使います。
+- 言語を変更すると、次に表示する確認画面から新しい文言になります。表示中の確認画面は言語変更を購読せず、翻訳のキャッシュも持ちません。
+- 翻訳は、既定の応答、明示的な応答、Enter・Esc・閉じる操作の意味を変えません。
 
-翻訳は既定応答、明示応答、Enter・Esc・閉じる操作の意味を変えません。フォルダー全体の確認ではYesが全体、Noが譜面のみ、Cancel・閉じる・Escが全操作の取消を表し、確認の表示失敗は承認や取消に置き換えません。
+表プロパティと進捗ダイアログの取消ボタンは `Resources.Cancel` を参照し、新しく開いた画面で現在の言語を表示します。取消の動作、`AutomationId`、Esc、通常の閉鎖は言語に依存しません。
 
-保留復元の未確定失敗は専用の`PendingPackageRestoreWindow`を`ShowWindowAsync`で表示し、「再試行」「保留一覧を初期化して続行」「終了」の明示値を区別します。全保留登録の消去と、元ファイル・導入済み楽曲をこの操作では削除しないことを本文で示します。一覧初期化は`IsAccepted`と明示Resetの両方を要求し、×・Escに承認値を与えません。復元・一覧初期化の元原因は画面と既存ログへ渡します。DB確定後の障害や表示不能をこの復旧選択へ再分類しません。範囲と終了引渡しは[起動の保留復元](../runtime/startup.md#保留復元の失敗時選択)に従います。
+### 保留復元の失敗時の選択画面
+
+保留の復元で未確定の失敗が起きた場合は、専用の `PendingPackageRestoreWindow` を `ShowWindowAsync` で表示し、「再試行」「保留一覧を初期化して続行」「終了」を明示的な値として区別します。
+
+- 本文で、すべての保留登録を消去することと、元のファイルおよび導入済みの楽曲をこの操作では削除しないことを示します。
+- 一覧の初期化は、`IsAccepted` と明示的なResetの両方を要求します。×とEscには承認の値を与えません。
+- 復元と一覧初期化の元の原因は、画面と既存のログへ渡します。DB確定後の障害や表示不能を、この選択へ再分類しません。
+- 選択の範囲と終了の引渡しは、[起動の保留復元](../runtime/startup.md#保留復元の失敗時選択)に従います。
 
 ### 操作中に確定した通知の言語
 
-プレイリスト操作中に確定し、操作の終端で初めて表示する通知（推薦表の実力値更新、custom folder出力の警告、JSON出力・バックアップ・復元・BMT出力・ドロップ・Level入力の結果など）は、本文と見出しを確定時点の言語ではなく、表示直前に選択されている言語で整形します。通知は重要度・見出しの資源名・本文の資源名・翻訳対象でない生の書式引数（パス、表名、Invariant書式の数値）・生の詳細（例外本文など）を変更不能な事実として保持し、表示窓口が表示する一件ごとに整形します。例外本文などの診断は翻訳せず、例外を作った時点の文字列のまま保持します。そのため、失敗から表示までの間に言語を変えると、外側の文は表示時の言語、内側の例外本文は作成時の言語になり得ます。表示中のモーダルは言語変更に追従せず、通知のために元の処理を再実行しません。
+プレイリスト操作の途中で確定し、操作の終端で初めて表示する通知は、確定時点ではなく表示直前の言語で本文と見出しを整形します。対象は、リコメンドの実力値の更新、カスタムフォルダ出力の警告、JSON出力・バックアップ・復元・BMT出力・ドロップ・Level入力の結果などです。
+
+通知は次の値を変更不能な事実として保持し、表示窓口が一件ごとに表示直前に整形します。
+
+- 重要度
+- 見出しと本文のリソース名
+- 翻訳の対象でない書式引数（パス、表名、Invariant書式の数値）
+- 例外の本文などの詳細
+
+例外の本文などの診断は翻訳せず、作成時点の文字列のまま保持します。そのため、失敗から表示までの間に言語を変えると、外側の文は表示時の言語、例外の本文は作成時の言語になることがあります。表示中のモーダルは言語の変更に追従せず、通知のために元の処理を再実行しません。
 
 ### 設定画面と子ウィンドウ
 
-設定画面は、親を必須とする `ShowWindowAsync` のモーダル表示です。設定内の選択・通知・子ウィンドウでは、表示中の `SettingsWindow` を親とし、`MainWindow` へ勝手に戻しません。
+設定画面は、親を必須とする `ShowWindowAsync` のモーダル表示です。設定画面内の選択・通知・子ウィンドウは、表示中の `SettingsWindow` を親とし、`MainWindow` を親に戻しません。
 
-入力検証の同期通知も、確認・非同期通知と同じ注入済みの表示窓口を使います。通知ごとに調停処理を作り直しません。表示失敗では拒否した入力を採用せず、失敗を呼出元へ伝えます。
+| 表示 | 契約 |
+| --- | --- |
+| 入力検証の同期通知 | 確認や非同期の通知と同じ、注入済みの表示窓口を使い、通知のたびに調停処理を作り直さない。表示に失敗した場合は、拒否した入力を採用せず、失敗を呼出元へ伝える。 |
+| LR2の `song.db` と設定XMLの個別参照 | 一般ページで行う。標準の配置を使うよう促す確認を同じ注入済みの表示窓口から表示し、同意された場合だけファイル選択を開く。確認の取消と閉じる操作では選択へ進まず、編集値を変えない。 |
+| バージョン情報からの `ReleaseNotesWindow` | 注入された `IUiDialogService.ShowWindowAsync` だけで開き、親は `SettingsWindow`。親なし・非モーダルの代替はない。閉じても、設定の編集値の適用・初期化や設定画面の閉鎖を行わない。 |
 
-初回設定の保存完了通知は、設定内の通知ではなく設定画面終了後の案内です。設定画面とそのモーダル表示の後片付けを終えてから `MainWindow` を親として表示します。通知終了までは初期化を開始しません。初期化などの失敗で設定を再表示する場合は、保存中状態を解除した呼出元からUIキューへ要求し、前の処理が新しい画面の終了を待たないようにします。
+LR2の個別参照で確認や選択の表示に失敗した場合は、元の例外と内部の経路・状態をログへ残し、同じ表示窓口と設定ウィンドウから、翻訳済みの一般向けの通知を一度だけ行います。内部の診断文字列を利用者向けの文言に付加しません。この通知も失敗した場合はログだけに留め、再帰的な通知や代替経路は使いません。一般ページのクリック処理は非同期で待機し、イベントハンドラー以外へ `async void` を広げません。
 
-LR2の `song.db` と設定XMLの個別参照は一般ページで行います。各参照は、標準配置を使うよう促す確認を同じ注入済みサービスから表示し、同意された場合だけファイル選択を開きます。確認の取消・閉じる操作ではファイル選択へ進まず、編集値を変えません。一般ページのクリック処理は非同期待機し、イベントハンドラー以外へ `async void` を広げません。
-
-LR2個別参照の確認・選択で表示失敗が起きた場合は、元の例外と内部の経路・状態をログへ残したうえで、同じ注入済みサービスと設定ウィンドウから一般向けの翻訳済み通知を一度行います。内部診断文字列を利用者向け文言へ付加しません。通知も失敗した場合はログだけに留め、再帰通知や代替経路を使いません。
-
-バージョン情報からの `ReleaseNotesWindow` も、注入された `IUiDialogService.ShowWindowAsync` だけで開きます。親は `SettingsWindow` で、親なし・非モーダルの代替はありません。更新履歴を閉じても、設定の編集値を適用・初期化したり設定画面を閉じたりしません。
+初回設定と修復の流れは、[設定の初回と修復](../runtime/settings.md#初回と修復)と[起動の完了境界](../runtime/startup.md#起動の流れと完了境界)に従います。
 
 ## 実装とテストの対応
 
 | 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 直接表示を行うファイルの限定 | [UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs)、上記の表示部品 | [DialogRouteConsolidationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogRouteConsolidationTests.cs) の `DirectDialogRouteFiles_MatchDocumentedBoundaries`: 検出対象のファイル集合と表が一致すること。正規表現・比較対象は実装側を参照する。 |
-| 緊急表示と通常表示の分離 | [EmergencyDialog](../../../BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs) | 同テスト群: コンパイル後の呼出し関係から、緊急表示を使う境界を確認する。 |
-| 確認ボタンの翻訳と応答の意味 | [ThemedMessageBox](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) は6言語の実Content、言語変更後の次表示、4構成の代表的な明示応答・Enter・Escを確認する。[ThemedMessageBoxTests](../../../tests/BeMusicSeeker.Core.Tests/Dialogs/ThemedMessageBoxTests.cs) は既定値と結果変換、[UiDialogCoordinatorWpfTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) の `WholeFolderConfirmation_RealMessageProducesDistinctNoCancelAndClose` はフォルダー全体確認のNo・Cancel・閉じる・Escの区別、[LocalizationResourceParityTests](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs) は辞書・getter・6言語の整合を分担する。 |
-| 設定内の選択・子画面と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogEditCompletionTests.cs)、[SettingDialogCategoryPersistenceTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogCategoryPersistenceTests.cs)、[SettingsWindowPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowPresentationTests.cs)、[SettingsControlPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs): 取消、確認、親ウィンドウ、公開Automationによる選択を自動検証する。実フォーカスは[利用者に推奨する実機確認](../development/testing.md#利用者に推奨する実機確認)へ分ける。 |
+| 直接表示を行うファイルの限定 | [UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs)、上記の表示部品 | [DialogRouteConsolidationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogRouteConsolidationTests.cs) の `DirectDialogRouteFiles_MatchDocumentedBoundaries`: 直接呼出しを含むファイルの集合が表と一致すること。検出規則は実装側を参照する。 |
+| 緊急表示と通常表示の分離 | [EmergencyDialog](../../../BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs) | 同クラスの `StandardMessageBox_IsLimitedToEmergencyDialog`: コンパイル後の呼出し関係で、標準メッセージボックスの呼出しが `EmergencyDialog` だけにあり、その呼出元が `App` だけであること。 |
+| 確認ボタンの翻訳と応答の意味 | [ThemedMessageBox](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs): 6言語の実際のボタン文言、言語変更後の次の表示、4構成の明示応答・Enter・Esc。[ThemedMessageBoxTests](../../../tests/BeMusicSeeker.Core.Tests/Dialogs/ThemedMessageBoxTests.cs): 既定値と結果の変換。[UiDialogCoordinatorWpfTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) の `WholeFolderConfirmation_RealMessageProducesDistinctNoCancelAndClose`: フォルダー全体の確認でNo・Cancel・閉じる・Escを区別すること。[LocalizationResourceParityTests](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs): 辞書・getter・6言語の整合。 |
+| 設定画面内の選択・子画面と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogEditCompletionTests.cs)、[SettingDialogCategoryPersistenceTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogCategoryPersistenceTests.cs)、[SettingsWindowPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowPresentationTests.cs)、[SettingsControlPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs): 取消、確認、親ウィンドウ、公開Automationによる選択。実際のフォーカスは[利用者に推奨する実機確認](../development/testing.md#利用者に推奨する実機確認)へ分ける。 |
 | 設定の入力検証通知、表示失敗と入力保持 | [SettingsDialogViewModel](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `ShowUiMessage` | [SettingDialogEditCompletionTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogEditCompletionTests.cs) の `CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue`: 注入済み窓口への一度の通知、表示成功・失敗・親なしの結果、拒否値と保存済みXMLの不変。 |
-| 設定終了後の保存完了通知と再表示 | [MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | [SettingsWindowPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowPresentationTests.cs) の `MainWindow_InitialSettingsCloseBeforeRealCompletionMessageAndRecoverAfterInitialization`: 実通知の表示と親、旧画面の終了、新しい設定画面の編集受付。 |
-| 一括編集の実確認寿命、任意通知失敗、更新リンク失敗 | [`PlaylistSummaryBulkEditDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistSummaryBulkEditDialog.cs)、[`UpdateAvailableDialog`](../../../BeMusicSeeker/Views/Dialogs/UpdateAvailableDialog.xaml.cs) | [`MainWindowPlaylistWorkspaceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup` は確認中の実`applyTask`・閉鎖抑止、確認失敗の未適用と編集値保持、出力確定後の通知失敗と後片付けを確認する。[`DialogPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `UpdateLinkLaunchFailureKeepsWindowAndDrainsCompiledEvent` は実ボタンと通知Taskの終端後も成功で閉じないことを確認する。 |
-| 進捗ダイアログと表プロパティの取消ボタンの翻訳 | `ProgressDialog.xaml`、`PlaylistPropertyDialog.xaml` | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `CancelButtons_NewDialogsUseCurrentLanguageAndKeepCancellation` は6言語で新しく開いたContentが `Resources.Cancel` と一致し、進捗の取消が処理側へ届き `CancelledByUser` で閉じることを確認する。 |
-| 操作中に確定した通知の初表示時の言語 | [PlaylistOperationNotificationOwner](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistOperationNotificationOwner.cs)、[MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [PlaylistOperationNotificationLanguageTests](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistOperationNotificationLanguageTests.cs) は各生成元の通知を言語Aで確定して言語Bで整形し、本文・見出し・重要度を確認する。[MainWindowPlaylistWorkspaceWpfTests](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `RecommendationReload_LanguageChangeBeforeFirstDisplayUsesDisplayLanguage` は全再読込みの途中で言語を変え、終端で表示される推薦表の通知が表示時の言語になり読取りが再実行されないこと、`PlaylistBackupFailure_ActualMainWindowShowsErrorWithHandIcon` は重要度とアイコンの対応を確認する。[PlaylistRecommendedTableOwnerTests](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs) の `AppliedSkillNotification_UsesOrgNameNumbersAndSettingWithoutDate` は数値のInvariant書式を確認する。 |
+| 一括編集の確認の寿命、任意通知の失敗、更新リンクの失敗 | [`PlaylistSummaryBulkEditDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistSummaryBulkEditDialog.cs)、[`UpdateAvailableDialog`](../../../BeMusicSeeker/Views/Dialogs/UpdateAvailableDialog.xaml.cs) | [`MainWindowPlaylistWorkspaceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup`: 確認中の `applyTask` と閉鎖抑止、確認失敗時の未適用と編集値保持、出力確定後の通知失敗と後片付け。[`DialogPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `UpdateLinkLaunchFailureKeepsWindowAndDrainsCompiledEvent`: 起動失敗の通知Taskが終わっても成功として閉じないこと。 |
+| 進捗ダイアログと表プロパティの取消ボタンの翻訳 | `ProgressDialog.xaml`、`PlaylistPropertyDialog.xaml` | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `CancelButtons_NewDialogsUseCurrentLanguageAndKeepCancellation`: 6言語で新しく開いた画面の文言が `Resources.Cancel` と一致し、進捗の取消が処理側へ届いて `CancelledByUser` で閉じること。 |
+| 操作中に確定した通知の初回表示時の言語 | [PlaylistOperationNotificationOwner](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistOperationNotificationOwner.cs)、[MainWindow](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [PlaylistOperationNotificationLanguageTests](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistOperationNotificationLanguageTests.cs): 各生成元の通知を言語Aで確定して言語Bで整形し、本文・見出し・重要度を確認する。[MainWindowPlaylistWorkspaceWpfTests](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) の `RecommendationReload_LanguageChangeBeforeFirstDisplayUsesDisplayLanguage`: 再読込みの途中で言語を変えると、終端で表示するリコメンドの通知が表示時の言語になり、読取りを再実行しないこと。同クラスの `PlaylistBackupFailure_ActualMainWindowShowsErrorWithHandIcon`: 重要度とアイコンの対応。[PlaylistRecommendedTableOwnerTests](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs) の `AppliedSkillNotification_UsesOrgNameNumbersAndSettingWithoutDate`: 数値のInvariant書式。 |
 
 ## 関連資料
 

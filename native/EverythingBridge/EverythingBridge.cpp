@@ -573,6 +573,12 @@ unsigned int FindDateModifiedPropertyId(void* client) {
 /// 固定SDKの不変な結果から完全な非空文字列を取得し、query所有のbufferを再利用します。
 /// 取得不能・容量照会との不一致はfalseで返し、未確認の断片を採用しません。
 /// </summary>
+/// <remarks>
+/// Everything SDK 3.0.0.9 の戻り値の意味に依存します。容量ありの呼出しは書き込んだUTF-16の長さ、
+/// 容量0の呼出しはNULを含む必要容量を返します。末尾に余裕がある短いパスは一回の取得で済ませ、
+/// サロゲート対の手前での切詰めと区別できない場合だけ必要容量を照会します。再取得後も長さが
+/// 一致しなければ失敗とします。bufferは同じqueryの中で再利用し、拡張回数だけを計数します。
+/// </remarks>
 bool GetCompleteResultString(Everything3_GetResultPathWFn getter, void* resultList, size_t index,
 	std::vector<wchar_t>& buffer, size_t& length, unsigned long long* resizeCount) {
 	length = getter(resultList, index, buffer.data(), buffer.size());
@@ -1555,6 +1561,11 @@ unsigned int GetWorkerCount(size_t workItemCount) {
 	return desired == 0u ? 1u : desired;
 }
 
+/// <summary>リソースディレクトリの所有譜面ディレクトリと相対ディレクトリ接頭辞を、キャッシュから取得または構築します。</summary>
+/// <remarks>
+/// 所有者の探索と相対接頭辞の正規化は、同じ走査の中でキャッシュに無いディレクトリについてだけ一回行い、
+/// リソースごとに再構築しません。所有者と接頭辞のキャッシュは同じ項目で管理するため、両者のhit・missは同時に計数します。
+/// </remarks>
 bool EnsureResourceDirectoryInfo(
 	const ScanAggregate& aggregate,
 	ResourceAssignmentContext& context,

@@ -63,6 +63,7 @@ public partial class BMSTable
     internal bool ContainsEntry(BMSTableEntry entry) => entry != null && entryOrder.ContainsKey(entry);
 
     /// <summary>生存 entry の値と表の版を同じ reader 区間で捕捉します。</summary>
+    /// <remarks>entry は管理主体が更新するため、変更不能な入力が必要な読取り側は entry の参照を区間外で直接読んで版と組み合わせません。</remarks>
     internal PlaylistEntryReadSnapshot CaptureEntryReadSnapshot(BMSTableEntry entry)
     {
         using (ReaderWriterLock.GetReaderGuard())
@@ -73,6 +74,7 @@ public partial class BMSTable
     }
 
     /// <summary>初回・明示全置換の入力として、entry の不変値と版を同時捕捉します。</summary>
+    /// <remarks>entry は管理主体が更新するため、変更不能な入力が必要な読取り側は entry の参照を区間外で直接読んで版と組み合わせません。</remarks>
     internal PlaylistEntryReadSnapshot CaptureEntriesReadSnapshot()
     {
         using (ReaderWriterLock.GetReaderGuard())

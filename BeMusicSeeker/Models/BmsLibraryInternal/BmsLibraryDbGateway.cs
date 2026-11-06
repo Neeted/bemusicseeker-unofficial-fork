@@ -2331,6 +2331,11 @@ internal sealed class BmsLibraryDbGateway(
         ClearTempLookupTable(songDb, TempFileScanMaintenanceUpsertTable);
     }
 
+    /// <summary>保守行の一括反映に使う一時表を用意し、前回の行を消去します。</summary>
+    /// <remarks>
+    /// 主キーは既定のBINARY照合の <c>path TEXT PRIMARY KEY</c> とし、<c>INSERT OR REPLACE</c> で完全に一致するパスだけを最後の値へまとめます。
+    /// 大文字小文字だけが異なるパスは別の行として扱うため、<c>COLLATE NOCASE</c> にしません。
+    /// </remarks>
     private static void PrepareTempMaintenanceUpsertTable(LR2SongDBExtended songDb)
     {
         songDb.Execute(

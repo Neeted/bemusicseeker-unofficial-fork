@@ -1,6 +1,6 @@
 # テスト基盤の残課題
 
-実行区分・期限・所有と回収・結果判定は[テスト検証](../spec/development/testing.md)、module選択と配布物の受渡しは[標準入口](../../tools/BeMusicSeeker.Verify/README.md)を正本とする。
+検証区分・期限・所有と回収・結果判定は[テスト検証](../spec/development/testing.md)、module選択と配布物の受渡しは[標準入口](../../tools/BeMusicSeeker.Verify/README.md)を正本とする。
 
 ## 現状
 

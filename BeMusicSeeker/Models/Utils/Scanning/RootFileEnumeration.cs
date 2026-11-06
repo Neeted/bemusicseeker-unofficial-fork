@@ -276,6 +276,10 @@ internal static class RootFileEnumerationService
     }
 
     /// <summary>実行ルートを正規化し、存在確認で利用可能と判定できないルートは不在と断定せず不完全理由へ記録します。</summary>
+    /// <remarks>
+    /// 各走査経路はこの共通処理で <c>root_missing_or_unavailable</c> などの不完全理由を記録し、個別に記録しません。
+    /// 不完全理由のある走査結果は反映しないため、一時的に利用できないルート配下の譜面を削除扱いにしません。
+    /// </remarks>
     internal static List<string> NormalizeExecutionRoots(IEnumerable<string> rootDirectories, RootFileEnumerationResult result = null)
     {
         var candidates = new List<string>();

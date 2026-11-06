@@ -10,6 +10,11 @@ using static BeMusicSeeker.TestSupport.Components.Lr2SongDbSyncTestSupport;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>実共有Dispatcherの排出前後でLR2同期のLevel・LevelText・通知を確認します。</summary>
+/// <remarks>
+/// 実DB・ファイルシステム、ロールバック、結果記録、通知時の現在値は Core の同名クラスが headless scheduler で確認します。
+/// このモジュールには、実Dispatcherを必要とする通知の確認だけを置きます。
+/// 共通factoryの既定は変えず、Performanceと共用する祖先確認の補助処理 <c>BmsLibraryFolderRenameRefreshTestSupport.AssertFinalFilesystemAncestors</c> も、スケジューラーを省略したときは共有Dispatcherのスケジューラーを使う意味を保ちます。
+/// </remarks>
 [TestClass]
 public sealed class BmsLibraryLr2SongDbSyncTests
 {

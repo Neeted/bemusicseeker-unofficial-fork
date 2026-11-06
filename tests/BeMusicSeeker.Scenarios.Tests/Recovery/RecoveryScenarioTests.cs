@@ -76,7 +76,10 @@ public sealed class RecoveryScenarioTests
     }
 
     /// <summary>保証: SC14a。実設定SQL保存後のBを復元Aへ戻し、必要LR2出力・自発終了・次起動の表示と対象外値保持を確認します。</summary>
-    /// <remarks>取消・Busy・必須失敗・旧出力整理警告・全値型条件は既存Componentへ残します。外からCloseして復元終了を代替しません。</remarks>
+    /// <remarks>
+    /// 取消・Busy・必須失敗・旧出力整理警告・全値型条件は既存Componentへ残します。外からCloseして復元終了を代替しません。
+    /// 実modalの帰還を復元の成功と数えず、handler終端後のコマンド応答、制御窓口の回収、実際の退出の順で確認します。
+    /// </remarks>
     [TestMethod(DisplayName = "[SC-14] SQL復元が三表と必要LR2出力を戻して自然終了し設定Bを保持する")]
     [TestCategory("Full")]
     public async Task PlaylistSql_RestorePublishesAAndExits_PreservesUnselectedB()

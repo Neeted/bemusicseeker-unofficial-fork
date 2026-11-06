@@ -17,6 +17,10 @@ internal sealed class Lr2SongSyncExecutionOptions
     internal int OrderingWindowCapacity { get; }
 
     /// <summary>すべて正の実行幅を指定します。未指定時の本番既定値は同期サービスが対象件数とCPU数から決定します。</summary>
+    /// <remarks>
+    /// 順序枠はチャンクの確定前の順序回収で返すため、順序枠の容量をチャンク幅以上にするなどの相互の大小制約は設けず、
+    /// 各値が正であることだけを検査します。
+    /// </remarks>
     internal Lr2SongSyncExecutionOptions(int chunkSize, int workerCount, int readQueueCapacity,
         int computedQueueCapacity, int orderingWindowCapacity)
     {

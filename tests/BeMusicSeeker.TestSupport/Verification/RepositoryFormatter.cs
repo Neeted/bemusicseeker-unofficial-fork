@@ -6,6 +6,11 @@ namespace BeMusicSeeker.TestSupport.Verification;
 internal delegate Task<ProcessCompletion> ExecuteCommand(string executable, IReadOnlyList<string> arguments, ProcessDeadline deadline);
 
 /// <summary>全体またはGitの変更集合を対象として、style修正からwhitespace修正へ進めます。</summary>
+/// <remarks>
+/// style修正はソリューションを対象に <c>--severity error --no-restore</c> で、空白・改行は <c>--folder</c> で適用します。
+/// 変更範囲では同じファイル一覧を両方の <c>--include</c> へ渡し、二つのformatterの対象を揃えます。
+/// 整形後に同じformatterの変更なし検査（<c>--verify-no-changes</c>）は重ねません。
+/// </remarks>
 internal static class RepositoryFormatter
 {
     /// <summary>全体適用は各formatterを一回、変更範囲はGitで集合を確定して適用します。手動入口の復元も同じ期限を使い、変更C#ゼロなら復元・整形を省きます。</summary>

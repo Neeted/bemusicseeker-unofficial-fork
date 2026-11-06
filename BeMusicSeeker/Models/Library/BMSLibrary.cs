@@ -5213,6 +5213,11 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="capability">呼出元が保持する同libraryの生存L/P権限です。</param>
     /// <param name="options">同じ初期化要求で捕捉した設定です。</param>
     /// <exception cref="PendingPackageRestoreException">DB確定前の復元失敗です。確定後のswap・公開・準備完了の失敗はこの型へ包みません。</exception>
+    /// <remarks>
+    /// 本体の <c>Task.Run</c> と通知の待機はこのメソッドが一回だけ行います。呼出し側（必須初期化の段階）はこのTaskを直接awaitし、
+    /// 外側で <c>Task.Run</c> を重ねたり、同期的に待ったり、任意通知と同じ失敗の扱いへ置き換えたりしません。
+    /// 同期的な公開の初期化は同じ本体を自分のL・P内で合成し、通知は自分のL・Pの解放後に実行してから準備完了へ進みます。
+    /// </remarks>
     internal async Task RestorePendingPackagesUnderAdmissionAsync(LibraryFileMutationCapability capability, BmsLibraryOptionsSnapshot options)
     {
         DateTime started = DateTime.UtcNow;
@@ -5224,6 +5229,10 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>明示承認されたinstall全登録の初期化をworker上で実行し、成功後の必須UI通知を非同期に待ちます。再実行は外側の新たな明示選択でだけ行います。</summary>
     /// <param name="capability">呼出元が保持する同libraryの生存L/P権限です。</param>
     /// <exception cref="PendingPackageRestoreException">全行削除が確定せず旧登録・一覧を保持した失敗です。確定後の公開失敗は通常の失敗として返します。</exception>
+    /// <remarks>
+    /// 本体の <c>Task.Run</c> と通知の待機はこのメソッドが一回だけ行います。呼出し側はこのTaskを直接awaitし、
+    /// 外側で <c>Task.Run</c> を重ねたり、同期的に待ったり、任意通知と同じ失敗の扱いへ置き換えたりしません。
+    /// </remarks>
     internal async Task ResetPendingPackagesUnderAdmissionAsync(LibraryFileMutationCapability capability)
     {
         DateTime started = DateTime.UtcNow;

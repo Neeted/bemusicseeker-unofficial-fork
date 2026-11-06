@@ -244,6 +244,8 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         }
         if (request is ScenarioPlaylistSqlCommand sql)
         {
+            // 復元では実handlerが開始する通常終了と応答が重なるため、handler終端を待ってから応答し、
+            // 制御窓口の破棄より先にその終端を回収します。
             Task operation = Dialogs.ArmPlaylistSql(sql.Path, sql.Restore);
             model.SettingDialog.RequestOpen();
             Dialogs.AssertConsumed();

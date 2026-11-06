@@ -8,6 +8,19 @@ using System.Windows.Markup;
 namespace BeMusicSeeker.Views;
 
 /// <summary>標準DatePickerと再生成されるPARTの表示接続を更新し、日付・表示月・表示モードを維持します。</summary>
+/// <remarks>
+/// <para>
+/// 案内文はテンプレートの独立したTextBlockに表示し、<c>DatePicker.Text</c> への代入や内部Watermarkの反射操作を使いません。
+/// 選択済みの値から標準の <c>PART_TextBox</c> を直接整形し、同じCalendarの公開された更新経路で月・曜日・週開始を再表示します。
+/// </para>
+/// <para>
+/// この接続が必要な理由は、WPF v10.0.13 の <c>DatePicker.cs</c>・<c>DatePickerTextBox.cs</c>・<c>DateTimeHelper.cs</c>・
+/// <c>Calendar.cs</c> の挙動に依存します（https://github.com/dotnet/wpf/tree/v10.0.13/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls）。
+/// Languageの変更は文字列を整形せず、Textの変更は日付を再解析すること、文化圏の解決がLanguageの値の出所も判定すること、
+/// 週開始をBindingする条件ではCalendarのLanguage変更がセルの更新を省くこと、標準のテキスト部品が再有効化時に
+/// <c>IsReadOnly</c> を変更することです。WPFを更新するときは、これらの前提を確認します。
+/// </para>
+/// </remarks>
 public static class DatePickerPresentation
 {
     /// <summary>言語サービスから受け取る表示文化圏です。別の言語状態を保存しません。</summary>

@@ -170,6 +170,11 @@ public class ReaderWriterLockSlimWrapper(LockRecursionPolicy recursionPolicy = L
         }
     }
 
+    /// <summary>確定済みのロック回数を表示へ通知し、通知の失敗をロック操作の失敗にしません。</summary>
+    /// <remarks>
+    /// ロック回数は高頻度で変わるため、通常の状態遷移ではログを出さず、例外の履歴も保持しません。
+    /// 通知失敗の診断はラッパーごとに初回だけ行い、診断自体の失敗は再診断しません。
+    /// </remarks>
     private void NotifyLockCountBestEffort(string propertyName)
     {
         try
