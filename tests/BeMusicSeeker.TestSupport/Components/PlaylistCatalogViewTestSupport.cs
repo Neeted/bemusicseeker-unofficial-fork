@@ -75,10 +75,13 @@ internal static class PlaylistCatalogViewTestSupport
                 if (scorePath != null)
                 {
                     using var db = new SQLite.SQLiteConnection(scorePath);
-                    db.CreateTable<LR2ScoreDB.player>();
-                    db.CreateTable<LR2ScoreDB.score>();
-                    for (int index = 0; index < count; index++)
-                    { db.Insert(new LR2ScoreDB.score { hash = charts[index].Md5, great = index switch { 0 => 10, 1 => 30, 2 => 20, _ => 1 }, totalnotes = 100 }); }
+                    db.RunInTransaction(() =>
+                    {
+                        db.CreateTable<LR2ScoreDB.player>();
+                        db.CreateTable<LR2ScoreDB.score>();
+                        for (int index = 0; index < count; index++)
+                        { db.Insert(new LR2ScoreDB.score { hash = charts[index].Md5, great = index switch { 0 => 10, 1 => 30, 2 => 20, _ => 1 }, totalnotes = 100 }); }
+                    });
                 }
                 Library = modelUiScheduler == null
                     ? new TestBmsLibrary(databaseScope, SongDb, null, scorePath, startupRequiredFileScanReason: null, settings: settings)
