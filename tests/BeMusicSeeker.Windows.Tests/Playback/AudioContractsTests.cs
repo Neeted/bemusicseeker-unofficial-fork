@@ -82,7 +82,7 @@ public sealed class AudioContractsTests
         testSettings.SinglePlayMode = false;
         testSettings.RepeatPlayMode = false;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
-            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, failure => notices.Add(failure), new ChartFileOperationSynchronizer());
+            new SettingsPlaybackSettingsStore(() => testSettings), dialogs, failure => notices.Add(failure), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var started = new List<string>();
         panel.PlaybackStarted += (_, _) => started.Add(panel.NowPlayingChart?.Path ?? "");
         Task? navigation = null;
@@ -231,7 +231,7 @@ public sealed class AudioContractsTests
             var operations = new ChartFileOperationSynchronizer();
             var dialogs = new ObservedPlaybackDialogs(events);
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
-                new SettingsPlaybackSettingsStore(() => testSettings), dialogs, failure => Assert.Fail(failure.ToString()), operations);
+                new SettingsPlaybackSettingsStore(() => testSettings), dialogs, failure => Assert.Fail(failure.ToString()), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             Task start = panel.StartAtIndex(0);
             Task? mutation = null;
             IDisposable? admission = null;
@@ -543,7 +543,7 @@ public sealed class AudioContractsTests
             testSettings.SinglePlayMode = false;
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
                 new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
-                new ChartFileOperationSynchronizer());
+                new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             Task start = panel.StartAtIndex(0);
             Task? stop = null;
             try
@@ -958,7 +958,7 @@ public sealed class AudioContractsTests
             testSettings.FolderSkipPlayMode = false;
             testSettings.SinglePlayMode = false;
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
-                new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+                new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             try
             {
                 await panel.StartAtIndex(0);
@@ -1700,7 +1700,7 @@ public sealed class AudioContractsTests
             var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } }, SelectedIndex = 0 };
             var dialogs = new ObservedPlaybackDialogs(events);
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackDispatcher(), new MainChartListPlaybackQueue(rows),
-                new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => Assert.Fail("有効な譜面です。"), new ChartFileOperationSynchronizer());
+                new SettingsPlaybackSettingsStore(() => testSettings), dialogs, _ => Assert.Fail("有効な譜面です。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             Task next = Task.CompletedTask;
             Task setter = Task.CompletedTask;
             var failures = new List<Exception>();

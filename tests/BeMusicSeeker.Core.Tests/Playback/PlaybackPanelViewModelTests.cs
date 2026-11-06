@@ -43,7 +43,7 @@ public sealed class PlaybackPanelViewModelTests
         ChartFile chart = ChartTestValues.Empty() with { Path = path };
         var rows = new MainChartListViewModel { Rows = new List<object> { chart } };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var first = new PlaybackInputReceipt();
         var second = new PlaybackInputReceipt();
         Task earlier = panel.HandleTableRowActivation(0, chart, receipt: first);
@@ -137,7 +137,7 @@ public sealed class PlaybackPanelViewModelTests
             }
         };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), dialogs, failure => notices.Add(failure), operations);
+            new InMemoryPlaybackSettingsStore(), dialogs, failure => notices.Add(failure), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         panel.AttachLibrary(new TestBmsLibrary(new ApplicationDatabaseScope(), songDb, null, null, null, null,
             new TestUiScheduler(() => null), settings: testSettings));
         FileStream? locked = null;
@@ -215,7 +215,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = charts.ToList(), SelectedIndex = 0 };
         var operations = new ChartFileOperationSynchronizer();
         var panel = new PlaybackPanelViewModel(first, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生失敗"), operations);
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生失敗"), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         int created = 0;
         var runtime = (ISettingsDialogPlaybackRuntimePort)panel;
         try
@@ -297,7 +297,7 @@ public sealed class PlaybackPanelViewModelTests
         object[] charts = paths.Select((path, index) => (object)(ChartTestValues.Empty(index == 1 ? ChartFileKind.Bmson : ChartFileKind.Bms) with { Path = path })).ToArray();
         var rows = new MainChartListViewModel { Rows = charts.ToList(), SelectedIndex = 0 };
         var panel = new PlaybackPanelViewModel(first, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生失敗"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生失敗"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var runtime = (ISettingsDialogPlaybackRuntimePort)panel;
         var failure = new IOException("旧playerの解放失敗");
         int secondCreated = 0;
@@ -396,7 +396,7 @@ public sealed class PlaybackPanelViewModelTests
             var dialogs = new FakePlaybackDialogService();
             var operations = new ChartFileOperationSynchronizer();
             var panel = new PlaybackPanelViewModel(first, dispatcher, new MainChartListPlaybackQueue(rows),
-                new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("停止は入力故障ではありません。"), operations);
+                new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("停止は入力故障ではありません。"), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             if (temporaryInstall)
             {
                 string songDb = Path.Combine(root, "song.db");
@@ -482,7 +482,7 @@ public sealed class PlaybackPanelViewModelTests
         var second = new FakeBmsPlayer();
         var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } } };
         var panel = new PlaybackPanelViewModel(first, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("停止は故障ではありません。"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("停止は故障ではありません。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         int created = 0;
         ((ISettingsDialogPlaybackRuntimePort)panel).UsePlayerForNextPlayback(() =>
         {
@@ -516,7 +516,7 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } } };
         var panel = new PlaybackPanelViewModel(first, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("Close故障を入力故障へ変えません。"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("Close故障を入力故障へ変えません。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         first.CloseCompletion = () => { closeEntered.TrySetResult(); return releaseClose.Task; };
         int created = 0;
         ((ISettingsDialogPlaybackRuntimePort)panel).UsePlayerForNextPlayback(() => { created++; return second; }, false);
@@ -583,7 +583,7 @@ public sealed class PlaybackPanelViewModelTests
             var dialogs = new FakePlaybackDialogService();
             var operations = new ChartFileOperationSynchronizer();
             var panel = new PlaybackPanelViewModel(first, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-                new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("入力故障へ読み替えません。"), operations);
+                new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("入力故障へ読み替えません。"), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             if (temporaryInstall) { panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings)); }
             int created = 0;
             Task operation = Task.CompletedTask;
@@ -689,7 +689,7 @@ public sealed class PlaybackPanelViewModelTests
             int createdPlayers = 0;
             var dialogs = new FakePlaybackDialogService();
             var settings = new InMemoryPlaybackSettingsStore { SinglePlay = true };
-            var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue, settings, dialogs, _ => { }, operations);
+            var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue, settings, dialogs, _ => { }, operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings));
             Task attempt = Task.CompletedTask;
             IDisposable? otherOperation = null;
@@ -790,7 +790,7 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } }, SelectedIndex = condition == "Empty" ? -1 : 0 };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), dialogs, _ => { }, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => { }, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         int requests = 0;
         try
         {
@@ -821,7 +821,7 @@ public sealed class PlaybackPanelViewModelTests
         var player = new PreloadBmsPlayer { Ready = ready.Task };
         var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } } };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task start = panel.StartAtIndex(0);
         Task buttons = Task.CompletedTask;
         int requests = 0;
@@ -860,7 +860,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList(), SelectedIndex = 0 };
         var dialogs = new FakePlaybackDialogService();
         var panel = new PlaybackPanelViewModel(player, dispatcher, new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), dialogs, _ => { }, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => { }, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var requests = new List<int>();
         try
         {
@@ -906,7 +906,7 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         var settings = new InMemoryPlaybackSettingsStore { PlayerPanelState = PlayerPanelState.TITLE_LARGE };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue,
-            settings, dialogs, _ => Assert.Fail("再生失敗"), new ChartFileOperationSynchronizer());
+            settings, dialogs, _ => Assert.Fail("再生失敗"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         int created = 0;
         int surfaceRequests = 0;
         Task start = panel.StartAtIndex(2);
@@ -976,7 +976,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = charts.ToList() };
         var dialogs = new FakePlaybackDialogService();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("取消から入力不良通知を出しません。"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("取消から入力不良通知を出しません。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task start = panel.StartAtIndex(0);
         Task second = Task.CompletedTask;
         Task third = Task.CompletedTask;
@@ -1026,7 +1026,7 @@ public sealed class PlaybackPanelViewModelTests
         var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
         var rows = new MainChartListViewModel { Rows = charts.ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("入力不良"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("入力不良"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task start = panel.StartAtIndex(0);
         Task second = Task.CompletedTask;
         Task third = Task.CompletedTask;
@@ -1072,7 +1072,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = charts.ToList() };
         var dialogs = new FakePlaybackDialogService();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("入力不良"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("入力不良"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task stopTask = Task.CompletedTask;
         Task newStart = Task.CompletedTask;
         int closes = 0;
@@ -1150,7 +1150,7 @@ public sealed class PlaybackPanelViewModelTests
         var queue = new GatedPlaybackChartQueue(new MainChartListPlaybackQueue(rows), selectionEntered, releaseSelection);
         var dialogs = new FakePlaybackDialogService();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue,
-            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("空選択と停止で入力不良を通知しません。"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("空選択と停止で入力不良を通知しません。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Func<Task>? firstStop = null;
         Task play = Task.CompletedTask;
         Task stop = Task.CompletedTask;
@@ -1232,7 +1232,7 @@ public sealed class PlaybackPanelViewModelTests
         var dialogs = new FakePlaybackDialogService();
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), dialogs, _ => { }, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => { }, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             await panel.StartAtIndex(0);
@@ -1263,7 +1263,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
             new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             await panel.StartAtIndex(0);
@@ -1309,7 +1309,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var operations = new ChartFileOperationSynchronizer();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), operations);
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var store = new PhysicalChartDeletionStore();
         var mutation = new SelectedChartMutationWorkflowOwner(
             () => (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary)),
@@ -1397,7 +1397,7 @@ public sealed class PlaybackPanelViewModelTests
         var dispatcher = new QueuedPlaybackUiDispatcher();
         var panel = new PlaybackPanelViewModel(player, dispatcher, new MainChartListPlaybackQueue(rows),
             new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         rows.SelectedIndex = 0;
         int surfaceRequests = 0;
         Task start = panel.Start(requestPlayerSurface: () => surfaceRequests++);
@@ -1443,7 +1443,7 @@ public sealed class PlaybackPanelViewModelTests
         var player = new PreloadBmsPlayer { Completion = completion.Task };
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task? firstNext = null;
         Task? secondNext = null;
         try
@@ -1513,7 +1513,7 @@ public sealed class PlaybackPanelViewModelTests
         int notices = 0;
         var rows = new MainChartListViewModel { Rows = new List<object> { (ChartTestValues.Empty() with { Path = firstPath }), (ChartTestValues.Empty() with { Path = nextPath }) } };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), observed => { Assert.AreSame(failure, observed); notices++; }, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), observed => { Assert.AreSame(failure, observed); notices++; }, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         rows.SelectedIndex = 0;
         int surfaceRequests = 0;
         Task start = panel.Start(requestPlayerSurface: () => surfaceRequests++);
@@ -1565,7 +1565,7 @@ public sealed class PlaybackPanelViewModelTests
         var player = new PreloadBmsPlayer { Ready = ready.Task };
         var rows = new MainChartListViewModel { Rows = new List<object> { (ChartTestValues.Empty() with { Path = path }) } };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task closed = player.WaitForCommandAsync("Close");
         Task start = panel.StartAtIndex(0);
         try
@@ -1606,7 +1606,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
             new InMemoryPlaybackSettingsStore { SinglePlay = true, RepeatPlay = false }, dialogs,
-            _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+            _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var failure = new InvalidOperationException("The next-song decoder cleanup failed.");
         try
         {
@@ -1664,7 +1664,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
             new InMemoryPlaybackSettingsStore(), dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var failure = new InvalidOperationException("The adopted next-song preparation failed.");
         Task? next = null;
         Task? stop = null;
@@ -1767,7 +1767,7 @@ public sealed class PlaybackPanelViewModelTests
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var player = new PreloadBmsPlayer { Completion = completion.Task };
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-                new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+                new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             try
             {
                 await panel.StartAtIndex(0);
@@ -1833,7 +1833,7 @@ public sealed class PlaybackPanelViewModelTests
             var dialogs = new FakePlaybackDialogService();
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
                 new MainChartListPlaybackQueue(chartList), new InMemoryPlaybackSettingsStore(),
-                dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+                dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings));
             var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2145,7 +2145,9 @@ public sealed class PlaybackPanelViewModelTests
             var player = new FakeBmsPlayer { PlayStartTask = completion.Task };
             var operations = new ChartFileOperationSynchronizer();
             PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(testSettings, chart, destination, songDb, player,
-                new FakePlaybackDialogService(), out _, operations, packageRoot: source, uiScheduler: new TestUiScheduler(() => null));
+                new FakePlaybackDialogService(), out _, operations, packageRoot: source, uiScheduler: new TestUiScheduler(() => null),
+                // 外部開始後の保持中に読取りと受付の所有を観測するため、製品既定の保持時間を使います。
+                temporaryPreviewHold: PlaybackPanelViewModel.DefaultTemporaryPreviewHold);
             Task reader = Task.CompletedTask;
             Task start = Task.CompletedTask;
             string copied = Path.Combine(destination, "charts", "chart_.bms");
@@ -2338,7 +2340,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         int startingCount = 0;
         int startedCount = 0;
         panel.PlaybackStarting += (_, _) => startingCount++;
@@ -2377,7 +2379,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
 
         first.Duration = TimeSpan.FromSeconds(20);
         panel.CloseProcess().GetAwaiter().GetResult();
@@ -2652,7 +2654,7 @@ public sealed class PlaybackPanelViewModelTests
         var chartList = new MainChartListViewModel { SelectedIndex = 0 };
         var settings = new InMemoryPlaybackSettingsStore();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(chartList),
-            settings, new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer());
+            settings, new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         chartList.RowProjection.SetPlaybackStatusProvider(panel.GetPlaybackStatus);
         ChartFile first = (ChartTestValues.Empty() with { Path = paths[0] });
         first = ChartFileProjection.WithScore(first, ChartScoreSnapshot.FromBmsScore(new BMSScore { IsLr2IrScoreUnsent = true }, first.Path));
@@ -2759,7 +2761,7 @@ public sealed class PlaybackPanelViewModelTests
         var row = LibraryChartRow.FromChartFile(ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = paths[1], RawTitle = "拒否対象" });
         var list = new MainChartListViewModel { Rows = new List<object> { current, row }, SelectedIndex = 0 };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(list),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生失敗"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("再生失敗"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         int created = 0;
         try
         {
@@ -2815,7 +2817,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             testSettings.RepeatPlayMode = false;
@@ -2896,7 +2898,7 @@ public sealed class PlaybackPanelViewModelTests
             new InMemoryPlaybackSettingsStore { RepeatPlay = true },
             new FakePlaybackDialogService(),
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             await panel.Start();
@@ -2941,7 +2943,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => warningCount++,
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             testSettings.RepeatPlayMode = false;
@@ -2983,7 +2985,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         dialogs.BeforePlaybackFailureNotification = () =>
         {
             Assert.IsNull(panel.NowPlayingChart);
@@ -3025,7 +3027,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             panel.Start().GetAwaiter().GetResult();
@@ -3117,7 +3119,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             var stopped = new TaskCompletionSource<object?>(
@@ -3175,7 +3177,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             panel.Start().GetAwaiter().GetResult();
@@ -3276,7 +3278,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             panel.Start().GetAwaiter().GetResult();
@@ -3321,7 +3323,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             panel.Start().GetAwaiter().GetResult();
@@ -3387,7 +3389,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             panel.Start().GetAwaiter().GetResult();
@@ -3426,7 +3428,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task replacementTask = Task.CompletedTask;
         player.BeforePlayStart = () => replacementTask = panel.ReplacePlayerAsync(replacement);
         try
@@ -3469,7 +3471,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task replacementTask = Task.CompletedTask;
         player.BeforePlayStart = () => replacementTask = panel.ReplacePlayerAsync(replacement);
         try
@@ -3948,7 +3950,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             testSettings.RepeatPlayMode = false;
@@ -4010,7 +4012,7 @@ public sealed class PlaybackPanelViewModelTests
         };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(rows), new InMemoryPlaybackSettingsStore(),
-            new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer());
+            new FakePlaybackDialogService(), _ => { }, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             panel.Start().GetAwaiter().GetResult();
@@ -4087,7 +4089,7 @@ public sealed class PlaybackPanelViewModelTests
         var queue = new GatedPlaybackChartQueue(new MainChartListPlaybackQueue(rows), enteredRow, releaseRow);
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
             queue, new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(),
-            _ => { }, new ChartFileOperationSynchronizer());
+            _ => { }, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task? next = null;
         Task? terminal = null;
         try
@@ -4138,7 +4140,7 @@ public sealed class PlaybackPanelViewModelTests
         var queue = new GatedPlaybackChartQueue(new MainChartListPlaybackQueue(rows), enteredRow, releaseRow);
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue,
             new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount),
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var start = Task.Run(() => panel.StartAtIndex(0));
         Task? manualNext = null;
         Task? sentinel = null;
@@ -4193,7 +4195,7 @@ public sealed class PlaybackPanelViewModelTests
         var player = new FakeBmsPlayer();
         int notices = 0;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             await panel.Start();
@@ -4264,7 +4266,7 @@ public sealed class PlaybackPanelViewModelTests
             int factoryCalls = 0;
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
                 new InMemoryPlaybackSettingsStore { FolderSkipPlay = folderSkip }, new FakePlaybackDialogService(),
-                _ => Assert.Fail("ロード前の候補除外で入力不良を通知しません。"), new ChartFileOperationSynchronizer());
+                _ => Assert.Fail("ロード前の候補除外で入力不良を通知しません。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             try
             {
                 await panel.StartAtIndex(currentIndex);
@@ -4326,7 +4328,7 @@ public sealed class PlaybackPanelViewModelTests
             ? new InvalidDataException("invalid previous input") : null;
         int notices = 0;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             await panel.Start();
@@ -4370,7 +4372,7 @@ public sealed class PlaybackPanelViewModelTests
         int notices = 0;
         int created = 0;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task? previous = null;
         try
         {
@@ -4422,7 +4424,7 @@ public sealed class PlaybackPanelViewModelTests
         int started = 0;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue,
             new InMemoryPlaybackSettingsStore { RepeatPlay = true, FolderSkipPlay = true }, new FakePlaybackDialogService(),
-            _ => notices++, new ChartFileOperationSynchronizer());
+            _ => notices++, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         Task? previous = null;
         Task? terminal = null;
         try
@@ -4494,7 +4496,7 @@ public sealed class PlaybackPanelViewModelTests
             var settings = new InMemoryPlaybackSettingsStore { RepeatPlay = true, FolderSkipPlay = true };
             var player = new FakeBmsPlayer();
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue, settings,
-                new FakePlaybackDialogService(), _ => Assert.Fail("有効な候補は通知しません。"), new ChartFileOperationSynchronizer());
+                new FakePlaybackDialogService(), _ => Assert.Fail("有効な候補は通知しません。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             Task? previous = null;
             try
             {
@@ -4566,7 +4568,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = View(false, false) };
         var player = new FakeBmsPlayer();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("有効なidentityで通知しません。"), new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("有効なidentityで通知しません。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             await panel.StartAtIndex(0);
@@ -4597,7 +4599,7 @@ public sealed class PlaybackPanelViewModelTests
         int notices = 0;
         bool single = scenario.StartsWith("Single", StringComparison.Ordinal);
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore { SinglePlay = single, RepeatPlay = single }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore { SinglePlay = single, RepeatPlay = single }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             await panel.StartAtIndex(0);
@@ -4655,7 +4657,7 @@ public sealed class PlaybackPanelViewModelTests
             }
             };
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-                new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => Assert.Fail("有効な候補で通知しません。"), new ChartFileOperationSynchronizer());
+                new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => Assert.Fail("有効な候補で通知しません。"), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             try
             {
                 await panel.StartAtIndex(0);
@@ -4719,7 +4721,7 @@ public sealed class PlaybackPanelViewModelTests
             int notices = 0;
             var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-                new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+                new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             Task? navigation = null;
             try
             {
@@ -4762,7 +4764,7 @@ public sealed class PlaybackPanelViewModelTests
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         int notices = 0;
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore { RepeatPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+            new InMemoryPlaybackSettingsStore { RepeatPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             await panel.StartAtIndex(2);
@@ -4801,7 +4803,7 @@ public sealed class PlaybackPanelViewModelTests
             var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
             int notices = 0;
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-                new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer());
+                new InMemoryPlaybackSettingsStore { FolderSkipPlay = true }, new FakePlaybackDialogService(), _ => notices++, new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
             try
             {
                 int previous = invalid ? 2 : 1;
@@ -4965,7 +4967,7 @@ public sealed class PlaybackPanelViewModelTests
             new SettingsPlaybackSettingsStore(() => testSettings),
             new FakePlaybackDialogService(),
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         try
         {
             panel.ExecuteTableRowActivation(0, expectedRow).GetAwaiter().GetResult();

@@ -153,7 +153,17 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         internal bool ExitClaimed { get; set; }
     }
 
+    /// <summary>一時試聴で、開始境界の後に一時素材を回収するまで保持する製品既定の時間です。</summary>
+    internal static readonly TimeSpan DefaultTemporaryPreviewHold = TimeSpan.FromSeconds(2);
+
+    /// <summary>一時試聴で、開始境界の後に一時素材を回収するまで待つこのインスタンスの時間です。</summary>
+    internal TimeSpan TemporaryPreviewHold { get; }
+
     /// <summary>再生操作・候補設定・通知を接続します。音量の項目保存失敗は再生失敗と分けて通知します。</summary>
+    /// <param name="temporaryPreviewHold">
+    /// 一時試聴の保持時間です。製品は省略して <see cref="DefaultTemporaryPreviewHold"/> を使います。保持の長さを検査しない経路で、既定の実時間を待たずに確認するためのものです。
+    /// </param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="temporaryPreviewHold"/> が負、または <see cref="int.MaxValue"/> ミリ秒を超えます。</exception>
     internal PlaybackPanelViewModel(
         IBMSPlayer player,
         IPlaybackUiDispatcher uiDispatcher,
@@ -162,8 +172,14 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         IPlaybackDialogService playbackDialogs,
         Action<Exception> warnInvalidChart,
         ChartFileOperationSynchronizer chartFileOperations,
-        Action<Exception> reportSettingsSaveFailure = null)
+        Action<Exception> reportSettingsSaveFailure = null,
+        TimeSpan? temporaryPreviewHold = null)
     {
+        TemporaryPreviewHold = temporaryPreviewHold ?? DefaultTemporaryPreviewHold;
+        if (TemporaryPreviewHold < TimeSpan.Zero || TemporaryPreviewHold.TotalMilliseconds > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(temporaryPreviewHold));
+        }
         this.uiDispatcher = uiDispatcher ?? throw new ArgumentNullException(nameof(uiDispatcher));
         this.playbackQueue = playbackQueue ?? throw new ArgumentNullException(nameof(playbackQueue));
         this.playbackSettings = playbackSettings ?? throw new ArgumentNullException(nameof(playbackSettings));
@@ -1696,7 +1712,7 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         long generation = 0;
         Exception primaryFailure = null;
         PlaybackStartObservation playbackStartObservation = null;
-        var temporaryFiles = new temporarilyCopyFiles(wait: 2000);
+        var temporaryFiles = new temporarilyCopyFiles(wait: (int)TemporaryPreviewHold.TotalMilliseconds);
         try
         {
             using (operationGate)

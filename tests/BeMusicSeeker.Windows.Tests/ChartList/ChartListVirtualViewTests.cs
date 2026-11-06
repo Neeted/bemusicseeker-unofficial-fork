@@ -73,7 +73,7 @@ public sealed class ChartListVirtualViewTests
 
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
 
-    /// <summary>導入先に同名ファイルがある実再生では改名先をplayerへ渡し、元譜面と衝突ファイルを保持して一時コピーを回収することを確認します。</summary>
+    /// <summary>導入先に同名ファイルがある実再生では改名先をplayerへ渡し、元譜面と衝突ファイルを保持して一時コピーを回収することを確認します。構成経由のパネルが既定の保持時間を使うことも確認します。</summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task PlaybackPanel_StartAtIndexUsesChartInstallDestinationWhenTemporaryRenameChangesPath()
@@ -109,6 +109,8 @@ public sealed class ChartListVirtualViewTests
             TestBmsLibrary library = MainWindowViewModelTestFactory.CreateLibrary(databaseScope, songDbPath, testSettings);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             viewModel.PlaybackPanel.AttachLibrary(library);
+            // 直接構築のケースは短い保持時間を注入するため、製品の構成が既定の保持時間を使うことをここで確かめます。
+            Assert.AreEqual(PlaybackPanelViewModel.DefaultTemporaryPreviewHold, viewModel.PlaybackPanel.TemporaryPreviewHold);
             ChartFile file = ChartTestValues.Empty();
             file = file with { Path = sourceChartPath, Title = "Playable", Folder = "Source", Artist = "", Genre = "", Level = null, Mode = null, Tag = "", Md5 = "0123456789abcdef0123456789abcdef", Sha256 = "", RawTitle = "Playable", RawArtist = "", LevelText = "" };
             ChartFile playableChart = (file);

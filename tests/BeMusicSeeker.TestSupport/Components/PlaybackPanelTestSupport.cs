@@ -10,6 +10,11 @@ namespace BeMusicSeeker.TestSupport.Components;
 /// <summary>CoreとWindowsの再生パネル検証で同じ設定・通知・再生準備を接続します。</summary>
 internal static class PlaybackPanelTestSupport
 {
+    /// <summary>
+    /// 保持の長さそのものを検査しないケースが使う一時試聴の保持時間です。開始境界・保持・回収の順序は変えず、製品既定2秒の実時間だけを短くします。
+    /// 保持中の読取りと所有を観測するケースは製品既定の値を明示し、製品の構成が既定値を使うことは構成経由のケースで確認します。
+    /// </summary>
+    internal static readonly TimeSpan ShortTemporaryPreviewHold = TimeSpan.FromMilliseconds(100);
 
     /// <summary>専有領域のダミー実行ファイルと記録用境界でBMIIDXプレイヤーを作ります。</summary>
     internal static BMIIDXView2015 CreateBmiPlayer(string directory, IExternalPlayerProcessGateway? processGateway = null)
@@ -55,7 +60,7 @@ internal static class PlaybackPanelTestSupport
             playbackSettings,
             dialogs,
             _ => { },
-            new ChartFileOperationSynchronizer());
+            new ChartFileOperationSynchronizer(), temporaryPreviewHold: ShortTemporaryPreviewHold);
     }
 
     /// <summary>ケース専用設定で一時導入パネルを作り、指定時だけ明示UI schedulerを使います。</summary>
@@ -87,7 +92,8 @@ internal static class PlaybackPanelTestSupport
         ChartFileOperationSynchronizer? operations = null,
         string? packageRoot = null,
         ChartPackage? discoveredPackage = null,
-        IUiScheduler? uiScheduler = null)
+        IUiScheduler? uiScheduler = null,
+        TimeSpan? temporaryPreviewHold = null)
     {
         var databaseScope = new ApplicationDatabaseScope();
         PackageChartEntry entry = discoveredPackage?.ChartEntries.Single(item => item.Chart.Path == chartPath)
@@ -108,7 +114,7 @@ internal static class PlaybackPanelTestSupport
             new SettingsPlaybackSettingsStore(() => testSettings),
             dialogs,
             _ => { },
-            operations ?? new ChartFileOperationSynchronizer());
+            operations ?? new ChartFileOperationSynchronizer(), temporaryPreviewHold: temporaryPreviewHold ?? ShortTemporaryPreviewHold);
         TestBmsLibrary library = uiScheduler == null
             ? new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings)
             : new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, uiScheduler, settings: testSettings);
