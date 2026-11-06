@@ -424,6 +424,67 @@ public sealed class ReleaseScriptVersionSourceTests
         Assert.AreNotEqual(0, result.ExitCode, "PowerShell unexpectedly succeeded: " + result.CombinedOutput);
     }
 
+    // 初期のgit状態（コミット済みの作業リポジトリと、mainをpush済みのbareのリモート）はケースで変わる内容が
+    // version.txtの有無だけなので、その種類ごとにクラスで一度だけ作り、各ケースは専有領域へ複製して使います。
+    // これによりケースごとのgit約10回の起動を、複製と1回のremote URL付け替えに減らします。
+    // テンプレートは複製元として読むだけで、ケース同士で共有する可変状態にはしません。
+    // 作成は特定ケースの取消へ結び付けず、テンプレート作成全体に独立した120秒の期限を持ちます。
+    // 作成が失敗した場合は元の例外を保った失敗Taskを各ケースが待つため、失敗はskipや成功へ読み替えられません。
+    private static readonly Lazy<Task<ReleaseFixture>> TemplateWithoutCompatibilityFile =
+        new(() => Task.Run(() => CreateTemplateAsync(includeCompatibilityFile: false)));
+
+    private static readonly Lazy<Task<ReleaseFixture>> TemplateWithCompatibilityFile =
+        new(() => Task.Run(() => CreateTemplateAsync(includeCompatibilityFile: true)));
+
+    private static Task<ReleaseFixture> GetTemplate(bool includeCompatibilityFile) =>
+        (includeCompatibilityFile ? TemplateWithCompatibilityFile : TemplateWithoutCompatibilityFile).Value;
+
+    private static async Task<ReleaseFixture> CreateTemplateAsync(bool includeCompatibilityFile)
+    {
+        var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(120));
+        var failureCleanup = new Lazy<ProcessDeadline>(() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(5)));
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        var template = new ReleaseFixture(workspace, deadline, failureCleanup, CancellationToken.None);
+        Exception? primary = null;
+        Exception? cleanup = null;
+        try
+        {
+            await template.InitializeTemplateAsync(includeCompatibilityFile);
+            return template;
+        }
+        catch (Exception failure)
+        {
+            primary = failure;
+            _ = failureCleanup.Value;
+        }
+        try { template.CleanupWorkspace(failureCleanup.Value); }
+        catch (Exception failure) { cleanup = failure; }
+        ThrowFailures(primary, cleanup);
+        throw new InvalidOperationException("到達しない経路です。");
+    }
+
+    /// <summary>
+    /// テンプレート領域を回収します。ケースは並列に複製元として読むため、全ケースの終端後を保証できるクラス終端で一度だけ回収します。
+    /// </summary>
+    /// <remarks>作成に失敗したテンプレートは作成側が回収または証跡保持を済ませているため、ここでは対象にしません。</remarks>
+    [ClassCleanup]
+    public static async Task CleanupTemplatesAsync()
+    {
+        var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(30));
+        var failures = new List<Exception>();
+        foreach (Lazy<Task<ReleaseFixture>> lazy in new[] { TemplateWithoutCompatibilityFile, TemplateWithCompatibilityFile })
+        {
+            if (!lazy.IsValueCreated) { continue; }
+            ReleaseFixture template;
+            try { template = await lazy.Value; }
+            catch { continue; }
+            try { template.CleanupWorkspace(deadline); }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        if (failures.Count == 1) { ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
+        if (failures.Count > 1) { throw new AggregateException(failures); }
+    }
+
     private async Task RunCaseAsync(bool includeMetadata, bool includeCompatibilityFile, Func<ReleaseFixture, Task> action)
     {
         var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(360));
@@ -434,7 +495,8 @@ public sealed class ReleaseScriptVersionSourceTests
         Exception? cleanup = null;
         try
         {
-            await fixture.InitializeAsync(includeMetadata, includeCompatibilityFile);
+            ReleaseFixture template = await GetTemplate(includeCompatibilityFile).WaitAsync(TestContext.CancellationToken);
+            await fixture.InitializeAsync(includeMetadata, template);
             await action(fixture);
         }
         catch (Exception failure)
@@ -560,13 +622,33 @@ public sealed class ReleaseScriptVersionSourceTests
 
         public bool FailReleasePublication { get; set; }
 
-        public async Task InitializeAsync(bool includeMetadata, bool includeCompatibilityFile)
+        /// <summary>テンプレートを作る側の初期化です。最初のコミットに入る内容とgit状態だけを作ります。</summary>
+        public async Task InitializeTemplateAsync(bool includeCompatibilityFile)
         {
             gitPath = ResolveExecutable("git.exe");
             pwshPath = ResolveExecutable("pwsh.exe");
-            CreateFiles(includeMetadata, includeCompatibilityFile);
+            CreateTrackedFiles(includeCompatibilityFile);
             environment = CreateEnvironment();
             await InitializeGitAsync();
+        }
+
+        /// <summary>
+        /// ケース側の初期化です。テンプレートの作業リポジトリとリモートを専有領域へ複製し、
+        /// 最初のコミットに入らないケース固有の内容を作ります。
+        /// </summary>
+        public async Task InitializeAsync(bool includeMetadata, ReleaseFixture template)
+        {
+            gitPath = ResolveExecutable("git.exe");
+            pwshPath = ResolveExecutable("pwsh.exe");
+            // 複製先が空の状態で複製するため、後続のケース固有の作成と衝突しません。
+            CopyDirectory(template.Root, Root);
+            CopyDirectory(template.RemotePath, RemotePath);
+            RequireTime(deadline);
+            cancellationToken.ThrowIfCancellationRequested();
+            CreateCaseFiles(includeMetadata);
+            environment = CreateEnvironment();
+            await RunGitAsync("config", "remote.origin.url", RemotePath);
+            InitialHead = template.InitialHead;
         }
 
         public async Task AddCommitAsync(string relativePath, string content)
@@ -612,22 +694,22 @@ public sealed class ReleaseScriptVersionSourceTests
 
         public async Task<string?> RemoteTagCommitAsync(string tag)
         {
+            // bareのリモートを直接読み、ls-remoteの子プロセス連鎖を避けます。refが指すオブジェクトIDを観測します。
             ProcessResult result = await RunProcessAsync(
                 gitPath,
-                new[] { "ls-remote", "--tags", "origin", $"refs/tags/{tag}" },
+                new[] { "--git-dir", RemotePath, "rev-parse", "--verify", "--quiet", $"refs/tags/{tag}" },
                 Root,
                 null);
             if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput))
             {
                 return null;
             }
-            return result.StandardOutput.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0];
+            return result.StandardOutput.Trim();
         }
 
         public async Task<string> RemoteMainCommitAsync()
         {
-            string output = await RunGitAsync("ls-remote", "--heads", "origin", "refs/heads/main");
-            return output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[0];
+            return await RunGitAsync("--git-dir", RemotePath, "rev-parse", "--verify", "refs/heads/main");
         }
 
         public async Task<string[]> DiffNamesAsync(string baseCommit)
@@ -757,14 +839,13 @@ public sealed class ReleaseScriptVersionSourceTests
             if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("Releaseケースの共有期限を超えました。"); }
         }
 
-        private void CreateFiles(bool includeMetadata, bool includeCompatibilityFile)
+        /// <summary>最初のコミットへ入る内容だけを作ります。テンプレート作成時に一度だけ呼びます。</summary>
+        private void CreateTrackedFiles(bool includeCompatibilityFile)
         {
             Directory.CreateDirectory(Path.Combine(Root, "scripts"));
             Directory.CreateDirectory(Path.Combine(Root, "BeMusicSeeker", "Properties"));
             Directory.CreateDirectory(Path.Combine(Root, "release notes"));
             Directory.CreateDirectory(Path.Combine(Root, "docs"));
-            Directory.CreateDirectory(DistRoot);
-            Directory.CreateDirectory(FakeBinRoot);
 
             string repositoryRoot = FindRepositoryRoot();
             File.Copy(Path.Combine(repositoryRoot, "scripts", "release.ps1"), ScriptPath);
@@ -792,6 +873,13 @@ public sealed class ReleaseScriptVersionSourceTests
             }
 
             File.WriteAllText(UpdateManifestPath, "{\"unchanged\":true}\n", Encoding.UTF8);
+        }
+
+        /// <summary>Root外または.gitignoreで除外され、最初のコミットに入らないケース固有の内容を作ります。</summary>
+        private void CreateCaseFiles(bool includeMetadata)
+        {
+            Directory.CreateDirectory(DistRoot);
+            Directory.CreateDirectory(FakeBinRoot);
             CreateZip(NormalPackagePath, includeMetadata: false);
             if (includeMetadata)
             {
@@ -845,6 +933,19 @@ public sealed class ReleaseScriptVersionSourceTests
             await RunGitAsync("init", "--bare", RemotePath);
             await RunGitAsync("remote", "add", "origin", RemotePath);
             await RunGitAsync("push", "-u", "origin", "main");
+        }
+
+        private static void CopyDirectory(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (string directory in Directory.EnumerateDirectories(source, "*", SearchOption.AllDirectories))
+            {
+                Directory.CreateDirectory(Path.Combine(destination, Path.GetRelativePath(source, directory)));
+            }
+            foreach (string file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+            {
+                File.Copy(file, Path.Combine(destination, Path.GetRelativePath(source, file)));
+            }
         }
 
         private void CreateZip(string path, bool includeMetadata)
