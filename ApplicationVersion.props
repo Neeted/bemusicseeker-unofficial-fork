@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
     <!-- 通常公開版の唯一の正本。検証用の版は専有出力へ渡す明示propertyで指定します。 -->
-    <BeMusicSeekerAppVersion Condition="'$(BeMusicSeekerAppVersion)' == ''">3.1.0.0</BeMusicSeekerAppVersion>
+    <BeMusicSeekerAppVersion Condition="'$(BeMusicSeekerAppVersion)' == ''">3.2.0.0</BeMusicSeekerAppVersion>
   </PropertyGroup>
 </Project>

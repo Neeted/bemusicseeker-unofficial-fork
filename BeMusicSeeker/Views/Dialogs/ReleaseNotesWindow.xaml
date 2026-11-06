@@ -39,6 +39,23 @@
 </FrameworkContentElement.Resources>
 <List>
 <ListItem>
+<Paragraph FontWeight="Bold">3.2.0.0:</Paragraph>
+<List MarkerStyle="Box">
+<ListItem>
+<Paragraph>インストール先の推定精度を高め、取り込み後の自動推定で導入先が確定したパッケージを自動でインストールできるようにしました（既定はOFF）。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>リソース健康度を #WAV・#BMP の定義数ではなく譜面で実際に使用するファイルを基準に計算し、未使用の定義を除外しました。保存済みの値の更新には再スキャンが必要です。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>リソース不足や未使用定義を確認できる「譜面プロパティ」を追加し、プレイリストのインポート画面を統合しました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>設定、外観テーマ（全10種類）、一覧のキー操作、ランプビューアの複数モニター対応などの画面を調整しました。</Paragraph>
+</ListItem>
+</List>
+</ListItem>
+<ListItem>
 <Paragraph FontWeight="Bold">3.1.0.0:</Paragraph>
 <List MarkerStyle="Box">
 <ListItem>
