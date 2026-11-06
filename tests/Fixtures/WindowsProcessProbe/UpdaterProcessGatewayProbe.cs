@@ -16,10 +16,19 @@ internal sealed class UpdaterProcessGatewayProbe
     internal Task WindowsGatewayAcceptsReadyOnlyAfterMarkerPublicationCompletes()
         => RunHeldReadyPublicationAsync(keepUnpublishedUntilDeadline: false);
 
-    /// <summary>実producerを未公開のまま保持すると、通常Gatewayの既存10秒期限で受付が失敗し、stdin待ち実fixtureを停止する。最後にproducerも解放して全資源を回収する。</summary>
-    /// <remarks>時計・期限を短縮せず、process停止後のwriter終端は試験所有のgate解放で別に回収する。受付期限の厳密な時刻精度は保証しない。</remarks>
+    /// <summary>実producerを未公開のまま保持すると、Gatewayの受付期限で受付が失敗し、stdin待ち実fixtureを停止する。最後にproducerも解放して全資源を回収する。</summary>
+    /// <remarks>
+    /// 期限切れの経路を確かめるため、受付の期限だけを1秒へ注入する。製品の構築が既定の10秒を使うことはCoreの <c>UpdaterProcessGatewayTests</c> が確認する。
+    /// process停止後のwriter終端は試験所有のgate解放で別に回収する。受付期限の厳密な時刻精度は保証しない。
+    /// </remarks>
     internal Task WindowsGatewayStopsUpdaterWhenReadyPublicationRemainsIncomplete()
         => RunHeldReadyPublicationAsync(keepUnpublishedUntilDeadline: true);
+
+    /// <summary>受付の期限切れを待つ時間です。未公開を保持したまま期限へ到達する経路だけに使います。</summary>
+    private static readonly TimeSpan ShortReadyTimeout = TimeSpan.FromSeconds(1);
+
+    /// <summary>cancelを読まないfixtureの正常終了を待つ時間と、強制停止後の終了確認の期限です。負荷下の強制停止の確認に余裕を残します。</summary>
+    private static readonly TimeSpan AbortGraceForUnresponsiveFixture = TimeSpan.FromSeconds(2);
 
     private static async Task RunHeldReadyPublicationAsync(bool keepUnpublishedUntilDeadline)
     {
@@ -96,7 +105,11 @@ internal sealed class UpdaterProcessGatewayProbe
                 Assert.IsFalse(ownedProcess.HasExited, "Gateway must receive the live stdin-held fixture.");
                 processHandedOver.TrySetResult();
                 return gatewayProcess;
-            });
+            },
+            // 受付の失敗では期限切れの経路だけを短くし、強制停止後の終了確認は製品既定の期限で待つ。
+            // 受付の成功では、cancelを読まないfixtureの正常終了待ちを短くし、強制停止へ進む経路を確かめる。
+            terminationTimeout: keepUnpublishedUntilDeadline ? null : AbortGraceForUnresponsiveFixture,
+            readyTimeout: keepUnpublishedUntilDeadline ? ShortReadyTimeout : null);
             var request = UpdaterProcessLaunchRequest.Create(
                 executablePath, root, root, Path.Combine(root, "app.zip"), Path.Combine(root, "update_backup"),
                 readyFilePath, decisionPath, Path.Combine(root, "BeMusicSeeker.exe"), []);
@@ -113,7 +126,7 @@ internal sealed class UpdaterProcessGatewayProbe
                     receipt = await launchTask;
                 });
                 launchFailureObserved = true;
-                StringAssert.Contains(failure.Message, "within 10 seconds");
+                StringAssert.Contains(failure.Message, "within 1 seconds");
                 Assert.IsNull(receipt);
                 Assert.IsFalse(File.Exists(readyFilePath));
                 Assert.IsFalse(writerTask.IsCompleted, "Stopping the process must not be mistaken for ending the test-owned writer.");

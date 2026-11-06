@@ -13,6 +13,22 @@ namespace BeMusicSeeker.Tests;
 public sealed class UpdaterProcessGatewayTests
 {
     /// <summary>
+    /// 製品が使うGatewayは、受付10秒・停止10秒・回復2分の既定の期限で構築される。
+    /// 期限切れの経路を短い注入値で検査するWindowsのケースと分担し、製品の構築や既定値が変わる誤りを実時間を待たずに検出する。
+    /// </summary>
+    [TestMethod]
+    public void ProductGatewayUsesDefaultDeadlines()
+    {
+        Assert.AreEqual(TimeSpan.FromSeconds(10), WindowsUpdaterProcessGateway.DefaultReadyTimeout);
+        Assert.AreEqual(TimeSpan.FromSeconds(10), WindowsUpdaterProcessGateway.DefaultTerminationTimeout);
+        Assert.AreEqual(TimeSpan.FromMinutes(2), WindowsUpdaterProcessGateway.DefaultRecoveryTimeout);
+        var product = (WindowsUpdaterProcessGateway)UpdaterProcessGatewayPolicy.Current;
+        Assert.AreEqual(WindowsUpdaterProcessGateway.DefaultReadyTimeout, product.ReadyTimeout);
+        Assert.AreEqual(WindowsUpdaterProcessGateway.DefaultTerminationTimeout, product.TerminationTimeout);
+        Assert.AreEqual(WindowsUpdaterProcessGateway.DefaultRecoveryTimeout, product.RecoveryTimeout);
+    }
+
+    /// <summary>
     /// 異文化でも空白付きパスと固定整数のPIDを引数ごとの値で渡し、再起動引数を1つのJSONトークンで渡す。
     /// 作業ディレクトリ・非表示起動と引数の分割を保ち、引用の形ではなく渡した値の欠落・順序違いを検出する。
     /// </summary>

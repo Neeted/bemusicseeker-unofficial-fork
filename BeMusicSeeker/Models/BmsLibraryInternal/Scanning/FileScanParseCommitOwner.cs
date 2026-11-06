@@ -401,7 +401,7 @@ internal sealed class FileScanParseCommitOwner
         var parsedCommitChunks = new List<FileScanDiffCommitChunk>();
 
         Task[] postParseWorkerTasks = [.. Enumerable.Range(0, postParseWorkerDegree)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 try
                 {
@@ -434,7 +434,7 @@ internal sealed class FileScanParseCommitOwner
             }))];
         Task postParseWorkerCompletionTask = Task.WhenAll(postParseWorkerTasks).ContinueWith(_ => CompleteAddingSilently(postParseResultQueue));
 
-        var postParseCollectorTask = Task.Run(delegate
+        Task postParseCollectorTask = BlockingPipelineStage.Start(delegate
         {
             try
             {
@@ -485,7 +485,7 @@ internal sealed class FileScanParseCommitOwner
                 CompleteAddingSilently(commitQueue);
             }
         });
-        var commitCollectorTask = Task.Run(delegate
+        Task commitCollectorTask = BlockingPipelineStage.Start(delegate
         {
             try
             {
@@ -528,7 +528,7 @@ internal sealed class FileScanParseCommitOwner
 
         int nextReadIndex = -1;
         Task[] readerTasks = [.. Enumerable.Range(0, readerDegree)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 while (true)
                 {
@@ -546,7 +546,7 @@ internal sealed class FileScanParseCommitOwner
         Task readerCompletionTask = Task.WhenAll(readerTasks).ContinueWith(_ => readQueue.CompleteAdding());
 
         Task[] workerTasks = [.. Enumerable.Range(0, parserDegree)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 foreach (FileDiffReadCandidate readCandidate in readQueue.GetConsumingEnumerable())
                 {
@@ -1947,7 +1947,7 @@ internal sealed class FileScanParseCommitOwner
                 result.CommitWriterQueueCapacity = writerQueueCapacity;
             }
             writerQueue = new BlockingCollection<FileDiffCommitWriterItem>(writerQueueCapacity);
-            writerTask = Task.Run(WriterLoop);
+            writerTask = BlockingPipelineStage.Start(WriterLoop);
         }
 
         public bool ShouldPruneCommittedInlineRows => inlineChartInfoRowsCommitted != null;

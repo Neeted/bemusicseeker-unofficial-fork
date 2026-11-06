@@ -8,14 +8,20 @@ public sealed class UpdaterProcessGatewayTests
     public TestContext TestContext { get; set; } = null!;
 
     /// <summary>実producerの部分出力を保持している間は完成名を見せず、通常Gatewayを併走させて完成後の受付・内容・排他openでclose済みを確認する。</summary>
-    /// <remarks>Gatewayの開始通知は読取りループ内の存在確認の観測には使わない。完成前の実FS境界と通常readerの接続を分担し、最後にreceipt取消と実fixture・両pipe・全Taskを回収する。</remarks>
+    /// <remarks>
+    /// Gatewayの開始通知は読取りループ内の存在確認の観測には使わない。完成前の実FS境界と通常readerの接続を分担し、最後にreceipt取消と実fixture・両pipe・全Taskを回収する。
+    /// fixtureはcancelを読まないため、停止の期限を2秒へ注入し、正常終了待ちの期限切れから強制停止へ進む経路を確かめる。
+    /// </remarks>
     [TestMethod]
     [TestCategory("ProcessIntegration")]
     public Task WindowsGatewayAcceptsReadyOnlyAfterMarkerPublicationCompletes()
         => WindowsProcessProbeRunner.RunAsync("updater-gateway", nameof(WindowsGatewayAcceptsReadyOnlyAfterMarkerPublicationCompletes), TestContext.CancellationToken);
 
-    /// <summary>実producerを未公開のまま保持すると、通常Gatewayの既存10秒期限で受付が失敗し、stdin待ち実fixtureを停止する。最後にproducerも解放して全資源を回収する。</summary>
-    /// <remarks>時計・期限を短縮せず、process停止後のwriter終端は試験所有のgate解放で別に回収する。受付期限の厳密な時刻精度は保証しない。</remarks>
+    /// <summary>実producerを未公開のまま保持すると、Gatewayの受付期限で受付が失敗し、stdin待ち実fixtureを停止する。最後にproducerも解放して全資源を回収する。</summary>
+    /// <remarks>
+    /// 期限切れの経路を確かめるため、受付の期限だけを1秒へ注入する。製品の構築が既定の10秒を使うことはCoreの同名クラスが確認する。
+    /// process停止後のwriter終端は試験所有のgate解放で別に回収する。受付期限の厳密な時刻精度は保証しない。
+    /// </remarks>
     [TestMethod]
     [TestCategory("ProcessIntegration")]
     public Task WindowsGatewayStopsUpdaterWhenReadyPublicationRemainsIncomplete()

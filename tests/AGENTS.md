@@ -2,7 +2,7 @@
 
 [ルート](../AGENTS.md)、[テスト設計](../devdocs/spec/development/test-authoring.md)、[検証](../devdocs/spec/development/testing.md)に従います。
 
-6moduleはCore、Windows、Scenarios、Desktop.E2E、Compatibility、Performanceです。共通補助はTestSupportへ集約し、機能ごとのprojectや独自process hostを増やしません。Coreへ実Windowやprocess全体の設定変更を移しません。ケース開始前にmodule初期化で一度だけ固定し、ケースが変更・復元しないスレッドプールのworker下限は、この設定変更に含めません。
+6moduleはCore、Windows、Scenarios、Desktop.E2E、Compatibility、Performanceです。共通補助はTestSupportへ集約し、機能ごとのprojectや独自process hostを増やしません。Coreへ実Windowやprocess全体の設定変更を移しません。
 
 各実行ケースはTestWorkspaceで可変ファイル領域を所有します。test/appの起動はOwnedProcessを使い、例外・取消を含めて全childと両pipeを回収します。Windowsはmodule全体のsession leaseを取得せず、実Activateを使うPlaylistLampViewerWindowManagerTestsが非UI側でケース前に取得し、Windowと開始済み処理の回収後に解放します。Scenarios・Desktop・Compatibility・Performanceは従来どおりmodule全体のsession leaseを維持します。
 

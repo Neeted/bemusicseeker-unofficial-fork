@@ -280,7 +280,7 @@ public sealed class VerificationRunnerTests
             else { Assert.IsNull(exported); }
         }
         Assert.AreEqual(originalDeadline, Environment.GetEnvironmentVariable(ProcessDeadline.SuiteDeadlineEnvironmentVariable));
-        CollectionAssert.AreEqual(new[] { "style", "whitespace", "build", "layout", "layout", "layout", "Core", "Windows.Shell", "Windows.Remaining", "Windows.Settings", "Scenarios", "Desktop.E2E" }, fixture.Requests
+        CollectionAssert.AreEqual(new[] { "build", "style", "whitespace", "build", "layout", "layout", "layout", "Core", "Windows.Shell", "Windows.Remaining", "Windows.Settings", "Scenarios", "Desktop.E2E" }, fixture.Requests
             .Where(item => item.Name is "style" or "whitespace" or "build" or "layout" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E")
             .Select(item => item.Name).ToArray());
         ProcessStartRequest style = fixture.Requests.Single(item => item.Name == "style").Request;
@@ -376,41 +376,148 @@ public sealed class VerificationRunnerTests
         Assert.IsFalse(summary.RootElement.GetProperty("passed").GetBoolean());
     }
 
-    /// <summary>全style・whitespaceの変更を後続buildが受け取り、同一pipeline内で準備からreport判定まで接続することを保証します。</summary>
+    /// <summary>
+    /// 整形と同時に始めたbuildが整形前の内容で失敗しても、その結果を採らず、全style・whitespaceの変更を受け取る再buildで判定し、
+    /// 同一pipeline内で準備からreport判定まで接続することを保証します。同時buildの失敗を成功へ数えたり、再buildを省いたりする誤りを検出します。
+    /// </summary>
     [TestMethod]
     public async Task FormatterChangesReachTheBuildInTheActualPipeline()
     {
+        int builds = 0;
         using var fixture = new RunnerFixture { FormatInput = true };
+        // 1回目のbuildは整形の進行と無関係に必ず失敗させ、負荷による起動の遅れで判定が揺れないようにします。
+        fixture.Configure = (name, command) => name == "build" && ++builds == 1 ? command with { ExitCode = 23 } : command;
         VerificationRunResult result = await fixture.ExecuteAsync("verify");
         Assert.AreEqual(0, result.ExitCode);
         Assert.AreEqual("formatted", File.ReadAllText(fixture.Path("changed.cs")));
-        CollectionAssert.AreEqual(new[] { "style", "whitespace", "build" }, fixture.Requests
+        CollectionAssert.AreEqual(new[] { "build", "style", "whitespace", "build" }, fixture.Requests
             .Where(item => item.Name is "style" or "whitespace" or "build").Select(item => item.Name).ToArray());
-        Assert.IsTrue(result.Commands.All(command => command.Passed));
+        VerificationCommandResult superseded = result.Commands.Single(command => command.Superseded);
+        Assert.AreEqual(23, superseded.Completion?.ExitCode);
+        Assert.IsFalse(superseded.Passed);
+        Assert.IsTrue(superseded.PassedOrSuperseded);
+        Assert.IsTrue(result.Commands.Where(command => !command.Superseded).All(command => command.Passed));
         Assert.AreEqual(5, result.Modules.Count);
+    }
+
+    /// <summary>
+    /// 同時のbuildが整形の書込みより後に終わっても、再buildの開始時には整形したファイルの更新時刻がそのbuildの終了より新しいことを保証します。
+    /// 更新時刻を進めずに再buildし、増分ビルドが整形前の内容から作った出力を最新と見なす誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task RebuildSeesFormattedSourcesAsNewerThanTheConcurrentBuild()
+    {
+        int builds = 0;
+        DateTime? rebuildSourceTime = null;
+        using var fixture = new RunnerFixture { FormatInput = true };
+        string changed = fixture.Path("changed.cs");
+        string ready = fixture.Path("build-ready");
+        string release = fixture.Path("build-release");
+        // 1回目のbuildは整形の完了まで保持し、整形の書込みがbuildの終了より前になる順序を作ります。
+        fixture.Configure = (name, command) => name == "build" && ++builds == 1
+            ? command with { Ready = ready, Release = release } : command;
+        // whitespaceの後に始まる差分の空白検査の起動で整形の書込みの完了を知り、対象ファイルを読まずに順序を作ります。
+        using var checkStarted = new ManualResetEventSlim();
+        fixture.BeforeStart = (name, request) =>
+        {
+            if (name == "build" && File.Exists(release)) { rebuildSourceTime = File.GetLastWriteTimeUtc(changed); }
+            if (name == "diff" && request.Arguments.Contains("--check")) { checkStarted.Set(); }
+        };
+        Task<VerificationRunResult> execution = fixture.ExecuteAsync("verify");
+        DateTime released = default;
+        try
+        {
+            await WaitForFileAsync(ready);
+            Assert.IsTrue(await Task.Run(() => checkStarted.Wait(TimeSpan.FromSeconds(30))), "整形が完了しませんでした。");
+            await Task.Delay(50);
+            released = DateTime.UtcNow;
+        }
+        finally
+        {
+            File.WriteAllText(release, "");
+        }
+        VerificationRunResult result = await execution;
+        Assert.AreEqual(0, result.ExitCode, result.PrimaryFailure?.ToString());
+        Assert.AreEqual(2, builds);
+        Assert.IsNotNull(rebuildSourceTime);
+        Assert.IsTrue(File.GetLastWriteTimeUtc(changed) > released, "整形したファイルの更新時刻が、同時のbuildの解放より後へ進められていません。");
+        Assert.IsTrue(rebuildSourceTime > released);
+        Assert.IsTrue(result.Commands.Single(command => command.Superseded).Passed);
+    }
+
+    /// <summary>整形が内容を変えなければ、同時に始めたbuildの結果をそのまま採り、再buildしないことを保証します。</summary>
+    [TestMethod]
+    public async Task UnchangedFormatterKeepsTheConcurrentBuild()
+    {
+        using var fixture = new RunnerFixture { FormatInput = true, FormatterChangesContent = false };
+        VerificationRunResult result = await fixture.ExecuteAsync("verify");
+        Assert.AreEqual(0, result.ExitCode, result.PrimaryFailure?.ToString());
+        CollectionAssert.AreEqual(new[] { "build", "style", "whitespace" }, fixture.Requests
+            .Where(item => item.Name is "style" or "whitespace" or "build").Select(item => item.Name).ToArray());
+        Assert.IsTrue(result.Commands.All(command => command.Passed && !command.Superseded));
+    }
+
+    /// <summary>
+    /// 整形の失敗で、解放を待って実行中の同時のbuildを取り消して回収し、再buildやtestへ進まないことを保証します。
+    /// 整形の失敗後も同時のbuildの終了を待ち続ける誤りや、取り消したbuildを成功として扱う誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task FailedFormatterCancelsTheConcurrentBuild()
+    {
+        using var fixture = new RunnerFixture { FormatInput = true, FormatterChangesContent = false };
+        string ready = fixture.Path("build-ready");
+        fixture.Configure = (name, command) => name switch
+        {
+            "build" => command with { Ready = ready, Release = fixture.Path("build-release") },
+            "style" => command with { ExitCode = 17 },
+            _ => command,
+        };
+        // buildが解放待ちに入ってから整形を失敗させ、取消だけがbuildを終わらせる状態を作ります。
+        fixture.BeforeStart = (name, _) =>
+        {
+            if (name == "style") { WaitForFileAsync(ready).GetAwaiter().GetResult(); }
+        };
+        VerificationRunResult result = await fixture.ExecuteAsync("verify");
+        Assert.AreEqual(1, result.ExitCode);
+        Assert.IsTrue(File.Exists(ready));
+        Assert.IsFalse(File.Exists(fixture.Path("build-release")));
+        Assert.AreEqual(1, fixture.Requests.Count(item => item.Name == "build"));
+        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "whitespace" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
+        Assert.AreEqual(17, result.Commands.Single(command => command.Completion?.ExitCode == 17).Completion?.ExitCode);
+        VerificationCommandResult canceled = result.Commands.Single(command => command.Superseded);
+        Assert.IsFalse(canceled.Passed);
+        // 準備期限の切れによる停止ではなく、整形の失敗による取消で終わったことを区別します。
+        Assert.IsNotInstanceOfType<TimeoutException>(canceled.PrimaryFailure);
+        Assert.IsTrue(canceled.ElapsedMs < TimeSpan.FromSeconds(30).TotalMilliseconds, $"同時のbuildが取消まで {canceled.ElapsedMs}ms かかりました。");
+        Assert.IsNull(canceled.CleanupFailure);
+        Assert.IsNull(canceled.OutputFailure);
     }
 
     /// <summary>restore・各整形・buildの非ゼロ終了で実pipelineが止まり、後段の起動で前段失敗を隠さないことを保証します。</summary>
     [TestMethod]
-    [DataRow("restore", "style", "verify")]
-    [DataRow("style", "whitespace", "verify")]
-    [DataRow("whitespace", "build", "verify")]
-    [DataRow("build", "Core", "verify")]
-    [DataRow("style", "whitespace", "full")]
-    public async Task FailedPreparationDoesNotStartTheNextStage(string fail, string next, string profile)
+    [DataRow("restore", "style", "verify", true)]
+    [DataRow("style", "whitespace", "verify", true)]
+    [DataRow("whitespace", "Core", "verify", true)]
+    [DataRow("build", "Core", "verify", true)]
+    [DataRow("build", "Core", "verify", false)]
+    [DataRow("style", "whitespace", "full", true)]
+    public async Task FailedPreparationDoesNotStartTheNextStage(string fail, string next, string profile, bool formatterChangesContent)
     {
         using var fixture = new RunnerFixture
         {
             FormatInput = true,
+            FormatterChangesContent = formatterChangesContent,
             Configure = (name, command) => name == fail ? command with { ExitCode = 17 } : command,
         };
         VerificationRunResult result = await fixture.ExecuteAsync(profile);
         Assert.AreEqual(1, result.ExitCode);
         Assert.IsNotNull(result.PrimaryFailure);
-        Assert.AreEqual(17, result.Commands.Single(command => command.Completion?.ExitCode == 17).Completion?.ExitCode);
+        // 整形が内容を変えた場合の同時buildは置き換え対象で、成否の判定には最後の非置換commandだけを使います。
+        Assert.AreEqual(17, result.Commands.Last(command => !command.Superseded && command.Completion?.ExitCode != 0).Completion?.ExitCode);
         Assert.IsFalse(fixture.Requests.Any(item => item.Name == next));
-        Assert.AreEqual(fail, fixture.Requests.Last().Name);
-        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
+        // buildは整形と同時に一回だけ始まり、整形が内容を変えて同時buildを置き換える場合だけ再buildします。
+        Assert.AreEqual(fail == "restore" ? 0 : fail == "build" && formatterChangesContent ? 2 : 1, fixture.Requests.Count(item => item.Name == "build"));
+        Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
     }
 
     /// <summary>準備commandが実行期限近くで非ゼロ終了しても、期限を跨ぐ停止処理の後に共有回収猶予で両ログとsummaryを保存し、元の失敗を保つことを保証します。</summary>
@@ -1160,6 +1267,8 @@ public sealed class VerificationRunnerTests
         private readonly TestWorkspace? workspace = distribution is null ? TestWorkspace.Create(TestRunDirectory.RootDirectory) : null;
         private int commandIndex;
         internal bool FormatInput { get; init; }
+        /// <summary>偽のformatterが対象の内容を変えるかです。変える場合だけ、偽のbuildが整形後の内容を要求します。</summary>
+        internal bool FormatterChangesContent { get; init; } = true;
         internal string[] ScenarioIds { get; init; } = ["SC-01", "SC-02", "SC-09"];
         internal string[] CompatibilityNames { get; init; } = ["report fixture"];
         internal string[] PerformanceNames { get; init; } = ["report fixture"];
@@ -1206,9 +1315,16 @@ public sealed class VerificationRunnerTests
                     ? FormatInput ? "changed.cs\0" : "" : name == "rev-parse" ? "fixture-source" : ""
                 };
             }
-            if (name == "style") { command = command with { WritePath = Path("changed.cs"), WriteContent = "style" }; }
-            if (name == "whitespace") { command = command with { RequirePath = Path("changed.cs"), RequireContent = "style", WritePath = Path("changed.cs"), WriteContent = "formatted" }; }
-            if (name == "build" && FormatInput) { command = command with { RequirePath = Path("changed.cs"), RequireContent = "formatted" }; }
+            if (FormatterChangesContent)
+            {
+                if (name == "style") { command = command with { WritePath = Path("changed.cs"), WriteContent = "style" }; }
+                if (name == "whitespace") { command = command with { RequirePath = Path("changed.cs"), RequireContent = "style", WritePath = Path("changed.cs"), WriteContent = "formatted" }; }
+                // 整形と同時のbuildは書込み中のファイルを読まず、整形後に始まる再buildだけが整形後の内容を要求します。
+                if (name == "build" && FormatInput && Requests.Any(item => item.Name == "whitespace"))
+                {
+                    command = command with { RequirePath = Path("changed.cs"), RequireContent = "formatted" };
+                }
+            }
             if (name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios" or "Desktop.E2E" or "Compatibility" or "Performance")
             {
                 string[] arguments = request.Arguments.ToArray();

@@ -269,7 +269,7 @@ internal sealed class ChartInfoBuildService
         long fileReadBytes = 0L;
         int[] processedCount = new int[1];
 
-        var commitWriter = Task.Run(delegate
+        Task commitWriter = BlockingPipelineStage.Start(delegate
         {
             ConsumeCommitChunks(
                 commitChunks.GetConsumingEnumerable(),
@@ -280,7 +280,7 @@ internal sealed class ChartInfoBuildService
                 chartInfoChunkWriter, inputCompleted);
         });
 
-        var resultCollector = Task.Run(delegate
+        Task resultCollector = BlockingPipelineStage.Start(delegate
         {
             try
             {
@@ -300,7 +300,7 @@ internal sealed class ChartInfoBuildService
         });
 
         List<Task> workers = [.. Enumerable.Range(0, result.WorkerCount)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 ExceptionDispatchInfo parseFailure = null;
                 foreach (QueuedChartBytes item in queue.GetConsumingEnumerable())
@@ -337,7 +337,7 @@ internal sealed class ChartInfoBuildService
 
         int nextReadIndex = -1;
         Task[] readers = [.. Enumerable.Range(0, result.ReaderCount)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 while (true)
                 {

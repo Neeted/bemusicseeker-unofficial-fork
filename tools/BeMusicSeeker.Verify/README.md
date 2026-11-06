@@ -33,7 +33,7 @@ dotnet run --project tests/BeMusicSeeker.Core.Tests -- --filter "FullyQualifiedN
 
 明示した導入先が消失した後の再読込・再選択は `SC-05` で確認します。DesktopはScenariosの後に単一workerで実入力を専有します。
 
-`verify` は、復元、全スタイル修正、全空白修正、ビルド、テストの順に進み、前段が失敗したら後段を開始しません。変更したC#がゼロならformatterを起動しません。正式な `full`・`performance` の `--filter` は準備前に拒否します。局所的な検証は対象projectを直接実行します。読取り専用のTestDataは現在の位置に保持します。
+`verify` は、復元の後、自動整形（全スタイル修正、全空白修正、Git差分の空白検査）とビルドを同時に開始し、両方の成功後にテストへ進みます。整形が失敗したら同時のビルドを取り消し、再ビルドやテストを開始しません。整形が対象の内容を変えた場合は、同時のビルドが変更前・変更中の内容を読んだ可能性があるため、その結果を採らず、変更したファイルの更新時刻を進めて再ビルドし、その結果で判定します。採らなかったビルドもログ保存と所有プロセスの回収の成功を要求し、summaryの `superseded` で区別します。変更したC#がゼロならformatterを起動せず、同時のビルドの結果をそのまま使います。正式な `full`・`performance` の `--filter` は準備前に拒否します。局所的な検証は対象projectを直接実行します。読取り専用のTestDataは現在の位置に保持します。
 
 ### 段階ごとの制限時間
 
@@ -183,7 +183,7 @@ Windowsは同じアセンブリを、`Windows.Shell`（MainWindow・Playlist）�
 - CoreとUIを使う実行を並行させます。`dev`・`verify` のDaily Scenariosは同じ上限のUI枠への最初の要求として開始し、Windowsの3実行が続きます。Scenariosはmodule全体で利用者セッションの排他を持つため、段階の冒頭で終え、排他を取得するWindowsのケースが段階の終盤で最長の実行を待たせないようにします。
 - `full` だけは、全Windows実行の所有対象が終端した後にScenariosを開始します。
 - B=1のときだけ全体を逐次実行し、W=1でも3要求を省略しません。
-- 同じprojectのビルドは一度だけで、ExecutionId別にrunsettings・TRX・実行領域・profile・Jobを分離します。
+- 同じprojectを実行ごとに別々にビルドせず、全実行で一つのビルド結果を共有し、ExecutionId別にrunsettings・TRX・実行領域・profile・Jobを分離します。
 
 各moduleは直接実行でも、同じドライブ直下の基底に専有の実行領域を準備します。リポジトリの監視下やOSのシステム一時フォルダーへケース入力を置きません。
 
@@ -208,7 +208,7 @@ Windowsは同じアセンブリを、`Windows.Shell`（MainWindow・Playlist）�
 | 項目 | 意味 |
 | --- | --- |
 | `preparationMs` | 復元・整形・実行条件の取得。 |
-| `buildMs` | ビルド。 |
+| `buildMs` | ビルド。自動整形がある場合は整形と同時の開始から再ビルドの終了までで、`preparationMs` と重なる。 |
 | `distributionMs` | `full` の指定候補の検査・展開。 |
 | `testStageStartTimestamp` | テスト段階の開始時の単調時計の値。受入側が、同じマシンでrunnerの実際の復帰直後の値との差を主時計として記録する。表示言語ファイルのコピー・結果判定・summaryの保存・回収を含む。 |
 | `executionMs` | 最初のテスト起動から結果判定後・summary保存前までの補助的な経過時間。 |

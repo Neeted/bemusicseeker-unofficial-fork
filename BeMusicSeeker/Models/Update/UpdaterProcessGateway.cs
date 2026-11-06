@@ -119,20 +119,50 @@ internal static class UpdaterProcessGatewayPolicy
 
 internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
 {
+    /// <summary>起動処理が<see cref="Process"/>を返した後、受付の公開を待つ製品既定の期限です。</summary>
+    internal static readonly TimeSpan DefaultReadyTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>未完了の更新処理の回復を待つ製品既定の期限です。</summary>
+    internal static readonly TimeSpan DefaultRecoveryTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>cancel公開後の正常終了と、強制停止後の終了確認をそれぞれ待つ製品既定の期限です。</summary>
+    internal static readonly TimeSpan DefaultTerminationTimeout = TimeSpan.FromSeconds(10);
+
     private readonly Func<ProcessStartInfo, Process> startProcess;
 
     private readonly TimeSpan recoveryTimeout;
 
     private readonly TimeSpan terminationTimeout;
 
+    private readonly TimeSpan readyTimeout;
+
+    /// <summary>このインスタンスが使う受付の期限です。製品の構築が既定値を使うことの検査に使います。</summary>
+    internal TimeSpan ReadyTimeout => readyTimeout;
+
+    /// <summary>このインスタンスが使う回復の期限です。</summary>
+    internal TimeSpan RecoveryTimeout => recoveryTimeout;
+
+    /// <summary>このインスタンスが使う停止の期限です。</summary>
+    internal TimeSpan TerminationTimeout => terminationTimeout;
+
+    /// <summary>
+    /// 製品は全期限を既定値で構築します。期限の引数は、期限切れの経路を製品既定の実時間を待たずに検査するためのものです。
+    /// </summary>
     internal WindowsUpdaterProcessGateway(
         Func<ProcessStartInfo, Process> startProcess = null,
         TimeSpan? recoveryTimeout = null,
-        TimeSpan? terminationTimeout = null)
+        TimeSpan? terminationTimeout = null,
+        TimeSpan? readyTimeout = null)
     {
         this.startProcess = startProcess ?? (startInfo => Process.Start(startInfo));
-        this.recoveryTimeout = recoveryTimeout ?? TimeSpan.FromMinutes(2);
-        this.terminationTimeout = terminationTimeout ?? TimeSpan.FromSeconds(10);
+        this.recoveryTimeout = recoveryTimeout ?? DefaultRecoveryTimeout;
+        this.terminationTimeout = terminationTimeout ?? DefaultTerminationTimeout;
+        this.readyTimeout = readyTimeout ?? DefaultReadyTimeout;
+        if (this.readyTimeout <= TimeSpan.Zero
+            || this.readyTimeout.TotalMilliseconds > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(readyTimeout));
+        }
         if (this.recoveryTimeout <= TimeSpan.Zero
             || this.recoveryTimeout.TotalMilliseconds > int.MaxValue)
         {
@@ -269,10 +299,10 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         return true;
     }
 
-    /// <summary>完成名への移動用ハンドルが残っていても受付内容を読み取り、既存期限内の受付を確認します。</summary>
-    private static void WaitForReady(Process process, string readyFilePath)
+    /// <summary>完成名への移動用ハンドルが残っていても受付内容を読み取り、受付の期限内の公開を確認します。</summary>
+    private void WaitForReady(Process process, string readyFilePath)
     {
-        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        DateTime deadline = DateTime.UtcNow + readyTimeout;
         while (DateTime.UtcNow < deadline)
         {
             try
@@ -319,7 +349,8 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
             Thread.Sleep(50);
         }
 
-        throw new UpdaterLaunchFailureException("Updater process did not publish its ready handshake within 10 seconds.");
+        throw new UpdaterLaunchFailureException(
+            "Updater process did not publish its ready handshake within " + readyTimeout.TotalSeconds + " seconds.");
     }
 
     /// <summary>cancel公開後は既存停止期限で正常終端を待ち、公開失敗・無応答だけを強制停止して元失敗を保持します。</summary>

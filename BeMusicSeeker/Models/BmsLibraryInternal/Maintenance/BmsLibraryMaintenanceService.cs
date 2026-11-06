@@ -878,7 +878,7 @@ internal sealed class BmsLibraryMaintenanceService
 
         int nextReadIndex = -1;
         Task[] readerTasks = [.. Enumerable.Range(0, result.ReaderDegree)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 try
                 {
@@ -907,7 +907,7 @@ internal sealed class BmsLibraryMaintenanceService
         Task readerCompletionTask = Task.WhenAll(readerTasks).ContinueWith(_ => readQueue.CompleteAdding());
 
         Task[] evaluatorTasks = [.. Enumerable.Range(0, maintenanceHealthDegree)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 foreach (MaintenanceWorkflowCandidate candidate in readQueue.GetConsumingEnumerable())
                 {
@@ -953,7 +953,7 @@ internal sealed class BmsLibraryMaintenanceService
             }))];
         Task evaluatorCompletionTask = Task.WhenAll(evaluatorTasks).ContinueWith(_ => computedQueue.CompleteAdding());
 
-        var writerTask = Task.Run(delegate
+        Task writerTask = BlockingPipelineStage.Start(delegate
         {
             var chunk = new List<MaintenanceWorkflowComputedItem>(chunkSize);
             try

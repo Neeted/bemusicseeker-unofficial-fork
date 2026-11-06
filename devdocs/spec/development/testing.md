@@ -120,9 +120,9 @@ Linuxでは[クロスビルドと局所検証](../../setup-linux.md)の実行範
 
 `verify` は、未ステージ・ステージ済みの変更ファイルと、Git の除外設定に該当しない未追跡ファイルの和集合から、現在存在する C# ファイルを選びます。対象は作業ツリー上のファイル全体であり、変更行だけには限定しません。`full` は全体を対象とします。いずれも生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` を除きます。変更対象がゼロなら formatter を起動せず、対象指定なしの全体整形に置き換えません。
 
-[共通の整形処理](../../../tests/BeMusicSeeker.TestSupport/Verification/RepositoryFormatter.cs)は、`dotnet format` のスタイル修正を先に行い、続いて空白・改行を揃えます。変更範囲では両方に同じファイル一覧を渡します。整形後に同じ formatter の変更なし検査を重ねません。C# 以外も含む Git 差分の空白検査は、整形後・ビルド前に行います。
+[共通の整形処理](../../../tests/BeMusicSeeker.TestSupport/Verification/RepositoryFormatter.cs)は、`dotnet format` のスタイル修正を先に行い、続いて空白・改行を揃えます。変更範囲では両方に同じファイル一覧を渡します。整形後に同じ formatter の変更なし検査を重ねません。C# 以外も含む Git 差分の空白検査は、整形後に行います。
 
-標準検証では、対象の取得と両方の formatter が `format` 段階の制限時間を共有します。Git の取得失敗、formatter の非ゼロ終了・制限時間超過、差分の空白エラーでは、後続のビルド・テストへ進みません。この段階は復元・ビルド・テストの制限時間に含めません。formatter の警告は診断へ残します。自動整形の成功は、自動修正できないものも含むすべてのスタイル診断がゼロであることを意味しません。
+標準検証では、対象の取得と両方の formatter が `format` 段階の制限時間を共有します。整形はproject全体の意味解析で長いため、ビルドを整形と同時に開始します。formatterの設計時評価は各プロジェクト既定のDebug構成、検証のビルドはRelease/x64で、中間・出力先は分かれます。整形の書込みとコンパイラの読取りが重なった共有違反は整形の失敗として扱います。Git の取得失敗、formatter の非ゼロ終了・制限時間超過、差分の空白エラーでは、同時のビルドを取り消し、再ビルド・テストへ進みません。整形が対象の内容を変えた場合は、同時のビルドの結果を採らず、整形後の内容で再ビルドした結果で判定します。採らなかったビルドでも、ログ保存と所有プロセスの回収の失敗は非成功です。この段階は復元・ビルド・テストの制限時間に含めません。formatter の警告は診断へ残します。自動整形の成功は、自動修正できないものも含むすべてのスタイル診断がゼロであることを意味しません。
 
 手動で整形だけを行う場合も、同じ処理を使います。
 
@@ -156,6 +156,8 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 真の時間超過だけは、所有するプロセスツリーの停止・残留確認と診断保存の後、同じコマンド、フィルター、制限時間、版、条件で一回だけ再実行できます。制限時間内に成功し、症状の再発や決定的な診断がなければ一過性の負荷として両方の結果を報告します。それ以外は原因を調べます。局所的な失敗検出タイマーは、この再実行規則の代わりになりません。
 
+`full` の一部で不安定な結果が出た場合は、症状が出た時点で並行していた実行を考慮して原因を調べ、再現や修正の確認はその段階・対象を直接実行して行えます。通しの `full` を繰り返すことを調査の前提にしません。公開候補の受入には、[実行範囲の選択](#実行範囲の選択)のとおり最終版の `full` の成功が必要です。
+
 失敗結果は原因調査の入力です。統合検証の失敗は[不備の差し戻し](agent-workflow.md#不備の差し戻し)で修正担当へ戻します。修正後の新しい版の検証と、失敗した同一版の再実行は区別します。
 
 ### テスト時間の短縮
@@ -164,7 +166,7 @@ C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、�
 
 #### 比較の方法
 
-同じWindows環境・同じ測定範囲で、変更前の標準 `verify` 一回と最終版の一回を比較することを基本にします。現行版の実行条件が分かる結果があれば基準に使えます。平均や分散を得るためだけの複数回実行は要求しません。反復中は関連する条件を対象moduleの局所MTP実行で確認し、最終版の検証区分と同一版の再実行は[実行範囲の選択](#実行範囲の選択)と[実行期限と失敗分類](#実行期限と失敗分類)に従います。`full` の結果を比較に使う場合は、対象・構成が同じ範囲だけを使い、計測のためだけに通常検証を重ねません。
+同じWindows環境・同じ測定範囲で、変更前の標準 `verify` 一回と最終版の一回を比較することを基本にします。現行版の実行条件が分かる結果があれば基準に使えます。平均や分散を得るためだけの複数回実行は要求しません。反復中は関連する条件を対象moduleの局所MTP実行で確認し、最終版の検証区分と同一版の再実行は[実行範囲の選択](#実行範囲の選択)と[実行期限と失敗分類](#実行期限と失敗分類)に従います。`full` を構成する一部の短縮は、まずその部分（対象module・suite・段階）を直接実行して確認し、最初の手段に `full` の通し実行を使いません。通しの所要や統合した状態を確かめる目的があれば `full` を実行して構いません。`full` の結果を比較に使う場合は、対象・構成が同じ範囲だけを使います。
 
 比較するのはテストプロセスの全体経過時間です。原因の調査では、ホスト別の終了時刻、長いケース、同じ時間帯の待機・共有資源から残る負担を調べます。並列ケースの所要時間を単純合計して全体時間や短縮可能時間と見なさず、スクリプト全体の時間とも区別します。条件が違う結果を同条件の改善実績とは扱いません。
 
@@ -200,9 +202,9 @@ Windowを使わなくしたことだけで `DoNotParallelize` を外さず、設
 標準入口は、次の分割でmoduleを実行します。具体的なworker数の算出と実行順の詳細は[所有と判定](../../../tools/BeMusicSeeker.Verify/README.md#所有と判定)に示します。
 
 - Windows moduleは同じアセンブリを、カテゴリ `Windows.Shell`（MainWindow・Playlist）、両カテゴリ以外、`Windows.Settings` の3実行に分け、各実行を1workerで動かします。カテゴリのないケースは両カテゴリ以外の実行へ入ります。追加のfilterは、分類条件とANDで組み合わせます。
-- CoreはWindowsと並行し、複数workerで実行します。各ケースの実パイプラインがスレッドプールのスレッドを同期的に占有するため、Coreのテストプロセスだけはworker下限を論理CPU数の8倍以上に設定し、全workerが新しいスレッドの注入を待って停滞しないようにします。設定できない場合は失敗です。
+- CoreはWindowsと並行し、複数workerで実行します。走査・同期などの製品パイプラインはブロッキング段を専用スレッドで実行するため、テストプロセスでスレッドプールのworker下限を変更しません。
 - `dev`・`verify` のDaily Scenariosは、UIを使う実行の最初の枠で開始します。module全体で利用者セッションの排他を持つため、排他を取得するWindowsのケースとの重なりを段階の冒頭に限ります。`full` では、Windowsの全実行が終端してからScenariosを開始し、Scenariosの後にDesktopを実行します。
-- 同じprojectのビルドは一度だけ行い、実行ごとにrunsettings・TRX・実行領域・profile・プロセスの所有単位を分けます。
+- 同じprojectを実行ごとに別々にビルドせず、全実行で一つのビルド結果を共有します。実行ごとにrunsettings・TRX・実行領域・profile・プロセスの所有単位を分けます。
 
 ケースの分配はMTPのメソッド単位の並列化へ任せ、`DoNotParallelize` は標準属性として扱います。
 
@@ -214,7 +216,7 @@ UIの利用者セッションを専有するための排他（session lease）�
 | --- | --- |
 | Windows | module全体では取得しない。実Activateを使う `PlaylistLampViewerWindowManagerTests` だけが、UIスレッド外でケース前に取得し、Windowと開始済み処理の回収後に解放する。 |
 | Scenarios・Desktop・Compatibility・Performance | module全体で取得する。 |
-| Core | 取得しない。実Window・プロセス全体の可変設定を所有しない（ケース開始前に一度だけ固定するスレッドプールのworker下限は、ケースが変更・復元しない実行条件として除く）。 |
+| Core | 取得しない。実Window・プロセス全体の可変設定を所有しない。 |
 
 ### テスト区分
 
@@ -528,7 +530,7 @@ suiteの起動・前提・本体・通常の回収・実際の終了は一つの
 | 複数ワークツリーの検証と結果の再利用 | 本書の[複数ワークツリーの検証](#複数ワークツリーの検証)、[並列作業](agent-workflow.md#並列作業)、[通常の統合手順](release.md#通常の作業ブランチの統合) | 全体ルートによる `verify`・性能測定の開始調整と単位責任者による対象moduleの局所MTP実行の自主管理、別ワークツリーの必要ビルドとの並行、資源衝突と実測負荷、対象版・共有依存、移管時の結果引継ぎ、検証版と統合版の一致を照合する。運用文言を固定する自動テストは設けない。 |
 | module選択・必須ID・共有期限・全行Passed | [VerificationPlan](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationPlan.cs)、[VerificationRunner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs) | Coreの `VerificationPlanTests`・`VerificationRunnerTests`・`ResultGateTests` が、選択module・必須ID・filter・非空結果・全行Passed・元の期限の継承を確認する。 |
 | テスト時間の短縮 | [検証入口](../../../tools/BeMusicSeeker.Verify/README.md)、本書の[テスト時間の短縮](#テスト時間の短縮) | 同条件の全体経過時間、全終端、結果件数を比較し、保証の整理と目標時間の達成を区別して報告する。運用文言を固定する自動テストは設けない。 |
-| 手動・標準の整形、前段失敗 | [RepositoryFormatter](../../../tests/BeMusicSeeker.TestSupport/Verification/RepositoryFormatter.cs)、[手動入口](../../../scripts/format-code.ps1) | Coreの `RepositoryFormatterTests`・`VerificationRunnerTests` が、Gitの三集合、全体整形、`NoRestore`、共有期限、実際のアダプター、元の診断・非ゼロ終了と後続の停止を確認する。 |
+| 手動・標準の整形、前段失敗 | [RepositoryFormatter](../../../tests/BeMusicSeeker.TestSupport/Verification/RepositoryFormatter.cs)、[手動入口](../../../scripts/format-code.ps1) | Coreの `RepositoryFormatterTests`・`VerificationRunnerTests` が、Gitの三集合、全体整形、`NoRestore`、共有期限、実際のアダプター、元の診断・非ゼロ終了と後続の停止、整形と同時のビルドの取消と、整形が内容を変えた場合の再ビルドによる置換を確認する。 |
 | 各段階の期限・診断・停止 | [VerificationRunner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs)、[検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |
 | 失敗時の差し戻し・再実行 | [エージェント運用](agent-workflow.md#不備の差し戻し)、本書 | 修正担当への差し戻し、同一版の再実行と修正後の検証、反復回数による再計画を区別する。 |
 | UTF-8の両パイプ・所有する子プロセス・親環境 | [OwnedProcess](../../../tests/BeMusicSeeker.TestSupport/Processes/OwnedProcess.cs) | Coreの `OwnedProcessTests`・`OwnedProcessPipeTests`・`VerificationRunnerTests` で、全終端、期限・元の失敗・診断の保存を確認する。 |

@@ -11,6 +11,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
@@ -818,14 +819,14 @@ internal sealed class BmsLibraryIrService
         int workerCount = Math.Max(1, Math.Min(degree, targets.Count));
         using var workQueue = new BlockingCollection<string>(workerCount * 2);
         using var resultQueue = new BlockingCollection<RankingCacheReloadResult>(workerCount * 4);
-        var collector = Task.Run(delegate
+        Task collector = BlockingPipelineStage.Start(delegate
         {
             foreach (RankingCacheReloadResult result in resultQueue.GetConsumingEnumerable())
             {
                 consumeResult(result);
             }
         });
-        Task[] workers = [.. Enumerable.Range(0, workerCount).Select(_ => Task.Run(delegate
+        Task[] workers = [.. Enumerable.Range(0, workerCount).Select(_ => BlockingPipelineStage.Start(delegate
         {
             foreach (string filePath in workQueue.GetConsumingEnumerable())
             {

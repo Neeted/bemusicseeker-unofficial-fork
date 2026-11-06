@@ -35,6 +35,10 @@ internal sealed record VerificationCommandResult(string Name, ProcessCompletion?
 {
     /// <summary>process、ログ、回収がすべて成功した場合だけ真です。</summary>
     internal bool Passed => Completion?.ExitCode == 0 && PrimaryFailure is null && OutputFailure is null && CleanupFailure is null;
+    /// <summary>後続の同じcommandが結果を決める、整形と同時に実行したビルドかを示します。</summary>
+    internal bool Superseded { get; init; }
+    /// <summary>置き換えたcommandは自身の成否を問わず、ログ保存と所有プロセスの回収の成功だけを要求します。</summary>
+    internal bool PassedOrSuperseded => Passed || Superseded && OutputFailure is null && CleanupFailure is null;
     /// <summary>前段の非成功を後段へ持ち越さず停止するための失敗を生成します。</summary>
     internal Exception Failure => new AggregateException($"commandが失敗しました: {Name}",
         new[] { PrimaryFailure, OutputFailure, CleanupFailure }.OfType<Exception>());
@@ -227,14 +231,20 @@ internal static class VerificationRunner
         var summaryDeadline = ProcessDeadline.FromTimeout(run.MetadataTimeout);
         int commandIndex = 0;
 
-        async Task<ProcessCompletion> ExecutePreparation(string executable, IReadOnlyList<string> arguments, RunnerStage stage)
+        // 整形と同時のビルドは、整形の結果が出るまで成否を確定しないため、記録と判定を呼出元へ残す。
+        async Task<VerificationCommandResult> RunPreparation(string executable, IReadOnlyList<string> arguments, RunnerStage stage)
         {
             VerificationCommandResult result = await ExecuteProcessAsync(run, stage,
                 new ProcessStartRequest(executable, arguments, run.Repository,
                     new Dictionary<string, string?> { [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = null }, ownershipPolicy: ProcessOwnershipPolicy.Preparation),
-                run.RunRoot, $"preparation-{++commandIndex:D3}");
-            commands.Add(result);
+                run.RunRoot, $"preparation-{Interlocked.Increment(ref commandIndex):D3}");
             summaryDeadline = stage.CleanupDeadline;
+            return result;
+        }
+        async Task<ProcessCompletion> ExecutePreparation(string executable, IReadOnlyList<string> arguments, RunnerStage stage)
+        {
+            VerificationCommandResult result = await RunPreparation(executable, arguments, stage);
+            commands.Add(result);
             if (!result.Passed) { throw result.Failure; }
             return result.Completion ?? throw new InvalidOperationException("commandの終端結果がありません。");
         }
@@ -260,19 +270,58 @@ internal static class VerificationRunner
                 await ExecutePreparation("dotnet", ["restore", plan.Format ? "BeMusicSeeker.sln" : plan.SolutionFilter,
                     "--locked-mode", "--disable-build-servers", "-p:Platform=x64"], restore);
             }
+            string[] buildArguments = ["build", plan.SolutionFilter, "--no-restore", "--disable-build-servers", "-c", plan.Configuration, "-p:Platform=x64"];
             if (plan.Format)
             {
+                // 整形はproject全体の意味解析で長いため、ビルドと同時に開始する。formatterの設計時評価は各project既定のDebug構成、
+                // 検証のビルドはRelease/x64で、中間・出力先が分かれる。整形の書込みとコンパイラの読取りが重なった共有違反は
+                // 整形の失敗として扱い、成功には読み替えない。
+                // 整形の失敗はビルドを取り消して後段へ進まない。整形が内容を変えた場合は、
+                // 同時実行のビルドが変更前・変更中の内容を読んだ可能性があるため、そのビルドの結果を採らず再ビルドで決める。
                 using var format = new RunnerStage(run.FormatTimeout, run.CleanupGrace, cancellationToken);
-                await RepositoryFormatter.FormatAsync(run.Repository,
-                    (executable, arguments, _) => ExecutePreparation(executable, arguments, format), format.ExecutionDeadline,
-                    allSources: plan.Profile == "full");
-                await ExecutePreparation("git", ["diff", "--check"], format);
+                using var concurrentBuilding = new RunnerStage(run.PreparationTimeout, run.CleanupGrace, format.CancellationToken);
+                build.Start();
+                Task<VerificationCommandResult> concurrentBuild = RunPreparation("dotnet", buildArguments, concurrentBuilding);
+                IReadOnlyList<string> formatted;
+                try
+                {
+                    formatted = await RepositoryFormatter.FormatAsync(run.Repository,
+                        (executable, arguments, _) => ExecutePreparation(executable, arguments, format), format.ExecutionDeadline,
+                        allSources: plan.Profile == "full");
+                    await ExecutePreparation("git", ["diff", "--check"], format);
+                }
+                catch
+                {
+                    format.Abort();
+                    // 取り消したbuildの成否は採らないが、ログ保存と回収の失敗は判定に残す。
+                    commands.Add(await concurrentBuild with { Superseded = true });
+                    throw;
+                }
+                preparation.Stop();
+                VerificationCommandResult first = await concurrentBuild;
+                if (formatted.Count == 0)
+                {
+                    commands.Add(first);
+                    if (!first.Passed) { throw first.Failure; }
+                }
+                else
+                {
+                    VerificationCommandResult superseded = first with { Superseded = true };
+                    commands.Add(superseded);
+                    if (!superseded.PassedOrSuperseded) { throw superseded.Failure; }
+                    // 整形の書込みがビルド出力より前の時刻になっても、増分ビルドが変更を見落とさないようにする。
+                    DateTime touched = DateTime.UtcNow;
+                    foreach (string path in formatted) { File.SetLastWriteTimeUtc(path, touched); }
+                    using var building = new RunnerStage(run.PreparationTimeout, run.CleanupGrace, cancellationToken);
+                    await ExecutePreparation("dotnet", buildArguments, building);
+                }
             }
-            preparation.Stop();
-            build.Start();
-            using (var building = new RunnerStage(run.PreparationTimeout, run.CleanupGrace, cancellationToken))
+            else
             {
-                await ExecutePreparation("dotnet", ["build", plan.SolutionFilter, "--no-restore", "--disable-build-servers", "-c", plan.Configuration, "-p:Platform=x64"], building);
+                preparation.Stop();
+                build.Start();
+                using var building = new RunnerStage(run.PreparationTimeout, run.CleanupGrace, cancellationToken);
+                await ExecutePreparation("dotnet", buildArguments, building);
             }
             build.Stop();
 
@@ -391,7 +440,7 @@ internal static class VerificationRunner
             Console.WriteLine($"{outcome.Name}: {(outcome.Passed ? "Passed" : "Failed")} {outcome.Cases} cases {string.Join(" / ", outcome.Errors)}");
         }
         bool passed = primary is null && outcomes.Count == plan.Modules.Count && outcomes.All(outcome => outcome.Passed)
-            && commands.All(command => command.Passed);
+            && commands.All(command => command.PassedOrSuperseded);
         try
         {
             var summary = new
@@ -427,7 +476,8 @@ internal static class VerificationRunner
                     exitCode = command.Completion?.ExitCode,
                     primaryFailure = command.PrimaryFailure?.ToString(),
                     outputFailure = command.OutputFailure?.ToString(),
-                    cleanupFailure = command.CleanupFailure?.ToString()
+                    cleanupFailure = command.CleanupFailure?.ToString(),
+                    superseded = command.Superseded
                 }),
                 modules = outcomes.Select(outcome => new { outcome.Name, outcome.Cases, outcome.Passed, outcome.ElapsedMs, outcome.Errors }),
             };

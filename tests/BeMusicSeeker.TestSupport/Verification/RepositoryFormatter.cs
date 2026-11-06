@@ -14,22 +14,25 @@ internal delegate Task<ProcessCompletion> ExecuteCommand(string executable, IRea
 internal static class RepositoryFormatter
 {
     /// <summary>全体適用は各formatterを一回、変更範囲はGitで集合を確定して適用します。手動入口の復元も同じ期限を使い、変更C#ゼロなら復元・整形を省きます。</summary>
-    internal static async Task FormatAsync(string repository, ExecuteCommand execute, ProcessDeadline deadline, bool allSources = false, bool restore = false)
+    /// <returns>整形で内容が変わったC#の絶対パスです。同時に実行したビルドの結果を採るかの判断に使います。</returns>
+    internal static async Task<IReadOnlyList<string>> FormatAsync(string repository, ExecuteCommand execute, ProcessDeadline deadline, bool allSources = false, bool restore = false)
     {
         if (allSources)
         {
+            IReadOnlyDictionary<string, byte[]> allBefore = Snapshot(EnumerateSources(repository));
             await RestoreAsync();
             await FormatCategoryAsync("style", []);
             await FormatCategoryAsync("whitespace", []);
-            return;
+            return FindChanged(allBefore);
         }
 
         IReadOnlyList<string> paths = await GetChangedPathsAsync(repository, execute, deadline);
         if (paths.Count == 0)
         {
-            return;
+            return [];
         }
 
+        IReadOnlyDictionary<string, byte[]> before = Snapshot(paths.Select(path => Path.GetFullPath(Path.Combine(repository, path))));
         await RestoreAsync();
         IReadOnlyList<IReadOnlyList<string>> batches = CreateBatches(paths);
         foreach (string category in new[] { "style", "whitespace" })
@@ -39,6 +42,7 @@ internal static class RepositoryFormatter
                 await FormatCategoryAsync(category, ["--include", .. batch]);
             }
         }
+        return FindChanged(before);
 
         async Task RestoreAsync()
         {
@@ -85,6 +89,28 @@ internal static class RepositoryFormatter
         }
         return paths.ToArray();
     }
+
+    // 全体整形の対象と同じく、生成先を除いた作業ツリーのC#を列挙する。
+    private static IEnumerable<string> EnumerateSources(string repository)
+    {
+        string root = Path.GetFullPath(repository);
+        return Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories).Where(path =>
+        {
+            string relative = Path.GetRelativePath(root, path).Replace(Path.DirectorySeparatorChar, '/');
+            string[] segments = relative.Split('/');
+            return !segments.Any(segment => segment is "bin" or "obj" or ".tmp" or ".git")
+                && !("/" + relative).Contains("/artifacts/verification/", StringComparison.Ordinal);
+        });
+    }
+
+    private static IReadOnlyDictionary<string, byte[]> Snapshot(IEnumerable<string> paths) =>
+        paths.ToDictionary(path => path, path => System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)), StringComparer.OrdinalIgnoreCase);
+
+    // formatterが削除・追加するC#はないため、整形前の各ファイルの内容だけを比べる。
+    private static IReadOnlyList<string> FindChanged(IReadOnlyDictionary<string, byte[]> before) =>
+        before.Where(entry => !File.Exists(entry.Key)
+                || !System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(entry.Key)).AsSpan().SequenceEqual(entry.Value))
+            .Select(entry => entry.Key).Where(File.Exists).ToArray();
 
     private static IReadOnlyList<IReadOnlyList<string>> CreateBatches(IReadOnlyList<string> paths)
     {

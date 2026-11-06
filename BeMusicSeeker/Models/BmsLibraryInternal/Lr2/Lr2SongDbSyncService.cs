@@ -1413,7 +1413,7 @@ internal static class Lr2SongDbSyncService
 
         int nextReadIndex = safeStartIndex - 1;
         Task[] readerTasks = [.. Enumerable.Range(0, readerDegree)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 try
                 {
@@ -1476,7 +1476,7 @@ internal static class Lr2SongDbSyncService
         Task readerCompletionTask = Task.WhenAll(readerTasks).ContinueWith(_ => TryCompleteAdding(readQueue));
 
         Task[] workerTasks = [.. Enumerable.Range(0, workerDegree)
-            .Select(_ => Task.Run(delegate
+            .Select(_ => BlockingPipelineStage.Start(delegate
             {
                 try
                 {
