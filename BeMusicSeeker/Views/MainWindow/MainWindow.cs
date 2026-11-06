@@ -6220,212 +6220,70 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel);
     }
 
-    /// <summary>明示した保守の成功後は、途中の選択によらず捕捉した対象を選択します。消失した所属は別群へ読み替えず空表示にします。</summary>
+    /// <summary>
+    /// 明示した保守の成功後は、途中の選択によらず捕捉した対象を選択します。消失した所属は別群へ読み替えず空表示にします。
+    /// 保守結果は自動選択に必要なグループの準備後に返るため、遅れて届く変更通知を待たず、現在のグループをツリーへ反映して一度だけ解決します。
+    /// </summary>
     private async Task ApplyDuplicateMaintenanceSelectionAsync(DuplicateViewContext selection, MainWindowViewModel viewModel)
     {
-        if (viewModel == null || IsShellClosingOrClosed())
+        if (selection == null || viewModel == null || IsShellClosingOrClosed())
         {
             return;
         }
-        if (selection == null)
-        {
-            return;
-        }
-        TaskCompletionSource<bool> duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
-        PropertyChangedEventHandler handler = (sender, args) =>
-        {
-            if (args.PropertyName == nameof(MaintenanceTreeViewModel.DuplicateChartGroups))
-            {
-                duplicateGroupsChanged.TrySetResult(true);
-            }
-        };
-        viewModel.MaintenanceTree.PropertyChanged += handler;
-        try
-        {
-            string lastReason = string.Empty;
-            for (int attempt = 0; attempt < 2; attempt++)
-            {
-                (bool succeeded, string failReason) = await TryApplyDuplicateMaintenanceSelectionAsync(
-                    selection,
-                    viewModel);
-                lastReason = failReason;
-                if (succeeded)
-                {
-                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success attempt=" + attempt);
-                    return;
-                }
-                if (!ShouldRetryDuplicateGroupAutoSelect(lastReason) || IsShellClosingOrClosed() || attempt == 1)
-                {
-                    break;
-                }
-                Task signal = duplicateGroupsChanged.Task;
-                await Task.WhenAny(signal, Task.Delay(1500));
-                duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
-            }
-            if (!IsShellClosingOrClosed())
-            {
-                if (lastReason == "group_not_found" || lastReason == "duplicated_list_null")
-                {
-                    if (_lastSelectedTreeViewItem != null)
-                    {
-                        _lastSelectedTreeViewItem.IsSelected = false;
-                    }
-                    await viewModel.ApplyUnresolvedDuplicateSelectionAsync(selection);
-                }
-                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending reason=" + lastReason);
-            }
-        }
-        finally
-        {
-            viewModel.MaintenanceTree.PropertyChanged -= handler;
-        }
-    }
-
-    private static TaskCompletionSource<bool> CreateDuplicateGroupsChangedSignal()
-    {
-        return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-    }
-
-    private async Task<(bool Succeeded, string FailReason)> TryApplyDuplicateMaintenanceSelectionAsync(
-        DuplicateViewContext selection,
-        MainWindowViewModel viewModel)
-    {
-        string failReason = string.Empty;
-        DispatcherPriority[] retryPriorities = [DispatcherPriority.Loaded, DispatcherPriority.Render, DispatcherPriority.ContextIdle];
-        foreach (DispatcherPriority retryPriority in retryPriorities)
-        {
-            await Dispatcher.Yield(retryPriority);
-            if (IsShellClosingOrClosed()) { return (false, "window_closed"); }
-            if (TrySelectDuplicateGroupByMembership(selection, viewModel, out failReason))
-            {
-                return (true, string.Empty);
-            }
-            if (!ShouldRetryDuplicateGroupAutoSelect(failReason))
-            {
-                return (false, failReason);
-            }
-        }
-        return (false, failReason);
-    }
-
-    private static bool ShouldRetryDuplicateGroupAutoSelect(string failReason)
-    {
-        return failReason == "duplicate_tree_items_not_updated" ||
-            failReason == "duplicated_list_null" ||
-            failReason == "group_not_found" ||
-            failReason == "container_not_realized" ||
-            failReason == "duplicate_items_host_not_found" ||
-            failReason == "bring_index_out_of_range";
-    }
-
-    private bool TrySelectDuplicateGroupByMembership(DuplicateViewContext selection, MainWindowViewModel viewModel,
-        out string failReason)
-    {
-        failReason = string.Empty;
-        // XAML上で Name="treeViewItemSearchDuplicated" を持つTreeViewItem
-        TreeViewItem duplicateRootItem = treeViewItemSearchDuplicated;
-        if (duplicateRootItem == null)
-        {
-            failReason = "root_not_found";
-            return false;
-        }
-
-        List<DuplicateGroup> duplicatedList = viewModel.MaintenanceTree.DuplicateChartGroups;
-        if (duplicatedList == null)
-        {
-            failReason = "duplicated_list_null";
-            return false;
-        }
-
-        DuplicateGroup targetGroup = selection.ResolveGroup(duplicatedList);
+        // グループの変更通知はワーカースレッドから届き、Bindingは反映をDispatcherへ予約して、その間の同スレッド通知を無視する。
+        // 結果の受取り時点ではツリーが旧結果のままの場合があるため、現在値を読み直す。後から届く反映は同じ参照なので再構築しない。
+        BindingOperations.GetBindingExpression(treeViewItemSearchDuplicated, ItemsControl.ItemsSourceProperty)?.UpdateTarget();
+        DuplicateGroup targetGroup = selection.ResolveGroup(viewModel.MaintenanceTree.DuplicateChartGroups);
         if (targetGroup == null)
         {
-            failReason = "group_not_found";
-            return false;
+            _lastSelectedTreeViewItem?.IsSelected = false;
+            await viewModel.ApplyUnresolvedDuplicateSelectionAsync(selection);
+            NLogWrapper.FileLogger?.Info("duplicate_group_autoselect unresolved");
+            return;
         }
-
-        // 成功後の候補を表示できるよう親を展開する。
-        treeViewItemFullScanCheck.IsExpanded = true;
-        duplicateRootItem.IsExpanded = true;
-        duplicateRootItem.BringIntoView();
-        duplicateRootItem.UpdateLayout();
-
-        int targetIndex = FindDuplicateGroupTreeItemIndex(duplicateRootItem, targetGroup);
-        if (targetIndex < 0)
-        {
-            failReason = "duplicate_tree_items_not_updated";
-            return false;
-        }
-
-        var targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
+        TreeViewItem targetItem = RealizeDuplicateGroupTreeItem(targetGroup);
         if (targetItem == null)
         {
-            if (!TryRealizeVirtualizedDuplicateGroupItem(duplicateRootItem, targetIndex, out failReason))
-            {
-                return false;
-            }
-            targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
+            NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect container_not_realized");
+            return;
         }
-
-        // コンテナを取得して選択
-        if (targetItem != null)
-        {
-            targetItem.IsSelected = true;
-            targetItem.IsExpanded = true;
-            targetItem.BringIntoView();
-            return true;
-        }
-        failReason = "container_not_realized";
-        return false;
+        targetItem.IsSelected = true;
+        targetItem.IsExpanded = true;
+        targetItem.BringIntoView();
+        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success");
     }
 
-    private static int FindDuplicateGroupTreeItemIndex(TreeViewItem duplicateRootItem, DuplicateGroup targetGroup)
+    /// <summary>重複ルートを展開し、仮想化で未生成のグループ項目を公開APIで生成して返します。現在のツリーに無いグループにはnullを返します。</summary>
+    private TreeViewItem RealizeDuplicateGroupTreeItem(DuplicateGroup group)
     {
-        ItemCollection treeItems = duplicateRootItem.Items;
-        for (int i = 0; i < treeItems.Count; i++)
+        TreeViewItem root = treeViewItemSearchDuplicated;
+        root.IsExpanded = true;
+        root.UpdateLayout();
+        int index = root.Items.IndexOf(group);
+        if (index < 0)
         {
-            if (ReferenceEquals(treeItems[i], targetGroup))
-            {
-                return i;
-            }
+            return null;
         }
-        return -1;
+        if (root.ItemContainerGenerator.ContainerFromIndex(index) is TreeViewItem item)
+        {
+            return item;
+        }
+        TryGetTreeViewItemItemsHostPanel(root)?.BringIndexIntoViewPublic(index);
+        root.UpdateLayout();
+        return root.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
     }
 
-    private bool TryRealizeVirtualizedDuplicateGroupItem(TreeViewItem duplicateRootItem, int targetIndex, out string failReason)
+    /// <summary>
+    /// 重複ツリーで選択中の項目と、その祖先のグループ項目を仮想化の再利用対象から外します。
+    /// WPFは項目の入れ物を再利用するとき選択状態を保存・復元せず入れ物へ残すため、フォーカスの無い選択項目が画面外へ出ると、
+    /// 再利用先の無関係な項目に選択の背景色が付きます。フォーカスを持つ項目を再利用しない既存の挙動を、選択中の項目へ広げます。
+    /// </summary>
+    private void duplicateTreeCleanUpVirtualizedItem(object sender, CleanUpVirtualizedItemEventArgs e)
     {
-        failReason = string.Empty;
-        if (playlistTreeBringIndexIntoViewMethod == null)
+        if (e.UIElement is TreeViewItem item
+            && (item.IsSelected || _lastSelectedTreeViewItem is { IsSelected: true } selected && item.IsAncestorOf(selected)))
         {
-            failReason = "bring_index_method_not_found";
-            return false;
-        }
-        VirtualizingStackPanel duplicateItemsHostPanel = TryGetTreeViewItemItemsHostPanel(duplicateRootItem);
-        if (duplicateItemsHostPanel == null)
-        {
-            failReason = "duplicate_items_host_not_found";
-            return false;
-        }
-        try
-        {
-            playlistTreeBringIndexIntoViewMethod.Invoke(duplicateItemsHostPanel, [targetIndex]);
-            duplicateRootItem.UpdateLayout();
-            return true;
-        }
-        catch (TargetInvocationException ex) when (ex.InnerException is ArgumentOutOfRangeException)
-        {
-            failReason = "bring_index_out_of_range";
-            return false;
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            failReason = "bring_index_out_of_range";
-            return false;
-        }
-        catch (Exception ex)
-        {
-            failReason = "bring_index_failed_" + ex.GetType().Name;
-            return false;
+            e.Cancel = true;
         }
     }
 

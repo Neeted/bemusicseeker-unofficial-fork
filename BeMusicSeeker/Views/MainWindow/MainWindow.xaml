@@ -1455,7 +1455,7 @@
                 <TreeViewItem Name="treeViewItemFullScanCheckAllCharts" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Full_scan_all_charts, Mode=OneWay}" Selected="fullScanAllChartsFolderSelect" />
                 <TreeViewItem Name="treeViewItemFullScanCheckIgnored" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Ignore_list, Mode=OneWay}" Selected="fullScanCheckIgnoredFolderSelect" />
               </TreeViewItem>
-              <TreeViewItem Name="treeViewItemSearchDuplicated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_duplicates, Mode=OneWay}" ItemsSource="{Binding MaintenanceTree.DuplicateChartGroups}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenanceDuplicateFolder}" Selected="dupulicateFileCheckFolderSelect">
+              <TreeViewItem Name="treeViewItemSearchDuplicated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_duplicates, Mode=OneWay}" ItemsSource="{Binding MaintenanceTree.DuplicateChartGroups}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenanceDuplicateFolder}" Selected="dupulicateFileCheckFolderSelect" VirtualizingStackPanel.CleanUpVirtualizedItem="duplicateTreeCleanUpVirtualizedItem">
                 <FrameworkElement.Resources>
                   <ResourceDictionary>
                     <DataTemplate x:Key="templateTreeViewItemHeaderDuplicateFileCheckFolder">
@@ -1473,6 +1473,7 @@
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderDuplicateFileCheckFolder}" />
                     <Setter Property="ItemsSource" Value="{Binding Folders}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                    <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="duplicateTreeCleanUpVirtualizedItem" />
                     <Setter Property="ItemContainerStyle">
                       <Setter.Value>
                         <Style TargetType="{x:Type TreeViewItem}">

@@ -2400,7 +2400,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         });
     }
 
-    /// <summary>実Treeのルート・同名群・フォルダを手動選択し、実統合の成功後は操作前に捕捉した次群を選びます。実Binding・旧行選択解除・FS/DB反映と必要通知中の親L保持・終端回収を確認します。途中の別画面からの自動選択は実Hashの代表が分担します。</summary>
+    /// <summary>実Treeのルート・同名群・フォルダを手動選択し、実統合の成功後は操作前に捕捉した次群を選びます。実Binding・旧行選択解除・FS/DB反映と必要通知中の親L保持・終端回収を確認します。途中の別画面からの自動選択は実Hashの代表が分担します。自動選択した群の入れ物だけが選択表示を持つことも確認します。</summary>
     [TestMethod]
     public void DuplicateSelections_ActualMergeSelectsCapturedNextGroupThroughCompiledTree()
     {
@@ -2456,6 +2456,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 var tree = (TreeView)window.FindName("treeView");
                 Assert.IsInstanceOfType(tree.SelectedItem, typeof(DuplicateGroup));
                 CollectionAssert.AreEquivalent(nextFolders, ((DuplicateGroup)tree.SelectedItem).Folders);
+                AssertDuplicateSelectionDisplay(tree, root, tree.SelectedItem, "merge auto selected", requireRealized: true);
                 Assert.AreEqual(MainViewUpdateMode.DuplicateFilterSelected, viewModel.MainChartList.LastAppliedColumnMode);
                 Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "元のフォルダの行選択は次群へ持ち越しません。");
                 Assert.IsFalse(Directory.Exists(sourceCharts[0].Directory));
@@ -2475,7 +2476,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         });
     }
 
-    /// <summary>実GキーによるHash整理の削除前に通常一覧へ移り、成功後は捕捉した次群へ自動選択します。実ファイル・所持・SQLiteの整理と、別画面でも必要なgroups準備・実Binding・親L回収を確認します。</summary>
+    /// <summary>実GキーによるHash整理の削除前に通常一覧へ移り、成功後は捕捉した次群へ自動選択します。実ファイル・所持・SQLiteの整理と、別画面でも必要なgroups準備・実Binding・親L回収と、自動選択した群の入れ物だけが選択表示を持つことを確認します。</summary>
     [TestMethod]
     public void DuplicateSelections_ActualHashCleanupSelectsCapturedNextGroupAfterLaterView()
     {
@@ -2538,6 +2539,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 var tree = (TreeView)window.FindName("treeView");
                 Assert.IsInstanceOfType(tree.SelectedItem, typeof(DuplicateGroup));
                 CollectionAssert.AreEquivalent(next.Folders, ((DuplicateGroup)tree.SelectedItem).Folders);
+                AssertDuplicateSelectionDisplay(tree, root, tree.SelectedItem, "hash auto selected", requireRealized: true);
                 Assert.AreEqual(MainViewUpdateMode.DuplicateFilterSelected, viewModel.MainChartList.LastAppliedColumnMode);
                 Assert.IsNotNull(library.DuplicateChartGroups);
                 Assert.IsFalse(library.OperationAdmission.IsActive);
@@ -2592,10 +2594,162 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         }, terminal);
     }
 
+    /// <summary>
+    /// 保証：ツリー外にフォーカスがある状態で重複グループまたはその配下のフォルダを選び、仮想化で入れ物が解放・再利用される位置までスクロールして戻しても、
+    /// 選択表示は選択中の項目だけに残り、他のグループ・フォルダへ移らず、左の選択と一覧要求も変わらない。
+    /// 選択中の入れ物が別項目へ再利用されて表示が持ち越される誤り、戻した選択項目の表示消失、仮想化自体を止める対処を検出する。
+    /// </summary>
+    /// <remarks>コンパイル済みTreeViewの再利用仮想化とスクロールは実WPFでしか動かないため実Windowで確認する。選択から一覧への接続と行集合は既存のDuplicateSelections_*が分担する。</remarks>
+    [TestMethod]
+    public void DuplicateSelections_ManualSelectionDisplayStaysOnSelectedItemAcrossVirtualizedScroll()
+    {
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var tree = (TreeView)window.FindName("treeView");
+            ScrollViewer treeScroll = FindDuplicateTreeDescendants<ScrollViewer>(tree).First();
+
+            // 段階1：グループの選択。
+            DuplicateGroup group = library.DuplicateChartGroups.First(candidate => candidate.Header == "same");
+            TreeViewItem groupItem = RealizeDuplicateGroupItem(root, group);
+            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => groupItem.IsSelected = true,
+                group.ChartFiles.Select(chart => chart.Path).ToArray());
+            Assert.IsFalse(tree.IsKeyboardFocusWithin, "ツリー外にフォーカスがある状態を前提にします。");
+            int groupIndex = root.Items.IndexOf(group);
+            ScrollDuplicateTreeAndAssertSelection(tree, root, group, navigation, viewModel, () =>
+            {
+                groupItem.BringIntoView();
+                AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(groupIndex + 1) != null,
+                    "group stage home position realizes neighbor container");
+                AssertDuplicateSelectionDisplay(tree, root, group, "group before scroll", requireRealized: true);
+                double home = treeScroll.VerticalOffset;
+                treeScroll.ScrollToEnd();
+                AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(groupIndex + 1) == null,
+                    "group stage far position releases neighbor container");
+                AssertDuplicateSelectionDisplay(tree, root, group, "group far", requireRealized: false);
+                treeScroll.ScrollToVerticalOffset(home);
+                AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(groupIndex + 1) != null,
+                    "group stage home position realizes neighbor container");
+                AssertDuplicateSelectionDisplay(tree, root, group, "group home", requireRealized: true);
+            });
+
+            // 段階2：多数のフォルダを持つグループの先頭フォルダの選択。前段階のグループに選択表示が残らないことも確認する。
+            DuplicateGroup large = library.DuplicateChartGroups.Single(candidate => candidate.Header == "large");
+            string firstFolder = large.Folders[0];
+            TreeViewItem folderItem = RealizeDuplicateFolderItem(root, large, firstFolder);
+            string[] firstFolderCharts = charts.Where(chart => chart.Directory == firstFolder).Select(chart => chart.Path).ToArray();
+            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => folderItem.IsSelected = true, firstFolderCharts);
+            Assert.IsFalse(tree.IsKeyboardFocusWithin, "ツリー外にフォーカスがある状態を前提にします。");
+            var largeItem = (TreeViewItem)root.ItemContainerGenerator.ContainerFromItem(large);
+            int largeIndex = root.Items.IndexOf(large);
+            ScrollDuplicateTreeAndAssertSelection(tree, root, firstFolder, navigation, viewModel, () =>
+            {
+                folderItem.BringIntoView();
+                AwaitDuplicateTreeLayout(tree, () => largeItem.ItemContainerGenerator.ContainerFromIndex(1) != null,
+                    "folder stage home position realizes neighbor folder");
+                double home = treeScroll.VerticalOffset;
+                FindItemsHostPanel(largeItem).BringIndexIntoViewPublic(large.Folders.Count - 1);
+                AwaitDuplicateTreeLayout(tree, () => largeItem.ItemContainerGenerator.ContainerFromIndex(1) == null,
+                    "folder stage middle position releases neighbor folder");
+                AssertDuplicateSelectionDisplay(tree, root, firstFolder, "folder middle", requireRealized: false);
+                treeScroll.ScrollToEnd();
+                AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(largeIndex + 1) == null,
+                    "folder stage far position releases neighbor group");
+                AssertDuplicateSelectionDisplay(tree, root, firstFolder, "folder far", requireRealized: false);
+                treeScroll.ScrollToVerticalOffset(home);
+                AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromItem(large) is TreeViewItem item
+                        && item.ItemContainerGenerator.ContainerFromIndex(1) != null,
+                    "folder stage home position realizes neighbor folder again");
+                AssertDuplicateSelectionDisplay(tree, root, firstFolder, "folder home", requireRealized: true);
+            });
+        }, fillerGroups: 200, largeGroupFolders: 120);
+    }
+
+    /// <summary>
+    /// 保証：保守の完了時に捕捉した群が画面外で未生成でも、成功後の自動選択はその群を生成して選び、一覧をその群にする。
+    /// 検索結果の全置換を経ても選択表示は自動選択した群だけに付き、その後スクロールで画面外へ出して戻しても他の項目へ移らない。
+    /// 未生成の群を選べず旧選択が残る誤りと、一覧の全置換や旧選択による表示の持越しを検出する。
+    /// </summary>
+    /// <remarks>保守本体は代替し、群の準備後に結果を返す契約どおり入力する。実統合・実ハッシュ整理からの接続はActualMerge/ActualHashが分担する。</remarks>
+    [TestMethod]
+    public void DuplicateSelections_AutoSelectionRealizesOffscreenCapturedGroupAndKeepsDisplayAcrossScroll()
+    {
+        var completion = new TaskCompletionSource<DuplicateMaintenanceMutationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int requests = 0;
+        var terminal = new MainWindowDuplicateMaintenanceTerminal((_, _, _) =>
+            {
+                requests++;
+                return completion.Task;
+            }, (_, _) => Task.FromResult(DuplicateMaintenanceMutationResult.Rejected(null)), () => true);
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var tree = (TreeView)window.FindName("treeView");
+            ScrollViewer treeScroll = FindDuplicateTreeDescendants<ScrollViewer>(tree).First();
+            DuplicateGroup source = library.DuplicateChartGroups[0];
+            DuplicateGroup target = library.DuplicateChartGroups[1];
+            Assert.AreEqual("same", source.Header);
+            Assert.AreEqual("same", target.Header);
+            ChartFile[] sourceCharts = charts.Where(chart => source.Folders.Contains(chart.Directory)).ToArray();
+            string[] targetPaths = target.ChartFiles.Select(chart => chart.Path).ToArray();
+            TreeViewItem sourceFolder = RealizeDuplicateFolderItem(root, source, sourceCharts[0].Directory);
+            SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => sourceFolder.IsSelected = true, sourceCharts[0].Path);
+            MenuItem merge = CreateCompiledDuplicateMerge(window, sourceFolder, sourceCharts[1].Directory);
+            try
+            {
+                SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => RaiseMenuClick(merge), targetPaths, handler =>
+                {
+                    try
+                    {
+                        Assert.AreEqual(1, requests);
+                        Assert.IsFalse(handler.IsCompleted);
+                        treeScroll.ScrollToEnd();
+                        AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromItem(target) == null,
+                            "captured group container is released before completion");
+                        // 群の準備完了後に結果を返す契約どおり、新しい検索結果へ全置換してから完了させる。
+                        library.DuplicateChartGroups = library.DuplicateChartGroups.Where(group => !ReferenceEquals(group, source)).ToList();
+                        completion.SetResult(DuplicateMaintenanceMutationResult.Completed(DuplicateViewContext.CaptureGroup(target)));
+                    }
+                    finally
+                    {
+                        // 前提の失敗時も保守のハンドラーを終端させ、呼出し側の回収待ちを止めない。
+                        completion.TrySetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+                    }
+                });
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                AssertDuplicateSelectionDisplay(tree, root, target, "auto selected", requireRealized: true);
+                int targetIndex = root.Items.IndexOf(target);
+                ScrollDuplicateTreeAndAssertSelection(tree, root, target, navigation, viewModel, () =>
+                {
+                    var targetItem = (TreeViewItem)root.ItemContainerGenerator.ContainerFromItem(target);
+                    targetItem.BringIntoView();
+                    AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(targetIndex + 1) != null,
+                        "auto home position realizes neighbor container");
+                    double home = treeScroll.VerticalOffset;
+                    treeScroll.ScrollToEnd();
+                    AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(targetIndex + 1) == null,
+                        "auto far position releases neighbor container");
+                    AssertDuplicateSelectionDisplay(tree, root, target, "auto far", requireRealized: false);
+                    treeScroll.ScrollToVerticalOffset(home);
+                    AwaitDuplicateTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(targetIndex + 1) != null,
+                        "auto home position realizes neighbor container again");
+                    AssertDuplicateSelectionDisplay(tree, root, target, "auto home", requireRealized: true);
+                });
+            }
+            finally
+            {
+                completion.TrySetResult(DuplicateMaintenanceMutationResult.Rejected(null));
+            }
+        }, terminal, fillerGroups: 200);
+    }
+
     private static void RunDuplicateSelectionFixture(
         Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow, TestBmsLibrary, ChartFile[], DuplicateSelectionNavigationTasks> test,
         MainWindowDuplicateMaintenanceTerminal? terminal = null, bool hashSource = false,
-        OwnedChartCollectionTestSupport.TestFileMutationService? fileMutations = null)
+        OwnedChartCollectionTestSupport.TestFileMutationService? fileMutations = null,
+        int fillerGroups = 0, int largeGroupFolders = 0)
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string directory = Path.Combine(migrationWorkspace.RootDirectory, "BeMusicSeeker_DuplicateSelection_" + Guid.NewGuid().ToString("N"));
@@ -2637,6 +2791,26 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             paths.Add(path);
                         }
                     }
+                    // 仮想化を起こす量の群は既存の見出しより後に並べ、同内容の大きな群は一つのグループ配下に多数のフォルダを作る。
+                    for (int filler = 0; filler < fillerGroups; filler++)
+                    {
+                        for (int member = 0; member < 2; member++)
+                        {
+                            string folder = Path.Combine(directory, "filler" + filler.ToString("D3") + "-" + member);
+                            Directory.CreateDirectory(folder);
+                            string path = Path.Combine(folder, "chart.bms");
+                            File.WriteAllText(path, "#PLAYER 1\n#TITLE zz filler " + filler.ToString("D3") + "\n#ARTIST filler" + filler + "\n#BPM 120\n");
+                            paths.Add(path);
+                        }
+                    }
+                    for (int member = 0; member < largeGroupFolders; member++)
+                    {
+                        string folder = Path.Combine(directory, "large-" + member.ToString("D3"));
+                        Directory.CreateDirectory(folder);
+                        string path = Path.Combine(folder, "chart.bms");
+                        File.WriteAllText(path, "#PLAYER 1\n#TITLE large\n#ARTIST large\n#BPM 120\n");
+                        paths.Add(path);
+                    }
                     charts = paths.Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))).ToArray();
                     string songDb = Path.Combine(directory, "song.db");
                     BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDb, db =>
@@ -2657,7 +2831,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings)
                     { BmsCharts = charts };
                     library.SearchDuplicateChartGroups();
-                    Assert.AreEqual(2, library.DuplicateChartGroups.Count);
+                    Assert.AreEqual(2 + fillerGroups + (largeGroupFolders > 0 ? 1 : 0), library.DuplicateChartGroups.Count);
                     ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
                     viewModel.MaintenanceTree.AttachLibrary(library);
                 });
@@ -2807,6 +2981,79 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         var item = parent.ItemContainerGenerator.ContainerFromIndex(parent.Items.IndexOf(folder)) as TreeViewItem;
         Assert.IsNotNull(item);
         return item;
+    }
+
+    /// <summary>スクロールの前後で左の選択参照、一覧要求の数、一覧の行集合が変わらないことを確認します。</summary>
+    private static void ScrollDuplicateTreeAndAssertSelection(TreeView tree, TreeViewItem root, object selected,
+        DuplicateSelectionNavigationTasks navigation, MainWindowViewModel viewModel, Action scrollSteps)
+    {
+        Assert.AreSame(selected, tree.SelectedItem, "スクロール前の左の選択");
+        int requestsBefore = navigation.Count;
+        string[] rowsBefore = viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).ToArray();
+        scrollSteps();
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        Assert.AreSame(selected, tree.SelectedItem, "スクロール後の左の選択");
+        Assert.AreEqual(requestsBefore, navigation.Count, "スクロールだけでは一覧要求を開始しません。");
+        CollectionAssert.AreEqual(rowsBefore,
+            viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).ToArray(), "スクロールだけでは一覧を変えません。");
+        Assert.IsTrue(root.IsExpanded);
+    }
+
+    /// <summary>
+    /// 重複配下で実体化されているグループとフォルダの入れ物のうち、選択表示を持つのは選択した項目の入れ物だけであることを確認します。
+    /// requireRealizedでは選択項目の入れ物が実体化されて選択表示を持ち、フォルダなら所属グループが展開されていることも確認します。
+    /// </summary>
+    private static void AssertDuplicateSelectionDisplay(TreeView tree, TreeViewItem root, object selected, string stage, bool requireRealized)
+    {
+        Assert.AreSame(selected, tree.SelectedItem, stage + "：左の選択");
+        var realized = new List<(object Item, TreeViewItem Container, TreeViewItem? Parent)>();
+        for (int groupIndex = 0; groupIndex < root.Items.Count; groupIndex++)
+        {
+            if (root.ItemContainerGenerator.ContainerFromIndex(groupIndex) is not TreeViewItem groupItem) { continue; }
+            realized.Add((root.Items[groupIndex], groupItem, null));
+            for (int folderIndex = 0; folderIndex < groupItem.Items.Count; folderIndex++)
+            {
+                if (groupItem.ItemContainerGenerator.ContainerFromIndex(folderIndex) is TreeViewItem folderItem)
+                { realized.Add((groupItem.Items[folderIndex], folderItem, groupItem)); }
+            }
+        }
+        var displayed = realized.Where(entry => entry.Container.IsSelected).ToList();
+        Assert.IsTrue(displayed.All(entry => ReferenceEquals(entry.Item, selected)),
+            stage + "：選択表示が別の項目にあります: " + string.Join(", ", displayed.Select(entry => entry.Item)));
+        Assert.IsTrue(displayed.Count <= 1, stage + "：選択表示が複数あります。");
+        if (requireRealized)
+        {
+            Assert.AreEqual(1, displayed.Count, stage + "：選択項目の入れ物が実体化され、選択表示を持ちます。");
+            Assert.IsTrue(displayed[0].Parent?.IsExpanded ?? true, stage + "：選択フォルダの所属グループは展開されたままです。");
+        }
+    }
+
+    /// <summary>スクロール後のレイアウトと遅延した仮想化の解放・生成を、条件の成立まで実Dispatcherで待ちます。</summary>
+    private static void AwaitDuplicateTreeLayout(TreeView tree, Func<bool> condition, string operationName)
+    {
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        EventHandler check = (_, _) => { if (condition()) { reached.TrySetResult(); } };
+        tree.LayoutUpdated += check;
+        try
+        {
+            tree.UpdateLayout();
+            check(tree, EventArgs.Empty);
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(reached.Task, operationName);
+        }
+        finally { tree.LayoutUpdated -= check; }
+    }
+
+    private static VirtualizingStackPanel FindItemsHostPanel(TreeViewItem owner)
+        => FindDuplicateTreeDescendants<VirtualizingStackPanel>(owner).First(panel => ReferenceEquals(ItemsControl.GetItemsOwner(panel), owner));
+
+    private static IEnumerable<T> FindDuplicateTreeDescendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int index = 0; index < System.Windows.Media.VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(root, index);
+            if (child is T match) { yield return match; }
+            foreach (T nested in FindDuplicateTreeDescendants<T>(child)) { yield return nested; }
+        }
     }
 
     private static MenuItem CreateCompiledDuplicateMerge(MainWindow window, TreeViewItem source, string destination)
