@@ -11,6 +11,9 @@ namespace BeMusicSeeker.TestSupport.Wpf;
 /// </summary>
 internal static class TestUiDispatcherHost
 {
+    // 待機中のフレームはDispatcherスレッドだけが積み降ろしし、未処理例外のハンドラーも同じスレッドで読みます。
+    private static readonly Stack<DispatcherFrame> waitFrames = new();
+
     private static readonly Lazy<HostState> host = new(
         CreateHost,
         LazyThreadSafetyMode.ExecutionAndPublication);
@@ -159,6 +162,7 @@ internal static class TestUiDispatcherHost
     /// <remarks>
     /// 実controlの値・選択・配置は呼出側で確認します。機能Task、閉鎖の終端や
     /// 全Dispatcherのidleは保証せず、それぞれの実通知・Taskで待ちます。Background優先度までの消化にはProcessQueuedBackgroundを使います。
+    /// 呼出し中に記録された未処理例外は元の例外で失敗し、記録を消費します。2件目以降は最初の例外のDataへ添付します。
     /// </remarks>
     internal static void ProcessQueuedPresentation()
         => ProcessQueuedAt(DispatcherPriority.Loaded);
@@ -167,7 +171,8 @@ internal static class TestUiDispatcherHost
     /// <remarks>
     /// 同じ優先度内のFIFOを保ち、消化中に積まれたBackgroundより高い優先度の予約も実行済みです。
     /// UIスレッド上では同期の入れ子フレームで、テストスレッドからは要求の終端を待って消化します。
-    /// 消化中の予約の例外は既存の要求と同じ経路で表面化し、ホストが終端済みなら元のホスト例外を返します。
+    /// ホストが終端済みなら、元のホスト例外を返します。
+    /// 呼出し中に記録された未処理例外は元の例外で失敗し、記録を消費します。2件目以降は最初の例外のDataへ添付します。
     /// ContextIdle・ApplicationIdle・SystemIdleは境界にせず、この補助では選べません。
     /// 消化中に積まれたBackgroundの予約や、まだ積まれていないworkerの後続予約は対象外です。
     /// それらはそれぞれの実通知・Taskで待ちます。
@@ -178,8 +183,38 @@ internal static class TestUiDispatcherHost
     private static void ProcessQueuedAt(DispatcherPriority priority)
     {
         HostState state = GetActiveHost();
+        long position = HostUnhandledExceptionLog.Position;
         InvokeOnOwnedDispatcher(state.Dispatcher, state.Thread, state.Completed, () => state.TerminalFailure,
             () => { }, priority);
+        HostUnhandledExceptionLog.ThrowRecordedSince(position);
+    }
+
+    /// <summary>
+    /// 現在のケースの期間に共有Dispatcherで未処理になった例外を、記録順に受け取って消費します。
+    /// </summary>
+    /// <returns>受け取った例外。なければ空です。</returns>
+    /// <remarks>
+    /// ケースが未処理例外を期待する場合に、ケース境界の報告より先に自分で受け取るために使います。
+    /// 受け取ったものはケースの終了時に再報告されません。他ケースの記録とケースの間の記録は見えず、受け取れません。
+    /// 待機・消化APIの呼出し中に記録された例外は、そのAPIが元の例外で失敗した時点で消費済みです。
+    /// </remarks>
+    internal static IReadOnlyList<Exception> TakeUnhandledExceptions()
+        => HostUnhandledExceptionLog.TakeCurrentCase();
+
+    /// <summary>現在のケースの期間に未処理例外がないことを表明し、あれば各例外の内容を保持して失敗します。</summary>
+    /// <param name="context">どの期間の表明かを示す呼出し側の文脈。失敗のメッセージへ含めます。</param>
+    /// <exception cref="AggregateException">
+    /// 記録がある場合。元の例外を内部例外に持ち、メッセージに各例外の型・メッセージ・スタック（ToString）を含みます。
+    /// 記録は消費され、ケースの終了時に再報告されません。
+    /// </exception>
+    internal static void AssertNoUnhandledExceptions(string context)
+    {
+        IReadOnlyList<Exception> taken = HostUnhandledExceptionLog.TakeCurrentCase();
+        if (taken.Count == 0) { return; }
+        throw new AggregateException(
+            $"Unhandled dispatcher exceptions occurred ({context}):" + Environment.NewLine
+            + string.Join(Environment.NewLine, taken.Select((exception, index) => $"#{index} {exception}")),
+            taken);
     }
 
     /// <summary>
@@ -189,6 +224,7 @@ internal static class TestUiDispatcherHost
     /// <param name="operationName">未終端時の診断に使う操作名。</param>
     /// <remarks>
     /// 表示・閉鎖などの期限付き観測にはAwaitPresentationOnDispatcherを使います。
+    /// 呼出し中に記録された未処理例外は元の例外で失敗し、記録を消費します。2件目以降は最初の例外のDataへ添付します。通知を待ち続けません。
     /// </remarks>
     internal static void AwaitTaskOnDispatcher(Task task, string operationName)
         => AwaitOnDispatcher(task, operationName, boundedObservation: false);
@@ -215,6 +251,7 @@ internal static class TestUiDispatcherHost
     /// <param name="task">観測する実通知のTask。</param>
     /// <param name="operationName">未到達時の診断名。</param>
     /// <param name="notificationTimeout">通知の観測期限。省略時は15秒です。通常Taskの期限には使いません。</param>
+    /// <remarks>呼出し中に記録された未処理例外は元の例外で失敗し、記録を消費します。2件目以降は最初の例外のDataへ添付します。通知や期限を待ち続けません。</remarks>
     internal static void AwaitPresentationOnDispatcher(Task task, string operationName, TimeSpan? notificationTimeout = null)
         => AwaitOnDispatcher(task, operationName, boundedObservation: true, notificationTimeout);
 
@@ -237,7 +274,8 @@ internal static class TestUiDispatcherHost
         }
 
         TimeSpan timeout = notificationTimeout ?? TimeSpan.FromSeconds(15);
-        var frame = new DispatcherFrame();
+        DispatcherFrame frame = new();
+        long position = HostUnhandledExceptionLog.Position;
         bool timedOut = false;
         ExceptionDispatchInfo? dispatchFailure = null;
         DispatcherTimer? watchdog = boundedObservation ? new DispatcherTimer(
@@ -275,16 +313,34 @@ internal static class TestUiDispatcherHost
         }
         try
         {
-            Dispatcher.PushFrame(frame);
+            while (true)
+            {
+                waitFrames.Push(frame);
+                try
+                {
+                    Dispatcher.PushFrame(frame);
+                }
+                finally
+                {
+                    waitFrames.Pop();
+                }
+
+                if (dispatchFailure != null)
+                {
+                    dispatchFailure.Throw();
+                }
+
+                // 待機中に未処理になった例外は、通知を待たずに元の例外で失敗し、報告済みとして消費します。
+                HostUnhandledExceptionLog.ThrowRecordedSince(position);
+
+                if (task.IsCompleted || timedOut) { break; }
+                // 入れ子の待機が記録を先に消費してこのフレームだけが止まった場合は、UIスレッドを塞がず待機を続けます。
+                frame = new DispatcherFrame();
+            }
         }
         finally
         {
             watchdog?.Stop();
-        }
-
-        if (dispatchFailure != null)
-        {
-            dispatchFailure.Throw();
         }
 
         if (timedOut && !task.IsCompleted)
@@ -359,6 +415,24 @@ internal static class TestUiDispatcherHost
         }
     }
 
+    /// <summary>
+    /// Dispatcherに達した例外を記録して継続し、待機中のフレームがあれば止めて待機側に元の例外で失敗させます。
+    /// </summary>
+    /// <remarks>
+    /// 共有ホストにだけ付けます。記録の対象はここへ達した例外（BeginInvoke・Post、Delegateを受け取る旧形式の
+    /// Dispatcher.Invoke(DispatcherPriority, Delegate)の呼出し先、Win32メッセージから配送される入力・ウィンドウイベントの
+    /// ハンドラーなど）です。旧形式のInvokeの呼出し先の例外は、Handled=trueのため呼出し側へ返りません。
+    /// そのInvokeを囲む待機・消化APIの呼出し中なら、そのAPIが元の例外で失敗します。それ以外はAssertNoUnhandledExceptions・
+    /// TakeUnhandledExceptionsか、ケースの終了時に表れます。後から呼んだ待機・消化APIは、呼出し開始時の位置以降の記録だけを
+    /// 使うため、失敗しません。Action・Funcを受け取るInvoke・InvokeAsyncの例外は呼出し側（Task）へ返り、ここへ達しません。
+    /// </remarks>
+    private static void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        HostUnhandledExceptionLog.Record(e.Exception);
+        e.Handled = true;
+        if (waitFrames.TryPeek(out DispatcherFrame? frame)) { frame.Continue = false; }
+    }
+
     private static HostState CreateHost()
     {
         using var ready = new ManualResetEventSlim();
@@ -380,6 +454,7 @@ internal static class TestUiDispatcherHost
 
                 application = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
                 dispatcher = Dispatcher.CurrentDispatcher;
+                dispatcher.UnhandledException += OnDispatcherUnhandledException;
                 nativeThreadId = TestWindowPresentationScope.GetCurrentNativeThreadId();
                 originalAppearanceTheme = Settings.Default.AppearanceTheme;
                 Settings.Default.AppearanceTheme = AppThemeService.Light;

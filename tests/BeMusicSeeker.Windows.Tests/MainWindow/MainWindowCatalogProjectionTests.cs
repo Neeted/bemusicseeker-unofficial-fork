@@ -1,7 +1,6 @@
 using System.IO;
 using System.Reflection;
 using System.Security.Cryptography;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -349,9 +348,6 @@ public sealed class MainWindowCatalogProjectionTests
                 settingsEditSession: new NoOpSettingsEditSession(settings), uiScheduler: tasks,
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
                 .CreateMainWindowViewModelForTest();
-            var unhandled = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
-            DispatcherUnhandledExceptionEventHandler onUnhandled = (_, args) => { args.Handled = true; unhandled.TrySetResult(args.Exception); };
-            TestUiDispatcherHost.Dispatcher.UnhandledException += onUnhandled;
             var lifetime = new MainWindowTestLifetime(viewModel, Task.CompletedTask);
             EventHandler? replacing = null;
             System.ComponentModel.PropertyChangedEventHandler? rowsChanged = null;
@@ -404,28 +400,27 @@ public sealed class MainWindowCatalogProjectionTests
                     viewModel.MainChartList.RowsReplacing += replacing;
                     Assert.IsTrue(viewModel.RegularChartList.NavigateTree(null));
                     // 先行要求の行差し替えの途中で全置換が行われ、その時点の候補は全置換前の入力を持つ。
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(replacedSignal.Task, unhandled.Task), "full-replacement-during-rows-replacing");
-                    Assert.IsFalse(unhandled.Task.IsCompleted, "未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(replacedSignal.Task, "full-replacement-during-rows-replacing");
+                    TestUiDispatcherHost.AssertNoUnhandledExceptions("全置換の途中");
                     Assert.IsTrue(replacedSignal.Task.IsCompleted);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(tasks.DrainPriorAsync(), unhandled.Task).Unwrap(), "full-replacement-prior-request-terminal");
-                    Assert.IsFalse(unhandled.Task.IsCompleted, "未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(tasks.DrainPriorAsync(), "full-replacement-prior-request-terminal");
+                    TestUiDispatcherHost.AssertNoUnhandledExceptions("先行要求の終端");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None),
                         "full-replacement-delivery");
                     CheckConverged();
-                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(Task.WhenAny(converged.Task, unhandled.Task).Unwrap(), "full-replacement-final-adoption");
-                    Assert.IsFalse(unhandled.Task.IsCompleted, "未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                    TestUiDispatcherHost.AwaitPresentationOnDispatcher(converged.Task, "full-replacement-final-adoption");
+                    TestUiDispatcherHost.AssertNoUnhandledExceptions("最終採用");
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(tasks.DrainPriorAsync(), "full-replacement-presentation-drain");
-                    Assert.IsFalse(unhandled.Task.IsCompleted, "未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                    TestUiDispatcherHost.AssertNoUnhandledExceptions("表示の消化");
                     CollectionAssert.AreEquivalent(expected, viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.path).ToArray());
                 });
                 // 標準の終了処理の間に起きた未処理例外も検出する。
-                Assert.IsFalse(unhandled.Task.IsCompleted, "終了処理中の未処理のDispatcher例外: " + (unhandled.Task.IsCompleted ? unhandled.Task.Result : null));
+                TestUiDispatcherHost.AssertNoUnhandledExceptions("終了処理中");
             }
             finally
             {
                 if (replacing != null) { viewModel.MainChartList.RowsReplacing -= replacing; }
                 if (rowsChanged != null) { viewModel.MainChartList.PropertyChanged -= rowsChanged; }
-                TestUiDispatcherHost.Dispatcher.UnhandledException -= onUnhandled;
             }
         }));
     }

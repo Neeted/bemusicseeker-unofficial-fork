@@ -323,7 +323,27 @@ WPFは `BeMusicSeeker.TestSupport.Wpf` の `TestUiDispatcherHost` にある一�
 
 共有ホストへの要求は、実際のDispatcherOperationと既存のホスト終端通知を観測します。ホストが既に終了していた場合と、要求の受理後に終了した場合は、所有スレッドを合流させて元のホスト例外を返します。Dispatcher停止の二次失敗でも終端通知・合流を失わず、二次失敗を元の例外へ添付します。健全なホスト上のAction自身の失敗は保持し、後続の要求は受理します。
 
+共有ホストのDispatcherで `UnhandledException` に達した例外は、ホストを終端させず継続し、例外本体・順序・発生時のケース（ケースの間なら直前に終了したケース）とともに記録します。ハンドラーは共有ホストにだけ付け、専用STAの検査には付けません。ケースが共有Dispatcherの `UnhandledException` を直接購読して `Handled` を設定することはしません。期間中に未処理例外がないことの表明と、期待する未処理例外の受取りは、次のホストの口を使います。
+
+- 待機・消化API（`AwaitTaskOnDispatcher`・`AwaitPresentationOnDispatcher`・`ProcessQueuedPresentation`・`ProcessQueuedBackground`）の呼出し中に記録された例外があれば、そのAPIは通知を待ち続けず、元の例外で失敗し、記録を消費します。2件目以降は最初の例外の `Data` へ添付します。この失敗で記録は報告済み（消費済み）となり、ケースの終了時に再報告しません。呼出し中に起きたものは、ホスト以外の入れ子フレームで起きたものも対象です。入れ子の待機が先に記録を消費して外側の待機のフレームだけが止まった場合、外側は対象のTaskが未完了なら待機を続けます。
+- `AssertNoUnhandledExceptions` は、現在のケースの期間に未処理例外がないことを表明します。記録があれば消費し、各例外の型・メッセージ・スタックを含む `AggregateException`（元の例外を内部例外に保持）で失敗します。
+- `TakeUnhandledExceptions` は、現在のケースの期間の記録だけを発生順に受け取って消費します。他ケースの記録とケースの間の記録は見えず、受け取れません。
+- 記録の対象は `Dispatcher.UnhandledException` に達した例外です。`BeginInvoke`・`SynchronizationContext.Post`、`Delegate` を受け取る旧形式の `Dispatcher.Invoke(DispatcherPriority, Delegate)` の呼出し先、Win32メッセージから配送される入力・ウィンドウイベントのハンドラーなどが該当します。旧形式の `Invoke` の呼出し先の例外は、`Handled=true` のため呼出し側へ返りません。その `Invoke` を囲む待機・消化APIの呼出し中なら、そのAPIが元の例外で失敗します。それ以外は `AssertNoUnhandledExceptions`・`TakeUnhandledExceptions` か、ケースの終了時に表れます。後から呼んだ待機・消化APIは、呼出し開始時の位置以降の記録だけを使うため、失敗しません。
+- `Action`・`Func` を受け取る `Invoke`・`InvokeAsync` の例外は呼出し側（`Task`）へ返り、記録しません。結果を観測しない `InvokeAsync` の失敗は記録されず、`Task` を待つ側で観測します。待機対象のTaskの失敗も呼出し側へ返ります。
+- 残る限界：WPFは一度処理した例外を印付けし、同じ例外オブジェクトが再び `Dispatcher` 上で未処理になると、`UnhandledException` を呼ばず、従来どおり `Dispatcher` の外へ送出します（同じ失敗Taskを複数の `async void` で待つ場合など）。`Dispatcher.Run` まで出ればホストが終端し、`InvokeAsync`（`Invoke`・`RunWindowTest` を含む）の中ならTaskの失敗、待機中なら待機の失敗として表れます。印を外す対処はWPFの内部実装に依存するため行いません。また、待機APIは呼出し前に記録された未報告分では失敗しません。待つTaskがその例外で失われた継続に依存する場合は、全体の期限による停止になります。
+
 共有ホストは現在の `AppearanceTheme` を退避し、準備完了前に保存せずLightへ設定します。終了時は同じDispatcherで復元してから `Application` とDispatcherを停止し、通知とスレッドの合流で待ちます。未起動なら何もしません。既存の `Application` との競合、起動失敗、呼出し・終了の失敗は表面化させ、`Application.ResourceAssembly` は変更しません。
+
+#### ケース境界の検査
+
+UI moduleの `UiModuleLifetime` の `GlobalTestInitialize`・`GlobalTestCleanup` が、共有ホストの未処理例外の記録をケースの境界で報告します。ケースの帰属は、Windowsが1 workerで直列に実行されることを前提にします。ホストが起動していない間は記録が空で、境界の処理はホスト・`Settings.Default`・`Application` を起動も読取りもしません。先行ケースがホストを起動した後は、ホストを使わないケースでも残留の報告と期間中の記録の帰属を受けます。
+
+- ケースの終了時：そのケースの期間に記録され、ケース内で受け取られなかった例外を、そのケースの失敗として報告します。報告したものは消費し、再報告しません。テスト本体が既に失敗している場合は、本体の失敗を主として残し、境界の記録は `TestContext` の出力へ書いて消費します（この場合、置換は起きません）。クラスの `[TestCleanup]` の失敗は `GlobalTestCleanup` から観測できず、本体が成功していて境界の記録があるとき、TRX上は境界の失敗に置き換わります（失敗の優先順位は本体、表示の観測、後片付け、ケース境界の記録の順ですが、後片付けとの順位はこの限界の範囲で満たされません）。境界の記録を直せば、後片付けの失敗は次の実行で表面化します。境界の失敗のメッセージにも、この置換の可能性を記します。
+- ケースの間に起きた例外：次のケースの開始時に「直前のケースの残留」として、発生元のケース名を付けてその次のケースを失敗させます。無関係な次のケースが失敗しても、帰属を明示して受け入れます。
+- moduleの終了時：未報告の記録が残っていれば、最後のケースの残留として `UiModuleLifetime.Cleanup` を失敗させます。ホストの終了中に追加された記録も対象です。
+- ケースの重なり：前のケースの終了処理を経ずに次のケースが始まった場合は、記録がなくても、新しく始まったケースの失敗にします。前のケースの終了処理が呼ばれないこと自体が境界処理の前提崩れで、以後の帰属を信頼できないためです。その時点で消費されていない記録は「帰属不能」として失敗に添えて消費し、誤ったケースへ帰属しません。
+
+ケース間の帰属・次のケースの開始時の報告・moduleの終了時の失敗は、ケースの順序に依存するため恒久テストにせず、制御フローで静的に確認します。ホストの記録・受取り・待機APIの即時失敗は `DispatcherHostTests` で確認します。
 
 #### UI moduleの寿命
 
@@ -540,6 +560,7 @@ suiteの起動・前提・本体・通常の回収・実際の終了は一つの
 | UTF-8の両パイプ・所有する子プロセス・親環境 | [OwnedProcess](../../../tests/BeMusicSeeker.TestSupport/Processes/OwnedProcess.cs) | Coreの `OwnedProcessTests`・`OwnedProcessPipeTests`・`VerificationRunnerTests` で、全終端、期限・元の失敗・診断の保存を確認する。 |
 | 一時資源・共有状態・通常完了の待機 | [TestSettingsFactory](../../../tests/BeMusicSeeker.TestSupport/Components/TestSettingsFactory.cs)、[Coreのmodule寿命](../../../tests/ModuleInitialization/ModuleLifetime.cs)、[UIのmodule寿命](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、各機能のテスト準備 | 所有・復元、通知前の失敗、待合せの解放、実際の完了条件を確認する。UIのホスト終了の成功後だけ設定を回収し、設定の回収失敗後も一時セッション・排他を回収する順序は、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | Dispatcherの受付・終端・通常Task待機 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。終了済み・受理後の終了と停止の二次失敗、Action失敗後の継続、合流、利用側の成功・失敗・取消・通知欠落、単一STA、Background優先度までの消化（UIスレッド上・テストスレッド、idle優先度を含めない）を確認する。 |
+| 共有Dispatcherの未処理例外の記録・帰属・ケース境界の報告 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs)、[`HostUnhandledExceptionLog`](../../../tests/BeMusicSeeker.TestSupport/Wpf/HostUnhandledExceptionLog.cs)、[`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。ホストを終端させず記録し後続の要求を受理すること、複数の記録の順序と一度だけの受取り、待機・消化APIの元の例外での即時失敗と消費、呼出し側へ返る失敗を記録しないことを確認する。ケース終了時・ケースの間・module終了時・重なりの報告と、ホストを使わないmoduleで何も起動しないことは、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | ロック不成立・デッドロックの停止検出と到達待ち | [`ConcurrencyProbe`](../../../tests/BeMusicSeeker.TestSupport/Components/ConcurrencyProbe.cs) | 専用スレッドのprobe、保持中の完了判定、probeと保持側の失敗の伝播、通知なしの終端、期限なしの到達待ちを、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | 画面の準備、表示、破棄 | [`TestWindowPresentationScope`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestWindowPresentationScope.cs) | [`SettingsControlPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs)、[`WindowPresentationScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WindowPresentationScopeTests.cs)。一般的なアイドルと別に、実際の描画・配置・Win32の結果、入れ子の所有資源、失敗の優先順位を確認する。 |
 | 共有ホストのテーマ・意味別リソース | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`WpfThemeResourceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/WpfThemeResourceTests.cs)。Lightと実際のコンストラクターの意味別ブラシへの到達を確認する。 |

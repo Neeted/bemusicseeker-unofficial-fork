@@ -57,6 +57,41 @@ public sealed class UiModuleLifetime
         }
     }
 
+    /// <summary>
+    /// ケースの開始を共有ホストの未処理例外の記録へ伝え、ケースの間に残った記録を直前ケースの残留として失敗にします。
+    /// </summary>
+    /// <remarks>
+    /// ホストが起動していない間は記録が空で、ホスト・<c>Settings.Default</c>・Applicationを起動も読取りもしません。
+    /// 先行ケースがホストを起動した後は、ホストを使わないケースでも残留の報告と期間中の記録の帰属を受けます。
+    /// 失敗にしたケースは本体も終了処理も実行されないため、記録側でもそのケースを開始前の扱いに戻します。
+    /// </remarks>
+    [GlobalTestInitialize]
+    public static void BeginCaseBoundary(TestContext context)
+    {
+        if (HostUnhandledExceptionLog.BeginCase(GetCaseName(context)) is { } residue) { throw residue; }
+    }
+
+    /// <summary>
+    /// ケースの期間に共有ホストで未処理になり、ケース内で受け取られなかった例外を、そのケースの失敗として報告します。
+    /// </summary>
+    /// <remarks>
+    /// 本体が既に失敗している場合は、境界の記録をTestContextの出力へ書いて消費し、例外を投げず本体の失敗を主として残します
+    /// （この場合、置換は起きません）。
+    /// 限界：クラスの[TestCleanup]の失敗はGlobalTestCleanupから観測できず、本体が成功していて境界の記録があるとき、TRX上は境界の失敗に置き換わります。
+    /// 優先順位（本体、表示の観測、後片付け、境界の記録）のうち後片付けとの順位は、この限界の範囲で満たされません。
+    /// 境界の記録を直せば、後片付けの失敗は次の実行で表面化します。
+    /// </remarks>
+    [GlobalTestCleanup]
+    public static void EndCaseBoundary(TestContext context)
+    {
+        if (HostUnhandledExceptionLog.EndCase(GetCaseName(context)) is not { } failure) { return; }
+        if (context.CurrentTestOutcome is UnitTestOutcome.Passed or UnitTestOutcome.InProgress) { throw failure; }
+        context.WriteLine(failure.ToString());
+    }
+
+    private static string GetCaseName(TestContext context)
+        => context.FullyQualifiedTestClassName + "." + context.TestDisplayName;
+
     /// <summary>共有hostの終了確認後だけ設定を回収し、失敗時も一時sessionとsession排他の回収を継続して失敗を集約します。</summary>
     [AssemblyCleanup]
     public static async Task Cleanup()
@@ -70,6 +105,8 @@ public sealed class UiModuleLifetime
                 TestSettingsFactory.CleanupIsolatedSettingsDirectories();
             }
             catch (Exception failure) { failures.Add(failure); }
+            // 共有hostの終了中に追加された記録も含め、ケースの間に残った未報告の例外をmoduleの失敗にします。
+            if (HostUnhandledExceptionLog.TakeResidueAtModuleEnd() is { } residue) { failures.Add(residue); }
             try
             {
                 await TempDirectoryPublisher.RemoveAllIfInitializedAsync((path, failure) =>

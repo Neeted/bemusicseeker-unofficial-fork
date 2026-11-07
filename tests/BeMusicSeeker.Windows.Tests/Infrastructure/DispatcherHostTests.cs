@@ -301,4 +301,125 @@ public sealed class DispatcherHostTests
         TestUiDispatcherHost.Invoke(() => observed = order.ToArray());
         CollectionAssert.AreEqual(new[] { "background-1", "background-2", "normal-from-background" }, observed);
     }
+
+    /// <summary>
+    /// テストスレッドから積んだBeginInvokeの例外が、ホストを終端させず現在ケースの記録として残り、
+    /// 後続の要求が受理されることを確認します。ハンドラーがなくホストが終端する誤りと、記録を失う誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void UnhandledDispatcherException_IsRecordedForCurrentCaseAndHostContinues()
+    {
+        Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+        var original = new InvalidOperationException("unhandled from BeginInvoke");
+        dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => throw original));
+        // 同じ優先度のFIFOで、先に積んだ例外の予約が処理された後に完了する。
+        dispatcher.InvokeAsync(() => { }, DispatcherPriority.Normal).Task.GetAwaiter().GetResult();
+
+        IReadOnlyList<Exception> taken = TestUiDispatcherHost.TakeUnhandledExceptions();
+        Assert.AreEqual(1, taken.Count);
+        Assert.AreSame(original, taken[0]);
+        Assert.AreEqual(0, TestUiDispatcherHost.TakeUnhandledExceptions().Count, "受け取った記録は再度は受け取れません。");
+
+        bool followingCompleted = false;
+        TestUiDispatcherHost.Invoke(() => followingCompleted = true);
+        Assert.IsTrue(followingCompleted);
+    }
+
+    /// <summary>
+    /// 現在ケースの複数の記録が発生順に受け取れ、一度受け取ると空になることを確認します。順序を失う誤りと二重に残す誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void TakeUnhandledExceptions_ReturnsCurrentCaseRecordsInOrderOnce()
+    {
+        Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+        var first = new InvalidOperationException("first");
+        var second = new ArgumentException("second");
+        dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => throw first));
+        dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => throw second));
+        dispatcher.InvokeAsync(() => { }, DispatcherPriority.Normal).Task.GetAwaiter().GetResult();
+
+        IReadOnlyList<Exception> taken = TestUiDispatcherHost.TakeUnhandledExceptions();
+        Assert.AreEqual(2, taken.Count);
+        Assert.AreSame(first, taken[0]);
+        Assert.AreSame(second, taken[1]);
+        Assert.AreEqual(0, TestUiDispatcherHost.TakeUnhandledExceptions().Count);
+    }
+
+    /// <summary>
+    /// 待機・消化APIの呼出し中に例外を投げる予約が実行されると、そのAPIが通知を待たずに元の例外で失敗し、
+    /// 記録は報告済みとして残らないことを確認します。待ち続ける誤りと、失敗の後に記録を残して再報告する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("AwaitTaskOnDispatcher")]
+    [DataRow("AwaitPresentationOnDispatcher")]
+    [DataRow("ProcessQueuedPresentation")]
+    [DataRow("ProcessQueuedBackground")]
+    public void WaitingApi_FailsWithOriginalUnhandledExceptionAndConsumesRecord(string api)
+    {
+        var original = new InvalidOperationException("unhandled during " + api);
+        var neverCompleted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                TestUiDispatcherHost.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => throw original));
+                Action call = api switch
+                {
+                    "AwaitTaskOnDispatcher" => () => TestUiDispatcherHost.AwaitTaskOnDispatcher(neverCompleted.Task, "never-completed"),
+                    "AwaitPresentationOnDispatcher" => () => TestUiDispatcherHost.AwaitPresentationOnDispatcher(neverCompleted.Task, "never-completed"),
+                    "ProcessQueuedPresentation" => TestUiDispatcherHost.ProcessQueuedPresentation,
+                    _ => TestUiDispatcherHost.ProcessQueuedBackground,
+                };
+                Assert.AreSame(original, Assert.ThrowsExactly<InvalidOperationException>(call));
+                Assert.IsFalse(neverCompleted.Task.IsCompleted, "待機対象の通知を待たずに失敗します。");
+            });
+            Assert.AreEqual(0, TestUiDispatcherHost.TakeUnhandledExceptions().Count, "即座の失敗で報告済みとして消費されます。");
+        }
+        finally { neverCompleted.TrySetResult(); }
+    }
+
+    /// <summary>
+    /// Invoke・InvokeAsyncの失敗が呼出し側へ返り、未処理例外の記録には残らないことを確認します。二重に記録する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void CallerReturnedFailures_AreNotRecordedAsUnhandled()
+    {
+        Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+        var invokeFailure = new InvalidOperationException("Invoke");
+        var asyncFailure = new InvalidOperationException("InvokeAsync");
+        var nestedFailure = new InvalidOperationException("nested Invoke");
+        Assert.AreSame(invokeFailure, Assert.ThrowsExactly<InvalidOperationException>(() => TestUiDispatcherHost.Invoke(() => throw invokeFailure)));
+        DispatcherOperation operation = dispatcher.InvokeAsync(() => throw asyncFailure, DispatcherPriority.Normal);
+        Assert.AreSame(asyncFailure, Assert.ThrowsExactly<InvalidOperationException>(() => operation.Task.GetAwaiter().GetResult()));
+        TestUiDispatcherHost.Invoke(() =>
+            Assert.AreSame(nestedFailure, Assert.ThrowsExactly<InvalidOperationException>(() => dispatcher.Invoke(() => throw nestedFailure))));
+        // 失敗した予約の後に積んだ予約の完了で、記録が遅れて届く可能性を除く。
+        dispatcher.InvokeAsync(() => { }, DispatcherPriority.Normal).Task.GetAwaiter().GetResult();
+        TestUiDispatcherHost.ProcessQueuedBackground();
+
+        Assert.AreEqual(0, TestUiDispatcherHost.TakeUnhandledExceptions().Count);
+    }
+
+    /// <summary>
+    /// 未処理例外がなければ表明は何もせず、あれば元の例外の型・メッセージを失敗の診断に含めて記録を消費することを確認します。
+    /// 内容を落とす実装と、記録を残して再報告させる実装を検出します。
+    /// </summary>
+    [TestMethod]
+    public void AssertNoUnhandledExceptions_PassesWhenEmptyAndKeepsContentWhenRecorded()
+    {
+        TestUiDispatcherHost.AssertNoUnhandledExceptions("empty");
+
+        Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+        var original = new ArgumentOutOfRangeException("probe", "distinct-original-message");
+        dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() => throw original));
+        dispatcher.InvokeAsync(() => { }, DispatcherPriority.Normal).Task.GetAwaiter().GetResult();
+
+        AggregateException failure = Assert.ThrowsExactly<AggregateException>(
+            () => TestUiDispatcherHost.AssertNoUnhandledExceptions("recorded-context"));
+        Assert.AreSame(original, failure.InnerExceptions.Single());
+        StringAssert.Contains(failure.Message, "recorded-context");
+        StringAssert.Contains(failure.Message, nameof(ArgumentOutOfRangeException));
+        StringAssert.Contains(failure.Message, "distinct-original-message");
+        Assert.AreEqual(0, TestUiDispatcherHost.TakeUnhandledExceptions().Count, "失敗に内容が残るため、記録は消費されます。");
+    }
 }

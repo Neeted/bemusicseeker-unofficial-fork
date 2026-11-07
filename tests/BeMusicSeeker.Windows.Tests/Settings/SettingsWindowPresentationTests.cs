@@ -1022,8 +1022,6 @@ public sealed class SettingsWindowPresentationTests
             MainWindowViewModel? owner = null;
             SettingsWindow? window = null;
             Exception? primaryFailure = null;
-            var unhandled = new List<Exception>();
-            DispatcherUnhandledExceptionEventHandler onUnhandled = (_, args) => { unhandled.Add(args.Exception); args.Handled = true; };
             try
             {
                 string install = Directory.CreateDirectory(Path.Combine(directory, "Install")).FullName;
@@ -1051,7 +1049,6 @@ public sealed class SettingsWindowPresentationTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
                 owner = composition.CreateMainWindowViewModelForTest();
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog, PlaylistWorkspace = owner.PlaylistWorkspace };
-                window.Dispatcher.UnhandledException += onUnhandled;
                 windowTest.ShowAndWaitForContentRendered(window);
                 dialogs.ExpectedOwner = window;
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.AddBmsSearchRootPathsAsync([staged]), "output-confirmation-bms-input");
@@ -1088,7 +1085,7 @@ public sealed class SettingsWindowPresentationTests
                 ClickAndAwait();
                 AssertUnaccepted();
                 Assert.AreEqual(1, dialogs.MessageRequests.Count, "実Buttonは表示失敗を取消に丸めず、一回だけ結果を通知します。");
-                Assert.AreEqual(0, unhandled.Count);
+                TestUiDispatcherHost.AssertNoUnhandledExceptions("共有Dispatcherの期間");
                 Assert.IsTrue(window.IsVisible);
                 dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
                 ClickAndAwait();
@@ -1098,7 +1095,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(install, fresh.StandaloneBmsRootPaths);
                 Assert.AreEqual(3, dialogs.ConfirmationRequests.Count);
                 Assert.AreEqual(1, dialogs.MessageRequests.Count);
-                Assert.AreEqual(0, unhandled.Count);
+                TestUiDispatcherHost.AssertNoUnhandledExceptions("共有Dispatcherの期間");
                 Assert.IsTrue(dialogs.FolderRequests.All(request => ReferenceEquals(window, request.Owner)));
                 Assert.IsTrue(window.IsVisible);
             }
@@ -1110,7 +1107,6 @@ public sealed class SettingsWindowPresentationTests
                 if (window != null)
                 {
                     Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner?.SettingDialog.SettingsOperationCompletionTask ?? Task.CompletedTask, "output-confirmation-cleanup"));
-                    window.Dispatcher.UnhandledException -= onUnhandled;
                     Cleanup(window.CloseForOwnerShutdown);
                 }
                 if (owner != null)
@@ -1145,14 +1141,8 @@ public sealed class SettingsWindowPresentationTests
             using var logs = new MemoryTarget { Layout = "${message}|${exception:format=tostring}" };
             SettingsWindow? window = null;
             MainWindowViewModel? owner = null;
-            var unhandled = new List<Exception>();
             var secondaryFailures = new List<(Exception Exception, string Route)>();
             var noticeFailure = new IOException("backup notice failed");
-            DispatcherUnhandledExceptionEventHandler onUnhandled = (_, args) =>
-            {
-                unhandled.Add(args.Exception);
-                args.Handled = true;
-            };
             try
             {
                 Directory.CreateDirectory(directory);
@@ -1189,7 +1179,6 @@ public sealed class SettingsWindowPresentationTests
                         UiDialogRoute.ThrowIfNotShown(result, request.RouteName);
                     }
                 };
-                window.Dispatcher.UnhandledException += onUnhandled;
                 windowTest.ShowAndWaitForContentRendered(window);
                 bool candidate = !owner.SettingDialog.EnableBeatorajaBmtOutput;
                 owner.SettingDialog.EnableBeatorajaBmtOutput = candidate;
@@ -1231,7 +1220,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(3, dialogs.SaveFileRequests.Count);
                 Assert.AreEqual(2, dialogs.MessageRequests.Count);
                 Assert.AreEqual(1, secondaryFailures.Count, "次の成功と取消では通知失敗の診断を重ねません。");
-                Assert.AreEqual(0, unhandled.Count);
+                TestUiDispatcherHost.AssertNoUnhandledExceptions("共有Dispatcherの期間");
             }
             finally
             {
@@ -1241,7 +1230,6 @@ public sealed class SettingsWindowPresentationTests
                 }
                 finally
                 {
-                    if (window != null) { window.Dispatcher.UnhandledException -= onUnhandled; }
                     try
                     {
                         if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
@@ -3889,31 +3877,17 @@ public sealed class SettingsWindowPresentationTests
                     Height = 600
                 };
                 dialogs.ExpectedOwner = window;
-                var unhandled = new List<Exception>();
-                DispatcherUnhandledExceptionEventHandler handler = (_, args) =>
-                {
-                    unhandled.Add(args.Exception);
-                    args.Handled = true;
-                };
-                window.Dispatcher.UnhandledException += handler;
-                try
-                {
-                    windowTest.ShowAndWaitForContentRendered(window);
-                    var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
-                    foreach (Expander details in FindDescendants<Expander>(page).ToArray()) { details.IsExpanded = true; }
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                    SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(page).Single(candidate =>
-                        candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path
-                            == nameof(SettingsDialogViewModel.LR2SongDBPath));
-                    FindDescendants<Button>(picker)
-                        .Single(button => Equals(button.Content, picker.BrowseText))
-                        .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
-                }
-                finally
-                {
-                    window.Dispatcher.UnhandledException -= handler;
-                }
+                windowTest.ShowAndWaitForContentRendered(window);
+                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                foreach (Expander details in FindDescendants<Expander>(page).ToArray()) { details.IsExpanded = true; }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(page).Single(candidate =>
+                    candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path
+                        == nameof(SettingsDialogViewModel.LR2SongDBPath));
+                FindDescendants<Button>(picker)
+                    .Single(button => Equals(button.Content, picker.BrowseText))
+                    .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 LogManager.Flush();
                 Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
@@ -3925,7 +3899,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsFalse(
                     notification.MessageBoxText.Contains("LR2 song database picker", StringComparison.Ordinal),
                     "Internal route names must remain in diagnostics instead of leaking into localized UI text.");
-                Assert.AreEqual(0, unhandled.Count);
+                TestUiDispatcherHost.AssertNoUnhandledExceptions("共有Dispatcherの期間");
                 Assert.AreEqual(expectedLogCount, logTarget.Logs.Count);
                 StringAssert.Contains(logTarget.Logs[0], "LR2 song database picker failed");
                 if (notificationFails)
@@ -3960,15 +3934,8 @@ public sealed class SettingsWindowPresentationTests
                 Width = 820,
                 Height = 600
             };
-            var dispatcherFailures = new List<Exception>();
             var contentRendered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            DispatcherUnhandledExceptionEventHandler unhandledHandler = (_, args) =>
-            {
-                dispatcherFailures.Add(args.Exception);
-                args.Handled = true;
-            };
             EventHandler contentRenderedHandler = (_, _) => contentRendered.TrySetResult();
-            window.Dispatcher.UnhandledException += unhandledHandler;
             window.ContentRendered += contentRenderedHandler;
             try
             {
@@ -3985,14 +3952,13 @@ public sealed class SettingsWindowPresentationTests
 
                 Assert.IsTrue(contentRendered.Task.IsCompletedSuccessfully,
                     "The actual delayed ContentRendered callback must be observed after close.");
-                Assert.AreEqual(0, dispatcherFailures.Count,
+                TestUiDispatcherHost.AssertNoUnhandledExceptions(
                     "A delayed ContentRendered callback must not escape through Dispatcher.UnhandledException.");
                 Assert.IsNull(window.DataContext);
             }
             finally
             {
                 window.ContentRendered -= contentRenderedHandler;
-                window.Dispatcher.UnhandledException -= unhandledHandler;
                 if (window.IsVisible)
                 {
                     window.CloseForOwnerShutdown();
