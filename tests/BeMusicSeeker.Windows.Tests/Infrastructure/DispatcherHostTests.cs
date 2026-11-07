@@ -1,6 +1,10 @@
+using System.Globalization;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Threading;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Wpf;
+using NLog.Config;
 
 namespace BeMusicSeeker.Windows.Tests.Infrastructure;
 
@@ -421,5 +425,310 @@ public sealed class DispatcherHostTests
         StringAssert.Contains(failure.Message, nameof(ArgumentOutOfRangeException));
         StringAssert.Contains(failure.Message, "distinct-original-message");
         Assert.AreEqual(0, TestUiDispatcherHost.TakeUnhandledExceptions().Count, "失敗に内容が残るため、記録は消費されます。");
+    }
+
+    /// <summary>
+    /// 閉じないWindowがケース終了時の残留として一度だけ報告され、MainWindowに設定しても同じWindowの一つの記録になり、閉じると報告が消えることを確認します。
+    /// 記録しない実装、二重に報告する実装、MainWindowを別の記録にする実装を検出します。報告済みの印が基準へ戻ると消える保証は、新しいWindowでは確かめられないため、
+    /// <see cref="HostResidue_BaselineWindowBecomingMainWindow_IsReportedEachTimeItBecomesResidue"/> が担います。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void HostResidue_UnclosedWindowIsReportedOnce_AndMainWindowIsTheSameRecord()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            Window? previousMain = application.MainWindow;
+            Window? plain = null;
+            Window? main = null;
+            bool plainClosed = false;
+            bool mainClosed = false;
+            try
+            {
+                // 前のケースが残したMainWindowに依存しないよう、基準の前にnullへ置き、作ったWindowを明示的にMainWindowへ設定します。
+                application.MainWindow = null;
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                Assert.IsEmpty(Residues(state, "E-a", "E-b"), "基準と同じ状態では何も報告されません。");
+
+                plain = new Window { Title = "residue-plain" };
+                plain.Closed += (_, _) => plainClosed = true;
+                application.MainWindow = plain;
+                IReadOnlyList<HostResidue> first = Residues(state, "E-a", "E-b");
+                Assert.HasCount(1, first);
+                Assert.AreEqual("E-a", first[0].Category);
+                StringAssert.Contains(first[0].Detail, "residue-plain");
+                StringAssert.Contains(first[0].Detail, "Application.MainWindow=yes");
+                Assert.IsEmpty(Residues(state, "E-a", "E-b"), "同じ残留は二度目の比較で報告されません。");
+
+                main = new Window { Title = "residue-second" };
+                main.Closed += (_, _) => mainClosed = true;
+                IReadOnlyList<HostResidue> second = Residues(state, "E-a", "E-b");
+                Assert.HasCount(1, second);
+                StringAssert.Contains(second[0].Detail, "residue-second");
+                StringAssert.Contains(second[0].Detail, "Application.MainWindow=no");
+                application.MainWindow = main;
+                Assert.IsEmpty(Residues(state, "E-a", "E-b"), "MainWindowへ設定しても同じWindowは再び報告されません。");
+
+                main.Close();
+                plain.Close();
+                application.MainWindow = null;
+                Assert.IsEmpty(Residues(state, "E-a", "E-b"), "閉じて元へ戻した状態では何も報告されません。");
+
+                plain = new Window { Title = "residue-again" };
+                plainClosed = false;
+                plain.Closed += (_, _) => plainClosed = true;
+                Assert.HasCount(1, Residues(state, "E-a", "E-b"));
+            }
+            finally
+            {
+                application.MainWindow = previousMain;
+                if (main != null && !mainClosed) { main.Close(); }
+                if (plain != null && !plainClosed) { plain.Close(); }
+            }
+        });
+    }
+
+    private const uint WsPopup = 0x80000000;
+    private const int WsExToolWindow = 0x00000080;
+    private const int WsExNoActivate = 0x08000000;
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(nint window);
+
+    /// <summary>
+    /// WPFのWindowに対応しないトップレベルHWNDが、HWNDのみの残留として一度だけ報告され、破棄すると消えることを確認します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void HostResidue_HwndWithoutWindowIsReportedOnce()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            HwndSource? source = null;
+            try
+            {
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                // 画面に見えない・前面に出ないよう、WS_VISIBLEなしの非表示のポップアップを、WS_EX_NOACTIVATEで非アクティブ・タスクバー非表示にします。位置は補助として画面の外側寄りに置きます。
+                var parameters = new HwndSourceParameters("residue-hwnd", 1, 1)
+                {
+                    WindowStyle = unchecked((int)WsPopup),
+                    ExtendedWindowStyle = WsExToolWindow | WsExNoActivate
+                };
+                parameters.SetPosition(
+                    (int)(SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d),
+                    (int)(SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d));
+                source = new HwndSource(parameters);
+                Assert.IsFalse(IsWindowVisible(source.Handle), "観測用のHWNDは画面に表示されません。");
+                IReadOnlyList<HostResidue> first = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
+                string handle = $"hwnd=0x{source.Handle:X},";
+                // WPFが最初のHwndSourceに伴って内部のHWNDを遅延生成する場合があるため、このテストのHWNDだけを数えます。
+                Assert.AreEqual(1, first.Count(residue => residue.Category == "E-a-hwnd" && residue.Detail.Contains(handle)));
+                Assert.IsEmpty(HostResidueComparison.Compare(state, HostResidueBoundary.Observe()).Where(residue => residue.Detail.Contains(handle)));
+
+                source.Dispose();
+                source = null;
+                Assert.IsEmpty(HostResidueComparison.Compare(state, HostResidueBoundary.Observe()).Where(residue => residue.Detail.Contains(handle)));
+            }
+            finally { source?.Dispose(); }
+        });
+    }
+
+    /// <summary>
+    /// 文化圏・<c>Resources["vm"]</c>が基準からずれると報告され、同じ値では二度目を報告せず、別のオブジェクトへ替えると再び報告し、
+    /// 基準へ戻すと印が消えて後のずれで再び報告されることを確認します。独立した状態を使い、finallyで元へ戻します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void HostResidue_CultureAndViewModelResource_AreReportedPerDistinctValueAndClearedWhenRestored()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            CultureInfo? originalCulture = Resources.Culture;
+            bool hadViewModel = application.Resources.Contains("vm");
+            object? originalViewModel = application.Resources["vm"];
+            try
+            {
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                // 前のケースの残留に依存しないよう、基準と異なる文化圏を選びます。
+                var shifted = CultureInfo.GetCultureInfo(originalCulture?.Name == "fr-FR" ? "en-US" : "fr-FR");
+
+                Resources.Culture = shifted;
+                IReadOnlyList<HostResidue> culture = Residues(state, "E-d");
+                Assert.HasCount(1, culture);
+                Assert.AreEqual("E-d", culture[0].Category);
+                StringAssert.Contains(culture[0].Detail, shifted.Name);
+                Assert.IsEmpty(Residues(state, "E-d"));
+                Resources.Culture = originalCulture;
+                Assert.IsEmpty(Residues(state, "E-d"), "基準へ戻した状態では何も報告されません。");
+                Resources.Culture = shifted;
+                Assert.HasCount(1, Residues(state, "E-d"));
+                Resources.Culture = originalCulture;
+                Assert.IsEmpty(Residues(state, "E-d"));
+
+                object firstViewModel = new object();
+                object secondViewModel = new object();
+                application.Resources["vm"] = firstViewModel;
+                IReadOnlyList<HostResidue> first = Residues(state, "E-c");
+                Assert.HasCount(1, first);
+                Assert.AreEqual("E-c", first[0].Category);
+                Assert.IsEmpty(Residues(state, "E-c"));
+                application.Resources["vm"] = secondViewModel;
+                Assert.HasCount(1, Residues(state, "E-c"));
+                application.Resources["vm"] = firstViewModel;
+                Assert.HasCount(1, Residues(state, "E-c"), "別のオブジェクトを挟んで最初のオブジェクトへ戻すと、再び報告されます。");
+                RestoreViewModel(application, hadViewModel, originalViewModel);
+                Assert.IsEmpty(Residues(state, "E-c"), "元のオブジェクトへ戻した状態では何も報告されません。");
+                application.Resources["vm"] = firstViewModel;
+                Assert.HasCount(1, Residues(state, "E-c"), "基準へ戻して印が消えた後は、同じオブジェクトでも再び報告されます。");
+            }
+            finally
+            {
+                Resources.Culture = originalCulture;
+                RestoreViewModel(application, hadViewModel, originalViewModel);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 基準のWindowがMainWindowとして残留になる・基準へ戻る・再び残留になる変化が、そのたびに報告されることと、
+    /// Application.Windowsに含まれないMainWindowが <c>E-b</c> になることを確認します。残留でなくなった印を消さない実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void HostResidue_BaselineWindowBecomingMainWindow_IsReportedEachTimeItBecomesResidue()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            Window? previousMain = application.MainWindow;
+            Window? baselineWindow = null;
+            Window? orphan = null;
+            bool baselineClosed = false;
+            try
+            {
+                baselineWindow = new Window { Title = "residue-baseline" };
+                baselineWindow.Closed += (_, _) => baselineClosed = true;
+                orphan = new Window { Title = "residue-orphan" };
+                orphan.Close();
+                application.MainWindow = null;
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                Assert.IsEmpty(Residues(state, "E-a", "E-b"));
+
+                application.MainWindow = baselineWindow;
+                IReadOnlyList<HostResidue> first = Residues(state, "E-a", "E-b");
+                Assert.HasCount(1, first);
+                StringAssert.Contains(first[0].Detail, "residue-baseline");
+                StringAssert.Contains(first[0].Detail, "Application.MainWindow=yes");
+                Assert.IsEmpty(Residues(state, "E-a", "E-b"));
+
+                application.MainWindow = null;
+                Assert.IsEmpty(Residues(state, "E-a", "E-b"), "基準へ戻した状態では何も報告されません。");
+                application.MainWindow = baselineWindow;
+                Assert.HasCount(1, Residues(state, "E-a", "E-b"));
+
+                application.MainWindow = orphan;
+                IReadOnlyList<HostResidue> unlisted = Residues(state, "E-a", "E-b");
+                Assert.HasCount(1, unlisted);
+                Assert.AreEqual("E-b", unlisted[0].Category);
+                StringAssert.Contains(unlisted[0].Detail, "in Application.Windows=no");
+            }
+            finally
+            {
+                application.MainWindow = previousMain;
+                if (baselineWindow != null && !baselineClosed) { baselineWindow.Close(); }
+            }
+        });
+    }
+
+    /// <summary>基準と比べた報告のうち、指定の項目だけを返します。他の由来で混ざりうる項目（E-gなど）に表明を依存させません。</summary>
+    private static IReadOnlyList<HostResidue> Residues(HostResidueState state, params string[] categories)
+        => [.. HostResidueComparison.Compare(state, HostResidueBoundary.Observe()).Where(residue => categories.Contains(residue.Category))];
+
+    /// <summary>未消化操作を、このテストが投稿した操作だけに絞って比べます。他スレッド由来の操作が混ざっても結果が変わりません。</summary>
+    private static IReadOnlyList<HostResidue> OwnPendingResidues(HostResidueState state, params DispatcherOperation?[] own)
+    {
+        HostResidueSnapshot snapshot = HostResidueBoundary.Observe();
+        return HostResidueComparison.Compare(state, snapshot with
+        {
+            PendingOperations = [.. snapshot.PendingOperations.Where(operation => own.Any(candidate => ReferenceEquals(candidate, operation)))]
+        });
+    }
+
+    private static void RestoreViewModel(Application application, bool hadViewModel, object? originalViewModel)
+    {
+        if (hadViewModel) { application.Resources["vm"] = originalViewModel; }
+        else { application.Resources.Remove("vm"); }
+    }
+
+    /// <summary>
+    /// NLog構成の同一性の比較を、実際の<c>LogManager.Configuration</c>へ触れずに観測値で確認します。
+    /// nullから非nullへの変化は基準として採用し、別のオブジェクトは一度だけ報告し、基準へ戻すと印が消えることを区別します。
+    /// </summary>
+    [TestMethod]
+    public void HostResidue_LogConfiguration_AdoptsFirstNonNullAndReportsOtherObjectsOnce()
+    {
+        var first = new LoggingConfiguration();
+        var other = new LoggingConfiguration();
+        var empty = new HostResidueSnapshot([], null, null, "ja-JP", "Light", null, [], []);
+        var state = new HostResidueState(empty);
+
+        Assert.IsEmpty(HostResidueComparison.Compare(state, empty), "nullの間は何も報告されません。");
+        Assert.IsEmpty(HostResidueComparison.Compare(state, empty with { LogConfiguration = first }), "最初の非nullは基準として採用されます。");
+        IReadOnlyList<HostResidue> replaced = HostResidueComparison.Compare(state, empty with { LogConfiguration = other });
+        Assert.HasCount(1, replaced);
+        Assert.AreEqual("E-f", replaced[0].Category);
+        Assert.IsEmpty(HostResidueComparison.Compare(state, empty with { LogConfiguration = other }));
+        Assert.IsEmpty(HostResidueComparison.Compare(state, empty with { LogConfiguration = first }), "基準のオブジェクトへ戻した状態では何も報告されません。");
+        Assert.HasCount(1, HostResidueComparison.Compare(state, empty with { LogConfiguration = other }));
+        Assert.HasCount(1, HostResidueComparison.Compare(state, empty with { LogConfiguration = null }), "基準の後にnullへ戻った構成も差として報告されます。");
+    }
+
+    /// <summary>
+    /// Background以上で未消化のDispatcher操作が一度だけ報告され、Abortで消え、ContextIdle以下は数えないことを確認します。
+    /// 未消化の操作を数えない実装、二重に報告する実装、idle優先度まで数える実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void HostResidue_PendingOperationsAtOrAboveBackground_AreReportedOnce()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Dispatcher dispatcher = Application.Current.Dispatcher;
+            DispatcherOperation? normal = null;
+            DispatcherOperation? background = null;
+            DispatcherOperation? idle = null;
+            try
+            {
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                idle = dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle);
+                Assert.IsEmpty(OwnPendingResidues(state, idle), "ContextIdle以下は数えません。");
+
+                normal = dispatcher.InvokeAsync(() => { }, DispatcherPriority.Normal);
+                IReadOnlyList<HostResidue> first = OwnPendingResidues(state, idle, normal);
+                Assert.HasCount(1, first);
+                Assert.AreEqual("E-g", first[0].Category);
+                StringAssert.Contains(first[0].Detail, "Normal=1");
+                Assert.IsEmpty(OwnPendingResidues(state, idle, normal));
+
+                background = dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+                IReadOnlyList<HostResidue> added = OwnPendingResidues(state, idle, normal, background);
+                Assert.HasCount(1, added);
+                StringAssert.Contains(added[0].Detail, "Background=1");
+                StringAssert.Contains(added[0].Detail, "1 pending");
+
+                normal.Abort();
+                background.Abort();
+                Assert.IsEmpty(OwnPendingResidues(state, idle, normal, background), "消化または取消した状態では何も報告されません。");
+            }
+            finally
+            {
+                normal?.Abort();
+                background?.Abort();
+                idle?.Abort();
+            }
+        });
     }
 }

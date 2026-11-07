@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -25,6 +26,8 @@ internal sealed class TestWindowPresentationScope
     private const int GwlExStyle = -20;
     private const uint GwOwner = 4;
     private const long WsExNoActivate = 0x08000000L;
+    // どの表示範囲でも準備を通したWindowの印です。未準備のWindowの表示記録（HostObservationLog）が参照し、弱参照で保持します。
+    private static readonly ConditionalWeakTable<Window, object> preparedWindows = new();
     private readonly Application application;
     private readonly uint nativeThreadId;
     private readonly HashSet<Window> baselineWindows;
@@ -124,6 +127,7 @@ internal sealed class TestWindowPresentationScope
             throw new InvalidOperationException("The window is already prepared by this presentation scope.");
         }
 
+        preparedWindows.AddOrUpdate(window, preparedWindows);
         window.WindowStartupLocation = WindowStartupLocation.Manual;
         window.ShowInTaskbar = false;
         window.ShowActivated = false;
@@ -142,6 +146,13 @@ internal sealed class TestWindowPresentationScope
         window.Loaded += registration.Loaded;
         window.Closing += registration.Closing;
         trackedWindows.Add(registration);
+    }
+
+    /// <summary>指定のWindowが、いずれかの表示範囲で <see cref="PrepareForOwnedPresentation"/> を通したかを返します。</summary>
+    internal static bool IsPrepared(Window window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        return preparedWindows.TryGetValue(window, out _);
     }
 
     /// <summary>
@@ -609,7 +620,19 @@ internal sealed class TestWindowPresentationScope
         return depth;
     }
 
-    private static IReadOnlyList<nint> EnumerateNativeWindows(uint threadId)
+    /// <summary>指定HWNDのnative ownerを返します。なければゼロです。</summary>
+    internal static nint GetNativeOwner(nint handle) => GetWindow(handle, GwOwner);
+
+    /// <summary>指定HWNDのnative window class名を返します。取得できなければ空文字列です。</summary>
+    internal static string GetNativeClassName(nint handle)
+    {
+        char[] buffer = new char[256];
+        int length = GetClassName(handle, buffer, buffer.Length);
+        return length > 0 ? new string(buffer, 0, length) : "";
+    }
+
+    /// <summary>指定threadが所有するトップレベルHWNDを列挙します。</summary>
+    internal static IReadOnlyList<nint> EnumerateNativeWindows(uint threadId)
     {
         List<nint> handles = [];
         if (!EnumThreadWindows(threadId, (handle, _) =>
@@ -664,6 +687,9 @@ internal sealed class TestWindowPresentationScope
 
     [DllImport("user32.dll")]
     private static extern nint GetWindow(nint window, uint command);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(nint window, [Out] char[] className, int maxCount);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]

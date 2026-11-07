@@ -24,6 +24,12 @@ internal static class TestUiDispatcherHost
     internal static Dispatcher Dispatcher
         => GetActiveHost().Dispatcher;
 
+    /// <summary>
+    /// 共有ホストが起動済みで、まだ終端していないかを返します。ホストを起動せず、<c>Settings.Default</c>・Applicationも読みません。
+    /// </summary>
+    internal static bool IsRunning
+        => host.IsValueCreated && !host.Value.Completed.IsSet;
+
     private static HostState GetActiveHost()
     {
         HostState state = host.Value;
@@ -465,6 +471,8 @@ internal static class TestUiDispatcherHost
                         "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml",
                         UriKind.RelativeOrAbsolute)
                 });
+                // 判定を変えない観測（未準備のWindowの記録と、ケース終了時の残留の基準）を、有効にしたUI moduleでだけ取り付けます。失敗は記録し、起動を妨げません。
+                if (HostResidueBoundary.IsEnabled) { HostResidueBoundary.Attach(application, dispatcher, nativeThreadId); }
                 ready.Set();
                 Dispatcher.Run();
             }

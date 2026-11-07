@@ -447,4 +447,67 @@ public sealed class WindowPresentationScopeTests
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool EnumThreadWindows(uint threadId, EnumWindowCallback callback, nint parameter);
     }
+
+    /// <summary>
+    /// 表示範囲で準備したWindowは、未準備のWindowの表示として記録されないことを確認します。準備済みを記録する誤り（誤検出）を検出します。
+    /// モーダルは、モーダルループの入れ子と前面の変更を共有ホストの全ケースへ持ち込まないため、恒久テストにしません。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PreparedWindow_IsNotRecordedAsUnprepared()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var window = new Window { Title = "prepared-marker", Width = 200, Height = 120, Content = new TextBlock { Text = "prepared" } };
+            scope.ShowAndWaitForContentRendered(window);
+        });
+
+        Assert.IsEmpty(HostObservationLog.TakeCurrentCase("B").Where(record => record.Detail.Contains("title='prepared-marker'")));
+    }
+
+    /// <summary>
+    /// 準備を通さずに表示したWindowが、閉じた後も記録に残り、記録しても表示・Close・Dispatcherの進行を変えないことを確認します。
+    /// 記録しない実装と、検出器が閉じる・Dispatcherを進める実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void UnpreparedWindow_IsRecordedAfterCleanup_WithoutChangingItsBehavior()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            bool backgroundRan = false;
+            bool closing = false;
+            var window = new Window
+            {
+                Title = "unprepared-marker",
+                Width = 200,
+                Height = 120,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                ShowInTaskbar = false,
+                ShowActivated = false,
+                Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d,
+                Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d
+            };
+            window.Closing += (_, _) => closing = true;
+            DispatcherOperation background = window.Dispatcher.InvokeAsync(() => backgroundRan = true, DispatcherPriority.Background);
+            try
+            {
+                window.Show();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                Assert.IsTrue(window.IsLoaded);
+                Assert.IsTrue(window.IsVisible);
+                Assert.IsFalse(closing, "記録はWindowを閉じません。");
+                Assert.IsFalse(backgroundRan, "記録はDispatcherをLoadedより先へ進めません。");
+            }
+            finally { background.Abort(); }
+        });
+
+        // 他の由来の記録が混ざらないよう、このテストのタイトルの記録だけを対象にします。
+        IReadOnlyList<HostObservation> records = [.. HostObservationLog.TakeCurrentCase("B").Where(record => record.Detail.Contains("title='unprepared-marker'"))];
+        Assert.HasCount(1, records);
+        StringAssert.Contains(records[0].Detail, typeof(Window).FullName ?? throw new AssertFailedException("The Window type has no full name."));
+        StringAssert.Contains(records[0].Detail, "owner=(none)");
+        StringAssert.Contains(records[0].Detail, "thread-modal=no");
+    }
 }

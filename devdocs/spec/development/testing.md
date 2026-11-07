@@ -345,6 +345,25 @@ UI moduleの `UiModuleLifetime` の `GlobalTestInitialize`・`GlobalTestCleanup`
 
 ケース間の帰属・次のケースの開始時の報告・moduleの終了時の失敗は、ケースの順序に依存するため恒久テストにせず、制御フローで静的に確認します。ホストの記録・受取り・待機APIの即時失敗は `DispatcherHostTests` で確認します。
 
+##### 共有ホストの観測記録
+
+未処理例外とは別に、共有ホストの想定外の状態を、判定を変えずに記録します。第1段階は記録だけで、ケースを失敗にせず、Windowを閉じず、状態を復元せず、Dispatcherを進めません。項目ごとに残りが分類できた後の段階で、失敗にして復元する対象を決めます。
+
+- 記録の出力：記録は `[BMS-OBS] <項目> | <帰属> | <内容>` の一行で、ケースの終了時（`GlobalTestCleanup`）に `TestContext` へ書き、検証1回分のTRXのそのケースの出力から辿れます。ケースの間に記録された分は、次のケースの開始時に「ケース間（直前：ケース名）」の帰属で、そのケースの出力へ書きます。module終了時に残った分は、Consoleと、実行の結果フォルダー（`TestContext.TestRunResultsDirectory`）内の `host-observation-residue-<module名>.txt` へ出力します。結果フォルダーが取得できなければConsoleだけです。いずれも失敗にしません。検出器自身の失敗は項目 `X-detector` として同じ経路へ書きます。`TestContext` への書込み自体が失敗した記録は、失敗とともにConsoleへ出力し、失われません。いずれも表示・判定を妨げません。記録の行には、帰属したケース名（ケースの間は直前のケース名）を含めます。
+- 項目 `B`（未準備のWindowの表示）：共有ホストのスレッドで表示（初回のレイアウト）されたWindowのうち、どの表示範囲でも `PrepareForOwnedPresentation` を通していないものを、型・Title・モーダル・所有者・HWND・帰属とともに記録します。`Window` の `SizeChanged` へのクラスハンドラーでWindowごとに一度観測し（表示後の最初のレイアウトで観測します）、準備済みのWindow（モーダルを含む）は記録しません。表示されないWindowは通常記録されません。モーダルは公開APIの `ComponentDispatcher.IsThreadModal`（スレッド全体の状態）で記録し、別のモーダルが開いている間の非モーダルのWindowも `yes` になります。ホスト以外のDispatcher（専用STAの検査）は対象外です。
+- 項目 `E-a`〜`E-g`（ケース終了時の残留）：各ケースの終了時に、Send優先度の `Invoke` を一回だけ使って、共有ホストの起動時点を基準に比べます。ホストが未起動・終端済みなら何も起動せず何も読みません。各残留は最初に観測したケースへ一度だけ帰属させ、以後のケースで繰り返しません。値が基準へ戻れば報告済みの印を消し、後で再びずれたら再び報告します。
+  - `E-a`：ホストのスレッドの `Application.Windows` に基準の後から残るWindow。基準はホストの起動時点です（表示範囲の開始時点ではありません）。`MainWindow` が残る場合は同じWindowを一つの記録にし、`Application.Windows` に含まれない `MainWindow` だけが `E-b` です。`E-a-hwnd` は、ホストのスレッドのトップレベルHWNDのうち `Application.Windows` のどれにも（WPFが作るnative ownerを含め）対応しないものです。WPFが遅延生成する内部のHWND（`HwndWrapper[...]` など）も含まれるため、native window classを記録に添えて分類します。
+  - `E-c`：`Application.Resources["vm"]`。参照で判定し、別のオブジェクトへ替えるたびにそのオブジェクトごとに一度報告します。
+  - `E-d`：`Properties.Resources.Culture`（基準は `ja-JP`）。
+  - `E-e`：保存値 `Settings.Default.AppearanceTheme`（基準はホストが設定するLight）。`AppThemeService` は適用中のテーマを公開で返さないため、読むのは保存値だけで、読取りはホストの起動後に限ります。
+  - `E-f`：`LogManager.Configuration` の参照の同一性。基準は最初に観測した非nullの構成で、nullから非nullへの変化（`NLogWrapper` の遅延初期化）は基準として採用します。
+  - `E-g`：Background以上で未消化のDispatcher操作。公開の `Dispatcher.Hooks`（`OperationPosted`・`OperationCompleted`・`OperationAborted`）で、ホストの起動時点から投稿された操作を追跡し、境界で `Pending` かつ優先度がBackground以上のものを、操作ごとに一度報告します。優先度の変更は購読せず、数える時点の優先度で判定します。ContextIdle以下は数えません。
+- 帰属の規則の例外：`E-a`〜`E-g` は発生の時刻を観測しないため、観測したケース（`GlobalTestCleanup` のケース）へ帰属させ、記録に「このケース、またはその直前のケース間で生じた」旨を書きます。`B` は表示の時点のケース（ケースの間なら直前のケース名付き）へ帰属させます。
+- 記録だけの契機：未処理例外の報告（ケースの失敗化）より先に出力し、その後に既存の境界処理を行います。観測処理自体が例外を投げた場合は `X-detector` として出力し、判定を変えません。境界が各ケースで明示的に呼ぶ観測で、`UiModuleLifetime` が `AssemblyInitialize` で有効にしたUI moduleだけで動きます。有効にしないmodule（Core）では、共有ホストが起動しても未準備のWindowの検出器・Dispatcher Hooks・基準の読取りを取り付けません。有効化を共有ホストの起動後に呼んだ場合、その起動には取り付けません。
+- 対象外・限界：Win32のコモンダイアログとネイティブのMessageBox（`EmergencyDialog`）はWPFのWindowではないため `B` の対象外で、ケース終了時にホストのスレッドへ残っていた場合だけ `E-a-hwnd` に現れえます。`UiDialogOwnerResolver` のactive modal・`MainWindowViewModel` のセマフォは、公開の観測点がなくリフレクションを使わないため観測しません。`LogManager.Configuration` の読取りは、NLogが構成の自動読込みを未実施だった場合にその試行を起こしうる限界があります。
+
+観測の比較は、基準と報告済みの印を持つ状態を引数に取る関数で、恒久テストは独立の状態（テスト開始時点の現在値を基準）で確認し、境界の記録を作りません。観測の恒久テストが使う非表示（`WS_VISIBLE` なし）かつ非アクティブ（`WS_EX_NOACTIVATE`）の `HwndSource`（位置の指定は補助で、画面外の保証には使いません）と未表示の `new Window` は、この共通基盤自体の検査として明示された例外です。表明は対象の項目だけに絞り、他の由来で混ざりうる項目（`E-g` など）に依存させません。ケース終了時の記録・TRXへの出力・module終了時の出力は、制御フローで静的に確認し、TRXへの出力は局所MTPで一度確かめます。
+
 #### UI moduleの寿命
 
 UI moduleの `UiModuleLifetime` は、次の順に初期化します。
@@ -385,6 +404,8 @@ Dispatcher上の通常の機能Taskの待機は、局所的な制限時間を加
 #### 表示範囲とWindowの所有
 
 実Window・Popupの表示範囲（`TestWindowPresentationScope`）は共有のWindow・HWND一覧を観測するため、準備から処理の終端・後片付けまで非並列にします。同一テストの親子Windowには同じ表示範囲を渡し、独自の入れ子の表示範囲を作りません。Windowを作らず共有状態を変えない `Invoke` は、この理由では直列化しません。実Dispatcherの終了を保証する専用STAと、共通基盤の意図的な入れ子の表示範囲の検査は、それぞれの保証のために維持します。
+
+どの表示範囲でも `PrepareForOwnedPresentation` を通していないWindowが共有ホストで表示された場合は、現在は閉じず失敗にもせず、型・Title・モーダルなどを記録するだけです（[共有ホストの観測記録](#共有ホストの観測記録)）。表示範囲の準備を通したWindowはモーダルでも記録しません。
 
 MainWindowの生成前から、終了処理・`Closed`・設定購読の解除・`Resources["vm"]` の復元までは `MainWindowTestLifetime` が所有します。機能の入力と実処理の終端の観測は機能側へ残します。コンパイル済みの内容だけを描画する場合も共通の表示範囲の実Windowを使い、Binding・値・選択・配置の表明を維持します。
 
@@ -562,6 +583,7 @@ suiteの起動・前提・本体・通常の回収・実際の終了は一つの
 | 一時資源・共有状態・通常完了の待機 | [TestSettingsFactory](../../../tests/BeMusicSeeker.TestSupport/Components/TestSettingsFactory.cs)、[Coreのmodule寿命](../../../tests/ModuleInitialization/ModuleLifetime.cs)、[UIのmodule寿命](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、各機能のテスト準備 | 所有・復元、通知前の失敗、待合せの解放、実際の完了条件を確認する。UIのホスト終了の成功後だけ設定を回収し、設定の回収失敗後も一時セッション・排他を回収する順序は、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | Dispatcherの受付・終端・通常Task待機 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。終了済み・受理後の終了と停止の二次失敗、Action失敗後の継続、合流、利用側の成功・失敗・取消・通知欠落、単一STA、Background優先度までの消化（UIスレッド上・テストスレッド、idle優先度を含めない）を確認する。 |
 | 共有Dispatcherの未処理例外の記録・帰属・ケース境界の報告 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs)、[`HostUnhandledExceptionLog`](../../../tests/BeMusicSeeker.TestSupport/Wpf/HostUnhandledExceptionLog.cs)、[`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。ホストを終端させず記録し後続の要求を受理すること、複数の記録の順序と一度だけの受取り、待機・消化APIの元の例外での即時失敗と消費、呼出し側へ返る失敗を記録しないことを確認する。ケース終了時・ケースの間・module終了時・重なりの報告と、ホストを使わないmoduleで何も起動しないことは、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
+| 共有ホストの観測の記録（未準備のWindowの表示、ケース終了時の残留 `E-a`〜`E-g`） | [`HostObservationLog`](../../../tests/BeMusicSeeker.TestSupport/Wpf/HostObservationLog.cs)、[`HostResidueComparison`](../../../tests/BeMusicSeeker.TestSupport/Wpf/HostResidueComparison.cs)、[`TestWindowPresentationScope`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestWindowPresentationScope.cs)、[`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs)、[`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs) | [`WindowPresentationScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WindowPresentationScopeTests.cs) が準備済みのWindowを記録しないこと、未準備の表示が閉じた後も記録に残ること、記録が表示・Close・Dispatcherの進行を変えないことを確認する。[`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs) が、独立の状態で残留のWindow・MainWindow・HWNDのみ・`Resources["vm"]`・文化圏・NLog構成（観測値）・未消化操作を一度だけ報告し、報告済みの印が基準へ戻ると消えて再びずれると再び報告されること（`Resources["vm"]`・文化圏・基準のWindowを再びMainWindowにする場合）を確認する。操作・HWNDの印の整理は同じ参照・ハンドルが戻らない限り挙動に現れないため、挙動としては確認しない。モーダル、テーマの保存値、実際の `LogManager.Configuration` の差替え、ケース境界の出力・ケース間・module終了時の出力、ホスト未起動で何も起動しないことは、制御フローで静的に確認し、境界の出力が検証1回分のTRXに載ることは局所MTPで確かめる。 |
 | compiledの `async void` ハンドラーの完了判定 | [`MainWindowEventCompletion`](../../../tests/BeMusicSeeker.TestSupport/Wpf/MainWindowEventCompletion.cs) | [`MainWindowEventCompletionTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/MainWindowEventCompletionTests.cs)。購読者なしの開始0件での即時失敗、同期ハンドラーの後にgate待ちのハンドラーがある場合の早期完了の防止と開始数、await後の例外でCompletionが成功にならないこと、単一ハンドラーの終端後の成功を確認する。 |
 | ロック不成立・デッドロックの停止検出と到達待ち | [`ConcurrencyProbe`](../../../tests/BeMusicSeeker.TestSupport/Components/ConcurrencyProbe.cs) | 専用スレッドのprobe、保持中の完了判定、probeと保持側の失敗の伝播、通知なしの終端、期限なしの到達待ちを、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | 画面の準備、表示、破棄 | [`TestWindowPresentationScope`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestWindowPresentationScope.cs) | [`SettingsControlPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs)、[`WindowPresentationScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WindowPresentationScopeTests.cs)。一般的なアイドルと別に、実際の描画・配置・Win32の結果、入れ子の所有資源、失敗の優先順位を確認する。 |

@@ -32,6 +32,13 @@ internal static class HostUnhandledExceptionLog
         get { lock (gate) { return nextSequence; } }
     }
 
+    /// <summary>現在のケース名と、ケースの間なら直前のケース名を読み取ります。記録・帰属・消費の状態は変えません。</summary>
+    /// <returns>ケース中は <c>Current</c> が非nullで <c>Preceding</c> がnull、ケースの間は <c>Current</c> がnullで <c>Preceding</c> が直前のケース名（なければnull）。</returns>
+    internal static (string? Current, string? Preceding) ReadCase()
+    {
+        lock (gate) { return (currentCase, currentCase == null ? lastCase : null); }
+    }
+
     /// <summary>Dispatcherスレッド上で、到達した例外を現在のケース（ケースの間なら直前のケース）の記録に加えます。</summary>
     internal static void Record(Exception exception)
     {
