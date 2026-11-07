@@ -1114,19 +1114,15 @@ public sealed class BmsRealtimeAudioSchedulerTests
             playback = player.Start();
             TimeSpan firstTickTime = await activeTickGate.Entered;
 
-            callbackTask = Task.Run(() =>
+            callbackTask = ConcurrencyProbe.StartDedicated(() =>
                 BassAudioPlayer.ReadPublishedCallbackOutput(session, callbackBuffer, callbackBytes));
-            bool callbackEnteredNativePull = callbackPull.PullCompleted.Wait(TimeSpan.FromSeconds(3));
+            // callbackはtick保持中でもnative pullへ到達します。テストスレッドでの判定なので、その場で投げます。
+            ConcurrencyProbe.AssertSignalsWhileHeld(
+                callbackPull.PullCompleted,
+                callbackTask,
+                "tick保持中でもcallbackはnative pullへ到達します。");
             callbackPull.AllowCallbackReturn.Set();
-            bool callbackCompletedWhileTickHeld = true;
-            try
-            {
-                _ = await callbackTask.WaitAsync(TimeSpan.FromSeconds(3));
-            }
-            catch (TimeoutException)
-            {
-                callbackCompletedWhileTickHeld = false;
-            }
+            ConcurrencyProbe.AssertCompletesWhileHeld(callbackTask, "tick保持中でもcallbackは完了します。", playback);
 
             ControlOperationObservation pauseObservation = player.ArmPauseOperation();
             var pause = Task.Run(player.Pause);
@@ -1204,8 +1200,6 @@ public sealed class BmsRealtimeAudioSchedulerTests
             Assert.AreEqual(240d, player.CurrentBpm);
             Assert.AreEqual(3, player.Combo);
 
-            Assert.IsTrue(callbackEnteredNativePull);
-            Assert.IsTrue(callbackCompletedWhileTickHeld);
             Assert.IsFalse(session.HasCallbackOutputFailure);
         }
         finally

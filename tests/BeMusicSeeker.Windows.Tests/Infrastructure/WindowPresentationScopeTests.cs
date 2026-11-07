@@ -6,6 +6,7 @@ using System.Windows.Data;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Threading;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 
 namespace BeMusicSeeker.Windows.Tests.Infrastructure;
@@ -45,21 +46,25 @@ public sealed class WindowPresentationScopeTests
                     pendingWork = dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(ContinueWork));
                 }
             }
+            // ループがidleを妨げている間の停止（Cleanupを含む）だけを検出します。表示自体の停止はscopeの表示観測が担うため、
+            // 負荷で描画が遅れても偽って失敗しないよう、開始はContentRenderedの成立後（ループ開始と同時）にします。
+            // 4引数のコンストラクターは生成時に開始するため、開始を遅らせるにはIntervalとTickを個別に設定する。
+            var watchdog = new DispatcherTimer(DispatcherPriority.Send, dispatcher) { Interval = ConcurrencyProbe.StallTimeout };
+            watchdog.Tick += (_, _) =>
+            {
+                watchdogTriggered = true;
+                keepWorking = false;
+                pendingWork?.Abort();
+            };
             window.ContentRendered += (_, _) =>
             {
                 contentRendered = true;
+                watchdog.Start();
                 // 実描画の通知を妨げず、その成立後だけ一般 idle の到達を止める。
                 ContinueWork();
                 idleBarrier = dispatcher.BeginInvoke(
                     DispatcherPriority.ApplicationIdle, new Action(() => idleReached = true));
             };
-            var watchdog = new DispatcherTimer(TimeSpan.FromSeconds(5), DispatcherPriority.Send, (_, _) =>
-            {
-                watchdogTriggered = true;
-                keepWorking = false;
-                pendingWork?.Abort();
-            }, dispatcher);
-            watchdog.Start();
             try
             {
                 scope.ShowAndWaitForContentRendered(window);

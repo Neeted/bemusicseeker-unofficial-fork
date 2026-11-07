@@ -4,6 +4,7 @@ using System.Text;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using ManagedBass;
 using Ribbit.BMS;
 using Ribbit.Media;
@@ -307,21 +308,28 @@ public sealed class NullOutputPlaybackRuntimeTests
         InstallRenderer(session, new ObservedPcmNative(() => { entered.TrySetResult(); release.Wait(); }));
         Task ready = output.WaitForOutputReadyAsync();
         Task? free = null;
+        Task? volumeProbe = null;
         try
         {
-            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, ready, "free-join native pull entered");
             TaskCompletionSource freeEntered = Signal();
             free = Task.Run(() => { freeEntered.TrySetResult(); output.Free(); });
-            await freeEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            await Task.Run(() => output.SetVolume(40)).WaitAsync(TimeSpan.FromSeconds(10));
+            await TestUiDispatcherHost.AwaitNotificationAsync(freeEntered.Task, free, "free-join free entered");
+            volumeProbe = ConcurrencyProbe.StartDedicated(() => output.SetVolume(40));
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(
+                volumeProbe, "初回native取得中のFreeは音量通知を妨げません。", free);
             Assert.IsFalse(released);
             Assert.IsFalse(free.IsCompleted);
         }
         finally
         {
             release.Set();
-            try { await ready.WaitAsync(TimeSpan.FromSeconds(10)); }
-            finally { if (free != null) { await free.WaitAsync(TimeSpan.FromSeconds(10)); } }
+            try { await ready; }
+            finally
+            {
+                try { if (free != null) { await free; } }
+                finally { if (volumeProbe != null) { await volumeProbe; } }
+            }
         }
         Assert.IsTrue(released);
         Assert.IsTrue(session.IsReleased);

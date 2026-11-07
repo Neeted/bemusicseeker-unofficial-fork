@@ -1292,7 +1292,8 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 {
                     producer = ConcurrencyProbe.StartDedicated(() => PublishNormalLibraryRefreshResetNotification(library,
                         notifiesBmsFiles: true, notifiesBmsonSongs: false));
-                    producer.GetAwaiter().GetResult();
+                    ConcurrencyProbe.AssertCompletesWhileHeld(
+                        producer, "writer保持中でも通知の登録が完了します。");
                     Assert.AreEqual(0, applied);
                     Assert.AreEqual(1, queue.Count);
                 }

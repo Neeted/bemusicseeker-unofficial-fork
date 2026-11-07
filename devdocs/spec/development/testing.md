@@ -261,7 +261,7 @@ DBの準備・観測は検証対象の処理と分けます。入力作成だけ
 
 単なる到達・完了確認には局所的な制限時間を追加せず、停止は検証全体の制限時間で検出します。局所的な制限時間は、外部プロセス、ループバックHTTPのfixture、画面表示、解放、ロックが成立しないことの確認、時間超過の契約の失敗検出に限ります。固定の `Thread.Sleep` や余裕時間としての `Task.Delay` から成功を推測しません。短い否定観測は、通常完了を待つ方法や時間保証の証明とは区別します。
 
-ロックが成立しないこと・デッドロックの確認は、probeを専用スレッドで動かし、保持側が判定まで保持したまま「保持中に完了したか」で判定します。判定は `ConcurrencyProbe.AssertCompletesWhileHeld`・`AssertCompletesWhileHeldAsync`・`AssertSignalsWhileHeld` で行います。`AssertCompletesWhileHeld(Async)` では保持側のTaskを `holder` に、`AssertSignalsWhileHeld` では通知の生成元Taskを `producer` に渡し、それらの先行終端をその場で失敗にします。期限にはTestSupportの `ConcurrencyProbe.StallTimeout` だけを使い、正しい実装の合否には使いません。`ManualResetEventSlim` や条件の成立を同期的に待つ到達待ちは `ConcurrencyProbe.WaitForSignal`・`WaitUntil` で、期限なしに通知または生成元の終端まで待ちます。非同期の成功通知は前段の `AwaitNotificationAsync` を使います。
+ロックが成立しないこと・デッドロックの確認は、probeを専用スレッドで動かし、保持側が判定まで保持したまま「保持中に完了したか」で判定します。判定は `ConcurrencyProbe.AssertCompletesWhileHeld`・`AssertCompletesWhileHeldAsync`・`AssertSignalsWhileHeld` で行います。`AssertCompletesWhileHeld(Async)` では保持側のTaskを `holder` に、`AssertSignalsWhileHeld` では通知の生成元Taskを `producer` に渡し、それらの先行終端をその場で失敗にします。期限にはTestSupportの `ConcurrencyProbe.StallTimeout` だけを使い、正しい実装の合否には使いません。`ManualResetEventSlim` や条件の成立を同期的に待つ到達待ちは `ConcurrencyProbe.WaitForSignal`・`WaitUntil` で、期限なしに通知または生成元の終端まで待ちます。非同期の成功通知は前段の `AwaitNotificationAsync` を使います。製品のcallback内など、その場で投げられない箇所では `WaitCompletedWhileHeld` で完了の有無だけを保持し、保持の解放後にprobeを回収してから表明します。
 
 不安定なテストは共有状態、順序依存、待機、資源競合を調べます。制限時間の延長、再試行の増加、実行担当数や分割数の削減だけで失敗を隠しません。同一版の再実行は[実行期限と失敗分類](#実行期限と失敗分類)に従います。
 

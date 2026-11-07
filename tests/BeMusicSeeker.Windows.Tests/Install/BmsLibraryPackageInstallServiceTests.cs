@@ -1802,7 +1802,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 return;
             }
 
-            reentryTask = Task.Run(() =>
+            reentryTask = ConcurrencyProbe.StartDedicated(() =>
             {
                 try
                 {
@@ -1813,9 +1813,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     ReentryFailure = exception;
                 }
             });
-            // 実Taskで終端を観測する。この短い期限は外側片付け中の再入が
-            // ロックで停止する反例を検出するために保つ。
-            ReentryCompletedDuringCleanup = reentryTask.Wait(TimeSpan.FromSeconds(5));
+            // 外側片付け中の再入がロックで停止する反例を、保持中の停止検出で判定する。製品側の経路内なので、その場では投げず
+            // 完了の有無だけを保持し、例外はReentryFailureへ集めて呼出し側が回収後に表明する。
+            ReentryCompletedDuringCleanup = ConcurrencyProbe.WaitCompletedWhileHeld(reentryTask);
         }
     }
 

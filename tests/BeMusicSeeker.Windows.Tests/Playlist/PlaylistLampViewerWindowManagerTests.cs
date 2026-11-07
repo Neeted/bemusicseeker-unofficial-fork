@@ -709,7 +709,8 @@ public sealed class PlaylistLampViewerWindowManagerTests
             Task? driver = null;
             try
             {
-                open = fixture.Manager.TryOpenAsync(fixture.Context);
+                Task<PlaylistLampViewerWindow> opening = fixture.Manager.TryOpenAsync(fixture.Context);
+                open = opening;
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(source.CaptureStarted.Task, "callback drain initial capture started");
                 PlaylistLampViewerWindow pendingWindow = fixture.PreparedWindow;
                 Assert.AreNotEqual(nint.Zero, new WindowInteropHelper(pendingWindow).EnsureHandle());
@@ -728,12 +729,14 @@ public sealed class PlaylistLampViewerWindowManagerTests
                                 drain = fixture.Manager.WaitForCompletionAsync();
                             }
                         });
-                        await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                        await closeOperation.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                        await closed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        // close操作が失敗すると取消が要求されずcallbackが呼ばれないまま到達待ちが止まるため、先にその場で伝えます。
+                        await ConcurrencyProbe.AssertCompletesWhileHeldAsync(closeOperation.Task, "callback保持中でもclose操作が完了します。");
+                        // callbackへの到達は非同期なので、生成元のopenの終端と競わせて期限なしで待ちます。
+                        await TestUiDispatcherHost.AwaitNotificationAsync(callbackEntered.Task, opening, "callback drain callback entered");
+                        await ConcurrencyProbe.AssertCompletesWhileHeldAsync(closed.Task, "callback保持中でもwindowのClosedが通知されます。");
                         bool pulseExecuted = false;
                         System.Windows.Threading.DispatcherOperation<bool> pulse = fixture.Owner.Dispatcher.InvokeAsync(() => pulseExecuted = true);
-                        await pulse.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                        await ConcurrencyProbe.AssertCompletesWhileHeldAsync(pulse.Task, "callback保持中でもUI dispatcherが実行されます。");
                         Assert.IsTrue(pulseExecuted, "経過時間ではなく実DispatcherOperationの実行を確認します。");
                         Assert.IsNotNull(drain);
                         Assert.IsFalse(drain.IsCompleted);

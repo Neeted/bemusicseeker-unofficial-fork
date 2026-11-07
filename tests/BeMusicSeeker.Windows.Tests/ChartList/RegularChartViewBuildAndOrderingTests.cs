@@ -216,11 +216,9 @@ public sealed class RegularChartViewBuildAndOrderingTests
                 {
                     owner.QueueLatestNormalLibraryRefreshNotification(reason, library);
                     Task delivery = owner.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
-                    var timeout = Stopwatch.StartNew();
                     while (!delivery.IsCompleted)
                     {
                         if (scheduler.TryTake(out ScheduledScoreOperation? operation)) { operation.Run(); operation.Complete(); }
-                        else if (timeout.Elapsed > TimeSpan.FromSeconds(20)) { Assert.Fail("警告の配送が終端しませんでした: " + reason); }
                         else { delivery.Wait(5); }
                     }
                     delivery.GetAwaiter().GetResult();

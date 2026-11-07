@@ -62,6 +62,23 @@ internal static class ConcurrencyProbe
         EvaluateHeld(probe, name, holder);
     }
 
+    /// <summary>
+    /// 製品のcallback内など、その場で例外を投げられない箇所向けに、保持中のprobeの完了を例外なしで待ち、完了したかを返します。
+    /// probeの完了、<paramref name="holder"/>の終端、<see cref="StallTimeout"/>の超過のいずれかまで同期的に待ちます。
+    /// probeの失敗はここでは伝わらないため、呼出し側は保持を解放した後でprobeを必ず回収し（<c>GetResult</c>など）、
+    /// 返した値の表明より前に元の例外を伝えます。それ以外の箇所では<see cref="AssertCompletesWhileHeld"/>を使います。
+    /// </summary>
+    internal static bool WaitCompletedWhileHeld(Task probe, Task? holder = null)
+    {
+        if (!probe.IsCompleted)
+        {
+            Task[] waits = holder is null ? [probe] : [probe, holder];
+            Task.WaitAny(waits, StallTimeout);
+        }
+
+        return probe.IsCompleted;
+    }
+
     /// <summary><see cref="AssertCompletesWhileHeld"/>の非同期版です。待機は<see cref="Task.WhenAny(Task[])"/>で行い、同じ意味を持ちます。</summary>
     internal static async Task AssertCompletesWhileHeldAsync(Task probe, string name, Task? holder = null)
     {

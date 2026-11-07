@@ -46,7 +46,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     /// <summary>
     /// 所持hashだけを温めたcold健全性読取りは実保存行writerの保持中にreader待機へ入り、解放後に不足対象を返して保護なしの読取りを検出する。
     /// </summary>
-    /// <remarks>実所持の保存行writerとreader待機を観測する。10秒は保護中の到達観測の期限で、通常完了の固定待機ではない。</remarks>
+    /// <remarks>実所持の保存行writerとreader待機を観測する。reader待機への到達は期限なしで待ち、workerが到達前に終端した場合は失敗する。writer保持中に完了しないことは、到達後の未完了の確認で判定する。</remarks>
     [TestMethod]
     public void ChartFilesNeedResourceFix_WaitsForCatalogStorageWriterBeforeColdResourceHealthRead()
     {
@@ -75,13 +75,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 {
                     worker = ConcurrencyProbe.StartDedicated(
                         () => result = [.. library.ChartFilesNeedResourceFix]);
-                    bool readerWaitOrEarlyCompletion = SpinWait.SpinUntil(
-                        () => storageWriteGate.WaitingReadCount > 0 || worker.IsCompleted,
-                        TimeSpan.FromSeconds(10));
-
-                    Assert.IsTrue(
-                        readerWaitOrEarlyCompletion,
-                        "resource health cold read did not reach the storage reader or complete within the watchdog.");
+                    // reader待機への到達は期限なしで待ちます。workerが到達前に終端した場合は、元の例外か通知なしの終端で失敗します。
+                    ConcurrencyProbe.WaitUntil(
+                        () => storageWriteGate.WaitingReadCount > 0,
+                        worker,
+                        "resource health cold read did not reach the catalog storage reader wait.");
                     Assert.IsFalse(
                         worker.IsCompleted,
                         "resource health cold read completed while the catalog storage writer was held.");

@@ -310,8 +310,11 @@ public sealed class BassNativeRuntimeTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
 
-            // 保持中の共有leaseが冗長な排他初期化を待たせる誤実装だけを、この局所期限で検出します。
-            bool completedWhileCallbackHeld = initialization.Wait(TimeSpan.FromSeconds(2));
+            // 保持中の共有leaseが冗長な排他初期化を待たせる誤実装だけを、callback保持中の停止検出で検出します。
+            ConcurrencyProbe.AssertCompletesWhileHeld(
+                initialization,
+                "初期化済みruntimeの確認は進行中のcallbackの解放を待ちません。",
+                heldCallback);
             float[]? pcm = Task.Factory.StartNew(
                 () =>
                 {
@@ -342,7 +345,6 @@ public sealed class BassNativeRuntimeTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default).GetAwaiter().GetResult();
 
-            Assert.IsTrue(completedWhileCallbackHeld, "初期化済みruntimeの確認は進行中のcallbackの解放を待ちません。");
             Assert.IsNotNull(pcm, "独立したcallbackの受付を維持します。");
             Assert.IsTrue(pcm.All(float.IsFinite));
             Assert.IsTrue(pcm.Any(sample => sample != 0f), "実native PCMを継続して読み取ります。");

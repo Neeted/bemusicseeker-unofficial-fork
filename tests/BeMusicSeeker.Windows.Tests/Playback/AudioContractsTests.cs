@@ -1721,11 +1721,8 @@ public sealed class AudioContractsTests
                     panel.PlayerVolume = 20;
                 }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
                 await TestUiDispatcherHost.AwaitNotificationAsync(setterEntered.Task, setter, "volume-setter-entered");
-                try { await setter.WaitAsync(TimeSpan.FromSeconds(3)); }
-                catch (TimeoutException failure)
-                {
-                    throw new AssertFailedException("音量setterがnative初期化gateの解放を待っています。", failure);
-                }
+                await ConcurrencyProbe.AssertCompletesWhileHeldAsync(
+                    setter, "音量setterがnative初期化gateの解放を待っています。", next);
                 Assert.IsTrue(setter.IsCompletedSuccessfully);
                 Assert.IsFalse(next.IsCompleted, "音量setterの終端を初期化の終端から独立に観測します。");
                 Assert.AreEqual(20, panel.PlayerVolume);

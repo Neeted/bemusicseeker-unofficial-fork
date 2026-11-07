@@ -118,7 +118,8 @@ public sealed class MainWindowPlayHistoryWpfTests
                     try
                     {
                         vm.PlayHistory.SelectedDisplayTargetIdentity = usePreset ? "set:SAVED" : "playlist:42";
-                        Assert.IsTrue(started.Wait(TimeSpan.FromSeconds(10)), "対象切替workerが開始する。");
+                        // UIスレッドを塞いだままの停止を診断付きで検出するため、StallTimeoutで判定します。workerの最初の処理が通知なので、通知前に生成元が失敗する経路はなく、producerは渡しません。
+                        ConcurrencyProbe.AssertSignalsWhileHeld(started, null, "対象切替workerが開始する");
                         Assert.IsFalse(vm.PlayHistory.SnapshotActiveRequest().PreserveSelection);
                         Assert.IsTrue(vm.PlaylistWorkspace.PublishPlaylistEntriesHydrationCompleted(2));
                     }
