@@ -295,6 +295,8 @@ public sealed class DistributionPreparerTests
             stages.Add(name);
             if (name == "legacy-artifact") { await action((_, _, _) => throw new InvalidOperationException(), Deadline(), default); return; }
             Assert.AreEqual("publish-v", name);
+            // 製品はpublishの実行前にcandidate/vを参照・変更しないため、publish出力に当たる移動を期限の作成前に済ませ、期限内に含めない。
+            Directory.Move(fixture.PathFor("seed"), fixture.PathFor("candidate/v"));
             var deadline = ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(1));
             await action(async (_, args, received) =>
             {
@@ -303,7 +305,6 @@ public sealed class DistributionPreparerTests
                 if (args[^1].Contains(" -ArtifactRoot ", StringComparison.Ordinal))
                 {
                     Assert.AreEqual(1, commands);
-                    Directory.Move(fixture.PathFor("seed"), fixture.PathFor("candidate/v"));
                     publishSucceeded = true;
                     return new ProcessCompletion(0, "", "");
                 }

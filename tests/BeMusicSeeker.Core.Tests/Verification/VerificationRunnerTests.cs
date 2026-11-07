@@ -6,6 +6,7 @@ using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Scenarios;
 using BeMusicSeeker.TestSupport.Verification;
+using BeMusicSeeker.TestSupport.Wpf;
 
 namespace BeMusicSeeker.Core.Tests.Verification;
 
@@ -520,7 +521,12 @@ public sealed class VerificationRunnerTests
         Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
     }
 
-    /// <summary>準備commandが実行期限近くで非ゼロ終了しても、期限を跨ぐ停止処理の後に共有回収猶予で両ログとsummaryを保存し、元の失敗を保つことを保証します。</summary>
+    /// <summary>
+    /// 準備commandが実行期限内に非ゼロ終了しても、期限を跨ぐ停止処理の後に共有回収猶予で両ログとsummaryを保存し、元の失敗を保つことを保証します。
+    /// 失敗確定時に回収期限を固定しない誤り、期限後にログを保存しない誤り、主失敗を期限超過へすり替える誤りを検出します。
+    /// 終了の観測が実行期限内であることは、時間の余裕ではなく準備段階の直前に作った下限の期限の包含で確認し、外れた場合は前提不成立として失敗させます。
+    /// 下限には直前の<c>dotnet --version</c>の起動とrestoreの起動・ready・releaseが含まれるため、それらが実行予算を超える極端な負荷では前提不成立になります。
+    /// </summary>
     [TestMethod]
     public async Task FailedPreparationUsesSharedCleanupGraceForLogsAndSummary()
     {
@@ -532,6 +538,7 @@ public sealed class VerificationRunnerTests
         var executionBudget = TimeSpan.FromSeconds(3);
         ProcessDeadline? observedExecutionDeadline = null;
         long failureObserved = 0;
+        ProcessDeadline? lowerBound = null;
         fixture.Configure = (name, command) => name == "restore" ? command with
         {
             Ready = fixture.Path("restore-ready"),
@@ -540,6 +547,8 @@ public sealed class VerificationRunnerTests
         } : command;
         fixture.BeforeStart = (name, _) =>
         {
+            // 準備段階の構築直前の最後の起動で作るため、実際の実行期限はこれより後に始まり、この期限に含まれる終了は実行期限内の終了でもある。
+            if (name == "--version") { lowerBound = ProcessDeadline.FromTimeout(executionBudget); }
             // 段階開始後の境界で作るため、この期限が切れれば実行期限も確実に過ぎている。
             if (name == "restore") { observedExecutionDeadline = ProcessDeadline.FromTimeout(executionBudget); }
         };
@@ -559,21 +568,24 @@ public sealed class VerificationRunnerTests
                 await allowCleanup.Task.WaitAsync(token);
             }, Deadline());
         };
-        VerificationRun run = fixture.Run() with { PreparationTimeout = executionBudget, CleanupGrace = TimeSpan.FromSeconds(5) };
+        VerificationRun run = fixture.Run() with { PreparationTimeout = executionBudget };
         Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 1), run);
         try
         {
-            await readyToExit.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            // 到達は局所期限なしで、通知か実行Taskの終端のどちらかまで待つ。
+            await TestUiDispatcherHost.AwaitNotificationAsync(readyToExit.Task, execution, "準備processのready");
             ProcessDeadline boundary = observedExecutionDeadline ?? throw new InvalidOperationException("準備段階の起動を観測していません。");
-            TimeSpan untilFailure = boundary.Remaining - TimeSpan.FromMilliseconds(500);
-            if (untilFailure > TimeSpan.Zero) { await Task.Delay(untilFailure); }
             allowExit.TrySetResult();
-            await terminated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await TestUiDispatcherHost.AwaitNotificationAsync(terminated.Task, execution, "準備processの終了");
+            Assert.IsTrue((lowerBound ?? throw new InvalidOperationException("準備段階の直前の起動を観測していません。")).Includes(failureObserved),
+                "前提不成立: 準備processの終了が実行期限内に観測されなかったため、期限超過ではなく非ゼロ終了を主失敗とする検査になっていません。");
+            // 回収猶予は失敗確定時に固定される。終了の観測は期限内なので、その後に実行期限を跨がせてから回収を許可する。
             // 時間経過自体を条件にする検証であり、順序はterminatedとallowCleanupのgateで確定する。
-            await Task.Delay(boundary.Remaining + TimeSpan.FromMilliseconds(10));
-            Assert.AreEqual(TimeSpan.Zero, boundary.Remaining);
+            while (boundary.Remaining > TimeSpan.Zero) { await Task.Delay(boundary.Remaining + TimeSpan.FromMilliseconds(10)); }
             allowCleanup.TrySetResult();
-            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            VerificationRunResult result = await execution;
+            // 回収猶予内の終端は、後続の表明の負荷を含めないよう実行の完了直後に測る。
+            TimeSpan cleanupElapsed = Stopwatch.GetElapsedTime(failureObserved);
             VerificationCommandResult restore = result.Commands.Single(command => command.Completion?.ExitCode == 17);
             Assert.AreEqual(1, result.ExitCode);
             Assert.IsNotNull(restore.PrimaryFailure);
@@ -586,7 +598,7 @@ public sealed class VerificationRunnerTests
             Assert.AreEqual("stderr", File.ReadAllText(fixture.Path("run/" + restore.Name + ".stderr.log")));
             using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
             StringAssert.Contains(summary.RootElement.GetProperty("primaryFailure").GetString() ?? "", "17");
-            Assert.IsTrue(Stopwatch.GetElapsedTime(failureObserved) < run.CleanupGrace);
+            Assert.IsTrue(cleanupElapsed < run.CleanupGrace);
             Assert.IsFalse(fixture.Requests.Any(item => item.Name is "build" or "Core" or "Windows.Settings" or "Windows.Shell" or "Windows.Remaining" or "Scenarios"));
         }
         finally
@@ -904,14 +916,18 @@ public sealed class VerificationRunnerTests
         Assert.AreEqual(failModule, result.Commands.Single(command => command.Name == "Core").PrimaryFailure is not null);
     }
 
-    /// <summary>正常Core終了から回収猶予以上が経過しても、後続UIの致命失敗時点から回収猶予を確保し、先行正常終了で期限を消費しないことを保証します。</summary>
+    /// <summary>
+    /// 正常Coreの終了後に始めたUIの取消でも、回収期限が取消の時点から回収猶予を確保し、先行する正常終了で期限を消費しないことを保証します。
+    /// 取消を伴わずに正常Coreの終了時点で回収期限を確定する誤りを、時間の経過ではなく取消直前の観測時刻と期限の包含で検出し、
+    /// 停止への接続は、正常終了要求の入口でtokenが未取消であることで確認します。
+    /// </summary>
     [TestMethod]
     public async Task SuccessfulCoreDoesNotStartTheLaterUiCleanupBudget()
     {
         using var fixture = new RunnerFixture();
         using var canceled = new CancellationTokenSource();
         var graceful = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        long graceStart = 0, graceEnd = 0;
+        bool? gracefulTokenCanceledAtEntry = null;
         fixture.Configure = (name, command) => name == "Windows.Settings" ? command with
         {
             Ready = fixture.Path("windows-ready"),
@@ -919,16 +935,14 @@ public sealed class VerificationRunnerTests
         } : command;
         VerificationRun run = fixture.Run() with
         {
-            CleanupGrace = TimeSpan.FromSeconds(1),
-            RequestGracefulExit = async (_, token) =>
+            RequestGracefulExit = (process, token) =>
             {
-                graceStart = Stopwatch.GetTimestamp();
-                try { await Task.Delay(Timeout.InfiniteTimeSpan, token); }
-                finally
-                {
-                    graceEnd = Stopwatch.GetTimestamp();
-                    graceful.TrySetResult();
-                }
+                // 後続UIのprocessだけを対象にし、入口で回収tokenが未取消であることを記録してから正常終了させる。
+                if (fixture.Names[process.ProcessId] != "Windows.Settings") { return Task.CompletedTask; }
+                gracefulTokenCanceledAtEntry = token.IsCancellationRequested;
+                File.WriteAllText(fixture.Path("windows-release"), "release");
+                graceful.TrySetResult();
+                return Task.CompletedTask;
             },
         };
         Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 1), run, canceled.Token);
@@ -936,23 +950,24 @@ public sealed class VerificationRunnerTests
         {
             await WaitForFileAsync(fixture.Path("windows-ready"));
             using var root = Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("windows-ready"))));
-            // 正常Coreの後に、回収予算が先に始まっていたなら失効する時間まで意図的に進める。
-            using var elapsed = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            try { await Task.Delay(Timeout.InfiniteTimeSpan, elapsed.Token); }
-            catch (OperationCanceledException) when (elapsed.IsCancellationRequested) { }
+            // 取消の直前に観測する。回収期限は取消の時点以後に始まるため、この時刻から回収猶予までを含む。
+            long beforeCancel = Stopwatch.GetTimestamp();
             canceled.Cancel();
-            await graceful.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(5));
+            ProcessDeadline cutoff = fixture.FailureCleanup["Windows.Settings"]();
+            long graceEnd = beforeCancel + (long)(run.CleanupGrace.TotalSeconds * Stopwatch.Frequency);
+            Assert.IsTrue(cutoff.Includes(graceEnd), $"UI用の回収期限が取消の時点から回収猶予を確保していません（取消より前に確定した可能性があります。残り{cutoff.Remaining}）。");
+            await TestUiDispatcherHost.AwaitNotificationAsync(graceful.Task, execution, "UIの正常終了要求");
+            VerificationRunResult result = await execution;
             Assert.AreEqual(1, result.ExitCode);
             Assert.IsTrue(result.Modules.Single(module => module.Name == "Core").Passed);
             Assert.IsTrue(root.HasExited);
-            Assert.IsTrue(Stopwatch.GetElapsedTime(graceStart, graceEnd).TotalMilliseconds > 250,
-                "正常Coreの終了時点でUI用回収予算を確定しています。");
+            Assert.AreEqual(false, gracefulTokenCanceledAtEntry, "正常終了要求の入口で、回収tokenが取消済みです。");
         }
         finally
         {
             canceled.Cancel();
-            await execution.WaitAsync(TimeSpan.FromSeconds(5));
+            // 回収猶予（既定10秒）を使い切る停止でも元の失敗を隠さないよう、後始末の上限は猶予より長くする。
+            await execution.WaitAsync(TimeSpan.FromSeconds(15));
         }
     }
 
