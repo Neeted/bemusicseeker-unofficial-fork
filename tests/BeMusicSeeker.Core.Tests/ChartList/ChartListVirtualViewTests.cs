@@ -53,6 +53,34 @@ public sealed class ChartListVirtualViewTests
             view.Cast<LibraryChartRow>().Select(row => row.instl_dst).ToArray());
     }
 
+    /// <summary>順序の構築後、view構築前に導入先が変わり順序と捕捉値が食い違っても、採用時に捕捉値の順で各行を一回ずつ含み、局所更新の後も各行を一回ずつ含んだまま現在値順へ収束することで、別行の除去と対象の重複を検出します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void RefreshKeyDependencies_StaleOrderAtConstruction_KeepsEachRowOnceAndConverges(bool descending)
+    {
+        var a = PackageChartEntry.FromChart(CreateFile(@"C:\P\a.bms", "A", "Artist", hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+        var b = PackageChartEntry.FromChart(CreateFile(@"C:\P\b.bms", "B", "Artist", hash: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+        var c = PackageChartEntry.FromChart(CreateFile(@"C:\P\c.bms", "C", "Artist", hash: "cccccccccccccccccccccccccccccccc"));
+        b.SetInstallDestinationPathOnly(@"C:\M"); c.SetInstallDestinationPathOnly(@"C:\N");
+        ChartListSourceRow[] sources = [.. new[] { a, b, c }.Select(entry => ChartListSourceRow.FromPackageChartEntry(entry))];
+        Assert.IsTrue(ChartListOrder.TryCreate(sources, nameof(LibraryChartRow.instl_dst), descending ? ListSortDirection.Descending : ListSortDirection.Ascending, out ChartListOrder order));
+        c.SetInstallDestinationPathOnly(null);
+        var view = new ChartListVirtualView(sources, order, LibraryChartRow.FromSourceRow, scoreInput: new ChartListScoreInput(null));
+        string[] expectedTitles = descending ? ["B", "A", "C"] : ["A", "C", "B"];
+
+        string[] Titles() => [.. view.Cast<LibraryChartRow>().Select(row => row.Title)];
+        Assert.AreEqual(3, view.Count);
+        CollectionAssert.AreEquivalent(new[] { "A", "B", "C" }, Titles());
+        CollectionAssert.AreEqual(expectedTitles, Titles());
+        view.RefreshKeyDependencies([c.Chart.Md5], [], row => row.RefreshDisplayForDataDependency(MainViewDataDependency.InstallDestination));
+        Assert.AreEqual(3, view.Count);
+        CollectionAssert.AreEquivalent(new[] { "A", "B", "C" }, Titles());
+        CollectionAssert.AreEqual(expectedTitles, Titles());
+        CollectionAssert.AreEqual(descending ? new[] { @"C:\M", "", "" } : new[] { "", "", @"C:\M" },
+            view.Cast<LibraryChartRow>().Select(row => row.instl_dst).ToArray());
+    }
+
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
     /// <summary>件数照会では三行とも未生成とし、先頭アクセスだけが整列済みのAlpha一行を生成することで、件数取得時の全件生成を検出します。</summary>
     [TestMethod]

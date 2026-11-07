@@ -7,6 +7,14 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>専用subsetの捕捉添字・hash依存を保ち、scoreの実対象だけを検索・順序へ反映します。</summary>
+/// <remarks>
+/// 不変条件として、<see cref="entries"/>は常に捕捉キー（列キー、題名、元の添字）の順に並びます。<see cref="IndexOf"/>と<see cref="Refresh"/>は、
+/// 捕捉キーによる二分探索の結果をその行の現在位置とみなすため、この順序が崩れると別の行を除去して対象を重複させます。
+/// 渡された順序は、並行する書込みや古い値で作った順序キャッシュの再利用により、捕捉キーの順と食い違うことがあります。
+/// そのため構築時に、キーを捕捉するループの中で直前の行と比較して整列済みかを保ち（木の添字アクセスを避ける）、崩れていたときだけ捕捉キーで並べ直して不変条件を確立します。
+/// 通常は直前の行との比較n-1回の追加で済み、O(n log n)の並べ直しは食い違いのときだけ発生します。値の読取り回数は増やしません。
+/// <see cref="IndexOf"/>・<see cref="Refresh"/>で不一致を例外にすると表示だけの不整合でUIの未処理例外になるため、不一致は並べ直しで解消します。
+/// </remarks>
 internal sealed class ChartSubsetViewOrder
 {
     private readonly IReadOnlyList<ChartListSourceRow> source;
@@ -30,14 +38,19 @@ internal sealed class ChartSubsetViewOrder
         this.matches = matches ?? (_ => true);
         this.observe = observe;
         ImmutableList<Entry>.Builder initial = ImmutableList.CreateBuilder<Entry>();
+        Entry previous = null;
+        bool sorted = true;
         foreach (int index in order.Indexes)
         {
             Entry entry = Capture(index);
+            sorted &= previous == null || Compare(previous, entry) <= 0;
+            previous = entry;
             initial.Add(entry);
             byIndex.Add(index, entry);
             AddFolder(entry.Folder);
         }
         observe?.Invoke("order_buffer", initial.Count);
+        if (!sorted) { initial.Sort(Compare); }
         entries = initial.ToImmutable();
         for (int i = 0; i < source.Count; i++)
         {
