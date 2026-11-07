@@ -474,7 +474,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
                 workspace.SetPlaylistSummaryMode(true);
                 workspace.RebuildPlaylistSummaryView(runAsync: false);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-summary-idle");
+                // 表置換が残した保留と予約を、手動適用の前に本番順で消化します。
+                SettlePendingPlaylistSummaryRefresh(workspace, "selection-initial");
                 var table = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
                 Assert.AreSame(workspace.PlaylistSummaryView, table.ItemsSource);
                 table.Width = 500; table.Height = 180;
@@ -508,7 +509,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 // OwnedCharts更新の全体Reset前に、同値Name編集の同期再入を旧ABC表示で完結させます。
                 workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.OwnedCharts), System.ComponentModel.ListSortDirection.Descending);
                 workspace.RebuildPlaylistSummaryView(runAsync: false);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-owned-summary-idle");
+                // 並べ替え要求が予約した再表示は直接の再構築では消費されず、後から走るとキャッシュの行で手動適用の表示と選択を置き換えます。
+                SettlePendingPlaylistSummaryRefresh(workspace, "selection-owned");
                 PlaylistSummaryRow[] OwnedRows(params (int Id, int Owned)[] values) => values.Select(value =>
                 {
                     PlaylistSummaryRow row = CreatePlaylistSummaryRow(tables[value.Id - 1]);
@@ -575,15 +577,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 }
                 workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
                 workspace.RebuildPlaylistSummaryView(runAsync: false);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-bmt-summary-idle");
-                // 並べ替え要求が予約した再表示(Background)は、直接の再構築では消費されません。
-                // dropより先に受理された要求の公開がdrop中に走ると開始時の世代が古くなり、意図が退役します。
-                // 人の操作では作れない時系列なので、既存の公開入口で先に消費し、dropの受理時点で保留がないことを前提にします。
-                workspace.DrainDeferredPlaylistSummaryRefresh(dataRefreshRequired: false, rebuildAsync: false);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "selection-bmt-deferred-refresh-idle");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh(), "drop前に並べ替えの再表示要求が保留されていません。");
-                Assert.IsTrue(workspace.WaitForPlaylistSummaryDataBuildIdleAsync().IsCompleted, "drop前に集計buildが終端しています。");
+                // dropより先に受理された要求の公開がdrop中に走ると開始時の世代が古くなり、意図が退役するため、予約をdropの前に消化します。
+                SettlePendingPlaylistSummaryRefresh(workspace, "selection-bmt");
                 table.SelectRowsByPredicate(row => row is PlaylistSummaryRow summary && summary.PlaylistId == 1);
                 PlaylistSummaryRow[] visible = workspace.PlaylistSummaryView.ToArray();
                 PlaylistSummaryRow dragged = visible.Single(row => row.PlaylistId == 3);
@@ -615,6 +610,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selection-bmt-no-change");
                 Assert.AreEqual(beforeNoChange, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
                 CollectionAssert.AreEqual(new[] { 3 }, Selected());
+                // 捕捉した行は予約の再構築で差し替わると通知を受けないため、捕捉の前に予約を消化します。
+                SettlePendingPlaylistSummaryRefresh(workspace, "selection-superseding");
                 var supersededApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 long supersededGeneration = long.MaxValue;
                 var independentBuildStarted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4315,7 +4312,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
                 fixture.ViewModel.PlaylistWorkspace.RequestPlaylistSummaryMode(true);
                 fixture.ViewModel.PlaylistWorkspace.RebuildPlaylistSummaryView(runAsync: false);
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.ViewModel.PlaylistWorkspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "property-replacement-summary-initial");
+                // 表のコミットが残した保留と予約を、行の捕捉と保存の前に本番順で消化します。
+                SettlePendingPlaylistSummaryRefresh(fixture.ViewModel.PlaylistWorkspace, "property-replacement-summary-initial");
                 PlaylistSummaryRow row = fixture.ViewModel.PlaylistWorkspace.PlaylistSummaryView.Single();
                 summary.ItemsSource = fixture.ViewModel.PlaylistWorkspace.PlaylistSummaryView;
                 int summaryBuilds = 0;
@@ -4942,7 +4940,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 workspace.PlaylistSummaryColumnsSettings.Status.DisplayIndex = 1;
                 workspace.PlaylistSummaryColumnsSettings.Status.Width = 130;
                 workspace.RebuildPlaylistSummaryView(runAsync: false);
-                PumpSummary(workspace, fixture.Window);
+                SettlePendingPlaylistSummaryRefresh(workspace, "summary-reload-initial");
                 var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
                 Assert.IsNotNull(BindingOperations.GetBindingExpression(summary, CustomTableView.ItemsSourceProperty));
                 Assert.AreSame(workspace.PlaylistSummaryView, summary.ItemsSource);
@@ -5004,7 +5002,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TestUiDispatcherHost.AwaitNotificationAsync(server.DataRequestAccepted.Task, producer, "summary-reload.http-body-gate"), "summary-reload.http-body-gate");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     TestUiDispatcherHost.AwaitNotificationAsync(completedTargets.Task, producer, "summary-reload.a-c-callbacks"), "summary-reload.a-c-callbacks");
-                PumpSummary(workspace, fixture.Window);
+                SettlePendingPlaylistSummaryRefresh(workspace, "summary-reload-a-c-callbacks");
                 Assert.AreSame(workspace.PlaylistSummaryView, summary.ItemsSource);
 
                 PlaylistExternalSyncRequestEventArgs request = queued.Task.Result;
@@ -5099,7 +5097,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, reload, "summary-reload.completed"), "summary-reload.completed");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     TestUiDispatcherHost.AwaitNotificationAsync(progressTerminal.Task, reload, "summary-reload.progress-terminal"), "summary-reload.progress-terminal");
-                PumpSummary(workspace, fixture.Window);
+                SettlePendingPlaylistSummaryRefresh(workspace, "summary-reload-terminal");
                 Assert.IsFalse(completed.Task.Result.Succeeded, "通常取得失敗Cを全件成功へ読み替えません。");
                 Assert.AreEqual(1, Volatile.Read(ref notificationTerminalCount));
                 Assert.IsFalse(fixture.Playlist.IsPlaylistUpdating);
@@ -5141,17 +5139,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     if (primaryFailure != null) { primaryFailure.Data["SummaryReloadCleanupFailure"] = cleanupFailure.ToString(); }
                     else { throw cleanupFailure; }
                 }
-            }
-
-            static void PumpSummary(PlaylistWorkspaceViewModel workspace, MainWindow window)
-            {
-                // shellのBackground予約、worker、別予約のNormal反映を別々に回収する。
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task,
-                    "summary-reload.shell-background");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), "summary-reload.summary-build");
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task,
-                    "summary-reload.summary-reflect");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
             }
 
             static void AssertSummaryCells(CustomTableView summary, PlaylistSummaryRow row, DateTime updated, string status)
@@ -7962,6 +7949,31 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
 
     private static void RaiseButtonClick(Button button)
         => button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, button));
+
+    /// <summary>
+    /// 実MainWindowのsummary表示へ行・選択・世代を直接注入または捕捉する前に、shellの予約と作業領域の保留を本番の順序で消化し、
+    /// 保留なし・集計build終端を表明します。
+    /// </summary>
+    /// <remarks>
+    /// 表の変更や並べ替えの要求で保留された再表示は、本番ではshellがBackground優先度で予約した処理などが保留を取り出してから再構築されます。
+    /// テストが同期の再構築を直接呼んでも保留と予約は残り、後のPushFrameで予約が走るとキャッシュの行で表示を置き換えます。
+    /// 予約の消化はContextIdleの区切りで本番の抑制ゲートを通して行い、直接のdrainで迂回しません。
+    /// 表明が成り立たない場合は前提の不足として失敗させ、ここで反復・延長しません。
+    /// </remarks>
+    /// <param name="workspace">対象の作業領域。</param>
+    /// <param name="stage">待機の診断に付ける段階名。</param>
+    private static void SettlePendingPlaylistSummaryRefresh(PlaylistWorkspaceViewModel workspace, string stage)
+    {
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+            TestUiDispatcherHost.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task, stage + ".shell-reservation");
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForPlaylistSummaryDataBuildIdleAsync(), stage + ".summary-build");
+        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+            TestUiDispatcherHost.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ContextIdle).Task, stage + ".summary-reflect");
+        // ContextIdleの区切りでLoaded以上は処理済みですが、他の注入点と同じ描画済みの状態で表明することを明示します。
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        Assert.IsFalse(workspace.HasDeferredPlaylistSummaryRefresh(), stage + ": summaryの再表示要求が保留されていません。");
+        Assert.IsTrue(workspace.WaitForPlaylistSummaryDataBuildIdleAsync().IsCompleted, stage + ": summaryの集計buildが終端しています。");
+    }
 
     private static PlaylistSummaryRow CreatePlaylistSummaryRow(BMSTable table)
     {
