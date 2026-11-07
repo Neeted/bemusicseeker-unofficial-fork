@@ -1,11 +1,16 @@
+using System.Collections.ObjectModel;
+using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -14,11 +19,12 @@ using NLog;
 using NLog.Config;
 using NLog.Targets;
 using Ribbit.Logging;
+using static BeMusicSeeker.Tests.TreeSelectionDisplayTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
 
-/// <remarks>treeの判断・要求受理は各主体の下位ケースが担い、ここでは実MainWindowのcompiled Style・選択/クリックイベントから公開先への接続を確認します。共有Resourcesを所有して終了まで回収するため並列実行しません。</remarks>
+/// <remarks>treeの判断・要求受理は各主体の下位ケースが担い、ここでは実MainWindowのcompiled Style・選択/クリックイベントから公開先への接続と、仮想化のスクロールで選択表示が選択項目に留まることを確認します。共有Resourcesを所有して終了まで回収するため並列実行しません。</remarks>
 [TestClass]
 [TestCategory("Windows.Shell")]
 [DoNotParallelize]
@@ -395,6 +401,245 @@ public sealed class MainWindowTreePresentationWpfTests
             TreeViewItem pending = GetNamedElement<TreeViewItem>(window, "treeViewItemInstallPending");
             Assert.IsTrue(pending.IsSelected);
         });
+    }
+
+    /// <summary>
+    /// 保証：ツリー外にフォーカスがある状態で、ライブラリのフォルダ、インストールの新規・保留、プレイ履歴のアーカイブの年と日を選び、
+    /// 仮想化で入れ物が解放・再利用される位置までスクロールして戻しても、選択表示は選択中の項目だけに残り、祖先は展開されたまま、左の選択と一覧要求も変わらない。
+    /// データ項目を生成する段ごとの再利用対策の接続漏れ、祖先の入れ物の再利用、再実体化での再選択、仮想化自体の停止を検出する。
+    /// </summary>
+    /// <remarks>
+    /// 入れ物の再利用は実WPFの仮想化でしか起きないため、コンパイル済みの実ツリーを表示してスクロールする。
+    /// 選択から一覧への配送と一覧の内容は、各系統の既存の接続テストが分担する。プレイリストのツリーは <c>MainWindowPlaylistWorkspaceWpfTests</c> が分担する。
+    /// </remarks>
+    [TestMethod]
+    public void DataTreeSelectionDisplayStaysOnSelectedItemAcrossVirtualizedScroll()
+    {
+        const int itemCount = 200;
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(workspace.RootDirectory, "BeMusicSeeker_TreeSelection_" + Guid.NewGuid().ToString("N"));
+        string[] roots = Enumerable.Range(0, itemCount).Select(index => Path.Combine(directory, "root" + index.ToString("D3"))).ToArray();
+        foreach (string root in roots) { Directory.CreateDirectory(root); }
+        Settings settings = TestBmsFactory.CreateRootSettings(roots);
+        settings.StartupSelectInstallPending = false;
+        int installRequests = 0;
+        int folderRequests = 0;
+        // 選択から一覧所有者への配送までを記録し、一覧の構築は既存の接続テストへ分担する。
+        var folderTerminal = new MainWindowRegularLibraryTreeTerminal((_, _) =>
+        {
+            folderRequests++;
+            return true;
+        });
+        var installTerminal = new MainWindowInstallTreeTerminal((_, _) =>
+        {
+            installRequests++;
+            return Task.FromResult(true);
+        });
+        TestBmsLibrary? library = null;
+        var folderRefreshWorkers = new System.Collections.Concurrent.ConcurrentBag<Task>();
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
+            {
+                int periodRequests = 0;
+                EventHandler<PlayHistoryViewRequestActivatedEventArgs> periodActivated = (_, _) => periodRequests++;
+                viewModel.PlayHistory.PeriodRequestActivated += periodActivated;
+                try
+                {
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                    var tree = (TreeView)window.FindName("treeView");
+                    var playlistTree = (TreeView)window.FindName("treeViewPlaylist");
+                    tree.Height = 180d;
+                    viewModel.LibraryFolderTree.InvalidateLibraryFolderCache();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.LibraryFolderTree.WaitForDeferredRefreshIdleAsync(), "tree selection folder list refresh");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(folderRefreshWorkers), "tree selection folder list workers");
+                    Assert.AreEqual(itemCount, viewModel.LibraryFolderTree.BMSParentFolderList.Count, "仮想化を起こす量のフォルダを前提にします。");
+                    ScrollViewer treeScroll = FindDescendants<ScrollViewer>(tree).First();
+                    string CaptureRequests() => folderRequests + "|" + installRequests + "|" + periodRequests + "|" + (playlistTree.SelectedItem == null);
+
+                    var folders = (TreeViewItem)FindElementWithBinding(tree, ItemsControl.ItemsSourceProperty, "LibraryFolderTree.BMSParentFolderList")!;
+                    TreeViewItem installed = GetNamedElement<TreeViewItem>(window, "newlyInstalledTreeViewItem");
+                    TreeViewItem pending = GetNamedElement<TreeViewItem>(window, "treeViewItemInstallPending");
+                    var archive = (TreeViewItem)FindElementWithBinding(tree, ItemsControl.ItemsSourceProperty, "PlayHistory.ArchivePeriodTree")!;
+                    Assert.AreEqual(itemCount, installed.Items.Count);
+                    Assert.AreEqual(itemCount, pending.Items.Count);
+                    Assert.AreEqual(itemCount, archive.Items.Count);
+
+                    // 一段の系統：選択項目の隣の入れ物が解放される位置まで所有者の末尾へ移し、元の位置へ戻す。
+                    VerifySingleLevel("library folder", folders, 1, SelectionRoute.Synchronous);
+                    VerifySingleLevel("installed", installed, 1, SelectionRoute.AsyncHandler);
+                    VerifySingleLevel("pending", pending, 1, SelectionRoute.AsyncHandler);
+                    VerifySingleLevel("archive year", archive, 1, SelectionRoute.WithoutHandler);
+
+                    // 三段の系統：最新年の1月の日を選び、日の兄弟だけが解放される中間、年の兄弟も解放される遠方、元の位置で確認する。
+                    TreeViewItem year = RealizeChild(tree, archive, 0);
+                    year.IsExpanded = true;
+                    TreeViewItem month = RealizeChild(tree, year, year.Items.Count - 1);
+                    month.IsExpanded = true;
+                    Assert.AreEqual(31, month.Items.Count, "31日ある月を前提にします。");
+                    TreeViewItem day = RealizeChild(tree, month, 0);
+                    object dayData = month.Items[0];
+                    Select(day, "archive day", SelectionRoute.WithoutHandler);
+                    ScrollAndAssertSelectionUnchanged(tree, archive, dayData, CaptureRequests, () =>
+                    {
+                        day.BringIntoView();
+                        AwaitTreeLayout(tree, () => month.ItemContainerGenerator.ContainerFromIndex(1) != null, "archive day home realizes neighbor day");
+                        AssertSelectionDisplay(tree, tree, dayData, "archive day before scroll", requireRealized: true);
+                        double home = treeScroll.VerticalOffset;
+                        FindItemsHostPanel(month).BringIndexIntoViewPublic(month.Items.Count - 1);
+                        AwaitTreeLayout(tree, () => month.ItemContainerGenerator.ContainerFromIndex(1) == null, "archive day middle releases neighbor day");
+                        AssertSelectionDisplay(tree, tree, dayData, "archive day middle", requireRealized: false);
+                        FindItemsHostPanel(archive).BringIndexIntoViewPublic(archive.Items.Count - 1);
+                        AwaitTreeLayout(tree, () => archive.ItemContainerGenerator.ContainerFromIndex(1) == null
+                            && year.ItemContainerGenerator.ContainerFromIndex(0) == null, "archive day far releases neighbor year and month");
+                        AssertSelectionDisplay(tree, tree, dayData, "archive day far", requireRealized: false);
+                        treeScroll.ScrollToVerticalOffset(home);
+                        // 元の位置では、遠方で解放された選択月の兄弟（同じ年の6月）と、選択日の隣が再び生成される。
+                        AwaitTreeLayout(tree, () => year.ItemContainerGenerator.ContainerFromIndex(0) != null
+                            && month.ItemContainerGenerator.ContainerFromIndex(1) != null, "archive day home realizes neighbor month and day again");
+                        AssertSelectionDisplay(tree, tree, dayData, "archive day home", requireRealized: true);
+                    });
+
+                    void VerifySingleLevel(string name, TreeViewItem owner, int index, SelectionRoute route)
+                    {
+                        TreeViewItem item = RealizeChild(tree, owner, index);
+                        object data = owner.Items[index];
+                        Select(item, name, route);
+                        ScrollAndAssertSelectionUnchanged(tree, owner, data, CaptureRequests, () =>
+                        {
+                            item.BringIntoView();
+                            AwaitTreeLayout(tree, () => owner.ItemContainerGenerator.ContainerFromIndex(index + 1) != null, name + " home realizes neighbor");
+                            AssertSelectionDisplay(tree, tree, data, name + " before scroll", requireRealized: true);
+                            double home = treeScroll.VerticalOffset;
+                            FindItemsHostPanel(owner).BringIndexIntoViewPublic(owner.Items.Count - 1);
+                            AwaitTreeLayout(tree, () => owner.ItemContainerGenerator.ContainerFromIndex(index + 1) == null, name + " far releases neighbor");
+                            AssertSelectionDisplay(tree, tree, data, name + " far", requireRealized: false);
+                            treeScroll.ScrollToVerticalOffset(home);
+                            AwaitTreeLayout(tree, () => owner.ItemContainerGenerator.ContainerFromIndex(index + 1) != null, name + " home realizes neighbor again");
+                            AssertSelectionDisplay(tree, tree, data, name + " home", requireRealized: true);
+                        });
+                    }
+
+                    void Select(TreeViewItem item, string name, SelectionRoute route)
+                    {
+                        switch (route)
+                        {
+                            case SelectionRoute.AsyncHandler:
+                                // 導入系の選択処理はasync voidのため、終端まで回収する。
+                                TestUiDispatcherHost.AwaitTaskOnDispatcher(MainWindowEventCompletion.CaptureAsyncEventCompletion(() => item.IsSelected = true),
+                                    name + " selection handler");
+                                break;
+                            case SelectionRoute.WithoutHandler:
+                                // 期間の選択は実際の履歴読取りを始め、履歴の無いこの準備では結果の反映でアーカイブの項目が空に置き換わる。
+                                // 選択の瞬間だけ起動中の操作抑止で期間の選択処理を止め、ツリーの選択と選択項目の追跡は通常どおり行う。
+                                // 抑止はスクロール前に解除するため、再実体化での再選択は期間の要求の増加として検出できる。
+                                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
+                                try { item.IsSelected = true; }
+                                finally { viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false); }
+                                break;
+                            default:
+                                item.IsSelected = true;
+                                break;
+                        }
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Keyboard.ClearFocus();
+                        Assert.IsFalse(tree.IsKeyboardFocusWithin, "ツリー外にフォーカスがある状態を前提にします。");
+                        Assert.IsTrue(item.IsSelected, name + "：選択の前提");
+                        Assert.IsNull(playlistTree.SelectedItem, name + "：他方のツリーには選択がありません。");
+                    }
+                }
+                finally
+                {
+                    // 失敗時も、フォルダ一覧の背景処理をライブラリの終了とディレクトリの削除より前に回収する。
+                    try { TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(folderRefreshWorkers), "tree selection folder list workers cleanup"); }
+                    finally { viewModel.PlayHistory.PeriodRequestActivated -= periodActivated; }
+                }
+            }, installTreeTerminal: installTerminal, regularLibraryTreeTerminal: folderTerminal, prepareViewModel: viewModel =>
+            {
+                ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+                string songDb = Path.Combine(directory, "song.db");
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(composition.DatabaseScope, songDb, db =>
+                {
+                    db.CreateTable<LR2SongDB.song>();
+                    db.CreateTable<LR2SongDB.folder>();
+                    db.CreateTable<LR2SongDBExtended.maintenance>();
+                });
+                library = new TestBmsLibrary(composition.DatabaseScope, songDb, null, null,
+                    new OwnedChartCollectionTestSupport.TestFileMutationService(), dialogService: null,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                    operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings)
+                { BmsCharts = [] };
+                library.ChartPackagesInstalled = new ObservableCollection<ChartPackage>(Enumerable.Range(0, itemCount)
+                    .Select(index => new ChartPackage { path = Path.Combine(directory, "installed" + index.ToString("D3")) }));
+                library.ChartPackagesPending = new ObservableCollection<ChartPackage>(Enumerable.Range(0, itemCount)
+                    .Select(index => new ChartPackage { path = Path.Combine(directory, "pending" + index.ToString("D3")) }));
+                ((IStartupLibraryApplicationPort)viewModel).AttachStartupLibrary(library);
+                viewModel.InstallTree.AttachLibrary(library);
+                // constructor-onlyの構成では起動時の背景処理を進めないため、フォルダ一覧の遅延更新だけを背景スレッドで実行する。
+                viewModel.LibraryFolderTree.ConfigureDeferredRefreshScheduler((_, work) =>
+                {
+                    folderRefreshWorkers.Add(Task.Run(work));
+                    return true;
+                });
+                viewModel.LibraryFolderTree.AttachLibrary(library);
+                // 約200年の各1日と、最新年の1月の31日。変更通知を出さないため、Windowの構築前に設定してBindingの初期読取りへ載せる。
+                long[] playedAt = Enumerable.Range(0, itemCount)
+                    .Select(offset => new DateTimeOffset(2025 - offset, 6, 1, 12, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds())
+                    .Concat(Enumerable.Range(1, 31).Select(dayOfMonth => new DateTimeOffset(2025, 1, dayOfMonth, 12, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds()))
+                    .ToArray();
+                viewModel.PlayHistory.PresentationState.SetArchivePeriodTree(PlayHistoryPeriodTreeItem.BuildArchiveTree(playedAt, TimeZoneInfo.Utc));
+            });
+        }
+        finally
+        {
+            library?.RequestShutdown("tree_selection_fixture");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
+    /// <summary>選択項目を選ぶときの、本番の選択処理の通し方です。</summary>
+    private enum SelectionRoute
+    {
+        /// <summary>同期の選択処理をそのまま通します。</summary>
+        Synchronous,
+
+        /// <summary>async voidの選択処理を終端まで回収します。</summary>
+        AsyncHandler,
+
+        /// <summary>選択の瞬間だけ選択処理を止め、ツリーの選択と追跡だけを行います。</summary>
+        WithoutHandler,
+    }
+
+    /// <summary>
+    /// ツリーの根から所有者までの各段を展開して公開APIで生成し、仮想化で未生成の子の入れ物を生成して返します。
+    /// 固定項目の所有者自身も、上位の段の仮想化で画面外では未生成になるため、根から順に生成します。
+    /// </summary>
+    private static TreeViewItem RealizeChild(TreeView tree, TreeViewItem owner, int index)
+    {
+        var chain = new List<TreeViewItem>();
+        for (DependencyObject? current = owner; current is TreeViewItem item; current = ItemsControl.ItemsControlFromItemContainer(item))
+        {
+            chain.Insert(0, item);
+        }
+        ItemsControl parent = tree;
+        foreach (TreeViewItem item in chain)
+        {
+            ItemsControl level = parent;
+            // 固定項目は項目自身が入れ物で、データ項目は入れ物から項目を引く。
+            int position = level.Items.IndexOf(item);
+            if (position < 0) { position = level.ItemContainerGenerator.IndexFromContainer(item); }
+            Assert.IsTrue(position >= 0, "tree chain position");
+            FindItemsHostPanel(level).BringIndexIntoViewPublic(position);
+            AwaitTreeLayout(tree, () => level.ItemContainerGenerator.ContainerFromIndex(position) is TreeViewItem, "realize tree chain " + position);
+            item.IsExpanded = true;
+            tree.UpdateLayout();
+            parent = item;
+        }
+        FindItemsHostPanel(owner).BringIndexIntoViewPublic(index);
+        AwaitTreeLayout(tree, () => owner.ItemContainerGenerator.ContainerFromIndex(index) is TreeViewItem, "realize tree child " + index);
+        return (TreeViewItem)owner.ItemContainerGenerator.ContainerFromIndex(index);
     }
 
     private static T GetNamedElement<T>(MainWindow window, string name)

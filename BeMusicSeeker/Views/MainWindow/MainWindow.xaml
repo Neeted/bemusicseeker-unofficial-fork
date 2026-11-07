@@ -1052,7 +1052,7 @@
     <TreeView.Resources>
       <Style x:Key="App.Canonical.ScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowScrollBarStyle}" />
     </TreeView.Resources>
-<TreeViewItem Name="treeViewItemPlaylist" AutomationProperties.AutomationId="PlaylistTreeRoot" IsExpanded="{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding PlaylistWorkspace.PlaylistTreeTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect">
+<TreeViewItem Name="treeViewItemPlaylist" AutomationProperties.AutomationId="PlaylistTreeRoot" IsExpanded="{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" ItemsSource="{Binding PlaylistWorkspace.PlaylistTreeTables}" ContextMenu="{StaticResource ResourceKey=treeViewPlaylistRootContextMenu}" Selected="playlistRootSelect" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
                    <DataTemplate x:Key="templateTreeViewItemHeaderPlaylistTableFolderNormal">
@@ -1154,6 +1154,7 @@
                     </Setter.Value>
                   </Setter>
                   <EventSetter Event="Selected" Handler="playlistTableSelected" />
+                  <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="treeSelectionCleanUpVirtualizedItem" />
                   <EventSetter Event="Drop" Handler="playlistTableDrop" />
                   <EventSetter Event="PreviewDragOver" Handler="playlistTableDragOver" />
                   <EventSetter Event="PreviewDragEnter" Handler="playlistTableDragEnter" />
@@ -1207,7 +1208,7 @@
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                 </Style>
               </ItemsControl.ItemContainerStyle>
-              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderFolder}" ContextMenu="{StaticResource treeViewLibraryFolderRootContextMenu}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Folder, Mode=OneWay}" ItemsSource="{Binding LibraryFolderTree.BMSParentFolderList}">
+              <TreeViewItem HeaderTemplate="{StaticResource templateTreeViewItemHeaderFolder}" ContextMenu="{StaticResource treeViewLibraryFolderRootContextMenu}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Folder, Mode=OneWay}" ItemsSource="{Binding LibraryFolderTree.BMSParentFolderList}" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
@@ -1278,7 +1279,7 @@
                   <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                 </Style>
               </ItemsControl.ItemContainerStyle>
-              <TreeViewItem Name="newlyInstalledTreeViewItem" ContextMenu="{StaticResource treeViewInstalledContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstall}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.New, Mode=OneWay}" ItemsSource="{Binding InstallTree.ChartPackagesInstalled}" Selected="newlyInstalledFolderSelect">
+              <TreeViewItem Name="newlyInstalledTreeViewItem" ContextMenu="{StaticResource treeViewInstalledContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstall}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.New, Mode=OneWay}" ItemsSource="{Binding InstallTree.ChartPackagesInstalled}" Selected="newlyInstalledFolderSelect" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
@@ -1289,7 +1290,7 @@
                   </Style>
                 </ItemsControl.ItemContainerStyle>
               </TreeViewItem>
-              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding ViewSettings.StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding InstallTree.ChartPackagesPending}" Selected="pendingInstallFolderSelect">
+              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding ViewSettings.StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding InstallTree.ChartPackagesPending}" Selected="pendingInstallFolderSelect" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
@@ -1455,7 +1456,7 @@
                 <TreeViewItem Name="treeViewItemFullScanCheckAllCharts" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Full_scan_all_charts, Mode=OneWay}" Selected="fullScanAllChartsFolderSelect" />
                 <TreeViewItem Name="treeViewItemFullScanCheckIgnored" HeaderTemplate="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Ignore_list, Mode=OneWay}" Selected="fullScanCheckIgnoredFolderSelect" />
               </TreeViewItem>
-              <TreeViewItem Name="treeViewItemSearchDuplicated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_duplicates, Mode=OneWay}" ItemsSource="{Binding MaintenanceTree.DuplicateChartGroups}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenanceDuplicateFolder}" Selected="dupulicateFileCheckFolderSelect" VirtualizingStackPanel.CleanUpVirtualizedItem="duplicateTreeCleanUpVirtualizedItem">
+              <TreeViewItem Name="treeViewItemSearchDuplicated" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_duplicates, Mode=OneWay}" ItemsSource="{Binding MaintenanceTree.DuplicateChartGroups}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenanceDuplicateFolder}" Selected="dupulicateFileCheckFolderSelect" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
                 <FrameworkElement.Resources>
                   <ResourceDictionary>
                     <DataTemplate x:Key="templateTreeViewItemHeaderDuplicateFileCheckFolder">
@@ -1473,7 +1474,7 @@
                     <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderDuplicateFileCheckFolder}" />
                     <Setter Property="ItemsSource" Value="{Binding Folders}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
-                    <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="duplicateTreeCleanUpVirtualizedItem" />
+                    <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="treeSelectionCleanUpVirtualizedItem" />
                     <Setter Property="ItemContainerStyle">
                       <Setter.Value>
                         <Style TargetType="{x:Type TreeViewItem}">
@@ -1507,6 +1508,7 @@
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
                     <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
                     <EventSetter Event="Selected" Handler="playHistoryPeriodSelect" />
+                    <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="treeSelectionCleanUpVirtualizedItem" />
                   </Style>
                   <DataTemplate x:Key="templateTreeViewItemHeaderPlayHistoryPeriod">
                     <StackPanel Orientation="Horizontal">
@@ -1530,7 +1532,7 @@
               <TreeViewItem Tag="Yesterday" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_yesterday, Mode=OneWay}" />
               <TreeViewItem Tag="Recent7Days" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_recent_7_days, Mode=OneWay}" />
               <TreeViewItem Tag="Recent30Days" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_recent_30_days, Mode=OneWay}" />
-              <TreeViewItem Focusable="False" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}" ItemsSource="{Binding PlayHistory.ArchivePeriodTree}" ItemContainerStyle="{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}" />
+              <TreeViewItem Focusable="False" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}" ItemsSource="{Binding PlayHistory.ArchivePeriodTree}" ItemContainerStyle="{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem" />
               <TreeViewItem Tag="Diagnostics" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_diagnostics, Mode=OneWay}" />
             </TreeViewItem>
   </TreeView>

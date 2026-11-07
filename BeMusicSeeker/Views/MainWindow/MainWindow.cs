@@ -6273,20 +6273,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return root.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
     }
 
-    /// <summary>
-    /// 重複ツリーで選択中の項目と、その祖先のグループ項目を仮想化の再利用対象から外します。
-    /// WPFは項目の入れ物を再利用するとき選択状態を保存・復元せず入れ物へ残すため、フォーカスの無い選択項目が画面外へ出ると、
-    /// 再利用先の無関係な項目に選択の背景色が付きます。フォーカスを持つ項目を再利用しない既存の挙動を、選択中の項目へ広げます。
-    /// </summary>
-    private void duplicateTreeCleanUpVirtualizedItem(object sender, CleanUpVirtualizedItemEventArgs e)
-    {
-        if (e.UIElement is TreeViewItem item
-            && (item.IsSelected || _lastSelectedTreeViewItem is { IsSelected: true } selected && item.IsAncestorOf(selected)))
-        {
-            e.Cancel = true;
-        }
-    }
-
     private static VirtualizingStackPanel TryGetTreeViewItemItemsHostPanel(TreeViewItem treeViewItem)
     {
         treeViewItem.ApplyTemplate();
@@ -8530,6 +8516,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private TreeViewItem _lastSelectedTreeViewItem;
     private bool _isCrossTreeDeselecting = false;
+
+    /// <summary>
+    /// 左ツリーで選択中の項目と、選択項目の祖先の項目を仮想化の再利用対象から外します。
+    /// WPFは項目の入れ物を再利用するとき選択状態を保存・復元せず入れ物へ残すため、フォーカスの無い選択項目が画面外へ出ると、
+    /// 再利用先の無関係な項目に選択の背景色が付きます。フォーカスを持つ項目を再利用しない既存の挙動を、選択中の項目へ広げます。
+    /// 再利用の通知は項目を所有するItemsControlにだけ届くため、XAMLでデータ項目を生成する段ごとに接続します。
+    /// </summary>
+    private void treeSelectionCleanUpVirtualizedItem(object sender, CleanUpVirtualizedItemEventArgs e)
+    {
+        if (e.UIElement is TreeViewItem item
+            && (item.IsSelected || _lastSelectedTreeViewItem is { IsSelected: true } selected && item.IsAncestorOf(selected)))
+        {
+            e.Cancel = true;
+        }
+    }
 
     private void gridTreePane_TreeViewItemSelected(object sender, RoutedEventArgs e)
     {

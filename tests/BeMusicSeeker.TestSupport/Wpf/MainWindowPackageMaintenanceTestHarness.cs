@@ -42,6 +42,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
     /// <summary>親子Windowに同じ表示scopeを渡し、実MainWindow寿命を共通補助で回収します。</summary>
     /// <param name="installTreeTerminal">保留ツリーの実選択と表示反映を、導入表示構築から分けて観測する場合の終端です。</param>
     /// <param name="uiScheduler">UI配送と開始済みTaskを観測するスケジューラーです。省略時は既存の配送処理を使います。</param>
+    /// <param name="regularLibraryTreeTerminal">通常ツリーの選択から一覧所有者への配送を、一覧の構築から分けて観測する場合の終端です。</param>
     internal static void RunConstructorOnly(
         Settings settings,
         Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow> test,
@@ -63,7 +64,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
         IUiDialogService? playlistWorkspaceDialogService = null,
         Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null,
         Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
-        MainWindowInstallTreeTerminal? installTreeTerminal = null, IUiScheduler? uiScheduler = null)
+        MainWindowInstallTreeTerminal? installTreeTerminal = null, IUiScheduler? uiScheduler = null,
+        MainWindowRegularLibraryTreeTerminal? regularLibraryTreeTerminal = null)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -87,7 +89,7 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     viewModel,
                     settingsWindowCreated: null,
                     libraryReloadMenuTerminal: null,
-                    regularLibraryTreeTerminal: null,
+                    regularLibraryTreeTerminal: regularLibraryTreeTerminal,
                     maintenanceTreeTerminal: maintenanceTreeTerminal,
                     installTreeTerminal: installTreeTerminal,
                     zeroNoteRecheckTerminal: null,

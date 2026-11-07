@@ -1345,6 +1345,144 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         });
     }
 
+    /// <summary>
+    /// 保証：ツリー外にフォーカスがある状態で、プレイリストの表と、多数のフォルダを持つ表のフォルダを選び、
+    /// 仮想化で入れ物が解放・再利用される位置までスクロールして戻しても、選択表示は選択中の項目だけに残り、所属の表は展開されたまま、選択と詳細の要求も変わらない。
+    /// 表の段とフォルダの段それぞれの再利用対策の接続漏れ、所属の表の入れ物の再利用、再実体化での再選択、仮想化自体の停止を検出する。
+    /// </summary>
+    /// <remarks>
+    /// 入れ物の再利用は実WPFの仮想化でしか起きず、表の入れ物のフォルダ構成の受渡しは実MainWindowに属する場合だけ本番の経路を通るため、実MainWindowのツリーをスクロールする。
+    /// 選択から詳細への配送と選択の同期は、既存の <c>PlaylistFolderStructure_*</c> が分担する。
+    /// </remarks>
+    [TestMethod]
+    public void PlaylistTreeSelectionDisplayStaysOnSelectedItemAcrossVirtualizedScroll()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope);
+            Exception? primaryFailure = null;
+            try
+            {
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
+                fixture.Table.is_external_sync = false;
+                string[] names = Enumerable.Range(0, 240).Select(index => $"Folder {index:D3}").ToArray();
+                fixture.Table.entries = names.Select((name, index) => new BMSTableEntry
+                {
+                    md5 = (index + 1).ToString("x32", CultureInfo.InvariantCulture),
+                    title = name,
+                    folder = name
+                }).ToList();
+                fixture.Table.Folder_order = names.ToList();
+                fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(admission.WaitForIdleAsync(), "playlist tree selection fixture idle");
+                BMSTable[] others = Enumerable.Range(2, 200).Select(id => new BMSTable
+                { playlist_id = id, name = "Selection " + id.ToString("D3", CultureInfo.InvariantCulture), bmt_sort = id, is_bmt_output = false }).ToArray();
+                fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([fixture.Table, .. others]);
+                fixture.Playlist.CommitBMSTableHeadersToDB(others);
+                workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                var mainTree = (TreeView)fixture.Window.FindName("treeView");
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                tree.Height = 180;
+                root.IsExpanded = true;
+                tree.UpdateLayout();
+                Assert.AreEqual(1 + others.Length, root.Items.Count, "仮想化を起こす量の表を前提にします。");
+                // 実MainWindowの構成時に付く既定選択（保留）を外し、他方のツリーに選択が無い状態から始める。
+                if (mainTree.SelectedItem is TreeViewItem startupSelection) { startupSelection.IsSelected = false; }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsNull(mainTree.SelectedItem, "他方のツリーに選択が無い状態を前提にします。");
+                ScrollViewer treeScroll = FindDescendants<ScrollViewer>(tree).First();
+                string CaptureRequests()
+                {
+                    PlaylistDetailSelection? selection = workspace.CapturePlaylistDetailSelection(out long revision);
+                    return revision + "|" + selection?.Table?.playlist_id + "|" + selection?.Scope + "|" + selection?.FolderName + "|" + (mainTree.SelectedItem == null);
+                }
+
+                // 段階1：表の選択。選択した表の隣の表が解放される位置まで末尾へ移し、元の位置へ戻す。
+                TreeViewItem tableItem = RealizePlaylistTreeChild(tree, root, 1);
+                object table = SelectPlaylistTreeItem(tableItem, others[0]);
+                TreeSelectionDisplayTestSupport.ScrollAndAssertSelectionUnchanged(tree, root, table, CaptureRequests, () =>
+                {
+                    tableItem.BringIntoView();
+                    TreeSelectionDisplayTestSupport.AwaitTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(2) != null, "table home realizes neighbor");
+                    TreeSelectionDisplayTestSupport.AssertSelectionDisplay(tree, tree, table, "table before scroll", requireRealized: true);
+                    double home = treeScroll.VerticalOffset;
+                    TreeSelectionDisplayTestSupport.FindItemsHostPanel(root).BringIndexIntoViewPublic(root.Items.Count - 1);
+                    TreeSelectionDisplayTestSupport.AwaitTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(2) == null, "table far releases neighbor");
+                    TreeSelectionDisplayTestSupport.AssertSelectionDisplay(tree, tree, table, "table far", requireRealized: false);
+                    treeScroll.ScrollToVerticalOffset(home);
+                    TreeSelectionDisplayTestSupport.AwaitTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(2) != null, "table home realizes neighbor again");
+                    TreeSelectionDisplayTestSupport.AssertSelectionDisplay(tree, tree, table, "table home", requireRealized: true);
+                });
+
+                // 段階2：多数のフォルダを持つ表の通常フォルダの選択。前段階の表に選択表示が残らないことも確認する。
+                TreeViewItem folderTable = RealizePlaylistTreeChild(tree, root, 0);
+                folderTable.IsExpanded = true;
+                tree.UpdateLayout();
+                int folderIndex = folderTable.Items.Cast<object>().ToList()
+                    .FindIndex(item => item is PlaylistFolderNode { IsSpecial: false } node && node.FolderName == names[0]);
+                Assert.IsTrue(folderIndex >= 0 && folderIndex + 1 < folderTable.Items.Count, "通常フォルダとその隣を前提にします。");
+                TreeViewItem folderItem = RealizePlaylistTreeChild(tree, folderTable, folderIndex);
+                object folder = SelectPlaylistTreeItem(folderItem, null);
+                Assert.AreEqual(names[0], ((PlaylistFolderNode)folder).FolderName);
+                TreeSelectionDisplayTestSupport.ScrollAndAssertSelectionUnchanged(tree, folderTable, folder, CaptureRequests, () =>
+                {
+                    folderItem.BringIntoView();
+                    TreeSelectionDisplayTestSupport.AwaitTreeLayout(tree, () => folderTable.ItemContainerGenerator.ContainerFromIndex(folderIndex + 1) != null,
+                        "folder home realizes neighbor folder");
+                    TreeSelectionDisplayTestSupport.AssertSelectionDisplay(tree, tree, folder, "folder before scroll", requireRealized: true);
+                    double home = treeScroll.VerticalOffset;
+                    TreeSelectionDisplayTestSupport.FindItemsHostPanel(folderTable).BringIndexIntoViewPublic(folderTable.Items.Count - 1);
+                    TreeSelectionDisplayTestSupport.AwaitTreeLayout(tree, () => folderTable.ItemContainerGenerator.ContainerFromIndex(folderIndex + 1) == null,
+                        "folder middle releases neighbor folder");
+                    TreeSelectionDisplayTestSupport.AssertSelectionDisplay(tree, tree, folder, "folder middle", requireRealized: false);
+                    TreeSelectionDisplayTestSupport.FindItemsHostPanel(root).BringIndexIntoViewPublic(root.Items.Count - 1);
+                    TreeSelectionDisplayTestSupport.AwaitTreeLayout(tree, () => root.ItemContainerGenerator.ContainerFromIndex(1) == null,
+                        "folder far releases neighbor table");
+                    TreeSelectionDisplayTestSupport.AssertSelectionDisplay(tree, tree, folder, "folder far", requireRealized: false);
+                    treeScroll.ScrollToVerticalOffset(home);
+                    TreeSelectionDisplayTestSupport.AwaitTreeLayout(tree, () => folderTable.ItemContainerGenerator.ContainerFromIndex(folderIndex + 1) != null,
+                        "folder home realizes neighbor folder again");
+                    TreeSelectionDisplayTestSupport.AssertSelectionDisplay(tree, tree, folder, "folder home", requireRealized: true);
+                });
+
+                object SelectPlaylistTreeItem(TreeViewItem item, BMSTable? expectedTable)
+                {
+                    item.IsSelected = true;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "playlist tree selection detail idle");
+                    Keyboard.ClearFocus();
+                    Assert.IsFalse(tree.IsKeyboardFocusWithin, "ツリー外にフォーカスがある状態を前提にします。");
+                    Assert.IsTrue(item.IsSelected, "選択の前提");
+                    Assert.IsNull(mainTree.SelectedItem, "他方のツリーには選択がありません。");
+                    object selected = tree.SelectedItem ?? throw new AssertFailedException("左の選択がありません。");
+                    if (expectedTable != null) { Assert.AreSame(expectedTable, selected); }
+                    return selected;
+                }
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                try { fixture.Close(); }
+                catch (Exception cleanupFailure) when (primaryFailure != null) { primaryFailure.Data["PlaylistTreeSelectionCleanupFailure"] = cleanupFailure.ToString(); }
+            }
+        });
+    }
+
+    /// <summary>所有者の仮想化パネルで子の入れ物を公開APIにより生成して返します。</summary>
+    private static TreeViewItem RealizePlaylistTreeChild(TreeView tree, TreeViewItem owner, int index)
+    {
+        owner.IsExpanded = true;
+        tree.UpdateLayout();
+        TreeSelectionDisplayTestSupport.FindItemsHostPanel(owner).BringIndexIntoViewPublic(index);
+        TreeSelectionDisplayTestSupport.AwaitTreeLayout(tree, () => owner.ItemContainerGenerator.ContainerFromIndex(index) is TreeViewItem,
+            "realize playlist tree child " + index);
+        return (TreeViewItem)owner.ItemContainerGenerator.ContainerFromIndex(index);
+    }
+
     /// <summary>選択済み見出しの再clickだけが一回の遅延編集を開始し、開始click中の対象内focusを許しても、後発操作・対象退役後に旧要求を再開しません。</summary>
     /// <remarks>実compiled Preview/bubble入力と編集中のPreview要求、Window所有timerの実Tickと編集通知、検索の全文・選択、P未受付と独立DBを観測します。候補確定と保存は既存の編集ケースへ分担し、OS物理button押下・focusの取得を前提にしません。</remarks>
     [TestMethod]
