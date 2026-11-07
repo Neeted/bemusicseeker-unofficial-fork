@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -18,7 +19,11 @@ namespace BeMusicSeeker.Tests;
 /// 進捗行の言語追従を、本番の <see cref="ResourceService.ChangeCulture"/> を入口に確認します。
 /// 保持した事実は変えず、行の文言だけが現在の資源へ切り替わり、次の通常進捗でも現在語を維持することを保証します。
 /// </summary>
-/// <remarks>共有Resourcesの文化圏を変えるため並列実行しません。非WPFのため、変更・更新・表明はテストスレッドで同期的に行います。</remarks>
+/// <remarks>
+/// 共有Resourcesの文化圏を変えるため並列実行しません。非WPFのため、変更・更新・表明はテストスレッドで同期的に行います。
+/// 完了表示のhide後を観測するケースでは、プールスレッドで動くhide継続の表示反映をキューへ入れてテストスレッドで消化し、
+/// 本番のUI配送と同じく、一回の反映を観測スレッド上で一括して終えてから次の操作へ進みます。
+/// </remarks>
 [TestClass]
 [TestCategory("Windows.Shell")]
 [DoNotParallelize]
@@ -59,8 +64,10 @@ public sealed class OperationProgressHubLanguageTests
         internal int HideDelay;
         internal TaskCompletionSource? HideGate;
         internal TaskCompletionSource HideEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        internal Queue<Action> PendingDispatch = new();
-        internal bool QueueDispatch;
+        /// <summary>UI配送の模擬キューです。別スレッドからの投入と、テストスレッドでの消化・到着待ちを同じ集合で扱います。</summary>
+        internal BlockingCollection<Action> PendingDispatch = new();
+        /// <summary>配送をキューへ入れるかを切り替えます。hide後を観測するケースではゲートの解放より前に切り替え、プールスレッドの継続から見えるようにします。</summary>
+        internal volatile bool QueueDispatch;
         internal StartupProgressWorkflowOwner Owner = null!;
 
         internal static StartupHarness Create(bool blockHide = false)
@@ -70,7 +77,7 @@ public sealed class OperationProgressHubLanguageTests
             harness.Owner = new StartupProgressWorkflowOwner(
                 () => { harness.VersionSnapshot++; return new StartupProgressVersionSnapshot(); },
                 (_, _) => harness.PrepareOperation++,
-                action => { if (harness.QueueDispatch) { harness.PendingDispatch.Enqueue(action); } else { action(); } },
+                action => { if (harness.QueueDispatch) { harness.PendingDispatch.Add(action); } else { action(); } },
                 _ => { },
                 _ => harness.InitializationCompleted++,
                 new object(),
@@ -83,7 +90,10 @@ public sealed class OperationProgressHubLanguageTests
             return harness;
         }
 
-        internal void Drain() { while (PendingDispatch.TryDequeue(out Action? action)) { action(); } }
+        internal void Drain() { while (PendingDispatch.TryTake(out Action? action)) { action(); } }
+
+        /// <summary>次の配送の到着を待ち、テストスレッドで実行します。生産元が配送せずに終わった場合の待ち続けは、検証全体の期限で検出します。</summary>
+        internal void RunNextDispatch() => PendingDispatch.Take()();
     }
 
     private static string StartupLabel(OperationProgressHubViewModel hub) =>
@@ -348,6 +358,10 @@ public sealed class OperationProgressHubLanguageTests
     }
 
     /// <summary>Detach後・closing中・非アクティブなStartupProgressでは、言語変更でHubの行通知とStartupProgressの通知を出さず、再Attach後は現在語になることを確認します。</summary>
+    /// <remarks>
+    /// hide後の段は、hide継続の表示反映をテストスレッドで一括して消化し終えた時点を基準にします。
+    /// 言語変更が配送した表示も観測するため、言語変更の後にキューを消化してから表明します。
+    /// </remarks>
     [TestMethod]
     public void HubLanguage_DetachClosingAndInactiveStartupDoNotPublish()
     {
@@ -442,16 +456,16 @@ public sealed class OperationProgressHubLanguageTests
             }
             idle.Owner.CompleteRequiredInitialization(token);
             idle.HideEntered.Task.GetAwaiter().GetResult();
-            var hidden = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            idle.Owner.PropertyChanged += (_, args) =>
-            {
-                if (args.PropertyName == nameof(StartupProgressWorkflowOwner.IsActive) && !idle.Owner.IsActive) { hidden.TrySetResult(); }
-            };
+            // 継続はゲートで止まっているため、ここで配送をキューへ切り替えてから解放します。
+            idle.QueueDispatch = true;
             idle.HideGate!.TrySetResult();
-            hidden.Task.GetAwaiter().GetResult();
+            // IsActiveをfalseにするのは配送されたreflectだけで、ループ条件は配送1件の実行完了後に判定するため、falseになった時点でhideの反映はテストスレッド上で一括して終わっています。
+            while (idle.Owner.IsActive) { idle.RunNextDispatch(); }
             Assert.IsFalse(idle.Owner.IsActive);
+            Assert.AreEqual(0, idle.PendingDispatch.Count, "hide継続はreflectの後に表示を配送しません。");
             startupNotifications.Clear();
             ResourceService.Current.ChangeCulture("en-US");
+            idle.Drain();
             CollectionAssert.DoesNotContain(startupNotifications, nameof(StartupProgressWorkflowOwner.Label));
             CollectionAssert.DoesNotContain(startupNotifications, nameof(StartupProgressWorkflowOwner.SubLabel));
             CollectionAssert.DoesNotContain(startupNotifications, nameof(StartupProgressWorkflowOwner.IsActive));
@@ -548,15 +562,13 @@ public sealed class OperationProgressHubLanguageTests
                 if (state == "completedHideWait")
                 {
                     // 言語変更はhideを延長・追加・取消せず、gate解放で一回だけ非表示になります。
-                    var hidden = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-                    startup.Owner.PropertyChanged += (_, args) =>
-                    {
-                        if (args.PropertyName == nameof(StartupProgressWorkflowOwner.IsActive) && !startup.Owner.IsActive) { hidden.TrySetResult(); }
-                    };
                     ResourceService.Current.ChangeCulture("en-US");
                     Assert.IsTrue(startup.Owner.IsActive);
+                    // hide継続の表示反映をテストスレッドで一括して消化し終えた時点で表明します。
+                    startup.QueueDispatch = true;
                     startup.HideGate!.TrySetResult();
-                    hidden.Task.GetAwaiter().GetResult();
+                    while (startup.Owner.IsActive) { startup.RunNextDispatch(); }
+                    Assert.AreEqual(0, startup.PendingDispatch.Count, "hide継続はreflectの後に表示を配送しません。");
                     Assert.AreEqual(1, startup.HideDelay);
                     Assert.IsFalse(startup.Owner.IsActive);
                     Assert.AreEqual(0, hub.Rows.Count);
