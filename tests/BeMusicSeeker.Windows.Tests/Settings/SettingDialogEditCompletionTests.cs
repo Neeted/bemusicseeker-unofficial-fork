@@ -1065,7 +1065,7 @@ public sealed class SettingDialogEditCompletionTests
                     var presentationReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     var propertyReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                     var notificationFailures = new List<Exception>();
-                    var notifications = new List<(string Kind, bool Dispatcher, bool AdmissionsReleased, bool GuardsReleased,
+                    var notifications = new List<(string Kind, bool Dispatcher, bool? AdmissionsReleased, bool GuardsReleased,
                         string[] Current, string[] Persisted, string[] Presented, string[] ReadPaths)>();
                     ReaderWriterLockSlimWrapper[] modelGuards = new[] { "rwlockBMSFilesInitializedAll", "rwlockPendingInstallCharts", "rwlockSongDBInstall" }
                         .Select(name => typeof(BMSLibrary).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(library)
@@ -1077,7 +1077,9 @@ public sealed class SettingDialogEditCompletionTests
                             bool guardsReleased = modelGuards.All(guard => guard.LockingReadCount == 0 && guard.LockingWriteCount == 0 && !guard.IsUpgradeableReadLockHeld);
                             using LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), pendingDatabase).OpenSongDbReadOnly();
                             notifications.Add((kind, TestUiDispatcherHost.Dispatcher.CheckAccess(),
-                                !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive, guardsReleased,
+                                // 全体のIsActiveは親以外のleaseも含むため、親操作自身のL/Pの終端Taskで解放を判定し、未捕捉はnullで記録する。
+                                settingsLibraryTerminal is null || settingsPlaylistTerminal is null ? null
+                                    : settingsLibraryTerminal.IsCompleted && settingsPlaylistTerminal.IsCompleted, guardsReleased,
                                 library.ChartPackagesPending.Select(package => package.path).ToArray(),
                                 pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray(),
                                 owner.InstallTree.ChartPackagesPending.Select(package => package.path).ToArray(),
@@ -1139,9 +1141,10 @@ public sealed class SettingDialogEditCompletionTests
                     Assert.AreEqual(0, notificationFailures.Count, string.Join(Environment.NewLine, notificationFailures));
                     Assert.IsTrue(notifications.Any(notice => notice.Kind == "presentation"));
                     Assert.IsTrue(notifications.Any(notice => notice.Kind == "property"));
-                    foreach ((string Kind, bool Dispatcher, bool AdmissionsReleased, bool GuardsReleased, string[] Current, string[] Persisted, string[] Presented, string[] ReadPaths) notice in notifications)
+                    foreach ((string Kind, bool Dispatcher, bool? AdmissionsReleased, bool GuardsReleased, string[] Current, string[] Persisted, string[] Presented, string[] ReadPaths) notice in notifications)
                     {
                         Assert.IsTrue(notice.Dispatcher, notice.Kind);
+                        Assert.IsNotNull(notice.AdmissionsReleased, notice.Kind + ": 親L/Pの終端Taskが未捕捉です（前提不成立）。");
                         Assert.IsTrue(notice.AdmissionsReleased, notice.Kind + ": 親L/Pの解放後に通知します。");
                         Assert.IsTrue(notice.GuardsReleased, notice.Kind + ": モデル保護の解放後に同期読取りできます。");
                         CollectionAssert.AreEqual(new[] { unrelated.path }, notice.Current, notice.Kind);
@@ -3254,7 +3257,12 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>各実入口で確認中の終了は副作用を始めず、成功公開後の修復通知中の終了は既公開成功を保持し、新しい案内・後続・設定再表示を止めます。</summary>
+    /// <summary>
+    /// 各実入口で確認中の終了は副作用を始めず、成功公開後の修復通知中の終了は既公開成功を保持し、新しい案内・後続・設定再表示を止めます。
+    /// 修復通知の時点では、この親操作のLとPが解放済みであることを親操作のleaseに固有の終端Taskで、受付が閉鎖されていないことをIsAdmissionClosedで、それぞれ観測します。
+    /// 親の解放後に登録される後続保守のL・Pは、起動仕様の後続保守の節のとおり正規に取得され得るため、この通知の観測の対象にしません。
+    /// 操作の終端後は、親の終端Taskの成功を先に表明し、後続処理の終端を待ってから全体の受付が静止していること（lease漏れなし）を確認します。
+    /// </summary>
     [TestMethod]
     // entry 0:初回の明示開始、2:通常startup、3:tree再初期化。二つのboolは確認中/通知中の終了を区別します。
     [DataRow(0, false, false)]
@@ -3295,7 +3303,10 @@ public sealed class SettingDialogEditCompletionTests
             bool changed = false;
             bool warning = false;
             // 通知先の失敗が局所化されても検証失敗を隠さないよう、callbackでは記録し、実Taskの待機元で表明する。
-            List<(bool LibraryActive, bool PlaylistActive, bool Changed, int TimestampCallCount, bool ReentryAccepted)> warningObservations = [];
+            List<(bool LibraryReleased, bool PlaylistReleased, bool LibraryClosed, bool PlaylistClosed, bool Changed, int TimestampCallCount)> warningObservations = [];
+            Task? parentLibraryTerminal = null;
+            Task? parentPlaylistTerminal = null;
+            bool parentTerminalsPending = false;
             int beforeAcceptedConfirmations = 0;
             TestUiDispatcherHost.Invoke(() =>
             {
@@ -3325,7 +3336,7 @@ public sealed class SettingDialogEditCompletionTests
                 if (entry == 0) { activeOwner.SettingDialog.OverwritePlaylistUrlsWithCompletion = !activeOwner.SettingDialog.OverwritePlaylistUrlsWithCompletion; }
                 if (entry == 3)
                 {
-                    // 既存の実接続を使い、任意保守は停止中のschedulerへ登録する。モデル単独fallbackへ迂回しない。
+                    // 既存の実接続を使う。任意保守は成功後に開始されるschedulerへ登録され、親の解放後にL・Pを取得し得る。モデル単独fallbackへ迂回しない。
                     var applicationPort = (IStartupLibraryApplicationPort)activeOwner;
                     applicationPort.AttachStartupLibrary(actualLibrary);
                     applicationPort.AttachStartupServices(new StartupLibraryServices(new LibraryProfile(true, targetDb,
@@ -3344,6 +3355,10 @@ public sealed class SettingDialogEditCompletionTests
                 {
                     Assert.IsTrue(composition.OperationAdmission.IsActive);
                     Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                    // 親のL・Pのlease固有の終端Taskを捕捉する。後続保守のleaseと区別して親の解放だけを観測できる。
+                    parentLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
+                    parentPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
+                    parentTerminalsPending = !parentLibraryTerminal.IsCompleted && !parentPlaylistTerminal.IsCompleted;
                     Assert.IsFalse(actualLibrary.IsWriteLockHeldInitializeAll);
                     Assert.IsFalse(actualLibrary.IsWriteLockHeldInitializeMin);
                     Assert.IsTrue(call.LastWriteTime.HasValue);
@@ -3354,22 +3369,22 @@ public sealed class SettingDialogEditCompletionTests
                 {
                     if (dialogs.LastMessageText != Resources.Warn_LR2LeapYearBugDetected) { return; }
                     warning = true;
-                    bool libraryActive = composition.OperationAdmission.IsActive;
-                    bool playlistActive = composition.PlaylistOperationAdmission.IsActive;
-                    bool changedAtWarning = changed;
-                    int timestampCallCount = mutation.TimestampCalls.Count;
-                    bool reentryAccepted = composition.OperationAdmission.TryEnter(out IDisposable reentry);
-                    if (reentryAccepted) { reentry.Dispose(); }
-                    warningObservations.Add((libraryActive, playlistActive, changedAtWarning, timestampCallCount, reentryAccepted));
+                    // 全体のIsActive/TryEnterは、親の解放後に登録された後続保守のleaseも含むため使わない。
+                    bool libraryReleased = parentLibraryTerminal?.IsCompleted ?? false;
+                    bool playlistReleased = parentPlaylistTerminal?.IsCompleted ?? false;
+                    warningObservations.Add((libraryReleased, playlistReleased, composition.OperationAdmission.IsAdmissionClosed,
+                        composition.PlaylistOperationAdmission.IsAdmissionClosed, changed, mutation.TimestampCalls.Count));
                 };
                 void AssertWarningAfterAdmissionRelease()
                 {
+                    Assert.IsTrue(parentTerminalsPending, "親のL・Pの終端Taskは、親の保持中に未完了で捕捉されます。");
                     Assert.AreEqual(1, warningObservations.Count);
-                    Assert.IsFalse(warningObservations[0].LibraryActive);
-                    Assert.IsFalse(warningObservations[0].PlaylistActive);
+                    Assert.IsTrue(warningObservations[0].LibraryReleased, "通知時点で親のLは解放済みです。");
+                    Assert.IsTrue(warningObservations[0].PlaylistReleased, "通知時点で親のPは解放済みです。");
+                    Assert.IsFalse(warningObservations[0].LibraryClosed);
+                    Assert.IsFalse(warningObservations[0].PlaylistClosed);
                     Assert.IsTrue(warningObservations[0].Changed);
                     Assert.AreEqual(1, warningObservations[0].TimestampCallCount);
-                    Assert.IsTrue(warningObservations[0].ReentryAccepted);
                 }
                 if (shutdownDuringConfirmation)
                 {
@@ -3521,6 +3536,13 @@ public sealed class SettingDialogEditCompletionTests
                 Assert.IsTrue(warning);
                 AssertWarningAfterAdmissionRelease();
                 Assert.AreEqual(beforeAcceptedConfirmations + 1, dialogs.ConfirmationCount);
+                // 主表明：受理した親操作のL・Pは操作の終端で成功解放済み。後続保守の保持に左右されない。
+                Assert.IsTrue(parentLibraryTerminal!.IsCompletedSuccessfully);
+                Assert.IsTrue(parentPlaylistTerminal!.IsCompletedSuccessfully);
+                // lease漏れの確認：登録済み後続処理の終端を待ってから、全体が静止していることを確認する。
+                AwaitStartupBackgroundCompletionOnDispatcher(activeOwner, "leap-startup-background-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(composition.OperationAdmission.WaitForIdleAsync(), "leap-library-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(composition.PlaylistOperationAdmission.WaitForIdleAsync(), "leap-playlist-terminal");
                 Assert.IsFalse(composition.OperationAdmission.IsActive);
                 Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
             });
