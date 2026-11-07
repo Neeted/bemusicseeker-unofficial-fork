@@ -353,6 +353,8 @@ UI moduleの `UiModuleLifetime` は、次の順に初期化します。
 - 未完了の否定観測は到達を止める待合せを保持して行い、`finally` で解放と開始済みTaskの回収を行います。
 - 成功後に追加の作用を持たないイベントハンドラーは、コンパイル済みの入口の引数・受理状態と委譲先Taskの回収、委譲後に追加の作用がないことの静的な確認で分担します。
 
+注入や表明の前にBackground優先度までの予約を消化する必要がある場合は、`ProcessQueuedBackground` を使います。呼出し前に積まれたBackground以上の予約と、消化中に積まれたBackgroundより高い優先度の予約を、戻る前に実行済みにします。UIスレッド上とテストスレッドの両方から呼べます。ContextIdle・ApplicationIdle・SystemIdleは境界にしません。まだ積まれていないworkerの後続予約や、消化中に積まれたBackgroundの予約は保証せず、それぞれの実通知・Taskで待ちます。その場で空の処理だけを持つ `InvokeAsync` をBackgroundに積んで待つ形は、この補助へ置き換えます。予約した処理がフラグなどの作用を持ち、その実行自体を後で表明する形は、消化ではなくその予約の実行を観測するので置き換えません。
+
 Dispatcher上の通常の機能Taskの待機は、局所的な制限時間を加えない `TestUiDispatcherHost.AwaitTaskOnDispatcher` を使います。描画・閉鎖・ネイティブ解放の通知の欠落は、同じDispatcher基盤の `AwaitPresentationOnDispatcher` で、既定15秒の制限時間付きで観測します。明示された通知の制限時間と、通常のTaskの外側の制限時間は別に扱います。
 
 `ShowAndWaitForContentRendered` は表示前に通知を購読し、制限時間付きのDispatcher処理で読込み・描画・非ゼロの配置・HWNDを確認します。任意の `renderNotificationTimeout` はLoaded到達後のContentRendered通知の待機だけに適用し、Loaded・Dispatcher・後片付けの制限時間へ流用しません。モーダル、即時終了、描画通知を制御する場合は、表示直前に `PrepareForOwnedPresentation` を呼びます。
@@ -537,7 +539,7 @@ suiteの起動・前提・本体・通常の回収・実際の終了は一つの
 | 失敗時の差し戻し・再実行 | [エージェント運用](agent-workflow.md#不備の差し戻し)、本書 | 修正担当への差し戻し、同一版の再実行と修正後の検証、反復回数による再計画を区別する。 |
 | UTF-8の両パイプ・所有する子プロセス・親環境 | [OwnedProcess](../../../tests/BeMusicSeeker.TestSupport/Processes/OwnedProcess.cs) | Coreの `OwnedProcessTests`・`OwnedProcessPipeTests`・`VerificationRunnerTests` で、全終端、期限・元の失敗・診断の保存を確認する。 |
 | 一時資源・共有状態・通常完了の待機 | [TestSettingsFactory](../../../tests/BeMusicSeeker.TestSupport/Components/TestSettingsFactory.cs)、[Coreのmodule寿命](../../../tests/ModuleInitialization/ModuleLifetime.cs)、[UIのmodule寿命](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、各機能のテスト準備 | 所有・復元、通知前の失敗、待合せの解放、実際の完了条件を確認する。UIのホスト終了の成功後だけ設定を回収し、設定の回収失敗後も一時セッション・排他を回収する順序は、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
-| Dispatcherの受付・終端・通常Task待機 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。終了済み・受理後の終了と停止の二次失敗、Action失敗後の継続、合流、利用側の成功・失敗・取消・通知欠落、単一STAを確認する。 |
+| Dispatcherの受付・終端・通常Task待機 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。終了済み・受理後の終了と停止の二次失敗、Action失敗後の継続、合流、利用側の成功・失敗・取消・通知欠落、単一STA、Background優先度までの消化（UIスレッド上・テストスレッド、idle優先度を含めない）を確認する。 |
 | ロック不成立・デッドロックの停止検出と到達待ち | [`ConcurrencyProbe`](../../../tests/BeMusicSeeker.TestSupport/Components/ConcurrencyProbe.cs) | 専用スレッドのprobe、保持中の完了判定、probeと保持側の失敗の伝播、通知なしの終端、期限なしの到達待ちを、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | 画面の準備、表示、破棄 | [`TestWindowPresentationScope`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestWindowPresentationScope.cs) | [`SettingsControlPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs)、[`WindowPresentationScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WindowPresentationScopeTests.cs)。一般的なアイドルと別に、実際の描画・配置・Win32の結果、入れ子の所有資源、失敗の優先順位を確認する。 |
 | 共有ホストのテーマ・意味別リソース | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`WpfThemeResourceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/WpfThemeResourceTests.cs)。Lightと実際のコンストラクターの意味別ブラシへの到達を確認する。 |

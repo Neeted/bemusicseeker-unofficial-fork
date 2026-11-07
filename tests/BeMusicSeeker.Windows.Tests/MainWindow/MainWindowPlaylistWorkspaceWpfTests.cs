@@ -1638,8 +1638,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     AssertNoSave();
                     // 取消を同期配送した後のBackground境界を越えても、停止timerの公開Interval変更だけでは再開しません。
                     oldTimer.Interval = TimeSpan.FromMilliseconds(1);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.Window.Dispatcher.InvokeAsync(() => { },
-                        DispatcherPriority.Background).Task, "delayed-rename-cancel-background");
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.IsFalse(oldTimer.IsEnabled, reason);
                     Assert.AreEqual(before, starts, reason);
                     Assert.IsFalse(control.IsInEditMode, reason);

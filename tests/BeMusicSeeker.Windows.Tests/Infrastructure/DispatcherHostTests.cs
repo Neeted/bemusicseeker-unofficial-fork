@@ -244,4 +244,61 @@ public sealed class DispatcherHostTests
         Assert.AreEqual(ApartmentState.STA, firstApartmentState);
     }
 
+    /// <summary>
+    /// UIスレッド上で、先に積んだNormal・Backgroundの予約と、Backgroundの予約が消化中に積んだNormalの予約が、
+    /// 積んだ順で戻る前に実行済みであり、先に積んだContextIdleの予約は未実行のままであることを確認します。
+    /// Loadedまでしか進めない誤りと、idle優先度まで処理する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void ProcessQueuedBackground_DrainsThroughBackgroundOnUiThreadWithoutIdle()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+            var order = new List<string>();
+            DispatcherOperation? idle = null;
+            try
+            {
+                idle = dispatcher.InvokeAsync(() => order.Add("idle"), DispatcherPriority.ContextIdle);
+                dispatcher.InvokeAsync(() => order.Add("background-1"), DispatcherPriority.Background);
+                dispatcher.InvokeAsync(() =>
+                {
+                    order.Add("background-2");
+                    dispatcher.InvokeAsync(() => order.Add("normal-from-background"), DispatcherPriority.Normal);
+                }, DispatcherPriority.Background);
+                dispatcher.InvokeAsync(() => order.Add("normal"), DispatcherPriority.Normal);
+
+                TestUiDispatcherHost.ProcessQueuedBackground();
+
+                CollectionAssert.AreEqual(
+                    new[] { "normal", "background-1", "background-2", "normal-from-background" }, order,
+                    "Background以上の予約は優先度順・同優先度内FIFOで戻る前に実行済みです。");
+                Assert.AreEqual(DispatcherOperationStatus.Pending, idle.Status, "ContextIdleの予約は境界に含まれません。");
+            }
+            finally
+            {
+                idle?.Abort();
+            }
+        });
+    }
+
+    /// <summary>テストスレッドから呼んでも、呼出し前に積まれたBackgroundの予約が積んだ順で戻る前に実行済みであることを確認します。UIスレッドの分岐で待たない誤りの決定的な検出はUIスレッド版が担います。テストスレッドの分岐で待たない誤りは、既存の終端待ちの経路で検出され、このテストの観測だけではDispatcherスレッドの進行次第で確率的です。</summary>
+    [TestMethod]
+    public void ProcessQueuedBackground_DrainsPriorBackgroundFromTestThread()
+    {
+        Dispatcher dispatcher = TestUiDispatcherHost.Dispatcher;
+        var order = new List<string>();
+        dispatcher.InvokeAsync(() => order.Add("background-1"), DispatcherPriority.Background);
+        dispatcher.InvokeAsync(() =>
+        {
+            order.Add("background-2");
+            dispatcher.InvokeAsync(() => order.Add("normal-from-background"), DispatcherPriority.Normal);
+        }, DispatcherPriority.Background);
+
+        TestUiDispatcherHost.ProcessQueuedBackground();
+
+        string[] observed = [];
+        TestUiDispatcherHost.Invoke(() => observed = order.ToArray());
+        CollectionAssert.AreEqual(new[] { "background-1", "background-2", "normal-from-background" }, observed);
+    }
 }

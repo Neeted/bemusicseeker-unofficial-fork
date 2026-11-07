@@ -669,8 +669,7 @@ public sealed class MainWindowPlaybackWpfTests
                 {
                     start();
                     TestUiDispatcherHost.AwaitPresentationOnDispatcher(delivered.Task, "foreground-mismatch-ready-view-delivery");
-                    DispatcherOperation inputBoundary = window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(inputBoundary.Task, "foreground-mismatch-input-boundary");
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.AreEqual(0, attempts.Count);
                     Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panel.EffectivePlayerPanelState);
                     Assert.AreEqual(PlayerPanelState.TITLE_LARGE, viewModel.PlaybackPanel.PlayerPanelState);

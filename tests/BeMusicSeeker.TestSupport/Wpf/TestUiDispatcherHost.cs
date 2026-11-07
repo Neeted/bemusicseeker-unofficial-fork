@@ -157,14 +157,29 @@ internal static class TestUiDispatcherHost
 
     /// <summary>予約済みのBinding・配置・描画反映をLoaded境界まで進めます。</summary>
     /// <remarks>
-    /// 実controlの値・選択・配置は呼出側で確認します。機能Task、Background予約、
-    /// 閉鎖の終端や全Dispatcherのidleは保証せず、それぞれの実通知・Taskで待ちます。
+    /// 実controlの値・選択・配置は呼出側で確認します。機能Task、閉鎖の終端や
+    /// 全Dispatcherのidleは保証せず、それぞれの実通知・Taskで待ちます。Background優先度までの消化にはProcessQueuedBackgroundを使います。
     /// </remarks>
     internal static void ProcessQueuedPresentation()
+        => ProcessQueuedAt(DispatcherPriority.Loaded);
+
+    /// <summary>呼出し前に積まれたBackground以上のDispatcher予約を、戻る前にすべて実行済みにします。</summary>
+    /// <remarks>
+    /// 同じ優先度内のFIFOを保ち、消化中に積まれたBackgroundより高い優先度の予約も実行済みです。
+    /// UIスレッド上では同期の入れ子フレームで、テストスレッドからは要求の終端を待って消化します。
+    /// 消化中の予約の例外は既存の要求と同じ経路で表面化し、ホストが終端済みなら元のホスト例外を返します。
+    /// ContextIdle・ApplicationIdle・SystemIdleは境界にせず、この補助では選べません。
+    /// 消化中に積まれたBackgroundの予約や、まだ積まれていないworkerの後続予約は対象外です。
+    /// それらはそれぞれの実通知・Taskで待ちます。
+    /// </remarks>
+    internal static void ProcessQueuedBackground()
+        => ProcessQueuedAt(DispatcherPriority.Background);
+
+    private static void ProcessQueuedAt(DispatcherPriority priority)
     {
         HostState state = GetActiveHost();
         InvokeOnOwnedDispatcher(state.Dispatcher, state.Thread, state.Completed, () => state.TerminalFailure,
-            () => { }, DispatcherPriority.Loaded);
+            () => { }, priority);
     }
 
     /// <summary>

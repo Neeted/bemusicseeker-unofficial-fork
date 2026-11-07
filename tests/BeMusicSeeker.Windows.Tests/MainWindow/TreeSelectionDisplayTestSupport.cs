@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Threading;
 using BeMusicSeeker.TestSupport.Wpf;
 
 namespace BeMusicSeeker.Tests;
@@ -55,9 +54,8 @@ internal static class TreeSelectionDisplayTestSupport
         string requestsBefore = captureRequests();
         scrollSteps();
         TestUiDispatcherHost.ProcessQueuedPresentation();
-        // Loaded優先度で予約される選択の同期処理まで進めてから、要求が増えていないことを確認する。
-        TestUiDispatcherHost.AwaitTaskOnDispatcher(tree.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background).Task,
-            "tree selection scroll background drain");
+        // Loaded優先度で予約される選択の同期処理を先に進め、その処理が積んだBackgroundの予約も含めて消化してから、要求が増えていないことを確認する。
+        TestUiDispatcherHost.ProcessQueuedBackground();
         Assert.AreSame(selected, tree.SelectedItem, "スクロール後の左の選択");
         Assert.AreEqual(requestsBefore, captureRequests(), "スクロールだけでは一覧要求と一覧を変えません。");
         Assert.IsTrue(scope is not TreeViewItem scopeItem || scopeItem.IsExpanded, "判定範囲の根は展開されたままです。");

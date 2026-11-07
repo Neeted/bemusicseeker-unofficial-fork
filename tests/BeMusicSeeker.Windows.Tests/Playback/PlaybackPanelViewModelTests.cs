@@ -194,7 +194,6 @@ public sealed class PlaybackPanelViewModelTests
                 var view = new PlaybackPanelView { DataContext = panel };
                 var window = new Window { Content = view, Width = 640, Height = 360, ShowInTaskbar = false };
                 Task? request = null;
-                DispatcherOperation? closeProbe = null;
                 DispatcherOperation? surfaceDrain = null;
                 int surfaceRequests = 0;
                 try
@@ -226,8 +225,7 @@ public sealed class PlaybackPanelViewModelTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
                         TestUiDispatcherHost.AwaitNotificationAsync(closeEntered.Task, request, "pending-surface-old-close"), "pending-surface-old-close");
                     // 面要求を旧playerの解放中に投稿する誤りを検出するため、DataBindの実配送後に解放します。
-                    closeProbe = window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(closeProbe.Task, "pending-surface-close-probe");
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     releaseClose.TrySetResult();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(request, "pending-surface-request-terminal");
                     surfaceDrain = window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.DataBind);
@@ -249,7 +247,6 @@ public sealed class PlaybackPanelViewModelTests
                     previous.CloseCompletion = null;
                     try
                     {
-                        if (closeProbe != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(closeProbe.Task, "pending-surface-close-probe-cleanup"); }
                         if (request != null)
                         {
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(request, "pending-surface-request-cleanup");
