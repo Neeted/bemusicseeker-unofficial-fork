@@ -730,6 +730,11 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         }
         finally
         {
+            // 実変更を開始した明示保守は、途中の画面移動によらず成功後選択の準備まで親Lで回収する。
+            // 抑制解除で流れる失効ツリーの反映からの重複選択を準備へ合流させるため、解除の通知より前に登録する。
+            Task acceptedPreparation = suppressionStarted && library != null && capability != null
+                ? library.CompleteAcceptedDuplicateDataAsync(capability, requireGroups: true)
+                : Task.CompletedTask;
             if (suppressionStarted)
             {
                 CaptureNotification(() => PublishRefreshSuppressionChanged(isSuppressed: false));
@@ -742,12 +747,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
             }
-            if (suppressionStarted && library != null && capability != null)
-            {
-                // 実変更を開始した明示保守は、途中の画面移動によらず成功後選択の準備まで親Lで回収する。
-                try { await library.CompleteAcceptedDuplicateDataAsync(capability, requireGroups: true).ConfigureAwait(false); }
-                catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
-            }
+            try { await acceptedPreparation.ConfigureAwait(false); }
+            catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
             CaptureCleanupFailure(() => capability?.Dispose(), failures);
             CaptureCleanupFailure(() => combinedCapability?.Dispose(), failures);
             CaptureCleanupFailure(() => playlistCapability?.Dispose(), failures);

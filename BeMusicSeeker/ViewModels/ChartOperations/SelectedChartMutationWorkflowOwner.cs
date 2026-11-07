@@ -749,6 +749,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
             {
                 CaptureNotification(() => PublishMutationApplied(libraryPathChanged: true));
             }
+            // 抑制解除で流れる失効ツリーの反映からの重複選択を準備へ合流させるため、解除の通知より前に登録する。
+            Task acceptedPreparation = library.CompleteAcceptedDuplicateDataAsync(capability);
             if (suppressionStarted)
             {
                 CaptureNotification(() => PublishRefreshSuppressionChanged(isSuppressed: false, scope: null));
@@ -762,7 +764,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureNotification(dialogScope.Flush);
             }
-            try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
+            try { await acceptedPreparation.ConfigureAwait(false); }
             catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
             CaptureCleanupFailure(() => combinedCapability?.Dispose(), failures);
             CaptureCleanupFailure(() => playlistCapability?.Dispose(), failures);

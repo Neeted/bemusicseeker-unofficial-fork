@@ -1463,6 +1463,10 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 CaptureCleanupFailure(() => captureMutationFacts(library, operationStore), failures);
             }
+            // 抑制解除で流れる失効ツリーの反映からの重複選択を準備へ合流させるため、解除の通知より前に登録する。
+            Task acceptedPreparation = library != null
+                ? library.CompleteAcceptedDuplicateDataAsync(capability)
+                : Task.CompletedTask;
             if (suppressionStarted)
             {
                 CaptureCleanupFailure(
@@ -1474,11 +1478,8 @@ internal sealed class PendingPackageWorkflowOwner
                 CaptureCleanupFailure(activityLease.Dispose, failures);
             }
             if (dialogScope != null) { CaptureCleanupFailure(dialogScope.Dispose, failures); }
-            if (library != null)
-            {
-                try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
-                catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
-            }
+            try { await acceptedPreparation.ConfigureAwait(false); }
+            catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
             combinedCapability?.Dispose();
             playlistCapability?.Dispose();
             playlistLease?.Dispose();

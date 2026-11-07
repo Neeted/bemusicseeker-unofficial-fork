@@ -688,15 +688,28 @@ public partial class BMSLibrary : ObservableObject
         if (Equals(current, prepare)) { Interlocked.CompareExchange(ref duplicateDataPreparation, null, current); }
     }
 
-    /// <summary>存続中の共通受付権限で必要な重複準備を完了します。同期コミットの外側で、親受付を解放する前に待機します。表示所有者が未接続なら何も開始しません。</summary>
+    /// <summary>存続中の共通受付権限で必要な重複準備を開始し、その完了を返します。表示所有者が未接続なら何も開始しません。</summary>
+    /// <remarks>
+    /// 呼出し側は同期コミットの後、表示抑制の解除を通知する前に呼び、短いスコープを外してから親受付を解放する前に待機します。
+    /// 抑制の解除で流れる保留中の画面反映（失効した重複ツリーでの親の自動選択を含む）からの重複選択を、
+    /// 受付を保持したままの Busy ではなく、登録済みの準備への合流として受理させるためです。
+    /// 権限の借用拒否や接続先の同期例外は投げず、失敗した Task として返します。呼出し側が抑制解除と後片付けを飛ばさないためです。
+    /// </remarks>
     /// <param name="capability">親操作が完了処理まで保持する共通受付権限です。</param>
     /// <param name="requireGroups">明示した重複保守の成功後選択に備え、現在画面によらず最新グループを準備する場合にtrueです。</param>
     internal Task CompleteAcceptedDuplicateDataAsync(LibraryFileMutationCapability capability, bool requireGroups = false)
     {
         Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> prepare = Volatile.Read(ref duplicateDataPreparation);
         if (prepare == null) { return Task.CompletedTask; }
-        using LibraryFileMutationLease borrowed = OperationAdmission.Borrow(capability);
-        return prepare(this, capability, requireGroups);
+        try
+        {
+            using LibraryFileMutationLease borrowed = OperationAdmission.Borrow(capability);
+            return prepare(this, capability, requireGroups);
+        }
+        catch (Exception failure)
+        {
+            return Task.FromException(failure);
+        }
     }
 
 

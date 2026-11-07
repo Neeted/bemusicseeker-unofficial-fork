@@ -1308,6 +1308,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
             }
             Task requiredDelivery = mutationReceipt?.DurableCommit == true && IsCurrentLibrary(library)
                 ? DeliverPendingLibraryChangesAsync(library, CancellationToken.None) : Task.CompletedTask;
+            // 抑制解除で流れる失効ツリーの反映からの重複選択を準備へ合流させるため、解除の通知より前に登録する。
+            // 必須配送の成否によらず準備を開始し、下で配送とは別に待つ。
+            Task acceptedPreparation = library.CompleteAcceptedDuplicateDataAsync(capability);
             if (suppressionStarted)
             {
                 CaptureNotification(() => PublishRefreshSuppressionChanged(isSuppressed: false));
@@ -1322,21 +1325,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 CaptureNotification(dialogScope.Flush);
             }
             // ThreadStaticの短いdialog scopeを外してから非同期待機し、元workerへscopeを残しません。
-            try
-            {
-                await requiredDelivery.ConfigureAwait(false);
-                await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false);
-            }
-            catch (Exception failure)
-            {
-                if (!IsCurrentLibrary(library)) { /* 表示所有者の停止・交換後は旧表示を必要条件にしません。 */ }
-                else if (failures.Count == 0) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
-                else
-                {
-                    try { logWarning("regular_chart_folder_rename_projection_failed " + failure); }
-                    catch { /* 診断先の故障で先行する物理・出力の原因を置換しません。 */ }
-                }
-            }
+            // 配送の失敗でも開始済みの準備を親Lの解放前に回収するため、配送と準備を別々に待ちます。
+            try { await requiredDelivery.ConfigureAwait(false); }
+            catch (Exception failure) { RecordProjectionFailure(failure); }
+            try { await acceptedPreparation.ConfigureAwait(false); }
+            catch (Exception failure) { RecordProjectionFailure(failure); }
             if (operationAdmitted)
             {
                 CaptureNotification(mainChartList.RequestDisplayRefresh);
@@ -1376,6 +1369,18 @@ internal sealed partial class RegularChartListOwner : IDisposable
             else
             {
                 CaptureCleanupFailure(notification, failures);
+            }
+        }
+
+        // 必須配送と重複準備の失敗は、先行失敗がなければ結果へ加え、あれば原因を置き換えず診断だけに残します。
+        void RecordProjectionFailure(Exception failure)
+        {
+            if (!IsCurrentLibrary(library)) { /* 表示所有者の停止・交換後は旧表示を必要条件にしません。 */ }
+            else if (failures.Count == 0) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
+            else
+            {
+                try { logWarning("regular_chart_folder_rename_projection_failed " + failure); }
+                catch { /* 診断先の故障で先行する物理・出力の原因を置換しません。 */ }
             }
         }
     }

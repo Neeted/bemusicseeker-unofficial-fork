@@ -694,6 +694,10 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
         finally
         {
+            // 抑制解除で流れる失効ツリーの反映からの重複選択を準備へ合流させるため、解除の通知より前に登録する。
+            Task acceptedPreparation = capability != null && refreshSuppression
+                ? library.CompleteAcceptedDuplicateDataAsync(capability)
+                : Task.CompletedTask;
             if (suppressionStarted)
             {
                 CaptureCleanupFailure(() => PublishRefreshSuppressionChanged(isSuppressed: false), failures);
@@ -707,11 +711,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 CaptureCleanupFailure(dialogScope.Dispose, failures);
                 CaptureCleanupFailure(dialogScope.Flush, failures);
             }
-            if (capability != null && refreshSuppression)
-            {
-                try { await library.CompleteAcceptedDuplicateDataAsync(capability).ConfigureAwait(false); }
-                catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
-            }
+            try { await acceptedPreparation.ConfigureAwait(false); }
+            catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
             CaptureCleanupFailure(() => capability?.Dispose(), failures);
             if (ownsOperationGate && operationGate != null && releaseAcquiredOperationGate)
             {
