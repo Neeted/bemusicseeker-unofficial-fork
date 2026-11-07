@@ -155,6 +155,7 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
     private readonly PropertyChangedEventHandler? beforeOwnerNotification;
     private int gateEnabled;
     private int gateClaimed;
+    private string[] gateHeldLocks = [];
     private Task<bool>? duplicate;
     private readonly List<Task> navigationTasks = [];
     private readonly object taskLock = new();
@@ -201,9 +202,11 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
                 && Volatile.Read(ref gateEnabled) != 0 && Library.NormalLibraryRefreshNotificationVersion > InitialNotificationVersion
                 && Interlocked.Exchange(ref gateClaimed, 1) == 0)
             {
-                Assert.IsFalse(Library.IsWriteLockHeldInitializeMin);
-                Assert.IsFalse(Library.IsWriteLockHeldInitializeBMSFiles);
-                Assert.IsFalse(Library.IsWriteLockHeldDuplicateChartGroups);
+                // 通知先の失敗は記録だけで握られるため、ここでは表明せず、ゲート到達後に表明する。
+                gateHeldLocks = [.. new[] { (Library.IsWriteLockHeldInitializeMin, "InitializeMin"),
+                    (Library.IsWriteLockHeldInitializeBMSFiles, "InitializeBMSFiles"),
+                    (Library.IsWriteLockHeldDuplicateChartGroups, "DuplicateChartGroups") }
+                    .Where(hold => hold.Item1).Select(hold => hold.Item2)];
                 reached.TrySetResult();
                 release.Wait();
             }
@@ -301,6 +304,7 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
     {
         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(reached.Task,
             duplicate ?? throw new AssertFailedException("cold要求を開始していません。"), "cold duplicate producer gate"), "cold duplicate gate");
+        Assert.AreEqual(0, gateHeldLocks.Length, "確定通知の時点でライブラリの書込みロックを保持しています: " + string.Join(", ", gateHeldLocks));
         CaptureData();
     }
 

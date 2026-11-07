@@ -232,6 +232,28 @@ internal static class InstallServiceComponentTestSupport
         BMSLibrary library,
         string fieldName)
     {
+        ReaderWriterLockSlimWrapper gate = GetLibraryGate(library, fieldName);
+        // 再帰writerの再取得では解放を証明できないため、通知thread自身の三種類の所有を直接確認します。
+        Assert.IsFalse(gate.IsReadLockHeld, fieldName + " reader was held by the subscriber thread.");
+        Assert.IsFalse(gate.IsWriteLockHeld, fieldName + " writer was held by the subscriber thread.");
+        Assert.IsFalse(gate.IsUpgradeableReadLockHeld, fieldName + " upgradeable reader was held by the subscriber thread.");
+    }
+
+    /// <summary>
+    /// 現在のスレッドが保持しているライブラリのロックの種類を、表明せずに返します。
+    /// 失敗を握って記録するだけの通知先の中では表明が表に出ないため、記録して通知の戻り後に表明する場合に使います。
+    /// 公開の保持状態は書込みの保持・待機しか示さず、読取りロックの保持を区別できないため、非公開のロックを直接読みます。
+    /// </summary>
+    /// <returns>保持している種類（"reader"、"writer"、"upgradeable reader"）です。保持していなければ空です。</returns>
+    internal static string[] CaptureLibraryGateHoldsOnCurrentThread(BMSLibrary library, string fieldName)
+    {
+        ReaderWriterLockSlimWrapper gate = GetLibraryGate(library, fieldName);
+        return [.. new[] { (gate.IsReadLockHeld, "reader"), (gate.IsWriteLockHeld, "writer"), (gate.IsUpgradeableReadLockHeld, "upgradeable reader") }
+            .Where(hold => hold.Item1).Select(hold => hold.Item2)];
+    }
+
+    private static ReaderWriterLockSlimWrapper GetLibraryGate(BMSLibrary library, string fieldName)
+    {
         FieldInfo? field = typeof(BMSLibrary).GetField(
             fieldName,
             BindingFlags.Instance | BindingFlags.NonPublic);
@@ -244,10 +266,7 @@ internal static class InstallServiceComponentTestSupport
         Assert.IsNotNull(gateValue, fieldName + " was not found.");
         var gate = gateValue as ReaderWriterLockSlimWrapper;
         Assert.IsNotNull(gate, fieldName + " was not a reader/writer gate.");
-        // 再帰writerの再取得では解放を証明できないため、通知thread自身の三種類の所有を直接確認します。
-        Assert.IsFalse(gate.IsReadLockHeld, fieldName + " reader was held by the subscriber thread.");
-        Assert.IsFalse(gate.IsWriteLockHeld, fieldName + " writer was held by the subscriber thread.");
-        Assert.IsFalse(gate.IsUpgradeableReadLockHeld, fieldName + " upgradeable reader was held by the subscriber thread.");
+        return gate;
     }
 
     /// <summary>専用DBを準備し、callbackの実Task終端とDB接続の解放後にケース領域を回収します。</summary>

@@ -846,6 +846,126 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
+    /// 保証：重複検索が新しい群を格納したら、群の変更通知は検索から戻る前に呼出しスレッドへ、ライブラリの全ロックの解放後に配送され、
+    /// 通知時点で戻り後と同じ群を読める。群の通知は警告の一覧通知より先に届き、0群でも警告の変更が無くても通知し、キャッシュ命中では通知しない。
+    /// 通知先の失敗は検索の結果と警告の一覧通知を妨げない。
+    /// </summary>
+    /// <remarks>
+    /// 受け手は群の通知の中で一覧の構築を失効させるため、通知が検索の戻り後に遅れて届くと、データ準備の完成通知や保守結果の後に受理した表示要求を取り消す。
+    /// 遅い通知による取消し自体は契約上起こらない順序なので再現せず、通知の時機と所在をここで固定する。
+    /// 通知先は失敗を記録だけで握る経路から呼ばれるため、通知先の中では表明せず、観測値を記録して戻り後に表明する。
+    /// 読取りロックの保持は公開の状態から区別できないため、非公開の3つのロックを直接読む。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("duplicates")]
+    [DataRow("noDuplicates")]
+    [DataRow("subscriberThrows")]
+    public void SearchDuplicateChartGroups_DeliversGroupsChangeOnCallerAfterAllLocksBeforeReturn(string scenario)
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            ChartFile first = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", @"C:\BMS\DirA\a.bms");
+            bool hasDuplicates = scenario != "noDuplicates";
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null))
+            {
+                BmsCharts = hasDuplicates ? [first, CreateFile(first.Md5, @"C:\BMS\DirB\b.bms")] : [first]
+            };
+            string[] gateNames = ["rwlockBMSFilesInitializedMin", "rwlockBMSFiles", "rwlockDuplicateChartGroups"];
+            var groupNotifications = new List<(int ThreadId, string[] Holds, List<DuplicateGroup>? Groups)>();
+            var order = new List<string>();
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName is not (nameof(BMSLibrary.DuplicateChartGroups) or nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))) { return; }
+                order.Add(args.PropertyName);
+                if (args.PropertyName == nameof(BMSLibrary.DuplicateChartGroups))
+                {
+                    groupNotifications.Add((Environment.CurrentManagedThreadId,
+                        [.. gateNames.SelectMany(name => InstallServiceComponentTestSupport.CaptureLibraryGateHoldsOnCurrentThread(library, name)
+                            .Select(hold => name + "の" + hold))],
+                        library.DuplicateChartGroups));
+                }
+                if (scenario == "subscriberThrows") { throw new InvalidOperationException("subscriber failed: " + args.PropertyName); }
+            };
+            int caller = Environment.CurrentManagedThreadId;
+
+            library.SearchDuplicateChartGroups();
+
+            var afterReturn = groupNotifications.ToList();
+            List<DuplicateGroup>? groups = library.DuplicateChartGroups;
+            Assert.IsTrue(afterReturn.Count >= 1, "SearchDuplicateChartGroupsの戻り前にグループ変更通知が配送されていません。");
+            Assert.IsNotNull(groups, "購読者の失敗が検索の結果を妨げました。");
+            foreach ((int threadId, string[] holds, List<DuplicateGroup>? observed) in afterReturn)
+            {
+                Assert.AreEqual(caller, threadId, $"グループ変更通知を呼出しスレッド（{caller}）以外の{threadId}で配送しました。");
+                Assert.AreEqual(0, holds.Length, string.Join("、", holds) + "を保持したままグループ変更通知を配送しました。");
+                Assert.AreSame(groups, observed, "グループ変更通知の時点で、戻り後と同じ群を読めません。");
+            }
+            Assert.AreEqual(hasDuplicates ? 1 : 0, groups.Count, "検索結果の群数の前提");
+            int warningNotifications = order.Count(name => name == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion));
+            if (hasDuplicates)
+            {
+                Assert.IsTrue(warningNotifications >= 1, "購読者の失敗が検索の結果または警告の一覧通知を妨げました。");
+                Assert.IsTrue(order.IndexOf(nameof(BMSLibrary.DuplicateChartGroups)) < order.IndexOf(nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)),
+                    "グループ変更通知を警告の一覧通知より後に配送しました（順序：" + string.Join(", ", order) + "）。");
+            }
+            else
+            {
+                Assert.AreEqual(0, warningNotifications, "警告の変更が無い検索の前提");
+            }
+            foreach (string name in gateNames)
+            {
+                Assert.AreEqual(0, InstallServiceComponentTestSupport.CaptureLibraryGateHoldsOnCurrentThread(library, name).Length, name + "を検索の戻り後も保持しています。");
+            }
+
+            library.SearchDuplicateChartGroups();
+
+            Assert.AreEqual(afterReturn.Count, groupNotifications.Count, "キャッシュ命中でグループ変更通知を配送しました。");
+            Assert.AreSame(groups, library.DuplicateChartGroups);
+        });
+    }
+
+    /// <summary>保証：群のsetterは、値が変わったときだけ、setterから戻る前に呼出しスレッドで変更を通知し、通知時点で新しい値を読める。</summary>
+    /// <remarks>群を直接差し替える画面のテストは、この同期通知で「群の変更通知の後に保守結果が返る」順序を入力するため、遅い通知へ戻ることをここで検出する。</remarks>
+    [TestMethod]
+    public void DuplicateChartGroupsSetter_DeliversChangeOnCallerBeforeReturnAndSkipsSameValue()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath,
+                null,
+                null,
+                new TestFileMutationService(),
+                new RecordingDialogService(),
+                new TestUiScheduler(() => null));
+            var notifications = new List<(int ThreadId, List<DuplicateGroup>? Groups)>();
+            library.PropertyChanged += (_, args) =>
+            {
+                if (args.PropertyName == nameof(BMSLibrary.DuplicateChartGroups))
+                { notifications.Add((Environment.CurrentManagedThreadId, library.DuplicateChartGroups)); }
+            };
+            List<DuplicateGroup> groups = [];
+            int caller = Environment.CurrentManagedThreadId;
+
+            library.DuplicateChartGroups = groups;
+
+            Assert.AreEqual(1, notifications.Count, "setterの戻り前にグループ変更通知が配送されていません。");
+            Assert.AreEqual(caller, notifications[0].ThreadId, $"グループ変更通知を呼出しスレッド（{caller}）以外の{notifications[0].ThreadId}で配送しました。");
+            Assert.AreSame(groups, notifications[0].Groups, "グループ変更通知の時点で新しい値を読めません。");
+
+            library.DuplicateChartGroups = groups;
+
+            Assert.AreEqual(1, notifications.Count, "同じ値の再代入でグループ変更通知を配送しました。");
+        });
+    }
+
+    /// <summary>
     /// BMSとBMSONの重複を検索後にBMSONを除くと、再検索で群と警告を解除し、失効後の古い重複表示を検出します。
     /// </summary>
     [TestMethod]

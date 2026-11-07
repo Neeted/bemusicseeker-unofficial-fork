@@ -959,9 +959,8 @@ public sealed class RegularChartNavigationTests
         var scheduler = new PendingInstallTargetScheduler(probe);
         using var companionRelease = new ManualResetEventSlim(false);
         using var groupsRelease = new ManualResetEventSlim(false);
-        using var publicationRelease = new ManualResetEventSlim(false);
         var companionReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var groupsReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var groupsReached = new TaskCompletionSource<(bool LocksReleased, bool OnUi)>(TaskCreationOptions.RunContinuationsAsynchronously);
         var published = new TaskCompletionSource<(CatalogCommitReceipt Receipt, bool LocksReleased, bool OnUi)>(TaskCreationOptions.RunContinuationsAsynchronously);
         int enabled = 0;
         int companionClaimed = 0;
@@ -977,7 +976,15 @@ public sealed class RegularChartNavigationTests
             if (args.PropertyName == nameof(BMSLibrary.DuplicateChartGroups) && addedPath != null
                 && library.DuplicateChartGroups?.SelectMany(group => group.ChartFiles).Any(chart => chart.Path == addedPath) == true
                 && Interlocked.CompareExchange(ref groupsClaimed, 1, 0) == 0)
-            { groupsReached.TrySetResult(); groupsRelease.Wait(); return; }
+            {
+                // グループ通知は警告の一覧通知より先に届く契約なので、受け手より前のここで止め、受け手の失効とツリー更新を後発の受理より後へ遅らせる。
+                // 通知先の失敗は記録だけで握られるため、ここでは表明せず観測値を記録する。
+                bool groupsOnUi = TestUiDispatcherHost.Dispatcher.CheckAccess();
+                groupsReached.TrySetResult((!library.IsWriteLockHeldInitializeMin && !library.IsWriteLockHeldInitializeBMSFiles
+                    && !library.IsWriteLockHeldDuplicateChartGroups, groupsOnUi));
+                if (!groupsOnUi) { groupsRelease.Wait(); }
+                return;
+            }
             if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion) || addedPath == null
                 || library.DuplicateChartGroups?.SelectMany(group => group.ChartFiles).Any(chart => chart.Path == addedPath) != true) { return; }
             CatalogCommitReceipt? receipt = library.GetNormalLibraryRefreshNotificationsAfter(0).CatalogCommits.FirstOrDefault(commit =>
@@ -987,8 +994,6 @@ public sealed class RegularChartNavigationTests
             published.TrySetResult((receipt, !library.IsWriteLockHeldInitializeMin
                 && !library.IsWriteLockHeldInitializeBMSFiles && !library.IsWriteLockHeldDuplicateChartGroups,
                 TestUiDispatcherHost.Dispatcher.CheckAccess()));
-            if (TestUiDispatcherHost.Dispatcher.CheckAccess()) { publicationRelease.Set(); return; }
-            publicationRelease.Wait();
         };
         try
         {
@@ -1126,7 +1131,7 @@ public sealed class RegularChartNavigationTests
                             {
                                 await pendingProducer;
                                 if (producerMustRemainPending) { Assert.Fail(name + ": 正規要求が必要通知前に終端しました。"); }
-                                // 解析本体の完了後も、別に配送されるグループ変更と失効通知を回収する。
+                                // 解析本体の完了後も、解析本体とは別に配送される失効通知を回収する。
                                 pendingProducer = null;
                             }
                         }
@@ -1148,15 +1153,13 @@ public sealed class RegularChartNavigationTests
                         Assert.IsNull(fixture.Library.DuplicateChartGroups);
                         a = vm.RegularChartList.NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected);
                         phase.TaskState("A-started", a);
-                        phase.TaskState("A-public-gate-await", published.Task);
-                        await TestUiDispatcherHost.AwaitNotificationAsync(published.Task, a, "A actual public gate");
-                        phase.TaskState("A-public-gate-reached", published.Task);
                         phase.TaskState("A-groups-gate-await", groupsReached.Task);
                         await TestUiDispatcherHost.AwaitNotificationAsync(groupsReached.Task, a, "A new groups gate");
                         phase.TaskState("A-groups-gate-reached", groupsReached.Task);
                         Assert.IsFalse(a.IsCompleted);
-                        Assert.IsTrue((await published.Task).LocksReleased);
-                        Assert.IsFalse((await published.Task).OnUi, "公開gateをUIで永久保持しません。");
+                        Assert.IsTrue((await groupsReached.Task).LocksReleased, "グループ通知を全ロックの解放後に配送します。");
+                        Assert.IsFalse((await groupsReached.Task).OnUi, "グループgateをUIで永久保持しません。");
+                        Assert.IsFalse(published.Task.IsCompleted, "グループ通知の保留中に警告の一覧通知が配送されました。");
                         Task data = Own(fixture.CaptureData());
                         scheduler.Arm(); Volatile.Write(ref watch, 1);
                         b = vm.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected, fixture.Package);
@@ -1165,7 +1168,11 @@ public sealed class RegularChartNavigationTests
                         Task held = await scheduler.Held.Task;
                         Assert.IsFalse(held.IsCompleted); Assert.IsFalse(b.IsCompleted);
                         phase.TaskState("B-held", held);
-                        groupsRelease.Set(); publicationRelease.Set(); companionRelease.Set(); phase.Write("A-gates-released");
+                        groupsRelease.Set(); companionRelease.Set(); phase.Write("A-gates-released");
+                        phase.TaskState("A-public-await", published.Task);
+                        await TestUiDispatcherHost.AwaitNotificationAsync(published.Task, a, "A actual public notification");
+                        Assert.IsTrue((await published.Task).LocksReleased);
+                        Assert.IsFalse((await published.Task).OnUi, "警告の一覧通知を準備側のスレッドで配送します。");
                         await AwaitActualAsync(data, "A-data-cache-catalog-ready-ack");
                         await AwaitActualAsync(a, "A-stale-navigation");
                         await AwaitActualAsync(Own(fixture.AwaitReadyAsync()), "A-ready-presentations");
@@ -1202,7 +1209,7 @@ public sealed class RegularChartNavigationTests
                     catch (Exception exception) { failed = true; phase.Write("coordinator-failed", exception.ToString()); throw; }
                     finally
                     {
-                        groupsRelease.Set(); publicationRelease.Set(); companionRelease.Set(); scheduler.Release();
+                        groupsRelease.Set(); companionRelease.Set(); scheduler.Release();
                         phase.Write("cleanup-gates-released", "failed=" + failed);
                         Task StartStop()
                         {
@@ -1245,7 +1252,7 @@ public sealed class RegularChartNavigationTests
                 catch { coordinatorFailed = true; throw; }
                 finally
                 {
-                    groupsRelease.Set(); publicationRelease.Set(); companionRelease.Set(); scheduler.Release();
+                    groupsRelease.Set(); companionRelease.Set(); scheduler.Release();
                     try { TestUiDispatcherHost.AwaitTaskOnDispatcher(coordinator, "pending target coordinator cleanup"); }
                     catch (Exception exception) when (coordinatorFailed) { phase.Write("coordinator-reobservation", exception.ToString()); }
                     finally

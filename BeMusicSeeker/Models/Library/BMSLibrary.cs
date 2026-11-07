@@ -1190,6 +1190,11 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>
     /// 重複検出済みの chart group 一覧です。重複検出処理の結果が格納されます。
     /// </summary>
+    /// <remarks>
+    /// 値が変わった場合は、setterから戻る前に呼出しスレッドで変更を通知します。受け手は通知の中で一覧の構築を失効させるため、
+    /// 通知を後から配送すると、その後に受理した表示要求を取り消します。通知先を同期に呼ぶので、ライブラリのロックを保持したまま呼びません。
+    /// <see cref="SearchDuplicateChartGroups"/> はロック内でこのsetterを使わず、ロック解放後に同じ通知を配送します。
+    /// </remarks>
     public List<DuplicateGroup> DuplicateChartGroups
     {
         get
@@ -1201,10 +1206,7 @@ public partial class BMSLibrary : ObservableObject
             if (_DuplicateChartGroups != value)
             {
                 _DuplicateChartGroups = value;
-                Task.Run(delegate
-                {
-                    RaisePropertyChanged("DuplicateChartGroups");
-                }).ObserveFault("DuplicateChartGroups");
+                RaisePropertyChanged(nameof(DuplicateChartGroups));
             }
         }
     }
@@ -8743,10 +8745,16 @@ public partial class BMSLibrary : ObservableObject
     /// ライブラリ内の重複 chart を検出し、Union-Find でディレクトリグループ化した結果を <see cref="DuplicateChartGroups"/> に格納します。
     /// 警告の実変更はcurrent・版・不変結果へ確定し、全排他解放後に既存の一覧通知を起動します。
     /// </summary>
+    /// <remarks>
+    /// 新しい結果を格納した場合は、全排他の解放後、このメソッドから戻る前に、呼出しスレッドで <see cref="DuplicateChartGroups"/> の変更を通知します。
+    /// 受け手は通知の中で一覧の構築を失効させるため、データ準備の完成通知と保守結果より先に配送し、その後に受理した表示要求を取り消させません。
+    /// グループの通知は警告の一覧通知より先に配送し、同じ解析の警告差分を受け取る側が、グループ変更による失効とツリーの更新を反映済みの状態を観測できるようにします。キャッシュ命中では通知しません。
+    /// </remarks>
     public void SearchDuplicateChartGroups()
     {
         var totalStopwatch = Stopwatch.StartNew();
         bool committedWarningChange = false;
+        bool groupsChanged = false;
         try
         {
             using (rwlockBMSFilesInitializedMin.GetReaderGuard())
@@ -8804,7 +8812,9 @@ public partial class BMSLibrary : ObservableObject
                         }
                         long applyWarningsMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                         stageStartMs = totalStopwatch.ElapsedMilliseconds;
-                        DuplicateChartGroups = analysis.DuplicateGroups;
+                        // setterはロック内で通知先を同期に呼ぶため使わず、通知は全排他の解放後に配送する。キャッシュ命中は上で戻るため、ここでは常に新しい結果になる。
+                        _DuplicateChartGroups = analysis.DuplicateGroups;
+                        groupsChanged = true;
                         long propertySetMs = totalStopwatch.ElapsedMilliseconds - stageStartMs;
                         totalStopwatch.Stop();
                         LogInstallPerformance("SearchDuplicateChartGroups: cacheHit=false"
@@ -8828,6 +8838,12 @@ public partial class BMSLibrary : ObservableObject
         }
         finally
         {
+            if (groupsChanged)
+            {
+                TryInvokePostLeaseNotification(
+                    () => RaisePropertyChanged(nameof(DuplicateChartGroups)),
+                    "duplicate_chart_groups_notification_failed");
+            }
             if (committedWarningChange)
             {
                 TryInvokePostLeaseNotification(

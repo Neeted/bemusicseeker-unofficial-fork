@@ -2549,7 +2549,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         }, terminal, hashSource: true, fileMutations: mutations);
     }
 
-    /// <summary>成功時の捕捉対象が消えて同見出しの別群だけが残った場合、rootや別群へ切替せず左選択・旧行選択・一覧を解除します。</summary>
+    /// <summary>保証：成功時の捕捉対象が消えて同見出しの別群だけが残った場合、rootや別群へ切り替えず、左選択・旧行選択・一覧を解除する。</summary>
+    /// <remarks>
+    /// 群のsetterは戻る前に呼出しスレッドで変更を通知するため、群の差替えの後に保守結果を完了させると、本番と同じ「群の変更通知の後に結果が返る」順序を入力できる。
+    /// 通知が結果の後に遅れて届く順序は契約上起こらず、その時機は <c>BmsLibraryDuplicateServiceTests</c>（Core）が固定する。
+    /// </remarks>
     [TestMethod]
     public void DuplicateSelections_DisappearedTargetClearsTreeAndRowsWithoutHeaderFallback()
     {
