@@ -232,7 +232,11 @@ public sealed class SettingDialogOperationShutdownTests
                 Assert.IsTrue(owner.IsInitializationCompleted && owner.HasActiveLibraryProfile);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "manual-resync-shell-background-terminal");
                 // このcaseは元Ownerを持つ実確認モーダルとOKボタンの応答まで観測します。
-                fixture.Dialogs.ConfirmationObservedAsync = request => new UiDialogCoordinator().ConfirmAsync(request);
+                fixture.Dialogs.ConfirmationObservedAsync = request => new UiDialogCoordinator(new UiDialogOwnerResolver(), window =>
+                {
+                    scope.PrepareForOwnedPresentation(window);
+                    return UiDialogOwnerResolver.PushActiveModal(window);
+                }).ConfirmAsync(request);
                 owner.SettingDialog.Dispose();
                 var dialog = new SettingsDialogViewModel(fixture.Composition.DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
                     fixture.Composition, owner.PlaybackPanel, new Lr2SongDbSyncWorkflowOwner(terminalRuntime), settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(fixture.Composition.DatabaseScope)),

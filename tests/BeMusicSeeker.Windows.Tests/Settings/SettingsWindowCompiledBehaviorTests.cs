@@ -224,7 +224,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                finally
+                {
+                    owner.SettingDialog.Dispose();
+                }
             }
         });
     }
@@ -929,7 +936,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                finally
+                {
+                    owner.SettingDialog.Dispose();
+                }
             }
         });
     }
@@ -981,7 +995,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                finally
+                {
+                    owner.SettingDialog.Dispose();
+                }
             }
         });
     }
@@ -1248,7 +1269,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                finally
+                {
+                    owner.SettingDialog.Dispose();
+                }
             }
         });
     }
@@ -1294,7 +1322,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                finally
+                {
+                    owner.SettingDialog.Dispose();
+                }
             }
         });
     }
@@ -1338,7 +1373,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                finally
+                {
+                    owner.SettingDialog.Dispose();
+                }
             }
         });
     }
@@ -1450,8 +1492,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
-                window?.Close();
-                owner?.SettingDialog.Dispose();
+                try
+                {
+                    window?.CloseForOwnerShutdown();
+                }
+                finally
+                {
+                    owner?.SettingDialog.Dispose();
+                }
                 ResourceService.Current.ChangeCulture(previousCulture);
                 Directory.Delete(scope, recursive: true);
             }
@@ -1551,11 +1599,14 @@ public sealed class SettingsWindowCompiledBehaviorTests
             }
             finally
             {
-                if (window?.IsVisible == true)
+                try
                 {
-                    window.CloseForOwnerShutdown();
+                    window?.CloseForOwnerShutdown();
                 }
-                owner?.SettingDialog.Dispose();
+                finally
+                {
+                    owner?.SettingDialog.Dispose();
+                }
             }
         });
     }

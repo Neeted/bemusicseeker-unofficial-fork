@@ -62,7 +62,19 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            // 無効なURLの通知は記録用の窓口で受け、既定のUiDialogCoordinatorによる実モーダルの表示と待機を避けます。
+            var notifications = new SettingsDialogHarness.RecordingDialogService
+            {
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            MainWindowViewModel owner = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
+                settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
+                settingsDialogService: notifications,
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                .CreateMainWindowViewModelForTest();
             using SettingsDialogViewModel settings = owner.SettingDialog;
             var presentationPort = new RecordingPresentationPort();
             settings.AttachPresentationPort(presentationPort);
@@ -110,6 +122,8 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage));
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
+
+                Assert.IsTrue(notifications.MessageCount > 0, "無効なURLの通知は注入した窓口へ届きます。");
 
                 var firstClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 EventHandler firstClosedHandler = (_, _) => firstClosed.TrySetResult();
@@ -871,7 +885,14 @@ public sealed class SettingsWindowPresentationTests
             }
             finally
             {
-                owner.SettingDialog.Dispose();
+                try
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                finally
+                {
+                    owner.SettingDialog.Dispose();
+                }
             }
         });
     }
@@ -904,13 +925,27 @@ public sealed class SettingsWindowPresentationTests
             dialogs.ExpectedOwner = window;
             string folderNameFormatBefore = owner.SettingDialog.FolderNameFormat;
 
-            window.HandleShowReleaseNotesAsync().GetAwaiter().GetResult();
+            try
+            {
+                window.HandleShowReleaseNotesAsync().GetAwaiter().GetResult();
 
-            Assert.AreEqual(1, dialogs.WindowCount);
-            Assert.AreSame(owner.SettingDialog, dialogs.CreatedWindow!.DataContext);
-            Assert.AreEqual(WindowStartupLocation.CenterOwner, dialogs.CreatedWindow.WindowStartupLocation);
-            Assert.IsFalse(dialogs.CreatedWindow.ShowInTaskbar);
-            Assert.AreEqual(folderNameFormatBefore, owner.SettingDialog.FolderNameFormat);
+                Assert.AreEqual(1, dialogs.WindowCount);
+                Assert.AreSame(owner.SettingDialog, dialogs.CreatedWindow!.DataContext);
+                Assert.AreEqual(WindowStartupLocation.CenterOwner, dialogs.CreatedWindow.WindowStartupLocation);
+                Assert.IsFalse(dialogs.CreatedWindow.ShowInTaskbar);
+                Assert.AreEqual(folderNameFormatBefore, owner.SettingDialog.FolderNameFormat);
+            }
+            finally
+            {
+                try
+                {
+                    dialogs.CreatedWindow?.Close();
+                }
+                finally
+                {
+                    window.CloseForOwnerShutdown();
+                }
+            }
         });
     }
 
