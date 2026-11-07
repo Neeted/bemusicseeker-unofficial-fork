@@ -160,8 +160,8 @@ public sealed class RegularChartCommitAndLifecycleTests
         table.RowsReplacementCanceled += (_, _) =>
         {
             canceled++;
-            Task lockProbe = StartLongRunning(owner.InvalidatePendingRequest);
-            Assert.IsTrue(lockProbe.Wait(TimeSpan.FromSeconds(5)), "RowsReplacementCanceled must run after the regular owner lock is released.");
+            Task lockProbe = ConcurrencyProbe.StartDedicated(owner.InvalidatePendingRequest);
+            ConcurrencyProbe.AssertCompletesWhileHeld(lockProbe, "RowsReplacementCanceled must run after the regular owner lock is released.");
         };
 
         RegularChartListTerminalResult terminal = owner.TryCommit(lease, CreateTerminalInput(build));

@@ -1294,7 +1294,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             List<BMSTable> snapshot = workspace.CapturePlaylistTreeTablesSnapshot();
 
             CollectionAssert.AreEqual(new[] { first, second }, snapshot);
-            Task<bool> writerProbe = Task.Run(() =>
+            Task<bool> writerProbe = ConcurrencyProbe.StartDedicated(() =>
             {
                 playlist.AcquireWriterLockBMSTables();
                 try
@@ -1306,19 +1306,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                     playlist.FreeWriterLockBMSTables();
                 }
             });
-            bool writerCompleted = writerProbe.Wait(TimeSpan.FromSeconds(2));
-            try
-            {
-                Assert.IsTrue(writerCompleted);
-                Assert.IsTrue(writerProbe.GetAwaiter().GetResult());
-            }
-            finally
-            {
-                if (!writerCompleted)
-                {
-                    writerProbe.Wait();
-                }
-            }
+            ConcurrencyProbe.AssertCompletesWhileHeld(writerProbe, "書込みlock取得");
+            Assert.IsTrue(writerProbe.GetAwaiter().GetResult());
         }
         finally
         {

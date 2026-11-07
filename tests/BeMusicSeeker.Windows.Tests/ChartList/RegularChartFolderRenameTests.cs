@@ -122,7 +122,7 @@ public sealed class RegularChartFolderRenameTests
                 suppressionEntered.Wait();
 
                 using var stopStarted = new ManualResetEventSlim();
-                stopTask = StartLongRunningAsync(async delegate
+                stopTask = ConcurrencyProbe.StartDedicatedAsync(async delegate
                 {
                     stopStarted.Set();
                     await owner.StopAsync();

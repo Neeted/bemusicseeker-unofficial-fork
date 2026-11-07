@@ -22,8 +22,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             Task save = Task.CompletedTask;
             gateway.Session.BeforeStart = () =>
             {
-                save = Task.Run(() => owner.SaveRoots(new Lr2RootChange([], [Path.Combine(root, "B")])));
-                Assert.IsTrue(save.Wait(TimeSpan.FromSeconds(2)), "process待機の間もXML所有者の保存排他を解放します。");
+                save = ConcurrencyProbe.StartDedicated(() => owner.SaveRoots(new Lr2RootChange([], [Path.Combine(root, "B")])));
+                ConcurrencyProbe.AssertCompletesWhileHeld(save, "process待機の間もXML所有者の保存排他を解放します。");
                 save.GetAwaiter().GetResult();
                 Assert.AreEqual("800", ReadLr2Value(XDocument.Load(path), "system", "windowsize_x"));
                 Assert.AreEqual(640, owner.Capture().WindowSizeX);

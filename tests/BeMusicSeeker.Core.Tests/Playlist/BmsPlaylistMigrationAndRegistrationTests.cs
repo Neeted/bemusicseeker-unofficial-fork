@@ -2179,10 +2179,9 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 });
 
                 await TestUiDispatcherHost.AwaitNotificationAsync(commitStarted.Task, reverseOrderCommit, "playlist-entry.commit-start");
-                Assert.IsTrue(
-                    SpinWait.SpinUntil(
-                        () => first.ReaderWriterLock.WaitingWriteCount > 0,
-                        TimeSpan.FromSeconds(5)),
+                ConcurrencyProbe.WaitUntil(
+                    () => first.ReaderWriterLock.WaitingWriteCount > 0,
+                    reverseOrderCommit,
                     "The reverse-order commit did not reach the held first-table writer lock.");
                 Assert.AreEqual(0u, second.ReaderWriterLock.LockingWriteCount);
             }

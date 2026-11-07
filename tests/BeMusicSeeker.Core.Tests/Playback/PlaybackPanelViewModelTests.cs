@@ -2411,17 +2411,18 @@ public sealed class PlaybackPanelViewModelTests
         var player = new FakeBmsPlayer();
         PlaybackPanelViewModel panel = CreatePanel(testSettings, player);
         ChartFile replacementSession = ChartTestValues.Empty();
-        bool sessionProbeCompleted = false;
+        Task? sessionProbe = null;
         player.BeforeClose = () =>
         {
-            Task probe = Task.Run(() => panel.BeginPlayback(replacementSession, 7));
-            sessionProbeCompleted = probe.Wait(TimeSpan.FromSeconds(2));
+            sessionProbe = ConcurrencyProbe.StartDedicated(() => panel.BeginPlayback(replacementSession, 7));
+            ConcurrencyProbe.AssertCompletesWhileHeld(sessionProbe, "player Close中のsession開始");
         };
 
         panel.BeginPlayback(ChartTestValues.Empty(), 3);
         panel.StopPlayback(closeProcess: true).GetAwaiter().GetResult();
 
-        Assert.IsTrue(sessionProbeCompleted);
+        Assert.IsNotNull(sessionProbe);
+        sessionProbe.GetAwaiter().GetResult();
         Assert.AreSame(replacementSession, panel.NowPlayingChart);
     }
 

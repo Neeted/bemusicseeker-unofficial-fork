@@ -808,10 +808,12 @@ public sealed class ChartInfoInlineHydrationTests
             {
                 await TestUiDispatcherHost.AwaitNotificationAsync(lockAcquired.Task, lockHolder, "chart-info.write-lock-acquired");
                 Assert.IsFalse(lockHolder.IsCompleted);
-                lookupTask = Task.Run(() => gateway.LoadChartInfosBySha256([sha256]));
-                // 共有書込みlock保持中に読取りが完了するかを観測する既存2秒。
-                Task first = await Task.WhenAny(lookupTask, lockHolder, Task.Delay(TimeSpan.FromSeconds(2)));
-                Assert.AreSame(lookupTask, first, "chart_info lookup should not wait for the writable process lock when schema is current.");
+                lookupTask = ConcurrencyProbe.StartDedicated(() => gateway.LoadChartInfosBySha256([sha256]));
+                // 共有書込みlockの保持側が判定まで保持し続け、保持中に読取りが完了するかを停止検出の期限内で観測する。
+                await ConcurrencyProbe.AssertCompletesWhileHeldAsync(
+                    lookupTask,
+                    "chart_info lookup should not wait for the writable process lock when schema is current.",
+                    lockHolder);
                 Dictionary<string, BeMusicSeeker.Models.ChartDetails> rows = await lookupTask;
                 Assert.IsFalse(lockHolder.IsCompleted);
                 Assert.AreEqual(1, rows.Count);

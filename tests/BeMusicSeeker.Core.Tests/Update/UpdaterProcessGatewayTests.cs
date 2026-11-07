@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Runtime.ExceptionServices;
 using System.Text.Json;
 using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Components.Update;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
@@ -261,27 +262,25 @@ public sealed class UpdaterProcessGatewayTests
                 callbackEntered.TrySetResult();
                 releaseCallback.Wait();
             });
-        Task proceedTask = Task.Factory.StartNew(
-            receipt.Proceed, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        Task proceedTask = ConcurrencyProbe.StartDedicated(receipt.Proceed);
         Task? competingAbort = null;
         Exception? primaryFailure = null;
         try
         {
             await TestUiDispatcherHost.AwaitNotificationAsync(callbackEntered.Task, proceedTask, "updater-receipt.proceed-callback");
             Assert.IsFalse(proceedTask.IsCompleted, "Proceed must still be held inside its callback.");
-            competingAbort = Task.Factory.StartNew(
-                () =>
-                {
-                    abortAttempted.TrySetResult();
-                    receipt.Abort();
-                },
-                CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            competingAbort = ConcurrencyProbe.StartDedicated(() =>
+            {
+                abortAttempted.TrySetResult();
+                receipt.Abort();
+            });
             await TestUiDispatcherHost.AwaitNotificationAsync(abortAttempted.Task, competingAbort, "updater-receipt.abort-attempt");
             Assert.IsFalse(proceedTask.IsCompleted, "Proceed must remain held before the competing decision.");
-            // callback保持中の排他不成立を観測する既存1秒。通常到達・解放後の完了待ちには使わない。
-            var cutoff = Task.Delay(TimeSpan.FromSeconds(1));
-            Task first = await Task.WhenAny(competingAbort, proceedTask, cutoff);
-            Assert.AreSame(competingAbort, first, "A competing decision must complete while the external callback remains held.");
+            // callback保持中の排他不成立だけを停止検出の期限で観測する。保持側(proceedTask)は判定まで保持される。
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(
+                competingAbort,
+                "A competing decision must complete while the external callback remains held.",
+                proceedTask);
             await competingAbort;
             Assert.IsFalse(proceedTask.IsCompleted, "A completed abort must not end or fault the held proceed worker.");
         }

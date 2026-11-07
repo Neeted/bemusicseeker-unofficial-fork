@@ -334,7 +334,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
     {
         var harness = new Harness { GateLeaseAcquisition = true };
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
-        Task<bool> staleSchedule = StartLongRunning(() => owner.Schedule(
+        Task<bool> staleSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(
             new StartupPostInitializationWarmupRequest("old", 24L, 10L)));
         try
         {
@@ -381,14 +381,14 @@ public sealed class StartupPostInitializationWarmupOwnerTests
             GateFirstCancelAfterMiss = true
         };
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
-        Task<bool> staleSchedule = StartLongRunning(() => owner.Schedule(
+        Task<bool> staleSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(
             new StartupPostInitializationWarmupRequest("old", 25L, 11L)));
         Task reset = null;
         try
         {
             harness.QueueEntered.Wait();
 
-            reset = StartLongRunning(() => owner.Reset("new_generation"));
+            reset = ConcurrencyProbe.StartDedicated(() => owner.Reset("new_generation"));
             harness.CancelMissObserved.Wait();
             harness.ReleaseQueue.Set();
 
@@ -427,7 +427,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
             SchedulerGeneration = 0L
         };
         StartupPostInitializationWarmupOwner owner = harness.CreateOwner();
-        Task<bool> staleSchedule = StartLongRunning(() => owner.Schedule(
+        Task<bool> staleSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(
             new StartupPostInitializationWarmupRequest("old", 31L, 0L)));
         Task reset = null;
         Task<bool> newSchedule = null;
@@ -435,7 +435,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         {
             harness.QueueEntered.Wait();
 
-            reset = StartLongRunning(() => owner.Reset("new_generation"));
+            reset = ConcurrencyProbe.StartDedicated(() => owner.Reset("new_generation"));
             harness.CancelMissObserved.Wait();
             harness.SchedulerGeneration = 1L;
             harness.ReleaseQueue.Set();
@@ -443,7 +443,7 @@ public sealed class StartupPostInitializationWarmupOwnerTests
             harness.QueueEntered.Reset();
             harness.ReleaseQueue.Reset();
 
-            newSchedule = StartLongRunning(() => owner.Schedule(
+            newSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(
                 new StartupPostInitializationWarmupRequest("new", 32L, 1L)));
             harness.QueueEntered.Wait();
             harness.ReleaseFirstCancel.Set();
@@ -493,11 +493,11 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         {
             lock (progressLikeLock)
             {
-                staleSchedule = StartLongRunning(() => owner.Schedule(
+                staleSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(
                     new StartupPostInitializationWarmupRequest("late", 33L, 0L)));
                 harness.ReserveEntered.Wait();
 
-                reset = StartLongRunning(() => owner.Reset("progress_reset"));
+                reset = ConcurrencyProbe.StartDedicated(() => owner.Reset("progress_reset"));
                 reset.Wait();
             }
 
@@ -541,11 +541,11 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         {
             lock (progressLikeLock)
             {
-                oldSchedule = StartLongRunning(() => owner.Schedule(
+                oldSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(
                     new StartupPostInitializationWarmupRequest("old", 34L, 0L)));
                 harness.ReserveEntered.Wait();
 
-                newSchedule = StartLongRunning(() => owner.Schedule(
+                newSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(
                     new StartupPostInitializationWarmupRequest("new", 35L, 0L)));
                 newSchedule.Wait();
                 Assert.IsTrue(newSchedule.Result);
@@ -600,10 +600,10 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         {
             lock (progressLikeLock)
             {
-                oldSchedule = StartLongRunning(() => owner.Schedule(oldRequest));
+                oldSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(oldRequest));
                 harness.ReserveEntered.Wait();
 
-                newSchedule = StartLongRunning(() => owner.Schedule(newRequest));
+                newSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(newRequest));
                 harness.LeaseAcquireEntered.Wait();
             }
 
@@ -659,10 +659,10 @@ public sealed class StartupPostInitializationWarmupOwnerTests
         Task<bool> newSchedule = null;
         try
         {
-            oldSchedule = StartLongRunning(() => owner.Schedule(oldRequest));
+            oldSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(oldRequest));
             harness.ReservationOneAccepted.Wait();
 
-            newSchedule = StartLongRunning(() => owner.Schedule(newRequest));
+            newSchedule = ConcurrencyProbe.StartDedicated(() => owner.Schedule(newRequest));
             harness.ReservationTwoAccepted.Wait();
 
             harness.ReleaseReservationOne.Set();
@@ -704,24 +704,6 @@ public sealed class StartupPostInitializationWarmupOwnerTests
                 await newSchedule;
             }
         }
-    }
-
-    private static Task StartLongRunning(Action action)
-    {
-        return Task.Factory.StartNew(
-            action,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
-    }
-
-    private static Task<T> StartLongRunning<T>(Func<T> action)
-    {
-        return Task.Factory.StartNew(
-            action,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
     }
 
     private sealed class Harness

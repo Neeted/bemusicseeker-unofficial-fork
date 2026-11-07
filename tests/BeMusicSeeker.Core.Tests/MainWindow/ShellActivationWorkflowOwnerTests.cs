@@ -1,4 +1,5 @@
 using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
@@ -74,18 +75,7 @@ public sealed class ShellActivationWorkflowOwnerTests
             _ => throw new InvalidOperationException(),
             () => { },
             _ => { },
-            action => StartLongRunningAsync(action),
+            action => ConcurrencyProbe.StartDedicatedAsync(action),
             action => action());
     }
-
-    private static Task StartLongRunningAsync(Func<Task> action)
-    {
-        return Task.Factory.StartNew(
-                action,
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default)
-            .Unwrap();
-    }
-
 }

@@ -177,13 +177,13 @@ public sealed class PlaylistViewPipelineTests
         table.RowsReplacementCanceled += (_, _) =>
         {
             canceledCount++;
-            var lockProbe = Task.Run(() =>
+            Task lockProbe = ConcurrencyProbe.StartDedicated(() =>
             {
                 lock (buildState.SyncRoot)
                 {
                 }
             });
-            Assert.IsTrue(lockProbe.Wait(TimeSpan.FromSeconds(5)), "RowsReplacementCanceled must run after the playlist build lock is released.");
+            ConcurrencyProbe.AssertCompletesWhileHeld(lockProbe, "RowsReplacementCanceled must run after the playlist build lock is released.");
         };
 
         PlaylistDetailTerminalCommitResult result = workspace.ApplyDetailTerminal(

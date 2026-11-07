@@ -372,27 +372,6 @@ internal static class RegularChartListOwnerTestSupport
             stopwatch);
     }
 
-    /// <summary>lockとgateの競合をThreadPool枯渇に依存させず観測する専用workerを開始します。</summary>
-    internal static Task StartLongRunning(Action action)
-    {
-        return Task.Factory.StartNew(
-            action,
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default);
-    }
-
-    /// <summary>停止収束を専用workerから開始し、内側の非同期終端まで一つのTaskで回収します。</summary>
-    internal static Task StartLongRunningAsync(Func<Task> action)
-    {
-        return Task.Factory.StartNew(
-                action,
-                CancellationToken.None,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default)
-            .Unwrap();
-    }
-
     /// <summary>受付したUI処理を手動実行待ちにし、予約中の停止と遅い公開を観測します。</summary>
     internal sealed class ActionQueueUiScheduler : IUiScheduler
     {

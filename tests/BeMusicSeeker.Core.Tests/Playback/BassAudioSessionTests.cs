@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
@@ -1154,7 +1155,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void OperationGate_ShutdownAllowsNestedCallAndRejectsNewRootUntilDrain()
     {
-        // 操作leaseとruntime shutdown間の排他・受付遷移が成立しない場合を検出するため、ここでは短い期限を使う。
+        // 到達は期限なしで通知か生成元Taskの終端を待つ。排他・受付遷移が成立しない停止だけを、保持中にStallTimeout以内で完了するかで検出する。
         var gate = new BassAudioOperationGate(initiallyOpen: true);
         using var rootEntered = new ManualResetEventSlim();
         using var allowNested = new ManualResetEventSlim();
@@ -1186,7 +1187,7 @@ public sealed class BassAudioSessionTests
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
 
-        Assert.IsTrue(rootEntered.Wait(TimeSpan.FromSeconds(2)));
+        ConcurrencyProbe.WaitForSignal(rootEntered, rootTask, "root operationの取得");
         Task shutdownTask = Task.Factory.StartNew(
             () =>
             {
@@ -1200,7 +1201,8 @@ public sealed class BassAudioSessionTests
 
         try
         {
-            Assert.IsTrue(gate.WaitForShutdownRequest(TimeSpan.FromSeconds(2)));
+            // 到達待ちのため局所期限を持たせず、期限0の確認を条件として要求かshutdownの終端まで待つ。
+            ConcurrencyProbe.WaitUntil(() => gate.WaitForShutdownRequest(TimeSpan.Zero), shutdownTask, "shutdown要求による新規root受付の停止");
             Assert.IsFalse(gate.TryEnterOperation(out _));
             Task<bool> callbackAdmission = Task.Factory.StartNew(
                 () =>
@@ -1216,14 +1218,14 @@ public sealed class BassAudioSessionTests
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default);
-            Assert.IsTrue(callbackAdmission.Wait(TimeSpan.FromSeconds(2)));
+            ConcurrencyProbe.AssertCompletesWhileHeld(callbackAdmission, "shutdown要求後のcallback受付判定");
             Assert.IsFalse(callbackAdmission.Result);
             allowNested.Set();
-            Assert.IsTrue(nestedCompleted.Wait(TimeSpan.FromSeconds(2)));
+            ConcurrencyProbe.AssertSignalsWhileHeld(nestedCompleted, rootTask, "shutdown要求後も受理済みroot内の継続を許可します。");
             Assert.IsFalse(shutdownBodyEntered.IsSet);
             releaseRoot.Set();
-            Assert.IsTrue(shutdownBodyEntered.Wait(TimeSpan.FromSeconds(2)));
-            Assert.IsTrue(Task.WaitAll([rootTask, shutdownTask], TimeSpan.FromSeconds(2)));
+            ConcurrencyProbe.WaitForSignal(shutdownBodyEntered, shutdownTask, "全root終端後のshutdown本体の開始");
+            Task.WaitAll(rootTask, shutdownTask);
         }
         finally
         {
@@ -1487,7 +1489,7 @@ public sealed class BassAudioSessionTests
     [TestMethod]
     public void OperationGate_WaitingShutdownKeepsAdmissionClosedWhenRuntimeInitializationCompletes()
     {
-        // runtime初期化とshutdown leaseの排他遷移が停止した場合を検出するため、遷移待ちに短い期限を使う。
+        // 到達は期限なしで通知か生成元Taskの終端を待つ。runtime初期化とshutdown leaseの排他遷移の停止だけを、StallTimeoutで検出する。
         var gate = new BassAudioOperationGate();
         using var initializationEntered = new ManualResetEventSlim();
         using var releaseInitialization = new ManualResetEventSlim();
@@ -1504,7 +1506,7 @@ public sealed class BassAudioSessionTests
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
 
-        Assert.IsTrue(initializationEntered.Wait(TimeSpan.FromSeconds(2)));
+        ConcurrencyProbe.WaitForSignal(initializationEntered, initialization, "runtime初期化leaseの取得");
         Task shutdown = Task.Factory.StartNew(
             () =>
             {
@@ -1518,11 +1520,12 @@ public sealed class BassAudioSessionTests
 
         try
         {
-            Assert.IsTrue(gate.WaitForShutdownRequest(TimeSpan.FromSeconds(2)));
+            // 到達待ちのため局所期限を持たせず、期限0の確認を条件として要求かshutdownの終端まで待つ。
+            ConcurrencyProbe.WaitUntil(() => gate.WaitForShutdownRequest(TimeSpan.Zero), shutdown, "shutdown要求による新規root受付の停止");
             Assert.IsFalse(gate.TryEnterOperation(out _));
             releaseInitialization.Set();
-            Assert.IsTrue(shutdownEntered.Wait(TimeSpan.FromSeconds(2)));
-            Assert.IsTrue(Task.WaitAll([initialization, shutdown], TimeSpan.FromSeconds(2)));
+            ConcurrencyProbe.WaitForSignal(shutdownEntered, shutdown, "初期化終端後のshutdown本体の開始");
+            Task.WaitAll(initialization, shutdown);
             Assert.IsFalse(gate.TryEnterOperation(out _));
         }
         finally
@@ -1642,10 +1645,11 @@ public sealed class BassAudioSessionTests
         Task<IReadOnlyList<BassAudioOwnedStream>>? snapshot = null;
         session.TrackPlayerStream(94, new object(), _ =>
         {
-            Task<IReadOnlyList<BassAudioOwnedStream>> inspection = Task.Run(session.GetOwnedStreams);
+            Task<IReadOnlyList<BassAudioOwnedStream>> inspection = ConcurrencyProbe.StartDedicated(session.GetOwnedStreams);
             snapshot = inspection;
-            // callback中の別thread照会がregistry lockに塞がれる不具合を検出する期限。
-            Assert.IsTrue(inspection.Wait(TimeSpan.FromSeconds(5)),
+            // callback保持中の別thread照会がregistry lockに塞がれる停止を、StallTimeout以内の完了で検出する。
+            ConcurrencyProbe.AssertCompletesWhileHeld(
+                inspection,
                 "A release callback must not hold the stream registry lock while it calls its owner.");
             callbackCouldInspectFromAnotherThread = inspection.Result.Count == 0;
         });

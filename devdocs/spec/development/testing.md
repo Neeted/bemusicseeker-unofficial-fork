@@ -261,6 +261,8 @@ DBの準備・観測は検証対象の処理と分けます。入力作成だけ
 
 単なる到達・完了確認には局所的な制限時間を追加せず、停止は検証全体の制限時間で検出します。局所的な制限時間は、外部プロセス、ループバックHTTPのfixture、画面表示、解放、ロックが成立しないことの確認、時間超過の契約の失敗検出に限ります。固定の `Thread.Sleep` や余裕時間としての `Task.Delay` から成功を推測しません。短い否定観測は、通常完了を待つ方法や時間保証の証明とは区別します。
 
+ロックが成立しないこと・デッドロックの確認は、probeを専用スレッドで動かし、保持側が判定まで保持したまま「保持中に完了したか」で判定します。判定は `ConcurrencyProbe.AssertCompletesWhileHeld`・`AssertCompletesWhileHeldAsync`・`AssertSignalsWhileHeld` で行います。`AssertCompletesWhileHeld(Async)` では保持側のTaskを `holder` に、`AssertSignalsWhileHeld` では通知の生成元Taskを `producer` に渡し、それらの先行終端をその場で失敗にします。期限にはTestSupportの `ConcurrencyProbe.StallTimeout` だけを使い、正しい実装の合否には使いません。`ManualResetEventSlim` や条件の成立を同期的に待つ到達待ちは `ConcurrencyProbe.WaitForSignal`・`WaitUntil` で、期限なしに通知または生成元の終端まで待ちます。非同期の成功通知は前段の `AwaitNotificationAsync` を使います。
+
 不安定なテストは共有状態、順序依存、待機、資源競合を調べます。制限時間の延長、再試行の増加、実行担当数や分割数の削減だけで失敗を隠しません。同一版の再実行は[実行期限と失敗分類](#実行期限と失敗分類)に従います。
 
 ### HTTP fixtureの待機と回収
@@ -536,6 +538,7 @@ suiteの起動・前提・本体・通常の回収・実際の終了は一つの
 | UTF-8の両パイプ・所有する子プロセス・親環境 | [OwnedProcess](../../../tests/BeMusicSeeker.TestSupport/Processes/OwnedProcess.cs) | Coreの `OwnedProcessTests`・`OwnedProcessPipeTests`・`VerificationRunnerTests` で、全終端、期限・元の失敗・診断の保存を確認する。 |
 | 一時資源・共有状態・通常完了の待機 | [TestSettingsFactory](../../../tests/BeMusicSeeker.TestSupport/Components/TestSettingsFactory.cs)、[Coreのmodule寿命](../../../tests/ModuleInitialization/ModuleLifetime.cs)、[UIのmodule寿命](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、各機能のテスト準備 | 所有・復元、通知前の失敗、待合せの解放、実際の完了条件を確認する。UIのホスト終了の成功後だけ設定を回収し、設定の回収失敗後も一時セッション・排他を回収する順序は、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | Dispatcherの受付・終端・通常Task待機 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。終了済み・受理後の終了と停止の二次失敗、Action失敗後の継続、合流、利用側の成功・失敗・取消・通知欠落、単一STAを確認する。 |
+| ロック不成立・デッドロックの停止検出と到達待ち | [`ConcurrencyProbe`](../../../tests/BeMusicSeeker.TestSupport/Components/ConcurrencyProbe.cs) | 専用スレッドのprobe、保持中の完了判定、probeと保持側の失敗の伝播、通知なしの終端、期限なしの到達待ちを、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
 | 画面の準備、表示、破棄 | [`TestWindowPresentationScope`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestWindowPresentationScope.cs) | [`SettingsControlPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs)、[`WindowPresentationScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WindowPresentationScopeTests.cs)。一般的なアイドルと別に、実際の描画・配置・Win32の結果、入れ子の所有資源、失敗の優先順位を確認する。 |
 | 共有ホストのテーマ・意味別リソース | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`WpfThemeResourceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/WpfThemeResourceTests.cs)。Lightと実際のコンストラクターの意味別ブラシへの到達を確認する。 |
 | UI moduleの配置と終了の所有 | [`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、[`TempDirectoryPublisher`](../../../BeMusicSeeker/TempDirectoryPublisher.cs) | 初期化・例外時を含む回収順序と排他の解放は静的に確認する。[`WpfHostLifecycleTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WpfHostLifecycleTests.cs) と共通probeの [`WpfHostLifecycleProbe`](../../../tests/Fixtures/WindowsProcessProbe/WpfHostLifecycleProbe.cs) は同じホストを使い、子プロセスの生存中にHWND・実スレッド・一時セッションの消失を確認し、解放後に全子プロセスと両パイプを回収する。 |

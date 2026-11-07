@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.StartupBackgroundTaskSchedulerOwnerTestSupport;
@@ -2121,15 +2122,22 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             {
                 // 同期discard callbackを保持し、別threadのprobeがowner lockを取得できることを観測する。
                 Interlocked.Increment(ref discardCount);
-                discardedProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
-                discarded.TrySetResult(true);
+                try
+                {
+                    ProbeOwnerFromAnotherThread(owner);
+                    discardedProbeSucceeded = true;
+                    discarded.TrySetResult(true);
+                }
+                catch (Exception exception) { discarded.TrySetException(exception); }
             });
             owner.Start();
             await TestUiDispatcherHost.AwaitNotificationAsync(requiredEntered.Task, WaitForFullyIdleAsync(owner), nameof(owner));
 
             shutdownRequested = true;
             owner.RequestShutdown("window_close");
-            Assert.IsTrue(discarded.Task.IsCompletedSuccessfully);
+            Assert.IsTrue(discarded.Task.IsCompleted);
+            // 通知の生成元であるロックprobeの失敗も、元の例外のまま待機側へ渡します。
+            await discarded.Task;
             Assert.IsTrue(discardedProbeSucceeded);
             Assert.IsFalse(owner.Queue("post_shutdown", "shutdown", null, () => Task.CompletedTask));
             owner.RequestShutdown("repeated_close");
@@ -2215,7 +2223,8 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
             {
                 observedIdle = owner.IsIdle;
                 // 通知の生成元であるロックprobeの失敗も、待機側へそのまま渡します。
-                idleProbeSucceeded = ProbeOwnerFromAnotherThreadAsync(owner).GetAwaiter().GetResult();
+                ProbeOwnerFromAnotherThread(owner);
+                idleProbeSucceeded = true;
                 notified.TrySetResult(true);
             }
             catch (Exception exception) { notified.TrySetException(exception); }
@@ -2266,19 +2275,11 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         });
     }
 
-    private static async Task<bool> ProbeOwnerFromAnotherThreadAsync(StartupBackgroundTaskSchedulerOwner owner)
+    /// <summary>ownerのlock保持中に別の専用threadが状態を取得できることを表明し、probeを完了まで回収します。</summary>
+    private static void ProbeOwnerFromAnotherThread(StartupBackgroundTaskSchedulerOwner owner)
     {
-        try
-        {
-            await Task.Run(owner.DescribeWaitState)
-                .WaitAsync(TimeSpan.FromSeconds(2))
-                .ConfigureAwait(false);
-            return true;
-        }
-        catch (TimeoutException)
-        {
-            return false;
-        }
+        Task probe = ConcurrencyProbe.StartDedicated(() => owner.DescribeWaitState());
+        ConcurrencyProbe.AssertCompletesWhileHeld(probe, "owner lock保持中の別threadからの状態取得");
     }
 
     private static long nextOwnerReservationSequence;

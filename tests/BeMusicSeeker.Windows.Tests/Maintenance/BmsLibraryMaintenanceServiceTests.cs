@@ -73,7 +73,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             {
                 using (storageWriteGate.GetWriterGuard())
                 {
-                    worker = RegularChartListOwnerTestSupport.StartLongRunning(
+                    worker = ConcurrencyProbe.StartDedicated(
                         () => result = [.. library.ChartFilesNeedResourceFix]);
                     bool readerWaitOrEarlyCompletion = SpinWait.SpinUntil(
                         () => storageWriteGate.WaitingReadCount > 0 || worker.IsCompleted,

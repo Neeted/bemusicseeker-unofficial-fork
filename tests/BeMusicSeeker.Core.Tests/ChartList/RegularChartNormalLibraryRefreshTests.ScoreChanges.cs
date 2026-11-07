@@ -138,12 +138,12 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 if (Environment.CurrentManagedThreadId == bThread) { bEntered.Set(); bRelease.Wait(); }
             };
             fixture.Library.PropertyChanged += gate;
-            Task a = StartLongRunning(() => { aThread = Environment.CurrentManagedThreadId; fixture.Change(0, 40); });
+            Task a = ConcurrencyProbe.StartDedicated(() => { aThread = Environment.CurrentManagedThreadId; fixture.Change(0, 40); });
             Task? b = null;
             try
             {
                 aEntered.Wait();
-                b = StartLongRunning(() => { bThread = Environment.CurrentManagedThreadId; fixture.Change(1, 5); });
+                b = ConcurrencyProbe.StartDedicated(() => { bThread = Environment.CurrentManagedThreadId; fixture.Change(1, 5); });
                 bEntered.Wait();
                 Assert.IsTrue(rows.ScorePosition < fixture.Library.ScoreSnapshotVersion);
                 if (reverseWake) { bRelease.Set(); await b; } else { aRelease.Set(); await a; }

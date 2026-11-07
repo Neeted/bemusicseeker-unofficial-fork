@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
@@ -986,6 +987,8 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             bool failureNotificationOwnedByCaller = false;
             Exception? consumerFailure = null;
             Exception? producerFailure = null;
+            Exception? callbackProbeFailure = null;
+            Task consumer = Task.CompletedTask;
             byte[] transient = [];
             Action<object, EventArgs> callback = (_, args) =>
             {
@@ -996,10 +999,14 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 restoredAtCallback = original.SequenceEqual(current);
                 transientPreservedAtCallback = transient.SequenceEqual(current);
                 runConsumer.Set();
-                closeCompletedInsideCallback = consumerCompleted.Wait(TimeSpan.FromSeconds(2));
+                try
+                {
+                    ConcurrencyProbe.AssertSignalsWhileHeld(consumerCompleted, consumer, "callbackからの別thread停止が外側lockのために止まりません。");
+                    closeCompletedInsideCallback = true;
+                }
+                catch (Exception failure) { callbackProbeFailure = failure; }
             };
             FileStream? heldIni = null;
-            Task consumer = Task.CompletedTask;
             Task producer = Task.CompletedTask;
             try
             {
@@ -1016,7 +1023,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 exiting.OnNextHasExited = deliverExit;
                 transient = File.ReadAllBytes(ini);
                 if (failRestore) { heldIni = new FileStream(ini, FileMode.Open, FileAccess.Read, FileShare.Read); }
-                consumer = Task.Run(() =>
+                consumer = ConcurrencyProbe.StartDedicated(() =>
                 {
                     consumerReady.Set();
                     runConsumer.Wait();
@@ -1027,7 +1034,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                     catch (Exception failure) { consumerFailure = failure; }
                     finally { consumerCompleted.Set(); }
                 });
-                Assert.IsTrue(consumerReady.Wait(TimeSpan.FromSeconds(5)));
+                ConcurrencyProbe.WaitForSignal(consumerReady, consumer, "別要求の停止consumerの開始");
                 producer = Task.Run(() =>
                 {
                     try
@@ -1040,6 +1047,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 producer.GetAwaiter().GetResult();
                 runConsumer.Set();
                 consumer.GetAwaiter().GetResult();
+                if (callbackProbeFailure is not null) { ExceptionDispatchInfo.Capture(callbackProbeFailure).Throw(); }
                 Assert.AreEqual(1, notifications);
                 Assert.AreEqual(failRestore, failureNotificationOwnedByCaller, "同じ復元失敗を返す最外の開始・停止要求が失敗通知を所有します。");
                 Assert.IsTrue(closeCompletedInsideCallback, "callbackからの別thread停止が外側lockのために止まりません。");

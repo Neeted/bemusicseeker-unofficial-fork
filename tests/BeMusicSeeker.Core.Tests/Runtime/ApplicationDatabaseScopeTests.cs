@@ -1,5 +1,6 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using SQLite;
 
@@ -62,7 +63,7 @@ public sealed class ApplicationDatabaseScopeTests
         Task? worker = null;
         try
         {
-            worker = Task.Factory.StartNew(() =>
+            worker = ConcurrencyProbe.StartDedicated(() =>
             {
                 using LR2SongDBExtended song = scope.OpenSongReadOnly(files.Song);
                 using LR2ScoreDBExtended score = scope.OpenScoreReadOnly(files.Score);
@@ -74,8 +75,8 @@ public sealed class ApplicationDatabaseScopeTests
                 Assert.AreEqual(1, song.ExecuteScalar<int>("SELECT 1;"));
                 Assert.AreEqual(1, score.ExecuteScalar<int>("SELECT 1;"));
                 Assert.AreEqual(1, general.ExecuteScalar<int>("SELECT 1;"));
-            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-            Assert.IsTrue(worker.Wait(TimeSpan.FromSeconds(5)), "読取り専用openがwrite gateを待機しています。");
+            });
+            ConcurrencyProbe.AssertCompletesWhileHeld(worker, "読取り専用openがwrite gateを待機しています。");
         }
         finally
         {

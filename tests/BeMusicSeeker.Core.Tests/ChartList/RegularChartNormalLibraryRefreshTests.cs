@@ -1186,7 +1186,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 releaseApply.Wait();
             };
 
-            Task mutationTask = StartLongRunning(() =>
+            Task mutationTask = ConcurrencyProbe.StartDedicated(() =>
             {
                 library.BmsCharts = [CreateTestableBmsFile("C:\\Charts\\in-flight.bms")];
             });
@@ -1194,7 +1194,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             try
             {
                 applyEntered.Wait();
-                stopTask = StartLongRunningAsync(async delegate
+                stopTask = ConcurrencyProbe.StartDedicatedAsync(async delegate
                 {
                     stopStarted.Set();
                     await owner.StopAsync();
@@ -1290,7 +1290,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
             {
                 using (GetCatalogStorageRowsWriteGate(library).GetWriterGuard())
                 {
-                    producer = StartLongRunning(() => PublishNormalLibraryRefreshResetNotification(library,
+                    producer = ConcurrencyProbe.StartDedicated(() => PublishNormalLibraryRefreshResetNotification(library,
                         notifiesBmsFiles: true, notifiesBmsonSongs: false));
                     producer.GetAwaiter().GetResult();
                     Assert.AreEqual(0, applied);

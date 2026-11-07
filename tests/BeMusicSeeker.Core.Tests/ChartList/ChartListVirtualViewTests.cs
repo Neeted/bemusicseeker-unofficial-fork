@@ -977,14 +977,14 @@ public sealed class ChartListVirtualViewTests
         table.RowsReplacementCanceled += (_, _) => canceledCount++;
         table.RowsReplacing += (_, _) =>
         {
-            var invalidateTask = Task.Run(() =>
+            Task invalidateTask = ConcurrencyProbe.StartDedicated(() =>
             {
                 lock (state.SyncRoot)
                 {
                     state.RequestGeneration++;
                 }
             });
-            Assert.IsTrue(invalidateTask.Wait(TimeSpan.FromSeconds(5)), "RowsReplacing must not run while the play-history freshness lock is held.");
+            ConcurrencyProbe.AssertCompletesWhileHeld(invalidateTask, "RowsReplacing must not run while the play-history freshness lock is held.");
         };
 
         PlayHistoryTerminalCommitResult result = owner.TryApply(CreatePlayHistoryTerminalRequest(candidateRows, "candidate summary", requestId: 1));
