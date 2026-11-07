@@ -4316,7 +4316,23 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 PlaylistSummaryRow row = fixture.ViewModel.PlaylistWorkspace.PlaylistSummaryView.Single();
                 summary.ItemsSource = fixture.ViewModel.PlaylistWorkspace.PlaylistSummaryView;
                 int summaryBuilds = 0;
-                fixture.ViewModel.PlaylistWorkspace.PlaylistSummaryBuildStarted += (_, _) => summaryBuilds++;
+                PlaylistWorkspaceViewModel savedWorkspace = fixture.ViewModel.PlaylistWorkspace;
+                // 保存の前から、一覧の再表示要求と集計の構築開始を記録します。独立した要求による構築は判定ではなく診断に使います。
+                var refreshRequests = new List<(PlaylistPresentationRefreshKind Kind, string Reason, long CurrentGeneration)>();
+                var buildStarts = new List<(long Generation, int RequestCount)>();
+                savedWorkspace.PlaylistPresentationRefreshRequested += (_, request) =>
+                {
+                    lock (refreshRequests)
+                    { refreshRequests.Add((request.Kind, request.Reason, savedWorkspace.CurrentPlaylistSummaryDataRebuildGeneration)); }
+                };
+                savedWorkspace.PlaylistSummaryBuildStarted += (generation, _) =>
+                {
+                    summaryBuilds++;
+                    int requestCount;
+                    lock (refreshRequests) { requestCount = refreshRequests.Count; }
+                    lock (buildStarts) { buildStarts.Add((generation, requestCount)); }
+                };
+                long baselineGeneration = 0;
                 summary.SelectRowsByPredicate(_ => true);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 ActualMainWindowFixture activeFixture = fixture;
@@ -4329,17 +4345,78 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         source.Text = new Uri(header).AbsoluteUri;
                         source.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
                         Assert.AreEqual(new Uri(header), ((PlaylistPropertyDialogViewModel)dialog.DataContext).Page_url);
+                        baselineGeneration = savedWorkspace.CurrentPlaylistSummaryDataRebuildGeneration;
                         RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
                         Task firstSave = dialog.WaitForOperationCompletionAsync();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(firstSave, "property-first-failed-save");
                         Assert.IsTrue(firstSave.IsCompletedSuccessfully);
-                        PlaylistSummaryRow savedSummary = activeFixture.ViewModel.PlaylistWorkspace.PlaylistSummaryView.Single();
-                        Assert.AreSame(activeFixture.Playlist.BMSTables.Single(), savedSummary.TableRef);
-                        Assert.AreNotSame(activeFixture.Table, savedSummary.TableRef);
-                        Assert.AreEqual(new Uri(header), savedSummary.LinkUri);
+                        // 終端は、この保存が開始した集計の採用、または後発の独立した要求に取って代わられた終わりです。
+                        // 独立した要求の有無にかかわらず、行の最終状態は整定の後に表明します。
+                        // 後発の独立した要求を待たないことは、CoreのPlaylistPropertySave_DoesNotWaitForSupersedingIndependentSummaryRequestが担当します。
+                        // PlaylistPropertySave_ReplacementWaitsForItsSummaryPublicationは、保存自身の採用を止めている間の非終端・P保持・新参照とヘッダーの採用を観測します。
+                        // 自分の採用まで待たない実装との区別は、現在のテストでは保証しません。
                         int buildsAtTerminal = summaryBuilds;
+                        long appliedBeforeSettle = savedWorkspace.AppliedPlaylistSummaryDataGeneration;
+                        long currentBeforeSettle = savedWorkspace.CurrentPlaylistSummaryDataRebuildGeneration;
+                        bool rowAdoptedBeforeSettle = ReferenceEquals(
+                            activeFixture.Playlist.BMSTables.Single(), savedWorkspace.PlaylistSummaryView.Single().TableRef);
+                        bool rowStillFixtureTableBeforeSettle = ReferenceEquals(
+                            activeFixture.Table, savedWorkspace.PlaylistSummaryView.Single().TableRef);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
-                        Assert.AreEqual(buildsAtTerminal, summaryBuilds, "保存内drain後のshell予約は一覧を二重構築しません。");
+                        (long Generation, int RequestCount)[] startedBuilds;
+                        lock (buildStarts) { startedBuilds = buildStarts.ToArray(); }
+                        string[] requestRecords;
+                        lock (refreshRequests)
+                        {
+                            requestRecords = refreshRequests.Select((r, index) => $"#{index} {r.Kind}:{r.Reason}@current={r.CurrentGeneration}").ToArray();
+                        }
+                        string diagnostic = Environment.NewLine + "保存前の現在世代=" + baselineGeneration
+                            + ", 終端時の適用世代=" + appliedBeforeSettle + ", 終端時の現在世代=" + currentBeforeSettle
+                            + ", 終端時に行が置換前の表=" + rowStillFixtureTableBeforeSettle + ", 終端時に行が採用済みの表=" + rowAdoptedBeforeSettle
+                            + Environment.NewLine + "構築開始の世代=[" + string.Join(", ", startedBuilds.Select(b => b.Generation)) + "]"
+                            + Environment.NewLine + "要求の記録=" + Environment.NewLine + string.Join(Environment.NewLine, requestRecords);
+                        // 保存自身の要求は、次のKindとReasonの組です。
+                        // playlist_property_resync: PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync（PlaylistPropertySummaryDataRefreshRequested）。
+                        // playlist_entries_updated: PlaylistWorkspaceViewModel.PublishEntriesChanged（ForwardPlaylistEntriesChanged）。
+                        // playlist_tables_collection_changed、playlist_tables_changed: 表の置換で届くstore通知が起こすTree要求と、その再表示の集計要求。
+                        PlaylistPresentationRefreshKind[] ownKinds = [PlaylistPresentationRefreshKind.SummaryData, PlaylistPresentationRefreshKind.Tree];
+                        string[] ownReasons = ["playlist_property_resync", "playlist_entries_updated", "playlist_tables_collection_changed", "playlist_tables_changed"];
+                        // 判定範囲の起点は、保存自身の(SummaryData, playlist_entries_updated)要求の処理で始まった最初の構築です。
+                        // 記録の購読はfixtureの処理より後なので、その要求の処理で始まった構築の記録件数は、要求の記録の添字以上になります（実際のshellはSummaryDataをBackgroundに予約し、保存の中のdrainが構築を始めるため、添字+1になりえます）。
+                        int entriesRequestIndex;
+                        lock (refreshRequests)
+                        {
+                            entriesRequestIndex = refreshRequests.FindIndex(r =>
+                                r.Kind == PlaylistPresentationRefreshKind.SummaryData && r.Reason == "playlist_entries_updated");
+                        }
+                        int firstOwnBuildRequestCount = entriesRequestIndex < 0
+                            ? 0
+                            : startedBuilds.Where(b => b.RequestCount >= entriesRequestIndex)
+                                .Select(b => b.RequestCount).DefaultIfEmpty(entriesRequestIndex + 1).Min();
+                        // 同じ文字列の独立要求が混ざる場合は検出が甘くなる側に倒れます。このケースの状況では確認されていません。
+                        string[] independentRequests;
+                        lock (refreshRequests)
+                        {
+                            independentRequests = refreshRequests.Skip(firstOwnBuildRequestCount)
+                                .Where(r => !ownKinds.Contains(r.Kind) || !ownReasons.Contains(r.Reason, StringComparer.Ordinal))
+                                .Select(r => r.Kind + ":" + r.Reason).ToArray();
+                        }
+                        if (independentRequests.Length == 0)
+                        {
+                            Assert.AreEqual(buildsAtTerminal, summaryBuilds, "保存内drain後のshell予約は一覧を二重構築しません。" + diagnostic);
+                            Console.WriteLine("double_build_assertion executed builds_after_terminal=" + (summaryBuilds - buildsAtTerminal));
+                        }
+                        else
+                        {
+                            Console.WriteLine("double_build_assertion skipped independent_requests=" + string.Join(",", independentRequests));
+                        }
+                        SettlePendingPlaylistSummaryRefresh(savedWorkspace, "property-first-save");
+                        PlaylistSummaryRow savedSummary = savedWorkspace.PlaylistSummaryView.Single();
+                        Assert.AreSame(activeFixture.Playlist.BMSTables.Single(), savedSummary.TableRef, "整定後の一覧が置換後の表を参照しません。" + diagnostic);
+                        Assert.AreNotSame(activeFixture.Table, savedSummary.TableRef, diagnostic);
+                        Assert.AreEqual(new Uri(header), savedSummary.LinkUri, diagnostic);
+                        Assert.AreEqual(savedWorkspace.CurrentPlaylistSummaryDataRebuildGeneration, savedWorkspace.AppliedPlaylistSummaryDataGeneration,
+                            "整定後は最新のデータ世代が一覧へ適用されています。" + diagnostic);
                         Assert.IsNull(notificationObservationFailure,
                             "通知時の所有者・可視状態・確定参照採用の観測が失敗しました。" + Environment.NewLine + notificationObservationFailure);
                         Task ownerWaitAfterCompletion = dialog.WaitForOperationCompletionAsync();

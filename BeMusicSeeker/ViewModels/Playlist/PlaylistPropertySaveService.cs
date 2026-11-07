@@ -1174,7 +1174,10 @@ internal sealed class PlaylistPropertySaveCommit
         Settings = settings;
     }
 
-    /// <summary>同じ保存が要求した参照置換後の一覧公開Taskです。別要求のidle待機へ広げません。</summary>
+    /// <summary>
+    /// この保存が開始した一覧の集計の終端Taskです。終端は、その集計の採用、取消、または後発の独立した要求に取って代わられた古い要求として採用されずに終わることです。
+    /// 後発の要求に取って代わられた場合の表示は後発の要求が所有し、保存は後発の要求の適用を待ちません。いずれも失敗ではなく、自分の構築の失敗は保存の結果に含まれます。別要求のidle待機へ広げません。
+    /// </summary>
     internal Task SavedPresentation { get; set; } = Task.CompletedTask;
     /// <summary>実登録前の作成経路。登録確定後はfalseに進め、集合不在から新規へ戻しません。</summary>
     internal bool IsNewDraft { get; set; }
@@ -1309,7 +1312,10 @@ internal sealed class PlaylistPropertyEntriesChangedEventArgs : EventArgs
         RefreshSummaryIfVisible = refreshSummaryIfVisible;
     }
 
-    /// <summary>購読workspaceがこの通知から開始した一覧公開の実Taskを返します。</summary>
+    /// <summary>
+    /// 購読workspaceがこの通知から開始した一覧の集計の終端Taskを返します。終端は、その集計の採用、取消、または後発の独立した要求に取って代わられた古い要求として採用されずに終わることです。
+    /// 後発の要求に取って代わられた場合の表示は後発の要求が所有し、この通知は後発の要求の適用を待ちません。
+    /// </summary>
     internal Task Completion { get; set; } = Task.CompletedTask;
 
     internal BMSTable Table { get; }

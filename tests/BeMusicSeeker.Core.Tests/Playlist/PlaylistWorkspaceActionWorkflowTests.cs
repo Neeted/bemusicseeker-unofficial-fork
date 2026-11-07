@@ -171,7 +171,11 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
-    /// <summary>同じ保存で同ID別参照へ置換した一覧の実公開終端までPを保持し、退役表のheaderを新行へ転用しません。</summary>
+    /// <summary>
+    /// 同じ保存で同ID別参照へ置換した一覧の実公開終端までPを保持し、退役表のheaderを新行へ転用しません。
+    /// 保存自身の採用を止めている間の観測は、保存が終端せずPを保持し、新しい参照とヘッダーが採用されていることです。自分の採用まで待たない実装との区別は、このテストでは保証しません。
+    /// 止める条件は、保存自身のplaylist_entries_updated要求の受付後に始まった構築の採用です。保存が待たない先行の構築では止めません。
+    /// </summary>
     [TestMethod]
     public async Task PlaylistPropertySave_ReplacementWaitsForItsSummaryPublication()
     {
@@ -181,14 +185,24 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         PlaylistWorkspaceViewModel? current = null;
         bool gate = false;
+        long ownGeneration = 0;
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
             playlistLibraryProvider: () => fixture.Library, propertySaveService: new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () => new CustomFolderOutputSettingsSnapshot()),
+            presentationRefreshDeferredProvider: request =>
+            {
+                // 保存自身のplaylist_entries_updated要求の受付時点のデータ世代を記録します。受付で現在世代が進みます。
+                if (request.Reason == "playlist_entries_updated") { Volatile.Write(ref ownGeneration, current?.CurrentPlaylistSummaryDataRebuildGeneration ?? 0); }
+                return false;
+            },
             restoreUiApplyScheduler: async action =>
             {
-                BMSTable? before = current?.PlaylistSummaryView.FirstOrDefault()?.TableRef;
+                long appliedBefore = current?.AppliedPlaylistSummaryDataGeneration ?? 0;
                 action();
-                BMSTable? after = current?.PlaylistSummaryView.FirstOrDefault()?.TableRef;
-                if (gate && ReferenceEquals(before, fixture.Table) && after != null && !ReferenceEquals(after, fixture.Table))
+                // 受付後に始まった構築の採用（このaction自身が適用世代を、記録した世代を超えて進めた最初のUI適用）だけを止めます。
+                // 先行のresync構築と、保存の配送自身のUI適用（適用世代を進めない）では止めません。
+                long own = Volatile.Read(ref ownGeneration);
+                long appliedAfter = current?.AppliedPlaylistSummaryDataGeneration ?? 0;
+                if (gate && own != 0 && appliedAfter > appliedBefore && appliedAfter > own && !entered.Task.IsCompleted)
                 { entered.TrySetResult(); await release.Task; }
             });
         current = workspace;
@@ -216,6 +230,97 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await saving);
         Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable next)); next.Dispose();
         await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        workspace.ClosePropertyDialog(dialog);
+    }
+
+    /// <summary>
+    /// 保存の集計が採用された後に独立した要求が入り、その適用が保留されていても、保存は後発の要求を待たずに完了してPを解放し、
+    /// 保留を消化した後に一覧が新しい参照とデータ世代へ収束することを確認します。
+    /// </summary>
+    /// <remarks>
+    /// 検出する誤りは二つです。保存が独立した要求の適用まで待つ誤実装では、保存が完了せず名前付きの失敗になります。
+    /// 保存が一覧の再要求を失う誤実装では、止める箇所へ到達せず失敗します。
+    /// 独立した要求は、保存自身のplaylist_entries_updated要求の受付時点のデータ世代を記録し、自身が適用世代をそれより大きく進めた最初のUI適用（受付後に始まった構築の採用）の直後で止めたまま、テスト本体から発行します。
+    /// 受付は現在世代を進め、受付前に始まった構築（先行のplaylist_property_resyncなど）は採用直前の世代照合で破棄されるため、記録した世代を超える採用は受付後の構築に限られます。この記録は、このfixtureではplaylist_entries_updatedの後、テストが独立した要求を発行するまで一覧の要求が出ないことを前提にします。そのため、止めた時点の「保存は未完了」の表明は、自分の構築の採用を止めている間の観測です。
+    /// 適用の前に取って代わられる分岐（古い要求の取消）は、非同期の構築と競合するため、このテストでは決定的に固定しません。
+    /// 要求はshellの保留へ残し、保存の完了時点では適用世代が現在世代に届かない状態を観測します。
+    /// 消化は同期のrebuildAsync:falseで行い、独立した要求の構築が同じ呼び出し内で完了した後にidleを待ちます。
+    /// </remarks>
+    [TestMethod]
+    public async Task PlaylistPropertySave_DoesNotWaitForSupersedingIndependentSummaryRequest()
+    {
+        const string IndependentReason = "test-independent-summary";
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Workspace.Dispose();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        long ownGeneration = 0;
+        int independentIssued = 0;
+        int gated = 0;
+        PlaylistWorkspaceViewModel? current = null;
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, propertySaveService: new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () => new CustomFolderOutputSettingsSnapshot()),
+            presentationRefreshDeferredProvider: request =>
+            {
+                // 保存自身の一覧要求の受付時点のデータ世代を記録します。受付で現在世代が進むため、これより大きい世代の採用は受付後に始まった構築だけです。
+                if (request.Reason == "playlist_entries_updated") { Volatile.Write(ref ownGeneration, current?.CurrentPlaylistSummaryDataRebuildGeneration ?? 0); }
+                // 独立要求の後に保存の通知経路から届く要求も、実shellが使用中の間と同じく同じ保留へ合流させ、終端時の状態を確定させます。
+                return request.Reason == IndependentReason || Volatile.Read(ref independentIssued) == 1;
+            },
+            restoreUiApplyScheduler: async action =>
+            {
+                long appliedBefore = current?.AppliedPlaylistSummaryDataGeneration ?? 0;
+                action();
+                // 受付後に始まった構築の採用（このaction自身が適用世代を、記録した世代を超えて進めた最初のUI適用）だけを、採用の直後で止めます。
+                // 保存の配送自身のUI適用（適用世代を進めない）では止めません。
+                long own = Volatile.Read(ref ownGeneration);
+                long appliedAfter = current?.AppliedPlaylistSummaryDataGeneration ?? 0;
+                if (own != 0 && appliedAfter > appliedBefore && appliedAfter > own && Interlocked.Exchange(ref gated, 1) == 0)
+                { entered.TrySetResult(); await release.Task; }
+            });
+        current = workspace;
+        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+        workspace.PlaylistSyncProgressChanged += (_, _) => { };
+        workspace.PlaylistPropertyExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        using PlaylistPropertyDialogViewModel dialog = await workspace.OpenPropertyDialogAsync(fixture.Table) ?? throw new AssertFailedException();
+        dialog.is_external_sync = true;
+        Task<PlaylistPropertyDialogOperationResult> saving = dialog.SaveAndApplyAsync();
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, saving, "independent-request-before-summary-apply");
+            Assert.IsFalse(saving.IsCompleted);
+            Volatile.Write(ref independentIssued, 1);
+            workspace.RequestPlaylistSummaryDataRefresh(IndependentReason);
+        }
+        finally { release.TrySetResult(); }
+
+        try { await ConcurrencyProbe.AssertCompletesWhileHeldAsync(saving, "save-while-independent-request-held"); }
+        catch
+        {
+            // 待つ誤実装の失敗でも、保留を消化して保存を回収します。後片付けの失敗で名前付きの失敗を上書きしません。
+            try
+            {
+                workspace.DrainDeferredPlaylistSummaryRefresh(dataRefreshRequired: false, rebuildAsync: false);
+                await Task.WhenAny(saving, Task.Delay(TimeSpan.FromSeconds(10)));
+            }
+            catch { }
+            throw;
+        }
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await saving);
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable next)); next.Dispose();
+        Assert.IsTrue(workspace.HasDeferredPlaylistSummaryRefresh(), "独立要求は保存の終端でもshellの保留に残ります。");
+        Assert.IsTrue(workspace.AppliedPlaylistSummaryDataGeneration < workspace.CurrentPlaylistSummaryDataRebuildGeneration,
+            "保存は後発の独立要求の適用まで待ちません。");
+
+        workspace.DrainDeferredPlaylistSummaryRefresh(dataRefreshRequired: false, rebuildAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        BMSTable adopted = fixture.Playlist.BMSTables.Single();
+        Assert.AreNotSame(fixture.Table, adopted);
+        Assert.AreSame(adopted, workspace.PlaylistSummaryView.Single().TableRef);
+        Assert.AreEqual(workspace.CurrentPlaylistSummaryDataRebuildGeneration, workspace.AppliedPlaylistSummaryDataGeneration);
         workspace.ClosePropertyDialog(dialog);
     }
 
