@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 
@@ -16,6 +17,22 @@ internal sealed class TestUiScheduler : IUiScheduler
     {
         scheduler = new WpfUiScheduler(dispatcherProvider ?? throw new ArgumentNullException(nameof(dispatcherProvider)));
     }
+
+    /// <summary>
+    /// 既定の窓口を作ります。構築スレッドが共有WPFホストのDispatcherスレッドならそのDispatcherを使い、それ以外はDispatcherを持たない本番アダプターのインライン実行契約で動かします。
+    /// </summary>
+    internal static TestUiScheduler CreateDefault() => new(ResolveOwnedDispatcher);
+
+    /// <summary>
+    /// 呼出しスレッドが共有WPFホストのDispatcherスレッドならそのDispatcherを、それ以外はnullを返します。
+    /// </summary>
+    /// <remarks>
+    /// <c>Dispatcher.CurrentDispatcher</c>は、MSTestのworkerのようにメッセージポンプを持たないスレッドでも新しいDispatcherを作って捕捉させます。
+    /// そのDispatcherへ予約した操作は実行されず、継続がプールスレッドへ移ってからの同期実行は戻りません。
+    /// 共有ホストの未起動時にここでホストを起動せず、<see cref="Application.Current"/>が所有するDispatcherだけを対象にします。
+    /// </remarks>
+    internal static Dispatcher? ResolveOwnedDispatcher()
+        => Application.Current?.Dispatcher is { } dispatcher && dispatcher.CheckAccess() ? dispatcher : null;
 
     public bool IsAvailable => scheduler.IsAvailable;
 

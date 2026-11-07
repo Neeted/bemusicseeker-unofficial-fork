@@ -1,6 +1,5 @@
 using System.Reflection;
 using System.Reflection.Emit;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -29,7 +28,7 @@ internal static class StartupLibraryConstructionTestSupport
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             bmsLibraryOptionsProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
             settingsEditSession: new NoOpSettingsEditSession(settings),
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+            uiScheduler: new WpfUiScheduler(TestUiScheduler.ResolveOwnedDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
     }
