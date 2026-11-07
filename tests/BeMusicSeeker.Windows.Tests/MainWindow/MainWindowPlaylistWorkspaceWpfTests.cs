@@ -61,6 +61,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     private const string NativeModalFixturePlaylistName = "Native modal fixture";
 
     /// <summary>実表見出しと実子folderのheaderからOSファイルをrouted Dropし、既存導入ownerの一回受付・保留登録とDBを確認します。プレイリストへ取り込む誤配線も検出します。</summary>
+    /// <remarks>fixtureは起動時走査OFFでカタログが未収束です。導入可能なパッケージを保留に残す設定（KeepInstallablePackagesPending）が無効だと、自動導入候補が未収束を理由に保留され、
+    /// 導入の終端後に非同期の実警告モーダルが出ます。その判断と警告はCoreのBmsLibraryPackageInstallServiceTests.InstallChartPackagesAuto_UnconvergedCatalogKeepsDiscoveredPackagePendingInsteadOfInstalling
+    /// が担当するため、本ケースは利用者設定で保留を確定させます。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -70,7 +73,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         {
             ActualMainWindowFixture fixture = CreatePlaylistDropFixture(scope, configureSettings: settings =>
             {
-                settings.AutoInstall = false;
+                settings.KeepInstallablePackagesPending = true;
                 settings.AutoInstallAfterAutomaticEstimation = false;
             });
             PackageInstallWorkflowOwner owner = fixture.ViewModel.PackageInstallWorkflow;
