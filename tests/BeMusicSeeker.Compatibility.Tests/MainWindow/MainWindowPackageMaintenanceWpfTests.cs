@@ -170,6 +170,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         operation();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshed.Task, "drive root candidate relocation presentation");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(MainWindowViewModelTestFactory.GetComposition(viewModel).OperationAdmission.WaitForIdleAsync(), "drive root candidate relocation terminal");
+                        RegularChartNavigationTestFixture.AwaitViewPreparationsOnDispatcher(viewModel.RegularChartList, "drive root candidate relocation view preparation");
                         Assert.IsFalse(Directory.Exists(candidate));
                         Assert.IsTrue(File.Exists(Path.Combine(nextCandidate, "candidate.bms")));
                         candidate = nextCandidate;

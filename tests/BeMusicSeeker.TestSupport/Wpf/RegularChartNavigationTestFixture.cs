@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Reflection;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -13,6 +14,73 @@ namespace BeMusicSeeker.TestSupport.Wpf;
 /// <summary>旧Maintenance/MainWindowと移管先の通常一覧caseで、実root・受理済み投影Task・停止後の媒体回収を同じ境界で共用します。</summary>
 internal static class RegularChartNavigationTestFixture
 {
+    /// <summary>受付が空いた後に残る通常一覧の通知配送と表示準備Taskを、新しいTaskが現れなくなるまで待ちます。</summary>
+    /// <remarks>
+    /// 非公開フィールドへ依存する理由は、所有者が通知起点の配送・表示準備Taskを公開せず、テスト専用APIの追加も認めないためです。
+    /// 読むのはsyncRoot、viewPreparationTasks、normalLibraryRefreshDrainCompletionの3フィールドの読取りだけで、所有者の状態は変更しません。
+    /// 管理主体はTestSupportのこの補助で、本番が配送と表示準備の終端を公開した時点でその公開窓口へ置き換えて退役させます。
+    /// 各回で、未待機の配送Taskを待ち、Backgroundまで予約を消化し、準備Taskのスナップショットを取ります。
+    /// 未待機の準備Taskがあればその集合を待って繰り返し、配送Taskが待機済みと同一で新しい準備Taskもなければ終えます。
+    /// 抑制解除のflushは配送の完了後に準備Taskを登録するため、配送Taskの待機を終了条件に含めます。
+    /// 保証するのは、この手順が終えた時点で読取り可能な配送と準備Taskがすべて待機済みであることです。局所の期限は付けません。
+    /// 読み取るdrainは最後に開始したもののTaskです。それが過去に失敗または取消で終わっていた場合、補助はその例外を再送出します。
+    /// これは失敗を隠さないためです。
+    /// 待機済みの準備Taskを返すため、呼出側は自身の回収対象へ加えられます。
+    /// </remarks>
+    /// <param name="owner">配送と表示準備Taskを持つ通常一覧の所有者です。</param>
+    /// <param name="stage">待機失敗時の診断に使う段階名です。</param>
+    /// <returns>待機した準備Taskです。</returns>
+    internal static Task[] AwaitViewPreparationsOnDispatcher(RegularChartListOwner owner, string stage)
+    {
+        var awaited = new HashSet<Task>();
+        Task? awaitedDrain = null;
+        for (int round = 1; ; round++)
+        {
+            Task drain = ReadNotificationDrain(owner);
+            bool drainPending = !ReferenceEquals(drain, awaitedDrain);
+            if (drainPending)
+            {
+                awaitedDrain = drain;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(drain, $"{stage} notification drain round {round}");
+            }
+            TestUiDispatcherHost.ProcessQueuedBackground();
+            Task[] pending = SnapshotViewPreparations(owner).Where(task => !awaited.Contains(task)).ToArray();
+            if (pending.Length == 0 && !drainPending && ReferenceEquals(ReadNotificationDrain(owner), awaitedDrain)) { return [.. awaited]; }
+            if (pending.Length == 0) { continue; }
+            awaited.UnionWith(pending);
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAll(pending), $"{stage} view preparation round {round}");
+        }
+    }
+
+    /// <summary>通常一覧の表示準備Taskの現在値を、所有者の同期境界の中で複製して返します。読取り専用です。</summary>
+    /// <remarks>AwaitViewPreparationsOnDispatcherと同じ例外の承認範囲（3フィールドの読取りのみ、本番が終端を公開した時点で退役）に含まれます。</remarks>
+    internal static Task[] SnapshotViewPreparations(RegularChartListOwner owner)
+    {
+        lock (ReadSyncRoot(owner))
+        {
+            if (OwnerField("viewPreparationTasks", "実準備Task集合がありません。").GetValue(owner) is not HashSet<Task> tasks) { throw new AssertFailedException("実準備Task集合の型が想定と異なります。"); }
+            return tasks.ToArray();
+        }
+    }
+
+    /// <summary>通常一覧の通知配送の現在のdrain Taskを、所有者の同期境界の中で読み取ります。読取り専用です。</summary>
+    /// <remarks>AwaitViewPreparationsOnDispatcherと同じ例外の承認範囲（3フィールドの読取りのみ、本番が終端を公開した時点で退役）に含まれます。</remarks>
+    internal static Task ReadNotificationDrain(RegularChartListOwner owner)
+    {
+        lock (ReadSyncRoot(owner))
+        {
+            return OwnerField("normalLibraryRefreshDrainCompletion", "実通知drainの窓口がありません。").GetValue(owner) as Task
+                ?? throw new AssertFailedException("実通知drainの型が想定と異なります。");
+        }
+    }
+
+    private static object ReadSyncRoot(RegularChartListOwner owner)
+        => OwnerField("syncRoot", "実準備Taskの同期境界がありません。").GetValue(owner)
+            ?? throw new AssertFailedException("実準備Taskの同期境界が空です。");
+
+    private static FieldInfo OwnerField(string name, string missing)
+        => typeof(RegularChartListOwner).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new AssertFailedException(missing);
 
     /// <summary>UI配送が返したTaskと処理内で返されたTaskを記録し、入れ子の開始済み処理も完了まで回収します。</summary>
     internal sealed class ProjectionTaskCollector(IUiScheduler scheduler) : IUiScheduler

@@ -801,19 +801,7 @@ public sealed class RegularChartNavigationTests
             var newRowsApplied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             bool sourceObserved = false;
             HashSet<Task> oldBaseline = [];
-            System.Reflection.FieldInfo syncField = typeof(RegularChartListOwner).GetField("syncRoot", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-                ?? throw new AssertFailedException("実準備の同期境界がありません。");
-            System.Reflection.FieldInfo tasksField = typeof(RegularChartListOwner).GetField("viewPreparationTasks", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-                ?? throw new AssertFailedException("実準備Task集合がありません。");
-            Task[] Snapshot()
-            {
-                object synchronization = syncField.GetValue(vm.RegularChartList) ?? throw new AssertFailedException();
-                lock (synchronization)
-                {
-                    if (tasksField.GetValue(vm.RegularChartList) is not HashSet<Task> tasks) { throw new AssertFailedException(); }
-                    return tasks.ToArray();
-                }
-            }
+            Task[] Snapshot() => RegularChartNavigationTestFixture.SnapshotViewPreparations(vm.RegularChartList);
             EventHandler<RegularChartTreeNavigationPresentationRequestedEventArgs> rootRequest = (_, args) => rootStarted.TrySetResult(args.Presentation);
             EventHandler<RegularChartSortRefreshRequestedEventArgs> sortRequest = (_, args) => sortStarted.TrySetResult(args.Presentation);
             EventHandler<RegularDuplicateDataReadyEventArgs> ready = (_, args) =>

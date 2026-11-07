@@ -1026,27 +1026,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
             {
                 var started = new List<Task>();
-                FieldInfo drainField = typeof(RegularChartListOwner).GetField("normalLibraryRefreshDrainCompletion", BindingFlags.Instance | BindingFlags.NonPublic)
-                    ?? throw new AssertFailedException("実通知drainの窓口がありません。");
-                FieldInfo syncField = typeof(RegularChartListOwner).GetField("syncRoot", BindingFlags.Instance | BindingFlags.NonPublic)
-                    ?? throw new AssertFailedException("実準備Taskの同期境界がありません。");
-                FieldInfo preparationsField = typeof(RegularChartListOwner).GetField("viewPreparationTasks", BindingFlags.Instance | BindingFlags.NonPublic)
-                    ?? throw new AssertFailedException("実準備Task集合がありません。");
-                Task[] SnapshotPreparations()
-                {
-                    object synchronization = syncField.GetValue(viewModel.RegularChartList) ?? throw new AssertFailedException();
-                    lock (synchronization)
-                    {
-                        if (preparationsField.GetValue(viewModel.RegularChartList) is not HashSet<Task> preparations) { throw new AssertFailedException(); }
-                        return preparations.ToArray();
-                    }
-                }
+                Task[] SnapshotPreparations() => RegularChartNavigationTestFixture.SnapshotViewPreparations(viewModel.RegularChartList);
                 void AwaitDrain(string stage)
                 {
-                    Task drain = drainField.GetValue(viewModel.RegularChartList) as Task ?? throw new AssertFailedException();
+                    Task drain = RegularChartNavigationTestFixture.ReadNotificationDrain(viewModel.RegularChartList);
                     started.Add(drain);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(drain, stage + "-notification-drain");
                 }
+                void AwaitPreparations(string stage)
+                    => started.AddRange(RegularChartNavigationTestFixture.AwaitViewPreparationsOnDispatcher(viewModel.RegularChartList, stage));
                 void AwaitTasks(IEnumerable<Task> tasks, string stage)
                 {
                     var terminal = Task.WhenAll(tasks); started.Add(terminal);
@@ -1059,7 +1047,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(initialRoot.Presentation, "constructor Root actual Presentation terminal");
                 Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, initialRoot.RefreshMode);
                 Assert.IsNull(viewModel.RegularChartList.CaptureTreeFilter(enabled: true));
-                AwaitTasks(SnapshotPreparations(), "constructor Root registered parent terminals");
+                AwaitPreparations("constructor Root registered parent terminals");
                 MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
                 var table = (CustomTableView)window.FindName("customTableView");
 
@@ -1085,7 +1073,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Task attachDelivery = viewModel.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None);
                 started.Add(attachDelivery);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(attachDelivery, "empty library attach actual delivery");
-                AwaitTasks(SnapshotPreparations(), "empty attach accepted parent terminals");
+                AwaitPreparations("empty attach accepted parent terminals");
 
                 int sourcePhase = 1;
                 HashSet<Task> prior = SnapshotPreparations().ToHashSet();
@@ -1149,7 +1137,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         AwaitTasks(initialSourceTasks.Distinct(), stage + "-actual-source-task-terminals");
                         // 空のTask集合では表示成功とせず、期待Rowsが実表のBindingへ届くことを必須にする。
                         TestUiDispatcherHost.AwaitPresentationOnDispatcher(initialBinding.Task, stage + "-actual-Rows-Binding");
-                        AwaitTasks(SnapshotPreparations(), stage + "-visible-source-preparation-terminals");
+                        AwaitPreparations(stage + "-visible-source-preparation-terminals");
                         Assert.IsTrue(initialRowsApplied, "初期SourceChangedによる期待Rowsの実公開を確認します。");
                     }
                     else
@@ -1534,6 +1522,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 // ハンドラーは実推定Taskを待ちます。モデルの解除と活動終端を、表示行の寿命と分けて確認します。
                 Assert.IsFalse(entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING));
                 Assert.IsFalse(viewModel.ChartMutationActivity.IsActive);
+                RegularChartNavigationTestFixture.AwaitViewPreparationsOnDispatcher(viewModel.RegularChartList, "real pending estimation menu");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 CaptureCurrentRows();
                 AssertEvidence();
@@ -1631,6 +1620,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 File.WriteAllText(Path.Combine(source, "sound.wav"), "added after registration");
                 Task clearEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(clear));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(clearEvent, "real pending destination clear menu");
+                RegularChartNavigationTestFixture.AwaitViewPreparationsOnDispatcher(viewModel.RegularChartList, "real pending destination clear menu");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 CaptureCurrentRows();
                 Assert.AreEqual(string.Empty, row.instl_dst);
@@ -1741,6 +1731,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         operation();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshed.Task, "candidate relocation presentation");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(MainWindowViewModelTestFactory.GetComposition(viewModel).OperationAdmission.WaitForIdleAsync(), "candidate relocation admission terminal");
+                        RegularChartNavigationTestFixture.AwaitViewPreparationsOnDispatcher(viewModel.RegularChartList, "candidate relocation view preparation");
                         candidate = nextCandidate;
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         CaptureCurrentRows();
