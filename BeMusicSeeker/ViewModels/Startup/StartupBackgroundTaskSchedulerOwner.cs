@@ -190,6 +190,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private long idleRevision;
 
+    // 全体idleの間は完了済み、busyへ遷移した後の取得には未完了の新しいTaskを返します。継続は排他の外の別スレッドで実行します。
+    private TaskCompletionSource idleSignal = CreateIdleSignal(completed: true);
+
     /// <summary>背景処理の受付と終了待機を構成します。診断と進捗購読先の例外を実処理の成否へ加えません。</summary>
     /// <param name="isShutdownRequested">所有側の終了要求を確認します。</param>
     /// <param name="logInfo">任意の受付・実行診断。例外は局所で処理します。</param>
@@ -430,6 +433,29 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 {
                     return IsRequiredWorkIdleUnsafe();
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 受理済みの未開始・実行中の全要求が、実終端・破棄・開始前取消の計上を終えた時点で完了するTaskを返します。
+    /// </summary>
+    /// <returns>
+    /// 呼出し時点で全体idleなら完了済みのTask。busyなら、次に<see cref="IsFullyIdle"/>が真になる排他区間の終わりで完了するTask。
+    /// 完了後に新しい要求を受理すると、以後に取得するTaskは未完了になり、既に返したTaskは完了のままです。
+    /// </returns>
+    /// <remarks>
+    /// Taskは要求の失敗・取消例外・破棄後片付けの例外・購読先の例外で失敗も取消もしません。
+    /// 継続はスケジューラーの排他の中で実行せず、完了させたスレッドや表示通知の有無にも依存しません。
+    /// 終了処理とテストの終端待ちのための観測点です。記録の判定はコールバックと <see cref="IsFullyIdle"/> で行い、機能の完了判定や表示の寿命には使いません。
+    /// </remarks>
+    internal Task WaitForFullyIdleAsync()
+    {
+        lock (progressSynchronization)
+        {
+            lock (syncRoot)
+            {
+                return idleSignal.Task;
             }
         }
     }
@@ -689,6 +715,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     queuedLog = "startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " generation=" + generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority;
                     shouldStartWorker = started;
                 }
+                UpdateIdleSignalUnsafe();
             }
         }
         if (skippedAfterLock)
@@ -834,6 +861,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         shouldStartWorker = started;
                     }
                 }
+                UpdateIdleSignalUnsafe();
             }
         }
         if (rejectedAfterLock)
@@ -891,6 +919,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 started = true;
                 idleRevision++;
                 shouldStartWorker = queue.Count > 0;
+                UpdateIdleSignalUnsafe();
             }
         }
         WriteDiagnostic(logInfo, "startup_background_task scheduler_start");
@@ -941,6 +970,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 }
                 started = startImmediately;
                 shouldStartWorker = started && queue.Count > 0;
+                UpdateIdleSignalUnsafe();
             }
         }
         if (shouldStartWorker)
@@ -992,6 +1022,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 }
                 RecordDiscardedUnsafe(cancelled, normalizedReason);
                 idleRevision++;
+                UpdateIdleSignalUnsafe();
             }
         }
 
@@ -1100,6 +1131,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 idleRevision++;
                 shouldStartWorker = drainQueuedCount > 0;
                 activeRunningCount = runningCount;
+                UpdateIdleSignalUnsafe();
             }
         }
         WriteDiagnostic(logShutdown, "startup_background_task drain_queued reason=" + FormatTextForDiagnostic(reason)
@@ -1267,6 +1299,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     runningCountByLane[request.Lane] = runningInLane + 1;
                     laneRunningCount = runningInLane + 1;
                     totalRunningCount = runningCount;
+                    UpdateIdleSignalUnsafe();
                 }
             }
             StartWorker(request, laneRunningCount, totalRunningCount);
@@ -1437,6 +1470,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                                 runningCountByLane[request.Lane] = runningInLane;
                             }
                         }
+                        // 計数の減算とレーン計数の更新を終えた同じ排他区間で、全体idleの合図を確定します。
+                        UpdateIdleSignalUnsafe();
                     }
                 }
                 try
@@ -1808,6 +1843,29 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     private bool IsRequiredWorkIdleUnsafe()
     {
         return runningRequiredCount == 0 && !queue.Any(request => !request.IsPostInitialization);
+    }
+
+    private static TaskCompletionSource CreateIdleSignal(bool completed)
+    {
+        var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (completed)
+        {
+            source.TrySetResult();
+        }
+        return source;
+    }
+
+    /// <summary>queueと実行数を変えた排他区間の終わりで呼び、全体idleの合図を現在の状態へ合わせます。</summary>
+    private void UpdateIdleSignalUnsafe()
+    {
+        if (IsFullyIdleUnsafe())
+        {
+            idleSignal.TrySetResult();
+        }
+        else if (idleSignal.Task.IsCompleted)
+        {
+            idleSignal = CreateIdleSignal(completed: false);
+        }
     }
 
     private bool IsFullyIdleUnsafe()

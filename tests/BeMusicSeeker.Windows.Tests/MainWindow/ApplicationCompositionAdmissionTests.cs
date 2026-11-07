@@ -61,20 +61,7 @@ public sealed partial class ApplicationCompositionTests
             Assert.IsTrue(viewModel.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Admission"), "予約だけでなく今回の必須表示が反映されています。");
 
             // 独立後続の終了はBusy検証の準備だけに使い、必須成功の条件にはしません。
-            StartupBackgroundTaskSchedulerOwner scheduler = typeof(MainWindowViewModel)
-                .GetField("startupBackgroundTaskScheduler", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)?.GetValue(viewModel)
-                as StartupBackgroundTaskSchedulerOwner ?? throw new InvalidOperationException("Actual startup scheduler is unavailable.");
-            var backgroundTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            void BackgroundChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (!viewModel.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { backgroundTerminal.TrySetResult(); }
-            }
-            viewModel.ProgressHub.PropertyChanged += BackgroundChanged;
-            try
-            {
-                if (viewModel.ProgressHub.IsStartupBackgroundInitializationActive || !scheduler.IsFullyIdle) { await backgroundTerminal.Task; }
-            }
-            finally { viewModel.ProgressHub.PropertyChanged -= BackgroundChanged; }
+            await TestUiDispatcherHost.Dispatcher.Invoke(() => StartupCompletionTestFixture.WaitForStartupBackgroundTerminalAsync(viewModel));
             ChartFile chart = (factory.CreatedLibrary ?? throw new InvalidOperationException("Actual library is unavailable.")).BmsCharts.Single();
             System.Collections.IList rows = viewModel.MainChartList.Rows;
             viewModel.MainChartList.SelectedIndex = 0;

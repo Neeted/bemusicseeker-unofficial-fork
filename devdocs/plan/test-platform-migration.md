@@ -41,7 +41,7 @@ UIを使う実行は、1プロセスに一つの共有STA Dispatcherと共有の
 
 | 対象 | 内容 |
 | --- | --- |
-| [SettingsStartupTestFixture](../../tests/BeMusicSeeker.TestSupport/Wpf/SettingsStartupTestFixture.cs) の起動後処理の終端待ち | 起動後グループの集計外で必須の処理（遅延ランキング更新など）が最後に終わると、待機を起こす通知が来ず待ち続けうる。IR有効とスコアDB指定を同時に使う呼出しで到達しうる。現状の呼出しでの到達は未確認である。採用時は終端の判定と通知の順序を揃える。 |
+| [ApplicationScenarioControl](../../BeMusicSeeker/Runtime/ApplicationScenarioControl.cs) の `WaitForStartupAdditionalCompletionAsync` | 表示トークンだけを待つため、追跡対象外の起動後処理（遅延ランキング更新など）が実行中でも戻りうる。現状の呼出しでの到達は未確認である。採用時は、起動後処理の全体idleのTaskとの論理積で終端を判定する。 |
 | 初期化完了直後に明示的なライブラリ操作へ進むWPF fixture | 実画面のfixtureは起動後処理の終端を待ってから操作へ進む。`SettingsWindowPresentationTests` の初期化完了直後に設定適用のスキャンへ進む経路は、同じ受付の競合で失敗する候補として未確認である。 |
 | `UpdateMarkerReaderSharingTests` の更新ツール解決 | 更新ツールのDLLを `WindowsProcessProbe` のビルド出力内の固定パスから読む。更新ツールの解決をTestSupportへ集約する際に置き換える。 |
 | Scenarios/Update の `UpdaterPackageSyncTests.WindowsGatewayCancelsAndPreparesNextUpdate` の間欠失敗 | 13回の実行で1回だけ失敗し、その後のFullでは再発していない。失敗時の症状は記録していない。再発時は期限延長や再試行ではなく原因を特定する。 |

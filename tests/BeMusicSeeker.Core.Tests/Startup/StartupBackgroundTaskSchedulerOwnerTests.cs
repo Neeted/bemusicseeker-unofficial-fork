@@ -2282,6 +2282,129 @@ public sealed class StartupBackgroundTaskSchedulerOwnerTests
         ConcurrencyProbe.AssertCompletesWhileHeld(probe, "owner lock保持中の別threadからの状態取得");
     }
 
+    /// <summary>
+    /// 全体idleのTaskは、追加処理の集計が完了しても追跡対象外の仕事の終端計上まで完了せず、最後の進捗通知の最中も未完了のままにする。
+    /// 計上後は完了し、継続はschedulerの排他の外で実行する。
+    /// </summary>
+    [TestMethod]
+    public async Task WaitForFullyIdleAsync_CompletesOnlyAfterUntrackedTerminalAccountingOutsideLock()
+    {
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        owner.Reset(false);
+        long generation = owner.CurrentGeneration;
+        const long token = 21;
+        owner.BeginAdditionalProgress(token, generation);
+        var independentEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var independentRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notificationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var notificationRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var additionalTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        owner.AdditionalProgressChanged += snapshot => { if (snapshot.IsComplete) { additionalTerminal.TrySetResult(); } };
+        // 追跡対象外の最後の進捗通知はworker上で終端計上の前に同期的に呼ばれる。ここで計上前の状態を保持する。
+        owner.ProgressChanged += snapshot =>
+        {
+            if (snapshot.Name == "independent" && !snapshot.IsRunning)
+            {
+                notificationEntered.TrySetResult();
+                notificationRelease.Task.Wait();
+            }
+        };
+        using (owner.BeginAdmissionScope(token, generation))
+        {
+            owner.Queue("external_table_catalog", "tracked", null, () => Task.CompletedTask);
+        }
+        owner.Queue("independent", "manual", null, async () =>
+        {
+            independentEntered.TrySetResult();
+            await independentRelease.Task;
+        });
+        owner.MarkRequiredInitializationSchedulingComplete();
+        owner.MarkPostInitializationSchedulingComplete();
+        Task idle = owner.WaitForFullyIdleAsync();
+        Assert.IsFalse(idle.IsCompleted, "未開始の要求が残る間は完了しない。");
+        bool? continuationHeldLock = null;
+        Task observed = idle.ContinueWith(
+            _ => continuationHeldLock = Monitor.IsEntered(owner.ProgressSynchronization),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+        owner.Start();
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(independentEntered.Task, additionalTerminal.Task), idle, "tracked terminal with independent running");
+            Assert.IsTrue(owner.CaptureAdditionalProgressSnapshot().IsComplete);
+            Assert.IsFalse(owner.IsFullyIdle);
+            Assert.IsFalse(idle.IsCompleted, "追加処理の集計が完了しても、追跡対象外の仕事が実行中なら完了しない。");
+
+            independentRelease.TrySetResult();
+            await TestUiDispatcherHost.AwaitNotificationAsync(notificationEntered.Task, idle, "untracked final progress notification");
+            Assert.IsFalse(owner.IsFullyIdle);
+            Assert.IsFalse(idle.IsCompleted, "最後の進捗通知の最中は終端計上の前なので完了しない。");
+
+            notificationRelease.TrySetResult();
+            await idle;
+            await observed;
+            Assert.IsTrue(owner.IsFullyIdle);
+            Assert.AreEqual(false, continuationHeldLock, "継続をschedulerの排他の中で実行しない。");
+        }
+        finally
+        {
+            independentRelease.TrySetResult();
+            notificationRelease.TrySetResult();
+            await idle;
+        }
+    }
+
+    /// <summary>全体idleのTaskは、使われていない初期状態・空queueの開始・最後の未開始要求の取消・全件破棄の終了要求の各同期遷移で、呼出しの戻りまでに完了する。</summary>
+    [TestMethod]
+    public void WaitForFullyIdleAsync_CompletesAtSynchronousTransitions()
+    {
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        Assert.IsTrue(owner.WaitForFullyIdleAsync().IsCompleted, "使われていない初期状態はidle。");
+        owner.Reset(false);
+        owner.Start();
+        Assert.IsTrue(owner.WaitForFullyIdleAsync().IsCompleted, "空queueの開始でもidle。");
+
+        StartupBackgroundTaskSchedulerOwner cancelOwner = CreateOwner();
+        cancelOwner.Reset(false);
+        StartupBackgroundTaskReservation reservation = Reserve(cancelOwner, "playlist_url_completion");
+        Assert.IsTrue(cancelOwner.QueueReserved(reservation, "queued", () => Task.CompletedTask));
+        Task cancelIdle = cancelOwner.WaitForFullyIdleAsync();
+        Assert.IsFalse(cancelIdle.IsCompleted, "未開始でqueueに残る要求がある間は完了しない。");
+        Assert.IsTrue(cancelOwner.CancelQueued(reservation, "before_start"));
+        Assert.IsTrue(cancelIdle.IsCompleted, "最後の未開始要求の取消で同期的に完了する。");
+
+        StartupBackgroundTaskSchedulerOwner shutdownOwner = CreateOwner();
+        shutdownOwner.Reset(false);
+        shutdownOwner.Queue("external_table_catalog", "discard", null, () => Task.CompletedTask);
+        Task shutdownIdle = shutdownOwner.WaitForFullyIdleAsync();
+        Assert.IsFalse(shutdownIdle.IsCompleted);
+        shutdownOwner.RequestShutdown("test_shutdown");
+        Assert.IsTrue(shutdownIdle.IsCompleted, "全件を破棄する終了要求で同期的に完了する。");
+    }
+
+    /// <summary>
+    /// 完了後に新しい要求を受理すると、以後に取得するTaskは未完了になり、既に返したTaskは完了のまま残る。
+    /// 失敗する仕事の終端後もTask自体は失敗せずに完了する。
+    /// </summary>
+    [TestMethod]
+    public async Task WaitForFullyIdleAsync_RecreatesTaskAfterAcceptanceAndCompletesAfterFailedWork()
+    {
+        StartupBackgroundTaskSchedulerOwner owner = CreateOwner();
+        owner.Reset(false);
+        Task completed = owner.WaitForFullyIdleAsync();
+        Assert.IsTrue(completed.IsCompleted);
+        owner.Queue("independent", "failing", null, () => throw new IOException("independent failure"));
+        Task next = owner.WaitForFullyIdleAsync();
+        Assert.AreNotSame(completed, next);
+        Assert.IsFalse(next.IsCompleted, "新しい要求の受理後に取得するTaskは未完了。");
+        Assert.IsTrue(completed.IsCompleted, "既に返したTaskは完了のまま。");
+        owner.Start();
+        await next;
+        Assert.IsTrue(next.IsCompletedSuccessfully, "仕事の失敗でTaskを失敗・取消にしない。");
+        Assert.IsTrue(owner.IsFullyIdle);
+    }
+
     private static long nextOwnerReservationSequence;
 
     private static StartupBackgroundTaskReservation Reserve(

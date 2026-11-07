@@ -1174,12 +1174,14 @@ internal sealed class ShellShutdownWorkflowOwner
 
     private async Task WaitForStartupBackgroundTasksIdleAsync(ShutdownWaitTracker tracker)
     {
-        await WaitForConditionAsync(
+        Task startupBackgroundIdle = startupBackgroundTaskScheduler.WaitForFullyIdleAsync();
+        await WaitForTaskCompletionAsync(
             "startupBackgroundTasks",
-            () => startupBackgroundTaskScheduler.IsFullyIdle,
+            startupBackgroundIdle,
             ShutdownDrainWarningThreshold,
             tracker,
             startupBackgroundTaskScheduler.DescribeWaitState).ConfigureAwait(false);
+        await startupBackgroundIdle.ConfigureAwait(false);
     }
 
     private async Task WaitForPlayHistoryRefreshIdleAsync(ShutdownWaitTracker tracker)
@@ -1285,7 +1287,8 @@ internal sealed class ShellShutdownWorkflowOwner
         var warningDelay = Task.Delay(warningThreshold);
         if (await Task.WhenAny(task, warningDelay).ConfigureAwait(false) == warningDelay)
         {
-            LogSlowWaitIfNeeded(target, stopwatch, warningThreshold, tracker, ref warningLogged, describeState);
+            // 閾値のTaskが先に完了した時点で閾値へ達したものとし、タイマー粒度による経過時間の誤差で記録を落とさない。
+            LogSlowWaitIfNeeded(target, stopwatch, warningThreshold, tracker, ref warningLogged, describeState, thresholdReached: true);
             await Task.WhenAny(task).ConfigureAwait(false);
         }
     }
@@ -1361,9 +1364,10 @@ internal sealed class ShellShutdownWorkflowOwner
         TimeSpan warningThreshold,
         ShutdownWaitTracker tracker,
         ref bool warningLogged,
-        Func<string> describeState)
+        Func<string> describeState,
+        bool thresholdReached = false)
     {
-        if (warningLogged || stopwatch.Elapsed < warningThreshold)
+        if (warningLogged || (!thresholdReached && stopwatch.Elapsed < warningThreshold))
         {
             return;
         }

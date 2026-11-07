@@ -28,7 +28,11 @@ internal static class StartupBackgroundTaskSchedulerOwnerTestSupport
             notificationProbe);
     }
 
-    /// <summary>既存の待機条件と期限でschedulerの完全idleを待ちます。</summary>
+    /// <summary>
+    /// schedulerのidle通知（<c>schedulerIdleChanged</c>）を使うプローブで、<c>IsFullyIdle</c> が真になるまで待ちます。
+    /// 通知のたびに条件を判定し直す補助であり、本番の <c>StartupBackgroundTaskSchedulerOwner.WaitForFullyIdleAsync()</c> のTaskとは別物です。
+    /// 本番のTaskの契約を検査する用途には使いません。
+    /// </summary>
     internal static Task WaitForFullyIdleAsync(StartupBackgroundTaskSchedulerOwner owner)
     {
         return WaitUntilAsync(owner, () => owner.IsFullyIdle);

@@ -17,22 +17,36 @@ namespace BeMusicSeeker.TestSupport.Wpf;
 internal static class StartupCompletionTestFixture
 {
 
-    /// <summary>次の明示操作の準備として実schedulerの後続終端通知を待ちます。必須起動成功の条件には使いません。</summary>
+    /// <summary>
+    /// 次の明示操作の準備として、起動後の表示が非活動かつ実schedulerが全体idleである同じ時点まで待ちます。必須起動成功の条件には使いません。
+    /// </summary>
+    /// <param name="owner">待機対象の実rootです。</param>
+    /// <remarks>
+    /// UIスレッドから呼びます。表示の終了は表示の通知、全体idleはschedulerのTaskで待つため、表示終了後に追跡対象外の仕事が終わっても通知を必要としません。
+    /// 局所的な期限は設けず、停止は検証全体の制限時間で検出します。
+    /// </remarks>
     internal static async Task WaitForStartupBackgroundTerminalAsync(MainWindowViewModel owner)
     {
         StartupBackgroundTaskSchedulerOwner scheduler = GetPrivateField<StartupBackgroundTaskSchedulerOwner>(owner, "startupBackgroundTaskScheduler");
-        var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+        while (true)
         {
-            if (!owner.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { terminal.TrySetResult(); }
+            // 購読を確認より先に行い、確認と待機の間の表示通知を失いません。
+            var displayChanged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs args) => displayChanged.TrySetResult();
+            owner.ProgressHub.PropertyChanged += Changed;
+            try
+            {
+                bool displayActive = owner.ProgressHub.IsStartupBackgroundInitializationActive;
+                bool fullyIdle = scheduler.IsFullyIdle;
+                if (!displayActive && fullyIdle) { return; }
+                // 表示が活動中なら表示の通知を、busyなら全体idleのTaskを待ち、どちらかが進んだら論理積を確認し直します。
+                var waits = new List<Task>(2);
+                if (displayActive) { waits.Add(displayChanged.Task); }
+                if (!fullyIdle) { waits.Add(scheduler.WaitForFullyIdleAsync()); }
+                await Task.WhenAny(waits);
+            }
+            finally { owner.ProgressHub.PropertyChanged -= Changed; }
         }
-        owner.ProgressHub.PropertyChanged += Changed;
-        try
-        {
-            if (!owner.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { return; }
-            await terminal.Task;
-        }
-        finally { owner.ProgressHub.PropertyChanged -= Changed; }
     }
 
     /// <summary>この終端領域だけで使う実UI Taskのgateです。Arm後の受付外の必須UI一回を保持します。</summary>
@@ -290,7 +304,7 @@ internal static class StartupCompletionTestFixture
             Track(task);
             return task;
         }
-        /// <summary>実schedulerの全後続終端が既存Hubへ届く通知だけを待ちます。必須成功の条件には使いません。</summary>
+        /// <summary>表示の非活動と実schedulerの全体idleが同時に成り立つまで待ちます。必須成功の条件には使いません。</summary>
         internal Task WaitForBackgroundTerminalAsync() => WaitForStartupBackgroundTerminalAsync(Owner);
         internal void Track(Task task) => tasks.Add(task);
         internal void AssertBeforeUiCompletion()

@@ -108,7 +108,7 @@ public sealed class MainWindowCatalogProjectionTests
                 Task<bool> initialization = owner.InitializeAsync();
                 Await(initialization, "catalog-projection-startup");
                 Assert.IsTrue(initialization.GetAwaiter().GetResult());
-                Await(WaitForStartupBackgroundAsync(owner), "catalog-projection-startup-background");
+                Await(StartupCompletionTestFixture.WaitForStartupBackgroundTerminalAsync(owner), "catalog-projection-startup-background");
                 BMSPlaylist store = Field<BMSPlaylist>(owner, "tables");
                 RegularChartListOwner regular = Field<RegularChartListOwner>(owner, "regularChartListOwner");
                 ShowNormal();
@@ -423,24 +423,6 @@ public sealed class MainWindowCatalogProjectionTests
                 if (rowsChanged != null) { viewModel.MainChartList.PropertyChanged -= rowsChanged; }
             }
         }));
-    }
-
-    /// <summary>実schedulerの任意作業の終端を観測し、次の手動操作の受付と競合させません。</summary>
-    private static async Task WaitForStartupBackgroundAsync(MainWindowViewModel owner)
-    {
-        StartupBackgroundTaskSchedulerOwner scheduler = Field<StartupBackgroundTaskSchedulerOwner>(owner, "startupBackgroundTaskScheduler");
-        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        void Changed(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
-        {
-            if (!owner.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { completion.TrySetResult(); }
-        }
-        owner.ProgressHub.PropertyChanged += Changed;
-        try
-        {
-            if (!owner.ProgressHub.IsStartupBackgroundInitializationActive && scheduler.IsFullyIdle) { return; }
-            await completion.Task;
-        }
-        finally { owner.ProgressHub.PropertyChanged -= Changed; }
     }
 
     private static void Await(Task task, string reason) => TestUiDispatcherHost.AwaitTaskOnDispatcher(task, reason);
