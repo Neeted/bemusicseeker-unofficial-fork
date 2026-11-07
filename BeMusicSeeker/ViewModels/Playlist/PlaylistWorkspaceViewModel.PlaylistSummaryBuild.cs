@@ -169,12 +169,16 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + " entryScans=" + buildResult.EntryScanCount
                     + " elapsedMs=" + buildMs);
             }
-            if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
+            void LogStaleBuild()
             {
                 LogBuild("playlist_summary_build_stale rawCount=" + buildResult.Rows.Count
                     + " dataGeneration=" + dataRebuildGeneration
                     + " currentDataGeneration=" + CurrentPlaylistSummaryDataRebuildGeneration
                     + " buildMs=" + buildMs);
+            }
+            if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
+            {
+                LogStaleBuild();
                 return;
             }
 
@@ -200,7 +204,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                 + " cacheMiss=" + buildResult.SummaryCacheMissCount
                 + " elapsedMs=" + buildMs);
 
-            long presentationGeneration = BeginPlaylistSummaryPresentationGeneration();
+            // 先の判定はログと公開準備を省くためだけに使い、採用に効く判定は表示世代の開始と一度に行います。
+            // 判定と開始を分けると、間に後発の集計が受理・開始した場合に先発・後発の両方が拒否されます。
+            if (!TryBeginPlaylistSummaryPresentationGenerationForData(dataRebuildGeneration, out long presentationGeneration))
+            {
+                LogStaleBuild();
+                return;
+            }
             await ApplyPlaylistSummaryPresentationAsync(
                 buildResult.Rows,
                 stopwatch,

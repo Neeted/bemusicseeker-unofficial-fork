@@ -749,6 +749,123 @@ public sealed class PlaylistWorkspacePresentationStateTests
         workspace.CompletePlaylistSummaryDataBuild(request);
     }
 
+    /// <summary>
+    /// 保証: 集計Aが判定を済ませて表示世代を開始する前に集計Bが受理・開始しても、静止後はBの行と件数を採用し、Aの結果は途中でも採用しない。
+    /// 判定と開始を分けた実装で両方が拒否され、表示が古いまま止まる誤りを検出する。
+    /// </summary>
+    /// <remarks>窓の中で呼ばれる注入済みログを関門、UI採用の予約をFIFOの保留キューにして、時間待ちなしで重なりを作ります。</remarks>
+    [TestMethod]
+    public async Task SummaryDataBuilds_OverlappingRequestAdoptsLatestAcceptedBuild()
+    {
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        fixture.Workspace.Dispose();
+        var queue = new Queue<(Action Action, TaskCompletionSource<bool> Completion)>();
+        bool queueMode = false;
+        Task Schedule(Action action)
+        {
+            if (!queueMode)
+            {
+                action();
+                return Task.CompletedTask;
+            }
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            queue.Enqueue((action, completion));
+            return completion.Task;
+        }
+
+        PlaylistWorkspaceViewModel? workspaceRef = null;
+        bool gateArmed = false;
+        int gateFired = 0;
+        var t3 = new BMSTable
+        {
+            playlist_id = 9003,
+            name = "T3",
+            last_update = new DateTime(2026, 2, 3),
+            entries = [new BMSTableEntry { md5 = new string('d', 32) }, new BMSTableEntry { md5 = new string('e', 32) }, new BMSTableEntry { md5 = new string('f', 32) }]
+        };
+        void Gate(string message)
+        {
+            if (!gateArmed || !message.StartsWith("playlist_summary_build ", StringComparison.Ordinal))
+            {
+                return;
+            }
+            gateArmed = false;
+            gateFired++;
+            fixture.Playlist.BMSTables.Add(t3);
+            workspaceRef!.RequestPlaylistSummaryDataRefresh("second", rebuildAsync: false);
+        }
+
+        using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
+            playlistLibraryProvider: () => fixture.Library, detailRetentionLog: Gate, restoreUiApplyScheduler: Schedule);
+        workspaceRef = workspace;
+        var builds = new List<(long Generation, Task Build)>();
+        workspace.PlaylistSummaryBuildStarted += (generation, build) => builds.Add((generation, build));
+        workspace.RequestPlaylistSummaryMode(true);
+        workspace.RebuildPlaylistSummaryView(runAsync: false);
+        await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+        int? t1Id = fixture.Table.playlist_id;
+        CollectionAssert.AreEquivalent(new int?[] { t1Id }, workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
+        int t1Charts = workspace.PlaylistSummaryView.Single().TotalCharts;
+
+        fixture.Playlist.BMSTables.Add(new BMSTable
+        {
+            playlist_id = 9002,
+            name = "T2",
+            last_update = new DateTime(2026, 2, 2),
+            entries = [new BMSTableEntry { md5 = new string('b', 32) }, new BMSTableEntry { md5 = new string('c', 32) }]
+        });
+        builds.Clear();
+        queueMode = true;
+        gateArmed = true;
+        var snapshots = new List<int?[]>();
+        try
+        {
+            workspace.RequestPlaylistSummaryDataRefresh("first", rebuildAsync: false);
+            Assert.AreEqual(1, gateFired, "集計Aの判定後・表示世代開始前の関門で集計Bを受理しています。");
+        }
+        finally
+        {
+            gateArmed = false;
+            while (true)
+            {
+                while (queue.Count > 0)
+                {
+                    (Action action, TaskCompletionSource<bool> completion) = queue.Dequeue();
+                    try
+                    {
+                        action();
+                        completion.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        completion.SetException(ex);
+                    }
+                    snapshots.Add(workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray());
+                }
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+                if (queue.Count == 0)
+                {
+                    break;
+                }
+            }
+        }
+
+        int?[] latest = [t1Id, 9002, 9003];
+        CollectionAssert.AreEquivalent(latest, workspace.PlaylistSummaryView.Select(row => row.PlaylistId).ToArray(), "静止後は後発の集計Bの行を採用しています。");
+        Assert.AreEqual(
+            string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, t1Charts + 2 + 3, 3),
+            workspace.PlaylistSummaryText);
+        int?[] older = [t1Id, 9002];
+        Assert.IsFalse(
+            snapshots.Any(snapshot => snapshot.Length == older.Length && !snapshot.Except(older).Any()),
+            "集計Aの行はBの受理後に一度も採用されません。");
+        Assert.AreEqual(builds.Max(build => build.Generation), workspace.AppliedPlaylistSummaryDataGeneration);
+        foreach ((long _, Task build) in builds)
+        {
+            await build;
+        }
+    }
+
     /// <summary>表示・data・cacheの各旧世代と非表示modeの結果を拒否し、現行行と要約を旧結果で置換しません。</summary>
     [TestMethod]
     public void PlaylistWorkspaceSummaryApplyRejectsStaleGenerationAndInactiveMode()

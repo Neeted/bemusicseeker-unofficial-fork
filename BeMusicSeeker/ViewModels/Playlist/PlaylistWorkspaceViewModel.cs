@@ -1069,11 +1069,41 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     /// </summary>
     internal long LastPlaylistSummaryBuildElapsedMs => Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs);
 
+    /// <summary>
+    /// データ世代に依存しない表示の再評価（raw cacheの再投影）のために表示世代を開始します。
+    /// データ集計の結果を公開する経路は <see cref="TryBeginPlaylistSummaryPresentationGenerationForData"/> を使います。
+    /// </summary>
+    /// <returns>開始した表示世代。</returns>
     internal long BeginPlaylistSummaryPresentationGeneration()
     {
         lock (playlistSummaryTransitionLock)
         {
             return ++playlistSummaryPresentationGeneration;
+        }
+    }
+
+    /// <summary>
+    /// データ集計の結果を公開する直前に、その集計のデータ世代が現役である場合だけ表示世代を開始します。
+    /// </summary>
+    /// <remarks>
+    /// 判定と開始を別々のロック取得に分けると、判定後・開始前に後発の集計が受理されて表示世代を開始した場合、
+    /// 先発の開始が後発の表示世代を追い越します。後発は表示世代、先発はデータ世代で拒否され、再要求のないまま表示が古く残るため、
+    /// 両方を同じtransition lock内で一度に行います。
+    /// </remarks>
+    /// <param name="dataRebuildGeneration">公開しようとする集計のデータ世代。</param>
+    /// <param name="presentationGeneration">開始した表示世代。データ世代が現役でなければ 0。</param>
+    /// <returns>データ世代が現役で表示世代を開始した場合は <see langword="true"/>。</returns>
+    internal bool TryBeginPlaylistSummaryPresentationGenerationForData(long dataRebuildGeneration, out long presentationGeneration)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            if (dataRebuildGeneration != playlistSummaryDataRebuildGeneration)
+            {
+                presentationGeneration = 0L;
+                return false;
+            }
+            presentationGeneration = ++playlistSummaryPresentationGeneration;
+            return true;
         }
     }
 
