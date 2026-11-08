@@ -15,6 +15,7 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
     private readonly NamedPipeServerStream pipe;
     private StreamReader reader;
     private StreamWriter writer;
+    private bool writerDisposed;
     private readonly OwnedProcess process;
     private readonly string diagnosticsDirectory;
     private readonly CancellationTokenSource stopping = new();
@@ -274,11 +275,14 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
     /// <summary>
     /// 書込み側を破棄します。writerはAutoFlushのため、正常な書込みの後に未送信のデータはありません。
     /// 相手の切断後はPipeStream.Flushが状態検査だけで失敗し得るため、pipeが接続中でない場合のIOExceptionだけを捨てます。
-    /// 判定はpipeの状態だけで行い、相手の終了を前提にしません。接続中のIOExceptionと他の例外は回収失敗として残します。
+    /// 判定はpipeの状態だけで行い、相手の終了を前提にしません。接続中のIOExceptionと他の例外は、そのまま送出します。送出先は、再起動の再接続の経路では呼出し元、DisposeAsyncの経路では回収失敗です。
     /// 未送信の文字が残るのは、すでに失敗が報告された書込みの後だけです。取消や失敗で書込みが途中になった場合は、その書込み自体の失敗が呼出元の例外または停止処理の回収失敗として別に報告されます。
+    /// 破棄は一度だけです。再接続の途中で失敗した後のDisposeAsyncは、破棄済みのwriterを再び破棄せず、二次の失敗を加えません。
     /// </summary>
     private void DisposeWriter()
     {
+        if (writerDisposed) { return; }
+        writerDisposed = true;
         try { writer.Dispose(); }
         catch (IOException) when (!pipe.IsConnected) { }
     }
@@ -297,6 +301,7 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
         await pipe.WaitForConnectionAsync(cancellation.Token).ConfigureAwait(false);
         reader = new StreamReader(pipe, new UTF8Encoding(false), false, 4096, leaveOpen: true);
         writer = new StreamWriter(pipe, new UTF8Encoding(false), 4096, leaveOpen: true) { AutoFlush = true };
+        writerDisposed = false;
         // hello受信までは初代exitを監視しません。保持handleを採用してから通常要求の退出監視へ戻します。
         string line = await reader.ReadLineAsync(cancellation.Token).ConfigureAwait(false) ?? throw new EndOfStreamException("後継helloがありません。");
         ScenarioConnected hello = JsonSerializer.Deserialize<ScenarioMessage>(line) as ScenarioConnected

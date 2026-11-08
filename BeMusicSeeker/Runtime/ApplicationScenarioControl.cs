@@ -318,6 +318,17 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         finally { writeGate.Release(); }
     }
 
+    /// <summary>
+    /// 書込み側を破棄します。writerはAutoFlushのため、正常な書込みの後に未送信のデータはありません。
+    /// 相手の切断後はPipeStream.Flushが状態検査だけで失敗し得るため、pipeが接続中でない場合のIOExceptionだけを捨てます。
+    /// 判定はpipeの状態だけで行い、相手の終了を前提にしません。接続中のIOExceptionと他の例外はそのまま送出します。
+    /// </summary>
+    private void DisposeWriter()
+    {
+        try { writer.Dispose(); }
+        catch (IOException) when (!pipe.IsConnected) { }
+    }
+
     /// <summary>観測待機と未配送commandを先に取り消し、通信を回収します。業務Taskそのものは通常shutdownが先に終端します。</summary>
     public async ValueTask DisposeAsync()
     {
@@ -334,7 +345,7 @@ internal sealed partial class ApplicationScenarioControl : IAsyncDisposable
         finally
         {
             reader.Dispose();
-            try { writer.Dispose(); }
+            try { DisposeWriter(); }
             finally
             {
                 pipe.Dispose();

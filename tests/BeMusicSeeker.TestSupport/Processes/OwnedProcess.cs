@@ -313,12 +313,20 @@ public sealed class OwnedProcess : IAsyncDisposable
                 {
                     failures.Add(failure);
                 }
+                else
+                {
+                    AddCompletedRequestFailure(gracefulRequest, failures);
+                }
             }
             catch (OperationCanceledException failure) when (cancellation.IsCancellationRequested)
             {
                 if (gracefulRequest is { IsCompleted: false })
                 {
                     failures.Add(failure);
+                }
+                else
+                {
+                    AddCompletedRequestFailure(gracefulRequest, failures);
                 }
             }
             catch (Exception failure) { failures.Add(failure); }
@@ -328,6 +336,11 @@ public sealed class OwnedProcess : IAsyncDisposable
             {
                 // 取消を無視した要求の後発例外も観測する。未終端自体は上の回収失敗へ残す。
                 _ = gracefulRequest.ContinueWith(task => _ = task.Exception, TaskContinuationOptions.OnlyOnFaulted);
+            }
+            else
+            {
+                // 待機の時間切れの後、取消までの間に完了した要求は、継続が登録されないためここで観測する。
+                AddCompletedRequestFailure(gracefulRequest, failures);
             }
         }
         if (!Completion.IsCompletedSuccessfully)
@@ -358,6 +371,21 @@ public sealed class OwnedProcess : IAsyncDisposable
         }
         CleanupFailure = failures.Count switch { 0 => null, 1 => failures[0], _ => new AggregateException(failures) };
         return new ProcessStopResult(CleanupFailure);
+    }
+
+    /// <summary>
+    /// 完了済みの正常終了要求が OperationCanceledException 以外で失敗していた場合に、その元の例外だけを回収失敗へ入れます。
+    /// 取消は猶予による正常な停止経路なので入れません。待機の時間切れの後に要求が失敗で完了しても、取りこぼしません。
+    /// await が送出する例外と同じ参照で既出を判定するため、catch-all が入れた例外は二重に入れません。
+    /// </summary>
+    private static void AddCompletedRequestFailure(Task? request, List<Exception> failures)
+    {
+        if (request is { IsFaulted: true, Exception.InnerExceptions: [var failure, ..] }
+            && failure is not OperationCanceledException
+            && !failures.Contains(failure))
+        {
+            failures.Add(failure);
+        }
     }
 
     private async Task ConfirmOwnedExitAsync(ProcessDeadline deadline)

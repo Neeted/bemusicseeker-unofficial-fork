@@ -333,6 +333,112 @@ public sealed class OwnedProcessTests
         Assert.AreSame(injected, target.CleanupFailure);
     }
 
+    /// <summary>
+    /// 正常終了要求の待機が時間切れになった直後、catch で完了を確かめる前に要求が完了する場合を固定します。
+    /// 期待結果は、OperationCanceledException 以外で失敗した要求の元の例外がちょうど1回だけ回収失敗の直接の要素になり、待機の時間切れの例外は入らないことです。
+    /// 取消で完了した要求は、要求由来の取消の例外も時間切れの例外も入れません。
+    /// 失敗の取りこぼし、時間切れの例外の登録、二重登録、AggregateException での包み込み、取消の誤登録を検出します。
+    /// </summary>
+    /// <remarks>
+    /// 期限切れの cleanup 期限で猶予を0にして、時間切れの送出を StopAsync の呼出しスレッドへ同期させ、
+    /// FirstChanceException が送出の直後・catch の検索の前に呼ばれることで要求の完了時機を固定します。
+    /// 捕捉器は AsyncLocal でこのテストの流れだけに限定します。待機が時間切れを例外で表さなくなった場合は、捕捉器の発火の表明で失敗します。
+    /// 期限切れのため回収段階の失敗も加わるので、表明は例外の参照の同一性だけで行い、他の失敗の件数・型は問いません。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task GracefulRequestCompletingAfterWaitTimeoutReportsOnlyFaultOnce(bool faulted)
+    {
+        using var workspace = new Workspace();
+        await using OwnedProcess process = Start("hang", workspace.Ready, workspace.Release);
+        await workspace.WaitReadyAsync();
+        // 実際の回収は、保持した観測用 handle の終了で確認する。
+        using var observer = Process.GetProcessById(process.ProcessId);
+        _ = observer.SafeHandle;
+        var request = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var injected = new IOException("正常終了要求の遅延した失敗");
+        CancellationToken requestToken = default;
+        var probe = new WaitTimeoutProbe(request, faulted, injected);
+        EventHandler<FirstChanceExceptionEventArgs> handler = probe.OnFirstChance;
+        var expiredBeforeStop = ProcessDeadline.FromTimeout(TimeSpan.Zero);
+        ProcessStopResult cleanup;
+        WaitTimeoutProbe.Current.Value = probe;
+        AppDomain.CurrentDomain.FirstChanceException += handler;
+        try
+        {
+            cleanup = await process.StopAsync(token => { requestToken = token; probe.RequestToken = token; return request.Task; }, expiredBeforeStop);
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.FirstChanceException -= handler;
+            WaitTimeoutProbe.Current.Value = null;
+            request.TrySetCanceled();
+        }
+        using var exitWait = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await observer.WaitForExitAsync(exitWait.Token);
+        Assert.IsTrue(observer.HasExited);
+        // root の終了を観測したかどうかによらず、同じ期限切れの期限で主失敗を固定し、意図して作った回収失敗を DisposeAsync が再送出しないようにする。
+        await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForRootExitAsync(expiredBeforeStop));
+        Assert.IsNotNull(probe.Timeout, "待機の時間切れが例外として観測されませんでした。");
+        Assert.IsTrue(probe.RequestWasPending);
+        Assert.AreEqual(faulted ? TaskStatus.Faulted : TaskStatus.Canceled, request.Task.Status);
+        Assert.IsNotNull(cleanup.CleanupFailure);
+        Assert.AreSame(cleanup.CleanupFailure, process.CleanupFailure);
+        List<Exception> all = Flatten(cleanup.CleanupFailure);
+        Assert.IsFalse(all.Any(e => ReferenceEquals(e, probe.Timeout)));
+        if (faulted)
+        {
+            Assert.AreEqual(1, all.Count(e => ReferenceEquals(e, injected)));
+            IEnumerable<Exception> direct = cleanup.CleanupFailure is AggregateException aggregate ? aggregate.InnerExceptions : [cleanup.CleanupFailure];
+            Assert.IsTrue(direct.Any(e => ReferenceEquals(e, injected)));
+        }
+        else
+        {
+            Assert.IsFalse(all.Any(e => e is OperationCanceledException canceled && canceled.CancellationToken == requestToken));
+            Assert.IsFalse(all.Any(e => e is TaskCanceledException { Task: { } task } && ReferenceEquals(task, request.Task)));
+        }
+
+        static List<Exception> Flatten(Exception root)
+        {
+            var result = new List<Exception>();
+            var pending = new Stack<Exception>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                Exception current = pending.Pop();
+                result.Add(current);
+                if (current is AggregateException aggregate)
+                {
+                    foreach (Exception inner in aggregate.InnerExceptions) { pending.Push(inner); }
+                }
+                else if (current.InnerException is { } inner)
+                {
+                    pending.Push(inner);
+                }
+            }
+            return result;
+        }
+    }
+
+    /// <summary>流れ内で最初の TimeoutException の送出直後に、要求 Task を失敗または取消で完了させます。</summary>
+    private sealed class WaitTimeoutProbe(TaskCompletionSource request, bool faulted, Exception failure)
+    {
+        internal static readonly AsyncLocal<WaitTimeoutProbe?> Current = new();
+        internal CancellationToken RequestToken;
+        internal TimeoutException? Timeout;
+        internal bool RequestWasPending;
+
+        internal void OnFirstChance(object? sender, FirstChanceExceptionEventArgs args)
+        {
+            if (!ReferenceEquals(Current.Value, this) || Timeout is not null || args.Exception is not TimeoutException timeout) { return; }
+            Timeout = timeout;
+            RequestWasPending = !request.Task.IsCompleted;
+            if (faulted) { request.TrySetException(failure); }
+            else { request.TrySetCanceled(RequestToken); }
+        }
+    }
+
     /// <summary>owner を強制終了しても非継承 Job handle の最終 close で child が終了し、owner 死亡時の孤児化を検出します。</summary>
     [TestMethod]
     public async Task OwnerDeathClosesItsJobAndTerminatesChild()
