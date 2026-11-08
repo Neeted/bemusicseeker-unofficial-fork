@@ -3317,7 +3317,7 @@ public sealed class SettingDialogEditCompletionTests
                     settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
                 var config = new LR2Config(values.LR2ConfigXmlPath);
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
-                var actualLibrary = new TestBmsLibrary(composition.DatabaseScope, targetDb, configOwner, null, mutation, null, scheduler,
+                var actualLibrary = new TestBmsLibrary(composition.DatabaseScope, targetDb, configOwner, null, mutation, new UnexpectedBmsLibraryDialogService(), scheduler,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(values), chartFileScanner: CapturedChartFileScanner.FromFixture([],
                     new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [Path.Combine(root, "Songs")] = [] }, [Path.Combine(root, "Songs")]),
                     operationAdmission: composition.OperationAdmission,

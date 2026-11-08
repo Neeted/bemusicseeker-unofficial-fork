@@ -84,6 +84,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
 
     private readonly IUiDialogService playlistWorkspaceDialogService;
 
+    private readonly IBmsLibraryDialogService bmsLibraryDialogService;
+
     private readonly IUiScheduler uiScheduler;
 
     private readonly IApplicationLifetimePort applicationLifetime;
@@ -129,6 +131,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <param name="reportRestartFailure">再起動失敗を通知できない場合の報告処理。</param>
     /// <param name="settingsDialogService">設定画面の確認と通知。省略時は既存のダイアログ調停処理を使います。</param>
     /// <param name="packageInstallMutationPort">パッケージの変更処理。省略時は既存のライブラリ変更処理を使います。</param>
+    /// <param name="libraryDialogService">ライブラリ操作の通知と確認。省略時は既存のダイアログ調停処理を使い、モデルへ注入する窓口の実装を作ります。</param>
     internal ApplicationComposition(
         ApplicationRuntimeOptions runtimeOptions,
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
@@ -162,7 +165,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<Exception> reportRestartFailure = null,
         IUiDialogService settingsDialogService = null,
         IPackageInstallMutationPort packageInstallMutationPort = null,
-        IChartFileScanner chartFileScanner = null)
+        IChartFileScanner chartFileScanner = null,
+        IUiDialogService libraryDialogService = null)
     {
         RuntimeOptions = runtimeOptions ?? throw new ArgumentNullException(nameof(runtimeOptions));
         this.settingsEditSession = settingsEditSession
@@ -202,6 +206,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         this.packageInstallMutationPort = packageInstallMutationPort;
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
         FileDbMutationDialogs = fileDbMutationDialogService ?? new UiDialogCoordinator();
+        bmsLibraryDialogService = new BmsLibraryDialogService(libraryDialogService ?? new UiDialogCoordinator());
         appliedCustomFolderOutputPlacement = CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values);
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values, Volatile.Read(ref appliedCustomFolderOutputPlacement)));
@@ -646,6 +651,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             libraryProfile.SongDbPath,
             libraryProfile.Lr2ConfigOwner,
             libraryProfile.Lr2ScoreDbPath,
+            fileMutationService: null,
+            dialogService: bmsLibraryDialogService,
             libraryProfile.StartupRequiredFileScanReason,
             bmsLibraryOptionsProvider,
             uiScheduler,

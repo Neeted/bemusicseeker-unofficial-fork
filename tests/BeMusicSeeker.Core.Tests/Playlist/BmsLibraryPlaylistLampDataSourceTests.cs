@@ -269,7 +269,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     {
         await WithTemporarySongDb(async (_, songDbPath) =>
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null, new TestUiScheduler(() => null)) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null)) { BmsCharts = [] };
             var header = new BMSTable { playlist_id = 22 };
             header.MarkEntriesNotLoaded();
             var ready = new BMSTable { playlist_id = 23, entries = [] };
@@ -304,7 +304,7 @@ public sealed class BmsLibraryPlaylistLampDataSourceTests
     {
         await WithTemporarySongDb(async (_, songDbPath) =>
         {
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null, new TestUiScheduler(() => null)) { BmsCharts = [] };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null)) { BmsCharts = [] };
             var table = new BMSTable { playlist_id = 24 };
             table.MarkEntriesNotLoaded();
             var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null)) { BMSTables = new ObservableCollection<BMSTable>([table]) };

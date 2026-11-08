@@ -120,7 +120,7 @@ public sealed class ManagedPlaylistOutputPlacementTests
             var playlist = new TestBmsPlaylist(databaseScope, songDb, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDb), uiScheduler: new TestUiScheduler(() => null), settings: settings)
             { BMSTables = new ObservableCollection<BMSTable>([first, second]) };
             playlist.CommitBMSTableHeadersToDB(playlist.BMSTables);
-            var library = new TestBmsLibrary(databaseScope, songDb, null, null, null, null, new TestUiScheduler(() => null), settings: settings);
+            var library = new TestBmsLibrary(databaseScope, songDb, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: settings);
             using PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library, () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings));
             int notices = 0;
             first.PropertyChanged += (_, _) => notices++;

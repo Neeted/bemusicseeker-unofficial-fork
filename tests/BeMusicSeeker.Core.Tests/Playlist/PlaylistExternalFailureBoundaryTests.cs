@@ -90,7 +90,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             File.WriteAllText(data, oldData);
             File.WriteAllText(badHeader, "{\"name\":\"Bad\",\"symbol\":\"B\",\"data_url\":\"bad-data.json\"}");
             File.WriteAllText(badData, oldData);
-            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, null, new TestUiScheduler(() => null), settings: settings);
+            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: settings);
             acceptedLibrary = library;
             var playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty), settings: settings, uiScheduler: new TestUiScheduler(() => null));
             acceptedPlaylist = playlist;
@@ -488,7 +488,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: settings, uiScheduler: new TestUiScheduler(() => null))
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
-            library = new TestBmsLibrary(databaseScope, path, null, null, null, null, new TestUiScheduler(() => null), settings: settings);
+            library = new TestBmsLibrary(databaseScope, path, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: settings);
             var old = new BMSTable(validHeader, null, new Uri(headerPath), originalRows)
             { playlist_id = 7910, last_update = new DateTime(2021, 2, 3), is_bmt_output = false };
             old.entries.Single().memo = "local memo";

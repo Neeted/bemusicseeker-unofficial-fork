@@ -311,7 +311,7 @@ public sealed class BmsLibraryStateApplierTests
                 getLR2Config: null!,
                 _lr2ScoreDB: null,
                 fileMutationService: null!,
-                dialogService: null!,
+                dialogService: new UnexpectedDialogService(),
                 scheduler);
             int versionNotifications = 0;
             library.PropertyChanged += (_, args) =>

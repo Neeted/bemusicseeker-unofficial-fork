@@ -512,8 +512,8 @@ public sealed class RegularChartViewBuildAndOrderingTests
     public void VirtualOrderPrewarm_LibrarySwitchCancelsRunningDifferentLibraryLease()
     {
         using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
-        var firstLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
-        var secondLibrary = (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        BMSLibrary firstLibrary = UninitializedBmsLibrary.Create();
+        BMSLibrary secondLibrary = UninitializedBmsLibrary.Create();
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(firstLibrary, out RegularChartListPrewarmLease firstLease));
 
         Assert.IsFalse(owner.TryBeginVirtualOrderPrewarm(secondLibrary, out _));

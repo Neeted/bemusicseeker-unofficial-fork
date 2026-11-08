@@ -4005,7 +4005,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                dialogService: null,
+                dialogService: new UnexpectedBmsLibraryDialogService(),
                 logInstallPerformance: null,
                 logEverythingScan: null,
                 currentBmsonSongs: [],

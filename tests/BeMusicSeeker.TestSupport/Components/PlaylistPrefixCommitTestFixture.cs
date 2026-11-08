@@ -60,7 +60,7 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
             });
             Library = modelUiScheduler == null
                 ? new TestBmsLibrary(databaseScope, SongDb, settings: settings)
-                : new TestBmsLibrary(databaseScope, SongDb, null, null, null, null, modelUiScheduler, settings: settings);
+                : new TestBmsLibrary(databaseScope, SongDb, null, null, null, new UnexpectedBmsLibraryDialogService(), modelUiScheduler, settings: settings);
             Playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(Library), SongDb,
                 () => CustomFolderOutputSettingsSnapshot.CreateCurrent(settings),
                 playlistUrlCompletionOptionsProvider: () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(settings),

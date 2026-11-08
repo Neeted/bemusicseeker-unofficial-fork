@@ -766,7 +766,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
@@ -1057,7 +1057,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = oldPath, title = "old", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, getOutputSettings, settings: testSettings, uiScheduler: new TestUiScheduler(() => null))
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
@@ -1511,7 +1511,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 expectedOther = JObject.FromObject(setup.Table<LR2SongDB.song>().Single(row => row.path == otherBms.Path));
                 expectedBmson = JObject.FromObject(setup.Table<LR2SongDBExtended.bmson_song>().Single());
             }
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings)
             {
                 BmsCharts = [file, missingFile, otherBms],
                 BmsonCharts = [bmson]
@@ -1812,7 +1812,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string sentinel = Path.Combine(normal, "Unregistered", "keep.txt");
             Directory.CreateDirectory(Path.GetDirectoryName(sentinel) ?? throw new InvalidOperationException());
             File.WriteAllText(sentinel, "keep");
-            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => new CustomFolderOutputSettingsSnapshot
             {
                 OperationModeLR2DB = true,
@@ -2043,7 +2043,7 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
             string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             string output = Path.Combine(tempDirectory, "table");
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, () => new CustomFolderOutputSettingsSnapshot(), beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot
             {
                 EnableBeatorajaBmtOutput = true,

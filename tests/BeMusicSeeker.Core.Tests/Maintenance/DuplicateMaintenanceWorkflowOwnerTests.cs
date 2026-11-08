@@ -911,7 +911,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
     private static BMSLibrary CreateLibrary()
     {
-        return (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        return UninitializedBmsLibrary.Create();
     }
 
 }

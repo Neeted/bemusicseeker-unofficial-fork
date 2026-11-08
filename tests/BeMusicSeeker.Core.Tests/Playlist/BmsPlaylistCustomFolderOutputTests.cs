@@ -294,7 +294,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             var config = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(directory, normal));
             config.SetPlacement(settings);
-            var library = new TestBmsLibrary(databaseScope, songPath, config, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
+            var library = new TestBmsLibrary(databaseScope, songPath, config, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => settings, config, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), settings: testSettings, uiScheduler: new TestUiScheduler(() => null));
             BMSTable Table(int id, string name, string? baseName) => new()
             {
@@ -950,7 +950,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 LR2CustomFolderOutputBaseDirRootType = root,
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
-            var library = new TestBmsLibrary(databaseScope, songPath, configOwner, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            var library = new TestBmsLibrary(databaseScope, songPath, configOwner, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => output, configOwner, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings, uiScheduler: new TestUiScheduler(() => null));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(oldHeader));
             table.playlist_id = 7461;
@@ -1101,7 +1101,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 values.LR2CustomFolderOutputBaseDirRootType = rootBase;
                 values.EnablePlaylistUrlCompletion = false;
             });
-            library = new TestBmsLibrary(databaseScope, songPath, configOwner, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            library = new TestBmsLibrary(databaseScope, songPath, configOwner, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => outputSettings, configOwner, () => new PlaylistUrlCompletionOptionsSnapshot(), () =>
                 {
                     if (holdNotification && failurePoint == "bmt") { entered.TrySetResult(); release.Wait(); }
@@ -1270,7 +1270,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 values.LR2CustomFolderOutputBaseDirRootType = rootBase;
                 values.EnablePlaylistUrlCompletion = false;
             });
-            library = new TestBmsLibrary(databaseScope, songPath, configOwner, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+            library = new TestBmsLibrary(databaseScope, songPath, configOwner, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => outputSettings, configOwner, () => new PlaylistUrlCompletionOptionsSnapshot(), () =>
                 new BeatorajaBmtOptionsSnapshot(), settings: settings, uiScheduler: new TestUiScheduler(() => null));
             var table = new BMSTable
@@ -1350,7 +1350,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Output_dir = "PostSaveFailure",
                 entries = [CreateEntry("ffffffffffffffffffffffffffffffff", "Folder")]
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             libraryForCleanup = library;
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, playlistUrlCompletionOptionsProvider: () => new PlaylistUrlCompletionOptionsSnapshot(), beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(), settings: testSettings, uiScheduler: new TestUiScheduler(() => null))
             {
@@ -1461,7 +1461,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => library,
@@ -1548,7 +1548,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             var service = new PlaylistPropertySaveService(
                 () => playlist,
-                () => new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings),
+                () => new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings),
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             service.PlaylistPropertyFolderSelectionRemapped += (_, _) => { };
@@ -1636,7 +1636,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             var service = new PlaylistPropertySaveService(
                 () => playlist,
-                () => new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings),
+                () => new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings),
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             int remapCount = 0;
@@ -1715,7 +1715,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 }
             }
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var service = new PlaylistPropertySaveService(
                 () => playlist,
                 () => library,
@@ -1832,7 +1832,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
             var output = new CustomFolderOutputSettingsSnapshot();
             var playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmtDirectory }, () => output, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty), settings: settings, uiScheduler: new TestUiScheduler(() => null));
-            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, null, new TestUiScheduler(() => null), settings: settings);
+            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: settings);
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(new Uri(header).AbsoluteUri));
             table.playlist_id = 7316;
             table.Page_url = null;
@@ -3516,7 +3516,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 db.Insert(new LR2SongDB.folder { path = "sentinel", title = "Preserved", type = 2, adddate = 123 });
             }
             // Dispatcherを持たない既存スケジューラーで生産値を観測する。全中間値のUI描画は要求しない。
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new WpfUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new WpfUiScheduler(() => null), settings: testSettings);
             var stages = new List<Lr2SongDbSyncStatusSnapshot>();
             library.PropertyChanged += (_, args) =>
             {
@@ -3628,7 +3628,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new WpfUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new WpfUiScheduler(() => null), settings: testSettings);
             var stages = new List<Lr2SongDbSyncStatusSnapshot>();
             library.PropertyChanged += (_, args) =>
             {
@@ -3712,7 +3712,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Folder_order = ["Folder C"]
             };
             Lr2ConfigOwner lr2ConfigProvider = new(TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot));
-            var library = new TestBmsLibrary(databaseScope, songDbPath, lr2ConfigProvider, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, lr2ConfigProvider, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), lr2ConfigProvider, settings: testSettings, uiScheduler: new TestUiScheduler(() => null))
             {
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
@@ -3963,7 +3963,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, settings: testSettings);
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, getOutputSettings, beatorajaBmtOptionsProvider: () =>
                 {
                     if (injectFailure && failureStage == "bmt_preparation") { throw bmtPreparationFailure; }

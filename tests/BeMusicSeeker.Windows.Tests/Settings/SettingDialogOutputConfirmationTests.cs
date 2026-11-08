@@ -70,7 +70,7 @@ public sealed class SettingDialogOutputConfirmationTests
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
-                var library = new TestBmsLibrary(composition.DatabaseScope, values.LR2SongDBPath, configOwner, null, null, null,
+                var library = new TestBmsLibrary(composition.DatabaseScope, values.LR2SongDBPath, configOwner, null, null, new UnexpectedBmsLibraryDialogService(),
                     new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), optionsSnapshotProvider: null, operationAdmission: composition.OperationAdmission,
                     playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: values);
                 SetPrivateField(owner, "files", library);

@@ -183,7 +183,7 @@ public sealed class ScoreSnapshotPublicationTests
                 db.Execute("INSERT INTO score VALUES (?, 0, 4, 10, 0, 0, 0, 100, 10, 1, 1, 1)", Sha256);
             }
             Library = new TestBmsLibrary(database.DatabaseScope, database.SongDbPath, null, scorePath,
-                fileMutationService: null, dialogService: null, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                fileMutationService: null, dialogService: new UnexpectedBmsLibraryDialogService(), uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 optionsSnapshotProvider: () => options);
         }
         internal void ReplaceLr2Keys(IEnumerable<int> indices)

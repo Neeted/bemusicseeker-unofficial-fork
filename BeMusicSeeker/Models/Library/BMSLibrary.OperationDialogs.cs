@@ -10,19 +10,6 @@ namespace BeMusicSeeker.Models;
 
 public partial class BMSLibrary
 {
-    private sealed class EmptyDialogService : IBmsLibraryDialogService
-    {
-        internal static readonly EmptyDialogService Instance = new();
-
-        public MessageBoxResult Show(
-            string messageBoxText,
-            string caption,
-            MessageBoxButton button,
-            MessageBoxImage icon,
-            MessageBoxResult defaultResult = MessageBoxResult.None) =>
-            defaultResult;
-    }
-
     internal sealed class OperationDialogMessage
     {
         internal OperationDialogMessage(
@@ -88,7 +75,7 @@ public partial class BMSLibrary
     }
 
     internal OperationDialogScope BeginOperationDialogScope() =>
-        new(GetScopedOperationDialogService().BeginScope());
+        new(scopedOperationDialogService.BeginScope());
 
     private MessageBoxResult ShowOperationDialog(
         string messageBoxText,
@@ -96,11 +83,5 @@ public partial class BMSLibrary
         MessageBoxButton button,
         MessageBoxImage icon,
         MessageBoxResult defaultResult = MessageBoxResult.None) =>
-        GetScopedOperationDialogService().Show(messageBoxText, caption, button, icon, defaultResult);
-
-    private ScopedOperationDialogCoordinator GetScopedOperationDialogService()
-    {
-        return scopedOperationDialogService ??= new(
-            dialogService ?? EmptyDialogService.Instance);
-    }
+        scopedOperationDialogService.Show(messageBoxText, caption, button, icon, defaultResult);
 }

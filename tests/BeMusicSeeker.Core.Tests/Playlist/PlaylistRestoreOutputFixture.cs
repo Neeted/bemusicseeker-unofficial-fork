@@ -52,7 +52,7 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
             Directory.CreateDirectory(Settings.LR2CustomFolderOutputBaseDirRootType);
             Config = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Settings.LR2RootPath, bms));
             Config.SetPlacement(OutputSettings);
-            Library = new TestBmsLibrary(databaseScope, SongDb, Config, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(Settings), settings: Settings);
+            Library = new TestBmsLibrary(databaseScope, SongDb, Config, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(Settings), settings: Settings);
             var synchronization = new TestLr2PlaylistFolderSynchronizationPort(databaseScope, SongDb)
             {
                 PhysicalSurfaceFactory = () => CustomFolderOutputPhysicalSurface.FromEntries(

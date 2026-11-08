@@ -138,7 +138,7 @@ public sealed class PlaybackPanelViewModelTests
         };
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
             new InMemoryPlaybackSettingsStore(), dialogs, failure => notices.Add(failure), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
-        panel.AttachLibrary(new TestBmsLibrary(new ApplicationDatabaseScope(), songDb, null, null, null, null,
+        panel.AttachLibrary(new TestBmsLibrary(new ApplicationDatabaseScope(), songDb, null, null, null, new UnexpectedBmsLibraryDialogService(),
             new TestUiScheduler(() => null), settings: testSettings));
         FileStream? locked = null;
         Task? navigation = null;
@@ -401,7 +401,7 @@ public sealed class PlaybackPanelViewModelTests
             {
                 string songDb = Path.Combine(root, "song.db");
                 File.WriteAllBytes(songDb, []);
-                panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings));
+                panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings));
             }
             var settingsRuntime = (ISettingsDialogPlaybackRuntimePort)panel;
             int secondCreated = 0;
@@ -584,7 +584,7 @@ public sealed class PlaybackPanelViewModelTests
             var operations = new ChartFileOperationSynchronizer();
             var panel = new PlaybackPanelViewModel(first, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
                 new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("入力故障へ読み替えません。"), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
-            if (temporaryInstall) { panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings)); }
+            if (temporaryInstall) { panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings)); }
             int created = 0;
             Task operation = Task.CompletedTask;
             try
@@ -690,7 +690,7 @@ public sealed class PlaybackPanelViewModelTests
             var dialogs = new FakePlaybackDialogService();
             var settings = new InMemoryPlaybackSettingsStore { SinglePlay = true };
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), queue, settings, dialogs, _ => { }, operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
-            panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings));
+            panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDb, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings));
             Task attempt = Task.CompletedTask;
             IDisposable? otherOperation = null;
             try
@@ -1312,7 +1312,7 @@ public sealed class PlaybackPanelViewModelTests
             new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var store = new PhysicalChartDeletionStore();
         var mutation = new SelectedChartMutationWorkflowOwner(
-            () => (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary)),
+            () => UninitializedBmsLibrary.Create(),
             operations, new ChartMutationActivityOwner(), panel, new FileDbReportRecordingDialogs(), new UnusedPendingDeletionDialog(), store);
         var target = new ChartOperationTarget(CreatePlaybackTargetChart(ChartFileKind.Bms, paths[1]), null,
             ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.RemoveFromLibrary);
@@ -1834,7 +1834,7 @@ public sealed class PlaybackPanelViewModelTests
             var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(),
                 new MainChartListPlaybackQueue(chartList), new InMemoryPlaybackSettingsStore(),
                 dialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
-            panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings));
+            panel.AttachLibrary(new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings));
             var closeEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             using var releaseClose = new ManualResetEventSlim();

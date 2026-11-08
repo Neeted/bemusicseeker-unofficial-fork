@@ -2418,7 +2418,7 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly IBmsLibraryDialogService dialogService;
 
-    private ScopedOperationDialogCoordinator scopedOperationDialogService;
+    private readonly ScopedOperationDialogCoordinator scopedOperationDialogService;
 
     private readonly object everythingFallbackWarningGate = new();
 
@@ -2609,39 +2609,10 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// 通常構成のライブラリ窓口を作り、利用者操作と背景入力更新へ同じ受付を接続します。
+    /// 通常構成のライブラリ窓口を作り、利用者操作と背景入力更新へ同じ受付を接続します。内部検証用の型付き推定診断は任意に接続できます。
     /// </summary>
-    /// <param name="chartFileScanner">固定入力を使う任意の譜面走査境界。本番ではnullです。</param>
-    /// <param name="rootFileEnumerator">固定入力を使う任意のグループ列挙境界。本番ではnullです。</param>
-    /// <param name="irClient">IR 通信境界。省略時は本文まで期限を適用する通常クライアント。</param>
-    /// <param name="bmsRootRegistrations">構成の確定登録readerと保存主体。standaloneの別可変一覧を持ちません。</param>
-    /// <param name="operationAdmission">構成で共有するL受付。独立した内部利用では専用受付を作ります。</param>
-    /// <param name="playlistOperationAdmission">再構築前後で構成が共有するP受付。独立構成は専用受付を作り、DB・処理・終了状態はこのライブラリへ個別に所有します。</param>
-    /// <param name="databaseScope">新旧モデル・読取り・終了処理が共有するDB所有者。</param>
-    /// <param name="databaseLoadOptions">構成で捕捉済みのDB読取り方式。</param>
-    internal BMSLibrary(
-        ApplicationDatabaseScope databaseScope,
-        BmsDatabaseLoadOptions databaseLoadOptions,
-        string _lr2SongDB,
-        Lr2ConfigOwner getLR2Config,
-        string _lr2ScoreDB,
-        string startupRequiredFileScanReason,
-        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
-        IUiScheduler uiScheduler,
-        ApplicationPathSnapshot applicationPathSnapshot,
-        BmsRootRegistrationStore bmsRootRegistrations,
-        IChartFileScanner chartFileScanner = null,
-        IRootFileEnumerator rootFileEnumerator = null,
-        IBmsLibraryIrClient irClient = null,
-        ChartFileOperationSynchronizer operationAdmission = null,
-        ChartFileOperationSynchronizer playlistOperationAdmission = null)
-        : this(databaseScope, databaseLoadOptions, _lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider, uiScheduler, applicationPathSnapshot, bmsRootRegistrations, null, chartFileScanner, rootFileEnumerator, irClient, operationAdmission, playlistOperationAdmission)
-    {
-    }
-
-    /// <summary>
-    /// ライブラリ窓口を作り、内部検証用の型付き推定診断を任意に接続します。
-    /// </summary>
+    /// <param name="fileMutationService">ファイル変更の窓口。nullでは通常の耐障害実装を使います。</param>
+    /// <param name="dialogService">ライブラリ操作の通知と確認の窓口。必須で、モデルは既定の実装を持たず構成が注入します。</param>
     /// <param name="installEstimationExecutionObserver">任意の診断観測。本番ではnullです。</param>
     /// <param name="chartFileScanner">固定入力を使う任意の譜面走査境界。本番ではnullです。</param>
     /// <param name="rootFileEnumerator">固定入力を使う任意のグループ列挙境界。本番ではnullです。</param>
@@ -2671,6 +2642,7 @@ public partial class BMSLibrary : ObservableObject
         ChartFileOperationSynchronizer operationAdmission = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null)
     {
+        ArgumentNullException.ThrowIfNull(dialogService);
         if (_lr2SongDB == null)
         {
             throw new ArgumentNullException("_LR2SongDB");
@@ -2703,7 +2675,7 @@ public partial class BMSLibrary : ObservableObject
         OperationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
         everythingNative = new EverythingNative(this.applicationPathSnapshot);
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
-        this.dialogService = dialogService ?? new BmsLibraryDialogService();
+        this.dialogService = dialogService;
         scopedOperationDialogService = new(this.dialogService);
         dbGateway = new BmsLibraryDbGateway(databaseScope, databaseLoadOptions, lr2SongDBPath, lr2ScoreDBPath);
         catalogChartInfoOwner = new(
@@ -4904,7 +4876,7 @@ public partial class BMSLibrary : ObservableObject
         foreach (LeapYearFolderRepairCandidate candidate in candidates)
         {
             if (IsShutdownRequested) { break; }
-            MessageBoxResult? decision = dialogService?.Show(candidate.ConfirmationMessage, Resources.MessageBoxTitle_Warning,
+            MessageBoxResult decision = dialogService.Show(candidate.ConfirmationMessage, Resources.MessageBoxTitle_Warning,
                 MessageBoxButton.YesNo, MessageBoxImage.Exclamation, MessageBoxResult.No);
             if (IsShutdownRequested) { break; }
             if (decision == MessageBoxResult.Yes)
@@ -5562,7 +5534,7 @@ public partial class BMSLibrary : ObservableObject
         return () =>
         {
             notification?.Invoke();
-            TryInvokePostLeaseNotification(() => dialogService?.Show(Resources.Error_RecommendationScoreReadFailed,
+            TryInvokePostLeaseNotification(() => dialogService.Show(Resources.Error_RecommendationScoreReadFailed,
                 Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation), "saved_score_reload_failure_notification_failed");
         };
     }

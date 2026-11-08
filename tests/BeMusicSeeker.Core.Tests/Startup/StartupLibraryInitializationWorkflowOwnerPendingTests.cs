@@ -31,7 +31,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         input.Register(databaseScope, scope.SongDbPath);
         Settings settings = TestBmsFactory.CreateRootSettings([]);
         var options = BmsLibraryOptionsSnapshot.CreateCurrent(settings);
-        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, null,
+        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(),
             new TestUiScheduler(() => null), () => options, settings: settings);
         using var gate = new SemaphoreSlim(1, 1);
         var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
@@ -98,7 +98,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         input.Register(databaseScope, scope.SongDbPath);
         Settings settings = TestBmsFactory.CreateRootSettings([]);
         var options = BmsLibraryOptionsSnapshot.CreateCurrent(settings);
-        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, null,
+        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(),
             new TestUiScheduler(() => null), () => options, settings: settings);
         using var gate = new SemaphoreSlim(1, 1);
         var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
@@ -161,7 +161,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         input.Register(databaseScope, scope.SongDbPath);
         Settings settings = TestBmsFactory.CreateRootSettings([]);
         var options = BmsLibraryOptionsSnapshot.CreateCurrent(settings);
-        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, null,
+        var library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(),
             new TestUiScheduler(() => null), () => options, settings: settings);
         using var gate = new SemaphoreSlim(1, 1);
         var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);

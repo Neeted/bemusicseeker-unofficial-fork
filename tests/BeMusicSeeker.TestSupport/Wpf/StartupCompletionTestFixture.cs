@@ -227,7 +227,7 @@ internal static class StartupCompletionTestFixture
             // Libraryの既定値はOwnerと異なるため、別設定のまま同じdirectoryへ所有を移します。
             Settings? librarySettings = ownHttpSettings ? TestSettingsFactory.OpenSettings(Path.Combine(directory, "library.config")) : null;
             if (librarySettings != null) { librarySettings.OperationModeLR2DB = lr2Mode; }
-            Library = new TestBmsLibrary(Composition.DatabaseScope, songDb, lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, null, null, null,
+            Library = new TestBmsLibrary(Composition.DatabaseScope, songDb, lr2Mode ? Composition.ResolveLr2Config(lr2Config) : null, null, null, new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), CaptureOptions,
                 chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), []),
                 rootFileEnumerator: rootFileEnumerator,

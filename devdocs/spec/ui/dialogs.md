@@ -31,7 +31,7 @@
 | モーダルの子ウィンドウ | `ShowWindowAsync` |
 | 重ね合わせ表示 | `ShowOverlayDialog` / `HideOverlayDialog`。初期言語の画面から設定画面への遷移も、この経路で明示的に扱う。 |
 
-ライブラリ操作の表示は、[BmsLibraryDialogService](../../../BeMusicSeeker/Models/BmsLibraryInternal/Dialogs/BmsLibraryDialogService.cs)と[変更結果の表示](../library/mutations.md)の境界に従います。表示経路を統一するために、モデルの排他権を保持したまま画面の応答を待つことはしません。
+ライブラリ操作の表示は、モデルが持つ窓口の型 `IBmsLibraryDialogService` と、構成が注入する実装 [BmsLibraryDialogService](../../../BeMusicSeeker/Views/Dialogs/BmsLibraryDialogService.cs)、[変更結果の表示](../library/mutations.md)の境界に従います。モデルは表示の実装を持たず、既定の実装も作りません。実装は注入された `IUiDialogService` へ表示を委譲し、構成がライブラリへ渡します。表示経路を統一するために、モデルの排他権を保持したまま画面の応答を待つことはしません。
 
 ### 直接表示を許可する実装
 
@@ -134,6 +134,7 @@ LR2の個別参照で確認や選択の表示に失敗した場合は、元の�
 | 仕様項目 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 直接表示を行うファイルの限定 | [UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs)、上記の表示部品 | [DialogRouteConsolidationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogRouteConsolidationTests.cs) の `DirectDialogRouteFiles_MatchDocumentedBoundaries`: 直接呼出しを含むファイルの集合が表と一致すること。検出規則は実装側を参照する。 |
+| ライブラリ操作の窓口の実装と注入、モデルの Views 非依存 | [BmsLibraryDialogService](../../../BeMusicSeeker/Views/Dialogs/BmsLibraryDialogService.cs)、`BMSLibrary` のコンストラクター、`ApplicationComposition.CreateBmsLibrary` | [BmsLibraryDialogServiceTests](../../../tests/BeMusicSeeker.Core.Tests/Dialogs/BmsLibraryDialogServiceTests.cs): 注入した表示窓口への通知・確認の振分けと要求の内容、結果の変換、窓口なしのライブラリの拒否。[ModelLayerArchitectureTests](../../../tests/BeMusicSeeker.Core.Tests/Dialogs/ModelLayerArchitectureTests.cs): `Models` 配下のソースが `Views` 名前空間を参照しないこと。 |
 | 緊急表示と通常表示の分離 | [EmergencyDialog](../../../BeMusicSeeker/Views/Dialogs/EmergencyDialog.cs) | 同クラスの `StandardMessageBox_IsLimitedToEmergencyDialog`: コンパイル後の呼出し関係で、標準メッセージボックスの呼出しが `EmergencyDialog` だけにあり、その呼出元が `App` だけであること。 |
 | 確認ボタンの翻訳と応答の意味 | [ThemedMessageBox](../../../BeMusicSeeker/Views/ThemedMessageBox.cs) | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs): 6言語の実際のボタン文言、言語変更後の次の表示、4構成の明示応答・Enter・Esc。[ThemedMessageBoxTests](../../../tests/BeMusicSeeker.Core.Tests/Dialogs/ThemedMessageBoxTests.cs): 既定値と結果の変換。[UiDialogCoordinatorWpfTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/UiDialogCoordinatorWpfTests.cs) の `WholeFolderConfirmation_RealMessageProducesDistinctNoCancelAndClose`: フォルダー全体の確認でNo・Cancel・閉じる・Escを区別すること。[LocalizationResourceParityTests](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs): 辞書・getter・6言語の整合。 |
 | 設定画面内の選択・子画面と親子関係 | [SettingsWindow](../../../BeMusicSeeker/Views/Settings/SettingsWindow.xaml)、[UiDialogCoordinator](../../../BeMusicSeeker/Views/Dialogs/UiDialogCoordinator.cs) | [SettingDialogEditCompletionTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogEditCompletionTests.cs)、[SettingDialogCategoryPersistenceTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogCategoryPersistenceTests.cs)、[SettingsWindowPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowPresentationTests.cs)、[SettingsControlPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs): 取消、確認、親ウィンドウ、公開Automationによる選択。実際のフォーカスは[利用者に推奨する実機確認](../development/testing.md#利用者に推奨する実機確認)へ分ける。 |

@@ -1652,7 +1652,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             secondPlaylist.BMSTables = new ObservableCollection<BMSTable>([secondTable]);
             PersistPlaylistAggregate(databaseScope, secondSongDbPath, secondTable);
 
-            BMSLibrary currentLibrary = new TestBmsLibrary(databaseScope, firstSongDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            BMSLibrary currentLibrary = new TestBmsLibrary(databaseScope, firstSongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => firstPlaylist,
@@ -1663,7 +1663,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             File.WriteAllText(firstHeaderPath, "{\"name\":\"first-updated\",\"symbol\":\"F2\",\"data_url\":\"./score.json\",\"level_order\":[1]}", Encoding.UTF8);
             firstTable.header_sha256 = null;
 
-            currentLibrary = new TestBmsLibrary(databaseScope, secondSongDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            currentLibrary = new TestBmsLibrary(databaseScope, secondSongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             workspace.RefreshPlaylistTreeTables(secondPlaylist, currentLibrary);
 
             PlaylistExternalSyncOwner.PlaylistReloadOperationResult oldResults =
@@ -1751,8 +1751,8 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             ObservableCollection<BMSTable>? requestTables = null;
             long requestGeneration = 0L;
             int requestedVersion = 0;
-            var firstLibrary = new TestBmsLibrary(databaseScope, firstSongDbPath, null, null, null, null, new TestUiScheduler(() => null));
-            var secondLibrary = new TestBmsLibrary(databaseScope, secondSongDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var firstLibrary = new TestBmsLibrary(databaseScope, firstSongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
+            var secondLibrary = new TestBmsLibrary(databaseScope, secondSongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             BMSLibrary currentLibrary = firstLibrary;
             int replacementRouteExpected = 0;
             var replacementCallStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2022,7 +2022,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 return true;
             };
             playlist.InitializeAsync(reloadExtPlaylist: false, exportBeatorajaBmt: false).GetAwaiter().GetResult();
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             int schedulerCalls = 0;
             Func<Task>? scheduledWork = null;
             var queued = new List<PlaylistReferenceApplyQueuedEventArgs>();
@@ -2100,7 +2100,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath)) { }
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
             var playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, uiScheduler: new TestUiScheduler(() => null)) { BMSTables = [] };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             Func<Task>? scheduled = null;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library, referenceApplyScheduler: (_, work) => { scheduled = work; return true; });
@@ -2157,7 +2157,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                     })
             };
             playlist.BMSTables[0].MarkEntriesNotLoaded();
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             Func<Task>? referenceApplyWork = null;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
@@ -2231,7 +2231,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
                 }
             };
             int referenceApplyScheduleCount = 0;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,

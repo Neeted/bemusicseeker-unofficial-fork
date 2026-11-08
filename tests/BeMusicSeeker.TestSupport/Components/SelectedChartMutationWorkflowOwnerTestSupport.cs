@@ -19,7 +19,7 @@ internal static class SelectedChartMutationWorkflowOwnerTestSupport
     {
         activity ??= new();
         var owner = new SelectedChartMutationWorkflowOwner(
-            () => (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary)),
+            () => UninitializedBmsLibrary.Create(),
             gate ?? new ChartFileOperationSynchronizer(),
             activity,
             presentation,

@@ -510,7 +510,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
     private static BMSLibrary CreateLibrary()
     {
-        return (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        return UninitializedBmsLibrary.Create();
     }
 
     private static ChartOperationTarget CreateTarget()

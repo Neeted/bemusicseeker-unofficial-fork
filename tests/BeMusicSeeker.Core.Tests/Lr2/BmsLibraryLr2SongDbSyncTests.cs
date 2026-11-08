@@ -142,7 +142,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     public void ProgressPublication_InterleavedOwnerUpdatesKeepStageAndCountsFromOneNotification()
     {
         using var scope = TestDatabaseScope.Create();
-        var library = new TestBmsLibrary(scope.DatabaseScope, scope.SongDbPath, null, null, null, null, new InlineUiScheduler(), settings: testSettings);
+        var library = new TestBmsLibrary(scope.DatabaseScope, scope.SongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new InlineUiScheduler(), settings: testSettings);
         BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
         var published = new List<Lr2SongDbSyncStatusSnapshot>();
         var saving = new Lr2SongDbSyncProgress
@@ -1194,7 +1194,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 scheduler, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
 
@@ -1329,7 +1329,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 scheduler, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
 
@@ -1428,7 +1428,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             null,
             null,
             null,
-            null,
+            new UnexpectedBmsLibraryDialogService(),
             scheduler, settings: testSettings);
         BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
         var publishedPropertyNames = new List<string>();
@@ -1492,7 +1492,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             null,
             null,
             null,
-            null,
+            new UnexpectedBmsLibraryDialogService(),
             scheduler, settings: testSettings);
         BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
         string firstPropertyName = nameof(BMSLibrary.Lr2SongDbSyncStage);
@@ -1598,7 +1598,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 getLR2Config: null,
                 _lr2ScoreDB: null,
                 fileMutationService: null,
-                dialogService: null,
+                dialogService: new UnexpectedBmsLibraryDialogService(),
                 uiScheduler: scheduler,
                 optionsSnapshotProvider: () => options, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -1837,7 +1837,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         ChartFile second = CreateSyncTestFile(secondPath, ChartFileContentReader.ReadSnapshot(secondPath)) with { Level = 12, LevelText = "12" };
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
         var scheduler = new QueuedUiScheduler();
-        var library = new TestBmsLibrary(scope.DatabaseScope, scope.SongDbPath, null, null, null, null, scheduler,
+        var library = new TestBmsLibrary(scope.DatabaseScope, scope.SongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), scheduler,
             optionsSnapshotProvider: () => options, settings: TestBmsFactory.CreateRootSettings([root], testSettings))
         {
 
@@ -2140,7 +2140,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([bmsRoot, missingRoot, normalOutputBase, normalOutputChild, additionalOutputBase, additionalOutputChild, rootOutputBase], testSettings))
             {
@@ -2525,7 +2525,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -2608,7 +2608,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings(caseOnly ? [rootDirectory] : [rootDirectory, otherRoot], testSettings))
             {
@@ -2905,7 +2905,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: testSettings)
             {
@@ -2961,7 +2961,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: testSettings);
             bool queued = false;
@@ -3073,7 +3073,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -3134,7 +3134,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -3195,7 +3195,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -3253,7 +3253,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: testSettings);
             BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
@@ -3356,7 +3356,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: testSettings);
 
@@ -3443,7 +3443,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     lr2ConfigProvider,
                     null,
                     null,
-                    null,
+                    new UnexpectedBmsLibraryDialogService(),
                     scheduler, settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library),
                 scope.SongDbPath,
@@ -3683,7 +3683,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: testSettings);
             Exception originalException = new InvalidOperationException("forced playlist folder failure");
@@ -3763,7 +3763,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: testSettings);
 
@@ -4643,7 +4643,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: testSettings);
 
@@ -4725,7 +4725,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -4822,7 +4822,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -4888,7 +4888,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -5151,7 +5151,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -5238,7 +5238,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -5331,7 +5331,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -5402,7 +5402,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -5487,7 +5487,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -5617,7 +5617,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([scope.DirectoryPath], testSettings))
             {
@@ -5687,7 +5687,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
@@ -5850,7 +5850,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -5937,7 +5937,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -6002,7 +6002,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -6062,7 +6062,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -6130,7 +6130,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -6209,7 +6209,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -6276,7 +6276,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -6304,7 +6304,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -6356,7 +6356,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
@@ -6421,7 +6421,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
@@ -6516,7 +6516,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([], testSettings))
             { BmsCharts = [LoadCurrent()], BmsonCharts = [] };
@@ -6573,7 +6573,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     null,
                     null,
                     null,
-                    null,
+                    new UnexpectedBmsLibraryDialogService(),
                     new TestUiScheduler(() => null),
                     settings: TestBmsFactory.CreateRootSettings([], testSettings))
                 { BmsCharts = [current], BmsonCharts = [] };
@@ -6619,7 +6619,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
@@ -6679,7 +6679,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
@@ -6732,7 +6732,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
@@ -6787,7 +6787,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
@@ -7035,7 +7035,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -7120,7 +7120,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -7189,7 +7189,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -7485,7 +7485,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([], testSettings))
             {
@@ -7531,7 +7531,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
@@ -7602,7 +7602,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 configOwner,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
@@ -7755,7 +7755,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 configOwner,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
@@ -7826,7 +7826,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 configOwner,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
             {
@@ -7886,7 +7886,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
             {
@@ -7981,7 +7981,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             null,
             null,
             null,
-            null,
+            new UnexpectedBmsLibraryDialogService(),
             new TestUiScheduler(() => null),
             settings: testSettings)
         {

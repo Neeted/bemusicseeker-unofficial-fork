@@ -49,7 +49,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 package.path = directory;
                 return package;
             }).ToArray();
-            var library = new TestBmsLibrary(databaseScope, database, null, null, null, null, new TestUiScheduler(() => null), settings: settings)
+            var library = new TestBmsLibrary(databaseScope, database, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: settings)
             { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = CreatePackageCollection(packages) };
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).EnsureLibraryStartupSchema();
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db =>

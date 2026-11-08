@@ -42,7 +42,7 @@ public sealed class PlaylistSummaryBulkEditTests
             playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, settings: settings, uiScheduler: new TestUiScheduler(() => null))
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
-            library = new TestBmsLibrary(databaseScope, path, null, null, null, null, new TestUiScheduler(() => null), settings: settings);
+            library = new TestBmsLibrary(databaseScope, path, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: settings);
             DateTime update = new(2020, 1, 2), added = new(2019, 3, 4);
             var entry = new BMSTableEntry { title = "local row", adddate = added, memo = "local memo" };
             var table = new BMSTable

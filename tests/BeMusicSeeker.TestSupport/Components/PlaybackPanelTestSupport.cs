@@ -117,7 +117,7 @@ internal static class PlaybackPanelTestSupport
             operations ?? new ChartFileOperationSynchronizer(), temporaryPreviewHold: temporaryPreviewHold ?? ShortTemporaryPreviewHold);
         TestBmsLibrary library = uiScheduler == null
             ? new TestBmsLibrary(databaseScope, songDbPath, settings: testSettings)
-            : new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, uiScheduler, settings: testSettings);
+            : new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), uiScheduler, settings: testSettings);
         if (discoveredPackage != null)
         {
             library.ChartPackagesPending = [discoveredPackage];

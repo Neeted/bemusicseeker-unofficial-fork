@@ -54,7 +54,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings));
             ChartFile file = ChartTestValues.Empty() with
             {

@@ -736,7 +736,7 @@ public sealed class PlaylistUrlCompletionTests
                 };
                 return Task.FromResult($"md5\turl_diff\turl\r\neeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\t{diff}\t{main}");
             };
-            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             playlist = new TestBmsPlaylist(databaseScope, songDbPath, null, null, null, () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings), () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), null, fetcher, (_, _) => Task.FromResult("[]"), uiScheduler: new TestUiScheduler(() => null));
             BMSTable table = CreateTable(5004, "CandidateCase");
             BMSTableEntry entry = CreateEntry(new string('e', 32), "CandidateSong");
@@ -1462,7 +1462,7 @@ public sealed class PlaylistUrlCompletionTests
             testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/playlist-draft.tsv";
             string candidateMain = "https://example.com/completed";
             string candidateDiff = "https://example.com/completed-diff";
-            library = new TestBmsLibrary(databaseScope, path, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            library = new TestBmsLibrary(databaseScope, path, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings), () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), null, (_, _) => Task.FromResult($"md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t{candidateDiff}\t{candidateMain}"), (_, _) => Task.FromResult("[]"), uiScheduler: new TestUiScheduler(() => null));
             BMSTable table = CreateTable(6201, "draft completion"); table.is_external_sync = external;
             table.entries = [CreateEntry(new string('a', 32), "draft entry")];
@@ -1682,7 +1682,7 @@ public sealed class PlaylistUrlCompletionTests
         out TestBmsPlaylist playlist, out TestBmsLibrary library)
     {
         testSettings.OperationModeLR2DB = false;
-        library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
+        library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings));
         playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), playlistUrlCompletionOptionsProvider: () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings), beatorajaBmtOptionsProvider: () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings), uiScheduler: new TestUiScheduler(() => null));
         playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
         playlist.CommitBMSTableWithEntriesToDB(table);

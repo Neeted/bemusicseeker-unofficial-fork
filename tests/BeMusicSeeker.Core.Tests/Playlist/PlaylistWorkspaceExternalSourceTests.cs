@@ -97,7 +97,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 auxiliaryWork.Enqueue(Task.Run(work));
                 return true;
             };
-            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: httpSettings);
+            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: httpSettings);
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
                 playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
             workspace.RefreshPlaylistTreeTables(playlist, library);
@@ -311,7 +311,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             string[] files = Directory.GetFiles(output);
             Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
             Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
-            var library = new TestBmsLibrary(databaseScope, db, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, db, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library,
                 playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
@@ -439,7 +439,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 BMSTables = new ObservableCollection<BMSTable>()
             };
             acceptedPlaylist = playlist;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: httpSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: httpSettings);
             acceptedLibrary = library;
             workspace = CreateDetailWorkspace(
                 out _,
@@ -655,7 +655,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             var configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
             configDocument["tableURL"] = new Newtonsoft.Json.Linq.JArray(inputUri, existingUri, unmanagedUri, secondUri);
             File.WriteAllText(config, configDocument.ToString());
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: httpSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: httpSettings);
             acceptedLibrary = library;
             // 実UIと同じく構築結果の採用とheader配送をAction単位で直列化します。
             // 同期通知の再入を許し、別Taskを待たずにActionの終端を完了Taskへ渡します。
@@ -900,7 +900,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 auxiliaryWork.Enqueue(Task.Run(work));
                 return true;
             };
-            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             // 既存factoryのWorkspaceはスタンドアロン設定で、実storeだけがLR2連携を使う。
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
                 playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
@@ -1144,7 +1144,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             var propertySaveService = new PlaylistPropertySaveService(
                 () => playlist,
                 () => library,
@@ -1428,7 +1428,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             };
             int bmtFailures = 0;
             playlist.BmtOutput.FailureReporter = _ => bmtFailures++;
-            library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, null, new TestUiScheduler(() => null));
+            library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             workspace = CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
             workspace.ExternalPlaylistImportQueueSummaryReady += summaryHandler;
@@ -1560,7 +1560,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 BMSTables = new ObservableCollection<BMSTable>()
             };
             pendingPlaylist = playlist;
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             pendingLibrary = library;
             workspace = CreateDetailWorkspace(
                 out _,
@@ -1674,7 +1674,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             var configOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(directory, "LR2"), outputBase));
             playlist = new TestBmsPlaylist(databaseScope, databasePath, configOwner, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => outputSettings, PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, databasePath, CustomFolderOutputPhysicalSurface.Empty), uiScheduler: new TestUiScheduler(() => null))
             { BMSTables = [] };
-            library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, null, new TestUiScheduler(() => null));
+            library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             // 既存factoryのWorkspace設定はOperationModeLR2DB=falseです。登録先storeだけLR2を有効にします。
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
             workspace.ExternalPlaylistImportQueueSummaryReady += OnSummary;
@@ -1786,7 +1786,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             // 並列取得中に未読込みのSettingsを共有せず、このケースの固定設定を渡します。
             playlist = new TestBmsPlaylist(databaseScope, databasePath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), uiScheduler: new TestUiScheduler(() => null))
             { BMSTables = [] };
-            library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, null, new TestUiScheduler(() => null), settings: httpSettings);
+            library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: httpSettings);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
             var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2192,7 +2192,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), uiScheduler: new TestUiScheduler(() => null))
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
-            library = new TestBmsLibrary(databaseScope, path, null, null, null, null, new TestUiScheduler(() => null), settings: httpSettings);
+            library = new TestBmsLibrary(databaseScope, path, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: httpSettings);
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
             ExternalPlaylistImportQueueSummary? summary = null;
             workspace.ExternalPlaylistImportQueueSummaryReady += (_, args) => summary = args.Summary;
@@ -2320,7 +2320,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => options, () => new CustomFolderOutputSettingsSnapshot(), PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, path, CustomFolderOutputPhysicalSurface.Empty), uiScheduler: new TestUiScheduler(() => null))
             { BMSTables = [] };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
-            library = new TestBmsLibrary(databaseScope, path, null, null, null, null, new TestUiScheduler(() => null), settings: httpSettings);
+            library = new TestBmsLibrary(databaseScope, path, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: httpSettings);
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
                 playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
             workspace.RefreshPlaylistTreeTables(playlist, library);

@@ -609,7 +609,7 @@ public sealed partial class MainWindowViewHostTests
     {
         string songDbPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe")).StandaloneSongDbPath;
         var library = new TestBmsLibrary(composition.DatabaseScope, songDbPath, getLR2Config: null, _lr2ScoreDB: null,
-            fileMutationService: null, dialogService: null,
+            fileMutationService: null, dialogService: new UnexpectedBmsLibraryDialogService(),
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             optionsSnapshotProvider: mutationPreparation == null
                 ? () => BmsLibraryOptionsSnapshot.CreateCurrent(settings)
@@ -1372,7 +1372,7 @@ public sealed partial class MainWindowViewHostTests
                     songDbPath,
                     getLR2Config: null,
                     _lr2ScoreDB: null,
-                    fileMutationService: null, dialogService: null,
+                    fileMutationService: null, dialogService: new UnexpectedBmsLibraryDialogService(),
                     uiScheduler: new WpfUiScheduler(() => dispatcher),
                     optionsSnapshotProvider: mutationPreparation.CaptureOptions,
                     operationAdmission: composition.OperationAdmission,

@@ -178,7 +178,7 @@ internal static class SharedPlaylistWorkspaceFixture
             });
         TestBmsLibrary library = libraryOverride ?? (modelUiScheduler == null
             ? MainWindowViewModelTestFactory.CreateLibrary(databaseScope, songDbPath, settings)
-            : new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, modelUiScheduler, settings: settings));
+            : new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), modelUiScheduler, settings: settings));
         var createdPlaylist = new BMSPlaylist(
             new BmsPlaylistLibraryBindings(library),
             songDbPath, null, null,

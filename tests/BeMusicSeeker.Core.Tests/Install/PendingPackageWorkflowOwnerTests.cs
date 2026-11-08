@@ -2157,7 +2157,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
     private static BMSLibrary CreateLibrary()
     {
-        return (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
+        return UninitializedBmsLibrary.Create();
     }
 
     private static ChartOperationTarget CreateLooseTarget(

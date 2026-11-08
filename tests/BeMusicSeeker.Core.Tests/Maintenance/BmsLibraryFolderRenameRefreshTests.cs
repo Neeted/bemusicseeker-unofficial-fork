@@ -3401,7 +3401,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {
@@ -3470,7 +3470,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 null,
                 null,
                 null,
-                null,
+                new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => null));
             ChartFile file = ChartTestValues.Empty() with
             {

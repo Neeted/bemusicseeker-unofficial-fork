@@ -556,7 +556,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
             {
                 ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
@@ -664,7 +664,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([firstTable, secondTable])
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
@@ -754,7 +754,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Removed")]
             };
             BMSTableEntry entry = table.entries.Single();
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false }, settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false }, beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(), settings: testSettings, uiScheduler: new TestUiScheduler(() => null))
             {
                 BMSTables = new ObservableCollection<BMSTable>([table])
@@ -1011,7 +1011,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             tableC.symbol = "C1";
             playlist.BMSTables = new ObservableCollection<BMSTable>(new[] { tableA, tableB, tableC });
             playlist.CommitBMSTableHeadersToDB(playlist.BMSTables);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             List<string> warnings = [];
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
@@ -1123,7 +1123,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
             playlist.CommitBMSTableWithEntriesToDB(table);
 
-            BMSLibrary library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            BMSLibrary library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             PlaylistWorkspaceViewModel workspace = CreatePlaylistWorkspace(playlist, library);
             int detailReloadCount = 0;
             int keywordValueCandidatesChangedCount = 0;

@@ -267,7 +267,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
                 Md5 = null,
                 Sha256 = new string('e', 64)
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null))
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null))
             {
                 BmsCharts = [source, included, otherDirectory],
                 BmsonCharts = [bmson, md5lessBmson]

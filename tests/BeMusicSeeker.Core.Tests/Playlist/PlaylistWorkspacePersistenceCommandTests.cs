@@ -149,7 +149,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             string[] files = Directory.GetFiles(output);
             Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
             Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
-            var library = new TestBmsLibrary(databaseScope, db, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, db, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library,
                 playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
@@ -520,7 +520,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         await playlist.BmtOutput.ExportAllAsync("config-failure-initial");
         File.WriteAllText(Path.Combine(output, "unmanaged.bmt"), "unmanaged-content");
         options = new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = outputEnabled, BeatorajaRootPath = root, RegisterBeatorajaBmtUrls = true, KeepBeatorajaBmtFilesWhenOutputDisabled = false };
-        var library = new TestBmsLibrary(databaseScope, db, null, null, null, null, new TestUiScheduler(() => null));
+        var library = new TestBmsLibrary(databaseScope, db, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
             playlistLibraryProvider: () => library,
             playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
@@ -829,7 +829,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         {
             string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
-            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             int customOutputInputs = 0;
             int bmtOutputInputs = 0;
             var outputPort = new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath);
@@ -908,7 +908,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         var table = new BMSTable { playlist_id = 4202, name = "Keep on read failure", symbol = "keep" };
         owned.Store.BMSTables.Add(table);
         owned.Store.CommitBMSTableHeaderToDB(table);
-        var library = new TestBmsLibrary(owned.DatabaseScope, owned.SongDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: TestSettingsFactory.CreateIsolatedSettings(values =>
+        var library = new TestBmsLibrary(owned.DatabaseScope, owned.SongDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: TestSettingsFactory.CreateIsolatedSettings(values =>
             {
                 values.OperationModeLR2DB = false;
             }));
@@ -1530,7 +1530,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 Output_dir = "DropTarget",
                 Folder_order = ["Imported"]
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             libraryForCleanup = library;
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, () => new CustomFolderOutputSettingsSnapshot(), playlistUrlCompletionOptionsProvider: () => new PlaylistUrlCompletionOptionsSnapshot(), beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(), uiScheduler: new TestUiScheduler(() => null))
             {
@@ -1913,7 +1913,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 historyHash,
                 "New song",
                 Path.Combine(dropDirectory, "new-song.bms"));
-            TestBmsLibrary library = new(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null))
+            TestBmsLibrary library = new(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null))
             {
                 BmsCharts = [packageAnchor, droppedFile]
             };
@@ -1994,7 +1994,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
             ChartFile chart = CreatePlaylistDropBmsFile(hash, "Catalog H", Path.Combine(tempDirectory, "charts", "h.bms"));
-            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null)) { BmsCharts = [chart] };
+            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null)) { BmsCharts = [chart] };
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, () => outputSettings, playlistUrlCompletionOptionsProvider: () => new PlaylistUrlCompletionOptionsSnapshot(), beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot
             {
                 EnableBeatorajaBmtOutput = true,
@@ -2539,7 +2539,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 }
             };
             BMSTable table = playlist.BMSTables.Single();
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
                 playlist,
                 library,
@@ -2649,7 +2649,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 BMSTables = new ObservableCollection<BMSTable>([currentTable])
             };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null));
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
                 playlist,
                 library,
@@ -3379,7 +3379,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         };
         // 局所ドロップの前提となる既存所属をDBにも用意し、未変更行を全表保存で補わせません。
         playlist.CommitBMSTableWithEntriesToDB(table);
-        TestBmsLibrary library = new(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null))
+        TestBmsLibrary library = new(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null))
         {
             BmsCharts = [.. libraryFiles ?? []]
         };

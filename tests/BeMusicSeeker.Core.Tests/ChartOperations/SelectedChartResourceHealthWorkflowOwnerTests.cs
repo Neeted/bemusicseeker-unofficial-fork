@@ -1,6 +1,7 @@
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.SelectedChartResourceHealthWorkflowOwnerTestSupport;
@@ -124,7 +125,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
         RecordingDialogService dialogs)
     {
         return new SelectedChartResourceHealthWorkflowOwner(
-            () => (BMSLibrary)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary)),
+            () => UninitializedBmsLibrary.Create(),
             dialogs,
             store, new ChartFileOperationSynchronizer());
     }

@@ -848,7 +848,7 @@ public sealed class BmsPlaylistExternalReloadTests
             string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
             File.WriteAllText(header, "{\"name\":\"Presentation failure\",\"symbol\":\"P\",\"data_url\":\"data.json\"}");
             File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
-            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, () => new CustomFolderOutputSettingsSnapshot(), CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty), settings: testSettings, uiScheduler: new TestUiScheduler(() => null));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
             table.playlist_id = 7511;
@@ -998,7 +998,7 @@ public sealed class BmsPlaylistExternalReloadTests
             string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
             File.WriteAllText(header, "{\"name\":\"Receipt boundary\",\"symbol\":\"P\",\"data_url\":\"data.json\"}");
             File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
-            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songPath, () => new CustomFolderOutputSettingsSnapshot { ShowRecommUpdatedMsg = true }, playlistUrlCompletionOptionsProvider: () => new PlaylistUrlCompletionOptionsSnapshot(), beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, recommendationScoreReader: _ => Task.FromResult(ReadWalkureInput("standard")), settings: testSettings, uiScheduler: new TestUiScheduler(() => null));
             BMSTable original = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header));
             original.playlist_id = 7513;
@@ -1593,7 +1593,7 @@ public sealed class BmsPlaylistExternalReloadTests
 
             string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(library), songDbPath, () => new CustomFolderOutputSettingsSnapshot(), settings: testSettings, uiScheduler: new TestUiScheduler(() => null));
             BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
@@ -2259,7 +2259,7 @@ public sealed class BmsPlaylistExternalReloadTests
                     setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
                 }
             }
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, null, new TestUiScheduler(() => null), settings: testSettings);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
             var lifecycleLogs = new List<string>();
             var workspaceFailureLogs = new List<(Exception Exception, string Message)>();
             workspace = new PlaylistWorkspaceViewModel(

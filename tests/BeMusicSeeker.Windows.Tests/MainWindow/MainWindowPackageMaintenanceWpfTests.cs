@@ -2820,7 +2820,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
                     // 実store/FS/SQLiteを通し、ごみ箱等のOS操作だけ既存のfixture用境界へ閉じます。
                     library = new TestBmsLibrary(composition.DatabaseScope, songDb, null, null,
-                        fileMutations ?? new OwnedChartCollectionTestSupport.TestFileMutationService(), dialogService: null,
+                        fileMutations ?? new OwnedChartCollectionTestSupport.TestFileMutationService(), dialogService: new UnexpectedBmsLibraryDialogService(),
                         uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                         optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
                         operationAdmission: composition.OperationAdmission,

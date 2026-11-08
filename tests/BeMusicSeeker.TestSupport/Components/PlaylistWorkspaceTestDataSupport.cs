@@ -22,7 +22,7 @@ internal static class PlaylistWorkspaceTestDataSupport
 
         TestBmsLibrary library = modelUiScheduler == null
             ? new TestBmsLibrary(databaseScope, songDbPath, null, scoreDbPath)
-            : new TestBmsLibrary(databaseScope, songDbPath, null, scoreDbPath, null, null, modelUiScheduler);
+            : new TestBmsLibrary(databaseScope, songDbPath, null, scoreDbPath, null, new UnexpectedBmsLibraryDialogService(), modelUiScheduler);
         library.InitializeScoresOnly(null);
         Assert.AreEqual(lr2Id, library.LR2ID);
         return library;

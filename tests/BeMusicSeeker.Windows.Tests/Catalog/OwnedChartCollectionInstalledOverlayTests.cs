@@ -128,7 +128,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             File.WriteAllText(keptPath, "#PLAYER 1");
             ChartFile removedBmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", removedPath);
             ChartFile keptBmsFile = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", keptPath);
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new UnexpectedBmsLibraryDialogService())
             {
                 BmsCharts = [removedBmsFile, keptBmsFile],
                 BmsonCharts = []
@@ -167,7 +167,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             File.WriteAllText(sharedPath, "#PLAYER 1");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sharedPath, new string('b', 64));
             ChartFile duplicateOwner = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sharedPath, new string('c', 64));
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new UnexpectedBmsLibraryDialogService())
             {
                 BmsCharts = [bmsFile, duplicateOwner],
                 BmsonCharts = []
@@ -200,7 +200,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             File.WriteAllText(sharedPath, "{}");
             ChartFile bmsonSong = CreateBmsonSong(sharedPath, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             ChartFile duplicateOwner = CreateBmsonSong(sharedPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null)
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new UnexpectedBmsLibraryDialogService())
             {
                 BmsCharts = [],
                 BmsonCharts = [bmsonSong, duplicateOwner]

@@ -85,7 +85,7 @@ internal static class PlaylistCatalogViewTestSupport
                 }
                 Library = modelUiScheduler == null
                     ? new TestBmsLibrary(databaseScope, SongDb, null, scorePath, startupRequiredFileScanReason: null, settings: settings)
-                    : new TestBmsLibrary(databaseScope, SongDb, null, scorePath, null, null, modelUiScheduler, settings: settings);
+                    : new TestBmsLibrary(databaseScope, SongDb, null, scorePath, null, new UnexpectedBmsLibraryDialogService(), modelUiScheduler, settings: settings);
                 Library.BmsCharts = bmson ? [] : charts;
                 Library.BmsonCharts = bmson ? charts : [];
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), SongDb).UpsertSongs(charts);

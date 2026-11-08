@@ -1128,7 +1128,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         return new LibraryFileScanPipelineOwner(
             dbGateway,
             storageRowsOwner,
-            new BmsLibraryDialogService(),
+            new UnexpectedBmsLibraryDialogService(),
             () => false,
             callbacks.ReportLibraryInitializationProgress,
             callbacks.CompleteLibraryFileEnumerationProgress,

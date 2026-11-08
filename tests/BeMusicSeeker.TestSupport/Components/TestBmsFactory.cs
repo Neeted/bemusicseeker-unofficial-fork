@@ -80,7 +80,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB = null,
         string startupRequiredFileScanReason = null,
         Settings settings = null)
-        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, startupRequiredFileScanReason, CreateOptions(settings ??= CreateSettings(getLR2Config)), TestUiScheduler.CreateDefault(), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, null, new UnexpectedBmsLibraryDialogService(), startupRequiredFileScanReason, CreateOptions(settings ??= CreateSettings(getLR2Config)), TestUiScheduler.CreateDefault(), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;
@@ -94,7 +94,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string _lr2ScoreDB,
         IFileMutationService fileMutationService,
         Settings settings = null)
-        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, null, null, CreateOptions(settings ??= CreateSettings(getLR2Config)), TestUiScheduler.CreateDefault(), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, fileMutationService, new UnexpectedBmsLibraryDialogService(), null, CreateOptions(settings ??= CreateSettings(getLR2Config)), TestUiScheduler.CreateDefault(), TestBmsFactory.MissingEverythingBridge, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;
@@ -224,7 +224,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         ChartFileOperationSynchronizer operationAdmission = null,
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
         Settings settings = null, BmsRootRegistrationStore bmsRootRegistrations = null)
-        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, startupRequiredFileScanReason, optionsSnapshotProvider,
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), _lr2ScoreDB, null, new UnexpectedBmsLibraryDialogService(), startupRequiredFileScanReason, optionsSnapshotProvider,
             TestUiScheduler.CreateDefault(), TestBmsFactory.MissingEverythingBridge,
             bmsRootRegistrations ?? new BmsRootRegistrationStore(settings ??= CreateSettings(getLR2Config), () => getLR2Config),
             operationAdmission: operationAdmission, playlistOperationAdmission: playlistOperationAdmission)
@@ -242,7 +242,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
     /// <param name="uiScheduler">実進捗公開へ接続するUI境界。</param>
     /// <param name="rootFileEnumerator">LR2候補を捕捉する既存の一括列挙境界。</param>
     /// <param name="irClient">startup から終了までの IR 通信を所有する明示的な境界。</param>
-    /// <param name="dialogService">本番入口の元警告を観測する通知境界。</param>
+    /// <param name="dialogService">本番入口の元警告を観測する通知境界。省略時は予期しない通知を例外にする窓口です。</param>
     /// <param name="operationAdmission">本番ownerと共有する論理受付。省略時は独立受付です。</param>
     /// <param name="playlistOperationAdmission">同compositionのプレイリスト局所受付。</param>
     internal TestBmsLibrary(
@@ -268,7 +268,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
             getLR2Config: getLR2Config ??= ResolveOwner(settings),
             _lr2ScoreDB: _lr2ScoreDB,
             fileMutationService: null,
-            dialogService: dialogService,
+            dialogService: dialogService ?? new UnexpectedBmsLibraryDialogService(),
             startupRequiredFileScanReason: startupRequiredFileScanReason,
             optionsSnapshotProvider: optionsSnapshotProvider,
             uiScheduler: uiScheduler ?? TestUiScheduler.CreateDefault(),
@@ -294,7 +294,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
         string songDbPath,
         ApplicationPathSnapshot applicationPathSnapshot,
         Settings settings = null, Lr2ConfigOwner getLR2Config = null)
-        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), null, null, CreateOptions(settings ??= CreateSettings()), TestUiScheduler.CreateDefault(), applicationPathSnapshot, new BmsRootRegistrationStore(settings, () => getLR2Config))
+        : base(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath, getLR2Config ??= ResolveOwner(settings), null, null, new UnexpectedBmsLibraryDialogService(), null, CreateOptions(settings ??= CreateSettings()), TestUiScheduler.CreateDefault(), applicationPathSnapshot, new BmsRootRegistrationStore(settings, () => getLR2Config))
     {
         FixtureSettings = settings;
         FixtureLr2Owner = getLR2Config;

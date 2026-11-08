@@ -565,7 +565,7 @@ public sealed class MainWindowTreePresentationWpfTests
                     db.CreateTable<LR2SongDBExtended.maintenance>();
                 });
                 library = new TestBmsLibrary(composition.DatabaseScope, songDb, null, null,
-                    new OwnedChartCollectionTestSupport.TestFileMutationService(), dialogService: null,
+                    new OwnedChartCollectionTestSupport.TestFileMutationService(), dialogService: new UnexpectedBmsLibraryDialogService(),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
                     operationAdmission: composition.OperationAdmission,

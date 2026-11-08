@@ -706,7 +706,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
     /// <summary>呼出し元と同じDB所有者でテスト対象と保存入力を準備します。</summary>
     /// <param name="databaseScope">ライブラリの読取りと接続寿命を共有するDB所有者。</param>
     private static BMSLibrary NewLibrary(ApplicationDatabaseScope databaseScope, string songPath, string? scorePath, Func<BmsLibraryOptionsSnapshot> options)
-        => new(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath, null, scorePath, null, options, new TestUiScheduler(() => null), TestBmsFactory.MissingEverythingBridge,
+        => new(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath, null, scorePath, null, new UnexpectedBmsLibraryDialogService(), null, options, new TestUiScheduler(() => null), TestBmsFactory.MissingEverythingBridge,
             new BmsRootRegistrationStore(TestSettingsFactory.CreateIsolatedSettings(settings => settings.OperationModeLR2DB = false), () => null));
     private string NewDirectory()
     {

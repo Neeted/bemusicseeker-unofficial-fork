@@ -50,7 +50,7 @@ public sealed partial class ApplicationCompositionTests
                 new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureAppOwnedSchema();
                 new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureLibraryStartupSchema();
                 PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDb);
-                var library = new TestBmsLibrary(composition.DatabaseScope, songDb, null, null, new ResilientFileMutationService(), null, scheduler,
+                var library = new TestBmsLibrary(composition.DatabaseScope, songDb, null, null, new ResilientFileMutationService(), new UnexpectedBmsLibraryDialogService(), scheduler,
                     () => new BmsLibraryOptionsSnapshot(), operationAdmission: composition.OperationAdmission, settings: testSettings);
                 library.ChartPackagesPending = new ObservableCollection<ChartPackage>([new ChartPackage { path = managed }]);
                 TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDb, testSettings, library: library);

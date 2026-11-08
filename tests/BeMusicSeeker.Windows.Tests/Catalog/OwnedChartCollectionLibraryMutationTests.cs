@@ -601,7 +601,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2Root, root);
             var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
             var filesystem = new TestFileMutationService();
-            var library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, filesystem, null,
+            var library = new TestBmsLibrary(databaseScope, songDbPath, configOwner, null, filesystem, new UnexpectedBmsLibraryDialogService(),
                 new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = afterCommit, LR2RootPath = lr2Root })
             {
@@ -1936,7 +1936,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             File.WriteAllText(resourcePath, "#PLAYER 1");
             ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", resourcePath);
             bmsFile = ChartFileProjection.WithMaintenance(bmsFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = bmsFile.Path, hash = bmsFile.Md5, wav_files_defined = 2, wav_files_existing = 1 }));
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new UnexpectedBmsLibraryDialogService());
             SetLibraryFilesWithoutNotification(library, [bmsFile]);
             SetLibraryBmsonSongsWithoutNotification(library, []);
             EnsureCurrentResourceHealthIndex(library);
@@ -1982,7 +1982,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             {
                 ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
                 bmsFile = ChartFileProjection.WithMaintenance(bmsFile, MaintenanceStorageMapping.ToCommon(new LR2SongDBExtended.maintenance { path = bmsFile.Path, hash = bmsFile.Md5, wav_files_defined = 2, wav_files_existing = 1 }));
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null);
+                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new UnexpectedBmsLibraryDialogService());
                 SetLibraryFilesWithoutNotification(library, [bmsFile]);
                 SetLibraryBmsonSongsWithoutNotification(library, []);
                 EnsureCurrentResourceHealthIndex(library);
@@ -2033,7 +2033,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             {
                 ChartFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", oldBmsPath);
                 ChartFile bmsonSong = CreateBmsonSong(oldBmsonPath, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), null);
+                var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new UnexpectedBmsLibraryDialogService());
                 SetLibraryFilesWithoutNotification(library, [bmsFile]);
                 SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
                 SetDuplicateChartGroupsWithoutNotification(library, []);
