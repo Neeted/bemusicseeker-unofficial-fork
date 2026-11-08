@@ -67,14 +67,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
             };
-            MainWindowViewModel owner = new ApplicationComposition(
-                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
-                settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
-                settingsDialogService: notifications,
-                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                applicationLifetime: TestApplicationContext.CreateLifetime(),
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog())
-                .CreateMainWindowViewModelForTest();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settingsDialogs: notifications);
             using SettingsDialogViewModel settings = owner.SettingDialog;
             var presentationPort = new RecordingPresentationPort();
             settings.AttachPresentationPort(presentationPort);
@@ -972,12 +965,7 @@ public sealed class SettingsWindowPresentationTests
                 values.OperationModeLR2DB = false;
             });
                 var dialogs = new RecordingSettingsRouteDialogService(searchRoot, additionalOutputBase);
-                var composition = new ApplicationComposition(
-                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
-                    settingsEditSession: new NoOpSettingsEditSession(settings), settingsDialogService: dialogs,
-                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
-                MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
+                MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings, settingsDialogs: dialogs);
                 using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
                 window = new SettingsWindow(dialogs)
                 {

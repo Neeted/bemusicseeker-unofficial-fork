@@ -334,6 +334,14 @@ WPFは `BeMusicSeeker.TestSupport.Wpf` の `TestUiDispatcherHost` にある一�
 
 共有ホストは現在の `AppearanceTheme` を退避し、準備完了前に保存せずLightへ設定します。終了時は同じDispatcherで復元してから `Application` とDispatcherを停止し、通知とスレッドの合流で待ちます。未起動なら何もしません。既存の `Application` との競合、起動失敗、呼出し・終了の失敗は表面化させ、`Application.ResourceAssembly` は変更しません。
 
+#### テストのUIスケジューラー
+
+UIスケジューラー（`IUiScheduler`）を必要とするテスト補助は、呼出し側が窓口を新しく作り特定のDispatcherを必要としない場合、既定の `TestUiScheduler.CreateDefault()` を使います。構築スレッドが共有ホストのDispatcherスレッドならそのDispatcherへ投稿し、それ以外は本番アダプターのDispatcherなしのインライン実行に解決します。
+
+- Dispatcherを返す関数は、メッセージポンプを持つDispatcherかnullに解決します。共有ホストの外のスレッド（MSTestのworker・プールのスレッド・専用スレッド）で `Dispatcher.CurrentDispatcher` を捕捉する関数は使いません。ポンプされないDispatcherへの予約は実行されず、別スレッドからの同期実行が戻らないためです。`Dispatcher.CurrentDispatcher` は共有ホストのスレッド上（`RunWindowTest`・`Invoke` の中など）では共有ホストのDispatcherと同じです。
+- 共有ホストのDispatcherを必要とする場合は、`TestUiDispatcherHost.Dispatcher` を返す関数を明示して渡します（例：`new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher)`）。
+- Dispatcherがないときの本番アダプターのインライン実行は、呼出し元のスレッドでその場で実行するだけで、UIスレッドへの直列化を保証せず、複数のスレッドから同時に実行されえます。UIスレッドでの直列化を前提とする検査は、共有ホストのDispatcherを使います。
+
 #### ケース境界の検査
 
 UI moduleの `UiModuleLifetime` の `GlobalTestInitialize`・`GlobalTestCleanup` が、共有ホストの未処理例外の記録と、失敗にする観測の記録（[共有ホストの観測記録](#共有ホストの観測記録)）をケースの境界で報告します。ケースの帰属は、Windowsが1 workerで直列に実行されることを前提にします。ホストが起動していない間は記録が空で、境界の処理はホスト・`Settings.Default`・`Application` を起動も読取りもしません。先行ケースがホストを起動した後は、ホストを使わないケースでも残留の報告と期間中の記録の帰属を受けます。
@@ -419,6 +427,8 @@ UI moduleの `UiModuleLifetime` は、次の順に初期化します。
 
 注入や表明の前にBackground優先度までの予約を消化する必要がある場合は、`ProcessQueuedBackground` を使います。呼出し前に積まれたBackground以上の予約と、消化中に積まれたBackgroundより高い優先度の予約を、戻る前に実行済みにします。UIスレッド上とテストスレッドの両方から呼べます。ContextIdle・ApplicationIdle・SystemIdleは境界にしません。まだ積まれていないworkerの後続予約や、消化中に積まれたBackgroundの予約は保証せず、それぞれの実通知・Taskで待ちます。その場で空の処理だけを持つ `InvokeAsync` をBackgroundに積んで待つ形は、この補助へ置き換えます。予約した処理がフラグなどの作用を持ち、その実行自体を後で表明する形は、消化ではなくその予約の実行を観測するので置き換えません。
 
+終端の後に別途予約される表示（`ObserveFault` で捨てるTask、`async void` の表示など）が存在しないことを、固定時間の経過で判定しません。注入した窓口に対し、生成元の終端と必要な消化（`ProcessQueuedBackground` など）を確定させた後で表明します。[非同期処理の待機](#非同期処理の待機)の短い否定観測は、この終端と消化を確定した後の補助としてだけ使い、それを不在の根拠にはしません。
+
 Dispatcher上の通常の機能Taskの待機は、局所的な制限時間を加えない `TestUiDispatcherHost.AwaitTaskOnDispatcher` を使います。描画・閉鎖・ネイティブ解放の通知の欠落は、同じDispatcher基盤の `AwaitPresentationOnDispatcher` で、既定15秒の制限時間付きで観測します。明示された通知の制限時間と、通常のTaskの外側の制限時間は別に扱います。
 
 `ShowAndWaitForContentRendered` は表示前に通知を購読し、制限時間付きのDispatcher処理で読込み・描画・非ゼロの配置・HWNDを確認します。任意の `renderNotificationTimeout` はLoaded到達後のContentRendered通知の待機だけに適用し、Loaded・Dispatcher・後片付けの制限時間へ流用しません。モーダル、即時終了、描画通知を制御する場合は、表示直前に `PrepareForOwnedPresentation` を呼びます。ただし、`B` と閉鎖の検査（未準備のモーダルを表示する共通基盤自体の恒久テスト）は準備を通さないことが目的の例外です（[共有ホストの観測記録](#共有ホストの観測記録)）。
@@ -430,6 +440,14 @@ Dispatcher上の通常の機能Taskの待機は、局所的な制限時間を加
 実Window・Popupの表示範囲（`TestWindowPresentationScope`）は共有のWindow・HWND一覧を観測するため、準備から処理の終端・後片付けまで非並列にします。同一テストの親子Windowには同じ表示範囲を渡し、独自の入れ子の表示範囲を作りません。Windowを作らず共有状態を変えない `Invoke` は、この理由では直列化しません。実Dispatcherの終了を保証する専用STAと、共通基盤の意図的な入れ子の表示範囲の検査は、それぞれの保証のために維持します。
 
 どの表示範囲でも `PrepareForOwnedPresentation` を通していないWindowが共有ホストで表示された場合は、型・Title・モーダルなどを記録し、表示したケース（ケースの間なら次のケースの開始時、module終了後ならCleanup）の失敗にします。Windowが残っていれば、非モーダルは境界が同期的に閉じ、未準備のモーダルは検出器が閉じて本体を戻らせます（[共有ホストの観測記録](#共有ホストの観測記録)）。表示範囲の準備を通したWindowはモーダルでも記録しません。
+
+実ダイアログへ届きうる経路には、次のいずれかを接続します。所有者を解決できないこと（`OwnerUnavailable`）や `Application.MainWindow` の有無を、通知を抑止する手段にしません。
+
+- 記録用の窓口：通知の記録だけを確かめる場合に使います。所有者の解決に依存せず窓口ごと差し替える形を主とします（例：`SettingsDialogHarness.RecordingDialogService`）。`MainWindowViewModelTestFactory.Create` の `settingsDialogs`・`playlistWorkspaceDialogs`・`fileDbMutationDialogs` は、`ApplicationComposition`（ViewModel側）へ届く窓口だけを差し替えます。プロパティ・一括編集・インポート・ランプビューアーなど `MainWindow` 側の経路は、`MainWindow` の `playlistWorkspaceDialogService` 引数で別に渡します。
+- `UiDialogCoordinator` の `messagePresenter` だけを差し替える形：`UiDialogCoordinator` は `messagePresenter` の前に所有者を解決し、所有者が null なら `messagePresenter` を呼ばず `OwnerUnavailable` を返します。所有者は、登録中の表示中モーダル、要求の `Owner`、アクティブなWindow、`MainWindow` の順に解決されます。表示範囲の実Windowは非アクティブで表示されるため、アクティブなWindowとしては解決されません。そのため、要求の `Owner` へ表示範囲の実Windowを渡す経路、または `modalScopeFactory` で登録した表示中のモーダルと組み合わせる場合に限り、記録用に使えます。`MainWindow` への自動設定には頼りません。差し替えが効くのはメッセージと確認（`ShowMessageAsync`・`ConfirmAsync`）だけで、`ShowWindowAsync`・ピッカー・進捗表示は実ダイアログのままです。
+- 準備を接続した `UiDialogCoordinator`：実ダイアログを表示して確かめる場合に使い、`modalScopeFactory` の中で `TestWindowPresentationScope.PrepareForOwnedPresentation` を呼びます（例：[`PendingPackageRestoreWindowTests`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/PendingPackageRestoreWindowTests.cs)）。
+
+新しく書くテストで引数なしの `new UiDialogCoordinator()` を使いません。例外は、`UiDialogCoordinator` 自体や、所有者を解決できない経路そのものを検査する場合です。この例外は上の `OwnerUnavailable` の規則にも適用します。
 
 MainWindowの生成前から、終了処理・`Closed`・設定購読の解除・`Resources["vm"]` の復元までは `MainWindowTestLifetime` が所有します。機能の入力と実処理の終端の観測は機能側へ残します。コンパイル済みの内容だけを描画する場合も共通の表示範囲の実Windowを使い、Binding・値・選択・配置の表明を維持します。
 
@@ -605,6 +623,7 @@ suiteの起動・前提・本体・通常の回収・実際の終了は一つの
 | 失敗時の差し戻し・再実行 | [エージェント運用](agent-workflow.md#不備の差し戻し)、本書 | 修正担当への差し戻し、同一版の再実行と修正後の検証、反復回数による再計画を区別する。 |
 | UTF-8の両パイプ・所有する子プロセス・親環境 | [OwnedProcess](../../../tests/BeMusicSeeker.TestSupport/Processes/OwnedProcess.cs) | Coreの `OwnedProcessTests`・`OwnedProcessPipeTests`・`VerificationRunnerTests` で、全終端、期限・元の失敗・診断の保存を確認する。 |
 | 一時資源・共有状態・通常完了の待機 | [TestSettingsFactory](../../../tests/BeMusicSeeker.TestSupport/Components/TestSettingsFactory.cs)、[Coreのmodule寿命](../../../tests/ModuleInitialization/ModuleLifetime.cs)、[UIのmodule寿命](../../../tests/ModuleInitialization/UiModuleLifetime.cs)、各機能のテスト準備 | 所有・復元、通知前の失敗、待合せの解放、実際の完了条件を確認する。UIのホスト終了の成功後だけ設定を回収し、設定の回収失敗後も一時セッション・排他を回収する順序は、制御フローで静的に確認する。失敗注入による実施とは扱わない。 |
+| テストのUIスケジューラーの既定の捕捉先 | [`TestUiScheduler`](../../../tests/BeMusicSeeker.TestSupport/Components/TestUiScheduler.cs)（`CreateDefault`）、本書の[テストのUIスケジューラー](#テストのuiスケジューラー) | Coreの [`TestUiSchedulerDefaultTests`](../../../tests/BeMusicSeeker.Core.Tests/Verification/TestUiSchedulerDefaultTests.cs) が、ポンプされないスレッドで構築した既定の窓口が予約をその場で実行し、別スレッドからの同期実行が戻ることを確認する。Windowsの [`TestUiSchedulerHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/TestUiSchedulerHostTests.cs) が、ホストのスレッドで構築した既定の窓口がホストのDispatcherへ投稿して消化後に実行すること、workerではnullに解決することを確認する。 |
 | Dispatcherの受付・終端・通常Task待機 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。終了済み・受理後の終了と停止の二次失敗、Action失敗後の継続、合流、利用側の成功・失敗・取消・通知欠落、単一STA、Background優先度までの消化（UIスレッド上・テストスレッド、idle優先度を含めない）を確認する。`ProcessQueuedPresentation` の配置の直接の確定は恒久テストを持たず、[表示入力と待機](#表示入力と待機)の(e)の静的確認と、Releaseの実行ファイルを直接使う並列負荷の再現（対象ケース4並列で各5回（計20回）と `Name~SearchEditor` 2並列）で一度確かめ、WPF（.NET）の版を上げるときは同じ確認を繰り返す。 |
 | 共有Dispatcherの未処理例外の記録・帰属・ケース境界の報告 | [`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs)、[`HostUnhandledExceptionLog`](../../../tests/BeMusicSeeker.TestSupport/Wpf/HostUnhandledExceptionLog.cs)、[`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs) | [`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs)。ホストを終端させず記録し後続の要求を受理すること、複数の記録の順序と一度だけの受取り、待機・消化APIの元の例外での即時失敗と消費、呼出し側へ返る失敗を記録しないことを確認する。ケース終了時・ケースの間・module終了時・重なりの報告と、ホストを使わないmoduleで何も起動しないことは、制御フローで静的に確認し、開始時の失敗の状態の戻し・本体の失敗時の出力・観測が失敗したときの `EndCase`・module終了時の失敗は、局所MTPで一度だけ一時的に確かめる（改変は取り除く）。失敗注入による恒久の実施とは扱わない。 |
 | 共有ホストの観測の記録・失敗化・復元（未準備のWindowの表示、ケース終了時の残留 `E-a`〜`E-g`、失敗にする `B`・`E-a`〜`E-f`） | [`HostObservationLog`](../../../tests/BeMusicSeeker.TestSupport/Wpf/HostObservationLog.cs)、[`HostResidueComparison`](../../../tests/BeMusicSeeker.TestSupport/Wpf/HostResidueComparison.cs)、[`HostResidueRestoration`](../../../tests/BeMusicSeeker.TestSupport/Wpf/HostResidueRestoration.cs)（判定 `HostObservationVerdict` と復元）、[`TestWindowPresentationScope`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestWindowPresentationScope.cs)、[`TestUiDispatcherHost`](../../../tests/BeMusicSeeker.TestSupport/Wpf/TestUiDispatcherHost.cs)、[`UiModuleLifetime`](../../../tests/ModuleInitialization/UiModuleLifetime.cs) | [`WindowPresentationScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/WindowPresentationScopeTests.cs) が準備済みのWindowを記録しないこと、未準備の表示が閉じた後も記録に残ること、記録が表示・Close・Dispatcherの進行を変えないこと、表示済みの未準備のWindowが復元で閉じること、未準備のモーダルが検出器の閉鎖で戻り記録（`close-scheduled`）が残ること、準備済みのモーダルとモーダルでない未準備のWindowを検出器が閉じないこと、閉じる入口の選択（三つの型は `CloseForOwnerShutdown`、それ以外は `Close`）、閉鎖の取消が `close-failed`（`canceled`）として記録されること（自分のタイトルの記録だけを消費する）を確認する。[`DispatcherHostTests`](../../../tests/BeMusicSeeker.Windows.Tests/Infrastructure/DispatcherHostTests.cs) が、独立の状態で残留のWindow・MainWindow・HWNDのみ・`Resources["vm"]`・文化圏・NLog構成（観測値）・未消化操作を一度だけ報告し、報告済みの印が基準へ戻ると消えて再びずれると再び報告されること（`Resources["vm"]`・文化圏・基準のWindowを再びMainWindowにする場合）を確認する。操作・HWNDの印の整理は同じ参照・ハンドルが戻らない限り挙動に現れないため、挙動としては確認しない。同じテストクラスが、失敗にする七項目だけが失敗になり記録だけの項目は失敗にならないこと、未処理例外・復元の失敗との統合で元の例外を参照のまま持つこと（判定）、Window・MainWindow・`Resources["vm"]`（キーの削除と同じ参照への復帰）・文化圏と表示の通知・テーマの保存値と適用・NLog構成の復元、復元が `Dispatcher` を進めないこと、閉鎖の取消・例外があっても残りを復元し元の例外を保持して再報告しないこと（取り消すWindowがMainWindowでも基準へ戻ること）、復元に成功した値の報告済みの印が消え、復元の直後の同じ値へのずれが再び報告されること、`SettingsWindow` が所有者の終了の入口で閉じること、HWNDのみの残留の分類を確認する。`ThemedMessageBox` など実ダイアログの閉鎖、閉鎖の例外の記録、ケース境界の出力・ケース間・開始時・module終了時の出力と失敗、ホスト未起動で何も起動しないことは、制御フローで静的に確認し、境界の出力が検証1回分のTRXに載ることは局所MTPで確かめる。 |

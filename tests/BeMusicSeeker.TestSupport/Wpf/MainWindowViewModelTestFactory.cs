@@ -21,7 +21,15 @@ internal static class MainWindowViewModelTestFactory
     /// 明示された設定、または他の testhost と共有しない既定値で画面 owner を構成する。
     /// 項目保存で生成した専用ファイルは、当該testhostの全処理・画面終端後に回収します。
     /// </summary>
-    internal static MainWindowViewModel Create(Settings? settings = null, BeMusicSeeker.Views.Dialogs.IUiDialogService? fileDbMutationDialogs = null)
+    /// <param name="settings">明示する設定。省略時は専用の隔離設定です。</param>
+    /// <param name="fileDbMutationDialogs">ライブラリ変更の結果通知の窓口。省略時は既定の<c>UiDialogCoordinator</c>です。</param>
+    /// <param name="settingsDialogs">設定画面の確認と通知の窓口。省略時は既定の<c>UiDialogCoordinator</c>です。</param>
+    /// <param name="playlistWorkspaceDialogs">プレイリスト作業領域の確認と通知の窓口。省略時は既定の<c>UiDialogCoordinator</c>です。</param>
+    internal static MainWindowViewModel Create(
+        Settings? settings = null,
+        BeMusicSeeker.Views.Dialogs.IUiDialogService? fileDbMutationDialogs = null,
+        BeMusicSeeker.Views.Dialogs.IUiDialogService? settingsDialogs = null,
+        BeMusicSeeker.Views.Dialogs.IUiDialogService? playlistWorkspaceDialogs = null)
     {
         settings ??= TestSettingsFactory.CreateIsolatedSettings();
         return new ApplicationComposition(
@@ -30,7 +38,9 @@ internal static class MainWindowViewModelTestFactory
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            fileDbMutationDialogService: fileDbMutationDialogs)
+            fileDbMutationDialogService: fileDbMutationDialogs,
+            settingsDialogService: settingsDialogs,
+            playlistWorkspaceDialogService: playlistWorkspaceDialogs)
             .CreateMainWindowViewModelForTest();
     }
 
