@@ -148,6 +148,24 @@ internal sealed class TestWindowPresentationScope
         trackedWindows.Add(registration);
     }
 
+    /// <summary>
+    /// 表示範囲の準備を通さずに、Windowを画面外・タスクバー非表示・非アクティブ（<c>ShowActivated=false</c>と<c>WS_EX_NOACTIVATE</c>）に置きます。
+    /// 未準備のWindowの表示（<c>B</c>）を作る共通基盤自体の恒久テストだけが使います。準備扱いにしないため、検出器は記録します。
+    /// 前面・矩形の確認、破棄の管理は持たず、Windowの閉鎖は呼出し側の責任です。
+    /// </summary>
+    internal static void PlaceUnpreparedNonActivating(Window window)
+    {
+        ArgumentNullException.ThrowIfNull(window);
+        window.Width = 200;
+        window.Height = 120;
+        window.WindowStartupLocation = WindowStartupLocation.Manual;
+        window.ShowInTaskbar = false;
+        window.ShowActivated = false;
+        window.Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d;
+        window.Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d;
+        window.SourceInitialized += (_, _) => EnsureNonActivatingStyle(new WindowInteropHelper(window).Handle, window.GetType().Name);
+    }
+
     /// <summary>指定のWindowが、いずれかの表示範囲で <see cref="PrepareForOwnedPresentation"/> を通したかを返します。</summary>
     internal static bool IsPrepared(Window window)
     {

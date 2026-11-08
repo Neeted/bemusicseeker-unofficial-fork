@@ -450,7 +450,7 @@ public sealed class WindowPresentationScopeTests
 
     /// <summary>
     /// 表示範囲で準備したWindowは、未準備のWindowの表示として記録されないことを確認します。準備済みを記録する誤り（誤検出）を検出します。
-    /// モーダルは、モーダルループの入れ子と前面の変更を共有ホストの全ケースへ持ち込まないため、恒久テストにしません。
+    /// 準備済みのモーダルの扱いは <see cref="PreparedModalWindow_IsNeitherClosedNorRecordedByDetector"/> が確認します。
     /// </summary>
     [TestMethod]
     [DoNotParallelize]
@@ -478,17 +478,8 @@ public sealed class WindowPresentationScopeTests
         {
             bool backgroundRan = false;
             bool closing = false;
-            var window = new Window
-            {
-                Title = "unprepared-marker",
-                Width = 200,
-                Height = 120,
-                WindowStartupLocation = WindowStartupLocation.Manual,
-                ShowInTaskbar = false,
-                ShowActivated = false,
-                Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d,
-                Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d
-            };
+            var window = new Window { Title = "unprepared-marker" };
+            PlaceOffscreen(window);
             window.Closing += (_, _) => closing = true;
             DispatcherOperation background = window.Dispatcher.InvokeAsync(() => backgroundRan = true, DispatcherPriority.Background);
             try
@@ -526,17 +517,8 @@ public sealed class WindowPresentationScopeTests
         {
             Application application = Application.Current;
             var state = new HostResidueState(HostResidueBoundary.Observe());
-            var window = new Window
-            {
-                Title = "restore-f-marker",
-                Width = 200,
-                Height = 120,
-                WindowStartupLocation = WindowStartupLocation.Manual,
-                ShowInTaskbar = false,
-                ShowActivated = false,
-                Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d,
-                Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d
-            };
+            var window = new Window { Title = "restore-f-marker" };
+            PlaceOffscreen(window);
             window.Show();
             TestUiDispatcherHost.ProcessQueuedPresentation();
             nint handle = new WindowInteropHelper(window).Handle;
@@ -556,5 +538,205 @@ public sealed class WindowPresentationScopeTests
         });
 
         Assert.HasCount(1, HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains("title='restore-f-marker'")));
+    }
+
+    /// <summary>
+    /// 準備を通さずに表示するテスト用Window（モーダル・非モーダル）を、画面外・タスクバー非表示・非アクティブ（<c>WS_EX_NOACTIVATE</c>）に置きます。
+    /// 準備扱いにしないため、検出器はBを記録します。
+    /// </summary>
+    private static void PlaceOffscreen(Window window) => TestWindowPresentationScope.PlaceUnpreparedNonActivating(window);
+
+    private static bool IsListed(Window window) => Application.Current.Windows.Cast<Window>().Contains(window);
+
+    /// <summary>
+    /// 検出器が閉じない誤りでテストが停止しないよう、期限の後に救済して<c>ShowDialog</c>を戻らせる見張りです。救済したかを返す関数と停止を返します。
+    /// </summary>
+    private static (Func<bool> WasRescued, Action Stop) StartRescueWatchdog(Window window, Action rescue)
+    {
+        bool rescued = false;
+        var timer = new DispatcherTimer(DispatcherPriority.Send, window.Dispatcher) { Interval = ConcurrencyProbe.StallTimeout };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            rescued = true;
+            rescue();
+        };
+        timer.Start();
+        return (() => rescued, timer.Stop);
+    }
+
+    /// <summary>
+    /// 準備していないモーダル（<c>ShowDialog</c>）のWindowを、テストの介入なしに検出器が閉じて<c>ShowDialog</c>が戻ることを確認します。
+    /// Bの記録が自分のタイトルで一件あり、閉鎖の予約（close-scheduled）を含み、閉鎖の失敗（close-failed）を含まないことも確認します。
+    /// 検出器が閉じない実装（見張りの救済になる）と、閉鎖の予約の追記を付けない実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void UnpreparedModalWindow_IsClosedByDetectorAndStillRecorded()
+    {
+        bool rescued = false;
+        bool listedAfter = true;
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            var window = new Window { Title = "u1a-marker" };
+            PlaceOffscreen(window);
+            (Func<bool> wasRescued, Action stop) = StartRescueWatchdog(window, () => window.Close());
+            try { window.ShowDialog(); }
+            finally { stop(); }
+            rescued = wasRescued();
+            listedAfter = IsListed(window);
+        });
+
+        Assert.IsFalse(rescued, "The detector must close the unprepared modal window without the test's help.");
+        Assert.IsFalse(listedAfter);
+        IReadOnlyList<HostObservation> records = HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains("title='u1a-marker'"));
+        Assert.HasCount(1, records);
+        StringAssert.Contains(records[0].Detail, "action=close-scheduled");
+        Assert.IsFalse(records[0].Detail.Contains("close-failed"));
+    }
+
+    /// <summary>
+    /// 準備済みのモーダルを検出器が閉じず、記録もしないことを確認します（テストが自分で閉じます）。
+    /// 準備済みまで閉じる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PreparedModalWindow_IsNeitherClosedNorRecordedByDetector()
+    {
+        bool listedWhenTestClosed = false;
+        bool rescued = false;
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var window = new Window { Title = "u1b-marker", Content = new TextBlock { Text = "prepared modal" } };
+            scope.PrepareForOwnedPresentation(window);
+            // Sendの閉鎖があれば、Backgroundのこの処理より先に実行されます。
+            window.Loaded += (_, _) => window.Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+            {
+                listedWhenTestClosed = IsListed(window);
+                window.Close();
+            }));
+            (Func<bool> wasRescued, Action stop) = StartRescueWatchdog(window, () => window.Close());
+            try { window.ShowDialog(); }
+            finally { stop(); }
+            rescued = wasRescued();
+        });
+
+        Assert.IsFalse(rescued);
+        Assert.IsTrue(listedWhenTestClosed, "The detector must not close a prepared modal window.");
+        Assert.IsEmpty(HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains("title='u1b-marker'")));
+    }
+
+    /// <summary>
+    /// スレッドがモーダルでないときの未準備の非モーダルWindowは、検出器が閉じず記録だけにする（閉鎖の予約も付けない）ことを確認します。
+    /// テストが自分で閉じ、記録を消費します。モーダルでないWindowまで閉じる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void UnpreparedNonModalWindow_IsNotClosedByDetector()
+    {
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            var window = new Window { Title = "u1c-marker" };
+            PlaceOffscreen(window);
+            try
+            {
+                window.Show();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(window.IsLoaded);
+                Assert.IsTrue(IsListed(window), "The detector must not close an unprepared non-modal window.");
+            }
+            finally { window.Close(); }
+        });
+
+        IReadOnlyList<HostObservation> records = HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains("title='u1c-marker'"));
+        Assert.HasCount(1, records);
+        StringAssert.Contains(records[0].Detail, "thread-modal=no");
+        Assert.IsFalse(records[0].Detail.Contains("action="));
+    }
+
+    /// <summary>
+    /// 選択関数の規則を確認します（<c>CloseForOwnerShutdown</c>を持つ三つの型はその入口、それ以外は<c>Close</c>）。
+    /// 検出器と復元が同じ関数を使うことは静的に確認します。Windowを生成して動かさず、未初期化のインスタンスを使います。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void CloseEntrySelection_UsesOwnerShutdownForThreeTypes()
+    {
+        foreach (Type type in new[] { typeof(BeMusicSeeker.Views.SettingsWindow), typeof(BeMusicSeeker.Views.PlaylistPropertyDialog), typeof(BeMusicSeeker.Views.PlaylistSummaryBulkEditDialog) })
+        {
+            var window = (Window)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(type);
+            Action entry = HostResidueRestoration.SelectCloseEntry(window);
+            Assert.AreEqual("CloseForOwnerShutdown", entry.Method.Name, type.Name);
+            Assert.AreSame(window, entry.Target, type.Name);
+        }
+        var plain = (Window)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(Window));
+        Action plainEntry = HostResidueRestoration.SelectCloseEntry(plain);
+        Assert.AreEqual(nameof(Window.Close), plainEntry.Method.Name);
+        Assert.AreSame(plain, plainEntry.Target);
+    }
+
+    /// <summary>
+    /// 閉鎖を取り消す未準備のモーダルを検出器が閉じようとしたとき、取消が失敗（close-failed、理由canceled）として記録されることを確認します。
+    /// 記録の確認は検出器の閉鎖の試行の後（取消を受けたNormalの操作）で行い、確認が失敗しても取消を解除して閉じ、<c>ShowDialog</c>を戻らせます。
+    /// 取消を黙って成功にする、記録しない、取消で停止したままにする実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void UnpreparedModalWindow_CancelledClose_IsRecordedAsFailure()
+    {
+        IReadOnlyList<HostObservation> atCancel = [];
+        IReadOnlyList<HostObservation> detectorFailures = [];
+        bool rescued = false;
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            var window = new CancelingModalWindow { Title = "u1e-marker" };
+            PlaceOffscreen(window);
+            window.OnCancel = () => window.Dispatcher.BeginInvoke(DispatcherPriority.Normal, new Action(() =>
+            {
+                try
+                {
+                    atCancel = HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains("title='u1e-marker'"));
+                    detectorFailures = HostObservationLog.TakeCurrentCase("X-detector");
+                }
+                finally
+                {
+                    window.AllowClose = true;
+                    window.Close();
+                }
+            }));
+            (Func<bool> wasRescued, Action stop) = StartRescueWatchdog(window, () =>
+            {
+                window.AllowClose = true;
+                window.Close();
+            });
+            try { window.ShowDialog(); }
+            finally { stop(); }
+            rescued = wasRescued();
+        });
+
+        Assert.IsFalse(rescued);
+        Assert.IsEmpty(detectorFailures, string.Join(" / ", detectorFailures.Select(record => record.Format())));
+        Assert.HasCount(2, atCancel);
+        Assert.AreEqual(1, atCancel.Count(record => record.Detail.Contains("action=close-scheduled")));
+        HostObservation failed = atCancel.Single(record => record.Detail.Contains("action=close-failed"));
+        StringAssert.Contains(failed.Detail, "reason=canceled");
+        StringAssert.Contains(failed.Detail, typeof(CancelingModalWindow).FullName ?? throw new AssertFailedException("The type has no full name."));
+    }
+
+    /// <summary>閉鎖を<c>AllowClose</c>が真になるまで取り消すテスト用Windowです。</summary>
+    private sealed class CancelingModalWindow : Window
+    {
+        internal bool AllowClose { get; set; }
+
+        internal Action? OnCancel { get; set; }
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            base.OnClosing(e);
+            if (AllowClose) { return; }
+            e.Cancel = true;
+            OnCancel?.Invoke();
+        }
     }
 }

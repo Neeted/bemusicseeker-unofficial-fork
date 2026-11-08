@@ -37,12 +37,46 @@ internal static class HostObservationLog
     private static long nextSequence;
 
     /// <summary>現在のケース（ケースの間なら直前のケース）の記録として加えます。どのスレッドからでも呼べます。</summary>
-    internal static void Add(string category, string detail)
+    /// <returns>加えた記録。後から <see cref="Append"/> で内容を追記するために使います。</returns>
+    internal static HostObservation Add(string category, string detail)
     {
         (string? current, string? preceding) = HostUnhandledExceptionLog.ReadCase();
         lock (gate)
         {
-            records.Add(new HostObservation(nextSequence++, category, detail, current, preceding));
+            var record = new HostObservation(nextSequence++, category, detail, current, preceding);
+            records.Add(record);
+            return record;
+        }
+    }
+
+    /// <summary>
+    /// 追加済みで、まだ出力・消費されていない記録の内容に追記します。順序とケースの帰属は変わりません。
+    /// 追記は同じ記録（<see cref="Add"/> が返したもの）に対して一回だけで、二回目は何もしません（記録は追記のたびに置き換わるため）。
+    /// 既に出力・消費された記録にも何もしません（呼出し側の処理の後に境界を過ぎた場合）。
+    /// </summary>
+    internal static void Append(HostObservation record, string suffix)
+    {
+        lock (gate)
+        {
+            int index = records.IndexOf(record);
+            if (index >= 0) { records[index] = record with { Detail = record.Detail + suffix }; }
+        }
+    }
+
+    private static readonly Lock rawErrorGate = new();
+
+    /// <summary>
+    /// 一行を、MSTestの振り分けを通らないプロセスの標準エラー（生のストリーム）へUTF-8で書き、その場で<c>Flush</c>します。
+    /// 強制終了されても行が実行ログに残るための出力で、同時の書込みで行が混ざらないよう排他し、一回の書込みにします。
+    /// </summary>
+    internal static void WriteRawStandardError(string line)
+    {
+        byte[] bytes = new System.Text.UTF8Encoding(false).GetBytes(line.ReplaceLineEndings(" / ") + "\n");
+        lock (rawErrorGate)
+        {
+            using Stream stream = Console.OpenStandardError();
+            stream.Write(bytes);
+            stream.Flush();
         }
     }
 
@@ -166,8 +200,13 @@ internal static class HostObservationLog
 /// 共有ホストのスレッドで表示（初回のレイアウト）されたWindowのうち、どの表示範囲でも準備を通していないものを記録します。
 /// </summary>
 /// <remarks>
-/// 記録だけで、Windowを閉じず、Dispatcherを進めません。失敗にする判断は境界（<see cref="HostObservationVerdict"/>）が行い、残ったWindowの閉鎖は
-/// 境界の復元（E-a）が担います。検出器自身の失敗は記録して表示を妨げません。
+/// 記録し、表示の後の最初のSendの操作でスレッドがモーダルであれば、その未準備のWindowを閉じます（記録へ<c>action=close-scheduled</c>を追記）。
+/// 入れ子のモーダルループで止まるテスト本体を戻し、境界へ到達させるためで、閉じても記録は消さず判定は失敗のままです。
+/// 閉鎖は境界の復元と同じ入口の選択（<see cref="HostResidueRestoration.CloseWindow"/>）を使います。検出器の中（SizeChanged）では閉じず、Dispatcherを進めません。
+/// <c>ShowDialog</c>の最初のレイアウトはスレッドがモーダルになる前に起きるため、表示時の<c>thread-modal</c>は<c>no</c>になりえます。
+/// 閉鎖が取り消された、または例外になった場合だけ<c>action=close-failed</c>を記録し、例外は未処理例外へ漏らしません。
+/// モーダルでない未準備のWindowは閉じず、境界の復元（E-a）が閉じます。失敗にする判断は境界（<see cref="HostObservationVerdict"/>）が行います。
+/// 検出器自身の失敗は記録して表示を妨げません。
 /// 準備済みのWindowは、モーダルでも記録しません。対象外はWin32のコモンダイアログとネイティブのMessageBox（EmergencyDialog）です。
 /// 表示の観測には、Windowの<c>SizeChanged</c>へのクラスハンドラーを使い、表示後の最初のレイアウトでWindowごとに一度観測します。
 /// 表示されないWindowは通常記録されません。
@@ -201,10 +240,42 @@ internal static class UnpreparedWindowDetector
             if (!observed.TryAdd(window, observed)) { return; }
             string modal = ComponentDispatcher.IsThreadModal ? "yes" : "no";
             string owner = window.Owner is { } ownerWindow ? ownerWindow.GetType().FullName ?? "(unnamed type)" : "(none)";
-            HostObservationLog.Add(
+            HostObservation record = HostObservationLog.Add(
                 HostObservationVerdict.UnpreparedWindowCategory,
                 $"unprepared window shown: type={window.GetType().FullName}, title='{window.Title}', thread-modal={modal}, owner={owner}, hwnd=0x{new WindowInteropHelper(window).Handle:X}");
+            // ShowDialogの最初のレイアウトは、スレッドがモーダルになる前に起きるため、ここではモーダルかを決められません。
+            // 閉鎖の要否は、最初のレイアウトの後に最初に処理されるSendの操作で判断します。モーダルならこの操作は入れ子のループの中で実行されます。
+            // ここ（SizeChangedの中）では閉じず、レイアウトへ再入しません。
+            window.Dispatcher.BeginInvoke(DispatcherPriority.Send, new Action(() => CloseIfThreadModal(window, record)));
         }
         catch (Exception failure) { HostObservationLog.AddDetectorFailure("UnpreparedWindowDetector", failure); }
+    }
+
+    /// <summary>
+    /// スレッドがモーダルの間だけ、未準備のWindowを閉じます。記録の内容に<c>action=close-scheduled</c>を追記します。
+    /// 成功は記録せず（<c>ShowDialog</c>が戻ることで観測します）、取り消された場合と例外になった場合だけ、同じ項目Bで<c>action=close-failed</c>を記録します。
+    /// 例外はDispatcherの未処理例外へ漏らしません。
+    /// </summary>
+    private static void CloseIfThreadModal(Window window, HostObservation record)
+    {
+        try
+        {
+            Application? application = Application.Current;
+            if (!ComponentDispatcher.IsThreadModal || application == null || !HostResidueRestoration.IsListed(application, window)) { return; }
+            HostObservationLog.Append(record, ", action=close-scheduled");
+            string? reason = null;
+            try { HostResidueRestoration.CloseWindow(window); }
+            catch (Exception thrown) { reason = $"{thrown.GetType().FullName}: {thrown.Message}"; }
+            if (reason == null && !HostResidueRestoration.IsListed(application, window)) { return; }
+            HostObservation failed = HostObservationLog.Add(
+                HostObservationVerdict.UnpreparedWindowCategory,
+                $"unprepared modal window could not be closed: type={window.GetType().FullName}, title='{window.Title}', action=close-failed, reason={reason ?? "canceled"}");
+            // 取消・例外で ShowDialog が戻らず停止し、強制終了されても診断が残るよう、記録の行をプロセスの標準エラーへ直接出します。
+            // MSTestは Console.Error をテストごとのメモリ上のバッファへ振り分けるため、強制終了で失われます。
+            // 出力の失敗は判定を変えず、検出器自身の失敗として記録します。
+            try { HostObservationLog.WriteRawStandardError(failed.Format()); }
+            catch (Exception outputFailure) { HostObservationLog.AddDetectorFailure("UnpreparedWindowDetector.CloseIfThreadModal output", outputFailure); }
+        }
+        catch (Exception failure) { HostObservationLog.AddDetectorFailure("UnpreparedWindowDetector.CloseIfThreadModal", failure); }
     }
 }

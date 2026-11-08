@@ -160,16 +160,7 @@ internal static class HostResidueRestoration
         if (!IsListed(application, window)) { return true; }
         string item = $"close {window.GetType().FullName} '{window.Title}'";
         Exception? thrown = null;
-        try
-        {
-            switch (window)
-            {
-                case SettingsWindow settings: settings.CloseForOwnerShutdown(); break;
-                case PlaylistPropertyDialog property: property.CloseForOwnerShutdown(); break;
-                case PlaylistSummaryBulkEditDialog bulk: bulk.CloseForOwnerShutdown(); break;
-                default: window.Close(); break;
-            }
-        }
+        try { CloseWindow(window); }
         catch (Exception exception) { thrown = exception; }
         bool remains = IsListed(application, window);
         if (thrown != null) { failures.Add(new HostRestoreFailure(remains ? item + " threw and the window remained in Application.Windows" : item + " threw", thrown)); }
@@ -177,7 +168,26 @@ internal static class HostResidueRestoration
         return !remains;
     }
 
-    private static bool IsListed(Application application, Window window) => application.Windows.Cast<Window>().Contains(window);
+    /// <summary>
+    /// Windowを閉じる入口を、型に応じて選んで呼びます。境界の復元と、検出器のモーダルの未準備Windowの閉鎖が同じ規則を使います。
+    /// 閉鎖が取り消されても例外にならず、成否は呼出し側が<c>Application.Windows</c>から外れたかで判断します。
+    /// </summary>
+    internal static void CloseWindow(Window window) => SelectCloseEntry(window)();
+
+    /// <summary>
+    /// Windowの型に応じた閉じる入口を、呼ばずに返します。<c>CloseForOwnerShutdown</c>を持つ三つの型はその入口、それ以外は<c>Close</c>です。
+    /// 入口の選択だけを、Windowを動かさずに検査できるようにするための切り出しです。
+    /// </summary>
+    internal static Action SelectCloseEntry(Window window) => window switch
+    {
+        SettingsWindow settings => settings.CloseForOwnerShutdown,
+        PlaylistPropertyDialog property => property.CloseForOwnerShutdown,
+        PlaylistSummaryBulkEditDialog bulk => bulk.CloseForOwnerShutdown,
+        _ => window.Close,
+    };
+
+    /// <summary>WindowがApplication.Windowsに残っているかを返します。</summary>
+    internal static bool IsListed(Application application, Window window) => application.Windows.Cast<Window>().Contains(window);
 
     private static void RestoreViewModel(Application application, HostResidueState state)
     {
