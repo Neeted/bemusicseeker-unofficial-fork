@@ -164,14 +164,23 @@ internal static class TestUiDispatcherHost
         });
     }
 
-    /// <summary>予約済みのBinding・配置・描画反映をLoaded境界まで進めます。</summary>
+    /// <summary>予約済みのBindingと配置を、Loaded優先度以上の予約の消化と配置の直接の確定まで進めます。</summary>
     /// <remarks>
-    /// 実controlの値・選択・配置は呼出側で確認します。機能Task、閉鎖の終端や
-    /// 全Dispatcherのidleは保証せず、それぞれの実通知・Taskで待ちます。Background優先度までの消化にはProcessQueuedBackgroundを使います。
-    /// 呼出し中に記録された未処理例外は元の例外で失敗し、記録を消費します。2件目以降は最初の例外のDataへ添付します。
+    /// 契約の正本は devdocs/spec/development/testing.md の「表示入力と待機」で、手順・保証しないもの・WPFが描画を下げる仕組み・例外・確認方法をそこに書きます。
+    /// 要点：(1)消化、(2)配置の確定、(3)消化を一度ずつ行い、繰り返しません。Loadedイベントの時機と描画の完了は保証しません。
+    /// (2)の例外は元のまま伝わり、記録を消費しません。
+    /// (2)以外で呼出し中に記録された未処理例外は、(3)の後で元の例外で失敗し、記録を消費します。2件目以降は最初の例外のDataへ添付します。
     /// </remarks>
     internal static void ProcessQueuedPresentation()
-        => ProcessQueuedAt(DispatcherPriority.Loaded);
+    {
+        HostState state = GetActiveHost();
+        long position = HostUnhandledExceptionLog.Position;
+        InvokeOnOwnedDispatcher(state.Dispatcher, state.Thread, state.Completed, () => state.TerminalFailure,
+            state.UpdateLayoutOnHostThread, DispatcherPriority.Loaded);
+        InvokeOnOwnedDispatcher(state.Dispatcher, state.Thread, state.Completed, () => state.TerminalFailure,
+            () => { }, DispatcherPriority.Loaded);
+        HostUnhandledExceptionLog.ThrowRecordedSince(position);
+    }
 
     /// <summary>呼出し前に積まれたBackground以上のDispatcher予約を、戻る前にすべて実行済みにします。</summary>
     /// <remarks>
@@ -536,5 +545,16 @@ internal static class TestUiDispatcherHost
         internal uint NativeThreadId { get; } = nativeThreadId;
 
         internal Exception? TerminalFailure => terminalFailureProvider();
+
+        // ホストのスレッドだけが読み書きし、どの木にも入れません。UpdateLayoutは共有ホストのDispatcherで、PresentationSourceに接続された木の配置を更新するため、
+        // 対象はテストのWindowやMainWindowに依存しない専用の要素にします。管理外の資源を持たないため破棄しません。
+        private UIElement? layoutAnchor;
+
+        /// <summary>ホストのスレッドで、共有ホストのDispatcherのPresentationSourceに接続された木の配置を同期に確定します。</summary>
+        internal void UpdateLayoutOnHostThread()
+        {
+            layoutAnchor ??= new FrameworkElement();
+            layoutAnchor.UpdateLayout();
+        }
     }
 }
