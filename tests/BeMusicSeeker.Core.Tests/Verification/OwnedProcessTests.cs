@@ -492,6 +492,33 @@ public sealed class OwnedProcessTests
         Assert.IsInstanceOfType<TimeoutException>(process.PrimaryFailure);
     }
 
+    /// <summary>期限切れの停止でJobを強制終了した後、破棄を待たずにOSの終了がRootExitとCompletionへ反映されることを保証します。</summary>
+    /// <remarks>
+    /// 強制終了の直後にProcess.HasExitedが先にtrueになると、Exited通知がhandleのsignal前に消費され、通知だけでは終了を確定できません。
+    /// その順序はOSの競合で決まり決定的には作れないため、検出は確率的です。破棄時の実値確定と通知遅延は
+    /// <see cref="RootExitSurvivesDisposalBeforeExitNotificationDelivery"/> が、通常の停止は既存のroot/childの検査が分担します。
+    /// </remarks>
+    [TestMethod]
+    public async Task RootExitReflectsTerminationAfterExpiredStopWithoutDisposal()
+    {
+        using var workspace = new Workspace();
+        await using OwnedProcess process = Start("hang", workspace.Ready, workspace.Release);
+        await workspace.WaitReadyAsync();
+        using var observer = Process.GetProcessById(process.ProcessId);
+        _ = observer.SafeHandle; // 終了後の実終了コード照会のため、生存中にhandleを保持する。
+        var expiredBeforeStop = ProcessDeadline.FromTimeout(TimeSpan.Zero);
+        await process.StopAsync(null, expiredBeforeStop);
+        // 期限切れ停止の回収失敗が本体の失敗を置き換えないよう、主失敗を先に固定する。
+        await Assert.ThrowsAsync<TimeoutException>(() => process.WaitForRootExitAsync(expiredBeforeStop));
+        ProcessDeadline observation = Deadline();
+        await observer.WaitForExitAsync().WaitAsync(observation.Remaining);
+        // 破棄はRootExitの確定を確認した後でだけ行う。
+        int rootExit = await process.RootExit.WaitAsync(observation.Remaining);
+        ProcessCompletion completion = await process.Completion.WaitAsync(observation.Remaining);
+        Assert.AreEqual(observer.ExitCode, rootExit);
+        Assert.AreEqual(observer.ExitCode, completion.ExitCode);
+    }
+
     /// <summary>存在しない実行体の起動失敗を保持し、取消・使い回した期限で待機時間を再設定する誤実装を検出します。</summary>
     [TestMethod]
     public async Task StartFailureCancellationAndSharedDeadlineRemainFailures()

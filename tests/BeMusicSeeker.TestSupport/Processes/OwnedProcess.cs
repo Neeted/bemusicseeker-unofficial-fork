@@ -24,6 +24,18 @@ public sealed class OwnedProcess : IAsyncDisposable
     private readonly TaskCompletionSource<int> rootExit = new(TaskCreationOptions.RunContinuationsAsynchronously);
     /// <summary>WindowsのProcessが所有する同じhandleを借用します。別途解放せず、rootGate内ではProcessへ再照会しません。</summary>
     private readonly SafeProcessHandle? rootHandle;
+    /// <summary>停止と待機解除の確認に使う、DisposeAsyncの停止期限と同じ長さです。解除は待機スレッドが登録を外すまでの短時間だけ同期でブロックし、完了の確認も通常は短時間で収束するため、別の長さを設けず停止の予算に揃えます。</summary>
+    private static readonly TimeSpan DisposeBudget = TimeSpan.FromSeconds(10);
+    /// <summary>Exited通知がsignal前に消費された場合だけ登録する、rootハンドルへの一回限りのnative待機です。rootGateで保護します。</summary>
+    private RegisteredWaitHandle? rootSignalWait;
+    /// <summary>native待機に渡す、rootハンドルを所有せず借りるWaitHandleです。rootGateで保護します。</summary>
+    private BorrowedHandleWaitHandle? rootSignalHandle;
+    /// <summary>native待機が使うrootハンドルの参照カウントを保持している間はtrueです。待機の終了確認後だけ手放します。rootGateで保護します。</summary>
+    private bool rootSignalRefHeld;
+    /// <summary>DisposeAsyncが待機の登録を禁止した後はtrueです。rootGateで保護します。</summary>
+    private bool rootSignalWaitClosed;
+    /// <summary>native待機のコールバックが終了したことを示します。発火済みの待機の終了確認に使います。</summary>
+    private readonly TaskCompletionSource rootSignalCallbackFinished = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private long rootExitedTimestamp;
     private long completedTimestamp;
     private Exception? primaryFailure;
@@ -424,7 +436,101 @@ public sealed class OwnedProcess : IAsyncDisposable
         return Stopwatch.GetTimestamp();
     }
 
-    private void OnRootExited(object? sender, EventArgs args) => ObserveRootExit(releasing: false);
+    private void OnRootExited(object? sender, EventArgs args)
+    {
+        ObserveRootExit(releasing: false);
+        RegisterRootSignalWaitIfPending();
+    }
+
+    /// <summary>
+    /// Exited通知の時点でrootハンドルが未signaledなら、signaledになった時点で再照会する一回限りのnative待機を1本だけ登録します。
+    /// Process.HasExitedはGetExitCodeProcessがSTILL_ACTIVE以外を返した時点でtrueになり、ハンドルのsignalより先にExitedを同期で1回だけ発火します。
+    /// その通知で終了を確定できないと以後に通知はなく、破棄まで RootExit が未完了になるため、通知に依存せず終了を拾う経路が必要です。
+    /// 登録はrootGate内で行いますが、native待機の登録は完了を待たないためロックを持ったまま他者を待ちません。
+    /// 待機用WaitHandleはProcessの所有ハンドルを複製せず所有権なしで借り、待機の間は参照カウントでrootハンドルのクローズを遅らせます。native待機自体はDisposeAsyncが解除します。
+    /// </summary>
+    private void RegisterRootSignalWaitIfPending()
+    {
+        lock (rootGate)
+        {
+            if (rootExit.Task.IsCompleted || rootSignalWaitClosed || rootSignalWait is not null || rootHandle is null) { return; }
+            BorrowedHandleWaitHandle? handle = null;
+            try
+            {
+                // native待機が使う間はProcess.Dispose側のクローズを遅らせるため、登録の前に参照を取る。
+                rootHandle.DangerousAddRef(ref rootSignalRefHeld);
+                handle = new BorrowedHandleWaitHandle(rootHandle.DangerousGetHandle());
+                rootSignalWait = ThreadPool.RegisterWaitForSingleObject(handle, (_, _) => OnRootSignaled(), null, Timeout.Infinite, executeOnlyOnce: true);
+                rootSignalHandle = handle;
+            }
+            catch (Exception failure)
+            {
+                // 登録できなかった待機は存在しないので、借用の資源を直ちに手放す。
+                handle?.Dispose();
+                if (rootSignalRefHeld)
+                {
+                    rootSignalRefHeld = false;
+                    rootHandle.DangerousRelease();
+                }
+                FailRootObservation(failure);
+            }
+        }
+    }
+
+    /// <summary>
+    /// native待機を解除し、以後の登録を禁止して、待機スレッドとコールバックの終了を確認できた場合だけrootハンドルの参照を手放します。rootハンドルを閉じる前に呼びます。
+    /// Unregister(WaitHandle)は待機スレッドが登録を外すまでの短時間だけ呼出し元を同期でブロックしますが、rootGateの外で行い、ロックを持ったまま待ちません。
+    /// 解除の完了通知用のWaitHandleを渡し、実行中のコールバックの終了を含む完了は期限付きで非同期に待ちます。
+    /// falseを返す分岐は防御用です(発火済みの待機では完了通知が信号されない場合に備え、コールバックが自分で立てる終了Taskを待ちます)。いずれの戻り値でも収束します。
+    /// 解放後のハンドルに触れないことは、待機スレッド側は参照カウント(終了を確認できなければ手放さず、実際のクローズを遅らせる)、
+    /// コールバック側はrootGate内でRootExitの確定済みを確認して戻ること(解放前確認が必ず確定させる)が、それぞれ保証します。
+    /// </summary>
+    /// <exception cref="TimeoutException">期限内に待機の終了を確認できませんでした。この場合は参照を手放しません。</exception>
+    private async Task CloseRootSignalWaitAsync(ProcessDeadline deadline)
+    {
+        RegisteredWaitHandle? wait;
+        BorrowedHandleWaitHandle? handle;
+        lock (rootGate)
+        {
+            rootSignalWaitClosed = true;
+            wait = rootSignalWait;
+            handle = rootSignalHandle;
+            rootSignalWait = null;
+            rootSignalHandle = null;
+        }
+        if (wait is null) { return; }
+        using var unregistered = new ManualResetEvent(false);
+        Task finished;
+        RegisteredWaitHandle? waiter = null;
+        if (wait.Unregister(unregistered))
+        {
+            var notified = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            waiter = ThreadPool.RegisterWaitForSingleObject(unregistered, (_, _) => notified.TrySetResult(), null, Timeout.Infinite, executeOnlyOnce: true);
+            finished = notified.Task;
+        }
+        else
+        {
+            finished = rootSignalCallbackFinished.Task;
+        }
+        try { await finished.WaitAsync(deadline.Remaining).ConfigureAwait(false); }
+        finally { waiter?.Unregister(null); }
+        // 終了を確認できた場合だけここへ到達する。確認できなければ参照を残し、実際のクローズを遅らせる。
+        handle?.Dispose();
+        lock (rootGate)
+        {
+            if (rootSignalRefHeld)
+            {
+                rootSignalRefHeld = false;
+                rootHandle?.DangerousRelease();
+            }
+        }
+    }
+
+    private void OnRootSignaled()
+    {
+        try { ObserveRootExit(releasing: false); }
+        finally { rootSignalCallbackFinished.TrySetResult(); }
+    }
 
     /// <summary>Windowsの保持handleを非待機で照会し、終了通知・初回確認・解放前確認を直列化します。gate内でProcessの同期通知APIを呼ばず、Process monitorとの逆順取得を防ぎます。</summary>
     private void ObserveRootExit(bool releasing)
@@ -494,7 +600,10 @@ public sealed class OwnedProcess : IAsyncDisposable
         }
     }
 
-    /// <summary>未停止なら10秒の回収期限で停止し、既存の停止があればその期限を引き継ぎます。元RootExitを実値または観測失敗で確定してからハンドルを解放します。</summary>
+    /// <summary>
+    /// 未停止なら10秒の回収期限で停止し、既存の停止があればその期限を引き継ぎます。元RootExitを実値または観測失敗で確定してからハンドルを解放します。
+    /// native待機の解除の確認で、最大DisposeBudgetの時間を追加で待ちます。解除の失敗は CleanupFailure へ加え、停止の回収失敗と同じ規則で送出します。
+    /// </summary>
     public async ValueTask DisposeAsync()
     {
         if (disposed)
@@ -503,17 +612,18 @@ public sealed class OwnedProcess : IAsyncDisposable
         }
 
         disposed = true;
+        Exception? closeFailure = null;
+        bool primaryFailureBeforeRelease = false;
         try
         {
-            ProcessStopResult result = await StopAsync(null, ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
-            // await using の本体が失敗した際に、回収例外でその主失敗を置き換えない。
-            if (result.CleanupFailure is not null && PrimaryFailure is null)
-            {
-                throw result.CleanupFailure;
-            }
+            await StopAsync(null, ProcessDeadline.FromTimeout(DisposeBudget)).ConfigureAwait(false);
+            // 解放直前の確認が作る主失敗では、回収失敗の送出を抑止しない。停止の直後に判定を固定する。
+            primaryFailureBeforeRelease = PrimaryFailure is not null;
         }
         finally
         {
+            try { await CloseRootSignalWaitAsync(ProcessDeadline.FromTimeout(DisposeBudget)).ConfigureAwait(false); }
+            catch (Exception failure) { closeFailure = failure; } // ハンドルの解放を続けるため、ここでは送出しない。
             ObserveRootExit(releasing: true);
             process.Exited -= OnRootExited;
             job?.Dispose();
@@ -521,5 +631,21 @@ public sealed class OwnedProcess : IAsyncDisposable
             stderr.Dispose();
             process.Dispose();
         }
+
+        if (closeFailure is not null)
+        {
+            CleanupFailure = CleanupFailure is null ? closeFailure : new AggregateException(CleanupFailure, closeFailure);
+        }
+        // await using の本体が失敗した際に、停止・待機解除の回収例外でその主失敗を置き換えない。
+        if (CleanupFailure is not null && !primaryFailureBeforeRelease)
+        {
+            throw CleanupFailure;
+        }
+    }
+
+    /// <summary>rootハンドルを所有せず借りて待機に使うWaitHandleです。破棄してもハンドルを閉じません。</summary>
+    private sealed class BorrowedHandleWaitHandle : WaitHandle
+    {
+        internal BorrowedHandleWaitHandle(IntPtr handle) => SafeWaitHandle = new SafeWaitHandle(handle, ownsHandle: false);
     }
 }
