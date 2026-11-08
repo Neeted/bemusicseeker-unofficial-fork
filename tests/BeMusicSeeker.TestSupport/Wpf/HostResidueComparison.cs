@@ -29,7 +29,8 @@ internal sealed record HostResidueSnapshot(
 /// <summary>基準と比べて報告した残留の一件です。</summary>
 /// <param name="Category"><c>E-a</c>（Application.Windows）、<c>E-a-hwnd</c>（HWNDのみ）、<c>E-b</c>（MainWindowのみ）、<c>E-c</c>〜<c>E-g</c>。</param>
 /// <param name="Detail">内容です。</param>
-internal sealed record HostResidue(string Category, string Detail);
+/// <param name="Window"><c>E-a</c>・<c>E-b</c>で報告したWindow。復元が閉じる対象です。それ以外はnullです。</param>
+internal sealed record HostResidue(string Category, string Detail, Window? Window = null);
 
 /// <summary>
 /// 基準と、報告済みの印を持つ比較の状態です。共有ホスト用と、恒久テスト用の独立した状態を同じ形で作れます。
@@ -86,6 +87,13 @@ internal sealed class HostResidueState
 
         internal object? Baseline { get; set; } = baseline;
 
+        /// <summary>報告済みの印を消します。復元で値を基準へ戻したときに呼び、同じ値への再びのずれを再び報告できるようにします。</summary>
+        internal void Reset()
+        {
+            hasReported = false;
+            reported = null;
+        }
+
         /// <summary>基準と異なり、まだ報告していない値のときだけtrueを返します。基準へ戻ったら報告済みの印を消します。</summary>
         internal bool ShouldReport(object? current)
         {
@@ -104,7 +112,7 @@ internal sealed class HostResidueState
 }
 
 /// <summary>
-/// ケース終了時の共有ホストの状態を、基準と比べる処理です。記録だけで、状態を変更しません（閉じない、復元しない）。
+/// 共有ホストの状態を、基準と比べる処理です。状態を変更しません（閉じない、復元しない）。戻す処理は <see cref="HostResidueRestoration"/> です。
 /// </summary>
 internal static class HostResidueComparison
 {
@@ -164,7 +172,8 @@ internal static class HostResidueComparison
             bool listed = inWindows.Contains(window);
             found.Add(new HostResidue(
                 listed ? "E-a" : "E-b",
-                $"window remained: type={window.GetType().FullName}, title='{window.Title}', in Application.Windows={(listed ? "yes" : "no")}, Application.MainWindow={(isMain ? "yes" : "no")}, loaded={window.IsLoaded}, visible={window.IsVisible}, owner={window.Owner?.GetType().FullName ?? "(none)"}"));
+                $"window remained: type={window.GetType().FullName}, title='{window.Title}', in Application.Windows={(listed ? "yes" : "no")}, Application.MainWindow={(isMain ? "yes" : "no")}, loaded={window.IsLoaded}, visible={window.IsVisible}, owner={window.Owner?.GetType().FullName ?? "(none)"}",
+                window));
         }
 
         HashSet<nint> residueHandles = [.. snapshot.UnmatchedHandles.Where(handle => !state.BaselineHandles.Contains(handle))];
@@ -173,7 +182,11 @@ internal static class HostResidueComparison
         {
             if (residueHandles.Contains(handle) && state.ReportedHandles.Add(handle))
             {
-                found.Add(new HostResidue("E-a-hwnd", $"HWND without a WPF Window remained on the host thread: hwnd=0x{handle:X}, class='{TestWindowPresentationScope.GetNativeClassName(handle)}'"));
+                // 分類の入力は、ホストのスレッドで、この観測の時点のHWNDから収集します。記録だけの項目で、失敗にも復元にもしません。
+                string className = TestWindowPresentationScope.GetNativeClassName(handle);
+                bool hasHwndSource = HwndSource.FromHwnd(handle) != null;
+                bool visible = TestWindowPresentationScope.IsNativeWindowVisible(handle);
+                found.Add(new HostResidue("E-a-hwnd", $"HWND without a WPF Window remained on the host thread: hwnd=0x{handle:X}, class='{className}', kind={ClassifyHwnd(className, hasHwndSource, visible)}, hwnd-source={(hasHwndSource ? "yes" : "no")}, visible={(visible ? "yes" : "no")}"));
             }
         }
 
@@ -209,6 +222,22 @@ internal static class HostResidueComparison
             found.Add(new HostResidue("E-g", $"{unreported.Length} pending dispatcher operation(s) at Background or higher: {priorities}"));
         }
         return found;
+    }
+
+    /// <summary>
+    /// Windowに対応しないHWNDの残留を分類します（記録だけの項目の補助で、判定には使いません）。
+    /// </summary>
+    /// <returns>
+    /// <c>wpf-internal</c>（クラス名が序数比較で<c>HwndWrapper[</c>で始まり、HwndSourceが無く、非表示）、
+    /// <c>ime</c>（クラス名が<c>IME</c>または<c>MSCTFIME UI</c>に完全一致し、非表示）、それ以外は<c>other</c>。
+    /// </returns>
+    /// <remarks>限界：Windowの隠し所有者の漏れは、WPFの内部HWNDと同じ特徴を持つため<c>wpf-internal</c>と区別できません。</remarks>
+    internal static string ClassifyHwnd(string? className, bool hasHwndSource, bool isVisible)
+    {
+        if (className == null || isVisible) { return "other"; }
+        if (className.StartsWith("HwndWrapper[", StringComparison.Ordinal) && !hasHwndSource) { return "wpf-internal"; }
+        if (className is "IME" or "MSCTFIME UI") { return "ime"; }
+        return "other";
     }
 
     private static string Describe(object? value)
@@ -256,11 +285,11 @@ internal sealed class PendingOperationCounter
 }
 
 /// <summary>
-/// 共有ホストの起動時に基準を取り、ケースの境界で比較して記録へ加える入口です。
+/// 共有ホストの起動時に基準を取り、ケースの境界で比較して記録へ加え、失敗にする残留を戻す入口です。
 /// </summary>
 /// <remarks>
 /// 起動していない間は何も起動せず何も読みません（<see cref="TestUiDispatcherHost.IsRunning"/>）。
-/// 比較の失敗は記録して例外を投げず、ケースの判定を変えません。
+/// 観測自体の失敗は記録して例外を投げません。失敗にする判断は <see cref="HostObservationVerdict"/> です。
 /// </remarks>
 internal static class HostResidueBoundary
 {
@@ -310,24 +339,56 @@ internal static class HostResidueBoundary
             counter ?? throw new InvalidOperationException("The host residue baseline is unavailable."));
 
     /// <summary>
-    /// ケースの境界で、共有ホストの状態を基準と比べ、新しい残留を現在のケースの記録へ加えます。
+    /// ケース終了時の境界で、共有ホストの状態を基準と比べ、新しい残留を現在のケースの記録へ加え、失敗にする残留を基準へ戻します。
     /// </summary>
+    /// <param name="restoreFailures">戻せなかった残留の追加先。</param>
     /// <remarks>
-    /// ホストが未起動・終端済みなら何もしません。観測はSend優先度のInvokeを一回だけ使います。
-    /// 残留は、このケースまたはその直前のケースの間に生じたもので、発生時刻は観測しません。
+    /// ホストが未起動・終端済みなら何もしません。観測と復元はSend優先度のInvokeを一回だけ使い、復元は失敗にする残留があるときだけ同じInvokeの中で行います。
+    /// 残留は、このケースまたはその直前のケースの間に生じたもので、発生時刻は観測しません。観測自体の失敗は記録して例外にしません。
     /// </remarks>
-    internal static void ObserveAtCaseEnd()
+    internal static void ObserveAtCaseEnd(List<HostRestoreFailure> restoreFailures)
+        => ObserveAndRestore(restoreFailures, "HostResidueBoundary.ObserveAtCaseEnd", "(occurred during this case or the preceding between-case period) ");
+
+    /// <summary>
+    /// ケース開始時の境界で、ケースの間に未準備のWindowの表示（B）の記録があるときだけ、終了時と同じ観測と復元を一回行います。
+    /// </summary>
+    /// <param name="restoreFailures">戻せなかった残留の追加先。</param>
+    /// <remarks>
+    /// 記録が無ければInvokeも読取りもしません（成功経路の費用をケースごとにInvoke一回のまま保つため）。
+    /// 見つけた残留は、前のケースの終了後に生じたため、ケースの間（直前：前のケース）へ帰属します。呼出しは<see cref="HostUnhandledExceptionLog.BeginCase"/>の前です。
+    /// </remarks>
+    internal static void ObserveAtCaseStart(List<HostRestoreFailure> restoreFailures)
     {
+        if (!HostObservationLog.HasBetweenCases(HostObservationVerdict.UnpreparedWindowCategory)) { return; }
+        ObserveAndRestore(restoreFailures, "HostResidueBoundary.ObserveAtCaseStart", "(occurred between cases) ");
+    }
+
+    private static void ObserveAndRestore(List<HostRestoreFailure> restoreFailures, string where, string attribution)
+    {
+        if (!TestUiDispatcherHost.IsRunning || sharedState is not { } state || application is not { } hostApplication) { return; }
+        IReadOnlyList<HostResidue> found = [];
+        List<HostRestoreFailure> failures = [];
         try
         {
-            if (!TestUiDispatcherHost.IsRunning || sharedState is not { } state) { return; }
-            IReadOnlyList<HostResidue> found = [];
-            TestUiDispatcherHost.Invoke(() => found = HostResidueComparison.Compare(state, Observe()));
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                // 比較は報告済みの印を更新するため、後続の失敗でも観測した記録を失わないよう、foundは比較の直後に確定させます。
+                found = HostResidueComparison.Compare(state, Observe());
+                if (!found.Any(residue => HostObservationVerdict.IsFailureCategory(residue.Category))) { return; }
+                try { failures.AddRange(HostResidueRestoration.Restore(hostApplication, state, found)); }
+                catch (Exception failure) { failures.Add(new HostRestoreFailure("restore (unexpected failure of the restoration itself)", failure)); }
+            });
+        }
+        catch (Exception failure) { HostObservationLog.AddDetectorFailure(where, failure); }
+        // 観測した記録と復元の失敗は、Invokeの失敗の有無にかかわらず記録と判定へ反映します。
+        try
+        {
             foreach (HostResidue residue in found)
             {
-                HostObservationLog.Add(residue.Category, "(occurred during this case or the preceding between-case period) " + residue.Detail);
+                HostObservationLog.Add(residue.Category, attribution + residue.Detail);
             }
         }
-        catch (Exception failure) { HostObservationLog.AddDetectorFailure("HostResidueBoundary.ObserveAtCaseEnd", failure); }
+        catch (Exception failure) { HostObservationLog.AddDetectorFailure(where, failure); }
+        restoreFailures.AddRange(failures);
     }
 }

@@ -316,14 +316,7 @@ internal sealed class TestWindowPresentationScope
         Window[] createdWindows = application.Windows.Cast<Window>()
             .Where(window => !baselineWindows.Contains(window))
             .ToArray();
-        Window[] cleanupWindows = trackedWindows.Select(registration => registration.Window)
-            .Concat(createdWindows)
-            .Distinct()
-            .Select((window, index) => new { Window = window, Index = index, Depth = GetOwnerDepth(window) })
-            .OrderByDescending(item => item.Depth)
-            .ThenByDescending(item => item.Index)
-            .Select(item => item.Window)
-            .ToArray();
+        Window[] cleanupWindows = OrderForClosing(trackedWindows.Select(registration => registration.Window).Concat(createdWindows));
 
         foreach (Window window in cleanupWindows)
         {
@@ -609,6 +602,22 @@ internal sealed class TestWindowPresentationScope
         return primary;
     }
 
+    /// <summary>
+    /// 閉じる順序を返します。所有の深いWindowを先に、同じ深さでは列の後ろ（後に作ったもの）を先にします。重複は取り除きます。
+    /// </summary>
+    /// <remarks>表示範囲の後片付けと、共有ホストの境界での復元が同じ順序を使います。閉鎖の完了の確かめ方は共通化しません。</remarks>
+    internal static Window[] OrderForClosing(IEnumerable<Window> windows)
+    {
+        ArgumentNullException.ThrowIfNull(windows);
+        return windows
+            .Distinct()
+            .Select((window, index) => new { Window = window, Index = index, Depth = GetOwnerDepth(window) })
+            .OrderByDescending(item => item.Depth)
+            .ThenByDescending(item => item.Index)
+            .Select(item => item.Window)
+            .ToArray();
+    }
+
     private static int GetOwnerDepth(Window window)
     {
         int depth = 0;
@@ -622,6 +631,9 @@ internal sealed class TestWindowPresentationScope
 
     /// <summary>指定HWNDのnative ownerを返します。なければゼロです。</summary>
     internal static nint GetNativeOwner(nint handle) => GetWindow(handle, GwOwner);
+
+    /// <summary>指定HWNDが表示状態（<c>WS_VISIBLE</c>が親まで有効）かを返します。</summary>
+    internal static bool IsNativeWindowVisible(nint handle) => IsWindowVisible(handle);
 
     /// <summary>指定HWNDのnative window class名を返します。取得できなければ空文字列です。</summary>
     internal static string GetNativeClassName(nint handle)
@@ -694,6 +706,10 @@ internal sealed class TestWindowPresentationScope
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool IsWindow(nint window);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(nint window);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -471,7 +471,7 @@ internal static class TestUiDispatcherHost
                         "/BeMusicSeeker;component/Themes/CanonicalDialogStyles.xaml",
                         UriKind.RelativeOrAbsolute)
                 });
-                // 判定を変えない観測（未準備のWindowの記録と、ケース終了時の残留の基準）を、有効にしたUI moduleでだけ取り付けます。失敗は記録し、起動を妨げません。
+                // 共有ホストの観測（未準備のWindowの記録と、ケース終了時の残留の基準。B・E-a〜E-fは境界で失敗にして基準へ復元します）を、有効にしたUI moduleでだけ取り付けます。失敗は記録し、起動を妨げません。
                 if (HostResidueBoundary.IsEnabled) { HostResidueBoundary.Attach(application, dispatcher, nativeThreadId); }
                 ready.Set();
                 Dispatcher.Run();

@@ -462,7 +462,8 @@ public sealed class WindowPresentationScopeTests
             scope.ShowAndWaitForContentRendered(window);
         });
 
-        Assert.IsEmpty(HostObservationLog.TakeCurrentCase("B").Where(record => record.Detail.Contains("title='prepared-marker'")));
+        // 自分のタイトルの記録だけを消費します。同じケースの別の由来のBは境界に残り、失敗になります。
+        Assert.IsEmpty(HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains("title='prepared-marker'")));
     }
 
     /// <summary>
@@ -503,11 +504,57 @@ public sealed class WindowPresentationScopeTests
             finally { background.Abort(); }
         });
 
-        // 他の由来の記録が混ざらないよう、このテストのタイトルの記録だけを対象にします。
-        IReadOnlyList<HostObservation> records = [.. HostObservationLog.TakeCurrentCase("B").Where(record => record.Detail.Contains("title='unprepared-marker'"))];
+        // このテストのタイトルの記録だけを消費します。同じケースの別の由来のBは境界に残り、失敗になります。
+        IReadOnlyList<HostObservation> records = HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains("title='unprepared-marker'"));
         Assert.HasCount(1, records);
         StringAssert.Contains(records[0].Detail, typeof(Window).FullName ?? throw new AssertFailedException("The Window type has no full name."));
         StringAssert.Contains(records[0].Detail, "owner=(none)");
         StringAssert.Contains(records[0].Detail, "thread-modal=no");
+    }
+
+    /// <summary>
+    /// 準備を通さずに表示した（画面外・非アクティブ・タスクバー非表示にしたが、準備は通していない）Windowを、復元が閉じ、
+    /// 表示が外れ、Application.Windowsから外れ、復元の失敗が空であることを確認します。閉じない実装を検出します。
+    /// 同じWindowの未準備の表示の記録（B）は、このテストのタイトルのものだけを消費します。
+    /// 復元の直後に、同期でHWNDが破棄されていることを表明します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void Restore_ClosesShownUnpreparedWindow()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            Application application = Application.Current;
+            var state = new HostResidueState(HostResidueBoundary.Observe());
+            var window = new Window
+            {
+                Title = "restore-f-marker",
+                Width = 200,
+                Height = 120,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                ShowInTaskbar = false,
+                ShowActivated = false,
+                Left = SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d,
+                Top = SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d
+            };
+            window.Show();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            nint handle = new WindowInteropHelper(window).Handle;
+            Assert.IsTrue(window.IsVisible);
+            Assert.AreNotEqual((nint)0, handle);
+
+            IReadOnlyList<HostResidue> found = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
+            Assert.AreEqual(1, found.Count(residue => residue.Category == "E-a" && ReferenceEquals(residue.Window, window)));
+
+            // このテストのWindowの残留だけを復元します（他の由来の残留を戻しません）。
+            IReadOnlyList<HostRestoreFailure> failures = HostResidueRestoration.Restore(application, state, [.. found.Where(residue => ReferenceEquals(residue.Window, window))]);
+
+            Assert.IsEmpty(failures);
+            Assert.IsFalse(window.IsVisible);
+            Assert.IsFalse(application.Windows.Cast<Window>().Contains(window));
+            Assert.IsFalse(TestWindowPresentationScope.NativeWindowExists(handle));
+        });
+
+        Assert.HasCount(1, HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains("title='restore-f-marker'")));
     }
 }

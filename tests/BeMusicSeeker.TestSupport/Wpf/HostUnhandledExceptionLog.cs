@@ -114,6 +114,23 @@ internal static class HostUnhandledExceptionLog
         }
     }
 
+    /// <summary>
+    /// <see cref="BeginCase"/> が成功した後に、境界の別の判定（観測の失敗）でそのケースを開始しなかった扱いへ戻します。
+    /// </summary>
+    /// <remarks>
+    /// 開始に失敗したケースは本体も終了処理も実行されないため、ケースの間（直前：このケース）の状態へ戻します。
+    /// 既に開始前の状態なら何もしません（<see cref="BeginCase"/> が失敗を返した場合）。
+    /// </remarks>
+    internal static void AbandonCase(string name)
+    {
+        lock (gate)
+        {
+            if (currentCase != name) { return; }
+            currentCase = null;
+            lastCase = name;
+        }
+    }
+
     /// <summary>ケースの終了を記録し、そのケースで消費されなかった記録を消費して返します。</summary>
     internal static Exception? EndCase(string name)
     {

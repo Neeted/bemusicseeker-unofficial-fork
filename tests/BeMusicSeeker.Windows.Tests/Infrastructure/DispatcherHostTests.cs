@@ -2,8 +2,12 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Threading;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using NLog;
 using NLog.Config;
 
 namespace BeMusicSeeker.Windows.Tests.Infrastructure;
@@ -499,6 +503,9 @@ public sealed class DispatcherHostTests
 
     /// <summary>
     /// WPFのWindowに対応しないトップレベルHWNDが、HWNDのみの残留として一度だけ報告され、破棄すると消えることを確認します。
+    /// 記録の分類が<c>other</c>であることも確認します。このHWNDはクラス名が<c>HwndWrapper[</c>で始まり非表示ですが、HwndSourceを持つため、
+    /// 分類の入力のうち実際の収集（HwndSourceの有無）を読まずにwpf-internalと分類する誤りを検出する役割を持ちます（分類の規則自体は
+    /// <see cref="HwndClassification_FollowsClassNameHwndSourceAndVisibility"/> が確認します）。
     /// </summary>
     [TestMethod]
     [DoNotParallelize]
@@ -525,6 +532,7 @@ public sealed class DispatcherHostTests
                 string handle = $"hwnd=0x{source.Handle:X},";
                 // WPFが最初のHwndSourceに伴って内部のHWNDを遅延生成する場合があるため、このテストのHWNDだけを数えます。
                 Assert.AreEqual(1, first.Count(residue => residue.Category == "E-a-hwnd" && residue.Detail.Contains(handle)));
+                StringAssert.Contains(first.Single(residue => residue.Category == "E-a-hwnd" && residue.Detail.Contains(handle)).Detail, "kind=other");
                 Assert.IsEmpty(HostResidueComparison.Compare(state, HostResidueBoundary.Observe()).Where(residue => residue.Detail.Contains(handle)));
 
                 source.Dispose();
@@ -731,4 +739,366 @@ public sealed class DispatcherHostTests
             }
         });
     }
+
+    /// <summary>
+    /// 失敗にする項目はB・E-a〜E-fの七つだけで、記録だけの項目（E-g、E-a-hwnd、X-detector）は失敗にならないことを確認します。
+    /// 一部の項目だけを昇格させる実装、E-gを昇格させる実装、前方一致で<c>E-a-hwnd</c>まで昇格させる実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("B", true)]
+    [DataRow("E-a", true)]
+    [DataRow("E-b", true)]
+    [DataRow("E-c", true)]
+    [DataRow("E-d", true)]
+    [DataRow("E-e", true)]
+    [DataRow("E-f", true)]
+    [DataRow("E-g", false)]
+    [DataRow("E-a-hwnd", false)]
+    [DataRow("X-detector", false)]
+    public void Verdict_FailsOnlyForTheSevenItems(string category, bool fails)
+    {
+        var record = new HostObservation(1, category, "detail", "case", null);
+        foreach (HostBoundaryKind kind in Enum.GetValues<HostBoundaryKind>())
+        {
+            Exception? failure = HostObservationVerdict.Evaluate(kind, "case", [record], [], null);
+            Assert.AreEqual(fails, failure != null, $"{category} at {kind}");
+            if (failure != null) { StringAssert.Contains(failure.Message, record.Format()); }
+        }
+        Assert.AreEqual(fails, HostObservationVerdict.IsFailureCategory(category));
+    }
+
+    /// <summary>
+    /// 判定が、未処理例外だけなら同じ参照を返し、記録・復元の失敗・未処理例外が重なれば一つの失敗にまとめて元の例外を参照のまま内部例外へ持つことを確認します。
+    /// 未処理例外の内容を変える実装、元の例外を文字列へ落とす実装、複数の失敗を別々に返す実装、B・E-aの両方の行を落とす実装を検出します。
+    /// </summary>
+    [TestMethod]
+    public void Verdict_MergesRecordsRestoreFailuresAndUnhandledExceptionsIntoOneFailure()
+    {
+        Assert.IsNull(HostObservationVerdict.Evaluate(HostBoundaryKind.CaseEnd, "case", [], [], null));
+        var unhandledOriginal = new InvalidOperationException("unhandled-original");
+        var unhandled = new AggregateException("unhandled", unhandledOriginal);
+        Assert.AreSame(unhandled, HostObservationVerdict.Evaluate(HostBoundaryKind.CaseEnd, "case", [], [], unhandled), "未処理例外だけなら同じ参照です。");
+        var detectorOnly = new HostObservation(1, "E-g", "pending", "case", null);
+        Assert.AreSame(unhandled, HostObservationVerdict.Evaluate(HostBoundaryKind.CaseStart, "case", [detectorOnly], [], unhandled), "記録だけの項目は未処理例外の失敗を変えません。");
+
+        var unprepared = new HostObservation(2, "B", "unprepared window shown", "case", null);
+        var windowResidue = new HostObservation(3, "E-a", "window remained", "case", null);
+        var restoreCause = new InvalidOperationException("restore-original");
+        HostRestoreFailure[] restoreFailures = [new HostRestoreFailure("close X", restoreCause), new HostRestoreFailure("close Y", null)];
+        Exception merged = HostObservationVerdict.Evaluate(HostBoundaryKind.CaseEnd, "case-name", [unprepared, windowResidue, detectorOnly], restoreFailures, unhandled)
+            ?? throw new AssertFailedException("A failure is required.");
+        StringAssert.Contains(merged.Message, unprepared.Format(), "BとE-aの両方の行を含みます。");
+        StringAssert.Contains(merged.Message, windowResidue.Format());
+        Assert.DoesNotContain(detectorOnly.Format(), merged.Message, "記録だけの項目の行は失敗に含めません。");
+        StringAssert.Contains(merged.Message, "close X");
+        StringAssert.Contains(merged.Message, "close Y");
+        StringAssert.Contains(merged.Message, "case-name");
+        StringAssert.Contains(merged.Message, "TestCleanup");
+        IReadOnlyList<Exception> inner = ((AggregateException)merged).Flatten().InnerExceptions;
+        Assert.IsTrue(inner.Any(exception => ReferenceEquals(exception, unhandledOriginal)), "未処理例外の元の例外を参照のまま含みます。");
+        Assert.IsTrue(inner.Any(exception => ReferenceEquals(exception, restoreCause)), "復元の元の例外を参照のまま含みます。");
+
+        Exception restoreOnly = HostObservationVerdict.Evaluate(HostBoundaryKind.ModuleEnd, null, [], [new HostRestoreFailure("close X", restoreCause)], null)
+            ?? throw new AssertFailedException("A restore failure is a failure.");
+        Assert.AreSame(restoreCause, ((AggregateException)restoreOnly).Flatten().InnerExceptions.Single());
+    }
+
+    /// <summary>
+    /// 未表示のWindowをMainWindowにした残留を復元すると、Closedが一回発生してApplication.Windowsから外れ、MainWindowが基準へ戻り、
+    /// 続く比較で何も報告されず、復元の失敗が空であることを確認します。閉じない実装、二重に閉じる実装を検出します。
+    /// WPFは閉じたMainWindowを自動でnullにするため、MainWindowを戻す処理の識別は <see cref="Restore_ContinuesAfterCancelledOrThrowingClose_AndKeepsTheOriginalException"/> が担います。
+    /// 未表示のWindowは構築した時点でApplication.Windowsに含まれるため、残留は<c>E-a</c>（MainWindow=yes）です。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void Restore_ClosesUnshownWindowAndReturnsMainWindowToBaseline()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            Window? previousMain = application.MainWindow;
+            Window? window = null;
+            int closed = 0;
+            try
+            {
+                application.MainWindow = null;
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                window = new Window { Title = "restore-a" };
+                window.Closed += (_, _) => closed++;
+                application.MainWindow = window;
+
+                IReadOnlyList<HostResidue> found = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
+                HostResidue residue = found.Single(candidate => candidate.Category is "E-a" or "E-b");
+                Assert.AreEqual("E-a", residue.Category);
+                Assert.AreSame(window, residue.Window);
+
+                IReadOnlyList<HostRestoreFailure> failures = HostResidueRestoration.Restore(application, state, found);
+
+                Assert.IsEmpty(failures);
+                Assert.AreEqual(1, closed);
+                Assert.IsFalse(application.Windows.Cast<Window>().Contains(window));
+                Assert.AreSame(state.BaselineMainWindow, application.MainWindow);
+                Assert.IsEmpty(Residues(state, "E-a", "E-b"));
+            }
+            finally
+            {
+                application.MainWindow = previousMain;
+                if (window != null && closed == 0) { window.Close(); }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 復元がDispatcherを進めないことを確認します。復元の前に積んだNormalとBackgroundの予約が、Window・文化圏の復元の後も未消化のままです。
+    /// 復元のために待機・消化APIでDispatcherを進める実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void Restore_DoesNotAdvanceTheDispatcher()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            Dispatcher dispatcher = application.Dispatcher;
+            CultureInfo? originalCulture = Resources.Culture;
+            Window? previousMain = application.MainWindow;
+            Window? window = null;
+            DispatcherOperation? normal = null;
+            DispatcherOperation? background = null;
+            try
+            {
+                application.MainWindow = null;
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                window = new Window { Title = "restore-b" };
+                Resources.Culture = CultureInfo.GetCultureInfo(originalCulture?.Name == "fr-FR" ? "en-US" : "fr-FR");
+                IReadOnlyList<HostResidue> found = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
+                normal = dispatcher.InvokeAsync(() => { }, DispatcherPriority.Normal);
+                background = dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+
+                IReadOnlyList<HostRestoreFailure> failures = HostResidueRestoration.Restore(application, state, found);
+
+                Assert.IsEmpty(failures);
+                Assert.IsFalse(application.Windows.Cast<Window>().Contains(window), "復元はWindowを閉じています。");
+                Assert.AreEqual(DispatcherOperationStatus.Pending, normal.Status);
+                Assert.AreEqual(DispatcherOperationStatus.Pending, background.Status);
+            }
+            finally
+            {
+                normal?.Abort();
+                background?.Abort();
+                Resources.Culture = originalCulture;
+                application.MainWindow = previousMain;
+                if (window != null && application.Windows.Cast<Window>().Contains(window)) { window.Close(); }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 閉鎖を取り消す・例外を投げるWindowがあっても、復元が投げずに失敗を返し、元の例外を参照のまま保持し、他のWindowと文化圏の復元を続け、
+    /// 復元できなかったWindowが続く比較で再報告されないことを確認します。最初の失敗で中断する実装、復元の例外を外へ漏らす実装、
+    /// 例外を失う実装、失敗で報告済みの印を消す実装を検出します。取り消す場合は例外を伴わない失敗です。
+    /// 取り消すWindowをMainWindowにして、閉じられなくても復元の後にMainWindowが基準へ戻ることを確認し、MainWindowを戻さない実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void Restore_ContinuesAfterCancelledOrThrowingClose_AndKeepsTheOriginalException(bool throws)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            CultureInfo? originalCulture = Resources.Culture;
+            Window? previousMain = application.MainWindow;
+            Window? ordinary = null;
+            Window? stubborn = null;
+            bool allowClose = false;
+            var original = new InvalidOperationException("closing-original");
+            try
+            {
+                application.MainWindow = null;
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                // 閉じる順序は後に作ったものから。取り消すWindowを後に作り、その失敗の後でも通常のWindowが閉じられることを確かめます。
+                ordinary = new Window { Title = "restore-c-ordinary" };
+                stubborn = new Window { Title = "restore-c-stubborn" };
+                stubborn.Closing += (_, e) =>
+                {
+                    if (allowClose) { return; }
+                    if (throws) { throw original; }
+                    e.Cancel = true;
+                };
+                application.MainWindow = stubborn;
+                Resources.Culture = CultureInfo.GetCultureInfo(originalCulture?.Name == "fr-FR" ? "en-US" : "fr-FR");
+                IReadOnlyList<HostResidue> found = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
+
+                IReadOnlyList<HostRestoreFailure> failures = HostResidueRestoration.Restore(application, state, found);
+
+                Assert.AreSame(state.BaselineMainWindow, application.MainWindow, "閉鎖の成否によらずMainWindowは基準へ戻ります。");
+                HostRestoreFailure failure = failures.Single();
+                StringAssert.Contains(failure.Item, "restore-c-stubborn");
+                if (throws) { Assert.AreSame(original, failure.Cause); }
+                else { Assert.IsNull(failure.Cause); }
+                Assert.IsFalse(application.Windows.Cast<Window>().Contains(ordinary), "失敗の後のWindowも閉じています。");
+                // 取り消されたWindowは残ります。例外を投げた閉鎖では、WPFが未表示のWindowをApplication.Windowsから外すため、残留の有無は表明しません。
+                if (!throws) { Assert.IsTrue(application.Windows.Cast<Window>().Contains(stubborn), "閉じられなかったWindowは残ります。"); }
+                Assert.AreEqual(state.Culture.Baseline, Resources.Culture?.Name, "Windowの失敗の後でも文化圏は戻っています。");
+                Assert.IsEmpty(Residues(state, "E-a", "E-b", "E-d"), "復元できなかったWindowは、続く比較で再報告されません。");
+            }
+            finally
+            {
+                allowClose = true;
+                Resources.Culture = originalCulture;
+                application.MainWindow = previousMain;
+                if (stubborn != null && application.Windows.Cast<Window>().Contains(stubborn)) { stubborn.Close(); }
+                if (ordinary != null && application.Windows.Cast<Window>().Contains(ordinary)) { ordinary.Close(); }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 未表示のSettingsWindowが、<c>CloseForOwnerShutdown</c>で閉じられてApplication.Windowsから外れ、CloseReasonがOwnerShutdownで、復元の失敗が空であることを確認します。
+    /// 通常の<c>Close</c>で閉じる実装は、閉鎖が取り消され（DataContextが無いため例外にもなり）、この表明で検出されます。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void Restore_ClosesSettingsWindowForOwnerShutdown()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            Window? previousMain = application.MainWindow;
+            SettingsWindow? window = null;
+            try
+            {
+                application.MainWindow = null;
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+                window = new SettingsWindow();
+                IReadOnlyList<HostResidue> found = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
+                Assert.AreSame(window, found.Single(residue => residue.Category == "E-a").Window);
+
+                IReadOnlyList<HostRestoreFailure> failures = HostResidueRestoration.Restore(application, state, found);
+
+                Assert.IsEmpty(failures);
+                Assert.IsFalse(application.Windows.Cast<Window>().Contains(window));
+                Assert.AreEqual(SettingsWindowCloseReason.OwnerShutdown, window.CloseReason);
+            }
+            finally
+            {
+                application.MainWindow = previousMain;
+                if (window != null && application.Windows.Cast<Window>().Contains(window)) { window.CloseForOwnerShutdown(); }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 値の復元（<c>Resources["vm"]</c>、文化圏、テーマ、NLog構成）が基準へ戻り、続く比較で報告されないことを確認します。
+    /// vmは、基準にキーが無ければキーを削除し（nullの代入ではない）、基準にオブジェクトがあれば同じ参照へ戻ります。
+    /// 文化圏は<c>ResourceService</c>の経路で戻り、<c>DisplayCulture</c>の変更通知が発生します（直接代入では通知されません）。
+    /// テーマは保存値が戻り、適用の経路を通ります（<c>AppThemeService.Version</c>が変わります。保存値だけを戻す実装を検出します）。
+    /// NLogは基準の同じオブジェクトへ戻ります。復元に成功した値は報告済みの印が消えるため、復元の直後（間に比較を挟まず）に同じ値へずらすと、
+    /// 再び報告されて復元されます（印を消さない実装が、次のケースの同じ残留を黙って持ち越すことを検出します）。finallyで実際の値を元へ戻します。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void Restore_ReturnsValuesToTheBaseline()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Application application = Application.Current;
+            CultureInfo? originalCulture = Resources.Culture;
+            bool hadViewModel = application.Resources.Contains("vm");
+            object? originalViewModel = application.Resources["vm"];
+            string originalTheme = Settings.Default.AppearanceTheme;
+            LoggingConfiguration? originalConfiguration = LogManager.Configuration;
+            int displayCultureNotifications = 0;
+            System.ComponentModel.PropertyChangedEventHandler onChanged = (_, e) =>
+            {
+                if (e.PropertyName == nameof(ResourceService.DisplayCulture)) { displayCultureNotifications++; }
+            };
+            ResourceService.Current.PropertyChanged += onChanged;
+            try
+            {
+                // 基準にvmのキーが無い状態から、キーの削除で戻ることを確かめます。
+                application.Resources.Remove("vm");
+                Settings.Default.AppearanceTheme = AppThemeService.Light;
+                AppThemeService.ApplyTheme(AppThemeService.Light);
+                LoggingConfiguration baselineConfiguration = LogManager.Configuration ?? new LoggingConfiguration();
+                LogManager.Configuration = baselineConfiguration;
+                var state = new HostResidueState(HostResidueBoundary.Observe());
+
+                Resources.Culture = CultureInfo.GetCultureInfo(state.Culture.Baseline as string == "fr-FR" ? "en-US" : "fr-FR");
+                application.Resources["vm"] = new object();
+                Settings.Default.AppearanceTheme = AppThemeService.Dark;
+                AppThemeService.ApplyTheme(AppThemeService.Dark);
+                LogManager.Configuration = new LoggingConfiguration();
+                int themeVersion = AppThemeService.Version;
+                IReadOnlyList<HostResidue> found = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
+                CollectionAssert.IsSubsetOf(new[] { "E-c", "E-d", "E-e", "E-f" }, found.Select(residue => residue.Category).ToArray());
+                displayCultureNotifications = 0;
+
+                IReadOnlyList<HostRestoreFailure> failures = HostResidueRestoration.Restore(application, state, found);
+
+                Assert.IsEmpty(failures);
+                Assert.IsFalse(application.Resources.Contains("vm"), "基準にキーが無ければ、nullを代入せずキーを削除します。");
+                Assert.AreEqual(state.Culture.Baseline, Resources.Culture?.Name);
+                Assert.AreEqual(state.Culture.Baseline, ResourceService.Current.DisplayCulture.Name);
+                Assert.IsGreaterThanOrEqualTo(1, displayCultureNotifications, "表示の通知（DisplayCulture）が発生します。");
+                Assert.AreEqual(AppThemeService.Light, Settings.Default.AppearanceTheme);
+                Assert.AreNotEqual(themeVersion, AppThemeService.Version, "保存値だけでなくテーマの適用の経路を通ります。");
+                Assert.AreSame(baselineConfiguration, LogManager.Configuration);
+
+                // 復元の直後に、比較を挟まず同じ値（同じ文化圏、Dark、同じvm、同じNLog構成）へ再びずらすと、四項目とも再び報告されます。
+                var shiftedCulture = CultureInfo.GetCultureInfo(state.Culture.Baseline as string == "fr-FR" ? "en-US" : "fr-FR");
+                object sameViewModel = new object();
+                var sameConfiguration = new LoggingConfiguration();
+                for (int round = 0; round < 2; round++)
+                {
+                    Resources.Culture = shiftedCulture;
+                    application.Resources["vm"] = sameViewModel;
+                    Settings.Default.AppearanceTheme = AppThemeService.Dark;
+                    LogManager.Configuration = sameConfiguration;
+                    IReadOnlyList<HostResidue> again = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
+                    CollectionAssert.IsSubsetOf(new[] { "E-c", "E-d", "E-e", "E-f" }, again.Select(residue => residue.Category).ToArray(), $"round {round}");
+                    Assert.IsEmpty(HostResidueRestoration.Restore(application, state, again));
+                }
+                Assert.IsEmpty(Residues(state, "E-c", "E-d", "E-e", "E-f"));
+
+                // 基準にオブジェクトがある状態から、同じ参照へ戻ることを確かめます。
+                object baselineViewModel = new object();
+                application.Resources["vm"] = baselineViewModel;
+                var withViewModel = new HostResidueState(HostResidueBoundary.Observe());
+                application.Resources["vm"] = new object();
+                found = HostResidueComparison.Compare(withViewModel, HostResidueBoundary.Observe());
+                Assert.IsEmpty(HostResidueRestoration.Restore(application, withViewModel, found));
+                Assert.AreSame(baselineViewModel, application.Resources["vm"]);
+            }
+            finally
+            {
+                ResourceService.Current.PropertyChanged -= onChanged;
+                Resources.Culture = originalCulture;
+                RestoreViewModel(application, hadViewModel, originalViewModel);
+                Settings.Default.AppearanceTheme = originalTheme;
+                AppThemeService.ApplyTheme(originalTheme);
+                LogManager.Configuration = originalConfiguration;
+            }
+        });
+    }
+
+    /// <summary>
+    /// Windowに対応しないHWNDの分類が、クラス名・HwndSourceの有無・表示状態で決まることを確認します。
+    /// 表示中や、HwndSourceを持つものまでwpf-internalやimeにする実装、前方一致・部分一致で分類する実装、null・空を誤分類する実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("HwndWrapper[x;;y]", false, false, "wpf-internal")]
+    [DataRow("HwndWrapper[x;;y]", true, false, "other")]
+    [DataRow("HwndWrapper[x;;y]", false, true, "other")]
+    [DataRow("hwndwrapper[x;;y]", false, false, "other")]
+    [DataRow("IME", false, false, "ime")]
+    [DataRow("MSCTFIME UI", false, false, "ime")]
+    [DataRow("IME", false, true, "other")]
+    [DataRow("IMEX", false, false, "other")]
+    [DataRow("", false, false, "other")]
+    [DataRow(null, false, false, "other")]
+    public void HwndClassification_FollowsClassNameHwndSourceAndVisibility(string? className, bool hasHwndSource, bool isVisible, string expected)
+        => Assert.AreEqual(expected, HostResidueComparison.ClassifyHwnd(className, hasHwndSource, isVisible));
 }
