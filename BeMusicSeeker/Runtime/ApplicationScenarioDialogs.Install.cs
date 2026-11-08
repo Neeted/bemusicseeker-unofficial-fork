@@ -31,6 +31,21 @@ internal sealed partial class ApplicationScenarioDialogs
         { throw new InvalidOperationException("The declared install failure report was not consumed exactly once by its operation."); }
     }
 
+    /// <summary>
+    /// arm中にアプリケーションのDispatcherスレッド以外から届いた通知を、照合せず失敗として保持します。
+    /// 表示所有者の解決はDispatcherに縛られ、別スレッドでは同期例外になって失敗が残らないため、入口で判定します。
+    /// Applicationが無い場合も到達しない状況として失敗側へ倒します。
+    /// </summary>
+    internal bool TryRejectInstallReportOffUiThread([NotNullWhen(true)] out Task<UiDialogResult>? answer)
+    {
+        answer = null;
+        if (installReport is not { } input) { return false; }
+        if (Application.Current?.Dispatcher is { } dispatcher && dispatcher.CheckAccess()) { return false; }
+        input.Invalid = true;
+        answer = Task.FromException<UiDialogResult>(new InvalidOperationException("Notification from a non-UI thread during the declared manual install."));
+        return true;
+    }
+
     /// <summary>arm中だけ所有者と既知の導入報告を照合します。非armの通知は通常委譲のためfalseを返します。</summary>
     internal bool TryAnswerInstallReport(UiMessageRequest request, object? effectiveOwner,
         [NotNullWhen(true)] out Task<UiDialogResult>? answer)

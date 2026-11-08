@@ -76,7 +76,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             bool callbackSawSources = false;
             FileDbMutationReceipt receipt = service.MovePackageFilesWithReceipt(package, destination, ProtectedNameOptions(),
                 (_, _) => throw new AssertFailedException("明示宛先を新規命名しません。"), exception => exception.Message,
-                new RealFileMutationService(), null, new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new RealFileMutationService(), new UnexpectedBmsLibraryDialogService(), new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree), _ => { }, _ =>
                 {
                     callbackSawSources = File.Exists(first) && File.Exists(second) && File.Exists(tone);

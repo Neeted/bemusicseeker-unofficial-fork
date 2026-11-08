@@ -26,6 +26,8 @@ internal sealed class RecordingRootDialogService : IUiDialogService
 
     internal List<UiConfirmationRequest> ConfirmationRequests { get; } = [];
 
+    internal List<UiMessageRequest> MessageRequests { get; } = [];
+
     internal int ConfirmationCount { get; private set; }
 
     internal int MessageCount { get; private set; }
@@ -35,6 +37,7 @@ internal sealed class RecordingRootDialogService : IUiDialogService
     public Task<UiDialogResult?> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
     {
         MessageCount++;
+        MessageRequests.Add(request);
         LastMessageText = request.MessageBoxText;
         MessageObserved?.Invoke();
         return CompleteMessageAsync();

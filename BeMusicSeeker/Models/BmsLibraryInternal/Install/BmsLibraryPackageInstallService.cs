@@ -1222,7 +1222,7 @@ internal sealed partial class BmsLibraryPackageInstallService
             catch (RequiredArchiveMetadataRestoreException metadataRestoreException)
             {
                 DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logPreparation);
-                Action showFailure = () => dialogService?.Show(
+                Action showFailure = () => dialogService.Show(
                     string.Format(Resources.Warn_ArchiveTimestampRestoreFailed, installPath, metadataRestoreException.RestoredPath, metadataRestoreException.Message),
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
@@ -1235,7 +1235,7 @@ internal sealed partial class BmsLibraryPackageInstallService
                 DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logPreparation);
                 sourceStopwatch.Stop();
                 logPreparation("auto_install extract_failed path=" + installPath + " elapsedMs=" + sourceStopwatch.ElapsedMilliseconds + " error=" + ex.Message);
-                Action showFailure = () => dialogService?.Show(
+                Action showFailure = () => dialogService.Show(
                     string.Format(Resources.Warn_ArchiveExtractFailed, installPath, ex.Message),
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
@@ -2399,7 +2399,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         IBmsLibraryDialogService dialogService,
         Func<Exception, string> getDisplayedExceptionMessage)
     {
-        dialogService?.Show(
+        dialogService.Show(
             string.Format(
                 Resources.Error_InstallFailed,
                 package?.path,

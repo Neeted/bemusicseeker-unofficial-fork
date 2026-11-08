@@ -2054,7 +2054,7 @@ public partial class MainWindowViewModel : ViewModel,
     /// <param name="startupLibraryFactory">The factory used for ordered startup library construction.</param>
     /// <param name="fileDiffReloadWorkflow">An optional typed reload owner for consumer-boundary tests; production composition creates the owner from the shell's actual reload delegate.</param>
     /// <param name="initializationStatePort">An optional lifecycle-state port for consumer-boundary tests; production composition uses this ViewModel's own state.</param>
-    /// <param name="startupLibraryInitializationFailurePresenter">An optional failure-presentation boundary; production composition uses the shell dialog route.</param>
+    /// <param name="startupLibraryInitializationFailurePresenter">起動時のライブラリ初期化失敗の通知先。省略時は構成の共通のダイアログ窓口で通知します。</param>
     internal MainWindowViewModel(
         ApplicationComposition composition,
         IStartupLibraryFactory startupLibraryFactory,
@@ -2076,7 +2076,7 @@ public partial class MainWindowViewModel : ViewModel,
         startupLibraryConstructionOwner = new StartupLibraryConstructionOwner(startupLibraryFactory);
         startupLibraryInitializationWorkflowOwner = new StartupLibraryInitializationWorkflowOwner(applicationComposition.DatabaseScope, applicationComposition.RuntimeOptions.DatabaseLoadOptions, _semaphore);
         this.startupLibraryInitializationFailurePresenter = startupLibraryInitializationFailurePresenter
-            ?? new DefaultStartupLibraryInitializationFailurePresenter();
+            ?? new DefaultStartupLibraryInitializationFailurePresenter(composition.DialogService);
         uiScheduler = composition.UiScheduler;
         applicationLifetime = composition.ApplicationLifetime;
         this.initializationStatePort = initializationStatePort ?? this;
@@ -2191,7 +2191,7 @@ public partial class MainWindowViewModel : ViewModel,
              LogMainViewBuildWarning,
              TryDispatchPackageInstallUi,
              () => files,
-             new UiDialogCoordinator(),
+             composition.DialogService,
             startupProgressWorkflowOwner,
             ReportPackageInstallWorkflowNotificationFailure,
             (library, progress, cancellationToken, capability) => library.RescanAllOwnedChartMaintenance(progress, cancellationToken, capability),
@@ -2206,17 +2206,17 @@ public partial class MainWindowViewModel : ViewModel,
             FileDbMutationDialogs,
             zeroNoteLibraryProvider: () => files,
             packageCatalogLibraryProvider: () => files,
-            duplicateMaintenanceDialogService: new UiDialogCoordinator(),
+            duplicateMaintenanceDialogService: composition.DialogService,
             showDuplicateFileCheckConfirmProvider: () => GetStartupSettingsSnapshot().ShowDuplicateFileCheckConfirmMsg,
             duplicateMaintenanceLibraryProvider: () => files,
-            selectedChartMutationDialogService: new UiDialogCoordinator(),
+            selectedChartMutationDialogService: composition.DialogService,
             selectedChartMutationLibraryProvider: () => files,
-            selectedChartResourceHealthDialogService: new UiDialogCoordinator(),
+            selectedChartResourceHealthDialogService: composition.DialogService,
             selectedChartResourceHealthLibraryProvider: () => files,
-            maintenanceRescanDialogService: new UiDialogCoordinator(),
-            chartInfoParseFailureRemovalDialogService: new UiDialogCoordinator(),
+            maintenanceRescanDialogService: composition.DialogService,
+            chartInfoParseFailureRemovalDialogService: composition.DialogService,
             chartInfoParseFailureRemovalLibraryProvider: () => files,
-            selectedChartAudioConversionDialogService: new UiDialogCoordinator(),
+            selectedChartAudioConversionDialogService: composition.DialogService,
             lr2SongDbSyncWorkflow: new Lr2SongDbSyncWorkflowOwner(
                 new BmsLr2SongDbSyncWorkflowRuntime(
                     () => files,
@@ -4513,43 +4513,22 @@ public partial class MainWindowViewModel : ViewModel,
         DispatchMainChartListAction(() => ProgressHub.UpdateInstallEstimationProgress(snapshot));
     }
 
-    private static bool ShowUiConfirmation(
-        string messageBoxText,
-        string caption,
-        MessageBoxImage icon,
-        MessageBoxButton button,
-        string routeName = "UI confirmation dialog",
-        MessageBoxResult defaultResult = MessageBoxResult.None,
-        string warningMessageBoxText = null)
-    {
-        UiDialogResult result = new UiDialogCoordinator()
-            .ConfirmAsync(new UiConfirmationRequest(
-                messageBoxText,
-                caption,
-                button,
-                icon,
-                defaultResult,
-                warningMessageBoxText: warningMessageBoxText))
-            .GetAwaiter()
-            .GetResult();
-        return ToUiConfirmationDecision(result, routeName);
-    }
-
     private static void ShowUiMessage(
+        IUiDialogService dialogService,
         string messageBoxText,
         string caption,
         MessageBoxImage icon,
         string routeName = "UI message dialog",
         MessageBoxResult defaultResult = MessageBoxResult.OK)
     {
-        UiDialogResult result = new UiDialogCoordinator()
+        UiDialogResult result = dialogService
             .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, defaultResult))
             .GetAwaiter()
             .GetResult();
         ThrowIfUiDialogNotShown(result, routeName);
     }
 
-    private sealed class DefaultStartupLibraryInitializationFailurePresenter
+    private sealed class DefaultStartupLibraryInitializationFailurePresenter(IUiDialogService dialogService)
         : IStartupLibraryInitializationFailurePresenter
     {
         public void Present(StartupLibraryInitializationFailurePresentation presentation)
@@ -4559,6 +4538,7 @@ public partial class MainWindowViewModel : ViewModel,
                 throw new ArgumentNullException(nameof(presentation));
             }
             ShowUiMessage(
+                dialogService,
                 BeMusicSeeker.Properties.Resources.Msg_error_unexpected
                     + Environment.NewLine
                     + presentation.Exception,
@@ -4566,18 +4546,6 @@ public partial class MainWindowViewModel : ViewModel,
                 MessageBoxImage.Hand,
                 "Startup library initialization failure notification");
         }
-    }
-
-    private static bool ToUiConfirmationDecision(UiDialogResult result, string routeName)
-    {
-        return result.Status switch
-        {
-            UiDialogStatus.Accepted => true,
-            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.IsPositive,
-            UiDialogStatus.Failed => throw CreateUiDialogDisplayException(routeName, result),
-            _ => throw CreateUiDialogDisplayException(routeName, result),
-        };
     }
 
     private static void ThrowIfUiDialogNotShown(UiDialogResult result, string routeName)

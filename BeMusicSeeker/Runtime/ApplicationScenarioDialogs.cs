@@ -176,9 +176,13 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
     {
         internal TaskCompletionSource<ScenarioSettingsEditObservation> Completion { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
-    /// <inheritdoc />
+    /// <summary>
+    /// 手動導入の報告をarmしている間は、アプリケーションのDispatcherスレッド以外の通知を照合せず失敗にします。
+    /// 所有者の解決がDispatcherに縛られ、別スレッドでは同期例外になって未宣言の通知を見逃すためです。
+    /// </summary>
     public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
-        => installReport is not null
+        => TryRejectInstallReportOffUiThread(out Task<UiDialogResult>? rejected) ? rejected
+        : installReport is not null
             && TryAnswerInstallReport(request, new UiDialogOwnerResolver().ResolveOwner(request.Owner), out Task<UiDialogResult>? answer)
             ? answer : ShowRecoveryMessageAsync(request, cancellationToken);
     /// <inheritdoc />

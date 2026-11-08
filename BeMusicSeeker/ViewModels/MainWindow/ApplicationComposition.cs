@@ -27,6 +27,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <summary>同じ構成の機能へ渡す、起動時に確定した実行条件を取得します。</summary>
     internal ApplicationRuntimeOptions RuntimeOptions { get; }
 
+    /// <summary>構成が作るすべての所有者へ渡す、アプリ共通のダイアログ窓口を取得します。専用引数で差し替えられた経路を除き、通知と確認はこの窓口へ届きます。</summary>
+    internal IUiDialogService DialogService { get; }
+
     /// <summary>Shares optional FS/DB terminal reporting across feature and view consumers.</summary>
     internal IUiDialogService FileDbMutationDialogs { get; }
 
@@ -125,13 +128,15 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <param name="chartFileScanner">モデルの譜面入力を捕捉する任意の走査境界。省略時は通常の走査サービスを使います。</param>
     /// <param name="scoreViewerRegistrationGateway">Score Viewer 登録の network boundary。未指定時は production gateway を使います。</param>
     /// <param name="keywordSearchFavoritesSettingsStore">Keyword search Favorites persistence boundary。</param>
-    /// <param name="fileDbMutationDialogService">Shared optional mutation-report presentation boundary.</param>
-    /// <param name="reportTerminalSettingsSaveFailure">App-owned terminal settings warning; omitted by compositions without a terminal UI.</param>
-    /// <param name="restartFailureDialogs">終了時の再起動失敗通知。省略時は既存のダイアログ調停処理を使います。</param>
+    /// <param name="fileDbMutationDialogService">ファイル/DB変更の結果通知。省略時は共通のダイアログ窓口を使います。</param>
+    /// <param name="playlistWorkspaceDialogService">プレイリスト作業領域の確認と通知。省略時は共通のダイアログ窓口を使います。</param>
+    /// <param name="reportTerminalSettingsSaveFailure">Appが所有する、終了時の設定保存失敗の警告。終了時のUIを持たない構成では省略します。</param>
+    /// <param name="restartFailureDialogs">終了時の再起動失敗通知。省略時は共通のダイアログ窓口を使います。</param>
     /// <param name="reportRestartFailure">再起動失敗を通知できない場合の報告処理。</param>
-    /// <param name="settingsDialogService">設定画面の確認と通知。省略時は既存のダイアログ調停処理を使います。</param>
+    /// <param name="settingsDialogService">設定画面の確認と通知。省略時は共通のダイアログ窓口を使います。</param>
     /// <param name="packageInstallMutationPort">パッケージの変更処理。省略時は既存のライブラリ変更処理を使います。</param>
-    /// <param name="libraryDialogService">ライブラリ操作の通知と確認。省略時は既存のダイアログ調停処理を使い、モデルへ注入する窓口の実装を作ります。</param>
+    /// <param name="libraryDialogService">ライブラリ操作の通知と確認。省略時は共通のダイアログ窓口を使い、モデルへ注入する窓口の実装を作ります。</param>
+    /// <param name="dialogService">アプリ共通のダイアログ窓口。構成の根が一つだけ作って渡します。省略時だけ構成内で既定の調停処理を一つ作り、専用引数を省略した経路と構成が作る他の所有者へ渡します。</param>
     internal ApplicationComposition(
         ApplicationRuntimeOptions runtimeOptions,
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
@@ -166,7 +171,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         IUiDialogService settingsDialogService = null,
         IPackageInstallMutationPort packageInstallMutationPort = null,
         IChartFileScanner chartFileScanner = null,
-        IUiDialogService libraryDialogService = null)
+        IUiDialogService libraryDialogService = null,
+        IUiDialogService dialogService = null)
     {
         RuntimeOptions = runtimeOptions ?? throw new ArgumentNullException(nameof(runtimeOptions));
         this.settingsEditSession = settingsEditSession
@@ -200,13 +206,14 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
         ReportTerminalSettingsSaveFailure = reportTerminalSettingsSaveFailure;
-        RestartFailureDialogs = restartFailureDialogs ?? new UiDialogCoordinator();
+        DialogService = dialogService ?? new UiDialogCoordinator();
+        RestartFailureDialogs = restartFailureDialogs ?? DialogService;
         ReportRestartFailure = reportRestartFailure ?? reportSettingsApplyFailure;
-        SettingsDialogService = settingsDialogService ?? new UiDialogCoordinator();
+        SettingsDialogService = settingsDialogService ?? DialogService;
         this.packageInstallMutationPort = packageInstallMutationPort;
-        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
-        FileDbMutationDialogs = fileDbMutationDialogService ?? new UiDialogCoordinator();
-        bmsLibraryDialogService = new BmsLibraryDialogService(libraryDialogService ?? new UiDialogCoordinator());
+        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? DialogService;
+        FileDbMutationDialogs = fileDbMutationDialogService ?? DialogService;
+        bmsLibraryDialogService = new BmsLibraryDialogService(libraryDialogService ?? DialogService);
         appliedCustomFolderOutputPlacement = CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values);
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values, Volatile.Read(ref appliedCustomFolderOutputPlacement)));
@@ -491,6 +498,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             playlistWorkspace,
             bmsPlayerFactory,
             uiScheduler,
+            DialogService,
             playbackSettingsStore,
             keywordSearchHistorySettingsStore,
             chartFileOperations,
@@ -714,6 +722,7 @@ internal sealed class MainWindowChildComposition
     /// 検索設定の保存境界と譜面操作・閲覧・起動処理の依存を明示して、画面寿命の担当を構成します。
     /// </summary>
     /// <param name="keywordSearchFavoritesSettingsStore">通常一覧・概要で共有するお気に入り設定の保存境界。</param>
+    /// <param name="dialogService">再生の通知が使う、構成共通のダイアログ窓口。</param>
     /// <param name="exitForUnrestoredDestination">操作終端後に通常Closeを通さず最終終了する境界。</param>
     /// <param name="playlistOperationAdmission">構成寿命で共有するPの新規受付を閉じるための既存owner。</param>
     /// <param name="updateManifestUrl">起動時に捕捉済みの更新URL。妥当性の検査は更新確認処理へ委ねます。</param>
@@ -726,6 +735,7 @@ internal sealed class MainWindowChildComposition
         PlaylistWorkspaceViewModel playlistWorkspace,
         Func<IBMSPlayer> bmsPlayerFactory,
         IUiScheduler uiScheduler,
+        IUiDialogService dialogService,
         IPlaybackSettingsStore playbackSettingsStore,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -797,7 +807,7 @@ internal sealed class MainWindowChildComposition
             new WpfPlaybackUiDispatcher(uiScheduler),
             new MainChartListPlaybackQueue(MainChartList),
             playbackSettingsStore,
-            new WpfPlaybackDialogService(new UiDialogCoordinator()),
+            new WpfPlaybackDialogService(dialogService ?? throw new ArgumentNullException(nameof(dialogService))),
             exception => NLogWrapper.TraceLogger?.Warn(exception),
             chartFileOperations,
             reportPlaybackSettingsSaveFailure);
@@ -945,7 +955,7 @@ internal sealed class MainWindowChildComposition
             selectedChartAudioConversionSettingsProvider ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionSettingsProvider)),
             selectedChartAudioConversionEncoderFallback ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionEncoderFallback)),
             PlaybackPanel,
-            selectedChartAudioConversionDialogService ?? new UiDialogCoordinator(),
+            selectedChartAudioConversionDialogService ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionDialogService)),
             selectedChartAudioConversionExecutor,
             chartFileOperations);
         Lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow

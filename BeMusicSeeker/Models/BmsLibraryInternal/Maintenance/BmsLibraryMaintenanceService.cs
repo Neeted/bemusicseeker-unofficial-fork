@@ -1069,7 +1069,7 @@ internal sealed class BmsLibraryMaintenanceService
         catch (Exception ex) when (IsMaintenanceRecoverable(ex))
         {
             stopwatch.Stop();
-            dialogService?.Show(string.Format(Resources.Error_BmsLoadFailedSkip, target.Path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            dialogService.Show(string.Format(Resources.Error_BmsLoadFailedSkip, target.Path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
             return new MaintenanceWorkflowCandidate(target, null, ex, stopwatch.ElapsedTicks);
         }
     }

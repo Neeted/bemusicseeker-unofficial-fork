@@ -1331,7 +1331,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     new RealFileMutationService(),
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     logs.Add,
-                    null,
+                    new UnexpectedBmsLibraryDialogService(),
                     progressWriter,
                     CancellationToken.None,
                     action => action(),

@@ -78,6 +78,7 @@ public sealed partial class ApplicationCompositionTests
                     selectedChartMutationLibraryProvider: () => library, selectedChartResourceHealthDialogService: dialogs,
                     selectedChartResourceHealthLibraryProvider: () => library, folderAutoRenameDialogService: dialogs,
                     maintenanceRescanDialogService: dialogs, chartInfoParseFailureRemovalDialogService: dialogs,
+                    selectedChartAudioConversionDialogService: dialogs,
                     chartInfoParseFailureRemovalLibraryProvider: () => library, lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner());
                 Task<PackageCatalogMutationResult>? removal = null;
                 try
@@ -730,6 +731,7 @@ public sealed partial class ApplicationCompositionTests
             folderAutoRenameDialogService: new TestUiDialogService(),
             maintenanceRescanDialogService: new TestUiDialogService(),
             chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
+            selectedChartAudioConversionDialogService: new TestUiDialogService(),
                  chartInfoParseFailureRemovalLibraryProvider: () => null!,
                  lr2SongDbSyncWorkflow: CreateDisabledLr2SongDbSyncWorkflowOwner(),
                  startupProgressWorkflowOwner: TestStartupProgressOwnerFactory.Create());

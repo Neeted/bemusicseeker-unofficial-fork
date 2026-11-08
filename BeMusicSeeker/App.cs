@@ -154,14 +154,14 @@ public partial class App : System.Windows.Application
             Shutdown(1);
             return;
         }
+        // 本番の窓口はここで一つだけ作り、構成と MainWindow が同じ窓口を使います。
+        IUiDialogService dialogService = scenarioControl?.Dialogs ?? (IUiDialogService)new UiDialogCoordinator();
         await new ApplicationStartupCompositionOwner(
             createViewModel: () =>
             {
                 var composition = new ApplicationComposition(
                     runtimeOptions: applicationRuntimeOptions,
-                    settingsDialogService: scenarioControl?.Dialogs,
-                    fileDbMutationDialogService: scenarioControl?.Dialogs,
-                    playlistWorkspaceDialogService: scenarioControl?.Dialogs,
+                    dialogService: dialogService,
                     externalShellGateway: scenarioControl?.ExternalShell,
                     rootFileEnumerator: applicationRuntimeOptions.TestSession == null ? null : new FastRootFileEnumerator(),
                     chartFileScanner: applicationRuntimeOptions.TestSession == null ? null : new FastDirectoryFileScanner(),
@@ -176,7 +176,7 @@ public partial class App : System.Windows.Application
             assignViewModelResource: viewModel => Resources["vm"] = viewModel,
             createMainWindow: viewModel =>
             {
-                var window = new MainWindow(viewModel, settingsWindowCreated: null, playlistWorkspaceDialogService: scenarioControl?.Dialogs);
+                var window = new MainWindow(viewModel, settingsWindowCreated: null, playlistWorkspaceDialogService: dialogService);
                 scenarioControl?.Attach(viewModel, window);
                 return window;
             },
