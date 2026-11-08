@@ -34,10 +34,17 @@ public sealed class AudioEncoderTestTerminationTests
         var cleanupFailures = new List<Exception>();
         try
         {
+            // 子のFailFastは検査対象の意図した終了です。MTPの--crashdumpがこのホストへ設定したダンプ有効化を継承すると、
+            // ホスト名で約100MBのダンプを結果フォルダーへ毎回残すため、子では無効化します。
             process = OwnedProcess.Start(new ProcessStartRequest(
                 Path.Combine(AppContext.BaseDirectory, "ProcessFixture", "ProcessFixture.exe"),
                 ["audio-owner-cleanup", mode, workspace.RootDirectory], workspace.RootDirectory,
-                new Dictionary<string, string?> { [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = deadline.Export() }), () => cleanup.Value);
+                new Dictionary<string, string?>
+                {
+                    [ProcessDeadline.SuiteDeadlineEnvironmentVariable] = deadline.Export(),
+                    ["DOTNET_DbgEnableMiniDump"] = null,
+                    ["COMPlus_DbgEnableMiniDump"] = null
+                }), () => cleanup.Value);
             ProcessCompletion result = await process.WaitForExitAsync(deadline);
             TestContext?.WriteLine("ProcessFixture stdout:" + Environment.NewLine + result.StandardOutput);
             TestContext?.WriteLine("ProcessFixture stderr:" + Environment.NewLine + result.StandardError);
