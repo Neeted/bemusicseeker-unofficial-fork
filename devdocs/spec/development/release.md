@@ -121,6 +121,7 @@ dotnet run --project tools/BeMusicSeeker.Verify -- prepare-candidate --output "$
 - 既定では `dist/` へZIPだけを生成します。通常ZIPだけの生成が正常に完了した時点で、同じ版・標準名の `-with-metadata.zip` 一つを退役させます。他の版のZIPとメタデータの元データは保持します。
 - `-IncludeMetadata` は、同じ実行の出力から両方のZIPを生成します。
 - `-SkipBuild` を使う場合も、既存のアプリの実際の版とパッケージの版の一致を確認します。
+- Native AOTのリンク準備が使う `vswhere.exe` がPATHから解決できず、Visual Studio Installerの標準の導入先にある場合だけ、その場所をこのpublishの実行中のPATH先頭へ加えて1行を出力し、終了時に元のPATHへ戻します。
 
 更新検証用の実行限定版は、`-ApplicationVersion` に四成分の数値の版を渡して生成します。
 

@@ -37,9 +37,11 @@ dotnet run --project tests/BeMusicSeeker.Core.Tests -- --filter "FullyQualifiedN
 
 ### 段階ごとの制限時間
 
+自動整形は冷えた全体ビルドと同時に始まり、CPUを奪い合います。整形の所要は約60〜170秒で、競合すると180秒を超えうるため、同時に走るビルドと同じ300秒の予算にそろえています。準備段階は整形とビルドの両方の終了を待つので、成功する経路では、整形の上限をビルドの上限以下に保てば段階全体の最悪時間は延びません。整形が止まって失敗する場合は、検出が最大120秒（180秒から300秒）遅れます。
+
 | 段階 | 制限時間 |
 | --- | ---: |
-| 自動整形（全formatterで共有） | 180秒 |
+| 自動整形（全formatterで共有） | 300秒 |
 | 復元 / ビルド | 各300秒 |
 | 候補生成: 固定旧ZIPの取得・検査 | 240秒 |
 | 候補生成: Current / Nextのpublish・検査 | 各240秒 |
@@ -80,7 +82,7 @@ pwsh -NoProfile -File scripts/format-code.ps1 -Scope All -NoRestore
 - 既定の `Changed` は、Gitの未ステージ・ステージ済み・未追跡のNUL区切りの集合から、存在するC#を選びます。対象がゼロなら復元とformatterを省きます。
 - `All` はソースを列挙せず、ソリューションのスタイル修正とフォルダー単位の空白修正を各一回実行します。
 - 通常はソリューションをロックファイルに従って復元し、`NoRestore` はこれを省きます。
-- Git・任意の復元・全formatterは一つの180秒を共有し、失敗時の回収は10秒です。
+- Git・任意の復元・全formatterは、`verify` の自動整形と同じ一つの300秒を共有し、失敗時の回収は10秒です。同時にビルドが走らないため、通常は余裕を残して終わります。
 - 引数・非ゼロ終了・元の診断を保持し、リポジトリ外の作業ディレクトリから呼んでもスクリプトのあるリポジトリを使い、元の作業ディレクトリへ戻します。
 
 ## ネイティブ取得の追加検証
@@ -131,6 +133,7 @@ pwsh -NoProfile -File scripts/format-code.ps1 -Scope All -NoRestore
 
 `prepare-candidate --output <専有の絶対パス>` は、存在しない専有の出力先に、CurrentとNextを各1回publishし、HTMLを含む公開可能なZIPを作ります。
 
+- Native AOTのリンク準備が使う `vswhere.exe` がPATHから解決できず、Visual Studio Installerの標準の導入先（`ProgramFiles(x86)` 配下の `Microsoft Visual Studio\Installer`、環境変数がなければOSの既知フォルダー）にある場合だけ、その場所を `scripts/publish.ps1` が実行中のpublishのPATH先頭へ加え、1行を出力します。解決できるなら何もせず、終了時に元のPATHへ戻し、利用者の環境設定は変えません。
 - NextはCurrentの実バイナリの版の末尾を、桁あふれを検査して1増やした実行限定の版です。通常の公開版と `AssemblyVersion` は変えず、publishの `-ApplicationVersion` とvariant別の `ArtifactRoot` で分離します。
 - 生成したZIPは実publishのアプリ・更新プログラムと照合します。`update-managed-files.txt` 自身を除く全ファイルとの集合の一致、既存の配置、代表HTMLの `README.html` / `README.ja.html` の存在と非空、採用済みネイティブ部品のハッシュ・AMD64、テスト依存の混入を検査します。管理一覧の列挙順・改行は契約にしません。
 - 最上位の `config`・`data`・`log`・`logs`・`update_work`・`update_backup` の6保護領域を含めません。`imported_metadata` はアプリの管理領域ですが、既存の配布配置での禁止は維持します。

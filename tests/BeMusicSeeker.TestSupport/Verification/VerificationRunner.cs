@@ -19,7 +19,13 @@ internal sealed record VerificationRun(string Repository, string RunRoot)
     /// <summary>restoreとbuildそれぞれの期限です。</summary>
     internal TimeSpan PreparationTimeout { get; init; } = TimeSpan.FromSeconds(300);
     /// <summary>全formatter batchで共有する期限です。</summary>
-    internal TimeSpan FormatTimeout { get; init; } = TimeSpan.FromSeconds(180);
+    /// <remarks>
+    /// 整形は冷えた全体ビルドと同時に始まり、CPUを奪い合います。整形の所要は約60〜170秒で、競合すると180秒を超えうるため、
+    /// 同時に走るビルドの期限（<see cref="PreparationTimeout"/>）と同じ300秒にそろえます。準備段階は両方の終了を待つので、
+    /// 成功する経路では、整形の期限をビルドの期限以下に保てば段階全体の最悪時間は延びません。
+    /// 整形が止まって失敗する場合は、検出が最大120秒（180秒から300秒）遅れます。
+    /// </remarks>
+    internal TimeSpan FormatTimeout { get; init; } = TimeSpan.FromSeconds(300);
     /// <summary>接続検査で短い期限を使う場合の上書きです。通常実行はprofileの共通test期限を使います。</summary>
     internal TimeSpan? TestTimeout { get; init; }
     /// <summary>候補生成の旧ZIP取得・各publishと、Fullの候補検査・展開にそれぞれ与える期限です。</summary>

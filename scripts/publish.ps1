@@ -73,6 +73,26 @@ function Invoke-CheckedCommand {
     }
 }
 
+# Native AOTのリンク準備（ILCompilerのvcvars探索）は vswhere.exe をPATHから探します。
+# Visual Studio Installerの標準の導入先にあってPATHに無い場合だけ、このプロセスのPATHの先頭へ加えます。
+# 解決できるなら何もせず、利用者の環境設定は変えません。呼出元が呼出し後に元のPATHへ戻します。
+# Git Bashなどから起動すると環境変数 ProgramFiles(x86) が渡らないことがあるため、既定の位置はOSから取得します。
+function Add-VswhereToPathIfMissing {
+    if (Get-Command 'vswhere.exe' -CommandType Application -ErrorAction SilentlyContinue) { return }
+
+    $programFilesX86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+    if ([string]::IsNullOrWhiteSpace($programFilesX86)) {
+        $programFilesX86 = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFilesX86)
+    }
+    if ([string]::IsNullOrWhiteSpace($programFilesX86)) { return }
+
+    $installerDirectory = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer'
+    if (-not (Test-Path -LiteralPath (Join-Path $installerDirectory 'vswhere.exe') -PathType Leaf)) { return }
+
+    $env:PATH = $installerDirectory + [System.IO.Path]::PathSeparator + $env:PATH
+    Write-Host "  vswhere.exe がPATHに無いため、このpublishだけ次をPATHの先頭へ加えました: $installerDirectory"
+}
+
 function Invoke-SelfContainedPublish {
     if (Test-Path $appPublishOutput) { Remove-Item $appPublishOutput -Recurse -Force }
     if (Test-Path $updaterPublishOutput) { Remove-Item $updaterPublishOutput -Recurse -Force }
@@ -342,10 +362,14 @@ function New-ReleasePackage {
     if (-not $SkipBuild) {
         Write-Host "  配布用 Self-contained publish 中..."
         Push-Location $devRoot
+        $originalPath = $env:PATH
         try {
+            Add-VswhereToPathIfMissing
             Invoke-SelfContainedPublish
         }
         finally {
+            # 補完したPATHは、この実行の子プロセスだけに使い、呼出元のプロセスへ残しません。
+            $env:PATH = $originalPath
             Pop-Location
         }
         Write-Host "  Self-contained publish 完了" -ForegroundColor Green
