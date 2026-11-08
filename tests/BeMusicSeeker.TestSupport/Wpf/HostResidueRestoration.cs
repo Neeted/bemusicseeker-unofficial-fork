@@ -138,16 +138,22 @@ internal static class HostResidueRestoration
         List<HostRestoreFailure> failures = [];
         Window[] windows = [.. residues.Where(residue => residue.Category is "E-a" or "E-b").Select(residue => residue.Window).OfType<Window>()];
 
+        // E-bのWindow（Application.Windowsに含まれないMainWindow）は、閉じた扱いになりますが、基準へ戻す代入が成功するまで印を残します。
+        HashSet<Window> unlistedMainWindows = new(residues.Where(residue => residue.Category == "E-b").Select(residue => residue.Window).OfType<Window>(), ReferenceEqualityComparer.Instance);
         foreach (Window window in TestWindowPresentationScope.OrderForClosing(windows))
         {
-            if (RestoreWindow(application, window, failures)) { state.ReportedWindows.Remove(window); }
+            if (RestoreWindow(application, window, failures) && !unlistedMainWindows.Contains(window)) { state.ReportedWindows.Remove(window); }
         }
         if (windows.Length != 0)
         {
-            Attempt(failures, "Application.MainWindow", () =>
+            bool mainWindowRestored = Attempt(failures, "Application.MainWindow", () =>
             {
                 if (application.MainWindow is { } main && windows.Contains(main)) { application.MainWindow = state.BaselineMainWindow; }
             });
+            if (mainWindowRestored)
+            {
+                foreach (Window window in unlistedMainWindows) { state.ReportedWindows.Remove(window); }
+            }
         }
         // 値は、戻せた項目だけ報告済みの印を消します。印が残ると、次のケースが同じ値を残しても報告も復元もされず、黙って持ち越されます。
         if (residues.Any(residue => residue.Category == "E-c") && Attempt(failures, "Application.Resources[\"vm\"]", () => RestoreViewModel(application, state))) { state.ViewModel.Reset(); }

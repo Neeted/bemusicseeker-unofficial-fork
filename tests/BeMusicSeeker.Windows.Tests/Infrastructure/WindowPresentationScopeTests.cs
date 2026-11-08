@@ -160,6 +160,115 @@ public sealed class WindowPresentationScopeTests
         });
     }
 
+    /// <summary>
+    /// 後片付けの1回目（購読解除の後）と2回目（残留HWNDの破棄の後）の消化が失敗しても、それより前の閉鎖の失敗・後続の残留HWNDの破棄・
+    /// 管理Windowの漏れの検査・登録済みの失敗を失わず、元の例外を参照のまま発生順に一つの集約へ保持し、記録を二重に報告しないことを確認します。
+    /// 捕捉しない、片方だけ捕捉する、包む、途中で投げて残りを省く、元の例外を再送出して他の失敗を失う、集約の形を変える、握りつぶす、
+    /// 記録を再登録する誤りを検出します。
+    /// </summary>
+    /// <remarks>
+    /// 配置の例外ではなく、旧形式の<c>BeginInvoke</c>（Normal）で予約した処理の失敗を使います。消化の入れ子のフレームで実行され、
+    /// ホストが記録して消化が元の例外で失敗し記録を消費します。WPFが描画を下げる時機や内部の回復に依存せず決定的で、後片付けの契約は例外の発生元によらないためです。
+    /// 2回目の消化は残留HWNDの破棄（WM_DESTROY）が予約した処理で起こします。そのためのHwndSourceは、残留HWNDを作る共通基盤自体の検査として
+    /// 明示された例外です（非表示・非アクティブで、finallyで破棄します）。
+    /// </remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void Cleanup_ContinuesAndKeepsOriginalFailuresWhenProcessQueuedPresentationThrows()
+    {
+        const string leakedTitle = "cleanup-processqueued-leaked-window";
+        TestUiDispatcherHost.RunWindowTest(outer =>
+        {
+            var inner = new TestWindowPresentationScope(Application.Current, NativeWindowObservation.GetCurrentNativeThreadId());
+            var closingFailureWindow = new ThrowingClosingModalWindow { Title = "cleanup-processqueued-closing-failure" };
+            var firstDrainFailure = new DrainRejectedException("first");
+            var secondDrainFailure = new DrainRejectedException("second");
+            var registeredFailure = new DrainRejectedException("registered");
+            HwndSource? source = null;
+            DispatcherOperation? firstOperation = null;
+            DispatcherOperation? secondOperation = null;
+            bool armDestroy = true;
+            try
+            {
+                var parameters = new HwndSourceParameters("cleanup-processqueued-residue", 1, 1)
+                {
+                    WindowStyle = unchecked((int)0x80000000),
+                    ExtendedWindowStyle = 0x00000080 | 0x08000000
+                };
+                parameters.SetPosition(
+                    (int)(SystemParameters.VirtualScreenLeft + SystemParameters.VirtualScreenWidth + 2048d),
+                    (int)(SystemParameters.VirtualScreenTop + SystemParameters.VirtualScreenHeight + 2048d));
+                source = new HwndSource(parameters);
+                source.AddHook((nint hwnd, int msg, nint wParam, nint lParam, ref bool handled) =>
+                {
+                    if (msg == 0x0002 && armDestroy)
+                    {
+                        armDestroy = false;
+                        secondOperation = Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)(() => throw secondDrainFailure));
+                    }
+                    return 0;
+                });
+                nint handle = source.Handle;
+                firstOperation = Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)(() =>
+                {
+                    _ = new Window { Title = leakedTitle };
+                    throw firstDrainFailure;
+                }));
+                inner.RegisterCleanupFailureForTesting(registeredFailure);
+
+                Exception? caught = null;
+                try { inner.Cleanup(); }
+                catch (Exception ex) { caught = ex; }
+
+                AggregateException aggregate = Assert.IsInstanceOfType<AggregateException>(caught, $"Cleanup threw: {caught}");
+                List<Exception> failures = [.. aggregate.InnerExceptions];
+                Assert.HasCount(1, closingFailureWindow.Thrown);
+                int closing = IndexOfSame(failures, closingFailureWindow.Thrown[0]);
+                int first = IndexOfSame(failures, firstDrainFailure);
+                int second = IndexOfSame(failures, secondDrainFailure);
+                int registered = IndexOfSame(failures, registeredFailure);
+                foreach ((string name, Exception expected) in new[]
+                {
+                    ("closing", closingFailureWindow.Thrown[0]),
+                    ("first", (Exception)firstDrainFailure),
+                    ("second", secondDrainFailure),
+                    ("registered", registeredFailure)
+                })
+                {
+                    Assert.AreEqual(1, failures.Count(failure => ReferenceEquals(failure, expected)), $"{name} must appear exactly once; {aggregate}");
+                }
+                Assert.IsTrue(closing >= 0 && first >= 0 && second >= 0 && registered >= 0,
+                    $"closing={closing}, first={first}, second={second}, registered={registered}; {aggregate}");
+                Assert.IsTrue(closing < first && first < second && second < registered,
+                    $"closing={closing}, first={first}, second={second}, registered={registered}");
+                Exception[] leakFailures = [.. failures.Skip(second + 1).Take(registered - second - 1)];
+                Assert.HasCount(1, leakFailures);
+                Assert.IsInstanceOfType<InvalidOperationException>(leakFailures[0]);
+                Assert.IsFalse(NativeWindowObservation.NativeWindowExists(handle), "The residual HWND must still be destroyed.");
+                TestUiDispatcherHost.AssertNoUnhandledExceptions("after the cleanup consumed both drain failures");
+            }
+            finally
+            {
+                armDestroy = false;
+                if (source is { IsDisposed: false }) { source.Dispose(); }
+                if (firstOperation?.Status == DispatcherOperationStatus.Pending) { firstOperation.Abort(); }
+                if (secondOperation?.Status == DispatcherOperationStatus.Pending) { secondOperation.Abort(); }
+                closingFailureWindow.ReleaseClose = true;
+                foreach (Window window in Application.Current.Windows.Cast<Window>()
+                    .Where(window => ReferenceEquals(window, closingFailureWindow) || window.Title == leakedTitle).ToArray())
+                {
+                    window.Close();
+                }
+            }
+        });
+    }
+
+    private static int IndexOfSame(List<Exception> failures, Exception expected)
+        => failures.FindIndex(failure => ReferenceEquals(failure, expected));
+
+    /// <summary>消化の失敗を、WPFやホストが投げる例外と区別し、参照で照合するためのテスト固有の例外です。</summary>
+    private sealed class DrainRejectedException(string name) : Exception($"drain-rejected-by-test-{name}");
+
     /// <summary>実Windowのロード・配置とHWND取得が済んでもContentRenderedを抑止した場合は待機を成功させないことを確認し、描画通知の代わりに配置完了で判定する誤りを検出します。</summary>
     /// <remarks>短い注入期限はLoaded後の通知欠落だけに適用し、読込みや回収の期限を短縮しません。</remarks>
     [TestMethod]

@@ -290,6 +290,7 @@ internal sealed class TestWindowPresentationScope
     /// <remarks>
     /// 開始済みの機能処理Taskは呼出側が回収します。共有Dispatcher全体のidleは
     /// 閉鎖や処理終端の証明にせず、閉鎖通知とWindow/HWNDの残留を確認します。
+    /// 二つの消化の失敗を元の例外のまま発生順に保持し、残りの検査と回収を続けます。
     /// </remarks>
     internal void Cleanup()
     {
@@ -377,7 +378,7 @@ internal sealed class TestWindowPresentationScope
             registration.Window.Closing -= registration.Closing;
         }
 
-        TestUiDispatcherHost.ProcessQueuedPresentation();
+        ProcessQueuedPresentationKeepingFailure(failures);
 
         // 開始時に未開だった既存親の後発HWNDは、その親を所有する外scopeへ帰属します。
         // 明示追跡した対象は従来どおり当scopeが閉じ、新規/未所属nativeの検査も維持します。
@@ -407,7 +408,7 @@ internal sealed class TestWindowPresentationScope
             }
         }
 
-        TestUiDispatcherHost.ProcessQueuedPresentation();
+        ProcessQueuedPresentationKeepingFailure(failures);
         Window[] leakedWindows = application.Windows.Cast<Window>()
             .Where(window => !baselineWindows.Contains(window))
             .ToArray();
@@ -431,6 +432,19 @@ internal sealed class TestWindowPresentationScope
                 ? failures[0]
                 : new AggregateException("Window presentation cleanup failed.", failures);
         }
+    }
+
+    /// <summary>
+    /// 後片付けの消化の失敗を、元の例外のまま<paramref name="failures"/>へ加えて続行します。
+    /// </summary>
+    /// <remarks>
+    /// 消化が投げる例外（配置の確定の失敗、または記録した未処理例外）で、後続のHWND・Windowの残留検査と登録済みの失敗の報告を
+    /// 失わないために捕捉します。消化が消費した記録は、後片付けの失敗としてだけ報告します。
+    /// </remarks>
+    private static void ProcessQueuedPresentationKeepingFailure(List<Exception> failures)
+    {
+        try { TestUiDispatcherHost.ProcessQueuedPresentation(); }
+        catch (Exception failure) { failures.Add(failure); }
     }
 
     private static void VerifyPresentationPolicy(nint handle)
