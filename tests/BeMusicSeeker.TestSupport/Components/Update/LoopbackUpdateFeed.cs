@@ -68,7 +68,12 @@ internal sealed class LoopbackUpdateFeed : IAsyncDisposable
         {
             while (!stopping.IsCancellationRequested)
             {
-                TcpClient client = await listener.AcceptTcpClientAsync(stopping.Token).ConfigureAwait(false);
+                TcpClient client;
+                // DisposeAsyncはCancelをStopより先に行うが、Acceptはtokenの取消より先にlistenerの非稼働を検査して
+                // InvalidOperationException("Not listening")を同期的に投げうる。停止は必ず取消要求の後なので、
+                // Acceptの呼出しだけを囲み、取消要求済みの場合に限って停止として扱う。
+                try { client = await listener.AcceptTcpClientAsync(stopping.Token).ConfigureAwait(false); }
+                catch (InvalidOperationException) when (stopping.IsCancellationRequested) { break; }
                 Task connection = ServeAsync(client);
                 connections.TryAdd(connection, 0);
                 _ = connection.ContinueWith(done => connections.TryRemove(done, out _), CancellationToken.None,

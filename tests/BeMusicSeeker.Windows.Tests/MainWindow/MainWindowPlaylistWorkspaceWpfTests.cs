@@ -7201,7 +7201,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             {
                 while (!lifetime.IsCancellationRequested)
                 {
-                    using TcpClient client = await listener.AcceptTcpClientAsync(lifetime.Token).ConfigureAwait(false);
+                    // Disposeはlifetimeの取消をStopより先に行うが、Acceptはtokenの取消より先にlistenerの非稼働を検査して
+                    // InvalidOperationException("Not listening")を同期的に投げうる。停止は必ず取消要求の後なので、
+                    // Acceptの呼出しだけを囲み、取消要求済みの場合に限って停止として扱う。
+                    TcpClient accepted;
+                    try { accepted = await listener.AcceptTcpClientAsync(lifetime.Token).ConfigureAwait(false); }
+                    catch (InvalidOperationException) when (lifetime.IsCancellationRequested) { break; }
+                    using TcpClient client = accepted;
                     acceptedClient = client;
                     using NetworkStream stream = client.GetStream();
                     string requestTarget = await ReadRequestTargetAsync(stream, lifetime.Token).ConfigureAwait(false);

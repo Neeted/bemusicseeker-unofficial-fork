@@ -91,7 +91,13 @@ internal sealed class ScenarioStartupFixture : IAsyncDisposable
             """;
         while (true)
         {
-            using TcpClient client = await listener.AcceptTcpClientAsync(stop.Token).ConfigureAwait(false);
+            // DisposeAsyncはCancelをStopより先に行うが、Acceptはtokenの取消より先にlistenerの非稼働を検査して
+            // InvalidOperationException("Not listening")を同期的に投げうる。停止は必ず取消要求の後なので、
+            // Acceptの呼出しだけを囲み、取消要求済みの場合に限って停止として扱う。
+            TcpClient accepted;
+            try { accepted = await listener.AcceptTcpClientAsync(stop.Token).ConfigureAwait(false); }
+            catch (InvalidOperationException) when (stop.IsCancellationRequested) { break; }
+            using TcpClient client = accepted;
             await using NetworkStream stream = client.GetStream();
             using var reader = new StreamReader(stream, Encoding.ASCII, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
             string? requestLine = await reader.ReadLineAsync(stop.Token).ConfigureAwait(false);

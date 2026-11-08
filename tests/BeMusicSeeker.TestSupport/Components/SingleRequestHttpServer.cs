@@ -279,7 +279,8 @@ internal sealed class SingleRequestHttpServer
             var servedTargets = new HashSet<string>(StringComparer.Ordinal);
             for (int index = 0; index < (responses?.Count ?? 1); index++)
             {
-                using TcpClient client = await listener.AcceptTcpClientAsync(stopping.Token).ConfigureAwait(false);
+                using TcpClient? accepted = await AcceptWhileRunningAsync().ConfigureAwait(false);
+                if (accepted is not TcpClient client) { break; }
                 acceptedClient = client;
                 Record("client accepted");
                 using NetworkStream stream = client.GetStream();
@@ -379,6 +380,19 @@ internal sealed class SingleRequestHttpServer
             if (responses != null) { listener.Stop(); }
             Record("server completed");
         }
+    }
+
+    /// <summary>
+    /// 接続を受け付け、停止中ならnullを返します。
+    /// DisposeAsyncはCancelをStopより先に行いますが、AcceptTcpClientAsyncはtokenの取消より先にlistenerの非稼働を検査し、
+    /// InvalidOperationException("Not listening")を同期的に投げることがあります。ループ終了後のfinallyの停止は以後Acceptを呼ばないため競合せず、
+    /// ループ中のAcceptと競合し得る停止はDisposeAsyncの取消要求の後に限られるので、Acceptの呼出しだけを囲み、取消要求済みの場合に限って停止として扱います。
+    /// 取消が要求されていないInvalidOperationExceptionと、応答処理中のInvalidOperationExceptionは故障として残します。
+    /// </summary>
+    private async Task<TcpClient?> AcceptWhileRunningAsync()
+    {
+        try { return await listener.AcceptTcpClientAsync(stopping.Token).ConfigureAwait(false); }
+        catch (InvalidOperationException) when (stopping.IsCancellationRequested) { return null; }
     }
 
     private async Task ObserveClientDisconnectAsync(NetworkStream stream, CancellationToken cancellationToken)
