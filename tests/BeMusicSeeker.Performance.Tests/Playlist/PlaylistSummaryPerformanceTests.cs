@@ -128,7 +128,14 @@ public sealed class PlaylistSummaryPerformanceTests
                 foreach (string message in logs.Where(message => message.StartsWith("playlist_summary_build ", StringComparison.Ordinal)))
                 { TestContext.WriteLine(message); }
             }
-            finally { workspace.StopPlaylistSummaryDataBuild(); await workspace.WaitForPlaylistSummaryDataBuildIdleAsync(); }
+            finally
+            {
+                // 差分キューは単一消費者です。購読を残すと、破棄済みのworkspaceが次の反復の保存結果を先に取り出します。
+                workspace.CancelDetailBuilds();
+                workspace.StopPlaylistSummaryDataBuild();
+                await workspace.WaitForDetailBuildIdleAsync();
+                await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            }
         }
         foreach (KeyValuePair<string, List<double>> sample in samples)
         {
