@@ -204,7 +204,8 @@ internal static class HostObservationLog
 /// 入れ子のモーダルループで止まるテスト本体を戻し、境界へ到達させるためで、閉じても記録は消さず判定は失敗のままです。
 /// 閉鎖は境界の復元と同じ入口の選択（<see cref="HostResidueRestoration.CloseWindow"/>）を使います。検出器の中（SizeChanged）では閉じず、Dispatcherを進めません。
 /// <c>ShowDialog</c>の最初のレイアウトはスレッドがモーダルになる前に起きるため、表示時の<c>thread-modal</c>は<c>no</c>になりえます。
-/// 閉鎖が取り消された、または例外になった場合だけ<c>action=close-failed</c>を記録し、例外は未処理例外へ漏らしません。
+/// 閉鎖が取り消された場合と、閉じる入口がWM_CLOSEを送る前に同期に例外を投げた場合（通常の到達経路のない防御）だけ<c>action=close-failed</c>を記録し、同期に受け取った例外は未処理例外へ漏らしません。
+/// 表示済みのWindowのClosingの処理の例外はWM_CLOSEの配送の中でDispatcherの未処理例外に達してこの呼出しへ返らず、WPFがWindowを閉じて<c>ShowDialog</c>が戻るため、記録しません（ケースの未処理例外として報告されます）。
 /// モーダルでない未準備のWindowは閉じず、境界の復元（E-a）が閉じます。失敗にする判断は境界（<see cref="HostObservationVerdict"/>）が行います。
 /// 検出器自身の失敗は記録して表示を妨げません。
 /// 準備済みのWindowは、モーダルでも記録しません。対象外はWin32のコモンダイアログとネイティブのMessageBox（EmergencyDialog）です。
@@ -253,8 +254,9 @@ internal static class UnpreparedWindowDetector
 
     /// <summary>
     /// スレッドがモーダルの間だけ、未準備のWindowを閉じます。記録の内容に<c>action=close-scheduled</c>を追記します。
-    /// 成功は記録せず（<c>ShowDialog</c>が戻ることで観測します）、取り消された場合と例外になった場合だけ、同じ項目Bで<c>action=close-failed</c>を記録します。
-    /// 例外はDispatcherの未処理例外へ漏らしません。
+    /// 成功は記録せず（<c>ShowDialog</c>が戻ることで観測します）、取り消された場合と、閉じる入口がWM_CLOSEを送る前に同期に例外を投げた場合だけ、同じ項目Bで<c>action=close-failed</c>を記録します。
+    /// 同期に受け取った例外はDispatcherの未処理例外へ漏らしません。
+    /// Closingの処理の例外はWM_CLOSEの配送の中でDispatcherの未処理例外に達し、ここへは返りません。WPFがWindowを閉じるため、成功と同じく記録しません。
     /// </summary>
     private static void CloseIfThreadModal(Window window, HostObservation record)
     {
@@ -270,7 +272,7 @@ internal static class UnpreparedWindowDetector
             HostObservation failed = HostObservationLog.Add(
                 HostObservationVerdict.UnpreparedWindowCategory,
                 $"unprepared modal window could not be closed: type={window.GetType().FullName}, title='{window.Title}', action=close-failed, reason={reason ?? "canceled"}");
-            // 取消・例外で ShowDialog が戻らず停止し、強制終了されても診断が残るよう、記録の行をプロセスの標準エラーへ直接出します。
+            // 取消・同期の例外で ShowDialog が戻らず停止し、強制終了されても診断が残るよう、記録の行をプロセスの標準エラーへ直接出します。
             // MSTestは Console.Error をテストごとのメモリ上のバッファへ振り分けるため、強制終了で失われます。
             // 出力の失敗は判定を変えず、検出器自身の失敗として記録します。
             try { HostObservationLog.WriteRawStandardError(failed.Format()); }

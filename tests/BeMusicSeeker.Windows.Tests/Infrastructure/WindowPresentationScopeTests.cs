@@ -724,6 +724,104 @@ public sealed class WindowPresentationScopeTests
         StringAssert.Contains(failed.Detail, typeof(CancelingModalWindow).FullName ?? throw new AssertFailedException("The type has no full name."));
     }
 
+    /// <summary>
+    /// 閉鎖の処理（OnClosing）で例外を投げる未準備のモーダルを検出器が閉じようとしたとき、その例外が検出器の閉鎖の失敗（close-failed）にならず、
+    /// 投げた例外オブジェクトのまま一件だけ、このケースのDispatcherの未処理例外として記録されることを確認します。
+    /// WPFがWindowを閉じて、見張りの救済もテストの解除もなしにShowDialogが戻り、自分のBは閉鎖の予約（close-scheduled）付きの一件だけで、X-detectorが0件であることも確認します。
+    /// 記録と未処理例外は、ShowDialogが戻った直後、テストが例外を解除する前に受け取ります。
+    /// 例外を横取り・握りつぶす実装、別の例外へ包む・置き換える実装、二重に記録する実装、閉じたWindowにclose-failedを記録する実装、
+    /// 例外をX-detectorにする実装、閉鎖を試みない実装、モーダルのまま停止させる・Windowを残す実装を検出します。
+    /// </summary>
+    /// <remarks>
+    /// 表示済みのWindowのCloseはWM_CLOSEを同期に送り、その配送の中でOnClosingを呼ぶため、例外はDispatcherの未処理例外に達し、検出器の呼出しへは返りません。
+    /// この実モーダル固有の経路は、未表示のWindowの同期の例外を扱う
+    /// DispatcherHostTests.Restore_ContinuesAfterCancelledOrThrowingClose_AndKeepsTheOriginalException では代用できません。
+    /// close-failedを記録する取消の経路は UnpreparedModalWindow_CancelledClose_IsRecordedAsFailure が担います。
+    /// </remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void UnpreparedModalWindow_ClosingException_IsRecordedAsUnhandledExceptionAndWindowCloses()
+    {
+        const string title = "closing-exception-modal-marker";
+        string explanation = "(no snapshot)";
+        IReadOnlyList<HostObservation> ownRecords = [];
+        IReadOnlyList<HostObservation> detectorFailures = [];
+        IReadOnlyList<Exception> unhandled = [];
+        IReadOnlyList<ClosingRejectedException> thrown = [];
+        bool rescued = false;
+        Exception? showDialogFailure = null;
+        bool listedAtCapture = true;
+
+        TestUiDispatcherHost.RunWindowTest(_ =>
+        {
+            var window = new ThrowingClosingModalWindow { Title = title };
+            PlaceOffscreen(window);
+
+            void Release()
+            {
+                window.ReleaseClose = true;
+                if (IsListed(window)) { window.Close(); }
+            }
+
+            (Func<bool> wasRescued, Action stop) = StartRescueWatchdog(window, Release);
+            try { window.ShowDialog(); }
+            catch (Exception ex) { showDialogFailure = ex; }
+            finally
+            {
+                try
+                {
+                    stop();
+                    rescued = wasRescued();
+                    listedAtCapture = IsListed(window);
+                    thrown = [.. window.Thrown];
+                    ownRecords = HostObservationLog.TakeCurrentCase("B", record => record.Detail.Contains($"title='{title}'"));
+                    detectorFailures = HostObservationLog.TakeCurrentCase("X-detector");
+                    unhandled = TestUiDispatcherHost.TakeUnhandledExceptions();
+                    explanation = string.Join(
+                        Environment.NewLine,
+                        $"path={(rescued ? "after-rescue" : "self-returned")} listedAtCapture={listedAtCapture} thrownCount={thrown.Count}",
+                        "B: " + string.Join(" / ", ownRecords.Select(record => record.Format())),
+                        "X-detector: " + string.Join(" / ", detectorFailures.Select(record => record.Format())),
+                        "unhandled: " + string.Join(Environment.NewLine, unhandled.Select(ex => ex.ToString())));
+                }
+                finally { Release(); }
+            }
+        });
+
+        string context = $"{explanation}{Environment.NewLine}rescued={rescued} showDialogFailure={showDialogFailure}";
+        Assert.IsFalse(rescued, "The modal window must close and return without the test's rescue. " + context);
+        Assert.IsNull(showDialogFailure, context);
+        Assert.IsEmpty(detectorFailures, context);
+        Assert.IsNotEmpty(thrown, "The detector never attempted to close the window. " + context);
+        Assert.HasCount(1, unhandled, context);
+        Assert.AreSame(thrown[0], unhandled[0], context);
+        Assert.HasCount(1, ownRecords, context);
+        StringAssert.Contains(ownRecords[0].Detail, "action=close-scheduled", context);
+        Assert.IsFalse(ownRecords[0].Detail.Contains("action=close-failed"), context);
+        Assert.IsFalse(listedAtCapture, context);
+        TestUiDispatcherHost.AssertNoUnhandledExceptions("after the closing-exception modal returned");
+    }
+
+    /// <summary>閉鎖の処理を、<c>ReleaseClose</c>が真になるまでテスト固有の例外で失敗させるテスト用Windowです。投げた例外を順に<c>Thrown</c>へ保持します。</summary>
+    private sealed class ThrowingClosingModalWindow : Window
+    {
+        internal bool ReleaseClose { get; set; }
+
+        internal List<ClosingRejectedException> Thrown { get; } = [];
+
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            base.OnClosing(e);
+            if (ReleaseClose) { return; }
+            var thrown = new ClosingRejectedException();
+            Thrown.Add(thrown);
+            throw thrown;
+        }
+    }
+
+    /// <summary>閉鎖の処理の例外を、WPFやホストが投げる例外と区別し、参照で照合するためのテスト固有の例外です。</summary>
+    private sealed class ClosingRejectedException() : Exception("closing-rejected-by-test-window");
+
     /// <summary>閉鎖を<c>AllowClose</c>が真になるまで取り消すテスト用Windowです。</summary>
     private sealed class CancelingModalWindow : Window
     {
