@@ -8,10 +8,12 @@ namespace BeMusicSeeker.Tests;
 public sealed class UpdateAvailableDialogViewModelTests
 {
     /// <summary>
-    /// メタデータ同梱版が先の入力でも通常版を初期選択し、入力配列順によって意図しない同梱資産を取得対象にする誤りを検出する。
+    /// 配信側が並べた順を保って先頭を初期選択し、名前と説明を同梱の有無から選ぶ。
+    /// 入力順はファイル名順・同梱の有無の順のどちらとも異なるため、アプリ側でそれらの基準により並べ替えて
+    /// 配信側の推奨と異なる資産を初期選択する誤りと、同梱版を通常版として表示する誤りを検出する。
     /// </summary>
     [TestMethod]
-    public void Constructor_SelectsAppPackageEvenWhenMetadataAssetComesFirst()
+    public void Constructor_KeepsManifestOrderAndLabelsByMetadataFlag()
     {
         var result = UpdateCheckResult.Available(
             new Version(2, 2, 0, 0),
@@ -20,22 +22,26 @@ public sealed class UpdateAvailableDialogViewModelTests
             [
                 new UpdateAssetInfo
                 {
-                    Kind = "app-with-metadata",
-                    Label = "App with metadata bundle",
-                    FileName = "bemusicseeker-unofficial-fork-v2.2.0.0-with-metadata.zip",
-                    Url = "https://example.test/with-metadata.zip",
+                    FileName = "b-app.zip",
+                    Url = "https://example.test/b-app.zip",
+                    Sha256 = new string('a', 64),
+                    SizeBytes = 1,
+                    IncludesChartInfoMetadata = false
+                },
+                new UpdateAssetInfo
+                {
+                    FileName = "a-with-metadata.zip",
+                    Url = "https://example.test/a-with-metadata.zip",
                     Sha256 = new string('b', 64),
                     SizeBytes = 2,
                     IncludesChartInfoMetadata = true
                 },
                 new UpdateAssetInfo
                 {
-                    Kind = "app",
-                    Label = "App only",
-                    FileName = "bemusicseeker-unofficial-fork-v2.2.0.0.zip",
-                    Url = "https://example.test/app.zip",
-                    Sha256 = new string('a', 64),
-                    SizeBytes = 1,
+                    FileName = "c-app.zip",
+                    Url = "https://example.test/c-app.zip",
+                    Sha256 = new string('c', 64),
+                    SizeBytes = 3,
                     IncludesChartInfoMetadata = false
                 }
             ],
@@ -44,9 +50,14 @@ public sealed class UpdateAvailableDialogViewModelTests
         using var progressHub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
         using var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
 
-        Assert.AreEqual(2, viewModel.Packages.Count);
-        Assert.AreEqual("app", viewModel.Packages[0].Asset.Kind);
-        Assert.AreEqual("app", viewModel.SelectedAsset.Kind);
+        CollectionAssert.AreEqual(
+            new[] { "b-app.zip", "a-with-metadata.zip", "c-app.zip" },
+            viewModel.Packages.Select(package => package.FileName).ToArray());
+        Assert.AreEqual("b-app.zip", viewModel.SelectedAsset.FileName);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.UpdateDialog_PackageAppOnly, viewModel.Packages[0].DisplayLabel);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.UpdateDialog_PackageAppOnlyDescription, viewModel.Packages[0].Description);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.UpdateDialog_PackageWithMetadata, viewModel.Packages[1].DisplayLabel);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.UpdateDialog_PackageWithMetadataDescription, viewModel.Packages[1].Description);
     }
 
     /// <summary>
@@ -61,8 +72,6 @@ public sealed class UpdateAvailableDialogViewModelTests
             "2.2.0.0",
             [new UpdateAssetInfo
             {
-                Kind = "app",
-                Label = "App only",
                 FileName = "app.zip",
                 Url = "https://example.test/app.zip",
                 Sha256 = new string('a', 64),

@@ -323,7 +323,7 @@ public sealed class DialogPresentationTests
                 UpdateCheckResult.Available(new Version(2, 2, 0, 0), "2.1.0.0", "2.2.0.0",
                     [new UpdateAssetInfo
                     {
-                        Kind = "app", Label = "App", FileName = "app.zip", Url = "https://example.test/app.zip",
+                        FileName = "app.zip", Url = "https://example.test/app.zip",
                         Sha256 = new string('a', 64), SizeBytes = 1
                     }], releaseUrl), shell, dialogs);
             Task? terminal = null;

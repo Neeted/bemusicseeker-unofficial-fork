@@ -19,7 +19,7 @@ public sealed class UpdateCheckServiceTests
     }
 
     /// <summary>
-    /// 異文化でも空白・符号付きprotocolを含む公開manifestを受理し、通常版と同梱版の版・資産種別を保持する。
+    /// 異文化でも空白・符号付きprotocolを含む公開manifestを受理し、通常版と同梱版の版・並び順・同梱の有無を保持する。
     /// </summary>
     [TestMethod]
     [DoNotParallelize]
@@ -70,10 +70,11 @@ public sealed class UpdateCheckServiceTests
             UpdateManifest manifest = UpdateCheckService.ParseManifest(json);
 
             Assert.AreEqual("2.1.0.0", manifest.VersionText);
-            Assert.AreEqual(" +1 ", manifest.MinimumUpdaterVersion);
             Assert.AreEqual(2, manifest.Assets.Count);
-            Assert.AreEqual("app", manifest.Assets[0].Kind);
-            Assert.AreEqual("app-with-metadata", manifest.Assets[1].Kind);
+            Assert.AreEqual("bemusicseeker-unofficial-fork-v2.1.0.0.zip", manifest.Assets[0].FileName);
+            Assert.IsFalse(manifest.Assets[0].IncludesChartInfoMetadata);
+            Assert.AreEqual("bemusicseeker-unofficial-fork-v2.1.0.0-with-metadata.zip", manifest.Assets[1].FileName);
+            Assert.IsTrue(manifest.Assets[1].IncludesChartInfoMetadata);
         }
         finally
         {
@@ -82,26 +83,30 @@ public sealed class UpdateCheckServiceTests
     }
 
     /// <summary>
-    /// メタデータ同梱版だけのmanifestは失敗とし、必須の通常版資産なしで更新可能と判断する誤りを検出する。
+    /// 同梱版だけを旧版互換の kind=app で配信するmanifestを受理し、kindではなく同梱の有無で資産を扱う。
+    /// 通常版の資産がないことや kind の値で同梱版の配信を拒否・誤分類する誤りを検出する。
     /// </summary>
     [TestMethod]
-    public void ParseManifest_RejectsMissingAppAsset()
+    [DataRow("app")]
+    [DataRow("app-with-metadata")]
+    [DataRow("future-kind")]
+    public void ParseManifest_AcceptsMetadataBundleOnlyRegardlessOfKind(string kind)
     {
-        string json = """
+        string json = $$"""
             {
               "schemaVersion": 1,
-              "version": "2.1.0.0",
-              "releaseTag": "v2.1.0.0",
-              "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v2.1.0.0",
+              "version": "3.2.0.0",
+              "releaseTag": "v3.2.0.0",
+              "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v3.2.0.0",
               "packageFormatVersion": 1,
-              "publishedAt": "2026-06-22T00:00:00Z",
+              "publishedAt": "2026-11-09T00:00:00Z",
               "minimumUpdaterVersion": "1",
               "assets": [
                 {
-                  "kind": "app-with-metadata",
-                  "label": "譜面解析済みメタデータ同梱版",
-                  "fileName": "bemusicseeker-unofficial-fork-v2.1.0.0-with-metadata.zip",
-                  "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v2.1.0.0/bemusicseeker-unofficial-fork-v2.1.0.0-with-metadata.zip",
+                  "kind": "{{kind}}",
+                  "label": "App with metadata bundle",
+                  "fileName": "bemusicseeker-unofficial-fork-v3.2.0.0-with-metadata.zip",
+                  "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v3.2.0.0/bemusicseeker-unofficial-fork-v3.2.0.0-with-metadata.zip",
                   "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
                   "sizeBytes": 456,
                   "includesChartInfoMetadata": true
@@ -110,7 +115,42 @@ public sealed class UpdateCheckServiceTests
             }
             """;
 
-        Assert.ThrowsExactly<UpdateManifestValidationException>(() => UpdateCheckService.ParseManifest(json));
+        UpdateManifest manifest = UpdateCheckService.ParseManifest(json);
+
+        Assert.AreEqual(1, manifest.Assets.Count);
+        Assert.IsTrue(manifest.Assets[0].IncludesChartInfoMetadata);
+        Assert.AreEqual("bemusicseeker-unofficial-fork-v3.2.0.0-with-metadata.zip", manifest.Assets[0].FileName);
+    }
+
+    /// <summary>
+    /// 旧版互換のために出力する項目（kind・label・releaseTag）、配信側の記録（publishedAt）、省略時は現行値とみなす
+    /// 互換性の目印（schemaVersion・packageFormatVersion・minimumUpdaterVersion）がないmanifestを受理する。
+    /// 更新判断に使わない項目を必須にして、将来の配信形式の整理を妨げる誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void ParseManifest_RequiresOnlyValuesUsedForUpdate()
+    {
+        string json = """
+            {
+              "version": "3.2.0.0",
+              "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v3.2.0.0",
+              "assets": [
+                {
+                  "fileName": "app.zip",
+                  "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v3.2.0.0/app.zip",
+                  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "sizeBytes": 123,
+                  "includesChartInfoMetadata": false
+                }
+              ]
+            }
+            """;
+
+        UpdateManifest manifest = UpdateCheckService.ParseManifest(json);
+
+        Assert.AreEqual(new Version(3, 2, 0, 0), manifest.Version);
+        Assert.AreEqual("https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v3.2.0.0", manifest.ReleasePageUrl);
+        Assert.AreEqual("app.zip", manifest.Assets.Single().FileName);
     }
 
     /// <summary>
@@ -192,8 +232,6 @@ public sealed class UpdateCheckServiceTests
         UpdateManifest manifest = UpdateCheckService.ParseManifest(CreateManifestWithInteger("sizeBytes", "9223372036854775807"));
 
         Assert.AreEqual(long.MaxValue, manifest.Assets[0].SizeBytes);
-        Assert.AreEqual(1, manifest.SchemaVersion);
-        Assert.AreEqual(1, manifest.PackageFormatVersion);
     }
 
     private static string CreateManifestWithInteger(string field, string value)

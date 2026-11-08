@@ -896,8 +896,6 @@ public sealed class StartupUpdateWorkflowOwnerTests
             "2.0.0.0",
             [new UpdateAssetInfo
             {
-                Kind = "app",
-                Label = "App",
                 FileName = "app.zip",
                 Url = "https://example.test/app.zip",
                 Sha256 = new string('a', 64),

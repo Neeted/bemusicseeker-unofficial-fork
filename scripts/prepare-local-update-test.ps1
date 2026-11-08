@@ -6,6 +6,9 @@
     既存の release zip をローカル HTTP 配信用ディレクトリへコピーし、現在のアプリより大きい
     検証用 version を持つ update.json を生成します。
 
+    -MetadataBundleOnly を付けると、release.ps1 の同名指定と同じくメタデータ同梱版だけを
+    更新情報へ載せます。
+
     -StartServer を付けると 127.0.0.1 で Python http.server を起動し、manifest URL を表示します。
     終了するときは -StopServer を使います。
 #>
@@ -15,6 +18,7 @@ param(
     [string]$PackagePath,
     [string]$MetadataPackagePath,
     [string]$OutputDir = "artifacts\local-update-test",
+    [switch]$MetadataBundleOnly,
     [switch]$StartServer,
     [switch]$StopServer
 )
@@ -49,27 +53,18 @@ function Resolve-PackagePath($path, $defaultName, $requiredMessage) {
     return [System.IO.Path]::GetFullPath($defaultPath)
 }
 
-function New-ManifestAsset($kind, $label, $localPackageName, $localPackagePath, $includesChartInfoMetadata, $baseUrl) {
+function New-ManifestAsset($index, $localPackageName, $localPackagePath, $includesChartInfoMetadata, $baseUrl) {
     $asset = Get-Item $localPackagePath
+    # kind は release.ps1 と同じく、v3.1.0.0 以前のアプリ向けの並び順の目印です。
     return [PSCustomObject]@{
-        kind = $kind
-        label = $label
+        kind = if ($index -eq 0) { "app" } else { "app-with-metadata" }
+        label = if ($includesChartInfoMetadata) { "App with metadata bundle" } else { "App only" }
         fileName = $localPackageName
         url = "$baseUrl/$localPackageName"
         sha256 = (Get-FileHash -Path $asset.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
         sizeBytes = $asset.Length
         includesChartInfoMetadata = $includesChartInfoMetadata
     }
-}
-
-function Get-UpdateAssetKindPriority($kind) {
-    if ($kind -eq "app") { return 0 }
-    if ($kind -eq "app-with-metadata") { return 1 }
-    return 99
-}
-
-function Sort-UpdateManifestAssets($assets) {
-    return ,@($assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority $_.kind } }, fileName)
 }
 
 function Stop-ExistingServer($pidPath) {
@@ -114,7 +109,7 @@ $sourcePackagePath = Resolve-PackagePath `
 $sourceMetadataPackagePath = Resolve-PackagePath `
     $MetadataPackagePath `
     "bemusicseeker-unofficial-fork-v$currentVersion-with-metadata.zip" `
-    $null
+    $(if ($MetadataBundleOnly) { "-MetadataBundleOnly にはメタデータ同梱版 package が必要です" } else { $null })
 
 $localPackageName = "bemusicseeker-local-update-test.zip"
 $localPackagePath = Join-Path $resolvedOutputDir $localPackageName
@@ -130,9 +125,11 @@ if ($sourceMetadataPackagePath -ne $null) {
 $tag = "v$Version"
 $baseUrl = "http://127.0.0.1:$Port"
 $manifestAssets = @()
-$manifestAssets += New-ManifestAsset "app" "App only" $localPackageName $localPackagePath $false $baseUrl
+if (-not $MetadataBundleOnly) {
+    $manifestAssets += New-ManifestAsset $manifestAssets.Count $localPackageName $localPackagePath $false $baseUrl
+}
 if ($localMetadataPackagePath -ne $null) {
-    $manifestAssets += New-ManifestAsset "app-with-metadata" "App with metadata bundle" $localMetadataPackageName $localMetadataPackagePath $true $baseUrl
+    $manifestAssets += New-ManifestAsset $manifestAssets.Count $localMetadataPackageName $localMetadataPackagePath $true $baseUrl
 }
 
 $manifest = [PSCustomObject]@{
@@ -143,7 +140,7 @@ $manifest = [PSCustomObject]@{
     packageFormatVersion = 1
     publishedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     minimumUpdaterVersion = "1"
-    assets = (Sort-UpdateManifestAssets $manifestAssets)
+    assets = $manifestAssets
 }
 
 $manifestPath = Join-Path $resolvedOutputDir "update.json"

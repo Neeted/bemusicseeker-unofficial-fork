@@ -59,6 +59,73 @@ public sealed class ReleaseScriptVersionSourceTests
     }
 
     /// <summary>
+    /// 同梱版のみの指定では、full合格済みの同梱版だけをRelease資産とmanifestへ載せ、旧版が要求する先頭のkind=appを同梱版へ付ける。
+    /// 通常版を公開・配信する誤り、旧版が拒否するmanifestを生成する誤り、同じ指定のない公開で配信集合の不一致を見逃す誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>
+    [TestMethod]
+    public async Task MetadataBundleOnlyPublishesOnlyBundleAsLegacyAppAsset()
+    {
+        await RunCaseAsync(true, false, async fixture =>
+        {
+            string metadataName = Path.GetFileName(fixture.MetadataPackagePath);
+            string normalName = Path.GetFileName(fixture.NormalPackagePath);
+            fixture.WriteRemoteAssetsJson(JsonSerializer.Serialize(new[]
+            {
+                new { name = metadataName, size = new FileInfo(fixture.MetadataPackagePath).Length }
+            }));
+
+            ProcessResult created = await fixture.RunReleaseAsync("-CreateDraft", "-MetadataBundleOnly");
+
+            AssertSuccess(created);
+            using (var manifest = JsonDocument.Parse(File.ReadAllText(fixture.UpdateManifestPath)))
+            {
+                // v3.1.0.0以前のアプリが必須とする項目を、現行アプリが要求しなくなっても出力し続けることを確かめます。
+                JsonElement root = manifest.RootElement;
+                Assert.AreEqual(1, root.GetProperty("schemaVersion").GetInt32());
+                Assert.AreEqual(Tag, root.GetProperty("releaseTag").GetString());
+                Assert.AreEqual(1, root.GetProperty("packageFormatVersion").GetInt32());
+                Assert.AreEqual("1", root.GetProperty("minimumUpdaterVersion").GetString());
+                JsonElement assets = root.GetProperty("assets");
+                Assert.AreEqual(1, assets.GetArrayLength());
+                AssertManifestAsset(assets[0], fixture.MetadataPackagePath, "app", true);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(assets[0].GetProperty("label").GetString()));
+            }
+            string createCommand = fixture.GhLogLines().Single(line => line.StartsWith("release create ", StringComparison.Ordinal));
+            StringAssert.Contains(createCommand, metadataName);
+            Assert.IsFalse(createCommand.Contains(normalName, StringComparison.Ordinal), createCommand);
+
+            ProcessResult withoutOption = await fixture.RunReleaseAsync("-PublishDraft");
+
+            AssertFailure(withoutOption);
+            Assert.IsFalse(fixture.GhLogLines().Any(line => line.Contains("--draft=false", StringComparison.Ordinal)));
+
+            ProcessResult published = await fixture.RunReleaseAsync("-PublishDraft", "-MetadataBundleOnly");
+
+            AssertSuccess(published);
+            Assert.AreEqual(await fixture.HeadCommitAsync(), await fixture.RemoteMainCommitAsync());
+        });
+    }
+
+    /// <summary>
+    /// 同梱版のみの指定で候補に同梱版がない入力はdraft生成を拒否し、通常版の公開へ黙って切り替える誤りを検出する。
+    /// </summary>
+    /// <remarks>一時領域の実git履歴とremoteを実スクリプトへ渡す。gh/文書生成は局所fixtureに差し替える。</remarks>
+    [TestMethod]
+    public async Task MetadataBundleOnlyRequiresMetadataCandidate()
+    {
+        await RunCaseAsync(false, false, async fixture =>
+        {
+            ProcessResult result = await fixture.RunReleaseAsync("-CreateDraft", "-MetadataBundleOnly");
+
+            AssertFailure(result);
+            Assert.IsNull(await fixture.LocalTagCommitAsync(Tag));
+            Assert.AreEqual(fixture.InitialHead, await fixture.HeadCommitAsync());
+            Assert.AreEqual(0, fixture.GhLogLines().Count(line => line.StartsWith("release ", StringComparison.Ordinal)), result.CombinedOutput);
+        });
+    }
+
+    /// <summary>
     /// 互換versionファイルと任意metadataプロパティがない通常packageだけの入力でdraftを作成し、不要な入力を必須にする誤りを検出する。
     /// </summary>
     /// <remarks>一時領域の実git履歴とremoteを実スクリプトで操作する。gh/文書生成だけを局所fixtureへ差し替え、外部公開せずtag・commit・配信順の保証を保つ。</remarks>

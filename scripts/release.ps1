@@ -14,11 +14,16 @@
 
     -CreatePrereleaseDraft は dev の HEAD に明示した preview tag を付け、main と追跡中の
     配布情報を変更せずに prerelease draft を作成します。
+
+    -MetadataBundleOnly は、full で検証した候補のうちメタデータ同梱版だけを Release 資産と
+    update.json へ載せます。通常版は検証用に候補へ残し、公開しません。同じ版の全モードで
+    同じ指定を使います。
 #>
 param(
     [switch]$CreateDraft,
     [switch]$CreatePrereleaseDraft,
     [switch]$PublishDraft,
+    [switch]$MetadataBundleOnly,
     [string]$PreviewSuffix = "preview.1",
     [string]$DistributionCatalog,
     [string]$FullSummary
@@ -131,20 +136,6 @@ function Assert-WorkingTreeClean {
     }
 }
 
-function Get-UpdateAssetKindPriority {
-    param([Parameter(Mandatory)][string]$Kind)
-
-    if ($Kind -eq "app") { return 0 }
-    if ($Kind -eq "app-with-metadata") { return 1 }
-    return 99
-}
-
-function Sort-UpdateManifestAssets {
-    param([Parameter(Mandatory)][object[]]$Assets)
-
-    return ,@($Assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority ([string]$_.kind) } }, fileName)
-}
-
 function Get-ReleaseContext {
     $version = Get-ApplicationVersion -RepositoryRoot $root
     $tag = "v$version"
@@ -176,7 +167,7 @@ function Get-ReleaseContext {
     if ($null -ne $metadataProperty -and $null -ne $metadataProperty.Value) { $candidates += $metadataProperty.Value }
     $verified = @($summary.releaseArtifacts)
     if ($verified.Count -ne $candidates.Count) { throw "full summary の公開 ZIP 集合が候補と一致しません。" }
-    $releaseAssets = @()
+    $verifiedAssets = @()
     for ($index = 0; $index -lt $candidates.Count; $index++) {
         $candidate = $candidates[$index]
         $packagePath = [string]$candidate.packagePath
@@ -198,7 +189,17 @@ function Get-ReleaseContext {
         })
         if ($matches.Count -ne 1) { throw "公開候補の ZIP が full 合格時の実体と一致しません: $packagePath" }
         Assert-PortableReleasePackageLayout $asset.FullName
-        $releaseAssets += $asset
+        $verifiedAssets += $asset
+    }
+
+    # full は候補全体を検証し、公開する資産はその部分集合から選びます。
+    # 同梱版だけを公開しても、通常版は同梱版の内容一致を確かめる検証の基準として候補に残ります。
+    if ($MetadataBundleOnly) {
+        if ($verifiedAssets.Count -lt 2) { throw "-MetadataBundleOnly には catalog の CurrentWithMetadata が必要です。" }
+        $releaseAssets = @($verifiedAssets[1])
+    }
+    else {
+        $releaseAssets = @($verifiedAssets)
     }
 
     return [PSCustomObject]@{
@@ -226,24 +227,28 @@ function Get-ReleaseAssetMetadata {
     param(
         [Parameter(Mandatory)]$Asset,
         [Parameter(Mandatory)]$Context,
-        [Parameter(Mandatory)][string]$Tag
+        [Parameter(Mandatory)][string]$Tag,
+        [Parameter(Mandatory)][int]$Index
     )
 
     $normalName = "bemusicseeker-unofficial-fork-$($Context.Tag).zip"
     $metadataName = "bemusicseeker-unofficial-fork-$($Context.Tag)-with-metadata.zip"
     if ($Asset.Name -eq $normalName) {
-        $kind = "app"
         $label = "App only"
         $includesMetadata = $false
     }
     elseif ($Asset.Name -eq $metadataName) {
-        $kind = "app-with-metadata"
         $label = "App with metadata bundle"
         $includesMetadata = $true
     }
     else {
         throw "自動アップデート manifest に含められない asset 名です: $($Asset.Name)"
     }
+    # kind は v3.1.0.0 以前のアプリとの互換だけに使う並び順の目印です。旧版は app の資産を必須として
+    # 先頭・初期選択に表示し、kind を表示名にだけ使います。更新ツールは ZIP の中身でメタデータを扱います。
+    # 中身の種類は includesChartInfoMetadata が表し、v3.2.0.0 以降のアプリは kind を読みません。
+    if ($Index -gt 1) { throw "update.json に載せられる資産は2件までです。" }
+    $kind = if ($Index -eq 0) { "app" } else { "app-with-metadata" }
 
     return [PSCustomObject]@{
         kind = $kind
@@ -301,10 +306,10 @@ function New-UpdateManifest {
         [Parameter(Mandatory)][string]$Tag
     )
 
-    $metadata = @($Context.ReleaseAssets | ForEach-Object { Get-ReleaseAssetMetadata $_ $Context $Tag })
-    if (-not ($metadata | Where-Object { $_.kind -eq "app" })) {
-        throw "通常版パッケージが見つかりません。update.json には本体のみ asset が必要です。"
-    }
+    $releaseAssets = @($Context.ReleaseAssets)
+    $metadata = @(for ($index = 0; $index -lt $releaseAssets.Count; $index++) {
+        Get-ReleaseAssetMetadata $releaseAssets[$index] $Context $Tag $index
+    })
 
     $manifestPath = Join-Path $root "update.json"
     $publishedAt = Get-ExistingManifestPublishedAt $manifestPath $Context.Version $Tag
@@ -320,7 +325,7 @@ function New-UpdateManifest {
         packageFormatVersion = 1
         publishedAt = $publishedAt
         minimumUpdaterVersion = "1"
-        assets = (Sort-UpdateManifestAssets $metadata)
+        assets = $metadata
     }
 }
 
@@ -563,8 +568,9 @@ function Assert-UpdateManifestMatchesLocal {
         throw "update.json の publishedAt が空です。"
     }
 
-    $actualAssets = @($actual.assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority ([string]$_.kind) } }, fileName)
-    $expectedAssets = @($expected.assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority ([string]$_.kind) } }, fileName)
+    # 先頭の資産をアプリが初期選択するため、並び順も照合します。
+    $actualAssets = @($actual.assets)
+    $expectedAssets = @($expected.assets)
     if ($actualAssets.Count -ne $expectedAssets.Count) {
         throw "update.json の asset 数が local zip と一致しません。"
     }

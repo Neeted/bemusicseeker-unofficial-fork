@@ -170,11 +170,13 @@ pwsh -NoProfile -File scripts/release.ps1 -CreateDraft -DistributionCatalog "$ca
 
 ### 下書きと公開
 
-[release.ps1](../../../scripts/release.ps1) は、明示した配布候補の目録のCurrentと任意のメタデータ同梱版、合格した `full` のsummary、版別のリリースノートを使います。すべてのモードで `-DistributionCatalog` と `-FullSummary` に絶対パスが必要です。候補・summary・ZIPの公開集合が一致しない場合は公開準備に進みません。正式版の準備・公開は、作業ツリーがクリーンな `main` 上で実行します。
+[release.ps1](../../../scripts/release.ps1) は、明示した配布候補の目録のCurrentと任意のメタデータ同梱版、合格した `full` のsummary、版別のリリースノートを使います。すべてのモードで `-DistributionCatalog` と `-FullSummary` に絶対パスが必要です。候補・summary・ZIPの集合が一致しない場合は公開準備に進みません。正式版の準備・公開は、作業ツリーがクリーンな `main` 上で実行します。
+
+既定では候補の全ZIPをRelease資産と `update.json` に載せます。`-MetadataBundleOnly` を指定すると、`full` で検証した候補のうちメタデータ同梱版だけを載せます。メタデータの更新で利用者の手元の再解析を減らしたい版などに使います。通常版は同梱版の内容一致を確かめる基準として候補に残り、公開しません。同じ版の `-CreateDraft` と `-PublishDraft` には同じ指定を使い、指定が食い違う場合は公開メタデータや資産の照合で停止します。`update.json` の資産の `kind` は、[v3.1.0.0以前のアプリとの互換](../integration/portable-update.md#v3100以前のアプリとの互換)のため並び順で付けます。
 
 | 操作 | 処理と照合 |
 | --- | --- |
-| `-CreateDraft` | 通常版ZIPを必須として公開メタデータとPages HTMLを生成し、生成物だけをコミットする。HEADへ正式タグを付け、タグだけを送信して下書きを作成・照合する。 |
+| `-CreateDraft` | 公開するZIPから公開メタデータとPages HTMLを生成し、生成物だけをコミットする。HEADへ正式タグを付け、タグだけを送信して下書きを作成・照合する。 |
 | `-PublishDraft` | HEADとローカル・リモートタグ、公開メタデータとローカルZIPの版・名前・サイズ・SHA-256、リモート資産の名前・サイズ・集合を照合する。公開mainがHEADの祖先であることを確認し、Release公開、mainへの通常送信、リモートブランチとの一致確認の順に進める。 |
 
 下書きのタイトル・本文はGitHub上で編集できます。確認した内容で公開し、`main` を `dev` へマージして生成物・修正を引き継ぎます。

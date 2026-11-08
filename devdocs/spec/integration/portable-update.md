@@ -14,7 +14,7 @@ ZIP配布のポータブル運用を維持したまま、更新確認・検証�
 
 更新情報の正本は次の `update.json` です。取得失敗、時間切れ、JSON不正、版の不一致、資産の検証失敗を、別形式の更新情報へ切り替えて隠しません。
 
-JSON解析と整数トークンの範囲外変換だけを `UpdateManifestValidationException` へ変換し、元のJSON例外・`OverflowException` を、取得・検証の管理主体が診断に使えるよう保持します。内部故障・資源不足をマニフェスト不正へ包装しません。ハッシュ、資産形式、HTTP URL、版と更新ツールプロトコルの検証は維持します。
+JSON解析と整数トークンの範囲外変換だけを `UpdateManifestValidationException` へ変換し、元のJSON例外・`OverflowException` を、取得・検証の管理主体が診断に使えるよう保持します。内部故障・資源不足をマニフェスト不正へ包装しません。版、HTTP URL、資産のハッシュ・サイズは常に検証し、形式と更新ツールプロトコルの版は記載された場合に検証します。
 
 `minimumUpdaterVersion` と更新要求・監視要求のPIDは、既存の整数文法をInvariantで解析します。protocolの標準出力・ready内容、PIDの引数・marker、更新情報URLの時刻整数も地域に依存しない整数表現を使います。protocol値、PIDの正数条件、既存7組の引数の値、既存オプションの失敗条件は変えません（新しい `--restart-arguments-json` の拒否条件は[引数と境界](#引数と境界)に従います）。引数はアプリ側が `ArgumentList` で1つずつ渡すため、コマンドライン上の引用の形ではなく、更新ツールが受け取る引数の値で契約します。
 
@@ -24,23 +24,31 @@ https://raw.githubusercontent.com/Neeted/bemusicseeker-unofficial-fork/main/upda
 
 同じ `main` のルートにある `version.txt` は、v2.1.0.0より前のアプリが更新通知に使う互換資源として `2.1.6.0` に固定します。現行アプリは読み取らず、リリース時にも生成・更新しません。`update.json` の代替や現行版の正本には使いません。
 
+アプリが必須とするのは、更新の判断と取得に使う値だけです。
+
 | フィールド | 契約 |
 | --- | --- |
-| `schemaVersion` / `packageFormatVersion` | いずれも1に対応する。`Int32`内の非対応版は既存の意味検証で拒否し、`Int32`範囲外は原因を保持する変換失敗とする。 |
-| `version` / `releaseTag` | 更新先の版と `v{version}`。 |
-| `releasePageUrl` | GitHub Releaseのページ。 |
-| `minimumUpdaterVersion` | 更新ツールのプロトコル版。対応版は1。 |
-| `assets` | 1件以上。通常版の `kind=app` を必須とし、メタデータ同梱版 `app-with-metadata` より先に並べる。 |
+| `version` | 必須。更新先の版。 |
+| `releasePageUrl` | 必須。GitHub Releaseのページ。 |
+| `assets` | 必須。1件以上。配信側が推奨する順に並べ、アプリは並べ替えずに先頭を初期選択する。 |
+| `schemaVersion` / `packageFormatVersion` | 任意。省略時は1とみなし、記載された場合だけ1以外を拒否する。`Int32`範囲外は原因を保持する変換失敗とする。 |
+| `minimumUpdaterVersion` | 任意。更新ツールのプロトコル版で、記載された場合だけ対応版1を超える値を拒否する。 |
 
-各資産は `fileName`、`url`、`sha256`、`sizeBytes`、`includesChartInfoMetadata` を持ちます。`sizeBytes` は正の`Int64`を受理し、`long.MaxValue` も有効です。`Int64`範囲外だけを型付き変換失敗とし、非正数の意味検証を維持します。新たな入力上限は設けません。`label` は識別用の英語で、画面の名前と説明は `kind` に対応する多言語リソースを使います。
+各資産は `fileName`、`url`、`sha256`、`sizeBytes`、`includesChartInfoMetadata` を必須とします。`sizeBytes` は正の`Int64`を受理し、`long.MaxValue` も有効です。`Int64`範囲外だけを型付き変換失敗とし、非正数の意味検証を維持します。新たな入力上限は設けません。画面の名前と説明は、資産の中身を表す `includesChartInfoMetadata` から多言語リソースを選びます。
 
-`--update-manifest-url=` で検証用URLを指定できます。ローカル検証は `scripts/prepare-local-update-test.ps1 -StartServer` を使い、`dist/` にある通常版・同梱版から更新情報を作ってHTTP配信します。
+#### v3.1.0.0以前のアプリとの互換
+
+v3.1.0.0以前のアプリは、`releaseTag`（`v{version}`）・`schemaVersion`・`packageFormatVersion`・`minimumUpdaterVersion` と、各資産の `kind`・`label` を必須とし、`kind=app` の資産がない更新情報や、`app`・`app-with-metadata` 以外の `kind` を拒否します。配信側はこれらを出力し続けます。現行アプリはこれらを読まないか、上の任意項目として扱います。
+
+旧版の `kind` は画面の名前と説明だけを決め、取得・検証・更新ツールの起動には使いません。更新ツールは、ZIPに `chart-info-metadata.7z` があるかどうかでメタデータを扱います。そのため配信側は `kind` を中身ではなく並び順の目印として付け、先頭の資産を `app`、2件目を `app-with-metadata` とします。メタデータ同梱版だけを配信する版では、同梱版の1件に `kind=app` を付けます。旧版はこれを「本体のみ」と表示しますが、同梱版として正しく更新します。
+
+`--update-manifest-url=` で検証用URLを指定できます。ローカル検証は `scripts/prepare-local-update-test.ps1 -StartServer` を使い、`dist/` にある通常版・同梱版から更新情報を作ってHTTP配信します。`-MetadataBundleOnly` を付けると、正式配信の同名指定と同じく同梱版だけを載せます。
 
 起動するアプリは、配布ZIPを未使用の検証用ディレクトリへ展開した `BeMusicSeeker.exe` を使います。同じディレクトリに `BeMusicSeeker.Updater.exe` が必要です。スクリプトは展開・起動のコマンド例を表示し、アプリの起動や配布構成の生成は行いません。`-OutputDir` には空白を含むパスも指定でき、Pythonの作業ディレクトリを配信先にしてHTTP配信します。停止時は、起動時と同じ `-OutputDir` を指定して `-StopServer` を実行します。
 
 ### 取得と適用の受付
 
-起動時に非同期で更新を確認し、現在より新しい版があればダイアログを表示します。通常版を先頭・初期選択とします。適用ボタンは `ProgressHub.StartupProgress.IsActive=false` のときだけ有効です。適用操作ではリリースページも開きます。
+起動時に非同期で更新を確認し、現在より新しい版があればダイアログを表示します。資産は更新情報の順に並べ、先頭を初期選択とします。適用ボタンは `ProgressHub.StartupProgress.IsActive=false` のときだけ有効です。適用操作ではリリースページも開きます。
 
 選択したZIPは `update_work/downloads/` へ取得し、サイズとSHA-256の両方を検証します。実行中のアプリは自分のファイルを置き換えません。配布物に含まれる単一ファイルの `BeMusicSeeker.Updater.exe` を `update_work/current/` へコピーして起動します。
 
@@ -224,7 +232,7 @@ v2.1.6.0からの更新受入には、[固定成果物の定義](../../acceptanc
 | 完成名への変更後・移動用ハンドル解放前の読取り | [`Program`](../../../BeMusicSeeker.Updater/Program.cs) の `WaitForLaunchDecision`、[`WindowsUpdaterProcessGateway`](../../../BeMusicSeeker/Models/Update/UpdaterProcessGateway.cs) の `WaitForReady` | [`UpdateMarkerReaderSharingTests`](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdateMarkerReaderSharingTests.cs) は実際に名前変更へ使ったDELETEハンドルを保持し、旧共有の読取りが共有違反32となる同じ区間で、本番のproceed/cancel判定・決定消費と、通常Gatewayのready receipt・完全bytes・読取りハンドル回収を確認する。更新テストが管理する限定反射は、既存managed fixtureの `UpdateRequest.Parse` と `WaitForLaunchDecision` だけに絞り、本番API追加と更新全体の準備を避ける。通常の狭い本番境界が責務整理で得られた時に退役する。公開処理と実CLIの保証は既存テストが分担する。 |
 | ローカル更新検証の配信先・起動案内 | [`prepare-local-update-test.ps1`](../../../scripts/prepare-local-update-test.ps1) の起動例と `StartServer` / `StopServer` | 恒久テストは設けず、python / pyの両経路で空白入り `OutputDir` からHTTPでmanifest・ZIPを取得し、サイズ・SHA-256を照合する実行確認を行う。案内する配布ZIP展開先の本体・Updaterの共存と、同じ `OutputDir` を指定した停止後の待受・所有プロセスの解放を確認する。 |
 | 不正JSONの分類と原因保持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ParseManifest` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_MalformedJsonRetainsValidationCause` は検証失敗への変換と元原因の保持を確認する。有効・無効マニフェストの資産検証は同クラスの既存ケースが分担する。 |
-| マニフェスト整数の`Int32`/`Int64`上下範囲外と`BigInteger`、表現可能な非対応版・非正数、最大サイズの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadRequiredInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・既存の意味検証と正の上限受理を確認する。 |
+| マニフェスト整数の`Int32`/`Int64`上下範囲外と`BigInteger`、表現可能な非対応版・非正数、最大サイズの維持 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs) の `ReadOptionalInt` / `ReadRequiredLong` | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs) の `ParseManifest_OutOfRangeIntegerRetainsValidationCause`、`ParseManifest_RepresentableIntegerKeepsSemanticValidation`、`ParseManifest_MaximumInt64SizeRemainsAccepted` は実JSON解析から型付き失敗・元原因・既存の意味検証と正の上限受理を確認する。 |
 | 更新情報・資産選択・取得検証 | [`UpdateCheckService`](../../../BeMusicSeeker/Models/Update/UpdateCheckService.cs)、[`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) | [`UpdateCheckServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateCheckServiceTests.cs)、[`UpdateDownloadServiceTests`（Coreの判断検査）](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateDownloadServiceTests`（実配布payload）](../../../tests/BeMusicSeeker.Scenarios.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateDownloadServiceTests`（reparse専用）](../../../tests/BeMusicSeeker.Compatibility.Tests/Update/UpdateDownloadServiceTests.cs)、[`UpdateAvailableDialogViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdateAvailableDialogViewModelTests.cs) |
 | 受付確認・終了準備・起動失敗 | [`StartupUpdateWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupUpdateWorkflowOwner.cs) | [`StartupUpdateWorkflowOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupUpdateWorkflowOwnerTests.cs)、[`UpdaterProcessGatewayTests`（Coreの判断検査）](../../../tests/BeMusicSeeker.Core.Tests/Update/UpdaterProcessGatewayTests.cs)、[`UpdaterProcessGatewayTests`（Windowsの実プロセス検査）](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterProcessGatewayTests.cs) |
 | 起動時回収・同期ロックの寿命・本来の失敗通知 | [`UpdateDownloadService`](../../../BeMusicSeeker/Models/Update/UpdateDownloadService.cs) の `CleanupPreviousWorkDirectory`、`StartupUpdateWorkflowOwner` | `UpdateDownloadServiceTests.CleanupPreviousWorkDirectoryPreservesActiveUpdaterPayload` はjournal・receiptなしで解放済みlock/currentの元bytes保持とdownloads回収・同じロックパスの再利用を、`CleanupPreviousWorkDirectoryPublishesAndConsumesUpdaterFailureReceipt` は実排他保持中の本来のreceipt通知・lock/current/未確認receipt保持・downloads回収・確認後だけの消費を確認する。`StartupUpdateWorkflowOwnerTests.Start_CleansUpWithHeldTransactionLockAndPublishesNoUpdateTerminal` は実service清掃から実ownerの確認・NoUpdate終端までロック解放前に待ち、確認1回・終端1回・失敗提示なしを確認する。`CleanupFailurePublishesFailureBeforeCheckingForUpdates` は実download削除失敗の原因保持・提示1回・確認なしを分担する。receipt提示成功後の確認・提示失敗/延期/終了中の未確認保持は既存ownerケースが担う。実CLIのready・proceed前不変・適用・実再起動・journal退役は既存のProgram/Gateway検証が担い、標準compositionとactivationへの清掃接続は静的に点検する。これらの分担は単独では連続した流れの検証ではなく、失敗記録の公開から次回起動の通知・閉じた後だけの消費・配信を切り替えた次の更新までの連続した流れは、[`UpdateRestartFailureDesktopTests`](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update/UpdateRestartFailureDesktopTests.cs)のSC-15Cが担う。 |
