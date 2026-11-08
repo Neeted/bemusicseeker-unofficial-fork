@@ -972,6 +972,7 @@ public sealed class VerificationRunnerTests
     }
 
     /// <summary>二つの実Jobをready後に取消または期限超過させ、遅れて回収へ入ったprocessも同じcutoffを使い、全root・childが終端することを保証します。</summary>
+    /// <remarks>後行のWindows.ShellのStartの返却は、先行のCoreが回収の猶予待ちへ入り、本体が両callbackの同一cutoffを確認した後（cutoff確定後）に行います。後行にも回収期限の残りの大半を使わせ、負荷で強制停止の時間が削られる組立てを避けます。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -980,8 +981,9 @@ public sealed class VerificationRunnerTests
         var fixture = new RunnerFixture();
         using var canceled = new CancellationTokenSource();
         var returnWindows = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var firstGraceEnded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstGraceStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var owned = new ConcurrentDictionary<string, OwnedProcess>();
+        var gateFailures = new ConcurrentQueue<Exception>();
         fixture.Configure = (name, command) => name is "Core" or "Windows.Shell" ? command with
         {
             Ready = fixture.Path(name + "-ready"),
@@ -992,8 +994,9 @@ public sealed class VerificationRunnerTests
         fixture.AfterStart = (name, process) =>
         {
             if (name is "Core" or "Windows.Shell") { owned[name] = process; }
-            // start要求は実processを返す前で止める。先行回収のtoken取消が、後行回収の開始gateになる。
-            if (name == "Windows.Shell") { returnWindows.Task.WaitAsync(TimeSpan.FromSeconds(60)).GetAwaiter().GetResult(); }
+            // start要求は実processを返す前で止める。先行回収が猶予待ちへ入ることが、後行回収の開始gateになる。
+            // gateが開かなくても起動済みprocessはrunnerへ返して回収させ、失敗は本体で表明する。
+            if (name == "Windows.Shell") { WaitStartGate(returnWindows.Task, gateFailures); }
         };
         VerificationRun run = fixture.Run() with
         {
@@ -1002,14 +1005,9 @@ public sealed class VerificationRunnerTests
             RequestGracefulExit = async (process, token) =>
             {
                 bool first = fixture.Names[process.ProcessId] == "Core";
-                try { await Task.Delay(Timeout.InfiniteTimeSpan, token); }
-                finally
-                {
-                    if (first)
-                    {
-                        firstGraceEnded.TrySetResult();
-                    }
-                }
+                // runnerがcutoffを確定した後の先行回収の入口では開始だけを通知する。後行の開放は、本体がcutoffを読んだ後に行う。
+                if (first) { firstGraceStarted.TrySetResult(); }
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
             },
         };
         // Start内の同期gateと解除側を分け、runner内のawaitが同期完了しても解除側へ到達する。
@@ -1037,12 +1035,14 @@ public sealed class VerificationRunnerTests
                 }
             }
             if (!timeout) { canceled.Cancel(); }
-            await firstGraceEnded.Task.WaitAsync(TimeSpan.FromSeconds(45));
-            // Abort済みの境界だけを読む。callbackを先に呼んで失敗時刻を作らない。
+            await firstGraceStarted.Task.WaitAsync(TimeSpan.FromSeconds(45));
+            // Abort済みの境界だけを読む。callbackを先に呼んで失敗時刻を作らない。後行の開放前に読み、後行が入口でcutoffを更新する誤りを検出する。
             ProcessDeadline cutoff = fixture.FailureCleanup["Core"]();
             Assert.AreSame(cutoff, fixture.FailureCleanup["Windows.Shell"](), "同じ段階に別の回収cutoffがあります。");
+            // 後行にも回収期限の残りの大半を使わせるため、先行の猶予の終了を待たずに返却する。
             returnWindows.TrySetResult();
             VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(30));
+            Assert.IsTrue(gateFailures.IsEmpty, "後行回収の開始gateが開かないまま観測期限を超えています。" + Environment.NewLine + string.Join(Environment.NewLine, gateFailures));
             Assert.AreEqual(1, result.ExitCode);
             Exception? primary = result.Commands.Single(command => command.Name == "Core").PrimaryFailure;
             if (timeout) { Assert.IsInstanceOfType<TimeoutException>(primary); }
@@ -1070,6 +1070,8 @@ public sealed class VerificationRunnerTests
             }
             finally
             {
+                // 本体が先に失敗しても、記録したgateの失敗を診断として残す。成否は変えない。
+                if (!gateFailures.IsEmpty) { Console.Error.WriteLine("後行回収の開始gateの失敗: " + string.Join(Environment.NewLine, gateFailures)); }
                 foreach (Process process in observed) { process.Dispose(); }
                 if (resourcesTerminated) { fixture.Dispose(); }
             }
@@ -1089,6 +1091,7 @@ public sealed class VerificationRunnerTests
         var firstStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var owned = new ConcurrentDictionary<string, OwnedProcess>();
         var observed = new List<Process>();
+        var gateFailures = new ConcurrentQueue<Exception>();
         fixture.Configure = (name, command) => name == "Core" || (name == "Windows.Shell" && keepWindowsAlive) ? command with
         {
             Ready = fixture.Path(name + "-ready"),
@@ -1100,7 +1103,8 @@ public sealed class VerificationRunnerTests
         {
             if (name is not ("Core" or "Windows.Shell")) { return; }
             owned[name] = process;
-            if (name == "Windows.Shell") { returnWindows.Task.WaitAsync(TimeSpan.FromSeconds(15)).GetAwaiter().GetResult(); }
+            // gateの待機は本体の観測と同じ長さの観測期限にし、本体のfinallyが必ず開放する。開かなくても起動済みprocessはrunnerへ返して回収させ、失敗は本体で表明する。
+            if (name == "Windows.Shell") { WaitStartGate(returnWindows.Task, gateFailures); }
         };
         VerificationRun run = fixture.Run() with
         {
@@ -1157,6 +1161,7 @@ public sealed class VerificationRunnerTests
             returnWindows.TrySetResult();
             VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
             VerificationCommandResult windows = result.Commands.Single(command => command.Name == "Windows.Shell");
+            Assert.IsTrue(gateFailures.IsEmpty, "Windowsの返却gateが開かないまま観測期限を超えています。" + Environment.NewLine + string.Join(Environment.NewLine, gateFailures));
             Assert.AreEqual(1, result.ExitCode);
             // 生存Jobの行はpipeが回収期限内に終端する保証がないため、保存拒否は完了済みの行で確認する。
             if (!keepWindowsAlive) { Assert.IsNotNull(windows.OutputFailure); }
@@ -1182,6 +1187,7 @@ public sealed class VerificationRunnerTests
             }
             finally
             {
+                if (!gateFailures.IsEmpty) { Console.Error.WriteLine("Windowsの返却gateの失敗: " + string.Join(Environment.NewLine, gateFailures)); }
                 foreach (Process process in observed) { process.Dispose(); }
                 // 未終端の所有対象がある場合は領域を残し、削除で失敗を覆い隠さない。
                 if (resourcesTerminated) { fixture.Dispose(); }
@@ -1191,26 +1197,41 @@ public sealed class VerificationRunnerTests
     }
 
     /// <summary>領域削除前に元Taskと保持PIDを独立に観測し、終端時の故障もcommandの失敗と照合します。</summary>
+    /// <remarks>全対象を一つの共有期限（60秒）で並行に待ち、未終端の対象が複数あっても失敗時の待ちを期限一回分に抑えます。</remarks>
     private static async Task ConfirmOwnedTerminationAsync(IEnumerable<KeyValuePair<string, OwnedProcess>> owned,
         IEnumerable<Process> observed, VerificationRunResult result)
     {
-        var observations = new List<(string Name, string Part, bool Terminated, TaskStatus Status, Exception? Failure, Exception? WatchdogFailure)>();
+        using var stopWatchdog = new CancellationTokenSource();
+        var watchdog = Task.Delay(ObservationTimeout, stopWatchdog.Token);
+        var targets = new List<(string Name, string Part, Task Task)>();
         foreach ((string name, OwnedProcess process) in owned)
         {
-            // 一つのobserverがfaultしても、他の元Taskの終端確認を省略しない。
             foreach ((string part, Task task) in new[] { ("RootExit", (Task)process.RootExit),
                 ("stdout", process.StandardOutput), ("stderr", process.StandardError), ("Completion", process.Completion) })
             {
-                (bool Terminated, Exception? Failure, Exception? WatchdogFailure) observation = await ObserveTerminationAsync(task, name + "/" + part);
-                observations.Add((name, part, observation.Terminated, task.Status, observation.Failure, observation.WatchdogFailure));
+                targets.Add((name, part, task));
             }
         }
+        // 一つのobserverがfaultしても、他の元Taskの終端確認を省略しない。全observerを同じ共有期限で並行に待つ。
+        Task<(bool Terminated, Exception? Failure, Exception? WatchdogFailure)>[] taskObservers =
+            [.. targets.Select(target => ObserveTerminationAsync(target.Task, target.Name + "/" + target.Part, watchdog))];
         // Jobのobserverと別に保持した全root/childの実終了を確認する。
-        var exits = new List<bool>();
-        foreach (Process process in observed)
+        Process[] processes = [.. observed];
+        Task<(bool Terminated, Exception? Failure, Exception? WatchdogFailure)>[] exitObservers =
+            [.. processes.Select(process => ObserveTerminationAsync(process.WaitForExitAsync(), "PID " + process.Id, watchdog))];
+        await Task.WhenAll(taskObservers.Concat(exitObservers));
+        stopWatchdog.Cancel();
+        var observations = new List<(string Name, string Part, bool Terminated, TaskStatus Status, Exception? Failure, Exception? WatchdogFailure)>();
+        for (int index = 0; index < targets.Count; index++)
         {
-            (bool Terminated, Exception? Failure, Exception? WatchdogFailure) observation = await ObserveTerminationAsync(process.WaitForExitAsync(), "PID " + process.Id);
-            exits.Add(observation.Terminated && observation.Failure is null && observation.WatchdogFailure is null && process.HasExited);
+            (bool Terminated, Exception? Failure, Exception? WatchdogFailure) observation = taskObservers[index].Result;
+            observations.Add((targets[index].Name, targets[index].Part, observation.Terminated, targets[index].Task.Status, observation.Failure, observation.WatchdogFailure));
+        }
+        var exits = new List<bool>();
+        for (int index = 0; index < processes.Length; index++)
+        {
+            (bool Terminated, Exception? Failure, Exception? WatchdogFailure) observation = exitObservers[index].Result;
+            exits.Add(observation.Terminated && observation.Failure is null && observation.WatchdogFailure is null && processes[index].HasExited);
         }
         bool resourcesTerminated = observations.All(item => item.Terminated && item.WatchdogFailure is null) && exits.All(exited => exited);
         Assert.IsTrue(resourcesTerminated, "元Taskまたは保持したroot/childが未終端です。診断を確認してください。");
@@ -1230,14 +1251,11 @@ public sealed class VerificationRunnerTests
         }
     }
 
-    /// <summary>負例の元Taskのfault・取消を保持して終端を観測し、watchdogによる未終端とは区別します。</summary>
-    private static async Task<(bool Terminated, Exception? Failure, Exception? WatchdogFailure)> ObserveTerminationAsync(Task task, string name)
+    /// <summary>負例の元Taskのfault・取消を保持して終端を観測し、呼出し側が共有するwatchdogによる未終端とは区別します。</summary>
+    private static async Task<(bool Terminated, Exception? Failure, Exception? WatchdogFailure)> ObserveTerminationAsync(Task task, string name, Task watchdog)
     {
-        using var stopWatchdog = new CancellationTokenSource();
-        var watchdog = Task.Delay(TimeSpan.FromSeconds(60), stopWatchdog.Token);
         Task first = await Task.WhenAny(task, watchdog);
         Exception? watchdogFailure = first == watchdog ? new TimeoutException(name + "の終端観測期限を超えています。") : null;
-        stopWatchdog.Cancel();
         bool terminated = task.IsCompleted;
         Exception? failure = null;
         if (terminated)
@@ -1253,8 +1271,18 @@ public sealed class VerificationRunnerTests
         return (terminated, failure, watchdogFailure);
     }
 
-    // 実OSの起動・終端観測に使い、検査対象の明示期限とは分けます。
-    private static ProcessDeadline Deadline() => ProcessDeadline.FromTimeout(TimeSpan.FromSeconds(60));
+    /// <summary>起動済みprocessを返す前の同期gateを観測期限（60秒）まで待ち、期限超過は例外にせず記録します。</summary>
+    /// <remarks>Startの途中で例外にすると起動済みprocessをrunnerが所有できず回収されないため、gateの失敗は本体の表明へ移します。</remarks>
+    private static void WaitStartGate(Task gate, ConcurrentQueue<Exception> failures)
+    {
+        try { gate.WaitAsync(Deadline().Remaining).GetAwaiter().GetResult(); }
+        catch (TimeoutException error) { failures.Enqueue(error); }
+    }
+
+    // 実OSの起動・終端観測の期限です。Deadline()と終端観測の共有watchdogが同じ値を使い、検査対象の明示期限とは分けます。
+    private static readonly TimeSpan ObservationTimeout = TimeSpan.FromSeconds(60);
+
+    private static ProcessDeadline Deadline() => ProcessDeadline.FromTimeout(ObservationTimeout);
 
     private static async Task<string> WaitForFileAsync(string path, TimeSpan? timeout = null)
     {
