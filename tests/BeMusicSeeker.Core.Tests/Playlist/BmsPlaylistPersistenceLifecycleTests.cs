@@ -8,6 +8,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Util.Extensions;
@@ -1047,7 +1048,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
             workspace.ConfigureCatalogNotificationQueue(action => action());
             workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 

@@ -5,6 +5,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Newtonsoft.Json.Linq;
@@ -171,7 +172,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         int canceledCount = 0;
         table.RowsReplacing += (_, _) => buildState.RequestVersion++;
         table.RowsReplacementCanceled += (_, _) =>
@@ -234,7 +235,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         PlaylistDetailTerminalRequest request = CreatePlaylistTerminalRequest(
@@ -289,7 +290,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -364,7 +365,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };

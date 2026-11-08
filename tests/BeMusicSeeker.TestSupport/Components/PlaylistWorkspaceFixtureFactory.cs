@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.TestSupport.Components;
@@ -51,7 +52,7 @@ internal static class PlaylistWorkspaceFixtureFactory
             (_, _) => false,
             PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler,
             PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
-            null);
+            UndeclaredDialogs.Create());
         workspace.ConfigureCatalogNotificationQueue(action => action());
         return workspace;
     }

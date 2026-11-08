@@ -878,7 +878,7 @@ public sealed class DialogPresentationTests
                 520,
                 [ButtonWithAutomationId("InitialSetupLanguageContinue", DialogButtonRole.Primary, "initial setup continue")]),
             "PlaylistImportDialog" => CreateNativeFixture(
-                new PlaylistImportDialog(new PlaylistImportDialogViewModel(_ => new(PlaylistImportStartStatus.Busy)), new UiDialogCoordinator()),
+                new PlaylistImportDialog(new PlaylistImportDialogViewModel(_ => new(PlaylistImportStartStatus.Busy)), UndeclaredDialogs.Create()),
                 [
                     ButtonWithAutomationId("PlaylistImportClear", DialogButtonRole.Quiet, "playlist import clear selection"),
                     ButtonWithAutomationId("PlaylistImportOpenFile", DialogButtonRole.Quiet, "playlist import JSON picker"),

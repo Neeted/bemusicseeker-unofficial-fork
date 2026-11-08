@@ -2282,7 +2282,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, dialogService, playlistUrlInstallCompletionProvider: installCompletion);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, dialogService ?? UndeclaredDialogs.Create(), playlistUrlInstallCompletionProvider: installCompletion);
         workspace.PlaylistUrlInstallTreeExpansionRequested += actualTreeExpansionSink;
         return workspace;
     }

@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using Newtonsoft.Json.Linq;
 
@@ -106,7 +107,8 @@ internal static class BmsPlaylistTestSupport
             (_, _) => false,
             (_, _) => false,
             PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler,
-            PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
+            UndeclaredDialogs.Create());
         workspace.ConfigureCatalogNotificationQueue(action => action());
         PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
         workspace.PlaylistPropertyValidationError += (_, _) => { };

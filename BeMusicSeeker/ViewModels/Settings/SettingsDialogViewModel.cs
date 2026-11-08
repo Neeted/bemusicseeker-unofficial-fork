@@ -3708,6 +3708,7 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>確定値と各セクションの候補を分け、構成のDB所有者と必要な局所処理へ接続します。</summary>
     /// <param name="databaseScope">schema操作と終了処理が共有する構成寿命のDB所有者。</param>
     /// <param name="applicationDataUninstallWorkflow">同じDB所有者で構成した撤去処理。</param>
+    /// <param name="schemaDialogs">schema操作の確認と通知を表示する窓口。null は許されません。</param>
     /// <param name="operationAdmission">構成で推定・変更と共有する論理受付。</param>
     internal SettingsDialogViewModel(
         ApplicationDatabaseScope databaseScope,
@@ -3721,9 +3722,9 @@ public partial class SettingsDialogViewModel : ViewModel
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow,
         ISettingsEditSession settingsEditSession,
         ApplicationDataUninstallWorkflowOwner applicationDataUninstallWorkflow,
+        IUiDialogService schemaDialogs,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         Action<Exception> reportApplyFailure = null,
-        IUiDialogService schemaDialogs = null,
         ILr2PlayHistorySchemaUninstallDialogPort schemaWindowDialogs = null,
         AudioDeviceTestWorkflowOwner audioDeviceTestWorkflow = null,
         IApplicationLifetimePort applicationLifetime = null,
@@ -3778,7 +3779,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 BeMusicSeeker.Properties.Resources.Error,
                 MessageBoxImage.Hand,
                 "Settings apply failure notification"));
-        this.schemaDialogs = schemaDialogs ?? new UiDialogCoordinator();
+        this.schemaDialogs = schemaDialogs ?? throw new ArgumentNullException(nameof(schemaDialogs));
         this.schemaWindowDialogs = schemaWindowDialogs;
         this.applicationDataUninstallWorkflow = applicationDataUninstallWorkflow
             ?? throw new ArgumentNullException(nameof(applicationDataUninstallWorkflow));

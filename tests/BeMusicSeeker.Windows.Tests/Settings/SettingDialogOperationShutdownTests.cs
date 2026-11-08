@@ -113,8 +113,9 @@ public sealed class SettingDialogOperationShutdownTests
                     AwaitStartupBackgroundCompletionOnDispatcher(owner, "settings-operation-bmt-background-terminal");
                     owner.SettingDialog.Dispose();
                     var workspace = new SettingsOperationWorkspace(() => { entered.TrySetResult(); return release.Task; });
+                    IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
                     var dialog = new SettingsDialogViewModel(composition.DatabaseScope, owner, workspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
-                        composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, session, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), reportApplyFailure: failures.Add,
+                        composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, session, new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), schemaDialogs: schemaDialogs, reportApplyFailure: failures.Add,
                         applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                         externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
                         audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => values),
@@ -238,8 +239,9 @@ public sealed class SettingDialogOperationShutdownTests
                     return UiDialogOwnerResolver.PushActiveModal(window);
                 }).ConfirmAsync(request);
                 owner.SettingDialog.Dispose();
+                IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
                 var dialog = new SettingsDialogViewModel(fixture.Composition.DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
-                    fixture.Composition, owner.PlaybackPanel, new Lr2SongDbSyncWorkflowOwner(terminalRuntime), settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(fixture.Composition.DatabaseScope)),
+                    fixture.Composition, owner.PlaybackPanel, new Lr2SongDbSyncWorkflowOwner(terminalRuntime), settingsSession, new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(fixture.Composition.DatabaseScope)), schemaDialogs: schemaDialogs,
                     applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: fixture.Composition.ApplicationPathSnapshot,
                     audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => fixture.Settings),

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.RegularChartListOwnerTestSupport;
@@ -81,7 +82,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         using RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease firstLease = owner.BeginRequest();
         RegularChartListBuildResult firstBuild = Build(owner, firstLease, new List<LibraryChartRow>());
@@ -152,7 +153,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         int canceled = 0;
@@ -210,7 +211,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
 
@@ -279,7 +280,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
@@ -352,7 +353,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         RegularChartListRequestLease staleLease = owner.BeginRequest();
         var staleRows = new List<object> { new() };
         RegularChartListRequestLease currentLease = owner.BeginRequest();
@@ -482,7 +483,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         var source = new List<LibraryChartRow>();
         RegularChartListRequestLease firstLease = owner.BeginRequest();
         RegularChartListBuildResult first = Build(owner, firstLease, source, MainViewUpdateMode.FolderFilterSelected);
@@ -536,7 +537,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         Assert.IsTrue(owner.TryCommit(lease, CreateTerminalInput(build)).WasCommitted);
@@ -587,7 +588,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         long completionAtNotification = 0L;
@@ -647,7 +648,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
         RegularChartListBuildResult nestedBuild = null!;
@@ -718,7 +719,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         using RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
@@ -799,7 +800,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         using RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
@@ -886,7 +887,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         RegularChartListRequestLease lease = owner.BeginRequest();
 
         owner.Dispose();
@@ -936,7 +937,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
 
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease first));
         Assert.IsTrue(owner.IsVirtualOrderPrewarmRunning);
@@ -995,7 +996,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         Task stopTask = owner.StopAsync();
@@ -1054,7 +1055,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         owner.InvalidateIdentitySortKeys(clearSourceRows: false);
@@ -1103,7 +1104,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey staleKey = owner.CreateVirtualOrderKey(
             owner.SourceGeneration,
@@ -1164,7 +1165,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck));
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create()));
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey orderKey = owner.CreateVirtualOrderKey(
@@ -1242,7 +1243,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         using RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
@@ -1309,7 +1310,7 @@ public sealed class RegularChartCommitAndLifecycleTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         testSettings.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         testSettings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
         using RegularChartListOwner owner = CreateOwner(table, workspace);

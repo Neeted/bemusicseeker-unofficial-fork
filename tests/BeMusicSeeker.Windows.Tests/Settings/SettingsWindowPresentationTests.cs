@@ -2544,6 +2544,7 @@ public sealed class SettingsWindowPresentationTests
                 runtime,
                 requestAdmission: new TestAudioDeviceTestRequestAdmission());
             workflow.OperationReleased += () => testReleased.TrySetResult();
+            IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
             var dialog = new SettingsDialogViewModel(composition.DatabaseScope,
                 viewModel,
                 viewModel.PlaylistWorkspace,
@@ -2553,8 +2554,8 @@ public sealed class SettingsWindowPresentationTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
-                settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)),
-                schemaDialogs: new UiDialogCoordinator(),
+                settingsSession, new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)),
+                schemaDialogs: schemaDialogs,
                 applicationLifetime: lifetime,
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 audioDeviceTestWorkflow: workflow,
@@ -4129,6 +4130,7 @@ public sealed class SettingsWindowPresentationTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         var statePort = new SchemaPresentationStatePort();
+        IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
         var settings = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             statePort,
             owner.PlaylistWorkspace,
@@ -4138,7 +4140,7 @@ public sealed class SettingsWindowPresentationTests
             composition,
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
+            settingsSession, new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)), schemaDialogs: schemaDialogs,
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
@@ -5399,6 +5401,7 @@ public sealed class SettingsWindowPresentationTests
                 AudioDeviceCapabilityStatus.Available,
                 [SampleRate.SAMPLE_RATE_44100Hz])),
                 requestAdmission: new TestAudioDeviceTestRequestAdmission());
+        IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
         var dialog = new SettingsDialogViewModel(composition.DatabaseScope,
             owner,
             owner.PlaylistWorkspace,
@@ -5408,7 +5411,7 @@ public sealed class SettingsWindowPresentationTests
             composition,
             owner.PlaybackPanel,
             owner.Lr2SongDbSyncWorkflow,
-            new NoOpSettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)),
+            new NoOpSettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), schemaDialogs: schemaDialogs,
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,
@@ -5438,6 +5441,7 @@ public sealed class SettingsWindowPresentationTests
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog());
         var workflow = new Lr2SongDbSyncWorkflowOwner(runtime);
+        IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
         return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             new ManualResyncStatePort(),
             new SettingsDialogHarness.RecordingWorkspacePort(),
@@ -5447,7 +5451,7 @@ public sealed class SettingsWindowPresentationTests
             composition,
             owner.PlaybackPanel,
             workflow,
-            settingsSession, new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
+            settingsSession, new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)), schemaDialogs: schemaDialogs,
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             externalShellGateway: ExternalShellGatewayPolicy.Current,

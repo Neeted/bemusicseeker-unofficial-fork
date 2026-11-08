@@ -40,6 +40,7 @@ internal static class SettingsRootTestFixture
         IUiDialogService? dialogs = null,
         Func<MainWindowViewModel, LibraryFileMutationCapability, Task>? reloadScoresOnlyUnderAdmission = null)
     {
+        IUiDialogService settingsDialogs = dialogs ?? UndeclaredDialogs.Create();
         var composition = new ApplicationComposition(
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             settingsEditSession: settingsSession,
@@ -47,8 +48,8 @@ internal static class SettingsRootTestFixture
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            settingsDialogService: dialogs,
-            fileDbMutationDialogService: dialogs);
+            settingsDialogService: settingsDialogs,
+            fileDbMutationDialogService: settingsDialogs);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         if (initializeOwner != null || reloadScoresOnly != null || reloadFileDiff != null || reloadScoresOnlyUnderAdmission != null)
         {
@@ -81,10 +82,10 @@ internal static class SettingsRootTestFixture
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 viewModel.Lr2SongDbSyncWorkflow,
-                settingsSession, new ApplicationDataUninstallWorkflowOwner(dialogs ?? new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)),
+                settingsSession, new ApplicationDataUninstallWorkflowOwner(settingsDialogs, new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)),
                 applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                schemaDialogs: dialogs,
+                schemaDialogs: settingsDialogs,
                 reportApplyFailure: reportSettingsApplyFailure ?? (_ => { }),
                 externalShellGateway: ExternalShellGatewayPolicy.Current,
                 applicationPathSnapshot: ApplicationPathPolicy.Current,

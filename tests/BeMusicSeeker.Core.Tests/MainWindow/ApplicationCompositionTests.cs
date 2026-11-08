@@ -4,6 +4,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.ApplicationCompositionTestSupport;
 
@@ -76,7 +77,7 @@ public sealed partial class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask);
+                (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistUrlInstallCompletionProvider: () => Task.CompletedTask, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
             AttachImmediatePlaylistPresentationRouter(workspace);
             workspace.RequestPlaylistSummaryMode(true);
             workspace.RebuildPlaylistSummaryView(runAsync: false);

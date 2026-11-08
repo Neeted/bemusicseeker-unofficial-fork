@@ -5,6 +5,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Net;
@@ -103,7 +104,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, dialogService, playlistUrlInstallCompletionProvider: installCompletion);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, urlPresentationScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, dialogService ?? UndeclaredDialogs.Create(), playlistUrlInstallCompletionProvider: installCompletion);
         workspace.PlaylistUrlInstallTreeExpansionRequested += actualTreeExpansionSink;
         return workspace;
     }

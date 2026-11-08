@@ -9,6 +9,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 
@@ -146,7 +147,8 @@ internal static class RegularChartListOwnerTestSupport
             _ => { },
             (exception, message) => { },
             (_, _) => false,
-            (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
+            UndeclaredDialogs.Create());
     }
 
     /// <summary>実FSとDBへ接続するcaseに同じ譜面識別値を渡し、pathだけを各専用領域に置きます。</summary>

@@ -74,10 +74,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
             settingsValues.Save();
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settingsValues);
             owner.SettingDialog.Dispose();
+            IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
             using var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
                 owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
                 new TestSettingsDialogPlayerFactoryPort(), new TestSettingsDialogPlaybackRuntimePort(),
-                owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(settingsValues), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
+                owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(settingsValues), new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)), schemaDialogs: schemaDialogs,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 audioDeviceTestWorkflow: new AudioDeviceTestWorkflowOwner(
@@ -724,6 +725,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             {
                 OutputSelection = new AudioOutputSelection(AudioDriver.WasapiExclusive, null, null)
             };
+            IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
             var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
                 owner,
                 owner.PlaylistWorkspace,
@@ -733,8 +735,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
-                schemaDialogs: new UiDialogCoordinator(),
+                new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
+                schemaDialogs: schemaDialogs,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 audioDeviceTestWorkflow: workflow,
@@ -838,6 +840,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 new SuccessfulAudioDeviceTestRuntime(),
                 capabilityRuntime,
                 requestAdmission: new TestAudioDeviceTestRequestAdmission());
+            IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
             var dialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
                 owner,
                 owner.PlaylistWorkspace,
@@ -847,8 +850,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 new TestSettingsDialogPlayerFactoryPort(),
                 new TestSettingsDialogPlaybackRuntimePort(),
                 owner.Lr2SongDbSyncWorkflow,
-                new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
-                schemaDialogs: new UiDialogCoordinator(),
+                new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
+                schemaDialogs: schemaDialogs,
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 audioDeviceTestWorkflow: workflow,

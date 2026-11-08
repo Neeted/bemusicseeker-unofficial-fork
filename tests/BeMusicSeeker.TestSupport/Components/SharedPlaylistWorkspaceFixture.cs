@@ -78,7 +78,7 @@ internal static class SharedPlaylistWorkspaceFixture
             referenceApplyScheduler ?? ((_, _) => false),
              restoreUiApplyScheduler ?? PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler,
              restoreUiThreadCheck ?? PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
-             playlistWorkspaceDialogService);
+             playlistWorkspaceDialogService ?? UndeclaredDialogs.Create());
         workspace.ConfigureCatalogNotificationQueue(
             catalogNotificationQueue ?? dispatchPresentation ?? (action => action()));
         workspace.PlaylistPresentationRefreshRequested += (_, request) =>

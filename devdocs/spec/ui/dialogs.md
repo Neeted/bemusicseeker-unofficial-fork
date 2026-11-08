@@ -33,7 +33,7 @@
 
 ライブラリ操作の表示は、モデルが持つ窓口の型 `IBmsLibraryDialogService` と、構成が注入する実装 [BmsLibraryDialogService](../../../BeMusicSeeker/Views/Dialogs/BmsLibraryDialogService.cs)、[変更結果の表示](../library/mutations.md)の境界に従います。モデルは表示の実装を持たず、既定の実装も作りません。実装は注入された `IUiDialogService` へ表示を委譲し、構成がライブラリへ渡します。表示経路を統一するために、モデルの排他権を保持したまま画面の応答を待つことはしません。
 
-本番の表示窓口は、構成が接続する ViewModel 側の所有者について、`App` が一つだけ作り、`ApplicationComposition` の `dialogService` 引数で構成へ渡します。構成は、再生・音声変換・保守・選択譜面の操作など、構成が作る ViewModel 側のすべての所有者へこの窓口を渡し、所有者ごとに窓口を作りません。Views の局所生成と、ViewModel のコンストラクターに残る既定の生成は、この範囲に含みません。設定・ファイル/DB変更・プレイリスト作業領域・再起動失敗・ライブラリの専用引数は、経路ごとの差し替えです。省略した経路は共通の窓口を使い、指定した経路は専用の窓口が優先されます。シナリオ実行では、`App` が [ApplicationScenarioDialogs](../../../BeMusicSeeker/Runtime/ApplicationScenarioDialogs.cs)（事前に宣言した入力だけを照合して応答する検証用の窓口）を共通の窓口として構成へ渡し、同じ窓口を `MainWindow` の `playlistWorkspaceDialogService` にも渡します。宣言した入力のない通知は従来どおり内部の表示窓口へ委譲されます。手動導入の失敗報告の入力を宣言している間は、宣言どおりの報告以外の通知を失敗にし、UIスレッド以外から届いた通知も照合せず失敗にします。
+本番の表示窓口は、構成が接続する ViewModel 側の所有者について、`App` が一つだけ作り、`ApplicationComposition` の `dialogService` 引数で構成へ渡します。構成は、再生・音声変換・保守・選択譜面の操作など、構成が作る ViewModel 側のすべての所有者へこの窓口を渡し、所有者ごとに窓口を作りません。Views の局所生成は、この範囲に含みません。個々の ViewModel 側の所有者のコンストラクターは、窓口の既定の生成を持ちません（窓口を省略できる所有者は、省略を通知なしとして扱います）。窓口の既定が残るのは `ApplicationComposition` の `dialogService` だけです。設定・ファイル/DB変更・プレイリスト作業領域・再起動失敗・ライブラリの専用引数は、経路ごとの差し替えです。省略した経路は共通の窓口を使い、指定した経路は専用の窓口が優先されます。シナリオ実行では、`App` が [ApplicationScenarioDialogs](../../../BeMusicSeeker/Runtime/ApplicationScenarioDialogs.cs)（事前に宣言した入力だけを照合して応答する検証用の窓口）を共通の窓口として構成へ渡し、同じ窓口を `MainWindow` の `playlistWorkspaceDialogService` にも渡します。宣言した入力のない通知は従来どおり内部の表示窓口へ委譲されます。手動導入の失敗報告の入力を宣言している間は、宣言どおりの報告以外の通知を失敗にし、UIスレッド以外から届いた通知も照合せず失敗にします。
 
 ### 直接表示を許可する実装
 

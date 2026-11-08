@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.PlaylistWorkspaceFixturePorts;
@@ -65,7 +66,7 @@ internal static class PlaylistWorkspaceTestPorts
                 return Task.CompletedTask;
             },
             () => true,
-            dialogService);
+            dialogService ?? UndeclaredDialogs.Create());
     }
 
     internal static void AttachImmediatePlaylistPresentationRouter(PlaylistWorkspaceViewModel workspace)

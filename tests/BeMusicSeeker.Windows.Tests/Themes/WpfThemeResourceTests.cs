@@ -7,7 +7,6 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
-using BeMusicSeeker.Views.Dialogs;
 using BeMusicSeeker.Views.Settings;
 using Parago.Windows;
 
@@ -73,7 +72,7 @@ public sealed class WpfThemeResourceTests
             AssertBrush(playlistPropertyRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
             Assert.IsInstanceOfType<Style>(playlistPropertyRoot.Resources["App.Canonical.DialogActionStyle"]);
 
-            var importDialog = new PlaylistImportDialog(new PlaylistImportDialogViewModel(_ => new(PlaylistImportStartStatus.Busy)), new UiDialogCoordinator());
+            var importDialog = new PlaylistImportDialog(new PlaylistImportDialogViewModel(_ => new(PlaylistImportStartStatus.Busy)), UndeclaredDialogs.Create());
             try
             {
                 AssertBrush(importDialog.Background, "App.DialogBackgroundBrush");

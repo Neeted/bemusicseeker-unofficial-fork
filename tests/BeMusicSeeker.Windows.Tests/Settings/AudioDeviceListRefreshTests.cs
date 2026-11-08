@@ -277,10 +277,11 @@ public sealed class AudioDeviceListRefreshTests
                 new AudioDeviceCapabilityResult(request.Backend, request.DeviceIdentity, request.DeviceName,
                     AudioDeviceCapabilityStatus.Unsupported, [])),
                     requestAdmission: new TestAudioDeviceTestRequestAdmission());
+        IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
         return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace,
             owner.PlayHistory, owner.LibraryFolderTree, new TestSettingsDialogPlayerFactoryPort(),
             new TestSettingsDialogPlaybackRuntimePort(), owner.Lr2SongDbSyncWorkflow,
-            session ?? new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
+            session ?? new NoOpSettingsEditSession(settings), new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)), schemaDialogs: schemaDialogs,
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(), audioDeviceTestWorkflow: workflow,
             externalShellGateway: ExternalShellGatewayPolicy.Current,

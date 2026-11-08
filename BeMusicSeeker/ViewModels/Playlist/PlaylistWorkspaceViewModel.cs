@@ -120,6 +120,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
     /// </summary>
     /// <param name="playlistUrlInstallSink">所有入力付き要求の導入受付。受理時に待ち行列へ寿命を移し、未受理は false を返します。</param>
     /// <param name="keywordSearchFavoritesSettingsStore">The explicit normal/summary Favorites settings boundary.</param>
+    /// <param name="playlistWorkspaceDialogService">プレイリスト作業領域の確認と通知を表示する窓口。null は許されません。</param>
     internal PlaylistWorkspaceViewModel(
         Action<Action> dispatchPresentation,
         MainChartListViewModel mainChartList,
@@ -159,7 +160,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,
         Func<Action, Task> playlistRestoreUiApplyScheduler,
         Func<bool> playlistRestoreUiThreadCheck,
-        IUiDialogService playlistWorkspaceDialogService = null,
+        IUiDialogService playlistWorkspaceDialogService,
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
         Func<Task> playlistUrlInstallCompletionProvider = null)
     {
@@ -244,7 +245,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             playlistReferenceApplyScheduler,
             playlistReloadCleanupShutdownRequestedProvider,
             playlistReloadLog);
-        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? new UiDialogCoordinator();
+        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService
+            ?? throw new ArgumentNullException(nameof(playlistWorkspaceDialogService));
         PlaylistRemovalWorkflow = new PlaylistRemovalWorkflowOwner(
             this.playlistWorkspaceDialogService,
             getPlaylistStore,

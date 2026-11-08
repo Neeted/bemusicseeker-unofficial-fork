@@ -55,11 +55,12 @@ internal sealed class SettingsDialogHarness : IDisposable
         ISettingsDialogPlaybackRuntimePort playback = playbackRuntime ?? new TestSettingsDialogPlaybackRuntimePort();
         var sync = new Lr2SongDbSyncWorkflowOwner(new NoOpLr2SongDbSyncRuntime());
         Task<bool> UnexpectedRestart(OperationModeRestartRequest _) => throw new AssertFailedException("局所設定の確認から環境再起動しません。");
+        IUiDialogService settingsDialogs = dialogs ?? new RecordingDialogService();
         SettingsDialogViewModel dialog = composition != null
             ? composition.CreateSettingDialogViewModel(state, workspace, output, history, roots, selectedFactory, playback, sync, restart ?? UnexpectedRestart)
             : new SettingsDialogViewModel(databaseScope, state, workspace, output, history, roots, selectedFactory, playback, sync,
-                settingsEditSession ?? new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(dialogs ?? new RecordingDialogService(), new Lr2ApplicationDataUninstallStore(databaseScope)), applicationLifetime: TestApplicationContext.CreateLifetime(),
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: dialogs ?? new RecordingDialogService(),
+                settingsEditSession ?? new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(settingsDialogs, new Lr2ApplicationDataUninstallStore(databaseScope)), applicationLifetime: TestApplicationContext.CreateLifetime(),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), schemaDialogs: settingsDialogs,
                 reportApplyFailure: reportApplyFailure, externalShellGateway: ExternalShellGatewayPolicy.Current,
                 applicationPathSnapshot: ApplicationPathPolicy.Current, audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog(),
                 audioSettingsGateway: audioSettingsGateway ?? new TestAudioSettingsGateway(), requestOperationModeRestart: restart ?? UnexpectedRestart,

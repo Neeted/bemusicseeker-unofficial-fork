@@ -468,7 +468,7 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck);
+            (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
         var buildEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var buildRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var dataSource = new FakePlaylistDetailDataSource

@@ -38,6 +38,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         var statePort = new TestSettingsDialogStatePort(
             owner,
             () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded)));
+        IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
         using var settingDialog = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             statePort,
             owner.PlaylistWorkspace,
@@ -54,7 +55,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
             applicationPathSnapshot: ApplicationPathPolicy.Current,
             audioDeviceCatalog: new TestAudioDeviceCatalog(),
             audioSettingsGateway: new TestAudioSettingsGateway(),
-            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)));
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create(), applicationDataUninstallWorkflow: new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)), schemaDialogs: schemaDialogs);
         const string scoreDbPath = "C:\\lr2\\score.db";
         SetPrivateField(settingDialog, "operationModeLR2DB", true);
         SetPrivateField(settingDialog, "lr2PlayHistoryScoreDbPath", scoreDbPath);

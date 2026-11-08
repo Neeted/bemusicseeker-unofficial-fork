@@ -381,8 +381,9 @@ public sealed class SettingDialogCategoryPersistenceTests
                 }),
                 requestAdmission: new TestAudioDeviceTestRequestAdmission());
             ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
+            IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
             using var dialog = new SettingsDialogViewModel(composition.DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace, owner.PlayHistory, owner.LibraryFolderTree,
-                composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(new UiDialogCoordinator(), new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), reportApplyFailure: failures.Add,
+                composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow, new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), schemaDialogs: schemaDialogs, reportApplyFailure: failures.Add,
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
                 audioDeviceCatalog: catalog, audioSettingsGateway: new SettingsAudioGateway(() => values), audioDeviceTestWorkflow: workflow);
