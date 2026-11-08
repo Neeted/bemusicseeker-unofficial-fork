@@ -271,6 +271,18 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
         return (ProcessId, successorStartTime ?? throw new InvalidOperationException("後継の開始時刻がありません。"));
     }
 
+    /// <summary>
+    /// 書込み側を破棄します。writerはAutoFlushのため、正常な書込みの後に未送信のデータはありません。
+    /// 相手の切断後はPipeStream.Flushが状態検査だけで失敗し得るため、pipeが接続中でない場合のIOExceptionだけを捨てます。
+    /// 判定はpipeの状態だけで行い、相手の終了を前提にしません。接続中のIOExceptionと他の例外は回収失敗として残します。
+    /// 未送信の文字が残るのは、すでに失敗が報告された書込みの後だけです。取消や失敗で書込みが途中になった場合は、その書込み自体の失敗が呼出元の例外または停止処理の回収失敗として別に報告されます。
+    /// </summary>
+    private void DisposeWriter()
+    {
+        try { writer.Dispose(); }
+        catch (IOException) when (!pipe.IsConnected) { }
+    }
+
     private async Task RebindAfterRestartAsync(ProcessDeadline deadline)
     {
         if (await process.WaitForRootExitAsync(deadline).ConfigureAwait(false) != 0)
@@ -279,7 +291,7 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
         if (readFailure is not null || unansweredRequestFailure is not null)
         { throw new IOException("再起動元の制御通信が失敗しました。", readFailure ?? unansweredRequestFailure); }
         reader.Dispose();
-        writer.Dispose();
+        DisposeWriter();
         pipe.Disconnect();
         using var cancellation = new CancellationTokenSource(deadline.Remaining);
         await pipe.WaitForConnectionAsync(cancellation.Token).ConfigureAwait(false);
@@ -531,7 +543,7 @@ internal sealed partial class ApplicationScenarioDriver : IAsyncDisposable
             finally
             {
                 reader.Dispose();
-                try { writer.Dispose(); }
+                try { DisposeWriter(); }
                 finally
                 {
                     pipe.Dispose();
