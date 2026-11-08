@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -10,6 +11,7 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.PlayHistoryPresetTestFixture;
 
 namespace BeMusicSeeker.Tests;
@@ -721,7 +723,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
-    /// <summary>通常・追加・ROOTの同一先と包含親を採用前に拒否します。大小文字・末尾区切りを同一視し、BMS2は別のパスとして許可して単純prefix判定を検出します。未登録・欠落した元から不正な導入先の段階設定は妨げません。</summary>
+    /// <summary>通常・追加・ROOTの同一先と包含親を採用前に拒否します。大小文字・末尾区切りを同一視し、BMS2は別のパスとして許可して単純prefix判定を検出します。未登録・欠落した元から不正な導入先の段階設定は妨げません。
+    /// 拒否は利用者へのエラー通知を一件だけ出し（導入先の保護の拒否理由とそのパスを含む）、受理では通知を出さず、確認も出ないことを、記録用の窓口で表明します。拒否理由が利用者へ届く保証と、通知の欠落・重複・取り違えを検出します。</summary>
     [TestMethod]
     [DataRow("normal", "same", false)]
     [DataRow("additional", "same", false)]
@@ -757,7 +760,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.LR2CustomFolderOutputBaseDirRootType = root;
             testSettings.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
             testSettings.BMSInstallDir = install;
-            MainWindowViewModel owner = CreateViewModel(config);
+            var dialogs = new SettingsDialogHarness.RecordingDialogService { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            MainWindowViewModel owner = CreateViewModel(config, dialogs);
             using SettingsDialogViewModel dialog = owner.SettingDialog;
             switch (role)
             {
@@ -771,6 +775,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.AreEqual(install, testSettings.BMSInstallDir);
             Assert.AreEqual(normal, testSettings.LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(root, testSettings.LR2CustomFolderOutputBaseDirRootType);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            Assert.AreEqual(accepted ? 0 : 1, dialogs.MessageCount);
+            if (!accepted)
+            {
+                StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBaseContainsInstallDirectoryFormat, install));
+            }
         }
         finally { TryDeleteDirectory(tempRootPath); }
     }
@@ -824,7 +834,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
-    /// <summary>追加指定を編集で消しても旧追加領域を通常出力へ転用する保存を拒否し、旧役割の保護を失う誤りを検出します。</summary>
+    /// <summary>追加指定を編集で消しても旧追加領域を通常出力へ転用する保存を拒否し、旧役割の保護を失う誤りを検出します。拒否理由（通常出力先と追加出力先の重なり）が利用者へ一件だけ通知され、確認が出ないことも、記録用の窓口で表明します。</summary>
     [TestMethod]
     public void NormalOutputBase_CannotAdoptPreviousAdditionalOutputBaseAsNewNormalRoot()
     {
@@ -854,7 +864,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.UsePlayeruBMplay = false;
             testSettings.UsePlayerLR2body = false;
             testSettings.UsePlayerBMIIDXView = false;
-            MainWindowViewModel viewModel = CreateViewModel(config);
+            var dialogs = new SettingsDialogHarness.RecordingDialogService { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            MainWindowViewModel viewModel = CreateViewModel(config, dialogs);
             using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
@@ -862,6 +873,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             dialog.LR2CustomFolderOutputDir = previousAdditionalOutputBase;
             Assert.AreEqual(normalOutputBase, dialog.LR2CustomFolderOutputDir);
             Assert.AreEqual(normalOutputBase, testSettings.LR2CustomFolderOutputBaseDir);
+            AssertSingleOverlapNotification(dialogs, Resources.Label_AdditionalOutputBaseFolder);
         }
         finally
         {
@@ -869,7 +881,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
-    /// <summary>ルート出力先を別の場所へ移しても旧領域の通常出力への転用を拒否し、旧役割の保護を失う誤りを検出します。</summary>
+    /// <summary>ルート出力先を別の場所へ移しても旧領域の通常出力への転用を拒否し、旧役割の保護を失う誤りを検出します。拒否理由（通常出力先とルート出力先の重なり）が利用者へ一件だけ通知され、確認が出ないことも、記録用の窓口で表明します。</summary>
     [TestMethod]
     public void NormalOutputBase_CannotAdoptPreviousRootOutputBaseAsNewNormalRoot()
     {
@@ -896,7 +908,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             testSettings.UsePlayeruBMplay = false;
             testSettings.UsePlayerLR2body = false;
             testSettings.UsePlayerBMIIDXView = false;
-            MainWindowViewModel viewModel = CreateViewModel(config);
+            var dialogs = new SettingsDialogHarness.RecordingDialogService { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            MainWindowViewModel viewModel = CreateViewModel(config, dialogs);
             using SettingsDialogViewModel dialogLifetime = viewModel.SettingDialog;
             SettingsDialogViewModel dialog = viewModel.SettingDialog;
 
@@ -904,11 +917,20 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             dialog.LR2CustomFolderOutputDir = previousRootOutputBasePath;
             Assert.AreEqual(normalOutputBase, dialog.LR2CustomFolderOutputDir);
             Assert.AreEqual(previousRootOutputBasePath, testSettings.LR2CustomFolderOutputBaseDirRootType);
+            AssertSingleOverlapNotification(dialogs, Resources.Label_RootOutputBase);
         }
         finally
         {
             TryDeleteDirectory(tempRootPath);
         }
+    }
+
+    /// <summary>通常出力先と指定の旧役割の出力先の重なりを拒否した通知が一件だけ届き、確認が出ないことを確認します。組立ての細部（接頭辞）は固定しません。</summary>
+    private static void AssertSingleOverlapNotification(SettingsDialogHarness.RecordingDialogService dialogs, string otherLabel)
+    {
+        Assert.AreEqual(0, dialogs.ConfirmationCount);
+        Assert.AreEqual(1, dialogs.MessageCount);
+        StringAssert.Contains(dialogs.LastMessageText, string.Format(Resources.Validation_OutputBasesOverlapFormat, Resources.Label_NormalOutputBase, otherLabel));
     }
 
     /// <summary>手動譜面ルートの親をルート型出力へ選択でき、採用確認の比較元として親出力と子登録を返すことを確認します。</summary>
@@ -1079,12 +1101,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         }
     }
 
-    private MainWindowViewModel CreateViewModel(LR2Config config)
+    private MainWindowViewModel CreateViewModel(LR2Config config, IUiDialogService? settingsDialogs = null)
     {
         testSettings.OperationModeLR2DB = true;
         testSettings.LR2ConfigXmlPath = Path.Combine(config.LR2RootPath, "LR2files", "Config", "config.xml");
         config.Save(config.ConfigFilePath);
-        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings);
+        MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings, settingsDialogs: settingsDialogs);
         // 初期化を走らせないfixtureでも、設定と出力窓口へ同じ構成寿命のXML所有者を接続します。
         // SettingsDialog の購読 lifetime は各呼出元が実観測の終端まで所有します。
         try

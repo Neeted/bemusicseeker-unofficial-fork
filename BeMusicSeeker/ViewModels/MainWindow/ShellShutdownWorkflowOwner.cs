@@ -206,7 +206,7 @@ internal sealed class ShellShutdownWorkflowOwner
     /// <param name="markCoordinatedShutdownStarted">終了準備前に協調終了を記録する処理。</param>
     /// <param name="requestApplicationShutdown">実終端の後処理後にApplication終了を要求する処理。</param>
     /// <param name="startApplicationRestart">終端の後処理後に後継プロセスを起動する処理。</param>
-    /// <param name="restartFailureDialogs">shell が利用可能な間に再起動失敗と撤去結果を通知するサービス。</param>
+    /// <param name="restartFailureDialogs">shell が利用可能な間に再起動失敗と撤去結果を通知する窓口。必須で、構成の再起動失敗の窓口を渡します。</param>
     /// <param name="reportRestartFailure">再起動失敗を通知できなかった場合の報告処理。</param>
     /// <param name="stopPerformanceDiagnostics">終了準備で性能診断の終端を待つ処理。</param>
     /// <param name="dispatchToUi">画面上の終端処理を所有Dispatcherへ渡す処理。</param>
@@ -241,9 +241,9 @@ internal sealed class ShellShutdownWorkflowOwner
         Action<string> logShutdownWarning,
         Func<string, string> formatTextForLog,
         Func<Action<string, Exception>, Task> completeTemporaryDirectories,
+        IUiDialogService restartFailureDialogs,
         Action<Exception> reportSettingsSaveFailure = null,
         Func<Task> startApplicationRestart = null,
-        IUiDialogService restartFailureDialogs = null,
         Action<Exception> reportRestartFailure = null)
     {
         this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
@@ -266,7 +266,7 @@ internal sealed class ShellShutdownWorkflowOwner
         this.markCoordinatedShutdownStarted = markCoordinatedShutdownStarted ?? throw new ArgumentNullException(nameof(markCoordinatedShutdownStarted));
         this.requestApplicationShutdown = requestApplicationShutdown ?? throw new ArgumentNullException(nameof(requestApplicationShutdown));
         this.startApplicationRestart = startApplicationRestart;
-        this.restartFailureDialogs = restartFailureDialogs ?? new UiDialogCoordinator();
+        this.restartFailureDialogs = restartFailureDialogs ?? throw new ArgumentNullException(nameof(restartFailureDialogs));
         this.reportRestartFailure = reportRestartFailure;
         this.stopPerformanceDiagnostics = stopPerformanceDiagnostics ?? throw new ArgumentNullException(nameof(stopPerformanceDiagnostics));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));

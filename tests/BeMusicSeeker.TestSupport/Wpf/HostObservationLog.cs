@@ -7,7 +7,7 @@ namespace BeMusicSeeker.TestSupport.Wpf;
 
 /// <summary>共有WPFホストで観測した記録の一件です。失敗にする項目かどうかは <see cref="HostObservationVerdict"/> が決めます。</summary>
 /// <param name="Sequence">記録順です。</param>
-/// <param name="Category">項目です。<c>B</c>（未準備のWindowの表示）、<c>E-a</c>〜<c>E-g</c>（ケース終了時の残留）、<c>X-detector</c>（検出器自身の失敗）。</param>
+/// <param name="Category">項目です。<c>B</c>（未準備のWindowの表示）、<c>E-a</c>〜<c>E-g</c>（ケース終了時の残留）、<c>D</c>（未宣言のダイアログ要求）、<c>X-detector</c>（検出器自身の失敗）。</param>
 /// <param name="Detail">内容です。一行に整形して出力します。</param>
 /// <param name="CaseName">記録時のケース名です。ケースの間はnullです。</param>
 /// <param name="PrecedingCaseName">ケースの間に記録された場合の直前のケース名です。</param>

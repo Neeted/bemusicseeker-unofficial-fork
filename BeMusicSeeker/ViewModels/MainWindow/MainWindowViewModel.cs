@@ -2437,9 +2437,9 @@ public partial class MainWindowViewModel : ViewModel,
             LogShutdownWarning,
             FormatTextForLog,
             applicationLifetime.CompleteTemporaryDirectoriesAsync,
+            applicationComposition.RestartFailureDialogs,
             applicationComposition.ReportTerminalSettingsSaveFailure,
             applicationLifetime.RestartApplicationAsync,
-            applicationComposition.RestartFailureDialogs,
             applicationComposition.ReportRestartFailure);
         ProgressHub.AttachPlaylistProgressSources(
             PlaylistWorkspace,

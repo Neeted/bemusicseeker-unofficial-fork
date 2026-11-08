@@ -741,8 +741,9 @@ public sealed class DispatcherHostTests
     }
 
     /// <summary>
-    /// 失敗にする項目はB・E-a〜E-fの七つだけで、記録だけの項目（E-g、E-a-hwnd、X-detector）は失敗にならないことを確認します。
-    /// 一部の項目だけを昇格させる実装、E-gを昇格させる実装、前方一致で<c>E-a-hwnd</c>まで昇格させる実装を検出します。
+    /// 失敗にする項目はB・E-a〜E-f・Dの八つだけで、記録だけの項目（E-g、E-a-hwnd、X-detector）は失敗にならないことを確認します。
+    /// 一部の項目だけを昇格させる実装、Dを加え忘れる実装、E-gを昇格させる実装、前方一致で<c>E-a-hwnd</c>や<c>D-x</c>まで昇格させる実装、
+    /// 大文字小文字を無視して<c>d</c>まで昇格させる実装を検出します。独立の状態で確認し、境界の記録は作りません。
     /// </summary>
     [TestMethod]
     [DataRow("B", true)]
@@ -752,10 +753,13 @@ public sealed class DispatcherHostTests
     [DataRow("E-d", true)]
     [DataRow("E-e", true)]
     [DataRow("E-f", true)]
+    [DataRow("D", true)]
+    [DataRow("D-x", false)]
+    [DataRow("d", false)]
     [DataRow("E-g", false)]
     [DataRow("E-a-hwnd", false)]
     [DataRow("X-detector", false)]
-    public void Verdict_FailsOnlyForTheSevenItems(string category, bool fails)
+    public void Verdict_FailsOnlyForTheEightItems(string category, bool fails)
     {
         var record = new HostObservation(1, category, "detail", "case", null);
         foreach (HostBoundaryKind kind in Enum.GetValues<HostBoundaryKind>())

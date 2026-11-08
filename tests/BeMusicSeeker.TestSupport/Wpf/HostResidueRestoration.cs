@@ -32,6 +32,7 @@ internal sealed record HostRestoreFailure(string Item, Exception? Cause);
 /// </summary>
 /// <remarks>
 /// 失敗にする項目はここの一つの定義（<see cref="IsFailureCategory"/>）だけで、ケースの開始・終了・moduleの終了の三つの境界が同じ定義を使います。
+/// 失敗にする項目は、<c>B</c>、<c>E-a</c>〜<c>E-f</c>、<c>D</c>（<see cref="UndeclaredUiDialogService"/>が呼ばれた時点の記録）の八項目です。
 /// 記録だけの項目（<c>E-g</c>、<c>E-a-hwnd</c>、<c>X-detector</c>）は、どの境界でも判定を変えません。
 /// 項目の比較は完全一致です。前方一致にすると、<c>E-a-hwnd</c>が<c>E-a</c>として失敗になるためです。
 /// </remarks>
@@ -40,9 +41,12 @@ internal static class HostObservationVerdict
     /// <summary>未準備のWindowの表示の項目名です。検出器・ケース間の観測の要否・失敗の定義が共有します。</summary>
     internal const string UnpreparedWindowCategory = "B";
 
-    private static readonly string[] failureCategories = [UnpreparedWindowCategory, "E-a", "E-b", "E-c", "E-d", "E-e", "E-f"];
+    /// <summary>未宣言のダイアログ要求の項目名です。<see cref="UndeclaredUiDialogService"/>が記録し、判定が失敗にします。</summary>
+    internal const string UndeclaredDialogCategory = "D";
 
-    /// <summary>指定の項目が、失敗にする項目（B、E-a〜E-f）かを完全一致で返します。</summary>
+    private static readonly string[] failureCategories = [UnpreparedWindowCategory, "E-a", "E-b", "E-c", "E-d", "E-e", "E-f", UndeclaredDialogCategory];
+
+    /// <summary>指定の項目が、失敗にする項目（B、E-a〜E-f、D）かを完全一致で返します。</summary>
     internal static bool IsFailureCategory(string category) => failureCategories.Contains(category, StringComparer.Ordinal);
 
     /// <summary>

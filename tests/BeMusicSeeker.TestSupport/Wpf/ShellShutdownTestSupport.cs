@@ -10,7 +10,7 @@ namespace BeMusicSeeker.TestSupport.Wpf;
 internal static class ShellShutdownTestSupport
 {
 
-    /// <summary>終了処理の依存を置き換え、一時入力は各テストの所有範囲で回収します。</summary>
+    /// <summary>終了処理の依存を置き換え、一時入力は各テストの所有範囲で回収します。<c>restartFailureDialogs</c> を省略すると、構成の <c>RestartFailureDialogs</c>（本番と同じ接続）を渡します。</summary>
     /// <remarks>分割先のケースが同じ入力・観測を共用します。モデル・Task・媒体の所有と終端は元の呼出元・fixtureに従います。</remarks>
     internal static ShellShutdownWorkflowOwner CreateDirectOwner(
         MainWindowViewModel viewModel,
@@ -69,9 +69,9 @@ internal static class ShellShutdownTestSupport
             logShutdownWarning ?? (_ => { }),
             value => value ?? string.Empty,
             completeTemporaryDirectories ?? (_ => Task.CompletedTask),
+            restartFailureDialogs ?? MainWindowViewModelTestFactory.GetComposition(viewModel).RestartFailureDialogs,
             reportSettingsSaveFailure,
             startApplicationRestart,
-            restartFailureDialogs,
             reportRestartFailure);
     }
 

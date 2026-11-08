@@ -22,9 +22,14 @@ internal static class MainWindowViewModelTestFactory
     /// 項目保存で生成した専用ファイルは、当該testhostの全処理・画面終端後に回収します。
     /// </summary>
     /// <param name="settings">明示する設定。省略時は専用の隔離設定です。</param>
-    /// <param name="fileDbMutationDialogs">ライブラリ変更の結果通知の窓口。省略時は既定の<c>UiDialogCoordinator</c>です。</param>
-    /// <param name="settingsDialogs">設定画面の確認と通知の窓口。省略時は既定の<c>UiDialogCoordinator</c>です。</param>
-    /// <param name="playlistWorkspaceDialogs">プレイリスト作業領域の確認と通知の窓口。省略時は既定の<c>UiDialogCoordinator</c>です。</param>
+    /// <param name="fileDbMutationDialogs">ライブラリ変更の結果通知の窓口。省略時は構成の共通の窓口（<see cref="UndeclaredUiDialogService"/>）です。</param>
+    /// <param name="settingsDialogs">設定画面の確認と通知の窓口。省略時は構成の共通の窓口（<see cref="UndeclaredUiDialogService"/>）です。</param>
+    /// <param name="playlistWorkspaceDialogs">プレイリスト作業領域の確認と通知の窓口。省略時は構成の共通の窓口（<see cref="UndeclaredUiDialogService"/>）です。</param>
+    /// <remarks>
+    /// 構成の共通のダイアログ窓口は常に<see cref="UndeclaredUiDialogService"/>です。専用の引数を渡さずに通知・確認が出ると、共有ホストの観測記録の項目<c>D</c>で
+    /// ケースが失敗になります。通知を期待するケースは、記録用の窓口を専用の引数へ明示的に渡して表明します。
+    /// 専用の引数で差し替えられない経路（ライブラリ、再起動失敗、保守の再検査など構成の共通の窓口を使う経路）で通知を宣言するときは、<c>ApplicationComposition</c> を直接構成し、<c>dialogService</c> か該当する専用引数で渡します。
+    /// </remarks>
     internal static MainWindowViewModel Create(
         Settings? settings = null,
         BeMusicSeeker.Views.Dialogs.IUiDialogService? fileDbMutationDialogs = null,
@@ -38,6 +43,7 @@ internal static class MainWindowViewModelTestFactory
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: new UndeclaredUiDialogService(),
             fileDbMutationDialogService: fileDbMutationDialogs,
             settingsDialogService: settingsDialogs,
             playlistWorkspaceDialogService: playlistWorkspaceDialogs)
