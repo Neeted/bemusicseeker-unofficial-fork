@@ -1322,6 +1322,8 @@ public sealed class MainWindowChartPresentationWpfTests
                     {
                         PrepareSearchEditor(chrome, owner, string.Empty);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
+                        // 操作ボタンの名称は各行のLoadedで付くため、Backgroundまで消化する。
+                        TestUiDispatcherHost.ProcessQueuedBackground();
 
                         Border favoriteRow = FindSavedRow(chrome.Editor, "title:favorite");
                         Button removeFavorite = FindActionButton(
@@ -1334,6 +1336,8 @@ public sealed class MainWindowChartPresentationWpfTests
                             AutomationProperties.GetName(removeFavorite));
                         removeFavorite.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, removeFavorite));
                         TestUiDispatcherHost.ProcessQueuedPresentation();
+                        // クリックで候補行が再実体化され、操作ボタンの名称が各行のLoadedで付くため、Backgroundまで消化する。
+                        TestUiDispatcherHost.ProcessQueuedBackground();
                         Assert.AreEqual(string.Empty, chrome.TextBox.Text);
                         CollectionAssert.DoesNotContain(owner.SavedQueryOwner.Favorites.ToArray(), "title:favorite");
 
@@ -1373,6 +1377,8 @@ public sealed class MainWindowChartPresentationWpfTests
                     {
                         PrepareSearchEditor(normal, owner, string.Empty);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
+                        // 操作ボタンの名称と区画のスクロール設定は各行・各区画のLoadedで付くため、Backgroundまで消化する。
+                        TestUiDispatcherHost.ProcessQueuedBackground();
 
                         ScrollViewer[] sectionViewports = FindVisualDescendants<ScrollViewer>(
                                 normal.Editor.AssistancePopupControl.Child!)
@@ -1663,6 +1669,8 @@ public sealed class MainWindowChartPresentationWpfTests
                             double selectedOffset = favoriteViewport.VerticalOffset;
                             owner.UpdateCatalogSnapshot(new KeywordSearchCatalogSnapshot(owner.CatalogSnapshot.Revision + 1, []));
                             TestUiDispatcherHost.ProcessQueuedPresentation();
+                            // スクロールで実体化した行の操作ボタンの名称は各行のLoadedで付くため、Backgroundまで消化する。
+                            TestUiDispatcherHost.ProcessQueuedBackground();
                             Assert.AreSame(favorites, GetSectionRows(chrome.Editor, KeywordSearchPresentationSectionKind.Favorites));
                             Assert.AreEqual(selectedOffset, favoriteViewport.VerticalOffset, 0.01d);
                             AssertSelectedSearchRow(favorites, favoriteCount - 1);
@@ -2040,6 +2048,8 @@ public sealed class MainWindowChartPresentationWpfTests
                             MaterializeElement(rows, rows.ActualWidth, rows.ActualHeight);
                             rows.ScrollIntoView(lastItem);
                             MaterializeElement(rows, rows.ActualWidth, rows.ActualHeight);
+                            // 実体化した行の操作ボタンの名称は各行のLoadedで付くため、Backgroundまで消化する。
+                            TestUiDispatcherHost.ProcessQueuedBackground();
                             Border lastRow = FindSavedRow(chrome.Editor, lastItem.Query);
                             Button lastApply = FindApplyButton(lastRow);
                             Assert.IsNotNull(

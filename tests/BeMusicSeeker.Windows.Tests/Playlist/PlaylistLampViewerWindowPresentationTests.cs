@@ -251,7 +251,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                         picker.Template = originalTemplate;
                         picker.ApplyTemplate();
                         window.UpdateLayout();
-                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        // 再生成したPARTのLoadedで表示文化圏が接続されるため、Backgroundまで消化する。
+                        TestUiDispatcherHost.ProcessQueuedBackground();
                         Assert.IsTrue(picker.IsLoaded, "親を再LoadedせずにPARTを再生成する条件を保つ。");
                         editor = (DatePickerTextBox)picker.Template.FindName("PART_TextBox", picker);
                         Assert.AreNotSame(previousEditor, editor);

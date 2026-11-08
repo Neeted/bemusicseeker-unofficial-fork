@@ -1835,6 +1835,8 @@ public sealed class SettingsWindowPresentationTests
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 navigation.SelectedItem = window.FindName("navigationAbout");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                // ページのLoadedで言語通知の購読が始まるため、言語変更の前にBackgroundまで消化して購読を確定する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 var page = (AboutSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
                 var version = (TextBlock)page.FindName("textBlockVerNum");
                 var build = (TextBlock)page.FindName("textBlockBuildNum");

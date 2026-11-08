@@ -487,10 +487,11 @@ public sealed class WindowPresentationScopeTests
                 window.Show();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.IsTrue(window.IsLoaded);
+                // Loadedの発火はこの消化が保証しないため、Loadedに依存しないHWNDの生成と表示だけを確認します。
+                Assert.AreNotEqual(0, NativeWindowObservation.GetNativeHandle(window));
                 Assert.IsTrue(window.IsVisible);
                 Assert.IsFalse(closing, "記録はWindowを閉じません。");
-                Assert.IsFalse(backgroundRan, "記録はDispatcherをLoadedより先へ進めません。");
+                Assert.IsFalse(backgroundRan, "記録はBackground優先度の予約を実行しません。");
             }
             finally { background.Abort(); }
         });
@@ -641,8 +642,7 @@ public sealed class WindowPresentationScopeTests
             try
             {
                 window.Show();
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 Assert.IsTrue(window.IsLoaded);
                 Assert.IsTrue(IsListed(window), "The detector must not close an unprepared non-modal window.");
             }

@@ -129,11 +129,14 @@ public sealed class CustomTablePhase6CacheTests
                     Assert.AreEqual("instl_dst", completed[0].EditPropertyName); Assert.AreEqual(input, completed[0].Text);
                     Assert.IsFalse(popup.IsOpen);
                     window.Content = null;
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // 表のLoaded／Unloadedで購読と再描画が切り替わるため、Backgroundまで消化する。
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.IsFalse(table.IsLoaded);
                     ResourceService.Current.ChangeCulture("ja-JP");
                     window.Content = table;
                     TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // 表のLoaded／Unloadedで購読と再描画が切り替わるため、Backgroundまで消化する。
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.IsTrue(table.IsLoaded); Assert.AreSame(table, window.Content); Assert.AreSame(rows, table.ItemsSource); Assert.AreSame(row, rows[3]);
                     Assert.IsTrue(table.GetRowEntry(row).Drawings.ContainsKey(3), "再Loaded後も最新語で実描画します。");
                     Assert.AreEqual("▼ " + Resources.InstallDestination_SelectCandidate, table.GetCellValue(row, column, out cacheHit).Text); Assert.IsTrue(cacheHit);
@@ -242,11 +245,14 @@ public sealed class CustomTablePhase6CacheTests
 
                     // 非表示の間に言語を変えても、再表示後は最新語で描画します。
                     window.Content = null;
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // 表のLoaded／Unloadedで購読と再描画が切り替わるため、Backgroundまで消化する。
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.IsFalse(table.IsLoaded);
                     ResourceService.Current.ChangeCulture("ja-JP");
                     window.Content = table;
                     TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // 表のLoaded／Unloadedで購読と再描画が切り替わるため、Backgroundまで消化する。
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.IsTrue(table.IsLoaded);
                     Assert.AreSame(row, rows[3]);
                     Assert.AreEqual(japaneseDigest, table.GetCellValue(row, column, out _).Text);
@@ -619,11 +625,14 @@ public sealed class CustomTablePhase6CacheTests
                 System.Collections.IList sourceRows = table.ItemsSource ?? throw new AssertFailedException("再Loaded前の行集合がありません。");
                 double reloadOffset = table.HorizontalOffset;
                 window.Content = null;
-                TestUiDispatcherHost.ProcessQueuedPresentation();
+                // 表のLoaded／Unloadedで購読と再描画が切り替わるため、Backgroundまで消化する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 Assert.IsFalse(table.IsLoaded);
                 ChangeContext(second, MainViewUpdateMode.FullScanAllChartsFilterSelected);
                 window.Content = table;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                // 表のLoaded／Unloadedで購読と再描画が切り替わるため、Backgroundまで消化する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 Assert.IsTrue(table.IsLoaded); AssertValue(true);
                 Assert.AreSame(table, window.Content); Assert.AreSame(sourceRows, table.ItemsSource);
                 Assert.AreSame(row, table.ItemsSource[0]); Assert.AreSame(row, table.GetSelectedRowsSnapshot().Single());

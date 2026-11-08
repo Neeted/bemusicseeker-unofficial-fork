@@ -1546,11 +1546,14 @@ public sealed class PlaybackPanelViewModelTests
                     AssertPlaybackPanelHasTransitionClocks(view, compactTransition: true);
                     window.Content = null;
                     window.UpdateLayout();
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(handle));
                     window.Content = view;
                     window.UpdateLayout();
                     TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.AreEqual(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, panel.PlayerPanelState);
                     Assert.AreEqual(panel.PlayerPanelState, view.EffectivePlayerPanelState);
                     AssertPlaybackPanelFinalState(view, compact: true);
@@ -1822,7 +1825,8 @@ public sealed class PlaybackPanelViewModelTests
 
                 window.Content = null;
                 window.UpdateLayout();
-                TestUiDispatcherHost.ProcessQueuedPresentation();
+                // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 Assert.IsFalse(view.IsLoaded);
                 Assert.IsTrue(ExternalPlayerHostObservation.IsWindow(hostHandle));
                 Assert.AreEqual(hostHandle, view.PlayerHostHandle);
@@ -1832,6 +1836,8 @@ public sealed class PlaybackPanelViewModelTests
                 window.Content = view;
                 window.UpdateLayout();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 Assert.IsTrue(view.IsLoaded);
                 Assert.AreEqual(hostHandle, view.PlayerHostHandle);
                 ExternalPlayerHostObservation.AssertOwnedChild(hostHandle, window);
@@ -1901,10 +1907,13 @@ public sealed class PlaybackPanelViewModelTests
                     panel.NotifyPlaybackStarted(oldGeneration);
                     window.Content = null;
                     window.UpdateLayout();
-                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                    TestUiDispatcherHost.ProcessQueuedBackground();
                     window.Content = view;
                     window.UpdateLayout();
                     TestUiDispatcherHost.ProcessQueuedPresentation();
+                    // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                    TestUiDispatcherHost.ProcessQueuedBackground();
 
                     queuedDispatcher.RunAll();
                     Assert.AreEqual(0, startingCount);
@@ -2073,7 +2082,8 @@ public sealed class PlaybackPanelViewModelTests
                 int unloadedStops = unloadedTimer.StopCount;
                 window.Content = null;
                 window.UpdateLayout();
-                TestUiDispatcherHost.ProcessQueuedPresentation();
+                // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
 
                 Assert.IsFalse(view.IsLoaded);
                 AssertPreviousButtonTimerCancelled(unloadedTimer, unloadedStops);
@@ -2082,6 +2092,8 @@ public sealed class PlaybackPanelViewModelTests
                 window.Content = view;
                 window.UpdateLayout();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 Assert.IsTrue(view.IsLoaded);
                 Task reloadedRestartObserved = replacementPlayer.WaitForCommandAsync("Restart");
                 view.HandlePreviousButtonClick(1);

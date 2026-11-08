@@ -1599,7 +1599,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             TreeViewItem owner = Folder("A");
                             owner.SetCurrentValue(HeaderedItemsControl.HeaderTemplateProperty, null);
                             fixture.Window.UpdateLayout();
-                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            // ヘッダー部品のLoaded／Unloadedの作用を表明する前に、Backgroundまで消化する。
+                            TestUiDispatcherHost.ProcessQueuedBackground();
                             Assert.IsFalse(control.IsLoaded, "実headerから旧部品を切り離します。");
                             owner.ClearValue(HeaderedItemsControl.HeaderTemplateProperty);
                             fixture.Window.UpdateLayout();
@@ -1617,7 +1618,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             Assert.IsFalse(oldTimer.IsEnabled);
                             BeginByClock(control, latest);
                             control.UpdateLayout();
-                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            // ヘッダー部品のLoaded／Unloadedの作用を表明する前に、Backgroundまで消化する。
+                            TestUiDispatcherHost.ProcessQueuedBackground();
                             TextBox editor = FindDescendants<TextBox>(control).Single();
                             Assert.IsTrue(editor.IsLoaded);
                             Assert.IsTrue(control.IsInEditMode);
@@ -2678,7 +2680,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TextBox unloading = Begin("Published B");
                 Type(unloading, "Discard unloaded");
                 window.Content = null;
-                TestUiDispatcherHost.ProcessQueuedPresentation();
+                // ヘッダー部品のLoaded／Unloadedの作用を表明する前に、Backgroundまで消化する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 Assert.IsFalse(control.IsInEditMode);
                 Assert.AreEqual(1, notifications.Count(args => args.CommittedText != null));
                 window.Content = control;
