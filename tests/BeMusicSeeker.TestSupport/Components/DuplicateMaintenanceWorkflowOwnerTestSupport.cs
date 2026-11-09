@@ -89,7 +89,8 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
         protected void AddEvent(string value) => events.Add(value);
 
         public virtual DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
-            BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId)
+            BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId,
+            LibraryOperationNotices notices)
         {
             events.Add("store-merge");
             SourceDirectory = sourceDirectory;
@@ -112,7 +113,7 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
         public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
             => new(charts, WholeFolderCandidates, [], charts.Count, 0, registeredUserRoots: RegisteredUserRoots);
 
-        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, out Action? publication)
+        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action? publication)
         {
             publication = null;
             IReadOnlyList<ChartFile> charts = prepared.Targets;
@@ -142,7 +143,8 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
             BMSLibrary library,
             string sourceDirectory,
             string destinationDirectory,
-            long operationId)
+            long operationId,
+            LibraryOperationNotices notices)
         {
             MergeWithReceiptCallCount++;
             AddEvent("store-merge-with-receipt");

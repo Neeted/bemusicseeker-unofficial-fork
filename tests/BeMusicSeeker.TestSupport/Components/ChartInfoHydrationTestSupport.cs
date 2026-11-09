@@ -77,7 +77,7 @@ internal static class ChartInfoHydrationTestSupport
     /// <summary>画面を開かず、指定されたdefault応答または従来のOK応答をそのまま返すdialog入力です。</summary>
     internal sealed class RecordingDialogService : IBmsLibraryDialogService
     {
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }

@@ -82,7 +82,7 @@ internal static class InstallServiceComponentTestSupport
     {
         public List<string> Messages { get; } = [];
 
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             Messages.Add(messageBoxText);
             return defaultResult;

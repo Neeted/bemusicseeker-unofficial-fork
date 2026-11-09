@@ -10,10 +10,10 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal interface ILibraryFileOperationMutationBoundary
 {
     /// <summary>新要求は共通受付を非待機で取得し、受理済み権限は検査して借用します。Busyはnullです。</summary>
-    LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null);
+    LibraryFileMutationLease TryBeginMutation(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null);
 
     /// <summary>生存権限を検査し、新要求の副作用前に共通受付のBusyを判定します。</summary>
-    bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null);
+    bool TryBlockMutation(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null);
 }
 
 /// <summary>
@@ -168,14 +168,15 @@ internal sealed class LibraryFileOperationSynchronization
     }
 
     /// <summary>対象の物理変更に必要な共通受付を取得、または受理済み権限で借用します。呼出元が後片付け後に解放します。</summary>
+    /// <param name="notices">パス未収束の拒否の警告を加える、この操作の収集先。表示は呼出元が受付の解放後に行います。</param>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
-    internal LibraryFileMutationLease EnterFolderMoveWriteScope(LibraryFileMutationCapability capability = null)
+    internal LibraryFileMutationLease EnterFolderMoveWriteScope(LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         // Admission/reservation is intentionally separate from the short
         // model snapshot scope.  Filesystem staging, the DB callback,
         // finalize cleanup, and notifications must never retain collection or
         // model locks.
-        return EnterCatalogMutationReservation("library_folder_move", showMessage: true, capability: capability);
+        return EnterCatalogMutationReservation("library_folder_move", notices: notices, capability: capability);
     }
 
     internal IDisposable EnterFolderMoveSnapshotScope()
@@ -194,10 +195,11 @@ internal sealed class LibraryFileOperationSynchronization
     }
 
     /// <summary>対象の物理変更に必要な共通受付を取得、または受理済み権限で借用します。呼出元が後片付け後に解放します。</summary>
+    /// <param name="notices">パス未収束の拒否の警告を加える、この操作の収集先。表示は呼出元が受付の解放後に行います。</param>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
-    internal LibraryFileMutationLease EnterNormalInvalidExtensionRenameWriteScope(LibraryFileMutationCapability capability = null)
+    internal LibraryFileMutationLease EnterNormalInvalidExtensionRenameWriteScope(LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
-        return EnterCatalogWriteScope("library_invalid_extension_rename", capability);
+        return EnterCatalogWriteScope("library_invalid_extension_rename", notices, capability);
     }
 
     internal IDisposable EnterNormalInvalidExtensionRenameSnapshotScope()
@@ -229,10 +231,11 @@ internal sealed class LibraryFileOperationSynchronization
             () => songDbInstall.GetWriterGuard());
 
     /// <summary>対象の物理変更に必要な共通受付を取得、または受理済み権限で借用します。呼出元が後片付け後に解放します。</summary>
+    /// <param name="notices">パス未収束の拒否の警告を加える、この操作の収集先。表示は呼出元が受付の解放後に行います。</param>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
-    internal LibraryFileMutationLease EnterLibraryChartRemovalWriteScope(LibraryFileMutationCapability capability = null)
+    internal LibraryFileMutationLease EnterLibraryChartRemovalWriteScope(LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
-        return EnterCatalogWriteScope("library_chart_removal", capability);
+        return EnterCatalogWriteScope("library_chart_removal", notices, capability);
     }
 
     internal IDisposable EnterLibraryChartRemovalSnapshotScope()
@@ -244,12 +247,13 @@ internal sealed class LibraryFileOperationSynchronization
     }
 
     /// <summary>対象の物理変更に必要な共通受付を取得、または受理済み権限で借用します。呼出元が後片付け後に解放します。</summary>
+    /// <param name="notices">パス未収束の拒否の警告を加える、この操作の収集先。表示は呼出元が受付の解放後に行います。</param>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
-    internal LibraryFileMutationLease EnterFixInstallationDirectoryWriteScope(LibraryFileMutationCapability capability = null)
+    internal LibraryFileMutationLease EnterFixInstallationDirectoryWriteScope(LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         return EnterCatalogMutationReservationPreservingBusyNull(
             nameof(BMSLibrary.FixInstallationDirectoryCharts),
-            showMessage: true, capability: capability);
+            notices: notices, capability: capability);
     }
 
     internal IDisposable EnterFixInstallationDirectorySnapshotScope()
@@ -263,12 +267,13 @@ internal sealed class LibraryFileOperationSynchronization
     /// <summary>
     /// 重複統合の共通受付を取得または借用します。呼出元が実変更と後片付けの終端で解放します。
     /// </summary>
+    /// <param name="notices">パス未収束の拒否の警告を加える、この操作の収集先。表示は呼出元が受付の解放後に行います。</param>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
-    internal LibraryFileMutationLease EnterMergeWriteScope(LibraryFileMutationCapability capability = null)
+    internal LibraryFileMutationLease EnterMergeWriteScope(LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         return EnterCatalogMutationReservationPreservingBusyNull(
             "duplicate_merge_catalog_transition",
-            showMessage: true, capability: capability);
+            notices: notices, capability: capability);
     }
 
     internal IDisposable EnterMergeSnapshotScope()
@@ -283,13 +288,13 @@ internal sealed class LibraryFileOperationSynchronization
     /// 受付を予約せず変更前の収束状態と競合を検査します。本受付後も収束状態を再確認します。
     /// </summary>
     /// <param name="operation">変更操作の診断名。</param>
-    /// <param name="showMessage">拒否警告を表示するか。</param>
+    /// <param name="notices">拒否の警告を加える、この操作の収集先。nullは警告を求めません。表示は呼出元が受付の解放後に行います。</param>
     /// <returns>変更を拒否する場合はtrue。</returns>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
-    internal bool TryBlockCatalogMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
+    internal bool TryBlockCatalogMutation(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
         => catalogMutationBoundary != null
-            ? catalogMutationBoundary.TryBlockMutation(operation, showMessage, capability)
-            : mutationBoundary.TryBlockMutation(operation, showMessage, capability);
+            ? catalogMutationBoundary.TryBlockMutation(operation, notices, capability)
+            : mutationBoundary.TryBlockMutation(operation, notices, capability);
 
     /// <summary>対象の物理変更に必要な共通受付を取得、または受理済み権限で借用します。呼出元が後片付け後に解放します。</summary>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
@@ -302,31 +307,31 @@ internal sealed class LibraryFileOperationSynchronization
         return EnterMutationReservation(operation, capability);
     }
 
-    /// <summary>raw 側の境界は共通受付のBusyをnullで返すだけでパス収束の警告を持たないため、警告の指定は常に false です。</summary>
+    /// <summary>raw 側の境界は共通受付のBusyをnullで返すだけでパス収束の警告を持たないため、警告の収集先は常に null です。</summary>
     private LibraryFileMutationLease EnterMutationReservation(string operation, LibraryFileMutationCapability capability = null)
     {
-        return mutationBoundary.TryBeginMutation(operation, showMessage: false, capability);
+        return mutationBoundary.TryBeginMutation(operation, notices: null, capability);
     }
 
-    private LibraryFileMutationLease EnterCatalogWriteScope(string operation, LibraryFileMutationCapability capability = null)
+    private LibraryFileMutationLease EnterCatalogWriteScope(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
-        return EnterCatalogMutationReservation(operation, showMessage: true, capability: capability);
+        return EnterCatalogMutationReservation(operation, notices: notices, capability: capability);
     }
 
-    private LibraryFileMutationLease EnterCatalogMutationReservation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
+    private LibraryFileMutationLease EnterCatalogMutationReservation(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         return catalogMutationBoundary != null
-            ? catalogMutationBoundary.TryBeginMutation(operation, showMessage, capability)
-            : mutationBoundary.TryBeginMutation(operation, showMessage, capability);
+            ? catalogMutationBoundary.TryBeginMutation(operation, notices, capability)
+            : mutationBoundary.TryBeginMutation(operation, notices, capability);
     }
 
     private LibraryFileMutationLease EnterCatalogMutationReservationPreservingBusyNull(
         string operation,
-        bool showMessage, LibraryFileMutationCapability capability = null)
+        LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         return catalogMutationBoundary != null
-            ? catalogMutationBoundary.TryBeginMutationPreservingBusyNull(operation, showMessage, capability)
-            : mutationBoundary.TryBeginMutation(operation, showMessage, capability);
+            ? catalogMutationBoundary.TryBeginMutationPreservingBusyNull(operation, notices, capability)
+            : mutationBoundary.TryBeginMutation(operation, notices, capability);
     }
 
     private static IDisposable AcquireScopes(

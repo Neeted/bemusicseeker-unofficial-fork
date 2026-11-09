@@ -2416,7 +2416,6 @@ public partial class BMSLibrary : ObservableObject
 
     private readonly IBmsLibraryDialogService dialogService;
 
-    private readonly ScopedOperationDialogCoordinator scopedOperationDialogService;
 
     private readonly object everythingFallbackWarningGate = new();
 
@@ -2674,7 +2673,6 @@ public partial class BMSLibrary : ObservableObject
         everythingNative = new EverythingNative(this.applicationPathSnapshot);
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService;
-        scopedOperationDialogService = new(this.dialogService);
         dbGateway = new BmsLibraryDbGateway(databaseScope, databaseLoadOptions, lr2SongDBPath, lr2ScoreDBPath);
         catalogChartInfoOwner = new(
             RaisePropertyChanged,
@@ -2716,7 +2714,7 @@ public partial class BMSLibrary : ObservableObject
         catalogFileMutationAdmissionOwner = new(
             lr2SynchronizationOwner,
             catalogFileMutationReadinessOwner,
-            NotifyCatalogFileMutationRequiresFileDiffWarning);
+            CreateCatalogFileMutationRequiresFileDiffNotice);
         catalogWriteFailureSubscription = new(catalogMutationOwner, lr2SynchronizationOwner);
         resourceHealthOwner = new(
             maintenanceService,
@@ -2770,7 +2768,6 @@ public partial class BMSLibrary : ObservableObject
             libraryResourceIndexOwner,
             this.fileMutationService,
             installDestinationStateOwner,
-            scopedOperationDialogService,
             lr2SynchronizationOwner,
             catalogOwnedCollectionOwner,
             catalogMutationOwner,
@@ -4871,7 +4868,7 @@ public partial class BMSLibrary : ObservableObject
         foreach (LeapYearFolderRepairCandidate candidate in candidates)
         {
             if (IsShutdownRequested) { break; }
-            MessageBoxResult decision = dialogService.Show(candidate.ConfirmationMessage, Resources.MessageBoxTitle_Warning,
+            MessageBoxResult decision = dialogService.Confirm(candidate.ConfirmationMessage, Resources.MessageBoxTitle_Warning,
                 MessageBoxButton.YesNo, MessageBoxImage.Exclamation, MessageBoxResult.No);
             if (IsShutdownRequested) { break; }
             if (decision == MessageBoxResult.Yes)
@@ -5726,20 +5723,14 @@ public partial class BMSLibrary : ObservableObject
     }
 
     /// <summary>
-    /// カタログ依存の変更が、権威ある差分の収束まで使えないことを案内します。
-    /// 現在のスレッドに所有者の案内の列があれば積み、所有者が受付の解放後に表示します。列がなければ待たずに投函します。
+    /// カタログ依存の変更が、権威ある差分の収束まで使えないことの案内を作ります。
+    /// 呼出元の操作の収集先へ加え、所有者が受付の解放後に表示します。
     /// </summary>
-    internal void NotifyCatalogFileMutationRequiresFileDiffWarning(
+    internal static OperationDialogMessage CreateCatalogFileMutationRequiresFileDiffNotice(
         CatalogPathConvergenceBlockReason reason)
-    {
-        OperationDialogMessage notice = CreateWarningNotice(reason == CatalogPathConvergenceBlockReason.StartupFileScanDisabled
+        => CreateWarningNotice(reason == CatalogPathConvergenceBlockReason.StartupFileScanDisabled
             ? Resources.Warn_CatalogFileMutationRequiresStartupScan
             : Resources.Warn_CatalogFileMutationRequiresFileDiff);
-        if (!scopedOperationDialogService.TryEnqueue(notice))
-        {
-            PostOperationNotices([notice]);
-        }
-    }
 
     /// <summary>走査が不完全で更新を見送った警告を、待たずに一度だけ投函します。</summary>
     /// <returns>この要求を投函した場合は真。投函済みなら偽。</returns>
@@ -5864,18 +5855,18 @@ public partial class BMSLibrary : ObservableObject
         return lr2SynchronizationOwner.TryBeginMutation(operation, capability);
     }
 
-    private bool TryBlockCatalogFileMutation(string operation, bool showMessage = true, LibraryFileMutationCapability capability = null)
+    private bool TryBlockCatalogFileMutation(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
-        return catalogFileMutationAdmissionOwner.TryBlockMutation(operation, showMessage, capability);
+        return catalogFileMutationAdmissionOwner.TryBlockMutation(operation, notices, capability);
     }
 
     private LibraryFileMutationLease TryBeginCatalogFileMutationPreservingBusyFailure(
         string operation,
-        bool showMessage = true, LibraryFileMutationCapability capability = null)
+        LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         return catalogFileMutationAdmissionOwner.TryBeginFileOperationMutation(
             operation,
-            showMessage,
+            notices,
             capability: capability);
     }
 
@@ -9155,19 +9146,21 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="targetEntry">編集対象の保留項目、または全件確認で扱う所持譜面。</param>
     /// <param name="destinationDirectory">入力された導入先。空値も受け付けます。</param>
     /// <param name="isOwnedChartEdit">所持一譜面の要求ならtrue。同pathの保留群とは分離し、保留要求の失効を所持へ読み替えません。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。検証の拒否の理由を加え、呼出元が受付の解放後に表示します。モデルの書込み保護の内側では表示しません。</param>
     /// <returns>導入先を検証し、対象へ適用した場合は <see langword="true"/>。</returns>
-    internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory, bool isOwnedChartEdit)
-        => SetPendingInstallDestination(targetEntry, destinationDirectory, isOwnedChartEdit, out _);
+    internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory, bool isOwnedChartEdit, LibraryOperationNotices notices)
+        => SetPendingInstallDestination(targetEntry, destinationDirectory, isOwnedChartEdit, notices, out _);
 
     /// <summary>検証・適用した全項目を返し、同じ操作の表示更新がパッケージ内の兄弟を落とさないようにします。拒否時は空集合です。</summary>
     internal bool SetPendingInstallDestination(PackageChartEntry targetEntry, string destinationDirectory, bool isOwnedChartEdit,
-        out IReadOnlyList<PackageChartEntry> targetEntries)
+        LibraryOperationNotices notices, out IReadOnlyList<PackageChartEntry> targetEntries)
     {
         targetEntries = [];
         if (targetEntry == null)
         {
             throw new ArgumentNullException("targetEntry");
         }
+        ArgumentNullException.ThrowIfNull(notices);
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         {
             using (rwlockPendingInstallCharts.GetWriterGuard())
@@ -9181,7 +9174,7 @@ public partial class BMSLibrary : ObservableObject
                     isOwnedChartEdit ? [] : ChartPackagesPending, CreateKnownChartDirectorySnapshotUnsafe(), destinationDirectory, allowStandaloneLibraryChart, GetDistinctInstalledDirectoriesByPrimaryHashUnsafe);
                 if (!selection.Success)
                 {
-                    ShowOperationDialog(selection.WarningMessage, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+                    notices.Add(CreateWarningNotice(selection.WarningMessage));
                     return false;
                 }
                 IReadOnlyDictionary<PackageChartEntry, string> relativeDirectories = BmsLibraryPackageInstallService.CapturePendingRelativeDirectories(selection.TargetEntries, selection.Package);
@@ -9416,9 +9409,9 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>
     /// 譜面ファイル群を指定された別のディレクトリへマージ（統合移動）します。
     /// </summary>
-    public void MergeChartDirectory(string src, string dst)
+    internal void MergeChartDirectory(string src, string dst, LibraryOperationNotices notices)
     {
-        _ = MergeChartDirectory(src, dst, operationId: 0);
+        _ = MergeChartDirectory(src, dst, operationId: 0, notices);
     }
 
     /// <summary>
@@ -9427,13 +9420,14 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="src">統合元ディレクトリ。</param>
     /// <param name="dst">統合先ディレクトリ。</param>
     /// <param name="operationId">統合操作の診断識別子。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     /// <param name="reportAtTerminal">結果に基づく失敗通知を呼出元の操作終端へ委ねるか。</param>
     /// <param name="capability">同じL受付の生存権限。省略時は新規受付を取得し、必須保守・後片付けまで保持します。借用時は外側が通知・cleanup終端まで保持します。</param>
     /// <returns>統合の永続確定とリソース保守の結果。保守失敗で確定済み統合を戻しません。</returns>
     internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string src, string dst, long operationId,
-        bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
+        LibraryOperationNotices notices, bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
     {
-        return libraryMutationOwner.MergeChartDirectory(src, dst, operationId, reportAtTerminal, capability);
+        return libraryMutationOwner.MergeChartDirectory(src, dst, operationId, notices, reportAtTerminal, capability);
     }
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
@@ -9470,11 +9464,12 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>同じ共通権限で修復を実行し、実移転・削除・終端の事実を返します。再実行やファイル状態からの成功推測は行いません。</summary>
     /// <param name="charts">修復対象の譜面。</param>
-    /// <param name="approvedDuplicateRemovalChartPaths">確認済みの重複削除パス。</param>
+    /// <param name="approvedDuplicateRemovalChartPaths">利用者が判断した重複削除パス。削除しない判断は空の一覧です。重複の修復がある要求でnullを渡すと、物理処理の前に失敗します。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     /// <param name="capability">受理済み操作の同じ生存権限。省略時は新規受付を判定します。</param>
-    internal LibraryFixInstallationResult FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null, LibraryFileMutationCapability capability = null)
+    internal LibraryFixInstallationResult FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
-        return libraryMutationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths, capability);
+        return libraryMutationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths, notices, capability);
     }
 
     internal bool HasAutoRenameAllChartFolderTargets(string parentDir = null)
@@ -9500,20 +9495,21 @@ public partial class BMSLibrary : ObservableObject
         AutoRenameBatchResult result,
         ExceptionDispatchInfo primaryFailure,
         IEnumerable<Action> postLeaseNotifications,
+        LibraryOperationNotices notices,
         bool reportAtTerminal = false)
     {
         ExceptionDispatchInfo firstFailure = primaryFailure ?? result?.PrimaryFailure;
         // required apply の失敗時は session が通常通知を公開リストへ入れません。
         // ここでは成否を再判定せず、失敗診断・集約 marker も含めて解放後に処理します。
         InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
-        FlushAutoRenameDiagnostics(result, reportAtTerminal);
+        FlushAutoRenameDiagnostics(result, notices, reportAtTerminal);
         if (firstFailure != null && result == null)
         {
             firstFailure.Throw();
         }
     }
 
-    private void FlushAutoRenameDiagnostics(AutoRenameBatchResult result, bool reportAtTerminal)
+    private void FlushAutoRenameDiagnostics(AutoRenameBatchResult result, LibraryOperationNotices notices, bool reportAtTerminal)
     {
         foreach (AutoRenameBatchDiagnostic diagnostic in result?.Diagnostics ?? [])
         {
@@ -9523,7 +9519,7 @@ public partial class BMSLibrary : ObservableObject
             }
             try
             {
-                PublishAutoRenameDiagnostic(diagnostic, reportAtTerminal);
+                PublishAutoRenameDiagnostic(diagnostic, notices, reportAtTerminal);
             }
             catch (Exception exception)
             {
@@ -9547,7 +9543,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    private void PublishAutoRenameDiagnostic(AutoRenameBatchDiagnostic diagnostic, bool reportAtTerminal)
+    private void PublishAutoRenameDiagnostic(AutoRenameBatchDiagnostic diagnostic, LibraryOperationNotices notices, bool reportAtTerminal)
     {
         switch (diagnostic.Kind)
         {
@@ -9558,13 +9554,13 @@ public partial class BMSLibrary : ObservableObject
                 }
                 break;
             case AutoRenameBatchDiagnosticKind.DriveRootSkipped:
-                libraryMutationOwner.ShowDriveRootBmsSkipped();
+                LibraryMutationOwner.AddDriveRootBmsSkippedNotice(notices);
                 break;
             case AutoRenameBatchDiagnosticKind.RenamePlanFailed:
                 if (!string.IsNullOrWhiteSpace(diagnostic.SourceDirectory)
                     && diagnostic.Failure != null)
                 {
-                    libraryMutationOwner.ShowRenameFailed(new FolderAutoRenamePlan
+                    LibraryMutationOwner.AddRenameFailedNotice(notices, new FolderAutoRenamePlan
                     {
                         SourceDirectory = diagnostic.SourceDirectory,
                         FailureException = diagnostic.Failure
@@ -9574,14 +9570,15 @@ public partial class BMSLibrary : ObservableObject
             case AutoRenameBatchDiagnosticKind.SourceMissing:
                 if (!string.IsNullOrWhiteSpace(diagnostic.SourceDirectory))
                 {
-                    libraryMutationOwner.ShowRenameFolderNotExists(diagnostic.SourceDirectory);
+                    LibraryMutationOwner.AddRenameFolderNotExistsNotice(notices, diagnostic.SourceDirectory);
                 }
                 break;
             case AutoRenameBatchDiagnosticKind.DestinationAlreadyExists:
                 if (!string.IsNullOrWhiteSpace(diagnostic.SourceDirectory)
                     && !string.IsNullOrWhiteSpace(diagnostic.DestinationDirectory))
                 {
-                    libraryMutationOwner.ShowMoveDestinationAlreadyExists(
+                    LibraryMutationOwner.AddMoveDestinationAlreadyExistsNotice(
+                        notices,
                         diagnostic.SourceDirectory,
                         diagnostic.DestinationDirectory);
                 }
@@ -9590,7 +9587,8 @@ public partial class BMSLibrary : ObservableObject
                 if (!reportAtTerminal && !string.IsNullOrWhiteSpace(diagnostic.SourceDirectory)
                     && !string.IsNullOrWhiteSpace(diagnostic.DestinationDirectory))
                 {
-                    libraryMutationOwner.ShowFolderMoveFailed(
+                    LibraryMutationOwner.AddFolderMoveFailedNotice(
+                        notices,
                         diagnostic.SourceDirectory,
                         diagnostic.DestinationDirectory,
                         diagnostic.Failure ?? new IOException("Folder move failed."));
@@ -9635,9 +9633,9 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>
     /// 譜面フォルダを新しい名前にリネームし、song.db のパス情報を更新します。
     /// </summary>
-    public void RenameChartFolder(string srcDir, string newName, bool? unregister = false, bool renameRootFolder = false)
+    internal void RenameChartFolder(string srcDir, string newName, LibraryOperationNotices notices, bool? unregister = false, bool renameRootFolder = false)
     {
-        RenameChartFolderWithReceipt(srcDir, newName, unregister, renameRootFolder);
+        RenameChartFolderWithReceipt(srcDir, newName, notices, unregister, renameRootFolder);
     }
 
     /// <summary>受理済みLの内側で手動改名の正規化済み宛先と実移動を確定します。呼出元が同じ実移動からPと停止の必要性を判定します。</summary>
@@ -9653,10 +9651,12 @@ public partial class BMSLibrary : ObservableObject
     internal LibraryMutationSessionReceipt RenameChartFolderWithReceipt(
         string srcDir,
         string newName,
+        LibraryOperationNotices notices,
         bool? unregister = false,
         bool renameRootFolder = false,
         bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
+        ArgumentNullException.ThrowIfNull(notices);
         if (srcDir == null)
         {
             throw new ArgumentNullException(nameof(srcDir));
@@ -9665,7 +9665,7 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentNullException(nameof(newName));
         }
-        if (TryBlockCatalogFileMutation(nameof(RenameChartFolder), capability: capability))
+        if (TryBlockCatalogFileMutation(nameof(RenameChartFolder), notices, capability: capability))
         {
             return null;
         }
@@ -9675,12 +9675,13 @@ public partial class BMSLibrary : ObservableObject
             newName,
             unregister,
             renameRootFolder,
+            notices,
             reportAtTerminal, capability, preparedBatch);
     }
 
-    internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
+    internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, LibraryOperationNotices notices, bool? unregister = false)
     {
-        MoveLibraryRootFolderWithReceipt(charts, dstDir, unregister);
+        MoveLibraryRootFolderWithReceipt(charts, dstDir, notices, unregister);
     }
 
     /// <summary>取得済みLの内側で実移動計画を一回固定します。短いモデル保護を解放してから条件付きP・停止へ進みます。</summary>
@@ -9697,9 +9698,11 @@ public partial class BMSLibrary : ObservableObject
     internal LibraryMutationSessionReceipt MoveLibraryRootFolderWithReceipt(
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
+        LibraryOperationNotices notices,
         bool? unregister = false,
         bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
+        ArgumentNullException.ThrowIfNull(notices);
         if (charts == null)
         {
             throw new ArgumentNullException(nameof(charts));
@@ -9708,7 +9711,7 @@ public partial class BMSLibrary : ObservableObject
         {
             throw new ArgumentNullException(nameof(dstDir));
         }
-        if (TryBlockCatalogFileMutation(nameof(MoveLibraryRootFolder), capability: capability))
+        if (TryBlockCatalogFileMutation(nameof(MoveLibraryRootFolder), notices, capability: capability))
         {
             return LibraryMutationSessionReceipt.Empty;
         }
@@ -9717,6 +9720,7 @@ public partial class BMSLibrary : ObservableObject
             charts,
             dstDir,
             unregister,
+            notices,
             reportAtTerminal, capability, preparedBatch);
     }
 
@@ -9751,9 +9755,10 @@ public partial class BMSLibrary : ObservableObject
         return libraryFileOperationsService.TryComputeFileMd5ForPath(filePath, logCategory, info => NLogWrapper.FileLogger?.Info(info));
     }
 
-    internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt, bool? unregister = false)
+    internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt, LibraryOperationNotices notices, bool? unregister = false)
     {
-        if (TryBlockCatalogFileMutation(nameof(RenameBMSFilesExtensions)))
+        ArgumentNullException.ThrowIfNull(notices);
+        if (TryBlockCatalogFileMutation(nameof(RenameBMSFilesExtensions), notices))
         {
             return;
         }
@@ -9761,34 +9766,38 @@ public partial class BMSLibrary : ObservableObject
             libraryMutationOwner,
             charts,
             newExt,
-            unregister);
+            unregister,
+            notices);
     }
 
     /// <summary>確認前に固定した拡張子別の対象を、一つの所持変更セッションで実行します。</summary>
     /// <param name="batches">最初の確認前にprepareした固定対象と変更先拡張子。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     /// <param name="unregister">成功した対象を所持カタログから登録解除するか。</param>
     /// <returns>一回のセッションの確定結果。未受理の場合は空の結果。</returns>
     internal LibraryMutationSessionReceipt RenameBMSFilesExtensionsWithReceipt(
         IEnumerable<LibraryFileExtensionRenameBatch> batches,
+        LibraryOperationNotices notices,
         bool? unregister = false, LibraryFileMutationCapability capability = null)
     {
-        if (TryBlockCatalogFileMutation(nameof(RenameBMSFilesExtensionsWithReceipt), capability: capability))
+        ArgumentNullException.ThrowIfNull(notices);
+        if (TryBlockCatalogFileMutation(nameof(RenameBMSFilesExtensionsWithReceipt), notices, capability: capability))
         {
             return LibraryMutationSessionReceipt.Empty;
         }
         return InvalidExtensionRenameCoordinator.RenameBMSFilesExtensionsWithReceipt(
             libraryMutationOwner,
             batches,
-            unregister, capability);
+            unregister, notices, capability);
     }
 
     /// <summary>保留譜面の拡張子を同じ受理済み権限で変更し、実変更を一つのセッションへ反映します。</summary>
-    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt, LibraryFileMutationCapability capability = null)
+    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         InvalidExtensionRenameCoordinator.RenamePendingBmsFormatChartFileExtensions(
             libraryMutationOwner,
             charts,
-            newExt, capability);
+            newExt, notices, capability);
     }
 
     /// <summary>削除の最初の確認前に、現在hash・安全属性と確認候補を固定します。</summary>
@@ -9797,10 +9806,10 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>確認前に固定した同じ要求を自己受付で削除し、自己所有L/Pの解放後に今回root保留通知を公開します。</summary>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(LibraryChartRemovalPreflight prepared,
-        bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths)
+        bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths, LibraryOperationNotices notices)
     {
         Action publication = null;
-        try { return libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, null, out publication); }
+        try { return libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, notices, null, out publication); }
         finally { publication?.Invoke(); }
     }
 
@@ -9808,13 +9817,14 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="prepared">確認前に固定した削除要求。</param>
     /// <param name="sendToRecycleBin">ごみ箱へ送る場合はtrue。</param>
     /// <param name="approvedWholeFolderDeletePaths">承認済みのwhole削除scope。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否の案内を加え、呼出元が受付の解放後に表示します。</param>
     /// <param name="capability">解放まで親が所有する生存権限。</param>
     /// <param name="publication">親L/P解放後に実行する今回の純通知。scope・guard・DB更新を保持しません。</param>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(LibraryChartRemovalPreflight prepared,
-        bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths, LibraryFileMutationCapability capability, out Action publication)
+        bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths, LibraryOperationNotices notices, LibraryFileMutationCapability capability, out Action publication)
     {
         ArgumentNullException.ThrowIfNull(capability);
-        return libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, capability, out publication);
+        return libraryMutationOwner.RemoveLibraryCharts(prepared, sendToRecycleBin, approvedWholeFolderDeletePaths, notices, capability, out publication);
     }
 
     /// <summary>拡張子変更の確認前に生存tokenの現在値と安全属性を固定します。</summary>
@@ -9822,12 +9832,12 @@ public partial class BMSLibrary : ObservableObject
         => libraryMutationOwner.PrepareLibraryFileExtensionRenameBatch(charts, newExtension);
 
     /// <summary>保留譜面の物理削除と一括確定を実行します。受理済み権限は借用し、外側が後片付け終端まで保持します。</summary>
-    internal void RemovePendingCharts(IEnumerable<ChartFile> charts, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false, LibraryFileMutationCapability capability = null)
+    internal void RemovePendingCharts(IEnumerable<ChartFile> charts, LibraryOperationNotices notices, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false, LibraryFileMutationCapability capability = null)
     {
         libraryMutationOwner.RemovePendingCharts(
             charts,
             sendToRecycleBin,
-            deleteContainingPackageFoldersWhenNoBms, capability);
+            deleteContainingPackageFoldersWhenNoBms, notices, capability);
     }
 
     private void InvokePostLeaseNotificationsBestEffort(IEnumerable<Action> notifications)

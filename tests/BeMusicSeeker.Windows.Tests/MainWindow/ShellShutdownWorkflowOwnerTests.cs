@@ -1769,13 +1769,15 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            IFolderAutoRenameProgressWriter progressWriter) =>
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices) =>
             throw new InvalidOperationException("selected folder mutation was not expected");
 
         public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            IFolderAutoRenameProgressWriter progressWriter)
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices)
         {
             entered.Set();
             release.Task.GetAwaiter().GetResult();

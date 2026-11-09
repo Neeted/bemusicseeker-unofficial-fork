@@ -34,7 +34,7 @@ internal sealed class FileDbReportRecordingDialogs : IUiDialogService, IBmsLibra
         return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
     }
 
-    public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
+    public UiDialogDefaultResult Confirm(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
         UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
     {
         modelShowCount++;

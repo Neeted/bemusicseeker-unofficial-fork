@@ -1,6 +1,7 @@
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -195,6 +196,28 @@ public sealed class UndeclaredUiDialogServiceTests
     }
 
     private static string Fill(string marker, int length) => marker + new string('x', length - marker.Length);
+
+    /// <summary>
+    /// 条件：窓口を明示しないライブラリの既定の窓口（<see cref="UnexpectedBmsLibraryDialogService"/>）へ、待たない投函を依頼します。
+    /// 期待結果：例外を送出せず、呼出しが戻った時点で自分の <c>D</c> がちょうど一件あり、行に method=Post・要求の型・件数・先頭の見出しと本文を含みます。
+    /// 検出する誤り：投函の呼出し元が窓口の例外を診断だけにして、予期しない投函が見えなくなること。記録を残さないこと。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void UnexpectedBmsLibraryDialogService_PostRecordsUndeclaredDialogAndDoesNotThrow()
+    {
+        var service = new UnexpectedBmsLibraryDialogService();
+        var notice = new BMSLibrary.OperationDialogMessage("t8-unexpected-post-text", "t8-unexpected-post-caption", UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK);
+
+        service.Post([notice], () => false);
+
+        IReadOnlyList<HostObservation> records = HostObservationLog.TakeCurrentCase("D", record => record.Detail.Contains("t8-unexpected-post-text", StringComparison.Ordinal));
+        Assert.HasCount(1, records, "予期しない投函を、呼出しが戻った時点でDへ一件記録します。");
+        StringAssert.Contains(records[0].Detail, "method=Post");
+        StringAssert.Contains(records[0].Detail, nameof(BMSLibrary.OperationDialogMessage));
+        StringAssert.Contains(records[0].Detail, "title=t8-unexpected-post-caption");
+        StringAssert.Contains(records[0].Detail, "caller=");
+    }
 
     private static void AssertKeyOrder(Fields fields, string member)
     {

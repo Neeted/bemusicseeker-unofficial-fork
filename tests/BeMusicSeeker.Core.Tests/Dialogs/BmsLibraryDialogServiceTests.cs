@@ -14,14 +14,13 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class BmsLibraryDialogServiceTests
 {
-    /// <summary>OKだけの通知は通知経路へ、それ以外のボタンは確認経路へ渡し、受理・拒否・取消・閉鎖を元の既定結果のまま返します。</summary>
+    /// <summary>確認は確認経路だけへ渡し、受理・拒否・取消・閉鎖を元の既定結果のまま返します。</summary>
     [TestMethod]
-    [DataRow((int)UiDialogButton.OK, MessageBoxResult.OK, (int)UiDialogDefaultResult.OK, true)]
-    [DataRow((int)UiDialogButton.YesNo, MessageBoxResult.Yes, (int)UiDialogDefaultResult.Yes, false)]
-    [DataRow((int)UiDialogButton.YesNo, MessageBoxResult.No, (int)UiDialogDefaultResult.No, false)]
-    [DataRow((int)UiDialogButton.OKCancel, MessageBoxResult.Cancel, (int)UiDialogDefaultResult.Cancel, false)]
-    [DataRow((int)UiDialogButton.YesNoCancel, MessageBoxResult.None, (int)UiDialogDefaultResult.None, false)]
-    public void Show_RoutesByButtonAndReturnsUserChoice(int buttonValue, MessageBoxResult shown, int expectedValue, bool message)
+    [DataRow((int)UiDialogButton.YesNo, MessageBoxResult.Yes, (int)UiDialogDefaultResult.Yes)]
+    [DataRow((int)UiDialogButton.YesNo, MessageBoxResult.No, (int)UiDialogDefaultResult.No)]
+    [DataRow((int)UiDialogButton.OKCancel, MessageBoxResult.Cancel, (int)UiDialogDefaultResult.Cancel)]
+    [DataRow((int)UiDialogButton.YesNoCancel, MessageBoxResult.None, (int)UiDialogDefaultResult.None)]
+    public void Confirm_RoutesToConfirmationAndReturnsUserChoice(int buttonValue, MessageBoxResult shown, int expectedValue)
     {
         // 列挙型は内部型のため、テストの引数は数値で受けます。
         var button = (UiDialogButton)buttonValue;
@@ -29,12 +28,12 @@ public sealed class BmsLibraryDialogServiceTests
         var inner = new RecordingUiDialogs(UiDialogResult.FromMessageBoxResult(shown));
         var service = new BmsLibraryDialogService(inner, TestUiScheduler.CreateDefault());
 
-        UiDialogDefaultResult actual = service.Show("本文", "題名", button, UiDialogIcon.Question, UiDialogDefaultResult.No);
+        UiDialogDefaultResult actual = service.Confirm("本文", "題名", button, UiDialogIcon.Question, UiDialogDefaultResult.No);
 
         Assert.AreEqual(expected, actual);
-        Assert.AreEqual(message ? 1 : 0, inner.MessageRequests.Count);
-        Assert.AreEqual(message ? 0 : 1, inner.ConfirmRequests.Count);
-        UiMessageRequest request = message ? inner.MessageRequests.Single() : inner.ConfirmRequests.Single();
+        Assert.AreEqual(0, inner.MessageRequests.Count);
+        Assert.AreEqual(1, inner.ConfirmRequests.Count);
+        UiMessageRequest request = inner.ConfirmRequests.Single();
         Assert.AreEqual("本文", request.MessageBoxText);
         Assert.AreEqual("題名", request.Caption);
         Assert.AreEqual(Enum.Parse<MessageBoxButton>(button.ToString()), request.Button);
@@ -42,19 +41,35 @@ public sealed class BmsLibraryDialogServiceTests
         Assert.AreEqual(MessageBoxResult.No, request.DefaultResult);
     }
 
+    /// <summary>
+    /// OKだけの通知は確認ではないため、同期に表示せず例外にする。窓口への要求を一件も出さない。
+    /// OKだけの通知を同期のモーダルとして表示する分岐が残る誤りを検出する（通知は操作の収集先か投函で届ける）。
+    /// </summary>
+    [TestMethod]
+    public void Confirm_RejectsOkOnlyNoticeWithoutShowing()
+    {
+        var inner = new RecordingUiDialogs(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        var service = new BmsLibraryDialogService(inner, TestUiScheduler.CreateDefault());
+
+        Assert.ThrowsExactly<ArgumentException>(() => service.Confirm("本文", "題名", UiDialogButton.OK, UiDialogIcon.Information));
+
+        Assert.AreEqual(0, inner.MessageRequests.Count);
+        Assert.AreEqual(0, inner.ConfirmRequests.Count);
+    }
+
     /// <summary>表示中の失敗は元例外を保持した失敗にし、表示されなかった結果は拒否や取消へ丸めず状態名つきの失敗にします。</summary>
     [TestMethod]
-    public void Show_ConvertsFailureAndNotShownToExceptions()
+    public void Confirm_ConvertsFailureAndNotShownToExceptions()
     {
         var cause = new InvalidOperationException("表示失敗");
         var failed = new BmsLibraryDialogService(new RecordingUiDialogs(UiDialogResult.Failed(cause)), TestUiScheduler.CreateDefault());
         InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
-            () => failed.Show("本文", "題名", UiDialogButton.OK, UiDialogIcon.None));
+            () => failed.Confirm("本文", "題名", UiDialogButton.OKCancel, UiDialogIcon.None));
         Assert.AreSame(cause, failure.InnerException);
 
         var notShown = new BmsLibraryDialogService(new RecordingUiDialogs(UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable)), TestUiScheduler.CreateDefault());
         InvalidOperationException hidden = Assert.ThrowsExactly<InvalidOperationException>(
-            () => notShown.Show("本文", "題名", UiDialogButton.YesNo, UiDialogIcon.None));
+            () => notShown.Confirm("本文", "題名", UiDialogButton.YesNo, UiDialogIcon.None));
         StringAssert.Contains(hidden.Message, nameof(UiDialogStatus.OwnerUnavailable));
         Assert.IsNull(hidden.InnerException);
     }

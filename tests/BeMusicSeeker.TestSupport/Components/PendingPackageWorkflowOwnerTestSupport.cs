@@ -280,7 +280,7 @@ internal static class PendingPackageWorkflowOwnerTestSupport
     {
         internal int CallCount { get; private set; }
 
-        public UiDialogDefaultResult Show(
+        public UiDialogDefaultResult Confirm(
             string messageBoxText,
             string caption,
             UiDialogButton button,

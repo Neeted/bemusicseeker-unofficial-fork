@@ -98,13 +98,22 @@ public sealed class RegularChartFolderRenameTests
             File.WriteAllText(path, "#PLAYER 1\n#TITLE Managed\n");
             ChartFile chart = CreateTestableBmsFile(path);
             var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2CustomFolderOutputBaseDir = managed };
+            var libraryDialogs = new FileDbReportRecordingDialogs();
             var library = new TestBmsLibrary(databaseScope, songDbPath, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(root)),
-                null, null, new FileDbReportRecordingDialogs(), new TestUiScheduler(() => null!), () => options)
+                null, null, libraryDialogs, new TestUiScheduler(() => null!), () => options)
             { BmsCharts = [chart], BmsonCharts = [] };
+            var mutationDialogs = new FileDbReportRecordingDialogs();
+            bool busyRequestedAfterAdmissionRelease = false;
+            mutationDialogs.OnMessage = () =>
+            {
+                bool free = library.OperationAdmission.TryEnter(out IDisposable? lease);
+                lease?.Dispose();
+                busyRequestedAfterAdmissionRelease = free;
+            };
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([chart]);
             var playback = new NoOpChartMutationPlaybackPort();
             using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner(), action => action(),
-                chartFileOperations: library.OperationAdmission, mutationDialogs: new FileDbReportRecordingDialogs(), mutationPlayback: playback);
+                chartFileOperations: library.OperationAdmission, mutationDialogs: mutationDialogs, mutationPlayback: playback);
             owner.AttachNormalLibraryRefreshSource(library);
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
             try
@@ -112,6 +121,10 @@ public sealed class RegularChartFolderRenameTests
                 InvalidOperationException busy = Assert.ThrowsExactly<InvalidOperationException>(() =>
                     owner.RenameChartFolderAsync(CreateRenameRequest(chart), "Moved").GetAwaiter().GetResult());
                 StringAssert.Contains(busy.Message, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
+                Assert.AreEqual(1, mutationDialogs.Messages.Count(message => message.MessageBoxText.Contains(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, StringComparison.Ordinal)),
+                    "物理処理の前の拒否の理由は、所有者の窓口へ一件だけ依頼する。");
+                Assert.IsTrue(busyRequestedAfterAdmissionRelease, "依頼の時点で論理Lは解放済み。");
+                Assert.AreEqual(0, libraryDialogs.ModelMessages, "モデルの窓口へ届けない。");
                 Assert.AreEqual(0, playback.StopCount);
                 Assert.IsTrue(File.Exists(path));
                 Assert.IsFalse(Directory.Exists(destination));

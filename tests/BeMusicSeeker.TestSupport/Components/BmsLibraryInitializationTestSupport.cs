@@ -459,7 +459,7 @@ internal static class BmsLibraryInitializationTestSupport
 
         public Action<DialogCall>? OnShow { get; set; }
 
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             var dialogCall = new DialogCall
             {

@@ -1467,11 +1467,11 @@ public sealed class PlaylistWorkspaceDetailRefreshTests
             LibraryChartRemovalOutcome firstOutcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((first))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: [firstDirectory]);
+                approvedWholeFolderDeletePaths: [firstDirectory], notices: new LibraryOperationNotices());
             LibraryChartRemovalOutcome secondOutcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((second))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: [secondDirectory]);
+                approvedWholeFolderDeletePaths: [secondDirectory], notices: new LibraryOperationNotices());
             Assert.IsFalse(firstOutcome.HasError);
             Assert.IsFalse(secondOutcome.HasError);
 

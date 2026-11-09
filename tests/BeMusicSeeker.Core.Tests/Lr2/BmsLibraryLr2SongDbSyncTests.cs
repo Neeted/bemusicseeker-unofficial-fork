@@ -2431,7 +2431,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 if (disable)
                 {
                     LibraryMutationSessionReceipt disabled = library.RenameBMSFilesExtensionsWithReceipt(
-                        [library.PrepareLibraryFileExtensionRenameBatch([currentRemoveFile], ".bmx")], unregister: true);
+                        [library.PrepareLibraryFileExtensionRenameBatch([currentRemoveFile], ".bmx")], new LibraryOperationNotices(), unregister: true);
                     Assert.IsTrue(disabled.DurableCommit, disabled.PrimaryFailure?.ToString());
                     Assert.IsFalse(disabled.HasRequiredFailure, disabled.PrimaryFailure?.ToString());
                     Assert.IsTrue(File.Exists(Path.ChangeExtension(removePath, ".bmx")));
@@ -2441,7 +2441,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                         library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(currentRemoveFile)]),
                         sendToRecycleBin: false,
-                        approvedWholeFolderDeletePaths: wholeFolder ? [removeDirectory] : []);
+                        approvedWholeFolderDeletePaths: wholeFolder ? [removeDirectory] : [], notices: new LibraryOperationNotices());
                     Assert.IsFalse(removal.HasError);
                 }
 
@@ -2534,7 +2534,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((file))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsTrue(removal.HasError);
             Assert.IsFalse(removal.CatalogDurable);
 
@@ -2617,10 +2617,10 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             library.BmsCharts = [file];
             LibraryMutationSessionReceipt moveReceipt = operation switch
             {
-                "root" => library.MoveLibraryRootFolderWithReceipt([LibraryChartRef.FromChartFile(file)], otherRoot),
+                "root" => library.MoveLibraryRootFolderWithReceipt([LibraryChartRef.FromChartFile(file)], otherRoot, new LibraryOperationNotices()),
                 "auto" or "auto-case" => library.AutoRenameChartFoldersWithProgress([file], false,
-                    new RecordingFolderAutoRenameProgressWriter()).SessionReceipt,
-                _ => library.RenameChartFolderWithReceipt(oldDirectory, newName, false, false)
+                    new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices()).SessionReceipt,
+                _ => library.RenameChartFolderWithReceipt(oldDirectory, newName, new LibraryOperationNotices(), false, false)
             };
             Assert.IsTrue(moveReceipt.DurableCommit, moveReceipt.PrimaryFailure?.ToString());
             Assert.IsTrue(Directory.EnumerateDirectories(Path.GetDirectoryName(newDirectory)!).Contains(newDirectory, StringComparer.Ordinal));
@@ -2772,7 +2772,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string unsupportedDirectory = Path.Combine(root, "New😀");
             string unsupportedChartDirectory = nested ? Path.Combine(unsupportedDirectory, "Child") : unsupportedDirectory;
             string newPath = Path.Combine(unsupportedChartDirectory, "chart.bms");
-            LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(oldDirectory, "New😀", false, false);
+            LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(oldDirectory, "New😀", new LibraryOperationNotices(), false, false);
             Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
             Assert.IsFalse(receipt.HasRequiredFailure, receipt.PrimaryFailure?.ToString());
             ChartFile current = library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, original.Token));
@@ -2809,7 +2809,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 Assert.AreEqual(newPath, db.Find<LR2SongDBExtended.maintenance>(newPath).path);
                 Assert.IsNotNull(db.Find<LR2SongDBExtended.bmson_song>(library.BmsonCharts.Single().Path));
             }
-            LibraryMutationSessionReceipt restored = library.RenameChartFolderWithReceipt(unsupportedDirectory, "Old", false, false);
+            LibraryMutationSessionReceipt restored = library.RenameChartFolderWithReceipt(unsupportedDirectory, "Old", new LibraryOperationNotices(), false, false);
             Assert.IsTrue(restored.DurableCommit, restored.PrimaryFailure?.ToString());
             Assert.IsFalse(restored.HasRequiredFailure, restored.PrimaryFailure?.ToString());
             Assert.AreSame(original.Token, library.BmsCharts.Single(chart => ReferenceEquals(chart.Token, original.Token)).Token);
@@ -2839,7 +2839,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 AssertCustomColumns(db.Find<LR2SongDB.folder>(customPath));
                 CollectionAssert.AreEqual(before, db.Table<LR2SongDB.folder>().Select(row => row.path + "|" + row.title + "|" + row.parent).Order().ToList());
             }
-            LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([heldReference]), false, []);
+            LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([heldReference]), false, [], new LibraryOperationNotices());
             Assert.IsFalse(removal.HasError);
             Assert.IsFalse(File.Exists(original.Path));
         }

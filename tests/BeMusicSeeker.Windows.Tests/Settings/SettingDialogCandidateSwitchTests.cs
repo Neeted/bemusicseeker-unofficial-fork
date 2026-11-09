@@ -606,7 +606,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 library.BmsCharts = [chart]; library.BmsonCharts = [];
                 new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).UpsertSongs([chart]);
                 LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
-                    library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, [original]);
+                    library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, [original], new LibraryOperationNotices());
                 Assert.AreEqual(1, removal.ConfirmedChartCount);
                 Assert.IsNull(removal.RegistrationFailure);
                 Assert.IsFalse(Directory.Exists(original));

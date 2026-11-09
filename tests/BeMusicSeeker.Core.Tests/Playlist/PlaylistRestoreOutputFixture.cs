@@ -23,6 +23,9 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
     internal CustomFolderOutputSettingsSnapshot OutputSettings => CustomFolderOutputSettingsSnapshot.CreateCurrent(Settings);
     internal Lr2ConfigOwner Config { get; }
     internal TestBmsLibrary Library { get; }
+
+    /// <summary>モデルの窓口です。差分の再読込みが走査の見送りを投函する場合に、投函を宣言して観測します。</summary>
+    internal FileDbReportRecordingDialogs LibraryDialogs { get; } = new();
     internal TestBmsPlaylist Playlist { get; }
     internal string ExternalFile { get; }
     internal string SiblingFile { get; }
@@ -52,7 +55,7 @@ internal sealed class PlaylistRestoreOutputFixture : IAsyncDisposable
             Directory.CreateDirectory(Settings.LR2CustomFolderOutputBaseDirRootType);
             Config = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Settings.LR2RootPath, bms));
             Config.SetPlacement(OutputSettings);
-            Library = new TestBmsLibrary(databaseScope, SongDb, Config, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(Settings), settings: Settings);
+            Library = new TestBmsLibrary(databaseScope, SongDb, Config, null, null, LibraryDialogs, new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(Settings), settings: Settings);
             var synchronization = new TestLr2PlaylistFolderSynchronizationPort(databaseScope, SongDb)
             {
                 PhysicalSurfaceFactory = () => CustomFolderOutputPhysicalSurface.FromEntries(

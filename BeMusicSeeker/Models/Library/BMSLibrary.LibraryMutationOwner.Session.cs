@@ -18,19 +18,23 @@ internal sealed partial class LibraryMutationOwner
     /// <param name="mutationCapability">The live capability issued by the owning outer mutation lease.</param>
     /// <param name="reason">Stable diagnostic reason for the operation-scoped apply.</param>
     /// <param name="postLeaseNotifications">Command-owned publication list released after the lease.</param>
+    /// <param name="notices">この操作の案内を集める入れ物。実scopeのPが取得できないBusyの案内を加えます。</param>
     /// <returns>An open session that accepts only confirmed mutation facts.</returns>
     internal LibraryMutationSession BeginLibraryMutationSession(
         LibraryFileMutationCapability mutationCapability,
         string reason,
-        ICollection<Action> postLeaseNotifications)
+        ICollection<Action> postLeaseNotifications,
+        LibraryOperationNotices notices)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
+        ArgumentNullException.ThrowIfNull(notices);
         return new LibraryMutationSession(
             this,
             mutationCapability,
             reason,
-            postLeaseNotifications);
+            postLeaseNotifications,
+            notices);
     }
 
     /// <summary>
@@ -60,6 +64,7 @@ internal sealed partial class LibraryMutationOwner
         private LibraryFileMutationCapability combinedCapability;
         private readonly string reason;
         private readonly ICollection<Action> postLeaseNotifications;
+        private readonly LibraryOperationNotices notices;
         private readonly List<LibraryCatalogMutationFacts> catalogFacts = [];
         private readonly List<LibraryInstallDestinationChange> successfulFolderChanges = [];
         private readonly List<LibraryPackageReferenceFacts> packageReferenceFacts = [];
@@ -94,12 +99,15 @@ internal sealed partial class LibraryMutationOwner
         /// <param name="mutationCapability">Live capability from the owning outer lease.</param>
         /// <param name="reason">Stable operation diagnostic reason.</param>
         /// <param name="postLeaseNotifications">Command-owned publication collection.</param>
+        /// <param name="notices">この操作の案内を集める入れ物。</param>
         internal LibraryMutationSession(
             LibraryMutationOwner owner,
             LibraryFileMutationCapability mutationCapability,
             string reason,
-            ICollection<Action> postLeaseNotifications)
+            ICollection<Action> postLeaseNotifications,
+            LibraryOperationNotices notices)
         {
+            this.notices = notices ?? throw new ArgumentNullException(nameof(notices));
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.mutationCapability = mutationCapability ?? throw new ArgumentNullException(nameof(mutationCapability));
             this.reason = reason ?? string.Empty;
@@ -120,7 +128,7 @@ internal sealed partial class LibraryMutationOwner
         {
             EnsureOpen();
             if (managedOutputLease != null) { return true; }
-            if (!owner.TryEnterManagedOutputMutation(paths, recursive, out LibraryFileMutationLease lease, mutationCapability))
+            if (!owner.TryEnterManagedOutputMutation(paths, recursive, notices, out LibraryFileMutationLease lease, mutationCapability))
             { return false; }
             if (lease == null) { return true; }
             managedOutputLease = lease;

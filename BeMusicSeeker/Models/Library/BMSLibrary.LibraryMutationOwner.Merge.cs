@@ -5,9 +5,7 @@ using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Models;
 
@@ -17,9 +15,11 @@ internal sealed partial class LibraryMutationOwner
     /// merge の確定事実を返し、必要に応じて receipt に基づく失敗表示を操作終端へ委ねます。
     /// 確定利用者登録本体や空の登録子を含む祖先を元にする要求は、物理準備・変更セッションの開始前に拒否します。
     /// </summary>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory,
-        long operationId, bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
+        long operationId, LibraryOperationNotices notices, bool reportAtTerminal = false, LibraryFileMutationCapability capability = null)
     {
+        ArgumentNullException.ThrowIfNull(notices);
         if (sourceDirectory == null)
         {
             throw new ArgumentNullException(nameof(sourceDirectory));
@@ -28,13 +28,13 @@ internal sealed partial class LibraryMutationOwner
         {
             throw new ArgumentNullException(nameof(destinationDirectory));
         }
-        if (TryBlockCatalogMutation(nameof(BMSLibrary.MergeChartDirectory), showMessage: true, capability: capability))
+        if (TryBlockCatalogMutation(nameof(BMSLibrary.MergeChartDirectory), notices, capability: capability))
         {
             return DuplicateMergeMaintenanceReceipt.NotApplied;
         }
         if (ContainsRegisteredBmsRoot(sourceDirectory))
         {
-            ShowCannotMoveRegisteredBmsRoot(sourceDirectory);
+            AddCannotMoveRegisteredBmsRootNotice(notices, sourceDirectory);
             return DuplicateMergeMaintenanceReceipt.NotApplied;
         }
 
@@ -47,13 +47,13 @@ internal sealed partial class LibraryMutationOwner
         MaintenanceWorkflowResult maintenanceResult = null;
         try
         {
-            using (LibraryFileMutationLease mutationLease = synchronization.EnterMergeWriteScope(capability))
+            using (LibraryFileMutationLease mutationLease = synchronization.EnterMergeWriteScope(notices, capability))
             {
                 if (mutationLease == null)
                 {
                     return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
-                if (!TryEnterManagedOutputMutation([sourceDirectory, destinationDirectory], recursive: true, out LibraryFileMutationLease playlistLease, capability))
+                if (!TryEnterManagedOutputMutation([sourceDirectory, destinationDirectory], recursive: true, notices, out LibraryFileMutationLease playlistLease, capability))
                 {
                     return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
@@ -97,7 +97,8 @@ internal sealed partial class LibraryMutationOwner
                 using LibraryMutationSession session = BeginLibraryMutationSession(
                     mutationCapability,
                     "duplicate_merge_catalog_transition op=" + operationId,
-                    postLeaseNotifications);
+                    postLeaseNotifications,
+                    notices);
                 LibraryCatalogMutationFacts catalogFacts = null;
                 PackageInstallSessionMoveResult physicalMove = packageInstallService.MovePackageFilesForInstallSession(
                     detachedPackage.Package,
@@ -106,8 +107,7 @@ internal sealed partial class LibraryMutationOwner
                     createChartFolderPathFromCharts,
                     DisplayedExceptionMessage.Format,
                     fileMutationService,
-                    // 失敗の案内を求めない（showMessageBoxOnInstallFail: false）ので、この収集先には何も加わらない。
-                    new LibraryOperationNotices(),
+                    notices,
                     targetOnlyFileMutationOptions,
                     recursiveDirectoryTreeFileMutationOptions,
                     LogInstallPerformance,
@@ -171,7 +171,7 @@ internal sealed partial class LibraryMutationOwner
                     {
                         sessionReceipt = sessionReceipt.WithFinalizationFailure(exception);
                     }
-                    NotifyMaintenanceReadFailures(readFailures);
+                    NotifyMaintenanceReadFailures(readFailures, notices);
                 }
             }
 
@@ -189,8 +189,7 @@ internal sealed partial class LibraryMutationOwner
             }
             if (!reportAtTerminal && (!mergeApplied || sessionReceipt.HasRequiredFailure))
             {
-                InvokePostLeaseNotificationsBestEffort(
-                    [() => ShowFolderMergeFailed(sourceDirectory, destinationDirectory)]);
+                AddFolderMergeFailedNotice(notices, sourceDirectory, destinationDirectory);
             }
             return CreateMergeMaintenanceReceipt(maintenanceResult, sessionReceipt, mergeApplied);
         }
@@ -308,14 +307,8 @@ internal sealed partial class LibraryMutationOwner
         return new LibraryCatalogMutationFacts(removalRequests, pathChanges, []);
     }
 
-    private void ShowFolderMergeFailed(string sourceDirectory, string destinationDirectory)
-    {
-        ShowOperationDialog(
-            string.Format(Resources.Error_BmsFolderMergeFailed, sourceDirectory, destinationDirectory),
-            Resources.MessageBoxTitle_Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
-    }
+    private static void AddFolderMergeFailedNotice(LibraryOperationNotices notices, string sourceDirectory, string destinationDirectory)
+        => AddNotice(notices, string.Format(Resources.Error_BmsFolderMergeFailed, sourceDirectory, destinationDirectory),
+            Resources.MessageBoxTitle_Error, MessageBoxImage.Hand);
 
 }

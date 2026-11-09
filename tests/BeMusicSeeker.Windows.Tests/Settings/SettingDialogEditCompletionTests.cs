@@ -1374,12 +1374,11 @@ public sealed class SettingDialogEditCompletionTests
                             Assert.IsFalse(composition.OperationAdmission.IsActive);
                             Assert.IsNotNull(failureProbe);
                             var deniedNotices = new LibraryOperationNotices();
-                            using (library.BeginOperationDialogScope(deniedNotices))
-                            {
-                                Assert.IsFalse(library.ForceInstallPendingPackagesWithReceipt([failureProbe], true, null, deniedNotices).DurableCommit,
-                                    "必須LR2が失敗した後は有効な導入要求も未収束として拒否します。");
-                                Assert.AreEqual(1, deniedNotices.Snapshot().Count);
-                            }
+                            Assert.IsFalse(library.ForceInstallPendingPackagesWithReceipt([failureProbe], true, null, deniedNotices).DurableCommit,
+                                "必須LR2が失敗した後は有効な導入要求も未収束として拒否します。");
+                            Assert.AreEqual(1, deniedNotices.Snapshot().Count);
+                            Assert.AreEqual(0, HostObservationLog.TakeCurrentCase("D", record => record.Detail.Contains(deniedNotices.Snapshot()[0].MessageBoxText[..20], StringComparison.Ordinal)).Count,
+                                "モデルの窓口へ同じ案内を投函しない。");
                             Assert.IsTrue(File.Exists(Path.Combine(failureProbe.path, "chart.bms")));
                             Assert.IsTrue(failures.Any(failure => failure.ToString().Contains("root-required-lr2-failure", StringComparison.Ordinal)));
                             failures.Clear();
@@ -1398,11 +1397,11 @@ public sealed class SettingDialogEditCompletionTests
                             Assert.IsTrue(library.TryGetInstalledDirectoryByHash(oldChart.Md5, out _));
                             Assert.IsTrue(warnings.Any(text => text.Contains("empty_scan_with_existing_db", StringComparison.Ordinal)));
                             Assert.IsFalse(composition.OperationAdmission.IsActive);
-                            using (BMSLibrary.OperationDialogScope deniedDialogs = library.BeginOperationDialogScope())
-                            {
-                                Assert.IsNull(library.RenameChartFolderWithReceipt(duplicateFolder, "Protected"), "未収束の有効改名は着手前に拒否され、確定事実を返しません。");
-                                Assert.AreEqual(1, deniedDialogs.Messages.Count);
-                            }
+                            var deniedProtectedNotices = new LibraryOperationNotices();
+                            Assert.IsNull(library.RenameChartFolderWithReceipt(duplicateFolder, "Protected", deniedProtectedNotices), "未収束の有効改名は着手前に拒否され、確定事実を返しません。");
+                            Assert.AreEqual(1, deniedProtectedNotices.Snapshot().Count);
+                            Assert.AreEqual(0, HostObservationLog.TakeCurrentCase("D", record => record.Detail.Contains(deniedProtectedNotices.Snapshot()[0].MessageBoxText[..20], StringComparison.Ordinal)).Count,
+                                "モデルの窓口へ同じ案内を投函しない。");
                             Assert.IsTrue(Directory.Exists(duplicateFolder));
                             owner.SettingDialog.BmsRootPathList.Remove(duplicateFolder);
                             scanner.Current = new FastDirectoryFileScanner();
@@ -1414,11 +1413,11 @@ public sealed class SettingDialogEditCompletionTests
                         {
                             Assert.AreEqual(2, library.BmsCharts.Count);
                             Assert.IsFalse(composition.OperationAdmission.IsActive);
-                            using (BMSLibrary.OperationDialogScope deniedDialogs = library.BeginOperationDialogScope())
-                            {
-                                Assert.IsNull(library.RenameChartFolderWithReceipt(oldFolder, "Blocked"), "親受付解放後も未収束の有効改名を着手前に拒否します。");
-                                Assert.AreEqual(1, deniedDialogs.Messages.Count);
-                            }
+                            var deniedBlockedNotices = new LibraryOperationNotices();
+                            Assert.IsNull(library.RenameChartFolderWithReceipt(oldFolder, "Blocked", deniedBlockedNotices), "親受付解放後も未収束の有効改名を着手前に拒否します。");
+                            Assert.AreEqual(1, deniedBlockedNotices.Snapshot().Count);
+                            Assert.AreEqual(0, HostObservationLog.TakeCurrentCase("D", record => record.Detail.Contains(deniedBlockedNotices.Snapshot()[0].MessageBoxText[..20], StringComparison.Ordinal)).Count,
+                                "モデルの窓口へ同じ案内を投函しない。");
                             Assert.IsTrue(Directory.Exists(oldFolder));
                             if (recovery == 4)
                             {
@@ -1460,11 +1459,11 @@ public sealed class SettingDialogEditCompletionTests
                             Assert.IsTrue(installedFolder.StartsWith(newRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
                             Assert.IsTrue(File.Exists(installedChart.Path));
                             if (recovery != 0) { continue; }
-                            LibraryMutationSessionReceipt renamed = library.RenameChartFolderWithReceipt(installedFolder, title + "Renamed");
+                            LibraryMutationSessionReceipt renamed = library.RenameChartFolderWithReceipt(installedFolder, title + "Renamed", new LibraryOperationNotices());
                             Assert.IsTrue(renamed.DurableCommit, renamed.PrimaryFailure?.ToString());
                             ChartFile renamedChart = library.BmsCharts.Single(chart => chart.RawTitle == title);
                             LibraryChartRemovalPreflight removal = library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(renamedChart)]);
-                            library.RemoveLibraryCharts(removal, false, removal.WholeFolderCandidatePaths);
+                            library.RemoveLibraryCharts(removal, false, removal.WholeFolderCandidatePaths, new LibraryOperationNotices());
                             Assert.IsFalse(File.Exists(renamedChart.Path));
                             AssertEmpty();
                         }

@@ -15,15 +15,18 @@ internal static class InvalidExtensionRenameCoordinator
         LibraryMutationOwner host,
         IEnumerable<ChartFile> charts,
         string newExt,
-        bool? unregister)
+        bool? unregister,
+        LibraryOperationNotices notices)
     {
         LibraryMutationSessionReceipt receipt = RenameBMSFilesExtensionsWithReceipt(
             host,
             [host.PrepareLibraryFileExtensionRenameBatch(charts, newExt)],
-            unregister);
+            unregister,
+            notices);
         foreach (LibraryMutationSessionItemFailure failure in receipt.ItemFailures)
         {
-            host.ShowNormalRenameFailure(
+            LibraryMutationOwner.AddNormalRenameFailureNotice(
+                notices,
                 new LibraryDeleteFailure
                 {
                     Path = failure.Target.SourcePath,
@@ -42,13 +45,15 @@ internal static class InvalidExtensionRenameCoordinator
     /// <param name="host">処理と受付境界を所有するライブラリ変更主体。</param>
     /// <param name="batches">一操作で確認する固定対象と変更先拡張子。</param>
     /// <param name="unregister">変更に成功した譜面をカタログから登録解除するか。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     /// <returns>一つの変更セッションの変更不能な確定結果。</returns>
     internal static LibraryMutationSessionReceipt RenameBMSFilesExtensionsWithReceipt(
         LibraryMutationOwner host,
         IEnumerable<LibraryFileExtensionRenameBatch> batches,
-        bool? unregister, LibraryFileMutationCapability capability = null)
+        bool? unregister, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         ArgumentNullException.ThrowIfNull(host);
+        ArgumentNullException.ThrowIfNull(notices);
         List<LibraryFileExtensionRenameBatch> targetBatches = [.. (batches ?? [])
             .Where(batch => batch != null && (batch.InputCount > 0 || batch.Targets.Count > 0))];
         if (targetBatches.Count == 0) { return LibraryMutationSessionReceipt.Empty; }
@@ -63,7 +68,8 @@ internal static class InvalidExtensionRenameCoordinator
                 using LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
                     mutationCapability,
                     "invalid_ext_rename",
-                    postLeaseNotifications);
+                    postLeaseNotifications,
+                    notices);
                 session.ProtectManagedOutput(resolvedBatches.SelectMany(batch => batch.Targets.SelectMany(chart => new[] { chart.Path, System.IO.Path.ChangeExtension(chart.Path, batch.NewExtension) })), recursive: false);
                 for (int index = 0; index < resolvedBatches.Count; index++)
                 {
@@ -87,7 +93,7 @@ internal static class InvalidExtensionRenameCoordinator
                         + " skipped=" + result.Report.SkippedCount));
                 }
                 receipt = session.Commit();
-            }, capability);
+            }, notices, capability);
         }
         finally
         {
@@ -100,26 +106,27 @@ internal static class InvalidExtensionRenameCoordinator
     internal static void RenamePendingBmsFormatChartFileExtensions(
         LibraryMutationOwner host,
         IEnumerable<ChartFile> charts,
-        string newExt, LibraryFileMutationCapability capability = null)
+        string newExt, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         if (charts == null)
         {
             throw new ArgumentNullException(nameof(charts));
         }
+        ArgumentNullException.ThrowIfNull(notices);
         List<ChartFile> targetCharts = [.. charts.Where(chart => chart?.Kind == ChartFileKind.Bms)];
         List<Action> postLeaseNotifications = [];
         try
         {
             host.RunWithPendingInvalidExtensionRenameWriteLocks(mutationCapability =>
             {
-                if (!host.TryEnterManagedOutputMutation(targetCharts.SelectMany(chart => new[] { chart.Path, System.IO.Path.ChangeExtension(chart.Path, newExt) }), recursive: false, out LibraryFileMutationLease playlistLease, mutationCapability)) { return; }
+                if (!host.TryEnterManagedOutputMutation(targetCharts.SelectMany(chart => new[] { chart.Path, System.IO.Path.ChangeExtension(chart.Path, newExt) }), recursive: false, notices, out LibraryFileMutationLease playlistLease, mutationCapability)) { return; }
                 using LibraryFileMutationLease heldPlaylist = playlistLease;
                 PendingExtensionRenameReport result = host.RenamePendingBmsFormatChartFileExtensionsAfterAdmission(
                     targetCharts,
                     newExt);
                 foreach (PendingExtensionRenameFailureReport failure in result.Failures)
                 {
-                    postLeaseNotifications.Add(() => host.ShowPendingRenameFailure(failure));
+                    LibraryMutationOwner.AddPendingRenameFailureNotice(notices, failure);
                 }
                 // Pending rename owns only package/install lifecycle state. It intentionally does not
                 // create a LibraryMutationSession because no owned library catalog rows are changed.

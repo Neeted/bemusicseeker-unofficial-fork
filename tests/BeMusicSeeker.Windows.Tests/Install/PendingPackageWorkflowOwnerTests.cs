@@ -66,7 +66,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             var store = new RecordingStore(events)
             {
                 FixInstalledLocationsAction = (activeLibrary, charts, approvedPaths, capability) =>
-                    activeLibrary.FixInstallationDirectoryCharts(charts, approvedPaths, capability: capability)
+                    activeLibrary.FixInstallationDirectoryCharts(charts, approvedPaths, new LibraryOperationNotices(), capability: capability)
             };
             ChartFileOperationSynchronizer gate = library.OperationAdmission;
             bool reportAfterGateRelease = false;
@@ -111,9 +111,9 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
-    /// <summary>activity終了の表示購読者が失敗しても推定は成功し、抑制・受付と実dialog scopeを解放してからモデル案内だけをUIへ配送する。</summary>
+    /// <summary>activity終了の表示購読者が失敗しても推定は成功し、抑制・受付を解放する。推定の経路にOKだけの案内の発生源はなく、窓口へは何も依頼しない。</summary>
     [TestMethod]
-    public async Task SearchPackagesAsync_ActivityNotificationFailureKeepsSuccessAndDetachesDialogScope()
+    public async Task SearchPackagesAsync_ActivityNotificationFailureKeepsSuccess()
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -129,35 +129,11 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             {
             }
             var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService);
-            string missingDirectory = Path.Combine(tempDirectory, "missing");
-            int mutationThreadId = 0;
-            int notificationThreadId = 0;
-            int synchronousCallsDuringMutation = -1;
-            var store = new RecordingStore(events)
-            {
-                SearchPackagesAction = activeLibrary =>
-                {
-                    mutationThreadId = Environment.CurrentManagedThreadId;
-                    activeLibrary.RenameChartFolder(missingDirectory, "renamed");
-                    synchronousCallsDuringMutation = dialogService.CallCount;
-                }
-            };
+            var store = new RecordingStore(events);
             var failure = new InvalidOperationException("activity end failed");
             var presentation = new RecordingPresentation(events) { EndActivityFailure = failure };
             var gate = new ChartFileOperationSynchronizer();
-            bool dispatchedAfterCleanup = false;
-            var dialogs = new FileDbReportRecordingDialogs
-            {
-                OnMessage = () =>
-                {
-                    notificationThreadId = Environment.CurrentManagedThreadId;
-                    bool acquired = gate.TryEnter(out IDisposable lease);
-                    dispatchedAfterCleanup = acquired && events.Contains("suppression-end") && events.Contains("activity-end");
-                    lease?.Dispose();
-                    // 同じworker上の次のモデル案内が同期portへ届けば、実ThreadStatic scopeが外れています。
-                    library.RenameChartFolder(missingDirectory, "after-search");
-                }
-            };
+            var dialogs = new FileDbReportRecordingDialogs();
             PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
                 events,
@@ -170,12 +146,10 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             await owner.SearchPackagesAsync(
                 [new ChartPackage()]);
 
-            Assert.IsTrue(dispatchedAfterCleanup);
-            Assert.AreEqual(mutationThreadId, notificationThreadId);
-            Assert.AreEqual(0, synchronousCallsDuringMutation, "変更scope内のモデル案内は同期dialog portへ渡しません。");
-            Assert.AreEqual(1, dialogService.CallCount, "scope解放後の同じworkerではモデル案内を再収集しません。");
-            Assert.AreEqual(1, dialogs.Messages.Count);
-            Assert.IsFalse(dialogs.Messages.Single().MessageBoxText.Contains(failure.Message, StringComparison.Ordinal));
+            Assert.IsTrue(gate.TryEnter(out IDisposable lease), "推定の終端の後に論理Lは解放されている。");
+            lease.Dispose();
+            Assert.AreEqual(0, dialogs.Messages.Count, "案内の発生源がない推定は、窓口へ何も依頼しない。");
+            Assert.AreEqual(0, dialogService.CallCount + dialogService.PostCount, "モデルの窓口へ同期にも投函でも届けない。");
             CollectionAssert.AreEqual(
                 new[]
                 {
@@ -195,7 +169,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
-    /// <summary>変更と必須の抑制終了の失敗を保持し、activity表示・案内表示の任意失敗は追加しない。残る受付・実dialog scopeの解放と案内配送を続ける。</summary>
+    /// <summary>変更と必須の抑制終了の失敗を保持し、activity表示の任意失敗は追加しない。残る受付の解放を続け、窓口へは何も依頼しない。</summary>
     [TestMethod]
     public async Task SearchPackagesAsync_PreservesRequiredFailuresButDoesNotPromoteNotificationFailure()
     {
@@ -209,31 +183,17 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             var mutationFailure = new InvalidOperationException("mutation failed");
             var suppressionFailure = new InvalidOperationException("suppression end failed");
             var activityFailure = new InvalidOperationException("activity end failed");
-            var notificationFailure = new InvalidOperationException("dialog notification failed");
             var events = new List<string>();
             var dialogService = new RecordingLibraryDialogService();
-            var dialogs = new FileDbReportRecordingDialogs
-            {
-                MessageHandler = _ => Task.FromResult(UiDialogResult.Failed(notificationFailure))
-            };
+            var dialogs = new FileDbReportRecordingDialogs();
             string songDbPath = Path.Combine(tempDirectory, "song.db");
             using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
             {
             }
             var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService);
-            string missingDirectory = Path.Combine(tempDirectory, "missing");
-            int mutationThreadId = 0;
-            int notificationThreadId = 0;
-            int synchronousCallsDuringMutation = -1;
             var store = new RecordingStore(events)
             {
-                Failure = mutationFailure,
-                SearchPackagesAction = activeLibrary =>
-                {
-                    mutationThreadId = Environment.CurrentManagedThreadId;
-                    activeLibrary.RenameChartFolder(missingDirectory, "renamed");
-                    synchronousCallsDuringMutation = dialogService.CallCount;
-                }
+                Failure = mutationFailure
             };
             var presentation = new RecordingPresentation(events)
             {
@@ -241,15 +201,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 EndActivityFailure = activityFailure
             };
             var gate = new ChartFileOperationSynchronizer();
-            bool dispatchedAfterCleanup = false;
-            dialogs.OnMessage = () =>
-            {
-                notificationThreadId = Environment.CurrentManagedThreadId;
-                bool acquired = gate.TryEnter(out IDisposable lease);
-                dispatchedAfterCleanup = acquired && events.Contains("suppression-end") && events.Contains("activity-end");
-                lease?.Dispose();
-                library.RenameChartFolder(missingDirectory, "after-search");
-            };
             PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
                 events,
@@ -266,11 +217,10 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             CollectionAssert.AreEqual(
                 new Exception[] { mutationFailure, suppressionFailure },
                 exception.InnerExceptions);
-            Assert.IsTrue(dispatchedAfterCleanup);
-            Assert.AreEqual(mutationThreadId, notificationThreadId);
-            Assert.AreEqual(0, synchronousCallsDuringMutation);
-            Assert.AreEqual(1, dialogService.CallCount, "必須失敗後も実dialog scopeを外して案内を配送します。");
-            Assert.AreEqual(1, dialogs.Messages.Count);
+            Assert.IsTrue(gate.TryEnter(out IDisposable lease), "必須失敗の後も論理Lを解放する。");
+            lease.Dispose();
+            Assert.AreEqual(0, dialogs.Messages.Count);
+            Assert.AreEqual(0, dialogService.CallCount + dialogService.PostCount);
             CollectionAssert.AreEqual(
                 new[]
                 {
@@ -284,6 +234,71 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
         finally
         {
+            Directory.Delete(tempDirectory, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 導入先の編集が拒否されたら、拒否の理由を所有者の窓口へ一件だけ、論理Lの解放後に、UIの文脈の外から依頼する。
+    /// 表示の完了を保留しても編集のTaskは完了し、モデルの窓口へは同期にも投函でも届かず、保留の導入先は変わらない。
+    /// モデルの書込み保護の内側での同期の表示、Lの保持中の依頼、表示の完了待ちを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task SetPendingAsync_RejectedDestinationWarnsOnceAfterAdmissionRelease()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(caseWorkspace.RootDirectory, nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        OperationNoticeRequestProbe? probe = null;
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(songDbPath))
+            {
+            }
+            var modelDialogs = new RecordingLibraryDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, modelDialogs);
+            string missingDestination = Path.Combine(tempDirectory, "missing-destination");
+            ChartFile pendingFile = ChartTestValues.Empty() with { Path = Path.Combine(tempDirectory, "Pkg", "chart.bms") };
+            PackageChartEntry entry = ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, string.Empty);
+            var package = ChartPackage.FromChartEntries([entry]);
+            package.path = Path.Combine(tempDirectory, "Pkg");
+            package.delete_parent = false;
+            library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package]);
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
+            probe = new OperationNoticeRequestProbe(() => TestUiDispatcherHost.Dispatcher.CheckAccess(), () =>
+            {
+                if (!gate.TryEnter(out IDisposable lease)) { return false; }
+                lease.Dispose();
+                return true;
+            });
+            var events = new List<string>();
+            PendingPackageWorkflowOwner owner = CreateOwner(() => library, events, new BmsLibraryPendingPackageStore(), probe,
+                chartFileOperations: gate, playback: new NoOpChartMutationPlaybackPort());
+            Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(new ChartOperationTarget(entry.Chart, null,
+                ChartOperationSourceScope.PendingPackage, isOwned: false, isPending: true, isPlaylistMissing: false,
+                capabilities: ChartOperationCapabilities.UpdateInstallDestination, packageEntry: entry), out PendingInstallDestinationEditRequest request));
+
+            Task edit = owner.SetPendingAsync(request, missingDestination);
+            try { await ConcurrencyProbe.AssertCompletesWhileHeldAsync(edit, "pending-destination-rejection-display-held"); }
+            finally { probe.ReleaseAll(); }
+            await edit;
+
+            OperationNoticeRequestProbe.Request notice = probe.Requests.Single();
+            Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Warn_InstallDirNotFound, missingDestination), notice.Message.MessageBoxText);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, notice.Message.Caption);
+            Assert.AreEqual(MessageBoxImage.Exclamation, notice.Message.Icon);
+            Assert.AreEqual(MessageBoxButton.OK, notice.Message.Button);
+            Assert.IsFalse(notice.OnUiContext, "UIの文脈では依頼しない。");
+            Assert.IsTrue(notice.AdmissionsWereFree, "依頼の時点で論理Lは解放済み（モデルの書込み保護も解放済み）。");
+            Assert.AreEqual(0, modelDialogs.CallCount + modelDialogs.PostCount, "モデルの窓口へ同期にも投函でも届けない。");
+            Assert.IsTrue(string.IsNullOrEmpty(entry.Chart.InstallDestination), "拒否した編集は保留の導入先を変えない。");
+        }
+        finally
+        {
+            probe?.ReleaseAll();
             Directory.Delete(tempDirectory, recursive: true);
         }
     }

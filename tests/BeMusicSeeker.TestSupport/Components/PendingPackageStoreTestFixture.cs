@@ -62,7 +62,6 @@ internal static class PendingPackageStoreTestFixture
 
         internal int IsPendingSectionEmptyCount { get; private set; }
 
-        internal Action<BMSLibrary>? SearchPackagesAction { get; set; }
 
         /// <summary>導入・削除・改名・上書きの呼出しで所有者から受け取った案内の収集先へ、caseが案内を加える口です。操作ごとに受け取った収集先も記録します。</summary>
         internal Action<BMSLibrary, LibraryOperationNotices>? NoticeAction { get; set; }
@@ -85,7 +84,6 @@ internal static class PendingPackageStoreTestFixture
             SearchPackagesCount++;
             LastPackages = packages;
             LastCandidatePolicy = candidatePolicy;
-            SearchPackagesAction?.Invoke(library);
             ThrowIfConfigured();
         }
 
@@ -137,7 +135,8 @@ internal static class PendingPackageStoreTestFixture
         public IReadOnlyList<ChartFile>? SetPending(
             BMSLibrary library,
             PendingInstallDestinationEditRequest request,
-            string destinationDirectory)
+            string destinationDirectory,
+            LibraryOperationNotices notices)
         {
             events.Add("store-set");
             LastPendingRequest = request;
@@ -217,7 +216,8 @@ internal static class PendingPackageStoreTestFixture
         public LibraryFixInstallationResult FixInstalledLocations(
             BMSLibrary library,
             IReadOnlyList<ChartFile> repairCharts,
-            IReadOnlyList<string> approvedDuplicateRemovalChartPaths)
+            IReadOnlyList<string> approvedDuplicateRemovalChartPaths,
+            LibraryOperationNotices notices)
         {
             events.Add("store-fix-installed-locations");
             ChangedCharts = repairCharts;

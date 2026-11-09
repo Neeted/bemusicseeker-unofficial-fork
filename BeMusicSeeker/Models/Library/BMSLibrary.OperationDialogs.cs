@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
@@ -53,58 +52,6 @@ public partial class BMSLibrary
 
         internal MessageBoxResult DefaultResult { get; }
     }
-
-    internal sealed class OperationDialogScope : IDisposable
-    {
-        private readonly ScopedOperationDialogCoordinator.Scope coordinatorScope;
-
-        internal OperationDialogScope(ScopedOperationDialogCoordinator.Scope coordinatorScope)
-        {
-            this.coordinatorScope = coordinatorScope
-                ?? throw new ArgumentNullException(nameof(coordinatorScope));
-        }
-
-        internal IReadOnlyList<OperationDialogMessage> Messages => [.. coordinatorScope.Messages.Select(message =>
-            new OperationDialogMessage(
-                message.MessageBoxText,
-                message.Caption,
-                message.Button,
-                message.Icon,
-                message.DefaultResult,
-                message.Count,
-                message.SampleLines,
-                message.AllLogged))];
-
-        internal void Enqueue(OperationDialogMessage message)
-        {
-            if (message == null)
-            {
-                return;
-            }
-            coordinatorScope.Enqueue(new ScopedOperationDialogCoordinator.DialogMessage(
-                message.MessageBoxText,
-                message.Caption,
-                message.Button,
-                message.Icon,
-                message.DefaultResult,
-                message.Count,
-                message.SampleLines,
-                message.AllLogged));
-        }
-
-        internal void Flush() => coordinatorScope.Flush();
-
-        public void Dispose() => coordinatorScope.Dispose();
-    }
-
-    /// <summary>
-    /// 現在のスレッドで、収集先へ移行していない発生源の案内を積む列を開始します。
-    /// <paramref name="notices"/> を渡すと、積まれた案内は所有者の収集先へ直接加わり、収集先から移行済みの発生源の案内と同じ表示の列になります。
-    /// 列はスレッド単位なので、非同期の継続や別のスレッドの区間では、その区間で改めて開始します。
-    /// </summary>
-    /// <param name="notices">案内の合流先。省略時は列が保持し、所有者が <see cref="OperationDialogScope.Flush"/> で表示します。</param>
-    internal OperationDialogScope BeginOperationDialogScope(LibraryOperationNotices notices = null) =>
-        new(scopedOperationDialogService.BeginScope(notices));
 
     /// <summary>
     /// 保守が集めた読込み失敗を、保守の書込み保護の外で、成功と例外のどちらの経路でも操作の収集先へ加えます。
@@ -192,12 +139,4 @@ public partial class BMSLibrary
             catch (Exception) { /* 任意診断の失敗で、保守の結果を変えません。 */ }
         }
     }
-
-    private MessageBoxResult ShowOperationDialog(
-        string messageBoxText,
-        string caption,
-        MessageBoxButton button,
-        MessageBoxImage icon,
-        MessageBoxResult defaultResult = MessageBoxResult.None) =>
-        scopedOperationDialogService.Show(messageBoxText, caption, button, icon, defaultResult);
 }

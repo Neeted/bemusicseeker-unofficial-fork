@@ -98,6 +98,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
         if (scenario == "append")
         {
             fixture.Library.ReloadFileDiff();
+            Assert.AreEqual(1, fixture.LibraryDialogs.PostedMessages.Count, "走査の見送りの警告だけを、待たない投函で宣言した窓口へ依頼する。");
             Assert.IsTrue(File.Exists(Path.Combine(fixture.OutputDirectory(saved[0]), "0000.lr2folder")));
             Assert.IsFalse(Directory.Exists(fixture.OutputDirectory(current[1])));
             using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);

@@ -35,7 +35,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             Assert.IsFalse(library.HasAutoRenameAllChartFolderTargets(rootPath));
             Assert.IsFalse(library.AutoRenameAllChartFoldersWithProgress(
                 rootPath,
-                new RecordingFolderAutoRenameProgressWriter()).HasActionablePlan);
+                new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices()).HasActionablePlan);
         });
     }
 
@@ -139,7 +139,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((removedBmsFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removal.HasError);
             IPrimaryHashLookup updatedLookup = InvokeCreateInstalledChartKeySnapshotExcludingCharts(library, []);
 
@@ -176,7 +176,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((bmsFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
 
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(0, library.BmsCharts.Count);
@@ -209,7 +209,7 @@ public sealed class OwnedChartCollectionInstalledOverlayTests
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((bmsonSong))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
 
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(0, library.BmsonCharts.Count);

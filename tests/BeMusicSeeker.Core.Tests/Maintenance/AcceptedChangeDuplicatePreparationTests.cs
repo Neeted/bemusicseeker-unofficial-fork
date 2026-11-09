@@ -421,9 +421,10 @@ public sealed class AcceptedChangeDuplicatePreparationTests
     private sealed class InvalidatingDuplicateStore(List<string> events, Action invalidate) : DuplicateSupport.RecordingStore(events)
     {
         public override DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
-            BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId)
+            BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId,
+            LibraryOperationNotices notices)
         {
-            DuplicateMergeMaintenanceReceipt receipt = base.MergeFolderWithReceipt(library, sourceDirectory, destinationDirectory, operationId);
+            DuplicateMergeMaintenanceReceipt receipt = base.MergeFolderWithReceipt(library, sourceDirectory, destinationDirectory, operationId, notices);
             invalidate();
             return receipt;
         }
@@ -432,9 +433,9 @@ public sealed class AcceptedChangeDuplicatePreparationTests
     /// <summary>譜面移動本体の代替です。重複結果の失効を変更の中で行う store の契約を再現します。</summary>
     private sealed class InvalidatingSelectedStore(Action invalidate) : SelectedSupport.RecordingStore
     {
-        public override LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
+        public override LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request, LibraryOperationNotices notices)
         {
-            LibraryMutationSessionReceipt receipt = base.MoveLibraryChartsWithReceipt(library, request);
+            LibraryMutationSessionReceipt receipt = base.MoveLibraryChartsWithReceipt(library, request, notices);
             invalidate();
             return receipt;
         }
@@ -446,14 +447,16 @@ public sealed class AcceptedChangeDuplicatePreparationTests
         public bool HasTargets(BMSLibrary library, string parentDirectory) => true;
 
         public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
-            BMSLibrary library, ChartFolderAutoRenameRequest request, IFolderAutoRenameProgressWriter progressWriter)
+            BMSLibrary library, ChartFolderAutoRenameRequest request, IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices)
         {
             invalidate();
             return new FolderAutoRenameExecutionResult();
         }
 
         public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
-            BMSLibrary library, string parentDirectory, IFolderAutoRenameProgressWriter progressWriter)
+            BMSLibrary library, string parentDirectory, IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices)
             => throw new NotSupportedException();
     }
 }

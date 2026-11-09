@@ -72,7 +72,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             library.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)) { notifications++; } };
             try
             {
-                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Song", reportAtTerminal: true);
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Song", new LibraryOperationNotices(), reportAtTerminal: true);
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
                 Assert.IsNull(receipt.PrimaryFailure);
                 Assert.AreEqual(1, receipt.ConfirmedChangeCount);
@@ -104,7 +104,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         Assert.IsFalse(health.Contains(chart.Path, StringComparer.Ordinal));
                     }
                 }
-                LibraryMutationSessionReceipt next = library.RenameChartFolderWithReceipt(destination, "SONG", reportAtTerminal: true);
+                LibraryMutationSessionReceipt next = library.RenameChartFolderWithReceipt(destination, "SONG", new LibraryOperationNotices(), reportAtTerminal: true);
                 Assert.IsTrue(next.DurableCommit, next.PrimaryFailure?.ToString());
                 Assert.IsNull(next.PrimaryFailure);
                 foreach (ChartFile chart in charts) { Assert.AreSame(chart.Token, CurrentOwnedChart(library, chart).Token); }
@@ -140,7 +140,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Directory.Move(destination, destination + "-renamed");
             try
             {
-                LibraryFixInstallationResult refused = library.FixInstallationDirectoryCharts([target]);
+                LibraryFixInstallationResult refused = library.FixInstallationDirectoryCharts([target], approvedDuplicateRemovalChartPaths: null, notices: new LibraryOperationNotices());
                 Assert.IsFalse(refused.SessionReceipt.DurableCommit);
                 Assert.AreEqual(source, CurrentOwnedChart(library, chart).Path);
                 Assert.IsFalse(Directory.Exists(destination)); CollectionAssert.AreEqual(bytes, File.ReadAllBytes(source));
@@ -149,7 +149,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly())
                 { Assert.AreEqual(source, db.Table<LR2SongDB.song>().Single().path); }
                 target = ChartFileProjection.WithPackageState(CurrentOwnedChart(library, chart), destination + "-renamed", string.Empty, string.Empty, []);
-                LibraryFixInstallationResult accepted = library.FixInstallationDirectoryCharts([target]);
+                LibraryFixInstallationResult accepted = library.FixInstallationDirectoryCharts([target], approvedDuplicateRemovalChartPaths: null, notices: new LibraryOperationNotices());
                 Assert.IsTrue(accepted.SessionReceipt.DurableCommit, accepted.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.AreEqual(Path.Combine(destination + "-renamed", "chart.bms"), CurrentOwnedChart(library, chart).Path);
                 CollectionAssert.AreEqual(bytes, File.ReadAllBytes(CurrentOwnedChart(library, chart).Path));
@@ -254,7 +254,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             {
                 if (mode == 0)
                 {
-                    Assert.IsNull(library.RenameChartFolderWithReceipt(source, "Renamed", unregister: false));
+                    Assert.IsNull(library.RenameChartFolderWithReceipt(source, "Renamed", new LibraryOperationNotices(), unregister: false));
                     Assert.IsFalse(Directory.Exists(Path.Combine(libraryRoot, "Renamed")));
                 }
                 else
@@ -262,8 +262,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     FolderMoveBatch batch = library.PrepareAutoRenameBatch(charts, libraryRoot, mode == 2);
                     CollectionAssert.AreEquivalent(new[] { child, sibling }, batch.Moves.Select(plan => plan.SourceDirectory).ToArray());
                     AutoRenameBatchResult result = mode == 2
-                        ? library.AutoRenameAllChartFoldersWithProgress(libraryRoot, new RecordingFolderAutoRenameProgressWriter(), preparedBatch: batch)
-                        : library.AutoRenameChartFoldersWithProgress(charts, false, new RecordingFolderAutoRenameProgressWriter(), preparedBatch: batch);
+                        ? library.AutoRenameAllChartFoldersWithProgress(libraryRoot, new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices(), preparedBatch: batch)
+                        : library.AutoRenameChartFoldersWithProgress(charts, false, new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices(), preparedBatch: batch);
                     Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.CatalogApplyCount);
                     Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.ReverseLookupApplyCount);
                     Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.RequiredPublicationCount);
@@ -356,7 +356,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             CollectionAssert.AreEqual(new[] { parent }, before.DirectoryLookupCache.GetDirectoriesByAudioRelativeHash(oldHash).ToArray());
             try
             {
-                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Renamed", reportAtTerminal: true);
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Renamed", new LibraryOperationNotices(), reportAtTerminal: true);
                 LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
                 Assert.IsTrue(receipt.DurableCommit);
                 Assert.IsTrue(receipt.HasDurableFinalizationFailure);
@@ -408,7 +408,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([target]);
             try
             {
-                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Renamed", reportAtTerminal: true);
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "Renamed", new LibraryOperationNotices(), reportAtTerminal: true);
                 Assert.IsTrue(receipt.DurableCommit);
                 Assert.IsNull(receipt.FinalizationFailure);
                 Assert.AreEqual(0, port.Calls);
@@ -599,7 +599,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 using (held)
                 {
                     AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress(charts, false,
-                        new RecordingFolderAutoRenameProgressWriter(), reportAtTerminal: true, capability: capability, preparedBatch: new FolderMoveBatch(plans));
+                        new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices(), reportAtTerminal: true, capability: capability, preparedBatch: new FolderMoveBatch(plans));
                     Assert.AreEqual(2, result.AppliedPlanCount);
                     Assert.AreEqual(2, result.SessionReceipt.ConfirmedChangeCount);
                     Assert.AreSame(planningFailure, result.Diagnostics.Single(item => item.Kind == AutoRenameBatchDiagnosticKind.RenamePlanFailed).Failure);
@@ -653,10 +653,12 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     dialogService,
                     new TestUiScheduler(() => null));
                 int baselineCatalogRevision = library.CatalogRevision;
+                var notices = new LibraryOperationNotices();
 
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     sourceDirectoryPath,
                     "Renamed",
+                    notices,
                     reportAtTerminal: reportAtTerminal);
 
                 Assert.IsNotNull(receipt);
@@ -665,8 +667,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(sourceDirectoryPath, receipt.FailedTarget.SourcePath);
                 Assert.AreEqual(Path.Combine(tempRootPath, "Renamed"), receipt.FailedTarget.DestinationPath);
                 Assert.AreEqual(baselineCatalogRevision, library.CatalogRevision);
-                Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogService.CallCount);
-                Assert.AreEqual(reportAtTerminal ? "filesystem" : "filesystem|dialog", string.Join("|", phases));
+                Assert.AreEqual(0, dialogService.CallCount, "モデルの窓口へ同期に表示しない。");
+                Assert.AreEqual(reportAtTerminal ? 0 : 1, notices.Snapshot().Count, "失敗の案内は操作の収集先へ一件だけ加わる。");
+                Assert.AreEqual("filesystem", string.Join("|", phases));
             }
             finally
             {
@@ -705,9 +708,11 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     new TestFileMutationService { OperationObserver = mutations.Add },
                     dialogs,
                     new TestUiScheduler(() => null));
-                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "destination", reportAtTerminal: reportAtTerminal);
+                var notices = new LibraryOperationNotices();
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(source, "destination", notices, reportAtTerminal: reportAtTerminal);
                 Assert.IsNull(receipt);
-                Assert.AreEqual(1, dialogs.CallCount);
+                Assert.AreEqual(1, notices.Snapshot().Count, "事前の通知は終端報告指定に関わらず収集先へ加わる。");
+                Assert.AreEqual(0, dialogs.CallCount, "モデルの窓口へ同期に表示しない。");
                 Assert.AreEqual(0, mutations.Count);
                 Assert.IsTrue(Directory.Exists(source));
                 Assert.IsTrue(Directory.Exists(destination));
@@ -778,6 +783,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                             [(pFile)],
                             ".pmx")
                     ],
+                    new LibraryOperationNotices(),
                     unregister: false);
 
                 Assert.IsTrue(receipt.DurableCommit);
@@ -864,6 +870,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                             [(pFile)],
                             ".pmx")
                     ],
+                    new LibraryOperationNotices(),
                     unregister: false);
 
                 Assert.IsFalse(receipt.DurableCommit);
@@ -983,7 +990,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
 
-                library.RenameChartFolder(sourceDirectoryPath, "Renamed");
+                library.RenameChartFolder(sourceDirectoryPath, "Renamed", new LibraryOperationNotices());
 
                 await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(folderChanged.Task, pathChanged.Task), Task.CompletedTask, "folder-rename.common-refresh");
                 Assert.AreEqual(1, Volatile.Read(ref bmsFilesChangedCount));
@@ -1061,7 +1068,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     sourceDirectoryPath,
-                    "Renamed");
+                    "Renamed", new LibraryOperationNotices());
 
                 Assert.IsNotNull(receipt);
                 Assert.IsTrue(receipt.DurableCommit);
@@ -1146,7 +1153,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     sourceDirectoryPath,
-                    "PackFinalizationFailure");
+                    "PackFinalizationFailure", new LibraryOperationNotices());
 
                 Assert.IsNotNull(receipt);
                 Assert.IsTrue(receipt.DurableCommit);
@@ -1300,14 +1307,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     if (autoRename)
                     {
                         AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress(
-                            [(target)], false, new RecordingFolderAutoRenameProgressWriter());
+                            [(target)], false, new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices());
                         Assert.IsTrue(result.HasDurableCommit);
                     }
                     else
                     {
                         LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                             sourceDirectoryPath,
-                            destinationName);
+                            destinationName, new LibraryOperationNotices());
                         Assert.IsNotNull(receipt);
                         Assert.IsTrue(receipt.DurableCommit);
                     }
@@ -1503,7 +1510,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([
                     (firstFile),
                     (secondFile)
-                ], false, new RecordingFolderAutoRenameProgressWriter(update => progress.Add((update.TotalCount, update.ProcessedCount, update.CurrentPath))));
+                ], false, new RecordingFolderAutoRenameProgressWriter(update => progress.Add((update.TotalCount, update.ProcessedCount, update.CurrentPath))), new LibraryOperationNotices());
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(1, Volatile.Read(ref refreshCount));
@@ -1644,7 +1651,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 library.AutoRenameChartFoldersWithProgress([
                     (firstFile),
                     (secondFile)
-                ], false, new RecordingFolderAutoRenameProgressWriter());
+                ], false, new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices());
 
                 string firstDestinationPath = Path.Combine(libraryRootPath, "[Same Artist] Same Title");
                 string secondDestinationPath = Path.Combine(libraryRootPath, "[Same Artist] Same Title (2)");
@@ -1715,7 +1722,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
                     setup.InsertOrReplace(new LR2SongDB.folder { path = sourceDirectoryPath + Path.DirectorySeparatorChar, type = 1, parent = "old", title = "O" });
                 }
-                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([file], false, new RecordingFolderAutoRenameProgressWriter());
+                AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([file], false, new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices());
                 Assert.IsTrue(result.HasDurableCommit);
                 Assert.IsFalse(result.SessionReceipt.HasRequiredFailure, result.SessionReceipt.PrimaryFailure?.ToString());
 
@@ -1816,7 +1823,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 };
 
                 AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress(
-                    [(file)], false, new RecordingFolderAutoRenameProgressWriter());
+                    [(file)], false, new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices());
 
                 Assert.IsNotNull(result);
                 Assert.IsTrue(result.HasDurableCommit);
@@ -1948,13 +1955,15 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 prefixSibling.RestoreInstallDestinationState(new PackageChartInstallDestinationState(null, "prefix", "artist", [firstDirectoryPath + "Sibling"]));
                 library.ChartPackagesPending = CreatePackageCollection([ChartPackage.FromChartEntries([pending, prefixSibling])]);
 
+                var notices = new LibraryOperationNotices();
                 AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([
                     (firstFile),
                     (secondFile),
                     (thirdFile)
-                ], false, new RecordingFolderAutoRenameProgressWriter(), reportAtTerminal: reportAtTerminal);
+                ], false, new RecordingFolderAutoRenameProgressWriter(), notices, reportAtTerminal: reportAtTerminal);
 
-                Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.ModelMessages);
+                Assert.AreEqual(0, dialogs.ModelMessages, "モデルの窓口へ同期にも投函でも届けない。");
+                Assert.AreEqual(reportAtTerminal ? 0 : 1, notices.Snapshot().Count);
                 Assert.IsTrue(result.HasDurableCommit);
                 Assert.AreEqual(1, result.AppliedPlanCount);
                 Assert.AreEqual(1, result.SessionReceipt.ConfirmedChangeCount);
@@ -2086,7 +2095,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 AutoRenameBatchResult result = library.AutoRenameChartFoldersWithProgress([
                     (firstFile),
                     (secondFile)
-                ], false, new RecordingFolderAutoRenameProgressWriter());
+                ], false, new RecordingFolderAutoRenameProgressWriter(), new LibraryOperationNotices());
 
                 Assert.IsNotNull(result);
                 Assert.IsTrue(result.HasActionablePlan);
@@ -2171,7 +2180,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
-                library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile((file))], destinationParentPath);
+                library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile((file))], destinationParentPath, new LibraryOperationNotices());
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(1, Volatile.Read(ref bmsFilesChangedCount));
@@ -2244,7 +2253,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Interlocked.Exchange(ref bmsFilesChangedCount, 0);
                 Interlocked.Exchange(ref bmsonSongsChangedCount, 0);
 
-                library.RenameChartFolder(sourceDirectoryPath, "Renamed");
+                library.RenameChartFolder(sourceDirectoryPath, "Renamed", new LibraryOperationNotices());
                 var row = LibraryChartRow.FromChartFile(CurrentOwnedChart(library, song));
 
                 Assert.AreEqual(1, Volatile.Read(ref bmsFilesChangedCount));
@@ -2319,12 +2328,14 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         + "' BEGIN SELECT RAISE(ABORT, 'forced folder session move failure'); END;");
                 }
 
+                var notices = new LibraryOperationNotices();
                 LibraryMutationSessionReceipt receipt = library.MoveLibraryRootFolderWithReceipt(
                     [
                         LibraryChartRef.FromChartFile((firstFile)),
                         LibraryChartRef.FromChartFile((secondFile))
                     ],
                     destinationRootPath,
+                    notices,
                     reportAtTerminal: reportAtTerminal);
 
                 Assert.AreEqual(2, receipt.ConfirmedChangeCount);
@@ -2336,7 +2347,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.IsNull(receipt.PhysicalFailure);
                 Assert.IsNotNull(receipt.ApplyFailure);
                 Assert.AreEqual(0, receipt.UnprocessedTargets.Count);
-                Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.CallCount);
+                Assert.AreEqual(0, dialogs.CallCount, "モデルの窓口へ同期に表示しない。");
+                Assert.AreEqual(reportAtTerminal ? 0 : 1, notices.Snapshot().Count);
                 Assert.AreEqual(baselineCatalogRevision, library.CatalogRevision);
                 Assert.IsFalse(Directory.Exists(firstSourceDirectoryPath));
                 Assert.IsFalse(Directory.Exists(secondSourceDirectoryPath));
@@ -2432,6 +2444,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
 
+                var notices = new LibraryOperationNotices();
                 LibraryMutationSessionReceipt receipt = library.MoveLibraryRootFolderWithReceipt(
                     [
                         LibraryChartRef.FromChartFile((firstFile)),
@@ -2439,6 +2452,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         LibraryChartRef.FromChartFile((thirdFile))
                     ],
                     destinationRootPath,
+                    notices,
                     reportAtTerminal: reportAtTerminal);
 
                 Assert.IsTrue(receipt.DurableCommit);
@@ -2451,7 +2465,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(1, receipt.UnprocessedTargets.Count);
                 Assert.AreEqual(thirdSourceDirectoryPath, receipt.UnprocessedTargets[0].SourcePath);
                 Assert.AreEqual(thirdDestinationDirectoryPath, receipt.UnprocessedTargets[0].DestinationPath);
-                Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.CallCount);
+                Assert.AreEqual(0, dialogs.CallCount, "モデルの窓口へ同期に表示しない。");
+                Assert.AreEqual(reportAtTerminal ? 0 : 1, notices.Snapshot().Count);
                 Assert.AreEqual(1, refreshCount);
                 Assert.AreEqual(Path.Combine(firstDestinationDirectoryPath, "first.bms"), CurrentOwnedChart(library, firstFile).Path);
                 Assert.AreEqual(secondChartPath, CurrentOwnedChart(library, secondFile).Path);
@@ -2540,7 +2555,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Interlocked.Exchange(ref normalLibraryRefreshCount, 0);
                 int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
-                library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile((song))], destinationParentPath);
+                library.MoveLibraryRootFolder([LibraryChartRef.FromChartFile((song))], destinationParentPath, new LibraryOperationNotices());
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.AreEqual(1, Volatile.Read(ref bmsFilesChangedCount));
@@ -2642,7 +2657,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         LibraryChartRef.FromChartFile((file)),
                         LibraryChartRef.FromChartFile((song))
                     ],
-                    destinationParentPath);
+                    destinationParentPath, new LibraryOperationNotices());
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
@@ -2726,7 +2741,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     string.Empty,
                     []);
 
-                library.FixInstallationDirectoryCharts([repairTarget]);
+                library.FixInstallationDirectoryCharts([repairTarget], approvedDuplicateRemovalChartPaths: null, notices: new LibraryOperationNotices());
 
                 Assert.AreEqual(destinationChartPath, CurrentOwnedChart(library, song).Path);
                 Assert.AreEqual(Path.GetFileName(destinationDirectoryPath), CurrentOwnedChart(library, song).Folder);
@@ -2829,7 +2844,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     string.Empty,
                     []);
 
-                LibraryFixInstallationResult result = library.FixInstallationDirectoryCharts([repairTarget]);
+                LibraryFixInstallationResult result = library.FixInstallationDirectoryCharts([repairTarget], approvedDuplicateRemovalChartPaths: null, notices: new LibraryOperationNotices());
 
                 Assert.IsNotNull(result);
                 Assert.IsNotNull(result.Failure);
@@ -2940,7 +2955,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 LibraryFixInstallationResult result = library.FixInstallationDirectoryCharts(
                     [firstTarget, secondTarget],
-                    approvedDuplicateRemovalChartPaths: []);
+                    approvedDuplicateRemovalChartPaths: [], notices: new LibraryOperationNotices());
 
                 Assert.IsNotNull(result.SessionReceipt);
                 Assert.IsNotNull(result.Failure);
@@ -3048,7 +3063,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     string.Empty,
                     []);
 
-                LibraryFixInstallationResult result = library.FixInstallationDirectoryCharts([repairTarget]);
+                LibraryFixInstallationResult result = library.FixInstallationDirectoryCharts([repairTarget], approvedDuplicateRemovalChartPaths: null, notices: new LibraryOperationNotices());
 
                 Assert.IsNotNull(result);
                 Assert.IsNull(result.Failure);
@@ -3182,7 +3197,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Exception? failure = null;
             try
             {
-                repairResult = library.FixInstallationDirectoryCharts([repairTarget]);
+                repairResult = library.FixInstallationDirectoryCharts([repairTarget], approvedDuplicateRemovalChartPaths: null, notices: new LibraryOperationNotices());
                 failure = repairResult?.Failure;
             }
             catch (Exception exception)
@@ -3282,7 +3297,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     string.Empty,
                     []);
 
-                library.FixInstallationDirectoryCharts([repairTarget]);
+                library.FixInstallationDirectoryCharts([repairTarget], approvedDuplicateRemovalChartPaths: null, notices: new LibraryOperationNotices());
 
                 using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
                 Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = ?;", sourceChartPath));
@@ -3354,7 +3369,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                     library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((file))]),
                     sendToRecycleBin: false,
-                    approvedWholeFolderDeletePaths: []);
+                    approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
 
                 Assert.AreEqual(notificationVersion, library.NormalLibraryRefreshNotificationVersion);
                 Assert.AreEqual(catalogRevision, library.CatalogRevision);
@@ -3431,7 +3446,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((file))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: [chartDirectory]);
+                approvedWholeFolderDeletePaths: [chartDirectory], notices: new LibraryOperationNotices());
 
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(new LibraryMutationSessionApplyCounts
@@ -3496,7 +3511,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((file))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: [chartDirectory]);
+                approvedWholeFolderDeletePaths: [chartDirectory], notices: new LibraryOperationNotices());
 
             Assert.IsTrue(notificationAttempted);
             Assert.IsFalse(outcome.HasError);
@@ -3547,6 +3562,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     oldDirectoryPath,
                     "New",
+                    new LibraryOperationNotices(),
                     unregister: false,
                     renameRootFolder: false);
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
@@ -3668,7 +3684,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
                 LibraryFixInstallationResult result = library.FixInstallationDirectoryCharts(
                     [firstTarget, secondTarget],
-                    approvedDuplicateRemovalChartPaths: []);
+                    approvedDuplicateRemovalChartPaths: [], notices: new LibraryOperationNotices());
 
                 Assert.IsNotNull(result.SessionReceipt);
                 Assert.IsTrue(result.SessionReceipt.DurableCommit, result.SessionReceipt.PrimaryFailure?.ToString());
@@ -3690,6 +3706,75 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     Directory.Delete(tempRootPath, recursive: true);
                 }
             }
+        });
+    }
+
+    /// <summary>
+    /// 重複した導入先がある修復で、承認の判断（一覧）が欠けた要求は、確認を表示せず物理処理の前に失敗する。
+    /// ファイル・DB・所持集合は変わらず、収集先にも窓口にも何も届かず、論理Lは解放される。
+    /// 欠けた判断を既定の確認で補う誤りと、物理処理の後に失敗する誤りを検出する（明示の判断の扱いは重複の承認の試験が確認する）。
+    /// </summary>
+    [TestMethod]
+    public void FixInstallationDirectoryCharts_MissingApprovalWithRequiredDecisionFailsBeforePhysicalWork()
+    {
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
+        {
+            using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+            string tempRootPath = Path.Combine(caseWorkspace.RootDirectory, "BeMusicSeeker_RepairMissingApproval_" + Guid.NewGuid().ToString("N"));
+            string sourceDirectoryPath = Path.Combine(tempRootPath, "Broken");
+            string destinationDirectoryPath = Path.Combine(tempRootPath, "Installed");
+            string sourceChartPath = Path.Combine(sourceDirectoryPath, "chart.bmson");
+            string installedChartPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
+            Directory.CreateDirectory(sourceDirectoryPath);
+            Directory.CreateDirectory(destinationDirectoryPath);
+            File.WriteAllText(sourceChartPath, "{}");
+            File.WriteAllText(installedChartPath, "{}");
+            string md5 = "abcdefabcdefabcdefabcdefabcdefab";
+            string sha256 = "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd";
+            ChartFile sourceSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
+            {
+                Path = sourceChartPath,
+                Folder = sourceDirectoryPath,
+                RawTitle = "Repair Duplicate Bmson",
+                Md5 = md5,
+                Sha256 = sha256,
+                Token = new OwnedChartToken()
+            };
+            ChartFile installedSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
+            {
+                Path = installedChartPath,
+                Folder = destinationDirectoryPath,
+                RawTitle = "Installed Duplicate Bmson",
+                Md5 = md5,
+                Sha256 = sha256,
+                Token = new OwnedChartToken()
+            };
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(sourceSong), typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(installedSong), typeof(LR2SongDBExtended.bmson_song));
+            }
+            var dialogs = new RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), dialogs, new TestUiScheduler(() => null));
+            library.BmsonCharts = [sourceSong, installedSong];
+            ChartFile repairTarget = ChartFileProjection.WithPackageState(sourceSong, destinationDirectoryPath, string.Empty, string.Empty, []);
+            var notices = new LibraryOperationNotices();
+
+            Assert.ThrowsExactly<InvalidOperationException>(
+                () => library.FixInstallationDirectoryCharts([repairTarget], approvedDuplicateRemovalChartPaths: null, notices: notices));
+
+            Assert.AreEqual(0, notices.Snapshot().Count, "判断の欠けた要求は案内を出さない。");
+            Assert.AreEqual(0, dialogs.CallCount, "確認を表示しない。");
+            Assert.IsTrue(File.Exists(sourceChartPath));
+            Assert.IsTrue(File.Exists(installedChartPath));
+            Assert.AreEqual(2, library.BmsonCharts.Count);
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath))
+            {
+                Assert.AreEqual(1, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == sourceChartPath));
+                Assert.AreEqual(1, songDb.Table<LR2SongDBExtended.bmson_song>().Count(row => row.path == installedChartPath));
+            }
+            Assert.IsFalse(library.OperationAdmission.IsActive, "失敗でも論理Lを解放する。");
         });
     }
 
@@ -3797,7 +3882,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 IReadOnlyList<string> approvedPaths = approveDuplicateRemoval ? [sourceChartPath] : [];
                 LibraryFixInstallationResult repairResult = library.FixInstallationDirectoryCharts(
                     [independentTarget, repairTarget],
-                    approvedPaths);
+                    approvedPaths, new LibraryOperationNotices());
                 Assert.IsNotNull(repairResult.SessionReceipt);
                 Assert.AreEqual(1, repairResult.DuplicateSkippedCount);
                 Assert.AreEqual(1, repairResult.SessionReceipt.CatalogChartPathChangeCount);

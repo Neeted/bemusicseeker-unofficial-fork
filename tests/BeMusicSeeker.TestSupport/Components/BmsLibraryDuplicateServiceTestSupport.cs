@@ -57,20 +57,11 @@ internal static class BmsLibraryDuplicateServiceTestSupport
     /// <summary>各実行区分が同じ準備と観測を使うための共通補助です。</summary>
     internal sealed class RecordingDialogService : IBmsLibraryDialogService
     {
-        public Action? OnShow { get; set; }
-
-        public bool ThrowOnShow { get; set; }
-
         public int ShowCount { get; private set; }
 
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             ShowCount++;
-            OnShow?.Invoke();
-            if (ThrowOnShow)
-            {
-                throw new InvalidOperationException("The test dialog effect failed.");
-            }
             return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }
 

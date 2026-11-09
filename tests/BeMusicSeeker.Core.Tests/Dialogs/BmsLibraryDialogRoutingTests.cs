@@ -25,9 +25,9 @@ public sealed class BmsLibraryDialogRoutingTests
     [TestCleanup]
     public void CleanupWorkspace() => ownedWorkspace?.Dispose();
 
-    /// <summary>消失フォルダのrenameで対象path付き警告を注入dialogへ一回渡し、無通知の成功へ置換しません。</summary>
+    /// <summary>消失フォルダのrenameで対象path付き警告を操作の収集先へ一回加え、モデルの窓口へは同期にも投函でも届けず、無通知の成功へ置換しません。</summary>
     [TestMethod]
-    public void RenameChartFolder_UsesDialogServiceForMissingFolderWarning()
+    public void RenameChartFolder_AddsMissingFolderWarningToOperationNotices()
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -37,11 +37,15 @@ public sealed class BmsLibraryDialogRoutingTests
             var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
             string missingDirectoryPath = Path.Combine(CaseWorkspace.RootDirectory, "BeMusicSeeker_Missing_" + Guid.NewGuid().ToString("N"));
 
-            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder");
+            var notices = new LibraryOperationNotices();
 
-            Assert.AreEqual(1, dialogService.Calls.Count);
-            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, dialogService.Calls[0].Caption);
-            StringAssert.Contains(dialogService.Calls[0].Message, missingDirectoryPath);
+            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder", notices);
+
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+            Assert.AreEqual(0, dialogService.Posted.Count, "モデルは投函もしません。");
+            BMSLibrary.OperationDialogMessage warning = notices.Snapshot().Single();
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, warning.Caption);
+            StringAssert.Contains(warning.MessageBoxText, missingDirectoryPath);
         });
     }
 
@@ -245,7 +249,7 @@ public sealed class BmsLibraryDialogRoutingTests
             }
         }
 
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             lock (lockObject)
             {

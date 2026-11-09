@@ -88,7 +88,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.IsTrue(package.ChartEntries.All(entry => !entry.Chart.Status.HasFlag(ChartFileStatus.SEARCHING)));
             if (!matchingLayout)
             {
-                Assert.IsFalse(library.SetPendingInstallDestination(package.ChartEntries[0], songRoot, false), "同hashでも相対配置の合わない親を拒否します。");
+                Assert.IsFalse(library.SetPendingInstallDestination(package.ChartEntries[0], songRoot, false, new LibraryOperationNotices()), "同hashでも相対配置の合わない親を拒否します。");
                 Assert.AreEqual(PendingEstimateDeferredReason.InstalledDestinationResolveFailed, package.DeferredEstimateReason);
                 Assert.IsTrue(package.ChartEntries.All(entry => string.IsNullOrEmpty(entry.Chart.InstallDestination)));
                 Assert.IsTrue(package.ChartEntries.Where(entry => Path.GetFileName(entry.Chart.Path) != "old.bms")
@@ -121,8 +121,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             var validation = new BmsLibraryInstallEstimationService(options);
             Assert.IsFalse(validation.ValidateInstallDestination(missingEntries[0], [package], [], songRoot,
                 installedDirectoriesByHash: _ => []).Success, "表示候補が残っても現在hashの根拠がなければ拒否します。");
-            Assert.IsNull(store.SetPending(library, request, libraryRoot), "無関係な祖先は受理しません。");
-            IReadOnlyList<ChartFile> edited = store.SetPending(library, request, songRoot);
+            Assert.IsNull(store.SetPending(library, request, libraryRoot, new LibraryOperationNotices()), "無関係な祖先は受理しません。");
+            IReadOnlyList<ChartFile> edited = store.SetPending(library, request, songRoot, new LibraryOperationNotices());
             Assert.IsNotNull(edited);
             Assert.AreEqual(3, edited.Count);
             Assert.IsTrue(edited.All(chart => chart.InstallDestination == songRoot));

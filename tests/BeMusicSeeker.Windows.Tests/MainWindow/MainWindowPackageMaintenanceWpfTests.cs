@@ -228,7 +228,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         vm.RegularChartList.NormalLibraryRefreshApplied += folderApplied;
                         try
                         {
-                            LibraryMutationSessionReceipt receipt = currentLibrary.RenameChartFolderWithReceipt(aDirectory, "A-renamed");
+                            LibraryMutationSessionReceipt receipt = currentLibrary.RenameChartFolderWithReceipt(aDirectory, "A-renamed", new LibraryOperationNotices());
                             Assert.IsTrue(receipt.DurableCommit);
                             Assert.IsFalse(receipt.HasRequiredFailure);
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(renamed.Task, "owned-destination-folder-success");
@@ -585,7 +585,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     try
                     {
                         _ = OwnedChartCollectionTestSupport.InvokeCreateInstalledChartLookupSnapshot(library);
-                        library.RenameChartFolder(source, "moved");
+                        library.RenameChartFolder(source, "moved", new LibraryOperationNotices());
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(entryPublished.Task, "installed entry publication");
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed current refresh");
                         // 純移転はRowsを保持するため、新しい投影を要求せず、予約済みのUI配送と開始済み処理を完了させます。
@@ -646,7 +646,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         try
                         {
                             LibraryChartRemovalOutcome removed = library.RemoveLibraryCharts(
-                                library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(first.Chart)]), false, []);
+                                library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(first.Chart)]), false, [], new LibraryOperationNotices());
                             Assert.IsFalse(removed.HasError);
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(refreshApplied.Task, "installed partial membership removal");
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(rowsReplaced.Task, "削除後のRows公開");
@@ -1188,7 +1188,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     StringAssert.Contains(row.WarningTooltipText, "WAV");
                     sourcePhase = 2;
                     prior = SnapshotPreparations().ToHashSet();
-                    DuplicateMergeMaintenanceReceipt merge = library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId: 1);
+                    DuplicateMergeMaintenanceReceipt merge = library.MergeChartDirectory(sourceDirectory, destinationDirectory, notices: new LibraryOperationNotices(), operationId: 1);
                     sourceHookFailure?.Throw();
                     Assert.IsTrue(merge.MergeApplied, merge.SessionReceipt.PrimaryFailure?.ToString());
                     Assert.IsTrue(merge.ResourceHealthIndexDeferred);
@@ -1543,7 +1543,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 ChartWarning[] estimationReasons = row.Chart.Warnings
                     .Where(warning => warning.Category == ChartWarningCategory.InstallEstimation).ToArray();
                 string renamedCandidate = Path.Combine(registeredRoot, "Z");
-                ChangeCandidate(() => currentLibrary.RenameChartFolder(candidate, "Z"), renamedCandidate);
+                ChangeCandidate(() => currentLibrary.RenameChartFolder(candidate, "Z", new LibraryOperationNotices()), renamedCandidate);
                 Assert.AreEqual(string.Empty, row.instl_dst);
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
                 CollectionAssert.AreEqual(estimationWarnings, row.Chart.Warnings.ToArray());
@@ -1604,7 +1604,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     .Where(chart => string.Equals(Path.GetDirectoryName(chart.Path), candidate, StringComparison.OrdinalIgnoreCase))
                     .Select(chart => LibraryChartRef.FromChartFile(chart))];
                 Assert.AreEqual(3, movingCharts.Length);
-                ChangeCandidate(() => currentLibrary.MoveLibraryRootFolder(movingCharts, destinationRoot), movedCandidate);
+                ChangeCandidate(() => currentLibrary.MoveLibraryRootFolder(movingCharts, destinationRoot, new LibraryOperationNotices()), movedCandidate);
                 Assert.AreEqual(string.Empty, row.instl_dst);
                 CollectionAssert.AreEqual(new[] { candidate }, row.Chart.InstallDestinationSuggestions.ToArray());
                 Assert.AreEqual(100, row.Chart.WAVHealth);

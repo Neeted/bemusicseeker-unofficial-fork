@@ -95,7 +95,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             LibraryChartRemovalOutcome removeFirst = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((firstFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removeFirst.HasError);
             PlaylistLibraryResolveIndexSnapshot afterFirstRemoval = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
@@ -110,7 +110,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             LibraryChartRemovalOutcome removeMiddle = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((middleFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removeMiddle.HasError);
             PlaylistLibraryResolveIndexSnapshot afterSecondRemoval = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
@@ -125,7 +125,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             LibraryChartRemovalOutcome removeLast = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((lastFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removeLast.HasError);
             PlaylistLibraryResolveIndexSnapshot empty = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,
@@ -247,6 +247,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             LibraryMutationSessionReceipt moveReceipt = library.RenameChartFolderWithReceipt(
                 oldDirectory,
                 "New",
+                new LibraryOperationNotices(),
                 unregister: false,
                 renameRootFolder: false);
             Assert.IsTrue(moveReceipt.DurableCommit, moveReceipt.PrimaryFailure?.ToString());
@@ -409,7 +410,7 @@ public sealed class PlaylistSummaryResolveIndexTests
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((files[0]))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removal.HasError);
             PlaylistLibraryResolveIndexSnapshot updated = library.GetPlaylistLibraryResolveIndexSnapshot(
                 CancellationToken.None,

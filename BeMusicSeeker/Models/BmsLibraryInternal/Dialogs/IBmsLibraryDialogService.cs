@@ -6,22 +6,22 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// <summary>
 /// ライブラリ処理の通知・確認の窓口です。
 /// 表示の実装は <c>Views</c> にあり、構成がライブラリへ注入します。モデルは表示の実装を持ちません。
-/// 利用者の応答を待つ確認は同期の <see cref="Show"/>、待たない通知はモデルが根の背景処理と受付の外の経路が使う
-/// <see cref="Post"/> で依頼します。モデル内の境界の実装は、通知を溜めて既定結果を返す場合があります。
+/// 利用者の応答を待つ確認は、受付の前に行う同期の <see cref="Confirm"/> だけです。
+/// OK だけの通知は、操作の所有者が持つ収集先 <see cref="LibraryOperationNotices"/> へ加えて所有者が受付の解放後に表示するか、
+/// モデルが根の背景処理が待たない <see cref="Post"/> で依頼します。この窓口は OK だけの通知を同期に表示しません。
 /// </summary>
 internal interface IBmsLibraryDialogService
 {
     /// <summary>
-    /// 通知または確認を依頼し、その結果を返します。
-    /// 結果の意味は実装が決めます。即時に表示する実装は、利用者の選択を返します。
+    /// 利用者の応答が必要な確認を表示し、利用者の選択を同期で返します。受付の前の確認だけが使います。
     /// </summary>
     /// <param name="messageBoxText">表示する本文。</param>
     /// <param name="caption">表示する題名。</param>
-    /// <param name="button">表示するボタンの構成。</param>
+    /// <param name="button">表示するボタンの構成。OK だけは確認ではなく通知なので受け付けません。</param>
     /// <param name="icon">表示するアイコン。</param>
     /// <param name="defaultResult">既定の結果。</param>
-    /// <returns>実装が返す結果。</returns>
-    UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None);
+    /// <returns>利用者が選んだ結果。</returns>
+    UiDialogDefaultResult Confirm(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None);
 
     /// <summary>
     /// OK だけの通知を、表示の開始も完了も待たずに依頼します。

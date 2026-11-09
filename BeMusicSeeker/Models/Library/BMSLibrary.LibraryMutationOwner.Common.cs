@@ -2471,6 +2471,7 @@ internal sealed partial class LibraryMutationOwner
         EstimatedInstallDeferredFeedback deferredFeedback,
         out Action publishAfterGuard)
     {
+        ArgumentNullException.ThrowIfNull(deferredFeedback);
         List<ChartFile> targets = [.. (charts ?? [])
             .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))];
         if (targets.Count == 0)
@@ -2561,7 +2562,7 @@ internal sealed partial class LibraryMutationOwner
         finally
         {
             // 読取りスレッドでは表示せず、保守の書込み保護の外で、成功でも失敗でも集めた失敗を導入の延期先へ渡します。
-            NotifyMaintenanceReadFailures(readFailures, deferredFeedback);
+            DeferMaintenanceReadFailures(readFailures, deferredFeedback);
         }
     }
 }

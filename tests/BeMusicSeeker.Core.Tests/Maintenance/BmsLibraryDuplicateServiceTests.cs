@@ -58,14 +58,14 @@ public sealed class BmsLibraryDuplicateServiceTests
                     new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
                 ChartPackage pending = library.ChartPackagesPending.Single();
                 Assert.AreEqual(input, pending.path);
-                Assert.IsTrue(library.SetPendingInstallDestination(pending.ChartEntries.Single(), source, false));
+                Assert.IsTrue(library.SetPendingInstallDestination(pending.ChartEntries.Single(), source, false, new LibraryOperationNotices()));
                 PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending], new LibraryOperationNotices());
                 Assert.IsTrue(installed.HasDurableCommit);
                 Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure);
                 ChartPackage package = library.ChartPackagesInstalled.Single();
                 OwnedChartToken token = package.ChartEntries.Single().Chart.Token;
                 Assert.AreEqual(Path.Combine(source, "a.bms"), package.path);
-                DuplicateMergeMaintenanceReceipt merged = library.MergeChartDirectory(source, destination, operationId: 1);
+                DuplicateMergeMaintenanceReceipt merged = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 1);
                 Assert.IsTrue(merged.MergeApplied);
                 string expected = Path.Combine(destination, "a_.bms");
                 Assert.AreEqual(expected, package.path);
@@ -397,7 +397,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 library.ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(
                     [ChartPackage.FromChartEntries([firstMembership]), ChartPackage.FromChartEntries([secondMembership])]);
 
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, notices: new LibraryOperationNotices(), operationId: 1);
 
                 Assert.IsTrue(receipt.MergeApplied);
                 Assert.IsNotNull(receipt.SessionReceipt);
@@ -549,7 +549,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             string[] registrations = new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray();
             try
             {
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, 1, reportAtTerminal: true);
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, 1, new LibraryOperationNotices(), reportAtTerminal: true);
                 Assert.IsFalse(receipt.MergeApplied);
                 Assert.AreEqual(0, receipt.SessionReceipt.ApplyCounts.CatalogApplyCount);
                 Assert.AreEqual(0, receipt.SessionReceipt.ConfirmedChangeCount);
@@ -625,7 +625,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             string[] expected = [Path.Combine(destination, "same.bms"), Path.Combine(destination, "unique.bms")];
             try
             {
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, 1, reportAtTerminal: true);
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, 1, new LibraryOperationNotices(), reportAtTerminal: true);
                 Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.AreEqual(1, receipt.SessionReceipt.ApplyCounts.CatalogApplyCount);
                 Assert.IsFalse(Directory.Exists(source));
@@ -713,7 +713,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             LibraryResourceIndexSnapshot before = owner.CaptureSnapshot();
             try
             {
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1, reportAtTerminal: true);
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 1, reportAtTerminal: true);
                 LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
                 Assert.IsTrue(cleanupReached);
                 Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
@@ -1077,7 +1077,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 };
                 library.BmsonCharts = [song];
 
-                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(song)]), sendToRecycleBin: false, approvedWholeFolderDeletePaths: []);
+                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(song)]), sendToRecycleBin: false, approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
                 Assert.AreEqual(1, outcome.ConfirmedChartCount);
                 Assert.IsTrue(outcome.CatalogDurable);
                 Assert.IsFalse(outcome.HasError);
@@ -1284,8 +1284,8 @@ public sealed class BmsLibraryDuplicateServiceTests
             {
                 receipt = useOuterAdmission
                     ? new BmsLibraryDuplicateMaintenanceStore(capability).MergeFolderWithReceipt(
-                        library, sourceDirectory, destinationDirectory, operationId: 1)
-                    : library.MergeChartDirectory(sourceDirectory, destinationDirectory, operationId: 1, reportAtTerminal: true);
+                        library, sourceDirectory, destinationDirectory, operationId: 1, notices: new LibraryOperationNotices())
+                    : library.MergeChartDirectory(sourceDirectory, destinationDirectory, notices: new LibraryOperationNotices(), operationId: 1, reportAtTerminal: true);
                 if (useOuterAdmission)
                 {
                     Assert.IsNotNull(operationLease);
@@ -1499,7 +1499,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 || string.Equals(candidate.Path, secondPath, StringComparison.OrdinalIgnoreCase)));
 
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
+            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 1);
 
             Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
             NormalLibraryRefreshNotificationBatch notificationBatch =
@@ -1624,7 +1624,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             };
 
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1);
+            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 1);
 
             Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
             NormalLibraryRefreshNotificationBatch notificationBatch =
@@ -1752,7 +1752,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(library.DuplicateChartGroups.Any(group =>
                     group.Folders.Contains(source) && group.Folders.Contains(destination)));
 
-                DuplicateMergeMaintenanceReceipt blockedReceipt = library.MergeChartDirectory(source, destination, operationId: 1);
+                DuplicateMergeMaintenanceReceipt blockedReceipt = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 1);
 
                 Assert.IsFalse(blockedReceipt.MergeApplied);
                 Assert.IsTrue(Directory.Exists(source));
@@ -1785,7 +1785,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 Assert.IsTrue(library.DuplicateChartGroups.Any(group =>
                     group.Folders.Contains(source) && group.Folders.Contains(destination)));
 
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 2);
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 2);
 
                 Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.IsFalse(Directory.Exists(source));
@@ -1866,7 +1866,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                     library.BmsonCharts = [];
                 };
 
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, notices: new LibraryOperationNotices(), operationId: 1);
 
                 Assert.IsTrue(receipt.MergeApplied);
                 Assert.AreEqual(ResourceHealthIndexUpdateMode.DeferOnUpdates, receipt.IntermediateMode);
@@ -1974,7 +1974,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 }
             };
 
-            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, operationId: 1, reportAtTerminal: true);
+            DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 1, reportAtTerminal: true);
 
             Assert.IsFalse(receipt.MergeApplied);
             Assert.IsFalse(receipt.HasDurableCommit);
@@ -2074,6 +2074,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(
                     sourceDirectoryPath,
                     destinationDirectoryPath,
+                    notices: new LibraryOperationNotices(),
                     operationId: 1);
 
                 Assert.IsNotNull(receipt);
@@ -2109,11 +2110,11 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
-    /// 物理統合の失敗通知が例外を投げても元失敗を保持し、解放済みの受付から別統合へ再入できることを確認します。
+    /// 物理統合が失敗しても、失敗の案内は操作の収集先へ一件加わって元失敗を保持し、モデルのロックと受付を解放して、別統合へ再入できることを確認します。
     /// </summary>
-    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。案内を同期に表示して失敗する経路は存在しません。</remarks>
     [TestMethod]
-    public void MergeChartDirectory_FailedDialogEffectIsIsolatedAndCanReenterAfterLeaseRelease()
+    public void MergeChartDirectory_FailedMergeAddsNoticeKeepsFailureAndCanReenterAfterLeaseRelease()
     {
         WithTemporarySongDb(databaseScope, delegate (string songDbPath)
         {
@@ -2137,10 +2138,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 {
                     FailNextMutationCount = 1
                 };
-                RecordingDialogService dialogService = new()
-                {
-                    ThrowOnShow = true
-                };
+                RecordingDialogService dialogService = new();
                 var library = new TestBmsLibrary(databaseScope,
                     songDbPath,
                     null,
@@ -2169,36 +2167,19 @@ public sealed class BmsLibraryDuplicateServiceTests
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(reentrySong), typeof(LR2SongDBExtended.bmson_song));
                 }
 
-                bool effectObserved = false;
-                bool locksReleased = false;
-                bool reentryCompleted = false;
-                DuplicateMergeMaintenanceReceipt? reentryReceipt = null;
-                dialogService.OnShow = () =>
-                {
-                    if (effectObserved)
-                    {
-                        return;
-                    }
+                var notices = new LibraryOperationNotices();
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, notices: notices, operationId: 1);
+                bool locksReleased = !library.IsWriteLockHeldInitializeAll
+                    && !library.IsWriteLockHeldInitializeMin
+                    && !library.IsWriteLockHeldInitializeBMSFiles
+                    && !library.IsWriteLockHeldPendingInstallCharts
+                    && !library.IsWriteLockHeldDuplicateChartGroups;
+                DuplicateMergeMaintenanceReceipt reentryReceipt = library.MergeChartDirectory(reentrySrcDir, reentryDstDir, notices: notices, operationId: 2);
 
-                    effectObserved = true;
-                    locksReleased = !library.IsWriteLockHeldInitializeAll
-                        && !library.IsWriteLockHeldInitializeMin
-                        && !library.IsWriteLockHeldInitializeBMSFiles
-                        && !library.IsWriteLockHeldPendingInstallCharts
-                        && !library.IsWriteLockHeldDuplicateChartGroups;
-                    reentryReceipt = library.MergeChartDirectory(reentrySrcDir, reentryDstDir, operationId: 2);
-                    reentryCompleted = true;
-                };
-
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
-
-                Assert.IsTrue(effectObserved);
                 Assert.IsTrue(locksReleased);
-                Assert.IsTrue(reentryCompleted);
-                Assert.IsNotNull(reentryReceipt);
-                DuplicateMergeMaintenanceReceipt completedReentryReceipt = reentryReceipt!;
-                Assert.IsTrue(completedReentryReceipt.MergeApplied);
-                Assert.AreEqual(1, dialogService.ShowCount);
+                Assert.IsTrue(reentryReceipt.MergeApplied);
+                Assert.AreEqual(1, notices.Snapshot().Count, "失敗の案内は操作の収集先へ一件だけ加わる。");
+                Assert.AreEqual(0, dialogService.ShowCount + dialogService.Posted.Count, "モデルの窓口へ同期にも投函でも届けない。");
                 Assert.IsFalse(receipt.MergeApplied);
                 Assert.IsNotNull(receipt.SessionReceipt);
                 Assert.IsFalse(receipt.SessionReceipt.DurableCommit);
@@ -2268,7 +2249,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                     BmsonCharts = []
                 };
 
-                library.MergeChartDirectory(srcDir, dstDir);
+                library.MergeChartDirectory(srcDir, dstDir, new LibraryOperationNotices());
 
                 string dstChartPath = Path.Combine(dstDir, "chart.bms");
                 Assert.IsFalse(File.Exists(srcChartPath));
@@ -2349,6 +2330,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(
                     sourceDirectoryPath,
                     destinationDirectoryPath,
+                    notices: new LibraryOperationNotices(),
                     operationId: 1);
 
                 Assert.IsFalse(receipt.MergeApplied);
@@ -2435,7 +2417,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                     songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(destinationSong), typeof(LR2SongDBExtended.bmson_song));
                 }
 
-                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, operationId: 1);
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, notices: new LibraryOperationNotices(), operationId: 1);
 
                 Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.IsTrue(receipt.SessionReceipt.DurableCommit);
@@ -2517,7 +2499,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             library.OwnedChartHashIndexStoreWorkObserver = hashWork.Add;
             library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
             library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
-            DuplicateMergeMaintenanceReceipt coldReceipt = library.MergeChartDirectory(source, destination, operationId: 1);
+            DuplicateMergeMaintenanceReceipt coldReceipt = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 1);
             Assert.IsFalse(coldReceipt.MergeApplied);
             Assert.AreEqual(sourceExists, Directory.Exists(source));
             Assert.IsFalse(coldReceipt.SessionReceipt.DurableCommit);
@@ -2555,7 +2537,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             playlistWork.Clear();
             installedWork.Clear();
 
-            DuplicateMergeMaintenanceReceipt warmReceipt = library.MergeChartDirectory(source, destination, operationId: 2);
+            DuplicateMergeMaintenanceReceipt warmReceipt = library.MergeChartDirectory(source, destination, notices: new LibraryOperationNotices(), operationId: 2);
             Assert.IsFalse(warmReceipt.MergeApplied);
             Assert.IsFalse(warmReceipt.SessionReceipt.DurableCommit);
             Assert.AreEqual(0, warmReceipt.SessionReceipt.ConfirmedChangeCount);
@@ -2731,6 +2713,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(
                     source,
                     destination,
+                    notices: new LibraryOperationNotices(),
                     operationId: operationIndex + 1);
 
                 Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());

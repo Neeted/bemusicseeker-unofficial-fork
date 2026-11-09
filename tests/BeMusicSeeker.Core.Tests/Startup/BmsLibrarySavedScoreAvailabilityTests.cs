@@ -367,7 +367,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         internal List<(string Message, string Caption, UiDialogButton Button, UiDialogIcon Icon)> Messages { get; } = [];
         internal int SyncShowCount { get; private set; }
         internal Action? Observe { get; set; }
-        public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
+        public UiDialogDefaultResult Confirm(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
             UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {
             SyncShowCount++;

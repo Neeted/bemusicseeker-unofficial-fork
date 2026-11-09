@@ -2529,7 +2529,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request));
                 Assert.AreSame(entry, request.PackageEntry, "保留群の出自を明示して実storeへ渡します。");
                 string changedCaseInput = Path.Combine(tempRoot, "mixedparent", "knownsong");
-                ChartFile changed = store.SetPending(library, request, changedCaseInput).Single();
+                ChartFile changed = store.SetPending(library, request, changedCaseInput, new LibraryOperationNotices()).Single();
                 Assert.IsNotNull(changed);
                 string editedDestination = changed.InstallDestination;
                 string requestedDestination = package.ChartEntries.Single().Chart.InstallDestination;

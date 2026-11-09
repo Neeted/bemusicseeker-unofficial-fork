@@ -62,7 +62,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((removedFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removal.HasError);
             OwnedChartHashIndexVersionedSnapshot second = library.GetOwnedChartHashIndexSnapshot();
 
@@ -155,7 +155,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             LibraryChartRemovalOutcome removeBms = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((bmsFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removeBms.HasError);
             OwnedChartHashIndexVersionedSnapshot oneOwner = library.GetOwnedChartHashIndexSnapshot();
 
@@ -168,7 +168,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             LibraryChartRemovalOutcome removeBmson = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((bmsonSong))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removeBmson.HasError);
             OwnedChartHashIndexVersionedSnapshot empty = library.GetOwnedChartHashIndexSnapshot();
 
@@ -223,7 +223,7 @@ public sealed class PlaylistSummaryMutationAndWarmTests
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((removedFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removal.HasError);
             OwnedChartHashIndexVersionedSnapshot updated = library.GetOwnedChartHashIndexSnapshot();
 

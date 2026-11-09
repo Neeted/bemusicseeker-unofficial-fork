@@ -13,9 +13,10 @@ internal static class LibraryFolderMoveCoordinator
         string srcDir,
         string newName,
         bool? unregister,
-        bool renameRootFolder)
+        bool renameRootFolder,
+        LibraryOperationNotices notices)
     {
-        RenameChartFolderWithReceipt(host, srcDir, newName, unregister, renameRootFolder);
+        RenameChartFolderWithReceipt(host, srcDir, newName, unregister, renameRootFolder, notices);
     }
 
     /// <summary>正規化済みの手動改名対象を停止前に確定します。確定登録本体と空の登録子を含む祖先、従来の導入先保護を実移動へ渡しません。</summary>
@@ -32,14 +33,17 @@ internal static class LibraryFolderMoveCoordinator
     }
 
     /// <summary>準備時に確定した手動改名の対象を一つの変更セッションへ適用します。直接入口だけはこの受付内で対象を確定します。</summary>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     internal static LibraryMutationSessionReceipt RenameChartFolderWithReceipt(
         LibraryMutationOwner host,
         string srcDir,
         string newName,
         bool? unregister,
         bool renameRootFolder,
+        LibraryOperationNotices notices,
         bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
+        ArgumentNullException.ThrowIfNull(notices);
         if (srcDir == null)
         {
             throw new ArgumentNullException(nameof(srcDir));
@@ -50,12 +54,12 @@ internal static class LibraryFolderMoveCoordinator
         }
         if (host.ContainsRegisteredBmsRoot(srcDir))
         {
-            host.ShowCannotMoveRegisteredBmsRoot(srcDir);
+            LibraryMutationOwner.AddCannotMoveRegisteredBmsRootNotice(notices, srcDir);
             return null;
         }
         if (!renameRootFolder && host.IsLibraryRootFolder(srcDir))
         {
-            host.ShowCannotRenameRootFolder(srcDir);
+            LibraryMutationOwner.AddCannotRenameRootFolderNotice(notices, srcDir);
             return null;
         }
         FolderMoveBatch batch = preparedBatch ?? PrepareChartFolderRename(host, srcDir, newName, renameRootFolder);
@@ -66,12 +70,12 @@ internal static class LibraryFolderMoveCoordinator
         }
         if (!host.DirectoryExists(srcDir))
         {
-            host.ShowRenameFolderNotExists(srcDir);
+            LibraryMutationOwner.AddRenameFolderNotExistsNotice(notices, srcDir);
             return null;
         }
         if (LongPathFileSystem.HasDirectoryMoveDestinationConflict(srcDir, dstDir))
         {
-            host.ShowMoveDestinationAlreadyExists(srcDir, dstDir);
+            LibraryMutationOwner.AddMoveDestinationAlreadyExistsNotice(notices, srcDir, dstDir);
             return null;
         }
 
@@ -88,8 +92,9 @@ internal static class LibraryFolderMoveCoordinator
                     notifyStorageRowPathChanges: false,
                     mutationCapability,
                     postLeaseNotifications,
+                    notices,
                     reportAtTerminal);
-            }, capability);
+            }, notices, capability);
         }
         finally
         {
@@ -102,20 +107,24 @@ internal static class LibraryFolderMoveCoordinator
         LibraryMutationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
-        bool? unregister)
+        bool? unregister,
+        LibraryOperationNotices notices)
     {
-        MoveLibraryRootFolderWithReceipt(host, charts, dstDir, unregister);
+        MoveLibraryRootFolderWithReceipt(host, charts, dstDir, unregister, notices);
     }
 
     /// <summary>同ownerの生存L/P権限と停止前に固定した実移動計画を使い、一変更セッションで全対象を実行します。確定事実と失敗を返し、必要公開・cleanup終端まで外側が権限を保持します。</summary>
     /// <param name="preparedBatch">同じ受理操作の診断計画と実移動。直接入口では短いモデル保護で捕捉します。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     internal static LibraryMutationSessionReceipt MoveLibraryRootFolderWithReceipt(
         LibraryMutationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister,
+        LibraryOperationNotices notices,
         bool reportAtTerminal = false, LibraryFileMutationCapability capability = null, FolderMoveBatch preparedBatch = null)
     {
+        ArgumentNullException.ThrowIfNull(notices);
         if (charts == null)
         {
             throw new ArgumentNullException(nameof(charts));
@@ -133,7 +142,7 @@ internal static class LibraryFolderMoveCoordinator
             {
                 if (!host.DirectoryExists(dstDir))
                 {
-                    postLeaseNotifications.Add(() => host.ShowMoveDestinationRootNotFound(dstDir));
+                    LibraryMutationOwner.AddMoveDestinationRootNotFoundNotice(notices, dstDir);
                     return;
                 }
                 List<LibraryChartRef> chartRefs = host.CreateNonNullChartRefList(charts);
@@ -148,7 +157,7 @@ internal static class LibraryFolderMoveCoordinator
                 }
                 if (ContainsDriveRootSource(chartRefs))
                 {
-                    postLeaseNotifications.Add(host.ShowDriveRootCannotChangeRoot);
+                    LibraryMutationOwner.AddDriveRootCannotChangeRootNotice(notices);
                 }
                 receipt = MoveLibraryChartFoldersWithSession(
                     host,
@@ -157,8 +166,9 @@ internal static class LibraryFolderMoveCoordinator
                     notifyStorageRowPathChanges: true,
                     mutationCapability,
                     postLeaseNotifications,
+                    notices,
                     reportAtTerminal);
-            }, capability);
+            }, notices, capability);
         }
         finally
         {
@@ -174,9 +184,11 @@ internal static class LibraryFolderMoveCoordinator
         bool notifyStorageRowPathChanges,
         LibraryFileMutationCapability mutationCapability,
         ICollection<Action> postLeaseNotifications,
+        LibraryOperationNotices notices,
         bool reportAtTerminal)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
+        ArgumentNullException.ThrowIfNull(notices);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
         ArgumentNullException.ThrowIfNull(batch);
         IReadOnlyList<FolderAutoRenamePlan> movePlans = batch.Moves;
@@ -184,25 +196,26 @@ internal static class LibraryFolderMoveCoordinator
         {
             if (plan.FailureException != null)
             {
-                postLeaseNotifications.Add(() => host.ShowFolderMoveFailed(plan.SourceDirectory, plan.DestinationDirectory, plan.FailureException));
+                LibraryMutationOwner.AddFolderMoveFailedNotice(notices, plan.SourceDirectory, plan.DestinationDirectory, plan.FailureException);
                 continue;
             }
             if (!string.IsNullOrWhiteSpace(plan.DestinationDirectory)
                 && !string.Equals(plan.SourceDirectory, plan.DestinationDirectory, StringComparison.OrdinalIgnoreCase)
                 && host.EntryExists(plan.DestinationDirectory))
             {
-                postLeaseNotifications.Add(() => host.ShowMoveDestinationAlreadyExists(plan.SourceDirectory, plan.DestinationDirectory));
+                LibraryMutationOwner.AddMoveDestinationAlreadyExistsNotice(notices, plan.SourceDirectory, plan.DestinationDirectory);
             }
         }
         if (!host.TryEnterManagedOutputMutation(movePlans.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }),
-            recursive: true, out LibraryFileMutationLease playlistLease, mutationCapability)) { return LibraryMutationSessionReceipt.Empty; }
+            recursive: true, notices, out LibraryFileMutationLease playlistLease, mutationCapability)) { return LibraryMutationSessionReceipt.Empty; }
         using LibraryFileMutationLease playlistOperation = playlistLease;
         using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
         using LibraryFileMutationCapability combinedCapability = mutationCapability.WithPlaylistCapability(playlistCapability);
         using LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
             combinedCapability,
             "move_folder",
-            postLeaseNotifications);
+            postLeaseNotifications,
+            notices);
 
         for (int index = 0; index < movePlans.Count; index++)
         {
@@ -211,7 +224,7 @@ internal static class LibraryFolderMoveCoordinator
             string dstDir = plan.DestinationDirectory;
             if (LongPathFileSystem.HasDirectoryMoveDestinationConflict(srcDir, dstDir))
             {
-                postLeaseNotifications.Add(() => host.ShowMoveDestinationAlreadyExists(srcDir, dstDir));
+                LibraryMutationOwner.AddMoveDestinationAlreadyExistsNotice(notices, srcDir, dstDir);
                 continue;
             }
 
@@ -245,7 +258,7 @@ internal static class LibraryFolderMoveCoordinator
                         remaining.DestinationDirectory)));
                 if (!reportAtTerminal)
                 {
-                    postLeaseNotifications.Add(() => host.ShowFolderMoveFailed(srcDir, dstDir, moveException));
+                    LibraryMutationOwner.AddFolderMoveFailedNotice(notices, srcDir, dstDir, moveException);
                 }
                 break;
             }
@@ -258,10 +271,11 @@ internal static class LibraryFolderMoveCoordinator
             LibraryMutationSessionTarget target = receipt.ConfirmedTargets.LastOrDefault();
             if (target != null)
             {
-                postLeaseNotifications.Add(() => host.ShowFolderMoveFailed(
+                LibraryMutationOwner.AddFolderMoveFailedNotice(
+                    notices,
                     target.SourcePath,
                     target.DestinationPath,
-                    commitFailure));
+                    commitFailure);
             }
         }
         return receipt;

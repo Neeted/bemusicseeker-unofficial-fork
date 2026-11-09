@@ -235,7 +235,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             Assert.AreEqual(0, library.BmsonCharts.Count);
             int dialogCountBeforeMutation = dialogService.Calls.Count;
             int postedCountBeforeMutation = dialogService.Posted.Count;
-            library.RenameBMSFilesExtensions([], ".invalid");
+            library.RenameBMSFilesExtensions([], ".invalid", new LibraryOperationNotices());
             Assert.AreEqual(dialogCountBeforeMutation, dialogService.Calls.Count);
             Assert.AreEqual(postedCountBeforeMutation, dialogService.Posted.Count);
         }
@@ -250,7 +250,7 @@ public sealed class BmsLibraryInitializationFileScanTests
     /// </summary>
     /// <remarks>実ライブラリの起動入口・保存・受付・通知を接続し、下位scan単体では観測できない終端後の利用を確認する。</remarks>
     [TestMethod]
-    public void Initialize_StartupWithoutFileScanKeepsPlaylistLeaseAvailableAndUsesSettingWarningForCatalogMutation()
+    public void Initialize_StartupWithoutFileScanKeepsPlaylistLeaseAvailableAndCollectsSettingWarningForCatalogMutation()
     {
 
         using var scope =
@@ -291,13 +291,14 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             int dialogCountBeforeCatalogMutation = dialogService.Calls.Count;
             int postedCountBeforeCatalogMutation = dialogService.Posted.Count;
-            library.RenameBMSFilesExtensions([], ".invalid");
+            var notices = new LibraryOperationNotices();
+            library.RenameBMSFilesExtensions([], ".invalid", notices);
 
-            Assert.AreEqual(dialogCountBeforeCatalogMutation, dialogService.Calls.Count, "自有の経路は未収束の警告を同期の表示で要求しない。");
-            Assert.AreEqual(postedCountBeforeCatalogMutation + 1, dialogService.Posted.Count);
+            Assert.AreEqual(dialogCountBeforeCatalogMutation, dialogService.Calls.Count, "未収束の警告を同期の表示で要求しない。");
+            Assert.AreEqual(postedCountBeforeCatalogMutation, dialogService.Posted.Count, "未収束の警告は、操作の収集先へ加え、モデルの窓口へは投函しない。");
             Assert.AreEqual(
                 BeMusicSeeker.Properties.Resources.Warn_CatalogFileMutationRequiresStartupScan,
-                dialogService.Posted[^1].MessageBoxText);
+                notices.Snapshot().Single().MessageBoxText);
         }
         finally
         {

@@ -360,7 +360,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         }
         Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
         // Cを明示選択する新しい要求は、前回の兄弟導入に消費されず正常に完了します。
-        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(childBefore.Package.ChartEntries.Single(), fixture.Destination, isOwnedChartEdit: false));
+        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(childBefore.Package.ChartEntries.Single(), fixture.Destination, isOwnedChartEdit: false, notices: new LibraryOperationNotices()));
         PendingInstallBatchResult followup = fixture.Library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([childBefore.Package], new LibraryOperationNotices());
         await fixture.Owner.WaitForIdleAsync();
         Assert.IsTrue(followup.SessionReceipt.DurableCommit);

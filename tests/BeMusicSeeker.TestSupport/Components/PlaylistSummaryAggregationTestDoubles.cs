@@ -12,7 +12,7 @@ internal static class PlaylistSummaryAggregationTestDoubles
 
     internal sealed class RecordingDialogService : IBmsLibraryDialogService
     {
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }

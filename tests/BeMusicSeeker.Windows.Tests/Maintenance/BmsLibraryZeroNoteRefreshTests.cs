@@ -290,7 +290,7 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService
     {
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             return MessageBoxResult.OK;
         }

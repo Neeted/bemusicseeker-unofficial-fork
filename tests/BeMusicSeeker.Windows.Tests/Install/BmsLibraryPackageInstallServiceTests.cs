@@ -10,9 +10,6 @@ using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using Microsoft.VisualBasic.FileIO;
 using static BeMusicSeeker.TestSupport.Components.InstallServiceComponentTestSupport;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Tests;
 
@@ -194,7 +191,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
             library.RenamePendingBmsFormatChartFileExtensions(
                 [(sourceChart)],
-                ".bme");
+                ".bme", new LibraryOperationNotices());
 
             Assert.AreEqual(1, publicationCount);
             Assert.IsTrue(publicationObservedFilesystem);
@@ -204,11 +201,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 保留DB反映が失敗しても先行の物理変更失敗の通知を回収し、後続の物理成功と元DB失敗を保持して通知や成功対象の欠落を検出する。
+    /// 保留DB反映が失敗しても先行の物理変更失敗の案内は操作の収集先へ残り、後続の物理成功と元DB失敗を保持して、案内や成功対象の欠落を検出する。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
-    public void RenamePendingBmsFormatChartFileExtensions_FlushesEarlierEffectWhenPackageApplyFails()
+    public void RenamePendingBmsFormatChartFileExtensions_KeepsEarlierNoticesWhenPackageApplyFails()
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -233,13 +230,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             ChartPackage thirdPackage = ChartPackageTestExtensions.CreatePackage([thirdChart]);
             thirdPackage.path = thirdDirectoryPath;
             thirdPackage.delete_parent = false;
-            var dialogService = new ThrowOnFirstPendingRenameDialogService();
+            var dialogService = new BmsLibraryInitializationTestSupport.RecordingDialogService();
             var library = new TestBmsLibrary(databaseScope,
                 songDbPath,
                 null,
                 null,
                 new FailFirstMoveFileMutationService(2),
                 dialogService);
+            var notices = new LibraryOperationNotices();
             library.ChartPackagesPending = CreatePackageCollection([firstPackage, secondPackage, thirdPackage]);
 
             using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
@@ -254,10 +252,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                         (secondChart),
                         (thirdChart)
                     ],
-                    ".bme"));
+                    ".bme", notices));
             StringAssert.Contains(primaryFailure.Message, "install");
-            Assert.AreEqual(2, dialogService.CallCount);
-            Assert.IsTrue(dialogService.LaterFailureWasObserved);
+            Assert.AreEqual(2, notices.Snapshot().Count, "先行の物理失敗の案内は、後続のDB失敗でも失われない。");
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルの窓口へ同期に表示しない。");
             Assert.IsTrue(File.Exists(firstChartPath));
             Assert.IsTrue(File.Exists(secondChartPath));
             Assert.IsTrue(File.Exists(thirdDestinationChartPath));
@@ -266,11 +264,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 通常譜面の拡張子変更で先行の物理失敗と後続のDB失敗が起きても、排他解放後に先行失敗を知らせ、後続の物理成功を失う誤りを検出する。
+    /// 通常譜面の拡張子変更で先行の物理失敗と後続のDB失敗が起きても、先行失敗の案内は操作の収集先へ残り、後続の物理成功を失う誤りを検出する。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
     [TestMethod]
-    public void RenameBMSFilesExtensions_FlushesEarlierFailureAfterCatalogApplyFailure()
+    public void RenameBMSFilesExtensions_KeepsEarlierFailureNoticeAfterCatalogApplyFailure()
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -296,13 +294,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 songDb.Execute("DROP TABLE song");
             }
 
-            bool failureDialogObservedReleasedLease = false;
-            dialogService.OnShow = _ =>
-            {
-                using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation(
-                    "normal_invalid_extension_failure_notification_probe");
-                failureDialogObservedReleasedLease = probe != null;
-            };
+            var notices = new LibraryOperationNotices();
 
             SQLite.SQLiteException primaryFailure = Assert.ThrowsExactly<SQLite.SQLiteException>(() =>
                 library.RenameBMSFilesExtensions(
@@ -311,10 +303,15 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                         (secondChart)
                     ],
                     ".bme",
+                    notices,
                     unregister: false));
             StringAssert.Contains(primaryFailure.Message, "song");
-            Assert.AreEqual(1, dialogService.Calls.Count);
-            Assert.IsTrue(failureDialogObservedReleasedLease);
+            Assert.AreEqual(1, notices.Snapshot().Count, "先行の物理失敗の案内は、後続のDB失敗でも失われない。");
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルの窓口へ同期に表示しない。");
+            using (LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation("normal_invalid_extension_failure_notification_probe"))
+            {
+                Assert.IsNotNull(probe, "失敗の後に受付は解放されている。");
+            }
             Assert.IsTrue(File.Exists(firstChartPath));
             Assert.IsFalse(File.Exists(secondChartPath));
             Assert.IsTrue(File.Exists(secondDestinationChartPath));
@@ -364,6 +361,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 library.RenameBMSFilesExtensions(
                     [(chart)],
                     ".bme",
+                    new LibraryOperationNotices(),
                     unregister: false));
 
             Assert.IsNotNull(durableFailure);
@@ -465,6 +463,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             library.PlaylistLibraryResolveIndexStoreWorkObserver = playlistWork.Add;
             library.InstalledChartLookupStoreWorkObserver = installedWork.Add;
 
+            var notices = new LibraryOperationNotices();
             library.RenameBMSFilesExtensions(
                 [
                     (failed),
@@ -472,9 +471,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     (lastOwner)
                 ],
                 ".bme",
+                notices,
                 unregister: true);
 
-            Assert.AreEqual(1, dialogService.Calls.Count);
+            Assert.AreEqual(1, notices.Snapshot().Count);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルの窓口へ同期に表示しない。");
             Assert.IsTrue(File.Exists(failedSourcePath));
             Assert.IsFalse(File.Exists(failedDestinationPath));
             Assert.IsFalse(File.Exists(selectedSharedSourcePath));
@@ -1891,27 +1892,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 File.SetLastWriteTime(path, lastWriteTime.Value);
             }
         }
-    }
-
-    private sealed class ThrowOnFirstPendingRenameDialogService : IBmsLibraryDialogService
-    {
-        public int CallCount { get; private set; }
-
-        public bool LaterFailureWasObserved { get; private set; }
-
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
-        {
-            CallCount++;
-            if (CallCount == 1)
-            {
-                throw new InvalidOperationException("first pending rename notification failed");
-            }
-            LaterFailureWasObserved = true;
-            return defaultResult;
-        }
-
-        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
-            => throw new InvalidOperationException("この確認の窓口へ、待たない投函は届きません。");
     }
 
     private sealed class FailFirstMoveFileMutationService(int failureCount) : IFileMutationService

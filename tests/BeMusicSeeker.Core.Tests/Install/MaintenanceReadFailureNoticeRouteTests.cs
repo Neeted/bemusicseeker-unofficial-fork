@@ -83,10 +83,10 @@ public sealed class MaintenanceReadFailureNoticeRouteTests
     }
 
     /// <summary>
-    /// 導入先の修正の確定後の保守が保存の失敗で終わっても、読めなかった譜面の通知を操作の通知の列へ渡し、
+    /// 導入先の修正の確定後の保守が保存の失敗で終わっても、読めなかった譜面の通知を操作の収集先へ渡し、
     /// 即時に表示せず、保存の失敗を型と原因の連鎖のまま保つ。try/catch の後の通知を落とす誤りと、即時表示を検出する。
     /// </summary>
-    /// <remarks>二件の修正のうち一件を置いた直後に排他で開いて読めなくし、もう一件の保守行の保存をトリガーで拒否する。通知の列はスレッドの範囲で受ける。</remarks>
+    /// <remarks>二件の修正のうち一件を置いた直後に排他で開いて読めなくし、もう一件の保守行の保存をトリガーで拒否する。通知は操作の収集先で受ける。重複した導入先がないので、承認の判断は不要。</remarks>
     [TestMethod]
     public void FixInstallationDirectory_WhenMaintenanceCommitFails_StillQueuesReadFailureNotice()
     {
@@ -132,17 +132,17 @@ public sealed class MaintenanceReadFailureNoticeRouteTests
                 ChartFile Target(ChartFile chart) => ChartFileProjection.WithPackageState(chart, destination, string.Empty, string.Empty, []);
                 try
                 {
-                    using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
+                    var notices = new LibraryOperationNotices();
 
-                    LibraryFixInstallationResult result = library.FixInstallationDirectoryCharts([Target(readable), Target(locked)]);
+                    LibraryFixInstallationResult result = library.FixInstallationDirectoryCharts([Target(readable), Target(locked)], approvedDuplicateRemovalChartPaths: null, notices: notices);
 
                     Assert.IsNotNull(lockStream, "二件目の導入先を読めなくした。");
                     MaintenanceReadFailureFixture.AssertCommitFailure(result.SessionReceipt.FinalizationFailure ?? result.SessionReceipt.PrimaryFailure);
-                    BMSLibrary.OperationDialogMessage notice = scope.Messages.Single(message =>
+                    BMSLibrary.OperationDialogMessage notice = notices.Snapshot().Single(message =>
                         message.MessageBoxText.Contains(lockedPath, StringComparison.Ordinal));
                     StringAssert.StartsWith(notice.MessageBoxText, Resources.Error_BmsLoadFailedSkip.Split("{0}", StringSplitOptions.None)[0]);
                     Assert.AreEqual(Resources.MessageBoxTitle_Error, notice.Caption);
-                    Assert.AreEqual(0, libraryDialogs.ModelMessages, "操作の通知の列へ渡し、即時に表示しない。");
+                    Assert.AreEqual(0, libraryDialogs.ModelMessages, "操作の収集先へ渡し、即時に表示しない。");
                 }
                 finally { library.RequestShutdown("fix-installation-read-failure-notice"); }
             }

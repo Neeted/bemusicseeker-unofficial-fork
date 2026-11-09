@@ -37,8 +37,6 @@ internal sealed partial class LibraryMutationOwner
 
     private readonly InstallDestinationStateOwner installDestinationStateOwner;
 
-    private readonly ScopedOperationDialogCoordinator dialogService;
-
     private readonly BMSLibrary.Lr2SynchronizationOwner lr2SynchronizationOwner;
 
     private readonly CatalogOwnedCollectionOwner catalogOwnedCollectionOwner;
@@ -150,7 +148,6 @@ internal sealed partial class LibraryMutationOwner
         LibraryResourceIndexOwner resourceIndexOwner,
         IFileMutationService fileMutationService,
         InstallDestinationStateOwner installDestinationStateOwner,
-        ScopedOperationDialogCoordinator dialogService,
         BMSLibrary.Lr2SynchronizationOwner lr2SynchronizationOwner,
         CatalogOwnedCollectionOwner catalogOwnedCollectionOwner,
         CatalogMutationOwner catalogMutationOwner,
@@ -191,7 +188,6 @@ internal sealed partial class LibraryMutationOwner
         this.rootFileEnumerator = rootFileEnumerator;
         this.fileMutationService = fileMutationService ?? throw new ArgumentNullException(nameof(fileMutationService));
         this.installDestinationStateOwner = installDestinationStateOwner ?? throw new ArgumentNullException(nameof(installDestinationStateOwner));
-        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         this.lr2SynchronizationOwner = lr2SynchronizationOwner ?? throw new ArgumentNullException(nameof(lr2SynchronizationOwner));
         this.catalogOwnedCollectionOwner = catalogOwnedCollectionOwner ?? throw new ArgumentNullException(nameof(catalogOwnedCollectionOwner));
         this.catalogMutationOwner = catalogMutationOwner ?? throw new ArgumentNullException(nameof(catalogMutationOwner));
@@ -224,12 +220,12 @@ internal sealed partial class LibraryMutationOwner
         autoRenameBatchCoordinator = new(this);
     }
 
-    /// <summary>管理出力と交差する実変更だけPを取得します。Busyは副作用前に既存警告を通知します。</summary>
-    internal bool TryEnterManagedOutputMutation(IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease, LibraryFileMutationCapability capability = null)
+    /// <summary>管理出力と交差する実変更だけPを取得します。Busyは副作用前に、この操作の収集先へ既存の警告を加えます。</summary>
+    internal bool TryEnterManagedOutputMutation(IEnumerable<string> paths, bool recursive, LibraryOperationNotices notices, out LibraryFileMutationLease lease, LibraryFileMutationCapability capability = null)
     {
+        ArgumentNullException.ThrowIfNull(notices);
         if (lr2SynchronizationOwner.TryEnterManagedOutputMutation(paths, recursive, out lease, capability)) { return true; }
-        ShowOperationDialog(Resources.Warn_LibraryOperationBusy, Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+        AddNotice(notices, Resources.Warn_LibraryOperationBusy, Resources.MessageBoxTitle_Warning, MessageBoxImage.Exclamation);
         return false;
     }
 
@@ -244,10 +240,10 @@ internal sealed partial class LibraryMutationOwner
         => BmsLibraryLibraryFileOperationsService.ContainsRegisteredBmsRoot(sourceDirectory,
             BmsRootRegistrationStore.CaptureUserRoots(lr2SynchronizationOwner.CurrentOptionsSnapshot));
 
-    /// <summary>登録範囲を消費する要求の拒否理由を、既存の操作通知経路へ渡します。</summary>
-    internal void ShowCannotMoveRegisteredBmsRoot(string sourceDirectory)
-        => ShowOperationDialog(string.Format(Resources.Warn_CannotMoveRegisteredBmsRoot, sourceDirectory),
-            Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+    /// <summary>登録範囲を消費する要求の拒否理由を、この操作の収集先へ加えます。</summary>
+    internal static void AddCannotMoveRegisteredBmsRootNotice(LibraryOperationNotices notices, string sourceDirectory)
+        => AddNotice(notices, string.Format(Resources.Warn_CannotMoveRegisteredBmsRoot, sourceDirectory),
+            Resources.MessageBoxTitle_Warning, MessageBoxImage.Exclamation);
 
     /// <summary>手動・自動改名と受付前判定が共有する名前の正規化です。ファイルシステムへアクセスしません。</summary>
     internal string NormalizeAutoRenameFolderName(string folderName)
@@ -271,19 +267,9 @@ internal sealed partial class LibraryMutationOwner
         return LongPathFileSystem.EntryExists(path);
     }
 
-    private LibraryFileMutationLease EnterFolderMoveWriteScope()
-    {
-        return synchronization.EnterFolderMoveWriteScope();
-    }
-
     private IDisposable EnterFolderMoveReadScope()
     {
         return synchronization.EnterFolderMoveReadScope();
-    }
-
-    private LibraryFileMutationLease EnterNormalInvalidExtensionRenameWriteScope()
-    {
-        return synchronization.EnterNormalInvalidExtensionRenameWriteScope();
     }
 
     private IDisposable EnterNormalInvalidExtensionRenameSnapshotScope()
@@ -291,19 +277,9 @@ internal sealed partial class LibraryMutationOwner
         return synchronization.EnterNormalInvalidExtensionRenameSnapshotScope();
     }
 
-    private LibraryFileMutationLease EnterPendingInvalidExtensionRenameWriteScope()
-    {
-        return synchronization.EnterPendingInvalidExtensionRenameWriteScope();
-    }
-
     private IDisposable EnterPendingInvalidExtensionRenameSnapshotScope()
     {
         return synchronization.EnterPendingInvalidExtensionRenameSnapshotScope();
-    }
-
-    private LibraryFileMutationLease EnterLibraryChartRemovalWriteScope()
-    {
-        return synchronization.EnterLibraryChartRemovalWriteScope();
     }
 
     private IDisposable EnterLibraryChartRemovalSnapshotScope()
@@ -311,19 +287,9 @@ internal sealed partial class LibraryMutationOwner
         return synchronization.EnterLibraryChartRemovalSnapshotScope();
     }
 
-    private LibraryFileMutationLease EnterFixInstallationDirectoryWriteScope()
-    {
-        return synchronization.EnterFixInstallationDirectoryWriteScope();
-    }
-
     private IDisposable EnterFixInstallationDirectorySnapshotScope()
     {
         return synchronization.EnterFixInstallationDirectorySnapshotScope();
-    }
-
-    private LibraryFileMutationLease EnterMergeWriteScope()
-    {
-        return synchronization.EnterMergeWriteScope();
     }
 
     internal void RunWithMergeSnapshotLocks(Action action)
@@ -332,9 +298,9 @@ internal sealed partial class LibraryMutationOwner
         action();
     }
 
-    private bool TryBlockCatalogMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
+    private bool TryBlockCatalogMutation(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
-        return synchronization.TryBlockCatalogMutation(operation, showMessage, capability);
+        return synchronization.TryBlockCatalogMutation(operation, notices, capability);
     }
 
     /// <summary>
@@ -354,9 +320,10 @@ internal sealed partial class LibraryMutationOwner
     /// authorization is available.
     /// </summary>
     internal void RunWithFolderMoveWriteLocks(
-        Action<LibraryFileMutationCapability> action, LibraryFileMutationCapability existingCapability = null)
+        Action<LibraryFileMutationCapability> action, LibraryOperationNotices notices, LibraryFileMutationCapability existingCapability = null)
     {
-        using LibraryFileMutationLease mutationLease = synchronization.EnterFolderMoveWriteScope(existingCapability);
+        ArgumentNullException.ThrowIfNull(notices);
+        using LibraryFileMutationLease mutationLease = synchronization.EnterFolderMoveWriteScope(notices, existingCapability);
         if (mutationLease == null)
         {
             return;
@@ -385,9 +352,10 @@ internal sealed partial class LibraryMutationOwner
 
     /// <summary>通常譜面の拡張子変更を受理済み権限で実行します。モデルの短期snapshot排他は物理処理へ持ち越しません。</summary>
     internal void RunWithNormalInvalidExtensionRenameWriteLocks(
-        Action<LibraryFileMutationCapability> action, LibraryFileMutationCapability existingCapability = null)
+        Action<LibraryFileMutationCapability> action, LibraryOperationNotices notices, LibraryFileMutationCapability existingCapability = null)
     {
-        using (LibraryFileMutationLease mutationLease = synchronization.EnterNormalInvalidExtensionRenameWriteScope(existingCapability))
+        ArgumentNullException.ThrowIfNull(notices);
+        using (LibraryFileMutationLease mutationLease = synchronization.EnterNormalInvalidExtensionRenameWriteScope(notices, existingCapability))
         {
             if (mutationLease == null)
             {
@@ -430,9 +398,9 @@ internal sealed partial class LibraryMutationOwner
     }
 
     private void RunWithLibraryChartRemovalWriteLocks(
-        Action<LibraryFileMutationCapability> action, LibraryFileMutationCapability existingCapability = null)
+        Action<LibraryFileMutationCapability> action, LibraryOperationNotices notices, LibraryFileMutationCapability existingCapability = null)
     {
-        using (LibraryFileMutationLease mutationLease = synchronization.EnterLibraryChartRemovalWriteScope(existingCapability))
+        using (LibraryFileMutationLease mutationLease = synchronization.EnterLibraryChartRemovalWriteScope(notices, existingCapability))
         {
             if (mutationLease == null)
             {
@@ -667,7 +635,8 @@ internal sealed partial class LibraryMutationOwner
         IEnumerable<string> approvedWholeFolderDeletePaths,
         LibraryFileMutationCapability mutationCapability,
         ICollection<Action> postLeaseNotifications,
-        ICollection<Action> rootPendingPublications)
+        ICollection<Action> rootPendingPublications,
+        LibraryOperationNotices notices)
     {
         LibraryCatalogMutationFacts catalogFacts = ExecuteLibraryChartRemovalAfterAdmission(
             prepared,
@@ -700,7 +669,7 @@ internal sealed partial class LibraryMutationOwner
         Exception catalogFailure = null;
         try
         {
-            using LibraryMutationSession session = BeginLibraryMutationSession(mutationCapability, "delete_library", postLeaseNotifications);
+            using LibraryMutationSession session = BeginLibraryMutationSession(mutationCapability, "delete_library", postLeaseNotifications, notices);
             session.AppendCatalogChange(catalogFacts, packageReferenceFacts, filesystemOutcome.Targets
                 .Where(target => target.State == LibraryChartRemovalState.Confirmed)
                 .Select(target => new LibraryMutationSessionTarget(target.Path, string.Empty)));
@@ -740,69 +709,33 @@ internal sealed partial class LibraryMutationOwner
         logReverseLookupMutationAndQueueWarmupIfNeeded(reason, mutationResult);
     }
 
-    internal void ShowCannotRenameRootFolder(string sourceDirectory)
-    {
-        ShowOperationDialog(
-            string.Format(Resources.Warn_CannotRenameRootFolder, sourceDirectory),
-            Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
+    internal static void AddCannotRenameRootFolderNotice(LibraryOperationNotices notices, string sourceDirectory)
+        => AddNotice(notices, string.Format(Resources.Warn_CannotRenameRootFolder, sourceDirectory),
+            Resources.MessageBoxTitle_Warning, MessageBoxImage.Exclamation);
 
-    internal void ShowRenameFolderNotExists(string sourceDirectory)
-    {
-        ShowOperationDialog(
-            string.Format(Resources.Warn_RenameFolderNotExists, sourceDirectory),
-            Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
+    internal static void AddRenameFolderNotExistsNotice(LibraryOperationNotices notices, string sourceDirectory)
+        => AddNotice(notices, string.Format(Resources.Warn_RenameFolderNotExists, sourceDirectory),
+            Resources.MessageBoxTitle_Warning, MessageBoxImage.Exclamation);
 
-    internal void ShowMoveDestinationAlreadyExists(string sourceDirectory, string destinationDirectory)
-    {
-        ShowOperationDialog(
-            string.Format(Resources.Warn_MoveDestAlreadyExists, sourceDirectory, destinationDirectory),
-            Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
+    internal static void AddMoveDestinationAlreadyExistsNotice(LibraryOperationNotices notices, string sourceDirectory, string destinationDirectory)
+        => AddNotice(notices, string.Format(Resources.Warn_MoveDestAlreadyExists, sourceDirectory, destinationDirectory),
+            Resources.MessageBoxTitle_Warning, MessageBoxImage.Exclamation);
 
-    internal void ShowMoveDestinationRootNotFound(string destinationDirectory)
-    {
-        ShowOperationDialog(
-            string.Format(Resources.Error_MoveDestRootNotFound, destinationDirectory),
-            Resources.MessageBoxTitle_Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
-    }
+    internal static void AddMoveDestinationRootNotFoundNotice(LibraryOperationNotices notices, string destinationDirectory)
+        => AddNotice(notices, string.Format(Resources.Error_MoveDestRootNotFound, destinationDirectory),
+            Resources.MessageBoxTitle_Error, MessageBoxImage.Hand);
 
-    internal void ShowDriveRootCannotChangeRoot()
-    {
-        ShowOperationDialog(
-            Resources.Warn_DriveRootCannotChangeRoot,
-            Resources.MessageBoxTitle_Confirm,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
+    internal static void AddDriveRootCannotChangeRootNotice(LibraryOperationNotices notices)
+        => AddNotice(notices, Resources.Warn_DriveRootCannotChangeRoot,
+            Resources.MessageBoxTitle_Confirm, MessageBoxImage.Exclamation);
 
-    internal void ShowFolderMoveFailed(string sourceDirectory, string destinationDirectory, Exception exception)
-    {
-        ShowOperationDialog(
-            string.Format(
+    internal static void AddFolderMoveFailedNotice(LibraryOperationNotices notices, string sourceDirectory, string destinationDirectory, Exception exception)
+        => AddNotice(notices, string.Format(
                 Resources.Error_FolderMoveFailed,
                 sourceDirectory,
                 destinationDirectory,
                 DisplayedExceptionMessage.Format(exception)),
-            Resources.MessageBoxTitle_Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
-    }
+            Resources.MessageBoxTitle_Error, MessageBoxImage.Hand);
 
     /// <summary>確定登録を一回捕捉し、選択自動改名の集約前保護へ渡します。</summary>
     internal List<FolderAutoRenamePlan> BuildAutoRenamePlans(
@@ -844,19 +777,23 @@ internal sealed partial class LibraryMutationOwner
     /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
     /// <param name="progressReporter">item 単位の optional progress reporter。</param>
     /// <param name="postLeaseNotifications">lease 解放後に一回公開する command-owned notifications。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。</param>
     /// <returns>session receipt、LR2 finalization inputs、診断を保持する immutable result。</returns>
     internal AutoRenameBatchResult ApplyAutoRenamePlansWithSessionReceipt(
         FolderMoveBatch batch,
         LibraryFileMutationCapability mutationCapability,
         Action<int, int, string> progressReporter,
-        ICollection<Action> postLeaseNotifications)
+        ICollection<Action> postLeaseNotifications,
+        LibraryOperationNotices notices)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
+        ArgumentNullException.ThrowIfNull(notices);
         return autoRenameBatchCoordinator.ApplyWithSessionReceipt(
             batch,
             mutationCapability,
             postLeaseNotifications,
+            notices,
             progressReporter);
     }
 
@@ -1008,10 +945,13 @@ internal sealed partial class LibraryMutationOwner
         IReadOnlyList<LibraryFileOperationTargetSnapshot> preflightTargets,
         IReadOnlyList<string> approvedDuplicateRemovalChartPaths,
         LibraryFileMutationCapability mutationCapability,
-        ICollection<Action> postLeaseNotifications)
+        ICollection<Action> postLeaseNotifications,
+        LibraryOperationNotices notices)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
+        ArgumentNullException.ThrowIfNull(notices);
+        var approvedDuplicateRemovalSet = new HashSet<string>(approvedDuplicateRemovalChartPaths ?? [], StringComparer.OrdinalIgnoreCase);
         var result = new LibraryFixInstallationResult
         {
             RequestedCount = requestedCharts?.Count ?? 0
@@ -1088,7 +1028,8 @@ internal sealed partial class LibraryMutationOwner
         using LibraryMutationSession session = BeginLibraryMutationSession(
             mutationCapability,
             "fix_installation_directory",
-            postLeaseNotifications);
+            postLeaseNotifications,
+            notices);
         session.ProtectManagedOutput(mappings.SelectMany(mapping => new[] { mapping.Original.SourcePath, mapping.DetachedChart.InstallDestination }).Concat(approvedDuplicateRemovalChartPaths ?? []), recursive: false);
         session.AppendItemFailures(result.Failures
             .Where(failure => failure?.Exception != null)
@@ -1151,8 +1092,7 @@ internal sealed partial class LibraryMutationOwner
                 createChartFolderPathFromCharts,
                 DisplayedExceptionMessage.Format,
                 fileMutationService,
-                // 失敗の案内を求めない（showMessageBoxOnInstallFail: false）ので、この収集先には何も加わらない。
-                new LibraryOperationNotices(),
+                notices,
                 targetOnlyFileMutationOptions,
                 recursiveDirectoryTreeFileMutationOptions,
                 LogInstallPerformance,
@@ -1199,7 +1139,7 @@ internal sealed partial class LibraryMutationOwner
             if (duplicateBeforeMove)
             {
                 result.DuplicateSkippedCount++;
-                if (IsApprovedDuplicateRemoval(ownerChart, approvedDuplicateRemovalChartPaths))
+                if (!string.IsNullOrWhiteSpace(ownerChart?.Path) && approvedDuplicateRemovalSet.Contains(ownerChart.Path))
                 {
                     approvedDuplicateRemovals.Add(originalTarget);
                 }
@@ -1314,7 +1254,7 @@ internal sealed partial class LibraryMutationOwner
                 {
                     maintenanceFailure = exception;
                 }
-                NotifyMaintenanceReadFailures(readFailures);
+                NotifyMaintenanceReadFailures(readFailures, notices);
                 if (maintenanceFailure != null)
                 {
                     result.SessionReceipt = result.SessionReceipt.WithFinalizationFailure(maintenanceFailure);
@@ -1409,41 +1349,26 @@ internal sealed partial class LibraryMutationOwner
         logInstallPerformanceWarning(message);
     }
 
-    private UiDialogDefaultResult ShowOperationDialog(
-        string message,
-        string caption,
-        UiDialogButton button,
-        UiDialogIcon icon,
-        UiDialogDefaultResult defaultResult)
+    /// <summary>OKだけの案内を、本文・見出し・アイコンを指定してこの操作の収集先へ加えます。既定値は OK です。表示は所有者が受付の解放後に行います。</summary>
+    private static void AddNotice(LibraryOperationNotices notices, string text, string caption, MessageBoxImage icon)
     {
-        return dialogService.Show(message, caption, button, icon, defaultResult);
-    }
-
-    /// <summary>件数と標本を持つ案内を、操作の案内の列があれば積み、なければ即時に表示します。</summary>
-    private void NotifyOperationMessage(BMSLibrary.OperationDialogMessage message)
-    {
-        if (message != null)
-        {
-            dialogService.Notify(message);
-        }
+        ArgumentNullException.ThrowIfNull(notices);
+        notices.Add(new BMSLibrary.OperationDialogMessage(text, caption, MessageBoxButton.OK, icon, MessageBoxResult.OK));
     }
 
     /// <summary>
-    /// 保守が集めた読込み失敗を、保守の書込み保護を出た後に、成功と例外のどちらの経路でも案内へ渡します。
-    /// 推定導入では延期先へ、それ以外は操作の案内の列へ渡します。案内の失敗は保守の結果へ混ぜず診断だけに残します。
+    /// 保守が集めた読込み失敗を、保守の書込み保護を出た後に、成功と例外のどちらの経路でも操作の収集先へ加えます。
+    /// 案内の失敗は保守の結果へ混ぜず診断だけに残します。
     /// </summary>
-    private void NotifyMaintenanceReadFailures(MaintenanceReadFailureCollector failures, EstimatedInstallDeferredFeedback deferredFeedback = null)
+    private static void NotifyMaintenanceReadFailures(MaintenanceReadFailureCollector failures, LibraryOperationNotices notices)
     {
+        ArgumentNullException.ThrowIfNull(notices);
         try
         {
             BMSLibrary.OperationDialogMessage notice = MaintenanceReadFailureNotice.Create(failures);
-            if (deferredFeedback != null)
+            if (notice != null)
             {
-                deferredFeedback.DeferNotice(notice);
-            }
-            else
-            {
-                NotifyOperationMessage(notice);
+                notices.Add(notice);
             }
         }
         catch (Exception exception)
@@ -1453,25 +1378,20 @@ internal sealed partial class LibraryMutationOwner
         }
     }
 
-    private bool IsApprovedDuplicateRemoval(
-        ChartFile chart,
-        IEnumerable<string> approvedDuplicateRemovalChartPaths, LibraryFileMutationCapability capability = null)
+    /// <summary>推定導入の保守が集めた読込み失敗を、導入の延期先へ成功と例外のどちらの経路でも渡します。案内の失敗は保守の結果へ混ぜず診断だけに残します。</summary>
+    private static void DeferMaintenanceReadFailures(MaintenanceReadFailureCollector failures, EstimatedInstallDeferredFeedback deferredFeedback)
     {
-        HashSet<string> approvedPaths = approvedDuplicateRemovalChartPaths == null
-            ? null
-            : new HashSet<string>(approvedDuplicateRemovalChartPaths.Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        if (approvedPaths != null)
+        ArgumentNullException.ThrowIfNull(deferredFeedback);
+        try
         {
-            return !string.IsNullOrWhiteSpace(chart?.Path) && approvedPaths.Contains(chart.Path);
+            deferredFeedback.DeferNotice(MaintenanceReadFailureNotice.Create(failures));
         }
-        return ShowOperationDialog(
-            string.Format(Resources.Confirm_DuplicateReinstallSkipped, chart?.Path, string.Join(Environment.NewLine, GetDuplicateInstallRepairPaths(chart))),
-            Resources.MessageBoxTitle_Confirm,
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Question,
-            MessageBoxResult.Yes) == MessageBoxResult.Yes;
+        catch (Exception exception)
+        {
+            try { NLogWrapper.FileLogger?.Warn(exception, "maintenance_read_failure_notice_failed"); }
+            catch (Exception) { /* 任意診断の失敗で、保守の結果を変えません。 */ }
+        }
     }
-
 
     private static List<LibraryChartRef> ToLibraryChartRefs(IEnumerable<ChartFile> charts)
     {
@@ -1856,17 +1776,19 @@ internal sealed partial class LibraryMutationOwner
     /// <param name="prepared">最初の確認前に作成した不変要求。</param>
     /// <param name="sendToRecycleBin">ごみ箱へ送るか。</param>
     /// <param name="approvedWholeFolderDeletePaths">UIで判断済みの候補。全体削除を承認しない場合も空列を明示します。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     /// <param name="capability">実親受付の生存権限。direct自己受付の場合だけnullです。</param>
     /// <param name="publication">今回のroot再評価による純保留通知。変更前に捕捉し、実親L/P解放後に必ず呼び出します。scopeやDB更新を保持しません。</param>
     internal LibraryChartRemovalOutcome RemoveLibraryCharts(
         LibraryChartRemovalPreflight prepared, bool sendToRecycleBin, IEnumerable<string> approvedWholeFolderDeletePaths,
-        LibraryFileMutationCapability capability, out Action publication)
+        LibraryOperationNotices notices, LibraryFileMutationCapability capability, out Action publication)
     {
         List<Action> rootPendingPublications = [];
         publication = () => InvokePostLeaseNotificationsBestEffort(rootPendingPublications);
         ArgumentNullException.ThrowIfNull(prepared);
         ArgumentNullException.ThrowIfNull(approvedWholeFolderDeletePaths);
-        if (TryBlockCatalogMutation(nameof(BMSLibrary.RemoveLibraryCharts), showMessage: true, capability: capability)) { return null; }
+        ArgumentNullException.ThrowIfNull(notices);
+        if (TryBlockCatalogMutation(nameof(BMSLibrary.RemoveLibraryCharts), notices, capability: capability)) { return null; }
         List<string> approvedPaths = [.. approvedWholeFolderDeletePaths.Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         LibraryChartRemovalPreflight initial = prepared;
@@ -1877,14 +1799,14 @@ internal sealed partial class LibraryMutationOwner
         RunWithLibraryChartRemovalWriteLocks(mutationCapability =>
         {
             if (!TryEnterManagedOutputMutation(prepared.Targets.Select(target => target.Path).Concat(approvedPaths),
-                recursive: true, out LibraryFileMutationLease playlistLease, mutationCapability)) { return; }
+                recursive: true, notices, out LibraryFileMutationLease playlistLease, mutationCapability)) { return; }
             using (playlistLease)
             using (LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability())
             using (LibraryFileMutationCapability combinedCapability = mutationCapability.WithPlaylistCapability(playlistCapability))
             {
-                outcome = RemoveLibraryChartsCore(prepared, sendToRecycleBin, approvedPaths, combinedCapability, postLeaseNotifications, rootPendingPublications);
+                outcome = RemoveLibraryChartsCore(prepared, sendToRecycleBin, approvedPaths, combinedCapability, postLeaseNotifications, rootPendingPublications, notices);
             }
-        }, capability);
+        }, notices, capability);
         InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
         return outcome;
     }
@@ -1893,24 +1815,24 @@ internal sealed partial class LibraryMutationOwner
     internal void RemovePendingCharts(
         IEnumerable<ChartFile> charts,
         bool sendToRecycleBin,
-        bool deleteContainingPackageFoldersWhenNoBms, LibraryFileMutationCapability capability = null)
+        bool deleteContainingPackageFoldersWhenNoBms, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         if (charts == null)
         {
             throw new ArgumentNullException(nameof(charts));
         }
+        ArgumentNullException.ThrowIfNull(notices);
         List<ChartFile> requestedCharts = [.. charts.Where(chart => chart != null)];
         List<Action> postLeaseNotifications = [];
         RunWithPendingInvalidExtensionRenameWriteLocks(mutationCapability =>
         {
             if (!TryEnterManagedOutputMutation(requestedCharts.Select(chart => deleteContainingPackageFoldersWhenNoBms ? System.IO.Path.GetDirectoryName(chart.Path) : chart.Path),
-                recursive: deleteContainingPackageFoldersWhenNoBms, out LibraryFileMutationLease playlistLease, mutationCapability)) { return; }
+                recursive: deleteContainingPackageFoldersWhenNoBms, notices, out LibraryFileMutationLease playlistLease, mutationCapability)) { return; }
             using LibraryFileMutationLease playlistOperation = playlistLease;
             PendingFileDeletionResult result = DeletePendingCharts(
                 requestedCharts,
                 sendToRecycleBin,
                 deleteContainingPackageFoldersWhenNoBms);
-            List<Action> diagnosticEffects = [];
             foreach (PendingFileDeletionFailure failure in result.Failures)
             {
                 if (failure?.Exception == null)
@@ -1919,18 +1841,17 @@ internal sealed partial class LibraryMutationOwner
                 }
                 if (failure.IsDirectory)
                 {
-                    diagnosticEffects.Add(() => ShowOperationDialog(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, DisplayedExceptionMessage.Format(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
+                    AddNotice(notices, string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, DisplayedExceptionMessage.Format(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxImage.Hand);
                 }
                 else
                 {
-                    diagnosticEffects.Add(() => ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, DisplayedExceptionMessage.Format(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
+                    AddNotice(notices, string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, DisplayedExceptionMessage.Format(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxImage.Hand);
                 }
             }
             RemovePendingChartsFromPendingPackagesAndInstallRows(
                 result.ChartPathsToRemove,
                 mutationCapability,
                 postLeaseNotifications);
-            postLeaseNotifications.AddRange(diagnosticEffects);
         }, capability);
         InvokePostLeaseNotificationsBestEffort(postLeaseNotifications);
     }
@@ -1942,56 +1863,40 @@ internal sealed partial class LibraryMutationOwner
     /// </summary>
     internal LibraryFixInstallationResult FixInstallationDirectoryCharts(
         IEnumerable<ChartFile> charts,
-        IEnumerable<string> approvedDuplicateRemovalChartPaths, LibraryFileMutationCapability capability = null)
+        IEnumerable<string> approvedDuplicateRemovalChartPaths, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         if (charts == null)
         {
             throw new ArgumentNullException(nameof(charts));
         }
-        if (TryBlockCatalogMutation(nameof(BMSLibrary.FixInstallationDirectoryCharts), showMessage: true, capability: capability))
+        ArgumentNullException.ThrowIfNull(notices);
+        if (TryBlockCatalogMutation(nameof(BMSLibrary.FixInstallationDirectoryCharts), notices, capability: capability))
         {
             return null;
         }
 
         List<ChartFile> chartList = [.. charts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
         List<LibraryFileOperationTargetSnapshot> preflightTargets = CaptureFixInstallationTargets(chartList);
+        // 重複した導入先がある修復は、利用者の判断（承認の一覧。削除しない場合は空の一覧）を要求が持っている必要があります。
+        // 判断が欠けた要求は、物理処理の前に失敗させ、確認を新たに表示しません。
+        if (approvedDuplicateRemovalChartPaths == null
+            && preflightTargets.Any(target => GetDuplicateInstallRepairPaths(target.ChartSnapshot)
+                .Any(path => !string.IsNullOrWhiteSpace(path))))
+        {
+            throw new InvalidOperationException(
+                "Installation repair of duplicated destinations requires an explicit approval decision.");
+        }
         List<string> approvedDuplicateRemovalPaths = approvedDuplicateRemovalChartPaths == null
             ? []
             : [.. approvedDuplicateRemovalChartPaths
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (approvedDuplicateRemovalChartPaths == null)
-        {
-            foreach (LibraryFileOperationTargetSnapshot target in preflightTargets)
-            {
-                ChartFile chart = target.ChartSnapshot;
-                List<string> duplicatePaths = [.. GetDuplicateInstallRepairPaths(chart)
-                    .Where(path => !string.IsNullOrWhiteSpace(path))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)];
-                if (duplicatePaths.Count == 0)
-                {
-                    continue;
-                }
-                if (ShowOperationDialog(
-                    string.Format(
-                        Resources.Confirm_DuplicateReinstallSkipped,
-                        chart.Path,
-                        string.Join(Environment.NewLine, duplicatePaths)),
-                    Resources.MessageBoxTitle_Confirm,
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question,
-                    MessageBoxResult.Yes) == MessageBoxResult.Yes)
-                {
-                    approvedDuplicateRemovalPaths.Add(chart.Path);
-                }
-            }
-        }
 
         LibraryFixInstallationResult result = null;
         List<Action> postLeaseNotifications = [];
         try
         {
-            using (LibraryFileMutationLease mutationLease = synchronization.EnterFixInstallationDirectoryWriteScope(capability))
+            using (LibraryFileMutationLease mutationLease = synchronization.EnterFixInstallationDirectoryWriteScope(notices, capability))
             {
                 if (mutationLease == null)
                 {
@@ -2004,7 +1909,8 @@ internal sealed partial class LibraryMutationOwner
                     preflightTargets,
                     approvedDuplicateRemovalPaths,
                     mutationCapability,
-                    postLeaseNotifications);
+                    postLeaseNotifications,
+                    notices);
             }
         }
         finally
@@ -2073,25 +1979,21 @@ internal sealed partial class LibraryMutationOwner
         packageLifecycleOwner.ApplyPendingPackageMutationDelta(delta);
     }
 
-    internal void ShowNormalRenameFailure(LibraryDeleteFailure failure, string newExt)
+    internal static void AddNormalRenameFailureNotice(LibraryOperationNotices notices, LibraryDeleteFailure failure, string newExt)
     {
         if (failure?.Exception == null)
         {
             return;
         }
-        ShowOperationDialog(
-            string.Format(
+        AddNotice(notices, string.Format(
                 Resources.Error_BmsFileMoveFailed,
                 failure.Path,
                 newExt,
                 DisplayedExceptionMessage.Format(failure.Exception)),
-            Resources.MessageBoxTitle_Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
+            Resources.MessageBoxTitle_Error, MessageBoxImage.Hand);
     }
 
-    internal void ShowPendingRenameFailure(PendingExtensionRenameFailureReport failure)
+    internal static void AddPendingRenameFailureNotice(LibraryOperationNotices notices, PendingExtensionRenameFailureReport failure)
     {
         if (failure?.Outcome?.FailureException == null || string.IsNullOrWhiteSpace(failure.FilePath))
         {
@@ -2107,12 +2009,7 @@ internal sealed partial class LibraryMutationOwner
                 failure.FilePath,
                 failure.Outcome.FinalPath,
                 DisplayedExceptionMessage.Format(failure.Outcome.FailureException));
-        ShowOperationDialog(
-            message,
-            Resources.MessageBoxTitle_Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
+        AddNotice(notices, message, Resources.MessageBoxTitle_Error, MessageBoxImage.Hand);
     }
 
     internal void LogInfo(string info)
@@ -2125,25 +2022,13 @@ internal sealed partial class LibraryMutationOwner
         logInstallPerformance(message);
     }
 
-    internal void ShowDriveRootBmsSkipped()
-    {
-        ShowOperationDialog(
-            Resources.Warn_DriveRootBmsSkipped,
-            Resources.MessageBoxTitle_Confirm,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
+    internal static void AddDriveRootBmsSkippedNotice(LibraryOperationNotices notices)
+        => AddNotice(notices, Resources.Warn_DriveRootBmsSkipped,
+            Resources.MessageBoxTitle_Confirm, MessageBoxImage.Exclamation);
 
-    internal void ShowRenameFailed(FolderAutoRenamePlan plan)
-    {
-        ShowOperationDialog(
-            string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message),
-            Resources.MessageBoxTitle_Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
-    }
+    internal static void AddRenameFailedNotice(LibraryOperationNotices notices, FolderAutoRenamePlan plan)
+        => AddNotice(notices, string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message),
+            Resources.MessageBoxTitle_Error, MessageBoxImage.Hand);
 
     /// <summary>排他解放後の任意通知を順に公開し、各通知と診断先の失敗後も残る独立した通知を続けます。</summary>
     private void InvokePostLeaseNotificationsBestEffort(IEnumerable<Action> notifications)

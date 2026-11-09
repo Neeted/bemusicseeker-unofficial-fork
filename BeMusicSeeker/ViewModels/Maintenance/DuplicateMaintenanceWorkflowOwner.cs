@@ -61,18 +61,19 @@ internal interface IDuplicateMaintenanceStore
     bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease)
     { lease = null; return true; }
 
-    /// <summary>フォルダ統合の変更セッションを実行し、終端へ確定結果を返します。</summary>
+    /// <summary>フォルダ統合の変更セッションを実行し、終端へ確定結果を返します。案内は操作の収集先へ加えます。</summary>
     DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
         BMSLibrary library,
         string sourceDirectory,
         string destinationDirectory,
-        long operationId);
+        long operationId,
+        LibraryOperationNotices notices);
 
     /// <summary>最初の件数確認前に、モデルの現在値と安全属性を固定します。</summary>
     LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts);
 
     /// <summary>固定対象と承認scopeを渡して削除し、今回root保留通知だけを返します。実親L解放後finallyが例外時も通知を公開します。</summary>
-    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, out Action publication);
+    LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action publication);
 }
 
 internal sealed class DuplicateMaintenanceMutationResult
@@ -510,11 +511,12 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 request.SelectionContext,
                 mutation: null,
-                mutationWithReceipt: (library, operationStore) => operationStore.MergeFolderWithReceipt(
+                mutationWithReceipt: (library, operationStore, notices) => operationStore.MergeFolderWithReceipt(
                     library,
                     request.SourceDirectory,
                     request.DestinationDirectory,
-                    Stopwatch.GetTimestamp()),
+                    Stopwatch.GetTimestamp(),
+                    notices),
                 acquiredOperationGate: operationGate,
                 physicalPaths: [request.SourceDirectory, request.DestinationDirectory]));
             operationGateTransferred = true;
@@ -598,7 +600,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             Action pendingPublication = null;
             Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
                 plan.SelectionContext,
-                (library, operationStore) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths, out pendingPublication),
+                (library, operationStore, notices) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths, notices, out pendingPublication),
                 removedChartCount: 0,
                 acquiredOperationGate: operationGate,
                 physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths),
@@ -667,9 +669,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
     private async Task<DuplicateMaintenanceMutationResult> ExecuteMutation(
         DuplicateViewContext selectionContext,
-        Action<BMSLibrary, IDuplicateMaintenanceStore> mutation,
+        Action<BMSLibrary, IDuplicateMaintenanceStore, LibraryOperationNotices> mutation,
         int removedChartCount = 0,
-        Func<BMSLibrary, IDuplicateMaintenanceStore, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
+        Func<BMSLibrary, IDuplicateMaintenanceStore, LibraryOperationNotices, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
         IDisposable acquiredOperationGate = null,
         IEnumerable<string> physicalPaths = null,
         bool stopPlayback = true)
@@ -677,7 +679,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         var failures = new List<ExceptionDispatchInfo>();
         BMSLibrary library = null;
         DuplicateMergeMaintenanceReceipt mutationReceipt = null;
-        BMSLibrary.OperationDialogScope dialogScope = null;
+        var notices = new LibraryOperationNotices();
         IDisposable operationGate = null;
         IDisposable activityLease = null;
         LibraryFileMutationLease playlistLease = null;
@@ -711,16 +713,15 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             }
             activityLease = chartMutationActivity.Enter();
             if (stopPlayback) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
-            dialogScope = library.BeginOperationDialogScope();
             PublishRefreshSuppressionChanged(isSuppressed: true);
             suppressionStarted = true;
             if (mutationWithReceipt == null)
             {
-                mutation(library, operationStore);
+                mutation(library, operationStore, notices);
             }
             else
             {
-                mutationReceipt = mutationWithReceipt(library, operationStore)
+                mutationReceipt = mutationWithReceipt(library, operationStore, notices)
                     ?? throw new InvalidOperationException("Duplicate folder merge returned no receipt.");
             }
         }
@@ -743,10 +744,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 CaptureNotification(activityLease.Dispose);
             }
-            if (dialogScope != null)
-            {
-                CaptureCleanupFailure(dialogScope.Dispose, failures);
-            }
             try { await acceptedPreparation.ConfigureAwait(false); }
             catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
             CaptureCleanupFailure(() => capability?.Dispose(), failures);
@@ -758,10 +755,10 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
-            if (dialogScope != null)
-            {
-                CaptureNotification(dialogScope.Flush);
-            }
+            // 論理Lと対象別Pの解放後に、集めた案内を例外・取消・拒否の経路でも依頼します。表示の完了は待たず、失敗は結果を変えません。
+            BMSLibrary operationLibrary = library;
+            await FileDbMutationReport.BeginRequestOperationNotices(
+                dialogs, notices, () => operationLibrary?.IsShutdownRequested == true, "duplicateMaintenance").ConfigureAwait(false);
         }
         if (failures.Count == 0)
         {
@@ -905,12 +902,14 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
         BMSLibrary library,
         string sourceDirectory,
         string destinationDirectory,
-        long operationId)
+        long operationId,
+        LibraryOperationNotices notices)
     {
         return library.MergeChartDirectory(
             sourceDirectory,
             destinationDirectory,
             operationId,
+            notices,
             reportAtTerminal: true, capability: capability);
     }
 
@@ -919,9 +918,9 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
         => library.PrepareLibraryChartRemoval((charts ?? []).Select(chart => LibraryChartRef.FromChartFile(chart)));
 
     /// <summary>全UI確認後の承認scopeと生存権限をモデルへ渡し、削除事実と実親解放後の今回root保留通知を返します。</summary>
-    public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, out Action publication)
+    public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action publication)
     {
         ArgumentNullException.ThrowIfNull(approvedWholeFolderPaths);
-        return library.RemoveLibraryCharts(prepared, sendToRecycleBin: true, approvedWholeFolderDeletePaths: approvedWholeFolderPaths, capability: capability, publication: out publication);
+        return library.RemoveLibraryCharts(prepared, sendToRecycleBin: true, approvedWholeFolderDeletePaths: approvedWholeFolderPaths, notices: notices, capability: capability, publication: out publication);
     }
 }

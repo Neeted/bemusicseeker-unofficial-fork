@@ -77,7 +77,7 @@ internal sealed class CatalogFileMutationAdmissionOwner
 {
     private readonly BMSLibrary.Lr2SynchronizationOwner lr2SynchronizationOwner;
     private readonly CatalogFileMutationReadinessOwner readinessOwner;
-    private readonly Action<CatalogPathConvergenceBlockReason> showConvergenceRequiredWarning;
+    private readonly Func<CatalogPathConvergenceBlockReason, BMSLibrary.OperationDialogMessage> createConvergenceRequiredWarning;
 
     /// <summary>
     /// Creates the admission owner that composes path-convergence readiness
@@ -85,18 +85,18 @@ internal sealed class CatalogFileMutationAdmissionOwner
     /// </summary>
     /// <param name="lr2SynchronizationOwner">Existing exclusive mutation admission owner.</param>
     /// <param name="readinessOwner">Process-local catalog path-convergence state.</param>
-    /// <param name="showConvergenceRequiredWarning">収束が現在でないときの警告の出力先。現在のスレッドに操作の案内の列があれば列へ積み、なければ待たずに投函します。</param>
+    /// <param name="createConvergenceRequiredWarning">収束が現在でないときの警告の案内を作る処理。案内は呼出元が渡した操作の収集先へ加えます。</param>
     internal CatalogFileMutationAdmissionOwner(
         BMSLibrary.Lr2SynchronizationOwner lr2SynchronizationOwner,
         CatalogFileMutationReadinessOwner readinessOwner,
-        Action<CatalogPathConvergenceBlockReason> showConvergenceRequiredWarning)
+        Func<CatalogPathConvergenceBlockReason, BMSLibrary.OperationDialogMessage> createConvergenceRequiredWarning)
     {
         this.lr2SynchronizationOwner = lr2SynchronizationOwner
             ?? throw new ArgumentNullException(nameof(lr2SynchronizationOwner));
         this.readinessOwner = readinessOwner
             ?? throw new ArgumentNullException(nameof(readinessOwner));
-        this.showConvergenceRequiredWarning = showConvergenceRequiredWarning
-            ?? throw new ArgumentNullException(nameof(showConvergenceRequiredWarning));
+        this.createConvergenceRequiredWarning = createConvergenceRequiredWarning
+            ?? throw new ArgumentNullException(nameof(createConvergenceRequiredWarning));
     }
 
     /// <summary>
@@ -114,9 +114,9 @@ internal sealed class CatalogFileMutationAdmissionOwner
     /// 予約しない事前検査です。受理済み権限は同じ管理主体へ照合し、本受付では収束状態を再確認します。
     /// </summary>
     /// <param name="operation">変更操作の診断名。</param>
-    /// <param name="showMessage">拒否警告を表示するか。</param>
+    /// <param name="notices">拒否警告を加える、この操作の収集先。nullは警告を求めません。表示は所有者が受付の解放後に行います。</param>
     /// <param name="capability">同じ共通受付の生存権限。nullは新規要求の競合判定です。</param>
-    internal bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
+    internal bool TryBlockMutation(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
         if (lr2SynchronizationOwner.TryBlockMutation(operation, capability))
         {
@@ -127,10 +127,7 @@ internal sealed class CatalogFileMutationAdmissionOwner
             return false;
         }
         CatalogPathConvergenceBlockReason blockReason = readinessOwner.BlockReason;
-        if (showMessage)
-        {
-            showConvergenceRequiredWarning(blockReason);
-        }
+        notices?.Add(createConvergenceRequiredWarning(blockReason));
         return true;
     }
 
@@ -141,12 +138,12 @@ internal sealed class CatalogFileMutationAdmissionOwner
     /// distinct null result after the acquired lease has been released.
     /// </summary>
     /// <param name="operation">Operation name used by the shared mutation diagnostics.</param>
-    /// <param name="showMessage">Whether a convergence rejection should show its warning after the lease is released.</param>
+    /// <param name="notices">拒否警告を加える、この操作の収集先。nullは警告を求めません。表示は所有者が受付の解放後に行います。</param>
     /// <param name="throwOnBusyRace">Whether failure to acquire the raw exclusive lease is surfaced as the legacy busy exception instead of a null terminal.</param>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
     internal LibraryFileMutationLease TryBeginFileOperationMutation(
         string operation,
-        bool showMessage,
+        LibraryOperationNotices notices,
         bool throwOnBusyRace = true, LibraryFileMutationCapability capability = null)
     {
         LibraryFileMutationLease lease = lr2SynchronizationOwner.TryBeginMutation(operation, capability);
@@ -165,10 +162,7 @@ internal sealed class CatalogFileMutationAdmissionOwner
 
         CatalogPathConvergenceBlockReason blockReason = readinessOwner.BlockReason;
         lease.Dispose();
-        if (showMessage)
-        {
-            showConvergenceRequiredWarning(blockReason);
-        }
+        notices?.Add(createConvergenceRequiredWarning(blockReason));
         return null;
     }
 }

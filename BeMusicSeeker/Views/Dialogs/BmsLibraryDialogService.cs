@@ -10,7 +10,7 @@ namespace BeMusicSeeker.Views.Dialogs;
 
 /// <summary>
 /// モデルが持つ窓口 <see cref="IBmsLibraryDialogService"/> を、注入された <see cref="IUiDialogService"/> の表示へ接続します。
-/// 利用者の応答を待つ確認は同期の <see cref="Show"/>、待たない通知は <see cref="Post"/> です。
+/// 利用者の応答を待つ確認は受付の前に行う同期の <see cref="Confirm"/>、待たない通知は <see cref="Post"/> です。
 /// Models は Views に依存しないため、実装はこの層に置き、構成がライブラリへ注入します。
 /// </summary>
 internal sealed class BmsLibraryDialogService : IBmsLibraryDialogService
@@ -79,26 +79,26 @@ internal sealed class BmsLibraryDialogService : IBmsLibraryDialogService
     }
 
     /// <summary>
-    /// 通知または確認を表示し、利用者の応答を同期で待って返します。
+    /// 確認を表示し、利用者の応答を同期で待って返します。受付の前の確認だけが使います。
     /// 表示できなかった場合や表示中に失敗した場合は、既定結果へ置き換えず例外を投げます。
+    /// OK だけの通知は同期に表示せず、操作の収集先か <see cref="Post"/> を使うため受け付けません。
     /// </summary>
     /// <param name="messageBoxText">表示する本文。</param>
     /// <param name="caption">表示する題名。</param>
-    /// <param name="button">表示するボタンの構成。OK だけ通知として、それ以外は確認として表示します。</param>
+    /// <param name="button">表示するボタンの構成。OK だけは通知なので受け付けません。</param>
     /// <param name="icon">表示するアイコン。</param>
     /// <param name="defaultResult">既定の結果。</param>
     /// <returns>利用者が選んだ結果。</returns>
-    public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
+    public UiDialogDefaultResult Confirm(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
     {
-        UiDialogResult result = button == UiDialogButton.OK
-            ? dialogService
-                .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, button, icon, defaultResult))
-                .GetAwaiter()
-                .GetResult()
-            : dialogService
-                .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon, defaultResult))
-                .GetAwaiter()
-                .GetResult();
+        if (button == UiDialogButton.OK)
+        {
+            throw new ArgumentException("An OK-only notice is not a confirmation; add it to the operation notices or post it.", nameof(button));
+        }
+        UiDialogResult result = dialogService
+            .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon, defaultResult))
+            .GetAwaiter()
+            .GetResult();
         return ToMessageBoxResult(result, caption);
     }
 

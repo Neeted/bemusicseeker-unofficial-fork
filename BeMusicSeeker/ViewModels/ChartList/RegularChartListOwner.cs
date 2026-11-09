@@ -1179,7 +1179,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>名前の正規化後も変わる改名だけをLへ非待機受付し、実変更・必要公開・通知・cleanupの終端まで保持します。変更不要では受付もFS検査も行わず、Busyで予約しません。</summary>
+    /// <summary>名前の正規化後も変わる改名だけをLへ非待機受付し、実変更・必要公開・cleanupの終端まで保持します。案内と終端の報告は、論理Lと対象別Pの解放後に依頼します。変更不要では受付もFS検査も行わず、Busyで予約しません。</summary>
     internal Task RenameChartFolderAsync(RenameChartFolderRequest request, string newFolder)
     {
         if (request?.HasTarget != true || string.IsNullOrWhiteSpace(newFolder)) { return Task.CompletedTask; }
@@ -1199,10 +1199,14 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 BMSLibrary library = normalLibraryRefreshSource;
                 renameTask = Task.Run(async () =>
                 {
+                    FolderRenameTerminal terminal;
                     using (accepted)
                     {
-                        await ExecuteFolderRenameAsync(library, request, newFolder, accepted).ConfigureAwait(false);
+                        terminal = await ExecuteFolderRenameAsync(library, request, newFolder, accepted).ConfigureAwait(false);
                     }
+                    // 論理Lと対象別Pを解放してから、集めた案内と終端の報告を依頼します。表示の間も次の改名を受け付けます。
+                    await ReportFolderRenameTerminalAsync(library, terminal).ConfigureAwait(false);
+                    terminal.ThrowIfFailed();
                 });
                 renameTask.ObserveFault("regularChartListFolderEditRequested");
                 folderRenameTasks.Add(renameTask);
@@ -1227,18 +1231,29 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
     }
 
-    private async Task ExecuteFolderRenameAsync(BMSLibrary library, RenameChartFolderRequest request, string newFolder, IDisposable operationGate)
+    /// <summary>
+    /// 改名の実変更と必要公開・cleanupを論理Lと対象別Pの内側で行い、終端の報告に必要な事実を返します。
+    /// 案内と終端の報告は、呼出元が両方の受付を解放した後に依頼します。
+    /// </summary>
+    private async Task<FolderRenameTerminal> ExecuteFolderRenameAsync(BMSLibrary library, RenameChartFolderRequest request, string newFolder, IDisposable operationGate)
     {
         using LibraryFileMutationCapability libraryCapability = chartFileOperations.CreateMutationCapability(operationGate);
         string directoryName = DirectoryExt.GetDirectoryNameSimple(request.Chart.Path);
         FolderMoveBatch batch = library.PrepareChartFolderRename(directoryName, newFolder);
+        var notices = new LibraryOperationNotices();
         LibraryFileMutationLease playlistLease = null;
         if (IsCurrentLibrary(library) && !library.TryEnterManagedOutputMutation(batch.Moves.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), true, out playlistLease, libraryCapability))
-        { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+        {
+            // 物理処理の前の拒否です。理由の案内を受付の解放後に表示し、例外の型と本文は変えません。
+            notices.Add(new BMSLibrary.OperationDialogMessage(
+                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning,
+                UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.None));
+            return FolderRenameTerminal.RejectedBeforeMutation(
+                notices, new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy));
+        }
         using LibraryFileMutationLease acceptedPlaylist = playlistLease;
         using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
         using LibraryFileMutationCapability capability = libraryCapability.WithPlaylistCapability(playlistCapability);
-        BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
         bool normalRefreshApplySuppressed = false;
@@ -1252,7 +1267,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
             {
                 activityLease = chartMutationActivity.Enter();
                 if (playback != null && batch.Moves.Count > 0) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
-                dialogScope = library.BeginOperationDialogScope();
                 suppressionStarted = true;
                 PublishRefreshSuppressionChanged(isSuppressed: true);
                 if (!string.IsNullOrWhiteSpace(directoryName)
@@ -1263,7 +1277,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                         normalLibraryRefreshApplySuppressed = true;
                         normalRefreshApplySuppressed = true;
                     }
-                    mutationReceipt = library.RenameChartFolderWithReceipt(directoryName, newFolder, false,
+                    mutationReceipt = library.RenameChartFolderWithReceipt(directoryName, newFolder, notices, false,
                         reportAtTerminal: mutationDialogs != null, capability: capability, preparedBatch: batch);
                     lock (syncRoot)
                     {
@@ -1319,12 +1333,6 @@ internal sealed partial class RegularChartListOwner : IDisposable
             {
                 CaptureNotification(activityLease.Dispose);
             }
-            if (dialogScope != null)
-            {
-                CaptureCleanupFailure(dialogScope.Dispose, failures);
-                CaptureNotification(dialogScope.Flush);
-            }
-            // ThreadStaticの短いdialog scopeを外してから非同期待機し、元workerへscopeを残しません。
             // 配送の失敗でも開始済みの準備を親Lの解放前に回収するため、配送と準備を別々に待ちます。
             try { await requiredDelivery.ConfigureAwait(false); }
             catch (Exception failure) { RecordProjectionFailure(failure); }
@@ -1335,30 +1343,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 CaptureNotification(mainChartList.RequestDisplayRefresh);
             }
         }
-        if (mutationDialogs != null)
-        {
-            if (mutationReceipt != null)
-            {
-                await FileDbMutationReport.ShowAsync(mutationDialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename,
-                    mutationReceipt,
-                    failures.Count == 0 ? null : new AggregateException(failures.Select(failure => failure.SourceException)))
-                    .ConfigureAwait(false);
-            }
-            else
-            {
-                await NotifyFolderRenameFailureAsync(failures).ConfigureAwait(false);
-            }
-        }
-        switch (failures.Count)
-        {
-            case 0:
-                return;
-            case 1:
-                failures[0].Throw();
-                return;
-            default:
-                throw new AggregateException(failures.Select(failure => failure.SourceException));
-        }
+        return new FolderRenameTerminal(mutationReceipt, failures, notices);
 
         void CaptureNotification(Action notification)
         {
@@ -1381,6 +1366,75 @@ internal sealed partial class RegularChartListOwner : IDisposable
             {
                 try { logWarning("regular_chart_folder_rename_projection_failed " + failure); }
                 catch { /* 診断先の故障で先行する物理・出力の原因を置換しません。 */ }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 論理Lと対象別Pの解放後に、操作が集めた案内と終端の報告を依頼します。案内は見出し・重要度ごとに一件へまとめ、表示の完了は待ちません。
+    /// 対象のライブラリが終了の要求済みなら案内は表示せず、診断へ残します。表示の失敗は操作の結果を変えません。
+    /// </summary>
+    private async Task ReportFolderRenameTerminalAsync(BMSLibrary library, FolderRenameTerminal terminal)
+    {
+        if (mutationDialogs == null)
+        {
+            return;
+        }
+        FileDbMutationReport.RequestOperationNotices(
+            mutationDialogs, terminal.Notices, () => library.IsShutdownRequested, "regularChartListFolderRename");
+        if (terminal.IsRejectedBeforeMutation)
+        {
+            return;
+        }
+        if (terminal.Receipt != null)
+        {
+            await FileDbMutationReport.ShowAsync(mutationDialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Rename,
+                terminal.Receipt,
+                terminal.Failures.Count == 0 ? null : new AggregateException(terminal.Failures.Select(failure => failure.SourceException)))
+                .ConfigureAwait(false);
+        }
+        else
+        {
+            await NotifyFolderRenameFailureAsync(terminal.Failures).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>改名の実変更の終端で確定した事実です。受付の解放後の報告と、元の失敗の送出に使います。</summary>
+    private sealed class FolderRenameTerminal
+    {
+        internal FolderRenameTerminal(
+            LibraryMutationSessionReceipt receipt, IReadOnlyList<ExceptionDispatchInfo> failures, LibraryOperationNotices notices)
+        {
+            Receipt = receipt;
+            Failures = failures;
+            Notices = notices;
+        }
+
+        internal LibraryMutationSessionReceipt Receipt { get; }
+
+        internal IReadOnlyList<ExceptionDispatchInfo> Failures { get; }
+
+        internal LibraryOperationNotices Notices { get; }
+
+        /// <summary>物理処理の前に拒否した結果か。終端の報告は行わず、案内と例外だけを返します。</summary>
+        internal bool IsRejectedBeforeMutation { get; private init; }
+
+        /// <summary>物理処理の前の拒否を、理由の案内と元の例外で表します。</summary>
+        internal static FolderRenameTerminal RejectedBeforeMutation(LibraryOperationNotices notices, Exception failure)
+            => new(null, [ExceptionDispatchInfo.Capture(failure)], notices) { IsRejectedBeforeMutation = true };
+
+        /// <summary>確定した失敗を、一件なら元の例外のまま、複数なら集約して送出します。失敗がなければ何もしません。</summary>
+        internal void ThrowIfFailed()
+        {
+            switch (Failures.Count)
+            {
+                case 0:
+                    return;
+                case 1:
+                    Failures[0].Throw();
+                    return;
+                default:
+                    throw new AggregateException(Failures.Select(failure => failure.SourceException));
             }
         }
     }

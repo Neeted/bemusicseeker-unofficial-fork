@@ -49,7 +49,7 @@ public sealed class Lr2SynchronizationArchitectureTests
                 pendingInstall,
                 bmsFiles, new ReaderWriterLockSlimWrapper());
 
-            scope = synchronization.EnterFolderMoveWriteScope();
+            scope = synchronization.EnterFolderMoveWriteScope(new LibraryOperationNotices());
 
             Assert.IsNotNull(scope);
             LibraryFileMutationCapability capability = scope.CreateMutationCapability();
@@ -105,7 +105,7 @@ public sealed class Lr2SynchronizationArchitectureTests
             Assert.AreEqual(0u, bmsFiles.LockingWriteCount);
             Assert.IsFalse(boundary.LeaseActive);
 
-            using LibraryFileMutationLease freshLease = synchronization.EnterFolderMoveWriteScope();
+            using LibraryFileMutationLease freshLease = synchronization.EnterFolderMoveWriteScope(new LibraryOperationNotices());
             using LibraryFileMutationCapability freshCapability = freshLease.CreateMutationCapability();
             freshCapability.Validate(boundary);
             Assert.IsTrue(boundary.LeaseActive);
@@ -239,7 +239,7 @@ public sealed class Lr2SynchronizationArchitectureTests
                 pendingInstall,
                 bmsFiles, new ReaderWriterLockSlimWrapper());
 
-            LibraryFileMutationLease? scope = synchronization.EnterFolderMoveWriteScope();
+            LibraryFileMutationLease? scope = synchronization.EnterFolderMoveWriteScope(new LibraryOperationNotices());
 
             Assert.IsNull(scope);
             CollectionAssert.AreEqual(
@@ -309,42 +309,6 @@ public sealed class Lr2SynchronizationArchitectureTests
         storageRowsOwner.ReplaceCharts([], [], replaceBmson: true);
         Assert.AreEqual(file.Md5, snapshot.SongRows.Single().Md5);
         Assert.AreEqual(file.Path, snapshot.ChartPaths.Single());
-    }
-
-    /// <summary>
-    /// 保証：変更scope中の警告はFlushまで実通知を遅らせ、scope外の警告は直ちに通知してlock中の対話待ちを防ぐ。
-    /// LR2同期の窓口は表示の入口を持たないため、内部名の固定は行わない。
-    /// </summary>
-    [TestMethod]
-    public void MutationWarningUsesScopedOperationDialogCapability()
-    {
-        Assert.IsTrue(typeof(IBmsLibraryDialogService).IsAssignableFrom(typeof(ScopedOperationDialogCoordinator)));
-
-        var dialogs = new RecordingDialogService();
-        var coordinator = new ScopedOperationDialogCoordinator(dialogs);
-        using (ScopedOperationDialogCoordinator.Scope scope = coordinator.BeginScope())
-        {
-            UiDialogDefaultResult result = coordinator.Show(
-                "warning",
-                "caption",
-                UiDialogButton.OK,
-                UiDialogIcon.Exclamation,
-                UiDialogDefaultResult.OK);
-
-            Assert.AreEqual(UiDialogDefaultResult.OK, result);
-            Assert.AreEqual(0, dialogs.CallCount);
-            Assert.AreEqual(1, scope.Messages.Count);
-            scope.Flush();
-            Assert.AreEqual(1, dialogs.CallCount);
-        }
-
-        coordinator.Show(
-            "after",
-            "caption",
-            UiDialogButton.OK,
-            UiDialogIcon.Exclamation,
-            UiDialogDefaultResult.OK);
-        Assert.AreEqual(2, dialogs.CallCount);
     }
 
     /// <summary>
@@ -512,9 +476,9 @@ public sealed class Lr2SynchronizationArchitectureTests
 
         internal bool LeaseActive { get; private set; } = true;
 
-        public LibraryFileMutationLease? TryBeginMutation(string operation, bool showMessage, LibraryFileMutationCapability? capability = null)
+        public LibraryFileMutationLease? TryBeginMutation(string operation, LibraryOperationNotices? notices, LibraryFileMutationCapability? capability = null)
         {
-            events.Add($"mutation-reservation.enter:{operation}:{showMessage}");
+            events.Add($"mutation-reservation.enter:{operation}:{notices != null}");
             if (RejectReservation)
             {
                 return null!;
@@ -535,31 +499,11 @@ public sealed class Lr2SynchronizationArchitectureTests
             return Reservation;
         }
 
-        public bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability? capability = null)
+        public bool TryBlockMutation(string operation, LibraryOperationNotices? notices, LibraryFileMutationCapability? capability = null)
         {
-            events.Add($"mutation-block:{operation}:{showMessage}");
+            events.Add($"mutation-block:{operation}:{notices != null}");
             return false;
         }
 
-    }
-
-    private sealed class RecordingDialogService : IBmsLibraryDialogService
-    {
-        internal int CallCount { get; private set; }
-
-        public UiDialogDefaultResult Show(
-            string messageBoxText,
-            string caption,
-            UiDialogButton button,
-            UiDialogIcon icon,
-            UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
-        {
-            CallCount++;
-            return defaultResult;
-        }
-
-        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
-        {
-        }
     }
 }

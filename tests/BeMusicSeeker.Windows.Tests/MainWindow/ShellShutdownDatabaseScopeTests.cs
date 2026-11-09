@@ -288,9 +288,11 @@ public sealed class ShellShutdownDatabaseScopeTests
             byte[] expectedArchive = File.ReadAllBytes(profileInput);
             Directory.CreateDirectory(paths.DataDirectoryPath);
             StartupLibraryConstructionTestSupport.CreateSongDatabase(scope, paths.StandaloneSongDbPath);
+            // 実の起動は、Everythingの橋渡しがない環境で走査の見送りの警告を待たずに投函します。このケースの対象ではないため、窓口を宣言して受け取ります。
+            var libraryDialogs = new FileDbReportRecordingDialogs();
             var library = new TestBmsLibrary(scope, paths.StandaloneSongDbPath, null, null, null,
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), paths, settings: settings,
-                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), dialogService: libraryDialogs);
             StartupBackgroundTaskSchedulerOwner scheduler = GetStartupScheduler(viewModel);
             scheduler.Reset(false);
             library.StartupBackgroundTaskScheduler = (name, reason, dependency, work) => scheduler.Queue(name, reason, dependency, work);

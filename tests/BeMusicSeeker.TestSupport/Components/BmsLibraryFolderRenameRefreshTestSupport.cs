@@ -61,8 +61,8 @@ internal static class BmsLibraryFolderRenameRefreshTestSupport
             {
                 Stopwatch? operationClock = reportOperationElapsed == null ? null : Stopwatch.StartNew();
                 LibraryMutationSessionReceipt receipt = move
-                    ? library.MoveLibraryRootFolderWithReceipt([LibraryChartRef.FromChartFile(target)], newParent, reportAtTerminal: true)
-                    : library.RenameChartFolderWithReceipt(source, "Renamed", reportAtTerminal: true);
+                    ? library.MoveLibraryRootFolderWithReceipt([LibraryChartRef.FromChartFile(target)], newParent, new LibraryOperationNotices(), reportAtTerminal: true)
+                    : library.RenameChartFolderWithReceipt(source, "Renamed", new LibraryOperationNotices(), reportAtTerminal: true);
 
                 operationClock?.Stop();
                 if (operationClock != null) { reportOperationElapsed?.Invoke(operationClock.Elapsed); }
@@ -228,7 +228,7 @@ internal static class BmsLibraryFolderRenameRefreshTestSupport
 
         internal int CallCount { get; private set; }
 
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             CallCount++;
             phases?.Add("dialog");

@@ -74,12 +74,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     viewModel.RegularChartList.NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected), "drive root pending navigation");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var table = (CustomTableView)window.FindName("customTableView");
-                ChangeCandidate(() => currentLibrary.RenameChartFolder(candidate, "Renamed"), Path.Combine(registeredRoot, "Renamed"));
+                ChangeCandidate(() => currentLibrary.RenameChartFolder(candidate, "Renamed", new LibraryOperationNotices()), Path.Combine(registeredRoot, "Renamed"));
                 LibraryChartRef[] movingCharts = [.. currentLibrary.BmsCharts
                     .Where(chart => string.Equals(Path.GetDirectoryName(chart.Path), candidate, StringComparison.OrdinalIgnoreCase))
                     .Select(chart => LibraryChartRef.FromChartFile(chart))];
                 Assert.AreEqual(1, movingCharts.Length);
-                ChangeCandidate(() => currentLibrary.MoveLibraryRootFolder(movingCharts, destinationRoot), Path.Combine(destinationRoot, "Renamed"));
+                ChangeCandidate(() => currentLibrary.MoveLibraryRootFolder(movingCharts, destinationRoot, new LibraryOperationNotices()), Path.Combine(destinationRoot, "Renamed"));
 
                 table.Width = 900d; table.Height = 220d; table.HeaderHeight = 0d; table.RowHeight = 70d;
                 viewModel.MainChartList.ColumnsSettings.InstallDst.Visibility = Visibility.Visible;

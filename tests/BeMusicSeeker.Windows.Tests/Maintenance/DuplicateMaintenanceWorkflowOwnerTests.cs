@@ -512,6 +512,125 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         });
     }
 
+    /// <summary>
+    /// Hash整理が未収束で拒否されたとき、拒否の理由の案内は論理Lの解放後に、UIの文脈の外から、操作のTaskの完了より前に所有者の窓口へ一件だけ依頼される。
+    /// 表示の完了を保留しても操作は完了し、窓口の失敗（失敗のTask・同期の例外）は操作の結果を変えず、モデルの窓口へは届かない。
+    /// 解放後の同期の表示、UIの文脈での依頼、表示の完了待ち、表示の失敗の伝播を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("requested")]
+    [DataRow("display-faulted")]
+    [DataRow("display-throws")]
+    [DataRow("shutdown")]
+    public async Task RunHashCleanupAsync_ConvergenceWarningIsRequestedOnceAfterAdmissionReleaseOffUi(string shape)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string keeperFolder = Path.Combine(root, "Keep");
+            string deletionFolder = Path.Combine(root, "Delete");
+            Directory.CreateDirectory(keeperFolder);
+            Directory.CreateDirectory(deletionFolder);
+            string keeperPath = Path.Combine(keeperFolder, "a.bms");
+            string deletionPath = Path.Combine(deletionFolder, "long-name.bms");
+            File.WriteAllText(keeperPath, "#PLAYER 1");
+            File.WriteAllText(deletionPath, "#PLAYER 1");
+            DateTime fixedDate = new(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(keeperPath, fixedDate);
+            File.SetLastWriteTimeUtc(deletionPath, fixedDate);
+            var modelDialogs = new FileDbReportRecordingDialogs();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), modelDialogs,
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false })
+            { BmsCharts = [CreateFile(new string('a', 32), keeperPath), CreateFile(new string('a', 32), deletionPath)], BmsonCharts = [] };
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(library.BmsCharts);
+            library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
+            var group = new DuplicateGroup([.. library.BmsCharts], [root]);
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
+            var probe = new OperationNoticeRequestProbe(() => TestUiDispatcherHost.Dispatcher.CheckAccess(), () =>
+            {
+                if (!gate.TryEnter(out IDisposable lease)) { return false; }
+                lease.Dispose();
+                return true;
+            })
+            {
+                Behavior = shape switch
+                {
+                    "display-faulted" => _ => Task.FromException<UiDialogResult>(new InvalidOperationException("display failed")),
+                    "display-throws" => _ => throw new InvalidOperationException("display failed"),
+                    _ => null
+                }
+            };
+            var activity = new ChartMutationActivityOwner();
+            var presentation = new RecordingPresentation([]);
+            // shutdown: 操作の中で案内を加えた後に終了を要求する（実モデルに決定的な差し込み点がないため、storeの偽物で再現する）。
+            IDuplicateMaintenanceStore store = shape == "shutdown"
+                ? new ShutdownAfterNoticeStore(new BmsLibraryDuplicateMaintenanceStore(), library)
+                : new BmsLibraryDuplicateMaintenanceStore();
+            var owner = new DuplicateMaintenanceWorkflowOwner(() => library, gate, activity, presentation, probe,
+                () => false, Directory.Exists, _ => new ExplorerOpenResult(), _ => DuplicateViewContext.ForGroup(@"C:\Songs\next"), store);
+            owner.WorkflowChanged += presentation.OnWorkflowChanged;
+            activity.ActivityChanged += presentation.OnActivityChanged;
+            Task<DuplicateMaintenanceMutationResult>? operation = null;
+            try
+            {
+                operation = owner.RunHashCleanupAsync(group, root);
+                try { await ConcurrencyProbe.AssertCompletesWhileHeldAsync(operation, "duplicate-cleanup-notice-display-held"); }
+                finally { probe.ReleaseAll(); }
+                await operation;
+                if (shape == "shutdown")
+                {
+                    Assert.AreEqual(0, probe.Requests.Count, "終了の要求の後は表示を依頼しない。");
+                    return;
+                }
+
+                string warning = BeMusicSeeker.Properties.Resources.Warn_CatalogFileMutationRequiresStartupScan;
+                Assert.AreEqual(1, probe.CountContaining(warning), "未収束の警告を一件だけ依頼する。");
+                OperationNoticeRequestProbe.Request notice = probe.Requests.Single(request => request.Message.MessageBoxText.Contains(warning, StringComparison.Ordinal));
+                Assert.IsFalse(notice.OnUiContext, "UIの文脈では依頼しない。");
+                Assert.IsTrue(notice.AdmissionsWereFree, "依頼の時点で論理Lは解放済み。");
+                Assert.AreEqual(0, modelDialogs.ModelMessages, "モデルの窓口へ届けない。");
+                Assert.IsTrue(File.Exists(deletionPath), "拒否した整理は物理変更を行わない。");
+                Assert.IsFalse(gate.IsActive);
+            }
+            finally
+            {
+                probe.ReleaseAll();
+                try { if (operation != null) { await operation; } }
+                finally
+                {
+                    owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+                    activity.ActivityChanged -= presentation.OnActivityChanged;
+                    library.RequestShutdown("duplicate-cleanup-notice-test");
+                }
+            }
+        });
+    }
+
+    /// <summary>削除の実行で案内を収集先へ加えた後に終了を要求し、確定事実は返さない（拒否と同じ形の）storeです。他の操作は内側のstoreへ委譲します。</summary>
+    private sealed class ShutdownAfterNoticeStore(IDuplicateMaintenanceStore inner, BMSLibrary library) : IDuplicateMaintenanceStore
+    {
+        public IDuplicateMaintenanceStore ForAcceptedOperation(LibraryFileMutationCapability capability)
+            => new ShutdownAfterNoticeStore(inner.ForAcceptedOperation(capability), library);
+
+        public bool TryBeginPhysicalMutation(BMSLibrary target, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease? lease)
+            => inner.TryBeginPhysicalMutation(target, paths, recursive, out lease);
+
+        public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(BMSLibrary target, string sourceDirectory, string destinationDirectory, long operationId, LibraryOperationNotices notices)
+            => inner.MergeFolderWithReceipt(target, sourceDirectory, destinationDirectory, operationId, notices);
+
+        public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary target, IReadOnlyList<ChartFile> charts)
+            => inner.PrepareChartRemoval(target, charts);
+
+        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary target, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action? publication)
+        {
+            publication = null;
+            notices.Add(new BMSLibrary.OperationDialogMessage("shutdown notice", "caption", UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK));
+            library.RequestShutdown("duplicate-cleanup-shutdown-test");
+            return null!;
+        }
+    }
+
     /// <summary>preparedと承認列を観測しつつ、処理結果は本番storeへ委譲します。</summary>
     private sealed class DelegatingPreparedStore : IDuplicateMaintenanceStore
     {
@@ -538,16 +657,16 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             observations.PrepareCount++;
             return observations.Prepared = inner.PrepareChartRemoval(library, charts);
         }
-        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, out Action? publication)
+        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action? publication)
         {
             publication = null;
             observations.ExecuteCount++;
             Assert.AreSame(observations.Prepared, prepared);
             observations.ApprovedPaths = approvedWholeFolderPaths;
-            return inner.RemoveCharts(library, prepared, approvedWholeFolderPaths, out publication);
+            return inner.RemoveCharts(library, prepared, approvedWholeFolderPaths, notices, out publication);
         }
-        public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId)
-            => inner.MergeFolderWithReceipt(library, sourceDirectory, destinationDirectory, operationId);
+        public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId, LibraryOperationNotices notices)
+            => inner.MergeFolderWithReceipt(library, sourceDirectory, destinationDirectory, operationId, notices);
     }
 
 }

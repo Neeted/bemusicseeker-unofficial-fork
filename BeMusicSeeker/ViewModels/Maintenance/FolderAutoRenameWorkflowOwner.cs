@@ -32,15 +32,19 @@ internal interface IFolderAutoRenameMutationPort
     /// <summary>準備済みの実移動が再生停止を必要とするかを返します。独立代替portは従来の停止を維持します。</summary>
     bool RequiresPlaybackStop => true;
 
+    /// <summary>選択した譜面のフォルダを改名します。拒否・失敗の案内は、この実行の収集先へ加えます。</summary>
     FolderAutoRenameExecutionResult RenameSelectedWithProgress(
         BMSLibrary library,
         ChartFolderAutoRenameRequest request,
-        IFolderAutoRenameProgressWriter progressWriter);
+        IFolderAutoRenameProgressWriter progressWriter,
+        LibraryOperationNotices notices);
 
+    /// <summary>範囲内の全フォルダを改名します。拒否・失敗の案内は、この実行の収集先へ加えます。</summary>
     AutoRenameBatchResult RenameAllWithReceiptWithProgress(
         BMSLibrary library,
         string parentDirectory,
-        IFolderAutoRenameProgressWriter progressWriter);
+        IFolderAutoRenameProgressWriter progressWriter,
+        LibraryOperationNotices notices);
 }
 
 internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRenameMutationPort
@@ -79,13 +83,15 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
     public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
         BMSLibrary library,
         ChartFolderAutoRenameRequest request,
-        IFolderAutoRenameProgressWriter progressWriter)
+        IFolderAutoRenameProgressWriter progressWriter,
+        LibraryOperationNotices notices)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
+        ArgumentNullException.ThrowIfNull(notices);
         AutoRenameBatchResult result = library?.AutoRenameChartFoldersWithProgress(
             request?.Charts ?? [],
             renameRootFolder: false,
-            progressWriter, reportAtTerminal: true, capability: capability, preparedBatch: preparedBatch)
+            progressWriter, notices, reportAtTerminal: true, capability: capability, preparedBatch: preparedBatch)
             ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
         return FolderAutoRenameExecutionResult.From(result);
     }
@@ -93,12 +99,14 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
     public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
         BMSLibrary library,
         string parentDirectory,
-        IFolderAutoRenameProgressWriter progressWriter)
+        IFolderAutoRenameProgressWriter progressWriter,
+        LibraryOperationNotices notices)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
+        ArgumentNullException.ThrowIfNull(notices);
         return library?.AutoRenameAllChartFoldersWithProgress(
             parentDirectory,
-            progressWriter, reportAtTerminal: true, capability: capability, preparedBatch: preparedBatch)
+            progressWriter, notices, reportAtTerminal: true, capability: capability, preparedBatch: preparedBatch)
             ?? new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty);
     }
 }
@@ -595,7 +603,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
                             operationPort.RenameAllWithReceiptWithProgress(
                                 run.Library,
                                 run.ParentDirectory,
-                                run.ProgressWriter));
+                                run.ProgressWriter,
+                                run.Notices));
                     },
                     refreshSuppression: true,
                     releaseAcquiredOperationGate: false))
@@ -614,7 +623,8 @@ internal sealed class FolderAutoRenameWorkflowOwner
                         result = operationPort.RenameSelectedWithProgress(
                             run.Library,
                             run.SelectedRequest,
-                            run.ProgressWriter);
+                            run.ProgressWriter,
+                            run.Notices);
                     },
                     refreshSuppression: true,
                     releaseAcquiredOperationGate: false))
@@ -654,7 +664,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
         bool releaseAcquiredOperationGate = true)
     {
         BMSLibrary library = run.Library;
-        BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         IDisposable operationGate = run.OperationGate;
         bool ownsOperationGate = operationGate == null;
@@ -676,7 +685,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
             else
             {
                 if (stopPlayback) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
-                dialogScope = library.BeginOperationDialogScope();
                 suppressionStarted = refreshSuppression;
                 if (suppressionStarted)
                 {
@@ -705,11 +713,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
             if (activityLease != null)
             {
                 CaptureCleanupFailure(activityLease.Dispose, failures);
-            }
-            if (dialogScope != null)
-            {
-                CaptureCleanupFailure(dialogScope.Dispose, failures);
-                CaptureCleanupFailure(dialogScope.Flush, failures);
             }
             try { await acceptedPreparation.ConfigureAwait(false); }
             catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
@@ -911,8 +914,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 InvokeObserverSafely(() => ProgressChanged?.Invoke(CloneProgress(terminalProgress)));
             }
             InvokeObserverSafely(() => CompletionPublished?.Invoke(receipt));
-            InvokeObserverSafely(() => TerminalPublished?.Invoke());
-            FinishTerminalPublication(run);
+            ReleaseAndPublishTerminal(run);
         });
         if (!dispatched)
         {
@@ -971,13 +973,46 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 InvokeObserverSafely(() => ProgressChanged?.Invoke(CloneProgress(terminalProgress)));
             }
             InvokeObserverSafely(() => FailurePublished?.Invoke(failure));
-            InvokeObserverSafely(() => TerminalPublished?.Invoke());
-            FinishTerminalPublication(run);
+            ReleaseAndPublishTerminal(run);
         });
         if (!dispatched)
         {
             FinishTerminalPublication(run);
         }
+    }
+
+    /// <summary>
+    /// 完了・失敗の通知（受付を保持したまま発行）の後に、実行の論理Lと対象別Pを解放し、集めた案内の表示を依頼してから、終端を発行します。
+    /// 案内の依頼は UI の外から行い、抑止の判定と最初の組の依頼が済むまでを待ちます。表示の完了は待たないので、終端は表示の保留中にも発行されます。
+    /// 案内がなければ待たずに、同じ UI の配送の中で終端を発行します。UI スレッドは依頼の発行を同期で待たず、継続で終端を配送します。
+    /// </summary>
+    private void ReleaseAndPublishTerminal(RunContext run)
+    {
+        ReleaseOperationGate(run);
+        Task requested = FileDbMutationReport.BeginRequestOperationNotices(
+            dialogs, run.Notices, () => !IsCurrentGeneration(run) || run.Library.IsShutdownRequested, "folderAutoRename");
+        if (requested.IsCompleted)
+        {
+            PublishTerminal(run);
+            return;
+        }
+        _ = requested.ContinueWith(
+            _ =>
+            {
+                if (!DispatchNotification(() => PublishTerminal(run)))
+                {
+                    FinishTerminalPublication(run);
+                }
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void PublishTerminal(RunContext run)
+    {
+        InvokeObserverSafely(() => TerminalPublished?.Invoke());
+        FinishTerminalPublication(run);
     }
 
     private void FinishTerminalPublication(RunContext run)
@@ -1265,6 +1300,9 @@ internal sealed class FolderAutoRenameWorkflowOwner
         internal IDisposable OperationGate;
         internal LibraryFileMutationLease PlaylistLease;
         internal IFolderAutoRenameMutationPort PreparedPort;
+
+        /// <summary>この実行が集める案内の収集先です。事前処理と本体の両方の案内が、一つの列として終端の解放後に表示されます。</summary>
+        internal LibraryOperationNotices Notices { get; } = new();
 
         internal FolderAutoRenameProgressSnapshot LastProgress { get; set; }
 

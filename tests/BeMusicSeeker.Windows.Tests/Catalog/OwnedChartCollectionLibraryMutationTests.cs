@@ -48,7 +48,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 ChartFile[] retained = [bms[0], bms[1], bmson[2]];
                 LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(selected.Select(chart => LibraryChartRef.FromChartFile(chart)));
                 Assert.AreEqual(0, prepared.WholeFolderCandidatePaths.Count);
-                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(prepared, false, []);
+                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(prepared, false, [], new LibraryOperationNotices());
                 Assert.IsFalse(outcome.HasError);
                 CollectionAssert.AreEquivalent(selected.Select(chart => chart.Path).ToArray(), outcome.Targets
                     .Where(target => target.State == LibraryChartRemovalState.Confirmed).Select(target => target.Path).ToArray());
@@ -120,7 +120,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 StringAssert.Contains(prepared.GetWholeFolderConfirmationMessage(success), child);
                 LibraryChartRemovalOutcome result;
                 using (failRegistration ? File.Open(configPath, FileMode.Open, FileAccess.Read, FileShare.Read) : null)
-                { result = library.RemoveLibraryCharts(prepared, false, [success, failed, missing]); }
+                { result = library.RemoveLibraryCharts(prepared, false, [success, failed, missing], new LibraryOperationNotices()); }
                 Assert.AreEqual(1, result.ConfirmedChartCount);
                 Assert.IsFalse(Directory.Exists(success));
                 Assert.IsFalse(Directory.Exists(failed));
@@ -182,7 +182,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 { foreach (ChartFile file in charts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song)); } }
                 LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(charts.Select(chart => LibraryChartRef.FromChartFile(chart)));
                 LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false,
-                    condition == "no" ? [] : condition == "mixed" ? [scope, free] : [scope]);
+                    condition == "no" ? [] : condition == "mixed" ? [scope, free] : [scope], new LibraryOperationNotices());
                 Assert.AreEqual(condition == "no" || condition == "mixed" ? 1 : 0, result.ConfirmedChartCount);
                 Assert.AreEqual(condition != "no", File.Exists(chart.Path));
                 Assert.IsTrue(Directory.Exists(scope)); Assert.IsTrue(Directory.Exists(install));
@@ -239,7 +239,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             {
                 LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(library.BmsCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
                 CollectionAssert.AreEquivalent(new[] { ancestor, free }, prepared.WholeFolderCandidatePaths.ToArray());
-                LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false, wholeChild ? [ancestor, free] : [ancestor]);
+                LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false, wholeChild ? [ancestor, free] : [ancestor], new LibraryOperationNotices());
                 Assert.AreEqual(1, result.ConfirmedChartCount);
                 Assert.AreEqual(LibraryChartRemovalState.NotExecuted, result.Targets.Single(target => target.Path == parent.Path).State);
                 Assert.IsNotNull(result.Targets.Single(target => target.Path == parent.Path).Failure);
@@ -308,7 +308,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             {
                 LibraryChartRemovalPreflight prepared = library.PrepareLibraryChartRemoval(library.BmsCharts.Select(chart => LibraryChartRef.FromChartFile(chart)));
                 CollectionAssert.AreEquivalent(new[] { middle, guarded, free }, prepared.WholeFolderCandidatePaths.ToArray());
-                LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false, [middle, guarded, free]);
+                LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(prepared, false, [middle, guarded, free], new LibraryOperationNotices());
                 Assert.AreEqual(1, result.ConfirmedChartCount);
                 foreach (ChartFile kept in charts.Take(2))
                 {
@@ -394,7 +394,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
                 { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); }
                 LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(
-                    library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, [removed]);
+                    library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, [removed], new LibraryOperationNotices());
                 Assert.AreEqual(1, result.ConfirmedChartCount);
                 Assert.IsFalse(Directory.Exists(removed));
                 Settings fresh = TestSettingsFactory.OpenSettings(configPath);
@@ -535,7 +535,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             before.DirectoryLookupCache.EntryStoreMutationObserver = path => entryMutations.Add(path);
 
             LibraryChartRemovalOutcome result = library.RemoveLibraryCharts(
-                library.PrepareLibraryChartRemoval(files.Select(chart => LibraryChartRef.FromChartFile((chart)))), recycle, folders);
+                library.PrepareLibraryChartRemoval(files.Select(chart => LibraryChartRef.FromChartFile((chart)))), recycle, folders, new LibraryOperationNotices());
 
             Assert.AreEqual(2, result.ConfirmedChartCount);
             Assert.IsTrue(result.CatalogDurable);
@@ -633,7 +633,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((file))]),
                 false,
-                [folder]);
+                [folder], new LibraryOperationNotices());
 
             Assert.IsFalse(File.Exists(chartPath));
             Assert.IsFalse(Directory.Exists(folder));
@@ -702,7 +702,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             }
 
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
-                library.PrepareLibraryChartRemoval(files.Select(chart => LibraryChartRef.FromChartFile((chart)))), false, [partialDirectory]);
+                library.PrepareLibraryChartRemoval(files.Select(chart => LibraryChartRef.FromChartFile((chart)))), false, [partialDirectory], new LibraryOperationNotices());
 
             Assert.AreEqual(1, outcome.ConfirmedChartCount);
             Assert.AreEqual(LibraryChartRemovalState.Confirmed, outcome.Targets.Single(target => target.Path == success).State);
@@ -812,7 +812,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 approvedFolders.Remove(child); // 利用者はこの子の譜面だけを削除する。
             }
 
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(prepared, recycle, approvedFolders);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(prepared, recycle, approvedFolders, new LibraryOperationNotices());
             bool allConfirmed = childState is 0 or 4;
 
             Assert.IsNotNull(outcome);
@@ -895,7 +895,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
 
             Assert.AreEqual(0, library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((selected))]).WholeFolderCandidatePaths.ToList().Count);
 
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((selected))]), false, []);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((selected))]), false, [], new LibraryOperationNotices());
 
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(1, outcome.ConfirmedChartCount);
@@ -939,7 +939,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(canonical), typeof(LR2SongDB.song));
             }
 
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), pathOnly, [folder]);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), pathOnly, [folder], new LibraryOperationNotices());
 
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(1, outcome.ConfirmedChartCount);
@@ -986,7 +986,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((lower)), LibraryChartRef.FromChartFile((upper))]),
                 false,
-                [folder]);
+                [folder], new LibraryOperationNotices());
 
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(2, outcome.ConfirmedChartCount);
@@ -1040,7 +1040,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((canonical)), LibraryChartRef.FromChartFile((alias))]),
                 false,
-                []);
+                [], new LibraryOperationNotices());
 
             Assert.IsFalse(outcome.HasError);
             Assert.AreEqual(2, outcome.ConfirmedChartCount);
@@ -1095,7 +1095,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((canonical)), LibraryChartRef.FromChartFile((alias))]),
                 false,
-                []);
+                [], new LibraryOperationNotices());
 
             Assert.IsTrue(outcome.HasError);
             Assert.AreEqual(0, outcome.ConfirmedChartCount);
@@ -1194,7 +1194,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, filesystem, new FileDbReportRecordingDialogs())
             { BmsCharts = [canonical], BmsonCharts = [] };
 
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), false, [folder]);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), false, [folder], new LibraryOperationNotices());
 
             Assert.AreEqual(0, outcome.ConfirmedChartCount);
             Assert.IsTrue(outcome.HasError);
@@ -1270,7 +1270,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 ChartFile current = library.BmsCharts.Single();
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs([current]);
                 Assert.AreEqual(change == 0 ? 1 : 0, library.PrepareLibraryChartRemoval([selected]).WholeFolderCandidatePaths.ToList().Count);
-                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), false, []);
+                LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([selected]), false, [], new LibraryOperationNotices());
                 Assert.AreEqual(0, dialogs.CallCount);
                 Assert.AreEqual(change == 0 ? 1 : 0, outcome.ConfirmedChartCount);
                 Assert.AreEqual(0, filesystem.DirectoryDeleteCalls);
@@ -1339,9 +1339,9 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 OwnedChartHashIndexSnapshot hashes = owner.Collection.CreateOwnedHashIndexSnapshot();
                 var prepared = new LibraryChartRemovalPreflight([first, retired], [], [], 2, 0);
 
-                ArgumentException deleteFailure = Assert.ThrowsExactly<ArgumentException>(() => library.RemoveLibraryCharts(prepared, false, []));
+                ArgumentException deleteFailure = Assert.ThrowsExactly<ArgumentException>(() => library.RemoveLibraryCharts(prepared, false, [], new LibraryOperationNotices()));
                 ArgumentException renameFailure = Assert.ThrowsExactly<ArgumentException>(() => library.RenameBMSFilesExtensionsWithReceipt(
-                    [new LibraryFileExtensionRenameBatch([first], ".bmx"), new LibraryFileExtensionRenameBatch([retired], ".pmx")]));
+                    [new LibraryFileExtensionRenameBatch([first], ".bmx"), new LibraryFileExtensionRenameBatch([retired], ".pmx")], new LibraryOperationNotices()));
 
                 StringAssert.Contains(deleteFailure.Message, BeMusicSeeker.Properties.Resources.Error_PreparedChartTargetMismatch);
                 StringAssert.Contains(renameFailure.Message, BeMusicSeeker.Properties.Resources.Error_PreparedChartTargetMismatch);
@@ -1393,7 +1393,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 ChartFile oldDigest = current with { Md5 = new string('a', 32), Sha256 = new string('d', 64) };
                 var prepared = new LibraryFileExtensionRenameBatch([oldDigest], ".bmx");
 
-                LibraryMutationSessionReceipt receipt = library.RenameBMSFilesExtensionsWithReceipt([prepared], unregister: false);
+                LibraryMutationSessionReceipt receipt = library.RenameBMSFilesExtensionsWithReceipt([prepared], new LibraryOperationNotices(), unregister: false);
 
                 Assert.IsTrue(receipt.DurableCommit);
                 Assert.AreEqual(1, receipt.ConfirmedChangeCount);
@@ -1454,7 +1454,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
 
             CollectionAssert.AreEqual(new[] { folder }, library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((chart))]).WholeFolderCandidatePaths.ToList());
 
-            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, deleteWholeFolder ? [folder] : []);
+            LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(chart)]), false, deleteWholeFolder ? [folder] : [], new LibraryOperationNotices());
 
             Assert.AreEqual(0, dialogs.CallCount);
             Assert.AreEqual(1, outcome.ConfirmedChartCount);
@@ -1527,7 +1527,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(initialSnapshot[0])]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removal.HasError);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
@@ -1687,7 +1687,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((first))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removal.HasError);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
 
@@ -1814,7 +1814,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(
                     library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((file))]),
                     sendToRecycleBin: false,
-                    approvedWholeFolderDeletePaths: [folder]);
+                    approvedWholeFolderDeletePaths: [folder], notices: new LibraryOperationNotices());
 
                 Assert.IsFalse(outcome.HasError);
                 Assert.IsTrue(outcome.CatalogDurable);
@@ -1949,7 +1949,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
                 library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile((bmsFile))]),
                 sendToRecycleBin: false,
-                approvedWholeFolderDeletePaths: []);
+                approvedWholeFolderDeletePaths: [], notices: new LibraryOperationNotices());
             Assert.IsFalse(removal.HasError);
 
             ResourceHealthIndexSnapshot afterSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
@@ -1990,6 +1990,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     oldDirectoryPath,
                     "New",
+                    new LibraryOperationNotices(),
                     unregister: false,
                     renameRootFolder: false);
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
@@ -2072,6 +2073,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(
                     oldDirectoryPath,
                     "New",
+                    new LibraryOperationNotices(),
                     unregister: false,
                     renameRootFolder: false);
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
@@ -2113,7 +2115,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
     {
         internal int CallCount { get; private set; }
 
-        public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button,
+        public UiDialogDefaultResult Confirm(string messageBoxText, string caption, UiDialogButton button,
             UiDialogIcon icon, UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {
             CallCount++;

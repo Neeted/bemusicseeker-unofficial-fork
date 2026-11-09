@@ -184,7 +184,7 @@ internal static class SelectedChartMutationWorkflowOwnerTestSupport
 
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
 
-        public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderDeletePaths, out Action? publication)
+        public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderDeletePaths, LibraryOperationNotices notices, out Action? publication)
         {
             publication = null;
             IReadOnlyList<LibraryChartRef> charts = prepared.Targets.Select(chart => LibraryChartRef.FromChartFile(chart)).ToArray();
@@ -196,7 +196,7 @@ internal static class SelectedChartMutationWorkflowOwnerTestSupport
             return RemovalOutcome ?? new LibraryChartRemovalOutcome(charts.Select(chart => new LibraryChartRemovalTarget(chart.Path, LibraryChartRemovalState.Confirmed)), true, true);
         }
 
-        public void RemovePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, bool sendToRecycleBin, bool deleteContainingPackageFoldersWhenNoBms)
+        public void RemovePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, bool sendToRecycleBin, bool deleteContainingPackageFoldersWhenNoBms, LibraryOperationNotices notices)
         {
             ThrowIfConfigured();
             PendingDeleteCalls++;
@@ -206,7 +206,8 @@ internal static class SelectedChartMutationWorkflowOwnerTestSupport
 
         public virtual LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
             BMSLibrary library,
-            IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
+            IReadOnlyList<LibraryFileExtensionRenameBatch> batches,
+            LibraryOperationNotices notices)
         {
             ThrowIfConfigured();
             events?.Add("store-library-rename");
@@ -215,7 +216,7 @@ internal static class SelectedChartMutationWorkflowOwnerTestSupport
             return LibraryMutationSessionReceipt.Empty;
         }
 
-        public void RenamePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension)
+        public void RenamePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension, LibraryOperationNotices notices)
         {
             ThrowIfConfigured();
             events?.Add("store-pending-rename");
@@ -224,7 +225,8 @@ internal static class SelectedChartMutationWorkflowOwnerTestSupport
         }
 
         public virtual LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(
-            BMSLibrary library, ChartLibraryMoveRequest request)
+            BMSLibrary library, ChartLibraryMoveRequest request,
+            LibraryOperationNotices notices)
         {
             ThrowIfConfigured();
             events?.Add("store-move");

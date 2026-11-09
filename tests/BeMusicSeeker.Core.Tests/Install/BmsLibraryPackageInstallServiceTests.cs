@@ -188,7 +188,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartFile known = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(CreateBmsFile(destination + "-renamed", "known.bms", "#TITLE Known")));
                 library.BmsCharts = [known];
                 BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db => db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(known), typeof(LR2SongDB.song)));
-                Assert.IsTrue(library.SetPendingInstallDestination(package.ChartEntries.Single(), destination + "-renamed", false));
+                Assert.IsTrue(library.SetPendingInstallDestination(package.ChartEntries.Single(), destination + "-renamed", false, new LibraryOperationNotices()));
                 PendingInstallBatchResult accepted = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
                 Assert.IsTrue(accepted.SessionReceipt.DurableCommit, accepted.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.AreEqual(0, library.ChartPackagesPending.Count);

@@ -79,8 +79,8 @@ public sealed class BmsLibraryStateApplierTests
                 var index = new LibraryResourceIndex();
                 foreach (string directory in new[] { source, survivor, outside }) { index.DirectoryLookupCache.AddDir(directory, ["candidate.wav"]); }
                 LibraryResourceIndexTestSupport.GetOwner(library).Replace(index);
-                Assert.IsTrue(library.SetPendingInstallDestination(entries[0], source, false));
-                Assert.IsTrue(library.SetPendingInstallDestination(entries[1], outside, false));
+                Assert.IsTrue(library.SetPendingInstallDestination(entries[0], source, false, new LibraryOperationNotices()));
+                Assert.IsTrue(library.SetPendingInstallDestination(entries[1], outside, false, new LibraryOperationNotices()));
                 for (int i = 0; i < entries.Length; i++)
                 {
                     ChartFile chart = entries[i].Chart;
@@ -158,7 +158,7 @@ public sealed class BmsLibraryStateApplierTests
     /// <summary>有効な手動DSTを拒否する不備を画面待ちへ変えず、局所試験の失敗として観測します。</summary>
     private sealed class UnexpectedDialogService : IBmsLibraryDialogService
     {
-        public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
+        public UiDialogDefaultResult Confirm(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
             UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
             => throw new AssertFailedException("有効な手動導入先を拒否しません: " + messageBoxText);
 

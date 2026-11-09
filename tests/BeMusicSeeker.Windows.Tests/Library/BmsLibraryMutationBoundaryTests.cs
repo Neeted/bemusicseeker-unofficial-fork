@@ -75,12 +75,12 @@ public sealed class BmsLibraryMutationBoundaryTests
                 if (disable)
                 {
                     LibraryMutationSessionReceipt receipt = library.RenameBMSFilesExtensionsWithReceipt(
-                        [library.PrepareLibraryFileExtensionRenameBatch([selected], ".disabled")], unregister: true);
+                        [library.PrepareLibraryFileExtensionRenameBatch([selected], ".disabled")], new LibraryOperationNotices(), unregister: true);
                     Assert.IsFalse(receipt.HasRequiredFailure);
                 }
                 else
                 {
-                    LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(selected)]), false, []);
+                    LibraryChartRemovalOutcome outcome = library.RemoveLibraryCharts(library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(selected)]), false, [], new LibraryOperationNotices());
                     Assert.IsFalse(outcome.HasError);
                 }
                 LibraryResourceIndexSnapshot current = owner.CaptureSnapshot();
@@ -120,11 +120,12 @@ public sealed class BmsLibraryMutationBoundaryTests
     }
 
     /// <summary>
-    /// 保証：同じ操作scopeの確認不要警告は重複を集約してFlushまで保留し、実通知には対象パスを保持する。
+    /// 保証：モデルのOKだけの警告は、操作の収集先へ重複を除いて加わり、モデルの窓口へは同期にも待たない投函でも届かない。
+    /// 実通知には対象パスを保持する。
     /// </summary>
-    /// <remarks>実ライブラリのフォルダ変更から警告を生産し、dialog scopeとの実接続と集約を確認する。</remarks>
+    /// <remarks>実ライブラリのフォルダ変更から警告を生産し、収集先への実接続と重複の除去を確認する。同期の即時表示や投函へ落ちる誤りを検出する。</remarks>
     [TestMethod]
-    public void OperationDialogScope_QueuesOkMessagesUntilFlush()
+    public void RenameChartFolder_AddsOkNoticeToOperationCollectorWithoutModelDisplay()
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -133,48 +134,16 @@ public sealed class BmsLibraryMutationBoundaryTests
             var dialogService = new RecordingDialogService();
             var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService);
             string missingDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MutationBoundary_" + Guid.NewGuid().ToString("N"));
+            var notices = new LibraryOperationNotices();
 
-            using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
-            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder");
-            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder");
+            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder", notices);
+            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder", notices);
 
-            Assert.AreEqual(0, dialogService.CallCount);
-            Assert.AreEqual(1, scope.Messages.Count);
-            scope.Flush();
-            Assert.AreEqual(1, dialogService.CallCount);
-            StringAssert.Contains(dialogService.GetCall(0).Message, missingDirectoryPath);
-        });
-    }
-
-    /// <summary>
-    /// 保証：強制導入を明示的に不承認としたら変更scope内でも再確認せず、対象保留パッケージを保持する。
-    /// </summary>
-    /// <remarks>実強制導入入口で事前決定とdialog scopeの接続を確認する。</remarks>
-    [TestMethod]
-    public void ForceInstallPendingPackages_WithExplicitOverrideDecisionDoesNotPromptInsideMutationScope()
-    {
-        var databaseScope = new ApplicationDatabaseScope();
-
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var dialogService = new RecordingDialogService();
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService);
-            ChartFile pendingFile = ChartTestValues.Empty() with
-            {
-                Path = "C:\\Pending\\Pkg\\chart.bms"
-            };
-            var pendingPackage = ChartPackage.FromChartEntries(
-                [ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Installed\\Pkg")]);
-            pendingPackage.path = "C:\\Pending\\Pkg";
-            pendingPackage.delete_parent = false;
-            library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);
-
-            using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
-            library.ForceInstallPendingPackages([pendingPackage], approveNormalInstallOverride: false, notices: new LibraryOperationNotices());
-            scope.Flush();
-
-            Assert.AreEqual(0, dialogService.CallCount);
-            Assert.AreSame(pendingPackage, library.ChartPackagesPending.Single());
+            Assert.AreEqual(0, dialogService.CallCount, "モデルの窓口へ同期に表示しない。");
+            Assert.AreEqual(0, dialogService.Posted.Count, "モデルの窓口へ投函しない。");
+            IReadOnlyList<BMSLibrary.OperationDialogMessage> collected = notices.Snapshot();
+            Assert.AreEqual(1, collected.Count, "同じ警告は一件へまとめる。");
+            StringAssert.Contains(collected[0].MessageBoxText, missingDirectoryPath);
         });
     }
 
@@ -230,7 +199,8 @@ public sealed class BmsLibraryMutationBoundaryTests
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease));
             try
             {
-                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(sourceDirectory, newName);
+                var notices = new LibraryOperationNotices();
+                LibraryMutationSessionReceipt receipt = library.RenameChartFolderWithReceipt(sourceDirectory, newName, notices);
                 if (intersection == "disjoint")
                 {
                     Assert.AreEqual(1, receipt.ConfirmedChangeCount);
@@ -242,11 +212,13 @@ public sealed class BmsLibraryMutationBoundaryTests
                     Assert.AreEqual(0, receipt.ConfirmedChangeCount);
                     Assert.IsTrue(File.Exists(path));
                     Assert.IsFalse(Directory.Exists(destinationDirectory));
-                    Assert.IsTrue(dialogs.CallCount > 0);
+                    Assert.IsTrue(notices.Snapshot().Count > 0, "拒否の理由は操作の収集先へ加わる。");
+                    Assert.AreEqual(0, dialogs.CallCount, "モデルの窓口へ同期に表示しない。");
+                    Assert.AreEqual(0, dialogs.Posted.Count, "モデルの窓口へ投函しない。");
                     using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
                     { Assert.AreEqual(path, db.Table<LR2SongDB.song>().Single().path); }
                     playlistLease.Dispose();
-                    receipt = library.RenameChartFolderWithReceipt(sourceDirectory, newName);
+                    receipt = library.RenameChartFolderWithReceipt(sourceDirectory, newName, new LibraryOperationNotices());
                     Assert.AreEqual(1, receipt.ConfirmedChangeCount);
                     Assert.IsFalse(File.Exists(path));
                     Assert.IsTrue(File.Exists(Path.Combine(destinationDirectory, "chart.bms")));
@@ -305,7 +277,7 @@ public sealed class BmsLibraryMutationBoundaryTests
             }
         }
 
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
         {
             lock (lockObject)
             {

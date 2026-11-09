@@ -386,7 +386,7 @@ internal static class PlaybackPanelTestSupport
             BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension) => throw new NotSupportedException();
         /// <summary>準備対象と許可されたフォルダを実削除し、確定結果を返します。</summary>
         public LibraryChartRemovalOutcome RemoveLibraryCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared,
-            IReadOnlyList<string> approvedWholeFolderDeletePaths, out Action? publication)
+            IReadOnlyList<string> approvedWholeFolderDeletePaths, LibraryOperationNotices notices, out Action? publication)
         {
             publication = null;
             IReadOnlyList<LibraryChartRef> charts = prepared.Targets.Select(chart => LibraryChartRef.FromChartFile(chart)).ToArray();
@@ -396,13 +396,13 @@ internal static class PlaybackPanelTestSupport
             return new LibraryChartRemovalOutcome(charts.Select(chart => new LibraryChartRemovalTarget(chart.Path, LibraryChartRemovalState.Confirmed)), true, true);
         }
         /// <summary>このfixtureで対象外の保留譜面削除を拒否します。</summary>
-        public void RemovePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, bool sendToRecycleBin, bool deleteContainingPackageFoldersWhenNoBms) => throw new NotSupportedException();
+        public void RemovePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, bool sendToRecycleBin, bool deleteContainingPackageFoldersWhenNoBms, LibraryOperationNotices notices) => throw new NotSupportedException();
         /// <summary>このfixtureで対象外のライブラリ譜面改名を拒否します。</summary>
-        public LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(BMSLibrary library, IReadOnlyList<LibraryFileExtensionRenameBatch> batches) => throw new NotSupportedException();
+        public LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(BMSLibrary library, IReadOnlyList<LibraryFileExtensionRenameBatch> batches, LibraryOperationNotices notices) => throw new NotSupportedException();
         /// <summary>このfixtureで対象外の保留譜面改名を拒否します。</summary>
-        public void RenamePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension) => throw new NotSupportedException();
+        public void RenamePendingCharts(BMSLibrary library, IReadOnlyList<ChartFile> charts, string newExtension, LibraryOperationNotices notices) => throw new NotSupportedException();
         /// <summary>このfixtureで対象外のライブラリ譜面移動を拒否します。</summary>
-        public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request) => throw new NotSupportedException();
+        public LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request, LibraryOperationNotices notices) => throw new NotSupportedException();
         /// <summary>このfixtureで対象外の文字コード変更を拒否します。</summary>
         public void SetBMSFilesEncoding(BMSLibrary library, IReadOnlyList<ChartFile> bmsFiles, string encoding, IReadOnlyList<PackageChartEntry> pendingEntries) => throw new NotSupportedException();
     }

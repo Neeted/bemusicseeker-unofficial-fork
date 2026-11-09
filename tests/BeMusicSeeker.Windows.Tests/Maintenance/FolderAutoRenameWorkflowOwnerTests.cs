@@ -1784,6 +1784,149 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 [new LibraryMutationSessionTarget("source", "destination")],
                 durableCommit: true));
 
+    /// <summary>
+    /// 完了・失敗の通知は受付を保持したまま発行し、その後に受付を解放して、集めた案内をUIの文脈の外から依頼してから終端を発行する。
+    /// 表示の完了を保留しても終端とidleに到達し、窓口の失敗（失敗のTask・同期の例外）は終端の回数と結果を変えない。
+    /// 受付の保持中の同期の表示、UIの文脈での依頼、表示の完了待ち、依頼より前の終端、表示の失敗の伝播を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("success")]
+    [DataRow("failure")]
+    [DataRow("display-faulted")]
+    [DataRow("display-throws")]
+    public async Task Run_NoticesAreRequestedAfterAdmissionReleaseOffUiBeforeTerminalWithoutWaitingForDisplay(string shape)
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        FolderAutoRenameWorkflowOwner? owner = null;
+        OperationNoticeRequestProbe? probe = null;
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            var gate = new ChartFileOperationSynchronizer();
+            var events = new List<string>();
+            void Record(string name)
+            {
+                bool free = gate.TryEnter(out IDisposable? lease);
+                lease?.Dispose();
+                lock (events) { events.Add(name + (free ? ":free" : ":held")); }
+            }
+            probe = new OperationNoticeRequestProbe(() => TestUiDispatcherHost.Dispatcher.CheckAccess(), () => AdmissionIsFree(gate))
+            {
+                Behavior = _ =>
+                {
+                    lock (events) { events.Add("notice-request"); }
+                    return shape switch
+                    {
+                        "display-faulted" => Task.FromException<UiDialogResult>(new InvalidOperationException("display failed")),
+                        "display-throws" => throw new InvalidOperationException("display failed"),
+                        _ => null
+                    };
+                }
+            };
+            var port = new NoticeAddingFolderAutoRenameMutationPort(
+                notices => notices.Add(new BMSLibrary.OperationDialogMessage("auto rename notice", "caption", UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK)),
+                failAfterAdd: shape == "failure");
+            owner = new FolderAutoRenameWorkflowOwner(gate, new ChartMutationActivityOwner(), port, new NoOpChartMutationPlaybackPort(),
+                action => Task.Run(action), action => TestUiDispatcherHost.Dispatcher.BeginInvoke(action), probe);
+            owner.AttachLibrary(library);
+            var terminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            owner.CompletionPublished += _ => Record("completion");
+            owner.FailurePublished += _ => Record("failure");
+            owner.TerminalPublished += () => { Record("terminal"); terminal.TrySetResult(); };
+
+            await owner.RequestStartAllAsync(root);
+            await TestUiDispatcherHost.AwaitNotificationAsync(terminal.Task, owner.WaitForIdleAsync(), "folder-auto-rename.terminal-with-display-held");
+            await owner.WaitForIdleAsync();
+
+            string first = shape == "failure" ? "failure:held" : "completion:held";
+            CollectionAssert.AreEqual(new[] { first, "notice-request", "terminal:free" }, events.ToArray(),
+                "完了・失敗は受付の保持中に発行し、解放後に案内を依頼してから終端を発行する。");
+            OperationNoticeRequestProbe.Request request = probe.Requests.Single();
+            Assert.IsFalse(request.OnUiContext, "UIの文脈では依頼しない。");
+            Assert.IsTrue(request.AdmissionsWereFree, "依頼の時点で受付は解放済み。");
+            Assert.IsTrue(gate.TryEnter(out IDisposable next));
+            next.Dispose();
+        }
+        finally
+        {
+            probe?.ReleaseAll();
+            try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+            finally { DeleteRoot(root); }
+        }
+    }
+
+    /// <summary>
+    /// 受付の保持中に終了の要求または世代の失効があった実行は、終端を発行せず、集めた案内も依頼しない。
+    /// 失効した世代や終了中に表示を依頼する誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("request-shutdown")]
+    [DataRow("attach-library")]
+    public async Task Run_NoticesAreNotRequestedForStaleGenerationOrShutdown(string shape)
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        FolderAutoRenameWorkflowOwner? owner = null;
+        try
+        {
+            BMSLibrary library = CreateLibrary(root, "song.db");
+            string otherRoot = Path.Combine(root, "other");
+            Directory.CreateDirectory(otherRoot);
+            BMSLibrary other = CreateLibrary(otherRoot, "song.db");
+            var gate = new ChartFileOperationSynchronizer();
+            var probe = new OperationNoticeRequestProbe(() => TestUiDispatcherHost.Dispatcher.CheckAccess(), () => AdmissionIsFree(gate));
+            var port = new NoticeAddingFolderAutoRenameMutationPort(
+                notices =>
+                {
+                    notices.Add(new BMSLibrary.OperationDialogMessage("stale notice", "caption", UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK));
+                    if (shape == "request-shutdown") { owner!.RequestShutdown(); } else { owner!.AttachLibrary(other); }
+                },
+                failAfterAdd: false);
+            owner = new FolderAutoRenameWorkflowOwner(gate, new ChartMutationActivityOwner(), port, new NoOpChartMutationPlaybackPort(),
+                action => Task.Run(action), action => TestUiDispatcherHost.Dispatcher.BeginInvoke(action), probe);
+            owner.AttachLibrary(library);
+
+            await owner.RequestStartAllAsync(root);
+            await TestUiDispatcherHost.AwaitNotificationAsync(owner.WaitForIdleAsync(), owner.WaitForIdleAsync(), "folder-auto-rename.stale-idle");
+            await owner.WaitForIdleAsync();
+
+            Assert.AreEqual(0, probe.Requests.Count, "失効した世代と終了中は表示を依頼しない。");
+            Assert.IsTrue(gate.TryEnter(out IDisposable next));
+            next.Dispose();
+        }
+        finally
+        {
+            try { if (owner is not null) { await owner.WaitForIdleAsync(); } }
+            finally { DeleteRoot(root); }
+        }
+    }
+
+    private static bool AdmissionIsFree(ChartFileOperationSynchronizer gate)
+    {
+        if (!gate.TryEnter(out IDisposable lease)) { return false; }
+        lease.Dispose();
+        return true;
+    }
+
+    /// <summary>全フォルダの実行の中で収集先へ案内を加え、必要なら失敗で終えるportです。</summary>
+    private sealed class NoticeAddingFolderAutoRenameMutationPort(Action<LibraryOperationNotices> addNotices, bool failAfterAdd) : IFolderAutoRenameMutationPort
+    {
+        public bool HasTargets(BMSLibrary library, string parentDirectory) => true;
+
+        public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
+            BMSLibrary library, ChartFolderAutoRenameRequest request, IFolderAutoRenameProgressWriter progressWriter, LibraryOperationNotices notices)
+            => throw new AssertFailedException("selected route was not expected");
+
+        public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
+            BMSLibrary library, string parentDirectory, IFolderAutoRenameProgressWriter progressWriter, LibraryOperationNotices notices)
+        {
+            addNotices(notices);
+            if (failAfterAdd) { throw new IOException("auto rename failed"); }
+            return CreateCommittedRenameResult();
+        }
+    }
+
     private static FolderAutoRenameWorkflowOwner CreateOwner(
         Func<BMSLibrary, ChartFolderAutoRenameRequest, IFolderAutoRenameProgressWriter, FolderAutoRenameExecutionResult> executeSelected,
         Func<BMSLibrary, string, IFolderAutoRenameProgressWriter, AutoRenameBatchResult> executeAll,
@@ -1892,7 +2035,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            IFolderAutoRenameProgressWriter progressWriter)
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices)
         {
             this.progressWriter = progressWriter ?? throw new ArgumentNullException(nameof(progressWriter));
             for (int index = 1; index <= progressCount; index++)
@@ -1911,7 +2055,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            IFolderAutoRenameProgressWriter progressWriter)
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices)
         {
             throw new AssertFailedException("all route was not expected");
         }
@@ -1953,12 +2098,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            IFolderAutoRenameProgressWriter progressWriter) => executeSelected(library, request, progressWriter);
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices) => executeSelected(library, request, progressWriter);
 
         public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            IFolderAutoRenameProgressWriter progressWriter) => executeAll(library, parentDirectory, progressWriter);
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices) => executeAll(library, parentDirectory, progressWriter);
     }
 
     private sealed class TerminalFolderAutoRenameMutationPort :
@@ -1984,13 +2131,15 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            IFolderAutoRenameProgressWriter progressWriter) =>
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices) =>
             throw new AssertFailedException("selected route was not expected");
 
         public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            IFolderAutoRenameProgressWriter progressWriter)
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices)
         {
             RenameAllWithReceiptWithProgressCallCount++;
             return result;

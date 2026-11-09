@@ -333,8 +333,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.AreEqual(includeChild ? 1 : 0, library.GetNormalLibraryRefreshNotificationsAfter(initialVersion).CatalogCommits.Count);
                 Assert.IsFalse(library.OperationAdmission.IsActive);
                 Assert.IsFalse(activity.IsActive);
-                Assert.AreEqual(1, modelDialogs.Messages.Count);
-                StringAssert.Contains(modelDialogs.Messages.Single(), string.Format(BeMusicSeeker.Properties.Resources.Warn_CannotMoveRegisteredBmsRoot, source));
+                Assert.AreEqual(0, modelDialogs.Messages.Count + modelDialogs.Posted.Count, "モデルの窓口へ同期にも投函でも届けない。");
+                UiMessageRequest rootNotice = dialogs.Messages.Single(message => message.MessageBoxText.Contains(
+                    string.Format(BeMusicSeeker.Properties.Resources.Warn_CannotMoveRegisteredBmsRoot, source), StringComparison.Ordinal));
+                Assert.AreEqual(MessageBoxImage.Error, rootNotice.Icon, "拒否は移動の失敗の案内として、所有者の窓口へ一件だけ依頼する。");
                 AssertState(moved: includeChild);
                 CollectionAssert.AreEqual(savedSettings, File.ReadAllBytes(settingsPath), "登録の保存や暗黙書換えを行いません。");
                 Settings saved = TestSettingsFactory.OpenSettings(settingsPath);
@@ -376,6 +378,119 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             static ChartOperationTarget Target(ChartFile chart) => new(chart, null, ChartOperationSourceScope.Library,
                 true, false, false, ChartOperationCapabilities.MoveInLibrary);
         });
+    }
+
+    /// <summary>
+    /// 操作が集めた案内は、重複を除いて見出しごとに一件で、論理Lの解放後に、UIの文脈の外から、操作のTaskの完了より前に所有者の窓口へ依頼される。
+    /// 表示の完了を保留しても操作は完了し、成功でも例外でも依頼する。窓口の失敗（失敗のTask・同期の例外）は操作の結果を変えない。
+    /// Lの保持中の同期の表示、UIの文脈での依頼、表示の完了待ち、例外の経路での取りこぼし、表示の失敗の伝播を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("success")]
+    [DataRow("store-throws")]
+    [DataRow("display-faulted")]
+    [DataRow("display-throws")]
+    public async Task MoveAsync_CollectedNoticesAreRequestedOnceAfterAdmissionReleaseOffUiBeforeCompletion(string shape)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            var modelDialogs = new FileDbReportRecordingDialogs();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, modelDialogs);
+            var probe = new OperationNoticeRequestProbe(() => TestUiDispatcherHost.Dispatcher.CheckAccess(), () => AdmissionIsFree(library))
+            {
+                Behavior = shape switch
+                {
+                    "display-faulted" => _ => Task.FromException<UiDialogResult>(new InvalidOperationException("display failed")),
+                    "display-throws" => _ => throw new InvalidOperationException("display failed"),
+                    _ => null
+                }
+            };
+            var store = new NoticeInjectingStore { PlanRoot = Path.GetDirectoryName(songDbPath)!, ThrowAfterAdd = shape == "store-throws" };
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                new ChartMutationActivityOwner(), new RecordingPresentation(), probe, AcceptedMessageDialogs(), store);
+            Task<SelectedChartMutationResult> operation = owner.MoveAsync(new SelectedChartMoveRequest(
+                [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
+            try { await ConcurrencyProbe.AssertCompletesWhileHeldAsync(operation, "selected-move-notice-display-held"); }
+            finally { probe.ReleaseAll(); }
+            SelectedChartMutationResult result = await operation;
+
+            IReadOnlyList<OperationNoticeRequestProbe.Request> requests = probe.Requests;
+            Assert.AreEqual(1, probe.CountContaining(NoticeInjectingStore.NoticeText), "重複は一件へまとめる。");
+            Assert.IsTrue(requests.All(request => !request.OnUiContext), "UIの文脈では依頼しない。");
+            Assert.IsTrue(requests.All(request => request.AdmissionsWereFree), "依頼の時点で論理Lと対象別Pは解放済み。");
+            Assert.AreEqual(0, modelDialogs.ModelMessages, "モデルの窓口へ届けない。");
+            Assert.AreEqual(shape != "store-throws", result.Succeeded, "表示の失敗は操作の結果を変えない。");
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            library.RequestShutdown("selected-move-notice-test");
+        });
+    }
+
+    /// <summary>終了の要求の後に集めた案内は、依頼せず診断へ残す。終了中に表示を依頼して、閉じたウィンドウへ待つ誤りを検出する。</summary>
+    [TestMethod]
+    public async Task MoveAsync_CollectedNoticesAreNotRequestedAfterShutdown()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, new FileDbReportRecordingDialogs());
+            var probe = new OperationNoticeRequestProbe(() => TestUiDispatcherHost.Dispatcher.CheckAccess(), () => AdmissionIsFree(library));
+            var store = new NoticeInjectingStore { PlanRoot = Path.GetDirectoryName(songDbPath)!, AfterAdd = () => library.RequestShutdown("selected-move-shutdown-test") };
+            var owner = new SelectedChartMutationWorkflowOwner(() => library, library.OperationAdmission,
+                new ChartMutationActivityOwner(), new RecordingPresentation(), probe, AcceptedMessageDialogs(), store);
+
+            SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
+                [CreateTarget("alpha.bms", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
+
+            Assert.IsTrue(result.Succeeded);
+            Assert.AreEqual(0, probe.CountContaining(NoticeInjectingStore.NoticeText), "終了の要求の後は表示しない。");
+        });
+    }
+
+    /// <summary>論理Lと対象別P（共有のP受付）が、どちらも取得できるかを返します。取得したら直ちに解放します。</summary>
+    private static bool AdmissionIsFree(BMSLibrary library)
+    {
+        if (!library.OperationAdmission.TryEnter(out IDisposable lease)) { return false; }
+        lease.Dispose();
+        if (!library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease)) { return false; }
+        playlistLease.Dispose();
+        return true;
+    }
+
+    /// <summary>移動の中で、重複を含む案内を収集先へ加え、必要なら例外で終えるstoreです。</summary>
+    private sealed class NoticeInjectingStore : RecordingStore, ISelectedChartMutationStore
+    {
+        internal const string NoticeText = "collected notice";
+
+        /// <summary>移動計画のパスを置く、テストが所有する一時領域です。実在の環境のフォルダへ触れないようにします。</summary>
+        internal string PlanRoot { get; init; } = string.Empty;
+
+        internal bool ThrowAfterAdd { get; init; }
+
+        /// <summary>実の移動計画を一件持たせ、所有者が停止前に対象別Pを取得する経路（<see cref="TryBeginPhysicalMutation"/>）へ進ませます。</summary>
+        public ChartLibraryMoveRequest PrepareLibraryMove(BMSLibrary library, ChartLibraryMoveRequest request)
+            => request.WithPreparedBatch(new FolderMoveBatch([new FolderAutoRenamePlan { SourceDirectory = Path.Combine(PlanRoot, "PlanSource"), DestinationDirectory = Path.Combine(PlanRoot, "PlanMoved", "PlanSource") }]));
+
+        /// <summary>実のP受付を非待機で取得し、操作の終端まで保持するleaseとして返します。</summary>
+        public new bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease? lease)
+        {
+            lease = null;
+            if (!library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable accepted)) { return false; }
+            lease = (LibraryFileMutationLease)accepted;
+            return true;
+        }
+
+        internal Action? AfterAdd { get; init; }
+
+        public override LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request, LibraryOperationNotices notices)
+        {
+            notices.Add(Notice(NoticeText, "caption"));
+            notices.Add(Notice(NoticeText, "caption"));
+            AfterAdd?.Invoke();
+            if (ThrowAfterAdd) { throw new InvalidOperationException("move failed"); }
+            return base.MoveLibraryChartsWithReceipt(library, request, notices);
+        }
+
+        private static BMSLibrary.OperationDialogMessage Notice(string text, string caption)
+            => new(text, caption, UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK);
     }
 
     /// <summary>本番storeの準備から同じ実対象のP・停止・FS/SQLite/current/事前構築lookup・通知・次要求までを接続します。停止中に空の除外先を消しても対象を復活させません。真の交差Busyと複数対象・失敗は既存上位／下位へ分担し、記録storeの成功順序保証も維持します。</summary>
@@ -1204,7 +1319,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
     {
         internal List<string> Messages { get; } = [];
 
-        public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
+        public UiDialogDefaultResult Confirm(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
             UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {
             Messages.Add(messageBoxText);

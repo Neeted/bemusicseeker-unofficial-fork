@@ -1347,12 +1347,14 @@ public sealed class OperationProgressHubViewModelTests
         public FolderAutoRenameExecutionResult RenameSelectedWithProgress(
             BMSLibrary library,
             ChartFolderAutoRenameRequest request,
-            IFolderAutoRenameProgressWriter progressWriter) => selected(library, request, progressWriter);
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices) => selected(library, request, progressWriter);
 
         public AutoRenameBatchResult RenameAllWithReceiptWithProgress(
             BMSLibrary library,
             string parentDirectory,
-            IFolderAutoRenameProgressWriter progressWriter) => all(library, parentDirectory, progressWriter);
+            IFolderAutoRenameProgressWriter progressWriter,
+            LibraryOperationNotices notices) => all(library, parentDirectory, progressWriter);
     }
 
     private sealed class AcceptedDialogService : IUiDialogService

@@ -138,8 +138,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             CollectionAssert.AreEquivalent(new[] { firstSourcePath, otherSourcePath, childPath }, db.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray());
         }
         string destination = fixture.InstallDestinationDirectory;
-        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(other.ChartEntries.Single(), string.Empty, false));
-        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(first.ChartEntries.Single(), destination, false));
+        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(other.ChartEntries.Single(), string.Empty, false, new LibraryOperationNotices()));
+        Assert.IsTrue(fixture.Library.SetPendingInstallDestination(first.ChartEntries.Single(), destination, false, new LibraryOperationNotices()));
 
         PendingInstallBatchResult result = fixture.Library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
             requestBoth ? [first, other] : [first], new LibraryOperationNotices());

@@ -440,7 +440,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
                 string destination = Path.GetDirectoryName(library.BmsCharts.First().Path) ?? throw new AssertFailedException("導入先が必要です。");
                 library.ChartPackagesPending = [q];
                 foreach (PackageChartEntry entry in q.ChartEntries) { BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry); }
-                Assert.IsTrue(library.SetPendingInstallDestination(q.ChartEntries.Single(), destination, false));
+                Assert.IsTrue(library.SetPendingInstallDestination(q.ChartEntries.Single(), destination, false, new LibraryOperationNotices()));
                 PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([q], new LibraryOperationNotices());
                 Assert.IsTrue(installed.HasDurableCommit);
                 Assert.AreEqual(2, library.ChartPackagesInstalled.Count);

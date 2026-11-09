@@ -27,17 +27,20 @@ internal sealed class AutoRenameBatchCoordinator
     /// <param name="batch">停止前に一回確定した全計画と実移動。</param>
     /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
     /// <param name="postLeaseNotifications">Publications released only after the outer lease exits.</param>
+    /// <param name="notices">この操作の案内を集める入れ物。実scopeのPが取得できないBusyの案内を加えます。</param>
     /// <param name="progressReporter">Optional item-level progress reporter.</param>
     /// <returns>LR2 同期を含む操作単位の session 結果と、解放後に公開する診断。</returns>
     internal AutoRenameBatchResult ApplyWithSessionReceipt(
         FolderMoveBatch batch,
         LibraryFileMutationCapability mutationCapability,
         ICollection<Action> postLeaseNotifications,
+        LibraryOperationNotices notices,
         Action<int, int, string> progressReporter = null)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(batch);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
+        ArgumentNullException.ThrowIfNull(notices);
         long operationId = Stopwatch.GetTimestamp();
         var totalStopwatch = Stopwatch.StartNew();
         IReadOnlyList<FolderAutoRenamePlan> planList = batch.Plans;
@@ -64,7 +67,8 @@ internal sealed class AutoRenameBatchCoordinator
         using LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
             mutationCapability,
             "auto_rename_folders",
-            postLeaseNotifications);
+            postLeaseNotifications,
+            notices);
         session.ProtectManagedOutput(batch.Moves.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), recursive: true);
 
         if (planList.Any(IsDriveRootSourcePlan))

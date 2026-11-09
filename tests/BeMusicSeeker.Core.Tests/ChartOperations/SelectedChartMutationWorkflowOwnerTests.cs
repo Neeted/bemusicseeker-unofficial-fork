@@ -900,14 +900,15 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
 
         public override LibraryMutationSessionReceipt RenameLibraryChartsWithReceipt(
             BMSLibrary library,
-            IReadOnlyList<LibraryFileExtensionRenameBatch> batches)
+            IReadOnlyList<LibraryFileExtensionRenameBatch> batches,
+            LibraryOperationNotices notices)
         {
             RenameTerminalCalls++;
             RenameBatches = batches;
             return receipt;
         }
 
-        public override LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request)
+        public override LibraryMutationSessionReceipt MoveLibraryChartsWithReceipt(BMSLibrary library, ChartLibraryMoveRequest request, LibraryOperationNotices notices)
         {
             Calls++;
             return receipt;

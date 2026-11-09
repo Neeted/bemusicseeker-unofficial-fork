@@ -591,7 +591,6 @@ internal sealed class PackageInstallWorkflowOwner
 
         // 一つの導入の案内を、段階・スレッドによらず一つへ集めます。モデルの操作が戻った後（成功・例外・取消のいずれでも）に取得し、受付の解放後に表示します。
         var notices = new LibraryOperationNotices();
-        BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
@@ -599,7 +598,6 @@ internal sealed class PackageInstallWorkflowOwner
         try
         {
             // queue が受理から drain 終端まで共通受付を所有する。batch ごとに再取得しない。
-            dialogScope = library.BeginOperationDialogScope(notices);
             activityLease = chartMutationActivity.Enter();
             if (token.IsCancellationRequested
                 || !IsCurrentGeneration(expectedGeneration, library))
@@ -614,18 +612,9 @@ internal sealed class PackageInstallWorkflowOwner
                 }
                 else
                 {
-                    Task<PackageInstallCommandResult> installation;
-                    try
-                    {
-                        installation = mutationPort.InstallUnderAdmissionAsync(library, normalizedInstallPaths, token, progressWriter, notices, capability,
-                            playback.StopPlaybackForMutationAsync, retainPlaylistLease, request.FullySelectedDirectories);
-                    }
-                    finally
-                    {
-                        // ThreadStaticの通知scopeは同期取り込みだけを囲み、推定Taskを待つ前に同じスレッドで閉じる。
-                        // 以降の区間の案内は、モデルが区間ごとに開始する同じ収集先への列と、収集先への直接の追加で受け取る。
-                        dialogScope.Dispose();
-                    }
+                    Task<PackageInstallCommandResult> installation = mutationPort.InstallUnderAdmissionAsync(
+                        library, normalizedInstallPaths, token, progressWriter, notices, capability,
+                        playback.StopPlaybackForMutationAsync, retainPlaylistLease, request.FullySelectedDirectories);
                     commandResult = await installation.ConfigureAwait(false)
                         ?? throw new InvalidOperationException("Package install mutation returned no result.");
                     failures.AddRange(commandResult.WorkflowFailures.Concat(commandResult.InputCleanupFailures.Select(failure => failure.Failure))
@@ -651,27 +640,23 @@ internal sealed class PackageInstallWorkflowOwner
             {
                 CaptureCleanupFailure(activityLease.Dispose, failures);
             }
-            if (dialogScope != null)
+            IReadOnlyList<BMSLibrary.OperationDialogMessage> messages = notices.Snapshot();
+            if (messages.Count > 0)
             {
-                CaptureCleanupFailure(dialogScope.Dispose, failures);
-                IReadOnlyList<BMSLibrary.OperationDialogMessage> messages = notices.Snapshot();
-                if (messages.Count > 0)
+                // OK-only の情報通知で worker を止めない。確認が必要な入力は mutation 前に解決済み。
+                QueueTerminalNotification(context, () =>
                 {
-                    // OK-only の情報通知で worker を止めない。確認が必要な入力は mutation 前に解決済み。
-                    QueueTerminalNotification(context, () =>
+                    if (IsCurrentGeneration(expectedGeneration, library))
                     {
-                        if (IsCurrentGeneration(expectedGeneration, library))
-                        {
-                            FileDbMutationReport.ShowOperationMessagesAsync(
-                                dialogs, messages, reportNotificationFailure).ObserveFault();
-                        }
-                        else
-                        {
-                            // 終了の要求とライブラリの差替えの後は表示せず、表示しなかったことだけを診断へ残します。
-                            NLogWrapper.FileLogger?.Warn("package_install_notice_skipped reason=shutdown_or_stale_generation count=" + messages.Count);
-                        }
-                    }, noticeCount: messages.Count);
-                }
+                        FileDbMutationReport.ShowOperationMessagesAsync(
+                            dialogs, messages, reportNotificationFailure).ObserveFault();
+                    }
+                    else
+                    {
+                        // 終了の要求とライブラリの差替えの後は表示せず、表示しなかったことだけを診断へ残します。
+                        NLogWrapper.FileLogger?.Warn("package_install_notice_skipped reason=shutdown_or_stale_generation count=" + messages.Count);
+                    }
+                }, noticeCount: messages.Count);
             }
         }
 

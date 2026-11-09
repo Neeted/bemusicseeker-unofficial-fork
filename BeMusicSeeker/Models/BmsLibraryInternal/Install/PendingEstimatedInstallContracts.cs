@@ -50,7 +50,7 @@ internal sealed class EstimatedInstallDeferredFeedback
         }
     }
 
-    /// <summary>公開時に案内の列へ渡す、件数と標本を持つ案内を延期します。</summary>
+    /// <summary>公開時に操作の収集先へ渡す、件数と標本を持つ案内を延期します。</summary>
     internal void DeferNotice(BMSLibrary.OperationDialogMessage notice)
     {
         if (notice != null)

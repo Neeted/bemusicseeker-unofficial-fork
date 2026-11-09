@@ -1,7 +1,6 @@
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.TestSupport.Components;
 
@@ -19,7 +18,6 @@ internal static class UninitializedBmsLibrary
         var library = (BMSLibrary)RuntimeHelpers.GetUninitializedObject(typeof(BMSLibrary));
         var dialogs = new UnexpectedBmsLibraryDialogService();
         Set(library, "dialogService", dialogs);
-        Set(library, "scopedOperationDialogService", new ScopedOperationDialogCoordinator(dialogs));
         return library;
     }
 

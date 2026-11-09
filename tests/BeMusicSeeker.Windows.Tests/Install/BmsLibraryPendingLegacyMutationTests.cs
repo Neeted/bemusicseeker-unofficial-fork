@@ -130,6 +130,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
 
             library.RemovePendingCharts(
                 [(failedFile), (successfulFile)],
+                new LibraryOperationNotices(),
                 sendToRecycleBin: false,
                 deleteContainingPackageFoldersWhenNoBms: false);
 
@@ -204,8 +205,10 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([failedPackage, successfulPackage])
             };
 
+            var notices = new LibraryOperationNotices();
             library.RemovePendingCharts(
                 packages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart),
+                notices,
                 sendToRecycleBin,
                 deleteContainingPackageFoldersWhenNoBms: true);
 
@@ -228,7 +231,8 @@ public sealed class BmsLibraryPendingLegacyMutationTests
             CollectionAssert.AreEquivalent(
                 new[] { failedA.Path, failedB.Path },
                 failedPackage.ChartEntries.Select(entry => entry.Chart.Path).ToArray());
-            Assert.AreEqual(1, dialogService.Calls.Count);
+            Assert.AreEqual(1, notices.Snapshot().Count, "失敗したパッケージの削除失敗の案内が、操作の収集先へ一件加わる。");
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルの窓口へ同期に表示しない。");
             using LR2SongDBExtended verifySongDb = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(failedDirectoryPath, verifySongDb.Table<LR2SongDBExtended.install>().Single().path);
         });
@@ -273,7 +277,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package])
             };
 
-            library.RemovePendingCharts([rootChart], sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteWholePackage);
+            library.RemovePendingCharts([rootChart], new LibraryOperationNotices(), sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteWholePackage);
 
             Assert.IsFalse(File.Exists(rootChartPath));
             Assert.IsTrue(File.Exists(nestedChartPath));
@@ -286,7 +290,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 Assert.AreEqual(packageDirectoryPath, verifyPartialDb.Table<LR2SongDBExtended.install>().Single().path);
             }
 
-            library.RemovePendingCharts([nestedChart], sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteWholePackage);
+            library.RemovePendingCharts([nestedChart], new LibraryOperationNotices(), sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteWholePackage);
 
             Assert.IsFalse(File.Exists(nestedChartPath));
             Assert.AreEqual(!deleteWholePackage, Directory.Exists(packageDirectoryPath));
@@ -354,7 +358,7 @@ public sealed class BmsLibraryPendingLegacyMutationTests
                 ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>(packages)
             };
 
-            library.RemovePendingCharts(charts, sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: true);
+            library.RemovePendingCharts(charts, new LibraryOperationNotices(), sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: true);
 
             Assert.IsFalse(File.Exists(firstPath));
             Assert.IsFalse(File.Exists(secondPath));

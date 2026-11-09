@@ -228,14 +228,13 @@ public sealed class RegularChartFolderRenameTests
                 gate = library.OperationAdmission;
                 dialogs.OnMessage = () =>
                 {
+                    logicalAdmissionHeldDuringNotification = library.OperationAdmission.IsActive;
                     bool gateReleased = gate.TryEnter(out IDisposable releasedGate);
-                    reportAfterRelease = !activity.IsActive && !gateReleased;
+                    reportAfterRelease = !activity.IsActive && gateReleased;
                     if (gateReleased)
                     {
                         releasedGate.Dispose();
                     }
-
-                    logicalAdmissionHeldDuringNotification = library.OperationAdmission.IsActive;
                 };
                 using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
                 {
@@ -290,8 +289,8 @@ public sealed class RegularChartFolderRenameTests
                 Assert.AreEqual(1, dialogs.Messages.Count);
                 Assert.AreEqual(0, dialogs.ModelMessages, "Canonical reporting suppresses the lower receipt-backed dialog.");
                 Assert.AreEqual(MessageBoxImage.Error, dialogs.Messages[0].Icon);
-                Assert.IsTrue(reportAfterRelease);
-                Assert.IsTrue(logicalAdmissionHeldDuringNotification);
+                Assert.IsTrue(reportAfterRelease, "終端の報告の依頼の時点で、論理Lは取得でき、活動は終了している。");
+                Assert.IsFalse(logicalAdmissionHeldDuringNotification, "終端の報告は論理Lの解放後に依頼する。");
                 StringAssert.Contains(dialogs.Messages[0].MessageBoxText, "forced durable finalization failure");
                 StringAssert.Contains(renameFailure!.ToString(), "forced durable finalization failure");
                 using (LR2SongDBExtended verifySongDb = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
@@ -315,6 +314,62 @@ public sealed class RegularChartFolderRenameTests
                 {
                     Directory.Delete(destinationDirectory, recursive: true);
                 }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 改名が未収束で拒否されたとき、拒否の理由の案内は論理Lの解放後に、UIの文脈の外から、改名のTaskの完了より前に所有者の窓口へ一件だけ依頼される。
+    /// 表示の完了を保留しても改名のTaskは完了し、モデルの窓口へは届かず、物理変更は行わない。
+    /// Lの保持中の同期の表示、UIの文脈での依頼、表示の完了待ち、収集先の案内の取りこぼしを検出する。
+    /// </summary>
+    [TestMethod]
+    public void FolderRename_CollectedNoticeIsRequestedAfterAdmissionReleaseOffUiWithoutWaitingForDisplay()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string libraryRoot = Path.GetDirectoryName(songDbPath)!;
+            string sourceDirectory = Path.Combine(libraryRoot, "notice-source");
+            string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+            Directory.CreateDirectory(sourceDirectory);
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE notice\r\n");
+            ChartFile file = CreateTestableBmsFile(chartPath);
+            var libraryDialogs = new FileDbReportRecordingDialogs();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, libraryDialogs,
+                new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher))
+            { BmsCharts = [file], BmsonCharts = [] };
+            library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
+            var probe = new OperationNoticeRequestProbe(() => TestUiDispatcherHost.Dispatcher.CheckAccess(), () =>
+            {
+                if (!gate.TryEnter(out IDisposable lease)) { return false; }
+                lease.Dispose();
+                return true;
+            });
+            using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner(), action => action(),
+                chartFileOperations: gate, mutationDialogs: probe);
+            owner.AttachNormalLibraryRefreshSource(library);
+            try
+            {
+                Task rename = owner.RenameChartFolderAsync(CreateRenameRequest(file), "Moved");
+                try { ConcurrencyProbe.AssertCompletesWhileHeld(rename, "folder-rename-notice-display-held"); }
+                finally { probe.ReleaseAll(); }
+                rename.GetAwaiter().GetResult();
+
+                OperationNoticeRequestProbe.Request notice = probe.Requests.Single();
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_CatalogFileMutationRequiresStartupScan, notice.Message.MessageBoxText);
+                Assert.IsFalse(notice.OnUiContext, "UIの文脈では依頼しない。");
+                Assert.IsTrue(notice.AdmissionsWereFree, "依頼の時点で論理Lは解放済み。");
+                Assert.AreEqual(0, libraryDialogs.ModelMessages, "モデルの窓口へ届けない。");
+                Assert.IsTrue(Directory.Exists(sourceDirectory), "拒否した改名は物理変更を行わない。");
+            }
+            finally
+            {
+                probe.ReleaseAll();
+                owner.StopAsync().GetAwaiter().GetResult();
+                library.RequestShutdown("folder-rename-notice-test");
             }
         });
     }

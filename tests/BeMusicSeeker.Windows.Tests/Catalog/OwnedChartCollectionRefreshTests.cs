@@ -56,7 +56,7 @@ public sealed class OwnedChartCollectionRefreshTests
                 library.ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package]);
                 CatalogChartCollectionSnapshot old = library.CaptureNormalLibraryChartSnapshot();
                 int handled = library.NormalLibraryRefreshNotificationVersion;
-                LibraryMutationSessionReceipt result = library.RenameChartFolderWithReceipt(source, "Moved", reportAtTerminal: true);
+                LibraryMutationSessionReceipt result = library.RenameChartFolderWithReceipt(source, "Moved", new LibraryOperationNotices(), reportAtTerminal: true);
                 Assert.IsTrue(result.DurableCommit);
                 NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handled);
                 CatalogChartChange committed = batch.CatalogCommits.SelectMany(receipt => receipt.Changes).Single(change => change.Token == before.Token);

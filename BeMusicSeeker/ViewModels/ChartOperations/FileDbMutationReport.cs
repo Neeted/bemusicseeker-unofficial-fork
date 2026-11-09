@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Logging;
@@ -13,7 +14,7 @@ namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
 /// 変更結果の bounded terminal と、model が蓄積した OK-only 情報通知の表示を担当します。
-/// terminal は操作の受付解放後に呼び、情報通知は scope を閉じて非同期に渡します。
+/// terminal は操作の受付解放後に呼び、情報通知は操作の収集先から受付の解放後に非同期に渡します。
 /// いずれも表示失敗を確定済み mutation の成否へ混ぜません。
 /// </summary>
 internal static class FileDbMutationReport
@@ -433,7 +434,7 @@ internal static class FileDbMutationReport
     /// <summary>
     /// model が蓄積した OK-only 情報通知を、見出しと重要度の組ごとに一件へまとめて表示します。
     /// 組は最初に現れた順、組の中の標本は入力の順で、一件だけの組は元の通知をそのまま表示します。
-    /// 操作 scope を閉じた後に呼び、worker はこの Task の完了を待ちません。
+    /// 操作の受付を解放した後に呼び、worker はこの Task の完了を待ちません。
     /// 組の間は先行の表示の完了を待って順に表示し、表示失敗は診断に残して後続の組へ進み、変更結果へ混ぜません。
     /// </summary>
     internal static async Task ShowOperationMessagesAsync(
@@ -461,6 +462,68 @@ internal static class FileDbMutationReport
                 try { (reportFailure ?? LogNotificationFailure)(exception); }
                 catch (Exception diagnosticFailure) { LogNotificationFailure(diagnosticFailure); }
             }
+        }
+    }
+
+    /// <summary>
+    /// 一つの操作の収集先が集めた案内を、受付の解放後に見出し・重要度ごとに一件へまとめて表示するよう依頼し、表示の完了は待ちません。
+    /// 表示するかどうかの判定と最初の組の依頼は、この呼出しの中で行います。呼出し元は UI スレッドの外から呼びます。
+    /// <paramref name="isSuppressed"/> が真（終了中・失効した世代）なら表示せず診断へ残します。表示の失敗は操作の結果を変えず、診断だけに残します。
+    /// 案内がなければ何もしません。
+    /// </summary>
+    /// <param name="dialogs">表示する窓口。所有者に注入された窓口です。</param>
+    /// <param name="notices">操作の終了後に取得する収集先。</param>
+    /// <param name="isSuppressed">表示の直前に評価する抑止の判定。</param>
+    /// <param name="operation">診断に残す操作名。</param>
+    /// <param name="skipReason">表示しなかった理由として、診断へ残す区分。</param>
+    internal static void RequestOperationNotices(
+        IUiDialogService dialogs,
+        LibraryOperationNotices notices,
+        Func<bool> isSuppressed,
+        string operation,
+        string skipReason = "suppressed")
+    {
+        try
+        {
+            IReadOnlyList<BMSLibrary.OperationDialogMessage> messages = notices.Snapshot();
+            if (messages.Count == 0)
+            {
+                return;
+            }
+            if (isSuppressed?.Invoke() == true)
+            {
+                NLogWrapper.FileLogger?.Warn(operation + "_notice_skipped reason=" + skipReason + " count=" + messages.Count);
+                return;
+            }
+            ShowOperationMessagesAsync(dialogs, messages).ObserveFault(operation);
+        }
+        catch (Exception exception)
+        {
+            LogNotificationFailure(exception);
+        }
+    }
+
+    /// <summary>
+    /// <see cref="RequestOperationNotices"/> を、UI スレッドの継続から呼ばれても依頼が同期のモーダルにならないよう、スレッドプールで行います。
+    /// 戻る Task は、抑止の判定と最初の組の依頼が窓口へ渡るまでで完了し、表示の完了と続きの組は待ちません。案内がなければ何もしません。
+    /// </summary>
+    internal static Task BeginRequestOperationNotices(
+        IUiDialogService dialogs,
+        LibraryOperationNotices notices,
+        Func<bool> isSuppressed,
+        string operation,
+        string skipReason = "suppressed")
+    {
+        try
+        {
+            return notices.Snapshot().Count == 0
+                ? Task.CompletedTask
+                : Task.Run(() => RequestOperationNotices(dialogs, notices, isSuppressed, operation, skipReason));
+        }
+        catch (Exception exception)
+        {
+            LogNotificationFailure(exception);
+            return Task.CompletedTask;
         }
     }
 
