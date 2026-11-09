@@ -1,9 +1,9 @@
 using System.Configuration;
 using System.IO;
 using System.Xml.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
-using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.WindowsProcessProbe;
 

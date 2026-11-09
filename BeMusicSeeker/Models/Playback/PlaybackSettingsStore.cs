@@ -1,6 +1,5 @@
 using System;
 using BeMusicSeeker.Properties;
-using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Models;
 

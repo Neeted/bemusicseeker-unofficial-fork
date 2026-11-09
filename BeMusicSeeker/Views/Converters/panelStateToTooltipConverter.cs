@@ -1,14 +1,14 @@
 using System;
 using System.Globalization;
 using System.Windows.Data;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
-using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
 
 /// <summary>
 /// プレイヤーパネルの有効な表示モードから、表示切替ボタンの tooltip 文字列を作る converter です。
-/// 第2入力に <see cref="ResourceService.Resources"/> を受け取り、言語変更の通知で表示モードを変えずに再評価します。
+/// 第2入力に <see cref="ViewModels.ResourceService.Resources"/> を受け取り、言語変更の通知で表示モードを変えずに再評価します。
 /// </summary>
 internal class panelStateToTooltipConverter : IMultiValueConverter
 {

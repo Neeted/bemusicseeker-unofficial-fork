@@ -264,7 +264,7 @@ public sealed class ApplicationSettingsLifecycleTests
             Assert.AreEqual(AppThemeService.Dark, result.AppearanceTheme);
             Assert.AreEqual(AppThemeService.Dark, settings.AppearanceTheme);
             Assert.AreEqual(new SerializableVersion(9, 8, 7, 6), settings.AssemblyVersion);
-            Assert.AreEqual((BeMusicSeeker.ViewModels.PlayerPanelState)10, settings.PlayerPanelState);
+            Assert.AreEqual((PlayerPanelState)10, settings.PlayerPanelState);
             Assert.AreEqual(1, notices.Count);
             Assert.AreEqual("Save", ((PortableSettingsException)notices[0]).Operation);
             CollectionAssert.AreEqual(before, File.ReadAllBytes(path));

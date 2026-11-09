@@ -26,7 +26,7 @@ LとPは[操作の競合ポリシー](../core/operation-concurrency-policy.md)�
 
 ### 保存状態と有効な表示
 
-`PlaybackPanelViewModel.PlayerPanelState` が、保存された要求状態の正本です。表示は設定を直接読まず、実効状態 `EffectivePlayerPanelState` を使います。`TITLE_SMALL` は小型表示のフラグです。値0の `TITLE_LARGE` は正規の拡大型であり、未初期化を表しません。
+`PlaybackPanelViewModel.PlayerPanelState` が、保存された要求状態の正本です。表示は設定を直接読まず、実効状態 `EffectivePlayerPanelState` を使います。状態の型 `PlayerPanelState` は、設定として永続化される値で、Models と画面の両方が使うため `BeMusicSeeker.Models` に置きます。`TITLE_SMALL` は小型表示のフラグです。値0の `TITLE_LARGE` は正規の拡大型であり、未初期化を表しません。
 
 表示面は画像と内蔵プレイヤーです。プレイヤーを使えない場合は画像を表示しますが、要求状態は書き換えません。小型の指定とプレイヤーの指定が併存していても、最初のフレームから画像の小型表示になります。
 
