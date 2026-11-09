@@ -81,6 +81,10 @@ internal static class ChartInfoHydrationTestSupport
         {
             return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }
+
+        public List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress) => Posted.AddRange(messages);
     }
 
 

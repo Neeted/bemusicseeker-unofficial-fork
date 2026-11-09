@@ -472,8 +472,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), new EverythingNative(ApplicationPathPolicy.Current),
                 new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, library.BmsCharts,
                 new ChartScanExecutionResult { Success = true, Result = scan }, 0,
-                () => throw new AssertFailedException("固定走査があるため追加走査は不要です。"),
-                new RecordingDialogService());
+                () => throw new AssertFailedException("固定走査があるため追加走査は不要です。"));
             Assert.IsTrue(diff.Lr2ScanSurfaceAvailable);
             Assert.AreEqual(installedPaths.Count + 1, diff.BmsPathCount);
             Assert.AreEqual(0, diff.BmsAddedTargetCount);
@@ -2789,9 +2788,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     {
                         Assert.AreSame(ResourceHealthIndexSnapshot.Empty, snapshot);
                     }
-                    using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
-                        "resource_health_projection_notification_lease_probe",
-                        showMessage: false);
+                    using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation(
+                        "resource_health_projection_notification_lease_probe");
                     notificationObservedReleasedLease |= probe != null;
                     notificationObserved = true;
                 }
@@ -3169,9 +3167,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     Assert.AreEqual(resourceHealthSnapshot.TargetCount + 2, notifiedResourceHealth.TargetCount);
                     Assert.IsTrue(notifiedResourceHealth.Version > resourceHealthSnapshot.Version);
                     Assert.IsFalse(notifiedResourceHealth.GetProjection((notifiedFirst)).HasIssues);
-                    using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
-                        "warm_install_notification_lease_probe",
-                        showMessage: false);
+                    using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation(
+                        "warm_install_notification_lease_probe");
                     if (isAutoRoute) { Assert.IsNull(probe, "必要な公開中も非同期操作の外側Lを保持します。"); }
                     else { Assert.IsNotNull(probe); }
                     AssertLibraryGateIsNotHeldByCurrentThread(library, "rwlockBMSFilesInitializedAll");
@@ -3245,7 +3242,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     Assert.IsTrue(sessionReceipt.DurableCommit);
                     Assert.IsFalse(sessionReceipt.HasRequiredFailure);
                     Assert.IsFalse(sessionReceipt.HasDurableFinalizationFailure);
-                    using (LibraryFileMutationLease terminalProbe = library.TryBeginLibraryFileMutation("warm_install_terminal_probe", showMessage: false))
+                    using (LibraryFileMutationLease terminalProbe = library.Lr2Synchronization.TryBeginMutation("warm_install_terminal_probe"))
                     {
                         Assert.IsNotNull(terminalProbe, "実操作終端後は新規の変更受付を取得できます。");
                     }
@@ -6055,9 +6052,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 firstNotificationCount++;
                 try
                 {
-                    using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation(
-                        "test_notification_after_force_install",
-                        showMessage: false);
+                    using LibraryFileMutationLease lease = library.Lr2Synchronization.TryBeginMutation(
+                        "test_notification_after_force_install");
                     if (lease == null)
                     {
                         throw new InvalidOperationException("The notification still held the package mutation lease.");
@@ -6075,9 +6071,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 secondNotificationCount++;
                 try
                 {
-                    using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation(
-                        "test_notification_after_force_install_later_entry",
-                        showMessage: false);
+                    using LibraryFileMutationLease lease = library.Lr2Synchronization.TryBeginMutation(
+                        "test_notification_after_force_install_later_entry");
                     if (lease == null)
                     {
                         throw new InvalidOperationException("The later notification still held the package mutation lease.");
@@ -7493,6 +7488,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Requests.Add((messageBoxText, result));
             return result;
         }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+            => throw new InvalidOperationException("新規導入の確認の窓口へ、待たない投函は届きません。");
     }
 
     private sealed class TrackingDisposable(bool throwOnDispose = false) : IDisposable

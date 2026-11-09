@@ -587,7 +587,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 values.Save();
                 owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: new RecordingRootDialogService());
                 library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, values.LR2SongDBPath, values, owner);
-                held = library.TryBeginLibraryFileMutation("independent-install-test", showMessage: false);
+                held = library.Lr2Synchronization.TryBeginMutation("independent-install-test");
                 Assert.IsNotNull(held);
                 SettingsDialogViewModel dialog = owner.SettingDialog;
                 dialog.EnableBeatorajaBmtOutput = !values.EnableBeatorajaBmtOutput;

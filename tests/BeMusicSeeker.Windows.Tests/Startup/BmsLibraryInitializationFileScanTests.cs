@@ -129,9 +129,8 @@ public sealed class BmsLibraryInitializationFileScanTests
             initializationWriterHeldAtNotification |= library.IsWriteLockHeldInitializeAll
                 || library.IsWriteLockHeldInitializeMin
                 || library.IsWriteLockHeldInitializeBMSFiles;
-            using LibraryFileMutationLease reentryLease = library.TryBeginLibraryFileMutation(
-                "test_initialize_startup_post_lease_reentry",
-                showMessage: false);
+            using LibraryFileMutationLease reentryLease = library.Lr2Synchronization.TryBeginMutation(
+                "test_initialize_startup_post_lease_reentry");
             mutationAdmissionAvailable |= reentryLease != null;
             if (Interlocked.Exchange(ref subscriberFailureObserved, 1) == 0)
             {
@@ -139,7 +138,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             }
         };
         LibraryFileInitializationResult initializationInput;
-        Action? scoreNotification = null;
+        ScoreAdoptionNotification? scoreNotification = null;
         var parent = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), new SemaphoreSlim(1, 1));
         using StartupRequiredOperationLease accepted = parent.AcquireRequiredOperation(library.OperationAdmission, library.Lr2Synchronization.PlaylistOperationAdmission);
         library.PropertyChanged += scanNotificationSubscriber;
@@ -152,7 +151,7 @@ public sealed class BmsLibraryInitializationFileScanTests
         {
             library.PropertyChanged -= scanNotificationSubscriber;
             accepted.Dispose();
-            scoreNotification?.Invoke();
+            scoreNotification?.Publication?.Invoke();
         }
         Assert.IsTrue(Volatile.Read(ref scanNotificationObserved) != 0);
         Assert.IsFalse(initializationWriterHeldAtNotification);
@@ -235,8 +234,10 @@ public sealed class BmsLibraryInitializationFileScanTests
 
             Assert.AreEqual(0, library.BmsonCharts.Count);
             int dialogCountBeforeMutation = dialogService.Calls.Count;
+            int postedCountBeforeMutation = dialogService.Posted.Count;
             library.RenameBMSFilesExtensions([], ".invalid");
             Assert.AreEqual(dialogCountBeforeMutation, dialogService.Calls.Count);
+            Assert.AreEqual(postedCountBeforeMutation, dialogService.Posted.Count);
         }
         finally
         {
@@ -282,20 +283,21 @@ public sealed class BmsLibraryInitializationFileScanTests
         {
             library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
 
-            using (LibraryFileMutationLease mutationLease = library.TryBeginLibraryFileMutation(
-                "test_playlist_owned_mutation_after_scan_skip",
-                showMessage: false))
+            using (LibraryFileMutationLease mutationLease = library.Lr2Synchronization.TryBeginMutation(
+                "test_playlist_owned_mutation_after_scan_skip"))
             {
                 Assert.IsNotNull(mutationLease);
             }
 
             int dialogCountBeforeCatalogMutation = dialogService.Calls.Count;
+            int postedCountBeforeCatalogMutation = dialogService.Posted.Count;
             library.RenameBMSFilesExtensions([], ".invalid");
 
-            Assert.AreEqual(dialogCountBeforeCatalogMutation + 1, dialogService.Calls.Count);
+            Assert.AreEqual(dialogCountBeforeCatalogMutation, dialogService.Calls.Count, "自有の経路は未収束の警告を同期の表示で要求しない。");
+            Assert.AreEqual(postedCountBeforeCatalogMutation + 1, dialogService.Posted.Count);
             Assert.AreEqual(
                 BeMusicSeeker.Properties.Resources.Warn_CatalogFileMutationRequiresStartupScan,
-                dialogService.Calls[^1].Message);
+                dialogService.Posted[^1].MessageBoxText);
         }
         finally
         {

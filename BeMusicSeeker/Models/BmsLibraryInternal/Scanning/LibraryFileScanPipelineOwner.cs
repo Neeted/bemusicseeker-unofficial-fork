@@ -48,9 +48,6 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly CatalogOwnedCollectionOwner catalogOwnedCollectionOwner;
 
-
-    private readonly IBmsLibraryDialogService dialogService;
-
     private readonly Func<bool> everythingScanLoggingEnabled;
 
     private readonly Action<BMSLibrary.LibraryInitializationProgressStage, string, int, int, string, bool> reportLibraryInitializationProgress;
@@ -117,7 +114,6 @@ internal sealed class LibraryFileScanPipelineOwner
     internal LibraryFileScanPipelineOwner(
         BmsLibraryDbGateway dbGateway,
         CatalogOwnedCollectionOwner catalogOwnedCollectionOwner,
-        IBmsLibraryDialogService dialogService,
         Func<bool> everythingScanLoggingEnabled,
         Action<BMSLibrary.LibraryInitializationProgressStage, string, int, int, string, bool> reportLibraryInitializationProgress,
         Action completeLibraryFileEnumerationProgress,
@@ -144,7 +140,6 @@ internal sealed class LibraryFileScanPipelineOwner
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.catalogOwnedCollectionOwner = catalogOwnedCollectionOwner ?? throw new ArgumentNullException(nameof(catalogOwnedCollectionOwner));
-        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         this.everythingScanLoggingEnabled = everythingScanLoggingEnabled ?? throw new ArgumentNullException(nameof(everythingScanLoggingEnabled));
         this.reportLibraryInitializationProgress = reportLibraryInitializationProgress ?? throw new ArgumentNullException(nameof(reportLibraryInitializationProgress));
         this.completeLibraryFileEnumerationProgress = completeLibraryFileEnumerationProgress ?? throw new ArgumentNullException(nameof(completeLibraryFileEnumerationProgress));
@@ -777,7 +772,6 @@ internal sealed class LibraryFileScanPipelineOwner
                 resolvedChartScanPrefetchInfo.ScanResult,
                 resolvedChartScanPrefetchInfo.ElapsedMs,
                 null,
-                dialogService,
                 logInstallPerformance,
                 logEverythingScan,
                 currentBmsonRows,

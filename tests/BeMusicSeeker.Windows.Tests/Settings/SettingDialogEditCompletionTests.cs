@@ -3016,12 +3016,13 @@ public sealed class SettingDialogEditCompletionTests
                 values.BeatorajaBmtHashOutputMode = "Original";
                 values.Save();
                 var failures = new List<Exception>();
+                var settingsDialogs = new RecordingRootDialogService();
                 var dialogs = new RecordingRootDialogService();
                 var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(values) { PersistOwnedValues = true },
                     reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator(),
-                    fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
+                    fileDbMutationDialogService: dialogs, settingsDialogService: settingsDialogs,
                     dialogService: UndeclaredDialogs.Create());
                 var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
@@ -3065,7 +3066,7 @@ public sealed class SettingDialogEditCompletionTests
                     var files = Directory.GetFiles(oldOutput).Concat(Directory.GetFiles(newOutput)).ToDictionary(path => path, File.ReadAllBytes);
                     byte[] configBefore = File.ReadAllBytes(config);
                     string[] urls = BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray();
-                    int messagesBefore = scoreDialogs.Calls.Count;
+                    int messagesBefore = dialogs.MessageRequests.Count;
                     SettingsDialogViewModel dialog = owner.SettingDialog;
                     dialog.BeatorajaRootPath = draftRoot;
                     dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
@@ -3097,14 +3098,18 @@ public sealed class SettingDialogEditCompletionTests
                         Assert.AreEqual(player == "B" ? ScoreTableLoadStatus.Failed : ScoreTableLoadStatus.Loaded, library.GetScoreSnapshotForDiagnostics().LoadStatus);
                         Assert.AreEqual(player == "B" ? null : (int?)80, Lookup().Score);
                         Assert.AreEqual(player == "B" ? null : (int?)80, row.Chart.Score.Score);
-                        Assert.AreEqual(messagesBefore + 1, scoreDialogs.Calls.Count);
-                        Assert.AreEqual(Resources.Error_RecommendationScoreReadFailed, scoreDialogs.Calls.Last().Message);
+                        Assert.AreEqual(messagesBefore + 1, dialogs.MessageRequests.Count);
+                        Assert.AreEqual(Resources.Error_RecommendationScoreReadFailed, dialogs.MessageRequests.Last().MessageBoxText);
+                        Assert.AreEqual(0, scoreDialogs.Calls.Count, "モデルの窓口へは、同期の表示も投函も届かない。失敗の案内は受付の解放後に、ファイル・DB変更の案内の窓口（FileDbMutationDialogs）へ表示する。");
+                        Assert.AreEqual(0, scoreDialogs.Posted.Count);
+                        Assert.AreEqual(0, settingsDialogs.MessageCount, "設定の窓口へは届かず、ファイル・DB変更の案内の窓口だけへ届く。");
                         CollectionAssert.AreEquivalent(files.Keys.ToArray(), Directory.GetFiles(oldOutput).Concat(Directory.GetFiles(newOutput)).ToArray());
                         foreach ((string path, byte[] bytes) in files) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
                         CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(config));
                         CollectionAssert.AreEqual(urls, BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
                     }
                     Assert.AreEqual(0, dialogs.ConfirmationCount);
+                    Assert.AreEqual(0, settingsDialogs.ConfirmationCount);
                     Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
                 }
                 finally

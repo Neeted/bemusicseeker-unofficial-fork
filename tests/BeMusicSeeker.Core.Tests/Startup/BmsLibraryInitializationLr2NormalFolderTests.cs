@@ -77,7 +77,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
                 folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
@@ -181,7 +180,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
                 folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
@@ -278,7 +276,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
@@ -516,7 +513,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             var logs = new List<string>();
             SongTableFileCheckResult Apply(Lr2FolderTableSnapshot prefetched, IEnumerable<ChartFile> current) => service.ApplyFileScanDiff(gateway,
                 new EverythingNative(ApplicationPathPolicy.Current), options, current,
-                new ChartScanExecutionResult { Success = true, Result = scan }, 0L, () => null, null,
+                new ChartScanExecutionResult { Success = true, Result = scan }, 0L, () => null,
                 logInstallPerformance: logs.Add, currentBmsonSongs: [], lr2NormalFolderSyncRootDirectories: [root], folderTableSnapshot: prefetched, generatedAtUtc: generatedAt,
                 lr2FolderDiscoveryRootDirectories: deleteChart ? [root] : [], rootFileEnumerator: new FastRootFileEnumerator());
             string VerifyDatabase()
@@ -649,7 +646,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
                 folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
@@ -718,7 +714,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
                 folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
@@ -819,7 +814,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
@@ -927,7 +921,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
@@ -1016,7 +1009,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
                 folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
@@ -1113,7 +1105,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
@@ -1179,7 +1170,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath]);
 
@@ -1243,7 +1233,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
@@ -1333,7 +1322,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],
@@ -1424,7 +1412,6 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 lr2NormalFolderSyncRootDirectories: [lr2RootPath],

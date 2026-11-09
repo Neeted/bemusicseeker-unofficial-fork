@@ -218,7 +218,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
         StartupRequiredOperationLease? accepted = null;
         Task? stage = null;
         Task? probes = null;
-        Action? scoreNotification = null;
+        ScoreAdoptionNotification? scoreNotification = null;
         int notifications = 0;
         bool readyAtNotification = false;
         try
@@ -300,7 +300,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             finally
             {
                 accepted?.Dispose();
-                try { scoreNotification?.Invoke(); }
+                try { scoreNotification?.Publication?.Invoke(); }
                 finally { library.RequestShutdown("pending-publication-model"); }
             }
         }

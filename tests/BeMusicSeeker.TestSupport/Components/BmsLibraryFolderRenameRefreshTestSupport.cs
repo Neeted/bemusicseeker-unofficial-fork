@@ -234,6 +234,14 @@ internal static class BmsLibraryFolderRenameRefreshTestSupport
             phases?.Add("dialog");
             return defaultResult == MessageBoxResult.None ? MessageBoxResult.OK : defaultResult;
         }
+
+        internal List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
+            Posted.AddRange(messages);
+            phases?.Add("dialog");
+        }
     }
 
     /// <summary>各実行区分が同じ準備と観測を使うための共通補助です。</summary>

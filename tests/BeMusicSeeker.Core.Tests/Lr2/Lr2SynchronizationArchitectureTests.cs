@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -314,16 +313,12 @@ public sealed class Lr2SynchronizationArchitectureTests
 
     /// <summary>
     /// 保証：変更scope中の警告はFlushまで実通知を遅らせ、scope外の警告は直ちに通知してlock中の対話待ちを防ぐ。
+    /// LR2同期の窓口は表示の入口を持たないため、内部名の固定は行わない。
     /// </summary>
     [TestMethod]
     public void MutationWarningUsesScopedOperationDialogCapability()
     {
         Assert.IsTrue(typeof(IBmsLibraryDialogService).IsAssignableFrom(typeof(ScopedOperationDialogCoordinator)));
-        MethodInfo? showMethod = typeof(Lr2SynchronizationRuntimePort).GetMethod(
-            "ShowOperationDialog",
-            BindingFlags.Instance | BindingFlags.Public);
-        Assert.IsNotNull(showMethod);
-        Assert.AreEqual(typeof(UiDialogDefaultResult), showMethod!.ReturnType);
 
         var dialogs = new RecordingDialogService();
         var coordinator = new ScopedOperationDialogCoordinator(dialogs);
@@ -561,6 +556,10 @@ public sealed class Lr2SynchronizationArchitectureTests
         {
             CallCount++;
             return defaultResult;
+        }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
         }
     }
 }

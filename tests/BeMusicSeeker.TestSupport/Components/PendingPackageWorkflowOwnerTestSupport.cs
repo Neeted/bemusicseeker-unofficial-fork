@@ -286,6 +286,11 @@ internal static class PendingPackageWorkflowOwnerTestSupport
             CallCount++;
             return defaultResult == UiDialogDefaultResult.None ? UiDialogDefaultResult.OK : defaultResult;
         }
+
+        /// <summary>待たない投函で届いた通知の件数です。同期の表示の <see cref="CallCount"/> とは別に数えます。</summary>
+        internal int PostCount { get; private set; }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress) => PostCount += messages.Count;
     }
 
 }

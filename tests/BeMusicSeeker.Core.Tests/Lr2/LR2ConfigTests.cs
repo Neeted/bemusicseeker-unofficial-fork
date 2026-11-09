@@ -847,7 +847,7 @@ public sealed class LR2ConfigTests
                 ChartScanExecutionResult scan = new FastDirectoryFileScanner().Scan([songs], ChartDirectoryScanBuilder.ChartExtensions,
                     includeTextSurface: true, includeDirectorySurface: true);
                 SongTableFileCheckResult diff = service.ApplyFileScanDiff(gateway, new EverythingNative(ApplicationPathPolicy.Current), options,
-                    current, scan, 0, null, null, currentBmsonSongs: [], lr2NormalFolderSyncRootDirectories: [songs],
+                    current, scan, 0, null, currentBmsonSongs: [], lr2NormalFolderSyncRootDirectories: [songs],
                     folderTableSnapshot: CaptureNormalFolderSnapshot(databaseScope, songDbPath));
                 current = diff.NextFiles;
                 Assert.IsFalse(diff.Lr2NormalFolderSyncFailed);

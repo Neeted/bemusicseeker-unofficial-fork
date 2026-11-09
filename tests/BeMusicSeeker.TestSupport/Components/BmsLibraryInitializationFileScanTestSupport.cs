@@ -66,7 +66,7 @@ internal static class BmsLibraryInitializationFileScanTestSupport
             };
             Stopwatch? operationClock = reportOperationElapsed == null ? null : Stopwatch.StartNew();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
-                gateway, everything, options, [], scan, 0L, () => null, null,
+                gateway, everything, options, [], scan, 0L, () => null,
                 logInstallPerformance: log, reportParseProgress: progress);
 
             operationClock?.Stop();

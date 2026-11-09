@@ -186,7 +186,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 publicationObservedFilesystem = !File.Exists(sourceChartPath)
                     && File.Exists(destinationChartPath)
                     && library.ChartPackagesPending.Count == 0;
-                using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
+                using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation(
                     "pending_invalid_extension_publication_probe");
                 publicationObservedReleasedLease = probe != null;
                 throw new InvalidOperationException("pending collection subscriber failed");
@@ -299,9 +299,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             bool failureDialogObservedReleasedLease = false;
             dialogService.OnShow = _ =>
             {
-                using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
-                    "normal_invalid_extension_failure_notification_probe",
-                    showMessage: false);
+                using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation(
+                    "normal_invalid_extension_failure_notification_probe");
                 failureDialogObservedReleasedLease = probe != null;
             };
 
@@ -745,9 +744,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 {
                     Assert.IsFalse(library.IsWriteLockHeldPendingInstallCharts);
                     Assert.IsFalse(library.IsWriteLockHeldInitializeBMSFiles);
-                    using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation(
-                        "test_notification_after_resource_overwrite",
-                        showMessage: false);
+                    using LibraryFileMutationLease lease = library.Lr2Synchronization.TryBeginMutation(
+                        "test_notification_after_resource_overwrite");
                     Assert.IsNotNull(lease, "DST 通知中に outer file mutation lease が保持されています。");
                     Assert.AreEqual(0, library.ChartPackagesPending.Count);
                     Assert.AreEqual(1, library.ChartPackagesInstalled.Count);
@@ -1293,7 +1291,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string sourceDirectory = Path.Combine(tempRootPath, "busy-auto-install-source");
             Directory.CreateDirectory(sourceDirectory);
             var library = new TestBmsLibrary(databaseScope, songDbPath);
-            using LibraryFileMutationLease incumbent = library.TryBeginLibraryFileMutation(
+            using LibraryFileMutationLease incumbent = library.Lr2Synchronization.TryBeginMutation(
                 "test_busy_auto_install");
             Assert.IsNotNull(incumbent);
 
@@ -1914,6 +1912,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             LaterFailureWasObserved = true;
             return defaultResult;
         }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+            => throw new InvalidOperationException("この確認の窓口へ、待たない投函は届きません。");
     }
 
     private sealed class FailFirstMoveFileMutationService(int failureCount) : IFileMutationService

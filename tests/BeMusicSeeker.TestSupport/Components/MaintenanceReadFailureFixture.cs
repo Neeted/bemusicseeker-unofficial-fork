@@ -34,7 +34,7 @@ internal sealed class MaintenanceReadFailureFixture
 
     internal TestBmsLibrary Library { get; }
 
-    /// <summary>ライブラリへ注入した窓口です。モデルが表示した場合だけ <see cref="FileDbReportRecordingDialogs.ModelMessages"/> が増えます。</summary>
+    /// <summary>ライブラリへ注入した窓口です。モデルが同期の表示または投函で通知した場合だけ <see cref="FileDbReportRecordingDialogs.ModelMessages"/> が増えます。</summary>
     internal FileDbReportRecordingDialogs LibraryDialogs { get; }
 
     internal ChartFile Readable { get; }

@@ -50,7 +50,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             Assert.AreEqual(1, result.AddedFiles.Count);
@@ -116,7 +115,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             ChartFile added = result.AddedFiles.Single();
@@ -182,7 +180,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             ChartFile added = result.AddedFiles.Single();
@@ -252,7 +249,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             Assert.AreEqual(2, result.AddedFiles.Count);
@@ -330,7 +326,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             Assert.AreEqual(2, result.AddedFiles.Count);
@@ -396,7 +391,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             Assert.AreEqual(1, result.DeletedPaths.Count);
@@ -447,7 +441,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             Assert.AreEqual(1, result.DeletedPaths.Count);
@@ -518,7 +511,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: bmsonSongs,
                 executeBmsonScan: () => new ChartScanExecutionResult
                 {
@@ -599,7 +591,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 inlineChartInfoRowsCommitted: rows => callbackRows.AddRange(rows));
 
@@ -656,7 +647,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             Assert.AreEqual(1, result.AddedFiles.Count);
@@ -719,7 +709,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             Assert.AreEqual(1, result.AddedFiles.Count);
@@ -779,7 +768,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             Assert.AreEqual(1, result.AddedFiles.Count);
@@ -848,7 +836,6 @@ public sealed class BmsLibraryInitializationInlineChartInfoTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 inlineChartInfoRowsCommitted: rows => callbackRows.AddRange(rows));
 

@@ -90,7 +90,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                     ScanSource = ChartScanSource.Everything,
                     Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>())
                 },
-                0, () => throw new InvalidOperationException("prefetched only"), null,
+                0, () => throw new InvalidOperationException("prefetched only"),
                 currentBmsonSongs: rows.Where(chart => chart.Kind == ChartFileKind.Bmson),
                 effectiveSearchRoots: roots, rootFileEnumerator: new FastRootFileEnumerator());
             Assert.AreEqual(retainedScope >= 2 ? FileScanApplicationOutcome.NotApplied : retainedScope == 1 ? FileScanApplicationOutcome.AppliedWithProtectedRows : FileScanApplicationOutcome.Applied, result.ApplicationOutcome);
@@ -156,7 +156,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                     ScanSource = ChartScanSource.Everything,
                     Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>())
                 },
-                0, () => throw new InvalidOperationException("prefetched only"), null,
+                0, () => throw new InvalidOperationException("prefetched only"),
                 effectiveSearchRoots: captured.Roots, rootFileEnumerator: new FastRootFileEnumerator());
             Assert.AreEqual(FileScanApplicationOutcome.AppliedWithProtectedRows, result.ApplicationOutcome);
             CollectionAssert.AreEquivalent(
@@ -209,7 +209,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             SongTableFileCheckResult result = new BmsLibraryInitializationService().ApplyFileScanDiff(gateway,
                 new EverythingNative(ApplicationPathPolicy.Current), new BmsLibraryOptionsSnapshot(), bmson ? [] : [previous],
                 bmson ? new ChartScanExecutionResult { Success = true, Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>()) } : execution,
-                0L, () => null, null, currentBmsonSongs: bmson ? [previous] : [], executeBmsonScan: bmson ? () => execution : null);
+                0L, () => null, currentBmsonSongs: bmson ? [previous] : [], executeBmsonScan: bmson ? () => execution : null);
             ProjectCatalogState(result, bmson ? [] : [previous], bmson ? [previous] : []);
             ChartFile current = (bmson ? result.NextBmsonSongs : result.NextFiles).Single();
             // 同内容BMSの日時のみ更新は再評価しない既存最適化を維持します。BMSONと本文更新だけが新件数です。
@@ -296,7 +296,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                     Interlocked.Increment(ref executeScanCount);
                     return null;
                 },
-                null,
                 catalogProjectionApplied: _ => catalogProjectionAppliedCount++);
             ProjectCatalogState(result, [keepFile, deletedFile], [], cleanupCharts);
 
@@ -344,7 +343,6 @@ public sealed class BmsLibraryInitializationFileScanTests
             }
 
             const string fallbackReason = "empty_results_with_roots";
-            var dialogService = new RecordingDialogService();
             List<string> logs = [];
             var service = new BmsLibraryInitializationService();
 
@@ -362,14 +360,12 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                dialogService,
                 logInstallPerformance: logs.Add,
                 logEverythingScan: logs.Add,
                 currentBmsonSongs: []);
 
             Assert.IsTrue(result.ScanFallbackUsed);
             Assert.AreEqual(fallbackReason, result.ScanFallbackReason);
-            Assert.AreEqual(0, dialogService.Calls.Count);
             Assert.IsTrue(logs.Any(message => message.Contains("fallback_used=true") || message.Contains("fallback=true")));
         });
     }
@@ -428,7 +424,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => throw new InvalidOperationException("executeScan should not run"),
-                null,
                 currentBmsonSongs: [],
                 scanCompleted: () => scanCompleted = true,
                 fileDiffStarted: () => fileDiffStarted = true);
@@ -495,7 +490,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => throw new InvalidOperationException("executeScan should not run"),
-                null,
                 logInstallPerformance: logs.Add,
                 currentBmsonSongs: [],
                 scanCompleted: () => scanCompleted = true,
@@ -561,7 +555,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => throw new InvalidOperationException("executeScan should not run"),
-                null,
                 currentBmsonSongs: [],
                 fileDiffStarted: () => fileDiffStarted = true);
 
@@ -610,7 +603,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => throw new InvalidOperationException("executeScan should not run"),
-                null,
                 currentBmsonSongs: [],
                 scanCompleted: () => scanCompleted = true,
                 fileDiffStarted: () => fileDiffStarted = true);
@@ -657,7 +649,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => throw new InvalidOperationException("executeScan should not run"),
-                null,
                 currentBmsonSongs: [],
                 executeBmsonScan: () => new ChartScanExecutionResult
                 {
@@ -731,7 +722,6 @@ public sealed class BmsLibraryInitializationFileScanTests
             }
             File.Delete(missingPath);
             File.Delete(updatedPath);
-            var dialogService = new RecordingDialogService();
             List<string> scanLogs = [];
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
@@ -742,11 +732,9 @@ public sealed class BmsLibraryInitializationFileScanTests
                 new ChartScanExecutionResult { Success = true, Result = scan },
                 0L,
                 () => null,
-                dialogService,
                 logEverythingScan: scanLogs.Add,
                 currentBmsonSongs: []);
 
-            Assert.AreEqual(0, dialogService.Calls.Count);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(normalPath, result.AddedFiles[0].Path);
             Assert.AreEqual(0, result.DeletedPaths.Count);
@@ -785,7 +773,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 songDbConnection.CreateTable<LR2SongDB.song>();
             }
 
-            var dialogService = new RecordingDialogService();
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
@@ -804,10 +791,8 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                dialogService,
                 currentBmsonSongs: []);
 
-            Assert.AreEqual(0, dialogService.Calls.Count);
             Assert.AreEqual(0, result.FileScanFailures.Count);
             Assert.AreEqual(1, result.AddedFiles.Count);
             Assert.AreEqual(bmsPath, result.AddedFiles[0].Path);
@@ -837,7 +822,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => throw new InvalidOperationException("complete scan should be reused"),
-                dialogService,
                 currentBmsonSongs: []);
             Assert.IsFalse(repeated.HasDbDiff);
             Assert.AreEqual(0, repeated.DeletedPaths.Count);
@@ -876,7 +860,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDbConnection);
             });
 
-            var dialogService = new RecordingDialogService();
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
@@ -895,10 +878,8 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                dialogService,
                 currentBmsonSongs: []);
 
-            Assert.AreEqual(0, dialogService.Calls.Count);
             Assert.AreEqual(0, result.FileScanFailures.Count);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreEqual(bmsonPath, result.AddedBmsonSongs[0].Path);
@@ -919,7 +900,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => throw new InvalidOperationException("complete scan should be reused"),
-                dialogService,
                 currentBmsonSongs: result.AddedBmsonSongs);
             Assert.IsFalse(repeated.HasDbDiff);
             Assert.AreEqual(0, repeated.DeletedBmsonPaths.Count);
@@ -964,7 +944,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 BmsLibraryDbGateway.EnsureBmsonSchema(songDbConnection);
             });
 
-            var dialogService = new RecordingDialogService();
             List<string> scanLogs = [];
             var service = new BmsLibraryInitializationService(fileDiffParserDegreeOverride: 1);
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
@@ -984,11 +963,9 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                dialogService,
                 logEverythingScan: scanLogs.Add,
                 currentBmsonSongs: []);
 
-            Assert.AreEqual(0, dialogService.Calls.Count);
             Assert.AreEqual(0, result.AddedBmsonSongs.Count);
             Assert.AreEqual(1, result.FileScanFailures.Count);
             Assert.AreEqual(missingPath, result.FileScanFailures[0].Path);
@@ -1039,7 +1016,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [keepSong],
                 executeBmsonScan: () => new ChartScanExecutionResult
                 {
@@ -1087,7 +1063,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 logInstallPerformance: message => events.Add(message),
                 catalogProjectionApplied: projection =>
@@ -1152,7 +1127,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: message => logs.Add(message),
                 currentBmsonSongs: [],
                 scanCompleted: () => scanCompletedCount++,
@@ -1258,7 +1232,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
 
             CollectionAssert.AreEquivalent(new[] { bmsPath }, result.CommittedLr2SongDbSyncBmsPaths.ToArray());
@@ -1344,7 +1317,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 logInstallPerformance: logs.Enqueue));
             SongTableFileCheckResult result;
             try
@@ -1459,7 +1431,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 {
                     Success = true,
                     Result = CreateScanResult(paths, new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [chartDirectory] = [] })
-                }, 0L, () => null, null,
+                }, 0L, () => null,
                 logInstallPerformance: message =>
                 {
                     if (sqlFailure && message.Contains("db_commit_chunk_done chunk=1", StringComparison.Ordinal))
@@ -1604,7 +1576,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             CreateScanResult(paths, new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
             {
                 [chartDirectory] = []
-            }), true, result, new RecordingDialogService(), null,
+            }), true, result, null,
             (_, processed, _) => progress.Add(processed), null, null,
             rows =>
             {
@@ -1721,7 +1693,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
             ProjectCatalogState(result, []);
 
@@ -1792,7 +1763,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: []);
             ProjectCatalogState(result, []);
 
@@ -1904,7 +1874,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 logEverythingScan: message => logs.Add(message),
                 currentBmsonSongs: [],
                 reportParseProgress: (total, processed, path) =>
@@ -1994,8 +1963,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                     }
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
 
             DirectoryResourceLookupCache.Entry entry = result.NextDirectoryResourceLookupCache.GetEntryOrNull(chartDirectoryPath);
             Assert.IsNotNull(entry);
@@ -2044,7 +2012,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [],
                 executeBmsonScan: () => new ChartScanExecutionResult
                 {
@@ -2117,8 +2084,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                     }
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
 
             DirectoryResourceLookupCache.Entry entry = result.NextDirectoryResourceLookupCache.GetEntryOrNull(chartDirectoryPath);
             Assert.IsNotNull(entry);
@@ -2178,8 +2144,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                     Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
 
             CollectionAssert.Contains(result.DeletedPaths, deletedChartPath);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
@@ -2248,8 +2213,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         })
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
 
             CollectionAssert.Contains(result.DeletedPaths, deletedChartPath);
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
@@ -2356,7 +2320,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [keepSong, deletedSong],
                 executeBmsonScan: () => new ChartScanExecutionResult
                 {
@@ -2444,8 +2407,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         })
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
             ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(1, result.BmsAddedTargetCount);
@@ -2525,8 +2487,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         })
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
             ProjectCatalogState(fileDiffResult, [existingFile]);
 
             Assert.AreEqual(1, fileDiffResult.BmsDateOnlyUpdateCount);
@@ -2617,7 +2578,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 protectExistingBmsRowsFromLr2SongDbSyncMigration: true);
             ProjectCatalogState(result, [existingFile]);
 
@@ -2697,7 +2657,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 protectExistingBmsRowsFromLr2SongDbSyncMigration: true);
             ProjectCatalogState(result, [existingFile]);
 
@@ -2775,8 +2734,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         })
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
             ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(1, result.BmsAddedTargetCount);
@@ -2890,8 +2848,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 [existingFile],
                 scanResult,
                 0L,
-                () => null,
-                null, lr2NormalFolderSyncRootDirectories: [lr2RootPath],
+                () => null, lr2NormalFolderSyncRootDirectories: [lr2RootPath],
                 folderTableSnapshot: service.LoadFolderTableSnapshot(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), options), generatedAtUtc: timestamp.AddDays(10));
             ProjectCatalogState(first, [existingFile]);
 
@@ -2969,8 +2926,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 first.NextFiles,
                 scanResult,
                 0L,
-                () => null,
-                null, lr2NormalFolderSyncRootDirectories: [lr2RootPath],
+                () => null, lr2NormalFolderSyncRootDirectories: [lr2RootPath],
                 folderTableSnapshot: service.LoadFolderTableSnapshot(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), options), generatedAtUtc: timestamp.AddDays(10));
             ProjectCatalogState(second, first.NextFiles);
 
@@ -3078,8 +3034,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                 [staleSource, currentDestination],
                 scanResult,
                 0L,
-                () => null,
-                null);
+                () => null);
             ProjectCatalogState(first, [staleSource, currentDestination]);
 
             Assert.AreEqual(0, first.BmsAddedTargetCount);
@@ -3177,8 +3132,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         })
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
             ProjectCatalogState(result, [existingFile1, existingFile2]);
 
             Assert.AreEqual(1, result.BmsAddedTargetCount);
@@ -3266,8 +3220,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         })
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
             ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(2, result.BmsAddedTargetCount);
@@ -3345,8 +3298,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         })
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
 
             Assert.AreEqual(2, result.AddedFiles.Count);
             Assert.AreEqual(1, result.AddedFiles.Single(file => file.Path == directBmsPath).Txt);
@@ -3412,8 +3364,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         })
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
             ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(1, result.BmsAddedTargetCount);
@@ -3481,8 +3432,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                         new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
 
             Assert.AreEqual(0, result.BmsAddedTargetCount);
             Assert.AreEqual(0, result.BmsTextOnlyUpdateCount);
@@ -3543,7 +3493,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [existingSong]);
             ProjectCatalogState(result, [], [existingSong], cleanupCharts);
 
@@ -3611,7 +3560,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [existingSong]);
 
             Assert.AreEqual(1, result.BmsonDeletedTargetCount);
@@ -3681,7 +3629,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 scanResult,
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [existingSong]);
             ProjectCatalogState(first, [], [existingSong]);
 
@@ -3707,7 +3654,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 scanResult,
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: first.NextBmsonSongs);
 
             Assert.AreEqual(0, second.BmsonUpsertTargetCount);
@@ -3763,8 +3709,7 @@ public sealed class BmsLibraryInitializationFileScanTests
                     Result = scanResult
                 },
                 0L,
-                () => null,
-                null);
+                () => null);
 
             Assert.AreEqual(0, result.BmsAddedTargetCount);
             Assert.AreEqual(0, result.BmsDateOnlyUpdateCount);
@@ -3821,7 +3766,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [currentSong]);
             ProjectCatalogState(result, [], [currentSong]);
 
@@ -3883,7 +3827,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [currentSong]);
 
             Assert.AreEqual(0, result.BmsonUpsertTargetCount);
@@ -3939,7 +3882,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                null,
                 currentBmsonSongs: [existingSong]);
             ProjectCatalogState(result, [], [existingSong]);
 
@@ -4005,7 +3947,6 @@ public sealed class BmsLibraryInitializationFileScanTests
                 },
                 0L,
                 () => null,
-                dialogService: new UnexpectedBmsLibraryDialogService(),
                 logInstallPerformance: null,
                 logEverythingScan: null,
                 currentBmsonSongs: [],

@@ -389,7 +389,11 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         }
     }
 
-    /// <summary>起動走査を無効にした実ライブラリの受付拒否を例外にせず、空の確定結果と案内を返して画面終端を反映できる。</summary>
+    /// <summary>
+    /// 起動走査を無効にした実ライブラリの受付拒否を例外にせず、空の確定結果と案内を返して画面終端を反映できる。
+    /// 未収束の警告は、所有者のスコープへ積まれて所有者の窓口へ一件だけ表示され、モデルの窓口へ直接は届かない。
+    /// モデルからの直接の投函・同期の表示（所有者の表示の迂回）を検出する。
+    /// </summary>
     [TestMethod]
     public async Task ManualInstallPackagesAsync_DisabledStartupScanKeepsAdmissionRejectionNonExceptional()
     {
@@ -423,6 +427,12 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.AreSame(LibraryMutationSessionReceipt.Empty, result.SessionReceipt);
             Assert.IsFalse(result.HasDurableCommit);
             Assert.AreEqual(1, dialogs.MessageRequests.Count);
+            UiMessageRequest request = dialogs.MessageRequests[0];
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_CatalogFileMutationRequiresStartupScan, request.MessageBoxText);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, request.Caption);
+            Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+            Assert.AreEqual(0, libraryDialogs.CallCount, "モデルの窓口へ同期の表示を要求しない。");
+            Assert.AreEqual(0, libraryDialogs.PostCount, "モデルの窓口へ直接投函しない。");
         }
         finally
         {

@@ -54,23 +54,42 @@ internal sealed class ScopedOperationDialogCoordinator : IBmsLibraryDialogServic
     }
 
     /// <summary>
-    /// 件数と標本を持つOKだけの案内を、スレッドの列があれば積み、なければ本文を即時に表示します。
-    /// 列へ積んだ案内は、受付の解放後に所有者が表示します。
+    /// 件数と標本を持つOKだけの案内を、スレッドの列があれば積み、なければ本文を同期の <c>Show</c> で表示します。
+    /// 列へ積んだ案内は、所有者が列を流す時点で表示します。所有者によっては受付の解放前に流すため、解放後の表示とは限りません。
     /// </summary>
     internal void Notify(BMSLibrary.OperationDialogMessage message)
     {
         ArgumentNullException.ThrowIfNull(message);
-        Scope scope = GetCurrentScope();
-        if (scope != null)
+        if (TryEnqueue(message))
         {
-            scope.Enqueue(new DialogMessage(
-                message.MessageBoxText, message.Caption, message.Button, message.Icon, message.DefaultResult,
-                message.Count, message.SampleLines, message.AllLogged));
             return;
         }
         immediateDialogService.Show(
             message.MessageBoxText, message.Caption, message.Button, message.Icon, message.DefaultResult);
     }
+
+    /// <summary>
+    /// 現在のスレッドに列があれば案内を積みます。列がなければ何もせず偽を返し、呼出し元が表示の経路（待たない投函など）を選びます。
+    /// 列へ積んだ案内は、所有者が列を流す時点で表示します。所有者によっては受付の解放前に流します。
+    /// </summary>
+    /// <returns>案内を列へ積んだ場合は真。</returns>
+    internal bool TryEnqueue(BMSLibrary.OperationDialogMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        Scope scope = GetCurrentScope();
+        if (scope == null)
+        {
+            return false;
+        }
+        scope.Enqueue(new DialogMessage(
+            message.MessageBoxText, message.Caption, message.Button, message.Icon, message.DefaultResult,
+            message.Count, message.SampleLines, message.AllLogged));
+        return true;
+    }
+
+    /// <summary>待たない投函は、列を経由せず実際の窓口へ渡します。</summary>
+    public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress) =>
+        immediateDialogService.Post(messages, shouldSuppress);
 
     private static Scope GetCurrentScope() => threadScopes?.FirstOrDefault();
 

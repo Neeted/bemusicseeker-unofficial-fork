@@ -2235,9 +2235,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             workspace.PlaylistDetailReloadRefreshRequested +=
                 (_, _) =>
                 {
-                    using (LibraryFileMutationLease callbackLease = library.TryBeginLibraryFileMutation(
-                               "playlist_drop_ui_effect_probe",
-                               showMessage: false))
+                    using (LibraryFileMutationLease callbackLease = library.Lr2Synchronization.TryBeginMutation(
+                               "playlist_drop_ui_effect_probe"))
                     {
                         if (callbackLease != null)
                         {
@@ -2261,9 +2260,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                             }
                         }
                         notifications.Add(request);
-                        using (LibraryFileMutationLease callbackLease = library.TryBeginLibraryFileMutation(
-                                   "playlist_drop_notification_effect_probe",
-                                   showMessage: false))
+                        using (LibraryFileMutationLease callbackLease = library.Lr2Synchronization.TryBeginMutation(
+                                   "playlist_drop_notification_effect_probe"))
                         {
                             if (callbackLease != null)
                             {
@@ -2363,9 +2361,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             Assert.AreEqual(2, lr2SyncProbeCount);
             Assert.AreEqual(2, lr2SyncProbeLeaseUnavailableCount);
-            using (LibraryFileMutationLease releasedLease = library.TryBeginLibraryFileMutation(
-                       "playlist_drop_output_failure_release_probe",
-                       showMessage: false))
+            using (LibraryFileMutationLease releasedLease = library.Lr2Synchronization.TryBeginMutation(
+                       "playlist_drop_output_failure_release_probe"))
             {
                 Assert.IsNotNull(releasedLease);
             }
@@ -2417,9 +2414,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(3, notificationEffectOutsideLeaseCount);
             Assert.AreEqual(2, lr2SyncProbeCount);
             Assert.AreEqual(2, lr2SyncProbeLeaseUnavailableCount);
-            using (LibraryFileMutationLease releasedPreparationLease = library.TryBeginLibraryFileMutation(
-                       "playlist_drop_preparation_failure_release_probe",
-                       showMessage: false))
+            using (LibraryFileMutationLease releasedPreparationLease = library.Lr2Synchronization.TryBeginMutation(
+                       "playlist_drop_preparation_failure_release_probe"))
             {
                 Assert.IsNotNull(releasedPreparationLease);
             }

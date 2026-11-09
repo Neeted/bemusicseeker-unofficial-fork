@@ -857,7 +857,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             Assert.AreEqual(0, readback.Table<LR2SongDB.song>().Count());
             string[] retained = readback.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path).ToArray();
             CollectionAssert.AreEqual(allConfirmed ? Array.Empty<string>() : new[] { childChartPath }, retained);
-            using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("deletion_completion_probe");
+            using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation("deletion_completion_probe");
             Assert.IsNotNull(probe);
         });
     }
@@ -1361,7 +1361,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
                 CollectionAssert.AreEquivalent(before.Select(chart => chart.Path + ":" + chart.Md5).ToArray(),
                     readback.Table<LR2SongDB.song>().Select(row => row.path + ":" + row.hash).ToArray());
-                using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("prepared_failure_released", showMessage: false);
+                using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation("prepared_failure_released");
                 Assert.IsNotNull(probe);
             }
             finally { library.RequestShutdown("prepared_binding_test"); }
@@ -1418,7 +1418,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 LR2SongDB.song row = readback.Table<LR2SongDB.song>().Single();
                 Assert.AreEqual(destination, row.path);
                 Assert.AreEqual(current.Md5, row.hash);
-                using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("prepared_digest_released", showMessage: false);
+                using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation("prepared_digest_released");
                 Assert.IsNotNull(probe);
             }
             finally { library.RequestShutdown("prepared_digest_test"); }
@@ -2119,6 +2119,10 @@ public sealed class OwnedChartCollectionLibraryMutationTests
             CallCount++;
             return UiDialogDefaultResult.OK;
         }
+
+        internal int PostCount { get; private set; }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress) => PostCount += messages.Count;
     }
 
 }

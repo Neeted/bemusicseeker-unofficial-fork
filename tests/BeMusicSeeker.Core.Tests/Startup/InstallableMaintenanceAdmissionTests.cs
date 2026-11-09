@@ -1,10 +1,13 @@
 using System.Collections.Concurrent;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.Lr2SongDbSyncTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -159,6 +162,119 @@ public sealed class InstallableMaintenanceAdmissionTests
             }
         }
     }
+    /// <summary>
+    /// 起動後の保守が集めた読込み失敗は、読取り・確定・保守の受付の保持中には表示せず、受付の解放後に一度だけまとめて投函する。
+    /// 保守が例外で終わっても投函し、表示が終わらなくても保守の終端と次の受付を待たせない。
+    /// 受付の保持中の表示（同期の表示の残存）、受付の解放前の投函、例外の経路での通知の喪失、表示の完了待ちによる保守の停止を検出する。
+    /// </summary>
+    /// <remarks>
+    /// 実ライブラリで保守を捕捉して実行し、読めない譜面二件と読める譜面一件をDBへ置く。例外の形は、保守の保存をSQLiteのトリガーで拒否して作る。
+    /// 窓口は実の <see cref="BmsLibraryDialogService"/> で、表示先は表示を完了しない記録用の窓口。要求の時点の共通受付の取得可否を記録する。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InstallableMaintenance_PostsCollectedReadFailuresOnceAfterAdmissionIsReleased(bool commitFails)
+    {
+        using var scope = TestDatabaseScope.Create();
+        ApplicationDatabaseScope databaseScope = scope.DatabaseScope;
+        string root = Path.Combine(scope.DirectoryPath, "BMS");
+        Directory.CreateDirectory(root);
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, scope.SongDbPath, songDb =>
+        {
+            songDb.CreateTable<LR2SongDB.song>();
+            songDb.CreateTable<LR2SongDB.folder>();
+            songDb.CreateTable<LR2SongDBExtended.maintenance>();
+            songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+        });
+        ChartFile Parse(string name)
+        {
+            string path = Path.Combine(root, name);
+            File.WriteAllText(path, "#PLAYER 1\r\n#TITLE " + name + "\r\n#WAV01 missing.wav\r\n#00111:01\r\n");
+            return BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path));
+        }
+        ChartFile[] missing = [Parse("b-missing-0.bms"), Parse("a-missing-1.bms")];
+        ChartFile readable = Parse("m-readable.bms");
+        new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath)
+            .UpsertSongs([.. missing, readable]);
+        foreach (ChartFile chart in missing) { File.Delete(chart.Path); }
+        if (commitFails)
+        {
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, scope.SongDbPath, db =>
+            {
+                db.Execute("CREATE TRIGGER reject_maintenance_insert BEFORE INSERT ON maintenance BEGIN SELECT RAISE(ABORT, 'forced maintenance commit failure'); END;");
+                db.Execute("CREATE TRIGGER reject_maintenance_update BEFORE UPDATE ON maintenance BEGIN SELECT RAISE(ABORT, 'forced maintenance commit failure'); END;");
+            });
+        }
+
+        var gate = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        TestBmsLibrary? library = null;
+        var requests = new ConcurrentQueue<UiMessageRequest>();
+        var admissionFreeAtRequest = new ConcurrentQueue<bool>();
+        var ui = new GatedMessageDialogs(request =>
+        {
+            requests.Enqueue(request);
+            bool entered = library!.OperationAdmission.TryEnter(out IDisposable? lease);
+            lease?.Dispose();
+            bool playlistEntered = library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable? playlistLease);
+            playlistLease?.Dispose();
+            admissionFreeAtRequest.Enqueue(entered && playlistEntered);
+            return gate.Task;
+        });
+        library = new TestBmsLibrary(databaseScope, scope.SongDbPath, null, null, null,
+            new BmsLibraryDialogService(ui, new TestUiScheduler(() => null)), new TestUiScheduler(() => null))
+        {
+            BmsCharts = [.. missing, readable]
+        };
+        Func<Task>? maintenanceWork = null;
+        library.StartupBackgroundTaskScheduler = (name, _, _, work) =>
+        {
+            if (name == "installable_maintenance") { maintenanceWork = work; }
+            return true;
+        };
+        try
+        {
+            library.ScheduleInitializationFollowUp(new LibraryInitializationFollowUp("maintenance-read-failure-post-test", true, 0L));
+            Assert.IsNotNull(maintenanceWork, "起動後の保守が受理され、実の保守が捕捉される。");
+
+            await maintenanceWork();
+
+            Assert.AreEqual(1, requests.Count, "表示を完了しなくても保守は終端し、集めた失敗は一度だけまとめて投函される。");
+            Assert.IsTrue(admissionFreeAtRequest.Single(), "表示の要求の時点で、保守の受付は解放済みである。");
+            if (!commitFails)
+            {
+                // 保存の失敗を仕込んだ条件では、別の保守の保存も同じトリガーで失敗するため、成功の条件だけで確かめる。
+                MaintenanceWorkflowResult next = await Task.Run(() => library.RescanResourceHealthCharts([readable]));
+                Assert.IsFalse(next.Canceled, "表示が終わる前でも、新しく受付を取る別の実保守が完了できる。");
+            }
+            UiMessageRequest request = requests.Single();
+            Assert.AreEqual(Resources.MessageBoxTitle_Error, request.Caption);
+            Assert.AreEqual(MessageBoxImage.Hand, request.Icon);
+            foreach (ChartFile chart in missing)
+            {
+                StringAssert.Contains(request.MessageBoxText, chart.Path);
+            }
+        }
+        finally
+        {
+            gate.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            library.RequestShutdown("installable-maintenance-read-failure-post-test");
+        }
+    }
+
+    /// <summary>投函の表示先として、要求を記録して呼出し元が指定した結果の Task を返す、表示窓口の記録用実装です。</summary>
+    private sealed class GatedMessageDialogs(Func<UiMessageRequest, Task<UiDialogResult>> handler) : IUiDialogService
+    {
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => handler(request);
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default)
+            where TWindow : Window => throw new NotSupportedException();
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+    }
+
     private sealed class EmptyRootFileEnumerator : IRootFileEnumerator
     {
         public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)

@@ -78,9 +78,9 @@ public sealed class BmsLibraryDialogRoutingTests
         });
     }
 
-    /// <summary>Everythingの代替走査理由を警告dialogへ渡し、理由・警告種別・既定応答を失いません。</summary>
+    /// <summary>Everythingの代替走査理由を警告として待たずに投函し、理由・警告種別・既定応答を失わず、同期の表示へ戻しません。</summary>
     [TestMethod]
-    public void ShowEverythingFallbackWarning_UsesDialogService()
+    public void QueueEverythingFallbackWarning_PostsWarningWithoutSynchronousShow()
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -90,21 +90,23 @@ public sealed class BmsLibraryDialogRoutingTests
             var dialogService = new RecordingDialogService();
             var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
-            library.ShowEverythingFallbackWarning(fallbackReason);
+            Assert.IsTrue(library.QueueEverythingFallbackWarning(fallbackReason));
 
-            Assert.AreEqual(1, dialogService.Calls.Count);
-            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, dialogService.Calls[0].Caption);
-            Assert.AreEqual(MessageBoxButton.OK, dialogService.Calls[0].Button);
-            Assert.AreEqual(MessageBoxImage.Exclamation, dialogService.Calls[0].Icon);
-            Assert.AreEqual(MessageBoxResult.OK, dialogService.Calls[0].DefaultResult);
-            StringAssert.Contains(dialogService.Calls[0].Message, "Everything");
-            StringAssert.Contains(dialogService.Calls[0].Message, fallbackReason);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            BMSLibrary.OperationDialogMessage posted = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, posted.Caption);
+            Assert.AreEqual(MessageBoxButton.OK, posted.Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, posted.Icon);
+            Assert.AreEqual(MessageBoxResult.OK, posted.DefaultResult);
+            StringAssert.Contains(posted.MessageBoxText, "Everything");
+            StringAssert.Contains(posted.MessageBoxText, fallbackReason);
         });
     }
 
-    /// <summary>不完全走査を中止した理由を警告へ渡し、Everythingの失敗と取り違えた通知を出しません。</summary>
+    /// <summary>不完全走査を中止した理由を警告として待たずに投函し、Everythingの失敗と取り違えた通知を出さず、同期の表示へ戻しません。</summary>
     [TestMethod]
-    public void ShowFileScanSkippedIncompleteWarning_UsesDialogService()
+    public void QueueFileScanSkippedIncompleteWarning_PostsWarningWithoutSynchronousShow()
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -114,21 +116,23 @@ public sealed class BmsLibraryDialogRoutingTests
             var dialogService = new RecordingDialogService();
             var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
-            library.ShowFileScanSkippedIncompleteWarning(failureReason);
+            Assert.IsTrue(library.QueueFileScanSkippedIncompleteWarning(failureReason));
 
-            Assert.AreEqual(1, dialogService.Calls.Count);
-            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, dialogService.Calls[0].Caption);
-            Assert.AreEqual(MessageBoxButton.OK, dialogService.Calls[0].Button);
-            Assert.AreEqual(MessageBoxImage.Exclamation, dialogService.Calls[0].Icon);
-            Assert.AreEqual(MessageBoxResult.OK, dialogService.Calls[0].DefaultResult);
-            StringAssert.Contains(dialogService.Calls[0].Message, failureReason);
-            Assert.IsFalse(dialogService.Calls[0].Message.Contains("Everything"));
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            BMSLibrary.OperationDialogMessage posted = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, posted.Caption);
+            Assert.AreEqual(MessageBoxButton.OK, posted.Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, posted.Icon);
+            Assert.AreEqual(MessageBoxResult.OK, posted.DefaultResult);
+            StringAssert.Contains(posted.MessageBoxText, failureReason);
+            Assert.IsFalse(posted.MessageBoxText.Contains("Everything"));
         });
     }
 
-    /// <summary>既存DBがある空走査では件数・DB・Everythingと原因を警告へ渡し、空の正常走査と取り違えません。</summary>
+    /// <summary>既存DBがある空走査では件数・DB・Everythingと原因を警告として待たずに投函し、空の正常走査と取り違えず、同期の表示へ戻しません。</summary>
     [TestMethod]
-    public void ShowEmptyScanWithExistingDbWarning_UsesDialogService()
+    public void QueueEmptyScanWithExistingDbWarning_PostsWarningWithoutSynchronousShow()
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -138,17 +142,19 @@ public sealed class BmsLibraryDialogRoutingTests
             var dialogService = new RecordingDialogService();
             var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
 
-            library.ShowEmptyScanWithExistingDbWarning(failureReason);
+            Assert.IsTrue(library.QueueEmptyScanWithExistingDbWarning(failureReason));
 
-            Assert.AreEqual(1, dialogService.Calls.Count);
-            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, dialogService.Calls[0].Caption);
-            Assert.AreEqual(MessageBoxButton.OK, dialogService.Calls[0].Button);
-            Assert.AreEqual(MessageBoxImage.Exclamation, dialogService.Calls[0].Icon);
-            Assert.AreEqual(MessageBoxResult.OK, dialogService.Calls[0].DefaultResult);
-            StringAssert.Contains(dialogService.Calls[0].Message, "0");
-            StringAssert.Contains(dialogService.Calls[0].Message, "song.db");
-            StringAssert.Contains(dialogService.Calls[0].Message, "Everything");
-            StringAssert.Contains(dialogService.Calls[0].Message, failureReason);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            BMSLibrary.OperationDialogMessage posted = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, posted.Caption);
+            Assert.AreEqual(MessageBoxButton.OK, posted.Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, posted.Icon);
+            Assert.AreEqual(MessageBoxResult.OK, posted.DefaultResult);
+            StringAssert.Contains(posted.MessageBoxText, "0");
+            StringAssert.Contains(posted.MessageBoxText, "song.db");
+            StringAssert.Contains(posted.MessageBoxText, "Everything");
+            StringAssert.Contains(posted.MessageBoxText, failureReason);
         });
     }
 
@@ -166,12 +172,13 @@ public sealed class BmsLibraryDialogRoutingTests
 
             Assert.IsTrue(library.QueueEverythingFallbackWarning(fallbackReason));
             Assert.IsFalse(library.QueueEverythingFallbackWarning("second_reason"));
-            Assert.AreEqual(1, dialogService.CallCount);
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
 
-            DialogCall call = dialogService.GetCall(0);
+            BMSLibrary.OperationDialogMessage call = dialogService.Posted[0];
             Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
-            StringAssert.Contains(call.Message, fallbackReason);
-            Assert.IsFalse(call.Message.Contains("second_reason"));
+            StringAssert.Contains(call.MessageBoxText, fallbackReason);
+            Assert.IsFalse(call.MessageBoxText.Contains("second_reason"));
         });
     }
 
@@ -189,13 +196,14 @@ public sealed class BmsLibraryDialogRoutingTests
 
             Assert.IsTrue(library.QueueFileScanSkippedIncompleteWarning(failureReason));
             Assert.IsFalse(library.QueueFileScanSkippedIncompleteWarning("second_reason"));
-            Assert.AreEqual(1, dialogService.CallCount);
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
 
-            DialogCall call = dialogService.GetCall(0);
+            BMSLibrary.OperationDialogMessage call = dialogService.Posted[0];
             Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
-            StringAssert.Contains(call.Message, failureReason);
-            Assert.IsFalse(call.Message.Contains("second_reason"));
-            Assert.IsFalse(call.Message.Contains("Everything"));
+            StringAssert.Contains(call.MessageBoxText, failureReason);
+            Assert.IsFalse(call.MessageBoxText.Contains("second_reason"));
+            Assert.IsFalse(call.MessageBoxText.Contains("Everything"));
         });
     }
 
@@ -213,13 +221,14 @@ public sealed class BmsLibraryDialogRoutingTests
 
             Assert.IsTrue(library.QueueEmptyScanWithExistingDbWarning(failureReason));
             Assert.IsFalse(library.QueueEmptyScanWithExistingDbWarning("second_reason"));
-            Assert.AreEqual(1, dialogService.CallCount);
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
 
-            DialogCall call = dialogService.GetCall(0);
+            BMSLibrary.OperationDialogMessage call = dialogService.Posted[0];
             Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
-            StringAssert.Contains(call.Message, failureReason);
-            Assert.IsFalse(call.Message.Contains("second_reason"));
-            StringAssert.Contains(call.Message, "Everything");
+            StringAssert.Contains(call.MessageBoxText, failureReason);
+            Assert.IsFalse(call.MessageBoxText.Contains("second_reason"));
+            StringAssert.Contains(call.MessageBoxText, "Everything");
         });
     }
 
@@ -288,6 +297,16 @@ public sealed class BmsLibraryDialogRoutingTests
                 });
             }
             return ResultToReturn;
+        }
+
+        public List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
+            lock (lockObject)
+            {
+                Posted.AddRange(messages);
+            }
         }
     }
 

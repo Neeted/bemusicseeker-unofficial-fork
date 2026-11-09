@@ -320,7 +320,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 Assert.IsFalse(rejected.Succeeded);
                 Assert.AreEqual(0, rejected.RemovedChartCount);
                 Assert.AreEqual(0, filesystem.FileDeleteCalls);
-                using (LibraryFileMutationLease rejectedModel = library.TryBeginLibraryFileMutation("prepared_cleanup_model_guard", showMessage: false))
+                using (LibraryFileMutationLease rejectedModel = library.Lr2Synchronization.TryBeginMutation("prepared_cleanup_model_guard"))
                 { Assert.IsNull(rejectedModel, "確認中の別モデル変更も副作用前Busyです。"); }
                 Assert.AreEqual(1, confirmationCount);
                 Assert.AreEqual(0, events.Count, "拒否要求は追加確認や再生停止を始めません。");
@@ -331,7 +331,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 Assert.IsTrue(gate.IsActive, "実store返却後もscope回収の終端まで受付を保持します。");
                 Assert.IsFalse(gate.TryEnter(out IDisposable duringCleanup));
                 duringCleanup?.Dispose();
-                using (LibraryFileMutationLease cleanupProbe = library.TryBeginLibraryFileMutation("prepared_cleanup_terminal_guard", showMessage: false))
+                using (LibraryFileMutationLease cleanupProbe = library.Lr2Synchronization.TryBeginMutation("prepared_cleanup_terminal_guard"))
                 { Assert.IsNull(cleanupProbe); }
                 Assert.AreEqual(1, filesystem.FileDeleteCalls);
                 Assert.IsTrue(Directory.Exists(folder));
@@ -362,7 +362,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 CollectionAssert.AreEqual(new[] { folder }, new BmsRootRegistrationStore(settings, () => null).CaptureUserRoots().ToArray());
                 Assert.IsTrue(gate.TryEnter(out IDisposable probe));
                 probe.Dispose();
-                using LibraryFileMutationLease next = library.TryBeginLibraryFileMutation("prepared_cleanup_released", showMessage: false);
+                using LibraryFileMutationLease next = library.Lr2Synchronization.TryBeginMutation("prepared_cleanup_released");
                 Assert.IsNotNull(next);
             }
             finally
@@ -446,7 +446,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                     Assert.IsFalse(activity.IsActive);
                     Assert.AreEqual(0, events.Count);
                     Assert.AreEqual(0, store.ExecuteCount);
-                    using LibraryFileMutationLease modelProbe = library.TryBeginLibraryFileMutation("folder_confirmation_probe", showMessage: false);
+                    using LibraryFileMutationLease modelProbe = library.Lr2Synchronization.TryBeginMutation("folder_confirmation_probe");
                     Assert.IsNull(modelProbe, "フォルダ確認中も未受理のモデル変更はBusyです。");
                     reached.TrySetResult(true);
                     return confirmation.Task;

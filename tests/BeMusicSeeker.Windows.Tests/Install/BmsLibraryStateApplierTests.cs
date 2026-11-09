@@ -161,6 +161,9 @@ public sealed class BmsLibraryStateApplierTests
         public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
             UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
             => throw new AssertFailedException("有効な手動導入先を拒否しません: " + messageBoxText);
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+            => throw new AssertFailedException("有効な手動導入先を拒否しません: " + messages.FirstOrDefault()?.MessageBoxText);
     }
 
     /// <summary>候補だけ・scope外確定DST・scope内確定DSTを区別し、実facts生成から候補順・相対配置・捕捉済み資源・推定時診断を保って追従することを確認します。</summary>

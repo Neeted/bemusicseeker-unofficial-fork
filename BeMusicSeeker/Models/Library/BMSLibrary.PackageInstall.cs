@@ -507,8 +507,7 @@ public partial class BMSLibrary
             return CreatePackageInstallCommandResult(registeredPackages, null);
         }
         LibraryFileMutationLease lr2SongDbSyncMutation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(InstallChartPackagesAutoCore),
-            showMessage: true, capability: capability);
+            nameof(InstallChartPackagesAutoCore), capability: capability);
         if (lr2SongDbSyncMutation == null)
         {
             throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
@@ -558,7 +557,7 @@ public partial class BMSLibrary
                     && workflow.AutoInstallCandidates.Count > 0)
                 {
                     CatalogPathConvergenceBlockReason blockReason = catalogFileMutationAdmissionOwner.BlockReason;
-                    diagnosticEffects.Add(() => ShowCatalogFileMutationRequiresFileDiffWarning(blockReason));
+                    diagnosticEffects.Add(() => NotifyCatalogFileMutationRequiresFileDiffWarning(blockReason));
                 }
                 using LibraryMutationOwner.LibraryMutationSession mutationSession =
                     libraryMutationOwner.BeginLibraryMutationSession(
@@ -2791,7 +2790,7 @@ public partial class BMSLibrary
     {
         ArgumentNullException.ThrowIfNull(stopPlaybackForCleanup);
         using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(RemovePendingPackagesAsync), showMessage: true, capability: capability);
+            nameof(RemovePendingPackagesAsync), capability: capability);
         if (mutationReservation == null) { return; }
         PendingPackageMutationDelta delta;
         string[] cleanupPaths;
@@ -3115,8 +3114,7 @@ public partial class BMSLibrary
         try
         {
             using (LibraryFileMutationLease mutationScope = TryBeginLr2SongDbSyncBlockedMutation(
-                nameof(RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions),
-                showMessage: true, capability: capability))
+                nameof(RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions), capability: capability))
             {
                 if (mutationScope == null)
                 {
@@ -3205,8 +3203,7 @@ public partial class BMSLibrary
         try
         {
             using (LibraryFileMutationLease mutationScope = TryBeginLr2SongDbSyncBlockedMutation(
-                nameof(DeletePendingPackageSources),
-                showMessage: true, capability: capability))
+                nameof(DeletePendingPackageSources), capability: capability))
             {
                 if (mutationScope == null)
                 {

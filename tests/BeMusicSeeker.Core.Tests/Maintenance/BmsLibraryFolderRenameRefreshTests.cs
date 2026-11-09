@@ -1054,7 +1054,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     publicationObservedFinalizedFilesystem = !Directory.Exists(sourceDirectoryPath)
                         && Directory.Exists(destinationDirectoryPath)
                         && string.Equals(CurrentOwnedChart(library, file).Path, destinationChartPath, StringComparison.OrdinalIgnoreCase);
-                    using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
+                    using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation(
                         "normal_rename_publication_probe");
                     publicationObservedReleasedLease = probe != null;
                 };
@@ -2071,7 +2071,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                         return;
                     }
                     publicationCount++;
-                    using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation(
+                    using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation(
                         "auto_rename_publication_probe");
                     if (probe != null)
                     {
@@ -3173,7 +3173,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 }
 
                 refreshCount++;
-                using LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("repair_health_notification_probe");
+                using LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation("repair_health_notification_probe");
                 notifiedWithLeaseHeld |= probe == null;
                 notifiedWithCurrentHealth |= CurrentOwnedChart(library, chart).ResourceHealthMaintenanceSnapshot?.WavFilesExisting == 1;
             };
@@ -3199,7 +3199,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             Assert.IsTrue(File.Exists(destinationPath));
             Assert.IsTrue(refreshCount > 0);
             Assert.IsFalse(notifiedWithLeaseHeld);
-            using LibraryFileMutationLease afterRepair = library.TryBeginLibraryFileMutation("repair_health_completion_probe");
+            using LibraryFileMutationLease afterRepair = library.Lr2Synchronization.TryBeginMutation("repair_health_completion_probe");
             Assert.IsNotNull(afterRepair);
             if (failMaintenance)
             {

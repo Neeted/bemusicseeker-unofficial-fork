@@ -151,20 +151,13 @@ internal sealed class Lr2SongDbSyncStatusMutationRequest
 }
 
 /// <summary>
-/// Exposes lifecycle, scheduling and the scoped dialog boundary needed by LR2 work.
+/// Exposes lifecycle and scheduling needed by LR2 work. LR2 work never shows dialogs.
 /// </summary>
 internal interface ILr2SynchronizationRuntimePort
 {
     bool IsShutdownRequested { get; }
 
     Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; }
-
-    UiDialogDefaultResult ShowOperationDialog(
-        string messageBoxText,
-        string caption,
-        UiDialogButton button,
-        UiDialogIcon icon,
-        UiDialogDefaultResult defaultResult);
 
     bool TrySkipForShutdown(string operation, string reason);
 
@@ -516,28 +509,16 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 internal sealed class Lr2SynchronizationRuntimePort : ILr2SynchronizationRuntimePort
 {
     private readonly Lr2SynchronizationRuntimeState state;
-    private readonly IBmsLibraryDialogService dialogService;
 
-    internal Lr2SynchronizationRuntimePort(
-        Lr2SynchronizationRuntimeState state,
-        IBmsLibraryDialogService dialogService)
+    internal Lr2SynchronizationRuntimePort(Lr2SynchronizationRuntimeState state)
     {
         this.state = state ?? throw new ArgumentNullException(nameof(state));
-        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
     }
 
     public bool IsShutdownRequested => state.IsShutdownRequested;
 
     public Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler =>
         state.StartupBackgroundTaskScheduler;
-
-    public UiDialogDefaultResult ShowOperationDialog(
-        string messageBoxText,
-        string caption,
-        UiDialogButton button,
-        UiDialogIcon icon,
-        UiDialogDefaultResult defaultResult) =>
-        dialogService.Show(messageBoxText, caption, button, icon, defaultResult);
 
     public bool TrySkipForShutdown(string operation, string reason) => state.TrySkipForShutdown(operation, reason);
 

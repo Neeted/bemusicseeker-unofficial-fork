@@ -9,7 +9,10 @@ namespace BeMusicSeeker.TestSupport.Components;
 internal sealed class FileDbReportRecordingDialogs : IUiDialogService, IBmsLibraryDialogService
 {
     internal List<UiMessageRequest> Messages { get; } = [];
-    internal int ModelMessages { get; private set; }
+    /// <summary>モデルが同期の表示で要求した件数と、待たない投函で届いた通知の件数の合計です。モデルの窓口へ何も届かないことの表明が、新しい経路の到達を見逃さないようにします。</summary>
+    internal int ModelMessages => modelShowCount + PostedMessages.Count;
+
+    private int modelShowCount;
     internal Action? OnMessage { get; set; }
     internal Exception? MessageFailure { get; set; }
     internal Func<UiMessageRequest, Task<UiDialogResult>>? MessageHandler { get; set; }
@@ -34,8 +37,16 @@ internal sealed class FileDbReportRecordingDialogs : IUiDialogService, IBmsLibra
     public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
         UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
     {
-        ModelMessages++;
+        modelShowCount++;
         return UiDialogDefaultResult.OK;
+    }
+
+    /// <summary>待たない投函で届いた通知を記録します。件数は <see cref="ModelMessages"/> にも含みます。</summary>
+    internal List<BMSLibrary.OperationDialogMessage> PostedMessages { get; } = [];
+
+    public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+    {
+        PostedMessages.AddRange(messages);
     }
 
     public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)

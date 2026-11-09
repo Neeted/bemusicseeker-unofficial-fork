@@ -455,6 +455,14 @@ internal sealed class LeapYearFolderRepairApproval
             && candidate.MatchesCatalogRow(folder);
 }
 
+/// <summary>
+/// 採用済みスコアについて、実親受付の解放後に行う公開と、取得失敗の案内を渡す結果です。
+/// 案内は表示を済ませた結果ではなく、表示する側が受付の解放後に表示する事実として渡します。
+/// </summary>
+/// <param name="Publication">スコアのスナップショットの公開。公開するものがなければnull。</param>
+/// <param name="ReadFailure">スコアの取得に失敗した場合の案内。失敗していなければnull。</param>
+internal sealed record ScoreAdoptionNotification(Action Publication, BMSLibrary.OperationDialogMessage ReadFailure);
+
 /// <summary>親受付解放後に公開する、実修復と通常日時補正の通知結果です。失敗・終了でも成功へ読み替えません。</summary>
 internal sealed record LeapYearFolderRepairNotification(bool ShowWarning, IReadOnlyList<(string Path, Exception Exception)> Failures)
 {
@@ -1016,7 +1024,6 @@ internal sealed class BmsLibraryInitializationService
         ChartScanExecutionResult prefetchedScanResult,
         long prefetchedScanElapsedMs,
         Func<ChartScanExecutionResult> executeScan,
-        IBmsLibraryDialogService dialogService,
         Action<string> logInstallPerformance = null,
         Action<string> logEverythingScan = null,
         IEnumerable<ChartFile> currentBmsonSongs = null,
@@ -1198,7 +1205,6 @@ internal sealed class BmsLibraryInitializationService
             mergedScanResult,
             bmsFileScanSucceeded,
             result,
-            dialogService,
             logEverythingScan,
             reportParseProgress,
             logInstallPerformance,

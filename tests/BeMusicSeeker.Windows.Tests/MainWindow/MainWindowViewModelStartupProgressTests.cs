@@ -1368,6 +1368,167 @@ public sealed class MainWindowViewModelStartupProgressTests
         });
     }
 
+    /// <summary>
+    /// 起動で保存スコアの取得に失敗した案内は、モデルの処理中と親のL/Pの保持中には表示せず、スコアの公開の後・完了の前の位置で、
+    /// ファイル・DB変更の案内の窓口（FileDbMutationDialogs）へ受付の解放後に一件だけ表示して応答まで待つ。表示の窓口が失敗しても、起動の結果と完了の公開は変わらない。
+    /// 失敗の案内をモデルが同期で表示する誤り、受付の保持中の表示、表示を待たずに完了を公開する誤り、表示の失敗が起動を失敗にする誤りを検出する。
+    /// </summary>
+    /// <remarks>実の構成と実のライブラリで、beatorajaのscore DBの表を壊して起動する。表示の要求の時点の受付の取得可否と完了状態を記録し、表示を保留して判定する。</remarks>
+    [TestMethod]
+    [DataRow(false)] // 表示は成功する。
+    [DataRow(true)] // 表示の窓口が失敗した Task を返す。
+    [DoNotParallelize]
+    public void StartupScoreReadFailure_IsPresentedAfterAdmissionReleaseBeforeCompletion(bool presentationFails)
+    {
+        using var scoreWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        var databaseScope = new ApplicationDatabaseScope();
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string directory = Path.Combine(scoreWorkspace.RootDirectory, "StartupScore-" + Guid.NewGuid().ToString("N"));
+            string songs = Directory.CreateDirectory(Path.Combine(directory, "Songs")).FullName;
+            string beatoraja = Directory.CreateDirectory(Path.Combine(directory, "beatoraja")).FullName;
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"A\",\"playerpath\":\"profiles\"}");
+            string scorePath = Path.Combine(Directory.CreateDirectory(Path.Combine(beatoraja, "profiles", "A")).FullName, "score.db");
+            using (SQLiteConnectionEx scoreDb = databaseScope.OpenProviderConnection(scorePath))
+            {
+                // score表を持たないDBにして、通常成績の取得を実際に失敗させる。
+                scoreDb.Execute("CREATE TABLE unrelated (id INTEGER)");
+            }
+            var path = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "BeMusicSeeker.exe"));
+            Directory.CreateDirectory(path.DataDirectoryPath);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(path.StandaloneSongDbPath))
+            {
+                db.RunInTransaction(() => db.CreateTable<LR2SongDB.song>());
+            }
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.OperationModeLR2DB = false;
+                values.BMSRootPath = songs;
+                values.StandaloneBmsRootPaths = songs;
+                values.BMSInstallDir = songs;
+                values.ScanBmsFilesOnStartup = false;
+                values.SkipInitPlaylistLoad = true;
+                values.EnablePlaylistUrlCompletion = false;
+                values.EnableBeatorajaBmtOutput = false;
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaRootPath = beatoraja;
+                values.BeatorajaPlayerId = "A";
+                values.BeatorajaScoreDbPath = scorePath;
+                values.UsePlayeruBMplay = false;
+                values.UsePlayerLR2body = false;
+                values.UsePlayerBMIIDXView = false;
+                values.IsLR2BackupEnabled = false;
+                values.TableListURL = UnreachableHttpEndpoint.TableListUrl;
+            });
+            MainWindowViewModel? owner = null;
+            Task<bool>? initialization = null;
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var scoreRequestArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var order = new List<string>();
+            var scoreRequests = new List<UiMessageRequest>();
+            bool? admissionFreeAtRequest = null;
+            bool? completedAtRequest = null;
+            ApplicationComposition? factoryComposition = null;
+            var dialogs = new CompletionDialogs
+            {
+                MessageObservedAsync = request =>
+                {
+                    if (request.MessageBoxText != Resources.Error_RecommendationScoreReadFailed) { return Task.CompletedTask; }
+                    lock (order)
+                    {
+                        order.Add("score-failure-request");
+                        scoreRequests.Add(request);
+                    }
+                    completedAtRequest = owner!.IsInitializationCompleted;
+                    bool entered = false;
+                    bool playlistEntered = false;
+                    if (factoryComposition != null)
+                    {
+                        entered = factoryComposition.OperationAdmission.TryEnter(out IDisposable? lease);
+                        lease?.Dispose();
+                        playlistEntered = factoryComposition.PlaylistOperationAdmission.TryEnter(out IDisposable? playlistLease);
+                        playlistLease?.Dispose();
+                    }
+                    admissionFreeAtRequest = entered && playlistEntered;
+                    scoreRequestArrived.TrySetResult();
+                    if (presentationFails) { throw new InvalidOperationException("score failure presentation failed"); }
+                    return gate.Task;
+                }
+            };
+            var common = new RecordingRootDialogService();
+            var settingsDialogs = new RecordingRootDialogService();
+            var failures = new RecordingStartupLibraryInitializationFailurePresenter();
+            var composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings),
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: new TestApplicationLifetime(firstStartup: false),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(path),
+                fileDbMutationDialogService: dialogs, settingsDialogService: settingsDialogs,
+                dialogService: common);
+            factoryComposition = composition;
+            var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
+            {
+                LibraryCreator = profile =>
+                {
+                    BMSLibrary library = composition.CreateBmsLibrary(profile);
+                    library.PropertyChanged += (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(BMSLibrary.ScoreSnapshotVersion)) { lock (order) { order.Add("score-published"); } }
+                    };
+                    return library;
+                }
+            };
+            try
+            {
+                owner = new MainWindowViewModel(composition, factory, startupLibraryInitializationFailurePresenter: failures);
+                owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort());
+                owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+                initialization = owner.InitializeAsync();
+                AwaitArrival(scoreRequestArrived.Task, initialization, "startup-score-failure-request");
+
+                Assert.AreEqual(true, admissionFreeAtRequest, "表示の要求の時点で、LとPはどちらも取得できる。");
+                Assert.AreEqual(false, completedAtRequest, "表示は完了の公開より前に要求する。");
+                Assert.IsFalse(owner.IsInitializationCompleted);
+                if (!presentationFails)
+                {
+                    Assert.IsFalse(initialization.IsCompleted, "表示の応答まで起動の完了を待つ。");
+                    lock (order) { CollectionAssert.AreEqual(new[] { "score-published", "score-failure-request" }, order.Take(2).ToArray(), "スコアの公開の後に表示を要求する。"); }
+                }
+                gate.TrySetResult();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-score-failure-terminal");
+
+                Assert.IsTrue(initialization.GetAwaiter().GetResult(), "表示の成否にかかわらず、起動は成功する。");
+                Assert.IsTrue(owner.IsInitializationCompleted);
+                Assert.AreEqual(0, failures.Presentations.Count, "表示の失敗を起動の失敗として提示しない。");
+                lock (order) { Assert.AreEqual(1, scoreRequests.Count); }
+                UiMessageRequest request = scoreRequests.Single();
+                Assert.AreEqual(Resources.Error_RecommendationScoreReadFailed, request.MessageBoxText);
+                Assert.AreEqual(Resources.MessageBoxTitle_Warning, request.Caption);
+                Assert.AreEqual(System.Windows.MessageBoxButton.OK, request.Button);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, request.Icon);
+                Assert.AreEqual(0, settingsDialogs.MessageCount, "設定の窓口へは届かず、ファイル・DB変更の案内の窓口だけへ届く。");
+                Assert.AreEqual(0, common.MessageCount, "モデルの窓口（構成の共通の窓口）へは、失敗の案内が届かない。");
+            }
+            finally
+            {
+                gate.TrySetResult();
+                try
+                {
+                    if (initialization != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-score-failure-owned-terminal"); }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (owner != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "startup-score-failure-shutdown"); }
+                    }
+                    finally { owner?.SettingDialog.Dispose(); Directory.Delete(directory, recursive: true); }
+                }
+            }
+
+        });
+    }
+
     /// <summary>新しいportable DBの正常な作成・読取り後に走査が例外終了しても、警告して空の保存内容で操作可能になります。</summary>
     /// <remarks>実MainWindowViewModelと標準compositionを使い、scannerだけを制御します。共有通知を所有するため非並列です。</remarks>
     [TestMethod]
@@ -1475,6 +1636,8 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.IsFalse(owner.IsLibraryOperationInProgress);
                 Assert.AreEqual(0, failures.Presentations.Count);
                 Assert.AreEqual(1, scanner.ScanCount);
+                // 走査の警告は待たない投函としてDispatcherへ予約されるため、予約済みの表示を処理してから判定する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 UiMessageRequest[] observed;
                 lock (messages) { observed = messages.ToArray(); }
                 string expectedReason = deleteRootAfterDatabaseRead ? "BmsRoot" : "test_startup_scan_failed";
@@ -1493,6 +1656,8 @@ public sealed class MainWindowViewModelStartupProgressTests
                 // 警告と保存済みcatalogは必須起動の終端で検査します。次操作の受付は、同じLを使う起動後保守の実終端後に確認します。
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(WaitForStartupBackgroundTerminalAsync(owner), "startup-scan-background-terminal");
                 // root消失後の再検査では保存済み譜面を読めず、その読込失敗の通知が共通の窓口へ一件だけ届く（起動後の保守の終端で観測する）。消失しない条件では届かない。
+                // 読込失敗の通知は保守の受付の解放後にDispatcherへ予約されるため、予約済みの表示を処理してから判定する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
                 lock (messages) { observed = messages.ToArray(); }
                 string[] loadFailureParts = Resources.Error_BmsLoadFailedSkip.Split("{0}", StringSplitOptions.None);
                 Assert.AreEqual(deleteRootAfterDatabaseRead ? 1 : 0, observed.Count(message =>

@@ -984,8 +984,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
                 observedNotificationVersion = library.CatalogRevision;
                 using LibraryFileMutationLease reentryLease = synchronizationOwner.TryBeginMutation(
-                    "test_reload_committed_receipt_post_lease_reentry",
-                    showMessage: false);
+                    "test_reload_committed_receipt_post_lease_reentry");
                 mutationLeaseWasAvailable |= reentryLease != null;
             };
             LibraryFileInitializationResult fileResult;
@@ -2852,7 +2851,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     /// <summary>
-    /// 受理済みLR2同期を保持したままファイル差分要求を拒否し、利用者へbusy警告を一度渡して競合する変更を開始しない。
+    /// 受理済みLR2同期を保持したままファイル差分要求を拒否し、競合する変更を開始しない。共通受付のBusyは戻り値だけで返し、モデルは同期の表示も投函も要求しない。
     /// </summary>
     [TestMethod]
     public async Task ReloadFileDiff_BlocksWhileLr2SongDbSyncIsRunning()
@@ -2879,8 +2878,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             await using HeldLr2Operation held = await HeldLr2Operation.StartAsync(library);
 
             library.ReloadFileDiff();
-            Assert.AreEqual(1, dialogs.Calls.Count);
-            Assert.AreEqual(Resources.Warn_LibraryOperationBusy, dialogs.Calls[0].Message);
+            Assert.AreEqual(0, dialogs.Calls.Count, "Busyの警告を同期の表示で要求しない。");
+            Assert.AreEqual(0, dialogs.Posted.Count, "Busyの警告を投函で要求しない。");
             library.RequestShutdown("lr2-file-diff-blocked-test");
         }
         finally
@@ -3258,15 +3257,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 settings: testSettings);
             BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
             using LibraryFileMutationLease incumbent = owner.TryBeginMutation(
-                "test_incumbent",
-                showMessage: false);
+                "test_incumbent");
             Assert.IsNotNull(incumbent);
-            Assert.IsNull(owner.TryBeginMutation("test_competing", showMessage: false));
+            Assert.IsNull(owner.TryBeginMutation("test_competing"));
 
             incumbent.Dispose();
             using LibraryFileMutationLease fresh = owner.TryBeginMutation(
-                "test_after_release",
-                showMessage: false);
+                "test_after_release");
             Assert.IsNotNull(fresh);
         }
         finally
@@ -3304,8 +3301,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             Lr2SongDbSyncStatusSnapshot before = library.GetLr2SongDbSyncStatusSnapshot();
             using LibraryFileMutationLease incumbent = owner.TryBeginMutation(
-                "test_queue_incumbent",
-                showMessage: false);
+                "test_queue_incumbent");
             Assert.IsNotNull(incumbent);
 
             Lr2SongDbSyncStatusSnapshot result = await library.QueueLr2SongDbSyncAsync(
@@ -3490,7 +3486,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     () =>
                     {
                         preparationThreadId = Thread.CurrentThread.ManagedThreadId;
-                        using LibraryFileMutationLease lease = owner.TryBeginMutation("test_preparation_owned_playlist", showMessage: false);
+                        using LibraryFileMutationLease lease = owner.TryBeginMutation("test_preparation_owned_playlist");
                         Assert.IsNotNull(lease);
                         Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
                         using IDisposable acceptedPlaylist = playlistLease;
@@ -3524,8 +3520,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     path => string.Equals(path, filePath, StringComparison.OrdinalIgnoreCase)));
                 Assert.IsTrue(File.Exists(filePath));
                 using LibraryFileMutationLease fresh = owner.TryBeginMutation(
-                    "test_after_preparation_release",
-                    showMessage: false);
+                    "test_after_preparation_release");
                 Assert.IsNotNull(fresh);
                 using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
                 Assert.IsNull(verify.Find<LR2SongDB.folder>(filePath));
@@ -4069,8 +4064,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 catalogNotificationResourceHealthObserved = notificationResourceHealth.TargetCount > 0;
             }
             using LibraryFileMutationLease reentryLease = synchronizationOwner.TryBeginMutation(
-                "test_reload_file_diff_post_lease_reentry",
-                showMessage: false);
+                "test_reload_file_diff_post_lease_reentry");
             mutationLeaseWasAvailable |= reentryLease != null;
         };
         System.ComponentModel.PropertyChangedEventHandler chartInfoSubscriber = (_, args) =>
@@ -7390,7 +7384,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 uiScheduler: new TestUiScheduler(() => null))
             { BMSTables = new ObservableCollection<BMSTable>(new PlaylistPersistenceRepository(scope.DatabaseScope, scope.SongDbPath).LoadPlaylistHeaders()) };
             var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
-            using (LibraryFileMutationLease lease = library.Lr2Synchronization.TryBeginMutation("test_direct_prepared", showMessage: false))
+            using (LibraryFileMutationLease lease = library.Lr2Synchronization.TryBeginMutation("test_direct_prepared"))
             {
                 Assert.IsNotNull(lease);
                 Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));

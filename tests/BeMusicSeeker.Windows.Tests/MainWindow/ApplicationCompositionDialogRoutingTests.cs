@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -12,6 +13,7 @@ using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Tests;
 
@@ -24,7 +26,7 @@ public sealed class ApplicationCompositionDialogRoutingTests
     /// <summary>
     /// 条件：共通の窓口だけを渡し、ライブラリ用の専用引数を省略して <c>CreateBmsLibrary</c> で作ったライブラリの警告を起こします。
     /// 期待結果：警告は共通の窓口へちょうど1件、題名と本文つきで届き、確認は届きません。
-    /// 検出する誤り：ライブラリが自前の窓口を作り続ける、または共通の窓口を無視します。
+    /// 検出する誤り：ライブラリが自前の窓口を作り続ける、または共通の窓口を無視します。背景の警告は本番の入口（待たない投函）から届けます。
     /// </summary>
     [TestMethod]
     public void CreateBmsLibrary_WithoutLibraryDialogService_DeliversNotificationToCommonDialogService()
@@ -32,7 +34,7 @@ public sealed class ApplicationCompositionDialogRoutingTests
         var common = new RecordingRootDialogService();
         string reason = "common-" + Guid.NewGuid().ToString("N");
 
-        ShowLibraryWarning(common, libraryDialogService: null, reason);
+        QueueLibraryWarning(common, libraryDialogService: null, reason);
 
         AssertSingleWarning(common, reason);
         Assert.AreEqual(0, common.ConfirmationCount);
@@ -50,7 +52,7 @@ public sealed class ApplicationCompositionDialogRoutingTests
         var dedicated = new RecordingRootDialogService();
         string reason = "dedicated-" + Guid.NewGuid().ToString("N");
 
-        ShowLibraryWarning(common, dedicated, reason);
+        QueueLibraryWarning(common, dedicated, reason);
 
         AssertSingleWarning(dedicated, reason);
         Assert.AreEqual(0, dedicated.ConfirmationCount);
@@ -233,7 +235,76 @@ public sealed class ApplicationCompositionDialogRoutingTests
             dialogService: common);
     }
 
-    private static void ShowLibraryWarning(RecordingRootDialogService common, RecordingRootDialogService? libraryDialogService, string reason)
+    /// <summary>
+    /// 条件：構成から作ったライブラリへ終了の要求を出した後に、背景の警告を投函します。
+    /// 期待結果：共通の窓口へは通知も確認も届かず、見送りがログに一件残ります。
+    /// 検出する誤り：終了の要求の後も背景の警告を表示する、または見送りをログに残さず黙って捨てます。
+    /// </summary>
+    /// <remarks>共有のログ構成を一時的に差し替えるため、並列実行しない。</remarks>
+    [DoNotParallelize]
+    [TestMethod]
+    public async Task CreateBmsLibrary_BackgroundWarningAfterShutdownRequest_IsNotDeliveredAndIsLogged()
+    {
+        await ApplicationLoggingTestScope.RunAsync(loggingScope =>
+        {
+            string logPath = ConfigureFileLog(loggingScope);
+            var common = new RecordingRootDialogService();
+
+            WithRoutingLibrary(common, libraryDialogService: null, TestUiScheduler.CreateDefault(), library =>
+            {
+                library.RequestShutdown("dialog-routing-shutdown-test");
+
+                library.QueueEverythingFallbackWarning("after-shutdown-" + Guid.NewGuid().ToString("N"));
+            });
+
+            Assert.AreEqual(0, common.MessageCount);
+            Assert.AreEqual(0, common.ConfirmationCount);
+            Assert.AreEqual(1, Regex.Count(ReadLog(logPath), "bms_library_notice_post_skipped reason=shutdown_requested"));
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>
+    /// 条件：背景の警告を投函した後、予約先が実行する前に終了の要求を出し、予約先を消化します。
+    /// 期待結果：共通の窓口へは何も届かず、表示の開始の時点での見送りがログに一件残ります。
+    /// 検出する誤り：終了の判定を投函の直前だけで行い、投函から表示までの間に始まった終了の後も表示します。
+    /// </summary>
+    /// <remarks>共有のログ構成を一時的に差し替えるため、並列実行しない。</remarks>
+    [DoNotParallelize]
+    [TestMethod]
+    public async Task CreateBmsLibrary_ShutdownRequestedAfterPostBeforeDisplay_DoesNotDeliverBackgroundWarning()
+    {
+        await ApplicationLoggingTestScope.RunAsync(loggingScope =>
+        {
+            string logPath = ConfigureFileLog(loggingScope);
+            var common = new RecordingRootDialogService();
+            var scheduler = new BmsLibraryLr2SongDbSyncTestSupport.QueuedUiScheduler();
+
+            WithRoutingLibrary(common, libraryDialogService: null, scheduler, library =>
+            {
+                scheduler.Drain();
+                int before = scheduler.ScheduleCount;
+                Assert.IsTrue(library.QueueEverythingFallbackWarning("before-shutdown-" + Guid.NewGuid().ToString("N")));
+                Assert.AreEqual(before + 1, scheduler.ScheduleCount, "投函は予約先へ表示の開始を一件予約する。");
+                Assert.AreEqual(0, common.MessageCount, "投函の時点では表示を始めない。");
+
+                library.RequestShutdown("dialog-routing-shutdown-after-post-test");
+                scheduler.Drain();
+            });
+
+            Assert.AreEqual(0, common.MessageCount);
+            Assert.AreEqual(0, common.ConfirmationCount);
+            Assert.AreEqual(1, Regex.Count(ReadLog(logPath), "bms_library_notice_post_suppressed"));
+            return Task.CompletedTask;
+        });
+    }
+
+    private static void QueueLibraryWarning(RecordingRootDialogService common, RecordingRootDialogService? libraryDialogService, string reason)
+    {
+        WithRoutingLibrary(common, libraryDialogService, TestUiScheduler.CreateDefault(), library => library.QueueEverythingFallbackWarning(reason));
+    }
+
+    private static void WithRoutingLibrary(RecordingRootDialogService common, RecordingRootDialogService? libraryDialogService, IUiScheduler scheduler, Action<BMSLibrary> body)
     {
         using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string directory = Path.Combine(workspace.RootDirectory, "dialog-routing-" + Guid.NewGuid().ToString("N"));
@@ -243,7 +314,7 @@ public sealed class ApplicationCompositionDialogRoutingTests
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             bmsLibraryOptionsProvider: () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
             settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
-            uiScheduler: TestUiScheduler.CreateDefault(),
+            uiScheduler: scheduler,
             applicationLifetime: TestApplicationContext.CreateLifetime(),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             libraryDialogService: libraryDialogService,
@@ -252,12 +323,33 @@ public sealed class ApplicationCompositionDialogRoutingTests
         BMSLibrary library = composition.CreateBmsLibrary(StartupLibraryConstructionTestSupport.CreateProfile(directory, songDbPath));
         try
         {
-            library.ShowEverythingFallbackWarning(reason);
+            body(library);
         }
         finally
         {
             library.RequestShutdown("dialog-routing-test");
         }
+    }
+
+    private static string ConfigureFileLog(ApplicationLoggingTestScope loggingScope)
+    {
+        string logPath = Path.Combine(loggingScope.RootDirectory, "application.log");
+        NLog.LogManager.Configuration = new NLog.Config.LoggingConfiguration();
+        NLogWrapper.AddApplicationFileTarget(new NLog.Targets.FileTarget
+        {
+            Name = "ApplicationFileTarget",
+            FileName = logPath,
+            Layout = NLogWrapper.DefaultLayout
+        }, NLog.LogLevel.Info);
+        return logPath;
+    }
+
+    private static string ReadLog(string logPath)
+    {
+        NLogWrapper.FlushBeforeExit(TimeSpan.FromSeconds(5));
+        using var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
     }
 
     private static void AssertSingleWarning(RecordingRootDialogService recipient, string reason)

@@ -473,6 +473,18 @@ internal static class BmsLibraryInitializationTestSupport
             OnShow?.Invoke(dialogCall);
             return ResultToReturn;
         }
+
+        /// <summary>待たない投函で届いた通知です。確認の <see cref="Calls"/> とは別に数えます。</summary>
+        public List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        /// <summary>投函の時点の観測（受付の解放など）を差し込みます。</summary>
+        public Action? OnPost { get; set; }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
+            Posted.AddRange(messages);
+            OnPost?.Invoke();
+        }
     }
 
     internal sealed class DialogCall

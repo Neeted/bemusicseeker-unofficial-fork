@@ -294,6 +294,10 @@ public sealed class BmsLibraryZeroNoteRefreshTests
         {
             return MessageBoxResult.OK;
         }
+
+        public List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress) => Posted.AddRange(messages);
     }
 
 }

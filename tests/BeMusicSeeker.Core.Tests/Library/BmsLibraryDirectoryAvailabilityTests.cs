@@ -82,9 +82,10 @@ public sealed class BmsLibraryDirectoryAvailabilityTests
             library.ReloadFileDiff();
             Assert.IsTrue(scanner.ScanEntered);
             string warningPrefix = BeMusicSeeker.Properties.Resources.Warn_FileScanSkippedIncomplete.Split("{0}", StringSplitOptions.None)[0];
-            Assert.IsTrue(dialogs.Calls.Any(call =>
-                call.Message.StartsWith(warningPrefix, StringComparison.Ordinal)
-                && call.Message.Contains(rootDirectoryB, StringComparison.OrdinalIgnoreCase)));
+            Assert.IsTrue(dialogs.Posted.Any(message =>
+                message.MessageBoxText.StartsWith(warningPrefix, StringComparison.Ordinal)
+                && message.MessageBoxText.Contains(rootDirectoryB, StringComparison.OrdinalIgnoreCase)));
+            Assert.AreEqual(0, dialogs.Calls.Count, "走査の警告は同期の表示で要求せず、待たずに投函する。");
             Assert.IsFalse(library.OperationAdmission.IsActive);
             CollectionAssert.AreEquivalent(new[] { chartPathA, chartPathB }, library.BmsCharts.Select(row => row.Path).ToArray());
             ChartFile ownedSong = library.BmsCharts.Single(row => string.Equals(row.Path, chartPathB, StringComparison.OrdinalIgnoreCase));

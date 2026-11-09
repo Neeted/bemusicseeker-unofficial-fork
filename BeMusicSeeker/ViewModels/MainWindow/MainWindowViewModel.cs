@@ -2963,7 +2963,7 @@ public partial class MainWindowViewModel : ViewModel,
         await _semaphore.WaitAsync();
         long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
         BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
-        Action scoreNotification = null;
+        ScoreAdoptionNotification scoreNotification = null;
         try
         {
             LibraryFileInitializationResult result = await Task.Run(() => files.InitializeScoresOnlyUnderAdmission(capability,
@@ -3081,7 +3081,7 @@ public partial class MainWindowViewModel : ViewModel,
         var scanWarnings = new ConcurrentDictionary<LibraryScanWarningKind, LibraryScanWarning>();
         IReadOnlyList<UiMessageRequest> CaptureNotifications() => Array.AsReadOnly(scanWarnings.Values.OrderBy(warning => warning.Kind)
             .Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification).ToArray());
-        Action scoreNotification = null;
+        ScoreAdoptionNotification scoreNotification = null;
         StartupInitializationResult operationResult;
         try
         {
@@ -3215,6 +3215,27 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>親L/P解放後の必須UIで実hostを接続する画面境界です。成功property通知を接続開始の根拠にしません。</summary>
     internal event Action RequiredStartupUiApplying;
 
+    /// <summary>
+    /// 採用済みスコアの取得失敗を、親L/P解放後にスコアの公開の後・失敗の終端や完了の前の位置で表示し、利用者の応答まで待ちます。
+    /// 終了の要求の後は表示せず診断へ残します。表示の失敗は診断だけに残し、起動の結果と完了の公開を変えません。
+    /// </summary>
+    private async Task PresentScoreReadFailureAsync(BMSLibrary.OperationDialogMessage notice)
+    {
+        try
+        {
+            if (IsRequiredInitializationShutdownRequested)
+            {
+                NLogWrapper.FileLogger?.Warn("startup_score_read_failure_notice_skipped reason=shutdown_requested");
+                return;
+            }
+            await FileDbMutationReport.ShowOperationMessagesAsync(FileDbMutationDialogs, [notice]);
+        }
+        catch (Exception failure)
+        {
+            FileDbMutationReport.LogNotificationFailure(failure);
+        }
+    }
+
     /// <summary>親L/P解放後に必須UI・hostを直接待ち、同じ操作の成功公開・解禁・任意登録閉鎖と開始を順に終えます。</summary>
     /// <remarks>ScoreOnlyはプレイリスト入力を変えないためURL補完を予約せず、起動・全再初期化等の既存契機を維持します。</remarks>
     private async Task<StartupInitializationResult> CompleteRequiredInitializationAfterAdmissionAsync(StartupInitializationResult result, bool isNormalStartup = false)
@@ -3229,9 +3250,13 @@ public partial class MainWindowViewModel : ViewModel,
                 await ShellShutdownWorkflow.RequestInitializationExitAsync();
                 return result;
             }
-            Action scoreNotification = result.ScoreNotification;
+            ScoreAdoptionNotification scoreNotification = result.ScoreNotification;
             result = result with { ScoreNotification = null };
-            scoreNotification?.Invoke();
+            scoreNotification?.Publication?.Invoke();
+            if (scoreNotification?.ReadFailure != null)
+            {
+                await PresentScoreReadFailureAsync(scoreNotification.ReadFailure);
+            }
             if (result.Failure != null)
             {
                 CompleteStartupFailureAfterAdmission(result.OperationToken, result.Failure);
@@ -3411,7 +3436,7 @@ public partial class MainWindowViewModel : ViewModel,
         LibraryDirectoryPreflightException directoryFailure = null;
         StartupSettingsSnapshot initializedSettings = null;
         LeapYearFolderRepairNotification repairNotification = null;
-        Action scoreNotification = null;
+        ScoreAdoptionNotification scoreNotification = null;
         LibraryDirectoryWarningPhase directoryWarningPhase =
             LibraryDirectoryWarningPhase.Early;
         StartupInitializationOutcome outcome;
@@ -3517,7 +3542,7 @@ public partial class MainWindowViewModel : ViewModel,
         Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
         Action<StartupSettingsSnapshot> recordStartupSettings, LibraryFileMutationCapability capability,
         Action<Exception> recordLibraryConstructionFailure, LeapYearFolderRepairApproval leapYearRepairApproval,
-        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver, Action<Action> scoreNotificationObserver, bool forceBeatorajaBmtProjection)
+        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver, Action<ScoreAdoptionNotification> scoreNotificationObserver, bool forceBeatorajaBmtProjection)
     {
         if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
         if (capability == null && (!chartFileOperations.CanEnter || !applicationComposition.PlaylistOperationAdmission.CanEnter))

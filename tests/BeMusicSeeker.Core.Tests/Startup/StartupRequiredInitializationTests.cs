@@ -779,9 +779,9 @@ public sealed class StartupRequiredInitializationTests
             Playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => { OptionalRegistrations++; return true; };
         }
         private readonly List<Action> scoreNotifications = [];
-        internal void CaptureScoreNotification(Action notification)
+        internal void CaptureScoreNotification(ScoreAdoptionNotification? notification)
         {
-            if (notification != null) { scoreNotifications.Add(notification); }
+            if (notification?.Publication != null) { scoreNotifications.Add(notification.Publication); }
         }
         internal void PublishScoreNotificationsAfterAdmission()
         {

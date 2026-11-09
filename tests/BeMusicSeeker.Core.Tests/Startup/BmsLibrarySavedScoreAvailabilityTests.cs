@@ -33,6 +33,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         Assert.AreEqual(0, fixture.Library.ScoreSubscriptionCount);
         Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
         Assert.AreEqual(Resources.Error_RecommendationScoreReadFailed, fixture.Dialogs.Messages.Single().Message);
+        Assert.AreEqual(0, fixture.Dialogs.SyncShowCount, "モデルは失敗の案内を同期の表示で要求せず、解放後に投函します。");
         fixture.AssertNoPlayProjection();
     }
 
@@ -138,6 +139,7 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         Assert.AreEqual((true, true, false, (int?)null), observations.Single());
         Assert.AreEqual((Resources.Error_RecommendationScoreReadFailed, Resources.MessageBoxTitle_Warning,
             UiDialogButton.OK, UiDialogIcon.Exclamation), fixture.Dialogs.Messages.Single());
+        Assert.AreEqual(0, fixture.Dialogs.SyncShowCount, "モデルは失敗の案内を同期の表示で要求しません。");
     }
 
     /// <summary>再読込み失敗は旧未送信表示を含む成績を外し、一回のsnapshot公開と一度の案内で非成功を投影します。</summary>
@@ -359,16 +361,26 @@ public sealed class BmsLibrarySavedScoreAvailabilityTests
         }
     }
 
+    /// <summary>モデルが待たずに投函した通知を <see cref="Messages"/> へ、同期の表示を <see cref="SyncShowCount"/> へ分けて記録します。</summary>
     private sealed class RecordingDialogs : IBmsLibraryDialogService
     {
         internal List<(string Message, string Caption, UiDialogButton Button, UiDialogIcon Icon)> Messages { get; } = [];
+        internal int SyncShowCount { get; private set; }
         internal Action? Observe { get; set; }
         public UiDialogDefaultResult Show(string messageBoxText, string caption, UiDialogButton button, UiDialogIcon icon,
             UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
         {
-            Messages.Add((messageBoxText, caption, button, icon));
-            Observe?.Invoke();
+            SyncShowCount++;
             return UiDialogDefaultResult.OK;
+        }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
+            foreach (BMSLibrary.OperationDialogMessage message in messages)
+            {
+                Messages.Add((message.MessageBoxText, message.Caption, message.Button, message.Icon));
+                Observe?.Invoke();
+            }
         }
     }
 }

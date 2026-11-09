@@ -1269,7 +1269,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 {
                     return;
                 }
-                using (LibraryFileMutationLease probe = library.TryBeginLibraryFileMutation("merge_health_notification_probe"))
+                using (LibraryFileMutationLease probe = library.Lr2Synchronization.TryBeginMutation("merge_health_notification_probe"))
                 {
                     notifiedWhileReserved |= probe == null;
                 }
@@ -1279,7 +1279,7 @@ public sealed class BmsLibraryDuplicateServiceTests
 
             DuplicateMergeMaintenanceReceipt receipt;
             using (LibraryFileMutationLease? operationLease = useOuterAdmission
-                ? library.TryBeginLibraryFileMutation("duplicate_merge_workflow") : null)
+                ? library.Lr2Synchronization.TryBeginMutation("duplicate_merge_workflow") : null)
             using (LibraryFileMutationCapability? capability = operationLease?.CreateMutationCapability())
             {
                 receipt = useOuterAdmission
@@ -1289,7 +1289,7 @@ public sealed class BmsLibraryDuplicateServiceTests
                 if (useOuterAdmission)
                 {
                     Assert.IsNotNull(operationLease);
-                    Assert.IsNull(library.TryBeginLibraryFileMutation("duplicate_merge_terminal_probe"));
+                    Assert.IsNull(library.Lr2Synchronization.TryBeginMutation("duplicate_merge_terminal_probe"));
                 }
             }
 
@@ -1327,7 +1327,7 @@ public sealed class BmsLibraryDuplicateServiceTests
             LR2SongDBExtended.maintenance persisted = readback.Table<LR2SongDBExtended.maintenance>().Single(row => row.path == destinationPath);
             Assert.AreEqual(1, persisted.wav_files_defined);
             Assert.AreEqual(0, readback.Table<LR2SongDBExtended.maintenance>().Count(row => row.path == sourcePath));
-            using (LibraryFileMutationLease afterMerge = library.TryBeginLibraryFileMutation("merge_health_completion_probe"))
+            using (LibraryFileMutationLease afterMerge = library.Lr2Synchronization.TryBeginMutation("merge_health_completion_probe"))
             {
                 Assert.IsNotNull(afterMerge);
             }

@@ -354,6 +354,16 @@ public sealed class BmsLibraryMutationBoundaryTests
             }
             return ResultToReturn;
         }
+
+        public List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
+            lock (lockObject)
+            {
+                Posted.AddRange(messages);
+            }
+        }
     }
 
     private sealed class DialogCall

@@ -119,6 +119,8 @@ public partial class BMSLibrary
             InstallableMaintenanceSnapshot snapshot = null;
             List<Action> postLeaseEffects = [];
             IDisposable admissionLease = null;
+            // 読込み失敗は、読取りスレッドでも受付の保持中でも表示せず、ここへ集めて受付の解放後に一度だけ投函します。
+            MaintenanceReadFailureCollector readFailures = null;
             try
             {
                 request.ProgressReporter?.Invoke(request.ProgressRequest, true);
@@ -145,31 +147,24 @@ public partial class BMSLibrary
                         setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                         var stopwatchSetHealth = Stopwatch.StartNew();
-                        var readFailures = new MaintenanceReadFailureCollector();
-                        try
-                        {
-                            maintenanceResult = ApplyInstallableCatalogMaintenance(
-                                "installable_maintenance_deferred",
-                                capability: capability,
-                                postLeaseEffectObserver: effect =>
+                        readFailures = new MaintenanceReadFailureCollector();
+                        maintenanceResult = ApplyInstallableCatalogMaintenance(
+                            "installable_maintenance_deferred",
+                            capability: capability,
+                            postLeaseEffectObserver: effect =>
+                            {
+                                if (effect != null)
                                 {
-                                    if (effect != null)
-                                    {
-                                        postLeaseEffects.Add(effect);
-                                    }
-                                },
-                                readFailures: readFailures) ?? new MaintenanceWorkflowResult();
-                        }
-                        finally
-                        {
-                            // 読取りスレッドでは表示せず、保守の書込み保護の外で、成功でも例外でも集めた失敗を現行の表示経路へ渡します。
-                            NotifyMaintenanceReadFailures(readFailures);
-                        }
+                                    postLeaseEffects.Add(effect);
+                                }
+                            },
+                            readFailures: readFailures) ?? new MaintenanceWorkflowResult();
                         stopwatchSetHealth.Stop();
                         setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                         ResetInstallableMaintenanceWriteLockFlags();
                     }
 
+                    // 公開効果は表示を含まない状態の公開だけです。表示は受付の解放後の投函が担当するため、この位置のままで順序を保ちます。
                     FlushPostLeaseEffects(postLeaseEffects, diagnosticEffects: null);
 
                     stopwatch.Stop();
@@ -194,7 +189,12 @@ public partial class BMSLibrary
                     return;
                 }
             }
-            finally { admissionLease?.Dispose(); }
+            finally
+            {
+                admissionLease?.Dispose();
+                // 受付の解放後に、成功でも例外でも集めた失敗を待たずに投函します。表示の完了は保守の終端と次の受付を待たせません。
+                if (readFailures != null) { PostMaintenanceReadFailures(readFailures); }
+            }
         }
     }
 

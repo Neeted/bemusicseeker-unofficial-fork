@@ -16,18 +16,20 @@ internal sealed class LibraryFileOperationMutationBoundary : ILibraryFileOperati
         this.lr2SynchronizationOwner = lr2SynchronizationOwner ?? throw new ArgumentNullException(nameof(lr2SynchronizationOwner));
     }
 
-    /// <summary>新要求は共通受付を非待機で取得し、受理済み権限は生存ownerを検査して借用します。Busyはnullです。</summary>
+    /// <summary>新要求は共通受付を非待機で取得し、受理済み権限は生存ownerを検査して借用します。Busyはnullで返し、警告は表示しません。</summary>
+    /// <param name="showMessage">パス収束の警告を持たない境界のため使いません。</param>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
     public LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
     {
-        return lr2SynchronizationOwner.TryBeginMutation(operation, showMessage, capability);
+        return lr2SynchronizationOwner.TryBeginMutation(operation, capability);
     }
 
-    /// <summary>受理済み権限を検査し、新要求の共通受付Busyを副作用前に判定します。</summary>
+    /// <summary>受理済み権限を検査し、新要求の共通受付Busyを副作用前に判定します。Busyは戻り値だけで返し、警告は表示しません。</summary>
+    /// <param name="showMessage">パス収束の警告を持たない境界のため使いません。</param>
     /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
     public bool TryBlockMutation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
     {
-        return lr2SynchronizationOwner.TryBlockMutation(operation, showMessage, capability);
+        return lr2SynchronizationOwner.TryBlockMutation(operation, capability);
     }
 }
 
@@ -79,7 +81,6 @@ internal sealed class CatalogFileOperationMutationBoundary : ILibraryFileOperati
         return mutationAdmissionOwner.TryBeginFileOperationMutation(
             operation,
             showMessage,
-            showBusyMessage: showMessage,
             throwOnBusyRace: false, capability: capability);
     }
 

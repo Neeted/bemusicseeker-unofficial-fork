@@ -34,11 +34,11 @@ internal enum StartupInitializationOutcome
 /// <param name="OperationKind">今回必要な実UIと後続を選ぶ、既存の操作種別。</param>
 /// <param name="ShowRootWarning">通常起動でLR2ルート未設定の既存警告を成功公開後に提示するか。</param>
 /// <param name="BackupNotifications">バックアップ・走査で得た既存案内。新しい通知は開始前と成功後に寿命を確認します。</param>
-/// <param name="ScoreNotification">本体で採用済みのスコア純通知。実親L/P解放後の共通終端で取り出し、実行後の結果へ再保存しません。</param>
+/// <param name="ScoreNotification">本体で採用済みのスコアの公開と取得失敗の案内。実親L/P解放後の共通終端で取り出し、実行後の結果へ再保存しません。</param>
 internal sealed record StartupInitializationResult(StartupInitializationOutcome Outcome,
     StartupSettingsSnapshot Settings = null, long OperationToken = 0L, bool CompletionPublished = false, Exception Failure = null, string ValidationFailure = null,
     StartupRequiredInitializationResult RequiredResult = null, LeapYearFolderRepairNotification RepairNotification = null,
-    StartupProgressOperationKind OperationKind = StartupProgressOperationKind.Startup, bool ShowRootWarning = false, IReadOnlyList<UiMessageRequest> BackupNotifications = null, Action ScoreNotification = null);
+    StartupProgressOperationKind OperationKind = StartupProgressOperationKind.Startup, bool ShowRootWarning = false, IReadOnlyList<UiMessageRequest> BackupNotifications = null, ScoreAdoptionNotification ScoreNotification = null);
 
 internal interface ISettingsDialogStatePort
 {

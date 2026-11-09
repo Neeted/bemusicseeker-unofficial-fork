@@ -43,7 +43,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
         playlistCapability ??= capability?.PlaylistCapability;
         LibraryFileMutationLease lease = capability != null
             ? host.TryBeginMutation(reason, capability: capability)
-            : host.TryBeginMutation(reason, showMessage: false);
+            : host.TryBeginMutation(reason);
         if (lease == null) { admissionResult?.Invoke(false); return host.GetLr2SongDbSyncStatusSnapshot(); }
         using (lease)
         {

@@ -1210,6 +1210,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
             Messages.Add(messageBoxText);
             return UiDialogDefaultResult.OK;
         }
+
+        internal List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress) => Posted.AddRange(messages);
     }
 
     /// <summary>不変入力の準備だけを保留し、Dispatcherの応答と実行順序を検査します。</summary>

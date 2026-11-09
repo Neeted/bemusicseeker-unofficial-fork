@@ -94,7 +94,7 @@ internal static class OwnedChartCollectionTestSupport
         string reason,
         IEnumerable<ChartFile> charts)
     {
-        using LibraryFileMutationLease mutationLease = library.TryBeginLibraryFileMutation(reason);
+        using LibraryFileMutationLease mutationLease = library.Lr2Synchronization.TryBeginMutation(reason);
         Assert.IsNotNull(mutationLease);
         return library.BuildAndPersistInlineChartInfoForInstalledCharts(
             reason,

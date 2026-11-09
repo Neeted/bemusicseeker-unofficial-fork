@@ -79,7 +79,7 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
                 ? ChartFileProjection.WithMaintenance(chart, saved) : chart).ToArray(),
             BmsonCharts = []
         };
-        using (LibraryFileMutationLease lease = Library.TryBeginLibraryFileMutation("metadata-fixture-hydration"))
+        using (LibraryFileMutationLease lease = Library.Lr2Synchronization.TryBeginMutation("metadata-fixture-hydration"))
         {
             Assert.IsNotNull(lease);
             RequiredChartInfoHydrationResult hydrated = Library.EnsureRequiredStartupData(lease.CreateMutationCapability());

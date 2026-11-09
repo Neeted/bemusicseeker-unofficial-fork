@@ -1133,14 +1133,16 @@ public sealed partial class BmsLibraryInitializationInstallTests
                     Assert.AreEqual(MessageBoxResult.No, dialogCall.DefaultResult);
                     if (shutdownDuringConfirmation) { library.RequestShutdown("public_confirmation_shutdown"); }
                 }
-                if (dialogCall.Button == MessageBoxButton.OK && dialogService.Calls.Count > 1)
-                {
-                    callbackAfterReleaseObserved = true;
-                    Assert.IsFalse(library.IsWriteLockHeldInitializeAll);
-                    Assert.IsFalse(library.IsWriteLockHeldInitializeMin);
-                    Assert.IsFalse(library.IsWriteLockHeldInitializeBMSFiles);
-                    library.InitializeScoresOnly(null);
-                }
+            };
+            dialogService.OnPost = () =>
+            {
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+                callbackAfterReleaseObserved = true;
+                Assert.IsFalse(library.IsWriteLockHeldInitializeAll);
+                Assert.IsFalse(library.IsWriteLockHeldInitializeMin);
+                Assert.IsFalse(library.IsWriteLockHeldInitializeBMSFiles);
+                library.InitializeScoresOnly(null);
             };
 
             library.Initialize(null, null, mode);
@@ -1149,6 +1151,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             {
                 Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
                 Assert.AreEqual(1, dialogService.Calls.Count);
+                Assert.AreEqual(0, dialogService.Posted.Count);
                 Assert.IsFalse(library.OperationAdmission.IsActive);
                 Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
                 Assert.IsFalse(callbackAfterReleaseObserved);
@@ -1288,11 +1291,17 @@ public sealed partial class BmsLibraryInitializationInstallTests
                 Assert.IsFalse(library.OperationAdmission.IsActive);
                 Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
             };
+            dialogs.OnPost = () =>
+            {
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+            };
             library.InitializeStartup(null);
             Assert.AreEqual(0, mutation.TimestampCalls.Count);
             Assert.AreEqual(sentinel, Directory.GetLastWriteTime(folder));
             Assert.AreEqual(1, dialogs.Calls.Count(call => call.Button == MessageBoxButton.YesNo));
-            Assert.AreEqual(1, dialogs.Calls.Count(call => call.Message == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
+            Assert.AreEqual(1, dialogs.Calls.Count, "確認だけが同期の表示で、OKの警告は同期の表示で要求しない。");
+            Assert.AreEqual(1, dialogs.Posted.Count(message => message.MessageBoxText == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Single().adddate);
         });
@@ -1339,13 +1348,19 @@ public sealed partial class BmsLibraryInitializationInstallTests
                 Assert.IsFalse(library.OperationAdmission.IsActive);
                 Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
             };
+            dialogs.OnPost = () =>
+            {
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+            };
             library.InitializeStartup(null);
             Assert.AreEqual(2, mutation.TimestampCalls.Count);
             Assert.AreEqual(sentinel, Directory.GetLastWriteTime(first));
             if (allFail) { Assert.AreEqual(sentinel, Directory.GetLastWriteTime(second)); }
             else { Assert.AreNotEqual(sentinel, Directory.GetLastWriteTime(second)); }
-            Assert.IsTrue(dialogs.Calls.Any(call => call.Message.Contains(first, StringComparison.Ordinal) && call.Message.Contains(original.Message, StringComparison.Ordinal)));
-            Assert.AreEqual(allFail ? 0 : 1, dialogs.Calls.Count(call => call.Message == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
+            Assert.IsTrue(dialogs.Posted.Any(message => message.MessageBoxText.Contains(first, StringComparison.Ordinal) && message.MessageBoxText.Contains(original.Message, StringComparison.Ordinal)));
+            Assert.AreEqual(allFail ? 0 : 1, dialogs.Posted.Count(message => message.MessageBoxText == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
+            Assert.AreEqual(0, dialogs.Calls.Count(call => call.Button == MessageBoxButton.OK), "OKの通知は同期の表示で要求せず、投函で届ける。");
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Single(row => row.title == first).adddate);
             LR2SongDB.folder secondRow = verify.Table<LR2SongDB.folder>().Single(row => row.title == second);
@@ -1396,11 +1411,19 @@ public sealed partial class BmsLibraryInitializationInstallTests
                 Assert.IsFalse(library.IsWriteLockHeldInitializeAll);
                 Assert.IsFalse(library.IsWriteLockHeldInitializeMin);
             };
+            dialogs.OnPost = () =>
+            {
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+                Assert.IsFalse(library.IsWriteLockHeldInitializeAll);
+                Assert.IsFalse(library.IsWriteLockHeldInitializeMin);
+            };
             SQLite.SQLiteException failure = Assert.ThrowsExactly<SQLite.SQLiteException>(() => library.InitializeStartup(null));
             StringAssert.Contains(failure.Message, "song");
             Assert.AreEqual(1, mutation.TimestampCalls.Count);
             Assert.AreNotEqual(sentinel, Directory.GetLastWriteTime(folder));
-            Assert.AreEqual(1, dialogs.Calls.Count(call => call.Message == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
+            Assert.AreEqual(1, dialogs.Posted.Count(message => message.MessageBoxText == BeMusicSeeker.Properties.Resources.Warn_LR2LeapYearBugDetected));
+            Assert.AreEqual(0, dialogs.Calls.Count(call => call.Button == MessageBoxButton.OK), "OKの通知は同期の表示で要求せず、投函で届ける。");
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
             Assert.IsNull(verify.Table<LR2SongDB.folder>().Single().adddate);
         });

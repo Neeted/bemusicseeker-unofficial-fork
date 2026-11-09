@@ -1111,8 +1111,7 @@ public partial class BMSLibrary : ObservableObject
         set
         {
             using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-                "catalog_storage_rows",
-                showMessage: false);
+                "catalog_storage_rows");
             if (mutationReservation == null)
             {
                 throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
@@ -1182,8 +1181,7 @@ public partial class BMSLibrary : ObservableObject
         set
         {
             using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-                "catalog_storage_rows",
-                showMessage: false);
+                "catalog_storage_rows");
             if (mutationReservation == null)
             {
                 throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy);
@@ -2701,9 +2699,7 @@ public partial class BMSLibrary : ObservableObject
             () => CurrentOptionsSnapshot,
             lr2SearchRootSnapshotOwner,
             lr2config);
-        Lr2SynchronizationRuntimePort lr2SynchronizationRuntimePort = new(
-            lr2SynchronizationRuntimeState,
-            scopedOperationDialogService);
+        Lr2SynchronizationRuntimePort lr2SynchronizationRuntimePort = new(lr2SynchronizationRuntimeState);
         Lr2SynchronizationProjectionPort lr2SynchronizationProjectionPort = new(
             catalogOwnedCollectionOwner,
             lr2ChartInfoCapability,
@@ -2720,7 +2716,7 @@ public partial class BMSLibrary : ObservableObject
         catalogFileMutationAdmissionOwner = new(
             lr2SynchronizationOwner,
             catalogFileMutationReadinessOwner,
-            ShowCatalogFileMutationRequiresFileDiffWarning);
+            NotifyCatalogFileMutationRequiresFileDiffWarning);
         catalogWriteFailureSubscription = new(catalogMutationOwner, lr2SynchronizationOwner);
         resourceHealthOwner = new(
             maintenanceService,
@@ -2815,7 +2811,6 @@ public partial class BMSLibrary : ObservableObject
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             dbGateway,
             catalogOwnedCollectionOwner,
-            this.dialogService,
             () => everythingScanLoggingEnabled,
             ReportLibraryInitializationProgress,
             CompleteLibraryFileEnumerationProgress,
@@ -4821,7 +4816,7 @@ public partial class BMSLibrary : ObservableObject
         List<Action> tasksContinuation,
         SemaphoreSlim semaphore,
         in PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability = null, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<ScoreAdoptionNotification> scoreNotificationObserver = null)
     {
         return InitializeCore(
             tasksContinuation,
@@ -4836,7 +4831,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="repairNotificationObserver">親受付解放後に提示する実修復結果の受渡し。借用中は画面を待たず、呼出元が終端後に通知します。</param>
     /// <param name="scoreNotificationObserver">借用時は必須。採用済み純通知を保存するだけの受渡し先で、実親L/P解放後に実行します。後段失敗時も受け渡します。</param>
     internal LibraryFileInitializationResult ReinitializeUnderAdmission(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<ScoreAdoptionNotification> scoreNotificationObserver = null)
         => InitializeCore(null, null, LibraryInitializeMode.FullReinitialize, null, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver);
 
     public void Reinitialize(List<Action> tasksContinuation = null, SemaphoreSlim semaphore = null)
@@ -4847,7 +4842,7 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>受理済みの同owner生存権限を借用してスコアを採用し、純通知を親の局所結果へ渡して後片付けの終端後に戻ります。</summary>
     /// <param name="capability">呼出元が終端まで保持する共通受付の権限。nullは新規の非待機受付です。</param>
     /// <param name="scoreNotificationObserver">借用時は必須。採用済み純通知を保存するだけの受渡し先で、実親解放後に実行します。後段失敗時も受け渡します。</param>
-    internal LibraryFileInitializationResult InitializeScoresOnlyUnderAdmission(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, Action<Action> scoreNotificationObserver = null)
+    internal LibraryFileInitializationResult InitializeScoresOnlyUnderAdmission(LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, Action<ScoreAdoptionNotification> scoreNotificationObserver = null)
         => InitializeCore(null, null, LibraryInitializeMode.ScoreOnly, null, capability, originatingRequest, scoreNotificationObserver: scoreNotificationObserver);
 
     public void InitializeScoresOnly(List<Action> tasksContinuation, SemaphoreSlim semaphore = null)
@@ -4890,23 +4885,25 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>再初期化の限定候補を読む、このライブラリが所有するDBの対象です。</summary>
     internal string InitializationSongDbPath => dbGateway.SongDbPath;
 
-    /// <summary>実終端の通知結果を公開初期化の受付解放後に提示します。元の対象・原因と既存警告を保ちます。</summary>
+    /// <summary>
+    /// 実終端の通知結果を、自有の公開初期化の受付解放後に待たずに投函します。元の対象・原因と既存警告を保ちます。
+    /// 本番の借用経路は呼出し元が表示するため、この経路は自有の公開入口だけから到達します。
+    /// </summary>
     private void PresentLeapYearFolderRepair(LeapYearFolderRepairNotification notification)
     {
+        if (IsShutdownRequested) { throw new OperationCanceledException(); }
+        List<OperationDialogMessage> notices = [];
         foreach ((string path, Exception exception) in notification.Failures)
         {
-            if (IsShutdownRequested) { throw new OperationCanceledException(); }
-            ShowOperationDialog(string.Format(Resources.Error_FailedToChangeDate, DisplayedExceptionMessage.Format(exception)) + Environment.NewLine + path,
-                Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            if (IsShutdownRequested) { throw new OperationCanceledException(); }
+            notices.Add(new(string.Format(Resources.Error_FailedToChangeDate, DisplayedExceptionMessage.Format(exception)) + Environment.NewLine + path,
+                Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
         }
         if (notification.ShowWarning)
         {
-            if (IsShutdownRequested) { throw new OperationCanceledException(); }
-            ShowOperationDialog(Resources.Warn_LR2LeapYearBugDetected, Resources.MessageBoxTitle_Warning,
-                MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            if (IsShutdownRequested) { throw new OperationCanceledException(); }
+            notices.Add(new(Resources.Warn_LR2LeapYearBugDetected, Resources.MessageBoxTitle_Warning,
+                MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK));
         }
+        PostOperationNotices(notices);
     }
 
     private LibraryFileInitializationResult InitializeCore(
@@ -4914,7 +4911,7 @@ public partial class BMSLibrary : ObservableObject
         SemaphoreSlim semaphore,
         LibraryInitializeMode mode,
         PerformanceInteraction? parentPerformanceInteraction, LibraryFileMutationCapability capability = null, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<ScoreAdoptionNotification> scoreNotificationObserver = null)
     {
         if (capability != null) { ArgumentNullException.ThrowIfNull(scoreNotificationObserver); }
         using var progressScope = new LibraryInitializationProgressScope(
@@ -4955,7 +4952,7 @@ public partial class BMSLibrary : ObservableObject
                 if (IsShutdownRequested || OperationAdmission.IsAdmissionClosed || lr2SynchronizationOwner.PlaylistOperationAdmission.IsAdmissionClosed) { return new(); }
                 if (!OperationAdmission.CanEnter || !lr2SynchronizationOwner.PlaylistOperationAdmission.CanEnter)
                 {
-                    ShowOperationDialog(Resources.Warn_LibraryOperationBusy, Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                    PostLibraryOperationBusyNotice();
                     return new();
                 }
                 directoryPreflightService.EnsureAvailable(CaptureDirectoryPreflightRequest(options), probeOutputBases: true);
@@ -4971,8 +4968,7 @@ public partial class BMSLibrary : ObservableObject
         }
 
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(Initialize),
-            showMessage: !isScoreOnly, capability: capability);
+            nameof(Initialize), capability: capability);
         if (mutationReservation == null)
         {
             return new();
@@ -4984,7 +4980,7 @@ public partial class BMSLibrary : ObservableObject
             if (!lr2SynchronizationOwner.PlaylistOperationAdmission.TryEnter(out IDisposable playlistAdmission))
             {
                 mutationReservation.Dispose();
-                ShowOperationDialog(Resources.Warn_LibraryOperationBusy, Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                PostLibraryOperationBusyNotice();
                 return new();
             }
             publicPlaylistReservation = (LibraryFileMutationLease)playlistAdmission;
@@ -5029,7 +5025,7 @@ public partial class BMSLibrary : ObservableObject
         InitializationExecutionResult initializeResult;
         List<Action> initializationPostLeaseEffects = [];
         Action pendingPublication = null;
-        Action scoreNotification = null;
+        ScoreAdoptionNotification scoreNotification = null;
         LeapYearFolderRepairResult leapYearRepairResult = new();
         LeapYearFolderRepairNotification repairNotification = null;
         bool initializationFailed = false;
@@ -5140,7 +5136,7 @@ public partial class BMSLibrary : ObservableObject
             publicPlaylistReservation?.Dispose();
             mutationReservation?.Dispose();
             if (capability != null) { scoreNotificationObserver(scoreNotification); }
-            else { scoreNotification?.Invoke(); }
+            else { PublishScoreAdoptionAfterRelease(scoreNotification); }
             if (!isScoreOnly)
             {
                 repairNotification = LeapYearFolderRepairNotification.Capture(leapYearRepairApproval, leapYearRepairResult,
@@ -5488,8 +5484,8 @@ public partial class BMSLibrary : ObservableObject
     /// </summary>
     /// <param name="options">今回の取得と共通の確定設定。</param>
     /// <param name="attempt">外部DBの接続を解放済みの通常成績・全履歴の局所取得結果。</param>
-    /// <returns>実親解放後に実行するスコアの純通知と、今回の取得が失敗した場合の案内。</returns>
-    private Action AdoptSavedScores(BmsLibraryOptionsSnapshot options, ScoreTableLoadResult attempt)
+    /// <returns>実親解放後に実行するスコアの純通知と、今回の取得が失敗した場合の案内の事実。案内はここでは表示しません。</returns>
+    private ScoreAdoptionNotification AdoptSavedScores(BmsLibraryOptionsSnapshot options, ScoreTableLoadResult attempt)
     {
         using (rwlockBMSScores.GetWriterGuard())
         {
@@ -5529,13 +5525,20 @@ public partial class BMSLibrary : ObservableObject
         }
         if (!options.EnableDownloadLr2IrScoreAndDetectUnsent) { ClearScoreUnsentStatus(); }
         Action notification = RefreshScoreSnapshotFromCurrentScores("score_tbl_load", attempt.ScoreDbPath, attempt.PlayHistorySnapshot);
-        if (attempt.Status != ScoreTableLoadStatus.Failed) { return notification; }
-        return () =>
-        {
-            notification?.Invoke();
-            TryInvokePostLeaseNotification(() => dialogService.Show(Resources.Error_RecommendationScoreReadFailed,
-                Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation), "saved_score_reload_failure_notification_failed");
-        };
+        if (attempt.Status != ScoreTableLoadStatus.Failed) { return new(notification, null); }
+        return new(notification, new OperationDialogMessage(Resources.Error_RecommendationScoreReadFailed,
+            Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.None));
+    }
+
+    /// <summary>
+    /// 自有の受付を解放した後に、スコアの公開を実行し、取得失敗の案内を待たずに投函します。
+    /// 借用経路は同じ事実を呼出し元へ渡し、親の受付の解放後に呼出し元が表示します。
+    /// </summary>
+    private void PublishScoreAdoptionAfterRelease(ScoreAdoptionNotification notification)
+    {
+        if (notification == null) { return; }
+        notification.Publication?.Invoke();
+        if (notification.ReadFailure != null) { PostOperationNotices([notification.ReadFailure]); }
     }
 
     /// <summary>先行走査の実結果を確定し、保存済み譜面情報に必要なdigestとスコア投影を直接完了します。</summary>
@@ -5577,8 +5580,7 @@ public partial class BMSLibrary : ObservableObject
             return new();
         }
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(ReloadFileDiff),
-            showMessage: true, capability: capability);
+            nameof(ReloadFileDiff), capability: capability);
         if (mutationReservation == null)
         {
             return new();
@@ -5691,17 +5693,11 @@ public partial class BMSLibrary : ObservableObject
         return synchronizationInput;
     }
 
-    internal void ShowEverythingFallbackWarning(string fallbackReason)
-    {
-        string reason = string.IsNullOrWhiteSpace(fallbackReason) ? "unknown" : fallbackReason;
-        ShowOperationDialog(
-            string.Format(Resources.Warn_EverythingFallbackScanUsed, reason),
-            Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
-
+    /// <summary>
+    /// Everything の代替走査を使った警告を、待たずに投函します。同じ初期化・差分の世代では、最初の理由で一件にまとめます。
+    /// 世代が失効した後や終了中の警告は、表示の開始の時点で止めます。
+    /// </summary>
+    /// <returns>この要求を投函した場合は真。同じ世代で投函済みなら偽。</returns>
     internal bool QueueEverythingFallbackWarning(string fallbackReason)
     {
         long epoch;
@@ -5721,56 +5717,32 @@ public partial class BMSLibrary : ObservableObject
             return false;
         }
 
-        if (TryQueueEverythingFallbackWarningOnDispatcher(fallbackReason, epoch))
-        {
-            return true;
-        }
-
-        LogEverythingScan("everything fallback warning queued target=thread_pool fallbackReason=" + (fallbackReason ?? string.Empty));
-        Task.Run(() => ShowEverythingFallbackWarningSafely(fallbackReason, epoch)).ObserveFault("EverythingFallbackWarningDialog");
+        string reason = string.IsNullOrWhiteSpace(fallbackReason) ? "unknown" : fallbackReason;
+        LogEverythingScan("everything fallback warning posted fallbackReason=" + (fallbackReason ?? string.Empty));
+        PostOperationNotices(
+            [CreateWarningNotice(string.Format(Resources.Warn_EverythingFallbackScanUsed, reason))],
+            () => IsEverythingFallbackWarningStale(epoch));
         return true;
     }
 
-    internal void ShowFileScanSkippedIncompleteWarning(string failureReason)
-    {
-        string reason = string.IsNullOrWhiteSpace(failureReason) ? "unknown" : failureReason;
-        ShowOperationDialog(
-            string.Format(Resources.Warn_FileScanSkippedIncomplete, reason),
-            Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
-
     /// <summary>
-    /// Warns that catalog-dependent file mutation is unavailable until an
-    /// authoritative file diff has converged the current catalog generation.
+    /// カタログ依存の変更が、権威ある差分の収束まで使えないことを案内します。
+    /// 現在のスレッドに所有者の案内の列があれば積み、所有者が受付の解放後に表示します。列がなければ待たずに投函します。
     /// </summary>
-    internal void ShowCatalogFileMutationRequiresFileDiffWarning(
+    internal void NotifyCatalogFileMutationRequiresFileDiffWarning(
         CatalogPathConvergenceBlockReason reason)
     {
-        string message = reason == CatalogPathConvergenceBlockReason.StartupFileScanDisabled
+        OperationDialogMessage notice = CreateWarningNotice(reason == CatalogPathConvergenceBlockReason.StartupFileScanDisabled
             ? Resources.Warn_CatalogFileMutationRequiresStartupScan
-            : Resources.Warn_CatalogFileMutationRequiresFileDiff;
-        ShowOperationDialog(
-            message,
-            Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
+            : Resources.Warn_CatalogFileMutationRequiresFileDiff);
+        if (!scopedOperationDialogService.TryEnqueue(notice))
+        {
+            PostOperationNotices([notice]);
+        }
     }
 
-    internal void ShowEmptyScanWithExistingDbWarning(string failureReason)
-    {
-        string reason = string.IsNullOrWhiteSpace(failureReason) ? "unknown" : failureReason;
-        ShowOperationDialog(
-            string.Format(Resources.Warn_EmptyScanWithExistingDbSkipped, reason),
-            Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
-
+    /// <summary>走査が不完全で更新を見送った警告を、待たずに一度だけ投函します。</summary>
+    /// <returns>この要求を投函した場合は真。投函済みなら偽。</returns>
     internal bool QueueFileScanSkippedIncompleteWarning(string failureReason)
     {
         if (Interlocked.Exchange(ref fileScanSkippedIncompleteWarningQueued, 1) != 0)
@@ -5779,16 +5751,14 @@ public partial class BMSLibrary : ObservableObject
             return false;
         }
 
-        if (TryQueueFileScanSkippedIncompleteWarningOnDispatcher(failureReason))
-        {
-            return true;
-        }
-
-        LogEverythingScan("file scan incomplete warning queued target=thread_pool failureReason=" + (failureReason ?? string.Empty));
-        Task.Run(() => ShowFileScanSkippedIncompleteWarningSafely(failureReason)).ObserveFault("FileScanSkippedIncompleteWarningDialog");
+        string reason = string.IsNullOrWhiteSpace(failureReason) ? "unknown" : failureReason;
+        LogEverythingScan("file scan incomplete warning posted failureReason=" + (failureReason ?? string.Empty));
+        PostOperationNotices([CreateWarningNotice(string.Format(Resources.Warn_FileScanSkippedIncomplete, reason))]);
         return true;
     }
 
+    /// <summary>既存DBがあるのに走査結果が空で更新を見送った警告を、待たずに一度だけ投函します。</summary>
+    /// <returns>この要求を投函した場合は真。投函済みなら偽。</returns>
     internal bool QueueEmptyScanWithExistingDbWarning(string failureReason)
     {
         if (Interlocked.Exchange(ref emptyScanWithExistingDbWarningQueued, 1) != 0)
@@ -5797,13 +5767,9 @@ public partial class BMSLibrary : ObservableObject
             return false;
         }
 
-        if (TryQueueEmptyScanWithExistingDbWarningOnDispatcher(failureReason))
-        {
-            return true;
-        }
-
-        LogEverythingScan("empty scan with existing db warning queued target=thread_pool failureReason=" + (failureReason ?? string.Empty));
-        Task.Run(() => ShowEmptyScanWithExistingDbWarningSafely(failureReason)).ObserveFault("EmptyScanWithExistingDbWarningDialog");
+        string reason = string.IsNullOrWhiteSpace(failureReason) ? "unknown" : failureReason;
+        LogEverythingScan("empty scan with existing db warning posted failureReason=" + (failureReason ?? string.Empty));
+        PostOperationNotices([CreateWarningNotice(string.Format(Resources.Warn_EmptyScanWithExistingDbSkipped, reason))]);
         return true;
     }
 
@@ -5818,121 +5784,14 @@ public partial class BMSLibrary : ObservableObject
         Interlocked.Exchange(ref emptyScanWithExistingDbWarningQueued, 0);
     }
 
-    private bool TryQueueEverythingFallbackWarningOnDispatcher(string fallbackReason, long epoch)
+    private bool IsEverythingFallbackWarningStale(long epoch)
     {
-        try
+        lock (everythingFallbackWarningGate)
         {
-            LogEverythingScan("everything fallback warning queued target=ui_dispatcher fallbackReason=" + (fallbackReason ?? string.Empty));
-            IUiScheduledOperation operation = uiScheduler.Schedule(delegate
-            {
-                ShowEverythingFallbackWarningSafely(fallbackReason, epoch);
-            });
-            if (!operation.IsAccepted)
-            {
-                LogEverythingScan("everything fallback warning queue_failed target=ui_dispatcher fallbackReason=" + (fallbackReason ?? string.Empty));
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            LogEverythingScan("everything fallback warning queue_failed target=ui_dispatcher fallbackReason=" + (fallbackReason ?? string.Empty) + " message=" + ex.Message);
-            return false;
-        }
-        return true;
-    }
-
-    private bool TryQueueFileScanSkippedIncompleteWarningOnDispatcher(string failureReason)
-    {
-        try
-        {
-            LogEverythingScan("file scan incomplete warning queued target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
-            IUiScheduledOperation operation = uiScheduler.Schedule(delegate
-            {
-                ShowFileScanSkippedIncompleteWarningSafely(failureReason);
-            });
-            if (!operation.IsAccepted)
-            {
-                LogEverythingScan("file scan incomplete warning queue_failed target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            LogEverythingScan("file scan incomplete warning queue_failed target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
-            return false;
-        }
-        return true;
-    }
-
-    private bool TryQueueEmptyScanWithExistingDbWarningOnDispatcher(string failureReason)
-    {
-        try
-        {
-            LogEverythingScan("empty scan with existing db warning queued target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
-            IUiScheduledOperation operation = uiScheduler.Schedule(delegate
-            {
-                ShowEmptyScanWithExistingDbWarningSafely(failureReason);
-            });
-            if (!operation.IsAccepted)
-            {
-                LogEverythingScan("empty scan with existing db warning queue_failed target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty));
-                return false;
-            }
-        }
-        catch (Exception ex)
-        {
-            LogEverythingScan("empty scan with existing db warning queue_failed target=ui_dispatcher failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
-            return false;
-        }
-        return true;
-    }
-
-    private void ShowEverythingFallbackWarningSafely(string fallbackReason, long epoch)
-    {
-        try
-        {
-            lock (everythingFallbackWarningGate)
-            {
-                if (epoch != everythingFallbackWarningEpoch)
-                {
-                    LogEverythingScan("everything fallback warning skipped reason=stale_epoch fallbackReason=" + (fallbackReason ?? string.Empty));
-                    return;
-                }
-                ShowEverythingFallbackWarning(fallbackReason);
-            }
-            LogEverythingScan("everything fallback warning shown fallbackReason=" + (fallbackReason ?? string.Empty));
-        }
-        catch (Exception ex)
-        {
-            LogEverythingScan("everything fallback warning failed fallbackReason=" + (fallbackReason ?? string.Empty) + " message=" + ex.Message);
+            return epoch != everythingFallbackWarningEpoch;
         }
     }
 
-    private void ShowFileScanSkippedIncompleteWarningSafely(string failureReason)
-    {
-        try
-        {
-            ShowFileScanSkippedIncompleteWarning(failureReason);
-            LogEverythingScan("file scan incomplete warning shown failureReason=" + (failureReason ?? string.Empty));
-        }
-        catch (Exception ex)
-        {
-            LogEverythingScan("file scan incomplete warning failed failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
-        }
-    }
-
-    private void ShowEmptyScanWithExistingDbWarningSafely(string failureReason)
-    {
-        try
-        {
-            ShowEmptyScanWithExistingDbWarning(failureReason);
-            LogEverythingScan("empty scan with existing db warning shown failureReason=" + (failureReason ?? string.Empty));
-        }
-        catch (Exception ex)
-        {
-            LogEverythingScan("empty scan with existing db warning failed failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
-        }
-    }
     private void RunChartDigestBackfill()
     {
         ChartDigestBackfillTotalCount = 0;
@@ -5995,14 +5854,14 @@ public partial class BMSLibrary : ObservableObject
         };
     }
 
-    private bool TryBlockLr2SongDbSyncMutation(string operation, bool showMessage = true)
+    private bool TryBlockLr2SongDbSyncMutation(string operation)
     {
-        return lr2SynchronizationOwner.TryBlockMutation(operation, showMessage);
+        return lr2SynchronizationOwner.TryBlockMutation(operation);
     }
 
-    private LibraryFileMutationLease TryBeginLr2SongDbSyncBlockedMutation(string operation, bool showMessage = true, LibraryFileMutationCapability capability = null)
+    private LibraryFileMutationLease TryBeginLr2SongDbSyncBlockedMutation(string operation, LibraryFileMutationCapability capability = null)
     {
-        return lr2SynchronizationOwner.TryBeginMutation(operation, showMessage, capability);
+        return lr2SynchronizationOwner.TryBeginMutation(operation, capability);
     }
 
     private bool TryBlockCatalogFileMutation(string operation, bool showMessage = true, LibraryFileMutationCapability capability = null)
@@ -6017,18 +5876,7 @@ public partial class BMSLibrary : ObservableObject
         return catalogFileMutationAdmissionOwner.TryBeginFileOperationMutation(
             operation,
             showMessage,
-            showBusyMessage: false, capability: capability);
-    }
-
-    /// <summary>
-    /// Reserves the library mutation lease for a playlist-owned file/DB command.
-    /// The playlist receives the resulting lease and creates its explicit nested
-    /// capability; no ambient or capability-free synchronization route exists.
-    /// </summary>
-    /// <param name="showMessage">Whether a busy mutation should retain the interactive warning.</param>
-    internal LibraryFileMutationLease TryBeginLibraryFileMutation(string operation, bool showMessage = true)
-    {
-        return TryBeginLr2SongDbSyncBlockedMutation(operation, showMessage);
+            capability: capability);
     }
 
     /// <summary>
@@ -8232,7 +8080,6 @@ public partial class BMSLibrary : ObservableObject
         }
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             "catalog_maintenance",
-            showMessage: false,
             capability: capability);
         if (mutationReservation == null)
         {
@@ -8309,8 +8156,7 @@ public partial class BMSLibrary : ObservableObject
         MaintenanceReadFailureCollector readFailures = null)
     {
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            "owned_catalog_maintenance",
-            showMessage: false, capability: capability);
+            "owned_catalog_maintenance", capability: capability);
         if (mutationReservation == null)
         {
             return new MaintenanceWorkflowResult { Canceled = true };
@@ -8552,8 +8398,7 @@ public partial class BMSLibrary : ObservableObject
     {
         string reason = unset ? "resource_health_unignore" : "resource_health_ignore";
         using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            reason,
-            showMessage: false, capability: capability);
+            reason, capability: capability);
         if (mutationReservation == null)
         {
             return;
@@ -8608,8 +8453,7 @@ public partial class BMSLibrary : ObservableObject
             return;
         }
         using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(SetBMSFilesEncoding),
-            showMessage: false, capability: capability);
+            nameof(SetBMSFilesEncoding), capability: capability);
         if (mutationReservation == null)
         {
             return;
@@ -8636,7 +8480,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="capability">親操作の生存L権限。nullは新規非待機受付です。</param>
     internal void RecheckZeroNoteWarnings(LibraryFileMutationCapability capability)
     {
-        using LibraryFileMutationLease accepted = TryBeginLr2SongDbSyncBlockedMutation("zero_note_recheck", showMessage: false, capability: capability);
+        using LibraryFileMutationLease accepted = TryBeginLr2SongDbSyncBlockedMutation("zero_note_recheck", capability: capability);
         if (accepted == null) { return; }
         List<ChartFile> allCharts;
         using (rwlockBMSFiles.GetReaderGuard())
@@ -8705,7 +8549,7 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>同じ解析失敗削除の生存L権限を借用してDB削除の実終端まで保持します。</summary>
     internal void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s, LibraryFileMutationCapability capability)
     {
-        using LibraryFileMutationLease accepted = TryBeginLr2SongDbSyncBlockedMutation("chart_info_parse_failure_removal", showMessage: false, capability: capability);
+        using LibraryFileMutationLease accepted = TryBeginLr2SongDbSyncBlockedMutation("chart_info_parse_failure_removal", capability: capability);
         if (accepted == null) { return; }
         catalogChartInfoOwner.RemoveParseFailuresByMd5(md5s);
     }
@@ -10005,13 +9849,12 @@ public partial class BMSLibrary : ObservableObject
         {
             return BmsFileLevelOverwriteOutcome.NotStarted;
         }
-        if (TryBlockLr2SongDbSyncMutation(nameof(ReplaceBmsFileLevelByTableEntryLevel), showMessage: false))
+        if (TryBlockLr2SongDbSyncMutation(nameof(ReplaceBmsFileLevelByTableEntryLevel)))
         {
             return BmsFileLevelOverwriteOutcome.BlockedByLr2Synchronization;
         }
         using LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
-            nameof(ReplaceBmsFileLevelByTableEntryLevel),
-            showMessage: false);
+            nameof(ReplaceBmsFileLevelByTableEntryLevel));
         if (mutationReservation == null)
         {
             return BmsFileLevelOverwriteOutcome.BlockedByLr2Synchronization;

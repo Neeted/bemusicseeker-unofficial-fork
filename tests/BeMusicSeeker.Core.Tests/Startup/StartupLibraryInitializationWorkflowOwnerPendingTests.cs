@@ -104,7 +104,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
         StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(library.OperationAdmission,
             library.Lr2Synchronization.PlaylistOperationAdmission);
-        Action? scoreNotification = null;
+        ScoreAdoptionNotification? scoreNotification = null;
         var expected = new IOException("pending post-commit notification failed");
         int notifications = 0;
         PropertyChangedEventHandler failNotification = (_, args) =>
@@ -139,7 +139,7 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         {
             library.PropertyChanged -= failNotification;
             accepted.Dispose();
-            try { scoreNotification?.Invoke(); }
+            try { scoreNotification?.Publication?.Invoke(); }
             finally { library.RequestShutdown("pending-publication-workflow"); }
         }
     }

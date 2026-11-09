@@ -212,8 +212,7 @@ internal sealed class LibraryFileOperationSynchronization
     internal LibraryFileMutationLease EnterPendingInvalidExtensionRenameWriteScope(LibraryFileMutationCapability capability = null)
     {
         return EnterMutationReservation(
-            "library_pending_invalid_extension_rename",
-            showMessage: true, capability: capability);
+            "library_pending_invalid_extension_rename", capability: capability);
     }
 
     internal IDisposable EnterPendingInvalidExtensionRenameSnapshotScope()
@@ -300,12 +299,13 @@ internal sealed class LibraryFileOperationSynchronization
         // locks are acquired by the operation immediately around its model
         // snapshot and are released before any filesystem, DB, cleanup, or
         // publication work begins.
-        return EnterMutationReservation(operation, showMessage: true, capability: capability);
+        return EnterMutationReservation(operation, capability);
     }
 
-    private LibraryFileMutationLease EnterMutationReservation(string operation, bool showMessage, LibraryFileMutationCapability capability = null)
+    /// <summary>raw 側の境界は共通受付のBusyをnullで返すだけでパス収束の警告を持たないため、警告の指定は常に false です。</summary>
+    private LibraryFileMutationLease EnterMutationReservation(string operation, LibraryFileMutationCapability capability = null)
     {
-        return mutationBoundary.TryBeginMutation(operation, showMessage, capability);
+        return mutationBoundary.TryBeginMutation(operation, showMessage: false, capability);
     }
 
     private LibraryFileMutationLease EnterCatalogWriteScope(string operation, LibraryFileMutationCapability capability = null)

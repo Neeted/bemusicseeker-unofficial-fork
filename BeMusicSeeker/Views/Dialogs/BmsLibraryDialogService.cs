@@ -1,22 +1,81 @@
 using System;
+using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.ViewModels;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Views.Dialogs;
 
 /// <summary>
-/// モデルが持つ同期の窓口 <see cref="IBmsLibraryDialogService"/> を、注入された <see cref="IUiDialogService"/> の表示へ接続します。
+/// モデルが持つ窓口 <see cref="IBmsLibraryDialogService"/> を、注入された <see cref="IUiDialogService"/> の表示へ接続します。
+/// 利用者の応答を待つ確認は同期の <see cref="Show"/>、待たない通知は <see cref="Post"/> です。
 /// Models は Views に依存しないため、実装はこの層に置き、構成がライブラリへ注入します。
 /// </summary>
 internal sealed class BmsLibraryDialogService : IBmsLibraryDialogService
 {
     private readonly IUiDialogService dialogService;
+    private readonly IUiScheduler uiScheduler;
 
     /// <summary>表示を委譲する先を受け取ります。</summary>
     /// <param name="dialogService">構成が所有する UI ダイアログ窓口。</param>
-    internal BmsLibraryDialogService(IUiDialogService dialogService)
+    /// <param name="uiScheduler">待たない通知の表示を、依頼したスレッドと切り離して開始する UI の予約先。</param>
+    internal BmsLibraryDialogService(IUiDialogService dialogService, IUiScheduler uiScheduler)
     {
         this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+        this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
+    }
+
+    /// <summary>
+    /// OK だけの通知を、見出し・重要度ごとに一件へまとめて待たずに表示します。
+    /// 表示は UI の予約先で開始します。UI スレッドから呼ばれても、窓口の同期のモーダル経路を使いません。
+    /// 予約の拒否・予約中の例外・表示の失敗は呼出し元へ伝えず、診断へ残します。別の表示手段へは切り替えません。
+    /// </summary>
+    /// <param name="messages">表示する通知。空では何も表示しません。</param>
+    /// <param name="shouldSuppress">表示の開始の時点で真なら、表示せず診断へ残す判定。</param>
+    public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+    {
+        if (messages == null || messages.Count == 0)
+        {
+            return;
+        }
+        BMSLibrary.OperationDialogMessage[] snapshot = [.. messages];
+        try
+        {
+            IUiScheduledOperation operation = uiScheduler.Schedule(() => BeginShowPosted(snapshot, shouldSuppress));
+            if (operation == null || !operation.IsAccepted)
+            {
+                LogWarn("bms_library_notice_post_rejected count=" + snapshot.Length + " reason=" + operation?.RejectionReason);
+            }
+        }
+        catch (Exception exception)
+        {
+            FileDbMutationReport.LogNotificationFailure(exception);
+        }
+    }
+
+    private void BeginShowPosted(BMSLibrary.OperationDialogMessage[] messages, Func<bool> shouldSuppress)
+    {
+        try
+        {
+            if (shouldSuppress?.Invoke() == true)
+            {
+                LogWarn("bms_library_notice_post_suppressed count=" + messages.Length);
+                return;
+            }
+            FileDbMutationReport.ShowOperationMessagesAsync(dialogService, messages).ObserveFault("BmsLibraryDialogService.Post");
+        }
+        catch (Exception exception)
+        {
+            FileDbMutationReport.LogNotificationFailure(exception);
+        }
+    }
+
+    private static void LogWarn(string message)
+    {
+        try { NLogWrapper.FileLogger?.Warn(message); }
+        catch (Exception) { /* 任意診断の失敗で、通知の依頼元を変えません。 */ }
     }
 
     /// <summary>

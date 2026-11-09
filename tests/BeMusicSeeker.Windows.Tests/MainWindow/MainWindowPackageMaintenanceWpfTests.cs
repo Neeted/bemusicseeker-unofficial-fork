@@ -569,7 +569,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     {
                         var probe = Task.Run(() =>
                         {
-                            using LibraryFileMutationLease lease = library.TryBeginLibraryFileMutation("entry-release-probe", showMessage: false);
+                            using LibraryFileMutationLease lease = library.Lr2Synchronization.TryBeginMutation("entry-release-probe");
                             Assert.IsNotNull(lease, "entry通知時にモデル受付権を解放します。");
                         });
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(probe, "entry release probe");
@@ -743,7 +743,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 dialogs.OnMessage = () =>
                 {
                     activityInactive = !viewModel.ChartMutationActivity.IsActive;
-                    using LibraryFileMutationLease gate = library.TryBeginLibraryFileMutation("report-probe", showMessage: false);
+                    using LibraryFileMutationLease gate = library.Lr2Synchronization.TryBeginMutation("report-probe");
                     leaseBusy = gate == null;
                 };
                 if (reporterThrows)
@@ -769,7 +769,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.FolderAutoRenameWorkflow.WaitForIdleAsync(), "B1 terminal");
                 Assert.IsTrue(activityInactive);
                 Assert.IsTrue(leaseBusy, "必要な失敗通知中も論理受付を保持する。");
-                using (LibraryFileMutationLease next = library.TryBeginLibraryFileMutation("after-report", showMessage: false))
+                using (LibraryFileMutationLease next = library.Lr2Synchronization.TryBeginMutation("after-report"))
                 {
                     Assert.IsNotNull(next, "通知の実終端後は次の明示変更を受理する。");
                 }

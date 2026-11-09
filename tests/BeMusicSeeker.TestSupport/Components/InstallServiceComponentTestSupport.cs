@@ -87,6 +87,10 @@ internal static class InstallServiceComponentTestSupport
             Messages.Add(messageBoxText);
             return defaultResult;
         }
+
+        public List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress) => Posted.AddRange(messages);
     }
 
     /// <summary>旧テストとCoreテストで同一の実ファイル操作を使います。</summary>

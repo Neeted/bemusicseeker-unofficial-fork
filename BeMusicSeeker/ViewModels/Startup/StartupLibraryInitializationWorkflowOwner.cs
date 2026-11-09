@@ -276,7 +276,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
     /// <param name="forceBeatorajaBmtProjection">今回の必要BMT出力に署名一致による省略を適用しないか。</param>
     internal async Task<StartupRequiredInitializationResult> InitializeRequiredAsync(BMSLibrary library, BMSPlaylist playlist,
         Lr2SongDbSyncWorkflowOwner lr2Workflow, PerformanceInteraction performanceInteraction, LibraryFileMutationCapability capability, IUiDialogService dialogs, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot customFolderSettings = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null, bool forceBeatorajaBmtProjection = false, Func<bool> isShutdownRequested = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<ScoreAdoptionNotification> scoreNotificationObserver = null, bool forceBeatorajaBmtProjection = false, Func<bool> isShutdownRequested = null)
     {
         Task<LibraryFileInitializationResult> filesTask = Task.Run(() => library.InitializeStartup([], null, performanceInteraction, capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver));
         Task<bool> headersTask;
@@ -297,7 +297,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
     /// <param name="scoreNotificationObserver">親の局所結果への単純受渡し。採用は本体で完了し、返された純通知は実親L/P解放後に実行します。</param>
     internal async Task<StartupRequiredInitializationResult> ReinitializeAsync(BMSLibrary library, BMSPlaylist playlist,
         Lr2SongDbSyncWorkflowOwner lr2Workflow, LibraryFileMutationCapability capability, IUiDialogService dialogs, OperationProgressRequest originatingRequest = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<Action> scoreNotificationObserver = null, Func<bool> isShutdownRequested = null)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, Action<LibraryScanWarning> warningObserver = null, Action<ScoreAdoptionNotification> scoreNotificationObserver = null, Func<bool> isShutdownRequested = null)
     {
         LibraryFileInitializationResult result = await Task.Run(() => library.ReinitializeUnderAdmission(capability, originatingRequest, leapYearRepairApproval, repairNotificationObserver, warningObserver, scoreNotificationObserver)).ConfigureAwait(false);
         if (await RestorePendingPackagesAsync(library, capability, result.Options, dialogs, isShutdownRequested).ConfigureAwait(false))

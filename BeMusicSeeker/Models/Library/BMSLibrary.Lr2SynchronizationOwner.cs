@@ -10,9 +10,6 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Models;
 
@@ -249,7 +246,7 @@ public partial class BMSLibrary
             }
 
             using LibraryFileMutationLease mutationLease = capability == null
-                ? TryBeginMutation("lr2folder_settings_output_base_sync", showMessage: false)
+                ? TryBeginMutation("lr2folder_settings_output_base_sync")
                 : operationAdmission.Borrow(capability);
             if (mutationLease == null) { throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy); }
             playlistCapability ??= capability?.PlaylistCapability;
@@ -1745,26 +1742,19 @@ public partial class BMSLibrary
             }
         }
 
-        /// <summary>共通受付の保持だけで新しい変更のBusyを判定します。</summary>
-        internal bool TryBlockMutation(string operation, bool showMessage = true, LibraryFileMutationCapability capability = null)
+        /// <summary>共通受付の保持だけで新しい変更のBusyを判定します。Busyは戻り値だけで返し、ダイアログを要求しません。</summary>
+        internal bool TryBlockMutation(string operation, LibraryFileMutationCapability capability = null)
         {
             if (capability != null) { capability.Validate(operationAdmission); return false; }
-            if (!operationAdmission.IsActive) { return false; }
-            if (showMessage)
-            {
-                runtime.ShowOperationDialog(Resources.Warn_LibraryOperationBusy, Resources.MessageBoxTitle_Warning,
-                MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            }
-            return true;
+            return operationAdmission.IsActive;
         }
 
-        /// <summary>新要求は非待機で共通受付を取得し、受理済み継続は明示権限を検査して借用します。</summary>
-        internal LibraryFileMutationLease TryBeginMutation(string operation, bool showMessage = true,
+        /// <summary>新要求は非待機で共通受付を取得し、受理済み継続は明示権限を検査して借用します。Busyはnullで返し、ダイアログを要求しません。</summary>
+        internal LibraryFileMutationLease TryBeginMutation(string operation,
             LibraryFileMutationCapability capability = null)
         {
             if (capability != null) { return operationAdmission.Borrow(capability); }
             if (operationAdmission.TryEnter(out IDisposable lease)) { return (LibraryFileMutationLease)lease; }
-            TryBlockMutation(operation, showMessage);
             return null;
         }
 

@@ -2972,6 +2972,10 @@ public sealed class BmsLibraryPendingPackageRegroupTests
         {
             return UiDialogDefaultResult.OK;
         }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
+        }
     }
 
     private sealed class InstallRowRecord

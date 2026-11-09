@@ -3566,7 +3566,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library, () => playlist, () => true);
 
             Lr2SongDbSyncPreparedDataSurface surface;
-            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_actual_preparation", showMessage: false))
+            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_actual_preparation"))
             {
                 Assert.IsNotNull(preparationLease);
                 Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
@@ -3606,7 +3606,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 Assert.AreEqual("Preserved", sentinel.title);
                 Assert.AreEqual(123, sentinel.adddate);
             }
-            using LibraryFileMutationLease fresh = library.Lr2Synchronization.TryBeginMutation("test_actual_preparation_released", showMessage: false);
+            using LibraryFileMutationLease fresh = library.Lr2Synchronization.TryBeginMutation("test_actual_preparation_released");
             Assert.IsNotNull(fresh);
         }
         finally
@@ -3662,7 +3662,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => true);
 
             Lr2SongDbSyncPreparedDataSurface? surface = null;
-            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_empty_snapshot", showMessage: false))
+            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_empty_snapshot"))
             {
                 Assert.IsNotNull(preparationLease);
                 Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
@@ -3675,8 +3675,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.IsFalse(stages.Any(stage => stage.Stage == "playlist_projection" || stage.Stage == "playlist_files"));
             Assert.IsNotNull(surface);
             using LibraryFileMutationLease fresh = library.Lr2Synchronization.TryBeginMutation(
-                "test_empty_snapshot_after_release",
-                showMessage: false);
+                "test_empty_snapshot_after_release");
             Assert.IsNotNull(fresh);
         }
         finally
@@ -3757,7 +3756,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => playlist,
                 () => true);
             Lr2SongDbSyncPreparedDataSurface? surface = null;
-            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_external_colocated", showMessage: false))
+            using (LibraryFileMutationLease preparationLease = library.Lr2Synchronization.TryBeginMutation("test_external_colocated"))
             {
                 Assert.IsNotNull(preparationLease);
                 Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable playlistLease));
@@ -3778,8 +3777,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.AreEqual(extraTimestamp.ToUnixtime(), extraFolder.date);
             Assert.AreEqual(extraTimestamp.ToUnixtime(), extraFolder.adddate);
             using LibraryFileMutationLease fresh = library.Lr2Synchronization.TryBeginMutation(
-                "test_external_colocated_after_release",
-                showMessage: false);
+                "test_external_colocated_after_release");
             Assert.IsNotNull(fresh);
         }
         finally

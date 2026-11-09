@@ -214,7 +214,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         this.packageInstallMutationPort = packageInstallMutationPort;
         PlaylistWorkspaceDialogService = playlistWorkspaceDialogService ?? DialogService;
         FileDbMutationDialogs = fileDbMutationDialogService ?? DialogService;
-        bmsLibraryDialogService = new BmsLibraryDialogService(libraryDialogService ?? DialogService);
+        bmsLibraryDialogService = new BmsLibraryDialogService(libraryDialogService ?? DialogService, this.uiScheduler);
         appliedCustomFolderOutputPlacement = CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values);
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values, Volatile.Read(ref appliedCustomFolderOutputPlacement)));

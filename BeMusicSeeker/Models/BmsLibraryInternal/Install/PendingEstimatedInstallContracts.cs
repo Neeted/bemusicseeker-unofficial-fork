@@ -99,6 +99,14 @@ internal sealed class EstimatedInstallDeferredFeedback
                 defaultResult));
             return defaultResult;
         }
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
+            foreach (BMSLibrary.OperationDialogMessage message in messages ?? [])
+            {
+                owner.DeferNotice(message);
+            }
+        }
     }
 }
 
