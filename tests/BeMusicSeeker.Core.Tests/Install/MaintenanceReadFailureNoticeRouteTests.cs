@@ -8,7 +8,7 @@ using static BeMusicSeeker.TestSupport.Components.InstallServiceComponentTestSup
 namespace BeMusicSeeker.Tests;
 
 /// <summary>
-/// 再検査以外の保守の経路（導入後の保守・導入見込み）で、読取りスレッドが窓口へ表示せず、
+/// 再検査以外の保守の経路（導入後の保守・導入先の修正・導入見込み）で、読取りスレッドが窓口へ表示せず、
 /// 保守が成功しても例外で終わっても、集めた読込み失敗を既存の通知経路へ渡すことを確認します。
 /// </summary>
 [TestClass]
