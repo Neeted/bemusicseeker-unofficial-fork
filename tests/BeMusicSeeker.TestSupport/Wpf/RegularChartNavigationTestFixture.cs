@@ -153,7 +153,7 @@ internal static class RegularChartNavigationTestFixture
     /// <param name="beforeOwnerNotification">owner通知より前に挿入する任意観測。</param>
     /// <param name="scheduler">投影を配信する任意scheduler。省略時は既存UI Dispatcherへ接続します。</param>
     /// <param name="report">失敗回収時の停止開始・終端を観測する任意callback。</param>
-    /// <param name="dialogs">実rootへ渡す任意dialog port。</param>
+    /// <param name="dialogs">実rootへ渡す任意dialog port。構成の共通の窓口とファイル/DB変更の窓口の両方へ渡します。省略時は未宣言の要求を失敗にする窓口です。</param>
     /// <remarks>
     /// MainWindowTestLifetimeの終了処理とfixtureのTask回収を、WithTemporarySongDbが所有するworkspaceの媒体回収より先に行います。
     /// 本体失敗時はproducerを解放して停止を開始し、停止・Task回収の二次失敗は元例外のDataへ保持します。本体成功時の回収失敗はそのまま伝播します。
@@ -173,7 +173,8 @@ internal static class RegularChartNavigationTestFixture
             var tasks = new ProjectionTaskCollector(scheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             MainWindowViewModel vm = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new NoOpSettingsEditSession(settings), uiScheduler: tasks,
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                fileDbMutationDialogService: dialogs).CreateMainWindowViewModelForTest();
+                fileDbMutationDialogService: dialogs,
+                dialogService: dialogs ?? UndeclaredDialogs.Create()).CreateMainWindowViewModelForTest();
             var lifetime = new MainWindowTestLifetime(vm, Task.CompletedTask);
             lifetime.Run(() =>
             {

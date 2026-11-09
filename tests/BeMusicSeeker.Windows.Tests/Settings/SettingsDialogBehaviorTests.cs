@@ -476,7 +476,8 @@ public sealed class SettingsDialogBehaviorTests
             var failures = new List<Exception>();
             var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                 reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, composition: composition);
             harness.Workspace.CompletionFailure = new IOException("BMT " + bmtStage + " target-A");
             var scoreEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -552,7 +553,8 @@ public sealed class SettingsDialogBehaviorTests
                 defaultBmsPlayerFactory: () => player, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 reportSettingsApplyFailure: exception => Assert.Fail(exception.ToString()),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             try
             {
@@ -611,7 +613,8 @@ public sealed class SettingsDialogBehaviorTests
                 defaultBmsPlayerFactory: () => currentPlayer, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 reportSettingsApplyFailure: exception => Assert.Fail(exception.ToString()),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             var processGateway = new RecordingExternalPlayerProcessGateway();
             processGateway.Session.KeepRunning = true;
@@ -709,7 +712,8 @@ public sealed class SettingsDialogBehaviorTests
             var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                 reportSettingsApplyFailure: failures.Add, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             using var harness = SettingsDialogHarness.Create(values, composition: composition);
             SampleRate oldRate = values.PlayerSampleRate;
             // 利用不能な出力先の組は、通常保存から確定しません。
@@ -1464,7 +1468,8 @@ public sealed class SettingsDialogBehaviorTests
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"))),
-                rootFileEnumerator: new FastRootFileEnumerator(), chartFileScanner: scanner);
+                rootFileEnumerator: new FastRootFileEnumerator(), chartFileScanner: scanner,
+                dialogService: UndeclaredDialogs.Create());
             string database = composition.ApplicationPathSnapshot.StandaloneSongDbPath;
             Directory.CreateDirectory(Path.GetDirectoryName(database) ?? throw new InvalidOperationException());
             if (!File.Exists(database)) { File.WriteAllBytes(database, []); }
@@ -1541,7 +1546,8 @@ public sealed class SettingsDialogBehaviorTests
             var failures = new List<Exception>();
             var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values), settingsDialogService: dialogs,
                 reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, composition: composition);
             byte[] settingsBefore = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
             byte[] xmlBefore = File.ReadAllBytes(layout.ConfigPath);
@@ -1586,7 +1592,8 @@ public sealed class SettingsDialogBehaviorTests
             var dialogs = new RecordingDialogService { MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK), ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
             var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values), settingsDialogService: dialogs,
                 reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             using var harness = SettingsDialogHarness.Create(values, composition: composition);
             Lr2ConfigOwner xml = composition.ResolveLr2Config(layout.ConfigPath);
             string normal = Directory.CreateDirectory(Path.Combine(directory.Path, "SafeNormal")).FullName;

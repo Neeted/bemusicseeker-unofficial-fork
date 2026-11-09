@@ -88,7 +88,8 @@ public sealed partial class MainWindowViewHostTests
                     {
                         if (Interlocked.Increment(ref installationCount) == 1) { throw originalFailure; }
                         return new PackageInstallCommandResult([], null);
-                    }));
+                    }),
+                    dialogService: UndeclaredDialogs.Create());
                 using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(songDbPath)) { }
                 viewModel = composition.CreateMainWindowViewModel();
                 BMSLibrary library = composition.CreateBmsLibrary(new LibraryProfile(false, songDbPath, [],
@@ -528,7 +529,8 @@ public sealed partial class MainWindowViewHostTests
             settingsEditSession: settingsSession,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: applicationLifetime,
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
     }
 
     private static Settings CreateSettings(
@@ -740,7 +742,8 @@ public sealed partial class MainWindowViewHostTests
                     uiScheduler: ui,
                     applicationLifetime: lifetime,
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"))),
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
@@ -843,7 +846,8 @@ public sealed partial class MainWindowViewHostTests
                     uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"))),
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path,
                     bmtOptionsProvider: () =>
                     {
@@ -1069,7 +1073,8 @@ public sealed partial class MainWindowViewHostTests
                         packageRelease.Wait();
                         packageCompleted.TrySetResult();
                         return new PackageInstallCommandResult([], null);
-                    }));
+                    }),
+                    dialogService: UndeclaredDialogs.Create());
                 viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path,
                     mutationPreparation: mutationPreparation);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
@@ -1369,6 +1374,7 @@ public sealed partial class MainWindowViewHostTests
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     settingsDialogService: settingsDialogs,
                     restartFailureDialogs: dialogs,
+                    dialogService: UndeclaredDialogs.Create(),
                     reportSettingsApplyFailure: exception =>
                     {
                         reportedSettingsFailures.Add(exception);

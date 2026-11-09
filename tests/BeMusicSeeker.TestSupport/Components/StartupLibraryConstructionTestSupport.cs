@@ -30,7 +30,8 @@ internal static class StartupLibraryConstructionTestSupport
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new WpfUiScheduler(TestUiScheduler.ResolveOwnedDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
     }
 
     internal static LibraryProfile CreateProfile(string temporaryRoot, string songDbPath)

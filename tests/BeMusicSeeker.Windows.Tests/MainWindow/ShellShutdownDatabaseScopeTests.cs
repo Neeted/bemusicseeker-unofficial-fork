@@ -268,7 +268,8 @@ public sealed class ShellShutdownDatabaseScopeTests
             settingsEditSession: new NoOpSettingsEditSession(settings),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
         ApplicationDatabaseScope scope = composition.DatabaseScope;
         ShellShutdownWorkflowOwner owner = ShellShutdownTestSupport.CreateDirectOwner(viewModel);

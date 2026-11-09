@@ -136,7 +136,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <param name="settingsDialogService">設定画面の確認と通知。省略時は共通のダイアログ窓口を使います。</param>
     /// <param name="packageInstallMutationPort">パッケージの変更処理。省略時は既存のライブラリ変更処理を使います。</param>
     /// <param name="libraryDialogService">ライブラリ操作の通知と確認。省略時は共通のダイアログ窓口を使い、モデルへ注入する窓口の実装を作ります。</param>
-    /// <param name="dialogService">アプリ共通のダイアログ窓口。構成の根が一つだけ作って渡します。省略時だけ構成内で既定の調停処理を一つ作り、専用引数を省略した経路と構成が作る他の所有者へ渡します。</param>
+    /// <param name="dialogService">アプリ共通のダイアログ窓口（必須）。本番は構成の根（App）が作る一つを渡し、専用引数を省略した経路と構成が作る他の所有者へ同じ窓口を届けます。省略時に実際のダイアログ調停処理を暗黙に作らないのは、通知・確認の宣言を持たないテストが実際のダイアログへ到達することを避けるためで、テストは未宣言の要求を失敗にする窓口か、宣言した記録用の窓口を明示して渡します。null は <see cref="ArgumentNullException"/> です。</param>
     internal ApplicationComposition(
         ApplicationRuntimeOptions runtimeOptions,
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
@@ -206,7 +206,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             ?? throw new ArgumentNullException(nameof(uiScheduler));
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
         ReportTerminalSettingsSaveFailure = reportTerminalSettingsSaveFailure;
-        DialogService = dialogService ?? new UiDialogCoordinator();
+        DialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         RestartFailureDialogs = restartFailureDialogs ?? DialogService;
         ReportRestartFailure = reportRestartFailure ?? reportSettingsApplyFailure;
         SettingsDialogService = settingsDialogService ?? DialogService;
@@ -451,7 +451,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<string> mainViewLogWarning,
         Func<Action, bool> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
-        IUiDialogService installDestinationDialogService,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
         Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
@@ -463,24 +462,17 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
         Action<Exception> reportFolderAutoRenameFailure = null,
-        IUiDialogService folderAutoRenameDialogService = null,
         ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
         Func<BMSLibrary> zeroNoteLibraryProvider = null,
         Func<BMSLibrary> packageCatalogLibraryProvider = null,
-        IUiDialogService duplicateMaintenanceDialogService = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
         Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
-        IUiDialogService selectedChartMutationDialogService = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
-        IUiDialogService selectedChartResourceHealthDialogService = null,
         Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
-        IUiDialogService maintenanceRescanDialogService = null,
         Func<BMSLibrary> chartInfoParseFailureRemovalLibraryProvider = null,
-        IUiDialogService chartInfoParseFailureRemovalDialogService = null,
         Func<Action, Task> chartInfoParseFailureRemovalScheduler = null,
         Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
         Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
-        IUiDialogService selectedChartAudioConversionDialogService = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,
@@ -507,7 +499,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             mainViewLogWarning,
             dispatchPackageInstallUi,
             installDestinationLibraryProvider,
-            installDestinationDialogService,
             installDestinationSettingsProvider,
             LongPathFileSystem.DirectoryExists,
             externalShellGateway.OpenDirectory,
@@ -522,29 +513,20 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             folderAutoRenameLog,
             reportFolderAutoRenameNotificationFailure,
             reportFolderAutoRenameFailure,
-            folderAutoRenameDialogService,
+            FileDbMutationDialogs,
             scoreViewerRegistrationWorkflow ?? CreateScoreViewerRegistrationWorkflowOwner(),
             zeroNoteLibraryProvider,
             packageCatalogLibraryProvider,
-            duplicateMaintenanceDialogService,
             showDuplicateFileCheckConfirmProvider,
             duplicateMaintenanceLibraryProvider,
-            selectedChartMutationDialogService,
-            selectedChartMutationDialogService == null
-                ? null
-                : new PendingDeleteConfirmationDialogPort(selectedChartMutationDialogService),
             selectedChartMutationLibraryProvider,
-            selectedChartResourceHealthDialogService,
             selectedChartResourceHealthLibraryProvider,
-            maintenanceRescanDialogService,
             chartInfoParseFailureRemovalLibraryProvider,
-            chartInfoParseFailureRemovalDialogService,
             chartInfoParseFailureRemovalScheduler,
             selectedChartAudioConversionSettingsProvider
                 ?? (() => SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(audioSettingsGateway.CaptureEncodingSettings())),
             selectedChartAudioConversionEncoderFallback
                 ?? audioSettingsGateway.ApplyEncoderFallback,
-            selectedChartAudioConversionDialogService,
             lr2SongDbSyncWorkflow,
             selectedChartExternalActionFileExists,
             libraryFolderTreeLog,
@@ -722,7 +704,7 @@ internal sealed class MainWindowChildComposition
     /// 検索設定の保存境界と譜面操作・閲覧・起動処理の依存を明示して、画面寿命の担当を構成します。
     /// </summary>
     /// <param name="keywordSearchFavoritesSettingsStore">通常一覧・概要で共有するお気に入り設定の保存境界。</param>
-    /// <param name="dialogService">再生の通知が使う、構成共通のダイアログ窓口。</param>
+    /// <param name="dialogService">再生・導入先・メンテナンス・選択譜面の操作など、画面寿命の担当が使う構成共通のダイアログ窓口。担当ごとの専用引数は持たず、すべてこの窓口へ接続します。例外として、フォルダ自動リネームは構成のファイル/DB変更の窓口（<paramref name="folderAutoRenameDialogService"/>）を使います。</param>
     /// <param name="exitForUnrestoredDestination">操作終端後に通常Closeを通さず最終終了する境界。</param>
     /// <param name="playlistOperationAdmission">構成寿命で共有するPの新規受付を閉じるための既存owner。</param>
     /// <param name="updateManifestUrl">起動時に捕捉済みの更新URL。妥当性の検査は更新確認処理へ委ねます。</param>
@@ -744,7 +726,6 @@ internal sealed class MainWindowChildComposition
         Action<string> mainViewLogWarning,
         Func<Action, bool> dispatchPackageInstallUi,
         Func<BMSLibrary> installDestinationLibraryProvider,
-        IUiDialogService installDestinationDialogService,
         Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider,
         Func<string, bool> libraryFolderTreeDirectoryExists,
         Func<string, ExplorerOpenResult> libraryFolderTreeExplorerOpen,
@@ -763,21 +744,14 @@ internal sealed class MainWindowChildComposition
         ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
         Func<BMSLibrary> zeroNoteLibraryProvider = null,
         Func<BMSLibrary> packageCatalogLibraryProvider = null,
-        IUiDialogService duplicateMaintenanceDialogService = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
         Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
-        IUiDialogService selectedChartMutationDialogService = null,
-        IPendingDeleteConfirmationDialogPort selectedChartMutationPendingDeleteDialogPort = null,
         Func<BMSLibrary> selectedChartMutationLibraryProvider = null,
-        IUiDialogService selectedChartResourceHealthDialogService = null,
         Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
-        IUiDialogService maintenanceRescanDialogService = null,
         Func<BMSLibrary> chartInfoParseFailureRemovalLibraryProvider = null,
-        IUiDialogService chartInfoParseFailureRemovalDialogService = null,
         Func<Action, Task> chartInfoParseFailureRemovalScheduler = null,
         Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
         Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
-        IUiDialogService selectedChartAudioConversionDialogService = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Action<string> libraryFolderTreeLog = null,
@@ -793,6 +767,7 @@ internal sealed class MainWindowChildComposition
         ChartFileOperationSynchronizer playlistOperationAdmission = null,
         Action<Exception> reportPlaybackSettingsSaveFailure = null)
     {
+        ArgumentNullException.ThrowIfNull(dialogService);
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
         externalShellGateway ??= ExternalShellGatewayPolicy.Current;
@@ -807,7 +782,7 @@ internal sealed class MainWindowChildComposition
             new WpfPlaybackUiDispatcher(uiScheduler),
             new MainChartListPlaybackQueue(MainChartList),
             playbackSettingsStore,
-            new WpfPlaybackDialogService(dialogService ?? throw new ArgumentNullException(nameof(dialogService))),
+            new WpfPlaybackDialogService(dialogService),
             exception => NLogWrapper.TraceLogger?.Warn(exception),
             chartFileOperations,
             reportPlaybackSettingsSaveFailure);
@@ -837,7 +812,7 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             PlaybackPanel,
-            installDestinationDialogService ?? throw new ArgumentNullException(nameof(installDestinationDialogService)),
+            dialogService,
             installDestinationSettingsProvider ?? throw new ArgumentNullException(nameof(installDestinationSettingsProvider)),
             externalShellGateway: externalShellGateway,
             exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync);
@@ -852,9 +827,9 @@ internal sealed class MainWindowChildComposition
             ChartMutationActivity,
             (IChartMutationPlaybackPort)PlaybackPanel,
             uiScheduler,
-            installDestinationDialogService);
+            dialogService);
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
-            installDestinationDialogService,
+            dialogService,
             chartFileOperations,
             ChartMutationActivity,
             packageInstallMutationPort ?? new BmsLibraryPackageInstallMutationPort(),
@@ -868,7 +843,7 @@ internal sealed class MainWindowChildComposition
             maintenanceRescanLog,
             reportMaintenanceRescanWorkflowNotificationFailure,
             reportMaintenanceRescanWorkflowFailure,
-            dialogs: maintenanceRescanDialogService ?? throw new ArgumentNullException(nameof(maintenanceRescanDialogService)),
+            dialogs: dialogService,
             dispatchTerminalToUi: action => uiScheduler.InvokeAsync(action));
         FolderAutoRenameWorkflow = new FolderAutoRenameWorkflowOwner(
             chartFileOperations,
@@ -916,7 +891,7 @@ internal sealed class MainWindowChildComposition
             packageCatalogLibraryProvider ?? (() => null),
             chartFileOperations,
             ChartMutationActivity,
-            installDestinationDialogService,
+            dialogService,
             PlaybackPanel,
             mutation => Task.Run(mutation));
         DuplicateMaintenanceWorkflow = new DuplicateMaintenanceWorkflowOwner(
@@ -924,7 +899,7 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             PlaybackPanel,
-            duplicateMaintenanceDialogService ?? throw new ArgumentNullException(nameof(duplicateMaintenanceDialogService)),
+            dialogService,
             showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)),
             LongPathFileSystem.DirectoryExists,
             externalShellGateway.OpenDirectory,
@@ -935,8 +910,8 @@ internal sealed class MainWindowChildComposition
             chartFileOperations,
             ChartMutationActivity,
             PlaybackPanel,
-            selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)),
-            selectedChartMutationPendingDeleteDialogPort ?? throw new ArgumentNullException(nameof(selectedChartMutationPendingDeleteDialogPort)));
+            dialogService,
+            new PendingDeleteConfirmationDialogPort(dialogService));
         Func<string, bool> externalActionFileExists = selectedChartExternalActionFileExists ?? LongPathFileSystem.FileExists;
         SelectedChartExternalActions = new SelectedChartExternalActionWorkflowOwner(
             externalActionFileExists,
@@ -946,16 +921,16 @@ internal sealed class MainWindowChildComposition
                 ?? new WindowsExternalProgramLaunchGateway(externalActionFileExists));
         SelectedChartResourceHealth = new SelectedChartResourceHealthWorkflowOwner(
             selectedChartResourceHealthLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthLibraryProvider)),
-            selectedChartResourceHealthDialogService ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthDialogService)));
+            dialogService);
         ChartInfoParseFailureRemoval = new ChartInfoParseFailureRemovalWorkflowOwner(
             chartInfoParseFailureRemovalLibraryProvider ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemovalLibraryProvider)),
-            chartInfoParseFailureRemovalDialogService ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemovalDialogService)),
+            dialogService,
             chartInfoParseFailureRemovalScheduler ?? (action => Task.Run(action)));
         SelectedChartAudioConversion = new SelectedChartAudioConversionWorkflowOwner(
             selectedChartAudioConversionSettingsProvider ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionSettingsProvider)),
             selectedChartAudioConversionEncoderFallback ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionEncoderFallback)),
             PlaybackPanel,
-            selectedChartAudioConversionDialogService ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionDialogService)),
+            dialogService,
             selectedChartAudioConversionExecutor,
             chartFileOperations);
         Lr2SongDbSyncWorkflow = lr2SongDbSyncWorkflow

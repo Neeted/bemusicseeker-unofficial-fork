@@ -29,7 +29,8 @@ public sealed class MainChartColumnSettingsBoundaryTests
             mainChartColumnSettingsStore: store,
             settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
             playlistWorkspaceDialogService: dialogs,
-            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
         MainChartListColumnSelection selection = viewModel.MainChartList.LoadColumnSetting(

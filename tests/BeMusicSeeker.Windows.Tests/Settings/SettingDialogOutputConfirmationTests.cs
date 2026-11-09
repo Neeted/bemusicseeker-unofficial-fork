@@ -65,7 +65,8 @@ public sealed class SettingDialogOutputConfirmationTests
                 var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 SetPrivateField(owner, "lr2config", configOwner);
@@ -219,7 +220,8 @@ public sealed class SettingDialogOutputConfirmationTests
                 var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                 var config = new LR2Config(values.LR2ConfigXmlPath);
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
@@ -291,7 +293,8 @@ public sealed class SettingDialogOutputConfirmationTests
                     reportSettingsApplyFailure: failures.Add,
                     settingsDialogService: new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK) },
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                 SetActiveLibraryProfile(owner, false);
                 SettingsDialogViewModel dialog = owner.SettingDialog;
@@ -416,7 +419,8 @@ public sealed class SettingDialogOutputConfirmationTests
                     var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(settings),
                         reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                         uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                        applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                        applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                        dialogService: UndeclaredDialogs.Create());
                     MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                     Lr2ConfigOwner config = composition.ResolveLr2Config(settings.LR2ConfigXmlPath);
                     SetPrivateField(owner, "lr2config", config);
@@ -558,7 +562,8 @@ public sealed class SettingDialogOutputConfirmationTests
                 var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 SetPrivateField(owner, "lr2config", configOwner);

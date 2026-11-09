@@ -310,7 +310,8 @@ public sealed class MainWindowPlaybackWpfTests
                     settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
                 var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
                 var processGateway = new RecordingExternalPlayerProcessGateway();
@@ -719,7 +720,8 @@ public sealed class MainWindowPlaybackWpfTests
                     settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog()).CreateMainWindowViewModelForTest();
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create()).CreateMainWindowViewModelForTest();
                 var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
                 ownership.Run(() =>
                 {

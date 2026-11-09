@@ -3021,6 +3021,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         // 通常/追加/ROOTと失敗継続の条件差はworkspace系列へ分担し、ここではcompiled接続と実閉鎖後のDB/出力を確認します。
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
+            var commonDialogs = new FileDbReportRecordingDialogs();
             ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, configureSettings: values =>
             {
                 string root = values.BMSRootPath;
@@ -3039,10 +3040,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
                 Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
                 values.PlaylistDefaultIgnoreFolderOutput = (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder);
-            });
+            },
+                commonDialogs: commonDialogs);
             Exception? primaryFailure = null;
             try
             {
+                AssertStartupLr2SyncFailureNotified(commonDialogs);
                 fixture.Playlist.CommitBMSTableWithEntriesToDB(fixture.Table);
                 var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
                 ModalObservation<PlaylistPropertyDialog> observation = OpenDialog<PlaylistPropertyDialog>(fixture.Window, summary,
@@ -3369,6 +3372,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             var notifications = new List<UiMessageRequest>();
+            var commonDialogs = new FileDbReportRecordingDialogs();
             ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
                 messagePresenter: (_, request) =>
                 {
@@ -3395,10 +3399,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
                     Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
                     Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
-                });
+                },
+                commonDialogs: commonDialogs);
             Exception? primaryFailure = null;
             try
             {
+                AssertStartupLr2SyncFailureNotified(commonDialogs);
                 BMSTable table = fixture.Table;
                 table.Output_dir = "Alpha";
                 table.is_external_sync = false;
@@ -3461,6 +3467,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
+            var commonDialogs = new FileDbReportRecordingDialogs();
             ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope, configureSettings: values =>
             {
                 string root = values.BMSRootPath;
@@ -3483,11 +3490,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
                 Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDir);
                 Directory.CreateDirectory(values.LR2CustomFolderOutputBaseDirRootType);
-            });
+            },
+                commonDialogs: commonDialogs);
             Task? operation = null;
             Exception? primaryFailure = null;
             try
             {
+                AssertStartupLr2SyncFailureNotified(commonDialogs);
                 string dbPath = Path.Combine(fixture.Root, "data", "song.db");
                 BMSTable table = fixture.Table;
                 table.name = "Order A";
@@ -5819,6 +5828,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             int completionCount = 0;
             int warningCalls = 0;
             int summaryCalls = 0;
+            var commonDialogs = new FileDbReportRecordingDialogs();
             ActualMainWindowFixture fixture = CreateActualMainWindowFixture(scope,
                 configureSettings: values =>
                 {
@@ -5906,7 +5916,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         probe.TrySetException(failure);
                     }
                     return new ThemedMessageBoxResponse(MessageBoxResult.OK, closedWithoutSelection: false);
-                });
+                },
+                commonDialogs: commonDialogs);
             presenterFixture = fixture;
             outputDirectory = Path.Combine(fixture.Root, "custom", tableName);
             Directory.CreateDirectory(outputDirectory);
@@ -5924,6 +5935,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             Exception? primaryFailure = null;
             try
             {
+                AssertStartupLr2SyncFailureNotified(commonDialogs);
                 outputBlocker = new FileStream(Path.Combine(outputDirectory, "0000.lr2folder"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
                 PlaylistImportStartResult start = workspace.TryStartPlaylistImport([server.PageUri]);
                 Assert.AreEqual(PlaylistImportStartStatus.Started, start.Status);
@@ -7425,6 +7437,20 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             });
     }
 
+    /// <summary>LR2モードの起動で、テストの環境に存在しない列挙の部品による同期失敗が、構成の共通の窓口へ一件だけ通知されることを確認します。</summary>
+    /// <remarks>
+    /// 起動の完了通知は、LR2同期の失敗を共通の窓口へエラーとして一件届けます。テストの実行環境にはネイティブの列挙部品がなく、この失敗は必ず起こるため、
+    /// 宣言した記録用の窓口で受け、見出し・段落・原因（部品の欠落）を表明します。fixture の作成時点（起動後の保守の終端まで）に出た通知が、ちょうど 1 件であることを判定します。それ以降の通知は、この補助では判定しません。
+    /// </remarks>
+    private static void AssertStartupLr2SyncFailureNotified(FileDbReportRecordingDialogs commonDialogs)
+    {
+        UiMessageRequest request = commonDialogs.Messages.Single();
+        Assert.AreEqual(Resources.Error, request.Caption);
+        Assert.AreEqual(MessageBoxImage.Hand, request.Icon);
+        StringAssert.StartsWith(request.MessageBoxText, Resources.Statusbar_progress_phase_lr2_song_db_sync + Environment.NewLine);
+        StringAssert.Contains(request.MessageBoxText, "bridge_dll_not_found");
+    }
+
     private ActualMainWindowFixture CreateActualMainWindowFixture(
         TestWindowPresentationScope windowTest,
         MainWindowForegroundTerminal? foregroundTerminal = null,
@@ -7434,7 +7460,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         Action<Settings>? configureSettings = null,
         Func<BeatorajaBmtOptionsSnapshot>? bmtOptionsProvider = null,
         bool withScoreDatabase = false,
-        MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null)
+        MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null,
+        FileDbReportRecordingDialogs? commonDialogs = null)
     {
         string root = Path.Combine(
             CaseWorkspace.RootDirectory,
@@ -7476,7 +7503,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: lifetime,
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: commonDialogs ?? UndeclaredDialogs.Create());
         StartupLibraryConstructionTestSupport.CreateSongDatabase(composition.DatabaseScope, songDbPath);
         PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDbPath);
         string? scoreDbPath = withScoreDatabase ? Path.Combine(applicationPath.DataDirectoryPath, "score.db") : null;

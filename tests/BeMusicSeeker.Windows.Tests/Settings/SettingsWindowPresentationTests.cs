@@ -58,6 +58,18 @@ public sealed class SettingsWindowPresentationTests
     /// <summary>このケースの準備とモデルで共有するDBの所有者です。</summary>
     private readonly ApplicationDatabaseScope databaseScope = new();
 
+    /// <summary>実の設定画面を表示するケースだけが使う、準備済みの <see cref="UiDialogCoordinator"/> を作ります。</summary>
+    /// <remarks>
+    /// 構成の `dialogService` は必須のため、実表示が前提のケースは未宣言の窓口ではなく実の調停処理を明示して渡します。
+    /// 表示直前に表示範囲の準備を接続し、表示中のモーダルを所有者の解決へ登録して、未準備のモーダルが共有ホストへ残らないようにします。
+    /// </remarks>
+    private static IUiDialogService CreatePreparedSettingsCoordinator(TestWindowPresentationScope scope)
+        => new UiDialogCoordinator(new UiDialogOwnerResolver(), window =>
+        {
+            if (!TestWindowPresentationScope.IsPrepared(window)) { scope.PrepareForOwnedPresentation(window); }
+            return UiDialogOwnerResolver.PushActiveModal(window);
+        });
+
     private static void AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute completionRoute)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
@@ -953,7 +965,8 @@ public sealed class SettingsWindowPresentationTests
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new SettingsEditSession(settings), settingsDialogService: notifications,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 owner = composition.CreateMainWindowViewModelForTest();
                 SettingsDialogViewModel viewModel = owner.SettingDialog;
                 window = new SettingsWindow { DataContext = viewModel };
@@ -1157,7 +1170,8 @@ public sealed class SettingsWindowPresentationTests
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: new SettingsEditSession(settings), settingsDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 owner = composition.CreateMainWindowViewModelForTest();
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog, PlaylistWorkspace = owner.PlaylistWorkspace };
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -2123,7 +2137,8 @@ public sealed class SettingsWindowPresentationTests
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: lifetime,
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                restartFailureDialogs: dialogs);
+                restartFailureDialogs: dialogs,
+                dialogService: UndeclaredDialogs.Create());
             MainWindowViewModel shellViewModel = composition.CreateMainWindowViewModelForTest();
             DangerDialogContext context = CreateDangerDialog(
                 shellViewModel,
@@ -2612,7 +2627,8 @@ public sealed class SettingsWindowPresentationTests
                 settingsEditSession: settingsSession,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: lifetime,
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: CreatePreparedSettingsCoordinator(windowTest));
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
             // 起動検証を設定入力待ちまで完了させる。終了検査中に別の起動通知モーダルを開かない。
             TestUiDispatcherHost.AwaitTaskOnDispatcher(
@@ -3131,7 +3147,8 @@ public sealed class SettingsWindowPresentationTests
                     settingsEditSession: startupSettingsSession,
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                     applicationLifetime: startupLifetime,
-                    cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 owner = composition.CreateMainWindowViewModelForTest();
                 ownership = new MainWindowTestLifetime(owner, startupLifetime.ShutdownRequested.Task);
                 mainWindow = ownership.CreateWindow(() => new MainWindow(owner));
@@ -4117,7 +4134,8 @@ public sealed class SettingsWindowPresentationTests
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         return CreateDangerDialog(
             owner,
             new DangerSettingsEditSession(values, []),
@@ -4216,7 +4234,8 @@ public sealed class SettingsWindowPresentationTests
             settingsEditSession: settingsSession,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         var statePort = new SchemaPresentationStatePort();
         IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
         var settings = new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
@@ -4627,7 +4646,8 @@ public sealed class SettingsWindowPresentationTests
                 reportSettingsApplyFailure: failures.Add, uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
-                chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator());
+                chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(),
+                dialogService: CreatePreparedSettingsCoordinator(windowTest));
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             owner.StartupUpdateWorkflow.NotifyClosing();
             var ownership = new MainWindowTestLifetime(owner, lifetime.ShutdownRequested.Task);
@@ -4777,7 +4797,8 @@ public sealed class SettingsWindowPresentationTests
                 settingsEditSession: startupSettingsSession,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: startupLifetime,
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: CreatePreparedSettingsCoordinator(windowTest));
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
             var ownership = new MainWindowTestLifetime(viewModel, startupLifetime.ShutdownRequested.Task);
             MainWindow? owner = null;
@@ -4923,7 +4944,8 @@ public sealed class SettingsWindowPresentationTests
                 settingsEditSession: startupSettingsSession,
                 uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
                 applicationLifetime: startupLifetime,
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: CreatePreparedSettingsCoordinator(windowTest));
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
             var ownership = new MainWindowTestLifetime(viewModel, startupLifetime.ShutdownRequested.Task);
             MainWindow? owner = null;
@@ -5527,7 +5549,8 @@ public sealed class SettingsWindowPresentationTests
             settingsEditSession: settingsSession,
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         var workflow = new Lr2SongDbSyncWorkflowOwner(runtime);
         IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
         return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,

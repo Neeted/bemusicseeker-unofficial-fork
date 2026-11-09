@@ -49,7 +49,8 @@ internal static class SettingsRootTestFixture
             applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             settingsDialogService: settingsDialogs,
-            fileDbMutationDialogService: settingsDialogs);
+            fileDbMutationDialogService: settingsDialogs,
+            dialogService: UndeclaredDialogs.Create());
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         if (initializeOwner != null || reloadScoresOnly != null || reloadFileDiff != null || reloadScoresOnlyUnderAdmission != null)
         {

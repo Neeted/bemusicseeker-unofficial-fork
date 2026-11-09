@@ -113,7 +113,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 { BmsCharts = new[] { aBase, bBase }.Select(path => BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path))).ToList(), BmsonCharts = [] };
                 BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(composition.DatabaseScope, database, db =>
                 { foreach (ChartFile chart in library.BmsCharts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); } });
-                ((IStartupLibraryApplicationPort)vm).AttachStartupLibrary(library);
+                // 本番と同じく、初期化完了の状態ではLとPの組が接続済みである。Pを欠くと設定確定後の参照反映が失敗するため、同じLのPを接続する。
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database, settings, library: library);
+                IStartupLibraryApplicationPort applicationPort = vm;
+                applicationPort.AttachStartupLibrary(library);
+                applicationPort.AttachStartupServices(new StartupLibraryServices(
+                    new LibraryProfile(false, database, [a, b], null, null, false, false, false, false), library, playlist));
                 vm.InstallTree.AttachLibrary(library);
                 SettingsRootTestFixture.SetActiveLibraryProfile(vm, true);
                 SettingsRootTestFixture.SetPrivateField(vm, "initializationCompleted", true);
@@ -709,7 +714,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    fileDbMutationDialogService: dialogs);
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(dbPath))
                 {
                     db.CreateTable<LR2SongDB.song>();
@@ -829,7 +835,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    fileDbMutationDialogService: dialogs);
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(dbPath))
                 {
                     db.CreateTable<LR2SongDB.song>();
@@ -911,7 +918,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: TestApplicationContext.CreateLifetime(),
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), fileDbMutationDialogService: dialogs);
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(), fileDbMutationDialogService: dialogs,
+                dialogService: UndeclaredDialogs.Create());
             var fixture = new PackageInstallComponentTestSupport.AutomaticContinuationFixture(composition.DatabaseScope, true, false,
                 operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));

@@ -31,7 +31,8 @@ public sealed partial class ApplicationCompositionTests
         gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
         var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new FakeSettingsEditSession { Values = testSettings },
             uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher), externalPlayerProcessGateway: gateway,
-            applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         var settings = new StartupSettingsSnapshot { OperationModeLR2DB = false, UsePlayerLR2body = true, LR2bodyPath = executable, LR2ConfigXmlPath = path };
         try
         {

@@ -68,7 +68,7 @@ internal sealed class MaintenanceMetadataSongFixture : IDisposable
             db.InsertOrReplace(new LR2SongDBExtended.maintenance { path = Path, hash = parsed.Md5, encoding = "utf-8", is_encoding_fixed = fixedEncoding });
         });
         SongTableLoadResult loaded = new BmsLibraryInitializationService().LoadSongTable(gateway,
-            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false }, null, new TestFileMutationService(), null, exception => exception.Message);
+            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false }, new TestFileMutationService(), null, exception => exception.Message);
         MaintenanceTableHydrationResult maintenance = new BmsLibraryInitializationService().LoadMaintenanceTable(gateway,
             new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false });
         Library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(),

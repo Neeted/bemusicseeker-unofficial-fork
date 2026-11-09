@@ -76,7 +76,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
                 uiScheduler: uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: lifetime,
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                playlistWorkspaceDialogService: playlistWorkspaceDialogService)
+                playlistWorkspaceDialogService: playlistWorkspaceDialogService,
+                dialogService: UndeclaredDialogs.Create())
                 .CreateMainWindowViewModelForTest();
             var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
             ownership.Run(() =>

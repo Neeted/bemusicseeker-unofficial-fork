@@ -49,7 +49,8 @@ public sealed partial class ApplicationCompositionTests
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
             chartFileScanner: CapturedChartFileScanner.FromFixture([path], new Dictionary<string, IEnumerable<string>> { [root] = [] }, [root]),
             rootFileEnumerator: new FastRootFileEnumerator(),
-            fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
+            fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
+            dialogService: UndeclaredDialogs.Create());
         var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
         MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(() => new MainWindowViewModel(composition, factory));
         IDisposable? lease = null;
@@ -154,7 +155,8 @@ public sealed partial class ApplicationCompositionTests
             defaultBmsPlayerFactory: () => player,
             uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
+            fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
+            dialogService: UndeclaredDialogs.Create());
         MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(composition.CreateMainWindowViewModel);
         var profile = new LibraryProfile(true, scope.SongDbPath, [], composition.ResolveLr2Config(values.LR2ConfigXmlPath), null, false, false, false, false, "admission-lr2-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);

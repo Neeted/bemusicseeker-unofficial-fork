@@ -4,8 +4,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Components;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryInitializationTestSupport;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 namespace BeMusicSeeker.Tests;
 
 
@@ -82,7 +80,6 @@ public sealed class BmsLibraryInitializationLoadTests
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
-                null,
                 new TestFileMutationService(),
                 null,
                 ex => ex.Message,
@@ -392,7 +389,6 @@ public sealed class BmsLibraryInitializationLoadTests
                 SongTableLoadResult result = service.LoadSongTable(
                     gateway,
                     new BmsLibraryOptionsSnapshot(),
-                    null,
                     new TestFileMutationService(),
                     null,
                     ex => ex.Message);
@@ -478,7 +474,6 @@ public sealed class BmsLibraryInitializationLoadTests
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                null,
                 new TestFileMutationService(),
                 null,
                 ex => ex.Message);
@@ -524,7 +519,6 @@ public sealed class BmsLibraryInitializationLoadTests
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                null,
                 new TestFileMutationService(),
                 null,
                 ex => ex.Message);
@@ -576,7 +570,6 @@ public sealed class BmsLibraryInitializationLoadTests
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false },
-                null,
                 new TestFileMutationService(),
                 null,
                 ex => ex.Message);
@@ -629,7 +622,6 @@ public sealed class BmsLibraryInitializationLoadTests
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                null,
                 new TestFileMutationService(),
                 null,
                 ex => ex.Message);
@@ -676,7 +668,6 @@ public sealed class BmsLibraryInitializationLoadTests
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                null,
                 new TestFileMutationService(),
                 null,
                 ex => ex.Message);
@@ -732,7 +723,6 @@ public sealed class BmsLibraryInitializationLoadTests
             SongTableLoadResult result = service.LoadSongTable(
                 gateway,
                 new BmsLibraryOptionsSnapshot(),
-                null,
                 new TestFileMutationService(),
                 null,
                 ex => ex.Message);
@@ -787,7 +777,7 @@ public sealed class BmsLibraryInitializationLoadTests
             Assert.AreEqual(0, repair.Failures.Count);
             SongTableLoadResult loaded = service.LoadSongTable(gateway,
                 new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = lr2RootPath },
-                null, mutation, null, failure => failure.Message,
+                mutation, null, failure => failure.Message,
                 leapYearRepairApproval: new(songDbPath, approvedCandidates: candidates, unreadableFolders: unreadable));
 
             Assert.AreEqual(0, mutation.TimestampCalls.Count);
@@ -935,10 +925,6 @@ public sealed class BmsLibraryInitializationLoadTests
                 });
             }
 
-            var dialogService = new RecordingDialogService
-            {
-                ResultToReturn = MessageBoxResult.Yes
-            };
             var fileMutationService = new RecordingFileMutationService();
             var service = new BmsLibraryInitializationService();
 
@@ -947,7 +933,6 @@ public sealed class BmsLibraryInitializationLoadTests
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 new BmsLibraryOptionsSnapshot(),
-                dialogService,
                 fileMutationService,
                 null,
                 ex => ex.Message);
@@ -955,7 +940,6 @@ public sealed class BmsLibraryInitializationLoadTests
             Assert.IsFalse(result.LeapYearDetected);
             Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
             Assert.AreEqual(0, result.UpdatedFolders.Count);
-            Assert.IsFalse(dialogService.Calls.Any(call => call.Button == MessageBoxButton.YesNo));
         });
     }
 

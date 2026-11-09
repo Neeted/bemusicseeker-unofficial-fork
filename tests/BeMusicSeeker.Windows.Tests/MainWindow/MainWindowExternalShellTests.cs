@@ -51,7 +51,8 @@ public sealed class MainWindowExternalShellTests
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
-                    externalShellGateway: gateway);
+                    externalShellGateway: gateway,
+                    dialogService: UndeclaredDialogs.Create());
                 viewModel = composition.CreateMainWindowViewModel();
                 ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
                 window = ownership.CreateWindow(() => new MainWindow(viewModel));
@@ -139,7 +140,8 @@ public sealed class MainWindowExternalShellTests
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
-                    externalShellGateway: new RecordingExternalShellGateway());
+                    externalShellGateway: new RecordingExternalShellGateway(),
+                    dialogService: UndeclaredDialogs.Create());
                 viewModel = composition.CreateMainWindowViewModel();
                 ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
                 window = ownership.CreateWindow(() => new MainWindow(viewModel));

@@ -489,7 +489,7 @@ public sealed class ChartInfoInlineHydrationTests
                     Assert.AreEqual(0, library.Lr2SongDbSyncRequestedVersion);
                     SongTableLoadResult reloaded = new BmsLibraryInitializationService().LoadSongTable(
                         new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = operationModeLr2Db },
-                        null, new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
+                        new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
                     Assert.AreEqual(staleRow ? 3 : 13, reloaded.LoadedFiles.Single().Level);
                 }
                 catch (Exception exception)

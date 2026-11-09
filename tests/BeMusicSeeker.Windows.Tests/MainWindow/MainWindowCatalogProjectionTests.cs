@@ -98,7 +98,8 @@ public sealed class MainWindowCatalogProjectionTests
                 applicationLifetime: new TestApplicationLifetime(firstStartup: false),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(paths),
                 chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(),
-                fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs);
+                fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, playlistWorkspaceDialogService: dialogs,
+                dialogService: UndeclaredDialogs.Create());
             StartupLibraryConstructionTestSupport.CreateSongDatabase(composition.DatabaseScope, paths.StandaloneSongDbPath);
             PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, paths.StandaloneSongDbPath);
             new PlaylistPersistenceRepository(composition.DatabaseScope, paths.StandaloneSongDbPath).ReplaceTablesWithEntries([savedTable]);
@@ -346,7 +347,8 @@ public sealed class MainWindowCatalogProjectionTests
             var tasks = new RegularChartNavigationTestFixture.ProjectionTaskCollector(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
             MainWindowViewModel viewModel = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 settingsEditSession: new NoOpSettingsEditSession(settings), uiScheduler: tasks,
-                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create())
                 .CreateMainWindowViewModelForTest();
             var lifetime = new MainWindowTestLifetime(viewModel, Task.CompletedTask);
             EventHandler? replacing = null;

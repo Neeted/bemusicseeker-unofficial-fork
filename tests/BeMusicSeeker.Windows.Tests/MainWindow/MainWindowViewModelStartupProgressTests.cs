@@ -1431,13 +1431,15 @@ public sealed class MainWindowViewModelStartupProgressTests
                     values.TableListURL = UnreachableHttpEndpoint.TableListUrl;
                 });
                 var messages = new List<UiMessageRequest>();
-                var dialogs = new CompletionDialogs { MessageObservedAsync = message => { messages.Add(message); return Task.CompletedTask; } };
+                // 読込失敗の通知は保守のreaderスレッド、完了通知はUIスレッドから届くため、記録と判定の取得はlockで直列化する。
+                var dialogs = new CompletionDialogs { MessageObservedAsync = message => { lock (messages) { messages.Add(message); } return Task.CompletedTask; } };
                 var failures = new RecordingStartupLibraryInitializationFailurePresenter();
                 var composition = new ApplicationComposition(settingsEditSession: new NoOpSettingsEditSession(settings),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: new TestApplicationLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(path),
-                    fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, chartFileScanner: scanner);
+                    fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, chartFileScanner: scanner,
+                    dialogService: dialogs);
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
                     LibraryCreator = profile =>
@@ -1473,9 +1475,11 @@ public sealed class MainWindowViewModelStartupProgressTests
                 Assert.IsFalse(owner.IsLibraryOperationInProgress);
                 Assert.AreEqual(0, failures.Presentations.Count);
                 Assert.AreEqual(1, scanner.ScanCount);
+                UiMessageRequest[] observed;
+                lock (messages) { observed = messages.ToArray(); }
                 string expectedReason = deleteRootAfterDatabaseRead ? "BmsRoot" : "test_startup_scan_failed";
                 string[] warningParts = Resources.Warn_FileScanSkippedIncomplete.Split("{0}", StringSplitOptions.None);
-                Assert.AreEqual(1, messages.Count(message => message.MessageBoxText.StartsWith(warningParts[0], StringComparison.Ordinal)
+                Assert.AreEqual(1, observed.Count(message => message.MessageBoxText.StartsWith(warningParts[0], StringComparison.Ordinal)
                     && message.MessageBoxText.EndsWith(warningParts[1], StringComparison.Ordinal)
                     && message.MessageBoxText.Contains(expectedReason, StringComparison.Ordinal)));
                 using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(path.StandaloneSongDbPath))
@@ -1488,6 +1492,12 @@ public sealed class MainWindowViewModelStartupProgressTests
                 CollectionAssert.AreEqual(deleteRootAfterDatabaseRead ? new[] { savedPath } : Array.Empty<string>(), owned);
                 // 警告と保存済みcatalogは必須起動の終端で検査します。次操作の受付は、同じLを使う起動後保守の実終端後に確認します。
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(WaitForStartupBackgroundTerminalAsync(owner), "startup-scan-background-terminal");
+                // root消失後の再検査では保存済み譜面を読めず、その読込失敗の通知が共通の窓口へ一件だけ届く（起動後の保守の終端で観測する）。消失しない条件では届かない。
+                lock (messages) { observed = messages.ToArray(); }
+                string[] loadFailureParts = Resources.Error_BmsLoadFailedSkip.Split("{0}", StringSplitOptions.None);
+                Assert.AreEqual(deleteRootAfterDatabaseRead ? 1 : 0, observed.Count(message =>
+                    message.MessageBoxText.StartsWith(loadFailureParts[0], StringComparison.Ordinal)
+                    && message.MessageBoxText.Contains(savedPath, StringComparison.Ordinal)));
                 Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable admission));
                 admission.Dispose();
             }

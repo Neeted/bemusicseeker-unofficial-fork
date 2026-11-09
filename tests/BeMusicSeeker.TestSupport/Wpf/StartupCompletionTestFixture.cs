@@ -220,7 +220,8 @@ internal static class StartupCompletionTestFixture
             Composition = new ApplicationComposition(settingsEditSession: settingsSessionFactory?.Invoke(Settings) ?? new NoOpSettingsEditSession(Settings), reportSettingsApplyFailure: settingsFailureReporter,
                 uiScheduler: Ui, applicationLifetime: Lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(path), fileDbMutationDialogService: Dialogs, settingsDialogService: Dialogs,
-                defaultBmsPlayerFactory: defaultPlayer);
+                defaultBmsPlayerFactory: defaultPlayer,
+                dialogService: UndeclaredDialogs.Create());
             StartupLibraryConstructionTestSupport.CreateSongDatabase(Composition.DatabaseScope, songDb);
             new BmsLibraryDbGateway(Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureAppOwnedSchema();
             PlaylistPersistenceRepository.EnsureSchema(Composition.DatabaseScope, songDb);

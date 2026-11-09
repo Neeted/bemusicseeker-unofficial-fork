@@ -646,7 +646,6 @@ internal sealed class BmsLibraryInitializationService
     public SongTableLoadResult LoadSongTable(
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
-        IBmsLibraryDialogService dialogService,
         IFileMutationService fileMutationService,
         FileMutationOptions targetOnlyFileMutationOptions,
         Func<Exception, string> getDisplayedExceptionMessage,

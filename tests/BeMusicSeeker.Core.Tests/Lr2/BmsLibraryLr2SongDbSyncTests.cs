@@ -6506,7 +6506,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 var initialization = new BmsLibraryInitializationService();
                 var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
                 SongTableLoadResult songs = initialization.LoadSongTable(gateway, options,
-                    null, new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
+                    new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
                 MaintenanceTableHydrationResult maintenance = initialization.LoadMaintenanceTable(gateway, options);
                 return ChartFileProjection.WithMaintenance(songs.LoadedFiles.Single(), maintenance.MaintenanceMap[path]);
             }

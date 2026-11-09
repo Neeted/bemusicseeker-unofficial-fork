@@ -1571,7 +1571,8 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
                 restartFailureDialogs: dialogs,
-                reportRestartFailure: reportedFailures.Add);
+                reportRestartFailure: reportedFailures.Add,
+                dialogService: UndeclaredDialogs.Create());
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
             ShellShutdownWorkflowOwner owner = viewModel.ShellShutdownWorkflow;
             Task<bool>? modeRequest = null;

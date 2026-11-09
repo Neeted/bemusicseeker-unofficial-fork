@@ -172,7 +172,8 @@ public sealed class SettingDialogEditCompletionTests
                         applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
                         cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                         runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
-                        fileDbMutationDialogService: dialogs)
+                        fileDbMutationDialogService: dialogs,
+                        dialogService: UndeclaredDialogs.Create())
                         .CreateMainWindowViewModel();
                     void ObserveGuidance(string request)
                     {
@@ -312,7 +313,8 @@ public sealed class SettingDialogEditCompletionTests
                 var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     defaultBmsPlayerFactory: () => player, reportSettingsApplyFailure: failures.Add,
                     uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 owner = composition.CreateMainWindowViewModelForTest();
                 owner.SettingDialog.Dispose();
                 IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
@@ -1004,7 +1006,8 @@ public sealed class SettingDialogEditCompletionTests
                     uiScheduler: ui, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
                     chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs,
-                    defaultBmsPlayerFactory: () => { defaultPlayerCount++; return new RecordingPlaybackPlayer(); });
+                    defaultBmsPlayerFactory: () => { defaultPlayerCount++; return new RecordingPlaybackPlayer(); },
+                    dialogService: UndeclaredDialogs.Create());
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
                 var owner = new MainWindowViewModel(composition, factory);
                 Task? settingsLibraryTerminal = null;
@@ -1278,7 +1281,8 @@ public sealed class SettingDialogEditCompletionTests
                         applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                         runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
                         chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs,
-                        defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
+                        defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer(),
+                        dialogService: UndeclaredDialogs.Create());
                     var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
                     var owner = new MainWindowViewModel(composition, factory);
                     Task? operation = null;
@@ -1578,7 +1582,8 @@ public sealed class SettingDialogEditCompletionTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "application", "BeMusicSeeker.exe"))),
-                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs);
+                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, constructionCalls);
                 var owner = new MainWindowViewModel(composition, factory, startupLibraryInitializationFailurePresenter: failurePresenter);
                 SettingsDialogViewModel dialog = owner.SettingDialog;
@@ -1686,7 +1691,8 @@ public sealed class SettingDialogEditCompletionTests
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
                     rootFileEnumerator: new FastRootFileEnumerator(),
-                    fileDbMutationDialogService: dialogs);
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(settings.LR2ConfigXmlPath);
                 var library = new TestBmsLibrary(composition.DatabaseScope,
                     songDbPath,
@@ -1795,7 +1801,8 @@ public sealed class SettingDialogEditCompletionTests
                 applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
-                fileDbMutationDialogService: dialogs)
+                fileDbMutationDialogService: dialogs,
+                dialogService: UndeclaredDialogs.Create())
                 .CreateMainWindowViewModel();
             var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
             viewModel.SettingDialog.AttachPresentationPort(presentation);
@@ -1868,7 +1875,8 @@ public sealed class SettingDialogEditCompletionTests
                 applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
-                fileDbMutationDialogService: dialogs)
+                fileDbMutationDialogService: dialogs,
+                dialogService: UndeclaredDialogs.Create())
                 .CreateMainWindowViewModel();
             var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
             viewModel.SettingDialog.AttachPresentationPort(presentation);
@@ -1942,7 +1950,8 @@ public sealed class SettingDialogEditCompletionTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
-                    fileDbMutationDialogService: dialogs);
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 admission = composition.OperationAdmission;
                 var library = new TestBmsLibrary(composition.DatabaseScope,
                     database.SongDbPath,
@@ -2099,7 +2108,8 @@ public sealed class SettingDialogEditCompletionTests
                     },
                     uiScheduler: scheduler, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
-                    fileDbMutationDialogService: dialogs);
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 library = new TestBmsLibrary(composition.DatabaseScope, database.SongDbPath, null, null, null,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge,
                     operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
@@ -2220,7 +2230,8 @@ public sealed class SettingDialogEditCompletionTests
                 var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
                 var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(settings),
                     uiScheduler: scheduler, applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath), fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath), fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer(),
+                    dialogService: UndeclaredDialogs.Create());
                 library = new TestBmsLibrary(composition.DatabaseScope, database.SongDbPath, null, null, null,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge,
                     operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
@@ -2365,7 +2376,8 @@ public sealed class SettingDialogEditCompletionTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
-                    fileDbMutationDialogService: dialogs);
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 var library = new TestBmsLibrary(composition.DatabaseScope,
                     database.SongDbPath,
                     getLR2Config: null,
@@ -2688,7 +2700,8 @@ public sealed class SettingDialogEditCompletionTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge),
-                    rootFileEnumerator: new FastRootFileEnumerator());
+                    rootFileEnumerator: new FastRootFileEnumerator(),
+                    dialogService: UndeclaredDialogs.Create());
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
 ;
                 var viewModel = new MainWindowViewModel(composition, factory);
@@ -2855,7 +2868,8 @@ public sealed class SettingDialogEditCompletionTests
                 var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values), reportSettingsApplyFailure: failures.Add,
                     uiScheduler: completionUi, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge),
-                    rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
+                    rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
@@ -2982,7 +2996,8 @@ public sealed class SettingDialogEditCompletionTests
                     reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator(),
-                    fileDbMutationDialogService: dialogs, settingsDialogService: dialogs);
+                    fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {
@@ -3112,7 +3127,8 @@ public sealed class SettingDialogEditCompletionTests
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
                     rootFileEnumerator: new FastRootFileEnumerator(),
-                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs);
+                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
                 var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
                 viewModel.SettingDialog.AttachPresentationPort(new WindowClosingPresentationPort { CurrentWindow = window });
@@ -3315,7 +3331,8 @@ public sealed class SettingDialogEditCompletionTests
                 IApplicationLifetimePort lifetime = TestApplicationContext.CreateLifetime(firstStartup: shutdownDuringConfirmation || shutdownDuringNotification);
                 var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: settingsSession, uiScheduler: scheduler,
                     applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
+                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer(),
+                    dialogService: UndeclaredDialogs.Create());
                 var config = new LR2Config(values.LR2ConfigXmlPath);
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 var actualLibrary = new TestBmsLibrary(composition.DatabaseScope, targetDb, configOwner, null, mutation, new UnexpectedBmsLibraryDialogService(), scheduler,

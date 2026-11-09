@@ -5447,7 +5447,6 @@ public partial class BMSLibrary : ObservableObject
         SongTableLoadResult songTableLoadResult = initializationService.LoadSongTable(
             dbGateway,
             options,
-            dialogService,
             fileMutationService,
             targetOnlyFileMutationOptions,
             GetDisplayedExceptionMessage,

@@ -486,7 +486,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             // Greekでは登録・song・実file・scan・prefetch要求の全てが現αで、folderだけが旧Α。
             Lr2FolderTableSnapshot Capture() => fullLoad
-                ? service.LoadSongTable(gateway, options, null, new TestFileMutationService(), null, failure => failure.Message).FolderTableSnapshot
+                ? service.LoadSongTable(gateway, options, new TestFileMutationService(), null, failure => failure.Message).FolderTableSnapshot
                 : service.LoadFolderTableSnapshot(gateway, options);
             Lr2FolderTableSnapshot snapshot = Capture();
             Assert.AreEqual(deleteChart ? 8 : 4, snapshot.ExistingRowCount);

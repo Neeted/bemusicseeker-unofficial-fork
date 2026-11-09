@@ -837,7 +837,7 @@ public sealed class LR2ConfigTests
             var service = new BmsLibraryInitializationService();
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent(settings).WithLr2Input(owner.Capture());
-            SongTableLoadResult loaded = service.LoadSongTable(gateway, options, null, new TestFileMutationService(), null, failure => failure.Message);
+            SongTableLoadResult loaded = service.LoadSongTable(gateway, options, new TestFileMutationService(), null, failure => failure.Message);
             IReadOnlyList<ChartFile> current = loaded.LoadedFiles;
             for (int cycle = 0; cycle < 2; cycle++)
             {

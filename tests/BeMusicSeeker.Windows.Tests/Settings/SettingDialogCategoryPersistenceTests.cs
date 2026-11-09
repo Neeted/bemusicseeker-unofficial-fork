@@ -794,7 +794,8 @@ public sealed class SettingDialogCategoryPersistenceTests
             var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                 reportSettingsApplyFailure: failures.Add, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                 uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             var view = new PlaybackPanelView { DataContext = owner.PlaybackPanel };
             var playbackWindow = new Window { Content = view, Width = 640, Height = 360, ShowInTaskbar = false };

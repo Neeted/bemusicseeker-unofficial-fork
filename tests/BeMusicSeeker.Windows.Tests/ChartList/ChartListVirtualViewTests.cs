@@ -100,7 +100,8 @@ public sealed class ChartListVirtualViewTests
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                 defaultBmsPlayerFactory: () => player,
                 settingsEditSession: new NoOpSettingsEditSession(testSettings),
-                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher), applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             var viewModel = new MainWindowViewModel(composition, composition);
             using SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
             using RegularChartListOwner rowsLifetime = viewModel.RegularChartList;

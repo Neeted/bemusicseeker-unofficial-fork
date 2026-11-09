@@ -412,7 +412,6 @@ public sealed class ChartInfoMetadataSchemaExportImportTests
                 new BmsLibraryOptionsSnapshot(),
                 null,
                 null,
-                null,
                 ex => ex.Message);
 
             Assert.AreEqual(1, result.LoadedFiles.Count);

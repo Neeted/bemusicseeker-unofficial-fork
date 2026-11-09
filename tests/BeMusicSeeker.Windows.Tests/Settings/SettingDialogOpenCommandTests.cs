@@ -145,7 +145,8 @@ public sealed class SettingDialogOpenCommandTests
             {
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
             })),
-            audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog())
+            audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog(),
+            dialogService: UndeclaredDialogs.Create())
             .CreateMainWindowViewModel();
     }
 

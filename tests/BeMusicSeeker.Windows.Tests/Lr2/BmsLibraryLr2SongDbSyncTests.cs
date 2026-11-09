@@ -214,7 +214,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 Assert.AreEqual(3, library.BmsCharts.Single().Level);
                 SongTableLoadResult reloaded = new BmsLibraryInitializationService().LoadSongTable(
                     new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath), new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
-                    null, new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
+                    new OwnedChartCollectionTestSupport.TestFileMutationService(), null, exception => exception.Message);
                 Assert.AreEqual(3, reloaded.LoadedFiles.Single().Level);
             }
             Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);

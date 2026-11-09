@@ -76,7 +76,8 @@ public sealed class SettingDialogOperationShutdownTests
             var composition = new ApplicationComposition(settingsEditSession: session, uiScheduler: ui, applicationLifetime: lifetime,
                 reportSettingsApplyFailure: failures.Add, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 settingsDialogService: new SettingsOperationDialogs(dialogs, window => PrepareSettingsModal(scope, window)), fileDbMutationDialogService: dialogs, runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
-                rootFileEnumerator: new FastRootFileEnumerator(), audioDeviceCatalog: new TestAudioDeviceCatalog());
+                rootFileEnumerator: new FastRootFileEnumerator(), audioDeviceCatalog: new TestAudioDeviceCatalog(),
+                dialogService: UndeclaredDialogs.Create());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             Window? previousMain = Application.Current.MainWindow;
             MainWindow? main = null;

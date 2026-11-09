@@ -123,7 +123,8 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                         uiScheduler: scheduler,
                         applicationLifetime: TestApplicationContext.CreateLifetime(),
                         cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                        fileDbMutationDialogService: new FileDbReportRecordingDialogs());
+                        fileDbMutationDialogService: new FileDbReportRecordingDialogs(),
+                        dialogService: UndeclaredDialogs.Create());
                     using (LR2SongDBExtended _ = composition.DatabaseScope.OpenSongWrite(songDbPath))
                     {
                     }

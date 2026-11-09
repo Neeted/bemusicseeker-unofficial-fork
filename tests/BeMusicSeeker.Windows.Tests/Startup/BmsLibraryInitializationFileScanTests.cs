@@ -52,7 +52,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             { seed.InsertOrReplace(new LR2SongDB.folder { path = path, title = "Keep relative", parent = "keep-relative-parent", type = 1, date = 123, adddate = 456 }, typeof(LR2SongDB.folder)); }
         }
         SongTableLoadResult fullRead = new BmsLibraryInitializationService().LoadSongTable(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
-            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, null, new TestFileMutationService(), null, failure => failure.Message);
+            new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true }, new TestFileMutationService(), null, failure => failure.Message);
         Assert.IsNotNull(fullRead.FolderTableSnapshot);
         CollectionAssert.AreEquivalent(new[] { oldNormalExact }.Concat(relativeSentinels).ToArray(), fullRead.FolderTableSnapshot.ExistingRowsByPath.Values.Select(row => row.path).ToArray());
 

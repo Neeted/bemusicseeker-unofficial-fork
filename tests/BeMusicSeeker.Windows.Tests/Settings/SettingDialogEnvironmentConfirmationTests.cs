@@ -75,7 +75,8 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                         uiScheduler: new WpfUiScheduler(() => System.Windows.Threading.Dispatcher.CurrentDispatcher),
                         applicationLifetime: TestApplicationContext.CreateLifetime(freshStartup ? false : firstStartup),
                         cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
-                        settingsDialogService: dialogs, fileDbMutationDialogService: dialogs);
+                        settingsDialogService: dialogs, fileDbMutationDialogService: dialogs,
+                        dialogService: UndeclaredDialogs.Create());
                     MainWindowViewModel owner = new(composition, factory);
                     var sequence = new List<string>();
                     owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
@@ -168,7 +169,8 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                         applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                         runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory, "application", "BeMusicSeeker.exe"))),
                         chartFileScanner: CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [manual] = [] }, [manual]),
-                        rootFileEnumerator: new FastRootFileEnumerator(), defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer());
+                        rootFileEnumerator: new FastRootFileEnumerator(), defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer(),
+                        dialogService: UndeclaredDialogs.Create());
                     var calls = new List<string>();
                     var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, calls);
                     MainWindowViewModel owner = new(composition, factory);
@@ -607,7 +609,8 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                     fileDbMutationDialogService: dialogs, reportSettingsApplyFailure: failures.Add,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator());
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator(),
+                    dialogService: UndeclaredDialogs.Create());
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
                 var owner = new MainWindowViewModel(composition, factory);
                 Task<bool> startup = owner.InitializeAsync();
@@ -668,7 +671,8 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                 applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "application", "BeMusicSeeker.exe"))),
                 rootFileEnumerator: new FastRootFileEnumerator(), audioDeviceCatalog: new TestAudioDeviceCatalog(),
-                chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [root] = [] }, [root]));
+                chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [root] = [] }, [root]),
+                dialogService: UndeclaredDialogs.Create());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             var window = new SettingsWindow { DataContext = owner.SettingDialog };
             Task<bool>? original = null;
@@ -756,7 +760,8 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                 var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
                 int restarts = 0;
                 owner.ShellShutdownWorkflow.OperationModeRestartRequested += () => restarts++;
@@ -896,7 +901,8 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                 var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
                     reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs, audioDeviceCatalog: new TestAudioDeviceCatalog(),
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
-                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
                 owner = composition.CreateMainWindowViewModelForTest();
                 SettingsDialogViewModel dialog = owner.SettingDialog;
                 window = new SettingsWindow(dialogs) { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };

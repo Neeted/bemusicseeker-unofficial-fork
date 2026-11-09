@@ -636,9 +636,6 @@ public sealed class RegularChartNavigationTests
         RunColdDuplicateFixture(fixture =>
         {
             MainWindowViewModel vm = fixture.ViewModel;
-            FieldInfo dialogField = typeof(SelectedChartMutationWorkflowOwner).GetField("dialogs", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)
-                ?? throw new AssertFailedException("実変更の通知窓口がありません。");
-            dialogField.SetValue(vm.SelectedChartMutations, dialogs);
             fixture.AwaitOwned(fixture.NavigateDuplicate(MainViewUpdateMode.DuplicateFilterSelected, null), "initial real duplicate root");
             fixture.CompleteDuplicate();
             if (!displayed)

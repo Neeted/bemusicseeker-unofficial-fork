@@ -37,7 +37,8 @@ public sealed partial class ApplicationCompositionTests
             rootFileEnumerator: new EmptyAdmissionRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         var profile = new LibraryProfile(true, scope.SongDbPath, [], composition.ResolveLr2Config(values.LR2ConfigXmlPath), null, false, true, false, false, "binding-output-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
@@ -116,7 +117,8 @@ public sealed partial class ApplicationCompositionTests
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
             rootFileEnumerator: new EmptyAdmissionRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
-            applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         var profile = new LibraryProfile(true, scope.SongDbPath, [], composition.ResolveLr2Config(values.LR2ConfigXmlPath), null, false, true, false, false, "capture-output-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
         BMSPlaylist playlist = composition.CreateBmsPlaylist(profile, library);
@@ -221,7 +223,8 @@ public sealed partial class ApplicationCompositionTests
         var composition = new ApplicationComposition(settingsEditSession: new FakeSettingsEditSession { Values = values },
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator(),
             uiScheduler: new TestUiScheduler(() => null),
-            applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, scope.SongDbPath);
         var scanner = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>>(), [music]);
         var scanned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);

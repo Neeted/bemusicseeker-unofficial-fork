@@ -269,7 +269,8 @@ public sealed class MainWindowProgressStatusBarWpfTests
             playlistWorkspaceDialogService: new AcceptedStatusBarTestDialogService(),
             uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(),
-            cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            dialogService: UndeclaredDialogs.Create());
         using PlaylistWorkspaceTestPorts.OwnedPlaylistStore ownedPlaylistStore =
             PlaylistWorkspaceTestPorts.CreateOwnedPlaylistStore(composition.DatabaseScope);
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
@@ -351,7 +352,8 @@ public sealed class MainWindowProgressStatusBarWpfTests
                 settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
                 uiScheduler: uiScheduler ?? new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                 applicationLifetime: lifetime,
-                cultureCatalog: TestApplicationContext.CreateCultureCatalog())
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: UndeclaredDialogs.Create())
                 .CreateMainWindowViewModelForTest();
             var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
             ownership.Run(() =>
