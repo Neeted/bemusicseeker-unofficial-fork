@@ -51,7 +51,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         try
         {
             await library.InstallChartPackagesAutoWithProgressAsync([source], CancellationToken.None,
-                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter());
+                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
             ChartPackage package = library.ChartPackagesPending.Single();
             PackageChartEntry entry = package.ChartEntries.Single();
             string pendingPath = entry.Chart.Path;
@@ -67,7 +67,7 @@ public sealed partial class PendingPackageWorkflowOwnerTests
                 ChartOperationCapabilities.RunResourceHealthCheck, entry);
             Assert.AreSame(target, ChartPropertiesViewModel.ResolveTarget([target]));
             entry.ApplyInstallDestinationMetadata(destination, "Installed", "Artist");
-            library.InstallPendingPackagesToEstimatedDestinations([package]);
+            library.InstallPendingPackagesToEstimatedDestinations([package], new LibraryOperationNotices());
             ChartFile installed = library.BmsCharts.Single();
             Assert.AreEqual(".bms", Path.GetExtension(installed.Path));
             CollectionAssert.AreEqual(bytes, File.ReadAllBytes(installed.Path));

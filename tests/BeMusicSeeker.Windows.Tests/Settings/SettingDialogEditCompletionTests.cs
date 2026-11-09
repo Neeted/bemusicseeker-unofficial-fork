@@ -1328,7 +1328,7 @@ public sealed class SettingDialogEditCompletionTests
                             File.WriteAllBytes(Path.Combine(source, "probe.wav"), [7, 8, 9]);
                             values.KeepInstallablePackagesPending = true;
                             operation = library.InstallChartPackagesAutoWithProgressAsync([source], CancellationToken.None,
-                                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter());
+                                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-failure-probe-prepare");
                             failureProbe = library.ChartPackagesPending.Single(package => package.path == source);
                         }
@@ -1373,11 +1373,12 @@ public sealed class SettingDialogEditCompletionTests
                             }
                             Assert.IsFalse(composition.OperationAdmission.IsActive);
                             Assert.IsNotNull(failureProbe);
-                            using (BMSLibrary.OperationDialogScope deniedDialogs = library.BeginOperationDialogScope())
+                            var deniedNotices = new LibraryOperationNotices();
+                            using (library.BeginOperationDialogScope(deniedNotices))
                             {
-                                Assert.IsFalse(library.ForceInstallPendingPackagesWithReceipt([failureProbe], true, null).DurableCommit,
+                                Assert.IsFalse(library.ForceInstallPendingPackagesWithReceipt([failureProbe], true, null, deniedNotices).DurableCommit,
                                     "必須LR2が失敗した後は有効な導入要求も未収束として拒否します。");
-                                Assert.AreEqual(1, deniedDialogs.Messages.Count);
+                                Assert.AreEqual(1, deniedNotices.Snapshot().Count);
                             }
                             Assert.IsTrue(File.Exists(Path.Combine(failureProbe.path, "chart.bms")));
                             Assert.IsTrue(failures.Any(failure => failure.ToString().Contains("root-required-lr2-failure", StringComparison.Ordinal)));
@@ -1444,14 +1445,14 @@ public sealed class SettingDialogEditCompletionTests
                             File.WriteAllBytes(Path.Combine(source, "new.wav"), [4, 5, 6]);
                             values.KeepInstallablePackagesPending = manual;
                             Task<PackageInstallCommandResult> import = library.InstallChartPackagesAutoWithProgressAsync([source], CancellationToken.None,
-                                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter());
+                                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
                             operation = import;
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(import, "empty-root-import-" + title);
                             Assert.IsFalse(import.Result.HasRequiredFailure, import.Result.EstimationFailure?.ToString());
                             if (manual)
                             {
                                 ChartPackage package = library.ChartPackagesPending.Single(package => package.path == source);
-                                LibraryMutationSessionReceipt installed = library.ForceInstallPendingPackagesWithReceipt([package], true, null);
+                                LibraryMutationSessionReceipt installed = library.ForceInstallPendingPackagesWithReceipt([package], true, null, new LibraryOperationNotices());
                                 Assert.IsTrue(installed.DurableCommit, installed.PrimaryFailure?.ToString());
                             }
                             ChartFile installedChart = library.BmsCharts.Single(chart => chart.RawTitle == title);

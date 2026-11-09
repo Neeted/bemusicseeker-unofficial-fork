@@ -84,6 +84,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     /// <summary>
     /// 実owner・mutation portから展開直後取消、準備後停止失敗、譜面なし、実展開先消失へ到達します。
     /// 未引渡し管理入力の回収終端まで受付を保持し、利用者元ZIPと未変更DBを保全し、取消・元例外・準備診断を解放後へ一度渡します。
+    /// モデルのTask.Runの中で生じた警告は、モデルの窓口へ直接出さず、受付の解放後に所有者の窓口へ届きます。
     /// </summary>
     /// <remarks>実アーカイブのnative展開、実FSとSQLiteへの確定を通す。管理入力の消費と借用元の保持は、展開portの成功応答だけでは確認できない。</remarks>
     [TestMethod]
@@ -200,11 +201,12 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 else
                 {
                     Assert.AreSame(expectedFailure, failure.Exception);
-                    StringAssert.Contains(failure.CommandResult.OperationMessages.Single().MessageBoxText, borrowed);
+                    StringAssert.Contains(fixture.Dialogs.Messages.Single().MessageBoxText, borrowed);
                 }
             }
             else { Assert.IsNull(failure); }
             Assert.AreEqual(scenario is "stop_failure" or "missing_expanded_input" ? 1 : 0, fixture.Dialogs.Messages.Count);
+            Assert.AreEqual(0, fixture.Dialogs.ModelMessages, "モデルのTask.Runの中で生じた警告も、モデルの窓口へ直接出さず、受付の解放後に所有者の窓口へだけ届きます。");
             if (scenario == "missing_expanded_input")
             {
                 Assert.AreEqual(Resources.Warn_InstallAbortedFilesNotFound, fixture.Dialogs.Messages.Single().MessageBoxText);

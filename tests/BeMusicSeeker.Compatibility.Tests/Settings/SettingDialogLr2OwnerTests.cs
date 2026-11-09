@@ -134,7 +134,7 @@ public sealed class SettingDialogLr2OwnerTests
             byte[] chart = File.ReadAllBytes(sourceChart);
             byte[] audio = [1, 2, 3];
             File.WriteAllBytes(Path.Combine(package, "sound.wav"), audio);
-            Task<PackageInstallCommandResult> install = library.InstallChartPackagesAutoWithProgressAsync([package], CancellationToken.None, new SettingsInstallProgressWriter());
+            Task<PackageInstallCommandResult> install = library.InstallChartPackagesAutoWithProgressAsync([package], CancellationToken.None, new SettingsInstallProgressWriter(), new LibraryOperationNotices());
             TestUiDispatcherHost.AwaitTaskOnDispatcher(install, "drive-root-normal-install");
             PackageInstallCommandResult result = install.GetAwaiter().GetResult();
             Assert.IsTrue(result.HasDurableCommit);

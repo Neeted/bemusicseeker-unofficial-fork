@@ -248,7 +248,6 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         using LibraryFileMutationCapability capability = chartFileOperations.CreateMutationCapability(operationGate);
         IPackageCatalogStore operationStore = store.ForAcceptedOperation(capability);
-        BMSLibrary.OperationDialogScope dialogScope = null;
         IDisposable activityLease = null;
         bool suppressionStarted = false;
         bool mutationAttempted = false;
@@ -256,22 +255,11 @@ internal sealed class PackageCatalogWorkflowOwner
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
-            dialogScope = library.BeginOperationDialogScope();
-            Task mutationTask;
-            try
-            {
-                activityLease = chartMutationActivity.Enter();
-                suppressionStarted = true;
-                PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionStarted);
-                mutationAttempted = true;
-                mutationTask = mutation(library, operationStore);
-            }
-            finally
-            {
-                // ThreadStatic の通知scopeは呼出スレッド内で外し、非同期停止の継続へ持ち越しません。
-                CaptureCleanupFailure(dialogScope.Dispose, failures);
-            }
-            await mutationTask.ConfigureAwait(false);
+            activityLease = chartMutationActivity.Enter();
+            suppressionStarted = true;
+            PublishMutationPhase(PackageCatalogMutationPhase.RefreshSuppressionStarted);
+            mutationAttempted = true;
+            await mutation(library, operationStore).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -304,10 +292,6 @@ internal sealed class PackageCatalogWorkflowOwner
             if (activityLease != null)
             {
                 CaptureCleanupFailure(activityLease.Dispose, failures);
-            }
-            if (dialogScope != null)
-            {
-                CaptureCleanupFailure(dialogScope.Flush, failures);
             }
         }
         return failures.Count switch

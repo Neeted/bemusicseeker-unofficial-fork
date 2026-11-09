@@ -130,7 +130,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             {
                 Assert.IsTrue(missingEntries[1].Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.InstallEstimationAudioUnverifiable));
             }
-            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
             Assert.IsTrue(result.HasDurableCommit);
             Assert.AreEqual(0, result.FailedPackages.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);

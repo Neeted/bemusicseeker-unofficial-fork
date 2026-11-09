@@ -169,7 +169,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
                 CollectionAssert.AreEqual(contents[index], File.ReadAllBytes(source));
                 entry.ApplyInstallDestinationMetadata(fixture.Destination, "Song", "");
             }
-            PendingInstallBatchResult result = fixture.Library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(pending);
+            PendingInstallBatchResult result = fixture.Library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(pending, new LibraryOperationNotices());
             Assert.IsTrue(result.SessionReceipt.DurableCommit);
             Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
             Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);

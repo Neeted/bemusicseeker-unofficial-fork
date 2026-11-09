@@ -30,19 +30,19 @@ internal static class PackageInstallWorkflowOwnerTestSupport
 
         /// <summary>同じ共通権限と入力選択を本番portへ渡し、実終端の結果を捕捉します。</summary>
         public Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths, CancellationToken token,
-            IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability, IReadOnlySet<string>? fullySelectedDirectories = null)
-            => CaptureAsync(inner.InstallUnderAdmissionAsync(library, paths, token, progress, capability, fullySelectedDirectories));
+            IPackageInstallProgressWriter progress, LibraryOperationNotices notices, LibraryFileMutationCapability capability, IReadOnlySet<string>? fullySelectedDirectories = null)
+            => CaptureAsync(inner.InstallUnderAdmissionAsync(library, paths, token, progress, notices, capability, fullySelectedDirectories));
 
         /// <summary>本番の停止・P引渡し継続を保持したまま、同じ取り込みの実終端を観測します。</summary>
         public Task<PackageInstallCommandResult> InstallUnderAdmissionAsync(BMSLibrary library, IEnumerable<string> paths,
-            CancellationToken token, IPackageInstallProgressWriter progress, LibraryFileMutationCapability capability,
+            CancellationToken token, IPackageInstallProgressWriter progress, LibraryOperationNotices notices, LibraryFileMutationCapability capability,
             Func<Task> beforePhysicalMutation, Action<LibraryFileMutationLease> retainPlaylistLease, IReadOnlySet<string>? fullySelectedDirectories = null)
-            => CaptureAsync(inner.InstallUnderAdmissionAsync(library, paths, token, progress, capability, beforePhysicalMutation, retainPlaylistLease, fullySelectedDirectories));
+            => CaptureAsync(inner.InstallUnderAdmissionAsync(library, paths, token, progress, notices, capability, beforePhysicalMutation, retainPlaylistLease, fullySelectedDirectories));
 
         /// <summary>通常の本番取り込みをそのまま実行し、戻り値だけを保持します。</summary>
         public Task<PackageInstallCommandResult> InstallWithProgressAsync(BMSLibrary library, IEnumerable<string> paths, CancellationToken token,
-            IPackageInstallProgressWriter progress, IReadOnlySet<string>? fullySelectedDirectories = null)
-            => CaptureAsync(inner.InstallWithProgressAsync(library, paths, token, progress, fullySelectedDirectories));
+            IPackageInstallProgressWriter progress, LibraryOperationNotices notices, IReadOnlySet<string>? fullySelectedDirectories = null)
+            => CaptureAsync(inner.InstallWithProgressAsync(library, paths, token, progress, notices, fullySelectedDirectories));
 
         private async Task<PackageInstallCommandResult> CaptureAsync(Task<PackageInstallCommandResult> operation)
         {

@@ -58,7 +58,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 ChartFile incoming = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(input));
                 ChartPackage pending = ChartPackageTestExtensions.CreatePackage(ChartPackageTestExtensions.CreateEntryWithInstallDestination(incoming, a));
                 pending.path = input; current.ChartPackagesPending = [pending];
-                PendingInstallBatchResult installed = current.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending]);
+                PendingInstallBatchResult installed = current.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending], new LibraryOperationNotices());
                 Assert.IsTrue(installed.HasDurableCommit); Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure);
                 string installedPath = current.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path;
                 NavigateInstalled(); Assert.AreEqual(1, table.ItemsSource.Cast<LibraryChartRow>().Count());

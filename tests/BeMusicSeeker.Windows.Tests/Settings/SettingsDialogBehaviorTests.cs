@@ -954,7 +954,7 @@ public sealed class SettingsDialogBehaviorTests
                 { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = [package], ChartPackagesInstalled = [] };
                 try
                 {
-                    library.ForceInstallPendingPackages([package], approveNormalInstallOverride: true);
+                    library.ForceInstallPendingPackages([package], approveNormalInstallOverride: true, notices: new LibraryOperationNotices());
                     ChartFile installed = library.BmsCharts.Single();
                     Assert.IsTrue(installed.Path.StartsWith(newRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
                     Assert.IsTrue(File.Exists(installed.Path));

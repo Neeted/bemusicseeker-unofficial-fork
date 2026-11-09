@@ -99,7 +99,7 @@ internal static class ChartInfoHydrationTestSupport
         }
 
         library.ChartPackagesPending = new ObservableCollection<ChartPackage>(packageList);
-        library.InstallPendingPackagesToEstimatedDestinations(packageList);
+        library.InstallPendingPackagesToEstimatedDestinations(packageList, new LibraryOperationNotices());
     }
 
     internal static Task AwaitChartInfoBackfillAsync(BMSLibrary library)

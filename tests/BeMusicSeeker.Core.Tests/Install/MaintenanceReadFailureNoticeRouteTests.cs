@@ -64,13 +64,14 @@ public sealed class MaintenanceReadFailureNoticeRouteTests
                 Directory.CreateDirectory(installRootPath);
                 library.FixtureSettings.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([installRootPath]);
 
+                var notices = new LibraryOperationNotices();
                 PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgressAsync(
-                    [firstSource, secondSource], CancellationToken.None, new RecordingPackageInstallProgressWriter())
+                    [firstSource, secondSource], CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices)
                     .GetAwaiter().GetResult();
 
                 Assert.IsNotNull(lockStream, "二件目の導入先を読めなくした。");
                 MaintenanceReadFailureFixture.AssertCommitFailure(result.SessionReceipt.PrimaryFailure ?? result.SessionReceipt.FinalizationFailure);
-                BMSLibrary.OperationDialogMessage notice = result.OperationMessages.Single(message =>
+                BMSLibrary.OperationDialogMessage notice = notices.Snapshot().Single(message =>
                     message.MessageBoxText.Contains(lockedPath, StringComparison.Ordinal));
                 string[] parts = Resources.Error_BmsLoadFailedSkip.Split("{0}", StringSplitOptions.None);
                 StringAssert.StartsWith(notice.MessageBoxText, parts[0]);

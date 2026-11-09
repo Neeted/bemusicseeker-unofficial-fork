@@ -106,7 +106,8 @@ internal sealed partial class LibraryMutationOwner
                     createChartFolderPathFromCharts,
                     DisplayedExceptionMessage.Format,
                     fileMutationService,
-                    dialogService,
+                    // 失敗の案内を求めない（showMessageBoxOnInstallFail: false）ので、この収集先には何も加わらない。
+                    new LibraryOperationNotices(),
                     targetOnlyFileMutationOptions,
                     recursiveDirectoryTreeFileMutationOptions,
                     LogInstallPerformance,

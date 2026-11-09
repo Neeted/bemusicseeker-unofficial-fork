@@ -97,30 +97,28 @@ public partial class BMSLibrary
         public void Dispose() => coordinatorScope.Dispose();
     }
 
-    internal OperationDialogScope BeginOperationDialogScope() =>
-        new(scopedOperationDialogService.BeginScope());
-
     /// <summary>
-    /// 件数と標本を持つOKだけの案内を、操作の案内の列があれば積み、なければ本文をそのまま表示します。
-    /// 保守の読込み失敗のように大量になりうる事象を、一件ずつの表示にせず見出しごとにまとめるために使います。
+    /// 現在のスレッドで、収集先へ移行していない発生源の案内を積む列を開始します。
+    /// <paramref name="notices"/> を渡すと、積まれた案内は所有者の収集先へ直接加わり、収集先から移行済みの発生源の案内と同じ表示の列になります。
+    /// 列はスレッド単位なので、非同期の継続や別のスレッドの区間では、その区間で改めて開始します。
     /// </summary>
-    private void NotifyOperationMessage(OperationDialogMessage message)
-    {
-        if (message != null)
-        {
-            scopedOperationDialogService.Notify(message);
-        }
-    }
+    /// <param name="notices">案内の合流先。省略時は列が保持し、所有者が <see cref="OperationDialogScope.Flush"/> で表示します。</param>
+    internal OperationDialogScope BeginOperationDialogScope(LibraryOperationNotices notices = null) =>
+        new(scopedOperationDialogService.BeginScope(notices));
 
     /// <summary>
-    /// 保守が集めた読込み失敗を、保守の書込み保護の外で、成功と例外のどちらの経路でも案内へ渡します。
+    /// 保守が集めた読込み失敗を、保守の書込み保護の外で、成功と例外のどちらの経路でも操作の収集先へ加えます。
     /// 案内の失敗は保守の結果へ混ぜず、診断だけに残します。
     /// </summary>
-    private void NotifyMaintenanceReadFailures(MaintenanceReadFailureCollector failures)
+    private static void AddMaintenanceReadFailures(MaintenanceReadFailureCollector failures, LibraryOperationNotices notices)
     {
         try
         {
-            NotifyOperationMessage(MaintenanceReadFailureNotice.Create(failures));
+            OperationDialogMessage notice = MaintenanceReadFailureNotice.Create(failures);
+            if (notice != null)
+            {
+                notices.Add(notice);
+            }
         }
         catch (Exception exception)
         {
@@ -132,6 +130,10 @@ public partial class BMSLibrary
     /// <summary>OKだけの警告の案内を、本文・見出し・アイコンと既定値を固定して作ります。</summary>
     private static OperationDialogMessage CreateWarningNotice(string text) =>
         new(text, Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+
+    /// <summary>OKだけのエラーの案内を、本文を渡して作ります。見出しはエラー、アイコンは Hand、既定値は OK に固定します。</summary>
+    private static OperationDialogMessage CreateErrorNotice(string text) =>
+        new(text, Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
 
     /// <summary>
     /// モデルが根の背景処理と受付の外の経路から、OKだけの案内を待たずに投函します。

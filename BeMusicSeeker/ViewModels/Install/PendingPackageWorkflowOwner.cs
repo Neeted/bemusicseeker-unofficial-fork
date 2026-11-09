@@ -232,12 +232,14 @@ internal interface IPendingPackageStore
     LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
-        ISet<ChartPackage> approvedNormalInstallOverridePackages);
+        ISet<ChartPackage> approvedNormalInstallOverridePackages,
+        LibraryOperationNotices notices);
 
     /// <summary>保留パッケージの手動導入を実行し、変更セッションを含む集約結果を返します。</summary>
     PendingInstallBatchResult ManualInstallPackagesWithReceipt(
         BMSLibrary library,
-        IReadOnlyList<ChartPackage> packages);
+        IReadOnlyList<ChartPackage> packages,
+        LibraryOperationNotices notices);
 
     bool IsPendingSectionEmpty(BMSLibrary library);
 
@@ -258,18 +260,21 @@ internal interface IPendingPackageStore
     void DeletePendingPackageSources(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
+        LibraryOperationNotices notices,
         CancellationToken cancellationToken,
         Action onEachProcessed);
 
     void RenamePendingZeroNoteCharts(
         BMSLibrary library,
         IReadOnlyList<ChartFile> charts,
+        LibraryOperationNotices notices,
         CancellationToken cancellationToken,
         Action onEachProcessed);
 
     PendingInstalledOnlyResourceOverwriteResult OverwriteInstalledOnlyPendingPackageResources(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
+        LibraryOperationNotices notices,
         CancellationToken cancellationToken,
         Action onEachProcessed);
 }
@@ -599,6 +604,8 @@ internal sealed class PendingPackageWorkflowOwner
             return PendingPackageMutationResult.Rejected;
         }
         PendingPackageMutationResult result = null;
+        var noticeContext = new NoticeContext();
+        LibraryOperationNotices notices = noticeContext.Notices;
         try
         {
             if (request.IsManualInstall && !await ConfirmManualInstallAsync())
@@ -610,7 +617,7 @@ internal sealed class PendingPackageWorkflowOwner
                     (library, operationStore) => operationStore.ResolvePendingPackages(library, request.Targets),
                     operationGate,
                     releaseAcquiredOperationGate: false)) ?? [];
-            return result = await InstallResolvedPackagesAsync(request.Kind, packages, operationGate);
+            return result = await InstallResolvedPackagesAsync(request.Kind, packages, operationGate, noticeContext);
         }
         catch (Exception exception)
         {
@@ -619,6 +626,7 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            await BeginShowOperationNotices(noticeContext);
             if (result?.SessionReceipt?.HasUnrestoredExistingDestination == true)
             {
                 await exitForUnrestoredDestination(result.SessionReceipt.PrimaryFailure);
@@ -643,6 +651,8 @@ internal sealed class PendingPackageWorkflowOwner
             return;
         }
         LibraryFixInstallationResult repairResult = null;
+        var noticeContext = new NoticeContext();
+        LibraryOperationNotices notices = noticeContext.Notices;
         try
         {
             if (!request.HasInstallDestination)
@@ -704,6 +714,7 @@ internal sealed class PendingPackageWorkflowOwner
                     library,
                     repairCharts,
                     approvedDuplicateRemovalChartPaths),
+                noticeContext,
                 PendingPackageRefreshScope.PackageMutation,
                 changesFiles: true, physicalPaths: repairCharts.SelectMany(chart => new[] { chart.Path, chart.InstallDestination }).Concat(approvedDuplicateRemovalChartPaths), recursivePhysicalPaths: false,
                 acquiredOperationGate: operationGate,
@@ -712,6 +723,7 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            await BeginShowOperationNotices(noticeContext);
         }
         await FileDbMutationReport.ShowAsync(
             dialogs,
@@ -727,6 +739,8 @@ internal sealed class PendingPackageWorkflowOwner
             await ShowPendingOperationAdmissionBusyAsync("Pending package source cleanup");
             return;
         }
+        var noticeContext = new NoticeContext();
+        LibraryOperationNotices notices = noticeContext.Notices;
         try
         {
             IReadOnlyList<ChartPackage> packages = await Task.Run(() => Read(
@@ -765,8 +779,10 @@ internal sealed class PendingPackageWorkflowOwner
                     (library, operationStore) => operationStore.DeletePendingPackageSources(
                         library,
                         packages,
+                        notices,
                         cancellationToken,
                         onEachProcessed),
+                    noticeContext,
                     changesFiles: true, physicalPaths: packages.SelectMany(package => package.delete_parent ? new[] { package.path, System.IO.Path.GetDirectoryName(package.path) } : new[] { package.path }),
                     acquiredOperationGate: operationGate,
                     releaseAcquiredOperationGate: false));
@@ -774,6 +790,7 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            await BeginShowOperationNotices(noticeContext);
         }
     }
 
@@ -784,6 +801,8 @@ internal sealed class PendingPackageWorkflowOwner
             await ShowPendingOperationAdmissionBusyAsync("Pending zero-note chart rename");
             return;
         }
+        var noticeContext = new NoticeContext();
+        LibraryOperationNotices notices = noticeContext.Notices;
         try
         {
             IReadOnlyList<ChartFile> charts = await Task.Run(() => Read(
@@ -820,8 +839,10 @@ internal sealed class PendingPackageWorkflowOwner
                     (library, operationStore) => operationStore.RenamePendingZeroNoteCharts(
                         library,
                         charts,
+                        notices,
                         cancellationToken,
                         onEachProcessed),
+                    noticeContext,
                     changesFiles: true, physicalPaths: charts.SelectMany(chart => new[] { chart.Path, System.IO.Path.ChangeExtension(chart.Path, System.IO.Path.GetExtension(chart.Path).StartsWith(".p", StringComparison.OrdinalIgnoreCase) ? ".pmx" : ".bmx") }), recursivePhysicalPaths: false,
                     acquiredOperationGate: operationGate,
                     releaseAcquiredOperationGate: false));
@@ -829,6 +850,7 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            await BeginShowOperationNotices(noticeContext);
         }
     }
 
@@ -843,6 +865,8 @@ internal sealed class PendingPackageWorkflowOwner
             return;
         }
         PendingInstalledOnlyResourceOverwriteResult overwriteResult = null;
+        var noticeContext = new NoticeContext();
+        LibraryOperationNotices notices = noticeContext.Notices;
         try
         {
             IReadOnlyList<ChartPackage> packages = await Task.Run(() => Read(
@@ -881,8 +905,10 @@ internal sealed class PendingPackageWorkflowOwner
                     (library, operationStore) => overwriteResult = operationStore.OverwriteInstalledOnlyPendingPackageResources(
                         library,
                         packages,
+                        notices,
                         cancellationToken,
                         onEachProcessed),
+                    noticeContext,
                     changesFiles: true, physicalPackages: packages, overwriteResources: true,
                     acquiredOperationGate: operationGate,
                     releaseAcquiredOperationGate: false));
@@ -890,6 +916,7 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            await BeginShowOperationNotices(noticeContext);
             if (overwriteResult?.SessionReceipt?.HasUnrestoredExistingDestination == true)
             {
                 await exitForUnrestoredDestination(overwriteResult.SessionReceipt.PrimaryFailure);
@@ -940,6 +967,8 @@ internal sealed class PendingPackageWorkflowOwner
             return PendingPackageMutationResult.Rejected;
         }
         PendingPackageMutationResult result = null;
+        var noticeContext = new NoticeContext();
+        LibraryOperationNotices notices = noticeContext.Notices;
         try
         {
             if (kind == PendingInstallPackageOperationKind.ManualInstall
@@ -947,7 +976,7 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 return PendingPackageMutationResult.Rejected;
             }
-            return result = await InstallResolvedPackagesAsync(kind, packages, operationGate);
+            return result = await InstallResolvedPackagesAsync(kind, packages, operationGate, noticeContext);
         }
         catch (Exception exception)
         {
@@ -956,6 +985,7 @@ internal sealed class PendingPackageWorkflowOwner
         finally
         {
             operationGate.Dispose();
+            await BeginShowOperationNotices(noticeContext);
             if (result?.SessionReceipt?.HasUnrestoredExistingDestination == true)
             {
                 await exitForUnrestoredDestination(result.SessionReceipt.PrimaryFailure);
@@ -967,8 +997,10 @@ internal sealed class PendingPackageWorkflowOwner
     private async Task<PendingPackageMutationResult> InstallResolvedPackagesAsync(
         PendingInstallPackageOperationKind kind,
         IReadOnlyList<ChartPackage> packages,
-        IDisposable acquiredOperationGate)
+        IDisposable acquiredOperationGate,
+        NoticeContext noticeContext)
     {
+        LibraryOperationNotices notices = noticeContext.Notices;
         try
         {
             bool hasInstallRefusal = packages.Any(package => package.HasResourceBearingNestedCharts);
@@ -977,14 +1009,14 @@ internal sealed class PendingPackageWorkflowOwner
                 case PendingInstallPackageOperationKind.ForceInstall:
                     ISet<ChartPackage> approvedPackages = await ConfirmNormalInstallOverridesAsync(packages);
                     return await ExecuteInstallAsync(
-                        (library, operationStore) => operationStore.ForceInstallPackagesWithReceipt(library, packages, approvedPackages),
-                        acquiredOperationGate, packages.Where(approvedPackages.Contains).ToArray(), forceInstall: true, hasInstallRefusal: hasInstallRefusal);
+                        (library, operationStore) => operationStore.ForceInstallPackagesWithReceipt(library, packages, approvedPackages, notices),
+                        acquiredOperationGate, noticeContext, packages.Where(approvedPackages.Contains).ToArray(), forceInstall: true, hasInstallRefusal: hasInstallRefusal);
                 case PendingInstallPackageOperationKind.ManualInstall:
                     return await ExecuteInstallAsync(
-                        (library, operationStore) => (operationStore.ManualInstallPackagesWithReceipt(library, packages)
+                        (library, operationStore) => (operationStore.ManualInstallPackagesWithReceipt(library, packages, notices)
                             ?? throw new InvalidOperationException("Pending manual install returned no batch result."))
                             .SessionReceipt ?? throw new InvalidOperationException("Pending manual install returned no session receipt."),
-                        acquiredOperationGate, packages, forceInstall: false, hasInstallRefusal: hasInstallRefusal);
+                        acquiredOperationGate, noticeContext, packages, forceInstall: false, hasInstallRefusal: hasInstallRefusal);
                 default:
                     throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unsupported pending install package operation.");
             }
@@ -997,7 +1029,7 @@ internal sealed class PendingPackageWorkflowOwner
 
     private async Task<PendingPackageMutationResult> ExecuteInstallAsync(
         Func<BMSLibrary, IPendingPackageStore, LibraryMutationSessionReceipt> mutationWithReceipt,
-        IDisposable acquiredOperationGate, IReadOnlyList<ChartPackage> packages, bool forceInstall, bool hasInstallRefusal)
+        IDisposable acquiredOperationGate, NoticeContext noticeContext, IReadOnlyList<ChartPackage> packages, bool forceInstall, bool hasInstallRefusal)
     {
         bool pendingSectionEmpty = false;
         LibraryMutationSessionReceipt sessionReceipt = null;
@@ -1011,6 +1043,7 @@ internal sealed class PendingPackageWorkflowOwner
                     sessionReceipt = mutationWithReceipt(library, operationStore)
                         ?? throw new InvalidOperationException("Pending install returned no session receipt.");
                 },
+                noticeContext,
                 PendingPackageRefreshScope.PackageMutation,
                 changesFiles: true, physicalPackages: packages, forceInstall: forceInstall,
                 captureMutationFacts: (library, operationStore) => pendingSectionEmpty = operationStore.IsPendingSectionEmpty(library),
@@ -1382,8 +1415,14 @@ internal sealed class PendingPackageWorkflowOwner
             result.Exception);
     }
 
+    /// <summary>
+    /// 受付の下で変更を実行します。案内は <paramref name="noticeContext"/> の収集先へ集めるだけで、この中では表示しません。
+    /// 呼出元の操作が、自分の受付（借用した外側の受付を含む）を解放した後に <see cref="ShowOperationNotices"/> で一度だけまとめて表示します。
+    /// </summary>
+    /// <param name="noticeContext">この操作の案内の収集先と、操作が使ったライブラリの記録。収集先へ移行していない発生源の案内も、このスレッドの区間では同じ収集先へ合流します。</param>
     private async Task<bool> Execute(
         Action<BMSLibrary, IPendingPackageStore> mutation,
+        NoticeContext noticeContext,
         PendingPackageRefreshScope refreshScope = PendingPackageRefreshScope.DestinationState,
         bool changesFiles = false,
         bool requiresLibrary = true,
@@ -1412,6 +1451,7 @@ internal sealed class PendingPackageWorkflowOwner
             }
             throw;
         }
+        noticeContext.Library = library;
         if (requiresLibrary && library == null)
         {
             if (acquiredOperationGate == null || releaseAcquiredOperationGate)
@@ -1444,7 +1484,7 @@ internal sealed class PendingPackageWorkflowOwner
             operationStore = operationStore.ForAcceptedOperation(combinedCapability);
             activityLease = chartMutationActivity.Enter();
             if (changesFiles) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
-            dialogScope = library?.BeginOperationDialogScope();
+            dialogScope = library?.BeginOperationDialogScope(noticeContext.Notices);
             suppressionStarted = true;
             // 抑制の通知が失敗しても、開始済みの画面状態を復元する反映は必要です。
             // 変更核の開始とは分け、変更後の目録照会を未開始時に行いません。
@@ -1488,8 +1528,6 @@ internal sealed class PendingPackageWorkflowOwner
             {
                 CaptureCleanupFailure(operationGate.Dispose, failures);
             }
-            if (dialogScope != null)
-            { FileDbMutationReport.ShowOperationMessagesAsync(dialogs, dialogScope.Messages).ObserveFault(); }
         }
         if (failures.Count > 1 && failures[0].SourceException is LibraryChartRemovalException removalFailure)
         {
@@ -1523,10 +1561,12 @@ internal sealed class PendingPackageWorkflowOwner
         Func<IEnumerable<ChartFile>> projectionCharts = null)
     {
         IReadOnlyList<ChartFile> changedCharts = null;
+        var noticeContext = new NoticeContext();
+        LibraryOperationNotices notices = noticeContext.Notices;
+        ExceptionDispatchInfo failure = null;
         // セル編集だけは必要表示までLを延ばします。他の推定・消去操作は既存の受付終端を維持します。
         using (refreshRejectedEdit ? operationGate : null)
         {
-            ExceptionDispatchInfo failure = null;
             bool mutationCompleted = false;
             try
             {
@@ -1534,10 +1574,12 @@ internal sealed class PendingPackageWorkflowOwner
                 {
                     changedCharts = mutation(library, operationStore);
                     mutationCompleted = true;
-                }, requiresLibrary: requiresLibrary, acquiredOperationGate: operationGate,
+                }, noticeContext, requiresLibrary: requiresLibrary, acquiredOperationGate: operationGate,
                     releaseAcquiredOperationGate: !refreshRejectedEdit).ConfigureAwait(false);
             }
             catch (Exception exception) { failure = ExceptionDispatchInfo.Capture(exception); }
+            // 実行が受付を解放した場合は、一覧への反映より前に案内を依頼します。
+            if (!refreshRejectedEdit) { ShowOperationNotices(noticeContext); }
             if (mutationCompleted && (failure == null || refreshRejectedEdit))
             {
                 try
@@ -1554,7 +1596,56 @@ internal sealed class PendingPackageWorkflowOwner
                     else { LogPendingPresentationFailure(exception); }
                 }
             }
-            failure?.Throw();
+        }
+        // セル編集は必要表示の後に受付を解放するので、解放後に案内を依頼します。
+        if (refreshRejectedEdit) { ShowOperationNotices(noticeContext); }
+        failure?.Throw();
+    }
+
+    /// <summary>一つの操作の案内の収集先と、その操作が使ったライブラリです。終了の判定を、表示の時点の現行ライブラリではなく操作が使ったライブラリで行うために保持します。</summary>
+    private sealed class NoticeContext
+    {
+        internal LibraryOperationNotices Notices { get; } = new();
+
+        internal BMSLibrary Library { get; set; }
+    }
+
+    /// <summary>
+    /// UI スレッドの継続から呼ばれても、表示の依頼を UI スレッドで同期のモーダルにしないよう、スレッドプールで依頼します。
+    /// 戻る Task は、終了の判定と最初の組の表示の依頼が窓口へ渡るまでで完了します。窓口は UI の外から呼ばれると未完了の Task を返すので、
+    /// 表示の完了と続きの組は待ちません（<see cref="ShowOperationNotices"/> が <c>ObserveFault</c> で流します）。案内がなければ何もしません。
+    /// </summary>
+    private Task BeginShowOperationNotices(NoticeContext noticeContext)
+    {
+        return noticeContext.Notices.Snapshot().Count == 0
+            ? Task.CompletedTask
+            : Task.Run(() => ShowOperationNotices(noticeContext));
+    }
+
+    /// <summary>
+    /// 操作が集めた案内を、受付の解放後に見出し・重要度ごとに一件へまとめて表示するよう依頼し、表示の完了は待ちません。
+    /// その操作が使ったライブラリが終了の要求済みなら表示せず、診断へ残します。
+    /// 表示の失敗は操作の結果を変えず、診断だけに残します。呼出し元は UI スレッドの外から呼びます。
+    /// </summary>
+    private void ShowOperationNotices(NoticeContext noticeContext)
+    {
+        IReadOnlyList<BMSLibrary.OperationDialogMessage> messages = noticeContext.Notices.Snapshot();
+        if (messages.Count == 0)
+        {
+            return;
+        }
+        try
+        {
+            if (noticeContext.Library?.IsShutdownRequested == true)
+            {
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn("pending_package_notice_skipped reason=shutdown_requested count=" + messages.Count);
+                return;
+            }
+            FileDbMutationReport.ShowOperationMessagesAsync(dialogs, messages).ObserveFault();
+        }
+        catch (Exception exception)
+        {
+            FileDbMutationReport.LogNotificationFailure(exception);
         }
     }
 
@@ -1793,21 +1884,24 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     public LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
-        ISet<ChartPackage> approvedNormalInstallOverridePackages)
+        ISet<ChartPackage> approvedNormalInstallOverridePackages,
+        LibraryOperationNotices notices)
     {
         return library.ForceInstallPendingPackagesWithReceipt(
             packages,
             approveNormalInstallOverride: false,
             approvedNormalInstallOverridePackages: approvedNormalInstallOverridePackages,
+            notices,
             reportAtTerminal: true, capability: capability, preparedDestinations: preparedDestinations, preparedOptions: preparedOptions);
     }
 
     /// <summary>P判定と共有した準備を再列挙せず実行し、推定導入の集約結果を操作終端へ返します。</summary>
     public PendingInstallBatchResult ManualInstallPackagesWithReceipt(
         BMSLibrary library,
-        IReadOnlyList<ChartPackage> packages)
+        IReadOnlyList<ChartPackage> packages,
+        LibraryOperationNotices notices)
     {
-        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, reportAtTerminal: true, capability: capability,
+        return library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, notices, reportAtTerminal: true, capability: capability,
             preparedOptions: preparedOptions, preparation: estimatedInstallPreparation);
     }
 
@@ -1847,11 +1941,13 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     public void DeletePendingPackageSources(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
+        LibraryOperationNotices notices,
         CancellationToken cancellationToken,
         Action onEachProcessed)
     {
         library.DeletePendingPackageSources(
             packages,
+            notices,
             sendToRecycleBin: false,
             cancellationToken,
             onEachProcessed, capability: capability);
@@ -1860,11 +1956,13 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     public void RenamePendingZeroNoteCharts(
         BMSLibrary library,
         IReadOnlyList<ChartFile> charts,
+        LibraryOperationNotices notices,
         CancellationToken cancellationToken,
         Action onEachProcessed)
     {
         library.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
             charts,
+            notices,
             cancellationToken,
             onEachProcessed, capability: capability);
     }
@@ -1872,11 +1970,13 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     public PendingInstalledOnlyResourceOverwriteResult OverwriteInstalledOnlyPendingPackageResources(
         BMSLibrary library,
         IReadOnlyList<ChartPackage> packages,
+        LibraryOperationNotices notices,
         CancellationToken cancellationToken,
         Action onEachProcessed)
     {
         return library.OverwritePendingInstalledOnlyPackagesResources(
             packages,
+            notices,
             cancellationToken,
             onEachProcessed, capability: capability);
     }

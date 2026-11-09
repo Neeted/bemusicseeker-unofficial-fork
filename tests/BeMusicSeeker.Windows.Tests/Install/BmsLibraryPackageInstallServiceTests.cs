@@ -664,7 +664,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 }
             };
 
-            library.InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
+            library.InstallPendingPackagesToEstimatedDestinations([pendingPackage], new LibraryOperationNotices());
 
             Assert.IsTrue(packageEntryNotificationObserved);
             Assert.IsNull(
@@ -769,7 +769,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             PendingInstalledOnlyResourceOverwriteResult result =
-                library.OverwritePendingInstalledOnlyPackagesResources([pendingPackage]);
+                library.OverwritePendingInstalledOnlyPackagesResources([pendingPackage], new LibraryOperationNotices());
 
             Assert.AreEqual(1, result.SucceededInstall);
             Assert.AreEqual(0, result.Failed);
@@ -1017,7 +1017,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 try
                 {
                     PendingInstalledOnlyResourceOverwriteResult result =
-                        library.OverwritePendingInstalledOnlyPackagesResources([step.Package]);
+                        library.OverwritePendingInstalledOnlyPackagesResources([step.Package], new LibraryOperationNotices());
 
                     Assert.AreEqual(1, result.SucceededInstall);
                     Assert.AreEqual(0, result.Failed);
@@ -1197,7 +1197,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             PendingInstalledOnlyResourceOverwriteResult result;
             try
             {
-                result = library.OverwritePendingInstalledOnlyPackagesResources([pendingPackage]);
+                result = library.OverwritePendingInstalledOnlyPackagesResources([pendingPackage], new LibraryOperationNotices());
             }
             finally
             {
@@ -1244,7 +1244,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackagesPending = CreatePackageCollection([])
             };
 
-            library.InstallPendingPackagesToEstimatedDestinations([requestedPackage]);
+            library.InstallPendingPackagesToEstimatedDestinations([requestedPackage], new LibraryOperationNotices());
 
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
             Assert.IsTrue(File.Exists(chartPath));
@@ -1269,7 +1269,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             try
             {
                 Assert.ThrowsExactly<ArgumentNullException>(
-                    () => library.InstallPendingPackagesToEstimatedDestinations(null));
+                    () => library.InstallPendingPackagesToEstimatedDestinations(null, new LibraryOperationNotices()));
             }
             finally
             {
@@ -1296,7 +1296,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsNotNull(incumbent);
 
             Assert.ThrowsExactly<InvalidOperationException>(
-                () => library.InstallChartPackagesAutoWithProgressAsync([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult());
+                () => library.InstallChartPackagesAutoWithProgressAsync([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult());
         });
     }
 
@@ -1329,10 +1329,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     new RealFileMutationService(),
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     logs.Add,
-                    new UnexpectedBmsLibraryDialogService(),
+                    new LibraryOperationNotices(),
                     progressWriter,
                     CancellationToken.None,
-                    action => action(),
                     createdInputs.Add);
 
                 Assert.AreEqual(1, expandedPaths.Count);
@@ -1375,7 +1374,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             File.Copy(GetArchiveFixturePath(archiveFileName), archivePath);
             var service = new BmsLibraryPackageInstallService();
             List<string> logs = [];
-            var dialogService = new RecordingDialogService();
+            var notices = new LibraryOperationNotices();
             var progressWriter = new RecordingPackageInstallProgressWriter();
             List<string> createdInputs = [];
 
@@ -1386,10 +1385,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     new FailingLastWriteFileMutationService(),
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     logs.Add,
-                    dialogService,
+                    notices,
                     progressWriter,
                     CancellationToken.None,
-                    action => action(),
                     createdInputs.Add);
 
                 Assert.AreEqual(0, expandedPaths.Count);
@@ -1399,8 +1397,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     progressWriter.ArchiveStarts.ToArray());
                 Assert.IsTrue(logs.Any(message => message.IndexOf("metadata_restore_required_failed", StringComparison.OrdinalIgnoreCase) >= 0));
                 Assert.IsTrue(logs.Any(message => message.IndexOf(".bms", StringComparison.OrdinalIgnoreCase) >= 0));
-                Assert.AreEqual(1, dialogService.Messages.Count);
-                Assert.IsTrue(dialogService.Messages[0].IndexOf("更新日時", StringComparison.OrdinalIgnoreCase) >= 0);
+                Assert.AreEqual(1, notices.Snapshot().Count);
+                Assert.IsTrue(notices.Snapshot()[0].MessageBoxText.IndexOf("更新日時", StringComparison.OrdinalIgnoreCase) >= 0);
             }
             finally
             {
@@ -1431,7 +1429,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             File.WriteAllBytes(secondArchivePath, secondArchiveBytes);
             var service = new BmsLibraryPackageInstallService();
             var progressWriter = new RecordingPackageInstallProgressWriter();
-            var dialogs = new RecordingDialogService();
+            var notices = new LibraryOperationNotices();
             List<string> createdInputs = [];
             try
             {
@@ -1440,17 +1438,17 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     new RealFileMutationService(),
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     null,
-                    dialogs,
+                    notices,
                     progressWriter,
                     CancellationToken.None,
-                    action => action(), createdInputs.Add);
+                    createdInputs.Add);
 
                 Assert.AreEqual(4, expandedPaths.Count);
                 Assert.AreEqual(4, progressWriter.SourceProcessedCount);
                 CollectionAssert.AreEquivalent(new[] { directoryPath, archiveNamedDirectory },
                     expandedPaths.Except(createdInputs).ToArray());
                 Assert.AreEqual(2, createdInputs.Count);
-                Assert.AreEqual(0, dialogs.Messages.Count);
+                Assert.AreEqual(0, notices.Snapshot().Count);
                 using (ZipArchive reference = ZipFile.OpenRead(GetArchiveFixturePath("fixture.zip")))
                 using (Stream content = (reference.GetEntry("maybe_H.bms") ?? throw new AssertFailedException("比較元の譜面がありません。")).Open())
                 using (var bytes = new MemoryStream())
@@ -1516,7 +1514,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             List<string> createdRoots = [];
             var service = new BmsLibraryPackageInstallService();
             List<string> logs = [];
-            var dialogService = new RecordingDialogService();
+            var notices = new LibraryOperationNotices();
             var progressWriter = new RecordingPackageInstallProgressWriter();
 
             try
@@ -1526,17 +1524,16 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     new RealFileMutationService(),
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     logs.Add,
-                    dialogService,
+                    notices,
                     progressWriter,
                     CancellationToken.None,
-                    action => action(),
                     createdRoots.Add);
 
                 Assert.AreEqual(0, expandedPaths.Count);
                 Assert.AreEqual(1, progressWriter.SourceProcessedCount);
                 Assert.IsTrue(File.Exists(archivePath));
                 Assert.IsTrue(logs.Any(message => message.IndexOf("extract_failed", StringComparison.OrdinalIgnoreCase) >= 0));
-                Assert.AreEqual(1, dialogService.Messages.Count);
+                Assert.AreEqual(1, notices.Snapshot().Count);
 
                 Assert.IsFalse(Directory.Exists(createdRoots.Single()));
                 CollectionAssert.AreEqual(originalSource, File.ReadAllBytes(archivePath));
@@ -1565,7 +1562,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             File.WriteAllBytes(normal, original);
             List<string> roots = [];
             var progress = new RecordingPackageInstallProgressWriter();
-            var dialogs = new RecordingDialogService();
+            var notices = new LibraryOperationNotices();
             try
             {
                 List<string> expanded;
@@ -1573,8 +1570,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 {
                     expanded = new BmsLibraryPackageInstallService().ExpandInstallSourcesWithProgress(
                         [blocked, normal], new RealFileMutationService(),
-                        new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly), null, dialogs, progress,
-                        CancellationToken.None, action => action(), roots.Add);
+                        new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly), null, notices, progress,
+                        CancellationToken.None, roots.Add);
                 }
                 Assert.AreEqual(1, expanded.Count);
                 Assert.AreEqual(roots[1], expanded.Single());
@@ -1595,8 +1592,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 using FileStream blockedReopened = File.Open(blocked, FileMode.Open, FileAccess.Read, FileShare.None);
                 using FileStream normalReopened = File.Open(normal, FileMode.Open, FileAccess.Read, FileShare.None);
                 Assert.AreEqual(2, progress.SourceProcessedCount);
-                Assert.AreEqual(1, dialogs.Messages.Count);
-                StringAssert.Contains(dialogs.Messages.Single(), blocked);
+                Assert.AreEqual(1, notices.Snapshot().Count);
+                StringAssert.Contains(notices.Snapshot().Single().MessageBoxText, blocked);
             }
             finally { CleanupCreatedExpansionPaths(roots); }
         });
@@ -1616,7 +1613,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             byte[] original = File.ReadAllBytes(GetArchiveFixturePath("fixture.zip"));
             File.WriteAllBytes(normal, original);
             var progress = new RecordingPackageInstallProgressWriter();
-            var dialogs = new RecordingDialogService();
+            var notices = new LibraryOperationNotices();
             List<string> roots = [];
             int diagnosticAttempts = 0;
             try
@@ -1625,7 +1622,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     [broken, normal], new RealFileMutationService(),
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     _ => { diagnosticAttempts++; throw new InvalidOperationException("diagnostic failure"); },
-                    dialogs, progress, CancellationToken.None, action => action(), roots.Add);
+                    notices, progress, CancellationToken.None, roots.Add);
                 Assert.AreEqual(1, expanded.Count);
                 Assert.AreEqual(roots[1], expanded.Single());
                 Assert.IsFalse(Directory.Exists(roots[0]));
@@ -1639,8 +1636,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 CollectionAssert.AreEqual(original, File.ReadAllBytes(normal));
                 CollectionAssert.AreEqual(new byte[] { 1, 2, 3 }, File.ReadAllBytes(broken));
                 Assert.AreEqual(2, progress.SourceProcessedCount);
-                Assert.AreEqual(1, dialogs.Messages.Count);
-                StringAssert.Contains(dialogs.Messages.Single(), broken);
+                Assert.AreEqual(1, notices.Snapshot().Count);
+                StringAssert.Contains(notices.Snapshot().Single().MessageBoxText, broken);
                 Assert.IsTrue(diagnosticAttempts > 0);
             }
             finally { CleanupCreatedExpansionPaths(roots); }
@@ -1804,7 +1801,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             {
                 try
                 {
-                    ReentryResult = library.OverwritePendingInstalledOnlyPackagesResources([reentryPackage]);
+                    ReentryResult = library.OverwritePendingInstalledOnlyPackagesResources([reentryPackage], new LibraryOperationNotices());
                 }
                 catch (Exception exception)
                 {

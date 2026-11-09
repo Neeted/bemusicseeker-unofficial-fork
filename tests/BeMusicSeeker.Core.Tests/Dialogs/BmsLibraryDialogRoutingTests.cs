@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.TestSupport.Components;
@@ -25,38 +24,6 @@ public sealed class BmsLibraryDialogRoutingTests
     /// <summary>ケース固有の処理と既存finallyが終わった後に、開始済みの所有媒体だけを回収します。</summary>
     [TestCleanup]
     public void CleanupWorkspace() => ownedWorkspace?.Dispose();
-
-    /// <summary>上書き導入の確認を注入dialogへ一回渡し、拒否されたpackageを保留一覧から除きません。</summary>
-    [TestMethod]
-    public void ForceInstallPendingPackages_UsesDialogServiceForOverrideConfirmation()
-    {
-        var databaseScope = new ApplicationDatabaseScope();
-
-        WithTemporarySongDb(CaseWorkspace, delegate (string songDbPath)
-        {
-            var dialogService = new RecordingDialogService
-            {
-                ResultToReturn = MessageBoxResult.No
-            };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
-            ChartFile pendingFile = ChartTestValues.Empty() with
-            {
-                Path = "C:\\Pending\\Pkg\\chart.bms"
-            };
-            var pendingPackage = ChartPackage.FromChartEntries(
-                [ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Installed\\Pkg")]);
-            pendingPackage.path = "C:\\Pending\\Pkg";
-            pendingPackage.delete_parent = false;
-            library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);
-
-            library.ForceInstallPendingPackages([pendingPackage]);
-
-            Assert.AreEqual(1, dialogService.Calls.Count);
-            Assert.AreEqual(Properties.Resources.Confirm_NormalInstallTitle, dialogService.Calls[0].Caption);
-            Assert.AreEqual(MessageBoxButton.YesNo, dialogService.Calls[0].Button);
-            Assert.AreSame(pendingPackage, library.ChartPackagesPending.Single());
-        });
-    }
 
     /// <summary>消失フォルダのrenameで対象path付き警告を注入dialogへ一回渡し、無通知の成功へ置換しません。</summary>
     [TestMethod]
@@ -230,11 +197,6 @@ public sealed class BmsLibraryDialogRoutingTests
             Assert.IsFalse(call.MessageBoxText.Contains("second_reason"));
             StringAssert.Contains(call.MessageBoxText, "Everything");
         });
-    }
-
-    private static ObservableCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
-    {
-        return new ObservableCollection<ChartPackage>([.. (packages ?? [])]);
     }
 
     private static void WithTemporarySongDb(TestWorkspace workspace, Action<string> testAction)

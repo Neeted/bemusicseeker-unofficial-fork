@@ -2534,7 +2534,7 @@ public sealed class BmsLibraryInstallEstimationServiceTests
                 string editedDestination = changed.InstallDestination;
                 string requestedDestination = package.ChartEntries.Single().Chart.InstallDestination;
 
-                PendingInstallBatchResult result = store.ManualInstallPackagesWithReceipt(library, [package]);
+                PendingInstallBatchResult result = store.ManualInstallPackagesWithReceipt(library, [package], new LibraryOperationNotices());
 
                 Assert.IsTrue(result.HasDurableCommit);
                 Assert.IsFalse(result.HasDurableFinalizationFailure);

@@ -8,14 +8,9 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
-using BeMusicSeeker.Views;
-using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualBasic.FileIO;
 using static BeMusicSeeker.TestSupport.Components.InstallServiceComponentTestSupport;
 using static BeMusicSeeker.TestSupport.Components.PackageInstallFailureTestSupport;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Tests;
 
@@ -107,7 +102,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             DirectoryResourceLookupCache.Entry siblingBefore = before.DirectoryLookupCache.GetEntryOrNull(sibling);
             try
             {
-                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
                 Assert.IsTrue(installed.SessionReceipt.DurableCommit, installed.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure, installed.SessionReceipt.PrimaryFailure?.ToString());
                 LibraryResourceIndexSnapshot after = owner.CaptureSnapshot();
@@ -146,7 +141,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             int commits = 0;
             FileDbMutationReceipt Move(string target) => new BmsLibraryPackageInstallService().MovePackageFilesWithReceipt(package, target,
                 new BmsLibraryOptionsSnapshot(), (_, _) => throw new AssertFailedException("明示DSTは自動命名しません。"),
-                exception => exception.Message, new RealFileMutationService(), new UnexpectedBmsLibraryDialogService(),
+                exception => exception.Message, new RealFileMutationService(), new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly), new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                 _ => { }, _ => { commits++; return FileDbMutationCommitResult.Durable(); }, PackageSourceCleanupPolicy.PreserveUnconsumedContents,
                 showMessageBoxOnInstallFail: false);
@@ -183,7 +178,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Directory.Move(destination, destination + "-renamed");
             try
             {
-                PendingInstallBatchResult refused = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+                PendingInstallBatchResult refused = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
                 Assert.IsFalse(refused.SessionReceipt.DurableCommit);
                 Assert.AreEqual(1, library.ChartPackagesPending.Count); Assert.AreEqual(0, library.BmsCharts.Count);
                 Assert.IsFalse(Directory.Exists(destination)); CollectionAssert.AreEqual(bytes, File.ReadAllBytes(source));
@@ -194,7 +189,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 library.BmsCharts = [known];
                 BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, database, db => db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(known), typeof(LR2SongDB.song)));
                 Assert.IsTrue(library.SetPendingInstallDestination(package.ChartEntries.Single(), destination + "-renamed", false));
-                PendingInstallBatchResult accepted = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+                PendingInstallBatchResult accepted = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
                 Assert.IsTrue(accepted.SessionReceipt.DurableCommit, accepted.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.AreEqual(0, library.ChartPackagesPending.Count);
                 CollectionAssert.AreEqual(bytes, File.ReadAllBytes(Path.Combine(destination + "-renamed", "chart.bms")));
@@ -298,7 +293,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             {
                 string[] inputs = chartFirst ? [selectedChart, source] : [source, selectedChart];
                 PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgressAsync(inputs,
-                    CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                    CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
 
                 Assert.IsTrue(result.HasDurableCommit);
                 Assert.IsFalse(result.HasRequiredFailure);
@@ -423,7 +418,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath,
                 db => db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(existing), typeof(LR2SongDB.song)));
 
-            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, new LibraryOperationNotices());
 
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
@@ -883,11 +878,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             if (force)
             {
                 sessionReceipt = library.ForceInstallPendingPackagesWithReceipt(
-                    packages, approveNormalInstallOverride: true, approvedNormalInstallOverridePackages: null);
+                    packages, approveNormalInstallOverride: true, approvedNormalInstallOverridePackages: null, new LibraryOperationNotices());
             }
             else
             {
-                PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
+                PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, new LibraryOperationNotices());
                 Assert.AreEqual(0, result.FailedPackages.Count);
                 sessionReceipt = result.SessionReceipt;
             }
@@ -995,7 +990,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             try
             {
                 PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgressAsync([firstSource, crossingSource],
-                    CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                    CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
                 Assert.IsTrue(result.HasDurableCommit);
                 Assert.IsTrue(result.HasRequiredFailure);
                 Assert.AreEqual(1, result.RegisteredPackages.Count);
@@ -1109,7 +1104,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
 
-            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
 
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.FailedPackages.Contains(package));
@@ -1177,13 +1172,15 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackagesPending = CreatePackageCollection([first, second]),
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
+            var notices = new LibraryOperationNotices();
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                [first, second], reportAtTerminal: reportAtTerminal);
+                [first, second], notices, reportAtTerminal: reportAtTerminal);
             Assert.AreEqual(2, result.CleanupOnlySucceeded);
             Assert.IsTrue(result.SessionReceipt.DurableCommit);
             Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
             Assert.AreEqual(cleanupFails, result.CompletedWithCleanupFailure);
-            Assert.AreEqual(reportAtTerminal && cleanupFails ? 0 : 1, dialogs.ModelMessages);
+            Assert.AreEqual(reportAtTerminal && cleanupFails ? 0 : 1, notices.Snapshot().Count);
+            Assert.AreEqual(0, dialogs.ModelMessages);
             Assert.IsFalse(Directory.Exists(firstSource));
             Assert.AreEqual(cleanupFails, Directory.Exists(secondSource));
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
@@ -1248,7 +1245,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                [firstPackage, secondPackage]);
+                [firstPackage, secondPackage], new LibraryOperationNotices());
 
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "shared.bms")));
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "unique.bms")));
@@ -1354,7 +1351,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             LibraryResourceIndexSnapshot before = resourceOwner.CaptureSnapshot();
 
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                [firstPackage, secondPackage, thirdPackage]);
+                [firstPackage, secondPackage, thirdPackage], new LibraryOperationNotices());
 
             Assert.IsFalse(result.SessionReceipt.DurableCommit);
             Assert.AreEqual(new LibraryMutationSessionApplyCounts
@@ -1478,7 +1475,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                [firstPackage, secondPackage]);
+                [firstPackage, secondPackage], new LibraryOperationNotices());
 
             Assert.IsFalse(result.SessionReceipt.DurableCommit);
             Assert.IsTrue(result.SessionReceipt.HasRequiredFailure);
@@ -1618,7 +1615,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                [firstPackage, secondPackage]);
+                [firstPackage, secondPackage], new LibraryOperationNotices());
 
             string installedBmsonPath = Path.Combine(destinationDirectoryPath, "chart.bmson");
             Assert.IsTrue(File.Exists(installedBmsonPath));
@@ -1721,7 +1718,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             installedChild = library.BmsCharts.Single(chart => chart.Path == installedChildPath);
             var priorMembership = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(installedRoot), PackageChartEntry.FromChart(installedChild)]);
             library.ChartPackagesInstalled = CreatePackageCollection([priorMembership]);
-            PendingInstalledOnlyResourceOverwriteResult result = library.OverwritePendingInstalledOnlyPackagesResources([package]);
+            PendingInstalledOnlyResourceOverwriteResult result = library.OverwritePendingInstalledOnlyPackagesResources([package], new LibraryOperationNotices());
 
             Assert.AreEqual(1, result.SucceededInstall);
             Assert.AreEqual(0, result.Failed);
@@ -1813,7 +1810,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             PendingInstalledOnlyResourceOverwriteResult result =
-                library.OverwritePendingInstalledOnlyPackagesResources([pendingPackage]);
+                library.OverwritePendingInstalledOnlyPackagesResources([pendingPackage], new LibraryOperationNotices());
 
             Assert.AreEqual(1, result.Processed);
             Assert.AreEqual(0, result.SucceededInstall);
@@ -1937,7 +1934,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             try
             {
                 PendingInstallBatchResult result =
-                    library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pendingPackage]);
+                    library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pendingPackage], new LibraryOperationNotices());
 
                 Assert.IsNull(
                     packageEntryInspectionFailure,
@@ -2022,7 +2019,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 _ => nestedChartPath
             };
 
-            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgressAsync([sourcePath], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgressAsync([sourcePath], CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
 
             Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(0, library.ChartPackagesPending.Count);
@@ -2097,7 +2094,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [package],
                 approveNormalInstallOverride: true,
-                approvedNormalInstallOverridePackages: null);
+                approvedNormalInstallOverridePackages: null, new LibraryOperationNotices());
 
             Assert.IsTrue(receipt.DurableCommit);
             Assert.IsFalse(receipt.HasRequiredFailure);
@@ -2210,7 +2207,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsFalse(oldPrimary.ContainsPrimaryHash(addedChart.Md5));
 
             PendingInstallBatchResult result =
-                library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+                library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
 
             Assert.IsTrue(result.SessionReceipt.DurableCommit);
             Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
@@ -2313,7 +2310,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
             try
             {
-                PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages);
+                PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(packages, new LibraryOperationNotices());
 
                 Assert.AreEqual(0, result.FailedPackages.Count, result.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.IsTrue(result.SessionReceipt.DurableCommit);
@@ -2441,7 +2438,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [package],
                 approveNormalInstallOverride: true,
-                approvedNormalInstallOverridePackages: null);
+                approvedNormalInstallOverridePackages: null, new LibraryOperationNotices());
 
             Assert.IsTrue(receipt.DurableCommit);
             Assert.IsFalse(receipt.HasRequiredFailure);
@@ -2590,7 +2587,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             {
                 PackageInstallCommandResult imported = library.InstallChartPackagesAutoWithProgressAsync(
                     [firstSource, secondSource, folderSource], CancellationToken.None,
-                    new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                    new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
                 Assert.IsFalse(imported.HasRequiredFailure);
                 string[] packagePaths = [firstSource, secondSource, folderSource];
                 ChartPackage[] packages = packagePaths.Select(path => library.ChartPackagesPending.Single(package => package.path == path)).ToArray();
@@ -2618,7 +2615,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 }
                 LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(packages,
                     approveNormalInstallOverride: true, approvedNormalInstallOverridePackages: null,
-                    preparedDestinations: preparation.Destinations, preparedOptions: preparation.Options);
+                    new LibraryOperationNotices(), preparedDestinations: preparation.Destinations, preparedOptions: preparation.Options);
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
                 Assert.IsFalse(receipt.HasRequiredFailure, receipt.PrimaryFailure?.ToString());
                 Assert.AreEqual(0, library.ChartPackagesPending.Count);
@@ -2807,7 +2804,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     // 既存リソースのある導入先を自動採番でずらさないため、
                     // 明示した推定先をそのまま使う本番導入入口を通します。
                     PendingInstallBatchResult estimated = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                        [package]);
+                        [package], new LibraryOperationNotices());
                     receipt = estimated.SessionReceipt;
                 }
                 else
@@ -2815,7 +2812,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     receipt = library.ForceInstallPendingPackagesWithReceipt(
                         [package],
                         approveNormalInstallOverride: true,
-                        approvedNormalInstallOverridePackages: null);
+                        approvedNormalInstallOverridePackages: null, new LibraryOperationNotices());
                 }
 
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
@@ -3220,14 +3217,14 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                         PackageInstallCommandResult command = library.InstallChartPackagesAutoWithProgressAsync(
                             [step.SourceDirectoryPath],
                             CancellationToken.None,
-                            new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                            new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
                         Assert.AreEqual(1, command.RegisteredPackages.Count);
                         sessionReceipt = command.SessionReceipt;
                     }
                     else if (isEstimatedRoute)
                     {
                         PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                            [step.Package]);
+                            [step.Package], new LibraryOperationNotices());
                         Assert.AreEqual(0, result.FailedPackages.Count);
                         sessionReceipt = result.SessionReceipt;
                     }
@@ -3236,7 +3233,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                         sessionReceipt = library.ForceInstallPendingPackagesWithReceipt(
                             [step.Package],
                             approveNormalInstallOverride: true,
-                            approvedNormalInstallOverridePackages: null);
+                            approvedNormalInstallOverridePackages: null, new LibraryOperationNotices());
                     }
 
                     Assert.IsTrue(sessionReceipt.DurableCommit);
@@ -3448,14 +3445,15 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
             library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
 
-            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgressAsync([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+            var notices = new LibraryOperationNotices();
+            PackageInstallCommandResult installed = library.InstallChartPackagesAutoWithProgressAsync([sourceDirectory], CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices).GetAwaiter().GetResult();
 
             Assert.AreEqual(0, installed.RegisteredPackages.Count);
             Assert.AreEqual(1, library.ChartPackagesPending.Count);
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);
             Assert.IsTrue(File.Exists(sourceChartPath));
             Assert.AreEqual(0, dialogService.Messages.Count);
-            Assert.AreEqual(1, installed.OperationMessages.Count);
+            Assert.AreEqual(1, notices.Snapshot().Count);
         });
     }
 
@@ -3558,7 +3556,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
 
-            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
 
             Assert.AreEqual(!rejected, result.HasDurableCommit);
             Assert.AreEqual(rejected ? 0 : 1, result.SessionReceipt.ApplyCounts.InstalledTargetApplyCount);
@@ -3625,7 +3623,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 ChartPackagesInstalled = CreatePackageCollection([])
             };
 
-            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+            PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
 
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
@@ -3701,7 +3699,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             try
             {
                 result = library.InstallChartPackagesAutoWithProgressAsync(
-                    [first, mixed, third], CancellationToken.None, new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                    [first, mixed, third], CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
             }
             finally { library.PropertyChanged -= captureClassification; }
 
@@ -3762,7 +3760,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
-                [package], approveNormalInstallOverride: false, approvedNormalInstallOverridePackages: null);
+                [package], approveNormalInstallOverride: false, approvedNormalInstallOverridePackages: null, new LibraryOperationNotices());
 
             Assert.IsFalse(receipt.DurableCommit);
             Assert.AreEqual(default(LibraryMutationSessionApplyCounts), receipt.ApplyCounts);
@@ -3782,23 +3780,24 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
     /// <summary>
-    /// 公開強制導入は設定とYes・No・無応答を適用し、拒否では元入力と既存所持を保持、承認では新規先へ導入して、無応答の承認や既存先への上書きを検出する。
+    /// 承認が必要な対象を含む強制導入で判断が渡されない要求は、確認を表示せず物理処理の前に失敗して元入力・既存所持・保留を保持する。
+    /// 明示の承認は新規先へだけ導入し、既存先は上書きしない。明示の不承認は保持し、承認が不要な対象だけの要求は判断なしでも導入する。
     /// </summary>
-    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
-    // 順に推定先の有無、確認設定、No・未選択閉鎖・Yesの応答を区別する。
+    /// <remarks>実ライブラリの保存・排他経路に接続するため独立したSQLite DBと実フォルダを用いる。モデルの窓口は記録用で、確認の表示を試みても承認に見える応答は返さず、Show・Postが0件であることを確かめる（確認を表示する実装では、承認が必要な行が例外にならない、または表示が1件になる）。</remarks>
+    // 順に推定先の有無、新規導入の確認設定、判断（0:渡さない・1:承認・2:不承認）を区別する。
     [TestMethod]
-    [DataRow(false, true, (int)MessageBoxResult.No)]
-    [DataRow(false, true, (int)MessageBoxResult.None)]
-    [DataRow(false, true, (int)MessageBoxResult.Yes)]
-    [DataRow(false, false, (int)MessageBoxResult.None)]
-    [DataRow(true, false, (int)MessageBoxResult.No)]
-    [DataRow(true, false, (int)MessageBoxResult.None)]
-    [DataRow(true, false, (int)MessageBoxResult.Yes)]
-    public void ForceInstallPendingPackages_PublicEntryUsesConfirmationSettingAndPreservesRejectedInput(
-        bool hasDestination, bool showNewConfirmation, int responseValue)
+    [DataRow(true, false, 0)]
+    [DataRow(false, true, 0)]
+    [DataRow(true, true, 0)]
+    [DataRow(false, false, 0)]
+    [DataRow(true, false, 1)]
+    [DataRow(false, true, 1)]
+    [DataRow(true, false, 2)]
+    [DataRow(false, true, 2)]
+    public void ForceInstallPendingPackagesWithReceipt_MissingApprovalFailsBeforeMutationAndExplicitDecisionIsHonored(
+        bool hasDestination, bool showNewConfirmation, int decision)
     {
         var databaseScope = new ApplicationDatabaseScope();
-        var response = (MessageBoxResult)responseValue;
 
         WithTemporarySongDb((songDbPath, root) =>
         {
@@ -3823,9 +3822,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Dictionary<string, byte[]> sourceBytes = Directory.GetFiles(source)
                 .ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase);
             byte[] existingBytes = File.ReadAllBytes(existingPath);
-            var dialogs = new PendingInstallConfirmationDialogService(response);
+            var dialogs = new BeMusicSeeker.TestSupport.Components.PendingPackageWorkflowOwnerTestSupport.RecordingLibraryDialogService();
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null,
-                new RealFileMutationService(), dialogs, new TestUiScheduler(() => null!),
+                new RealFileMutationService(), dialogs, new TestUiScheduler(() => null),
                 () => new BmsLibraryOptionsSnapshot
                 {
                     OperationModeLR2DB = false,
@@ -3845,19 +3844,25 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             existingChart = library.BmsCharts.Single();
-            library.ForceInstallPendingPackages([package]);
-
+            var notices = new LibraryOperationNotices();
             bool confirmationRequired = hasDestination || showNewConfirmation;
-            Assert.AreEqual(confirmationRequired ? 1 : 0, dialogs.Requests.Count);
-            if (confirmationRequired)
+            bool? approveNormalInstallOverride = decision switch { 1 => true, 2 => false, _ => null };
+            if (decision == 0 && confirmationRequired)
             {
-                (string Text, MessageBoxResult Response) request = dialogs.Requests.Single();
-                Assert.AreEqual(hasDestination ? Resources.Confirm_NormalInstallOverride : Resources.Confirm_NewPackageInstall, request.Text);
-                Assert.AreEqual(response == MessageBoxResult.None ? MessageBoxResult.No : response, request.Response);
+                Assert.ThrowsExactly<InvalidOperationException>(() => library.ForceInstallPendingPackagesWithReceipt(
+                    [package], approveNormalInstallOverride, approvedNormalInstallOverridePackages: null, notices));
             }
+            else
+            {
+                library.ForceInstallPendingPackagesWithReceipt(
+                    [package], approveNormalInstallOverride, approvedNormalInstallOverridePackages: null, notices);
+            }
+            Assert.AreEqual(0, notices.Snapshot().Count);
+            Assert.AreEqual(0, dialogs.CallCount, "モデルは確認を表示しない。");
+            Assert.AreEqual(0, dialogs.PostCount);
             CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(existingPath));
             CollectionAssert.AreEqual(new[] { existingPath }, Directory.GetFiles(explicitDestination));
-            bool accepted = !confirmationRequired || response == MessageBoxResult.Yes;
+            bool accepted = decision == 1 || (decision == 0 && !confirmationRequired);
             using LR2SongDBExtended readback = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(1, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ? AND hash = ?;", existingPath, existingChart.Md5));
             Assert.AreEqual(0, readback.ExecuteScalar<int>("SELECT COUNT(1) FROM song WHERE path = ?;", sourcePath));
@@ -4619,7 +4624,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             try
             {
                 PackageInstallCommandResult result = await library.InstallChartPackagesAutoWithProgressAsync(
-                    [source], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+                    [source], CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
 
                 Assert.IsTrue(result.HasDurableCommit);
                 Assert.IsFalse(result.HasRequiredFailure,
@@ -5154,7 +5159,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                     exception => exception.Message,
                     new RealFileMutationService(),
-                    new UnexpectedBmsLibraryDialogService(),
+                    new LibraryOperationNotices(),
                     new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                     new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                     _ => { },
@@ -5266,7 +5271,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
-                new UnexpectedBmsLibraryDialogService(),
+                new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                 _ => { },
@@ -5321,7 +5326,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
-                new UnexpectedBmsLibraryDialogService(),
+                new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                 _ => { },
@@ -5441,7 +5446,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
-                new UnexpectedBmsLibraryDialogService(),
+                new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                  _ => { },
@@ -5527,7 +5532,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
-                new UnexpectedBmsLibraryDialogService(),
+                new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                 _ => { },
@@ -5627,7 +5632,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             };
 
             PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                [firstPackage, conflictPackage, thirdPackage]);
+                [firstPackage, conflictPackage, thirdPackage], new LibraryOperationNotices());
 
             Assert.IsTrue(result.SessionReceipt.DurableCommit);
             Assert.IsFalse(result.SessionReceipt.HasRequiredFailure);
@@ -5746,9 +5751,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             LibraryMutationSessionReceipt receipt = force
                 ? library.ForceInstallPendingPackagesWithReceipt(
                     packages, approveNormalInstallOverride: true,
-                    approvedNormalInstallOverridePackages: null, reportAtTerminal: true)
+                    approvedNormalInstallOverridePackages: null, new LibraryOperationNotices(), reportAtTerminal: true)
                 : library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                    packages, reportAtTerminal: true).SessionReceipt;
+                    packages, new LibraryOperationNotices(), reportAtTerminal: true).SessionReceipt;
 
             Assert.IsTrue(receipt.DurableCommit);
             Assert.IsTrue(receipt.HasRequiredFailure);
@@ -5825,7 +5830,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
-                new UnexpectedBmsLibraryDialogService(),
+                new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                 _ => { },
@@ -5964,7 +5969,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
-                new UnexpectedBmsLibraryDialogService(),
+                new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                  _ => { },
@@ -6088,7 +6093,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [package],
                 approveNormalInstallOverride: true,
-                approvedNormalInstallOverridePackages: null);
+                approvedNormalInstallOverridePackages: null, new LibraryOperationNotices());
 
             Assert.IsNull(callbackFailure, callbackFailure?.ToString());
             Assert.IsTrue(firstNotificationCount > 0);
@@ -6174,7 +6179,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             PackageInstallCommandResult commandResult = library.InstallChartPackagesAutoWithProgressAsync(
                 [firstSourceDirectoryPath, secondSourceDirectoryPath, thirdSourceDirectoryPath],
                 CancellationToken.None,
-                new RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
 
             Assert.IsFalse(commandResult.HasDurableCommit);
             Assert.IsTrue(commandResult.HasRequiredFailure);
@@ -6314,11 +6319,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 [], [], [], [], [], [], [], new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>(), new Dictionary<uint, string[]>()));
             LibraryResourceIndexSnapshot before = resourceOwner.CaptureSnapshot();
 
+            var notices = new LibraryOperationNotices();
             LibraryMutationSessionReceipt receipt = library.ForceInstallPendingPackagesWithReceipt(
                 [firstPackage, secondPackage, thirdPackage],
                 approveNormalInstallOverride: true,
-                approvedNormalInstallOverridePackages: null, reportAtTerminal: reportAtTerminal);
-            Assert.AreEqual(reportAtTerminal ? 0 : 1, dialogs.ModelMessages);
+                approvedNormalInstallOverridePackages: null, notices, reportAtTerminal: reportAtTerminal);
+            Assert.AreEqual(reportAtTerminal ? 0 : 1, notices.Snapshot().Count);
+            Assert.AreEqual(0, dialogs.ModelMessages);
 
             Assert.IsTrue(receipt.DurableCommit);
             Assert.IsTrue(receipt.HasRequiredFailure);
@@ -6452,7 +6459,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
-                new UnexpectedBmsLibraryDialogService(),
+                new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                 _ => { },
@@ -6530,7 +6537,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                     : throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
                 exception => exception.Message,
                 new RealFileMutationService(),
-                new UnexpectedBmsLibraryDialogService(),
+                new LibraryOperationNotices(),
                 new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
                 new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
                 _ => { },
@@ -7217,21 +7224,21 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string audio = Path.Combine(directory, "sound.wav");
             File.WriteAllBytes(audio, audioBytes);
             var progress = new RecordingPackageInstallProgressWriter();
-            var dialogs = new RecordingDialogService();
+            var notices = new LibraryOperationNotices();
             List<string> createdInputs = [];
             List<string> logs = [];
             try
             {
                 List<string> expanded = new BmsLibraryPackageInstallService().ExpandInstallSourcesWithProgress(
                     [directory], new RealFileMutationService(),
-                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly), logs.Add, dialogs,
-                    progress, CancellationToken.None, action => action(), createdInputs.Add);
+                    new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly), logs.Add, notices,
+                    progress, CancellationToken.None, createdInputs.Add);
 
                 CollectionAssert.AreEqual(new[] { directory }, expanded);
                 Assert.AreEqual(0, progress.ArchiveStarts.Count());
                 Assert.AreEqual(1, progress.SourceProcessedCount);
                 Assert.AreEqual(0, createdInputs.Count);
-                Assert.AreEqual(0, dialogs.Messages.Count);
+                Assert.AreEqual(0, notices.Snapshot().Count);
                 Assert.IsFalse(logs.Any(message => message.Contains("extract_failed", StringComparison.OrdinalIgnoreCase)));
                 CollectionAssert.AreEqual(chartBytes, File.ReadAllBytes(chart));
                 CollectionAssert.AreEqual(audioBytes, File.ReadAllBytes(audio));
@@ -7349,7 +7356,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             (_, _) => throw new AssertFailedException("createFolderPath should not be called when destination is specified."),
             ex => ex.Message,
             fileMutationService,
-            new UnexpectedBmsLibraryDialogService(),
+            new LibraryOperationNotices(),
             new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
             new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
             _ => { },
@@ -7469,28 +7476,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         public void SetTimestamps(string path, bool isDirectory, DateTime? creationTime, DateTime? lastWriteTime, FileMutationOptions options = null!)
         {
         }
-    }
-
-    /// <summary>新規導入確認の役割、回数と返した応答を観測します。</summary>
-    private sealed class PendingInstallConfirmationDialogService(MessageBoxResult response) : IBmsLibraryDialogService
-    {
-        internal List<(string Text, MessageBoxResult Response)> Requests { get; } = [];
-
-        public MessageBoxResult Show(string messageBoxText, string caption, MessageBoxButton button,
-            MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
-        {
-            // None は未選択閉鎖を表し、実表示部品と同じ要求値の正規化・結果変換を通します。
-            MessageBoxResult result = response == MessageBoxResult.None
-                ? UiDialogResult.ClosedByUser(ThemedMessageBox.NormalizeDefaultResult(
-                    UiDialogPresentationAdapter.ToWpf(button),
-                    UiDialogPresentationAdapter.ToWpf(defaultResult))).DefaultResult
-                : response;
-            Requests.Add((messageBoxText, result));
-            return result;
-        }
-
-        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
-            => throw new InvalidOperationException("新規導入の確認の窓口へ、待たない投函は届きません。");
     }
 
     private sealed class TrackingDisposable(bool throwOnDispose = false) : IDisposable

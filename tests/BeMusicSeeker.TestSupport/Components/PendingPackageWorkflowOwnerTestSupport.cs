@@ -225,6 +225,9 @@ internal static class PendingPackageWorkflowOwnerTestSupport
 
         internal UiDialogResult? MessageResult { get; set; }
 
+        /// <summary>メッセージ表示の要求を受けた時点で呼びます。表示の要求が、どの受付の状態で届いたかを観測するために使います。</summary>
+        internal Action? OnMessage { get; set; }
+
         internal UiProgressRequest? ProgressRequest { get; private set; }
 
         internal UiProgressResult? ProgressResult { get; set; }
@@ -238,6 +241,7 @@ internal static class PendingPackageWorkflowOwnerTestSupport
         {
             MessageRequest = request;
             MessageRequests.Add(request);
+            OnMessage?.Invoke();
             return Task.FromResult(MessageResult ?? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
         }
 

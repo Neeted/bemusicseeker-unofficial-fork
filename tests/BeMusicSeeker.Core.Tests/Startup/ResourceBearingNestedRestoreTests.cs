@@ -66,7 +66,7 @@ public sealed class ResourceBearingNestedRestoreTests
             Assert.IsTrue(restored.HasResourceBearingNestedCharts);
             Assert.IsTrue(restored.ChartEntries.All(entry => entry.Chart.Warnings.Any(warning => warning.Kind == ChartWarningKind.ResourceBearingNestedCharts)));
 
-            library.ForceInstallPendingPackages([restored], true);
+            library.ForceInstallPendingPackages([restored], true, notices: new LibraryOperationNotices());
 
             Assert.AreSame(restored, library.ChartPackagesPending.Single());
             Assert.AreEqual(0, library.ChartPackagesInstalled.Count);

@@ -1040,10 +1040,9 @@ internal sealed partial class BmsLibraryPackageInstallService
         IFileMutationService fileMutationService,
         FileMutationOptions targetOnlyFileMutationOptions,
         Action<string> logInfo,
-        IBmsLibraryDialogService dialogService,
+        LibraryOperationNotices notices,
         IPackageInstallProgressWriter progressWriter,
         CancellationToken token,
-        Action<Action> deferPostCommitEffect,
         Action<string> observeCreatedInput = null)
     {
         ArgumentNullException.ThrowIfNull(progressWriter);
@@ -1222,26 +1221,24 @@ internal sealed partial class BmsLibraryPackageInstallService
             catch (RequiredArchiveMetadataRestoreException metadataRestoreException)
             {
                 DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logPreparation);
-                Action showFailure = () => dialogService.Show(
+                notices.Add(new BMSLibrary.OperationDialogMessage(
                     string.Format(Resources.Warn_ArchiveTimestampRestoreFailed, installPath, metadataRestoreException.RestoredPath, metadataRestoreException.Message),
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
                     MessageBoxImage.Exclamation,
-                    MessageBoxResult.OK);
-                deferPostCommitEffect(showFailure);
+                    MessageBoxResult.OK));
             }
             catch (Exception ex)
             {
                 DeleteExtractedTemporaryDirectory(extractedTempDirectoryPath, fileMutationService, targetOnlyFileMutationOptions, logPreparation);
                 sourceStopwatch.Stop();
                 logPreparation("auto_install extract_failed path=" + installPath + " elapsedMs=" + sourceStopwatch.ElapsedMilliseconds + " error=" + ex.Message);
-                Action showFailure = () => dialogService.Show(
+                notices.Add(new BMSLibrary.OperationDialogMessage(
                     string.Format(Resources.Warn_ArchiveExtractFailed, installPath, ex.Message),
                     Resources.MessageBoxTitle_Warning,
                     MessageBoxButton.OK,
                     MessageBoxImage.Exclamation,
-                    MessageBoxResult.OK);
-                deferPostCommitEffect(showFailure);
+                    MessageBoxResult.OK));
             }
             finally
             {
@@ -1263,7 +1260,7 @@ internal sealed partial class BmsLibraryPackageInstallService
     /// <param name="createFolderPath">Auto-naming callback used by the package mover.</param>
     /// <param name="getDisplayedExceptionMessage">Failure text formatter for optional diagnostics.</param>
     /// <param name="fileMutationService">Physical file mutation service.</param>
-    /// <param name="dialogService">Dialog service used only when failure dialogs are requested.</param>
+    /// <param name="notices">Operation notice collector used only when failure notices are requested.</param>
     /// <param name="targetOnlyFileMutationOptions">Single-target mutation options.</param>
     /// <param name="recursiveDirectoryTreeFileMutationOptions">Recursive source cleanup options.</param>
     /// <param name="logInstallPerformance">Performance diagnostic sink.</param>
@@ -1282,7 +1279,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         Func<Exception, string> getDisplayedExceptionMessage,
         IFileMutationService fileMutationService,
-        IBmsLibraryDialogService dialogService,
+        LibraryOperationNotices notices,
         FileMutationOptions targetOnlyFileMutationOptions,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
         Action<string> logInstallPerformance,
@@ -1302,7 +1299,7 @@ internal sealed partial class BmsLibraryPackageInstallService
             createFolderPath,
             getDisplayedExceptionMessage,
             fileMutationService,
-            dialogService,
+            notices,
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions,
             logInstallPerformance,
@@ -1348,7 +1345,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         Func<Exception, string> getDisplayedExceptionMessage,
         IFileMutationService fileMutationService,
-        IBmsLibraryDialogService dialogService,
+        LibraryOperationNotices notices,
         FileMutationOptions targetOnlyFileMutationOptions,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
         Action<string> logInstallPerformance,
@@ -1369,7 +1366,7 @@ internal sealed partial class BmsLibraryPackageInstallService
             createFolderPath,
             getDisplayedExceptionMessage,
             fileMutationService,
-            dialogService,
+            notices,
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions,
             logInstallPerformance,
@@ -1435,7 +1432,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         Func<Exception, string> getDisplayedExceptionMessage,
         IFileMutationService fileMutationService,
-        IBmsLibraryDialogService dialogService,
+        LibraryOperationNotices notices,
         FileMutationOptions targetOnlyFileMutationOptions,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
         Action<string> logInstallPerformance,
@@ -1459,7 +1456,7 @@ internal sealed partial class BmsLibraryPackageInstallService
             createFolderPath,
             getDisplayedExceptionMessage,
             fileMutationService,
-            dialogService,
+            notices,
             targetOnlyFileMutationOptions,
             recursiveDirectoryTreeFileMutationOptions,
             logInstallPerformance,
@@ -1491,7 +1488,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         Func<IEnumerable<ChartFile>, string, string> createFolderPath,
         Func<Exception, string> getDisplayedExceptionMessage,
         IFileMutationService fileMutationService,
-        IBmsLibraryDialogService dialogService,
+        LibraryOperationNotices notices,
         FileMutationOptions targetOnlyFileMutationOptions,
         FileMutationOptions recursiveDirectoryTreeFileMutationOptions,
         Action<string> logInstallPerformance,
@@ -1930,7 +1927,7 @@ internal sealed partial class BmsLibraryPackageInstallService
                             package,
                             destinationDirectory,
                             prepareFailureReceipt?.Failure,
-                            dialogService,
+                            notices,
                             getDisplayedExceptionMessage));
                     }
                     return prepareFailureReceipt;
@@ -1994,7 +1991,7 @@ internal sealed partial class BmsLibraryPackageInstallService
                     package,
                     destinationDirectory,
                     receipt.Failure,
-                    dialogService,
+                    notices,
                     getDisplayedExceptionMessage);
                 enqueueDiagnosticEffect?.Invoke(showFailure);
             }
@@ -2020,7 +2017,7 @@ internal sealed partial class BmsLibraryPackageInstallService
                     package,
                     string.Empty,
                     exception,
-                    dialogService,
+                    notices,
                     getDisplayedExceptionMessage);
                 enqueueDiagnosticEffect?.Invoke(showFailure);
             }
@@ -2396,10 +2393,10 @@ internal sealed partial class BmsLibraryPackageInstallService
         ChartPackage package,
         string destinationDirectory,
         Exception exception,
-        IBmsLibraryDialogService dialogService,
+        LibraryOperationNotices notices,
         Func<Exception, string> getDisplayedExceptionMessage)
     {
-        dialogService.Show(
+        notices.Add(new BMSLibrary.OperationDialogMessage(
             string.Format(
                 Resources.Error_InstallFailed,
                 package?.path,
@@ -2408,7 +2405,7 @@ internal sealed partial class BmsLibraryPackageInstallService
             Resources.MessageBoxTitle_Error,
             MessageBoxButton.OK,
             MessageBoxImage.Hand,
-            MessageBoxResult.OK);
+            MessageBoxResult.OK));
     }
 
     private static bool TryGetRemainingChartLookupKey(string remainingFilePath, out string lookupKey, out string reason)

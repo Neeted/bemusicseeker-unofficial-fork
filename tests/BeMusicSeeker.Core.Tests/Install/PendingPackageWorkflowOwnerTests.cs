@@ -2155,6 +2155,221 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         return (library, packages.ToArray(), files, playlist);
     }
 
+    private static BMSLibrary.OperationDialogMessage WarningNotice(string text) => new(
+        text, BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
+        BeMusicSeeker.Models.UiDialogButton.OK, BeMusicSeeker.Models.UiDialogIcon.Exclamation, BeMusicSeeker.Models.UiDialogDefaultResult.OK);
+
+    /// <summary>
+    /// 手動導入・強制導入の外側の受付を解放した後に、storeが別のスレッドと重複を含めて加えた案内を、所有者の窓口へ一度だけまとめて依頼し、
+    /// 表示の完了を待たず、表示の失敗（失敗の結果・失敗したTask・同期の例外）やstoreの例外で操作の結果を変えない。
+    /// モデルの窓口へ何も届かないこと（C5）は、実ライブラリを使うWindowsのPendingPackageWorkflowOwnerTestsの手動導入の2ケースとPackageInstallWorkflowOwnerArchiveTestsが保証する。
+    /// </summary>
+    /// <remarks>
+    /// 内側の終端で表示すると、依頼の時点で外側の受付を取得できない。内側と外側の両方で表示すると依頼が二件になる。
+    /// 表示を待つと、保持した表示のまま操作のTaskが完了しない。別のスレッドの追加や重複の扱いを誤ると、まとめた本文が一致しない。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("manual", "success", "ok")]
+    [DataRow("force", "success", "ok")]
+    [DataRow("manual", "store_throws", "ok")]
+    [DataRow("manual", "success", "display_throws")]
+    [DataRow("manual", "success", "display_faults")]
+    [DataRow("manual", "success", "display_failed_result")]
+    [DataRow("install_pending", "success", "ok")]
+    public async Task InstallPackagesAsync_ShowsCollectedNoticesOnceAfterOuterAdmissionReleaseWithoutWaiting(
+        string kind, string terminal, string display)
+    {
+        var events = new List<string>();
+        BMSLibrary.OperationDialogMessage notice1 = WarningNotice("first notice");
+        BMSLibrary.OperationDialogMessage notice2 = WarningNotice("second notice");
+        var store = new RecordingStore(events)
+        {
+            NoticeAction = (_, notices) =>
+            {
+                notices.Add(notice1);
+                Task.Run(() => notices.Add(notice2)).Wait();
+                notices.Add(WarningNotice("first notice"));
+            },
+            Failure = terminal == "store_throws" ? new IOException("store failure marker") : null,
+        };
+        var gate = new ChartFileOperationSynchronizer();
+        var holdDisplay = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool? admissionAcquirableAtRequest = null;
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            OnMessage = () =>
+            {
+                bool entered = gate.TryEnter(out IDisposable probe);
+                if (entered) { probe.Dispose(); }
+                admissionAcquirableAtRequest ??= entered;
+            },
+            MessageHandler = _ => display switch
+            {
+                "display_faults" => Task.FromException<UiDialogResult>(new IOException("display fault marker")),
+                "display_failed_result" => Task.FromResult(UiDialogResult.Failed(new IOException("display failed result marker"))),
+                _ => holdDisplay.Task,
+            },
+            MessageFailure = display == "display_throws" ? new InvalidOperationException("display failure marker") : null,
+        };
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate,
+            playback: new NoOpChartMutationPlaybackPort());
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+
+        store.ResolvedPackages = [package];
+        Task<PendingPackageMutationResult> operation = kind switch
+        {
+            "manual" => owner.ManualInstallPackagesAsync([package]),
+            "force" => owner.ForceInstallPackagesAsync([package]),
+            _ => owner.InstallPendingAsync(PendingInstallPackageOperationRequest.CreateManualInstall([CreateTarget(CreateChart())])),
+        };
+        try
+        {
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(operation, "pending-install-notice");
+            PendingPackageMutationResult result = await operation;
+
+            Assert.AreEqual(terminal == "success", result.Succeeded, result.Failure?.ToString());
+            if (terminal == "store_throws") { Assert.IsNotNull(result.Failure); }
+            Assert.AreEqual(1, dialogs.Messages.Count);
+            Assert.AreEqual(true, admissionAcquirableAtRequest, "表示の要求の時点で、外側の受付を取得できる。");
+            string expected = OperationNoticeGrouping.Group([notice1, notice2]).Single().MessageBoxText;
+            Assert.AreEqual(expected, dialogs.Messages[0].MessageBoxText);
+        }
+        finally { holdDisplay.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }
+    }
+
+    /// <summary>
+    /// 本番のUI窓口と同じく、所有者のUIの文脈から呼ばれたときだけ同期にブロックし、ほかのスレッドからは未完了のTaskを返す窓口でも、
+    /// 外側の受付を保持したまま操作のTaskが完了し、完了の時点で表示の要求がすでに窓口へ届いている。
+    /// </summary>
+    /// <remarks>
+    /// 所有者が自分の継続（UIの文脈）で表示を依頼すると、窓口の同期のモーダルの間、導入の終端・結果・後続の案内が止まる。
+    /// 依頼の開始を待たずに結果を返す誤りは、終了の判定と最初の要求が操作の完了より後になりうるが、その検出は確率的である。確定的に検出するのは、UIの文脈での同期の依頼である。
+    /// </remarks>
+    [TestMethod]
+    public async Task InstallPackagesAsync_RequestsNoticesOffUiContextBeforeCompletionWithoutWaitingForDisplay()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events) { NoticeAction = (_, notices) => notices.Add(WarningNotice("notice")) };
+        using var release = new ManualResetEventSlim(false);
+        using var uiContext = new SingleThreadSynchronizationContext();
+        var gate = new ChartFileOperationSynchronizer();
+        bool blockedOnUiContext = false;
+        bool? admissionAcquirableAtRequest = null;
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            OnMessage = () =>
+            {
+                bool entered = gate.TryEnter(out IDisposable probe);
+                if (entered) { probe.Dispose(); }
+                admissionAcquirableAtRequest ??= entered;
+            },
+            MessageHandler = _ =>
+            {
+                if (SynchronizationContext.Current == uiContext)
+                {
+                    blockedOnUiContext = true;
+                    release.Wait();
+                    return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                }
+                return new TaskCompletionSource<UiDialogResult>().Task;
+            },
+        };
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs, chartFileOperations: gate,
+            playback: new NoOpChartMutationPlaybackPort());
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+
+        Task<PendingPackageMutationResult> operation = uiContext.RunAsync(() => owner.ManualInstallPackagesAsync([package]));
+        try
+        {
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(operation, "pending-install-ui-context-display");
+            PendingPackageMutationResult result = await operation;
+
+            Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+            Assert.AreEqual(1, dialogs.Messages.Count, "完了の時点で表示の要求が届いている。");
+            Assert.AreEqual(true, admissionAcquirableAtRequest);
+            Assert.IsFalse(blockedOnUiContext, "表示の依頼をUIの文脈から行わない。");
+        }
+        finally { release.Set(); }
+    }
+
+    /// <summary>テスト用にUIスレッドを模す、単一の専用スレッドで継続を直列に実行する同期の文脈です。</summary>
+    private sealed class SingleThreadSynchronizationContext : SynchronizationContext, IDisposable
+    {
+        private readonly System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback Callback, object? State)> queue = [];
+        private readonly Thread thread;
+
+        internal SingleThreadSynchronizationContext()
+        {
+            thread = new Thread(() =>
+            {
+                SetSynchronizationContext(this);
+                foreach ((SendOrPostCallback callback, object? state) in queue.GetConsumingEnumerable())
+                {
+                    callback(state);
+                }
+            })
+            { IsBackground = true };
+            thread.Start();
+        }
+
+        public override void Post(SendOrPostCallback d, object? state) => queue.Add((d, state));
+
+        /// <summary>この文脈のスレッドで処理を開始し、その非同期の終端を返します。</summary>
+        internal Task<T> RunAsync<T>(Func<Task<T>> operation)
+        {
+            var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Post(_ =>
+            {
+                try
+                {
+                    operation().ContinueWith(task =>
+                    {
+                        if (task.IsFaulted) { completion.TrySetException(task.Exception!.InnerExceptions); }
+                        else if (task.IsCanceled) { completion.TrySetCanceled(); }
+                        else { completion.TrySetResult(task.Result); }
+                    }, TaskScheduler.Default);
+                }
+                catch (Exception exception) { completion.TrySetException(exception); }
+            }, null);
+            return completion.Task;
+        }
+
+        public void Dispose()
+        {
+            queue.CompleteAdding();
+            thread.Join();
+        }
+    }
+
+    /// <summary>操作に使ったライブラリが終了を要求済みなら、集めた案内を所有者の窓口へ依頼せず、操作の結果も変えない。</summary>
+    /// <remarks>終了後の表示を抑止しないと、終了処理中に表示の要求が窓口へ届く。</remarks>
+    [TestMethod]
+    public async Task InstallPackagesAsync_DoesNotShowCollectedNoticesAfterLibraryShutdownRequest()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events)
+        {
+            NoticeAction = (library, notices) =>
+            {
+                notices.Add(WarningNotice("notice"));
+                library.RequestShutdown("pending-notice-shutdown");
+            },
+        };
+        var dialogs = new FileDbReportRecordingDialogs();
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string songDbPath = Path.Combine(Directory.CreateDirectory(Path.Combine(caseWorkspace.RootDirectory, Guid.NewGuid().ToString("N"))).FullName, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        var library = new TestBmsLibrary(new ApplicationDatabaseScope(), songDbPath, null!, null, null!, new RecordingLibraryDialogService());
+        PendingPackageWorkflowOwner owner = CreateOwner(() => library, events, store, dialogs,
+            playback: new NoOpChartMutationPlaybackPort());
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+
+        PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync([package]);
+
+        Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+        Assert.AreEqual(0, dialogs.Messages.Count);
+    }
+
     private static BMSLibrary CreateLibrary()
     {
         return UninitializedBmsLibrary.Create();

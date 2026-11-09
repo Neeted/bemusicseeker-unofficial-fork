@@ -55,7 +55,7 @@ public sealed class BmsLibraryPackageLifecycleTests
                 ChartPackage pending = ChartPackageTestExtensions.CreatePackage(ChartPackageTestExtensions.CreateEntryWithInstallDestination(incoming, a));
                 pending.path = input;
                 library.ChartPackagesPending = new ObservableCollection<ChartPackage>([pending]);
-                PendingInstallBatchResult install = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending]);
+                PendingInstallBatchResult install = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending], new LibraryOperationNotices());
                 Assert.IsTrue(install.HasDurableCommit);
                 Assert.IsFalse(install.SessionReceipt.HasRequiredFailure);
                 ChartPackage first = library.ChartPackagesInstalled.Single();

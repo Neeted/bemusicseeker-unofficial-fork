@@ -64,6 +64,18 @@ internal static class PendingPackageStoreTestFixture
 
         internal Action<BMSLibrary>? SearchPackagesAction { get; set; }
 
+        /// <summary>導入・削除・改名・上書きの呼出しで所有者から受け取った案内の収集先へ、caseが案内を加える口です。操作ごとに受け取った収集先も記録します。</summary>
+        internal Action<BMSLibrary, LibraryOperationNotices>? NoticeAction { get; set; }
+
+        /// <summary>直近の操作で所有者から受け取った案内の収集先です。</summary>
+        internal LibraryOperationNotices? LastNotices { get; private set; }
+
+        private void ReceiveNotices(BMSLibrary library, LibraryOperationNotices notices)
+        {
+            LastNotices = notices;
+            NoticeAction?.Invoke(library, notices);
+        }
+
         public void SearchPackages(
             BMSLibrary library,
             IReadOnlyList<ChartPackage> packages,
@@ -148,10 +160,12 @@ internal static class PendingPackageStoreTestFixture
         public LibraryMutationSessionReceipt ForceInstallPackagesWithReceipt(
             BMSLibrary library,
             IReadOnlyList<ChartPackage> packages,
-            ISet<ChartPackage> approvedNormalInstallOverridePackages)
+            ISet<ChartPackage> approvedNormalInstallOverridePackages,
+            LibraryOperationNotices notices)
         {
             events.Add("store-force-install");
             LastPackages = packages;
+            ReceiveNotices(library, notices);
             ApprovedNormalInstallOverridePackages = new HashSet<ChartPackage>(approvedNormalInstallOverridePackages);
             ThrowIfConfigured();
             return TerminalReceipt;
@@ -159,10 +173,12 @@ internal static class PendingPackageStoreTestFixture
 
         public PendingInstallBatchResult ManualInstallPackagesWithReceipt(
             BMSLibrary library,
-            IReadOnlyList<ChartPackage> packages)
+            IReadOnlyList<ChartPackage> packages,
+            LibraryOperationNotices notices)
         {
             events.Add("store-manual-install");
             LastPackages = packages;
+            ReceiveNotices(library, notices);
             ThrowIfConfigured();
             return new PendingInstallBatchResult { SessionReceipt = TerminalReceipt };
         }
@@ -236,11 +252,13 @@ internal static class PendingPackageStoreTestFixture
         public void DeletePendingPackageSources(
             BMSLibrary library,
             IReadOnlyList<ChartPackage> packages,
+            LibraryOperationNotices notices,
             CancellationToken cancellationToken,
             Action onEachProcessed)
         {
             events.Add("store-delete-sources");
             LastPackages = packages;
+            ReceiveNotices(library, notices);
             if (DeleteSourcesFailure != null)
             {
                 throw DeleteSourcesFailure;
@@ -260,11 +278,13 @@ internal static class PendingPackageStoreTestFixture
         public void RenamePendingZeroNoteCharts(
             BMSLibrary library,
             IReadOnlyList<ChartFile> charts,
+            LibraryOperationNotices notices,
             CancellationToken cancellationToken,
             Action onEachProcessed)
         {
             events.Add("store-rename-zero-note");
             ChangedCharts = charts;
+            ReceiveNotices(library, notices);
             foreach (ChartFile _ in charts)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -276,11 +296,13 @@ internal static class PendingPackageStoreTestFixture
         public PendingInstalledOnlyResourceOverwriteResult OverwriteInstalledOnlyPendingPackageResources(
             BMSLibrary library,
             IReadOnlyList<ChartPackage> packages,
+            LibraryOperationNotices notices,
             CancellationToken cancellationToken,
             Action onEachProcessed)
         {
             events.Add("store-overwrite-resources");
             LastPackages = packages;
+            ReceiveNotices(library, notices);
             foreach (ChartPackage _ in packages)
             {
                 cancellationToken.ThrowIfCancellationRequested();

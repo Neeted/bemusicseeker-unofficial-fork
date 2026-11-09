@@ -209,12 +209,12 @@ public sealed class ChartInfoInstallFailureRetryTests
             {
                 package.ChartEntries.Single().ApplyInstallDestinationMetadata(installDir, "Installed", "Artist");
                 library.ChartPackagesPending = [package];
-                library.InstallPendingPackagesToEstimatedDestinations([package]);
+                library.InstallPendingPackagesToEstimatedDestinations([package], new LibraryOperationNotices());
             }
             else
             {
                 await library.InstallChartPackagesAutoWithProgressAsync([sourceDir], CancellationToken.None,
-                    new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter());
+                    new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
             }
 
             Assert.AreEqual(0, library.ChartInfoBackfillRequestedVersion);

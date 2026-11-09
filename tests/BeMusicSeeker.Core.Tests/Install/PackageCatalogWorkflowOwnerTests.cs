@@ -435,13 +435,13 @@ public sealed class PackageCatalogWorkflowOwnerTests
             { BmsCharts = [], BmsonCharts = [], ChartPackagesPending = [p], ChartPackagesInstalled = [] };
             try
             {
-                library.ForceInstallPendingPackages([p], approveNormalInstallOverride: true);
+                library.ForceInstallPendingPackages([p], approveNormalInstallOverride: true, notices: new LibraryOperationNotices());
                 Assert.AreEqual(2, library.BmsCharts.Count());
                 string destination = Path.GetDirectoryName(library.BmsCharts.First().Path) ?? throw new AssertFailedException("導入先が必要です。");
                 library.ChartPackagesPending = [q];
                 foreach (PackageChartEntry entry in q.ChartEntries) { BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry); }
                 Assert.IsTrue(library.SetPendingInstallDestination(q.ChartEntries.Single(), destination, false));
-                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([q]);
+                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([q], new LibraryOperationNotices());
                 Assert.IsTrue(installed.HasDurableCommit);
                 Assert.AreEqual(2, library.ChartPackagesInstalled.Count);
                 ChartPackage installedP = library.ChartPackagesInstalled.Single(package => package.ChartEntries.Count == 2);

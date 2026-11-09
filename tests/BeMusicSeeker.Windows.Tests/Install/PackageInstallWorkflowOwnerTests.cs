@@ -2416,9 +2416,16 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         if (cleanupFailure != null) { ExceptionDispatchInfo.Capture(cleanupFailure).Throw(); }
     }
 
-    /// <summary>モデルからの案内をUI投稿へ渡し、表示保留や表示例外で導入結果とqueue終端を止めず、表示失敗だけを診断する。</summary>
+    /// <summary>
+    /// ポートへ渡した収集先の案内を、同じスレッド・別のスレッド・例外の終端のいずれでも、受付の解放後の配送で一度だけ表示し、
+    /// 表示保留や表示例外で導入結果とqueue終端を止めず、表示失敗だけを診断する。
+    /// </summary>
+    /// <remarks>スレッドごとの入れ物にすると別のスレッドで加えた案内を取り逃がし、例外の終端で取得しないと先に集めた案内を失う。表示を受付の保持中に行うと、表示の要求の時点で受付を取得できない。</remarks>
     [TestMethod]
-    public async Task OperationDialogs_AreDispatchedWithoutBlockingQueueOrChangingMutationResult()
+    [DataRow("same_thread")]
+    [DataRow("other_thread")]
+    [DataRow("install_throws")]
+    public async Task OperationDialogs_AreDispatchedWithoutBlockingQueueOrChangingMutationResult(string shape)
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -2435,21 +2442,30 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             var library = new TestBmsLibrary(databaseScope,
                 songDbPath, null, null,
                 new BmsLibraryInitializationTestSupport.TestFileMutationService(), immediateDialogs);
-            var bufferedDialogs = new ScopedOperationDialogCoordinator(immediateDialogs);
             var chartFileOperations = new ChartFileOperationSynchronizer();
             var reportedFailures = new List<Exception>();
             var displayFailure = new InvalidOperationException("notification failure marker");
             var displayed = new FileDbReportRecordingDialogs { MessageFailure = displayFailure };
+            bool? admissionAcquirableAtRequest = null;
+            displayed.OnMessage = () =>
+            {
+                bool entered = chartFileOperations.TryEnter(out IDisposable probe);
+                if (entered) { probe.Dispose(); }
+                admissionAcquirableAtRequest ??= entered;
+            };
             int completions = 0;
             int failures = 0;
             owner = new PackageInstallWorkflowOwner(
                 displayed,
                 chartFileOperations,
                 new ChartMutationActivityOwner(),
-                new DelegatePackageInstallMutationPort((_, _, _, _) =>
+                new DelegatePackageInstallMutationPort((_, _, _, _, notices) =>
                 {
-                    bufferedDialogs.Show("notice marker", "caption marker", UiDialogButton.OK,
-                        UiDialogIcon.Information, UiDialogDefaultResult.OK);
+                    void AddNotice() => notices.Add(new BMSLibrary.OperationDialogMessage("notice marker", "caption marker",
+                        UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK));
+                    if (shape == "other_thread") { Task.Run(AddNotice).Wait(); }
+                    else { AddNotice(); }
+                    if (shape == "install_throws") { throw new InvalidOperationException("install failure marker"); }
                     return new PackageInstallCommandResult([new ChartPackage()], null);
                 }),
                 new NoOpChartMutationPlaybackPort(),
@@ -2478,9 +2494,79 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             Assert.AreEqual(1, displayed.Messages.Count);
             Assert.AreEqual("notice marker", displayed.Messages[0].MessageBoxText);
             Assert.AreEqual(System.Windows.MessageBoxButton.OK, displayed.Messages[0].Button);
-            Assert.AreEqual(1, completions);
-            Assert.AreEqual(0, failures);
+            Assert.AreEqual(true, admissionAcquirableAtRequest, "表示の要求の時点で、導入の受付を取得できる。");
+            Assert.AreEqual(shape == "install_throws" ? 0 : 1, completions);
+            Assert.AreEqual(shape == "install_throws" ? 1 : 0, failures);
+            Assert.AreEqual(0, immediateDialogs.Calls.Count);
             CollectionAssert.AreEqual(new[] { displayFailure }, reportedFailures);
+        }
+        finally
+        {
+            if (owner != null)
+            {
+                await owner.WaitForIdleAsync();
+            }
+
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 受付の解放後でも、終了の要求とライブラリの差替えの後には、集めた案内を表示せず、導入結果とqueue終端も変えない。
+    /// </summary>
+    /// <remarks>世代と終了の判定を表示の直前で行わないと、終了中や差替え後に古いライブラリの案内が画面へ出る。</remarks>
+    [TestMethod]
+    [DataRow("shutdown")]
+    [DataRow("library_replaced")]
+    public async Task OperationDialogs_AreNotDisplayedAfterShutdownOrLibraryReplacement(string shape)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(caseWorkspace.RootDirectory, nameof(PackageInstallWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string songDbPath = Path.Combine(root, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        string otherSongDbPath = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "other")).FullName, "song.db");
+        File.WriteAllBytes(otherSongDbPath, []);
+        var notifications = new Queue<Action>();
+        PackageInstallWorkflowOwner? owner = null;
+        try
+        {
+            var immediateDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope,
+                songDbPath, null, null,
+                new BmsLibraryInitializationTestSupport.TestFileMutationService(), immediateDialogs);
+            var otherLibrary = new TestBmsLibrary(databaseScope,
+                otherSongDbPath, null, null,
+                new BmsLibraryInitializationTestSupport.TestFileMutationService(), immediateDialogs);
+            var displayed = new FileDbReportRecordingDialogs();
+            owner = new PackageInstallWorkflowOwner(
+                displayed,
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new DelegatePackageInstallMutationPort((_, _, _, _, notices) =>
+                {
+                    notices.Add(new BMSLibrary.OperationDialogMessage("notice marker", "caption marker",
+                        UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK));
+                    return new PackageInstallCommandResult([new ChartPackage()], null);
+                }),
+                new NoOpChartMutationPlaybackPort(),
+                action =>
+                {
+                    lock (notifications) { notifications.Enqueue(action); }
+                    return true;
+                });
+            owner.AttachLibrary(library);
+            Assert.IsTrue(owner.Enqueue([Path.Combine(root, "source.zip")]));
+            await owner.WaitForIdleAsync();
+
+            if (shape == "shutdown") { owner.RequestShutdown(); }
+            else { owner.AttachLibrary(otherLibrary); }
+            DrainNotifications(notifications);
+
+            Assert.AreEqual(0, displayed.Messages.Count);
+            Assert.AreEqual(0, immediateDialogs.Calls.Count);
         }
         finally
         {
@@ -2572,7 +2658,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             BMSLibrary library,
             IEnumerable<string> installPaths,
             CancellationToken token,
-            IPackageInstallProgressWriter progressWriter, IReadOnlySet<string>? fullySelectedDirectories = null)
+            IPackageInstallProgressWriter progressWriter, LibraryOperationNotices notices, IReadOnlySet<string>? fullySelectedDirectories = null)
         {
             this.progressWriter = progressWriter ?? throw new ArgumentNullException(nameof(progressWriter));
             for (int index = 1; index <= progressCount; index++)
@@ -2634,7 +2720,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
             BMSLibrary library,
             IEnumerable<string> installPaths,
             CancellationToken token,
-            IPackageInstallProgressWriter progressWriter, IReadOnlySet<string>? fullySelectedDirectories = null)
+            IPackageInstallProgressWriter progressWriter, LibraryOperationNotices notices, IReadOnlySet<string>? fullySelectedDirectories = null)
         {
             int invocation = Interlocked.Increment(ref invocationCount);
             if (invocation == 1)

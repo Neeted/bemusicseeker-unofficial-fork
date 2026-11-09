@@ -55,11 +55,11 @@ public sealed class BmsLibraryDuplicateServiceTests
                 { foreach (ChartFile chart in library.BmsCharts) { db.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(chart), typeof(LR2SongDB.song)); } });
                 LibraryResourceIndexTestSupport.GetOwner(library).Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([root])));
                 library.InstallChartPackagesAutoWithProgressAsync([input], CancellationToken.None,
-                    new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter()).GetAwaiter().GetResult();
+                    new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter(), new LibraryOperationNotices()).GetAwaiter().GetResult();
                 ChartPackage pending = library.ChartPackagesPending.Single();
                 Assert.AreEqual(input, pending.path);
                 Assert.IsTrue(library.SetPendingInstallDestination(pending.ChartEntries.Single(), source, false));
-                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending]);
+                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([pending], new LibraryOperationNotices());
                 Assert.IsTrue(installed.HasDurableCommit);
                 Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure);
                 ChartPackage package = library.ChartPackagesInstalled.Single();

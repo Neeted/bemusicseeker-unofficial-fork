@@ -214,7 +214,6 @@ internal sealed class PackageInstallCommandResult
         IEnumerable<ChartPackage> registeredPackages,
         LibraryMutationSessionReceipt sessionReceipt,
         Exception estimationFailure = null,
-        IEnumerable<BMSLibrary.OperationDialogMessage> operationMessages = null,
         LibraryMutationSessionReceipt estimatedInstallReceipt = null,
         IEnumerable<ChartPackage> unprocessedPackages = null,
         IEnumerable<Exception> workflowFailures = null,
@@ -222,7 +221,6 @@ internal sealed class PackageInstallCommandResult
         IEnumerable<PackageInstallInputCleanupFailure> inputCleanupFailures = null)
     {
         EstimationFailure = estimationFailure;
-        OperationMessages = Array.AsReadOnly([.. operationMessages ?? []]);
         RegisteredPackages = Array.AsReadOnly([.. (registeredPackages ?? []).Where(package => package != null).Distinct()]);
         SessionReceipt = sessionReceipt ?? LibraryMutationSessionReceipt.Empty;
         EstimatedInstallReceipt = estimatedInstallReceipt;
@@ -236,8 +234,6 @@ internal sealed class PackageInstallCommandResult
     internal Exception EstimationFailure { get; }
     /// <summary>準備、停止、同期、回収などセッション外の実失敗を保持します。</summary>
     internal IReadOnlyList<Exception> WorkflowFailures { get; }
-    /// <summary>操作終端の任意情報通知です。</summary>
-    internal IReadOnlyList<BMSLibrary.OperationDialogMessage> OperationMessages { get; }
     /// <summary>必須反映まで成功し公開できる登録済みパッケージです。</summary>
     internal IReadOnlyList<ChartPackage> RegisteredPackages { get; }
     /// <summary>取り込み初段の確定事実です。</summary>

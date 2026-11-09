@@ -22,9 +22,15 @@ internal sealed class ScopedOperationDialogCoordinator : IBmsLibraryDialogServic
             ?? throw new ArgumentNullException(nameof(immediateDialogService));
     }
 
-    internal Scope BeginScope()
+    /// <summary>
+    /// 現在のスレッドに案内の列を開始します。
+    /// <paramref name="sink"/> を渡すと、列へ積む案内は所有者の収集先へ直接加え、列自体は案内を保持しません。
+    /// 収集先へ移行していない発生源（譜面変更系）が、現在のスレッドのまま収集先と同じ表示の列へ合流するための橋渡しです。
+    /// </summary>
+    /// <param name="sink">案内の合流先。省略時は列が自分で保持し、所有者が <see cref="Scope.Flush"/> で表示します。</param>
+    internal Scope BeginScope(LibraryOperationNotices sink = null)
     {
-        Scope scope = new(this);
+        Scope scope = new(this, sink);
         threadScopes ??= new Stack<Scope>();
         threadScopes.Push(scope);
         return scope;
@@ -156,18 +162,27 @@ internal sealed class ScopedOperationDialogCoordinator : IBmsLibraryDialogServic
     internal sealed class Scope : IDisposable
     {
         private readonly ScopedOperationDialogCoordinator coordinator;
+        private readonly LibraryOperationNotices sink;
         private readonly List<DialogMessage> messages = [];
         private bool disposed;
 
-        internal Scope(ScopedOperationDialogCoordinator coordinator)
+        internal Scope(ScopedOperationDialogCoordinator coordinator, LibraryOperationNotices sink = null)
         {
             this.coordinator = coordinator ?? throw new ArgumentNullException(nameof(coordinator));
+            this.sink = sink;
         }
 
         internal IReadOnlyList<DialogMessage> Messages => messages;
 
         internal void Enqueue(DialogMessage message)
         {
+            if (message != null && sink != null)
+            {
+                sink.Add(new BMSLibrary.OperationDialogMessage(
+                    message.MessageBoxText, message.Caption, message.Button, message.Icon, message.DefaultResult,
+                    message.Count, message.SampleLines, message.AllLogged));
+                return;
+            }
             if (message == null || messages.Any(existing =>
                 string.Equals(existing.MessageBoxText, message.MessageBoxText, StringComparison.Ordinal)
                 && string.Equals(existing.Caption, message.Caption, StringComparison.Ordinal)

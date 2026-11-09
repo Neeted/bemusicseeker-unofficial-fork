@@ -50,12 +50,13 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         byte[] archiveBytes = kind == "folder" ? [] : File.ReadAllBytes(input);
         string[] inputs = kind == "folder" ? [root, root, child, later] : [input, later];
 
+        var notices = new LibraryOperationNotices();
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
-            inputs, CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            inputs, CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices);
 
         Assert.IsTrue(result.HasDurableCommit);
         Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
-        Assert.AreEqual(0, result.OperationMessages.Count);
+        Assert.AreEqual(0, notices.Snapshot().Count);
         Assert.AreEqual(1, result.SessionReceipt.ApplyCounts.InstalledTargetApplyCount);
         ChartFile[] installed = result.RegisteredPackages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart).ToArray();
         CollectionAssert.AreEquivalent(expectedAudio.Keys.ToArray(), installed.Select(chart => chart.Title).ToArray());
@@ -120,7 +121,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         string archive = Path.Combine(fixture.Root, "split.zip");
         ZipFile.CreateFromDirectory(archiveContent, archive);
         PackageInstallCommandResult imported = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
-            [archive], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            [archive], CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
         Assert.IsTrue(imported.HasDurableCommit);
         Assert.IsFalse(imported.HasRequiredFailure, imported.EstimationFailure?.ToString());
         Assert.AreEqual(3, fixture.Library.ChartPackagesPending.Count);
@@ -141,7 +142,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(fixture.Library.SetPendingInstallDestination(first.ChartEntries.Single(), destination, false));
 
         PendingInstallBatchResult result = fixture.Library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-            requestBoth ? [first, other] : [first]);
+            requestBoth ? [first, other] : [first], new LibraryOperationNotices());
 
         Assert.IsTrue(result.HasDurableCommit);
         Assert.AreEqual(0, result.FailedPackages.Count);
@@ -175,7 +176,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         string input = fixture.CreateInput("folder", "Different", resources: false);
         File.Copy(Path.Combine(fixture.CandidateDirectory, "existing.bms"), Path.Combine(input, "owned.bms"));
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
-            [input], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            [input], CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
         Assert.IsTrue(result.HasDurableCommit);
         Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
         ChartPackage pending = fixture.Library.ChartPackagesPending.Single();
@@ -221,11 +222,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
         }
         CollectionAssert.AreEquivalent(new[] { "maybe_D.bms", "maybe_E.bms", "maybe_H.bms" }, expected.Keys.ToArray());
+        var notices = new LibraryOperationNotices();
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
-            [input], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            [input], CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices);
         Assert.IsTrue(result.HasDurableCommit);
         Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
-        Assert.AreEqual(0, result.OperationMessages.Count);
+        Assert.AreEqual(0, notices.Snapshot().Count);
         Assert.AreEqual(0, result.RegisteredPackages.Count);
         Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
         Assert.AreEqual(0, fixture.Library.BmsCharts.Count);
@@ -267,11 +269,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         byte[] archiveBytes = File.ReadAllBytes(archive);
         var extracted = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
         fixture.Files.BeforeTimestamp = path => extracted.Add(path, File.ReadAllBytes(path));
+        var notices = new LibraryOperationNotices();
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
-            [archive], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            [archive], CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices);
         Assert.IsTrue(result.HasDurableCommit);
         Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
-        Assert.AreEqual(0, result.OperationMessages.Count);
+        Assert.AreEqual(0, notices.Snapshot().Count);
         Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
         Assert.AreEqual(1, fixture.Library.ChartPackagesInstalled.Count);
         string destination = result.RegisteredPackages.Single().ChartEntries.Single().Chart.Path;
@@ -309,11 +312,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         using var fixture = new ManagedArchiveInstallFixture(knownCandidate: !resources);
         if (!resources) { await fixture.InitializeAsync(); }
         string input = fixture.CreateInput(kind, resources: resources);
+        var notices = new LibraryOperationNotices();
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
-            [input], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            [input], CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices);
         Assert.IsTrue(result.HasDurableCommit);
         Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
-        Assert.AreEqual(0, result.OperationMessages.Count);
+        Assert.AreEqual(0, notices.Snapshot().Count);
         if (kind == "managed") { Assert.IsFalse(File.Exists(input), "正常展開済みの管理元ZIPは消費します。"); }
         if (kind == "borrowed") { Assert.IsTrue(File.Exists(input), "借用元ZIPは保持します。"); }
         using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
@@ -374,11 +378,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             }
             expected["Archived"] = (ReadEntry("chart.bms"), ReadEntry("sound.wav"));
         }
+        var notices = new LibraryOperationNotices();
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
-            [archive, folder], CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            [archive, folder], CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices);
         Assert.IsTrue(result.HasDurableCommit);
         Assert.IsFalse(result.HasRequiredFailure, result.EstimationFailure?.ToString());
-        Assert.AreEqual(0, result.OperationMessages.Count);
+        Assert.AreEqual(0, notices.Snapshot().Count);
         Assert.AreEqual(2, result.RegisteredPackages.Count);
         Assert.AreEqual(2, fixture.Library.BmsCharts.Count);
         Assert.AreEqual(2, fixture.Library.ChartPackagesInstalled.Count);
@@ -418,10 +423,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         if (timestampFailure) { fixture.Files.BeforeTimestamp = _ => throw new InvalidOperationException(marker); }
         else { File.WriteAllText(rejected, "broken zip"); }
         string[] paths = timestampFailure ? [rejected] : [rejected, fixture.CreateInput("managed", "Normal")];
+        var notices = new LibraryOperationNotices();
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
-            paths, CancellationToken.None, new RecordingPackageInstallProgressWriter());
+            paths, CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices);
         Assert.IsFalse(result.HasRequiredFailure);
-        BMSLibrary.OperationDialogMessage message = result.OperationMessages.Single();
+        BMSLibrary.OperationDialogMessage message = notices.Snapshot().Single();
         StringAssert.Contains(message.MessageBoxText, rejected);
         if (timestampFailure)
         {

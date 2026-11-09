@@ -391,8 +391,8 @@ public sealed partial class PendingPackageWorkflowOwnerTests
 
     /// <summary>
     /// 起動走査を無効にした実ライブラリの受付拒否を例外にせず、空の確定結果と案内を返して画面終端を反映できる。
-    /// 未収束の警告は、所有者のスコープへ積まれて所有者の窓口へ一件だけ表示され、モデルの窓口へ直接は届かない。
-    /// モデルからの直接の投函・同期の表示（所有者の表示の迂回）を検出する。
+    /// 未収束の警告は、モデルから直接出ず、手動導入の外側の受付を解放した後に所有者の窓口へ一件だけ届く。
+    /// モデルからの直接の投函・同期の表示（所有者の表示の迂回）と、外側の受付を保持したままの表示を検出する。
     /// </summary>
     [TestMethod]
     public async Task ManualInstallPackagesAsync_DisabledStartupScanKeepsAdmissionRejectionNonExceptional()
@@ -410,6 +410,13 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, libraryDialogs);
             library.ResetCatalogPathConvergence(CatalogPathConvergenceBlockReason.StartupFileScanDisabled);
             FakeUiDialogService dialogs = AcceptedDialogs();
+            bool? admissionAcquirableAtRequest = null;
+            dialogs.OnMessage = () =>
+            {
+                bool entered = library.OperationAdmission.TryEnter(out IDisposable probe);
+                if (entered) { probe.Dispose(); }
+                admissionAcquirableAtRequest ??= entered;
+            };
             PendingPackageWorkflowOwner owner = CreateOwner(
                 () => library,
                 [],
@@ -427,12 +434,91 @@ public sealed partial class PendingPackageWorkflowOwnerTests
             Assert.AreSame(LibraryMutationSessionReceipt.Empty, result.SessionReceipt);
             Assert.IsFalse(result.HasDurableCommit);
             Assert.AreEqual(1, dialogs.MessageRequests.Count);
+            Assert.AreEqual(true, admissionAcquirableAtRequest, "表示の要求の時点で、手動導入の外側の受付を取得できる。");
             UiMessageRequest request = dialogs.MessageRequests[0];
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_CatalogFileMutationRequiresStartupScan, request.MessageBoxText);
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, request.Caption);
             Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
             Assert.AreEqual(0, libraryDialogs.CallCount, "モデルの窓口へ同期の表示を要求しない。");
             Assert.AreEqual(0, libraryDialogs.PostCount, "モデルの窓口へ直接投函しない。");
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 導入済みと同じ譜面を持つ保留の片付けだけの手動導入で、推定先導入の延期先から遅れて公開される完了の案内を落とさず、
+    /// 外側の受付を解放した後に所有者の窓口へ一件だけ届け、モデルの窓口へは直接出さない。
+    /// </summary>
+    /// <remarks>収集先の取得を、延期先の公開より前に行うと、この案内が欠落して要求が0件になる。</remarks>
+    [TestMethod]
+    public async Task ManualInstallPackagesAsync_DeferredCleanupOnlyWarningIsShownOnceAfterAdmissionRelease()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(caseWorkspace.RootDirectory, nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string songDbPath = Path.Combine(root, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            string installedDirectory = Path.Combine(root, "installed");
+            string source = Path.Combine(root, "pending");
+            Directory.CreateDirectory(installedDirectory);
+            Directory.CreateDirectory(source);
+            const string text = "#TITLE AlreadyInstalled\n";
+            File.WriteAllText(Path.Combine(installedDirectory, "chart.bms"), text);
+            File.WriteAllText(Path.Combine(source, "chart.bms"), text);
+            ChartFile installed = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(Path.Combine(installedDirectory, "chart.bms")));
+            ChartFile pendingChart = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(Path.Combine(source, "chart.bms")));
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingChart, installedDirectory));
+            package.path = source;
+            package.delete_parent = false;
+            foreach (PackageChartEntry entry in package.ChartEntries) { BmsLibraryPackageInstallService.InitializePendingResourceHealth(entry); }
+            var libraryDialogs = new RecordingLibraryDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new InstallServiceComponentTestSupport.RealFileMutationService(), libraryDialogs,
+                new TestUiScheduler(() => null!),
+                () => new BmsLibraryOptionsSnapshot
+                {
+                    OperationModeLR2DB = false,
+                    BMSInstallDir = installedDirectory,
+                    FolderNameFormat = "%TITLE%",
+                    DeletePendingPackageSourceAfterInstall = true
+                })
+            {
+                BmsCharts = [installed],
+                ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([package]),
+                ChartPackagesInstalled = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>()
+            };
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            bool? admissionAcquirableAtRequest = null;
+            dialogs.OnMessage = () =>
+            {
+                bool entered = library.OperationAdmission.TryEnter(out IDisposable probe);
+                if (entered) { probe.Dispose(); }
+                admissionAcquirableAtRequest ??= entered;
+            };
+            PendingPackageWorkflowOwner owner = CreateOwner(
+                () => library, [], new BmsLibraryPendingPackageStore(), dialogs,
+                chartFileOperations: library.OperationAdmission,
+                playback: new NoOpChartMutationPlaybackPort());
+
+            PendingPackageMutationResult result = await owner.ManualInstallPackagesAsync([package]);
+
+            Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+            Assert.AreEqual(1, dialogs.MessageRequests.Count);
+            Assert.AreEqual(true, admissionAcquirableAtRequest, "表示の要求の時点で、外側の受付を取得できる。");
+            UiMessageRequest request = dialogs.MessageRequests[0];
+            Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Warn_estimated_install_cleanup_only_completed, 1), request.MessageBoxText);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, request.Caption);
+            Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+            Assert.AreEqual(0, libraryDialogs.CallCount);
+            Assert.AreEqual(0, libraryDialogs.PostCount);
+            Assert.IsFalse(Directory.Exists(source));
         }
         finally
         {

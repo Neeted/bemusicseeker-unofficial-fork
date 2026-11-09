@@ -297,7 +297,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
                 File.WriteAllBytes(Path.Combine(source, "missing-b.wav"), [2]);
                 fixture.Options = fixture.CreateOptions(false, false, keepNewPending: false);
                 PackageInstallCommandResult canceled = await fixture.Library.InstallChartPackagesAutoWithProgressAsync([source], cancellation.Token,
-                    new ScopeProgressWriter(), beforePhysicalMutation: () => { cancellation.Cancel(); return Task.CompletedTask; });
+                    new ScopeProgressWriter(), new LibraryOperationNotices(), beforePhysicalMutation: () => { cancellation.Cancel(); return Task.CompletedTask; });
                 Assert.IsTrue(cancellation.IsCancellationRequested, "準備した実候補が停止境界へ到達します。");
                 Assert.IsTrue(canceled.WorkflowFailures.Any(failure => failure is OperationCanceledException));
             }

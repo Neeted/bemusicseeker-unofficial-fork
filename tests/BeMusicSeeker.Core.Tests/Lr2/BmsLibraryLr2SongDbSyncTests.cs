@@ -106,7 +106,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             try
             {
                 PendingInstallBatchResult installResult = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                    [package]);
+                    [package], new LibraryOperationNotices());
                 LibraryMutationSessionReceipt sessionReceipt = installResult.SessionReceipt;
                 Assert.IsTrue(installResult.HasDurableCommit);
                 Assert.IsTrue(installResult.HasDurableFinalizationFailure);
@@ -262,7 +262,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             try
             {
                 PendingInstallBatchResult installResult = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
-                    [package]);
+                    [package], new LibraryOperationNotices());
                 Assert.IsFalse(installResult.HasDurableCommit);
                 Assert.AreEqual(0, installResult.FailedPackages.Count);
                 LibraryMutationSessionReceipt sessionReceipt = installResult.SessionReceipt;

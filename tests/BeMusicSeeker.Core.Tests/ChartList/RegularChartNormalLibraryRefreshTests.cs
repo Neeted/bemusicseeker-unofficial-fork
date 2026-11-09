@@ -137,7 +137,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 };
                 owner.NormalLibraryRefreshApplied += applied;
 
-                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+                PendingInstallBatchResult installed = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
                 Assert.IsTrue(installed.HasDurableCommit);
                 Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure);
                 Assert.AreEqual(0, installed.FailedPackages.Count);

@@ -147,40 +147,6 @@ public sealed class BmsLibraryMutationBoundaryTests
     }
 
     /// <summary>
-    /// 保証：事前判断のない強制導入を変更scope内で呼ぶと拒否し、対話確認も保留パッケージの変更も開始しない。
-    /// </summary>
-    /// <remarks>実ライブラリ入口からscope境界の対話拒否と保留状態の保持を確認する。</remarks>
-    [TestMethod]
-    public void OperationDialogScope_RejectsInteractivePromptWhenPreflightDecisionIsMissing()
-    {
-        var databaseScope = new ApplicationDatabaseScope();
-
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var dialogService = new RecordingDialogService
-            {
-                ResultToReturn = MessageBoxResult.Yes
-            };
-            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService);
-            ChartFile pendingFile = ChartTestValues.Empty() with
-            {
-                Path = "C:\\Pending\\Pkg\\chart.bms"
-            };
-            var pendingPackage = ChartPackage.FromChartEntries(
-                [ChartPackageTestExtensions.CreateEntryWithInstallDestination(pendingFile, "C:\\Installed\\Pkg")]);
-            pendingPackage.path = "C:\\Pending\\Pkg";
-            pendingPackage.delete_parent = false;
-            library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);
-
-            using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
-
-            Assert.ThrowsExactly<InvalidOperationException>(() => library.ForceInstallPendingPackages([pendingPackage]));
-            Assert.AreEqual(0, dialogService.CallCount);
-            Assert.AreSame(pendingPackage, library.ChartPackagesPending.Single());
-        });
-    }
-
-    /// <summary>
     /// 保証：強制導入を明示的に不承認としたら変更scope内でも再確認せず、対象保留パッケージを保持する。
     /// </summary>
     /// <remarks>実強制導入入口で事前決定とdialog scopeの接続を確認する。</remarks>
@@ -204,7 +170,7 @@ public sealed class BmsLibraryMutationBoundaryTests
             library.ChartPackagesPending = CreatePackageCollection([pendingPackage]);
 
             using BMSLibrary.OperationDialogScope scope = library.BeginOperationDialogScope();
-            library.ForceInstallPendingPackages([pendingPackage], approveNormalInstallOverride: false);
+            library.ForceInstallPendingPackages([pendingPackage], approveNormalInstallOverride: false, notices: new LibraryOperationNotices());
             scope.Flush();
 
             Assert.AreEqual(0, dialogService.CallCount);

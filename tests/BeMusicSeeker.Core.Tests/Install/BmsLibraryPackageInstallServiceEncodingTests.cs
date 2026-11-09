@@ -64,9 +64,9 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 entry.ApplyCurrentChart(ChartFileProjection.WithMaintenance(entry.Chart, sourceHealth));
                 Assert.AreEqual(!estimated, (entry.Chart.Warnings ?? []).Any(warning => warning.Kind == ChartWarningKind.Lr2PathEncodingUnsupported));
                 LibraryMutationSessionReceipt receipt = estimated
-                    ? library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]).SessionReceipt
+                    ? library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices()).SessionReceipt
                     : library.ForceInstallPendingPackagesWithReceipt([package], approveNormalInstallOverride: true,
-                        approvedNormalInstallOverridePackages: null);
+                        approvedNormalInstallOverridePackages: null, new LibraryOperationNotices());
                 Assert.IsTrue(receipt.DurableCommit, receipt.PrimaryFailure?.ToString());
                 Assert.IsFalse(receipt.HasRequiredFailure, receipt.PrimaryFailure?.ToString());
                 Assert.AreEqual(1, receipt.ApplyCounts.InstalledTargetApplyCount);
@@ -171,7 +171,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             {
                 library.SetBMSFilesEncoding([entry.Chart], "big5", pendingEntries: [entry]);
                 InstallEncodingTestInput.AssertFixed(entry.Chart, path);
-                PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package]);
+                PendingInstallBatchResult result = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt([package], new LibraryOperationNotices());
                 Assert.IsTrue(result.SessionReceipt.DurableCommit, result.SessionReceipt.PrimaryFailure?.ToString());
                 Assert.IsFalse(result.SessionReceipt.HasRequiredFailure, result.SessionReceipt.PrimaryFailure?.ToString());
                 CollectionAssert.AreEqual(new byte[] { 2 }, File.ReadAllBytes(Path.Combine(destination, "tone.wav")));
