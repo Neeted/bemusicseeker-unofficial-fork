@@ -42,7 +42,7 @@
 | `BeMusicSeeker.Models.Utils` | 走査、パス、ハッシュ、設定などの共通処理。 |
 | `native/EverythingBridge` | Everything SDK 3のx64連携。管理側のコードと同じ配布契約で扱う。 |
 
-`BeMusicSeeker.Models` は `BeMusicSeeker.Views` と `BeMusicSeeker.ViewModels` に依存しません。`BeMusicSeeker.Properties` も `BeMusicSeeker.Views` に依存しません。Models と画面の両方が使う永続の設定値の型（例：`PlayerPanelState`）は Models に置きます。ダイアログなどの画面の部品が必要な場合は、モデルは窓口の型を持って表示の実装を持たず、実装は `Views` に置いて構成が注入します。
+`BeMusicSeeker.Models` は `BeMusicSeeker.Views` と `BeMusicSeeker.ViewModels` に依存しません。`BeMusicSeeker.Properties` も `BeMusicSeeker.Views` と `BeMusicSeeker.ViewModels` に依存しません。Models と画面の両方が使う永続の設定値の型（例：`PlayerPanelState`、`CustomTableColumnSettings`、`PlaylistSummaryColumnSettings`）は Models に置きます。ダイアログなどの画面の部品が必要な場合は、モデルは窓口の型を持って表示の実装を持たず、実装は `Views` に置いて構成が注入します。
 
 機能の状態、判断、永続化、複数サービスの処理順は、機能別のViewModel・管理主体・サービス・DB窓口に置きます。ルートのViewModelへ戻さず、全処理の中継点にもしません。次のものは追加しません。
 
@@ -231,7 +231,7 @@ BASS・7zは `libs/x64`、Everything連携は `native`、言語ファイルは `
 | 管理依存の配置と配布物 | [`BeMusicSeeker.csproj`](../../../BeMusicSeeker/BeMusicSeeker.csproj)、[`publish.ps1`](../../../scripts/publish.ps1) の `Invoke-SelfContainedPublish` | [`ManagedDependencyOutputPolicyTests.ApplicationProjectUsesHostManagedDependencyLayout`](../../../tests/BeMusicSeeker.Core.Tests/Verification/ManagedDependencyOutputPolicyTests.cs) と、[`full` 検証](../development/testing.md)の実配布物の起動・更新。 |
 | 中央バージョン、復元した依存と実出力の一致 | [`Directory.Packages.props`](../../../Directory.Packages.props)、各プロジェクトの `packages.lock.json` と復元・ビルド出力 | `ManagedDependencyOutputPolicyTests.PackageVersionsAreCentrallyOwnedAndRetiredAssembliesStayOutOfRuntimeOutput` が、中央指定と評価済みの指定、ロックファイル・選択された資産・依存記述の依存集合を照合し、アプリとテストの実行時DLLとパッケージ資産のバイト列の一致、退役済み資産の不在を確認する。ManagedBassのABI固定版は独立に確認し、通常依存の現行版の一覧は期待値に複写しない。`LockOwningProjectsDeclareCanonicalWinX64RestoreGraph` が、ロックファイルを持つ各プロジェクトの基本・`win-x64` の依存グラフとSQLite資産の一致を確認する。テストホストの実起動と終端は標準検証で確認する。 |
 | WPFとWin32による外部プレイヤーの接続と寿命 | [`ExternalPlayerHwndHost`](../../../BeMusicSeeker/Views/Playback/ExternalPlayerHwndHost.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [再生パネルの対応表](../ui/playback-panel.md#実装とテストの対応)の、初期生成・接続・終了待ち。 |
-| `Models` が `Views` と `ViewModels` に、`Properties` が `Views` に依存しない層の向き | [層と責務](#層と責務) | [`ModelLayerArchitectureTests`](../../../tests/BeMusicSeeker.Core.Tests/Dialogs/ModelLayerArchitectureTests.cs) が、`Models` 配下のソースの `Views`・`ViewModels` への参照と、`Properties` 配下のソースの `Views` への参照を検査する。窓口の実装と注入は[ダイアログの対応表](../ui/dialogs.md#実装とテストの対応)に従う。 |
+| `Models` と `Properties` が `Views` と `ViewModels` に依存しない層の向き | [層と責務](#層と責務) | [`ModelLayerArchitectureTests`](../../../tests/BeMusicSeeker.Core.Tests/Dialogs/ModelLayerArchitectureTests.cs) が、`Models` 配下と `Properties` 配下のソースの `Views`・`ViewModels` への参照を検査する。窓口の実装と注入は[ダイアログの対応表](../ui/dialogs.md#実装とテストの対応)に従う。 |
 | 機能ごとの責務・起動・変更 | 各領域の管理主体 | [起動](../runtime/startup.md)、[ライブラリ変更](../library/mutations.md)、[画面](../ui/README.md)の対応表。 |
 
 ## 関連資料

@@ -1,8 +1,8 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Wpf;
-using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.Tests;

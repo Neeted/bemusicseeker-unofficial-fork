@@ -1,14 +1,21 @@
-using System;
 using System.Windows;
-using Livet;
 
-namespace BeMusicSeeker.ViewModels;
+namespace BeMusicSeeker.Models;
 
-[Serializable]
-public class PlaylistSummaryColumnSettings : NotificationObject
+/// <summary>
+/// プレイリスト一覧の列設定（幅・表示位置・表示状態）を表します。
+/// 設定として永続化される値で、Properties の設定と画面の両方が使うため、Models に置きます。
+/// クラス名・プロパティ名・Visibility の列挙名は user.config の XML の要素名・値になるため、変えません。
+/// <c>XmlRoot</c>・<c>XmlType</c>・<c>XmlElement</c>・TypeConverter を付けず、公開の引数なしコンストラクターと setter を保ちます。
+/// 各列の読込み済みの判定（<c>_xxxLoaded</c>）は、読込み時の setter 経由の設定に依存します。
+/// </summary>
+public class PlaylistSummaryColumnSettings : ObservableObject
 {
-    [Serializable]
-    public class ColumnLayout : NotificationObject, ICustomTableColumnLayout
+    /// <summary>
+    /// 一つの列の幅・表示位置・表示状態です。画面が購読するため、変更を同期で同じプロパティ名により通知します。
+    /// プロパティ名は user.config の XML の要素名になるため、変えません。
+    /// </summary>
+    public class ColumnLayout : ObservableObject, ICustomTableColumnLayout
     {
         private int _Width = 80;
 

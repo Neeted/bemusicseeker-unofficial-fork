@@ -1,3 +1,4 @@
+using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 

@@ -1,5 +1,5 @@
 using System.Windows;
-using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.TestSupport.Components;

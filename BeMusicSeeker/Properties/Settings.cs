@@ -8,7 +8,6 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.ViewModels;
 using Ribbit.BMS;
 using Ribbit.Media;
 using Ribbit.Media.Audio;

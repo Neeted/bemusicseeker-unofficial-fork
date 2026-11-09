@@ -1,14 +1,22 @@
 using System;
 using System.Windows;
-using Livet;
 
-namespace BeMusicSeeker.ViewModels;
+namespace BeMusicSeeker.Models;
 
-[Serializable]
-public class CustomTableColumnSettings : NotificationObject
+/// <summary>
+/// 表示先ごとのメイン一覧の列設定（幅・表示位置・表示状態）を表します。
+/// 設定として永続化される値で、Properties の設定と画面の両方が使うため、Models に置きます。
+/// クラス名・プロパティ名（綴り誤りの <c>CharcterEncoding</c> を含む）・<see cref="ViewKind"/> と Visibility の列挙名は
+/// user.config の XML の要素名・値になるため、変えません。
+/// <c>XmlRoot</c>・<c>XmlType</c>・<c>XmlElement</c>・TypeConverter を付けず、公開の引数なしコンストラクターと setter を保ちます。
+/// </summary>
+public class CustomTableColumnSettings : ObservableObject
 {
-    [Serializable]
-    public class ColumnLayout : NotificationObject, ICustomTableColumnLayout
+    /// <summary>
+    /// 一つの列の幅・表示位置・表示状態です。画面が購読するため、変更を同期で同じプロパティ名により通知します。
+    /// プロパティ名は user.config の XML の要素名になるため、変えません。
+    /// </summary>
+    public class ColumnLayout : ObservableObject, ICustomTableColumnLayout
     {
         private int _Width = 50;
 
@@ -24,7 +32,6 @@ public class CustomTableColumnSettings : NotificationObject
             }
             set
             {
-                _ = 0;
                 if (_Width != value)
                 {
                     _Width = value;

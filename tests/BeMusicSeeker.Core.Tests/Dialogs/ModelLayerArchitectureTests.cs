@@ -9,8 +9,8 @@ namespace BeMusicSeeker.Tests;
 /// 名前空間の層を区別できる境界がありません。メンバーの本体が参照する型まで型情報だけで網羅する手段もないため、例外として
 /// ソースの参照記述を検査します。
 /// 固定範囲: <c>BeMusicSeeker/Models</c> 配下の .cs（bin・obj とコメント行を除く）が <c>BeMusicSeeker.Views</c> と
-/// <c>BeMusicSeeker.ViewModels</c> の名前空間を、<c>BeMusicSeeker/Properties</c> 配下の .cs が <c>BeMusicSeeker.Views</c> を、
-/// それぞれ using・別名・完全修飾名・名前空間宣言、および名前空間内の相対参照（<c>Views.X</c>、<c>ViewModels.X</c>、
+/// <c>BeMusicSeeker.ViewModels</c> の名前空間を、<c>BeMusicSeeker/Properties</c> 配下の .cs が <c>BeMusicSeeker.Views</c> と
+/// <c>BeMusicSeeker.ViewModels</c> を、それぞれ using・別名・完全修飾名・名前空間宣言、および名前空間内の相対参照（<c>Views.X</c>、<c>ViewModels.X</c>、
 /// <c>using Views;</c>、<c>using ViewModels;</c>）として含まないことだけです。
 /// 既知の見逃し: Models・Properties の外の型（ルートの BeMusicSeeker、Runtime、Diagnostics、Ribbit）のメンバーが
 /// 画面の層の型を公開し、それを <c>var</c> や連鎖で使う依存、行をまたいで分けた完全修飾名、他のディレクトリで
@@ -56,6 +56,14 @@ public sealed class ModelLayerArchitectureTests
     {
         List<string> violations = FindViolations("Properties", ReferencesViews);
         Assert.AreEqual(0, violations.Count, "Properties は Views に依存しません:" + Environment.NewLine + string.Join(Environment.NewLine, violations));
+    }
+
+    /// <summary>Properties配下のソースが ViewModels 名前空間へ依存せず、設定の型を Models に置く層の向きを保ちます。</summary>
+    [TestMethod]
+    public void PropertiesSources_DoNotReferenceViewModelsNamespace()
+    {
+        List<string> violations = FindViolations("Properties", ReferencesViewModels);
+        Assert.AreEqual(0, violations.Count, "Properties は ViewModels に依存しません:" + Environment.NewLine + string.Join(Environment.NewLine, violations));
     }
 
     /// <summary>検出規則が Views への各種の参照記述を拾い、ViewModels や識別子の一部を拾わないことを確かめます。</summary>

@@ -46,5 +46,7 @@
   <ItemGroup>
     <!-- 計算・表示の両moduleが同じ独立固定入力を出力から読みます。 -->
     <Content Include="../../BeMusicSeeker.Tests/TestData/Walkure/*.json" Link="TestData/Walkure/%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <!-- 列設定の型を `BeMusicSeeker.ViewModels` に置いていた版が保存した列設定XMLの固定入力を出力から読みます。 -->
+    <None Update="CustomTable/TestData/*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

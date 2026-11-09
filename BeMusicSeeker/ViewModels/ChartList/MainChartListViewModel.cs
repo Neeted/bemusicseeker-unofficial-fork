@@ -8,6 +8,7 @@ using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Windows;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 using Livet;
 

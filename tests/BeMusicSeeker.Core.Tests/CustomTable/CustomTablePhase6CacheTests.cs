@@ -1,6 +1,6 @@
 using System.Windows;
 using System.Windows.Media;
-using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 using static BeMusicSeeker.TestSupport.Components.CustomTableCacheTestFixture;
 
