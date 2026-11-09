@@ -458,13 +458,14 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 audio: audio));
     }
 
-    /// <summary>解析失敗のcompiled削除ClickはMD5を正規化して渡し、受付成立時点でHandledを設定して処理結果の完了を待たず受付を確定します。</summary>
+    /// <summary>解析失敗のcompiled削除ClickはMD5を正規化して渡し、受付成立時点でHandledを設定して処理結果の完了を待たず受付を確定します。処理結果が失敗の場合は、MainWindowの操作失敗の通知をプレイリストの窓口へ、予期しない失敗の本文・Error見出し・Handアイコン・MainWindowのOwnerで一度だけ渡します。</summary>
     [TestMethod]
     public void CompiledParseFailureContextMenuNormalizesRequestAndHandlesOnlyAfterAcceptance()
     {
         Task<ChartInfoParseFailureRemovalAcceptance> acceptance = Task.FromResult(new ChartInfoParseFailureRemovalAcceptance(accepted: true));
         TaskCompletionSource<ChartInfoParseFailureRemovalResult> completion = NewCompletion<ChartInfoParseFailureRemovalResult>();
         ChartInfoParseFailureRemovalRequest? request = null;
+        var playlistDialogs = new RecordingRootDialogService();
         LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", @"C:\wave6e-parse\chart.bms");
         MainWindowChartInfoParseFailureRemovalTerminal parseTerminal = new(
             capturedRequest =>
@@ -498,6 +499,15 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                         new InvalidOperationException("parse failure"),
                         accepted: true));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "parse-failure-terminal-delegate");
+                    TestUiDispatcherHost.ProcessQueuedBackground();
+
+                    Assert.AreEqual(1, playlistDialogs.MessageRequests.Count);
+                    Assert.AreEqual(0, playlistDialogs.ConfirmationCount);
+                    UiMessageRequest notification = playlistDialogs.MessageRequests[0];
+                    Assert.AreEqual(Resources.Msg_error_unexpected, notification.MessageBoxText);
+                    Assert.AreEqual(Resources.Error, notification.Caption);
+                    Assert.AreEqual(MessageBoxImage.Hand, notification.Icon);
+                    Assert.AreSame(window, notification.Owner);
                 }
                 finally
                 {
@@ -506,7 +516,8 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 }
 
             },
-            selectedChartContextMenuTerminals: CreateTerminals(chartInfoParseFailureRemoval: parseTerminal));
+            selectedChartContextMenuTerminals: CreateTerminals(chartInfoParseFailureRemoval: parseTerminal),
+            playlistWorkspaceDialogService: playlistDialogs);
     }
 
     /// <summary>解析失敗削除の受付拒否と受付未完了ではClickをHandledへ変更せず、処理Taskの存在だけで受付成功へ転換しません。</summary>

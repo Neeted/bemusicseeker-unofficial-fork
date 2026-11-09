@@ -44,21 +44,21 @@ public partial class PlaylistPropertyDialog : ThemedWindow, IComponentConnector
 
     private bool closed;
 
-    /// <summary>XAML用の未接続画面と既定coordinatorを構成します。</summary>
-    public PlaylistPropertyDialog()
+    /// <summary>編集sessionをまだ持たない画面を作ります。DataContextは生成後に設定されます。</summary>
+    /// <param name="dialogService">親画面と同じ所有者解決・通知窓口。null は許されません。</param>
+    internal PlaylistPropertyDialog(IUiDialogService dialogService)
     {
-        dialogService = new UiDialogCoordinator();
+        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         InitializeComponent();
     }
 
     /// <summary>所有workspaceの編集sessionと同じcoordinatorで、保存・必要通知の終端を待つ画面を作ります。</summary>
     /// <param name="viewModel">画面が表示する編集session。</param>
-    /// <param name="dialogService">親画面と同じ所有者解決・通知窓口。省略時は既定coordinatorを使います。</param>
-    internal PlaylistPropertyDialog(PlaylistPropertyDialogViewModel viewModel, IUiDialogService dialogService = null)
-        : this()
+    /// <param name="dialogService">親画面と同じ所有者解決・通知窓口。null は許されません。</param>
+    internal PlaylistPropertyDialog(PlaylistPropertyDialogViewModel viewModel, IUiDialogService dialogService)
+        : this(dialogService)
     {
         DataContext = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
-        this.dialogService = dialogService ?? this.dialogService;
     }
 
     /// <summary>Gets whether a completed save/reset terminal operation closed this window.</summary>

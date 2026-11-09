@@ -12,10 +12,12 @@ namespace BeMusicSeeker.TestSupport.Wpf;
 internal static class MainWindowViewModelTestFactory
 {
     /// <summary>fixtureの配置を明示し、process環境を再読しない固定の実行条件を作ります。</summary>
-    internal static ApplicationRuntimeOptions CreateRuntimeOptions(ApplicationPathSnapshot? paths = null)
+    /// <param name="paths">配置。省略時は現在の配置です。</param>
+    /// <param name="updateManifestUrl">更新確認が使うURL。省略時は既定のURLです。通信せずに更新確認を失敗させるには、相対URLを渡します。</param>
+    internal static ApplicationRuntimeOptions CreateRuntimeOptions(ApplicationPathSnapshot? paths = null, string? updateManifestUrl = null)
         => new(paths ?? ApplicationPathPolicy.Current,
             new BmsDatabaseLoadOptions(true, true, true), null,
-            BeMusicSeeker.Models.Update.UpdateCheckService.DefaultManifestUrl, []);
+            updateManifestUrl ?? BeMusicSeeker.Models.Update.UpdateCheckService.DefaultManifestUrl, []);
 
     /// <summary>
     /// 明示された設定、または他の testhost と共有しない既定値で画面 owner を構成する。

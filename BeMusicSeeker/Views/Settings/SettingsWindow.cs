@@ -111,79 +111,17 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Exception);
     }
 
-    /// <summary>
-    /// 設定ウィンドウを初期化します。表示状態は Window lifecycle override で ViewModel へ通知します。
-    /// </summary>
-    public SettingsWindow()
-        : this(
-            new DwmNativeWindowTitleBarGateway(),
-            new AppNativeWindowTitleBarThemeSource(),
-            new UiDialogCoordinator(),
-            ThrowApplicationExitTerminalUnavailable)
-    {
-    }
-
-    /// <summary>Initializes the settings window with an injectable dialog boundary.</summary>
-    internal SettingsWindow(IUiDialogService dialogService)
-        : this(
-            new DwmNativeWindowTitleBarGateway(),
-            new AppNativeWindowTitleBarThemeSource(),
-            dialogService,
-            ThrowApplicationExitTerminalUnavailable)
-    {
-    }
-
-    /// <summary>復元・アプリデータ削除の完了後にshellの終了端末を呼ぶ設定画面を初期化します。</summary>
-    /// <param name="applicationExitTerminal">プレイリスト復元が完了した後のshell終了経路。</param>
-    internal SettingsWindow(SettingsWindowApplicationExitTerminal applicationExitTerminal)
-        : this(
-            new DwmNativeWindowTitleBarGateway(),
-            new AppNativeWindowTitleBarThemeSource(),
-            new UiDialogCoordinator(),
-            applicationExitTerminal)
-    {
-    }
-
-    /// <summary>注入されたdialogと、復元・アプリデータ削除後のshell終了端末を使って設定画面を初期化します。</summary>
-    /// <param name="dialogService">設定操作のpicker・確認・結果通知を実行する境界。</param>
-    /// <param name="applicationExitTerminal">プレイリスト復元が完了した後のshell終了経路。</param>
+    /// <summary>簡易な構成で、注入されたdialogと復元・アプリデータ削除後のshell終了端末を使って設定画面を初期化します。</summary>
+    /// <param name="dialogService">設定操作のpicker・確認・結果通知を実行する境界。null は許されません。</param>
+    /// <param name="applicationExitTerminal">プレイリスト復元が完了した後のshell終了経路。省略時は、終了経路を使う操作が例外になります。</param>
     internal SettingsWindow(
         IUiDialogService dialogService,
-        SettingsWindowApplicationExitTerminal applicationExitTerminal)
+        SettingsWindowApplicationExitTerminal applicationExitTerminal = null)
         : this(
             new DwmNativeWindowTitleBarGateway(),
             new AppNativeWindowTitleBarThemeSource(),
             dialogService,
-            applicationExitTerminal)
-    {
-    }
-
-    /// <summary>
-    /// テスト可能な title-bar 境界を使って設定ウィンドウを初期化します。
-    /// </summary>
-    /// <param name="titleBarGateway">標準 Window chrome へ任意のテーマ属性を適用する境界。</param>
-    /// <param name="titleBarThemeSource">現在の semantic palette と変更通知を供給する境界。</param>
-    internal SettingsWindow(
-        INativeWindowTitleBarGateway titleBarGateway,
-        INativeWindowTitleBarThemeSource titleBarThemeSource)
-        : this(
-            titleBarGateway,
-            titleBarThemeSource,
-            new UiDialogCoordinator(),
-            ThrowApplicationExitTerminalUnavailable)
-    {
-    }
-
-    /// <summary>Initializes the settings window with testable title-bar and dialog boundaries.</summary>
-    internal SettingsWindow(
-        INativeWindowTitleBarGateway titleBarGateway,
-        INativeWindowTitleBarThemeSource titleBarThemeSource,
-        IUiDialogService dialogService)
-        : this(
-            titleBarGateway,
-            titleBarThemeSource,
-            dialogService,
-            ThrowApplicationExitTerminalUnavailable)
+            applicationExitTerminal ?? ThrowApplicationExitTerminalUnavailable)
     {
     }
 
@@ -797,7 +735,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
         UiWindowDialogResult<object> result = await dialogService.ShowWindowAsync(
             new UiWindowDialogRequest<ReleaseNotesWindow, object>(
-                () => new ReleaseNotesWindow { DataContext = settingDialogViewModel },
+                () => new ReleaseNotesWindow(dialogService) { DataContext = settingDialogViewModel },
                 _ => null,
                 this));
         ThrowIfWindowDialogFailed(result.Status, result.Error, "Release notes dialog");

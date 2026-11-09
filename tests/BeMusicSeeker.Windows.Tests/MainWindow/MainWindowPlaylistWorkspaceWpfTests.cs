@@ -7504,7 +7504,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             applicationLifetime: lifetime,
             runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-            dialogService: commonDialogs ?? UndeclaredDialogs.Create());
+            dialogService: commonDialogs ?? UndeclaredDialogs.Create(),
+            playlistWorkspaceDialogService: actualRouteDialogService);
         StartupLibraryConstructionTestSupport.CreateSongDatabase(composition.DatabaseScope, songDbPath);
         PlaylistPersistenceRepository.EnsureSchema(composition.DatabaseScope, songDbPath);
         string? scoreDbPath = withScoreDatabase ? Path.Combine(applicationPath.DataDirectoryPath, "score.db") : null;
@@ -7581,7 +7582,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 installedLocationRepairTerminal: null,
                 pendingBulkMaintenanceTerminal: null,
                 mainChartCellEditTerminal: null,
-                playlistWorkspaceDialogService: actualRouteDialogService,
                 mainWindowForegroundTerminal: foregroundTerminal,
                 playlistWorkspaceTerminals: playlistWorkspaceTerminals));
             RoutedEventHandler ensureNonActivatingPosition = (_, _) =>

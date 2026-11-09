@@ -42,7 +42,7 @@ public sealed class WpfThemeResourceTests
     {
         TestUiDispatcherHost.RunWindowTest(_ =>
         {
-            var settingsWindow = new SettingsWindow();
+            var settingsWindow = new SettingsWindow(UndeclaredDialogs.Create());
             var settingsOperationRoot = (Grid)settingsWindow.FindName("settingDialogOperationGrid");
             AssertBrush(settingsOperationRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
             AssertBrush(settingsWindow.Background, "App.DialogBackgroundBrush");
@@ -67,7 +67,7 @@ public sealed class WpfThemeResourceTests
             AssertBrush(initialSetupSurface.Background, "App.DialogBackgroundBrush");
             AssertBrush(initialSetupSurface.BorderBrush, "App.DialogBorderBrush");
 
-            var playlistPropertyDialog = new PlaylistPropertyDialog();
+            var playlistPropertyDialog = new PlaylistPropertyDialog(UndeclaredDialogs.Create());
             var playlistPropertyRoot = (Grid)playlistPropertyDialog.Content;
             AssertBrush(playlistPropertyRoot.GetValue(TextElement.ForegroundProperty), "App.TextBrush");
             Assert.IsInstanceOfType<Style>(playlistPropertyRoot.Resources["App.Canonical.DialogActionStyle"]);

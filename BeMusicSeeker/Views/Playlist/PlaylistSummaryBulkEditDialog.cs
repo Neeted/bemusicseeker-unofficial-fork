@@ -25,22 +25,22 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
 
     private bool closed;
 
-    /// <summary>Initializes an unbound bulk-edit window for XAML tooling.</summary>
-    public PlaylistSummaryBulkEditDialog()
+    /// <summary>一括変更sessionをまだ持たない画面を作ります。DataContextは生成後に設定されます。</summary>
+    /// <param name="dialogService">親画面と同じ所有者解決・表示窓口。null は許されません。</param>
+    internal PlaylistSummaryBulkEditDialog(IUiDialogService dialogService)
     {
-        dialogService = new UiDialogCoordinator();
+        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         InitializeComponent();
     }
 
     /// <summary>所有workspaceの一括変更と同じcoordinatorで、必要な失敗通知まで待つ画面を作ります。</summary>
     /// <param name="viewModel">画面が所有する一括変更session。</param>
-    /// <param name="dialogService">親画面と同じ所有者解決・表示窓口。省略時は既定coordinatorを使います。</param>
+    /// <param name="dialogService">親画面と同じ所有者解決・表示窓口。null は許されません。</param>
     internal PlaylistSummaryBulkEditDialog(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel viewModel,
-        IUiDialogService dialogService = null)
-        : this()
+        IUiDialogService dialogService)
+        : this(dialogService)
     {
         DataContext = viewModel ?? throw new ArgumentNullException(nameof(viewModel));
-        this.dialogService = dialogService ?? this.dialogService;
     }
 
     /// <summary>Gets whether the owner forced this window closed for application shutdown.</summary>

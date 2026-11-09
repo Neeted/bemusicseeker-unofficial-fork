@@ -154,7 +154,7 @@ public partial class App : System.Windows.Application
             Shutdown(1);
             return;
         }
-        // 本番の窓口はここで一つだけ作り、構成と MainWindow が同じ窓口を使います。
+        // 本番の窓口はここで一つだけ作り、構成へ渡します。MainWindow は構成から取得します。
         IUiDialogService dialogService = scenarioControl?.Dialogs ?? (IUiDialogService)new UiDialogCoordinator();
         await new ApplicationStartupCompositionOwner(
             createViewModel: () =>
@@ -176,7 +176,7 @@ public partial class App : System.Windows.Application
             assignViewModelResource: viewModel => Resources["vm"] = viewModel,
             createMainWindow: viewModel =>
             {
-                var window = new MainWindow(viewModel, settingsWindowCreated: null, playlistWorkspaceDialogService: dialogService);
+                var window = new MainWindow(viewModel);
                 scenarioControl?.Attach(viewModel, window);
                 return window;
             },

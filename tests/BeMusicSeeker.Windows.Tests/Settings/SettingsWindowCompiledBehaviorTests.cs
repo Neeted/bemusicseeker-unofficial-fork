@@ -107,7 +107,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 configuration.AddRule(LogLevel.Info, LogLevel.Fatal, logs, logger.Name);
                 LogManager.Configuration = configuration;
                 fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
-                window = new SettingsWindow
+                window = new SettingsWindow(UndeclaredDialogs.Create())
                 {
                     DataContext = dialog,
                     PlaybackPanel = owner.PlaybackPanel
@@ -194,7 +194,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.UsePlayerLR2body = false;
                 values.UsePlayerBMIIDXView = false;
             }));
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -252,7 +252,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 ResourceService.Current.ChangeCulture("en-US");
                 Settings values = TestSettingsFactory.CreateIsolatedSettings(settings => settings.StartupSortCachePrewarmPriority = 4);
                 owner = MainWindowViewModelTestFactory.Create(values);
-                window = new SettingsWindow { DataContext = owner.SettingDialog, PlaybackPanel = owner.PlaybackPanel };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog, PlaybackPanel = owner.PlaybackPanel };
                 scope.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
                 Materialize(window);
@@ -314,7 +314,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 settings.ShowDiffBMSInstallConfirmMsg = false;
                 Assert.IsTrue(settings.ShowNewPackageInstallConfirmMsg);
                 owner = MainWindowViewModelTestFactory.Create(settings);
-                window = new SettingsWindow
+                window = new SettingsWindow(UndeclaredDialogs.Create())
                 {
                     DataContext = owner.SettingDialog,
                     PlaybackPanel = owner.PlaybackPanel
@@ -384,7 +384,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             });
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
             using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -595,7 +595,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             byte[]? languageBackup = File.Exists(languagePath) ? File.ReadAllBytes(languagePath) : null;
             try
             {
-                window = new SettingsWindow { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
                 scope.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
                 Materialize(window);
@@ -638,7 +638,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(EncoderType.WAVE, SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(gateway.CaptureEncodingSettings()).Encoder);
                 window.CloseForOwnerShutdown();
 
-                window = new SettingsWindow { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
                 scope.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
                 Materialize(window);
@@ -752,7 +752,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     queryApplied.TrySetResult();
                 }
             };
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = dialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -867,7 +867,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     queryApplied.TrySetResult();
                 }
             };
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = dialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -915,7 +915,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.SkipInitPlaylistLoad = true;
                 values.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
             }));
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -967,7 +967,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.SkipInitPlaylistLoad = true;
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
             }));
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -1030,7 +1030,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.SkipInitPlaylistLoad = true;
                 values.RightClickActionsJson = "{\"webActions\":[],\"programActions\":[]}";
             }));
-                var window = new SettingsWindow
+                var window = new SettingsWindow(UndeclaredDialogs.Create())
                 {
                     DataContext = owner.SettingDialog,
                     PlaybackPanel = owner.PlaybackPanel
@@ -1153,7 +1153,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.EnableBeatorajaBmtOutput = false;
                 values.RightClickActionsJson = RightClickActionSettingsDefaults.SerializedJson;
             }));
-                window = new SettingsWindow
+                window = new SettingsWindow(UndeclaredDialogs.Create())
                 {
                     DataContext = owner.SettingDialog,
                     PlaybackPanel = owner.PlaybackPanel
@@ -1240,7 +1240,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.ScanBmsFilesOnStartup = false;
                 values.SkipInitPlaylistLoad = true;
             }));
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -1291,7 +1291,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -1344,7 +1344,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
         TestUiDispatcherHost.Invoke(() =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel
@@ -1423,7 +1423,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 values.ScanBmsFilesOnStartup = false;
                 values.SkipInitPlaylistLoad = true;
             }));
-                window = new SettingsWindow
+                window = new SettingsWindow(UndeclaredDialogs.Create())
                 {
                     DataContext = owner.SettingDialog,
                     PlaybackPanel = owner.PlaybackPanel

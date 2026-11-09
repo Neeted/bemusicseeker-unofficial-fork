@@ -17,6 +17,12 @@ using BeMusicSeeker.Views.Dialogs;
 namespace BeMusicSeeker.Runtime;
 
 /// <summary>明示sessionでarmした既知の一入力だけを消費します。その他のdialogは通常の所有者付き表示へ委譲します。</summary>
+/// <remarks>
+/// MainWindow の同期イベントは、構成から渡されたこの窓口の通知・確認を UI スレッドで同期的に待ちます。
+/// この待ちが安全なのは、UI スレッドからの通知・確認に対して、Dispatcher を必要とせずに完了する Task を返すためです。
+/// 一方、Recovery の回答待ち（<c>Confirm_RestartForOperationModeChange</c> と <c>AppSchemaRepairWarningTitle</c> の2つの文面）は、
+/// Dispatcher で回答する未完了の Task を返します。この2つの文面は同期の経路へ到達させてはいけません。
+/// </remarks>
 internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
 {
     private readonly IUiDialogService inner = new UiDialogCoordinator();

@@ -215,6 +215,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly MainWindowProgressStatusBarTerminals progressStatusBarTerminals;
 
+    private readonly IUiDialogService dialogService;
+
     private readonly IUiDialogService playlistWorkspaceDialogService;
 
     private MainWindowViewModel subscribedViewModel;
@@ -402,9 +404,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="settingsWindowCreated">
     /// 設定ウィンドウの既存構成後、ダイアログ coordinator へ返す直前に呼び出す任意の処理。
     /// </param>
-    /// <param name="playlistWorkspaceDialogService">
-    /// playlist Property/Bulk modal routes が使う coordinator。未指定時は既定の production coordinator を使用します。
-    /// </param>
     /// <param name="mainWindowForegroundTerminal">
     /// playlist lamp navigation 成功後の shell restore/activation/focus terminal。未指定時は WPF shell に接続します。
     /// </param>
@@ -415,7 +414,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
-        IUiDialogService? playlistWorkspaceDialogService = null,
         MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
         Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
         Func<IntPtr>? readPlaybackForegroundWindow = null,
@@ -443,7 +441,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             null,
             null,
             null,
-            playlistWorkspaceDialogService,
             mainWindowForegroundTerminal,
             chartPropertiesManagerFactory,
             readPlaybackForegroundWindow,
@@ -521,7 +518,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="playbackTerminal">main-table playback selection and activation terminal。</param>
     /// <param name="playlistWorkspaceTerminals">playlist workspace mutation terminals。</param>
     /// <param name="progressStatusBarTerminals">compiled status-bar action terminals。</param>
-    /// <param name="playlistWorkspaceDialogService">playlist Property/Bulk modal route の coordinator。未指定時は既定 coordinator を使用します。</param>
     /// <param name="mainWindowForegroundTerminal">successful playlist lamp navigation 後の shell focus terminal。</param>
     /// <param name="chartPropertiesManagerFactory">独立プロパティ窓の生成・表示前準備を接続する任意の構成処理。</param>
     /// <param name="readPlaybackForegroundWindow">再生開始時の前面HWND取得。未指定時は実OSから取得します。自Windowとの照合はシェルが行います。</param>
@@ -549,7 +545,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null,
         MainWindowProgressStatusBarTerminals? progressStatusBarTerminals = null,
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
-        IUiDialogService? playlistWorkspaceDialogService = null,
         MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
         Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
         Func<IntPtr>? readPlaybackForegroundWindow = null,
@@ -592,18 +587,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 () => newlyInstalledTreeViewItem.IsExpanded = true);
         this.progressStatusBarTerminals = progressStatusBarTerminals
             ?? MainWindowProgressStatusBarTerminals.Create(viewModel);
-        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService
-            ?? new UiDialogCoordinator();
+        dialogService = viewModel.DialogService;
+        playlistWorkspaceDialogService = viewModel.PlaylistWorkspaceDialogService;
         this.mainWindowForegroundTerminal = mainWindowForegroundTerminal
             ?? MainWindowForegroundTerminal.Create(this);
         playlistLampViewerWindowManager = new(
             this,
             viewModel.PlaylistWorkspace,
-            this.playlistWorkspaceDialogService,
+            playlistWorkspaceDialogService,
             historicalSourceContextFactory: viewModel.ResolvePlaylistLampHistoricalScoreSourceContext);
         chartPropertiesWindowManager = chartPropertiesManagerFactory?.Invoke(this) ?? new ChartPropertiesWindowManager(this);
         DataContext = viewModel;
         InitializeComponent();
+        customTableView.ConfigureDialogs(dialogService);
+        customTablePlaylistSummary.ConfigureDialogs(dialogService);
         KeywordSearchEditor.Configure(viewModel.ChartFilters.KeywordSearchAssistanceOwner);
         PlaylistSummaryKeywordSearchEditor.Configure(
             viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner);
@@ -824,9 +821,41 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             routeName);
     }
 
+    /// <summary>
+    /// playlist workspace の同期通知を、owner を指定せず窓口の解決に任せて表示します。
+    /// </summary>
+    private void ShowPlaylistWorkspaceOwnerResolvedUiMessage(
+        string messageBoxText,
+        string caption,
+        MessageBoxImage icon,
+        string routeName)
+    {
+        ShowPlaylistWorkspaceUiMessage(
+            new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, MessageBoxResult.OK),
+            routeName);
+    }
+
+    /// <summary>プレイリスト作業領域の同期通知を、構成が渡した窓口で表示します。</summary>
+    /// <remarks>
+    /// 同期イベントから UI スレッドで待つため、窓口は Dispatcher を必要とせずに完了する Task を返す必要があります。
+    /// 詳細は dialogs.md の同期経路の条件を参照します。
+    /// </remarks>
     private void ShowPlaylistWorkspaceUiMessage(UiMessageRequest request, string routeName)
     {
         UiDialogResult result = playlistWorkspaceDialogService
+            .ShowMessageAsync(request)
+            .GetAwaiter()
+            .GetResult();
+        ThrowIfUiDialogNotShown(result, routeName);
+    }
+
+    /// <summary>
+    /// 構成の共通の窓口で、シェルの同期通知を表示します。同期の条件は
+    /// <see cref="ShowPlaylistWorkspaceUiMessage(UiMessageRequest, string)"/> と同じです。
+    /// </summary>
+    private void ShowShellUiMessage(UiMessageRequest request, string routeName)
+    {
+        UiDialogResult result = dialogService
             .ShowMessageAsync(request)
             .GetAwaiter()
             .GetResult();
@@ -837,7 +866,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         object sender,
         PlaylistRemovalInvalidOutputDirectoryEventArgs request)
     {
-        ShowUiMessage(
+        ShowPlaylistWorkspaceOwnerResolvedUiMessage(
             BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
             BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
             MessageBoxImage.Exclamation,
@@ -848,7 +877,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         object sender,
         PlaylistSummaryBulkInvalidOutputDirectoryEventArgs request)
     {
-        ShowUiMessage(
+        ShowPlaylistWorkspaceOwnerResolvedUiMessage(
             BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
             BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
             MessageBoxImage.Exclamation,
@@ -870,7 +899,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        ShowUiMessage(
+        ShowPlaylistWorkspaceOwnerResolvedUiMessage(
             BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + request.Exception.Message,
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxImage.Exclamation,
@@ -885,7 +914,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        request.Confirmed = ShowUiConfirmation(
+        request.Confirmed = ConfirmPlaylistWorkspaceUi(
             request.Message,
             BeMusicSeeker.Properties.Resources.Confirm,
             MessageBoxImage.Question,
@@ -908,7 +937,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             BeatorajaTableUrlImportNotificationKind.Error => MessageBoxImage.Hand,
             _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
         };
-        ShowUiMessage(request.Message, request.Caption, icon, request.RouteName);
+        ShowPlaylistWorkspaceOwnerResolvedUiMessage(request.Message, request.Caption, icon, request.RouteName);
     }
 
     private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady(
@@ -918,14 +947,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         ShowBeatorajaTableUrlImportSummary(request?.Summary);
     }
 
-    private static bool ShowUiConfirmation(
+    /// <summary>プレイリスト作業領域の確認を、構成が渡した窓口で同期表示します。owner は窓口の解決に任せます。</summary>
+    private bool ConfirmPlaylistWorkspaceUi(
         string messageBoxText,
         string caption,
         MessageBoxImage icon,
         MessageBoxButton button,
         string routeName)
     {
-        UiDialogResult result = new UiDialogCoordinator()
+        UiDialogResult result = playlistWorkspaceDialogService
             .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon))
             .GetAwaiter()
             .GetResult();
@@ -940,19 +970,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
             _ => throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Exception)
         };
-    }
-
-    private static void ShowUiMessage(
-        string messageBoxText,
-        string caption,
-        MessageBoxImage icon,
-        string routeName)
-    {
-        UiDialogResult result = new UiDialogCoordinator()
-            .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, MessageBoxResult.OK))
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfUiDialogNotShown(result, routeName);
     }
 
     private void ShowBeatorajaTableUrlImportSummary(BeatorajaTableUrlImportSummary summary)
@@ -971,7 +988,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             summary.WarningCount);
         AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_warning_header, summary.WarningOutcomes);
         AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_failed_header, summary.FailedOutcomes);
-        ShowUiMessage(
+        ShowPlaylistWorkspaceOwnerResolvedUiMessage(
             message.ToString(),
             BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_title,
             summary.FailedCount > 0 || summary.WarningCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
@@ -1149,9 +1166,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             }
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel
                 ?? throw new InvalidOperationException("MainWindowViewModel is required to present the update dialog.");
-            UiWindowDialogResult<UpdateAssetInfo> dialogResult = await new UiDialogCoordinator()
+            UiWindowDialogResult<UpdateAssetInfo> dialogResult = await dialogService
                 .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
-                    () => new UpdateAvailableDialog(request.Result, viewModel.ProgressHub, viewModel.ExternalShellGateway),
+                    () => new UpdateAvailableDialog(request.Result, viewModel.ProgressHub, viewModel.ExternalShellGateway, dialogService),
                     dialog => dialog.SelectedAsset,
                     this));
             ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");
@@ -1178,14 +1195,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             }
             return;
         }
-        UiDialogRoute.ShowMessageBox(
-            string.Format(
-                CultureInfo.CurrentCulture,
-                BeMusicSeeker.Properties.Resources.UpdateDialog_FailedMessage_Format,
-                exception?.Message ?? string.Empty),
-            BeMusicSeeker.Properties.Resources.UpdateDialog_FailedTitle,
-            MessageBoxButton.OK,
-            MessageBoxImage.Error);
+        // owner は指定せず、窓口の解決に任せます。表示時の文化圏で本文と見出しを整形します。
+        ShowShellUiMessage(
+            new UiMessageRequest(
+                string.Format(
+                    CultureInfo.CurrentCulture,
+                    BeMusicSeeker.Properties.Resources.UpdateDialog_FailedMessage_Format,
+                    exception?.Message ?? string.Empty),
+                BeMusicSeeker.Properties.Resources.UpdateDialog_FailedTitle,
+                MessageBoxButton.OK,
+                MessageBoxImage.Error,
+                MessageBoxResult.None),
+            "startup update failure notification");
     }
 
     internal static bool ShouldDeferStartupUpdateFailurePresentation(
@@ -2111,13 +2132,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             PlaylistPropertyValidationError.InvalidExternalSyncUris => BeMusicSeeker.Properties.Resources.Error_InvalidPageOrHeaderUri,
             _ => throw new ArgumentOutOfRangeException(nameof(request.Error), request.Error, null)
         };
-        UiDialogRoute.ShowMessageBox(
-            this,
+        ShowPlaylistWorkspaceUiMessage(
             message,
             BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
             MessageBoxImage.Hand,
-            MessageBoxResult.OK);
+            "playlist property validation notification");
     }
 
     /// <summary>同期設定変更の既存確認を注入済み窓口へ渡し、表示不能を例外にして肯定結果だけを受理します。</summary>
@@ -2140,13 +2159,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
     {
-        UiDialogRoute.ShowMessageBox(
-            this,
+        ShowPlaylistWorkspaceUiMessage(
             BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
             BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
             MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
+            "playlist property invalid output directory notification");
     }
 
     private void MainWindow_PlaylistPropertyExternalSyncFailed(
@@ -2158,13 +2175,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             message += Environment.NewLine + request.Exception.Message;
         }
-        UiDialogRoute.ShowMessageBox(
-            this,
+        ShowPlaylistWorkspaceUiMessage(
             message,
             BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
             MessageBoxImage.Hand,
-            MessageBoxResult.OK);
+            "playlist property external sync failure notification");
     }
 
     private bool IsPlaylistSummaryBmtSortDropAllowed(DragEventArgs e, out List<PlaylistSummaryRow> draggedRows, out PlaylistSummaryRow primaryDraggedRow, out int visibleInsertIndex)

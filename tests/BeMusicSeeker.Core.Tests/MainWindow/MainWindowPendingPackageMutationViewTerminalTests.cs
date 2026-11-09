@@ -16,6 +16,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         int selectionReads = 0;
         int itemCountReads = 0;
         int navigationCount = 0;
+        var dialogs = new FileDbReportRecordingDialogs();
         var terminal = new MainWindowPendingPackageMutationViewTerminal(
             () =>
             {
@@ -31,7 +32,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             {
                 navigationCount++;
                 return Task.FromResult(true);
-            });
+            }, dialogs);
 
         await terminal.ApplyAsync(
             null!,
@@ -41,6 +42,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
 
         Assert.AreEqual(0, selectionReads);
         Assert.AreEqual(0, itemCountReads);
+        Assert.AreEqual(0, dialogs.Messages.Count, "変更結果がなければ通知しません。");
         Assert.AreEqual(0, navigationCount);
     }
 
@@ -82,6 +84,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         int itemCount = 1;
         int applyCount = 0;
         int navigationCount = 0;
+        var dialogs = new FileDbReportRecordingDialogs();
         var terminal = new MainWindowPendingPackageMutationViewTerminal(
             () => selected,
             () => itemCount,
@@ -89,7 +92,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             {
                 navigationCount++;
                 return Task.FromResult(true);
-            });
+            }, dialogs);
         var result = PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending);
 
         await terminal.ApplyAsync(
@@ -117,6 +120,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             () => itemCount = 0);
 
         Assert.AreEqual(1, navigationCount);
+        Assert.AreEqual(0, dialogs.Messages.Count, "変更が成功し通知対象がなければ通知しません。");
     }
 
     /// <summary>対象section違い・未選択・残件あり・反映中の選択解除の各条件では移動しないことを確認し、画面状態と無関係に空ルートへ移動する誤りを検出します。</summary>
@@ -126,6 +130,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
         bool selected = true;
         int itemCount = 0;
         int navigationCount = 0;
+        var dialogs = new FileDbReportRecordingDialogs();
         var terminal = new MainWindowPendingPackageMutationViewTerminal(
             () => selected,
             () => itemCount,
@@ -133,7 +138,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             {
                 navigationCount++;
                 return Task.FromResult(true);
-            });
+            }, dialogs);
 
         await terminal.ApplyAsync(
             PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Installed),
@@ -167,6 +172,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
             nameof(NavigationRequiresMatchingEmptySectionAndRemainingSelection),
             () => selected = false);
         Assert.AreEqual(0, navigationCount);
+        Assert.AreEqual(0, dialogs.Messages.Count, "移動しない条件でも通知対象がなければ通知しません。");
     }
 
     /// <summary>物理変更後に表示反映も失敗した場合は未報告の変更失敗と実表示故障を同じ終端へ伝えて移動を止めることを確認します。</summary>
@@ -231,10 +237,11 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
     public async Task SingleFailurePreservesOriginalStack()
     {
         var applyFailure = new InvalidOperationException("apply failed");
+        var dialogs = new FileDbReportRecordingDialogs();
         var terminal = new MainWindowPendingPackageMutationViewTerminal(
             () => false,
             () => 1,
-            _ => Task.FromResult(true));
+            _ => Task.FromResult(true), dialogs);
 
         InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
             () => terminal.ApplyAsync(
@@ -246,6 +253,7 @@ public sealed class MainWindowPendingPackageMutationViewTerminalTests
 
         Assert.AreSame(applyFailure, exception);
         StringAssert.Contains(exception.StackTrace, nameof(ThrowFailure));
+        Assert.AreEqual(0, dialogs.Messages.Count, "変更自体は失敗していないため通知しません。");
     }
 
     /// <summary>後片付け失敗と終端失敗の有無・通知先例外の各条件でも表示反映とreceipt通知を一回行いcommitを保持することを確認し、画面移動不要時の通知漏れや通知失敗によるcommit取消扱いを検出します。</summary>

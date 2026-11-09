@@ -459,14 +459,14 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
     /// <param name="isSectionRootSelected">Reads the current UI selection state of the pending-package section root.</param>
     /// <param name="getSectionRootItemCount">Reads the current UI item count of the pending-package section root.</param>
     /// <param name="navigateInstallAsync">Navigates to the requested install view when the applied state is empty.</param>
-    /// <param name="dialogs">Optional terminal-report dialog boundary.</param>
+    /// <param name="dialogs">変更結果と失敗の通知に使う窓口。構成が選んだ窓口を渡し、null は許されません。</param>
     internal MainWindowPendingPackageMutationViewTerminal(
         Func<bool> isSectionRootSelected,
         Func<int> getSectionRootItemCount,
         Func<MainViewUpdateMode, Task<bool>> navigateInstallAsync,
-        IUiDialogService dialogs = null)
+        IUiDialogService dialogs)
     {
-        this.dialogs = dialogs;
+        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.isSectionRootSelected = isSectionRootSelected
             ?? throw new ArgumentNullException(nameof(isSectionRootSelected));
         this.getSectionRootItemCount = getSectionRootItemCount
@@ -541,7 +541,7 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
             catch { /* 診断先の失敗を元結果へ合成しません。 */ }
             try
             {
-                UiDialogResult notification = await (dialogs ?? new UiDialogCoordinator()).ShowMessageAsync(
+                UiDialogResult notification = await dialogs.ShowMessageAsync(
                     new UiMessageRequest(
                         BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + result.Failure.Message,
                         BeMusicSeeker.Properties.Resources.Error,

@@ -325,7 +325,7 @@ public sealed class SettingDialogEditCompletionTests
                     externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
                     audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => values),
                     audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
-                window = new SettingsWindow { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
                 dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
                 { if (request == "close") { window.CloseFromPresentation(); } }));
                 var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2595,7 +2595,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             var notices = new List<string>();
             fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += (_, request) => notices.Add(request.Message);
-            var window = new SettingsWindow { DataContext = settings, PlaylistWorkspace = fixture.Owner.PlaylistWorkspace };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings, PlaylistWorkspace = fixture.Owner.PlaylistWorkspace };
             IDisposable? held = null;
             Task? terminal = null;
             try
@@ -3130,7 +3130,7 @@ public sealed class SettingDialogEditCompletionTests
                     settingsDialogService: dialogs, fileDbMutationDialogService: dialogs,
                     dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
-                var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
+                var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = viewModel.SettingDialog };
                 viewModel.SettingDialog.AttachPresentationPort(new WindowClosingPresentationPort { CurrentWindow = window });
                 scope.ShowAndWaitForContentRendered(window);
                 var start = (Button)window.FindName("buttonOK");

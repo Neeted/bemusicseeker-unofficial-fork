@@ -30,6 +30,9 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     /// <summary>構成が作るすべての所有者へ渡す、アプリ共通のダイアログ窓口を取得します。専用引数で差し替えられた経路を除き、通知と確認はこの窓口へ届きます。</summary>
     internal IUiDialogService DialogService { get; }
 
+    /// <summary>プレイリスト作業領域とそのダイアログが使う通知・確認の窓口を取得します。専用の指定がなければ共通の窓口と同じです。</summary>
+    internal IUiDialogService PlaylistWorkspaceDialogService { get; }
+
     /// <summary>Shares optional FS/DB terminal reporting across feature and view consumers.</summary>
     internal IUiDialogService FileDbMutationDialogs { get; }
 
@@ -84,8 +87,6 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
 
     private readonly Action<Exception> reportSettingsApplyFailure;
-
-    private readonly IUiDialogService playlistWorkspaceDialogService;
 
     private readonly IBmsLibraryDialogService bmsLibraryDialogService;
 
@@ -211,7 +212,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         ReportRestartFailure = reportRestartFailure ?? reportSettingsApplyFailure;
         SettingsDialogService = settingsDialogService ?? DialogService;
         this.packageInstallMutationPort = packageInstallMutationPort;
-        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService ?? DialogService;
+        PlaylistWorkspaceDialogService = playlistWorkspaceDialogService ?? DialogService;
         FileDbMutationDialogs = fileDbMutationDialogService ?? DialogService;
         bmsLibraryDialogService = new BmsLibraryDialogService(libraryDialogService ?? DialogService);
         appliedCustomFolderOutputPlacement = CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values);
@@ -377,7 +378,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             playlistReferenceApplyScheduler,
             playlistRestoreUiApplyScheduler,
             playlistRestoreUiThreadCheck,
-            playlistWorkspaceDialogService,
+            PlaylistWorkspaceDialogService,
             PlaylistOperationAdmission,
             playlistUrlInstallCompletionProvider);
         return playlistWorkspace;
@@ -561,7 +562,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             new WpfScoreViewerRegistrationInteraction(
                 warningLog,
                 externalShellGateway,
-                playlistWorkspaceDialogService),
+                PlaylistWorkspaceDialogService),
             () => settingsEditSession.Values.ShowScoreViewerRegisterConfirmMsg,
             warningLog);
     }

@@ -674,7 +674,7 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                 chartFileScanner: CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [root] = [] }, [root]),
                 dialogService: UndeclaredDialogs.Create());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
-            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
             Task<bool>? original = null;
             Task? interaction = null;
             owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
@@ -817,7 +817,7 @@ public sealed class SettingDialogEnvironmentConfirmationTests
             SettingsWindow? window = null;
             try
             {
-                window = new SettingsWindow { DataContext = settings };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings };
                 scope.ShowAndWaitForContentRendered(window);
                 Expander details = FindDescendants<Expander>(window).First(item => item.Content is DependencyObject content
                     && FindLogicalDescendants<Button>(content).Any(button => Equals(button.Tag, "confirm:environment")));

@@ -96,8 +96,7 @@ internal static class MainWindowPresentationTestHarness
                     pendingInstallationTerminal: null,
                     installedLocationRepairTerminal: null,
                     pendingBulkMaintenanceTerminal: null,
-                    mainChartCellEditTerminal: null,
-                    playlistWorkspaceDialogService: playlistWorkspaceDialogService));
+                    mainChartCellEditTerminal: null));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 test(windowTest, viewModel, window);
             });

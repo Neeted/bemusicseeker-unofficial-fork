@@ -635,7 +635,7 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.AreSame(table, playlist.BMSTables.Single());
             Assert.AreEqual(0, scheduler.ExecutionCount);
             Assert.IsTrue(notifications.TakeReceipt().IsEmpty);
-            // U2-R2: 個別 reload の実 pending publication がある間、復元は DB 更新前に拒否する。
+            // 個別 reload の実 pending publication がある間、復元は DB 更新前に拒否する。
             competingRestore = playlist.RestorePlaylistDumpAsync(
                 PlaylistWorkspaceFixtureData.CreatePlaylistRestoreDump(77, "Rejected restore", "X"));
             await Assert.ThrowsExactlyAsync<InvalidOperationException>(() =>
@@ -703,7 +703,7 @@ public sealed class BmsPlaylistExternalReloadTests
         }
     }
 
-    // U2-R4/R2: 既存 operation scheduler で UI rejection / cancel / fault を区別し、DB 保持と予約解放を確認する。
+    // 既存 operation scheduler で UI rejection / cancel / fault を区別し、DB 保持と予約解放を確認する。
     /// <summary>復元後のUI配送が拒否・取消・失敗しても確定DBを保持し、旧表示のまま失敗を返して次の明示復元を受理します。表示失敗でDBを巻き戻す誤りと予約漏れを検出します。</summary>
     [TestMethod]
     [DataRow("Rejected")]

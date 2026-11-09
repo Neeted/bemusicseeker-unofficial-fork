@@ -14,7 +14,7 @@ internal static class SettingsWindowTestFixture
         TestWindowPresentationScope windowTest,
         SettingsDialogViewModel dialog)
     {
-        var window = new SettingsWindow { DataContext = dialog };
+        var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = dialog };
         windowTest.ShowAndWaitForContentRendered(window);
         return window;
     }

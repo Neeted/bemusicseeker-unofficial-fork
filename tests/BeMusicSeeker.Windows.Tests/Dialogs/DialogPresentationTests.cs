@@ -544,7 +544,7 @@ public sealed class DialogPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var window = new ReleaseNotesWindow();
+            var window = new ReleaseNotesWindow(UndeclaredDialogs.Create());
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -596,7 +596,7 @@ public sealed class DialogPresentationTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var window = new ReleaseNotesWindow();
+            var window = new ReleaseNotesWindow(UndeclaredDialogs.Create());
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -767,7 +767,7 @@ public sealed class DialogPresentationTests
                     Assert.AreNotEqual("Cancel", expected, "英語以外では固定の英語名と異なる辞書値を前提にします。");
                 }
 
-                var propertyDialog = new PlaylistPropertyDialog();
+                var propertyDialog = new PlaylistPropertyDialog(UndeclaredDialogs.Create());
                 Assert.AreEqual(expected, FindButton(propertyDialog, "PlaylistPropertyCancel").Content);
 
                 var owner = new Window { Width = 240, Height = 80, ShowInTaskbar = false, Content = new Border() };
@@ -838,7 +838,7 @@ public sealed class DialogPresentationTests
         return dialogName switch
         {
             "SettingsWindow" => CreateSettingsWindowFixture(),
-            "ReleaseNotesWindow" => CreateNativeFixture(new ReleaseNotesWindow(), []),
+            "ReleaseNotesWindow" => CreateNativeFixture(new ReleaseNotesWindow(UndeclaredDialogs.Create()), []),
             "UpdateAvailableDialog" => CreateUpdateAvailableFixture(),
             "PendingDeleteConfirmDialog" => CreateNativeFixture(new PendingDeleteConfirmDialog(),
                 [
@@ -887,13 +887,13 @@ public sealed class DialogPresentationTests
                     ButtonWithAutomationId("PlaylistImportCancel", DialogButtonRole.Quiet, "playlist import cancel"),
                 ]),
             "PlaylistPropertyDialog" => CreateNativeFixture(
-                new PlaylistPropertyDialog(),
+                new PlaylistPropertyDialog(UndeclaredDialogs.Create()),
                 [
                     ButtonWithAutomationId("PlaylistPropertyAccept", DialogButtonRole.Primary, "playlist property affirmative"),
                     ButtonWithAutomationId("PlaylistPropertyCancel", DialogButtonRole.Quiet, "playlist property cancel"),
                 ]),
             "PlaylistSummaryBulkEditDialog" => CreateNativeFixture(
-                new PlaylistSummaryBulkEditDialog(),
+                new PlaylistSummaryBulkEditDialog(UndeclaredDialogs.Create()),
                 [
                     ButtonWithAutomationId("PlaylistSummaryClose", DialogButtonRole.Quiet, "playlist summary close"),
                     ButtonWithAutomationId("PlaylistSummaryApplyCustomFolderOutput", DialogButtonRole.Neutral, "playlist summary custom folder apply"),
@@ -949,7 +949,7 @@ public sealed class DialogPresentationTests
     private static PresentationFixture CreateSettingsWindowFixture()
     {
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-        var window = new SettingsWindow { DataContext = owner.SettingDialog };
+        var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
         return CreateNativeFixture(
             window,
             [
@@ -981,7 +981,7 @@ public sealed class DialogPresentationTests
             result ?? UpdateCheckResult.NoUpdate("1.0.0.0"),
             progressHub,
             shell ?? ExternalShellGatewayPolicy.Current,
-            dialogs);
+            dialogs ?? UndeclaredDialogs.Create());
         return CreateNativeFixture(
             dialog,
             [

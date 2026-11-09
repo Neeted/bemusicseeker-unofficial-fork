@@ -244,6 +244,12 @@ public partial class MainWindowViewModel : ViewModel,
 
     private readonly ApplicationComposition applicationComposition;
 
+    /// <summary>構成が全体で共有する通知・確認の窓口をshellへ渡します。更新案内・更新失敗・表の通知がこの窓口へ届きます。プレイリスト系とシェルの操作失敗の通知は <see cref="PlaylistWorkspaceDialogService"/> へ届き、一部の同期経路は移行まで固定の窓口を使います。</summary>
+    internal IUiDialogService DialogService => applicationComposition.DialogService;
+
+    /// <summary>構成で選ばれたプレイリスト作業領域の通知・確認の窓口をshellへ渡します。専用の指定がなければ共通の窓口と同じです。プレイリスト系の通知・確認と、シェル全般の操作失敗の通知がこの窓口へ届きます。</summary>
+    internal IUiDialogService PlaylistWorkspaceDialogService => applicationComposition.PlaylistWorkspaceDialogService;
+
     /// <summary>構成で選ばれた設定画面の表示・操作窓口をshellへ渡します。</summary>
     internal IUiDialogService SettingsDialogService => applicationComposition.SettingsDialogService;
 

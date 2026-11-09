@@ -89,7 +89,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? reopenedPresentation = null;
             try
             {
-                firstPresentation = new SettingsWindow { DataContext = settings };
+                firstPresentation = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings };
                 presentationPort.CloseAction = firstPresentation!.CloseFromPresentation;
                 windowTest.ShowAndWaitForContentRendered(firstPresentation!);
 
@@ -178,7 +178,7 @@ public sealed class SettingsWindowPresentationTests
                 settings.PropertyChanged += propertyChanged;
                 try
                 {
-                    reopenedPresentation = new SettingsWindow { DataContext = settings };
+                    reopenedPresentation = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings };
                     presentationPort.CloseAction = reopenedPresentation!.CloseFromPresentation;
                     windowTest.ShowAndWaitForContentRendered(reopenedPresentation!);
                 }
@@ -266,7 +266,7 @@ public sealed class SettingsWindowPresentationTests
                 LogManager.Configuration = configuration;
                 fileLoggerProvider.SetValue(null, (Func<Logger>)(() => logger));
                 long requested = Stopwatch.GetTimestamp();
-                window = new SettingsWindow { DataContext = dialog };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = dialog };
                 window.SetPresentationRequestedTimestamp(requested);
                 dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
                 {
@@ -347,7 +347,7 @@ public sealed class SettingsWindowPresentationTests
             context.Settings.ShowRecommUpdatedMsg = draftValue;
             var presentation = new RecordingPresentationPort();
             context.Settings.AttachPresentationPort(presentation);
-            var window = new SettingsWindow { DataContext = context.Settings, RequestApplicationDataUninstall = (_, _) => throw new AssertFailedException("取消後の終了要求は不要です。") };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = context.Settings, RequestApplicationDataUninstall = (_, _) => throw new AssertFailedException("取消後の終了要求は不要です。") };
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -409,7 +409,7 @@ public sealed class SettingsWindowPresentationTests
                 context = CreateDangerDialog(values, dialogs, schemaDialog, store);
                 bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
                 context.Settings.ShowRecommUpdatedMsg = draftValue;
-                window = new SettingsWindow { DataContext = context.Settings };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
                 AwaitViewOperationTerminal(context.Settings);
@@ -462,7 +462,7 @@ public sealed class SettingsWindowPresentationTests
                 context.Settings.ShowRecommUpdatedMsg = draftValue;
                 var presentation = new RecordingPresentationPort();
                 context.Settings.AttachPresentationPort(presentation);
-                window = new SettingsWindow { DataContext = context.Settings };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 ClickAdvancedDangerButton(window, Resources.Lr2_play_history_schema_uninstall);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(schemaDialog.Started.Task, "settings-schema-dialog-started");
@@ -545,7 +545,7 @@ public sealed class SettingsWindowPresentationTests
                     new DangerApplicationDataStore());
                 bool draftValue = !context.Settings.ShowRecommUpdatedMsg;
                 context.Settings.ShowRecommUpdatedMsg = draftValue;
-                window = new SettingsWindow { DataContext = context.Settings };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
 
                 var generalPage = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
@@ -740,7 +740,7 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
-            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -969,7 +969,7 @@ public sealed class SettingsWindowPresentationTests
                     dialogService: UndeclaredDialogs.Create());
                 owner = composition.CreateMainWindowViewModelForTest();
                 SettingsDialogViewModel viewModel = owner.SettingDialog;
-                window = new SettingsWindow { DataContext = viewModel };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = viewModel };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
@@ -1926,7 +1926,7 @@ public sealed class SettingsWindowPresentationTests
                 ResourceService.Current.ChangeCulture("en-US");
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
                 using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-                window = new SettingsWindow
+                window = new SettingsWindow(UndeclaredDialogs.Create())
                 {
                     DataContext = owner.SettingDialog,
                     Width = 820,
@@ -1990,7 +1990,7 @@ public sealed class SettingsWindowPresentationTests
                 MainWindowViewModelTestFactory.GetComposition(owner), new DangerDialogService(),
                 new DangerSchemaDialogPort(), new DangerApplicationDataStore(), statePort: state);
             using SettingsDialogViewModel settings = context.Settings;
-            var window = new SettingsWindow { DataContext = settings };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings };
             window.Width = window.MinWidth;
             try
             {
@@ -2069,7 +2069,7 @@ public sealed class SettingsWindowPresentationTests
                 ResourceService.Current.ChangeCulture("ja-JP");
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
                 using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-                window = new SettingsWindow { DataContext = owner.SettingDialog };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var pageHost = (ContentControl)window.FindName("settingsPageContent");
@@ -2238,7 +2238,7 @@ public sealed class SettingsWindowPresentationTests
                 });
                 MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
                 using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-                window = new SettingsWindow { DataContext = owner.SettingDialog };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 var advanced = (ListBoxItem)window.FindName("navigationAdvanced");
@@ -2295,7 +2295,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
             var source = new StatusBannerBindingSource();
             var banner = new SettingsStatusBanner { Icon = "!", Status = "Warning" };
             banner.SetBinding(ContentControl.ContentProperty, new Binding(nameof(StatusBannerBindingSource.Message))
@@ -2383,7 +2383,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 Width = 820,
@@ -2456,7 +2456,7 @@ public sealed class SettingsWindowPresentationTests
                 // context 生成に失敗しても外側で実 DB 領域を回収する。
                 scope = CreateDangerSchemaScope(out values, out scoreDbPath);
                 context = CreateSchemaPresentationContext(scope, values, scoreDbPath);
-                window = new SettingsWindow { DataContext = context.Settings };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 var navigation = (ListBox)window.FindName("settingsNavigation");
                 // 同じ schema 状態を表示する General と Advanced の両配送先を確認する。
@@ -2500,7 +2500,7 @@ public sealed class SettingsWindowPresentationTests
                 }
                 Lr2PlayHistorySchemaStatusSnapshot retainedAfterClose = context.Settings.Lr2PlayHistorySchemaStatusSnapshot;
                 window.CloseForOwnerShutdown();
-                window = new SettingsWindow { DataContext = context.Settings };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = context.Settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 Assert.AreSame(retainedAfterClose, context.Settings.Lr2PlayHistorySchemaStatusSnapshot);
                 Assert.AreEqual(Resources.Lr2_play_history_schema_message_installed, context.Settings.Lr2PlayHistorySchemaMessage);
@@ -2570,7 +2570,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
@@ -2847,7 +2847,7 @@ public sealed class SettingsWindowPresentationTests
             const string longMessage = "The selected audio device could not be initialized because its current output format is unavailable. Choose another device or format, then run the audio test again.";
             MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
             window.Width = window.MinWidth;
             try
             {
@@ -2890,7 +2890,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-            var window = new SettingsWindow();
+            var window = new SettingsWindow(UndeclaredDialogs.Create());
             SettingsDialogViewModel sharedDataContext = owner.SettingDialog;
             window.DataContext = sharedDataContext;
             var navigation = (ListBox)window.FindName("settingsNavigation");
@@ -2951,7 +2951,7 @@ public sealed class SettingsWindowPresentationTests
                 MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create(Settings.Default);
                 using BeMusicSeeker.ViewModels.SettingsDialogViewModel mainViewModelSettingsLifetime = mainViewModel.SettingDialog;
                 SettingsDialogViewModel settings = mainViewModel.SettingDialog;
-                window = new SettingsWindow
+                window = new SettingsWindow(UndeclaredDialogs.Create())
                 {
                     DataContext = settings,
                     Width = 820,
@@ -3037,7 +3037,7 @@ public sealed class SettingsWindowPresentationTests
                 Settings.Default.AppearanceTheme = AppThemeService.Light;
                 AppThemeService.ApplyTheme(AppThemeService.Light);
                 var gateway = new RecordingNativeWindowTitleBarGateway();
-                releaseNotes = new ReleaseNotesWindow(gateway, new AppNativeWindowTitleBarThemeSource());
+                releaseNotes = new ReleaseNotesWindow(gateway, new AppNativeWindowTitleBarThemeSource(), UndeclaredDialogs.Create());
 
                 windowTest.ShowAndWaitForContentRendered(releaseNotes);
 
@@ -3057,7 +3057,7 @@ public sealed class SettingsWindowPresentationTests
                 releaseNotes.Close();
                 releaseNotes = null;
                 var darkGateway = new RecordingNativeWindowTitleBarGateway();
-                darkReleaseNotes = new ReleaseNotesWindow(darkGateway, new AppNativeWindowTitleBarThemeSource());
+                darkReleaseNotes = new ReleaseNotesWindow(darkGateway, new AppNativeWindowTitleBarThemeSource(), UndeclaredDialogs.Create());
                 windowTest.ShowAndWaitForContentRendered(darkReleaseNotes);
                 Assert.AreEqual(1, darkGateway.ApplyCount);
                 Assert.IsTrue(darkGateway.LastAppearance.UseDarkMode, "A window opened under Dark must apply the dark title bar initially.");
@@ -3165,7 +3165,7 @@ public sealed class SettingsWindowPresentationTests
                 double savedFontSize = settings.CustomTableFontSize;
                 double savedRowHeight = settings.CustomTableRowHeight;
                 double savedHeaderHeight = settings.CustomTableHeaderHeight;
-                window = new SettingsWindow { DataContext = settings };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -3315,7 +3315,7 @@ public sealed class SettingsWindowPresentationTests
             SettingsDialogViewModel settings = mainViewModel.SettingDialog;
             bool[] beforeFlags = [settings.UseInternalPlayer, settings.UsePlayeruBMplay, settings.UsePlayerBMIIDXView, settings.UsePlayerLR2body];
             string[] beforePaths = [settings.uBMplayPath, settings.BMIIDXViewPath, settings.LR2RootPath];
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = settings,
                 Width = 820,
@@ -3395,7 +3395,7 @@ public sealed class SettingsWindowPresentationTests
                 settings.LR2RootPath = root;
                 settings.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), customConfig).GetAwaiter().GetResult();
                 Assert.AreEqual(customConfig, settings.LR2ConfigXmlPath);
-                window = new SettingsWindow
+                window = new SettingsWindow(UndeclaredDialogs.Create())
                 {
                     DataContext = settings,
                     PlaybackPanel = mainViewModel.PlaybackPanel,
@@ -3447,7 +3447,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel mainViewModel = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
             using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = mainViewModel.SettingDialog,
                 PlaybackPanel = mainViewModel.PlaybackPanel,
@@ -4059,7 +4059,7 @@ public sealed class SettingsWindowPresentationTests
             MainWindowViewModel mainViewModel = MainWindowViewModelTestFactory.Create();
             using SettingsDialogViewModel ownedDialogLifetime = mainViewModel.SettingDialog;
             SettingsDialogViewModel settings = mainViewModel.SettingDialog;
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = settings,
                 Width = 820,
@@ -4504,7 +4504,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-            var window = new SettingsWindow { DataContext = owner.SettingDialog };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
             window.Width = window.MinWidth;
             try
             {
@@ -4570,7 +4570,7 @@ public sealed class SettingsWindowPresentationTests
         {
             MainWindowViewModel owner = CreateOwnerForPresentationWithoutNativeCapabilityQuery();
             using SettingsDialogViewModel ownedDialogLifetime = owner.SettingDialog;
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 PlaybackPanel = owner.PlaybackPanel,
@@ -5088,7 +5088,7 @@ public sealed class SettingsWindowPresentationTests
             using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
             var presentation = new RecordingPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
-            var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = viewModel.SettingDialog };
 
             window.Close();
             window.Dispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
@@ -5111,7 +5111,7 @@ public sealed class SettingsWindowPresentationTests
             using SettingsDialogViewModel ownedDialogLifetime = viewModel.SettingDialog;
             var presentation = new RecordingPresentationPort();
             viewModel.SettingDialog.AttachPresentationPort(presentation);
-            var window = new SettingsWindow { DataContext = viewModel.SettingDialog };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = viewModel.SettingDialog };
             SettingsWindow? reopened = null;
             presentation.CloseAction = window.CloseFromPresentation;
             windowTest.ShowAndWaitForContentRendered(window);
@@ -5143,7 +5143,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(confirmedBmtOutput, values.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(savedQuality, values.EncoderQuality, "通常閉鎖で保存済みの通常項目を戻しません。");
                 Assert.IsFalse(operation.IsCompleted);
-                reopened = new SettingsWindow { DataContext = viewModel.SettingDialog };
+                reopened = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = viewModel.SettingDialog };
                 presentation.CloseAction = reopened.CloseFromPresentation;
                 windowTest.ShowAndWaitForContentRendered(reopened);
                 Assert.AreSame(terminal, viewModel.SettingDialog.SettingsOperationCompletionTask);
@@ -5209,7 +5209,7 @@ public sealed class SettingsWindowPresentationTests
             DangerDialogContext context = CreateDangerDialog(owner, new DangerSettingsEditSession(values, []), composition,
                 new DangerDialogService(), new DangerSchemaDialogPort(), new DangerApplicationDataStore(), workspace: workspace);
             using SettingsDialogViewModel settings = context.Settings;
-            var window = new SettingsWindow { DataContext = settings };
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings };
             settings.AttachPresentationPort(new RecordingPresentationPort { CloseAction = window.CloseFromPresentation });
             Task? join = null;
             try

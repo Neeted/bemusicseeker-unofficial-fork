@@ -31,7 +31,7 @@ public sealed class SettingsControlPresentationTests
         {
             MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create();
             using BeMusicSeeker.ViewModels.SettingsDialogViewModel settingsLifetime = viewModel.SettingDialog;
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = viewModel.SettingDialog,
                 Width = 820,

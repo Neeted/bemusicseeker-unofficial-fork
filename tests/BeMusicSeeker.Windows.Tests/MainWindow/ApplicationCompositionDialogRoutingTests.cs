@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -7,12 +8,13 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Tests;
 
 /// <summary>構成の共通のダイアログ窓口と専用引数が、構成の作る所有者へ届く経路を検証します。</summary>
-/// <remarks>Windowを作らず構成から所有者までの接続だけを確認します。通知・確認の変換は BmsLibraryDialogServiceTests、確認結果の分岐は MaintenanceRescanWorkflowOwnerTests が担当します。</remarks>
+/// <remarks>`MainWindow_UpdateFailureNotification_UsesCommonDialogService` だけは、MainWindow を ctor だけで構築します。他はWindowを作らず構成から所有者までの接続だけを確認します。通知・確認の変換は BmsLibraryDialogServiceTests、確認結果の分岐は MaintenanceRescanWorkflowOwnerTests が担当します。</remarks>
 [TestClass]
 [TestCategory("Windows.Shell")]
 public sealed class ApplicationCompositionDialogRoutingTests
@@ -94,6 +96,66 @@ public sealed class ApplicationCompositionDialogRoutingTests
         Assert.AreEqual(0, other.MessageCount);
         Assert.AreEqual(MaintenanceRescanStartResult.Rejected, result);
         Assert.IsFalse(vm.MaintenanceRescanWorkflow.IsActive);
+    }
+
+    /// <summary>
+    /// 条件：共通の窓口とプレイリストの窓口を別のインスタンスにした構成で、通信せずに失敗する更新の URL（相対URL）を指定し、
+    /// 起動時の更新確認を開始する MainWindow を ctor だけで構築して、更新確認の終端まで待ちます。
+    /// 期待結果：更新確認は Failed で終端し、更新失敗の通知が共通の窓口へちょうど1件届きます。
+    /// 見出しは <c>UpdateDialog_FailedTitle</c>、本文は表示時の文化圏で整形した <c>UpdateDialog_FailedMessage_Format</c> と例外メッセージで、
+    /// ボタンは OK、アイコンは Error、Owner は null です。確認は届かず、プレイリストの窓口には何も届きません。
+    /// 検出する誤り：更新失敗の通知が固定の窓口へ送られる、プレイリストの窓口へ送られる、または共通の窓口を無視します。
+    /// Owner が null であることは、更新失敗の通知の Owner を窓口の解決に任せる決定に基づきます。
+    /// 更新の条件：失敗の通知を非同期へ変える時、または Owner の方針を変える時に、この期待を見直します。
+    /// </summary>
+    [TestMethod]
+    public void MainWindow_UpdateFailureNotification_UsesCommonDialogService()
+    {
+        var common = new RecordingRootDialogService();
+        IUiDialogService playlist = UndeclaredDialogs.Create();
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+            var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(
+                    ApplicationPathSnapshot.FromExecutablePath(Path.Combine(workspace.RootDirectory, "BeMusicSeeker.exe")),
+                    updateManifestUrl: "relative/update.json"),
+                settingsEditSession: new NoOpSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings()),
+                uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                applicationLifetime: lifetime,
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: common,
+                playlistWorkspaceDialogService: playlist)
+                .CreateMainWindowViewModelForTest();
+            var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+            ownership.Run(() =>
+            {
+                MainWindowPresentationTestHarness.PrepareConstructorOnlyShell(viewModel);
+                viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+                // NotifyClosing は呼ばず、MainWindow の構築が開始する更新確認を失敗まで進めます。
+                ownership.CreateWindow(() => new MainWindow(viewModel));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    viewModel.StartupUpdateWorkflow.WaitForTerminalAsync(),
+                    "ApplicationCompositionDialogRoutingTests.startup-update-terminal");
+                TestUiDispatcherHost.ProcessQueuedBackground();
+
+                Assert.AreEqual(StartupUpdateWorkflowState.Terminal, viewModel.StartupUpdateWorkflow.CaptureState(out StartupUpdateWorkflowCompletionReceipt? receipt));
+                Assert.IsNotNull(receipt);
+                Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
+                Assert.IsNotNull(receipt.Exception);
+                Assert.AreEqual(1, common.MessageRequests.Count);
+                Assert.AreEqual(0, common.ConfirmationCount);
+                UiMessageRequest request = common.MessageRequests[0];
+                Assert.AreEqual(Resources.UpdateDialog_FailedTitle, request.Caption);
+                Assert.AreEqual(
+                    string.Format(CultureInfo.CurrentCulture, Resources.UpdateDialog_FailedMessage_Format, receipt.Exception.Message),
+                    request.MessageBoxText);
+                Assert.AreEqual(System.Windows.MessageBoxButton.OK, request.Button);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Error, request.Icon);
+                Assert.IsNull(request.Owner);
+            });
+        });
     }
 
     private static void ShowLibraryWarning(RecordingRootDialogService common, RecordingRootDialogService? libraryDialogService, string reason)

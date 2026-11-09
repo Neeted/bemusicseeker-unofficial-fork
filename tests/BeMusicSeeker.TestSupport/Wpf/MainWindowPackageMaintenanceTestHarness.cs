@@ -109,7 +109,6 @@ internal static class MainWindowPackageMaintenanceTestHarness
                     playbackTerminal,
                     playlistWorkspaceTerminals,
                     pendingPackageMutationViewTerminal: pendingPackageMutationViewTerminal,
-                    playlistWorkspaceDialogService: playlistWorkspaceDialogService,
                     chartPropertiesManagerFactory: chartPropertiesManagerFactory == null ? null : owner => chartPropertiesManagerFactory(windowTest, owner)));
                 prepareWindowForPresentation?.Invoke(windowTest, window);
                 TestUiDispatcherHost.ProcessQueuedPresentation();

@@ -93,6 +93,45 @@ public sealed class DialogRouteConsolidationTests
         }
     }
 
+    /// <summary>
+    /// 条件：本番アセンブリのコンパイル済みの呼出し辺から、<c>UiDialogCoordinator</c> の ctor の呼出しを集め、呼出し元を最上位の型へ写します。
+    /// 期待結果：呼出し元の型は App・ApplicationScenarioDialogs・UiDialogCoordinator 自身・UiDialogRoute に限られ、App からの呼出しが1件以上あります。
+    /// 検出する誤り：View などが窓口を固定で生成すると、注入した窓口（シナリオの宣言との照合、テストの未宣言要求 D）が黙って無効になります。
+    /// 旧経路の不在を保証するため、生成元を許可リストに限ります。
+    /// 許可の根拠：App は本番の窓口を一つだけ作ります。ApplicationScenarioDialogs はシナリオ制御で本番の窓口を内包します。
+    /// UiDialogCoordinator は ctor の連鎖です。UiDialogRoute は同期の経路が残る間だけの暫定の許可で、
+    /// 同期の経路を非同期へ移して ShowMessageBox を削除する変更で外します。
+    /// </summary>
+    [TestMethod]
+    public void UiDialogCoordinator_IsConstructedOnlyByAllowedProductionOwners()
+    {
+        Assembly productionAssembly = typeof(App).Assembly;
+        IReadOnlyList<(MethodBase Caller, MethodBase Callee)> constructions =
+            FindCallsTo(
+                productionAssembly,
+                method => method is ConstructorInfo && method.DeclaringType == typeof(UiDialogCoordinator));
+        HashSet<Type> allowed =
+        [
+            typeof(App),
+            typeof(BeMusicSeeker.Runtime.ApplicationScenarioDialogs),
+            typeof(UiDialogCoordinator),
+            typeof(UiDialogRoute),
+        ];
+
+        foreach ((MethodBase Caller, MethodBase Callee) call in constructions)
+        {
+            Assert.IsTrue(
+                GetTopLevelDeclaringType(call.Caller) is { } caller && allowed.Contains(caller),
+                $"UiDialogCoordinator must not be constructed by {DescribeMethod(call.Caller)}.\n"
+                    + FormatCalls(constructions));
+        }
+
+        Assert.IsTrue(
+            constructions.Any(call => GetTopLevelDeclaringType(call.Caller) == typeof(App)),
+            "The production App must construct the one shared UiDialogCoordinator.\n"
+                + FormatCalls(constructions));
+    }
+
     private static IReadOnlyList<(MethodBase Caller, MethodBase Callee)> FindCallsTo(
         Assembly assembly,
         Func<MethodBase, bool> calleePredicate)

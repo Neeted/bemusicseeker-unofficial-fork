@@ -654,7 +654,7 @@ public sealed class SettingsDialogBehaviorTests
                 Button highSpeed = Descendants(menu).OfType<Button>().Single(button => Equals(button.Content, "HS UP"));
                 Assert.IsFalse(highSpeed.IsEnabled);
                 Assert.AreEqual(PlayerPanelState.TITLE_LARGE, playbackView.EffectivePlayerPanelState);
-                window = new SettingsWindow { DataContext = harness.Dialog };
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = harness.Dialog };
                 scope.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();

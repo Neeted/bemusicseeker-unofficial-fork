@@ -976,7 +976,7 @@ public sealed class DispatcherHostTests
             {
                 application.MainWindow = null;
                 var state = new HostResidueState(HostResidueBoundary.Observe());
-                window = new SettingsWindow();
+                window = new SettingsWindow(UndeclaredDialogs.Create());
                 IReadOnlyList<HostResidue> found = HostResidueComparison.Compare(state, HostResidueBoundary.Observe());
                 Assert.AreSame(window, found.Single(residue => residue.Category == "E-a").Window);
 

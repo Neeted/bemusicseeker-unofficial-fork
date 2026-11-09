@@ -80,7 +80,7 @@ public sealed class PlaylistSummaryBulkEditTests
 
             TestUiDispatcherHost.RunWindowTest(windowTest =>
             {
-                var view = new PlaylistPropertyDialog
+                var view = new PlaylistPropertyDialog(UndeclaredDialogs.Create())
                 {
                     DataContext = dialog
                 };
@@ -151,7 +151,7 @@ public sealed class PlaylistSummaryBulkEditTests
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var view = new PlaylistPropertyDialog
+            var view = new PlaylistPropertyDialog(UndeclaredDialogs.Create())
             {
                 DataContext = new PlaylistPropertyDateFixture()
             };
@@ -184,7 +184,7 @@ public sealed class PlaylistSummaryBulkEditTests
             {
                 OperationModeLR2DB = true
             };
-            var view = new PlaylistPropertyDialog
+            var view = new PlaylistPropertyDialog(UndeclaredDialogs.Create())
             {
                 DataContext = fixture
             };
@@ -265,7 +265,7 @@ public sealed class PlaylistSummaryBulkEditTests
             {
                 OperationModeLR2DB = true
             };
-            var view = new PlaylistPropertyDialog
+            var view = new PlaylistPropertyDialog(UndeclaredDialogs.Create())
             {
                 DataContext = fixture,
                 Width = 640,
@@ -487,7 +487,7 @@ public sealed class PlaylistSummaryBulkEditTests
             {
                 OperationModeLR2DB = true
             };
-            var view = new PlaylistPropertyDialog
+            var view = new PlaylistPropertyDialog(UndeclaredDialogs.Create())
             {
                 DataContext = fixture
             };
@@ -639,7 +639,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 fixture.folder_order.Add($"Synthetic folder {index:D2}");
             }
 
-            var view = new PlaylistPropertyDialog
+            var view = new PlaylistPropertyDialog(UndeclaredDialogs.Create())
             {
                 DataContext = fixture
             };
@@ -736,7 +736,7 @@ public sealed class PlaylistSummaryBulkEditTests
             {
                 OperationModeLR2DB = true
             };
-            var view = new PlaylistPropertyDialog
+            var view = new PlaylistPropertyDialog(UndeclaredDialogs.Create())
             {
                 DataContext = fixture
             };
@@ -855,7 +855,7 @@ public sealed class PlaylistSummaryBulkEditTests
 
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var view = new PlaylistSummaryBulkEditDialog
+            var view = new PlaylistSummaryBulkEditDialog(UndeclaredDialogs.Create())
             {
                 DataContext = dialog
             };
@@ -951,7 +951,7 @@ public sealed class PlaylistSummaryBulkEditTests
 
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
-            var window = new SettingsWindow
+            var window = new SettingsWindow(UndeclaredDialogs.Create())
             {
                 DataContext = owner.SettingDialog,
                 Width = 820,

@@ -21,18 +21,18 @@ public partial class UpdateAvailableDialog : ThemedWindow
     /// <param name="updateCheckResult">表示する更新確認結果。</param>
     /// <param name="progressHub">更新開始の可否に使う既存起動進捗。</param>
     /// <param name="externalShellGateway">正確な配布ページを開くshell窓口。</param>
-    /// <param name="dialogs">所有通知先。省略時は共通coordinatorを使います。</param>
+    /// <param name="dialogs">所有通知先。null は許されません。</param>
     internal UpdateAvailableDialog(
         UpdateCheckResult updateCheckResult,
         OperationProgressHubViewModel progressHub,
         IExternalShellGateway externalShellGateway,
-        IUiDialogService dialogs = null)
+        IUiDialogService dialogs)
     {
         InitializeComponent();
         viewModel = new UpdateAvailableDialogViewModel(updateCheckResult, progressHub);
         this.externalShellGateway = externalShellGateway
             ?? throw new ArgumentNullException(nameof(externalShellGateway));
-        this.dialogs = dialogs ?? new UiDialogCoordinator();
+        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         DataContext = viewModel;
         Closed += (_, _) => viewModel.Dispose();
     }

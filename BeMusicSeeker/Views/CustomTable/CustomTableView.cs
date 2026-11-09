@@ -197,6 +197,18 @@ public sealed partial class CustomTableView : Grid
     private bool preparationRenderLogged;
     private bool suppressColumnRedrawUntilItemsSourceChanged;
     private MainChartListViewModel subscribedMainChartList;
+    private IUiDialogService dialogService;
+
+    /// <summary>
+    /// 通知に使う構成の共通窓口を接続します。XAMLの要素として引数なしで生成されるため、生成の後にホストが一度設定します。
+    /// 未設定のまま通知しようとした場合は、通知の失敗として診断に残します。
+    /// </summary>
+    /// <param name="dialogService">コピー失敗などの通知に使う窓口。</param>
+    internal void ConfigureDialogs(IUiDialogService dialogService)
+    {
+        ArgumentNullException.ThrowIfNull(dialogService);
+        this.dialogService = dialogService;
+    }
 
     /// <summary>全面の描画・編集面へ固定幅のスクロールバーを重ね、既存の表操作と購読を接続します。</summary>
     public CustomTableView()
@@ -1918,7 +1930,9 @@ public sealed partial class CustomTableView : Grid
         TryLogClipboardFailure(exception);
         try
         {
-            UiDialogResult notification = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
+            IUiDialogService dialogs = dialogService
+                ?? throw new InvalidOperationException("Custom table dialog service is not configured.");
+            UiDialogResult notification = await dialogs.ShowMessageAsync(new UiMessageRequest(
                 BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception.Message,
                 BeMusicSeeker.Properties.Resources.Error,
                 MessageBoxButton.OK,

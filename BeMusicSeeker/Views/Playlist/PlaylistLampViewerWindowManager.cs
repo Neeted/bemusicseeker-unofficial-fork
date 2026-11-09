@@ -113,7 +113,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
     /// <summary>Creates the manager for one main-window owner.</summary>
     /// <param name="owner">Main-window shell that owns every child viewer.</param>
     /// <param name="workspace">Playlist owner used for open and navigation intents.</param>
-    /// <param name="dialogs">Owner-scoped dialog service used for failed aggregation notifications.</param>
+    /// <param name="dialogs">Owner-scoped dialog service used for failed aggregation notifications. null は許されません。</param>
     /// <param name="dataSourceFactory">
     /// Optional owner-scoped factory for the immutable viewer source. Production composition
     /// uses the library-backed source; alternate hosts may provide another implementation of
@@ -133,7 +133,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
     internal PlaylistLampViewerWindowManager(
         MainWindow owner,
         PlaylistWorkspaceViewModel workspace,
-        IUiDialogService dialogs = null,
+        IUiDialogService dialogs,
         Func<PlaylistLampViewerOpenContext, IPlaylistLampViewerDataSource> dataSourceFactory = null,
         Action<PlaylistLampViewerWindow> prepareWindowForShow = null,
         Action<PlaylistLampViewerWindow> activateWindowForInitialPresentation = null,
@@ -141,7 +141,7 @@ internal sealed class PlaylistLampViewerWindowManager : IDisposable, IAsyncDispo
     {
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
         this.workspace = workspace ?? throw new ArgumentNullException(nameof(workspace));
-        this.dialogs = dialogs ?? new UiDialogCoordinator();
+        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.historicalSourceContextFactory = historicalSourceContextFactory;
         this.dataSourceFactory = dataSourceFactory
             ?? (context => new BmsLibraryPlaylistLampDataSource(

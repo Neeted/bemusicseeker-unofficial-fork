@@ -62,7 +62,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.IsTrue(installed.HasDurableCommit); Assert.IsFalse(installed.SessionReceipt.HasRequiredFailure);
                 string installedPath = current.ChartPackagesInstalled.Single().ChartEntries.Single().Chart.Path;
                 NavigateInstalled(); Assert.AreEqual(1, table.ItemsSource.Cast<LibraryChartRow>().Count());
-                var settingsWindow = new SettingsWindow { DataContext = vm.SettingDialog, PlaybackPanel = vm.PlaybackPanel };
+                var settingsWindow = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = vm.SettingDialog, PlaybackPanel = vm.PlaybackPanel };
                 scope.ShowAndWaitForContentRendered(settingsWindow);
                 try
                 {
