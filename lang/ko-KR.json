@@ -796,6 +796,7 @@
   "Warn_LR2LeapYearBugDetected": "LR2 윤년(2/29) 버그가 감지되었습니다.\n수정으로 인해 일부 곡이 다시 로드될 수 있습니다.",
   "Error_InitializationFailed": "초기화 중 오류가 발생했습니다.\n파일에 접근할 수 있는지 확인해 주세요.\n대상 파일: {0}\n\n애플리케이션이 불안정해질 수 있습니다.\n\n{1}",
   "Error_BmsLoadFailedSkip": "BMS 파일을 불러오지 못했습니다.\n이 파일의 조사는 건너뜁니다.\n정상적으로 접근할 수 있는지 확인해 주세요.\n{0}\n\n{1}",
+  "Notice_GroupedCount": "{0}건:",
   "Warning_WavFilesNotFound": "[{0,2}%] 사용 WAV 파일 존재 / 요구: {1}/{2}",
   "Warning_BgaFilesNotFound": "[{0,2}%] 사용 BGA 파일 존재 / 요구: {1}/{2}",
   "Warning_MovieFilesNotFound": "[{0,2}%] 사용 MOVIE 파일 존재 / 요구: {1}/{2}",

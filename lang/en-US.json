@@ -796,6 +796,7 @@
   "Warn_LR2LeapYearBugDetected": "LR2 leap year (2/29) bug detected.\nSome songs may be reloaded due to the fix.",
   "Error_InitializationFailed": "An error occurred during initialization.\nPlease check if the file is accessible.\nTarget file: {0}\n\nThe application may become unstable.\n\n{1}",
   "Error_BmsLoadFailedSkip": "Failed to load the BMS file.\nThis file will be skipped.\nPlease check if it is accessible.\n{0}\n\n{1}",
+  "Notice_GroupedCount": "{0} item(s):",
   "Warning_WavFilesNotFound": "[{0,2}%] Used WAV files present / required: {1}/{2}",
   "Warning_BgaFilesNotFound": "[{0,2}%] Used BGA files present / required: {1}/{2}",
   "Warning_MovieFilesNotFound": "[{0,2}%] Used MOVIE files present / required: {1}/{2}",

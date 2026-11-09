@@ -59,6 +59,15 @@ internal sealed class EstimatedInstallDeferredFeedback
         }
     }
 
+    /// <summary>公開時に案内の列へ渡す、件数と標本を持つ案内を延期します。</summary>
+    internal void DeferNotice(BMSLibrary.OperationDialogMessage notice)
+    {
+        if (notice != null)
+        {
+            notifications.Add(EstimatedInstallFeedbackNotification.NoticeMessage(notice));
+        }
+    }
+
     internal void ShowEstimatedCleanupOnlyCompletedWarning(int cleanupOnlySucceeded)
     {
         notifications.Add(EstimatedInstallFeedbackNotification.CleanupOnlyWarning(cleanupOnlySucceeded));
@@ -97,6 +106,7 @@ internal enum EstimatedInstallFeedbackKind
 {
     Dialog,
     CleanupOnlyWarning,
+    Notice,
     PerformanceLog,
     WarningLog,
     DeferredAction
@@ -123,6 +133,8 @@ internal sealed class EstimatedInstallFeedbackNotification
 
     internal int CleanupOnlySucceeded { get; private init; }
 
+    internal BMSLibrary.OperationDialogMessage Notice { get; private init; }
+
     internal Exception Exception { get; private init; }
 
     internal Action Action { get; private init; }
@@ -141,6 +153,14 @@ internal sealed class EstimatedInstallFeedbackNotification
             Button = button,
             Icon = icon,
             DefaultResult = defaultResult
+        };
+    }
+
+    internal static EstimatedInstallFeedbackNotification NoticeMessage(BMSLibrary.OperationDialogMessage notice)
+    {
+        return new EstimatedInstallFeedbackNotification(EstimatedInstallFeedbackKind.Notice)
+        {
+            Notice = notice
         };
     }
 

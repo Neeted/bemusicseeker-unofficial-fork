@@ -1207,7 +1207,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             BMSLibrary library = CreateLibrary(root, "song.db", viewModel);
             using var maintenanceEntered = new ManualResetEventSlim(false);
             var maintenance = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) =>
+                (current, progress, token, capability, readFailures) =>
                 {
                     maintenanceEntered.Set();
                     maintenanceRelease.Task.GetAwaiter().GetResult();

@@ -13,7 +13,10 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class FileDbMutationReportTests
 {
-    /// <summary>情報通知は順次 await し、表示失敗を診断しても後続通知を失わない。</summary>
+    /// <summary>
+    /// 見出しの違う通知は先行の表示の完了を待って順に表示し、表示失敗を診断しても後続の組を失わない。
+    /// 先行を待たずに重ねる誤りと、失敗で後続を落とす誤りを検出する。
+    /// </summary>
     [TestMethod]
     public async Task OperationMessages_PreserveOrderAndContinueAfterDisplayFailure()
     {
@@ -27,8 +30,8 @@ public sealed class FileDbMutationReportTests
                 : Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK))
         };
         Task display = FileDbMutationReport.ShowOperationMessagesAsync(dialogs,
-            [new BMSLibrary.OperationDialogMessage("first", "caption", UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK),
-             new BMSLibrary.OperationDialogMessage("second", "caption", UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK)],
+            [new BMSLibrary.OperationDialogMessage("first", "caption-first", UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK),
+             new BMSLibrary.OperationDialogMessage("second", "caption-second", UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK)],
             failures.Add);
         try
         {
@@ -44,6 +47,205 @@ public sealed class FileDbMutationReportTests
             first.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
             await display;
         }
+    }
+
+    /// <summary>
+    /// 同じ見出し・重要度の通知は、最初に現れた順に一件へまとめる。組の中は入力順で、
+    /// 一件だけの組は元の通知のまま。同じ組を一件ずつ表示する誤りと、組の順の入れ替わりを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task OperationMessages_GroupBySameCaptionAndSeverityInFirstAppearanceOrder()
+    {
+        var culture = CultureInfo.GetCultureInfo("en-US");
+        var dialogs = new FileDbReportRecordingDialogs();
+        BMSLibrary.OperationDialogMessage Message(string text, string caption, UiDialogIcon icon) =>
+            new(text, caption, UiDialogButton.OK, icon, UiDialogDefaultResult.OK);
+        BMSLibrary.OperationDialogMessage b1 = Message("B1", "capB", UiDialogIcon.Exclamation);
+        BMSLibrary.OperationDialogMessage c1 = Message("C1", "capA", UiDialogIcon.Exclamation);
+
+        await FileDbMutationReport.ShowOperationMessagesAsync(dialogs,
+            [Message("A1", "capA", UiDialogIcon.Information), b1, Message("A2", "capA", UiDialogIcon.Information),
+             c1, Message("A3", "capA", UiDialogIcon.Information)], culture: culture);
+
+        Assert.AreEqual(3, dialogs.Messages.Count);
+        Assert.AreEqual("capA", dialogs.Messages[0].Caption);
+        Assert.AreEqual(MessageBoxImage.Information, dialogs.Messages[0].Icon);
+        Assert.AreEqual(GroupBody(culture, 3, "A1", "A2", "A3"), dialogs.Messages[0].MessageBoxText);
+        AssertSameAs(b1, dialogs.Messages[1]);
+        AssertSameAs(c1, dialogs.Messages[2]);
+    }
+
+    /// <summary>
+    /// 一件はそのまま、二件以上は件数の行と最大5件の標本、6件以上は「- ...」を加える。
+    /// 件数の行は全件の数で、上限の境界での欠落や余分な省略記号を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(5)]
+    [DataRow(6)]
+    [DataRow(7)]
+    public async Task OperationMessages_ShowCountAndAtMostFiveSamples(int count)
+    {
+        var culture = CultureInfo.GetCultureInfo("en-US");
+        var dialogs = new FileDbReportRecordingDialogs();
+        string[] texts = [.. Enumerable.Range(1, count).Select(index => "item-" + index)];
+
+        await FileDbMutationReport.ShowOperationMessagesAsync(dialogs,
+            [.. texts.Select(text => new BMSLibrary.OperationDialogMessage(
+                text, "caption", UiDialogButton.OK, UiDialogIcon.Hand, UiDialogDefaultResult.OK))], culture: culture);
+
+        UiMessageRequest request = dialogs.Messages.Single();
+        string expected = count == 1
+            ? texts[0]
+            : GroupBody(culture, count, [.. texts.Take(5)], showsMore: count > 5);
+        Assert.AreEqual(expected, request.MessageBoxText);
+        Assert.AreEqual("caption", request.Caption);
+        Assert.AreEqual(MessageBoxImage.Hand, request.Icon);
+    }
+
+    /// <summary>標本の一行は、改行と連続する空白を一つの空白へ畳み、長い本文を切り詰める。複数行の本文が標本の行を崩す誤りを検出する。</summary>
+    [TestMethod]
+    public async Task OperationMessages_SampleLinesCollapseWhitespaceAndLimitLength()
+    {
+        var culture = CultureInfo.GetCultureInfo("en-US");
+        var dialogs = new FileDbReportRecordingDialogs();
+        string longText = new('x', 500);
+
+        await FileDbMutationReport.ShowOperationMessagesAsync(dialogs,
+            [new BMSLibrary.OperationDialogMessage("line1\r\n\r\nline2   end", "caption", UiDialogButton.OK, UiDialogIcon.Hand, UiDialogDefaultResult.OK),
+             new BMSLibrary.OperationDialogMessage(longText, "caption", UiDialogButton.OK, UiDialogIcon.Hand, UiDialogDefaultResult.OK)],
+            culture: culture);
+
+        string[] lines = dialogs.Messages.Single().MessageBoxText.Split(Environment.NewLine);
+        Assert.AreEqual(3, lines.Length);
+        Assert.AreEqual("- line1 line2 end", lines[1]);
+        Assert.AreEqual("- " + new string('x', 199) + "…", lines[2]);
+    }
+
+    /// <summary>
+    /// 読込み失敗の事実は表示の時点の言語で整形する。一件は従来の個別の通知と同じ本文・見出し・ボタン・アイコンで、
+    /// 複数件は件数と入力順の標本5件、全件に満たなければ「- ...」。例外メッセージは捕捉時のままで、
+    /// 作成時の言語や標本の順が崩れる誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(7)]
+    public async Task MaintenanceReadFailures_FormatWithDisplayCultureAndInputOrder(int count)
+    {
+        var created = CultureInfo.GetCultureInfo("en-US");
+        var displayed = CultureInfo.GetCultureInfo("ja-JP");
+        var collector = new MaintenanceReadFailureCollector();
+        // 対象の入力順と逆の順で追加し、標本が完了順ではなく入力順になることを確かめる。
+        foreach (int index in Enumerable.Range(0, count).Reverse())
+        {
+            collector.Add(index, @"C:\Songs\fail-" + index + ".bms", new IOException("cause-" + index));
+        }
+        var dialogs = new FileDbReportRecordingDialogs();
+
+        await FileDbMutationReport.ShowMaintenanceReadFailuresAsync(dialogs, collector, culture: displayed);
+        await FileDbMutationReport.ShowMaintenanceReadFailuresAsync(dialogs, collector, culture: created);
+
+        Assert.AreEqual(2, dialogs.Messages.Count);
+        Assert.AreNotEqual(dialogs.Messages[0].Caption, dialogs.Messages[1].Caption, "見出しは表示の時点の言語。");
+        foreach ((UiMessageRequest request, CultureInfo culture) in new[] { (dialogs.Messages[0], displayed), (dialogs.Messages[1], created) })
+        {
+            Assert.AreEqual(Resources.ResourceManager.GetString(nameof(Resources.MessageBoxTitle_Error), culture), request.Caption);
+            Assert.AreEqual(MessageBoxButton.OK, request.Button);
+            Assert.AreEqual(MessageBoxImage.Hand, request.Icon);
+            Assert.AreEqual(MessageBoxResult.OK, request.DefaultResult);
+            if (count == 1)
+            {
+                Assert.AreEqual(string.Format(culture, Localized(nameof(Resources.Error_BmsLoadFailedSkip), culture),
+                    @"C:\Songs\fail-0.bms", "cause-0"), request.MessageBoxText);
+            }
+            else
+            {
+                string[] samples = [.. Enumerable.Range(0, 5).Select(index => @"C:\Songs\fail-" + index + ".bms (cause-" + index + ")")];
+                Assert.AreEqual(GroupBody(culture, count, samples, showsMore: true), request.MessageBoxText);
+            }
+        }
+    }
+
+    /// <summary>失敗がなければ何も表示しない。空の収集先で空の通知が出る誤りを検出する。</summary>
+    [TestMethod]
+    public async Task MaintenanceReadFailures_NoFailuresShowNothing()
+    {
+        var dialogs = new FileDbReportRecordingDialogs();
+
+        await FileDbMutationReport.ShowMaintenanceReadFailuresAsync(dialogs, new MaintenanceReadFailureCollector());
+
+        Assert.AreEqual(0, dialogs.Messages.Count);
+    }
+
+    /// <summary>
+    /// 表示の失敗（失敗の結果、失敗したTask、同期の例外）は失敗した組ごとに元の例外を一度だけ診断へ渡し、
+    /// 後続の組の表示を続ける。失敗で後続が落ちる誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("result")]
+    [DataRow("faulted")]
+    [DataRow("throws")]
+    public async Task OperationMessages_DisplayFailureOfOneGroupDoesNotStopLaterGroups(string shape)
+    {
+        var failure = new IOException("display-failure-" + shape);
+        var failures = new List<Exception>();
+        var dialogs = new FileDbReportRecordingDialogs();
+        dialogs.MessageHandler = request =>
+        {
+            if (request.Caption != "failing")
+            {
+                return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            }
+            return shape switch
+            {
+                "result" => Task.FromResult(UiDialogResult.Failed(failure)),
+                "faulted" => Task.FromException<UiDialogResult>(failure),
+                _ => throw failure,
+            };
+        };
+        BMSLibrary.OperationDialogMessage Message(string caption) =>
+            new("text-" + caption, caption, UiDialogButton.OK, UiDialogIcon.Information, UiDialogDefaultResult.OK);
+
+        await FileDbMutationReport.ShowOperationMessagesAsync(dialogs,
+            [Message("failing"), Message("later")], failures.Add);
+
+        CollectionAssert.AreEqual(new[] { "failing", "later" }, dialogs.Messages.Select(message => message.Caption).ToArray());
+        Assert.AreEqual(1, failures.Count);
+        Exception reported = failures[0];
+        Assert.IsTrue(ReferenceEquals(failure, reported) || ReferenceEquals(failure, reported.InnerException), reported.ToString());
+    }
+
+    /// <summary>指定した文化圏の文言を返します。キーが存在しない（null）場合は、期待値を作れないため失敗にします。</summary>
+    private static string Localized(string key, CultureInfo culture)
+    {
+        string? text = Resources.ResourceManager.GetString(key, culture);
+        Assert.IsNotNull(text, key);
+        return text;
+    }
+
+    private static void AssertSameAs(BMSLibrary.OperationDialogMessage expected, UiMessageRequest actual)
+    {
+        Assert.AreEqual(expected.MessageBoxText, actual.MessageBoxText);
+        Assert.AreEqual(expected.Caption, actual.Caption);
+        Assert.AreEqual(UiDialogPresentationAdapter.ToWpf(expected.Button), actual.Button);
+        Assert.AreEqual(UiDialogPresentationAdapter.ToWpf(expected.Icon), actual.Icon);
+        Assert.AreEqual(UiDialogPresentationAdapter.ToWpf(expected.DefaultResult), actual.DefaultResult);
+    }
+
+    private static string GroupBody(CultureInfo culture, int count, params string[] samples)
+        => GroupBody(culture, count, samples, showsMore: false);
+
+    /// <summary>件数の行と標本の行を、リソースから組み立てた期待値として返します。</summary>
+    private static string GroupBody(CultureInfo culture, int count, string[] samples, bool showsMore)
+    {
+        List<string> lines = [string.Format(culture, Localized(nameof(Resources.Notice_GroupedCount), culture), count)];
+        lines.AddRange(samples.Select(sample => "- " + sample));
+        if (showsMore)
+        {
+            lines.Add("- ...");
+        }
+        return string.Join(Environment.NewLine, lines);
     }
 
     /// <summary>成功と no-op は、操作単位でも余分な terminal を表示しません。</summary>

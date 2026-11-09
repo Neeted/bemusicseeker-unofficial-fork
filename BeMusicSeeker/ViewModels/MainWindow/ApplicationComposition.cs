@@ -454,7 +454,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Func<BMSLibrary> installDestinationLibraryProvider,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
-        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
+        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceReadFailureCollector, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
@@ -732,7 +732,7 @@ internal sealed class MainWindowChildComposition
         Func<string, ExplorerOpenResult> libraryFolderTreeExplorerOpen,
         StartupProgressWorkflowOwner startupProgressWorkflowOwner,
         Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
-        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
+        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceReadFailureCollector, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
         Func<Action, Task> maintenanceRescanScheduler = null,
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
@@ -995,7 +995,8 @@ internal sealed class MainWindowChildComposition
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,
         Action<MaintenanceWorkflowProgress> progress,
-        CancellationToken cancellationToken, LibraryFileMutationCapability capability)
+        CancellationToken cancellationToken, LibraryFileMutationCapability capability,
+        MaintenanceReadFailureCollector readFailures)
     {
         throw new InvalidOperationException("Maintenance rescan executor is not configured.");
     }

@@ -8,10 +8,6 @@ using System.Security;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
-using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
-using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
-using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -22,16 +18,26 @@ internal sealed class BmsLibraryMaintenanceService
 {
     private readonly int maintenanceHealthDegree;
 
+    private readonly int? readerDegreeOverride;
+
     public BmsLibraryMaintenanceService()
         : this(null)
     {
     }
 
     internal BmsLibraryMaintenanceService(int? maintenanceHealthDegreeOverride)
+        : this(maintenanceHealthDegreeOverride, null)
+    {
+    }
+
+    /// <param name="maintenanceHealthDegreeOverride">評価の並列度。省略時は論理プロセッサ数から決めます。</param>
+    /// <param name="readerDegreeOverride">読取りの並列度。省略時は論理プロセッサ数と対象数から決め、少数のプロセッサでは1になります。並列の読取りの検証を環境に依存させないために指定します。</param>
+    internal BmsLibraryMaintenanceService(int? maintenanceHealthDegreeOverride, int? readerDegreeOverride)
     {
         maintenanceHealthDegree = maintenanceHealthDegreeOverride.HasValue
             ? Math.Max(1, maintenanceHealthDegreeOverride.Value)
             : ResolveDefaultMaintenanceHealthDegree();
+        this.readerDegreeOverride = readerDegreeOverride;
     }
 
     internal static int ResolveDefaultMaintenanceHealthDegree()
@@ -589,13 +595,13 @@ internal sealed class BmsLibraryMaintenanceService
         }
     }
 
-    /// <summary>評価を完了してから一つの不変要求を確定します。所持譜面の具体的な確定文字コードは保持してメタデータを再復号し、文字列が同じならsongを更新しません。明示した選択保留は文字コードを維持してsongを保存せず、成功評価を保存差分と独立して返します。取消時も評価済み対象を従来どおり確定します。選択保留は現在の項目だけを比較元とし、DBへ保存しません。</summary>
+    /// <summary>評価を完了してから一つの不変要求を確定します。読取りに失敗した対象は窓口へ触れずに <see cref="MaintenanceWorkflowResult.ReadFailures"/> へ集め、評価対象から外して続行します。所持譜面の具体的な確定文字コードは保持してメタデータを再復号し、文字列が同じならsongを更新しません。明示した選択保留は文字コードを維持してsongを保存せず、成功評価を保存差分と独立して返します。取消時も評価済み対象を従来どおり確定します。選択保留は現在の項目だけを比較元とし、DBへ保存しません。</summary>
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(IEnumerable<ChartFile> charts, bool forceUpdate,
-        Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite, IBmsLibraryDialogService dialogService,
+        Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite,
         ResourceHealthLookupContext resourceLookupContext = null, Action<string> progressLogger = null,
         Action<MaintenanceWorkflowProgress> progressReporter = null, CancellationToken cancellationToken = default,
         Action durableCommitCompleted = null, Action<Action> postCommitEffectsSink = null,
-        IReadOnlySet<string> selectedPendingPaths = null)
+        IReadOnlySet<string> selectedPendingPaths = null, MaintenanceReadFailureCollector readFailures = null)
     {
         if (durableWrite == null)
         {
@@ -604,7 +610,7 @@ internal sealed class BmsLibraryMaintenanceService
 
         var pending = new MaintenanceWriteAccumulator();
         MaintenanceWorkflowProgress terminalProgress = null;
-        MaintenanceWorkflowResult result = UpdateMaintenanceInfoSnapshotPipeline(charts, forceUpdate, pending.Capture, dialogService,
+        MaintenanceWorkflowResult result = UpdateMaintenanceInfoSnapshotPipeline(charts, forceUpdate, pending.Capture,
             resourceLookupContext, progressLogger, progress =>
             {
                 if (progress?.IsCompleted == true || progress?.IsCanceled == true)
@@ -615,7 +621,7 @@ internal sealed class BmsLibraryMaintenanceService
                 {
                     progressReporter?.Invoke(progress);
                 }
-            }, cancellationToken, selectedPendingPaths);
+            }, cancellationToken, selectedPendingPaths, readFailures);
         ApplyDurableWrite(durableWrite, pending.CreateRequest(result.ChangedCharts));
         durableCommitCompleted?.Invoke();
         Action effects = () => { if (terminalProgress != null) { progressReporter?.Invoke(terminalProgress); } };
@@ -650,14 +656,18 @@ internal sealed class BmsLibraryMaintenanceService
         IEnumerable<ChartFile> charts,
         bool forceUpdate,
         Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite,
-        IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null,
         Action<string> progressLogger = null,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
-        IReadOnlySet<string> selectedPendingPaths = null)
+        IReadOnlySet<string> selectedPendingPaths = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         var result = new MaintenanceWorkflowResult();
+        if (readFailures != null)
+        {
+            result.ReadFailures = readFailures;
+        }
         if (charts == null || durableWrite == null)
         {
             return result;
@@ -670,7 +680,9 @@ internal sealed class BmsLibraryMaintenanceService
         result.BmsonResourceTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bmson);
         result.HealthTargetCount = result.BmsResourceTargetCount + result.BmsonResourceTargetCount;
         result.HealthDegree = maintenanceHealthDegree;
-        result.ReaderDegree = ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, targets.Count);
+        result.ReaderDegree = readerDegreeOverride.HasValue
+            ? Math.Max(1, Math.Min(readerDegreeOverride.Value, targets.Count))
+            : ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, targets.Count);
         result.ForceTargetCount = forceUpdate ? targets.Count : 0;
         result.MissingInfoTargetCount = targets.Count(target => target.Chart.ResourceHealthMaintenanceSnapshot?.IsInformationChecked != true);
         result.MissingEncodingTargetCount = targets.Count(target => target.Kind == ChartFileKind.Bms && string.IsNullOrWhiteSpace(target.Chart.EncodingName));
@@ -896,7 +908,7 @@ internal sealed class BmsLibraryMaintenanceService
                             break;
                         }
 
-                        readQueue.Add(ReadMaintenanceWorkflowCandidate(targets[targetIndex], dialogService), cancellationToken);
+                        readQueue.Add(ReadMaintenanceWorkflowCandidate(targets[targetIndex], targetIndex, result.ReadFailures), cancellationToken);
                     }
                 }
                 catch (OperationCanceledException)
@@ -999,6 +1011,8 @@ internal sealed class BmsLibraryMaintenanceService
         {
             pipelineException = ex.Flatten().InnerExceptions.FirstOrDefault() ?? ex;
         }
+        // 読取りの終了後に、まとめて残っている読込み失敗を一つのログ項目として残します。
+        result.ReadFailures.FlushLog();
         try
         {
             Task.WaitAll(evaluatorTasks);
@@ -1055,9 +1069,11 @@ internal sealed class BmsLibraryMaintenanceService
                 return new MaintenanceWorkflowTarget(chart, isSelectedPending);
             })];
 
+    /// <summary>対象を読み取ります。回復可能な読込み失敗は窓口へ出さず、並列の読取りから安全に収集先へ集めます。</summary>
     private static MaintenanceWorkflowCandidate ReadMaintenanceWorkflowCandidate(
         MaintenanceWorkflowTarget target,
-        IBmsLibraryDialogService dialogService)
+        int targetIndex,
+        MaintenanceReadFailureCollector readFailures)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -1069,7 +1085,7 @@ internal sealed class BmsLibraryMaintenanceService
         catch (Exception ex) when (IsMaintenanceRecoverable(ex))
         {
             stopwatch.Stop();
-            dialogService.Show(string.Format(Resources.Error_BmsLoadFailedSkip, target.Path, ex.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            readFailures.Add(targetIndex, target.Path, ex);
             return new MaintenanceWorkflowCandidate(target, null, ex, stopwatch.ElapsedTicks);
         }
     }

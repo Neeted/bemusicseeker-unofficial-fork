@@ -431,15 +431,18 @@ internal static class FileDbMutationReport
     }
 
     /// <summary>
-    /// model が蓄積した OK-only 情報通知を順番に表示します。操作 scope を閉じた後に呼び、
-    /// worker はこの Task の完了を待ちません。表示失敗は診断に残して後続通知へ進み、変更結果へ混ぜません。
+    /// model が蓄積した OK-only 情報通知を、見出しと重要度の組ごとに一件へまとめて表示します。
+    /// 組は最初に現れた順、組の中の標本は入力の順で、一件だけの組は元の通知をそのまま表示します。
+    /// 操作 scope を閉じた後に呼び、worker はこの Task の完了を待ちません。
+    /// 組の間は先行の表示の完了を待って順に表示し、表示失敗は診断に残して後続の組へ進み、変更結果へ混ぜません。
     /// </summary>
     internal static async Task ShowOperationMessagesAsync(
         IUiDialogService dialogs,
         IReadOnlyList<BMSLibrary.OperationDialogMessage> messages,
-        Action<Exception> reportFailure = null)
+        Action<Exception> reportFailure = null,
+        CultureInfo culture = null)
     {
-        foreach (BMSLibrary.OperationDialogMessage message in messages)
+        foreach (BMSLibrary.OperationDialogMessage message in OperationNoticeGrouping.Group(messages, culture))
         {
             try
             {
@@ -459,6 +462,23 @@ internal static class FileDbMutationReport
                 catch (Exception diagnosticFailure) { LogNotificationFailure(diagnosticFailure); }
             }
         }
+    }
+
+    /// <summary>
+    /// 保守が集めた読込み失敗を、一つの通知として表示します。失敗がなければ何も表示しません。
+    /// 見出しと本文の型は表示の時点の言語で整形し、同じ見出し・重要度の失敗は件数と標本へまとめます。
+    /// 受付と書込み保護を解放した後に呼び、表示失敗は診断だけに残します。
+    /// </summary>
+    internal static Task ShowMaintenanceReadFailuresAsync(
+        IUiDialogService dialogs,
+        MaintenanceReadFailureCollector failures,
+        Action<Exception> reportFailure = null,
+        CultureInfo culture = null)
+    {
+        BMSLibrary.OperationDialogMessage notice = MaintenanceReadFailureNotice.Create(failures, culture);
+        return notice == null
+            ? Task.CompletedTask
+            : ShowOperationMessagesAsync(dialogs, [notice], reportFailure, culture);
     }
 
     /// <summary>Runs optional terminal notification/observer cleanup without altering mutation facts.</summary>

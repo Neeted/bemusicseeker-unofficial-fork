@@ -13,11 +13,12 @@ namespace BeMusicSeeker.ViewModels;
 
 internal interface ISelectedChartResourceHealthStore
 {
-    /// <summary>所持の捕捉値と選択した保留項目を、受理済み権限と共に再調査へ渡します。</summary>
+    /// <summary>所持の捕捉値と選択した保留項目を、受理済み権限と共に再調査へ渡します。読込み失敗は表示せず、渡した収集先へ集めます。</summary>
     MaintenanceWorkflowResult RescanResourceHealthCharts(
         BMSLibrary library,
         IReadOnlyList<ChartFile> charts, LibraryFileMutationCapability capability,
-        IReadOnlyList<PackageChartEntry> pendingEntries);
+        IReadOnlyList<PackageChartEntry> pendingEntries,
+        MaintenanceReadFailureCollector readFailures);
 
     void SetChartResourceWarningsIgnored(
         BMSLibrary library,
@@ -81,7 +82,11 @@ internal sealed class SelectedChartResourceHealthWorkflowOwner
         this.operationAdmission = operationAdmission;
     }
 
-    /// <summary>同じL権限で入力の再検査・保存・必須参照通知まで待ちます。未受理Busyと取消を区別します。</summary>
+    /// <summary>
+    /// 同じL権限で入力の再検査・保存・必須参照通知まで待ちます。未受理Busyと取消を区別します。
+    /// 保守の読取りが集めた読込み失敗は、受付と書込み保護を解放した後に一つの通知へまとめて表示し、
+    /// 失敗・取消でも捨てません。表示は異常結果の報告より前に終えてから結果を返し、受付の内側では待ちません。
+    /// </summary>
     internal async Task<SelectedChartResourceHealthWorkflowResult> RescanAsync(
         ChartResourceHealthRequest request)
     {
@@ -99,29 +104,54 @@ internal sealed class SelectedChartResourceHealthWorkflowOwner
                 await ShowBlockedWarningAsync();
                 return SelectedChartResourceHealthWorkflowResult.RejectedBusy;
             }
-            using IDisposable accepted = admission;
-            using LibraryFileMutationCapability capability = gate.CreateMutationCapability(admission);
-            MaintenanceWorkflowResult workflowResult = await Task.Run(
-                () => store.RescanResourceHealthCharts(library, request.Charts, capability, request.PendingEntries));
-            if (workflowResult == null)
+            var readFailures = new MaintenanceReadFailureCollector();
+            SelectedChartResourceHealthWorkflowResult result;
+            try
             {
-                return SelectedChartResourceHealthWorkflowResult.Failed(
-                    new InvalidOperationException("Resource health rescan returned no result."));
+                using IDisposable accepted = admission;
+                using LibraryFileMutationCapability capability = gate.CreateMutationCapability(admission);
+                MaintenanceWorkflowResult workflowResult = await Task.Run(
+                    () => store.RescanResourceHealthCharts(library, request.Charts, capability, request.PendingEntries, readFailures));
+                if (workflowResult == null)
+                {
+                    result = SelectedChartResourceHealthWorkflowResult.Failed(
+                        new InvalidOperationException("Resource health rescan returned no result."));
+                }
+                else if (workflowResult.Canceled)
+                {
+                    result = SelectedChartResourceHealthWorkflowResult.CanceledByLibrary;
+                }
+                else
+                {
+                    RescanCompleted?.Invoke(this, EventArgs.Empty);
+                    result = SelectedChartResourceHealthWorkflowResult.Completed;
+                }
             }
-            if (workflowResult.Canceled)
+            catch (Exception ex)
             {
-                await ShowBlockedWarningAsync();
-                return SelectedChartResourceHealthWorkflowResult.CanceledByLibrary;
+                result = SelectedChartResourceHealthWorkflowResult.Failed(ex);
             }
 
-            RescanCompleted?.Invoke(this, EventArgs.Empty);
-            return SelectedChartResourceHealthWorkflowResult.Completed;
+            // 受付と権限を解放した後に、集めた読込み失敗、取消の警告の順で表示します。
+            if (CanPresentNotifications(library))
+            {
+                await FileDbMutationReport.ShowMaintenanceReadFailuresAsync(dialogs, readFailures);
+            }
+            if (result.Canceled)
+            {
+                await ShowBlockedWarningAsync();
+            }
+            return result;
         }
         catch (Exception ex)
         {
             return SelectedChartResourceHealthWorkflowResult.Failed(ex);
         }
     }
+
+    /// <summary>終了の要求後、または対象のライブラリが差し替わった後は、通知を表示しません。</summary>
+    private bool CanPresentNotifications(BMSLibrary library)
+        => !library.IsShutdownRequested && ReferenceEquals(libraryProvider(), library);
 
     /// <summary>警告無視変更をLで非待機受理し、モデル保存と参照通知まで同じ権限を保持します。</summary>
     internal SelectedChartResourceHealthWorkflowResult SetWarningsIgnored(
@@ -193,9 +223,11 @@ internal sealed class BmsLibrarySelectedChartResourceHealthStore : ISelectedChar
     public MaintenanceWorkflowResult RescanResourceHealthCharts(
         BMSLibrary library,
         IReadOnlyList<ChartFile> charts, LibraryFileMutationCapability capability,
-        IReadOnlyList<PackageChartEntry> pendingEntries)
+        IReadOnlyList<PackageChartEntry> pendingEntries,
+        MaintenanceReadFailureCollector readFailures)
     {
-        return library.RescanResourceHealthCharts(charts, capability: capability, pendingEntries: pendingEntries);
+        return library.RescanResourceHealthCharts(
+            charts, capability: capability, pendingEntries: pendingEntries, readFailures: readFailures);
     }
 
     public void SetChartResourceWarningsIgnored(

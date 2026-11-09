@@ -95,6 +95,9 @@ internal static class InstallServiceComponentTestSupport
         /// <summary>実ファイル・フォルダのコピー直前に入力を観測し、未設定なら観測を行わない。</summary>
         public Action<string>? BeforeCopy { get; set; }
 
+        /// <summary>移動・コピーを終えた直後に、置き先のパスを観測します。置いた後のファイルを読めなくする条件の注入に使い、未設定なら観測を行いません。</summary>
+        public Action<string>? AfterPlace { get; set; }
+
         public void EnsureDirectory(string directoryPath, FileMutationOptions options = null!)
         {
             if (!string.IsNullOrWhiteSpace(directoryPath))
@@ -115,6 +118,7 @@ internal static class InstallServiceComponentTestSupport
                 File.Delete(destinationPath);
             }
             File.Move(sourcePath, destinationPath);
+            AfterPlace?.Invoke(destinationPath);
         }
 
         public void MoveDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
@@ -129,6 +133,7 @@ internal static class InstallServiceComponentTestSupport
                 Directory.CreateDirectory(destinationParentDirectoryPath);
             }
             Directory.Move(sourcePath, destinationPath);
+            AfterPlace?.Invoke(destinationPath);
         }
 
         public void CopyFile(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
@@ -140,6 +145,7 @@ internal static class InstallServiceComponentTestSupport
                 Directory.CreateDirectory(destinationParent);
             }
             File.Copy(sourcePath, destinationPath, overwrite);
+            AfterPlace?.Invoke(destinationPath);
         }
 
         public void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, FileMutationOptions options = null!)
@@ -156,6 +162,7 @@ internal static class InstallServiceComponentTestSupport
                 Directory.CreateDirectory(Path.GetDirectoryName(destinationFilePath)!);
                 File.Copy(filePath, destinationFilePath, overwrite);
             }
+            AfterPlace?.Invoke(destinationPath);
         }
 
         public void DeleteFileDirect(string filePath, FileMutationOptions options = null!)

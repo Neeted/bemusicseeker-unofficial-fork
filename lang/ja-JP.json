@@ -796,6 +796,7 @@
   "Warn_LR2LeapYearBugDetected": "LR2の閏年(2/29)バグを検出しました\n修正を行ったため一部の楽曲でリロードが発生する場合があります",
   "Error_InitializationFailed": "初期化中に下記のエラーが発生しました。\nファイルへのアクセスが可能か確認してください。\n対象ファイル: {0}\n\nアプリケーションの動作が不安定になる場合があります。\n\n{1}",
   "Error_BmsLoadFailedSkip": "BMSファイルの読み込みに失敗しました。\nこのファイルの調査はスキップされます。\n正常にアクセスできるか確認してください。\n{0}\n\n{1}",
+  "Notice_GroupedCount": "{0} 件：",
   "Warning_WavFilesNotFound": "[{0,2}%] WAV使用ファイルの存在数 / 要求数: {1}/{2}",
   "Warning_BgaFilesNotFound": "[{0,2}%] BGA使用ファイルの存在数 / 要求数: {1}/{2}",
   "Warning_MovieFilesNotFound": "[{0,2}%] MOVIE使用ファイルの存在数 / 要求数: {1}/{2}",

@@ -40,7 +40,7 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         var events = new ConcurrentQueue<string>();
         var library = new TestBmsLibrary(databaseScope, songPath);
         var maintenance = new MaintenanceRescanWorkflowOwner(
-            (_, _, _, _) =>
+            (_, _, _, _, _) =>
             {
                 workerEntered.TrySetResult();
                 releaseWorker.Task.GetAwaiter().GetResult();

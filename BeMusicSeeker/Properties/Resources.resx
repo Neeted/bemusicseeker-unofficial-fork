@@ -2243,6 +2243,9 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
 
 {1}</value>
   </data>
+  <data name="Notice_GroupedCount" xml:space="preserve">
+    <value>{0} 件：</value>
+  </data>
   <data name="Warning_WavFilesNotFound" xml:space="preserve">
     <value>[{0,2}%] WAV使用ファイルの存在数 / 要求数: {1}/{2}</value>
   </data>

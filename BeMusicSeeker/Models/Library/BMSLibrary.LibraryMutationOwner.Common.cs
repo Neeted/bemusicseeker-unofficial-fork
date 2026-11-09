@@ -1641,7 +1641,8 @@ internal sealed partial class LibraryMutationOwner
         out List<ChartFile> currentMaintenanceTargetCharts,
         out Action postCommitEffect,
         Action<Action> postLeaseNotificationObserver = null,
-        IReadOnlyList<PackageChartEntry> pendingEntries = null)
+        IReadOnlyList<PackageChartEntry> pendingEntries = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         postCommitEffect = null;
         CatalogWriteFailureFact deferredFailureFact = null;
@@ -1656,7 +1657,8 @@ internal sealed partial class LibraryMutationOwner
             captureFailureFact: fact => deferredFailureFact = fact,
             postCommitEffectsObserver: action => catalogPostCommitEffects = action,
             selectedPendingPaths: (pendingEntries ?? []).Where(entry => entry.Chart.Token == null)
-                .Select(entry => entry.Chart.Path).ToHashSet(StringComparer.Ordinal));
+                .Select(entry => entry.Chart.Path).ToHashSet(StringComparer.Ordinal),
+            readFailures: readFailures);
         MaintenanceWorkflowResult workflowResult;
         currentMaintenanceTargetCharts = [.. maintenanceTargets.Charts];
         ApplyPendingResourceHealth(pendingEntries, receipt.WorkflowResult.EvaluatedPendingCharts);
@@ -1712,7 +1714,8 @@ internal sealed partial class LibraryMutationOwner
         IEnumerable<ChartFile> charts,
         bool forceUpdate,
         string resourceHealthMutationReason,
-        Action<Action> postLeaseNotificationObserver)
+        Action<Action> postLeaseNotificationObserver,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         if (charts == null)
         {
@@ -1728,7 +1731,8 @@ internal sealed partial class LibraryMutationOwner
             resourceHealthMutationReason,
             out _,
             out Action postCommitEffect,
-            postLeaseNotificationObserver);
+            postLeaseNotificationObserver,
+            readFailures: readFailures);
     }
 
     /// <summary>排他解放後の任意通知を公開し、通知・診断先の失敗を確定結果や残る公開へ伝播させません。</summary>
@@ -2477,6 +2481,7 @@ internal sealed partial class LibraryMutationOwner
 
         CatalogWriteFailureFact deferredFailureFact = null;
         Action catalogPostCommitEffects = null;
+        var readFailures = new MaintenanceReadFailureCollector();
         try
         {
             CatalogMaintenanceOperationReceipt ownerReceipt = catalogMaintenanceOwner.ApplyMaintenance(
@@ -2486,12 +2491,12 @@ internal sealed partial class LibraryMutationOwner
                 cancellationToken: CancellationToken.None,
                 resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
                 reason: "install_package_estimated",
-                dialogServiceOverride: deferredFeedback?.DialogService,
                 logPerformanceOverride: deferredFeedback == null
                     ? null
                     : deferredFeedback.LogInstallPerformance,
                 captureFailureFact: fact => deferredFailureFact = fact,
-                postCommitEffectsObserver: action => catalogPostCommitEffects = action);
+                postCommitEffectsObserver: action => catalogPostCommitEffects = action,
+                readFailures: readFailures);
             MaintenanceWorkflowResult workflowResult;
             ResourceHealthIndexMutation resourceHealthMutation;
             Action duplicateChartGroupsPostLeaseNotification;
@@ -2552,6 +2557,11 @@ internal sealed partial class LibraryMutationOwner
             return new PendingEstimatedInstallPostGuardResult(
                 targets.Count,
                 ExceptionDispatchInfo.Capture(exception));
+        }
+        finally
+        {
+            // 読取りスレッドでは表示せず、保守の書込み保護の外で、成功でも失敗でも集めた失敗を導入の延期先へ渡します。
+            NotifyMaintenanceReadFailures(readFailures, deferredFeedback);
         }
     }
 }

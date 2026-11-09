@@ -156,7 +156,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 return new CatalogMaintenanceWriteReceipt(true, request.MaintenanceInfos.Count, request.SongMetadataUpdates.Count, 0, 0);
             }
             var service = new BmsLibraryMaintenanceService();
-            MaintenanceWorkflowResult first = service.UpdateMaintenanceInfo([chart], true, Write, new UnexpectedBmsLibraryDialogService());
+            MaintenanceWorkflowResult first = service.UpdateMaintenanceInfo([chart], true, Write);
             ChartFile current = first.ChangedCharts.Single();
             Assert.AreEqual(expectedEncoding, current.EncodingName);
             Assert.AreEqual(fixedEncoding, current.ResourceHealthMaintenanceSnapshot.EncodingFixed);
@@ -175,7 +175,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 Assert.AreEqual(1, requests.Single().SongMetadataUpdates.Count);
             }
             requests.Clear();
-            MaintenanceWorkflowResult second = service.UpdateMaintenanceInfo([current], true, Write, new UnexpectedBmsLibraryDialogService());
+            MaintenanceWorkflowResult second = service.UpdateMaintenanceInfo([current], true, Write);
             Assert.AreEqual(0, requests.Count, "固定mtime・同値の保守再評価はwriterを呼びません。");
             Assert.AreEqual(0, second.SongMetadataUpdateCount);
             Assert.AreEqual(0, second.MaintenanceInfoUpsertCount);
@@ -530,7 +530,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 {
                     writes++;
                     return CreateDurableWriter(songDbPath)(request);
-                }, new UnexpectedBmsLibraryDialogService());
+                });
             Assert.AreEqual(1, unchanged.CheckedFileCount);
             Assert.AreEqual(0, writes);
             Assert.IsFalse(unchanged.HasUpdates);
@@ -539,7 +539,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             // 対照: 事実の異なる古い警告(LR2非対応ではなくパス長超過)を持つ譜面は、再評価で変更譜面になります。
             ChartFile stale = reloaded with { Warnings = [.. reloaded.Warnings.Where(warning => warning.Category != ChartWarningCategory.Lr2Compatibility), ChartWarning.Create(ChartWarningKind.Lr2PathTooLong)] };
             MaintenanceWorkflowResult changed = new BmsLibraryMaintenanceService().UpdateMaintenanceInfo([stale], forceUpdate: true,
-                request => CreateDurableWriter(songDbPath)(request), new UnexpectedBmsLibraryDialogService());
+                request => CreateDurableWriter(songDbPath)(request));
             Assert.IsTrue(changed.ChangedCharts.Any(chart => string.Equals(chart.Path, chartPath, StringComparison.OrdinalIgnoreCase)));
         });
     }
@@ -582,7 +582,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 {
                     writes++;
                     return CreateDurableWriter(songDbPath)(request);
-                }, new UnexpectedBmsLibraryDialogService());
+                });
             Assert.AreEqual(1, result.CheckedFileCount);
             Assert.AreEqual(0, writes);
             Assert.AreEqual(0, result.MaintenanceInfoUpsertCount);
@@ -1293,6 +1293,60 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     /// <summary>
+    /// 読めない譜面は窓口へ出さず、並列度2の読取りでも全件の件数と、対象の入力順に並べた先頭5件の標本を結果へ集め、
+    /// 読める譜面の評価を続ける。読取りスレッドが窓口を使う誤り、完了順やパス順で標本を並べる誤り、件数の取りこぼしを検出する。
+    /// </summary>
+    /// <remarks>完了順の逆転を決定的に作れないため、並列の読取りを繰り返して確率的に確かめ、並べ直しは静的レビューで確認する。</remarks>
+    [TestMethod]
+    public void UpdateMaintenanceInfo_CollectsReadFailuresInInputOrderWithoutDialogs()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(caseWorkspace.RootDirectory, nameof(BmsLibraryMaintenanceServiceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string readablePath = Path.Combine(root, "readable.bms");
+            File.WriteAllText(readablePath, "#TITLE readable\n#00111:01\n", new UTF8Encoding(false));
+            ChartFile readable = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(readablePath));
+            // パスの辞書順は入力順の逆になり、パス順に並べ替える誤りを標本の順で検出する。
+            ChartFile Missing(int index) => BmsChartFileParser.ParseSnapshot(new ChartFileSnapshot(
+                Path.Combine(root, "missing", (char)('z' - index) + "-" + index + ".bms"),
+                Encoding.ASCII.GetBytes("#TITLE missing\n"), DateTime.UnixEpoch, "md5-" + index, "sha256-" + index));
+            List<ChartFile> missing = [.. Enumerable.Range(0, 12).Select(Missing)];
+            List<ChartFile> charts = [.. missing.Take(6), readable, .. missing.Skip(6)];
+            var service = new BmsLibraryMaintenanceService(1, readerDegreeOverride: 2);
+            CatalogMaintenanceWriteReceipt Write(CatalogMaintenanceWriteRequest request) =>
+                new(true, request.MaintenanceInfos.Count, request.SongMetadataUpdates.Count, 0, 0);
+
+            for (int attempt = 0; attempt < 20; attempt++)
+            {
+                var failures = new MaintenanceReadFailureCollector();
+                MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(charts, true, Write, readFailures: failures);
+
+                Assert.AreEqual(2, result.ReaderDegree, "並列の読取りで検証する。");
+                Assert.AreSame(failures, result.ReadFailures);
+                Assert.AreEqual(12, failures.Count, "件数は全件を数える。");
+                IReadOnlyList<MaintenanceReadFailure> samples = failures.Samples;
+                CollectionAssert.AreEqual(
+                    missing.Take(MaintenanceReadFailureCollector.MaximumSampleCount).Select(chart => chart.Path).ToArray(),
+                    samples.Select(sample => sample.Path).ToArray(), "標本は対象の入力順の先頭5件。");
+                foreach (MaintenanceReadFailure sample in samples)
+                {
+                    Exception? expected = null;
+                    try { ChartFileContentReader.ReadBuffer(sample.Path); }
+                    catch (Exception exception) { expected = exception; }
+                    Assert.IsNotNull(expected, "存在しない譜面の読取りは失敗する。");
+                    Assert.AreEqual(expected.GetType().FullName, sample.ExceptionType);
+                    Assert.AreEqual(expected.Message, sample.Message);
+                }
+                Assert.AreEqual(13, result.CheckedFileCount);
+                Assert.IsTrue(result.ChangedCharts.Any(chart => chart.Path == readablePath), "読めない対象の後も、読める対象の評価を続ける。");
+            }
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>
     /// 文字化けしたBOM付きBMSを明示保守の自動判定で保存し直し、現在値・DB原文の欠落やdigest・利用者列・CP932資源の変更を検出する。
     /// </summary>
     /// <remarks>実入力の読取りと実SQLite書込みを保ち、保存receiptを通った現在値を観測する。</remarks>
@@ -1338,7 +1392,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 [(bmsFile)],
                 forceUpdate: true,
                 CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService(),
                 new ResourceHealthLookupContext(null));
             if (result.ChangedCharts.Any(chart => chart.Path == bmsFile.Path)) { bmsFile = result.ChangedCharts.Single(chart => chart.Path == bmsFile.Path); }
 
@@ -2246,8 +2299,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 new BmsLibraryMaintenanceService(1).UpdateMaintenanceInfo(
                     [(file)],
                     forceUpdate: true,
-                    noOpWriter,
-                    new UnexpectedBmsLibraryDialogService()));
+                    noOpWriter));
             Assert.AreEqual("Maintenance changes were not persisted.", rejection.Message, "保存拒否の例外であり、予期しない通知ではありません。");
 
         }
@@ -2292,8 +2344,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(file)],
                 forceUpdate: true,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
 
             Assert.IsTrue(result.HasUpdates);
             Assert.AreEqual(1, result.ChangedCharts.Count);
@@ -2342,8 +2393,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
                 forceUpdate: true,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
             if (result.ChangedCharts.Any(chart => chart.Path == song.Path)) { song = result.ChangedCharts.Single(chart => chart.Path == song.Path); }
 
             Assert.IsTrue(result.HasUpdates);
@@ -2403,8 +2453,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
                 forceUpdate: true,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
             if (result.ChangedCharts.Any(chart => chart.Path == song.Path)) { song = result.ChangedCharts.Single(chart => chart.Path == song.Path); }
 
             Assert.IsTrue(result.HasUpdates);
@@ -2460,8 +2509,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [packageEntry.Chart],
                 forceUpdate: false,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
             if (result.ChangedCharts.Any(chart => chart.Path == song.Path)) { song = result.ChangedCharts.Single(chart => chart.Path == song.Path); }
 
             Assert.IsTrue(result.HasUpdates);
@@ -2519,8 +2567,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
                 forceUpdate: false,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
 
             Assert.IsFalse(result.HasUpdates);
             Assert.AreEqual(1, result.BmsonResourceTargetCount);
@@ -2573,8 +2620,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
                 forceUpdate: forceUpdate,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
 
             Assert.IsFalse(result.HasUpdates);
             Assert.AreEqual(1, result.BmsonReparseFailedCount);
@@ -2633,8 +2679,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(loadedLikeRow)],
                 forceUpdate: false,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
 
             loadedLikeRow = result.ChangedCharts.Single();
             Assert.IsTrue(result.HasUpdates);
@@ -2684,8 +2729,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(song)],
                 forceUpdate: true,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
             if (result.ChangedCharts.Any(chart => chart.Path == song.Path)) { song = result.ChangedCharts.Single(chart => chart.Path == song.Path); }
 
             Assert.IsTrue(result.HasUpdates);
@@ -2740,8 +2784,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                         writeCount++;
                         Assert.AreEqual(1, request.MaintenanceInfos.Count);
                         return CatalogMaintenanceWriteReceipt.NotApplied;
-                    },
-                    new UnexpectedBmsLibraryDialogService()));
+                    }));
             Assert.AreEqual("Maintenance changes were not persisted.", rejection.Message, "保存拒否の例外であり、予期しない通知ではありません。");
 
             Assert.AreEqual(1, writeCount);
@@ -2794,8 +2837,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(bmsFile), (bmsonSong)],
                 forceUpdate: true,
-                durableWriter,
-                new UnexpectedBmsLibraryDialogService());
+                durableWriter);
             if (result.ChangedCharts.Any(chart => chart.Path == bmsonSong.Path)) { bmsonSong = result.ChangedCharts.Single(chart => chart.Path == bmsonSong.Path); }
             if (result.ChangedCharts.Any(chart => chart.Path == bmsFile.Path)) { bmsFile = result.ChangedCharts.Single(chart => chart.Path == bmsFile.Path); }
 
@@ -2862,7 +2904,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 [(bmsFile)],
                 forceUpdate: true,
                 CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService(),
                 lookupContext,
                 progressLogger: logs.Add);
             if (result.ChangedCharts.Any(chart => chart.Path == bmsFile.Path)) { bmsFile = result.ChangedCharts.Single(chart => chart.Path == bmsFile.Path); }
@@ -2921,7 +2962,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 [(bmsFile)],
                 forceUpdate: false,
                 CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService(),
                 progressLogger: logs.Add);
             if (result.ChangedCharts.Any(chart => chart.Path == bmsFile.Path)) { bmsFile = result.ChangedCharts.Single(chart => chart.Path == bmsFile.Path); }
 
@@ -2980,7 +3020,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 [(bmsFile)],
                 forceUpdate: false,
                 CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService(),
                 lookupContext);
             if (result.ChangedCharts.Any(chart => chart.Path == bmsFile.Path)) { bmsFile = result.ChangedCharts.Single(chart => chart.Path == bmsFile.Path); }
 
@@ -3038,8 +3077,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = service.UpdateMaintenanceInfo(
                 [(bmsFile)],
                 forceUpdate: false,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService()).ChangedCharts.Single();
+                CreateDurableWriter(songDbPath)).ChangedCharts.Single();
 
             Assert.IsTrue(bmsFile.ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
             Assert.AreEqual("shift_jis", bmsFile.ResourceHealthMaintenanceSnapshot.Encoding);
@@ -3048,8 +3086,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             bmsFile = service.UpdateMaintenanceInfo(
                 [(bmsFile)],
                 forceUpdate: true,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService()).ChangedCharts.Single();
+                CreateDurableWriter(songDbPath)).ChangedCharts.Single();
 
             Assert.IsFalse(bmsFile.ResourceHealthMaintenanceSnapshot.FilesWarningIgnored);
             Assert.AreEqual("shift_jis", bmsFile.ResourceHealthMaintenanceSnapshot.Encoding);
@@ -3210,8 +3247,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [(invalidRow), (validRow)],
                 forceUpdate: true,
-                CreateDurableWriter(songDbPath),
-                new UnexpectedBmsLibraryDialogService());
+                CreateDurableWriter(songDbPath));
 
             Assert.IsTrue(result.HasUpdates);
             Assert.AreEqual(2, result.BmsonResourceTargetCount);

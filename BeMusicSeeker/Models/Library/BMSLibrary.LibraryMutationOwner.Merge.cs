@@ -156,9 +156,10 @@ internal sealed partial class LibraryMutationOwner
                 {
                     // 必須保守は同じ受理操作の生存権限を借用します。通知を既存の延期先へ
                     // 集め、確定済み統合と後片付けの事実は保守失敗でも保持します。
+                    var readFailures = new MaintenanceReadFailureCollector();
                     try
                     {
-                        maintenanceResult = applyMergeFolderMaintenance(destinationMaintenanceCharts, mutationCapability, postLeaseNotifications.Add);
+                        maintenanceResult = applyMergeFolderMaintenance(destinationMaintenanceCharts, mutationCapability, postLeaseNotifications.Add, readFailures);
                         if (maintenanceResult.Canceled)
                         {
                             sessionReceipt = sessionReceipt.WithFinalizationFailure(
@@ -169,6 +170,7 @@ internal sealed partial class LibraryMutationOwner
                     {
                         sessionReceipt = sessionReceipt.WithFinalizationFailure(exception);
                     }
+                    NotifyMaintenanceReadFailures(readFailures);
                 }
             }
 

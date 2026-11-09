@@ -145,16 +145,26 @@ public partial class BMSLibrary
                         setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                         var stopwatchSetHealth = Stopwatch.StartNew();
-                        maintenanceResult = ApplyInstallableCatalogMaintenance(
-                            "installable_maintenance_deferred",
-                            capability: capability,
-                            postLeaseEffectObserver: effect =>
-                            {
-                                if (effect != null)
+                        var readFailures = new MaintenanceReadFailureCollector();
+                        try
+                        {
+                            maintenanceResult = ApplyInstallableCatalogMaintenance(
+                                "installable_maintenance_deferred",
+                                capability: capability,
+                                postLeaseEffectObserver: effect =>
                                 {
-                                    postLeaseEffects.Add(effect);
-                                }
-                            }) ?? new MaintenanceWorkflowResult();
+                                    if (effect != null)
+                                    {
+                                        postLeaseEffects.Add(effect);
+                                    }
+                                },
+                                readFailures: readFailures) ?? new MaintenanceWorkflowResult();
+                        }
+                        finally
+                        {
+                            // 読取りスレッドでは表示せず、保守の書込み保護の外で、成功でも例外でも集めた失敗を現行の表示経路へ渡します。
+                            NotifyMaintenanceReadFailures(readFailures);
+                        }
                         stopwatchSetHealth.Stop();
                         setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                         ResetInstallableMaintenanceWriteLockFlags();

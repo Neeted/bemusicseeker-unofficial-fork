@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
 using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
@@ -85,7 +86,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
 {
     private readonly object syncRoot = new();
 
-    private readonly Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> execute;
+    private readonly Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceReadFailureCollector, MaintenanceWorkflowResult> execute;
 
     private readonly Func<Action, Task> schedule;
 
@@ -113,7 +114,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
 
     /// <summary>受理済みL権限を実モデルへ渡す実行と、worker・UI通知の終端を接続します。</summary>
     internal MaintenanceRescanWorkflowOwner(
-        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceWorkflowResult> execute,
+        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, LibraryFileMutationCapability, MaintenanceReadFailureCollector, MaintenanceWorkflowResult> execute,
         Func<Action, Task> schedule,
         Action<Action> dispatchToUi,
         Action<string> logInfo = null,
@@ -338,7 +339,7 @@ internal sealed class MaintenanceRescanWorkflowOwner
                         }
                         PublishProgress(run, progress);
                     },
-                    run.CancellationTokenSource.Token, run.Capability);
+                    run.CancellationTokenSource.Token, run.Capability, run.ReadFailures);
             if (result == null)
             {
                 throw new InvalidOperationException("Maintenance rescan executor returned no result.");
@@ -492,9 +493,48 @@ internal sealed class MaintenanceRescanWorkflowOwner
             {
                 run.Admission.Dispose();
                 if (ReferenceEquals(activeRun, run)) { activeRun = null; }
-                run.IdleCompletion.TrySetResult(true);
+            }
+            // 受付の解放後に表示の要否を決め、実行の終端（待機の完了）を先に確定してから表示を始めます。
+            // 実行の終端は、窓口が同期に表示を始める場合も、表示の完了を待ちません。
+            bool present = ShouldPresentReadFailures(run);
+            run.IdleCompletion.TrySetResult(true);
+            if (present)
+            {
+                try { PresentReadFailures(run); }
+                catch (Exception failure) { ReportNotificationFailure(failure); }
             }
         }
+    }
+
+    /// <summary>
+    /// 集めた読込み失敗を表示するかを決めます。終了中と世代の失効では表示せず、決定を診断へ残します。
+    /// </summary>
+    private bool ShouldPresentReadFailures(RunContext run)
+    {
+        int count = run.ReadFailures.Count;
+        if (count == 0)
+        {
+            return false;
+        }
+        bool present = IsCurrentGeneration(run);
+        LogInfoSafely("maintenance_rescan read_failure_notice " + (present ? "presented" : "skipped") + " count=" + count);
+        return present;
+    }
+
+    /// <summary>
+    /// 読取りが集めた読込み失敗を、受付と権限を解放した後に一つの通知として表示します。
+    /// 完了・取消・失敗のいずれでも捨てず、終了中と世代の失効では表示しません。
+    /// 実行の終端と待機は表示の完了を待たず、表示の失敗は診断だけに残します。
+    /// </summary>
+    private void PresentReadFailures(RunContext run)
+    {
+        DispatchNotification(() =>
+        {
+            if (IsCurrentGeneration(run))
+            {
+                FileDbMutationReport.ShowMaintenanceReadFailuresAsync(dialogs, run.ReadFailures, reportNotificationFailure).ObserveFault();
+            }
+        });
     }
 
     private MaintenanceWorkflowProgress CreateTerminalProgress(RunContext run, bool canceled)
@@ -647,6 +687,9 @@ internal sealed class MaintenanceRescanWorkflowOwner
         internal IDisposable Admission { get; }
         internal LibraryFileMutationCapability Capability { get; }
         internal MaintenanceWorkflowResult Result { get; set; }
+
+        /// <summary>保守の読取りが集めた読込み失敗です。保守が例外で終わっても回収できるよう、実行へ明示で渡します。</summary>
+        internal MaintenanceReadFailureCollector ReadFailures { get; } = new();
         internal Exception Failure { get; set; }
         internal bool Canceled { get; set; }
         internal bool Stale { get; set; }

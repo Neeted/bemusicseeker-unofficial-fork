@@ -259,11 +259,11 @@ public sealed class BmsLibraryInitializationLoadTests
                 return owner.ApplyMaintenanceWrite(request);
             }
             var maintenance = new BmsLibraryMaintenanceService();
-            MaintenanceWorkflowResult automatic = maintenance.UpdateMaintenanceInfo([loaded], false, Write, new UnexpectedBmsLibraryDialogService());
+            MaintenanceWorkflowResult automatic = maintenance.UpdateMaintenanceInfo([loaded], false, Write);
             Assert.AreEqual(0, automatic.HealthTargetCount);
             Assert.AreEqual(0, automatic.CheckedFileCount);
             Assert.AreEqual(0, writes);
-            MaintenanceWorkflowResult forced = maintenance.UpdateMaintenanceInfo([loaded], true, Write, new UnexpectedBmsLibraryDialogService());
+            MaintenanceWorkflowResult forced = maintenance.UpdateMaintenanceInfo([loaded], true, Write);
             Assert.AreEqual(1, forced.HealthTargetCount);
             Assert.AreEqual(1, forced.CheckedFileCount);
             Assert.AreEqual(0, forced.MaintenanceInfoUnchangedCount);

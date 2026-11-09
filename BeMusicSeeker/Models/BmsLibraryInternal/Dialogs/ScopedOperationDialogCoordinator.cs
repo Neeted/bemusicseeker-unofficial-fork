@@ -53,6 +53,25 @@ internal sealed class ScopedOperationDialogCoordinator : IBmsLibraryDialogServic
         return immediateDialogService.Show(messageBoxText, caption, button, icon, defaultResult);
     }
 
+    /// <summary>
+    /// 件数と標本を持つOKだけの案内を、スレッドの列があれば積み、なければ本文を即時に表示します。
+    /// 列へ積んだ案内は、受付の解放後に所有者が表示します。
+    /// </summary>
+    internal void Notify(BMSLibrary.OperationDialogMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        Scope scope = GetCurrentScope();
+        if (scope != null)
+        {
+            scope.Enqueue(new DialogMessage(
+                message.MessageBoxText, message.Caption, message.Button, message.Icon, message.DefaultResult,
+                message.Count, message.SampleLines, message.AllLogged));
+            return;
+        }
+        immediateDialogService.Show(
+            message.MessageBoxText, message.Caption, message.Button, message.Icon, message.DefaultResult);
+    }
+
     private static Scope GetCurrentScope() => threadScopes?.FirstOrDefault();
 
     private static void EndScope(Scope scope)
@@ -83,14 +102,26 @@ internal sealed class ScopedOperationDialogCoordinator : IBmsLibraryDialogServic
             string caption,
             UiDialogButton button,
             UiDialogIcon icon,
-            UiDialogDefaultResult defaultResult)
+            UiDialogDefaultResult defaultResult,
+            int count = 1,
+            IReadOnlyList<string> sampleLines = null,
+            bool allLogged = false)
         {
             MessageBoxText = messageBoxText;
             Caption = caption;
             Button = button;
             Icon = icon;
             DefaultResult = defaultResult;
+            Count = Math.Max(1, count);
+            SampleLines = sampleLines ?? [OperationNoticeGrouping.ToSampleLine(messageBoxText)];
+            AllLogged = allLogged;
         }
+
+        internal bool AllLogged { get; }
+
+        internal int Count { get; }
+
+        internal IReadOnlyList<string> SampleLines { get; }
 
         internal string MessageBoxText { get; }
 

@@ -104,6 +104,12 @@ internal sealed class MaintenanceWorkflowResult
     public bool Canceled { get; set; }
 
     public long TotalMs { get; set; }
+
+    /// <summary>
+    /// 読取りに失敗した対象の事実です。読取りスレッドは窓口へ触れず、ここへ件数と標本を集め、
+    /// 表示は受付の解放後に結果の受取り側が行います。
+    /// </summary>
+    internal MaintenanceReadFailureCollector ReadFailures { get; set; } = new();
 }
 
 /// <summary>
@@ -157,6 +163,7 @@ internal sealed class MaintenanceWorkflowResultFacts
         WarningChangedCount = source?.WarningChangedCount ?? 0;
         Canceled = source?.Canceled == true;
         TotalMs = source?.TotalMs ?? 0L;
+        ReadFailures = source?.ReadFailures ?? new MaintenanceReadFailureCollector();
     }
 
     /// <summary>保存値または警告投影に更新があるかを保持します。保存同値の警告表示変更も含み、DB書込みの有無は表しません。</summary>
@@ -205,6 +212,9 @@ internal sealed class MaintenanceWorkflowResultFacts
     internal int WarningChangedCount { get; }
     internal bool Canceled { get; }
     internal long TotalMs { get; }
+
+    /// <summary>読取りに失敗した対象の事実です。保守の終了後は追加されません。</summary>
+    internal MaintenanceReadFailureCollector ReadFailures { get; }
 
     /// <summary>保存が必要な値の確定後に反映する共通現在値を、不変の対象集合として保持します。DB書込みを要しない保存同値の警告投影変更も含みます。</summary>
     internal IReadOnlyList<ChartFile> ChangedCharts { get; }
@@ -262,7 +272,8 @@ internal sealed class MaintenanceWorkflowResultFacts
             WarningReapplyTargets = WarningReapplyTargets,
             WarningChangedCount = WarningChangedCount,
             Canceled = Canceled,
-            TotalMs = TotalMs
+            TotalMs = TotalMs,
+            ReadFailures = ReadFailures
         };
         result.ChangedCharts.AddRange(ChangedCharts);
         result.EvaluatedPendingCharts.AddRange(EvaluatedPendingCharts);

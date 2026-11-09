@@ -83,7 +83,7 @@ internal sealed partial class LibraryMutationOwner
 
     private readonly Func<ChartFile, IEnumerable<string>> getDuplicateInstallRepairPaths;
 
-    private readonly Func<IEnumerable<ChartFile>, LibraryFileMutationCapability, Action<Action>, MaintenanceWorkflowResult> applyMergeFolderMaintenance;
+    private readonly Func<IEnumerable<ChartFile>, LibraryFileMutationCapability, Action<Action>, MaintenanceReadFailureCollector, MaintenanceWorkflowResult> applyMergeFolderMaintenance;
 
     private readonly Action<string, DirectoryResourceLookupCache.ReverseLookupMutationResult> logReverseLookupMutationAndQueueWarmupIfNeeded;
 
@@ -171,7 +171,7 @@ internal sealed partial class LibraryMutationOwner
         Action<string, string> logStartupMemoryCheckpoint,
         Func<IEnumerable<ChartFile>, string, string> createChartFolderPathFromCharts,
         Func<ChartFile, IEnumerable<string>> getDuplicateInstallRepairPaths,
-        Func<IEnumerable<ChartFile>, LibraryFileMutationCapability, Action<Action>, MaintenanceWorkflowResult> applyMergeFolderMaintenance,
+        Func<IEnumerable<ChartFile>, LibraryFileMutationCapability, Action<Action>, MaintenanceReadFailureCollector, MaintenanceWorkflowResult> applyMergeFolderMaintenance,
         Action<string, DirectoryResourceLookupCache.ReverseLookupMutationResult> logReverseLookupMutationAndQueueWarmupIfNeeded,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarning,
@@ -1295,13 +1295,15 @@ internal sealed partial class LibraryMutationOwner
             if (maintenanceTargets.Count > 0)
             {
                 Exception maintenanceFailure = null;
+                var readFailures = new MaintenanceReadFailureCollector();
                 try
                 {
                     MaintenanceWorkflowResult maintenanceResult = ApplyCatalogMaintenanceUnderExistingReservation(
                         maintenanceTargets,
                         true,
                         "fix_installation_directory",
-                        postLeaseNotifications.Add);
+                        postLeaseNotifications.Add,
+                        readFailures);
                     if (maintenanceResult.Canceled)
                     {
                         maintenanceFailure = new OperationCanceledException();
@@ -1311,6 +1313,7 @@ internal sealed partial class LibraryMutationOwner
                 {
                     maintenanceFailure = exception;
                 }
+                NotifyMaintenanceReadFailures(readFailures);
                 if (maintenanceFailure != null)
                 {
                     result.SessionReceipt = result.SessionReceipt.WithFinalizationFailure(maintenanceFailure);
@@ -1413,6 +1416,40 @@ internal sealed partial class LibraryMutationOwner
         UiDialogDefaultResult defaultResult)
     {
         return dialogService.Show(message, caption, button, icon, defaultResult);
+    }
+
+    /// <summary>件数と標本を持つ案内を、操作の案内の列があれば積み、なければ即時に表示します。</summary>
+    private void NotifyOperationMessage(BMSLibrary.OperationDialogMessage message)
+    {
+        if (message != null)
+        {
+            dialogService.Notify(message);
+        }
+    }
+
+    /// <summary>
+    /// 保守が集めた読込み失敗を、保守の書込み保護を出た後に、成功と例外のどちらの経路でも案内へ渡します。
+    /// 推定導入では延期先へ、それ以外は操作の案内の列へ渡します。案内の失敗は保守の結果へ混ぜず診断だけに残します。
+    /// </summary>
+    private void NotifyMaintenanceReadFailures(MaintenanceReadFailureCollector failures, EstimatedInstallDeferredFeedback deferredFeedback = null)
+    {
+        try
+        {
+            BMSLibrary.OperationDialogMessage notice = MaintenanceReadFailureNotice.Create(failures);
+            if (deferredFeedback != null)
+            {
+                deferredFeedback.DeferNotice(notice);
+            }
+            else
+            {
+                NotifyOperationMessage(notice);
+            }
+        }
+        catch (Exception exception)
+        {
+            try { NLogWrapper.FileLogger?.Warn(exception, "maintenance_read_failure_notice_failed"); }
+            catch (Exception) { /* 任意診断の失敗で、保守の結果を変えません。 */ }
+        }
     }
 
     private bool IsApprovedDuplicateRemoval(

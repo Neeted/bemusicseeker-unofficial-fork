@@ -27,7 +27,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         Exception? testFailure = null;
         MaintenanceRescanWorkflowOwner? owner = null;
         owner = new MaintenanceRescanWorkflowOwner(
-            (current, progress, token, capability) =>
+            (current, progress, token, capability, readFailures) =>
             {
                 started.TrySetResult(true);
                 release.Wait();
@@ -102,7 +102,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             MaintenanceRescanCompletionReceipt receipt = null!;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) =>
+                (current, progress, token, capability, readFailures) =>
                 {
                     progress(new MaintenanceWorkflowProgress
                     {
@@ -195,7 +195,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) =>
+                (current, progress, token, capability, readFailures) =>
                 {
                     started.TrySetResult(true);
                     release.Wait();
@@ -263,7 +263,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             bool receiptWasCanceled = false;
             bool uncanceledProgressAfterCancel = false;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) =>
+                (current, progress, token, capability, readFailures) =>
                 {
                     started.TrySetResult(true);
                     release.Wait();
@@ -352,7 +352,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             bool receiptWasCanceled = false;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) =>
+                (current, progress, token, capability, readFailures) =>
                 {
                     if (owner is null) { throw new InvalidOperationException("再走査ownerが未構築です。"); }
                     owner.Cancel();
@@ -424,7 +424,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int completionCount = 0;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) =>
+                (current, progress, token, capability, readFailures) =>
                 {
                     if (ReferenceEquals(current, first))
                     {
@@ -504,7 +504,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             BMSLibrary library = CreateLibrary(root, "song.db");
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) =>
+                (current, progress, token, capability, readFailures) =>
                 {
                     started.TrySetResult(true);
                     release.Wait();
@@ -566,7 +566,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Exception observed = null!;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) => new MaintenanceWorkflowResult(),
+                (current, progress, token, capability, readFailures) => new MaintenanceWorkflowResult(),
                 action => throw new InvalidOperationException("scheduler failed"),
                 action => action(),
                 dialogs: new AcceptedDialogService());
@@ -620,7 +620,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             BMSLibrary library = CreateLibrary(root, "song.db");
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) => new MaintenanceWorkflowResult(),
+                (current, progress, token, capability, readFailures) => new MaintenanceWorkflowResult(),
                 action => Task.FromCanceled(new CancellationToken(true)),
                 action => action(),
                 dialogs: new AcceptedDialogService());
@@ -670,7 +670,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             Exception observed = null!;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) => throw new InvalidOperationException("executor failed"),
+                (current, progress, token, capability, readFailures) => throw new InvalidOperationException("executor failed"),
                 action =>
                 {
                     action();
@@ -726,7 +726,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) => null!,
+                (current, progress, token, capability, readFailures) => null!,
                 action =>
                 {
                     action();
@@ -782,7 +782,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var failure = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) => throw new OperationCanceledException("unexpected cancellation"),
+                (current, progress, token, capability, readFailures) => throw new OperationCanceledException("unexpected cancellation"),
                 action =>
                 {
                     action();
@@ -838,7 +838,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             int workflowFailures = 0;
             int notificationFailures = 0;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) => throw new InvalidOperationException("executor failed"),
+                (current, progress, token, capability, readFailures) => throw new InvalidOperationException("executor failed"),
                 action =>
                 {
                     action();
@@ -893,7 +893,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             BMSLibrary library = CreateLibrary(root, "song.db");
             int notificationFailures = 0;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) => new MaintenanceWorkflowResult(),
+                (current, progress, token, capability, readFailures) => new MaintenanceWorkflowResult(),
                 action =>
                 {
                     action();
@@ -947,7 +947,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             int notificationFailures = 0;
             owner = new MaintenanceRescanWorkflowOwner(
-                (current, progress, token, capability) => new MaintenanceWorkflowResult(),
+                (current, progress, token, capability, readFailures) => new MaintenanceWorkflowResult(),
                 action =>
                 {
                     action();

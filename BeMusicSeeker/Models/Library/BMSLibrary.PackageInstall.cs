@@ -1022,11 +1022,21 @@ public partial class BMSLibrary
             {
                 return;
             }
-            ApplyCatalogMaintenanceUnderExistingReservation(
-                installedTargets.Charts,
-                forceUpdate: true,
-                resourceHealthMutationReason: "install_package",
-                postLeaseNotificationObserver: postLeaseEffects.Add);
+            var readFailures = new MaintenanceReadFailureCollector();
+            try
+            {
+                ApplyCatalogMaintenanceUnderExistingReservation(
+                    installedTargets.Charts,
+                    forceUpdate: true,
+                    resourceHealthMutationReason: "install_package",
+                    postLeaseNotificationObserver: postLeaseEffects.Add,
+                    readFailures: readFailures);
+            }
+            finally
+            {
+                // 保守の書込み保護の外で、成功でも例外でも集めた読込み失敗を操作の通知の列へ渡します。
+                NotifyMaintenanceReadFailures(readFailures);
+            }
             BuildAndPersistInlineChartInfoForInstalledCharts(
                 "install_package_inline",
                 installedTargets.Charts,
@@ -2536,6 +2546,9 @@ public partial class BMSLibrary
                                 notification.Button,
                                 notification.Icon,
                                 notification.DefaultResult);
+                            break;
+                        case EstimatedInstallFeedbackKind.Notice:
+                            NotifyOperationMessage(notification.Notice);
                             break;
                         case EstimatedInstallFeedbackKind.CleanupOnlyWarning:
                             // A mixed abnormal batch is summarized once by its canonical

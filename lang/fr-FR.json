@@ -796,6 +796,7 @@
   "Warn_LR2LeapYearBugDetected": "Bug d'année bissextile LR2 (29/02) détecté.\nCertaines chansons peuvent être rechargées suite à la correction.",
   "Error_InitializationFailed": "Une erreur s'est produite lors de l'initialisation.\nVeuillez vérifier si le fichier est accessible.\nFichier cible : {0}\n\nL'application peut devenir instable.\n\n{1}",
   "Error_BmsLoadFailedSkip": "Échec du chargement du fichier BMS.\nCe fichier sera ignoré.\nVeuillez vérifier s'il est accessible.\n{0}\n\n{1}",
+  "Notice_GroupedCount": "{0} élément(s) :",
   "Warning_WavFilesNotFound": "[{0,2}%] Fichiers WAV utilisés présents / requis : {1}/{2}",
   "Warning_BgaFilesNotFound": "[{0,2}%] Fichiers BGA utilisés présents / requis : {1}/{2}",
   "Warning_MovieFilesNotFound": "[{0,2}%] Fichiers MOVIE utilisés présents / requis : {1}/{2}",

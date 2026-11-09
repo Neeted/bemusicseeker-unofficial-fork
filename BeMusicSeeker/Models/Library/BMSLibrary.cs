@@ -2740,7 +2740,6 @@ public partial class BMSLibrary : ObservableObject
             CreateFullOwnedResourceMaintenanceTargetSet,
             catalogMutationOwner.EnterStorageRowsWriteGuard,
             libraryResourceIndexOwner,
-            dialogService,
             () => IsShutdownRequested,
             TrySkipForShutdown,
             () => StartupBackgroundTaskScheduler,
@@ -2796,13 +2795,14 @@ public partial class BMSLibrary : ObservableObject
             LogStartupMemoryCheckpoint,
             CreateChartFolderPathFromCharts,
             GetDuplicateInstallRepairPaths,
-            (charts, capability, postLeaseNotificationObserver) => ApplyCatalogMaintenance(
+            (charts, capability, postLeaseNotificationObserver, readFailures) => ApplyCatalogMaintenance(
                 charts,
                 forceUpdate: true,
                 resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,
                 resourceHealthMutationReason: "merge_folder",
                 capability: capability,
-                postLeaseNotificationObserver: postLeaseNotificationObserver),
+                postLeaseNotificationObserver: postLeaseNotificationObserver,
+                readFailures: readFailures),
             LogReverseLookupMutationAndQueueWarmupIfNeeded,
             LogInstallPerformance,
             LogInstallPerformanceWarn,
@@ -8153,7 +8153,8 @@ public partial class BMSLibrary : ObservableObject
         return resourceHealthOwner.TryGetCurrentSnapshot();
     }
 
-    private PendingEstimatedInstallPostGuardResult ApplyEstimatedInstallMaintenanceForDeferredDispatch(
+    /// <summary>推定導入に伴う保守を実行し、読込み失敗の案内を延期先へ渡します。テストが成功・失敗の両経路を直接確かめるため内部公開です。</summary>
+    internal PendingEstimatedInstallPostGuardResult ApplyEstimatedInstallMaintenanceForDeferredDispatch(
         IEnumerable<ChartFile> charts,
         EstimatedInstallDeferredFeedback deferredFeedback,
         out Action publishAfterGuard)
@@ -8222,7 +8223,8 @@ public partial class BMSLibrary : ObservableObject
         string resourceHealthMutationReason = null,
         LibraryFileMutationCapability capability = null,
         Action<Action> postLeaseNotificationObserver = null,
-        IReadOnlyList<PackageChartEntry> pendingEntries = null)
+        IReadOnlyList<PackageChartEntry> pendingEntries = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         if (charts == null)
         {
@@ -8256,7 +8258,8 @@ public partial class BMSLibrary : ObservableObject
                     resourceHealthMutationReason,
                     out _,
                     out postCommitEffect,
-                    pendingEntries: pendingEntries);
+                    pendingEntries: pendingEntries,
+                    readFailures: readFailures);
             }
         }
         catch
@@ -8285,13 +8288,15 @@ public partial class BMSLibrary : ObservableObject
         IEnumerable<ChartFile> charts,
         bool forceUpdate,
         string resourceHealthMutationReason,
-        Action<Action> postLeaseNotificationObserver)
+        Action<Action> postLeaseNotificationObserver,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         return libraryMutationOwner.ApplyCatalogMaintenanceUnderExistingReservation(
             charts,
             forceUpdate,
             resourceHealthMutationReason,
-            postLeaseNotificationObserver);
+            postLeaseNotificationObserver,
+            readFailures);
     }
 
     private MaintenanceWorkflowResult ApplyOwnedCatalogMaintenance(
@@ -8300,7 +8305,8 @@ public partial class BMSLibrary : ObservableObject
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates,
-        string resourceHealthMutationReason = null, LibraryFileMutationCapability capability = null)
+        string resourceHealthMutationReason = null, LibraryFileMutationCapability capability = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         LibraryFileMutationLease mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
             "owned_catalog_maintenance",
@@ -8326,7 +8332,8 @@ public partial class BMSLibrary : ObservableObject
                 resourceHealthIndexUpdateMode,
                 resourceHealthMutationReason ?? reason,
                 out _,
-                out postCommitEffect);
+                out postCommitEffect,
+                readFailures: readFailures);
         }
         TryInvokePostLeaseNotification(postCommitEffect, "owned_catalog_maintenance_publication_failed");
         return workflowResult;
@@ -8339,7 +8346,8 @@ public partial class BMSLibrary : ObservableObject
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode = ResourceHealthIndexUpdateMode.FullOnUpdates,
-        string resourceHealthMutationReason = null)
+        string resourceHealthMutationReason = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         ArgumentNullException.ThrowIfNull(postLeaseEffectObserver);
         ResourceMaintenanceTargetSet maintenanceTargets;
@@ -8355,7 +8363,8 @@ public partial class BMSLibrary : ObservableObject
             resourceHealthIndexUpdateMode,
             resourceHealthMutationReason ?? reason,
             out _,
-            out Action postCommitEffect);
+            out Action postCommitEffect,
+            readFailures: readFailures);
         postLeaseEffectObserver(postCommitEffect);
         return workflowResult;
     }
@@ -8364,7 +8373,8 @@ public partial class BMSLibrary : ObservableObject
         string reason,
         Action<Action> postLeaseEffectObserver,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null)
+        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         capability?.Validate(OperationAdmission);
         if (!CanUseHydratedMaintenanceSnapshotForInstallableMaintenance())
@@ -8376,7 +8386,8 @@ public partial class BMSLibrary : ObservableObject
                 cancellationToken: cancellationToken,
                 resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.FullOnUpdates,
                 resourceHealthMutationReason: reason,
-                postLeaseEffectObserver: postLeaseEffectObserver);
+                postLeaseEffectObserver: postLeaseEffectObserver,
+                readFailures: readFailures);
         }
         ArgumentNullException.ThrowIfNull(postLeaseEffectObserver);
         ResourceMaintenanceTargetSet maintenanceTargets;
@@ -8392,7 +8403,8 @@ public partial class BMSLibrary : ObservableObject
                 ResourceHealthIndexUpdateMode.DeltaOnUpdates,
                 reason,
                 out _,
-                out Action postCommitEffect);
+                out Action postCommitEffect,
+                readFailures: readFailures);
         postLeaseEffectObserver(postCommitEffect);
         return workflowResult;
     }
@@ -8489,12 +8501,14 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="progressReporter">section 単位の進捗通知。</param>
     /// <param name="cancellationToken">section 境界で確認するキャンセル token。</param>
     /// <param name="pendingEntries">選択した保留項目。現在値を計算入力にし、所持分の必要な保存が成功してから同じ項目へ反映します。保留だけならDB確定を必要としません。</param>
+    /// <param name="readFailures">読込み失敗の収集先。保守が例外で終わる場合も、呼出元が集まった失敗を受け取れるように渡します。モデルは表示せず、受付を保持した呼出元が解放後に表示します。</param>
     /// <returns>再スキャン結果。</returns>
     internal MaintenanceWorkflowResult RescanResourceHealthCharts(
         IEnumerable<ChartFile> charts,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null,
-        IReadOnlyList<PackageChartEntry> pendingEntries = null)
+        IReadOnlyList<PackageChartEntry> pendingEntries = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         IEnumerable<ChartFile> targets = pendingEntries == null ? charts
             : (charts ?? []).Where(chart => chart?.Token != null)
@@ -8504,7 +8518,8 @@ public partial class BMSLibrary : ObservableObject
             forceUpdate: true,
             progressReporter: progressReporter,
             cancellationToken: cancellationToken,
-            resourceHealthMutationReason: "resource_health_rescan", capability: capability, pendingEntries: pendingEntries);
+            resourceHealthMutationReason: "resource_health_rescan", capability: capability, pendingEntries: pendingEntries,
+            readFailures: readFailures);
         return result;
     }
 
@@ -8515,16 +8530,19 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="progressReporter">section 単位の進捗通知。</param>
     /// <param name="cancellationToken">section 境界で確認するキャンセル token。</param>
     /// <param name="capability">親操作が保持する生存L権限。nullは新規非待機受付です。</param>
+    /// <param name="readFailures">読込み失敗の収集先。保守が例外で終わる場合も、呼出元が集まった失敗を受け取れるように渡します。モデルは表示しません。</param>
     /// <returns>再スキャン結果。</returns>
     internal MaintenanceWorkflowResult RescanAllOwnedChartMaintenance(
         Action<MaintenanceWorkflowProgress> progressReporter = null,
-        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null)
+        CancellationToken cancellationToken = default, LibraryFileMutationCapability capability = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         MaintenanceWorkflowResult result = ApplyOwnedCatalogMaintenance(
             "manual_rescan_all_owned",
             forceUpdate: true,
             progressReporter: progressReporter,
-            cancellationToken: cancellationToken, capability: capability);
+            cancellationToken: cancellationToken, capability: capability,
+            readFailures: readFailures);
         return result;
     }
 

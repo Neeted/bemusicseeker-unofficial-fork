@@ -48,8 +48,6 @@ internal sealed class CatalogMaintenanceOwner
 
     private readonly LibraryResourceIndexOwner resourceIndexOwner;
 
-    private readonly IBmsLibraryDialogService dialogService;
-
     private readonly Func<bool> isShutdownRequested;
 
     private readonly Func<string, string, bool> trySkipForShutdown;
@@ -90,7 +88,6 @@ internal sealed class CatalogMaintenanceOwner
         Func<string, ResourceMaintenanceTargetSet> fullTargetProvider,
         Func<IDisposable> enterStorageRowsWriteGuard,
         LibraryResourceIndexOwner resourceIndexOwner,
-        IBmsLibraryDialogService dialogService,
         Func<bool> isShutdownRequested,
         Func<string, string, bool> trySkipForShutdown,
         Func<Func<string, string, string, Func<Task>, bool>> startupBackgroundTaskSchedulerProvider,
@@ -112,7 +109,6 @@ internal sealed class CatalogMaintenanceOwner
         this.fullTargetProvider = fullTargetProvider ?? throw new ArgumentNullException(nameof(fullTargetProvider));
         this.enterStorageRowsWriteGuard = enterStorageRowsWriteGuard ?? throw new ArgumentNullException(nameof(enterStorageRowsWriteGuard));
         this.resourceIndexOwner = resourceIndexOwner ?? throw new ArgumentNullException(nameof(resourceIndexOwner));
-        this.dialogService = dialogService;
         this.isShutdownRequested = isShutdownRequested ?? throw new ArgumentNullException(nameof(isShutdownRequested));
         this.trySkipForShutdown = trySkipForShutdown ?? throw new ArgumentNullException(nameof(trySkipForShutdown));
         this.startupBackgroundTaskSchedulerProvider = startupBackgroundTaskSchedulerProvider;
@@ -170,7 +166,8 @@ internal sealed class CatalogMaintenanceOwner
         }
     }
 
-    /// <summary>保守結果を現在値へ確定し、更新がなければ既存の健全性索引を完了後の入力版へ接続します。明示した選択保留は資源だけを再調査し、成功結果を保存差分と独立して返します。保留の評価結果は項目の寿命内だけで使い、songと保守行を読み書きしません。</summary>
+    /// <summary>保守結果を現在値へ確定し、更新がなければ既存の健全性索引を完了後の入力版へ接続します。明示した選択保留は資源だけを再調査し、成功結果を保存差分と独立して返します。保留の評価結果は項目の寿命内だけで使い、songと保守行を読み書きしません。読取りに失敗した対象は窓口へ出さず結果へ集めます。</summary>
+    /// <param name="readFailures">読込み失敗の収集先。呼出元が保守の例外経路でも失敗を回収する場合に渡し、省略時は結果が保持します。</param>
     internal CatalogMaintenanceOperationReceipt ApplyMaintenance(
         ResourceMaintenanceTargetSet targetSet,
         bool forceUpdate,
@@ -178,11 +175,11 @@ internal sealed class CatalogMaintenanceOwner
         CancellationToken cancellationToken,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
         string reason,
-        IBmsLibraryDialogService dialogServiceOverride = null,
         Action<string> logPerformanceOverride = null,
         Action<CatalogWriteFailureFact> captureFailureFact = null,
         Action<Action> postCommitEffectsObserver = null,
-        IReadOnlySet<string> selectedPendingPaths = null)
+        IReadOnlySet<string> selectedPendingPaths = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         List<ChartFile> targetCharts = [.. (targetSet.Charts ?? [])
             .Where(chart => chart != null)];
@@ -227,7 +224,6 @@ internal sealed class CatalogMaintenanceOwner
                         targetCharts,
                         forceUpdate,
                         catalogMutationOwner.ApplyMaintenanceWriteUnderGuard,
-                        dialogServiceOverride ?? dialogService,
                         new ResourceHealthLookupContext(resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache),
                         logPerformanceOverride ?? logPerformance,
                         progressReporter,
@@ -236,7 +232,7 @@ internal sealed class CatalogMaintenanceOwner
                         effects =>
                         {
                             postCommitEffects = effects;
-                        }, selectedPendingPaths);
+                        }, selectedPendingPaths, readFailures);
                     if (workflowResult?.HasUpdates == true)
                     {
                         basicValuesChanged = ApplyCommittedCurrentValues(workflowResult.ChangedCharts);

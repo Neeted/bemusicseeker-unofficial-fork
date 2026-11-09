@@ -1750,6 +1750,10 @@ public class Resources
     public static string Error_BmsLoadFailedSkip => ResourceManager.GetString("Error_BmsLoadFailedSkip", resourceCulture);
 
 
+    /// <summary>同じ見出し・重要度の通知を一つにまとめるときの件数の行です。{0}は件数です。</summary>
+    public static string Notice_GroupedCount => ResourceManager.GetString("Notice_GroupedCount", resourceCulture);
+
+
     /// <summary>全使用リソースを必須にする詳細設定の表示名です。</summary>
     public static string Details_require_complete_used_resources_for_auto_install => ResourceManager.GetString("Details_require_complete_used_resources_for_auto_install", resourceCulture);
 

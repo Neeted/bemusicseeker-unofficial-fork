@@ -1219,7 +1219,7 @@ public sealed class OperationProgressHubViewModelTests
                         return true;
                     });
                 var maintenance = new MaintenanceRescanWorkflowOwner(
-                    (current, progress, token, capability) =>
+                    (current, progress, token, capability, readFailures) =>
                     {
                         progress(new MaintenanceWorkflowProgress { TotalCount = 1, ProcessedCount = 1 });
                         maintenanceProgressStarted.Set();

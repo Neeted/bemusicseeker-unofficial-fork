@@ -7,6 +7,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using Ribbit.Logging;
 using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
 using static BeMusicSeeker.TestSupport.Components.SelectedChartResourceHealthWorkflowOwnerTestSupport;
 
@@ -66,6 +67,58 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 Assert.AreEqual(detail.charthash, read.Table<LR2SongDBExtended.chart_info>().Single().charthash);
             }
             finally { library.RequestShutdown("base62-rescan"); }
+        });
+    }
+
+    /// <summary>
+    /// 終了中で通知を表示しない場合も、読込み失敗は全件（パスと例外の型）を一つのログ項目へ残す。
+    /// 標本の5件だけを残す誤りと、件数ごとに同期のログを出す誤り、ログを表示の有無へ依存させる誤りを検出する。
+    /// </summary>
+    /// <remarks>共有のログ構成を一時的に差し替えるため、並列実行しない。</remarks>
+    [DoNotParallelize]
+    [TestMethod]
+    public async Task RescanAsync_LogsEveryReadFailureInOneEventEvenWhenNoticeIsSkippedForShutdown()
+    {
+        await ApplicationLoggingTestScope.RunAsync(async loggingScope =>
+        {
+            string logPath = Path.Combine(loggingScope.RootDirectory, "application.log");
+            NLog.LogManager.Configuration = new NLog.Config.LoggingConfiguration();
+            NLogWrapper.AddApplicationFileTarget(new NLog.Targets.FileTarget
+            {
+                Name = "ApplicationFileTarget",
+                FileName = logPath,
+                Layout = NLogWrapper.DefaultLayout
+            }, NLog.LogLevel.Info);
+            await MaintenanceReadFailureFixture.RunAsync(async fixture =>
+            {
+                var ownerDialogs = new FileDbReportRecordingDialogs();
+                var store = new ObservingStore(
+                    new BmsLibrarySelectedChartResourceHealthStore(), () => fixture.Library.RequestStop("read-failure-log-test"));
+                var owner = new SelectedChartResourceHealthWorkflowOwner(() => fixture.Library, ownerDialogs, store);
+
+                SelectedChartResourceHealthWorkflowResult result = await owner.RescanAsync(fixture.CreateRequest());
+
+                Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                Assert.AreEqual(0, ownerDialogs.Messages.Count, "終了中は表示しない。");
+                NLogWrapper.FlushBeforeExit(TimeSpan.FromSeconds(5));
+                string log;
+                using (var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+                using (var reader = new StreamReader(stream))
+                {
+                    log = reader.ReadToEnd();
+                }
+                Assert.AreEqual(1, System.Text.RegularExpressions.Regex.Count(log, "maintenance_read_failed"),
+                    "失敗ごとではなく一つのログ項目へまとめる。");
+                foreach (ChartFile missing in fixture.Missing)
+                {
+                    StringAssert.Contains(log, missing.Path);
+                }
+                Exception? expected = null;
+                try { ChartFileContentReader.ReadBuffer(fixture.Missing[0].Path); }
+                catch (Exception exception) { expected = exception; }
+                Assert.IsNotNull(expected);
+                StringAssert.Contains(log, expected.GetType().FullName);
+            });
         });
     }
 

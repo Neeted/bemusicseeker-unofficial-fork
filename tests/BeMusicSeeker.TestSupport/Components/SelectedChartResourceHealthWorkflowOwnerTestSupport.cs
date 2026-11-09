@@ -1,4 +1,7 @@
 using System.Windows;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.TestSupport.Components;
@@ -15,10 +18,14 @@ internal static class SelectedChartResourceHealthWorkflowOwnerTestSupport
 
         internal string LastMessage { get; private set; } = string.Empty;
 
+        /// <summary>表示の要求を受けた時点で呼ぶ観測です。表示の時点の受付の状態を確かめるために使います。</summary>
+        internal Action? OnMessage { get; set; }
+
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
         {
             MessageCalls++;
             LastMessage = request.MessageBoxText;
+            OnMessage?.Invoke();
             return Task.FromResult(MessageResult);
         }
 
@@ -45,4 +52,20 @@ internal static class SelectedChartResourceHealthWorkflowOwnerTestSupport
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
+    /// <summary>実際の保守の呼出しが戻った時点（受付を保持している間）の状態を観測するために、本物のstoreを委譲で包む。</summary>
+    internal sealed class ObservingStore(ISelectedChartResourceHealthStore inner, Action afterRescan) : ISelectedChartResourceHealthStore
+    {
+        public MaintenanceWorkflowResult RescanResourceHealthCharts(
+            BMSLibrary library, IReadOnlyList<ChartFile> charts, LibraryFileMutationCapability capability,
+            IReadOnlyList<PackageChartEntry> pendingEntries, MaintenanceReadFailureCollector readFailures)
+        {
+            MaintenanceWorkflowResult result = inner.RescanResourceHealthCharts(library, charts, capability, pendingEntries, readFailures);
+            afterRescan();
+            return result;
+        }
+
+        public void SetChartResourceWarningsIgnored(
+            BMSLibrary library, IReadOnlyList<ChartFile> charts, bool unset, LibraryFileMutationCapability capability)
+            => inner.SetChartResourceWarningsIgnored(library, charts, unset, capability);
+    }
 }

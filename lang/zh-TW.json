@@ -796,6 +796,7 @@
   "Warn_LR2LeapYearBugDetected": "偵測到LR2閏年(2/29)錯誤。\n由於修復，部分歌曲可能會被重新載入。",
   "Error_InitializationFailed": "初始化過程中發生錯誤。\n請確認檔案是否可以正常存取。\n目標檔案: {0}\n\n應用程式可能會變得不穩定。\n\n{1}",
   "Error_BmsLoadFailedSkip": "BMS檔案載入失敗。\n將略過此檔案的檢查。\n請確認是否可以正常存取。\n{0}\n\n{1}",
+  "Notice_GroupedCount": "共 {0} 項：",
   "Warning_WavFilesNotFound": "[{0,2}%] 使用的 WAV 檔案存在數 / 需求數：{1}/{2}",
   "Warning_BgaFilesNotFound": "[{0,2}%] 使用的 BGA 檔案存在數 / 需求數：{1}/{2}",
   "Warning_MovieFilesNotFound": "[{0,2}%] 使用的 MOVIE 檔案存在數 / 需求數：{1}/{2}",
