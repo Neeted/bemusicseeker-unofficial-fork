@@ -18,8 +18,9 @@ namespace BeMusicSeeker.Runtime;
 
 /// <summary>明示sessionでarmした既知の一入力だけを消費します。その他のdialogは通常の所有者付き表示へ委譲します。</summary>
 /// <remarks>
-/// MainWindow の同期イベントは、構成から渡されたこの窓口の通知・確認を UI スレッドで同期的に待ちます。
-/// この待ちが安全なのは、UI スレッドからの通知・確認に対して、Dispatcher を必要とせずに完了する Task を返すためです。
+/// MainWindow が同期的に待つのは、プレイリストの通知の8経路だけです（dialogs.md の同期の条件を参照）。
+/// この待ちが安全なのは、UI スレッドからの通知に対して、Dispatcher を必要とせずに完了する Task を返すためです。
+/// 設定画面の表示（<c>ShowWindowAsync</c>）は MainWindow が await で待つため、モーダルから戻った後に未完了の Task を返してもかまいません。
 /// 一方、Recovery の回答待ち（<c>Confirm_RestartForOperationModeChange</c> と <c>AppSchemaRepairWarningTitle</c> の2つの文面）は、
 /// Dispatcher で回答する未完了の Task を返します。この2つの文面は同期の経路へ到達させてはいけません。
 /// </remarks>
@@ -85,10 +86,10 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
                 }
             }
         }, request.CreateResult, request.Owner), cancellationToken);
-        // SQL・設定節の実Taskはmodal閉鎖後にも継続を持ちます。同期のShowSettingsWindowへ先に帰還し、
+        // SQL・設定節の実Taskはmodal閉鎖後にも継続を持ちます。MainWindowの非同期のShowSettingsWindowAsyncへ先に帰還し、
         // 同じ入力Taskの終端・元例外はExecuteAsyncが保持するCompletionで回収します。
         if (input is SqlInput or SectionInput) { return result; }
-        // modal帰還後の呼出元は同期境界なので、入力の実終端回収だけをUIへ再配送しません。
+        // 入力の実終端回収だけをUIへ再配送しません。
         await inputTask.ConfigureAwait(false);
         if (inputFailure is not null) { throw new InvalidOperationException("The declared dialog input failed.", inputFailure); }
         return result;
@@ -142,21 +143,26 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
         }
         if (window is SettingsWindow && input is SettingsInput settings && window.DataContext is SettingsDialogViewModel settingsModel)
         {
-            settingsModel.CustomTableFontSize = settings.FontSize;
-            var fresh = new Settings();
-            fresh.Reload();
-            var raw = XDocument.Load(PortableSettingsPath.UserConfigPath);
-            string Read(string name) => raw.Descendants("setting").Single(element => (string?)element.Attribute("name") == name)
-                .Element("value")?.Value ?? throw new InvalidOperationException("The committed setting is absent: " + name);
-            double savedFont = fresh.CustomTableFontSize;
-            string savedPath = fresh.BeatorajaRootPath;
-            string rawFont = Read("CustomTableFontSize");
-            string rawPath = Read("BeatorajaRootPath");
-            settingsModel.BeatorajaRootPath = settings.CandidatePath;
-            string candidateBeforeClose = settingsModel.BeatorajaRootPath;
-            settingsModel.CloseCommand.Execute();
-            settings.Completion.SetResult(new(savedFont, savedPath, rawFont, rawPath,
-                candidateBeforeClose, settingsModel.BeatorajaRootPath));
+            try
+            {
+                settingsModel.CustomTableFontSize = settings.FontSize;
+                var fresh = new Settings();
+                fresh.Reload();
+                var raw = XDocument.Load(PortableSettingsPath.UserConfigPath);
+                string Read(string name) => raw.Descendants("setting").Single(element => (string?)element.Attribute("name") == name)
+                    .Element("value")?.Value ?? throw new InvalidOperationException("The committed setting is absent: " + name);
+                double savedFont = fresh.CustomTableFontSize;
+                string savedPath = fresh.BeatorajaRootPath;
+                string rawFont = Read("CustomTableFontSize");
+                string rawPath = Read("BeatorajaRootPath");
+                settingsModel.BeatorajaRootPath = settings.CandidatePath;
+                string candidateBeforeClose = settingsModel.BeatorajaRootPath;
+                settingsModel.CloseCommand.Execute();
+                settings.Completion.SetResult(new(savedFont, savedPath, rawFont, rawPath,
+                    candidateBeforeClose, settingsModel.BeatorajaRootPath));
+            }
+            // 入力の失敗でCompletionが未完了のまま待ち続けないよう、元例外で完了させます。
+            catch (Exception failure) { settings.Completion.TrySetException(failure); throw; }
             return;
         }
         throw new InvalidOperationException("The declared input does not match the real dialog session.");

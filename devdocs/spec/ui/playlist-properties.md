@@ -74,6 +74,8 @@ Pageと出力フォルダ名の画面検証は、型変換後・setterの前に�
 
 保存操作のTaskは、保存・復元、通知の試行、実際の閉鎖、再有効化まで待ちます。通知の失敗はその場で診断し、保存結果へ合成したり、次の操作までTaskへ保持したりしません。実際の閉鎖や再有効化の失敗は画面寿命の失敗として返し、再有効化に失敗しても、操作中の受付フラグは解除します。保存前の確認が失敗した場合は、承認にも利用者の取消にも置き換えず、対象の変更を止めます。
 
+外部同期の有効・無効の切替えは、利用者の確認を経てから確定します。確認は、画面の管理主体が、注入されたプレイリストの窓口へ依頼します（Ownerは窓口の解決に任せます）。確認中は値を確定せず、旧値の変更通知で表示を戻し、承認された場合だけ、編集の準備が有効であることを確かめてから値を設定して通知します。取消では値を変えません。確認中のさらなる切替えは、表示を戻すだけで、新しい確認を重ねません。保存と初期化は、確認の終端を待ってから、確定した値で行い、確認を待つ間は受付を取得しません。確認の表示が失敗した場合は、値を変えずに診断へ残し、画面の入口からErrorの通知を一件だけ試み（通知の失敗は診断だけ）、確認中の状態を解除して、次の切替えでは新しい確認を出します。
+
 取消・Esc・通常閉鎖は、最新の保存値の復元と表示が成功すれば閉じます。手動保存用の名前検査は取消へ適用せず、外部取込みで受理した空名も、変更せずに取り消せます。DB確定後の出力失敗からの取消は、最新の確定値へ戻し、再保存や自動の出力再試行を行いません。
 
 保存サービスは、一つの保存結果として、確定した参照、最新の保存値、未完了の必要出力、今回の実処理の失敗を返します。画面はそれらを採用してから失敗を通知します。同時編集の判定は、最新の保存値、現行の参照、項目の版に基づき、同じ保存の確定を古い編集スナップショットとの差として拒否しません。新規作成中の表は作成経路と実際の登録結果で判定し、旧参照が集合から外れたことを新規作成と読み替えません。
@@ -156,6 +158,7 @@ BMT、外部同期、ルート型、出力種別、出力先、外部属性の�
 | 表名の入力検査と訂正 | `PlaylistPropertySaveService` | [`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_BlankNamesRejectWithoutMutationAndAllowCorrection`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) は、実sessionの検査・保存と既存のViewModel経路で、空名の拒否、無変更、訂正後の保存を確認する。 |
 | LR2連携の最終配置の重なり拒否 | `PlaylistPropertySaveService` | [`ManagedPlaylistOutputPlacementTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/ManagedPlaylistOutputPlacementTests.cs) が条件の網羅を、同クラスの `PropertySave_RejectsOverlappingFinalPlacementBeforeMutation` が実編集sessionへの接続を確認する。 |
 | 外部情報での初期化の除外と旧配置 | `PlaylistWorkspaceViewModel` | `BmsPlaylistPersistenceLifecycleTests` の外部初期化ケースが、除外後の旧配置への再衝突と、安全な表の保存を確認する。 |
+| 外部同期の切替えの確認（確定は承認後、確認中の保存と初期化は終端を待つ、表示失敗） | [`PlaylistPropertyDialogViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertyDialogViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) の `PlaylistPropertyDialog_PendingExternalSyncConfirmation_*` は、確認中に値を確定せず再切替えで確認を重ねないこと、保存と初期化が確認の終端を待ち受付を保持しないこと、承認・取消ごとの確定値を確認する。`PlaylistPropertyDialog_ExternalSyncConfirmationDisplayFailure_*` は、表示の失敗（失敗結果・失敗したTask・同期の例外）で例外を出さず値を変えず、Errorの通知が一件で、次の切替えが新しい確認を出すことを確認する。編集セッションの終了後の承認は値を適用しないことは、到達できる入口がテストの窓口だけのため、静的に確認する。 |
 | 取消ボタンの翻訳 | `PlaylistPropertyDialog.xaml` | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `CancelButtons_NewDialogsUseCurrentLanguageAndKeepCancellation` が6言語のContentを確認する。取消・Esc・draftは既存ケースが担当する。 |
 
 ## 関連資料

@@ -4,10 +4,13 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Views.Dialogs;
 using Livet;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -27,6 +30,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
     private readonly bool isForNewTable;
 
     private int operationInProgress;
+
+    private readonly IUiDialogService dialogService;
+
+    // 外部同期の切替えの確認中の Task。ViewModel が所有し、確認中は値を確定しません。
+    private Task externalSyncConfirmation;
 
     private ObservableCollection<string> _folder_order;
 
@@ -365,26 +373,69 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
                 value = false;
                 saveService.NotifyValidationError(PlaylistPropertyValidationError.InvalidExternalSyncUris);
             }
-            if (!_is_external_sync && value)
-            {
-                if (!saveService.ConfirmExternalSyncChange(enable: true))
-                {
-                    RaisePropertyChanged("is_external_sync");
-                    return;
-                }
-            }
-            else if (_is_external_sync && !value)
-            {
-                if (!saveService.ConfirmExternalSyncChange(enable: false))
-                {
-                    RaisePropertyChanged("is_external_sync");
-                    return;
-                }
-            }
-            _is_external_sync = value;
+            // 値は確認の承認まで確定しません。表示を旧値へ戻したうえで確認を始め、承認後に値を設定します。
             RaisePropertyChanged("is_external_sync");
+            if (_is_external_sync == value || externalSyncConfirmation is { IsCompleted: false })
+            {
+                // 検証で旧値へ戻した場合と、確認中のさらなる切替えは、表示を戻すだけにします。
+                return;
+            }
+            externalSyncConfirmation = ConfirmAndApplyExternalSyncAsync(value);
         }
     }
+
+    /// <summary>
+    /// 外部同期の切替えの確認を窓口へ依頼し、承認された場合だけ値を設定して変更を通知します。
+    /// 確認の表示の失敗は承認にも取消にも読み替えず、値を変えずにログへ残し、この入口から Error の通知を一度だけ試みます。
+    /// 戻り値の Task は失敗しません。
+    /// </summary>
+    private async Task ConfirmAndApplyExternalSyncAsync(bool enable)
+    {
+        try
+        {
+            UiDialogResult result = await dialogService.ConfirmAsync(new UiConfirmationRequest(
+                enable
+                    ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
+                    : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.None)).ConfigureAwait(true);
+            UiDialogRoute.ThrowIfNotShown(result, "playlist property external sync confirmation");
+            if (result.MessageBoxResult is not (MessageBoxResult.OK or MessageBoxResult.Yes) || editSession == null)
+            {
+                // 拒否、または確認中に編集セッションが終わった場合は、値を変えません。
+                return;
+            }
+            _is_external_sync = enable;
+            RaisePropertyChanged("is_external_sync");
+        }
+        catch (Exception failure)
+        {
+            await NotifyExternalSyncConfirmationFailureAsync(failure).ConfigureAwait(true);
+        }
+    }
+
+    private async Task NotifyExternalSyncConfirmationFailureAsync(Exception failure)
+    {
+        try { NLogWrapper.FileLogger?.Warn(failure, "playlist_property_external_sync_confirmation_failed"); }
+        catch { /* 診断先の失敗を操作の結果や別の通知へ合成しません。 */ }
+        try
+        {
+            UiDialogResult notification = await dialogService.ShowMessageAsync(UiMessageRequest.CreateError(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + failure.Message,
+                BeMusicSeeker.Properties.Resources.Error)).ConfigureAwait(true);
+            UiDialogRoute.ThrowIfNotShown(notification, "playlist property external sync confirmation failure notification");
+        }
+        catch (Exception notificationFailure)
+        {
+            try { NLogWrapper.FileLogger?.Warn(notificationFailure, "playlist_property_external_sync_confirmation_failure_notification_failed"); }
+            catch { /* 任意の通知の失敗はログだけに留めます。 */ }
+        }
+    }
+
+    /// <summary>確認中の外部同期の切替えがあれば、その終端まで待ちます。保存と初期化は、確定した値だけを使うために先に待ちます。</summary>
+    private Task WaitForExternalSyncConfirmationAsync() => externalSyncConfirmation ?? Task.CompletedTask;
 
     public bool is_root_folder
     {
@@ -491,10 +542,14 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         return option;
     }
 
+    /// <param name="dialogService">外部同期の切替えの確認と、確認の失敗の通知を表示する窓口。null は許されません。</param>
     internal PlaylistPropertyDialogViewModel(
         PlaylistPropertySaveService service,
-        PlaylistPropertyEditSession preparedSession, Func<Task> waitForSavedPresentation = null)
+        PlaylistPropertyEditSession preparedSession,
+        IUiDialogService dialogService,
+        Func<Task> waitForSavedPresentation = null)
     {
+        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         this.waitForSavedPresentation = waitForSavedPresentation;
         saveService = service ?? throw new ArgumentNullException(nameof(service));
         editSession = preparedSession ?? throw new ArgumentNullException(nameof(preparedSession));
@@ -586,6 +641,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         }
         try
         {
+            await WaitForExternalSyncConfirmationAsync().ConfigureAwait(true);
             PlaylistPropertyValues values = await saveService.ResetAsync(editSession);
             loadTableProperties(values);
             return PlaylistPropertyDialogOperationResult.Completed;
@@ -613,6 +669,8 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         LibraryFileMutationCapability capability = null;
         try
         {
+            // 確認中の切替えは、保存が使う値を確定させるため、受付を取得する前に終端まで待ちます。
+            await WaitForExternalSyncConfirmationAsync().ConfigureAwait(true);
             if (!editSession.Store.TryEnterPlaylistMutation(out admission))
             {
                 Volatile.Write(ref operationInProgress, 0);

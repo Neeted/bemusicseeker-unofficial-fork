@@ -8,6 +8,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.TestSupport.Components;
@@ -61,7 +62,8 @@ internal static class BmsPlaylistTestSupport
         BMSLibrary library,
         Func<CustomFolderOutputSettingsSnapshot>? settingsProvider = null,
         Func<Lr2ConfigOwner>? lr2ConfigProvider = null,
-        Action<string>? summaryWarningLog = null)
+        Action<string>? summaryWarningLog = null,
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         settingsProvider ??= () => new CustomFolderOutputSettingsSnapshot();
         lr2ConfigProvider ??= () => null!;
@@ -108,11 +110,10 @@ internal static class BmsPlaylistTestSupport
             (_, _) => false,
             PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler,
             PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
-            UndeclaredDialogs.Create());
+            playlistWorkspaceDialogService ?? UndeclaredDialogs.Create());
         workspace.ConfigureCatalogNotificationQueue(action => action());
         PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
         workspace.PlaylistPropertyValidationError += (_, _) => { };
-        workspace.PlaylistPropertyExternalSyncConfirmationRequested += (_, _) => { };
         workspace.PlaylistPropertyInvalidOutputDirectoryRequested += (_, _) => { };
         workspace.PlaylistPropertyExternalSyncFailed += (_, _) => { };
         workspace.PlaylistSyncProgressChanged += (_, _) => { };

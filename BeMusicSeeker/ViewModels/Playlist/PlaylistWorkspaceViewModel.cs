@@ -283,7 +283,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                 PublishEntriesChanged(request.Table);
             };
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
-        propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
         propertySaveService.PlaylistPropertySyncStarted += ForwardPlaylistPropertySyncStarted;
         propertySaveService.PlaylistPropertySyncProgressChanged += ForwardPlaylistSyncProgressChanged;

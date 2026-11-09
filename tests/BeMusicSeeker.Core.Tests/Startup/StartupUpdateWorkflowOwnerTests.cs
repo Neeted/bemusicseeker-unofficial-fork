@@ -149,7 +149,11 @@ public sealed class StartupUpdateWorkflowOwnerTests
                 receipt = published;
                 Interlocked.Increment(ref terminalCount);
             };
-            owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
+            owner.FailurePresentationRequested += _ =>
+            {
+                Interlocked.Increment(ref failurePresentationCount);
+                return Task.CompletedTask;
+            };
 
             Assert.IsTrue(owner.Start());
             // 排他を解放する前に実workerとownerの両終端を待つ。
@@ -238,6 +242,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
             {
                 presentedFailure = exception;
                 Interlocked.Increment(ref failurePresentationCount);
+                return Task.CompletedTask;
             };
 
             Assert.IsTrue(owner.Start());
@@ -296,6 +301,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         {
             Assert.AreSame(receiptException, exception);
             Interlocked.Increment(ref presentationCount);
+            return Task.CompletedTask;
         };
 
         Assert.IsTrue(owner.Start());
@@ -341,7 +347,11 @@ public sealed class StartupUpdateWorkflowOwnerTests
             () => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")),
             cleanup: () => throw receiptException,
             schedule: action => ConcurrencyProbe.StartDedicatedAsync(action));
-        owner.FailurePresentationRequested += _ => receiptException.DeferAcknowledge();
+        owner.FailurePresentationRequested += _ =>
+        {
+            receiptException.DeferAcknowledge();
+            return Task.CompletedTask;
+        };
 
         Assert.IsTrue(owner.Start());
         await owner.WaitForIdleAsync();
@@ -604,7 +614,11 @@ public sealed class StartupUpdateWorkflowOwnerTests
             download: asset => throw new InvalidOperationException("download failed"),
             schedule: action => ConcurrencyProbe.StartDedicatedAsync(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
-        owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
+        owner.FailurePresentationRequested += _ =>
+        {
+            Interlocked.Increment(ref failurePresentationCount);
+            return Task.CompletedTask;
+        };
         owner.ApplicationShutdownRequested += () =>
         {
             Interlocked.Increment(ref shutdownCount);
@@ -640,7 +654,11 @@ public sealed class StartupUpdateWorkflowOwnerTests
             schedule: action => worker = ConcurrencyProbe.StartDedicatedAsync(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
         owner.BindShutdownPreparation(_ => Task.FromException<ShutdownPreparationResult>(new InvalidOperationException("shutdown preparation failed")));
-        owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
+        owner.FailurePresentationRequested += _ =>
+        {
+            Interlocked.Increment(ref failurePresentationCount);
+            return Task.CompletedTask;
+        };
         owner.ApplicationShutdownRequested += () =>
         {
             Interlocked.Increment(ref shutdownCount);
@@ -681,7 +699,11 @@ public sealed class StartupUpdateWorkflowOwnerTests
             prepare: packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt()),
             schedule: action => worker = ConcurrencyProbe.StartDedicatedAsync(action));
         owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
-        owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
+        owner.FailurePresentationRequested += _ =>
+        {
+            Interlocked.Increment(ref failurePresentationCount);
+            return Task.CompletedTask;
+        };
         owner.ApplicationShutdownRequested += () =>
         {
             Interlocked.Increment(ref shutdownCount);
@@ -769,6 +791,7 @@ public sealed class StartupUpdateWorkflowOwnerTests
         {
             shutdownPreparationWasObserved = owner.IsShutdownPreparationStarted;
             failurePresentation.TrySetResult(true);
+            return Task.CompletedTask;
         };
         owner.ApplicationShutdownRequested += () =>
         {
@@ -825,7 +848,11 @@ public sealed class StartupUpdateWorkflowOwnerTests
             events.Add("application_shutdown");
             applicationShutdown.TrySetResult(true);
         };
-        owner.FailurePresentationRequested += _ => events.Add("failure_presentation");
+        owner.FailurePresentationRequested += _ =>
+        {
+            events.Add("failure_presentation");
+            return Task.CompletedTask;
+        };
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published =>
         {
@@ -853,7 +880,11 @@ public sealed class StartupUpdateWorkflowOwnerTests
         StartupUpdateWorkflowOwner owner = CreateOwner(
             () => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")),
             schedule: action => throw new InvalidOperationException("scheduler failed"));
-        owner.FailurePresentationRequested += _ => Interlocked.Increment(ref failurePresentationCount);
+        owner.FailurePresentationRequested += _ =>
+        {
+            Interlocked.Increment(ref failurePresentationCount);
+            return Task.CompletedTask;
+        };
         StartupUpdateWorkflowCompletionReceipt receipt = null!;
         owner.TerminalPublished += published => receipt = published;
 
@@ -862,6 +893,151 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Assert.IsTrue(owner.IsIdle);
         Assert.AreEqual(1, failurePresentationCount);
         Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
+    }
+
+    /// <summary>
+    /// 保証：永続した更新失敗の記録は、表示の Task が完了した後にだけ、一度だけ既読にする。
+    /// 表示が未完了の間に既読にして、利用者が見る前に失敗の記録を消す誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task FailurePresentation_PendingPresentationAcknowledgesOnlyAfterItCompletes()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var acknowledged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var warningLogged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int presentationCount = 0;
+        int acknowledgeCount = 0;
+        var receiptException = new UpdateFailureReceiptException(
+            "durable update failure",
+            () =>
+            {
+                Interlocked.Increment(ref acknowledgeCount);
+                acknowledged.TrySetResult(true);
+            });
+        StartupUpdateWorkflowOwner owner = CreateOwner(
+            () => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")),
+            cleanup: () => throw receiptException,
+            schedule: action => ConcurrencyProbe.StartDedicatedAsync(action),
+            logWarning: _ => warningLogged.TrySetResult(true));
+        owner.FailurePresentationRequested += exception =>
+        {
+            Interlocked.Increment(ref presentationCount);
+            return gate.Task;
+        };
+
+        Assert.IsTrue(owner.Start());
+        // 終端は表示を待たずに公開済みです。表示は未完了なので、既読にしません。
+        await WaitForCompletion(owner);
+        Assert.AreEqual(1, Volatile.Read(ref presentationCount));
+        Assert.AreEqual(0, Volatile.Read(ref acknowledgeCount));
+
+        gate.SetResult();
+        Task first = await Task.WhenAny(acknowledged.Task, warningLogged.Task);
+        Assert.AreSame(acknowledged.Task, first, "表示の成功後は、警告ではなく既読化が行われる必要があります。");
+        Assert.AreEqual(1, Volatile.Read(ref acknowledgeCount));
+    }
+
+    /// <summary>
+    /// 保証：表示が同期の例外・失敗した Task・取消済みの Task のいずれで終わっても、既読にせず警告の診断へ残す。
+    /// 表示の失敗を成功へ読み替えて、利用者が見ていない失敗の記録を消す誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("throws")]
+    [DataRow("faulted")]
+    [DataRow("canceled")]
+    public async Task FailurePresentation_FailedPresentationKeepsReceiptAndLogsWarning(string failureForm)
+    {
+        var acknowledged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var warningLogged = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var contextLogged = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int acknowledgeCount = 0;
+        var receiptException = new UpdateFailureReceiptException(
+            "durable update failure",
+            () =>
+            {
+                Interlocked.Increment(ref acknowledgeCount);
+                acknowledged.TrySetResult(true);
+            });
+        StartupUpdateWorkflowOwner owner = CreateOwner(
+            () => Task.FromResult(UpdateCheckResult.NoUpdate("1.0.0.0")),
+            cleanup: () => throw receiptException,
+            schedule: action => ConcurrencyProbe.StartDedicatedAsync(action),
+            logInfo: message =>
+            {
+                if (message.Contains("startup_update failure presentation failed", StringComparison.Ordinal))
+                {
+                    contextLogged.TrySetResult(message);
+                }
+            },
+            logWarning: exception => warningLogged.TrySetResult(exception));
+        owner.FailurePresentationRequested += _ => failureForm switch
+        {
+            "throws" => throw new InvalidOperationException("presentation failed"),
+            "faulted" => Task.FromException(new InvalidOperationException("presentation failed")),
+            _ => Task.FromCanceled(new CancellationToken(canceled: true)),
+        };
+
+        Assert.IsTrue(owner.Start());
+        await WaitForCompletion(owner);
+
+        Task first = await Task.WhenAny(warningLogged.Task, acknowledged.Task);
+        Assert.AreSame(warningLogged.Task, first, "表示の失敗は既読化ではなく警告の診断になる必要があります。");
+        Exception logged = await warningLogged.Task;
+        if (failureForm == "canceled")
+        {
+            Assert.IsInstanceOfType<OperationCanceledException>(logged);
+        }
+        else
+        {
+            Assert.IsInstanceOfType<InvalidOperationException>(logged);
+            Assert.AreEqual("presentation failed", logged.Message);
+        }
+        StringAssert.Contains(await contextLogged.Task, "startup_update failure presentation failed");
+        Assert.AreEqual(0, Volatile.Read(ref acknowledgeCount));
+    }
+
+    /// <summary>
+    /// 保証：未完了の失敗の表示を、終端の公開やアプリ終了の要求の前に待たない。
+    /// 表示の完了を待って、終了を要求する通知を止めてしまう誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task FailurePresentation_PendingPresentationDoesNotDelayTerminalOrApplicationShutdown()
+    {
+        var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var applicationShutdown = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task worker = Task.CompletedTask;
+        int failurePresentationCount = 0;
+        StartupUpdateWorkflowOwner owner = CreateOwner(
+            () => Task.FromResult(CreateAvailableResult()),
+            download: asset => Task.FromResult("package.zip"),
+            prepare: packagePath => new FakePreparedUpdaterLaunch(() => new UpdaterLaunchReceipt()),
+            schedule: action => worker = ConcurrencyProbe.StartDedicatedAsync(action));
+        owner.PresentationRequested += request => request.Complete(CreateAvailableResult().Assets[0]);
+        owner.BindShutdownPreparation(_ => Task.FromException<ShutdownPreparationResult>(new InvalidOperationException("shutdown preparation failed")));
+        owner.FailurePresentationRequested += _ =>
+        {
+            Interlocked.Increment(ref failurePresentationCount);
+            return gate.Task;
+        };
+        owner.ApplicationShutdownRequested += () => applicationShutdown.TrySetResult(true);
+        StartupUpdateWorkflowCompletionReceipt receipt = null!;
+        owner.TerminalPublished += published => receipt = published;
+
+        try
+        {
+            Assert.IsTrue(owner.Start());
+            await WaitForCompletion(owner);
+
+            Assert.AreEqual(1, Volatile.Read(ref failurePresentationCount));
+            Assert.AreEqual(StartupUpdateWorkflowOutcome.Failed, receipt.Outcome);
+            await TestUiDispatcherHost.AwaitNotificationAsync(applicationShutdown.Task, worker, nameof(worker));
+            Assert.IsTrue(applicationShutdown.Task.IsCompleted);
+        }
+        finally
+        {
+            gate.TrySetResult();
+            await worker;
+        }
     }
 
     private static async Task WaitForCompletion(StartupUpdateWorkflowOwner owner)
@@ -876,7 +1052,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
         Action? cleanup = null,
         Action<string>? delete = null,
         Func<Func<Task>, Task>? schedule = null,
-        Action<Action>? dispatch = null)
+        Action<Action>? dispatch = null,
+        Action<string>? logInfo = null,
+        Action<Exception>? logWarning = null)
     {
         return new StartupUpdateWorkflowOwner(
             check,
@@ -885,7 +1063,9 @@ public sealed class StartupUpdateWorkflowOwnerTests
             cleanup ?? (() => { }),
             delete ?? (_ => { }),
             schedule ?? (action => ConcurrencyProbe.StartDedicatedAsync(action)),
-            dispatch ?? (action => action()));
+            dispatch ?? (action => action()),
+            logInfo,
+            logWarning);
     }
 
     private static UpdateCheckResult CreateAvailableResult()

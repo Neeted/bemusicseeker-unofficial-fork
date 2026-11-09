@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.TestSupport.Components;
 
@@ -32,7 +33,11 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
     /// <summary>実DB・正本・表示を接続し、必要な場合だけBMT出力先も有効にします。</summary>
     /// <param name="enableBmtOutput">BMT終端保証のケースで専用台帳と固定出力名を準備する場合はtrue。</param>
     /// <param name="modelUiScheduler">モデル通知の配送境界。省略時のWindows callerは既存Dispatcherを維持します。</param>
-    internal PlaylistPrefixCommitTestFixture(bool enableBmtOutput = false, IUiScheduler? modelUiScheduler = null)
+    /// <param name="playlistWorkspaceDialogService">プロパティ画面の確認など、workspaceが依頼する表示の窓口。省略時は未宣言の要求を検出します。</param>
+    internal PlaylistPrefixCommitTestFixture(
+        bool enableBmtOutput = false,
+        IUiScheduler? modelUiScheduler = null,
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         try
         {
@@ -86,7 +91,8 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
             Playlist.CommitBMSTableWithEntriesToDB(Table);
             Service = new PlaylistPropertySaveService(() => Playlist, () => Library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
             Workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
-                playlistLibraryProvider: () => Library, propertySaveService: Service, dispatchPresentation: action => action());
+                playlistLibraryProvider: () => Library, propertySaveService: Service, dispatchPresentation: action => action(),
+                playlistWorkspaceDialogService: playlistWorkspaceDialogService);
 
             Workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             Workspace.PlaylistSyncProgressChanged += (_, _) => { };

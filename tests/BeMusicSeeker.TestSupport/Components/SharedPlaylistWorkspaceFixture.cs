@@ -37,7 +37,8 @@ internal static class SharedPlaylistWorkspaceFixture
         Action<Uri>? browserOpenSink = null,
         PlaylistPropertySaveService? propertySaveService = null,
         IUiDialogService? playlistWorkspaceDialogService = null,
-        Action<string>? detailRetentionLog = null)
+        Action<string>? detailRetentionLog = null,
+        Action<Exception, string>? beatorajaTableUrlImportWarningLog = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             dispatchPresentation ?? (action => action()),
@@ -54,7 +55,7 @@ internal static class SharedPlaylistWorkspaceFixture
             browserOpenSink ?? PlaylistWorkspaceFixturePorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceFixturePorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceFixturePorts.ExternalPlaylistImportInfoLog,
-            PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
+            beatorajaTableUrlImportWarningLog ?? PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceFixturePorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceFixturePorts.PlaylistSummaryColumnSettingsStore,
                 playlistSummaryBmtSort ?? PlaylistWorkspaceFixturePorts.PlaylistSummaryBmtSortCoordinator,

@@ -23,8 +23,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> PlaylistPropertyValidationError;
 
-    internal event EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> PlaylistPropertyExternalSyncConfirmationRequested;
-
     internal event EventHandler PlaylistPropertyInvalidOutputDirectoryRequested;
 
     internal event EventHandler<PlaylistPropertyExternalSyncFailedEventArgs> PlaylistPropertyExternalSyncFailed;
@@ -55,16 +53,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             PlaylistPropertyValidationError,
             request,
             nameof(PlaylistPropertyValidationError));
-    }
-
-    private void ForwardPlaylistPropertyExternalSyncConfirmationRequested(
-        object sender,
-        PlaylistPropertyExternalSyncConfirmationRequestedEventArgs request)
-    {
-        RaiseRequiredEvent(
-            PlaylistPropertyExternalSyncConfirmationRequested,
-            request,
-            nameof(PlaylistPropertyExternalSyncConfirmationRequested));
     }
 
     private void ForwardPlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
@@ -341,7 +329,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         try
         {
             ActivePropertyDialog?.Dispose();
-            ActivePropertyDialog = new PlaylistPropertyDialogViewModel(service, editSession, WaitForDetailEntryDeliveryAsync);
+            ActivePropertyDialog = new PlaylistPropertyDialogViewModel(service, editSession, playlistWorkspaceDialogService, WaitForDetailEntryDeliveryAsync);
             return ActivePropertyDialog;
         }
         catch

@@ -2565,7 +2565,13 @@ public sealed class SettingDialogEditCompletionTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            using var fixture = new StartupCompletionTestFixture.CompletionFixture(lifetime: TestApplicationContext.CreateLifetime(firstStartup: false));
+            // beatoraja の確認・通知・要約は、設定の窓口(fixture.Dialogs)とは別の、プレイリスト作業領域の窓口へ届く。
+            var playlistDialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(outcome == "cancel" ? MessageBoxResult.Cancel : MessageBoxResult.OK)
+            };
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(
+                lifetime: TestApplicationContext.CreateLifetime(firstStartup: false), playlistWorkspaceDialogService: playlistDialogs);
             string root = fixture.Settings.BMSRootPath;
             string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
             string candidate = Directory.CreateDirectory(Path.Combine(root, "candidate-beatoraja")).FullName;
@@ -2582,19 +2588,19 @@ public sealed class SettingDialogEditCompletionTests
             fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Playlist.BMSTables.Last());
             SettingsDialogViewModel settings = fixture.Owner.SettingDialog;
             fixture.Dialogs.ConfirmationResult = outcome == "cancel" ? MessageBoxResult.Cancel : MessageBoxResult.Yes;
-            int confirmations = 0;
-            fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += (_, request) => { confirmations++; StringAssert.Contains(request.Message, Resources.FilePath_beatoraja_root); request.Confirmed = outcome != "cancel"; };
+            // 要約の表示は未完了の Task で止める。ワーカーのスレッドを同期で止めず、返す Task が表示の終端まで完了しないことを観測する。
             var summaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            using var release = new System.Threading.ManualResetEventSlim();
-            BeatorajaTableUrlImportSummary? summary = null;
-            fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += (_, request) =>
+            var release = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            playlistDialogs.MessageTaskFactory = request =>
             {
-                summary = request.Summary;
+                if (request.Caption != Resources.Beatoraja_table_url_import_result_title)
+                {
+                    return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                }
                 summaryEntered.TrySetResult();
-                release.Wait();
+                return release.Task;
             };
-            var notices = new List<string>();
-            fixture.Owner.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += (_, request) => notices.Add(request.Message);
+            int confirmations() => playlistDialogs.ConfirmationRequests.Count;
             var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings, PlaylistWorkspace = fixture.Owner.PlaylistWorkspace };
             IDisposable? held = null;
             Task? terminal = null;
@@ -2620,18 +2626,37 @@ public sealed class SettingDialogEditCompletionTests
                     Assert.IsFalse(settings.CanCancelBmtSettings);
                     Assert.AreSame(terminal, settings.SettingsOperationCompletionTask);
                     Assert.IsFalse(terminal.IsCompleted);
-                    Assert.AreEqual(1, confirmations);
+                    Assert.AreEqual(1, confirmations());
                     Assert.IsFalse(terminal.IsCompleted);
                     Assert.IsTrue(settings.IsEditCancellationEnabled, "通知未終端でも通常Closeは同じTaskを保持したまま許可します。");
                     button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                    Assert.AreEqual(1, confirmations);
-                    Assert.IsNotNull(summary);
-                    Assert.AreEqual(1, summary.Outcomes.Count);
-                    Assert.AreEqual(BeatorajaTableUrlImportOutcomeKind.Existing, summary.Outcomes[0].Kind);
+                    Assert.AreEqual(1, confirmations());
+                    // 要約は既存の表一件の結果（既存一件、他は零）の本文で、窓口へ一件だけ届いている。
+                    UiMessageRequest summaryRequest = playlistDialogs.MessageRequests.Single();
+                    Assert.AreEqual(Resources.Beatoraja_table_url_import_result_title, summaryRequest.Caption);
+                    Assert.AreEqual(string.Format(Resources.Beatoraja_table_url_import_result_summary_format, 1, 0, 0, 0, 0), summaryRequest.MessageBoxText);
+                    Assert.AreEqual(MessageBoxImage.Information, summaryRequest.Icon);
+                    Assert.IsNull(summaryRequest.Owner);
                 }
-                release.Set();
+                release.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "table URL actual terminal");
-                Assert.AreEqual(1, confirmations);
+                Assert.AreEqual(1, confirmations());
+                StringAssert.Contains(playlistDialogs.ConfirmationRequests.Single().MessageBoxText, Resources.FilePath_beatoraja_root);
+                switch (outcome)
+                {
+                    case "cancel":
+                        Assert.AreEqual(0, playlistDialogs.MessageRequests.Count, "取消では通知を出さない。");
+                        break;
+                    case "busy":
+                        UiMessageRequest busy = playlistDialogs.MessageRequests.Single();
+                        Assert.AreEqual(Resources.Warn_LibraryOperationBusy, busy.MessageBoxText);
+                        Assert.AreEqual(Resources.Warning, busy.Caption);
+                        Assert.AreEqual(MessageBoxImage.Exclamation, busy.Icon);
+                        break;
+                    default:
+                        Assert.AreEqual(1, playlistDialogs.MessageRequests.Count, "受理した取込みは要約だけを一件出す。");
+                        break;
+                }
                 if (outcome != "accepted")
                 {
                     Assert.AreEqual(candidate, settings.BeatorajaRootPath);
@@ -2643,11 +2668,11 @@ public sealed class SettingDialogEditCompletionTests
                 Assert.AreEqual(beatoraja, fixture.Settings.BeatorajaRootPath);
                 held?.Dispose(); held = null;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(1, confirmations);
+                Assert.AreEqual(1, confirmations());
             }
             finally
             {
-                release.Set(); held?.Dispose();
+                release.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); held?.Dispose();
                 if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "table URL cleanup"); }
                 window.CloseForOwnerShutdown();
             }

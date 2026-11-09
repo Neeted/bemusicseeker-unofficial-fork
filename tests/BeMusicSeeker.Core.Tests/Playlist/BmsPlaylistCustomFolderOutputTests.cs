@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
 using System.Text;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -11,6 +12,7 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Util.Extensions;
 using static BeMusicSeeker.TestSupport.Components.BmsPlaylistTestSupport;
 using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
@@ -1383,7 +1385,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
-            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            dialog = new PlaylistPropertyDialogViewModel(service, session, UndeclaredDialogs.Create())
             {
                 symbol = "NEW"
             };
@@ -1479,7 +1481,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             service.PlaylistPropertyEntriesChanged += (_, _) => { };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
-            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            dialog = new PlaylistPropertyDialogViewModel(service, session, UndeclaredDialogs.Create())
             {
                 compat_prefix = "★"
             };
@@ -1566,7 +1568,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
-            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            dialog = new PlaylistPropertyDialogViewModel(service, session, UndeclaredDialogs.Create())
             {
                 compat_prefix = "★"
             };
@@ -1651,7 +1653,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             service.PlaylistPropertyEntriesChanged += (_, _) => { };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
-            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            dialog = new PlaylistPropertyDialogViewModel(service, session, UndeclaredDialogs.Create())
             {
                 compat_prefix = "★"
             };
@@ -1722,10 +1724,13 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 () => null!,
                 () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
             bool failConfirmation = true;
-            service.ExternalSyncConfirmationRequested += (_, request) =>
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
             {
-                if (failConfirmation) { throw new IOException("confirmation unavailable"); }
-                request.Confirmed = true;
+                ConfirmationTaskFactory = _ =>
+                {
+                    if (failConfirmation) { throw new IOException("confirmation unavailable"); }
+                    return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                }
             };
             int bmtNotifications = 0;
             playlist.BmtOutput.RequestProgressReporter = (_, _) =>
@@ -1767,12 +1772,18 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
-            dialog = new PlaylistPropertyDialogViewModel(service, session);
-            Assert.ThrowsExactly<IOException>(() => dialog.is_external_sync = true);
+            dialog = new PlaylistPropertyDialogViewModel(service, session, dialogs);
+            // 確認の表示の失敗は、承認にも取消にも読み替えず、setter から例外を出さない（bindingへ漏らさない）。値と表は変えず、通知は一件だけ出す。
+            dialog.is_external_sync = true;
             Assert.IsFalse(dialog.is_external_sync);
             Assert.IsFalse(table.is_external_sync);
+            Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+            Assert.AreEqual(1, dialogs.MessageRequests.Count);
+            Assert.AreEqual(Resources.Error, dialogs.MessageRequests[0].Caption);
+            Assert.AreEqual(MessageBoxImage.Hand, dialogs.MessageRequests[0].Icon);
             failConfirmation = false;
             dialog.is_external_sync = true;
+            Assert.AreEqual(2, dialogs.ConfirmationRequests.Count, "失敗の後の切替えは新しい確認を出す。");
 
             Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
             Assert.AreEqual(0, activeSyncOperationCount);
@@ -1844,7 +1855,10 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             string failedHeader = Path.Combine(directory, "failed-header.json");
             File.WriteAllText(failedHeader, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"bad%00-data.json\"}");
             var service = new PlaylistPropertySaveService(() => playlist, () => library, () => null, () => output);
-            service.ExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
             service.PlaylistPropertySyncStarted += (_, _) => { };
             service.PlaylistPropertySyncProgressChanged += (_, _) => { };
             service.PlaylistPropertySyncFinished += (_, _) => { };
@@ -1864,11 +1878,12 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             };
             PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
                 ?? throw new AssertFailedException("Playlist edit session was not created.");
-            dialog = new PlaylistPropertyDialogViewModel(service, session);
+            dialog = new PlaylistPropertyDialogViewModel(service, session, dialogs);
             dialog.symbol = "Saved";
             dialog.is_external_sync = false;
             dialog.Header_url = new Uri(failedHeader);
             dialog.is_external_sync = true;
+            Assert.AreEqual(2, dialogs.ConfirmationRequests.Count, "無効化と再有効化の切替えごとに確認が一件ずつ届く。");
             await Assert.ThrowsExactlyAsync<ArgumentException>(() => dialog.SaveAndApplyAsync());
             Assert.IsNotNull(reportedFailure);
             Assert.IsInstanceOfType<ArgumentException>(reportedFailure.Exception);

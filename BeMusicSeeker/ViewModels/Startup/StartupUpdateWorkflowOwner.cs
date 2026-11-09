@@ -149,7 +149,8 @@ internal sealed class StartupUpdateWorkflowOwner
 
     internal event Action<StartupUpdatePresentationRequest> PresentationRequested;
 
-    internal event Action<Exception> FailurePresentationRequested;
+    /// <summary>更新の失敗の表示を要求します。受け手は表示の完了で終わる Task を返し、既読化は表示が成功した後にだけ行います。</summary>
+    internal event Func<Exception, Task> FailurePresentationRequested;
 
     internal event Action ApplicationShutdownRequested;
 
@@ -525,29 +526,36 @@ internal sealed class StartupUpdateWorkflowOwner
         return await preparation.ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 失敗の表示を UI へ依頼します。表示の要求は UI へ渡した処理の中で最初の await より前に行い、
+    /// 表示の完了は待たずに、終端の公開と終了の要求の順を保ちます。
+    /// </summary>
     private void RequestFailurePresentation(Exception exception)
     {
-        DispatchToUi(() =>
+        DispatchToUi(() => _ = PresentFailureAsync(exception));
+    }
+
+    /// <summary>表示が成功した後にだけ、永続した失敗の記録を既読にします。表示の失敗は診断へ残し、既読にしません。戻り値の Task は失敗しません。</summary>
+    private async Task PresentFailureAsync(Exception exception)
+    {
+        Func<Exception, Task> presenter = FailurePresentationRequested;
+        if (presenter == null)
         {
-            Action<Exception> presenter = FailurePresentationRequested;
-            if (presenter == null)
+            return;
+        }
+        try
+        {
+            await (presenter(exception) ?? throw new InvalidOperationException("Startup update failure presentation returned no task."));
+            if (exception is UpdateFailureReceiptException receipt
+                && receipt.ShouldAcknowledgeAfterPresentation)
             {
-                return;
+                receipt.Acknowledge();
             }
-            try
-            {
-                presenter(exception);
-                if (exception is UpdateFailureReceiptException receipt
-                    && receipt.ShouldAcknowledgeAfterPresentation)
-                {
-                    receipt.Acknowledge();
-                }
-            }
-            catch (Exception notificationException)
-            {
-                LogWarningSafely(notificationException, "startup_update failure presentation failed");
-            }
-        });
+        }
+        catch (Exception notificationException)
+        {
+            LogWarningSafely(notificationException, "startup_update failure presentation failed");
+        }
     }
 
     private void RequestApplicationShutdown()

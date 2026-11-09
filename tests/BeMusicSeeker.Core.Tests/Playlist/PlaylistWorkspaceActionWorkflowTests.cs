@@ -186,8 +186,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         PlaylistWorkspaceViewModel? current = null;
         bool gate = false;
         long ownGeneration = 0;
+        PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs = CreateConfirmingDialogs();
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
             playlistLibraryProvider: () => fixture.Library, propertySaveService: new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () => new CustomFolderOutputSettingsSnapshot()),
+            playlistWorkspaceDialogService: dialogs,
             presentationRefreshDeferredProvider: request =>
             {
                 // 保存自身のplaylist_entries_updated要求の受付時点のデータ世代を記録します。受付で現在世代が進みます。
@@ -208,12 +210,13 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         current = workspace;
         workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.PlaylistSyncProgressChanged += (_, _) => { };
-        workspace.PlaylistPropertyExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RebuildPlaylistSummaryView(runAsync: false);
         await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
         using PlaylistPropertyDialogViewModel dialog = await workspace.OpenPropertyDialogAsync(fixture.Table) ?? throw new AssertFailedException();
         dialog.is_external_sync = true;
+        Assert.AreEqual(1, dialogs.ConfirmationRequests.Count, "切替えの確認は一件だけ窓口へ届く。");
+        Assert.IsTrue(dialog.is_external_sync, "承認された切替えは、完了済みの確認では設定の直後に確定する。");
         gate = true;
         Task<PlaylistPropertyDialogOperationResult> saving = dialog.SaveAndApplyAsync();
         try
@@ -258,8 +261,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         int independentIssued = 0;
         int gated = 0;
         PlaylistWorkspaceViewModel? current = null;
+        PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs = CreateConfirmingDialogs();
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
             playlistLibraryProvider: () => fixture.Library, propertySaveService: new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => null!, () => new CustomFolderOutputSettingsSnapshot()),
+            playlistWorkspaceDialogService: dialogs,
             presentationRefreshDeferredProvider: request =>
             {
                 // 保存自身の一覧要求の受付時点のデータ世代を記録します。受付で現在世代が進むため、これより大きい世代の採用は受付後に始まった構築だけです。
@@ -281,12 +286,13 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         current = workspace;
         workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.PlaylistSyncProgressChanged += (_, _) => { };
-        workspace.PlaylistPropertyExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RebuildPlaylistSummaryView(runAsync: false);
         await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
         using PlaylistPropertyDialogViewModel dialog = await workspace.OpenPropertyDialogAsync(fixture.Table) ?? throw new AssertFailedException();
         dialog.is_external_sync = true;
+        Assert.AreEqual(1, dialogs.ConfirmationRequests.Count, "切替えの確認は一件だけ窓口へ届く。");
+        Assert.IsTrue(dialog.is_external_sync, "承認された切替えは、完了済みの確認では設定の直後に確定する。");
         Task<PlaylistPropertyDialogOperationResult> saving = dialog.SaveAndApplyAsync();
         try
         {
@@ -2178,7 +2184,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             session.Values.Name = " " + corrected + " ";
             Assert.IsTrue(service.IsValid(session, session.Values));
             Assert.AreEqual(" " + corrected + " ", session.Values.Name, "追加した検査は生入力を正規化しません。");
-            using var dialog = new PlaylistPropertyDialogViewModel(service, session);
+            using var dialog = new PlaylistPropertyDialogViewModel(service, session, UndeclaredDialogs.Create());
             dialog.name = "\u3000";
             Assert.IsFalse(dialog.CheckValidation());
             Assert.AreEqual(PlaylistPropertyDialogOperationResult.ValidationFailed, await dialog.SaveAndApplyAsync());
@@ -2317,12 +2323,20 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         if (condition is "clear-header" or "clear-both" or "off-clear-on") { values.HeaderUrl = null; }
         if (condition is "clear-data" or "clear-both") { values.DataUrl = null; }
         Uri? expectedSource = values.PageUrl ?? values.HeaderUrl;
-        fixture.Workspace.PlaylistPropertyExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
+        PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService draftDialogs = CreateConfirmingDialogs();
         bool finalSync = values.IsExternalSync;
         values.IsExternalSync = session.OriginalValues.IsExternalSync;
-        using var draft = new PlaylistPropertyDialogViewModel(fixture.Service, session);
-        if (condition == "off-clear-on") { draft.is_external_sync = false; }
+        using var draft = new PlaylistPropertyDialogViewModel(fixture.Service, session, draftDialogs);
+        int expectedConfirmations = 0;
+        bool shown = session.OriginalValues.IsExternalSync;
+        if (condition == "off-clear-on")
+        {
+            draft.is_external_sync = false;
+            if (shown) { expectedConfirmations++; shown = false; }
+        }
         draft.is_external_sync = finalSync;
+        if (shown != finalSync) { expectedConfirmations++; }
+        Assert.AreEqual(expectedConfirmations, draftDialogs.ConfirmationRequests.Count, "確認は、値が実際に変わる切替えの回数だけ窓口へ届く。");
         Assert.AreEqual(finalSync, draft.is_external_sync);
         int starts = 0;
         fixture.Service.PlaylistPropertySyncStarted += (_, _) => starts++;
@@ -2380,7 +2394,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         PlaylistPropertyValidationError? reported = null;
         fixture.Workspace.PlaylistPropertyValidationError += (_, request) => reported = request.Error;
         using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table) ?? throw new AssertFailedException();
-        using var dialog = new PlaylistPropertyDialogViewModel(fixture.Service, session);
+        using var dialog = new PlaylistPropertyDialogViewModel(fixture.Service, session, UndeclaredDialogs.Create());
         dialog.output_dir = @"Legacy\Name";
         Assert.AreEqual(PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName, reported);
         Assert.AreEqual("LegacyName", dialog.output_dir);
@@ -2859,7 +2873,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             {
                 foreach (string path in sentinels) { db.Insert(new LR2SongDB.folder { path = path, title = "sentinel", type = 2 }); }
             }
-            workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library, () => output, () => owner);
+            PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService draftDialogs = CreateConfirmingDialogs();
+            workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library, () => output, () => owner, playlistWorkspaceDialogService: draftDialogs);
             dialog = await workspace.CreatePlaylistPropertyDialogAsync() ?? throw new AssertFailedException("Draft dialog was not created.");
             Assert.AreEqual(1, playlist.BMSTables.Count, "画面準備でdraftを登録しません。");
             dialog.name = "First output";
@@ -2873,12 +2888,12 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 string header = Path.Combine(directory, "header.json");
                 File.WriteAllText(header, "{\"name\":\"First output\",\"symbol\":\"F\",\"data_url\":\"data.json\"}");
                 File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"First song\",\"level\":\"1\"}]");
-                workspace.PlaylistPropertyExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
                 dialog.Page_url = new Uri(header);
                 dialog.Header_url = new Uri(header);
                 dialog.Data_url = new Uri(Path.Combine(directory, "data.json"));
                 dialog.is_external_sync = true;
                 Assert.IsTrue(dialog.is_external_sync);
+                Assert.AreEqual(1, draftDialogs.ConfirmationRequests.Count, "切替えの確認は一件だけ窓口へ届く。");
             }
             if (failure == "output")
             {
@@ -3736,6 +3751,139 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         {
             Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
         }
+    }
+
+    private static PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService CreateConfirmingDialogs(MessageBoxResult answer = MessageBoxResult.OK)
+        => new() { ConfirmationResult = UiDialogResult.FromMessageBoxResult(answer) };
+
+    /// <summary>
+    /// 確認が未完了の間は、外部同期の値を確定せず、確認中の再切替えでも新しい確認を出さない。保存は確認の終端を待ってから、確定した値で保存する。
+    /// 承認なら承認後の値を、取消なら変更前の値をDBへ確定する。確認中に値を確定する誤り、確認を重ねる誤り、
+    /// 確認中に受付を取得して保存する誤り、確認の終端を待たず古い値で保存する誤りを検出する。本番の窓口は完了済みのTaskを返すため、挙動は従来と同じである。
+    /// </summary>
+    [TestMethod]
+    [DataRow(MessageBoxResult.OK)]
+    [DataRow(MessageBoxResult.Cancel)]
+    public async Task PlaylistPropertyDialog_PendingExternalSyncConfirmation_DoesNotCommitAndSaveWaitsForItsEnd(MessageBoxResult answer)
+    {
+        var gate = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs = CreateConfirmingDialogs();
+        dialogs.ConfirmationTaskFactory = _ => gate.Task;
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: dialogs);
+        using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(fixture.Table) ?? throw new AssertFailedException();
+        int syncChanges = 0;
+        dialog.PropertyChanged += (_, args) => { if (args.PropertyName == "is_external_sync") { syncChanges++; } };
+        Task<PlaylistPropertyDialogOperationResult>? saving = null;
+        try
+        {
+            dialog.is_external_sync = true;
+
+            Assert.IsFalse(dialog.is_external_sync, "確認中は値を確定しない。");
+            Assert.IsTrue(syncChanges >= 1, "旧値を表す変更通知で表示を戻す。");
+            Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+            UiConfirmationRequest request = dialogs.ConfirmationRequests[0];
+            Assert.AreEqual(Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges, request.MessageBoxText);
+            Assert.AreEqual(Resources.Warning, request.Caption);
+            Assert.AreEqual(MessageBoxButton.OKCancel, request.Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+            Assert.AreEqual(MessageBoxResult.None, request.DefaultResult);
+            Assert.IsNull(request.Owner);
+
+            int changesBeforeSecondToggle = syncChanges;
+            dialog.is_external_sync = true;
+            Assert.AreEqual(1, dialogs.ConfirmationRequests.Count, "確認中の再切替えは新しい確認を出さない。");
+            Assert.IsTrue(syncChanges > changesBeforeSecondToggle, "確認中の再切替えは表示を戻す通知を出す。");
+            Assert.IsFalse(dialog.is_external_sync);
+
+            saving = dialog.SaveAndApplyAsync();
+            Assert.IsFalse(saving.IsCompleted, "保存は確認の終端を待つ。");
+            Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable? admission), "確認を待つ間は受付を保持しない。");
+            admission.Dispose();
+            AssertSavedExternalSync(fixture, false);
+        }
+        finally
+        {
+            gate.TrySetResult(UiDialogResult.FromMessageBoxResult(answer));
+        }
+
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await saving);
+        bool expected = answer == MessageBoxResult.OK;
+        Assert.AreEqual(expected, dialog.is_external_sync);
+        AssertSavedExternalSync(fixture, expected);
+        Assert.AreEqual(1, dialogs.ConfirmationRequests.Count);
+    }
+
+    /// <summary>
+    /// 確認中の初期化は、保存と同じく確認の終端を待ってから、初期値へ戻す。
+    /// 初期化が先に終わった後に、遅れた承認が値を適用して初期化の結果を覆す誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistPropertyDialog_PendingExternalSyncConfirmation_ResetWaitsForItsEnd()
+    {
+        var gate = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs = CreateConfirmingDialogs();
+        dialogs.ConfirmationTaskFactory = _ => gate.Task;
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: dialogs);
+        using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(fixture.Table) ?? throw new AssertFailedException();
+        Task<PlaylistPropertyDialogOperationResult>? resetting = null;
+        try
+        {
+            dialog.is_external_sync = true;
+            resetting = dialog.ResetPropertiesAsync();
+            Assert.IsFalse(resetting.IsCompleted, "初期化は確認の終端を待つ。");
+        }
+        finally
+        {
+            gate.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await resetting);
+        Assert.IsFalse(dialog.is_external_sync, "初期化の結果が、遅れて適用された承認に覆されない。");
+    }
+
+    /// <summary>
+    /// 確認の表示が失敗（失敗結果・失敗したTask・同期の例外）しても、setterは例外を出さず、値を変えない。
+    /// 所有する入口として Error の通知を一件だけ出し、確認中の状態は解除して、次の切替えでは新しい確認を出す。
+    /// 失敗を承認や取消とみなす誤りと、例外をbindingへ漏らす誤り、確認中の状態が残って次の切替えを塞ぐ誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("failed")]
+    [DataRow("faulted")]
+    [DataRow("throws")]
+    public async Task PlaylistPropertyDialog_ExternalSyncConfirmationDisplayFailure_KeepsValueNotifiesOnceAndAllowsRetry(string form)
+    {
+        var sentinel = new InvalidOperationException("confirmation display failed");
+        PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs = CreateConfirmingDialogs();
+        dialogs.ConfirmationTaskFactory = form switch
+        {
+            "failed" => _ => Task.FromResult(UiDialogResult.Failed(sentinel)),
+            "faulted" => _ => Task.FromException<UiDialogResult>(sentinel),
+            _ => _ => throw sentinel,
+        };
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: dialogs);
+        using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(fixture.Table) ?? throw new AssertFailedException();
+
+        dialog.is_external_sync = true;
+
+        Assert.IsFalse(dialog.is_external_sync, "表示の失敗では値を変えない。");
+        AssertSavedExternalSync(fixture, false);
+        Assert.AreEqual(1, dialogs.MessageRequests.Count, "所有する入口が Error の通知を一件だけ出す。");
+        UiMessageRequest notice = dialogs.MessageRequests[0];
+        Assert.AreEqual(Resources.Error, notice.Caption);
+        Assert.AreEqual(MessageBoxImage.Hand, notice.Icon);
+        Assert.IsNull(notice.Owner);
+
+        dialogs.ConfirmationTaskFactory = null;
+        dialog.is_external_sync = true;
+
+        Assert.AreEqual(2, dialogs.ConfirmationRequests.Count, "確認中の状態は解除され、次の切替えでは新しい確認を出す。");
+        Assert.IsTrue(dialog.is_external_sync);
+    }
+
+    private static void AssertSavedExternalSync(PlaylistPrefixCommitTestFixture fixture, bool expected)
+    {
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(expected, db.Table<BMSTable>().Single().is_external_sync, "DBへ確定した外部同期の値");
     }
 
 }

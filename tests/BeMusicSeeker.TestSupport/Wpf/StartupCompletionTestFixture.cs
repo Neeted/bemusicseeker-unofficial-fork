@@ -158,9 +158,11 @@ internal static class StartupCompletionTestFixture
         /// <summary>専用設定・DB・既存構成で起動と処理終端を準備します。</summary>
         /// <param name="ownHttpSettings">HTTP利用時は設定もfixtureのdirectoryで所有し、未終端時にAssemblyCleanupで削除されないようにします。</param>
         /// <param name="rootFileEnumerator">実LR2同期にも使う列挙境界。省略時は既存ケースの未接続Everything入力を維持します。</param>
+        /// <param name="playlistWorkspaceDialogService">プレイリスト作業領域の確認・通知の窓口。設定の窓口とは別の実体を渡して、件数を混ぜずに観測します。省略時は未宣言の要求を検出する共通の窓口を使います。</param>
         internal CompletionFixture(IStartupLibraryInitializationFailurePresenter? failurePresenter = null,
             Func<IBMSPlayer>? defaultPlayer = null, bool lr2Mode = false, IApplicationLifetimePort? lifetime = null,
-            Action<Exception>? settingsFailureReporter = null, Func<Settings, ISettingsEditSession>? settingsSessionFactory = null, bool isolateSortWarmup = false, IRootFileEnumerator? rootFileEnumerator = null, bool ownHttpSettings = false)
+            Action<Exception>? settingsFailureReporter = null, Func<Settings, ISettingsEditSession>? settingsSessionFactory = null, bool isolateSortWarmup = false, IRootFileEnumerator? rootFileEnumerator = null, bool ownHttpSettings = false,
+            IUiDialogService? playlistWorkspaceDialogService = null)
         {
             directory = Path.Combine(ownedWorkspace.RootDirectory, "StartupCompletion-" + Guid.NewGuid().ToString("N"));
             this.isolateSortWarmup = isolateSortWarmup;
@@ -221,7 +223,8 @@ internal static class StartupCompletionTestFixture
                 uiScheduler: Ui, applicationLifetime: Lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(path), fileDbMutationDialogService: Dialogs, settingsDialogService: Dialogs,
                 defaultBmsPlayerFactory: defaultPlayer,
-                dialogService: UndeclaredDialogs.Create());
+                dialogService: UndeclaredDialogs.Create(),
+                playlistWorkspaceDialogService: playlistWorkspaceDialogService);
             StartupLibraryConstructionTestSupport.CreateSongDatabase(Composition.DatabaseScope, songDb);
             new BmsLibraryDbGateway(Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).EnsureAppOwnedSchema();
             PlaylistPersistenceRepository.EnsureSchema(Composition.DatabaseScope, songDb);

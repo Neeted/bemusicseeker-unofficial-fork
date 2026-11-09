@@ -670,7 +670,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Subscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
         viewModel.PlaylistWorkspace.PlaylistPropertyValidationError += MainWindow_PlaylistPropertyValidationError;
-        viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
         viewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
         viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += MainWindow_PlaylistPropertyExternalSyncFailed;
         viewModel.PlaylistWorkspace.MutationRejected += MainWindow_PlaylistWorkspaceMutationRejected;
@@ -679,9 +678,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         viewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
         viewModel.PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
         viewModel.PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
-        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
-        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
-        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         viewModel.PlaylistWorkspace.PlaylistLampNavigationRequested += MainWindow_PlaylistLampNavigationRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
@@ -708,7 +704,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Unsubscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyValidationError -= MainWindow_PlaylistPropertyValidationError;
-        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested -= MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested -= MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed -= MainWindow_PlaylistPropertyExternalSyncFailed;
         subscribedViewModel.PlaylistWorkspace.MutationRejected -= MainWindow_PlaylistWorkspaceMutationRejected;
@@ -717,9 +712,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         subscribedViewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested -= MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
         subscribedViewModel.PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady -= MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
         subscribedViewModel.PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed -= MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
-        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
-        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
-        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         subscribedViewModel.PlaylistWorkspace.PlaylistLampNavigationRequested -= MainWindow_PlaylistLampNavigationRequested;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
@@ -840,19 +832,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         ThrowIfUiDialogNotShown(result, routeName);
     }
 
-    /// <summary>
-    /// 構成の共通の窓口で、シェルの同期通知を表示します。同期の条件は
-    /// <see cref="ShowPlaylistWorkspaceUiMessage(UiMessageRequest, string)"/> と同じです。
-    /// </summary>
-    private void ShowShellUiMessage(UiMessageRequest request, string routeName)
-    {
-        UiDialogResult result = dialogService
-            .ShowMessageAsync(request)
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfUiDialogNotShown(result, routeName);
-    }
-
     private void MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested(
         object sender,
         PlaylistRemovalInvalidOutputDirectoryEventArgs request)
@@ -895,118 +874,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             BeMusicSeeker.Properties.Resources.Warning,
             MessageBoxImage.Exclamation,
             "external playlist import summary refresh failure notification");
-    }
-
-    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested(
-        object sender,
-        BeatorajaTableUrlImportConfirmationRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        request.Confirmed = ConfirmPlaylistWorkspaceUi(
-            request.Message,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxImage.Question,
-            MessageBoxButton.OKCancel,
-            "beatoraja Table URL import confirmation");
-    }
-
-    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested(
-        object sender,
-        BeatorajaTableUrlImportNotificationRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        MessageBoxImage icon = request.Kind switch
-        {
-            BeatorajaTableUrlImportNotificationKind.Information => MessageBoxImage.Information,
-            BeatorajaTableUrlImportNotificationKind.Warning => MessageBoxImage.Exclamation,
-            BeatorajaTableUrlImportNotificationKind.Error => MessageBoxImage.Hand,
-            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
-        };
-        ShowPlaylistWorkspaceOwnerResolvedUiMessage(request.Message, request.Caption, icon, request.RouteName);
-    }
-
-    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady(
-        object sender,
-        BeatorajaTableUrlImportSummaryReadyEventArgs request)
-    {
-        ShowBeatorajaTableUrlImportSummary(request?.Summary);
-    }
-
-    /// <summary>プレイリスト作業領域の確認を、構成が渡した窓口で同期表示します。owner は窓口の解決に任せます。</summary>
-    private bool ConfirmPlaylistWorkspaceUi(
-        string messageBoxText,
-        string caption,
-        MessageBoxImage icon,
-        MessageBoxButton button,
-        string routeName)
-    {
-        UiDialogResult result = playlistWorkspaceDialogService
-            .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon))
-            .GetAwaiter()
-            .GetResult();
-        if (result == null)
-        {
-            throw new InvalidOperationException(routeName + " failed: no result");
-        }
-        return result.Status switch
-        {
-            UiDialogStatus.Accepted => true,
-            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
-            _ => throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Exception)
-        };
-    }
-
-    private void ShowBeatorajaTableUrlImportSummary(BeatorajaTableUrlImportSummary summary)
-    {
-        if (summary == null)
-        {
-            return;
-        }
-        var message = new StringBuilder();
-        message.AppendFormat(
-            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_summary_format,
-            summary.ExistingCount,
-            summary.ImportedCount,
-            summary.RestoredFromBmtCount,
-            summary.FailedCount,
-            summary.WarningCount);
-        AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_warning_header, summary.WarningOutcomes);
-        AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_failed_header, summary.FailedOutcomes);
-        ShowPlaylistWorkspaceOwnerResolvedUiMessage(
-            message.ToString(),
-            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_title,
-            summary.FailedCount > 0 || summary.WarningCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
-            "beatoraja Table URL import summary");
-    }
-
-    private static void AppendBeatorajaTableUrlImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<BeatorajaTableUrlImportOutcome> outcomes)
-    {
-        const int maxSamples = 5;
-        if (message == null || outcomes == null || outcomes.Count == 0)
-        {
-            return;
-        }
-        message.AppendLine();
-        message.AppendLine();
-        message.AppendLine(header);
-        foreach (BeatorajaTableUrlImportOutcome outcome in outcomes.Take(maxSamples))
-        {
-            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? outcome.RawUrl ?? string.Empty);
-            message.AppendLine(outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message)
-                ? "- " + nameOrUri + " (" + outcome.Exception.Message + ")"
-                : "- " + nameOrUri);
-        }
-        if (outcomes.Count > maxSamples)
-        {
-            message.AppendLine("- ...");
-        }
     }
 
     private async Task ShowExternalPlaylistImportQueueSummaryAsync(ExternalPlaylistImportQueueSummaryReadyEventArgs request)
@@ -1182,7 +1049,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void MainWindowViewModel_StartupUpdateFailurePresentationRequested(Exception exception)
+    /// <summary>
+    /// 更新の失敗を共通の窓口で表示します。表示の要求は最初の await より前に窓口へ渡し、完了を Task で返します。
+    /// 表示できなかった場合は Task が失敗し、所有者は失敗の記録を既読にしません。
+    /// </summary>
+    private Task MainWindowViewModel_StartupUpdateFailurePresentationRequested(Exception exception)
     {
         var viewModel = base.DataContext as MainWindowViewModel;
         bool updateShutdownPreparationFailed = viewModel?.ShellShutdownWorkflow.ConsumeUpdatePreparationFailure() == true;
@@ -1195,10 +1066,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 receipt.DeferAcknowledge();
             }
-            return;
+            return Task.CompletedTask;
         }
+        return ShowStartupUpdateFailureAsync(exception);
+    }
+
+    private async Task ShowStartupUpdateFailureAsync(Exception exception)
+    {
         // owner は指定せず、窓口の解決に任せます。表示時の文化圏で本文と見出しを整形します。
-        ShowShellUiMessage(
+        UiDialogResult result = await dialogService.ShowMessageAsync(
             new UiMessageRequest(
                 string.Format(
                     CultureInfo.CurrentCulture,
@@ -1207,8 +1083,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 BeMusicSeeker.Properties.Resources.UpdateDialog_FailedTitle,
                 MessageBoxButton.OK,
                 MessageBoxImage.Error,
-                MessageBoxResult.None),
-            "startup update failure notification");
+                MessageBoxResult.None));
+        ThrowIfUiDialogNotShown(result, "startup update failure notification");
     }
 
     internal static bool ShouldDeferStartupUpdateFailurePresentation(
@@ -1256,8 +1132,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             if (!IsShellClosingOrClosed() && (DataContext as MainWindowViewModel)?.SettingDialog.IsEditCancellationEnabled == true)
             {
-                ShowSettingsWindow(requestedTimestamp);
+                return ShowSettingsWindowAsync(requestedTimestamp);
             }
+            return Task.CompletedTask;
         }, deferExecution: deferPresentation);
     }
 
@@ -1303,7 +1180,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         });
     }
 
-    private void ShowSettingsWindow(long requestedTimestamp)
+    /// <summary>
+    /// 設定画面を表示し、表示の終端まで待ってから後片付けをします。UI スレッドを同期で止めません。
+    /// 失敗は返す Task の失敗にし、呼出し元の <see cref="RunOnUiThread(Func{Task}, bool)"/> が Dispatcher の未処理例外へ出します。
+    /// </summary>
+    private async Task ShowSettingsWindowAsync(long requestedTimestamp)
     {
         if (settingsWindow != null)
         {
@@ -1328,7 +1209,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
-            UiWindowDialogResult<SettingsWindowCloseReason> result = ((MainWindowViewModel)DataContext).SettingsDialogService
+            UiWindowDialogResult<SettingsWindowCloseReason> result = await ((MainWindowViewModel)DataContext).SettingsDialogService
                 .ShowWindowAsync(new UiWindowDialogRequest<SettingsWindow, SettingsWindowCloseReason>(
                     () =>
                     {
@@ -1337,9 +1218,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                         return settingsWindow;
                     },
                     window => window.CloseReason,
-                    this))
-                .GetAwaiter()
-                .GetResult();
+                    this));
             ThrowIfWindowDialogFailed(result.Status, result.Error, "Settings window");
         }
         catch (Exception exception)
@@ -1434,6 +1313,91 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
+        }
+    }
+
+    /// <summary>
+    /// 非同期の UI 操作を UI スレッドで開始し、完了を待ちません。操作の失敗は、呼出し元へ同期で例外を出さず、
+    /// 同じ Dispatcher の未処理例外へ一度だけ出します（ログだけへ格下げしません）。
+    /// </summary>
+    private void RunOnUiThread(Func<Task> action, bool deferExecution = false)
+    {
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+        if (!deferExecution && Dispatcher.CheckAccess())
+        {
+            StartUiOperationObservingFailure(action);
+            return;
+        }
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        try
+        {
+            // 再表示は旧画面の await 継続より後へ回し、画面側の後処理も先に完了させる。
+            Dispatcher.BeginInvoke(
+                deferExecution ? DispatcherPriority.Background : DispatcherPriority.Normal,
+                (Action)(() => StartUiOperationObservingFailure(action)));
+        }
+        catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+        }
+    }
+
+    private void StartUiOperationObservingFailure(Func<Task> action)
+    {
+        Task operation;
+        try
+        {
+            operation = action();
+        }
+        catch (Exception failure)
+        {
+            operation = Task.FromException(failure);
+        }
+        // 完了済みの Task は同期で観測し、失敗の再送出を次の Dispatcher 操作へ確実に積みます。
+        operation.ContinueWith(
+            static (completed, state) => ((MainWindow)state).RethrowUiOperationFailureOnDispatcher(completed),
+            this,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void RethrowUiOperationFailureOnDispatcher(Task completed)
+    {
+        // 取消も失敗として扱い、成功以外をすべて Dispatcher の未処理例外へ出します。
+        if (!completed.IsFaulted && !completed.IsCanceled)
+        {
+            return;
+        }
+        Exception failure = completed.IsCanceled
+            ? new TaskCanceledException(completed)
+            : completed.Exception.InnerExceptions.Count == 1
+                ? completed.Exception.InnerException
+                : completed.Exception;
+        // Dispatcher の終了の開始後は BeginInvoke が Aborted になるだけで失敗が消えるため、先に確かめて診断へ残します。
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            TryLogMainWindowFailure(failure, "MainWindow UI operation failed after dispatcher shutdown");
+            return;
+        }
+        try
+        {
+            DispatcherOperation posted = Dispatcher.BeginInvoke(
+                DispatcherPriority.Normal,
+                (Action)(() => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw()));
+            if (posted.Status == DispatcherOperationStatus.Aborted)
+            {
+                TryLogMainWindowFailure(failure, "MainWindow UI operation failed after dispatcher shutdown");
+            }
+        }
+        catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            TryLogMainWindowFailure(failure, "MainWindow UI operation failed after dispatcher shutdown");
         }
     }
 
@@ -2168,24 +2132,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             BeMusicSeeker.Properties.Resources.Error,
             MessageBoxImage.Hand,
             "playlist property validation notification");
-    }
-
-    /// <summary>同期設定変更の既存確認を注入済み窓口へ渡し、表示不能を例外にして肯定結果だけを受理します。</summary>
-    private void MainWindow_PlaylistPropertyExternalSyncConfirmationRequested(
-        object sender,
-        PlaylistPropertyExternalSyncConfirmationRequestedEventArgs request)
-    {
-        UiDialogResult result = playlistWorkspaceDialogService.ConfirmAsync(new UiConfirmationRequest(
-            request.Enable
-                ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
-                : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.None,
-            owner: this)).GetAwaiter().GetResult();
-        UiDialogRoute.ThrowIfNotShown(result, "playlist property external sync confirmation");
-        request.Confirmed = result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes;
     }
 
     private void MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)

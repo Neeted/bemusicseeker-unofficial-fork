@@ -76,7 +76,7 @@ public sealed class PlaylistSummaryBulkEditTests
                 .GetAwaiter()
                 .GetResult()
                 ?? throw new AssertFailedException("A playlist property edit session was not created.");
-            dialog = new PlaylistPropertyDialogViewModel(service, session);
+            dialog = new PlaylistPropertyDialogViewModel(service, session, UndeclaredDialogs.Create());
 
             TestUiDispatcherHost.RunWindowTest(windowTest =>
             {

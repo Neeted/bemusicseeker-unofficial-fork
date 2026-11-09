@@ -108,7 +108,9 @@ public sealed class ApplicationCompositionDialogRoutingTests
     /// ボタンは OK、アイコンは Error、Owner は null です。確認は届かず、プレイリストの窓口には何も届きません。
     /// 検出する誤り：更新失敗の通知が固定の窓口へ送られる、プレイリストの窓口へ送られる、または共通の窓口を無視します。
     /// Owner が null であることは、更新失敗の通知の Owner を窓口の解決に任せる決定に基づきます。
-    /// 更新の条件：失敗の通知を非同期へ変える時、または Owner の方針を変える時に、この期待を見直します。
+    /// 待ち合わせの根拠：失敗の表示の要求は、終端の通知より前に積んだ UI の操作の中で、最初の await より前に窓口へ渡します（表示の完了は待ちません）。
+    /// そのため、終端の待ちと ProcessQueuedBackground の後には要求が届いています。この順序は、表示を非同期にした後も維持する実装の制約です。
+    /// 更新の条件：Owner の方針、失敗の通知の宛先、表示の要求を窓口へ渡す時機を変える時に、この期待を見直します。
     /// </summary>
     [TestMethod]
     public void MainWindow_UpdateFailureNotification_UsesCommonDialogService()

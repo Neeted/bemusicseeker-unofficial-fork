@@ -5086,7 +5086,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>設定 Window 生成 hook が失敗しても元例外と overlay を保持し、次の明示要求を別 modal で表示・終了できることを確認します。</summary>
+    /// <summary>
+    /// 設定 Window 生成 hook が失敗しても overlay を元へ戻し、次の明示要求を別 modal で表示・終了できることを確認します。
+    /// 表示の失敗は、UI スレッドの即時の経路でも OpenCommand から同期では出さず、元の例外を内部に持つ失敗として Dispatcher の未処理例外へ一度だけ出します。
+    /// 失敗をログだけへ格下げする誤りと、同期の例外へ戻す誤りを検出します。
+    /// </summary>
     [TestMethod]
     [DoNotParallelize]
     public void MainWindow_SettingsPresentationFailureRestoresPlaybackOverlayVisibility()
@@ -5160,11 +5164,13 @@ public sealed class SettingsWindowPresentationTests
                 owner!.UpdateLayout();
                 Visibility previousOverlayVisibility = owner!.PlaybackOverlayVisibility;
 
+                viewModel.SettingDialog.OpenCommand.Execute();
                 InvalidOperationException failure = Assert.ThrowsExactly<InvalidOperationException>(
-                    () => viewModel.SettingDialog.OpenCommand.Execute());
+                    () => TestUiDispatcherHost.ProcessQueuedBackground());
 
                 StringAssert.Contains(failure.Message, "Settings window failed: Failed");
                 Assert.AreSame(sentinel, failure.InnerException);
+                Assert.AreEqual(0, TestUiDispatcherHost.TakeUnhandledExceptions().Count, "未処理例外は一度だけ出る。");
                 Assert.AreEqual(previousOverlayVisibility, owner!.PlaybackOverlayVisibility);
                 Assert.IsNotNull(createdSettingsWindow);
                 Assert.IsFalse(createdSettingsWindow!.IsVisible);
@@ -5193,6 +5199,212 @@ public sealed class SettingsWindowPresentationTests
                     if (createdSettingsWindow?.IsVisible == true)
                     {
                         createdSettingsWindow.CloseFromPresentation();
+                    }
+
+                    if (owner != null)
+                    {
+                        ownership?.Dispose();
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                }
+                finally
+                {
+                    try
+                    {
+                        ownership?.DisposeAfterBodyFailure(bodyFailure?.SourceException ?? cleanupFailure);
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
+            }
+
+            if (bodyFailure != null)
+            {
+                if (cleanupFailure != null)
+                {
+                    bodyFailure.SourceException.Data["TestWindowPresentationCleanupFailure"] = cleanupFailure.ToString();
+                }
+
+                bodyFailure.Throw();
+            }
+
+            if (cleanupFailure != null)
+            {
+                windowTest.RegisterCleanupFailureForTesting(cleanupFailure);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 設定画面の表示が未完了の Task を返しても、OpenCommand は UI スレッドを同期で待たずに戻り、表示中は重ね合わせを保つ。
+    /// 後片付け（設定画面の参照の解除と重ね合わせの復元）は表示の終端の後にだけ行い、その後の要求は新しく表示を始める。
+    /// 表示の Task を同期で待つ誤り（ホストが止まり、検証全体の制限時間で検出される）と、終端より前に後片付けを済ませる誤りを検出する。
+    /// UI スレッドの呼出しなので、同期の待ちは並行の観測では検出できない。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void MainWindow_SettingsPresentationAwaitsPendingWindowTaskAndCleansUpAfterIt()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var startupEvents = new List<string>();
+            var startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
+            var startupSettingsSession = new DangerSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(), startupEvents);
+            var pendingDialogs = new PendingSettingsWindowDialogService();
+            var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
+                settingsEditSession: startupSettingsSession,
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: startupLifetime,
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: CreatePreparedSettingsCoordinator(windowTest),
+                settingsDialogService: pendingDialogs);
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
+            var ownership = new MainWindowTestLifetime(viewModel, startupLifetime.ShutdownRequested.Task);
+            MainWindow? owner = null;
+            ExceptionDispatchInfo? bodyFailure = null;
+            Exception? cleanupFailure = null;
+
+            try
+            {
+                owner = ownership.CreateWindow(() => new MainWindow(viewModel, _ => { }));
+                windowTest.PrepareForOwnedPresentation(owner!);
+                owner!.Show();
+                owner!.UpdateLayout();
+                Visibility previousOverlayVisibility = owner!.PlaybackOverlayVisibility;
+
+                viewModel.SettingDialog.OpenCommand.Execute();
+
+                Assert.AreEqual(1, pendingDialogs.CallCount, "表示は一度だけ依頼する。");
+                Assert.AreEqual(Visibility.Visible, owner!.PlaybackOverlayVisibility, "表示中は重ね合わせを保つ。");
+
+                pendingDialogs.CompletePending(0);
+                TestUiDispatcherHost.ProcessQueuedBackground();
+
+                Assert.AreEqual(previousOverlayVisibility, owner!.PlaybackOverlayVisibility, "表示の終端の後に重ね合わせを戻す。");
+
+                viewModel.SettingDialog.OpenCommand.Execute();
+
+                Assert.AreEqual(2, pendingDialogs.CallCount, "後片付けの後の要求は、新しく表示を始める。");
+                pendingDialogs.CompletePending(1);
+                TestUiDispatcherHost.ProcessQueuedBackground();
+                Assert.AreEqual(previousOverlayVisibility, owner!.PlaybackOverlayVisibility);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                try
+                {
+                    pendingDialogs.CompleteAllPending();
+                    foreach (Window created in pendingDialogs.CreatedWindows)
+                    {
+                        created.Close();
+                    }
+
+                    if (owner != null)
+                    {
+                        ownership?.Dispose();
+                    }
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
+                }
+                finally
+                {
+                    try
+                    {
+                        ownership?.DisposeAfterBodyFailure(bodyFailure?.SourceException ?? cleanupFailure);
+                    }
+                    catch (Exception exception)
+                    {
+                        cleanupFailure ??= exception;
+                    }
+                }
+            }
+
+            if (bodyFailure != null)
+            {
+                if (cleanupFailure != null)
+                {
+                    bodyFailure.SourceException.Data["TestWindowPresentationCleanupFailure"] = cleanupFailure.ToString();
+                }
+
+                bodyFailure.Throw();
+            }
+
+            if (cleanupFailure != null)
+            {
+                windowTest.RegisterCleanupFailureForTesting(cleanupFailure);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 設定画面の表示の Task が取消で終わった場合も、失敗として扱い、重ね合わせを戻したうえで、取消の例外を Dispatcher の未処理例外へ一度だけ出す。
+    /// 取消を成功として黙って捨てる誤りと、後片付けを省く誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void MainWindow_SettingsPresentationCancelledTask_IsRaisedAsUnhandledExceptionOnce()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            var startupEvents = new List<string>();
+            var startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
+            var startupSettingsSession = new DangerSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(), startupEvents);
+            var pendingDialogs = new PendingSettingsWindowDialogService();
+            var composition = new ApplicationComposition(
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
+                settingsEditSession: startupSettingsSession,
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: startupLifetime,
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                dialogService: CreatePreparedSettingsCoordinator(windowTest),
+                settingsDialogService: pendingDialogs);
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
+            var ownership = new MainWindowTestLifetime(viewModel, startupLifetime.ShutdownRequested.Task);
+            MainWindow? owner = null;
+            ExceptionDispatchInfo? bodyFailure = null;
+            Exception? cleanupFailure = null;
+
+            try
+            {
+                owner = ownership.CreateWindow(() => new MainWindow(viewModel, _ => { }));
+                windowTest.PrepareForOwnedPresentation(owner!);
+                owner!.Show();
+                owner!.UpdateLayout();
+                Visibility previousOverlayVisibility = owner!.PlaybackOverlayVisibility;
+
+                viewModel.SettingDialog.OpenCommand.Execute();
+                Assert.AreEqual(1, pendingDialogs.CallCount);
+
+                pendingDialogs.CancelPending(0);
+                Assert.ThrowsExactly<TaskCanceledException>(() => TestUiDispatcherHost.ProcessQueuedBackground());
+
+                Assert.AreEqual(previousOverlayVisibility, owner!.PlaybackOverlayVisibility, "取消でも重ね合わせを戻す。");
+                Assert.AreEqual(0, TestUiDispatcherHost.TakeUnhandledExceptions().Count, "未処理例外は一度だけ出る。");
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                try
+                {
+                    pendingDialogs.CompleteAllPending();
+                    foreach (Window created in pendingDialogs.CreatedWindows)
+                    {
+                        created.Close();
                     }
 
                     if (owner != null)
@@ -6449,6 +6661,57 @@ public sealed class SettingsWindowPresentationTests
             ApplyCount++;
             LastAppearance = appearance;
         }
+    }
+
+    /// <summary>
+    /// 設定画面の ShowWindowAsync を、窓を表示せずに未完了の Task で返す窓口です。呼出しの数と作った窓を記録し、
+    /// 実際のシナリオの窓口が、モーダルから戻った後に未完了の Task を返しうることを表します。
+    /// </summary>
+    private sealed class PendingSettingsWindowDialogService : IUiDialogService
+    {
+        private readonly List<Action> completions = [];
+
+        private readonly List<Action> cancellations = [];
+
+        internal int CallCount { get; private set; }
+
+        internal List<Window> CreatedWindows { get; } = [];
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
+            UiWindowDialogRequest<TWindow, TResult> request,
+            CancellationToken cancellationToken = default)
+            where TWindow : Window
+        {
+            CallCount++;
+            TWindow created = request.CreateWindow();
+            CreatedWindows.Add(created);
+            var completion = new TaskCompletionSource<UiWindowDialogResult<TResult>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            completions.Add(() => completion.TrySetResult(
+                new UiWindowDialogResult<TResult>(UiDialogStatus.ClosedByUser, request.CreateResult(created))));
+            cancellations.Add(() => completion.TrySetCanceled());
+            return completion.Task;
+        }
+
+        /// <summary>依頼の順番号の表示を、利用者が閉じた結果で完了させます。</summary>
+        internal void CompletePending(int index) => completions[index]();
+
+        /// <summary>依頼の順番号の表示を、取消で完了させます。</summary>
+        internal void CancelPending(int index) => cancellations[index]();
+
+        internal void CompleteAllPending()
+        {
+            foreach (Action completion in completions)
+            {
+                completion();
+            }
+        }
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default) => throw new NotSupportedException();
+        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class RecordingReleaseNotesDialogService : IUiDialogService

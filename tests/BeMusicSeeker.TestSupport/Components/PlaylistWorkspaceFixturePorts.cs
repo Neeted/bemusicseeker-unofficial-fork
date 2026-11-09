@@ -103,6 +103,36 @@ internal static class PlaylistWorkspaceFixturePorts
 
         internal UiConfirmationRequest LastConfirmationRequest { get; private set; } = null!;
 
+        private readonly object requestGate = new();
+
+        private readonly List<UiMessageRequest> messageRequests = [];
+
+        private readonly List<UiConfirmationRequest> confirmationRequests = [];
+
+        /// <summary>届いた通知の要求を到達順に返します。ワーカースレッドから届く要求も含めた時点の写しです。</summary>
+        internal IReadOnlyList<UiMessageRequest> MessageRequests
+        {
+            get { lock (requestGate) { return [.. messageRequests]; } }
+        }
+
+        /// <summary>届いた確認の要求を到達順に返します。</summary>
+        internal IReadOnlyList<UiConfirmationRequest> ConfirmationRequests
+        {
+            get { lock (requestGate) { return [.. confirmationRequests]; } }
+        }
+
+        /// <summary>通知の要求が窓口へ届いた時点で、窓口の呼出し中に同期で呼ばれます。受付の解放後かどうかなど、要求の時点の状態の観測に使います。</summary>
+        internal Action<UiMessageRequest>? MessageRequestedHook { get; set; }
+
+        /// <summary>確認の要求が窓口へ届いた時点で、窓口の呼出し中に同期で呼ばれます。</summary>
+        internal Action<UiConfirmationRequest>? ConfirmationRequestedHook { get; set; }
+
+        /// <summary>設定すると、通知の結果を Task で返します。未完了の Task、失敗した Task、同期の例外で窓口の完了の形を表せます。</summary>
+        internal Func<UiMessageRequest, Task<UiDialogResult>>? MessageTaskFactory { get; set; }
+
+        /// <summary>設定すると、確認の結果を Task で返します。未完了の Task、失敗した Task、同期の例外で窓口の完了の形を表せます。</summary>
+        internal Func<UiConfirmationRequest, Task<UiDialogResult>>? ConfirmationTaskFactory { get; set; }
+
         internal List<UiSaveFilePickerRequest> SaveFilePickerRequests { get; } = [];
 
         internal Queue<UiSaveFilePickerResult> SaveFilePickerResults { get; } = [];
@@ -115,7 +145,9 @@ internal static class PlaylistWorkspaceFixturePorts
             CancellationToken cancellationToken = default)
         {
             LastMessageRequest = request;
-            return Task.FromResult(MessageResult);
+            lock (requestGate) { messageRequests.Add(request); }
+            MessageRequestedHook?.Invoke(request);
+            return MessageTaskFactory?.Invoke(request) ?? Task.FromResult(MessageResult);
         }
 
         public Task<UiDialogResult> ConfirmAsync(
@@ -123,7 +155,10 @@ internal static class PlaylistWorkspaceFixturePorts
             CancellationToken cancellationToken = default)
         {
             LastConfirmationRequest = request;
-            return Task.FromResult(ConfirmationFactory?.Invoke(request) ?? ConfirmationResult);
+            lock (requestGate) { confirmationRequests.Add(request); }
+            ConfirmationRequestedHook?.Invoke(request);
+            return ConfirmationTaskFactory?.Invoke(request)
+                ?? Task.FromResult(ConfirmationFactory?.Invoke(request) ?? ConfirmationResult);
         }
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(

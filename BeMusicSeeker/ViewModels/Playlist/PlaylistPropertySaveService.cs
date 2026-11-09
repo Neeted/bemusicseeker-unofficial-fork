@@ -21,8 +21,6 @@ internal sealed class PlaylistPropertySaveService
 
     internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> ValidationError;
 
-    internal event EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> ExternalSyncConfirmationRequested;
-
     internal event EventHandler InvalidOutputDirectoryRequested;
 
     internal event EventHandler PlaylistPropertySyncStarted;
@@ -173,16 +171,6 @@ internal sealed class PlaylistPropertySaveService
     {
         NotifyBestEffort(() => RaiseRequiredEvent(ValidationError,
             new PlaylistPropertyValidationErrorEventArgs(error), "Playlist property validation presentation"));
-    }
-
-    /// <summary>外部同期の変更承認を取得します。確認に失敗した場合は承認・取消しへ変換せず停止します。</summary>
-    internal bool ConfirmExternalSyncChange(bool enable)
-    {
-        EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> handler = ExternalSyncConfirmationRequested
-            ?? throw new InvalidOperationException("Playlist property external-sync confirmation is not configured.");
-        var request = new PlaylistPropertyExternalSyncConfirmationRequestedEventArgs(enable);
-        handler(this, request);
-        return request.Confirmed;
     }
 
     private void RaiseInvalidOutputDirectoryRequested()
@@ -1257,18 +1245,6 @@ internal sealed class PlaylistPropertyValidationErrorEventArgs : EventArgs
     }
 
     internal PlaylistPropertyValidationError Error { get; }
-}
-
-internal sealed class PlaylistPropertyExternalSyncConfirmationRequestedEventArgs : EventArgs
-{
-    internal PlaylistPropertyExternalSyncConfirmationRequestedEventArgs(bool enable)
-    {
-        Enable = enable;
-    }
-
-    internal bool Enable { get; }
-
-    internal bool Confirmed { get; set; }
 }
 
 internal sealed class PlaylistPropertyFolderSelectionRemappedEventArgs : EventArgs

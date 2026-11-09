@@ -4,8 +4,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -13,91 +15,116 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private const string BeatorajaTableUrlImportProgressSource = "beatoraja_table_url_import";
 
-    internal event EventHandler<BeatorajaTableUrlImportConfirmationRequestedEventArgs> BeatorajaTableUrlImportConfirmationRequested;
-
-    internal event EventHandler<BeatorajaTableUrlImportNotificationRequestedEventArgs> BeatorajaTableUrlImportNotificationRequested;
-
-    internal event EventHandler<BeatorajaTableUrlImportSummaryReadyEventArgs> BeatorajaTableUrlImportSummaryReady;
-
-    /// <summary>確定rootの取込みを開始し、実受付の通知と、取得・DB・出力・通知を含む実終端Taskを返します。実storeがLR2連携時だけ空出力名を対象別に拒否し、スタンドアロンではUnicode実名を保持します。</summary>
-    internal Task StartBeatorajaTableUrlImport(string rootPath, Action onAccepted = null, string confirmationMessage = null)
+    /// <summary>
+    /// 確定rootの取込みを開始し、取得・DB・出力と、通知・要約の表示を含む実終端のTaskを返します。
+    /// 結果は取込みを開始した場合の要約で、確認の取消、開始前の拒否、受付後の早い終了ではnullです。
+    /// 実storeがLR2連携時だけ空出力名を対象別に拒否し、スタンドアロンではUnicode実名を保持します。
+    /// </summary>
+    /// <remarks>
+    /// 確認は受付の取得より前に待ちます。受付を取得した後に決まる通知・操作通知・要約は、受付を解放してから
+    /// プレイリスト作業領域の窓口で表示します（Ownerは窓口の解決に任せます）。表示は任意の通知であり、
+    /// 失敗はログへ残すだけで取込みの結果を変えません。終了の要求後は表示しません。
+    /// </remarks>
+    internal async Task<BeatorajaTableUrlImportSummary> StartBeatorajaTableUrlImport(string rootPath, Action onAccepted = null, string confirmationMessage = null)
     {
-        bool started = false;
-        LibraryFileMutationLease admission = null;
+        Task<BeatorajaTableUrlImportSummary> operation = null;
+        BeatorajaTableUrlImportNotice notice = null;
         try
         {
             BMSPlaylist playlistStore = getPlaylistStore();
             BMSLibrary playlistLibrary = getPlaylistLibrary();
             if (playlistStore == null || playlistLibrary == null || playlistStore.BMSTables == null)
             {
-                RequestBeatorajaTableUrlImportNotification(
+                notice = new BeatorajaTableUrlImportNotice(
                     BeatorajaTableUrlImportNotificationKind.Warning,
                     BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization,
                     BeMusicSeeker.Properties.Resources.Warning,
                     "beatoraja Table URL import initialization notification");
-                return Task.CompletedTask;
             }
-            if (!BeatorajaConfigService.IsBeatorajaRootPathValid(rootPath))
+            else if (!BeatorajaConfigService.IsBeatorajaRootPathValid(rootPath))
             {
-                RequestBeatorajaTableUrlImportNotification(
+                notice = new BeatorajaTableUrlImportNotice(
                     BeatorajaTableUrlImportNotificationKind.Error,
                     BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath,
                     BeMusicSeeker.Properties.Resources.Error,
                     "beatoraja Table URL import root path validation notification");
-                return Task.CompletedTask;
             }
-
-            if (!RequestBeatorajaTableUrlImportConfirmation(confirmationMessage)) { return Task.CompletedTask; }
-            if (!playlistStore.TryEnterPlaylistMutation(out IDisposable accepted))
+            else if (await ConfirmBeatorajaTableUrlImportAsync(confirmationMessage).ConfigureAwait(true))
             {
-                RequestBeatorajaTableUrlImportNotification(BeatorajaTableUrlImportNotificationKind.Warning,
-                    BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                    BeMusicSeeker.Properties.Resources.Warning, "beatoraja Table URL import Busy");
-                return Task.CompletedTask;
+                (operation, notice) = TryBeginBeatorajaTableUrlImport(playlistStore, rootPath, onAccepted);
             }
-            admission = (LibraryFileMutationLease)accepted;
-            if (!BeatorajaConfigService.IsBeatorajaRootPathValid(rootPath))
+            else
             {
-                RequestBeatorajaTableUrlImportNotification(BeatorajaTableUrlImportNotificationKind.Error,
-                    BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath, BeMusicSeeker.Properties.Resources.Error,
-                    "beatoraja Table URL import final root validation");
-                return Task.CompletedTask;
+                return null;
             }
-            IReadOnlyList<string> rawUrls = BeatorajaConfigService.ReadTableUrls(rootPath);
-            if (rawUrls.Count == 0)
-            {
-                RequestBeatorajaTableUrlImportNotification(
-                    BeatorajaTableUrlImportNotificationKind.Information,
-                    BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_no_urls,
-                    BeMusicSeeker.Properties.Resources.Information,
-                    "beatoraja Table URL import no URLs notification");
-                return Task.CompletedTask;
-            }
-            IReadOnlyList<BeatorajaTableUrlImportTarget> targets = BuildBeatorajaTableUrlImportTargets(rawUrls);
-            if (targets.Count == 0)
-            {
-                RequestBeatorajaTableUrlImportNotification(
-                    BeatorajaTableUrlImportNotificationKind.Information,
-                    BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_no_urls,
-                    BeMusicSeeker.Properties.Resources.Information,
-                    "beatoraja Table URL import no valid URLs notification");
-                return Task.CompletedTask;
-            }
-
-            string tablePath = BeatorajaConfigService.GetTablePath(rootPath);
-            onAccepted?.Invoke();
-            var operation = Task.Run(() => ImportBeatorajaTableUrlsAsync(playlistStore, rootPath, tablePath, targets, admission));
-            started = true;
-            return operation;
         }
         catch (Exception ex)
         {
             WriteBeatorajaTableUrlImportWarning(ex, "beatoraja_table_url_import_start_failed root=" + (rootPath ?? string.Empty));
-            RequestBeatorajaTableUrlImportNotification(
+            notice = new BeatorajaTableUrlImportNotice(
                 BeatorajaTableUrlImportNotificationKind.Error,
                 BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist + Environment.NewLine + ex.Message,
                 BeMusicSeeker.Properties.Resources.Error,
                 "beatoraja Table URL import start failure notification");
+        }
+        if (operation != null)
+        {
+            return await operation.ConfigureAwait(true);
+        }
+        await ShowBeatorajaTableUrlImportNoticeAsync(notice).ConfigureAwait(true);
+        return null;
+    }
+
+    /// <summary>
+    /// 確認の後に受付を取得し、取込みを開始します。開始しなかった場合は、受付をここで解放したうえで、呼出し元が表示する通知を返します。
+    /// 表示は受付の解放後に呼出し元が行うため、この処理は表示を待ちません。
+    /// </summary>
+    private (Task<BeatorajaTableUrlImportSummary> Operation, BeatorajaTableUrlImportNotice Notice) TryBeginBeatorajaTableUrlImport(
+        BMSPlaylist playlistStore,
+        string rootPath,
+        Action onAccepted)
+    {
+        bool started = false;
+        LibraryFileMutationLease admission = null;
+        try
+        {
+            if (!playlistStore.TryEnterPlaylistMutation(out IDisposable accepted))
+            {
+                return (null, new BeatorajaTableUrlImportNotice(BeatorajaTableUrlImportNotificationKind.Warning,
+                    BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+                    BeMusicSeeker.Properties.Resources.Warning, "beatoraja Table URL import Busy"));
+            }
+            admission = (LibraryFileMutationLease)accepted;
+            if (!BeatorajaConfigService.IsBeatorajaRootPathValid(rootPath))
+            {
+                return (null, new BeatorajaTableUrlImportNotice(BeatorajaTableUrlImportNotificationKind.Error,
+                    BeMusicSeeker.Properties.Resources.Error_InvalidBeatorajaRootPath, BeMusicSeeker.Properties.Resources.Error,
+                    "beatoraja Table URL import final root validation"));
+            }
+            IReadOnlyList<string> rawUrls = BeatorajaConfigService.ReadTableUrls(rootPath);
+            if (rawUrls.Count == 0)
+            {
+                return (null, new BeatorajaTableUrlImportNotice(
+                    BeatorajaTableUrlImportNotificationKind.Information,
+                    BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_no_urls,
+                    BeMusicSeeker.Properties.Resources.Information,
+                    "beatoraja Table URL import no URLs notification"));
+            }
+            IReadOnlyList<BeatorajaTableUrlImportTarget> targets = BuildBeatorajaTableUrlImportTargets(rawUrls);
+            if (targets.Count == 0)
+            {
+                return (null, new BeatorajaTableUrlImportNotice(
+                    BeatorajaTableUrlImportNotificationKind.Information,
+                    BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_no_urls,
+                    BeMusicSeeker.Properties.Resources.Information,
+                    "beatoraja Table URL import no valid URLs notification"));
+            }
+
+            string tablePath = BeatorajaConfigService.GetTablePath(rootPath);
+            onAccepted?.Invoke();
+            Task<BeatorajaTableUrlImportSummary> operation = Task.Run(() => ImportBeatorajaTableUrlsAsync(playlistStore, rootPath, tablePath, targets, admission));
+            started = true;
+            return (operation, null);
         }
         finally
         {
@@ -106,7 +133,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 admission?.Dispose();
             }
         }
-        return Task.CompletedTask;
     }
 
     internal bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string rootPath)
@@ -138,7 +164,23 @@ public sealed partial class PlaylistWorkspaceViewModel
         return false;
     }
 
-    private async Task ImportBeatorajaTableUrlsAsync(BMSPlaylist tables, string rootPath, string tablePath, IReadOnlyList<BeatorajaTableUrlImportTarget> targets, LibraryFileMutationLease admission)
+    /// <summary>受付の下で取込みを行い、受付を解放した後に、確定した操作通知と要約を順に表示します。表示の失敗は取込みの結果を変えません。</summary>
+    private async Task<BeatorajaTableUrlImportSummary> ImportBeatorajaTableUrlsAsync(BMSPlaylist tables, string rootPath, string tablePath, IReadOnlyList<BeatorajaTableUrlImportTarget> targets, LibraryFileMutationLease admission)
+    {
+        var report = new BeatorajaTableUrlImportReport();
+        try
+        {
+            await ImportBeatorajaTableUrlsCoreAsync(tables, rootPath, tablePath, targets, admission, report).ConfigureAwait(false);
+        }
+        finally
+        {
+            // 受付・権限・通知の収集は取込みの終端で解放済みです。表示の await は受付の外で行います。
+            await ShowBeatorajaTableUrlImportReportAsync(report).ConfigureAwait(false);
+        }
+        return report.Summary;
+    }
+
+    private async Task ImportBeatorajaTableUrlsCoreAsync(BMSPlaylist tables, string rootPath, string tablePath, IReadOnlyList<BeatorajaTableUrlImportTarget> targets, LibraryFileMutationLease admission, BeatorajaTableUrlImportReport report)
     {
         const int BeatorajaTableUrlImportPostProgressStepCount = 4;
         // 取得・登録の各段階で確定する結果を要求対象へ結び、通知時に元入力順へ戻します。
@@ -159,10 +201,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         int progressTotalCount = totalCount + BeatorajaTableUrlImportPostProgressStepCount;
         int postProgressCompletedCount = totalCount;
         var totalStopwatch = Stopwatch.StartNew();
-        using LibraryFileMutationCapability authority = admission.CreateMutationCapability();
-        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
+        // 権限と通知の収集の生成が失敗しても、受付を保持したままにしないよう、生成を受付の解放を保証する try の内側に置きます。
+        LibraryFileMutationCapability authority = null;
+        PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = null;
         try
         {
+            authority = admission.CreateMutationCapability();
+            notificationSession = tables.OperationNotificationOwner.BeginSession();
             BeginPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
             try
             {
@@ -371,22 +416,17 @@ public sealed partial class PlaylistWorkspaceViewModel
                 totalStopwatch.Stop();
                 WriteBeatorajaTableUrlImportInfo("beatoraja_table_url_import completed targetCount=" + totalCount + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
                 EndPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
-                PlaylistOperationNotificationPresentationRequested?.Invoke(
-                    this,
-                    new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                        notificationSession.TakeReceipt(),
-                        "beatoraja Table URL import notification"));
+                report.Receipt = notificationSession.TakeReceipt();
             }
-            (BeatorajaTableUrlImportSummaryReady
-                ?? throw new InvalidOperationException("beatoraja Table URL import summary routing is not configured."))
-                (this, new BeatorajaTableUrlImportSummaryReadyEventArgs(
-                    new BeatorajaTableUrlImportSummary((targets ?? [])
-                        .Where(target => target != null)
-                        .SelectMany(target => outcomesByTarget.TryGetValue(target, out List<BeatorajaTableUrlImportOutcome> results) ? results : []))));
+            report.Summary = new BeatorajaTableUrlImportSummary((targets ?? [])
+                .Where(target => target != null)
+                .SelectMany(target => outcomesByTarget.TryGetValue(target, out List<BeatorajaTableUrlImportOutcome> results) ? results : []));
         }
         finally
         {
             admission?.Dispose();
+            notificationSession?.Dispose();
+            authority?.Dispose();
         }
     }
 
@@ -400,24 +440,91 @@ public sealed partial class PlaylistWorkspaceViewModel
         return PlaylistSyncAttemptResult.CreateSuccess(importedTable, importedTable, item?.Target?.Uri, updated: false);
     }
 
-    private bool RequestBeatorajaTableUrlImportConfirmation(string confirmationMessage)
+    /// <summary>取込みの確認を窓口で表示し、承認だけをtrueにします。表示の失敗は承認にも取消にも読み替えず、例外にして開始しません。</summary>
+    private async Task<bool> ConfirmBeatorajaTableUrlImportAsync(string confirmationMessage)
     {
-        BeatorajaTableUrlImportConfirmationRequestedEventArgs request = new() { Message = confirmationMessage ?? BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls };
-        (BeatorajaTableUrlImportConfirmationRequested
-            ?? throw new InvalidOperationException("beatoraja Table URL import confirmation routing is not configured."))
-            (this, request);
-        return request.Confirmed;
+        UiDialogResult result = await playlistWorkspaceDialogService.ConfirmAsync(new UiConfirmationRequest(
+            confirmationMessage ?? BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxButton.OKCancel,
+            MessageBoxImage.Question)).ConfigureAwait(true);
+        return ToPlaylistUrlConfirmationDecision(result, "beatoraja Table URL import confirmation");
     }
 
-    private void RequestBeatorajaTableUrlImportNotification(
-        BeatorajaTableUrlImportNotificationKind kind,
-        string message,
-        string caption,
-        string routeName)
+    private Task ShowBeatorajaTableUrlImportNoticeAsync(BeatorajaTableUrlImportNotice notice)
     {
-        (BeatorajaTableUrlImportNotificationRequested
-            ?? throw new InvalidOperationException("beatoraja Table URL import notification routing is not configured."))
-            (this, new BeatorajaTableUrlImportNotificationRequestedEventArgs(kind, message, caption, routeName));
+        if (notice == null)
+        {
+            return Task.CompletedTask;
+        }
+        MessageBoxImage icon = notice.Kind switch
+        {
+            BeatorajaTableUrlImportNotificationKind.Information => MessageBoxImage.Information,
+            BeatorajaTableUrlImportNotificationKind.Warning => MessageBoxImage.Exclamation,
+            BeatorajaTableUrlImportNotificationKind.Error => MessageBoxImage.Hand,
+            _ => throw new ArgumentOutOfRangeException(nameof(notice), notice.Kind, null)
+        };
+        return TryShowBeatorajaTableUrlImportMessageAsync(
+            () => new UiMessageRequest(notice.Message, notice.Caption, MessageBoxButton.OK, icon, MessageBoxResult.OK),
+            notice.RouteName);
+    }
+
+    /// <summary>確定した操作通知を受領の順に、続けて要約を表示します。ある表示が失敗しても残りの表示を続けます。</summary>
+    private async Task ShowBeatorajaTableUrlImportReportAsync(BeatorajaTableUrlImportReport report)
+    {
+        if (report.Receipt != null)
+        {
+            foreach (PlaylistOperationNotificationOwner.OperationNotification notification in report.Receipt.Notifications)
+            {
+                MessageBoxImage icon = notification.Severity switch
+                {
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Information,
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
+                    _ => MessageBoxImage.None,
+                };
+                // 本文と見出しは、確定時ではなく表示の直前の言語で整形します。整形の失敗も表示の失敗として扱うため、要求を作る処理ごと渡します。
+                PlaylistOperationNotificationOwner.OperationNotification current = notification;
+                await TryShowBeatorajaTableUrlImportMessageAsync(
+                    () => new UiMessageRequest(
+                        current.FormatMessage(), current.FormatCaption(), MessageBoxButton.OK, icon, MessageBoxResult.OK),
+                    "beatoraja Table URL import notification").ConfigureAwait(false);
+            }
+        }
+        BeatorajaTableUrlImportSummary summary = report.Summary;
+        if (summary == null)
+        {
+            return;
+        }
+        await TryShowBeatorajaTableUrlImportMessageAsync(
+            () => new UiMessageRequest(
+                summary.FormatMessage(),
+                BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_title,
+                MessageBoxButton.OK,
+                summary.HasFailureOrWarning ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
+                MessageBoxResult.OK),
+            "beatoraja Table URL import summary").ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 任意の通知を窓口で表示します。終了の要求後は表示せず、表示の失敗は診断へ残すだけで取込みの結果を変えません。
+    /// </summary>
+    private async Task TryShowBeatorajaTableUrlImportMessageAsync(Func<UiMessageRequest> createRequest, string routeName)
+    {
+        try
+        {
+            if (playlistReloadCleanupShutdownRequestedProvider())
+            {
+                return;
+            }
+            UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(createRequest()).ConfigureAwait(false);
+            UiDialogRoute.ThrowIfNotShown(result, routeName);
+        }
+        catch (Exception failure)
+        {
+            try { WriteBeatorajaTableUrlImportWarning(failure, "beatoraja_table_url_import_presentation_failed route=" + routeName); }
+            catch { /* 診断先の失敗を取込みの結果へ合成しません。 */ }
+        }
     }
 
     private void WriteBeatorajaTableUrlImportWarning(Exception exception, string message)
@@ -612,43 +719,17 @@ internal enum BeatorajaTableUrlImportNotificationKind
     Error
 }
 
-internal sealed class BeatorajaTableUrlImportConfirmationRequestedEventArgs : EventArgs
+/// <summary>取込みの途中で確定した、受付の解放後に表示する通知の事実です。</summary>
+internal sealed record BeatorajaTableUrlImportNotice(
+    BeatorajaTableUrlImportNotificationKind Kind,
+    string Message,
+    string Caption,
+    string RouteName);
+
+/// <summary>受付の下で確定した操作通知と要約を、受付の解放後の表示へ渡します。</summary>
+internal sealed class BeatorajaTableUrlImportReport
 {
-    /// <summary>既存の取込み確認と、同じ承認で戻す環境候補の案内です。</summary>
-    internal string Message { get; init; }
+    internal PlaylistOperationNotificationOwner.OperationNotificationReceipt Receipt { get; set; }
 
-    internal bool Confirmed { get; set; }
-}
-
-internal sealed class BeatorajaTableUrlImportNotificationRequestedEventArgs : EventArgs
-{
-    internal BeatorajaTableUrlImportNotificationRequestedEventArgs(
-        BeatorajaTableUrlImportNotificationKind kind,
-        string message,
-        string caption,
-        string routeName)
-    {
-        Kind = kind;
-        Message = message ?? string.Empty;
-        Caption = caption ?? string.Empty;
-        RouteName = routeName ?? string.Empty;
-    }
-
-    internal BeatorajaTableUrlImportNotificationKind Kind { get; }
-
-    internal string Message { get; }
-
-    internal string Caption { get; }
-
-    internal string RouteName { get; }
-}
-
-internal sealed class BeatorajaTableUrlImportSummaryReadyEventArgs : EventArgs
-{
-    internal BeatorajaTableUrlImportSummaryReadyEventArgs(BeatorajaTableUrlImportSummary summary)
-    {
-        Summary = summary ?? throw new ArgumentNullException(nameof(summary));
-    }
-
-    internal BeatorajaTableUrlImportSummary Summary { get; }
+    internal BeatorajaTableUrlImportSummary Summary { get; set; }
 }
