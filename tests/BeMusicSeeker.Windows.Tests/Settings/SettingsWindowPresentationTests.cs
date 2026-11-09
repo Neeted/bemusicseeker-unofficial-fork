@@ -87,10 +87,21 @@ public sealed class SettingsWindowPresentationTests
                 var playlistPage = (FrameworkElement)((ContentControl)firstPresentation.FindName("settingsPageContent")).Content;
                 TextBox tableInput = FindDescendants<TextBox>(playlistPage).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path == nameof(settings.TableListURL));
                 TextBox mappingInput = FindDescendants<TextBox>(playlistPage).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path == nameof(settings.PlaylistMd5UrlMappingTsvUri));
+                // N0: 二つの文言が同じだと取り違えを検出できないため、比較の前提として異なることを確かめます。
+                Assert.AreNotEqual(Resources.Error_InvalidTableListUri, Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri,
+                    "表URLとTSV URLの拒否の文言が同じでは、文言の取り違えを検出できません。");
                 tableInput.Text = string.Empty;
                 (tableInput.GetBindingExpression(TextBox.TextProperty) ?? throw new AssertFailedException("表URLのBindingがありません。")).UpdateSource();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                // N1: 表URLの拒否は、確定時点の言語の表用の文言でちょうど1件通知します。
+                Assert.AreEqual(1, notifications.MessageCount, "表URLの拒否の通知は1件です。");
+                Assert.AreEqual(Resources.Error_InvalidTableListUri, notifications.LastMessageText);
                 mappingInput.Text = "ftp://example.com/mapping.tsv";
                 (mappingInput.GetBindingExpression(TextBox.TextProperty) ?? throw new AssertFailedException("TSV URLのBindingがありません。")).UpdateSource();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                // N2: TSV URLの拒否は、TSV用の文言で1件だけ加わります。
+                Assert.AreEqual(2, notifications.MessageCount, "TSV URLの拒否の通知は1件だけ加わります。");
+                Assert.AreEqual(Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri, notifications.LastMessageText);
                 System.Globalization.CultureInfo? previousLanguage = Resources.Culture;
                 try
                 {
@@ -116,7 +127,8 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.TableListUriValidationMessage));
                 Assert.IsFalse(string.IsNullOrWhiteSpace(settings.PlaylistMd5UrlMappingTsvUriValidationMessage));
 
-                Assert.IsTrue(notifications.MessageCount > 0, "無効なURLの通知は注入した窓口へ届きます。");
+                // N3: 言語の切替とページの往復は、拒否を再検査・再通知しません。
+                Assert.AreEqual(2, notifications.MessageCount, "言語の切替とページ移動で再通知しません。");
 
                 var firstClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 EventHandler firstClosedHandler = (_, _) => firstClosed.TrySetResult();
@@ -183,6 +195,9 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(SettingsWindowCloseReason.UserClose, reopenedPresentation!.CloseReason);
                 Assert.IsNull(reopenedPresentation!.DataContext);
                 reopenedPresentation = null;
+                // N4: 閉鎖と再表示でも再通知せず、拒否を確認ダイアログで出しません。
+                Assert.AreEqual(2, notifications.MessageCount, "閉鎖・再表示で再通知しません。");
+                Assert.AreEqual(0, notifications.ConfirmationCount, "URLの拒否は確認を出しません。");
             }
             finally
             {
@@ -892,6 +907,7 @@ public sealed class SettingsWindowPresentationTests
 
 
     /// <summary>URI の一時エラーを持つ未変更画面を取消ボタンで閉じ、再表示時だけ両エラーを通知付きで解除し保存 URI を保つことを確認します。</summary>
+    /// <remarks>拒否ごとに役割ごとの文言で1件だけ通知し、言語の切替・ページ移動・閉鎖・再表示では再通知せず、確認を出さないことも確認します。</remarks>
     [TestMethod]
     public void PlaylistUriValidation_CancelWithoutDraftChangesStartsNextPresentationClean()
     {
@@ -899,10 +915,82 @@ public sealed class SettingsWindowPresentationTests
     }
 
     /// <summary>URI の一時エラーを持つ未変更画面を native Close で閉じ、次の表示で両エラーを解除して以前の表示状態を引き継がないことを確認します。</summary>
+    /// <remarks>拒否ごとに役割ごとの文言で1件だけ通知し、言語の切替・ページ移動・閉鎖・再表示では再通知せず、確認を出さないことも確認します。</remarks>
     [TestMethod]
     public void PlaylistUriValidation_NativeCloseWithoutDraftChangesStartsNextPresentationClean()
     {
         AssertPlaylistUriValidationClearedOnReopen(PlaylistUriCompletionRoute.NativeClose);
+    }
+
+    /// <summary>
+    /// 条件：保存先を所有する設定で、実のPlaylistページの表URL欄へ実BindingのUpdateSourceでFTPのURLを一度確定します。
+    /// 期待結果：設定の公開値と、保存先を読み直した値がそのURLになり、拒否の理由は空で、通知と確認は0件です。
+    /// 検出する誤り：TSVと同じHTTP(S)限定の検査で表URLを拒否する、公開だけ・保存だけで済ませる、読取り時に既定のURLへ戻す、受理したのに拒否の理由・通知・確認を出す。
+    /// </summary>
+    [TestMethod]
+    public void PlaylistUriValidation_TableListFtpUriIsAcceptedPublishedAndSaved()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string directory = Path.Combine(CaseWorkspace.RootDirectory, "settings-table-ftp-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(directory);
+            string settingsPath = Path.Combine(directory, "user.config");
+            var accepted = new Uri("ftp://example.com/table.html");
+            var notifications = new SettingsDialogHarness.RecordingDialogService
+            {
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            MainWindowViewModel? owner = null;
+            SettingsWindow? window = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                Settings settings = TestSettingsFactory.OpenSettings(settingsPath);
+                settings.OperationModeLR2DB = false;
+                settings.Save();
+                Assert.AreNotEqual(accepted, settings.TableListURL, "確定前の表URLは対象のURLと異なります。");
+                var composition = new ApplicationComposition(
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
+                    settingsEditSession: new SettingsEditSession(settings), settingsDialogService: notifications,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog());
+                owner = composition.CreateMainWindowViewModelForTest();
+                SettingsDialogViewModel viewModel = owner.SettingDialog;
+                window = new SettingsWindow { DataContext = viewModel };
+                windowTest.ShowAndWaitForContentRendered(window);
+                var navigation = (ListBox)window.FindName("settingsNavigation");
+                navigation.SelectedItem = navigation.Items.OfType<ListBoxItem>().Single(item => item.Name == "navigationPlaylist");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var playlistPage = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                TextBox tableInput = FindDescendants<TextBox>(playlistPage).Single(control => control.GetBindingExpression(TextBox.TextProperty)?.ParentBinding.Path.Path == nameof(viewModel.TableListURL));
+                tableInput.Text = accepted.ToString();
+                (tableInput.GetBindingExpression(TextBox.TextProperty) ?? throw new AssertFailedException("表URLのBindingがありません。")).UpdateSource();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                Assert.AreEqual(accepted, settings.TableListURL, "公開した設定の値です。");
+                Assert.AreEqual(accepted, viewModel.TableListURL, "VMの公開値です。読取りの再検査で既定へ戻しません。");
+                Assert.AreEqual(accepted, TestSettingsFactory.OpenSettings(settingsPath).TableListURL, "保存先を読み直した値です。");
+                Assert.AreEqual(string.Empty, viewModel.TableListUriValidationMessage);
+                Assert.AreEqual(0, notifications.MessageCount);
+                Assert.AreEqual(0, notifications.ConfirmationCount);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                // 閉鎖が投げても VM の破棄を行います。本体が失敗している場合は、後片付けの失敗を出力して捨て、本体の失敗を置き換えません。
+                var cleanupFailures = new List<Exception>();
+                try { window?.CloseForOwnerShutdown(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+                try { owner?.SettingDialog.Dispose(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("table list ftp cleanup", cleanupFailures);
+                    if (primaryFailure == null) { throw cleanupFailure; }
+                    Console.WriteLine(cleanupFailure);
+                }
+            }
+        });
     }
 
     /// <summary>履歴表示要求に設定 Window を owner として渡し、生成した履歴画面へ同じ設定を渡して draft を変更しないことを確認します。</summary>

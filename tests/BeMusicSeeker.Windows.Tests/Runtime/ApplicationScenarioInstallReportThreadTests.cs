@@ -28,15 +28,25 @@ public sealed class ApplicationScenarioInstallReportThreadTests
             scope.ShowAndWaitForContentRendered(window);
             var dialogs = new ApplicationScenarioDialogs();
             dialogs.ArmInstallFailureReport(1, window, Destination);
+            bool completed = false;
             try
             {
                 Task<UiDialogResult> answer = dialogs.ShowMessageAsync(Request(window));
                 Assert.IsTrue(answer.IsCompleted);
                 Assert.AreEqual(UiDialogStatus.Accepted, answer.Result.Status);
+
+                // 報告の終了は本体が成功した後に行い、本体の失敗の表示を置き換えません。
+                completed = true;
+                dialogs.CompleteInstallFailureReport(1);
             }
             finally
             {
-                dialogs.CompleteInstallFailureReport(1);
+                // 本体が途中で失敗した場合の後片付けだけを行い、その失敗は本体の失敗を置き換えません。
+                if (!completed)
+                {
+                    try { dialogs.CompleteInstallFailureReport(1); }
+                    catch (InvalidOperationException) { }
+                }
             }
         });
     }
@@ -55,6 +65,7 @@ public sealed class ApplicationScenarioInstallReportThreadTests
             scope.ShowAndWaitForContentRendered(window);
             var dialogs = new ApplicationScenarioDialogs();
             dialogs.ArmInstallFailureReport(2, window, Destination);
+            bool completed = false;
             try
             {
                 bool dispatcherAccessible = true;
@@ -78,10 +89,19 @@ public sealed class ApplicationScenarioInstallReportThreadTests
                 Task<UiDialogResult> later = dialogs.ShowMessageAsync(Request(window));
                 Assert.IsTrue(later.IsFaulted);
                 Assert.IsInstanceOfType<InvalidOperationException>(later.Exception!.InnerException);
+
+                // 報告の終了の表明は本体が成功した後に行い、本体の失敗の表示を置き換えません。
+                completed = true;
+                Assert.ThrowsExactly<InvalidOperationException>(() => dialogs.CompleteInstallFailureReport(2));
             }
             finally
             {
-                Assert.ThrowsExactly<InvalidOperationException>(() => dialogs.CompleteInstallFailureReport(2));
+                // 本体が途中で失敗した場合の後片付けだけを行い、その失敗は本体の失敗を置き換えません。
+                if (!completed)
+                {
+                    try { dialogs.CompleteInstallFailureReport(2); }
+                    catch (InvalidOperationException) { }
+                }
             }
         });
     }

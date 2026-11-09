@@ -48,7 +48,7 @@ public sealed partial class MainWindowViewHostTests
         var dialogEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var dialogRelease = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var operationFailed = new TaskCompletionSource<PackageInstallFailure>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var capture = new PackageNotificationFailureTarget();
+        var capture = new PackageNotificationFailureTarget { ExpectedException = notificationFailure };
         var dialogs = new FileDbReportRecordingDialogs
         {
             MessageHandler = _ =>
@@ -103,17 +103,18 @@ public sealed partial class MainWindowViewHostTests
             });
             Assert.IsNotNull(viewModel);
             Assert.IsNotNull(composition);
-            // 操作idle後に別途予約するUI通知は、receiver自身の失敗報告と競合させて観測します。
-            Task failurePublication = await Task.WhenAny(operationFailed.Task, capture.Reported.Task);
-            if (failurePublication == capture.Reported.Task) { throw await capture.Reported.Task; }
+            // 操作idle後に別途予約するUI通知は、receiver自身の失敗報告と、期待外の通知失敗（前のケースの残りを含む）の記録と競合させて観測します。
+            Task failurePublication = await Task.WhenAny(operationFailed.Task, capture.Unexpected.Task);
+            if (failurePublication == capture.Unexpected.Task) { throw new AssertFailedException("想定外の通知失敗が記録されました。", await capture.Unexpected.Task); }
             PackageInstallFailure failure = await operationFailed.Task;
-            Task notificationArrival = await Task.WhenAny(dialogEntered.Task, capture.Reported.Task);
-            if (notificationArrival == capture.Reported.Task) { throw await capture.Reported.Task; }
+            Task notificationArrival = await Task.WhenAny(dialogEntered.Task, capture.Unexpected.Task);
+            if (notificationArrival == capture.Unexpected.Task) { throw new AssertFailedException("想定外の通知失敗が記録されました。", await capture.Unexpected.Task); }
             await dialogEntered.Task;
             await viewModel.PackageInstallWorkflow.WaitForIdleAsync();
             Assert.AreSame(originalFailure, failure.Exception);
             Assert.IsFalse(composition.OperationAdmission.IsActive);
             Assert.IsFalse(capture.Reported.Task.IsCompleted);
+            Assert.IsFalse(capture.Unexpected.Task.IsCompleted, capture.Unexpected.Task.IsCompleted ? "想定外の通知失敗: " + capture.Unexpected.Task.Result : null);
 
             // 同期throwではなく、receiverがawaitした後に失敗する通知境界を通します。
             dialogRelease.SetException(notificationFailure);
@@ -148,11 +149,18 @@ public sealed partial class MainWindowViewHostTests
     {
         internal TaskCompletionSource<Exception> Reported { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+        /// <summary>期待する例外の参照に一致しない通知失敗（前のケースの残りなど）を保持します。早期の失敗の競合と未発生の表明に使い、原因の例外を失敗へ含めます。</summary>
+        internal TaskCompletionSource<Exception> Unexpected { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        /// <summary>期待する例外の参照です。一致したものだけを <see cref="Reported"/> へ入れます。</summary>
+        internal Exception? ExpectedException { get; set; }
+
         protected override void Write(LogEventInfo logEvent)
         {
             if (logEvent.Message == "package_install_workflow_notification_failed" && logEvent.Exception != null)
             {
-                Reported.TrySetResult(logEvent.Exception);
+                if (ReferenceEquals(logEvent.Exception, ExpectedException)) { Reported.TrySetResult(logEvent.Exception); }
+                else { Unexpected.TrySetResult(logEvent.Exception); }
             }
         }
     }
