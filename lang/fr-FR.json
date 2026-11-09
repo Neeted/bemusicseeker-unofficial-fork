@@ -954,6 +954,8 @@
   "UpdateDialog_StartupBlocked": "La mise à jour ne peut pas démarrer avant la fin de l'initialisation.",
   "UpdateDialog_UpdateButton": "Mettre à jour",
   "UpdateDialog_ReleasePageButton": "Page de version",
+  "UpdateDialog_FailedMessage_Format": "Échec du téléchargement ou du démarrage de la mise à jour.\n{0}",
+  "UpdateDialog_FailedTitle": "Échec de la mise à jour",
   "AudioDeviceDefault": "(Périphérique par défaut)",
   "AudioDeviceUnavailableFormat": "Indisponible : {0}",
   "AudioDeviceTestSucceeded": "Le périphérique a été initialisé et la progression du son de test a été vérifiée.",

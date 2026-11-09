@@ -954,6 +954,8 @@
   "UpdateDialog_StartupBlocked": "The update cannot start until startup initialization is complete.",
   "UpdateDialog_UpdateButton": "Update",
   "UpdateDialog_ReleasePageButton": "Release Page",
+  "UpdateDialog_FailedMessage_Format": "Failed to download or start the update.\n{0}",
+  "UpdateDialog_FailedTitle": "Update Failed",
   "AudioDeviceDefault": "(Default device)",
   "AudioDeviceUnavailableFormat": "Unavailable: {0}",
   "AudioDeviceTestSucceeded": "The device initialized and test-sound playback progress was verified.",

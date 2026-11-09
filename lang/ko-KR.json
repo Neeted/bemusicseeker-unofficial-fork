@@ -954,6 +954,8 @@
   "UpdateDialog_StartupBlocked": "시작 초기화가 완료될 때까지 업데이트를 시작할 수 없습니다.",
   "UpdateDialog_UpdateButton": "업데이트",
   "UpdateDialog_ReleasePageButton": "릴리스 페이지",
+  "UpdateDialog_FailedMessage_Format": "업데이트를 다운로드하거나 시작하지 못했습니다.\n{0}",
+  "UpdateDialog_FailedTitle": "업데이트 실패",
   "AudioDeviceDefault": "(기본 장치)",
   "AudioDeviceUnavailableFormat": "사용할 수 없음: {0}",
   "AudioDeviceTestSucceeded": "오디오 장치를 초기화하고 테스트 사운드 재생 진행을 확인했습니다.",

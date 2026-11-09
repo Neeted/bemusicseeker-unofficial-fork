@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -1178,8 +1179,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         UiDialogRoute.ShowMessageBox(
-            "Failed to download or start the update.\n" + (exception?.Message ?? string.Empty),
-            "Update Failed",
+            string.Format(
+                CultureInfo.CurrentCulture,
+                BeMusicSeeker.Properties.Resources.UpdateDialog_FailedMessage_Format,
+                exception?.Message ?? string.Empty),
+            BeMusicSeeker.Properties.Resources.UpdateDialog_FailedTitle,
             MessageBoxButton.OK,
             MessageBoxImage.Error);
     }

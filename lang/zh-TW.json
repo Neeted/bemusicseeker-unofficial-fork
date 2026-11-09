@@ -954,6 +954,8 @@
   "UpdateDialog_StartupBlocked": "啟動初始化完成前無法開始更新。",
   "UpdateDialog_UpdateButton": "更新",
   "UpdateDialog_ReleasePageButton": "Release 頁面",
+  "UpdateDialog_FailedMessage_Format": "下載或開始更新失敗。\n{0}",
+  "UpdateDialog_FailedTitle": "更新失敗",
   "AudioDeviceDefault": "（預設裝置）",
   "AudioDeviceUnavailableFormat": "無法使用：{0}",
   "AudioDeviceTestSucceeded": "音訊裝置已初始化，並已確認測試音訊的播放進度。",

@@ -954,6 +954,8 @@
   "UpdateDialog_StartupBlocked": "启动初始化完成前无法开始更新。",
   "UpdateDialog_UpdateButton": "更新",
   "UpdateDialog_ReleasePageButton": "Release 页面",
+  "UpdateDialog_FailedMessage_Format": "下载或开始更新失败。\n{0}",
+  "UpdateDialog_FailedTitle": "更新失败",
   "AudioDeviceDefault": "（默认设备）",
   "AudioDeviceUnavailableFormat": "不可用：{0}",
   "AudioDeviceTestSucceeded": "音频设备已初始化，并已确认测试音频的播放进度。",

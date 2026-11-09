@@ -2195,6 +2195,12 @@ public class Resources
 
     public static string UpdateDialog_ReleasePageButton => ResourceManager.GetString("UpdateDialog_ReleasePageButton", resourceCulture);
 
+    /// <summary>更新のダウンロードまたは起動の失敗を知らせる本文の書式を取得します。{0} は例外のメッセージです。</summary>
+    public static string UpdateDialog_FailedMessage_Format => ResourceManager.GetString("UpdateDialog_FailedMessage_Format", resourceCulture);
+
+    /// <summary>更新失敗の通知の見出しを取得します。</summary>
+    public static string UpdateDialog_FailedTitle => ResourceManager.GetString("UpdateDialog_FailedTitle", resourceCulture);
+
     public static string AudioDeviceDefault => ResourceManager.GetString("AudioDeviceDefault", resourceCulture);
 
     public static string AudioDeviceUnavailableFormat => ResourceManager.GetString("AudioDeviceUnavailableFormat", resourceCulture);

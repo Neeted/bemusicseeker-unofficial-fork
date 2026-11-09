@@ -954,6 +954,8 @@
   "UpdateDialog_StartupBlocked": "起動初期化が完了するまでアップデートを開始できません。",
   "UpdateDialog_UpdateButton": "更新",
   "UpdateDialog_ReleasePageButton": "Releaseページ",
+  "UpdateDialog_FailedMessage_Format": "アップデートのダウンロードまたは開始に失敗しました。\n{0}",
+  "UpdateDialog_FailedTitle": "アップデートに失敗しました",
   "AudioDeviceDefault": "（既定のデバイス）",
   "AudioDeviceUnavailableFormat": "利用不可: {0}",
   "AudioDeviceTestSucceeded": "オーディオデバイスを初期化し、テスト音声の再生進行を確認しました。",
