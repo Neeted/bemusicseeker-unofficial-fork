@@ -643,21 +643,39 @@ public sealed class RegularChartNavigationTests
             fixture.CompleteDuplicate();
             if (!displayed)
             { fixture.AwaitOwned(vm.RegularChartList.NavigateMaintenanceAsync(MainViewUpdateMode.FullScanAllChartsFilterSelected), "normal view before real move"); }
+            // 前の段（初回の重複表示、通常表示）から始まった一覧構築とそのUI配送を終えてから保留を有効にし、最初の一件が準備済み表示の配送になる順序を保証する。
+            RegularChartNavigationTestFixture.AwaitViewPreparationsOnDispatcher(vm.RegularChartList, "before cached display gate");
             ChartFile original = fixture.Library.BmsCharts.Single(chart => chart.Path == fixture.Duplicates[0].Path);
             string destination = Path.Combine(Path.GetDirectoryName(original.Directory) ?? throw new AssertFailedException(), "moved");
             Directory.CreateDirectory(destination);
             string? movedPath = null;
             int claimed = 0;
-            continuation.ShouldHold = () =>
+            int groupsObserved = 0;
+            continuation.HoldAll = true;
+            continuation.Context = () => " groupsObserved=" + Volatile.Read(ref groupsObserved);
+            continuation.ShouldHold = onUi =>
             {
-                if (!displayed) { return false; }
+                // 一致の起点は、全ガード解放後に出るDuplicateChartGroupsの変更通知で観測した後だけにする。
+                // 書込みロック保持中の中間状態に一致して保留しないためで、ロックの個数は呼出し元のスレッドの保持を表さない。
+                // 製品が実移動の仕上げ（L保持の配送）をロックの中で呼ぶ退行では、その配送が通知より前に来て保留されない。
+                // その場合は「通知なしの終端」による失敗か、Lの保持（IsActive）の表明で検知する。
+                // 通知の後、Lの解放より前に別のUI外の配送が先に保留される順序では、検知が時機に依存する（契約で受容済み）。
+                if (!displayed || onUi || Volatile.Read(ref groupsObserved) == 0) { return false; }
                 ChartFile? moved = fixture.Library.BmsCharts.FirstOrDefault(chart => chart.Token == original.Token && chart.Path != original.Path);
                 if (moved == null || fixture.Library.DuplicateChartGroups?.SelectMany(group => group.ChartFiles).Any(chart => chart.Path == moved.Path) != true) { return false; }
                 Volatile.Write(ref movedPath, moved.Path);
-                reached.TrySetResult((TestUiDispatcherHost.Dispatcher.CheckAccess(), !fixture.Library.IsWriteLockHeldInitializeMin
-                    && !fixture.Library.IsWriteLockHeldInitializeBMSFiles && !fixture.Library.IsWriteLockHeldDuplicateChartGroups));
                 return true;
             };
+            continuation.OnHeld = onUi => reached.TrySetResult((onUi, !fixture.Library.IsWriteLockHeldInitializeMin
+                && !fixture.Library.IsWriteLockHeldInitializeBMSFiles && !fixture.Library.IsWriteLockHeldDuplicateChartGroups));
+            PropertyChangedEventHandler groupsChanged = (_, args) =>
+            {
+                if (!displayed || args.PropertyName != nameof(BMSLibrary.DuplicateChartGroups)) { return; }
+                ChartFile? moved = fixture.Library.BmsCharts.FirstOrDefault(chart => chart.Token == original.Token && chart.Path != original.Path);
+                if (moved != null && fixture.Library.DuplicateChartGroups?.SelectMany(group => group.ChartFiles).Any(chart => chart.Path == moved.Path) == true)
+                { Volatile.Write(ref groupsObserved, 1); }
+            };
+            fixture.Library.PropertyChanged += groupsChanged;
             PropertyChangedEventHandler notification = (_, args) =>
             {
                 if (displayed || args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)) { return; }
@@ -677,7 +695,8 @@ public sealed class RegularChartNavigationTests
             {
                 if (displayed)
                 {
-                    cachedPresentation.ShouldHold = () => true;
+                    // 前の段の一覧構築とそのUI配送は、直前のAwaitViewPreparationsOnDispatcherで終端済みなので、最初の一件はUI外から呼ばれる準備済み表示の配送（PresentDuplicateData）になる。
+                    cachedPresentation.ShouldHold = _ => true;
                     cachedNavigation = fixture.NavigateDuplicate(MainViewUpdateMode.DuplicateFilterSelected, null);
                     fixture.AwaitOwned(Task.WhenAny(cachedPresentation.HeldOperation, cachedNavigation), "cached display started or navigation failed");
                     if (cachedNavigation.IsFaulted || cachedNavigation.IsCanceled) { fixture.AwaitOwned(cachedNavigation, "cached navigation failure"); }
@@ -688,11 +707,14 @@ public sealed class RegularChartNavigationTests
                 }
                 var target = new ChartOperationTarget(original, null, ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary);
                 operation = vm.SelectedChartMutations.MoveAsync(new SelectedChartMoveRequest([target], destination));
-                fixture.AwaitOwned(TestUiDispatcherHost.AwaitNotificationAsync(reached.Task, operation, "real move notification"), "real move required notification");
-                Assert.IsFalse(reached.Task.Result.OnUi);
-                Assert.IsTrue(reached.Task.Result.LocksReleased);
-                Assert.IsFalse(operation.IsCompleted);
-                Assert.IsTrue(fixture.Library.OperationAdmission.IsActive);
+                try { fixture.AwaitOwned(TestUiDispatcherHost.AwaitNotificationAsync(reached.Task, operation, "real move notification"), "real move required notification"); }
+                catch (Exception waitFailure)
+                { throw new AssertFailedException("実移動の必須通知を待てません。 " + continuation.Diagnostics, waitFailure); }
+                // 保留はUI外で、グループ変更通知の後に一致した呼出しだけを対象にするため、次の二つは保留条件が前提になる。
+                Assert.IsFalse(reached.Task.Result.OnUi, continuation.Diagnostics);
+                Assert.IsTrue(reached.Task.Result.LocksReleased, continuation.Diagnostics);
+                Assert.IsFalse(operation.IsCompleted, continuation.Diagnostics);
+                Assert.IsTrue(fixture.Library.OperationAdmission.IsActive, continuation.Diagnostics);
                 Assert.IsFalse(fixture.Library.OperationAdmission.TryEnter(out IDisposable rejected));
                 Assert.IsNull(rejected);
                 if (displayed)
@@ -748,7 +770,7 @@ public sealed class RegularChartNavigationTests
                     fixture.AwaitOwned(Task.WhenAll((Task?)operation ?? Task.CompletedTask, (Task?)cachedNavigation ?? Task.CompletedTask,
                         cachedDisplay ?? Task.CompletedTask), "real move and cached display cleanup");
                 }
-                finally { fixture.Library.PropertyChanged -= notification; }
+                finally { fixture.Library.PropertyChanged -= notification; fixture.Library.PropertyChanged -= groupsChanged; }
             }
         }, scheduler: continuation, dialogs: dialogs);
     }
@@ -1465,15 +1487,31 @@ public sealed class RegularChartNavigationTests
         }, publication, scheduler);
     }
 
-    /// <summary>指定した条件のUI配送を一度保留し、開始した配送Taskとその失敗を呼出元へ返します。</summary>
+    /// <summary>
+    /// 条件を満たす<c>Func&lt;Task&gt;</c>のUI配送を、<see cref="Release"/>まで保留して開始した配送Taskを呼出元へ返します。
+    /// 実移動の継続では、重複の準備の完成通知を運ぶUI配送（UI外から呼ばれる）を保留したいが、同じ解析経路にはUI外から呼ばれる別の配送（一覧構築）も先に来得ます。
+    /// 先着の一件だけを保留すると、後者が保留を消費して前者が素通りし、実移動のLが解放されます。そのため<see cref="HoldAll"/>で条件を満たす配送をすべて保留します。
+    /// 条件にはUIスレッドから呼ばれたか（<c>onUi</c>）を渡し、UIから呼ばれた配送は呼出元の条件で通過させます。保留した呼出しの数とスレッドは<see cref="Diagnostics"/>に残します。
+    /// 製品がUIから呼ぶ退行は直接は検知できず、Lの保持の表明などで間接的に検知します（受容済み）。
+    /// </summary>
     private sealed class DuplicateContinuationUiGate(IUiScheduler scheduler) : IUiScheduler
     {
         private readonly TaskCompletionSource release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly object sync = new();
         private readonly TaskCompletionSource<Task> heldOperation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly List<string> heldCalls = [];
         internal Task<Task> HeldOperation => heldOperation.Task;
         private bool held;
-        internal Func<bool>? ShouldHold { get; set; }
+        /// <summary>保留する配送の条件です。引数は、配送がUIスレッドから呼ばれたかどうかです。</summary>
+        internal Func<bool, bool>? ShouldHold { get; set; }
+        /// <summary>真なら条件を満たす配送をすべて保留し、偽なら最初の一件だけ保留します。</summary>
+        internal bool HoldAll { get; set; }
+        /// <summary>保留のたびに呼ばれ、保留した呼出しがUIから呼ばれたかを通知します。最初の一回だけが反映されるのは、受け側のTrySetResultによります。</summary>
+        internal Action<bool>? OnHeld { get; set; }
+        /// <summary>保留数、各呼出しのスレッド、<see cref="Context"/>の追記を返します。表明の失敗時と、通知の待機の失敗時のメッセージに含めます。</summary>
+        internal string Diagnostics { get { lock (sync) { return "held=" + heldCalls.Count + " [" + string.Join("; ", heldCalls) + "]" + (Context?.Invoke() ?? string.Empty); } } }
+        /// <summary>診断へ追記する呼出元の状態です。一致が一度も起きずに失敗した場合の切り分けに使います。</summary>
+        internal Func<string>? Context { get; set; }
         internal void Release() => release.TrySetResult();
         public bool IsAvailable => scheduler.IsAvailable;
         public bool CanExecuteInline => scheduler.CanExecuteInline;
@@ -1487,8 +1525,15 @@ public sealed class RegularChartNavigationTests
             bool hold;
             lock (sync)
             {
-                hold = !held && ShouldHold?.Invoke() == true;
-                if (hold) { held = true; }
+                bool onUi = TestUiDispatcherHost.Dispatcher.CheckAccess();
+                // 解放後は判定も記録も行わず転送する。保留数は解放前に保留した呼出しだけを表す。
+                hold = !release.Task.IsCompleted && (HoldAll || !held) && ShouldHold?.Invoke(onUi) == true;
+                if (hold)
+                {
+                    held = true;
+                    heldCalls.Add("thread=" + Environment.CurrentManagedThreadId + " onUi=" + onUi);
+                    OnHeld?.Invoke(onUi);
+                }
             }
             if (!hold) { return scheduler.InvokeAsync(action, priority); }
             Task forwarding = ForwardAsync();
