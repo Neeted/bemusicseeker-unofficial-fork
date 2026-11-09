@@ -460,7 +460,7 @@ public sealed class DialogPresentationTests
                             customFolderOutputBaseName: string.Empty),
                         isSelected: false,
                         selectionChanged: null)));
-            var dialog = new PlayHistoryFolderDisplayPresetEditDialog(owner.SettingDialog, session)
+            var dialog = new PlayHistoryFolderDisplayPresetEditDialog(owner.SettingDialog, session, UndeclaredDialogs.Create())
             {
                 Height = 360d,
                 Width = 560d
@@ -997,7 +997,7 @@ public sealed class DialogPresentationTests
         MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
         PlayHistoryFolderDisplayPresetEditSession session = owner.SettingDialog
             .CreatePlayHistoryFolderDisplayPresetEditSession(null);
-        var dialog = new PlayHistoryFolderDisplayPresetEditDialog(owner.SettingDialog, session);
+        var dialog = new PlayHistoryFolderDisplayPresetEditDialog(owner.SettingDialog, session, UndeclaredDialogs.Create());
         return CreateNativeFixture(
             dialog,
             [

@@ -1133,6 +1133,163 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
+    /// <summary>
+    /// 条件：設定の初期化中（起動の操作ブロック中）に、LR2 の手動再同期を要求します。通知の表示は成功、失敗（Failed）、窓口の例外のいずれかです。
+    /// 期待結果：適用拒否の通知（本文 Msg_settings_apply_blocked_during_initialization、見出し Warning、OK、Exclamation、Owner は SettingsWindow）が
+    /// SettingsWindow の窓口へちょうど 1 件届き、確認は届きません。表示できた場合は成功で終わります。
+    /// 失敗では route の Task が失敗し、Failed の例外または窓口の例外を辿れます（Failed は InvalidOperationException の InnerException）。
+    /// どの場合も確認と再同期は開始せず、SettingsOperationCompletionTask は新しく開始されません。
+    /// 検出する誤り：通知の宛先や Owner の取り違え、表示失敗の握りつぶし、通知の失敗後の確認や再同期の開始。
+    /// </summary>
+    [TestMethod]
+    [DataRow("shown")]
+    [DataRow("failed")]
+    [DataRow("faulted")]
+    public void SettingsWindow_ApplyBlockedNotification_UsesWindowDialogsAndPropagatesPresentationFailure(string scenario)
+    {
+        var failure = new InvalidOperationException("apply blocked notification presentation failure");
+        var dialogs = new RecordingSettingsRouteDialogService();
+        switch (scenario)
+        {
+            case "failed": dialogs.MessageResult = UiDialogResult.Failed(failure); break;
+            case "faulted": dialogs.MessageFailure = failure; break;
+        }
+
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+            using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
+            var window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
+            owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
+            try
+            {
+                Assert.IsTrue(owner.SettingDialog.IsSettingsOperationAvailable);
+                Assert.IsTrue(owner.SettingDialog.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation);
+                Task operationBefore = owner.SettingDialog.SettingsOperationCompletionTask;
+
+                Task route = window.HandleLr2SongDbSyncDataResyncAsync();
+                Exception? thrown = null;
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(route, "apply-blocked-notification-route"); }
+                catch (Exception exception) { thrown = exception; }
+
+                Assert.AreEqual(1, dialogs.MessageRequests.Count);
+                Assert.AreEqual(0, dialogs.ConfirmationRequests.Count);
+                UiMessageRequest request = dialogs.MessageRequests[0];
+                Assert.AreEqual(Resources.Msg_settings_apply_blocked_during_initialization, request.MessageBoxText);
+                Assert.AreEqual(Resources.Warning, request.Caption);
+                Assert.AreEqual(MessageBoxButton.OK, request.Button);
+                Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+                Assert.AreSame(window, request.Owner);
+                Assert.AreSame(operationBefore, owner.SettingDialog.SettingsOperationCompletionTask);
+                switch (scenario)
+                {
+                    case "shown":
+                        Assert.IsNull(thrown);
+                        break;
+                    case "failed":
+                        Assert.IsNotNull(thrown);
+                        Assert.IsInstanceOfType<InvalidOperationException>(thrown);
+                        Assert.AreSame(failure, thrown.InnerException);
+                        break;
+                    default:
+                        Assert.IsNotNull(thrown);
+                        Assert.IsTrue(ReferenceEquals(failure, thrown) || ReferenceEquals(failure, thrown.InnerException));
+                        break;
+                }
+            }
+            finally
+            {
+                owner.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+                window.CloseForOwnerShutdown();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 条件：プレイ履歴の表示プリセットの編集ダイアログ（設定の窓口を ctor で受け取ったもの）で、名前を空白にして保存の Click を発生させます。
+    /// 通知の表示は成功、失敗（Failed）、窓口の例外のいずれかです。
+    /// 期待結果：ハンドラーの終端は失敗せず、設定の窓口へ検証エラー（Error_PlayHistoryFolderPresetNameEmpty、見出し Error、OK、Hand、Owner は編集ダイアログ）が
+    /// ちょうど 1 件届き、確認は届きません。DialogResult は null のままで、プリセットの件数・選択・保存済みの JSON は変わりません。
+    /// 表示の失敗は任意の通知としてログに残すだけで、保存の成功や閉じる動作に読み替えません。
+    /// 検出する誤り：検証エラーの宛先や Owner の取り違え、表示失敗による保存・閉じる動作、例外の流出。
+    /// </summary>
+    [TestMethod]
+    [DataRow("shown")]
+    [DataRow("failed")]
+    [DataRow("faulted")]
+    public void PlayHistoryPresetDialog_ValidationError_UsesSettingsDialogsAndKeepsStateOnPresentationFailure(string scenario)
+    {
+        var failure = new InvalidOperationException("preset validation notification presentation failure");
+        var dialogs = new RecordingSettingsRouteDialogService();
+        switch (scenario)
+        {
+            case "failed": dialogs.MessageResult = UiDialogResult.Failed(failure); break;
+            case "faulted": dialogs.MessageFailure = failure; break;
+        }
+
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            Settings settings = TestSettingsFactory.CreateIsolatedSettings();
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings, settingsDialogs: dialogs);
+            using SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
+            var window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog, PlaylistWorkspace = owner.PlaylistWorkspace };
+            dialogs.ExpectedOwner = window;
+            PlayHistoryFolderDisplayPresetEditDialog? dialog = null;
+            try
+            {
+                window.HandleAddPlayHistoryFolderDisplayPreset();
+                dialog = (PlayHistoryFolderDisplayPresetEditDialog)dialogs.LastCreatedWindow;
+                var session = (PlayHistoryFolderDisplayPresetEditSession)dialog.DataContext;
+                session.Name = "   ";
+                int presetCount = owner.SettingDialog.PlayHistoryFolderDisplayPresets.Count;
+                PlayHistoryFolderDisplayPresetEditor? selected = owner.SettingDialog.SelectedPlayHistoryFolderDisplayPreset;
+                string savedJson = settings.PlayHistoryDisplayTargetSetsJson;
+                Button save = FindLogicalButton(dialog, "PlayHistoryPresetSave")
+                    ?? throw new AssertFailedException("保存ボタンがありません。");
+
+                Task completion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
+                    () => save.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, save)));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(completion, "preset-validation-click");
+
+                Assert.AreEqual(1, dialogs.MessageRequests.Count);
+                Assert.AreEqual(0, dialogs.ConfirmationRequests.Count);
+                UiMessageRequest request = dialogs.MessageRequests[0];
+                Assert.AreEqual(Resources.Error_PlayHistoryFolderPresetNameEmpty, request.MessageBoxText);
+                Assert.AreEqual(Resources.Error, request.Caption);
+                Assert.AreEqual(MessageBoxButton.OK, request.Button);
+                Assert.AreEqual(MessageBoxImage.Hand, request.Icon);
+                Assert.AreSame(dialog, request.Owner);
+                Assert.IsNull(dialog.DialogResult);
+                Assert.AreEqual(presetCount, owner.SettingDialog.PlayHistoryFolderDisplayPresets.Count);
+                Assert.AreSame(selected, owner.SettingDialog.SelectedPlayHistoryFolderDisplayPreset);
+                Assert.AreEqual(savedJson, settings.PlayHistoryDisplayTargetSetsJson);
+            }
+            finally
+            {
+                dialog?.Close();
+                window.CloseForOwnerShutdown();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+        });
+    }
+
+    private static Button? FindLogicalButton(DependencyObject root, string automationId)
+    {
+        foreach (object child in LogicalTreeHelper.GetChildren(root))
+        {
+            if (child is Button button && AutomationProperties.GetAutomationId(button) == automationId)
+            {
+                return button;
+            }
+            if (child is DependencyObject element && FindLogicalButton(element, automationId) is { } found)
+            {
+                return found;
+            }
+        }
+        return null;
+    }
+
     /// <summary>出力への候補切替確認の表示不能をTaskの失敗として保ち、実Buttonでは一回通知して回収します。失敗では実設定・BMS候補・未受理出力を保持し、次の明示操作だけが保存します。</summary>
     /// <remarks>WindowとViewModelへ同じ確認サービスを構成し、OwnerUnavailableと元例外付きFailedを取消・承認から区別します。</remarks>
     [TestMethod]
@@ -6186,6 +6343,9 @@ public sealed class SettingsWindowPresentationTests
 
         internal UiDialogResult MessageResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
 
+        /// <summary>設定すると、通知の表示が窓口の例外（失敗したTask）で終わります。</summary>
+        internal Exception? MessageFailure { get; set; }
+
         internal UiSaveFilePickerResult SaveFileResult { get; set; } = new(UiDialogStatus.CancelledByUser);
 
         internal UiFilePickerResult FileResult { get; set; } = new(UiDialogStatus.CancelledByUser);
@@ -6201,6 +6361,10 @@ public sealed class SettingsWindowPresentationTests
             CancellationToken cancellationToken = default)
         {
             MessageRequests.Add(request);
+            if (MessageFailure != null)
+            {
+                return Task.FromException<UiDialogResult>(MessageFailure);
+            }
             return Task.FromResult(MessageResult);
         }
 

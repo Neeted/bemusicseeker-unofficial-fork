@@ -1,5 +1,7 @@
 #nullable enable
 using System;
+using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -54,6 +56,30 @@ internal sealed partial class ApplicationScenarioDialogs
         return () => input.Answer.SetResult(UiDialogResult.FromMessageBoxResult(approve ? MessageBoxResult.OK : MessageBoxResult.Cancel));
     }
 
+    /// <summary>
+    /// 複合書式の固定部分すべてに、先頭から末尾まで全体一致するかを返します。
+    /// 書式が <c>{0}</c> で始まる場合でも、固定部分を無視した前方一致で無関係な確認を受理しないために使います。
+    /// <c>{n}</c>（書式指定を含む）は改行を含む任意の文字列、<c>{{</c> と <c>}}</c> は波括弧そのものとして扱います。
+    /// </summary>
+    private static bool MatchesFormatExactly(string format, string text)
+    {
+        var pattern = new StringBuilder(@"\A");
+        int last = 0;
+        foreach (Match token in Regex.Matches(format, @"\{\{|\}\}|\{[^{}]*\}"))
+        {
+            pattern.Append(Regex.Escape(format.Substring(last, token.Index - last)));
+            pattern.Append(token.Value switch
+            {
+                "{{" => Regex.Escape("{"),
+                "}}" => Regex.Escape("}"),
+                _ => @"[\s\S]*",
+            });
+            last = token.Index + token.Length;
+        }
+        pattern.Append(Regex.Escape(format.Substring(last))).Append(@"\z");
+        return Regex.IsMatch(text, pattern.ToString(), RegexOptions.CultureInvariant);
+    }
+
     private Task<UiDialogResult> ConfirmRecoveryAsync(UiConfirmationRequest request, CancellationToken cancellation)
     {
         if (activeSection?.Command.Action == ScenarioSettingsSectionAction.DetailsRestart
@@ -64,7 +90,7 @@ internal sealed partial class ApplicationScenarioDialogs
             return environment.Answer.Task;
         }
         if (activeSection?.Command.Action == ScenarioSettingsSectionAction.OutputCommit
-            && request.MessageBoxText.StartsWith(Resources.Confirm_CustomFolderOutputChangesFormat.Split('{')[0], StringComparison.Ordinal))
+            && MatchesFormatExactly(Resources.Confirm_CustomFolderOutputChangesFormat, request.MessageBoxText))
         { return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }
         if (activeSection?.Command.Action == ScenarioSettingsSectionAction.InstallHistorySchema
             && request.MessageBoxText.StartsWith(Resources.Msg_confirm_lr2_play_history_schema_install_or_repair, StringComparison.Ordinal))

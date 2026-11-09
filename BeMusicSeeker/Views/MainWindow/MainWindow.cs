@@ -291,10 +291,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     MessageBoxImage.Hand,
                     MessageBoxResult.OK,
                     owner: this));
-            if (notification == null
-                || notification.Status is not UiDialogStatus.Accepted
-                    and not UiDialogStatus.CancelledByUser
-                    and not UiDialogStatus.ClosedByUser)
+            if (notification is not { IsShown: true })
             {
                 Exception notificationFailure = notification?.Exception
                     ?? new InvalidOperationException(
@@ -440,7 +437,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             null,
             null,
             null,
-            null,
             mainWindowForegroundTerminal,
             chartPropertiesManagerFactory,
             readPlaybackForegroundWindow,
@@ -458,7 +454,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="maintenanceTreeTerminal">maintenance tree selection terminal。</param>
     /// <param name="installTreeTerminal">install tree selection terminal。</param>
     /// <param name="zeroNoteRecheckTerminal">zero-note recheck terminal。</param>
-    /// <param name="columnResetTerminal">column reset terminal。</param>
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
@@ -466,8 +461,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowRegularLibraryTreeTerminal? regularLibraryTreeTerminal,
         MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal,
         MainWindowInstallTreeTerminal? installTreeTerminal,
-        MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal,
-        MainWindowColumnResetTerminal? columnResetTerminal)
+        MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal)
         : this(
             viewModel,
             settingsWindowCreated,
@@ -476,7 +470,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             maintenanceTreeTerminal,
             installTreeTerminal,
             zeroNoteRecheckTerminal,
-            columnResetTerminal,
             null,
             null,
             null,
@@ -503,7 +496,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="maintenanceTreeTerminal">maintenance tree selection terminal。</param>
     /// <param name="installTreeTerminal">install tree selection terminal。</param>
     /// <param name="zeroNoteRecheckTerminal">zero-note recheck terminal。</param>
-    /// <param name="columnResetTerminal">column reset terminal。</param>
     /// <param name="folderAutoRenameTerminal">chart and folder auto-rename terminal。</param>
     /// <param name="duplicateMaintenanceTerminal">duplicate-folder maintenance terminal。</param>
     /// <param name="maintenanceRescanTerminal">full resource-health rescan terminal。</param>
@@ -530,7 +522,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal,
         MainWindowInstallTreeTerminal? installTreeTerminal,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal,
-        MainWindowColumnResetTerminal? columnResetTerminal,
         MainWindowFolderAutoRenameTerminal? folderAutoRenameTerminal,
         MainWindowDuplicateMaintenanceTerminal? duplicateMaintenanceTerminal,
         MainWindowMaintenanceRescanTerminal? maintenanceRescanTerminal,
@@ -562,7 +553,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         this.maintenanceTreeTerminal = maintenanceTreeTerminal ?? MainWindowMaintenanceTreeTerminal.Create(viewModel);
         this.installTreeTerminal = installTreeTerminal ?? MainWindowInstallTreeTerminal.Create(viewModel);
         this.zeroNoteRecheckTerminal = zeroNoteRecheckTerminal ?? MainWindowZeroNoteRecheckTerminal.Create(viewModel);
-        this.columnResetTerminal = columnResetTerminal ?? MainWindowColumnResetTerminal.Create(viewModel);
+        columnResetTerminal = MainWindowColumnResetTerminal.Create(viewModel);
         this.folderAutoRenameTerminal = folderAutoRenameTerminal ?? MainWindowFolderAutoRenameTerminal.Create(viewModel);
         this.duplicateMaintenanceTerminal = duplicateMaintenanceTerminal ?? MainWindowDuplicateMaintenanceTerminal.Create(viewModel);
         this.maintenanceRescanTerminal = maintenanceRescanTerminal ?? MainWindowMaintenanceRescanTerminal.Create(viewModel);
@@ -1120,6 +1111,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void MainWindowViewModel_ElevatedProcessWarningPresentationRequested(ElevatedProcessWarningPresentationRequest request)
     {
+        _ = PresentElevatedProcessWarningAsync(request);
+    }
+
+    /// <summary>
+    /// 昇格の警告を窓口で表示し、要求の Complete か Fail のどちらか一方へ必ず 1 回だけ結果を返します。
+    /// 戻り値の Task は失敗させません。
+    /// </summary>
+    private async Task PresentElevatedProcessWarningAsync(ElevatedProcessWarningPresentationRequest request)
+    {
         if (request == null)
         {
             return;
@@ -1131,13 +1131,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 request.Complete(false);
                 return;
             }
-            UiDialogRoute.ShowMessageBox(
-                this,
+            string caption = BeMusicSeeker.Properties.Resources.Warning;
+            UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
                 BeMusicSeeker.Properties.Resources.Warn_ElevatedProcessDragDropLimited,
-                BeMusicSeeker.Properties.Resources.Warning,
+                caption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Exclamation,
-                MessageBoxResult.OK);
+                MessageBoxResult.OK,
+                owner: this));
+            UiDialogRoute.ThrowIfNotShown(notification, caption);
             request.Complete(true);
         }
         catch (Exception exception)
@@ -1574,7 +1576,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// メインウィンドウに対してファイルやフォルダーがドラッグ＆ドロップされた際の完了処理イベント。
     /// ドロップされたパス一覧を取得し、譜面ファイルのインストール処理を開始します。
     /// </summary>
-    private void Window_Drop(object sender, DragEventArgs e)
+    private async void Window_Drop(object sender, DragEventArgs e)
     {
         e.Handled = true;
         var viewModel = base.DataContext as MainWindowViewModel;
@@ -1603,13 +1605,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         switch (decision.WarningKind)
         {
             case DroppedInstallDropWarningKind.UnsupportedFormat:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallUnsupportedFormat);
+                await ShowDropInstallWarningAsync(BeMusicSeeker.Properties.Resources.Warn_DropInstallUnsupportedFormat);
                 break;
             case DroppedInstallDropWarningKind.IngressFailed:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallIngressFailed);
+                await ShowDropInstallWarningAsync(BeMusicSeeker.Properties.Resources.Warn_DropInstallIngressFailed);
                 break;
             case DroppedInstallDropWarningKind.QueueUnavailable:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable);
+                await ShowDropInstallWarningAsync(BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable);
                 break;
         }
 
@@ -1619,15 +1621,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void ShowDropInstallWarning(string message)
+    /// <summary>
+    /// ドロップの警告を窓口で表示します。任意の通知なので、表示の失敗はログに残すだけにし、
+    /// async void のハンドラーから例外を出しません。Effects と Handled は呼び出し前に確定済みです。
+    /// </summary>
+    private async Task ShowDropInstallWarningAsync(string message)
     {
-        UiDialogRoute.ShowMessageBox(
-            this,
-            message,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
+        await ShowOptionalNotificationAsync(
+            new UiMessageRequest(
+                message,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK,
+                owner: this),
+            "drop_ingress warning notification");
+    }
+
+    /// <summary>
+    /// 共通の窓口で任意の通知を表示します。表示できなかった場合や例外は、成功とも元の操作の失敗とも読み替えず、ログに残すだけにします。
+    /// </summary>
+    private async Task ShowOptionalNotificationAsync(UiMessageRequest request, string routeName)
+    {
+        try
+        {
+            UiDialogResult notification = await dialogService.ShowMessageAsync(request);
+            if (notification is not { IsShown: true })
+            {
+                TryLogMainWindowFailure(
+                    notification?.Exception
+                        ?? new InvalidOperationException(
+                            routeName + " was not shown (" + (notification?.Status.ToString() ?? "no result") + ")."),
+                    routeName);
+            }
+        }
+        catch (Exception exception)
+        {
+            TryLogMainWindowFailure(exception, routeName);
+        }
     }
 
     private static void LogUnsupportedDropFormats(IDataObject data)
@@ -2638,7 +2669,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             if (base.DataContext is MainWindowViewModel)
             {
                 e.Handled = true;
-                columnResetTerminal.Reset(Window.GetWindow(this));
+                await columnResetTerminal.ResetAsync(Window.GetWindow(this));
             }
         }
         catch (Exception exception)
@@ -3013,7 +3044,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return builder.ToString();
     }
 
-    private void configuredExternalActionMenuItemClick(object sender, RoutedEventArgs e)
+    private async void configuredExternalActionMenuItemClick(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuItem { Tag: ConfiguredExternalActionMenuTag tag }
             || !TryGetContextMenuRow(e.Source, out object row)
@@ -3022,6 +3053,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
 
+        // 生成した項目は、現在の行や設定が古くなっていても、このクリックの経路を所有します。
+        // 失敗は端末が下で通知します。親へ伝わると旧来のハンドラーを呼びうるため、最初の await や例外より前に確定します。
+        e.Handled = true;
         RightClickActionResolutionInput input = null;
         if (row is PlayHistoryRow)
         {
@@ -3041,8 +3075,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         if (input == null)
         {
-            e.Handled = true;
-            ShowConfiguredExternalActionFailure(
+            await ShowConfiguredExternalActionFailureAsync(
                 ExternalConfiguredActionResult.Failure(
                     ExternalConfiguredActionFailureKind.ActionUnavailable,
                     BeMusicSeeker.Properties.Resources.RightClick_external_action_unavailable));
@@ -3052,13 +3085,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         ExternalConfiguredActionResult result = selectedChartContextMenuTerminals
             .SelectedChartExternalActions
             .ExecuteConfiguredAction(input, tag.Kind, tag.ActionId);
-        // A generated item owns the routed click even when the current row or
-        // settings became stale.  The terminal reports the failure below;
-        // allowing the event to bubble would risk invoking a legacy handler.
-        e.Handled = true;
         if (!result.Succeeded)
         {
-            ShowConfiguredExternalActionFailure(result);
+            await ShowConfiguredExternalActionFailureAsync(result);
         }
     }
 
@@ -3076,7 +3105,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         };
     }
 
-    private void ShowConfiguredExternalActionFailure(ExternalConfiguredActionResult result)
+    private async Task ShowConfiguredExternalActionFailureAsync(ExternalConfiguredActionResult result)
     {
         string detail = string.IsNullOrWhiteSpace(result.Diagnostic)
             ? result.FailureKind.ToString()
@@ -3088,13 +3117,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        UiDialogRoute.ShowMessageBox(
-            this,
-            GetConfiguredExternalActionFailureMessage(result),
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
+        await ShowOptionalNotificationAsync(
+            new UiMessageRequest(
+                GetConfiguredExternalActionFailureMessage(result),
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK,
+                owner: this),
+            "configured_external_action failure notification");
     }
 
     private bool TryGetPlayHistoryContextMenuAction(

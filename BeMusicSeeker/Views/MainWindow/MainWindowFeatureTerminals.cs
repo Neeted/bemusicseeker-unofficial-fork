@@ -138,27 +138,33 @@ internal sealed class MainWindowZeroNoteRecheckTerminal
 /// </summary>
 internal sealed class MainWindowColumnResetTerminal
 {
-    private readonly Action<Window> reset;
+    private readonly Func<Window, Task> reset;
 
-    internal MainWindowColumnResetTerminal(Action<Window> reset)
+    internal MainWindowColumnResetTerminal(Func<Window, Task> reset)
     {
         this.reset = reset ?? throw new ArgumentNullException(nameof(reset));
     }
 
-    internal void Reset(Window owner) => reset(owner);
+    /// <summary>
+    /// 確認を表示し、明示的な OK のときだけ列の表示を初期化します。確認を表示できなかった場合は例外で失敗し、初期化しません。
+    /// </summary>
+    internal Task ResetAsync(Window owner) => reset(owner);
 
     internal static MainWindowColumnResetTerminal Create(MainWindowViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
-        return new MainWindowColumnResetTerminal(owner =>
+        return new MainWindowColumnResetTerminal(async owner =>
         {
-            if (UiDialogRoute.ShowMessageBox(
-                    owner,
-                    BeMusicSeeker.Properties.Resources.Msg_init_column_settings,
-                    BeMusicSeeker.Properties.Resources.Confirm,
-                    MessageBoxButton.OKCancel,
-                    MessageBoxImage.Question,
-                    MessageBoxResult.Cancel) == MessageBoxResult.OK)
+            string caption = BeMusicSeeker.Properties.Resources.Confirm;
+            UiDialogResult confirmation = await viewModel.DialogService.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Msg_init_column_settings,
+                caption,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Cancel,
+                owner: owner));
+            UiDialogRoute.ThrowIfNotShown(confirmation, caption);
+            if (confirmation.MessageBoxResult == MessageBoxResult.OK)
             {
                 viewModel.RegularChartList.ResetCurrentColumnPresentation();
             }

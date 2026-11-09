@@ -7572,7 +7572,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 maintenanceTreeTerminal: null,
                 installTreeTerminal: null,
                 zeroNoteRecheckTerminal: null,
-                columnResetTerminal: null,
                 folderAutoRenameTerminal: null,
                 duplicateMaintenanceTerminal: null,
                 maintenanceRescanTerminal: null,

@@ -18,6 +18,7 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.Tests;
 
@@ -205,28 +206,87 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    /// <summary>compiled列メニューのリセットClickを一回の列reset端末へ配送し、XAMLと処理の接続漏れを検出します。</summary>
+    /// <summary>
+    /// compiled列メニューのリセットClickが、既定の端末を通して構成の共通の窓口へ確認をちょうど1件送り、明示的なOKのときだけ列の表示を初期化することを確認します。
+    /// 取消は初期化せず、表示の失敗（Failed、窓口の例外）は承認とも取消とも読み替えず初期化しません。失敗の案内は、所有する入口が
+    /// プレイリストの窓口へMsg_error_unexpectedを1件だけ出し、例外はハンドラーの外へ出しません。
+    /// 検出する誤り：確認の宛先や内容・Ownerの取り違え、表示失敗の承認扱い、案内の欠落や重複、例外の流出。
+    /// </summary>
     [TestMethod]
-    public void MainColumnResetClickUsesActualCompiledMenuRoute()
+    [DataRow("ok")]
+    [DataRow("cancel")]
+    [DataRow("failed")]
+    [DataRow("faulted")]
+    public void MainColumnResetClickConfirmsThroughInjectedDialogAndResetsOnlyOnExplicitOk(string scenario)
     {
-        int calls = 0;
-        var terminal = new MainWindowColumnResetTerminal(_ => calls++);
+        bool expectReset = scenario == "ok";
+        bool expectFailureNotice = scenario is "failed" or "faulted";
+        var presentationFailure = new InvalidOperationException("column reset confirmation presentation failure");
+        var rootDialogs = new RecordingRootDialogService
+        {
+            ConfirmationResult = scenario switch
+            {
+                "ok" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                "cancel" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel),
+                _ => UiDialogResult.Failed(presentationFailure),
+            },
+        };
+        if (scenario == "faulted")
+        {
+            rootDialogs.ConfirmationObservedAsync = () => Task.FromException(presentationFailure);
+        }
+        IUiDialogService playlistDialogs = expectFailureNotice ? new RecordingRootDialogService() : UndeclaredDialogs.Create();
 
         WithSimpleTextBoxStyles(() =>
         {
             MainWindowPresentationTestHarness.RunConstructorOnly(
                 TestSettingsFactory.CreateIsolatedSettings(),
-                (_, window) =>
+                (viewModel, window) =>
                 {
+                    viewModel.RegularChartList.InitializeColumnPresentation(MainViewUpdateMode.FolderFilterSelected);
+                    CustomTableColumnSettings before = viewModel.MainChartList.ColumnsSettings;
                     var menu = (ContextMenu)window.FindResource("tableColumnHeaderContextMenu");
                     MenuItem reset = menu.Items.OfType<MenuItem>().Last();
 
-                    reset.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, reset));
+                    Task completion = MainWindowEventCompletion.CaptureAsyncEventCompletion(
+                        () => reset.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent, reset)));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(completion, "column reset click");
 
-                    Assert.AreEqual(1, calls);
+                    Assert.AreEqual(1, rootDialogs.ConfirmationCount);
+                    Assert.AreEqual(0, rootDialogs.MessageCount);
+                    UiConfirmationRequest confirmation = rootDialogs.ConfirmationRequests.Single();
+                    Assert.AreEqual(Resources.Msg_init_column_settings, confirmation.MessageBoxText);
+                    Assert.AreEqual(Resources.Confirm, confirmation.Caption);
+                    Assert.AreEqual(MessageBoxButton.OKCancel, confirmation.Button);
+                    Assert.AreEqual(MessageBoxImage.Question, confirmation.Icon);
+                    Assert.AreEqual(MessageBoxResult.Cancel, confirmation.DefaultResult);
+                    Assert.AreSame(window, confirmation.Owner);
+
+                    if (expectReset)
+                    {
+                        Assert.AreNotSame(before, viewModel.MainChartList.ColumnsSettings);
+                    }
+                    else
+                    {
+                        Assert.AreSame(before, viewModel.MainChartList.ColumnsSettings);
+                    }
+
+                    if (expectFailureNotice)
+                    {
+                        var playlistRecording = (RecordingRootDialogService)playlistDialogs;
+                        Assert.AreEqual(0, playlistRecording.ConfirmationCount);
+                        Assert.AreEqual(1, playlistRecording.MessageCount);
+                        UiMessageRequest notice = playlistRecording.MessageRequests.Single();
+                        Assert.AreEqual(Resources.Msg_error_unexpected, notice.MessageBoxText);
+                        Assert.AreEqual(Resources.Error, notice.Caption);
+                        Assert.AreEqual(MessageBoxButton.OK, notice.Button);
+                        Assert.AreEqual(MessageBoxImage.Hand, notice.Icon);
+                        Assert.AreSame(window, notice.Owner);
+                    }
                 },
                 allowStartupUiInteraction: true,
-                columnResetTerminal: terminal);
+                playlistWorkspaceDialogService: playlistDialogs,
+                dialogService: rootDialogs);
         });
     }
 

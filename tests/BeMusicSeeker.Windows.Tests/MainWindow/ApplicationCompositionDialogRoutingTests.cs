@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.IO;
+using System.Reflection;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -14,7 +16,7 @@ using BeMusicSeeker.Views.Dialogs;
 namespace BeMusicSeeker.Tests;
 
 /// <summary>構成の共通のダイアログ窓口と専用引数が、構成の作る所有者へ届く経路を検証します。</summary>
-/// <remarks>`MainWindow_UpdateFailureNotification_UsesCommonDialogService` だけは、MainWindow を ctor だけで構築します。他はWindowを作らず構成から所有者までの接続だけを確認します。通知・確認の変換は BmsLibraryDialogServiceTests、確認結果の分岐は MaintenanceRescanWorkflowOwnerTests が担当します。</remarks>
+/// <remarks>`MainWindow_UpdateFailureNotification_UsesCommonDialogService` と `MainWindow_DropWarning_*` は、MainWindow を ctor だけで構築します。他はWindowを作らず構成から所有者までの接続だけを確認します。通知・確認の変換は BmsLibraryDialogServiceTests、確認結果の分岐は MaintenanceRescanWorkflowOwnerTests が担当します。</remarks>
 [TestClass]
 [TestCategory("Windows.Shell")]
 public sealed class ApplicationCompositionDialogRoutingTests
@@ -156,6 +158,77 @@ public sealed class ApplicationCompositionDialogRoutingTests
                 Assert.IsNull(request.Owner);
             });
         });
+    }
+
+    /// <summary>
+    /// 条件：ファイル形式を含まないドロップ（text だけ）を、構築だけの MainWindow へ配送します。構成の共通の窓口は通知の表示が成功、失敗（Failed）、窓口の例外のいずれかで、
+    /// プレイリストの窓口は別の未宣言の窓口です。
+    /// 期待結果：ハンドラーの終端は失敗せず、共通の窓口へ未対応形式の警告（見出し Warning、OK、Exclamation、Owner は MainWindow）がちょうど 1 件届き、確認は届きません。
+    /// 通知の呼出し時点でも終了後でも Effects は None、Handled は true です。プレイリストの窓口には何も届きません。
+    /// 表示の失敗は任意の通知としてログに残すだけで、例外を外へ出さず、Effects と Handled を変えません。
+    /// 検出する誤り：警告の宛先や内容・Owner の取り違え、通知の後での Effects と Handled の確定、表示失敗の例外の流出。
+    /// 反射の承認事項：理由は DragEventArgs に公開の ctor がないこと、範囲は ctor の呼出しだけで製品の状態には触れないこと、退役の条件は公開の生成手段ができることです。
+    /// </summary>
+    [TestMethod]
+    [DataRow("shown")]
+    [DataRow("failed")]
+    [DataRow("faulted")]
+    public void MainWindow_DropWarning_UsesCommonDialogServiceAndKeepsDropOutcome(string scenario)
+    {
+        var failure = new InvalidOperationException("drop warning presentation failure");
+        DragEventArgs? args = null;
+        DragDropEffects effectsAtNotification = DragDropEffects.Copy;
+        bool? handledAtNotification = null;
+        var common = new RecordingRootDialogService
+        {
+            MessageResult = scenario switch
+            {
+                "shown" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                _ => UiDialogResult.Failed(failure),
+            },
+            MessageObserved = () =>
+            {
+                Assert.IsNotNull(args);
+                effectsAtNotification = args.Effects;
+                handledAtNotification = args.Handled;
+            },
+        };
+        if (scenario == "faulted")
+        {
+            common.MessageObservedAsync = () => Task.FromException(failure);
+        }
+        IUiDialogService playlist = UndeclaredDialogs.Create();
+
+        MainWindowPresentationTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (_, window) =>
+            {
+                ConstructorInfo constructor = typeof(DragEventArgs).GetConstructor(BindingFlags.Instance | BindingFlags.NonPublic, null,
+                    [typeof(IDataObject), typeof(DragDropKeyStates), typeof(DragDropEffects), typeof(DependencyObject), typeof(Point)], null)
+                    ?? throw new AssertFailedException("DragEventArgsの入力生成ctorがありません。");
+                args = (DragEventArgs)constructor.Invoke(
+                    [new DataObject(DataFormats.Text, "not a chart package"), DragDropKeyStates.None, DragDropEffects.Copy, window, new Point(1, 1)]);
+                args.RoutedEvent = DragDrop.DropEvent;
+
+                Task completion = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => window.RaiseEvent(args));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(completion, "drop warning");
+
+                Assert.AreEqual(1, common.MessageCount);
+                Assert.AreEqual(0, common.ConfirmationCount);
+                UiMessageRequest request = common.MessageRequests.Single();
+                Assert.AreEqual(Resources.Warn_DropInstallUnsupportedFormat, request.MessageBoxText);
+                Assert.AreEqual(Resources.Warning, request.Caption);
+                Assert.AreEqual(MessageBoxButton.OK, request.Button);
+                Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+                Assert.AreSame(window, request.Owner);
+                Assert.AreEqual(DragDropEffects.None, effectsAtNotification);
+                Assert.AreEqual(true, handledAtNotification);
+                Assert.AreEqual(DragDropEffects.None, args.Effects);
+                Assert.IsTrue(args.Handled);
+            },
+            allowStartupUiInteraction: true,
+            playlistWorkspaceDialogService: playlist,
+            dialogService: common);
     }
 
     private static void ShowLibraryWarning(RecordingRootDialogService common, RecordingRootDialogService? libraryDialogService, string reason)

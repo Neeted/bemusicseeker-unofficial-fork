@@ -35,14 +35,14 @@ internal static class MainWindowPresentationTestHarness
         MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal = null,
         MainWindowInstallTreeTerminal? installTreeTerminal = null,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal = null,
-        MainWindowColumnResetTerminal? columnResetTerminal = null,
-        IUiDialogService? playlistWorkspaceDialogService = null)
+        IUiDialogService? playlistWorkspaceDialogService = null,
+        IUiDialogService? dialogService = null)
     {
         ArgumentNullException.ThrowIfNull(test);
         RunConstructorOnly(settings, (_, viewModel, window) => test(viewModel, window),
             allowStartupUiInteraction, libraryReloadMenuTerminal, regularLibraryTreeTerminal,
             maintenanceTreeTerminal, installTreeTerminal, zeroNoteRecheckTerminal,
-            columnResetTerminal, playlistWorkspaceDialogService);
+            playlistWorkspaceDialogService, dialogService);
     }
 
     /// <summary>表示する実親Windowを、終了処理を所有する同じscopeで追跡します。</summary>
@@ -55,8 +55,8 @@ internal static class MainWindowPresentationTestHarness
         MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal = null,
         MainWindowInstallTreeTerminal? installTreeTerminal = null,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal = null,
-        MainWindowColumnResetTerminal? columnResetTerminal = null,
-        IUiDialogService? playlistWorkspaceDialogService = null)
+        IUiDialogService? playlistWorkspaceDialogService = null,
+        IUiDialogService? dialogService = null)
     {
         ArgumentNullException.ThrowIfNull(settings);
         ArgumentNullException.ThrowIfNull(test);
@@ -71,7 +71,7 @@ internal static class MainWindowPresentationTestHarness
                 applicationLifetime: lifetime,
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 playlistWorkspaceDialogService: playlistWorkspaceDialogService,
-                dialogService: UndeclaredDialogs.Create())
+                dialogService: dialogService ?? UndeclaredDialogs.Create())
                 .CreateMainWindowViewModelForTest();
             var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
             ownership.Run(() =>
@@ -87,7 +87,6 @@ internal static class MainWindowPresentationTestHarness
                     maintenanceTreeTerminal: maintenanceTreeTerminal,
                     installTreeTerminal: installTreeTerminal,
                     zeroNoteRecheckTerminal: zeroNoteRecheckTerminal,
-                    columnResetTerminal: columnResetTerminal,
                     folderAutoRenameTerminal: null,
                     duplicateMaintenanceTerminal: null,
                     maintenanceRescanTerminal: null,

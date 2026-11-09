@@ -49,6 +49,13 @@ internal sealed class UiDialogResult
     internal bool IsAccepted => Status == UiDialogStatus.Accepted;
 
     /// <summary>
+    /// dialog が利用者へ表示され、利用者の応答で終わったかどうかを返します。失敗・親なしなど表示されなかった結果は <c>false</c> です。
+    /// <see cref="UiDialogRoute.ThrowIfNotShown"/> と同じ基準です。
+    /// </summary>
+    internal bool IsShown => Status is UiDialogStatus.Accepted or UiDialogStatus.Rejected
+        or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser;
+
+    /// <summary>
     /// dialog を閉じた場合も含め、肯定結果として扱えるかどうかを返します。
     /// </summary>
     internal bool IsPositive => Status == UiDialogStatus.Accepted

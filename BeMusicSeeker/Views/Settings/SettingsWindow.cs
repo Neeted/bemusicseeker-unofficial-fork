@@ -877,7 +877,13 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         {
             if (settingDialogViewModel.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation)
             {
-                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
+                // 適用が拒否された理由を利用者へ伝える通知なので、表示できなかった場合は呼び出し元へ失敗として返します。
+                string warningCaption = BeMusicSeeker.Properties.Resources.Warning;
+                UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
+                    BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization,
+                    warningCaption, MessageBoxButton.OK, MessageBoxImage.Exclamation,
+                    owner: Window.GetWindow(this)));
+                UiDialogRoute.ThrowIfNotShown(notification, warningCaption);
             }
             return;
         }
@@ -1140,7 +1146,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
             .ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>(
                 () => new PlayHistoryFolderDisplayPresetEditDialog(
                     settingDialogViewModel,
-                    settingDialogViewModel.CreatePlayHistoryFolderDisplayPresetEditSession(preset)),
+                    settingDialogViewModel.CreatePlayHistoryFolderDisplayPresetEditSession(preset),
+                    dialogService),
                 _ => null,
                 Window.GetWindow(this)))
             .GetAwaiter()
