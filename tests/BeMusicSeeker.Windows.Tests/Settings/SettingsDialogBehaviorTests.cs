@@ -882,7 +882,7 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(BmsCandidateEditing_DuringLibraryProcessingDoesNotAcquireOrSave));
     }
 
-    /// <summary>追加と解除の最終一覧を一度保存し、導入先を外す場合は明示代替を必要とします。成功後は候補を解消し、同値の明示確定でも再保存・必要再読込みを行います。</summary>
+    /// <summary>追加と解除の最終一覧を一度保存し、導入先を外す場合は明示代替を必要とします。成功後は候補を解消し、同値の明示確定でも再保存・必要再読込みを行います。明示代替なしの確定の拒否では通知がちょうど一件（導入先の選択を求める文言と見出し）出て、成功した確定では通知も確認も増えません。</summary>
     [TestMethod]
     [DoNotParallelize]
     public void BmsRootConfirmationUsesFinalListAndExplicitInstallReplacement()
@@ -894,7 +894,8 @@ public sealed class SettingsDialogBehaviorTests
             string oldRoot = values.BMSInstallDir;
             string newRoot = Directory.CreateDirectory(Path.Combine(directory.Path, "new-library")).FullName;
             string transient = Directory.CreateDirectory(Path.Combine(directory.Path, "transient")).FullName;
-            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
+            var dialogs = new RecordingDialogService();
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true, dialogs: dialogs);
             harness.Dialog.AddBmsSearchRootPathsAsync([newRoot, transient]).GetAwaiter().GetResult();
             harness.Dialog.RemoveBmsSearchRootPathAsync(transient).GetAwaiter().GetResult();
             await harness.Dialog.CommitBmsRootsAsync();
@@ -902,9 +903,14 @@ public sealed class SettingsDialogBehaviorTests
             byte[] confirmed = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
             harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot).GetAwaiter().GetResult();
             byte[] before = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
+            Assert.AreEqual(0, dialogs.MessageCount, "ここまでの確定と候補の編集は通知を出しません。");
             await harness.Dialog.CommitBmsRootsAsync();
             CollectionAssert.AreEqual(before, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
             Assert.AreEqual(initialReloads, harness.State.FileDiffReloadCount);
+            // 導入先を外した一覧は明示代替がないため、保存せず導入先の選択を求める通知を一件だけ出します。
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialogs.LastMessageText);
+            Assert.AreEqual(Resources.Error, dialogs.LastMessageCaption);
             harness.Dialog.ReplacementBmsInstallDir = newRoot;
             CollectionAssert.AreEqual(confirmed, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
             Assert.AreEqual(oldRoot, values.BMSInstallDir);
@@ -931,6 +937,8 @@ public sealed class SettingsDialogBehaviorTests
             Assert.IsFalse(harness.Dialog.CanCancelBmsRoots);
             await harness.Dialog.CommitBmsRootsAsync();
             Assert.AreEqual(initialReloads + 2, harness.State.FileDiffReloadCount);
+            Assert.AreEqual(1, dialogs.MessageCount, "成功した確定は追加の通知を出しません。");
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
             InstallServiceComponentTestSupport.WithTemporarySongDb((songDbPath, installScope) =>
             {
                 string source = Directory.CreateDirectory(Path.Combine(installScope, "Package")).FullName;

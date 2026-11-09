@@ -75,7 +75,7 @@ public sealed class SettingDialogOperationShutdownTests
             var failures = new List<Exception>();
             var composition = new ApplicationComposition(settingsEditSession: session, uiScheduler: ui, applicationLifetime: lifetime,
                 reportSettingsApplyFailure: failures.Add, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                settingsDialogService: new SettingsOperationDialogs(dialogs), fileDbMutationDialogService: dialogs, runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
+                settingsDialogService: new SettingsOperationDialogs(dialogs, window => PrepareSettingsModal(scope, window)), fileDbMutationDialogService: dialogs, runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.MissingEverythingBridge),
                 rootFileEnumerator: new FastRootFileEnumerator(), audioDeviceCatalog: new TestAudioDeviceCatalog());
             MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
             Window? previousMain = Application.Current.MainWindow;
@@ -233,6 +233,7 @@ public sealed class SettingDialogOperationShutdownTests
                 Assert.IsTrue(owner.IsInitializationCompleted && owner.HasActiveLibraryProfile);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "manual-resync-shell-background-terminal");
                 // このcaseは元Ownerを持つ実確認モーダルとOKボタンの応答まで観測します。
+                fixture.Dialogs.SettingsModalScopeFactory = window => PrepareSettingsModal(scope, window);
                 fixture.Dialogs.ConfirmationObservedAsync = request => new UiDialogCoordinator(new UiDialogOwnerResolver(), window =>
                 {
                     scope.PrepareForOwnedPresentation(window);
@@ -330,14 +331,21 @@ public sealed class SettingDialogOperationShutdownTests
         });
     }
 
+    /// <summary>設定モーダルの表示中の登録を表示範囲へ接続します。MainWindowの生成フックで準備済みのWindowは再登録しません。</summary>
+    private static IDisposable PrepareSettingsModal(TestWindowPresentationScope scope, Window window)
+    {
+        if (!TestWindowPresentationScope.IsPrepared(window)) { scope.PrepareForOwnedPresentation(window); }
+        return UiDialogOwnerResolver.PushActiveModal(window);
+    }
+
     /// <summary>この終了検査の設定モーダルだけを実表示し、確認待機などの既存観測は同じ記録窓口に残します。</summary>
-    private sealed class SettingsOperationDialogs(RecordingRootDialogService recorded) : IUiDialogService
+    private sealed class SettingsOperationDialogs(RecordingRootDialogService recorded, Func<Window, IDisposable> modalScopeFactory) : IUiDialogService
     {
         /// <summary>設定Windowと終了理由の型組だけを実owner・モーダル寿命へ接続します。</summary>
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
             UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default) where TWindow : Window
             => typeof(TWindow) == typeof(SettingsWindow) && typeof(TResult) == typeof(SettingsWindowCloseReason)
-                ? new UiDialogCoordinator().ShowWindowAsync(request, cancellationToken)
+                ? new UiDialogCoordinator(new UiDialogOwnerResolver(), modalScopeFactory).ShowWindowAsync(request, cancellationToken)
                 : recorded.ShowWindowAsync(request, cancellationToken);
 
         /// <summary>通知の記録と固定応答を既存窓口へ渡します。</summary>

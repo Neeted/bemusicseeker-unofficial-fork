@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Ribbit.Media.Audio;
@@ -34,6 +35,10 @@ internal sealed class SettingsDialogHarness : IDisposable
     internal RecordingCustomFolderOutputPort Output { get; }
 
     /// <summary>局所設定の実VMへ指定したportsを接続します。音声専用依存はcomposition未指定の構成で使います。</summary>
+    /// <remarks>
+    /// <paramref name="dialogs"/> を省略すると既定の <see cref="UndeclaredDialogs"/> の窓口になり、未宣言の要求は項目 <c>D</c> として失敗になります。
+    /// <paramref name="composition"/> を渡すと <paramref name="dialogs"/> は使わず、構成側の窓口を使います。
+    /// </remarks>
     internal static SettingsDialogHarness Create(Settings values, bool activeLibraryProfile = false,
         Action<Exception>? reportApplyFailure = null, Func<Task>? reloadFileDiff = null,
         ApplicationComposition? composition = null, ISettingsDialogPlayerFactoryPort? playerFactory = null,
@@ -55,7 +60,7 @@ internal sealed class SettingsDialogHarness : IDisposable
         ISettingsDialogPlaybackRuntimePort playback = playbackRuntime ?? new TestSettingsDialogPlaybackRuntimePort();
         var sync = new Lr2SongDbSyncWorkflowOwner(new NoOpLr2SongDbSyncRuntime());
         Task<bool> UnexpectedRestart(OperationModeRestartRequest _) => throw new AssertFailedException("局所設定の確認から環境再起動しません。");
-        IUiDialogService settingsDialogs = dialogs ?? new RecordingDialogService();
+        IUiDialogService settingsDialogs = dialogs ?? UndeclaredDialogs.Create();
         SettingsDialogViewModel dialog = composition != null
             ? composition.CreateSettingDialogViewModel(state, workspace, output, history, roots, selectedFactory, playback, sync, restart ?? UnexpectedRestart)
             : new SettingsDialogViewModel(databaseScope, state, workspace, output, history, roots, selectedFactory, playback, sync,
@@ -171,9 +176,14 @@ internal sealed class SettingsDialogHarness : IDisposable
 #pragma warning restore CS0067
     }
 
-    /// <summary>設定の局所判断と実ページの代表フローで、通知の到達と完了を記録します。</summary>
+    /// <summary>設定の局所判断と実ページの代表フローで、通知と確認の到達と完了を記録します。</summary>
+    /// <remarks>
+    /// 通知・確認だけを数えて結果を返します。ウィンドウ・ピッカー・進捗は宣言された期待がないため、
+    /// <see cref="UndeclaredDialogs"/> と同じ窓口へ渡して共有ホストの観測記録の項目 <c>D</c> に残し、ケースの失敗にします。
+    /// </remarks>
     internal sealed class RecordingDialogService : IUiDialogService
     {
+        private readonly IUiDialogService undeclared = UndeclaredDialogs.Create();
 
         internal int MessageCount { get; private set; }
 
@@ -188,6 +198,9 @@ internal sealed class SettingsDialogHarness : IDisposable
 
         internal string? LastMessageText { get; private set; }
 
+        /// <summary>直近の通知の見出しです。</summary>
+        internal string? LastMessageCaption { get; private set; }
+
         internal UiDialogResult ConfirmationResult { get; set; }
             = UiDialogResult.Failed(new InvalidOperationException("unexpected settings behavior confirmation"));
 
@@ -195,6 +208,7 @@ internal sealed class SettingsDialogHarness : IDisposable
         {
             MessageCount++;
             LastMessageText = request.MessageBoxText;
+            LastMessageCaption = request.Caption;
             Sequence?.Add("notify");
             return Task.FromResult(MessageResult);
         }
@@ -211,32 +225,22 @@ internal sealed class SettingsDialogHarness : IDisposable
             UiWindowDialogRequest<TWindow, TResult> request,
             CancellationToken cancellationToken = default)
             where TWindow : Window
-        {
-            return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior window")));
-        }
+            => undeclared.ShowWindowAsync(request, cancellationToken);
 
         public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(new UiFilePickerResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior file picker")));
-        }
+            => undeclared.PickFileAsync(request, cancellationToken);
 
         public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(new UiFolderPickerResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior folder picker")));
-        }
+            => undeclared.PickFolderAsync(request, cancellationToken);
 
         public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(new UiSaveFilePickerResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior save picker")));
-        }
+            => undeclared.PickSaveFileAsync(request, cancellationToken);
 
         public Task<UiProgressResult> RunWithProgressAsync(
             UiProgressRequest request,
             Func<UiProgressContext, Task> operation,
             CancellationToken cancellationToken = default)
-        {
-            return Task.FromResult(new UiProgressResult(UiDialogStatus.Failed, error: new InvalidOperationException("unexpected settings behavior progress")));
-        }
+            => undeclared.RunWithProgressAsync(request, operation, cancellationToken);
     }
 
     /// <summary>実encoder探索を行わず、外部encoder欠損とWAVEの利用可能性だけを固定します。</summary>

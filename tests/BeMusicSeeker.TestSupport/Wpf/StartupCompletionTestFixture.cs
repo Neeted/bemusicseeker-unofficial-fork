@@ -414,6 +414,8 @@ internal static class StartupCompletionTestFixture
         internal int ConfirmationCount { get; private set; }
         internal Func<Task<UiWindowDialogResult<PendingPackageRestoreChoice>>>? PendingRestoreObservedAsync { get; set; }
         internal int PendingRestoreCount { get; private set; }
+        /// <summary>設定モーダルの表示中の登録を、呼出し側の表示範囲へ接続する境界です。設定モーダルを実表示するケースが、表示範囲の準備を通して設定します。</summary>
+        internal Func<Window, IDisposable>? SettingsModalScopeFactory { get; set; }
         public async Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
         {
             if (MessageObservedAsync != null) { await MessageObservedAsync(request); }
@@ -429,7 +431,9 @@ internal static class StartupCompletionTestFixture
             // Settingsの型組だけ実モーダルへ渡し、起動復元の固定応答は既存の観測境界に残します。
             if (typeof(TWindow) == typeof(SettingsWindow) && typeof(TResult) == typeof(SettingsWindowCloseReason))
             {
-                return await new UiDialogCoordinator().ShowWindowAsync(request, cancellationToken);
+                Func<Window, IDisposable> modalScopeFactory = SettingsModalScopeFactory
+                    ?? throw new InvalidOperationException("設定モーダルを実表示するケースは SettingsModalScopeFactory で表示範囲の準備を接続してください。");
+                return await new UiDialogCoordinator(new UiDialogOwnerResolver(), modalScopeFactory).ShowWindowAsync(request, cancellationToken);
             }
             if (typeof(TWindow) != typeof(PendingPackageRestoreWindow) || PendingRestoreObservedAsync == null) { throw new NotSupportedException(); }
             PendingRestoreCount++;
