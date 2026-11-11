@@ -18,7 +18,6 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Processes;
 using BeMusicSeeker.TestSupport.Scenarios;
-using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Desktop.E2E.Tests.Fixtures;
 
