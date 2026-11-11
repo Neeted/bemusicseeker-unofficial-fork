@@ -3216,6 +3216,249 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>
+    /// 保証：出力状態が現行の通常・追加通常の表について、再読込時の必要出力判定が出力基点の folder 行を完全一致で確認する。
+    /// 行の date が基点の実際の更新時刻（Unix秒）と異なる場合だけ、その基点の配下の表を再確認し、一回の同期で date を実際の時刻へ揃える。
+    /// 本文と時刻の変わらない .lr2folder は書き直さず、既存の adddate を保持する。基点の時刻が変わっても行が一致していれば戻さず、
+    /// 行がない基点の表も戻さない。修復後の再判定は0件で収束する。
+    /// 走査対象外の追加先の取りこぼし、出力状態の署名だけによる判定、全表や毎回の再生成、adddate の再生成を検出する。
+    /// </summary>
+    /// <remarks>DataRow は date を古くする基点。他方の基点では行の欠落時に戻さないことを確認する。ROOT 型は既存の ROOT 行ケースが担う。</remarks>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ReloadTables_StatusCurrentOutputBaseRowFollowsActualMtimeOnlyUnderStaleBase(bool staleAdditionalBase)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(migrationWorkspace.RootDirectory, "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        TestBmsPlaylist? playlist = null;
+        var acceptedWork = new System.Collections.Concurrent.ConcurrentQueue<Task>();
+        Exception? primaryFailure = null;
+        try
+        {
+            string lr2RootPath = Path.Combine(tempDirectory, "LR2");
+            string bmsRoot = Path.Combine(tempDirectory, "BMS");
+            string normalBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            string additionalBase = Path.Combine(tempDirectory, "Additional");
+            Directory.CreateDirectory(normalBase);
+            Directory.CreateDirectory(additionalBase);
+            string additionalSerialized = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additionalBase]);
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.LR2CustomFolderOutputBaseDir = normalBase;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = additionalSerialized;
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2RootPath,
+                LR2CustomFolderOutputBaseDir = normalBase,
+                LR2CustomFolderOutputBaseDirRootType = testSettings.LR2CustomFolderOutputBaseDirRootType,
+                LR2CustomFolderAdditionalOutputBaseDirs = additionalSerialized
+            };
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            BMSTable CreateBaseRowTable(int playlistId, string name, string? baseName) => new()
+            {
+                playlist_id = playlistId,
+                name = name,
+                symbol = name[..2],
+                Output_dir = name,
+                custom_folder_output_base_name = baseName,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
+                entries =
+                [
+                    CreateEntry(new string(playlistId % 2 == 0 ? 'a' : 'b', 32), "Folder A")
+                ],
+                Folder_order = ["Folder A"]
+            };
+            BMSTable normalTable = CreateBaseRowTable(7630, "NormalBaseRow", null);
+            BMSTable additionalTable = CreateBaseRowTable(7631, "AdditionalBaseRow", "Additional");
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+                foreach (BMSTable table in new[] { normalTable, additionalTable })
+                {
+                    db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                    foreach (BMSTableEntry entry in table.entries)
+                    {
+                        entry.playlist_id = table.playlist_id;
+                        db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                    }
+                }
+            }
+            string[] EnumerateOutputFiles() => [.. new[] { normalBase, additionalBase }
+                .SelectMany(directory => Directory.EnumerateFiles(directory, "*.lr2folder", SearchOption.AllDirectories))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty);
+            // 修復の前後で古い一覧を使わないよう、呼ばれた時点の実ファイルを返します。
+            synchronization.PhysicalSurfaceFactory = () => CustomFolderOutputPhysicalSurface.FromEntries(
+                EnumerateOutputFiles().Select(path => new RootFileEnumerationEntry(path, File.GetLastWriteTimeUtc(path))),
+                discoveryComplete: true);
+            playlist = new TestBmsPlaylist(databaseScope, songDbPath, configOwner, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => outputSettings, synchronization, settings: testSettings, uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>(new[] { normalTable, additionalTable })
+            };
+            var repairProgress = new List<PlaylistSyncProgressSnapshot>();
+            playlist.CustomFolderOutputRepairProgressReporter = repairProgress.Add;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                acceptedWork.Enqueue(Task.Run(work));
+                return true;
+            };
+            TestBmsPlaylist reloadTarget = playlist;
+            async Task ReloadAsync()
+            {
+                repairProgress.Clear();
+                await reloadTarget.ReloadTablesAsync(exportBeatorajaBmt: false);
+                // 任意の補完workを次の段階へ持ち越さず、段階ごとの観測を独立させます。
+                await Task.WhenAll(acceptedWork.ToArray());
+            }
+
+            playlist.ReOutputCustomFoldersAndCommitHeadersToDB([normalTable, additionalTable], "test_seed_output_base_row");
+            // 出力直後の状態保存と再読込時の署名を揃え、以後の段階を「出力状態が現行」から始めます。
+            await ReloadAsync();
+
+            string staleBase = staleAdditionalBase ? additionalBase : normalBase;
+            string missingRowBase = staleAdditionalBase ? normalBase : additionalBase;
+            string staleTableName = staleAdditionalBase ? additionalTable.name : normalTable.name;
+            string staleTableDirectory = Path.Combine(staleBase, staleTableName);
+            string staleBaseRowPath = Lr2FolderPath.ToFolderPath(staleBase);
+            string missingBaseRowPath = Lr2FolderPath.ToFolderPath(missingRowBase);
+            string staleTableRowPath = Lr2FolderPath.ToFolderPath(staleTableDirectory);
+            string[] outputFiles = EnumerateOutputFiles();
+            string staleFileRowPath = outputFiles.First(path => path.StartsWith(staleTableDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            Assert.IsTrue(outputFiles.Any(path => path.StartsWith(missingRowBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+            var firstTime = new DateTime(2025, 1, 2, 3, 4, 5, 500, DateTimeKind.Utc);
+            var secondTime = new DateTime(2025, 2, 3, 4, 5, 6, 500, DateTimeKind.Utc);
+            const int baseAddDate = 111111;
+            const int tableAddDate = 222222;
+            const int fileAddDate = 333333;
+            Directory.SetLastWriteTimeUtc(staleBase, firstTime);
+            Assert.AreEqual(firstTime, Directory.GetLastWriteTimeUtc(staleBase));
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
+            {
+                Assert.AreEqual(1, db.Execute("UPDATE folder SET date = ?, adddate = ? WHERE path = ?;", firstTime.ToUnixtime(), baseAddDate, staleBaseRowPath));
+                Assert.AreEqual(1, db.Execute("UPDATE folder SET adddate = ? WHERE path = ?;", tableAddDate, staleTableRowPath));
+                Assert.AreEqual(1, db.Execute("UPDATE folder SET adddate = ? WHERE path = ?;", fileAddDate, staleFileRowPath));
+                Assert.AreEqual(1, db.Execute("DELETE FROM folder WHERE path = ?;", missingBaseRowPath));
+            }
+            Dictionary<string, (string Body, long Ticks)> CaptureFiles() => EnumerateOutputFiles().ToDictionary(
+                path => path,
+                path => (Convert.ToHexString(File.ReadAllBytes(path)), File.GetLastWriteTimeUtc(path).Ticks),
+                StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, (string Body, long Ticks)> filesBefore = CaptureFiles();
+            void AssertFilesUnchanged()
+            {
+                Dictionary<string, (string Body, long Ticks)> current = CaptureFiles();
+                CollectionAssert.AreEquivalent(filesBefore.Keys, current.Keys);
+                foreach (KeyValuePair<string, (string Body, long Ticks)> file in filesBefore)
+                {
+                    Assert.AreEqual(file.Value, current[file.Key], file.Key);
+                }
+            }
+            List<LR2SongDB.folder> ReadRows(string path)
+            {
+                using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
+                return db.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE path = ?;", path);
+            }
+            void AssertNoRepair(int operationsBefore)
+            {
+                Assert.IsFalse(repairProgress.Any(snapshot => snapshot.IsActive));
+                Assert.AreEqual(operationsBefore, synchronization.Operations.Count);
+                AssertFilesUnchanged();
+                Assert.AreEqual(0, ReadRows(missingBaseRowPath).Count);
+            }
+            void AssertOnlyStaleBaseTableRepaired(int operationsBefore, DateTime actualBaseTime)
+            {
+                List<PlaylistSyncProgressSnapshot> active = [.. repairProgress.Where(snapshot => snapshot.IsActive)];
+                // 進捗の総数は表以外の段階も数えるため、再生成した表は進捗に現れた表名の集合で特定します。
+                CollectionAssert.AreEquivalent(
+                    new[] { staleTableName },
+                    active.Select(snapshot => snapshot.CurrentTableName)
+                        .Where(tableName => !string.IsNullOrEmpty(tableName))
+                        .Distinct(StringComparer.Ordinal)
+                        .ToArray());
+                CollectionAssert.AreEqual(
+                    new[] { "playlist_lr2folder_batch_sync" },
+                    synchronization.Operations.Skip(operationsBefore).ToArray());
+                Assert.AreEqual(actualBaseTime, Directory.GetLastWriteTimeUtc(staleBase));
+                LR2SongDB.folder baseRow = ReadRows(staleBaseRowPath).Single();
+                Assert.AreEqual(actualBaseTime.ToUnixtime(), baseRow.date);
+                Assert.AreEqual(baseAddDate, baseRow.adddate);
+                Assert.AreEqual(tableAddDate, ReadRows(staleTableRowPath).Single().adddate);
+                Assert.AreEqual(fileAddDate, ReadRows(staleFileRowPath).Single().adddate);
+                AssertFilesUnchanged();
+                Assert.AreEqual(0, ReadRows(missingBaseRowPath).Count);
+            }
+
+            // 行が基点の時刻（秒未満を切り捨てた値）と一致する基点と、行のない基点は、どちらも再確認へ戻しません。
+            int operations = synchronization.Operations.Count;
+            await ReloadAsync();
+            AssertNoRepair(operations);
+            Assert.AreEqual(firstTime.ToUnixtime(), ReadRows(staleBaseRowPath).Single().date);
+
+            // 基点の更新時刻だけが変わった場合は、その基点の表だけを再確認して行を追従させます。
+            Directory.SetLastWriteTimeUtc(staleBase, secondTime);
+            operations = synchronization.Operations.Count;
+            await ReloadAsync();
+            AssertOnlyStaleBaseTableRepaired(operations, secondTime);
+
+            // 物理状態が変わらず行の date だけが異なる場合も、行と実際の時刻の比較で検出します。
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
+            {
+                Assert.AreEqual(1, db.Execute("UPDATE folder SET date = ? WHERE path = ?;", secondTime.ToUnixtime() - 1, staleBaseRowPath));
+            }
+            operations = synchronization.Operations.Count;
+            await ReloadAsync();
+            AssertOnlyStaleBaseTableRepaired(operations, secondTime);
+
+            // 修復後の再判定は再確認を起こさず収束します。
+            operations = synchronization.Operations.Count;
+            await ReloadAsync();
+            AssertNoRepair(operations);
+            Assert.AreEqual(secondTime.ToUnixtime(), ReadRows(staleBaseRowPath).Single().date);
+        }
+        catch (Exception ex)
+        {
+            primaryFailure = ex;
+            throw;
+        }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            var workCompletion = Task.WhenAll(acceptedWork.ToArray());
+            try { await workCompletion; }
+            catch (Exception ex) { if (!ReferenceEquals(ex, primaryFailure)) { cleanupFailures.Add(workCompletion.Exception ?? ex); } }
+            if (playlist != null)
+            {
+                try
+                {
+                    playlist.RequestShutdown("output-base-row-test-complete");
+                    await playlist.WaitForPlaylistMutationIdleAsync();
+                }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+            }
+            try
+            {
+                if (Directory.Exists(tempDirectory)) { Directory.Delete(tempDirectory, recursive: true); }
+            }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException(cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                System.Diagnostics.Trace.WriteLine("output-base-row fixtureのcleanup二次失敗: " + cleanupFailure);
+            }
+        }
+    }
+
     /// <summary>実生成済み表の出力を削除すると保存した出力状態も除去します。次の修復判断が消した出力を現行扱いする誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]

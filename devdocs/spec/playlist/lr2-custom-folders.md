@@ -164,9 +164,11 @@ SQL復元では、LR2連携のとき、DB置換前の実効の絶対配置・基
 
 起動時は通常・追加の不足検索登録を補い、表header読取り後にROOTの表別登録を補います。LR2モードの出力対象について、現在配置の署名・物理不足・管理行等の既存判定に従って再生成します。過去の改名意図やDBに保存できなかった削除を再現する機構ではありません。
 
-出力状態がない、入力が変わった、物理ファイルが欠落した、ファイル・出力ディレクトリ・祖先の更新時刻が変わった場合は再確認対象にします。その場合だけ正本から軽量な期待集合を作り、ファイル行・ディレクトリ行の欠落、日時・親の不一致、余分な行を調べます。列挙基盤が使えない場合は再作成対象にし、全ファイルの個別存在確認を通常経路にしません。
+出力状態がない、入力が変わった、物理ファイルが欠落した、ファイル・表ディレクトリ・その配下でファイルの祖先となるディレクトリの更新時刻が変わった場合は再確認対象にします。出力状態は表ディレクトリとその配下だけを表し、出力基点の更新時刻を含みません。再確認対象の表だけ正本から軽量な期待集合を作り、ファイル行・ディレクトリ行の欠落、日時・親の不一致、余分な行を調べます。この照合は本文の定義を生成せず、配置と行だけを比べます。本文の差は検出できないため、出力状態がない表と入力が変わった表は全ファイルを書き直します。ファイル・ディレクトリの更新時刻や祖先ディレクトリの行だけが理由の再確認では、行が期待どおりのファイルを書き直しません。列挙基盤が使えない場合は再作成対象にし、全ファイルの個別存在確認を通常経路にしません。
 
-状態が現行ならDB行だけの外部編集を常時監査しません。ただしjukeboxへルート型表を補完した直後は、表ディレクトリ自身の行を完全一致パスで確認します。末尾区切り付きパス、`type=1`、`parent=e2977170` に限り、不一致ならその表を再確認対象へ戻します。
+状態が現行ならDB行だけの外部編集を常時監査しません。例外は、次のルート型表のディレクトリ行と、通常・追加通常出力先の祖先ディレクトリ行の二つです。jukeboxへルート型表を補完した直後は、表ディレクトリ自身の行を完全一致パスで確認します。末尾区切り付きパス、`type=1`、`parent=e2977170` に限り、不一致ならその表を再確認対象へ戻します。
+
+通常・追加通常出力先の表では、状態が現行でも、必要出力を判定するたびに、表ディレクトリの親から出力基点までの祖先ディレクトリ（通常は基点そのもの）の行を完全一致パスで確認します。行が存在し、`date` が祖先の実際の更新時刻（Unix秒）と異なる場合は、その祖先の配下にある表を再確認対象へ戻し、既存の再確認・再生成・一回のDB同期で `date` を実際の時刻へ揃えます。追加通常出力先はBMSの走査対象外で、通常フォルダ同期では基点の `date` が追従しないためです。通常出力先も、起動時の走査を行わない場合は同じです。行がない場合、祖先の更新時刻を取得できない場合、行の照会に失敗した場合は、この確認では再確認対象へ戻しません。ROOT型の表は基点自身の行を持たないため対象外です。祖先の行は配下の表の出力ファイルから生成するため、配下の表がどれも出力ファイルを持たない基点では、この再確認で `date` を揃えられず、ファイルを書き込まない再確認だけが判定のたびに繰り返されます。不一致がない通常時に一回の判定で増える処理は、基点数ぶんの更新時刻の取得と完全一致の照会一回です。
 
 設定画面からの手動再同期は、確定した環境を使います。対象を変える環境候補の破棄の確認、受付、画面の閉鎖と処理の寿命は[設定の補助操作](../runtime/settings.md#補助操作の対象受付閉鎖)に従います。受付の通知が失敗した場合も、両方の受付を解放し、準備・保存へ進まずに元の失敗を伝播します。
 
@@ -191,6 +193,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 出力基点の読取りだけの事前検査と、基点の内容・更新日時の不変 | [`LibraryDirectoryPreflightService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/LibraryDirectoryPreflightService.cs) | [`LibraryDirectoryPreflightTests`](../../../tests/BeMusicSeeker.Core.Tests/Library/LibraryDirectoryPreflightTests.cs) の `LinkedModePreflight_SucceedsWithoutChangingBmsRootOrAnyOutputBase` が本番の読取り境界と実ディレクトリで、読取り専用属性・既存内容・空の各基点の成功と、項目集合・ファイル内容・全ディレクトリの更新日時の不変を確認する。`LinkedModeInspectsEveryOutputBaseAndDoesNotCreateMissingBase` が通常・追加・ROOTの各基点の欠落を種別付きの失敗とし、自動作成しないことを確認する。書込み不能の事前判定は行わないため、ACLによる書込み拒否は検査しない。 |
+| 状態が現行の通常・追加通常の表での、出力基点の行の `date` の追従と、再確認時にファイルを書き直さないこと | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) の必要出力の修復計画（祖先ディレクトリ行の確認、配置だけの照合） | [`BmsPlaylistCustomFolderOutputTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) の `ReloadTables_StatusCurrentOutputBaseRowFollowsActualMtimeOnlyUnderStaleBase` が、通常・追加通常のそれぞれを対象に実DB・実ファイルで再読込みし、行が一致する基点と行のない基点を戻さないこと、基点の更新時刻だけの変化と行の `date` だけの変化のどちらでも対象基点の表だけを再確認して一回の同期で `date` を揃えること、`.lr2folder` の本文・更新時刻と既存の `adddate` の保持、修復後の収束を確認する。ROOT型の除外は既存のROOT行ケースと差分の静的確認、更新時刻の取得不能と照会失敗は静的確認へ分担する。 |
 | 手動再同期の受付通知失敗時の両受付の解放 | 設定の出力確定、LR2楽曲DB同期の受付 | `BmsLibraryLr2SongDbSyncTests.QueueLr2SongDbSync_AdmissionNotificationFailureReleasesBothLeasesBeforePreparation` が確認する。 |
 | 新先生成後の旧管理行の整理失敗と後続同期 | 設定の出力確定 | `OutputConfirmation_GenerationAndCleanupFailuresAllowLatestRequest` が、実DELETE故障による旧行の残存、新先の維持、通知内容、後続同期への接続を確認する。 |
 | 起動時の必要出力の接続と、BMT・LR2出力の生産側通知 | 起動の必須初期化、[`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`StartupRequiredInitializationTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupRequiredInitializationTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) / [`BmsPlaylistMigrationAndRegistrationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)。 |

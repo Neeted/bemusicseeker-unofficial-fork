@@ -2574,6 +2574,8 @@ public partial class BMSPlaylist : ObservableObject
         var pendingCandidates = new List<CustomFolderOutputRepairCandidate>();
         var physicalCheckCandidates = new List<CustomFolderOutputRepairCandidate>();
         var physicalCheckStatuses = new Dictionary<int, CustomFolderOutputStatusRow>();
+        // 出力状態がない、または保存時の入力と現在の入力が異なる表です。再確認で全ファイルを書き直す対象を区別します。
+        var inputChangedTables = new HashSet<BMSTable>();
         int configCurrentCount = 0;
         foreach (CustomFolderOutputRepairCandidate candidate in candidates)
         {
@@ -2589,6 +2591,10 @@ public partial class BMSPlaylist : ObservableObject
             }
 
             pendingCandidates.Add(candidate);
+            if (candidate?.Table != null)
+            {
+                inputChangedTables.Add(candidate.Table);
+            }
         }
         filterStopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair status_config_filter_done"
@@ -2639,6 +2645,7 @@ public partial class BMSPlaylist : ObservableObject
 
         filterStopwatch.Restart();
         var rootDirectoryRowCheckCandidates = new List<CustomFolderOutputRepairCandidate>();
+        var ancestorDirectoryRowCheckCandidates = new List<CustomFolderOutputRepairCandidate>();
         foreach (CustomFolderOutputRepairCandidate candidate in physicalCheckCandidates)
         {
             int? playlistId = candidate?.Table?.playlist_id;
@@ -2647,13 +2654,23 @@ public partial class BMSPlaylist : ObservableObject
                 && PlaylistCustomFolderOutputStatusOwner.IsPhysicalCurrent(candidate.OutputDirectory, status, physicalSignatureIndex))
             {
                 currentStatusCount++;
-                if (verifyRootOutputDirectoryRows && candidate?.Table?.is_root_folder == true)
+                if (candidate?.Table?.is_root_folder != true)
+                {
+                    ancestorDirectoryRowCheckCandidates.Add(candidate);
+                }
+                else if (verifyRootOutputDirectoryRows)
                 {
                     rootDirectoryRowCheckCandidates.Add(candidate);
                 }
                 continue;
             }
 
+            pendingCandidates.Add(candidate);
+        }
+        IReadOnlyCollection<CustomFolderOutputRepairCandidate> ancestorDirectoryRowRepairCandidates =
+            FindOutputAncestorDirectoryRowRepairCandidates(ancestorDirectoryRowCheckCandidates, reason, settings);
+        foreach (CustomFolderOutputRepairCandidate candidate in ancestorDirectoryRowRepairCandidates)
+        {
             pendingCandidates.Add(candidate);
         }
         int rootDirectoryRowRepairCount = 0;
@@ -2675,6 +2692,8 @@ public partial class BMSPlaylist : ObservableObject
             + " currentStatusCount=" + currentStatusCount
             + " rootDirectoryRowCheckCount=" + rootDirectoryRowCheckCandidates.Count
             + " rootDirectoryRowRepairCount=" + rootDirectoryRowRepairCount
+            + " ancestorDirectoryRowCheckCount=" + ancestorDirectoryRowCheckCandidates.Count
+            + " ancestorDirectoryRowRepairCount=" + ancestorDirectoryRowRepairCandidates.Count
             + " pendingCount=" + pendingCandidates.Count
             + " elapsedMs=" + filterStopwatch.ElapsedMilliseconds);
         if (pendingCandidates.Count == 0)
@@ -2739,8 +2758,21 @@ public partial class BMSPlaylist : ObservableObject
         var plans = new List<CustomFolderOutputProjection>();
         foreach (CustomFolderOutputProjection projection in pendingProjections)
         {
-            bool needsRepair = staleRowRepairTargets.Contains(projection)
-                || MarkCustomFolderOutputLayoutRepairTargets(projection, rowsByPath, rowLookupSucceeded, physicalSurface);
+            bool inputChanged = inputChangedTables.Contains(projection.Table);
+            bool needsRepair;
+            if (staleRowRepairTargets.Contains(projection))
+            {
+                // 余分な行だけで修復対象に決まる表は配置の照合を通らないため、入力が変わった表の全ファイル書直しをここで指定します。
+                needsRepair = true;
+                if (inputChanged)
+                {
+                    PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
+                }
+            }
+            else
+            {
+                needsRepair = MarkCustomFolderOutputLayoutRepairTargets(projection, rowsByPath, rowLookupSucceeded, physicalSurface, inputChanged);
+            }
             if (!needsRepair)
             {
                 if (rowLookupSucceeded && physicalSurface?.DiscoveryComplete == true)
@@ -2857,6 +2889,132 @@ public partial class BMSPlaylist : ObservableObject
             + " repairCount=" + repairCandidates.Count
             + " elapsedMs=" + lookupStopwatch.ElapsedMilliseconds);
         return repairCandidates;
+    }
+
+    /// <summary>
+    /// 出力状態が現行の通常・追加通常の表について、表ディレクトリの親から出力基点までの folder 行の date を
+    /// 実際の更新時刻と照合し、不一致の祖先を持つ表を再確認対象として返します。
+    /// </summary>
+    /// <remarks>
+    /// 出力状態の物理署名は表ディレクトリとその配下だけを表し、基点の更新時刻を含みません。追加通常出力先は BMS の走査対象外で、
+    /// 通常フォルダ同期でも基点の date が追従しないため、行と実際の時刻をここで直接比べます。
+    /// 一回の判定の追加コストを基点数ぶんの時刻取得と完全一致の照会一回に留め、表の項目読込みは不一致のときだけ既存の再確認へ委ねます。
+    /// 行の欠落、時刻を取得できない場合、照会の失敗は再確認へ戻しません。再確認しても解消しない条件で毎回の再確認を起こさないためです。
+    /// 祖先の行は配下の表の出力ファイルから生成するため、出力ファイルのない表だけが配下にある基点では、不一致が残り再確認だけが繰り返されます。
+    /// </remarks>
+    private IReadOnlyCollection<CustomFolderOutputRepairCandidate> FindOutputAncestorDirectoryRowRepairCandidates(
+        IReadOnlyCollection<CustomFolderOutputRepairCandidate> candidates,
+        string reason,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        var rowPathsByCandidate = new Dictionary<CustomFolderOutputRepairCandidate, List<string>>();
+        var actualDateByRowPath = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var unavailableRowPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (CustomFolderOutputRepairCandidate candidate in candidates ?? [])
+        {
+            if (candidate?.Table == null || candidate.Table.is_root_folder || string.IsNullOrWhiteSpace(candidate.OutputDirectory))
+            {
+                continue;
+            }
+
+            foreach (string ancestorDirectory in EnumerateOutputAncestorDirectories(candidate.OutputDirectory, settings))
+            {
+                string rowPath = NormalizeCustomFolderRowPath(Lr2FolderPath.ToFolderPath(ancestorDirectory));
+                if (string.IsNullOrWhiteSpace(rowPath) || unavailableRowPaths.Contains(rowPath))
+                {
+                    continue;
+                }
+                if (!actualDateByRowPath.ContainsKey(rowPath))
+                {
+                    DateTime? lastWriteTimeUtc = RootFileEnumerationEntry.FromDirectoryInfo(ancestorDirectory)?.LastWriteTimeUtc;
+                    if (lastWriteTimeUtc == null)
+                    {
+                        unavailableRowPaths.Add(rowPath);
+                        continue;
+                    }
+                    actualDateByRowPath[rowPath] = lastWriteTimeUtc.Value.ToUnixtime();
+                }
+                if (!rowPathsByCandidate.TryGetValue(candidate, out List<string> rowPaths))
+                {
+                    rowPathsByCandidate[candidate] = rowPaths = [];
+                }
+                rowPaths.Add(rowPath);
+            }
+        }
+        if (actualDateByRowPath.Count == 0 || string.IsNullOrWhiteSpace(lr2SongDBPath))
+        {
+            return [];
+        }
+
+        var lookupStopwatch = Stopwatch.StartNew();
+        HashSet<string> staleRowPaths;
+        try
+        {
+            staleRowPaths = new HashSet<string>(
+                playlistPersistenceRepository
+                    .QueryCustomFolderLayoutRowsByExactPath(actualDateByRowPath.Keys)
+                    .Where(row => !string.IsNullOrWhiteSpace(row?.path))
+                    .Select(row => (Path: NormalizeCustomFolderRowPath(row.path), row.date))
+                    .Where(row => !string.IsNullOrWhiteSpace(row.Path)
+                        && actualDateByRowPath.TryGetValue(row.Path, out int actualDate)
+                        && row.date != actualDate)
+                    .Select(row => row.Path),
+                StringComparer.OrdinalIgnoreCase);
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
+        {
+            lookupStopwatch.Stop();
+            LogPlaylistPerformance("playlist_custom_folder_output_repair ancestor_directory_row_lookup_failed"
+                + " reason=" + (reason ?? "unknown")
+                + " candidateCount=" + rowPathsByCandidate.Count
+                + " expectedPathCount=" + actualDateByRowPath.Count
+                + " exception=" + QuoteLogValue(ex.GetType().Name)
+                + " message=" + QuoteLogValue(ex.Message)
+                + " elapsedMs=" + lookupStopwatch.ElapsedMilliseconds);
+            return [];
+        }
+
+        List<CustomFolderOutputRepairCandidate> repairCandidates = [.. rowPathsByCandidate
+            .Where(pair => pair.Value.Any(staleRowPaths.Contains))
+            .Select(pair => pair.Key)];
+        lookupStopwatch.Stop();
+        LogPlaylistPerformance("playlist_custom_folder_output_repair ancestor_directory_row_lookup_done"
+            + " reason=" + (reason ?? "unknown")
+            + " candidateCount=" + rowPathsByCandidate.Count
+            + " expectedPathCount=" + actualDateByRowPath.Count
+            + " staleRowCount=" + staleRowPaths.Count
+            + " repairCount=" + repairCandidates.Count
+            + " elapsedMs=" + lookupStopwatch.ElapsedMilliseconds);
+        return repairCandidates;
+    }
+
+    /// <summary>表ディレクトリの親から、それを含む通常・追加通常の出力基点まで（基点を含む）を辿ります。含む基点がなければ何も返しません。</summary>
+    private static IEnumerable<string> EnumerateOutputAncestorDirectories(
+        string outputDirectory,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        string normalizedOutputDirectory = NormalizeDirectoryPathOrNull(outputDirectory);
+        if (string.IsNullOrWhiteSpace(normalizedOutputDirectory) || settings == null)
+        {
+            yield break;
+        }
+        string outputBase = ResolveContainingNormalOutputBase(normalizedOutputDirectory, settings);
+        if (string.IsNullOrWhiteSpace(outputBase))
+        {
+            yield break;
+        }
+
+        string current = Lr2FolderPath.SafeGetParentNormalizedDirectory(normalizedOutputDirectory);
+        while (!string.IsNullOrWhiteSpace(current) && Lr2FolderPath.IsSameOrDescendant(current, outputBase))
+        {
+            yield return current;
+            string parent = Lr2FolderPath.SafeGetParentNormalizedDirectory(current);
+            if (string.IsNullOrWhiteSpace(parent) || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
+            {
+                yield break;
+            }
+            current = parent;
+        }
     }
 
     private static bool IsRootOutputDirectoryRowCurrent(LR2SongDB.folder row)
@@ -3281,7 +3439,8 @@ public partial class BMSPlaylist : ObservableObject
         CustomFolderOutputProjection projection,
         IReadOnlyDictionary<string, LR2SongDB.folder> rowsByPath,
         bool rowLookupSucceeded,
-        CustomFolderOutputPhysicalSurface physicalSurface)
+        CustomFolderOutputPhysicalSurface physicalSurface,
+        bool inputChanged)
     {
         if (projection == null)
         {
@@ -3314,7 +3473,9 @@ public partial class BMSPlaylist : ObservableObject
             }
         }
 
-        if (physicalSurface?.DiscoveryComplete != true)
+        // 入力が変わった表と出力状態のない表は、配置と行が同じでも本文が現在の定義と異なり得ます。
+        // 配置だけの照合では本文の差を検出できないため、全ファイルを書き直します。
+        if (inputChanged || physicalSurface?.DiscoveryComplete != true)
         {
             PlaylistCustomFolderOutputOwner.MarkAllFilesForWrite(projection);
             return needsRepair || files.Count > 0;
@@ -3344,7 +3505,7 @@ public partial class BMSPlaylist : ObservableObject
             if (row == null
                 || row.type == 1
                 || row.date != lastWriteTimeUtc.ToUnixtime()
-                || !IsCustomFolderFileRowParentEquivalent(projection, file, row, lastWriteTimeUtc))
+                || !IsCustomFolderFileRowParentEquivalent(projection, file, row))
             {
                 projection.ForceWriteFilePaths.Add(file.FilePath);
                 needsRepair = true;
@@ -3398,8 +3559,7 @@ public partial class BMSPlaylist : ObservableObject
     private static bool IsCustomFolderFileRowParentEquivalent(
         CustomFolderOutputProjection projection,
         CustomFolderOutputFileProjection file,
-        LR2SongDB.folder row,
-        DateTime lastWriteTimeUtc)
+        LR2SongDB.folder row)
     {
         if (projection == null || file == null || row == null)
         {
@@ -3412,19 +3572,13 @@ public partial class BMSPlaylist : ObservableObject
             DatabasePath = file.DatabasePath
         };
         ApplyCustomFolderSourceClassification(item, projection.Table, projection.Settings);
-        bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
-        {
-            FilePath = item.FilePath,
-            DatabasePath = item.DatabasePath ?? file.DatabasePath ?? file.FilePath,
-            Definition = file.Definition,
-            ExistingRow = row,
-            LastWriteTimeUtc = lastWriteTimeUtc,
-            FolderType = item.FolderType,
-            ParentHash = item.ParentHash
-        }, out LR2SongDB.folder expectedRow);
-        return created
-            && row.type == expectedRow.type
-            && string.Equals(row.parent, expectedRow.parent, StringComparison.Ordinal);
+        // 配置だけの再確認は本文定義を生成しないため、定義を必須とする行生成を通さず、種別と親だけを同じ規則で求めます。
+        // 行生成を通すと定義がない限り常に不一致となり、再確認に入った表の全ファイルを書き直してしまいます。
+        string databasePath = NormalizeCustomFolderRowPath(item.DatabasePath ?? file.DatabasePath ?? file.FilePath);
+        return !string.IsNullOrWhiteSpace(databasePath)
+            && row.type == item.FolderType
+            && Lr2FolderFileProjection.TryResolveParentHash(databasePath, item.ParentHash, out string expectedParent)
+            && string.Equals(row.parent, expectedParent, StringComparison.Ordinal);
     }
 
     private static LR2SongDB.folder ResolveCustomFolderOutputRow(
@@ -3983,15 +4137,7 @@ public partial class BMSPlaylist : ObservableObject
             }
             if (bmsTable?.is_root_folder != true)
             {
-                IEnumerable<string> normalOutputBases = new[]
-                    {
-                        settings.LR2CustomFolderOutputBaseDir
-                    }
-                    .Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs));
-                string normalOutputBase = normalOutputBases
-                    .Select(NormalizeDirectoryPathOrNull)
-                    .Where(baseDir => !string.IsNullOrWhiteSpace(baseDir))
-                    .FirstOrDefault(baseDir => Lr2FolderPath.IsSameOrDescendant(normalizedOutputDir, baseDir));
+                string normalOutputBase = ResolveContainingNormalOutputBase(normalizedOutputDir, settings);
                 if (!string.IsNullOrWhiteSpace(normalOutputBase))
                 {
                     return [Lr2FolderPhysicalParentDirectoryTargetHelper.CreateBoundary(normalOutputBase)];
@@ -4004,6 +4150,24 @@ public partial class BMSPlaylist : ObservableObject
         {
             return [outputDir];
         }
+    }
+
+    /// <summary>
+    /// 正規化済みの出力ディレクトリを含む通常・追加通常の出力基点を返します。含む基点がなければ null です。
+    /// ディレクトリ行の生成範囲と、基点行の確認が同じ基点を使うための共通の解決です。
+    /// </summary>
+    private static string ResolveContainingNormalOutputBase(
+        string normalizedOutputDir,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        return new[]
+            {
+                settings.LR2CustomFolderOutputBaseDir
+            }
+            .Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs))
+            .Select(NormalizeDirectoryPathOrNull)
+            .Where(baseDir => !string.IsNullOrWhiteSpace(baseDir))
+            .FirstOrDefault(baseDir => Lr2FolderPath.IsSameOrDescendant(normalizedOutputDir, baseDir));
     }
 
     private static string NormalizeDirectoryPathOrNull(string path)
