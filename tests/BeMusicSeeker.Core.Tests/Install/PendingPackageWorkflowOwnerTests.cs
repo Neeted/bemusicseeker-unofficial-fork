@@ -2292,55 +2292,6 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         finally { release.Set(); }
     }
 
-    /// <summary>テスト用にUIスレッドを模す、単一の専用スレッドで継続を直列に実行する同期の文脈です。</summary>
-    private sealed class SingleThreadSynchronizationContext : SynchronizationContext, IDisposable
-    {
-        private readonly System.Collections.Concurrent.BlockingCollection<(SendOrPostCallback Callback, object? State)> queue = [];
-        private readonly Thread thread;
-
-        internal SingleThreadSynchronizationContext()
-        {
-            thread = new Thread(() =>
-            {
-                SetSynchronizationContext(this);
-                foreach ((SendOrPostCallback callback, object? state) in queue.GetConsumingEnumerable())
-                {
-                    callback(state);
-                }
-            })
-            { IsBackground = true };
-            thread.Start();
-        }
-
-        public override void Post(SendOrPostCallback d, object? state) => queue.Add((d, state));
-
-        /// <summary>この文脈のスレッドで処理を開始し、その非同期の終端を返します。</summary>
-        internal Task<T> RunAsync<T>(Func<Task<T>> operation)
-        {
-            var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            Post(_ =>
-            {
-                try
-                {
-                    operation().ContinueWith(task =>
-                    {
-                        if (task.IsFaulted) { completion.TrySetException(task.Exception!.InnerExceptions); }
-                        else if (task.IsCanceled) { completion.TrySetCanceled(); }
-                        else { completion.TrySetResult(task.Result); }
-                    }, TaskScheduler.Default);
-                }
-                catch (Exception exception) { completion.TrySetException(exception); }
-            }, null);
-            return completion.Task;
-        }
-
-        public void Dispose()
-        {
-            queue.CompleteAdding();
-            thread.Join();
-        }
-    }
-
     /// <summary>操作に使ったライブラリが終了を要求済みなら、集めた案内を所有者の窓口へ依頼せず、操作の結果も変えない。</summary>
     /// <remarks>終了後の表示を抑止しないと、終了処理中に表示の要求が窓口へ届く。</remarks>
     [TestMethod]

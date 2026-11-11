@@ -65,7 +65,6 @@ public sealed class PlaylistSummaryPerformanceTests
                 propertySaveService: fixture.Service, presentationRefreshDeferredProvider: _ => true,
                 restoreUiApplyScheduler: Schedule, restoreUiThreadCheck: () => TestUiDispatcherHost.Dispatcher.CheckAccess(),
                 dispatchPresentation: action => { _ = Schedule(action); }, detailRetentionLog: message => logs.Add(message));
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             TestUiDispatcherHost.Invoke(() => workspace.RequestPlaylistSummaryMode(true));
             async Task Measure(string route, Func<Task> run, Action check)
             {

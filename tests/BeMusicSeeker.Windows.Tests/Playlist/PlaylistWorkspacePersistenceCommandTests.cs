@@ -154,8 +154,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             library = new TestBmsLibrary(databaseScope, songDbPath);
             TestBmsPlaylist accepted = playlist;
             var propertyService = new PlaylistPropertySaveService(() => accepted, () => library, () => null, () => outputSettings);
+            using var notices = new PlaylistNoticeProbe(() => TestUiDispatcherHost.Dispatcher.CheckAccess());
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => accepted, playlistLibraryProvider: () => library,
-                propertySaveService: propertyService,
+                propertySaveService: propertyService, playlistWorkspaceDialogService: notices.Dialogs,
                 referenceApplyScheduler: (_, work) => { auxiliary.Enqueue(Task.Run(work)); return true; },
                 dispatchPresentation: action => TestUiDispatcherHost.Invoke(action),
                 catalogNotificationQueue: action => TestUiDispatcherHost.Invoke(action),
@@ -171,8 +172,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 if (change.PropertyName == nameof(workspace.PlaylistTreeTables)
                     && workspace.PlaylistTreeTables.Any(table => table.playlist_id == 2)) { replaced.TrySetResult(); }
             };
-            var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             string backupPath = Path.Combine(tempDirectory, "restore.sql");
             int flags = (int)(LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                 & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
@@ -197,11 +196,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             while (auxiliary.TryDequeue(out Task? work)) { await work; }
             Assert.IsTrue(workspace.PlaylistReferenceApplyWorkflow.IsIdle);
 
-            Assert.AreEqual(1, notifications.Count);
-            Assert.AreEqual("playlist restore notification", notifications[0].RouteName);
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
-                notifications[0].Receipt.Notifications.Single().Severity);
+            Assert.AreEqual(1, notices.Messages.Count);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, notices.Messages[0].Icon);
+            Assert.IsFalse(notices.BlockedOnUiContext, "結果通知の依頼をUIの文脈から行いません。");
             CollectionAssert.AreEquivalent(new[] { "After restore", "Other restored" }, workspace.PlaylistTreeTables.Select(table => table.name).ToArray());
             CollectionAssert.AreEquivalent(new[] { 2, 3 }, workspace.PlaylistSummaryView.Select(row => row.PlaylistId ?? 0).ToArray());
             foreach ((int id, string directory, string folderName, string hash, string title) in new[]
@@ -318,7 +315,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(dbPath)) { }
             var oldTable = new BMSTable { playlist_id = 11, name = "Old live", symbol = "O" };
             PlaylistWorkspaceViewModel workspace = CreateBackupWorkspace(databaseScope,
-                dbPath, [oldTable], out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs>? notifications,
+                dbPath, [oldTable], out BMSPlaylist playlist, out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService notifications,
                 action =>
                 {
                     Interlocked.Increment(ref scheduleCount);
@@ -335,10 +332,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 return false;
             };
             bool notificationAfterAdmissionRelease = false;
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
+            bool notificationOnUiThread = false;
+            notifications.MessageRequestedHook = _ =>
             {
                 notificationAfterAdmissionRelease = playlist.TryEnterPlaylistMutation(out IDisposable notificationLease);
                 notificationLease?.Dispose();
+                notificationOnUiThread |= TestUiDispatcherHost.Dispatcher.CheckAccess();
             };
             bool collectionOnUi = true;
             playlist.BMSTables.CollectionChanged += (_, _) =>
@@ -349,7 +348,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             await TestUiDispatcherHost.AwaitNotificationAsync(accepted.Task, restore, "playlist.restore-ui-accepted");
             Assert.IsFalse(restore.IsCompleted);
             Assert.AreSame(oldTable, playlist.BMSTables.Single());
-            Assert.AreEqual(0, notifications.Count);
+            Assert.AreEqual(0, notifications.MessageRequests.Count);
             bool lockAvailable = await Task.Run(() =>
             {
                 using IDisposable? songLease = databaseScope.TryEnterSong(TimeSpan.FromSeconds(1));
@@ -376,16 +375,16 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual("Restored live", playlist.BMSTables.Single().name);
             Assert.IsTrue(collectionOnUi);
             Assert.IsFalse(restore.IsCompleted);
-            Assert.AreEqual(0, notifications.Count);
+            Assert.AreEqual(0, notifications.MessageRequests.Count);
             Assert.ThrowsExactly<InvalidOperationException>(() =>
                 playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single()));
             complete.TrySetResult();
             Assert.IsTrue(await restore);
             Assert.IsTrue(notificationAfterAdmissionRelease, "結果通知へPを持ち越さない。");
+            Assert.IsFalse(notificationOnUiThread, "結果通知の依頼をUIの文脈から行わない。");
             Assert.AreEqual(1, scheduleCount);
             Assert.AreEqual(1, optionalSchedulingCalls, "任意予約を再試行しない。");
-            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
-                notifications.Single().Receipt.Notifications.Single().Severity);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, notifications.MessageRequests.Single().Icon);
             playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single());
             assertionsCompleted = true;
         }

@@ -1296,15 +1296,20 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
         }
     }
 
-    /// <summary>局所ドロップの空の結果記録を配送中は競合改名を拒否して終了を待ち、配送の実終端後だけドロップと終了準備を完了します。</summary>
-    /// <remarks>実playlist・workspace・終了管理主体を同じ構成のPへ接続します。実WindowのCloseとDispatcher応答はMainWindowViewHostTestsへ分担します。</remarks>
+    /// <summary>局所ドロップの必要出力（LR2同期）でPを保持する間は競合改名を拒否して終了を待ち、Pの実終端後だけドロップと終了準備を完了します。</summary>
+    /// <remarks>
+    /// 実playlist・workspace・終了管理主体を同じ構成のPへ接続します。通知は受付の解放後に依頼するため、止める地点は必要出力の途中です。
+    /// 終了準備は保持中のBMT出力を取り消すため、ドロップのTaskは成功または終了による取消のどちらかで終わり、Pの実終端はどちらでも同じです。
+    /// Busyの案内の表示は終わらせないまま終了を待ち、未完了の表示が終了を待たせないことも確かめます。
+    /// 実WindowのCloseとDispatcher応答はMainWindowViewHostTestsへ分担します。
+    /// </remarks>
     [TestMethod]
-    public async Task WindowClose_AwaitsEmptyPlaylistDropNotificationDeliveryAndAdmissionCleanup()
+    public async Task WindowClose_AwaitsPlaylistDropOutputAndAdmissionCleanup()
     {
         var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = caseWorkspace.RootDirectory;
         using var releaseDelivery = new ManualResetEventSlim(false);
-        var deliveryEntered = new TaskCompletionSource<PlaylistOperationNotificationPresentationRequestedEventArgs>(
+        var deliveryEntered = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         MainWindowViewModel? viewModel = null;
         ShellShutdownWorkflowOwner? owner = null;
@@ -1335,18 +1340,27 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
                 Output_dir = "AdmissionTarget",
                 Folder_order = ["Imported"]
             };
+            TestLr2PlaylistFolderSynchronizationPort synchronization = PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
+                databaseScope, db, CustomFolderOutputPhysicalSurface.Empty);
+            synchronization.SynchronizationStartProbe = _ =>
+            {
+                deliveryEntered.TrySetResult(true);
+                releaseDelivery.Wait();
+            };
             var playlist = new TestBmsPlaylist(databaseScope, db, null, null, null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
                 () => outputSettings,
-                PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(
-                    databaseScope, db, CustomFolderOutputPhysicalSurface.Empty),
+                synchronization,
                 mutationAdmission: composition.PlaylistOperationAdmission)
             { BMSTables = [table] };
             BMSLibrary library = MainWindowViewModelTestFactory.CreateLibrary(
                 databaseScope, db, composition.SettingsEditSession.Values, viewModel);
+            using var notices = new PlaylistNoticeProbe(() => false) { HoldDisplay = true };
+            PlaylistNoticeProbe heldNotices = notices;
+            PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs = heldNotices.Dialogs;
             PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
-                playlist, library, () => outputSettings);
+                playlist, library, () => outputSettings, playlistWorkspaceDialogService: dialogs);
             bool preparationDispatchReturned = false;
             owner = CreateDirectOwner(viewModel, playlistWorkspace: workspace, dispatch: action =>
             {
@@ -1357,34 +1371,23 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             });
             owner.AttachLibrary(library);
             owner.AttachPlaylist(playlist);
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-            {
-                if (request.RouteName != "playlist drop custom folder output notification") { return; }
-                deliveryEntered.TrySetResult(request);
-                releaseDelivery.Wait();
-            };
-            PlaylistWorkspaceMutationRejectedEventArgs? rejected = null;
-            workspace.MutationRejected += (_, request) => rejected = request;
             ChartFile chart = ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(
                 PlaylistWorkspaceTestDataSupport.CreateSongTableRow(
                     "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine(root, "admission-chart.bms"))));
             drop = Task.Run(() => workspace.AddRowsToFolderAsync(
                 [LibraryChartRow.FromChartFile(chart)], table, PlaylistFolderNode.CreateFolder("Imported")));
-            await TestUiDispatcherHost.AwaitNotificationAsync(deliveryEntered.Task, drop, "shutdown-drop.notification-delivery");
-            Assert.AreEqual(0, (await deliveryEntered.Task).Receipt.Notifications.Count);
+            await TestUiDispatcherHost.AwaitNotificationAsync(deliveryEntered.Task, drop, "shutdown-drop.output-synchronization");
             Assert.IsFalse(drop.IsCompleted);
             Task playlistIdle = playlist.WaitForPlaylistMutationIdleAsync();
             Assert.IsFalse(playlistIdle.IsCompleted);
             Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
             await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Imported"), "Renamed");
-            Assert.IsNotNull(rejected);
-            Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, rejected.Kind);
-            Assert.IsTrue(rejected.IsBusy);
-            Assert.IsFalse(rejected.IsStale);
+            UiMessageRequest rejected = dialogs.MessageRequests.Single();
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationBusy, rejected.MessageBoxText);
             Assert.IsTrue(table.entries.Any(entry => entry.folder == "Imported"));
             Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"));
 
-            // 配送以外のworkspace処理を回収し、無関係な待機でClose未完了を成立させません。
+            // 必要出力以外のworkspace処理を回収し、無関係な待機でClose未完了を成立させません。
             await workspace.WaitForDetailBuildIdleAsync();
             await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
             await workspace.WaitForPlaylistUrlIdleAsync();
@@ -1402,22 +1405,24 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             Assert.IsFalse(library.HasShutdownBlockingWork);
             close = owner.RequestWindowCloseAsync();
             Assert.IsTrue(preparationDispatchReturned);
-            Assert.IsFalse(close.IsCompleted, "空の結果記録でも購読処理の実終端まで終了準備を待ちます。");
+            Assert.IsFalse(close.IsCompleted, "ドロップの必要出力（P）の実終端まで終了準備を待ちます。");
             Assert.IsFalse(drop.IsCompleted);
             Assert.IsFalse(playlistIdle.IsCompleted);
             Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
 
             releaseDelivery.Set();
-            await drop;
+            await AwaitDropTerminalAsync(drop);
             ShellShutdownWorkflowCompletionReceipt receipt = await close;
             Assert.IsTrue(receipt.PreparationSucceeded);
             Assert.IsTrue(receipt.CloseAllowed);
+            // Busyの案内の表示は、保持したまま終わっていません。終了は、Pの実終端だけを待ちます。
+            Assert.AreEqual(1, notices.Messages.Count, "案内は一件だけ依頼され、表示は未完了のままです。");
             await playlistIdle;
             Assert.IsTrue(playlist.WaitForPlaylistMutationIdleAsync().IsCompletedSuccessfully);
             Assert.IsFalse(composition.OperationAdmission.IsActive);
             Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
             Assert.IsTrue(table.entries.Any(entry => entry.folder == "Imported"));
-            Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"), "拒否した改名を配送後に予約実行しません。");
+            Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"), "拒否した改名をPの解放後に予約実行しません。");
         }
         catch (Exception exception)
         {
@@ -1430,7 +1435,7 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             {
                 // 途中の表明失敗でも、全workspace待機を所有する終了準備と導入の両実終端を回収します。
                 close ??= owner?.RequestWindowCloseAsync();
-                await Task.WhenAll(drop ?? Task.CompletedTask, (Task?)close ?? Task.CompletedTask);
+                await Task.WhenAll(AwaitDropTerminalAsync(drop), (Task?)close ?? Task.CompletedTask);
             }
             catch (Exception exception)
             {
@@ -1456,6 +1461,42 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             bodyFailure.Throw();
         }
         if (cleanupFailure != null) { ExceptionDispatchInfo.Capture(cleanupFailure).Throw(); }
+    }
+
+    /// <summary>
+    /// 終了の要求の後に受付の解放を迎えたプレイリストの操作は、通知の表示を依頼せず、依頼しなかったことを診断のログへ残します。
+    /// 作業領域の終了の判定が、実際の終了の管理主体の状態へ接続されていることを、本番と同じ構成で確かめます。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistNoticeAfterShutdownRequest_IsNotRequestedAndIsLogged()
+    {
+        await ApplicationLoggingTestScope.RunAsync(async loggingScope =>
+        {
+            string logPath = loggingScope.ConfigureFileLog();
+            using var notices = new PlaylistNoticeProbe(() => false);
+            MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(playlistWorkspaceDialogs: notices.Dialogs);
+            ShellShutdownWorkflowOwner shutdown = viewModel.ShellShutdownWorkflow
+                ?? throw new AssertFailedException("終了の管理主体が構成されていません。");
+            PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+            long before = workspace.PlaylistOperationNoticeRequestCount;
+
+            await shutdown.RequestWindowCloseAsync();
+            Assert.IsTrue(shutdown.IsShutdownRequested);
+            // 表がなくストアもない状態のバックアップは、警告の通知だけを集めて終わります。
+            await workspace.BackupPlaylistAsync(Path.Combine(loggingScope.RootDirectory, "after-shutdown.sql"));
+
+            Assert.AreEqual(before + 1, workspace.PlaylistOperationNoticeRequestCount, "通知の依頼は観測口で一件数えます。");
+            Assert.AreEqual(0, notices.Messages.Count, "終了の要求の後は、表示を依頼しません。");
+            StringAssert.Contains(ApplicationLoggingTestScope.ReadFileLog(logPath), "playlist_operation_notice_skipped reason=shutdown");
+        });
+    }
+
+    /// <summary>ドロップのTaskの終端を待ちます。終了準備による出力の取消は、Pの実終端の一つとして受け入れます。</summary>
+    private static async Task AwaitDropTerminalAsync(Task? drop)
+    {
+        if (drop == null) { return; }
+        try { await drop; }
+        catch (OperationCanceledException) { }
     }
 
     /// <summary>実プレイリスト出力の受付中にCloseすると取消後の出力Taskと受付cleanupを待ち、出力副作用を始めず以後のP受付も拒否します。</summary>

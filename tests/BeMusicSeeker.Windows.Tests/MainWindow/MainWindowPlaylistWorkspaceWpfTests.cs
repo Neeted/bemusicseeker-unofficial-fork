@@ -398,14 +398,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     {
         ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
         var accepted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var rejected = new ConcurrentQueue<PlaylistWorkspaceMutationRejectedEventArgs>();
         EventHandler availability = (_, _) =>
         {
             if (admission.IsActive) { accepted.TrySetResult(admission.WaitForIdleAsync()); }
         };
-        EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> rejection = (_, args) => { rejected.Enqueue(args); accepted.TrySetException(new AssertFailedException("内部dropが拒否されました。")); };
         admission.AvailabilityChanged += availability;
-        fixture.ViewModel.PlaylistWorkspace.MutationRejected += rejection;
         Task? operation = null;
         try
         {
@@ -413,7 +410,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             operation = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => args = RaisePlaylistHeaderDrag(target, data, DragDrop.DropEvent));
             TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted.Task.Unwrap(), "playlist-row-drop-accepted-terminal");
             TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "playlist-row-drop-event-terminal");
-            Assert.AreEqual(0, rejected.Count);
             Assert.IsNotNull(args);
             Assert.IsTrue(args.Handled);
             Assert.AreEqual(DragDropEffects.Copy, args.Effects);
@@ -428,7 +424,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             finally
             {
                 admission.AvailabilityChanged -= availability;
-                fixture.ViewModel.PlaylistWorkspace.MutationRejected -= rejection;
             }
         }
     }
@@ -833,9 +828,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
                 CultureInfo.CurrentUICulture = CultureInfo.GetCultureInfo("en-US");
                 var messages = new List<UiMessageRequest>();
+                TaskCompletionSource<object?> firstMessage = NewCompletion<object?>();
                 fixture = CreateActualMainWindowFixture(scope, messagePresenter: (_, request) =>
                 {
                     messages.Add(request);
+                    firstMessage.TrySetResult(null);
                     return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
                 });
                 PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
@@ -893,10 +890,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
                 terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-invalid-terminal");
+                // 通知は受付の解放後に待たずに依頼されるため、表示の到着を独立に待ちます。
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(firstMessage.Task, "culture-level-invalid-message");
                 AssertSavedNumberAndDisplay();
+                // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(1, messages.Count);
                 Assert.AreEqual(Resources.Error_PlaylistEntryLevelFormat, messages.Single().MessageBoxText);
-                Assert.AreSame(fixture.Window, messages.Single().Owner);
+                Assert.IsNull(messages.Single().Owner, "Owner は窓口の解決に任せます。");
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                 TextBox nextEditor = Editor() ?? throw new AssertFailedException("次編集用editorがありません。");
                 nextEditor.Text = "2.5e1";
@@ -1767,7 +1768,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             ChartFileOperationSynchronizer admission = fixture.Library.Lr2Synchronization.PlaylistOperationAdmission;
             var leases = new ConcurrentQueue<Task>();
             var leaseStarted = new TaskCompletionSource<Task>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var rejected = new ConcurrentQueue<PlaylistWorkspaceMutationRejectedEventArgs>();
             var commits = new List<string>();
             Exception? primary = null;
             EditableTextBlock? observed = null;
@@ -1787,11 +1787,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     leases.Enqueue(lease);
                     leaseStarted.TrySetResult(lease);
                 }
-            };
-            EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> rejection = (_, args) =>
-            {
-                rejected.Enqueue(args);
-                failureNotified.TrySetResult();
             };
             RoutedEventHandler editChanged = (_, args) =>
             {
@@ -1849,7 +1844,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 var folderA = (PlaylistFolderNode)controlA.DataContext;
                 DisplayBinding(controlA, folderA, names[0]);
                 admission.AvailabilityChanged += availability;
-                workspace.MutationRejected += rejection;
                 controlA.EditModeChanged += editChanged;
                 controlA.DataContextChanged += contextChanged;
                 AssertFoldersUnchanged();
@@ -1919,7 +1913,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 structureTransferred = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 SendKey(editorC, Key.Return);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(leaseStarted.Task, failureNotified.Task), "tree-edit-rename-start-or-failure");
-                Assert.AreEqual(0, rejected.Count, "改名開始までに受付拒否を通知しません。");
+                Assert.AreEqual(0, messages.Count, "改名開始までに受付拒否を通知しません。");
                 Assert.AreEqual(0, messages.Count, "改名開始までに失敗を通知しません。");
                 Assert.IsTrue(leaseStarted.Task.IsCompletedSuccessfully, "当該Pの開始通知が必要です。");
                 // 開始通知から得た実P解放tokenを別に待ちます。RenameFolderAsync自体のTaskとは区別します。
@@ -1930,7 +1924,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(structureConsumer, "tree-edit-rename-binding-consumer");
                 Assert.AreEqual(1, commits.Count);
                 Assert.AreEqual(savedName, commits[0]);
-                Assert.AreEqual(0, rejected.Count);
+                Assert.AreEqual(0, messages.Count);
                 Assert.AreEqual(0, messages.Count);
                 using (LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(fixture.Root, "data", "song.db")).OpenSongDbReadOnly())
                 {
@@ -2023,7 +2017,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 finally
                 {
                     admission.AvailabilityChanged -= availability;
-                    workspace.MutationRejected -= rejection;
                     if (observed != null) { observed.EditModeChanged -= editChanged; observed.DataContextChanged -= contextChanged; }
                     if (observedScroll != null) { observedScroll.ScrollChanged -= scrolled; }
                     if (observedTable != null) { descriptor?.RemoveValueChanged(observedTable, transferred); }
@@ -3301,6 +3294,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
                             TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-url-invalid-terminal");
                             Assert.IsNull(notificationObservationFailure, "所有通知の観測に失敗しました。" + Environment.NewLine + notificationObservationFailure);
+                            // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
                             Assert.IsTrue(notifications.Any(request => request.MessageBoxText == Resources.Error_PlaylistPropertiesInvalid), "入力不備を既存の検証失敗通知で伝えます。");
                             Assert.IsTrue(dialog.IsVisible);
                             Assert.IsTrue(dialog.IsEnabled);
@@ -3429,6 +3424,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     symbol.GetBindingExpression(TextBox.TextProperty)?.UpdateSource();
                     RaiseButtonClick(FindAutomationButton(dialog, "PlaylistPropertyAccept"));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.WaitForOperationCompletionAsync(), "property-output-invalid");
+                    // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.IsTrue(notifications.Any(request => request.MessageBoxText == Resources.Error_OutputFolderNameMustBeSingleName));
                     Assert.IsTrue(dialog.IsVisible);
                     Assert.IsTrue(dialog.IsEnabled);
@@ -3802,16 +3799,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsFalse(MainWindowViewModelTestFactory.GetComposition(fixture.ViewModel).PlaylistOperationAdmission.IsActive);
                 displayed.Clear();
                 string expectedMemo = currentEntry.memo;
-                PlaylistWorkspaceMutationRejectedEventArgs? rejection = null;
-                workspace.MutationRejected += (_, request) => rejection = request;
                 var oldContext = new MainChartListCellEditContext(oldRow, nameof(PlaylistDetailRow.memo), ChartOperationSourceScope.PlaylistOwned, MainViewOperationSection.Playlist);
                 Task rejected = workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(oldContext, "old edit C", commit: true));
                 started.Add(rejected);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(rejected, "detail-old-row-rejection-terminal");
-                Assert.IsNotNull(rejection);
-                Assert.IsTrue(rejection.IsStale);
-                Assert.IsFalse(rejection.IsBusy);
+                // 拒否の案内は、Pの解放後に非同期の表示として届きます。実Dispatcherの表示が届くまで進めます。
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(1, displayed.Count);
+                Assert.AreEqual(Resources.Warn_PlaylistMutationStale, displayed.Single().Request.MessageBoxText);
                 Assert.AreSame(fixture.Window, displayed.Single().Owner);
                 Assert.IsFalse(string.IsNullOrWhiteSpace(displayed.Single().Request.MessageBoxText));
                 Assert.AreEqual(MessageBoxImage.Hand, displayed.Single().Request.Icon);
@@ -3847,6 +3842,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 started.Add(fresh);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(fresh, "detail-current-row-save-terminal");
                 RecordState("save_terminal");
+                // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(1, displayed.Count);
                 Assert.AreEqual("fresh edit D", currentEntry.memo);
                 Assert.AreEqual("fresh edit D", currentRow.memo);
@@ -3971,12 +3968,17 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 var tableItem = playlistRoot.ItemContainerGenerator.ContainerFromItem(active) as TreeViewItem;
                 Assert.IsNotNull(tableItem);
                 Assert.IsTrue(FindDescendants<TextBlock>(tableItem!).Any(block => block.Text == expectedName));
+                if (!sameSkill)
+                {
+                    // 通知の依頼は待たれないため、件数の表明の前に、表示の到着を待ちます。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(skillDisplayed.Task, "recommendation-message-presenter");
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 (Window Owner, UiMessageRequest Request)[] skillMessages = displayed.Where(call => call.Request.Caption == Resources.Recommend_SkillUpdatedTitle
                     && call.Request.Icon == MessageBoxImage.Information).ToArray();
                 Assert.AreEqual(sameSkill ? 0 : 1, skillMessages.Length);
                 if (!sameSkill)
                 {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(skillDisplayed.Task, "recommendation-message-presenter");
                     Assert.AreSame(fixture.Window, skillMessages[0].Owner);
                     Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage, skill.ToString("F2"),
                         (skill - 3.87).ToString(" (+#0.00); (-#0.00);")), skillMessages[0].Request.MessageBoxText);
@@ -4105,7 +4107,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TaskCompletionSource<object?> completedTargets = NewCompletion();
                     TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> completed = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
                     TaskCompletionSource<object?> progressTerminal = NewCompletion();
-                    int notificationTerminalCount = 0;
                     workspace.PlaylistExternalSyncQueued += (_, request) =>
                     {
                         if (request.Reason == "ReloadTables") { queued.TrySetResult(request); }
@@ -4123,10 +4124,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         if (queued.Task.IsCompletedSuccessfully && request.Reason == "ReloadTables"
                             && request.OperationToken == queued.Task.Result.OperationToken) { completed.TrySetResult(request); }
                     };
-                    workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-                    {
-                        if (request.RouteName == "external playlist sync notification") { Interlocked.Increment(ref notificationTerminalCount); }
-                    };
                     displayed.Clear();
                     int scoreReadsBeforeReload = Volatile.Read(ref scoreReads);
 
@@ -4139,7 +4136,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(
                         TestUiDispatcherHost.AwaitNotificationAsync(completedTargets.Task, producer, "language-reload.completed-targets"), "language-reload.completed-targets");
                     Assert.AreEqual(0, displayed.Count, "終端前は通知を表示しない。");
-                    Assert.AreEqual(0, Volatile.Read(ref notificationTerminalCount));
 
                     // 通知の事実が確定した後、初表示の前に本番の言語変更を行う。
                     ResourceService.Current.ChangeCulture("fr-FR");
@@ -4154,7 +4150,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         TestUiDispatcherHost.AwaitNotificationAsync(progressTerminal.Task, reload, "language-reload.progress-terminal"), "language-reload.progress-terminal");
 
                     double skill = ReadWalkureCase("standard")["rating"]!.Value<double>("playerStarRating");
-                    Assert.AreEqual(1, Volatile.Read(ref notificationTerminalCount));
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
                     (Window Owner, UiMessageRequest Request)[] information = displayed.Where(call => call.Request.Icon == MessageBoxImage.Information).ToArray();
                     Assert.AreEqual(1, information.Length);
                     Assert.AreSame(fixture.Window, information[0].Owner);
@@ -4218,6 +4214,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Task backup = workspace.BackupPlaylistAsync(missing);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(backup, "backup-failure-presentation");
 
+                // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 (Window Owner, UiMessageRequest Request) shown = displayed.Single();
                 Assert.AreSame(fixture.Window, shown.Owner);
                 Assert.AreEqual(MessageBoxImage.Hand, shown.Request.Icon);
@@ -4436,13 +4434,15 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(ownerWaitAfterCompletion, "property-owner-wait-after-notification");
                         Assert.IsTrue(dialog.IsEnabled);
                         Assert.AreEqual(1, failureNotices);
+                        // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.AreEqual(1, outputWarnings.Count, "実manifest失敗のWarningを一回表示しようとします。");
                         BmtTableExportService.FileOperationFailure manifestFailure = bmtFailures.Single();
                         Assert.AreEqual(output, manifestFailure.Path, "manifest公開の例外はBMT出力先の失敗として通知されます。");
                         StringAssert.Contains(manifestFailure.Cause, manifest);
                         (Window warningOwner, UiMessageRequest warningRequest) = outputWarnings.Single();
                         Assert.AreSame(dialog, warningOwner, "実coordinatorは開いているプロパティ画面をWarningのownerに解決します。");
-                        Assert.AreSame(activeFixture.Window, warningRequest.Owner);
+                        Assert.IsNull(warningRequest.Owner, "Owner は窓口の解決に任せます。");
                         Assert.AreEqual(Resources.MessageBoxTitle_Warning, warningRequest.Caption);
                         Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_output_failure_format, manifestFailure.Path, manifestFailure.Cause),
                             warningRequest.MessageBoxText);
@@ -4470,6 +4470,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Assert.AreNotSame(firstSave, ownerWaitAfterSuccess);
                         Assert.IsTrue(dialog.HasTerminalOutcome);
                         Assert.AreEqual(1, failureNotices);
+                        // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.AreEqual(1, outputWarnings.Count, "次の保存へ旧Warningやその表示故障を持ち越しません。");
                         Assert.AreSame(replacement, activeFixture.Playlist.BMSTables.Single());
                     });
@@ -4517,6 +4519,18 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             using var releaseOutput = new ManualResetEventSlim();
             var outputEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var displayed = new List<(Window Owner, UiMessageRequest Request)>();
+            // 通知は受付の解放後に非同期で依頼されるため、期待する通知が窓口へ届いたことを、モーダルを閉じる前の根拠にします。
+            // 通知のownerは表示の時点の現在のモーダルに解決されるので、閉じた後に届くとMainWindowになります。
+            int expectedHands = bulkOutcome == "success" ? 0 : 1;
+            int expectedWarnings = bulkOutcome is "output_failure" or "notification_failure" ? 1 : 0;
+            var expectedNoticesArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void CheckExpectedNotices()
+            {
+                if (displayed.Count(call => call.Request.Icon == MessageBoxImage.Hand) >= expectedHands
+                    && displayed.Count(call => call.Request.Icon == MessageBoxImage.Exclamation && call.Request is not UiConfirmationRequest) >= expectedWarnings)
+                { expectedNoticesArrived.TrySetResult(); }
+            }
+            CheckExpectedNotices();
             var notificationFailure = new IOException("bulk output failure notification failed");
             Task? confirmationApply = null;
             bool confirmationApplyWasPending = false;
@@ -4526,6 +4540,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 messagePresenter: (owner, request) =>
                 {
                     displayed.Add((owner, request));
+                    CheckExpectedNotices();
                     if (bulkOutcome == "confirmation_failure"
                         && request is UiConfirmationRequest
                         && request.Owner is PlaylistSummaryBulkEditDialog confirmationDialog)
@@ -4686,6 +4701,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             Assert.AreEqual(1L, database.ExecuteScalar<long>(
                                 "SELECT COUNT(1) FROM playlist WHERE playlist_id = ? AND is_bmt_output = 1;", fixture.Table.playlist_id));
                         }
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(expectedNoticesArrived.Task, "bulk-expected-notices-before-close");
                         observation.VisibleAfterApply = dialog.IsVisible;
                         RaiseButtonClick(FindAutomationButton(dialog, "PlaylistSummaryClose"));
                     });
@@ -4696,6 +4712,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     typeof(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel));
                 Assert.IsTrue(bulk.VisibleAfterApply);
                 Assert.AreEqual(bulkOutcome is not ("busy" or "confirmation_failure"), fixture.Table.is_bmt_output);
+                // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 var bulkFailures = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Hand).ToList();
                 Assert.AreEqual(bulkOutcome == "success" ? 0 : 1, bulkFailures.Count);
                 if (bulkFailures.Count != 0)
@@ -4714,7 +4732,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 if (outputWarnings.Count != 0)
                 {
                     Assert.AreSame(bulk.Window, outputWarnings.Single().Owner, "実coordinatorは現在のmodalを通知ownerに解決します。");
-                    Assert.AreSame(fixture.Window, outputWarnings.Single().Request.Owner);
+                    Assert.IsNull(outputWarnings.Single().Request.Owner, "Owner は窓口の解決に任せます。");
                 }
                 Assert.AreEqual(1, bulk.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
@@ -5046,7 +5064,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TaskCompletionSource<PlaylistExternalSyncCompletionEventArgs> completed = NewCompletion<PlaylistExternalSyncCompletionEventArgs>();
                 TaskCompletionSource<object?> progressTerminal = NewCompletion();
                 var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
-                int notificationTerminalCount = 0;
                 BMSTable? blockedAtSyncStart = null;
                 BMSTable? badAtSyncStart = null;
                 workspace.PlaylistExternalSyncQueued += (_, request) =>
@@ -5074,11 +5091,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         && request.OperationToken == queued.Task.Result.OperationToken
                         && request.Version == queued.Task.Result.Version)
                     { completed.TrySetResult(request); }
-                };
-                workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-                {
-                    if (request.RouteName == "external playlist sync notification")
-                    { Interlocked.Increment(ref notificationTerminalCount); }
                 };
                 File.WriteAllText(goodData, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"A after\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
                 File.WriteAllText(badHeader, "{ invalid json }");
@@ -5149,7 +5161,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsTrue(progress.Any(snapshot => snapshot.IsActive && snapshot.CompletedTableCount == 2));
                 Assert.IsFalse(completed.Task.IsCompleted);
                 Assert.IsFalse(progressTerminal.Task.IsCompleted);
-                Assert.AreEqual(0, Volatile.Read(ref notificationTerminalCount));
                 OperationProgressRow syncRow = fixture.ViewModel.ProgressHub.Rows.Single(row => row.Key.StartsWith("playlist:external_playlist_sync:", StringComparison.Ordinal));
                 Assert.AreEqual(2d, syncRow.Value);
                 Assert.AreEqual(3d, syncRow.Maximum);
@@ -5187,7 +5198,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     TestUiDispatcherHost.AwaitNotificationAsync(progressTerminal.Task, reload, "summary-reload.progress-terminal"), "summary-reload.progress-terminal");
                 SettlePendingPlaylistSummaryRefresh(workspace, "summary-reload-terminal");
                 Assert.IsFalse(completed.Task.Result.Succeeded, "通常取得失敗Cを全件成功へ読み替えません。");
-                Assert.AreEqual(1, Volatile.Read(ref notificationTerminalCount));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsFalse(fixture.Playlist.IsPlaylistUpdating);
                 Assert.IsFalse(fixture.ViewModel.IsLibraryOperationInProgress);
                 Assert.IsFalse(progress.Last().IsActive);
@@ -5267,11 +5278,16 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             ActualMainWindowFixture? fixture = null;
-            TaskCompletionSource<PlaylistWorkspaceMutationRejectedEventArgs>? busyRejection = null;
+            TaskCompletionSource<UiMessageRequest>? busyRejection = null;
             bool closeNextMutationNotification = false;
+            // 拒否の案内は受付の解放後に非同期で届くため、表示の要求を窓口の応答で観測し、実モーダルを開きません。
             fixture = CreateActualMainWindowFixture(
                 windowTest,
-                closeNextMessage: () => closeNextMutationNotification);
+                messagePresenter: (_, request) =>
+                {
+                    if (request.MessageBoxText == Resources.Warn_PlaylistMutationBusy) { busyRejection?.TrySetResult(request); }
+                    return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
+                });
             try
             {
                 BMSTable localTable = CreateAdmissionFixtureTable();
@@ -5279,13 +5295,6 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 PersistFixtureTable(fixture.Library.DatabaseScope, Path.Combine(fixture.Root, "data", "song.db"), localTable);
 
                 PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
-                workspace.MutationRejected += (_, request) =>
-                {
-                    if (request.Kind == PlaylistWorkspaceMutationKind.RenameFolder && request.IsBusy)
-                    {
-                        busyRejection?.TrySetResult(request);
-                    }
-                };
 
                 TaskCompletionSource<object?> presentationTerminal = NewCompletion();
                 int presentationThreadId = 0;
@@ -5324,7 +5333,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     "Manual reload must remain admitted while the local HTTP score response is held.");
 
                 closeNextMutationNotification = true;
-                busyRejection = NewCompletion<PlaylistWorkspaceMutationRejectedEventArgs>();
+                busyRejection = NewCompletion<UiMessageRequest>();
                 Task busyRename = workspace.RenameFolderAsync(
                     localTable,
                     PlaylistFolderNode.CreateFolder("Local"),
@@ -5336,8 +5345,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     busyRejection.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.manual-busy-rejection");
-                Assert.IsTrue(busyRejection!.Task.Result.IsBusy);
-                Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, busyRejection!.Task.Result.Kind);
+                Assert.AreEqual(Resources.Warn_PlaylistMutationBusy, busyRejection!.Task.Result.MessageBoxText);
                 Assert.AreEqual("Local", localTable.entries.Single().folder);
                 Assert.IsFalse(
                     localTable.entries.Any(entry => entry.folder == "Local while manual reload is active"),
@@ -5417,7 +5425,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     "Deferred sync must retain its accepted request while the HTTP score response is held.");
 
                 closeNextMutationNotification = true;
-                busyRejection = NewCompletion<PlaylistWorkspaceMutationRejectedEventArgs>();
+                busyRejection = NewCompletion<UiMessageRequest>();
                 Task deferredBusyRename = workspace.RenameFolderAsync(
                     localTable,
                     PlaylistFolderNode.CreateFolder("Local"),
@@ -5429,8 +5437,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     busyRejection.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.deferred-busy-rejection");
-                Assert.IsTrue(busyRejection!.Task.Result.IsBusy);
-                Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, busyRejection!.Task.Result.Kind);
+                Assert.AreEqual(Resources.Warn_PlaylistMutationBusy, busyRejection!.Task.Result.MessageBoxText);
                 Assert.AreEqual("Local", localTable.entries.Single().folder);
 
                 deferredResponse.ReleaseResponse();
@@ -5725,7 +5732,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             ActualMainWindowFixture active = presenterFixture ?? throw new AssertFailedException("結果表示より前にfixtureを作成します。");
                             Task terminal = idle ?? throw new AssertFailedException("HTTP本文gate中に実P終端Taskを捕捉します。");
                             Assert.AreSame(active.Window, owner);
-                            Assert.AreSame(active.Window, request.Owner);
+                            Assert.IsNull(request.Owner, "Owner は窓口の解決に任せます。");
                             StringAssert.Contains(request.MessageBoxText, string.Format(Resources.Playlist_import_result_summary_format, 1, 1, 0, 0));
                             // presenterからまだ応答していない間に、実処理がPを解放して次の明示操作を許可する。
                             TestUiDispatcherHost.AwaitPresentationOnDispatcher(terminal, "import-admission-released-before-summary-response");
@@ -5752,8 +5759,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Imported chart\",\"level\":\"1\"}]");
             PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
             TaskCompletionSource<ExternalPlaylistImportQueueSummary> summary = NewCompletion<ExternalPlaylistImportQueueSummary>();
-            EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> summaryHandler = (_, e) => summary.TrySetResult(e.Summary);
-            workspace.ExternalPlaylistImportQueueSummaryReady += summaryHandler;
+            Action<Task<ExternalPlaylistImportCompletion>> summaryHandler = task => _ = task.ContinueWith(
+                completed => summary.TrySetResult(completed.Result.Summary!), TaskContinuationOptions.OnlyOnRanToCompletion);
+            workspace.ExternalPlaylistImportStarted += summaryHandler;
             Exception? primaryFailure = null;
             try
             {
@@ -5773,7 +5781,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsFalse(summary.Task.IsCompleted);
                 server.ReleaseResponse();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-workspace-terminal");
-                Assert.IsTrue(summary.Task.IsCompleted, "結果イベントを実処理終端までに発行する。");
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(summary.Task, "import-summary-completion");
                 Assert.AreEqual(1, summary.Task.Result.ImportedCount);
                 Assert.AreEqual(1, summary.Task.Result.SkippedDuplicateUrlCount);
                 // idleが先に終わる順序も正当なので、結果表示consumerは独立して回収します。
@@ -5801,7 +5809,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     }
                     finally
                     {
-                        workspace.ExternalPlaylistImportQueueSummaryReady -= summaryHandler;
+                        workspace.ExternalPlaylistImportStarted -= summaryHandler;
                         fixture.Close();
                     }
                 }
@@ -5822,7 +5830,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             string outputDirectory = "";
             Task? idle = null;
             ActualMainWindowFixture? presenterFixture = null;
-            TaskCompletionSource<ExternalPlaylistImportQueueSummaryReadyEventArgs> completion = NewCompletion<ExternalPlaylistImportQueueSummaryReadyEventArgs>();
+            TaskCompletionSource<ExternalPlaylistImportCompletion> completion = NewCompletion<ExternalPlaylistImportCompletion>();
             TaskCompletionSource<object?> warningProbe = NewCompletion<object?>();
             TaskCompletionSource<object?> summaryProbe = NewCompletion<object?>();
             int completionCount = 0;
@@ -5865,13 +5873,14 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         Task terminal = idle ?? throw new AssertFailedException("HTTP本文gate中に実P終端を捕捉します。");
                         if (!isSummary)
                         {
-                            // 旧同期警告経路では完了イベントも未発行のため、まず実P終端を期限付きで観測します。
+                            // 表示の到着より前に、まず実P終端を期限付きで観測します。
                             TestUiDispatcherHost.AwaitPresentationOnDispatcher(terminal, "import-output-failure-admission-before-warning-response");
                         }
-                        Assert.IsTrue(completion.Task.IsCompleted, "P解放より前にreceiptと集計の完了イベントを発行する。");
-                        ExternalPlaylistImportQueueSummaryReadyEventArgs published = completion.Task.GetAwaiter().GetResult();
+                        // 取込みのTaskは最初の通知の依頼で完了するため、表示の到着と完了の発行の順序は固定されません。
+                        TestUiDispatcherHost.AwaitPresentationOnDispatcher(completion.Task, "import-completion-before-warning-response");
+                        ExternalPlaylistImportCompletion published = completion.Task.GetAwaiter().GetResult();
                         Assert.AreSame(active.Window, owner);
-                        Assert.AreSame(active.Window, request.Owner);
+                        Assert.IsNull(request.Owner, "Owner は窓口の解決に任せます。");
                         if (isSummary)
                         {
                             summaryCalls++;
@@ -5926,12 +5935,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 "{\"name\":\"" + tableName + "\",\"symbol\":\"W\",\"output_dir\":\"" + tableName + "\",\"data_url\":\"./score.json\"}",
                 "[{\"md5\":\"" + chartMd5 + "\",\"title\":\"" + chartTitle + "\",\"level\":\"7\"}]");
             PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
-            EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> completed = (_, request) =>
+            Action<Task<ExternalPlaylistImportCompletion>> completed = task => _ = task.ContinueWith(finished =>
             {
                 completionCount++;
-                completion.TrySetResult(request);
-            };
-            workspace.ExternalPlaylistImportQueueSummaryReady += completed;
+                completion.TrySetResult(finished.Result);
+            }, TaskContinuationOptions.OnlyOnRanToCompletion);
+            workspace.ExternalPlaylistImportStarted += completed;
             Exception? primaryFailure = null;
             try
             {
@@ -5947,11 +5956,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsFalse(idle.IsCompleted);
                 server.ReleaseResponse();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(idle, "import-output-failure-terminal");
-                Assert.IsTrue(completion.Task.IsCompleted, "実処理終端までにreceiptと集計を同じイベントで発行する。");
+                // 完了の観測は取込みのTaskの完了に続くため、Pの解放との順序は固定されません。上限付きで完了そのものを待ちます。
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(completion.Task, "import-output-failure-completion");
                 Assert.AreEqual(1, completionCount, "実処理終端までの完了イベントは一回です。");
-                ExternalPlaylistImportQueueSummaryReadyEventArgs published = completion.Task.GetAwaiter().GetResult();
-                Assert.IsFalse(published.Receipt.IsEmpty);
-                Assert.AreEqual(0, published.Summary.ImportedCount);
+                ExternalPlaylistImportCompletion published = completion.Task.GetAwaiter().GetResult();
+                Assert.IsFalse(published.Receipt!.IsEmpty);
+                Assert.AreEqual(0, published.Summary!.ImportedCount);
                 Assert.AreEqual(0, published.Summary.SkippedDuplicateUrlCount);
                 Assert.AreEqual(0, published.Summary.SkippedDuplicateNameCount);
                 Assert.AreEqual(1, published.Summary.FailedCount);
@@ -5984,7 +5994,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 catch when (primaryFailure != null) { }
                 finally
                 {
-                    workspace.ExternalPlaylistImportQueueSummaryReady -= completed;
+                    workspace.ExternalPlaylistImportStarted -= completed;
                     try { outputBlocker?.Dispose(); }
                     catch when (primaryFailure != null) { }
                     finally

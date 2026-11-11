@@ -664,6 +664,22 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         {
             return PlaylistPropertyDialogOperationResult.Busy;
         }
+        // 保存の通知（出力の警告・外部同期の失敗など）は、Pを解放した後にまとめて表示を依頼します。
+        // 収集先はPより外側に置き、保存サービスの内側の収集先は、この収集先へ引き継がれます。
+        using PlaylistOperationNotificationOwner.OperationNotificationSession operationNotifications =
+            editSession.Store.OperationNotificationOwner.BeginSession();
+        try
+        {
+            return await SaveAndApplyAdmittedAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            await saveService.PublishNotificationsAfterReleaseAsync(operationNotifications, "playlist property save notification").ConfigureAwait(true);
+        }
+    }
+
+    private async Task<PlaylistPropertyDialogOperationResult> SaveAndApplyAdmittedAsync()
+    {
         PlaylistPropertySaveCommit commit = null;
         IDisposable admission = null;
         LibraryFileMutationCapability capability = null;

@@ -19,10 +19,6 @@ internal sealed class PlaylistPropertySaveService
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> getSettings;
 
-    internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> ValidationError;
-
-    internal event EventHandler InvalidOutputDirectoryRequested;
-
     internal event EventHandler PlaylistPropertySyncStarted;
 
     internal event EventHandler<PlaylistSyncProgressChangedEventArgs> PlaylistPropertySyncProgressChanged;
@@ -45,7 +41,11 @@ internal sealed class PlaylistPropertySaveService
     /// <summary>所属を変えない表示属性の保存後、catalogと検索候補の依存だけを更新します。</summary>
     internal event EventHandler PlaylistPropertyCatalogChanged;
 
-    internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;
+    /// <summary>
+    /// 保存の通知を表示するよう依頼する表示役です。保存の操作が受付（P）を解放した後に、まとめて依頼します。
+    /// 作業領域が接続します。未接続のまま通知が生じた場合は、通知を表示せず診断へ残します。
+    /// </summary>
+    internal PlaylistOperationNoticePresenter NoticePresenter { get; set; }
 
     internal PlaylistPropertySaveService(
         Func<BMSPlaylist> playlistStore,
@@ -166,17 +166,62 @@ internal sealed class PlaylistPropertySaveService
         }, session.OtherOutputDirectories);
     }
 
-    /// <summary>入力不備を任意通知します。通知失敗を入力の承認や保存成功へ置き換えません。</summary>
+    /// <summary>入力不備を任意通知します。受付を持たない入力時の通知で、表示は待たずに依頼します。通知失敗を入力の承認や保存成功へ置き換えません。</summary>
     internal void NotifyValidationError(PlaylistPropertyValidationError error)
     {
-        NotifyBestEffort(() => RaiseRequiredEvent(ValidationError,
-            new PlaylistPropertyValidationErrorEventArgs(error), "Playlist property validation presentation"));
+        NotifyBestEffort(() => PlaylistOperationNotices.Notify(
+            getPlaylistStore(), NoticePresenter, PlaylistOperationNotices.ValidationError(error),
+            "playlist property validation notification"));
     }
 
+    /// <summary>出力先が不正なことを通知します。操作の収集先があればそこへ積み、その操作が受付を解放した後に表示します。</summary>
     private void RaiseInvalidOutputDirectoryRequested()
     {
-        NotifyBestEffort(() => RaiseRequiredEvent(InvalidOutputDirectoryRequested,
-            EventArgs.Empty, "Playlist property output-directory presentation"));
+        NotifyBestEffort(() => PlaylistOperationNotices.Notify(
+            getPlaylistStore(), NoticePresenter, PlaylistOperationNotices.InvalidOutputDirectory(),
+            "playlist property invalid output directory notification"));
+    }
+
+    /// <summary>
+    /// 操作が集めた通知を、外側の操作の収集先へ引き継ぎます。最も外側の収集先の場合だけ、受付を解放した後に表示を依頼します。
+    /// 同期の呼出し元は、依頼の完了を待たずに戻ります。
+    /// </summary>
+    private void PublishNotifications(
+        PlaylistOperationNotificationOwner.OperationNotificationSession notifications,
+        string routeName)
+    {
+        if (notifications.TryForwardToParent())
+        {
+            return;
+        }
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = notifications.TakeReceipt();
+        if (NoticePresenter == null)
+        {
+            PlaylistOperationNotices.LogPresenterNotConnected(routeName, receipt.Notifications.Count);
+            return;
+        }
+        NoticePresenter.RequestInBackground(receipt, routeName);
+    }
+
+    /// <summary>
+    /// 受付を解放した後に、最も外側の収集先の通知を依頼します。外側の収集先があれば引き継ぐだけです。
+    /// 戻る Task は、終了の判定と最初の組の依頼までで完了し、表示の完了は待ちません。
+    /// </summary>
+    internal Task PublishNotificationsAfterReleaseAsync(
+        PlaylistOperationNotificationOwner.OperationNotificationSession notifications,
+        string routeName)
+    {
+        if (notifications.TryForwardToParent())
+        {
+            return Task.CompletedTask;
+        }
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = notifications.TakeReceipt();
+        if (NoticePresenter == null)
+        {
+            PlaylistOperationNotices.LogPresenterNotConnected(routeName, receipt.Notifications.Count);
+            return Task.CompletedTask;
+        }
+        return NoticePresenter.BeginRequest(receipt, routeName);
     }
 
     private void RaiseRequiredEvent(EventHandler handler, EventArgs args, string contractName)
@@ -211,49 +256,67 @@ internal sealed class PlaylistPropertySaveService
         session.ThrowIfDisposed();
         return Task.Run<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)>(async () =>
         {
-            using LibraryFileMutationLease accepted = session.Store.AcquirePlaylistMutationLease("playlist_property_save", capability: capability);
-            using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
-            ValidateCurrentSession(session);
-            if (!IsOutputDirectoryInputValid(session, values))
-            {
-                return (null, PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName);
-            }
-            if (string.IsNullOrWhiteSpace(values.Name)) { return (null, null); }
-            if (session.PendingOutput != null)
-            {
-                var continuation = new PlaylistPropertySaveCommit(null, session.Table, session.Settings, session.IsNewTable)
-                {
-                    SavedValues = session.OriginalValues,
-                    PendingOutput = session.PendingOutput
-                };
-                List<Exception> continuationFailures = [];
-                CompleteReferencePublication(continuation.PendingOutput, continuationFailures);
-                await CompletePendingOutputsAsync(session.Store, continuation, authority, continuationFailures).ConfigureAwait(false);
-                continuation.Exception = CombineFailures(continuationFailures.Distinct());
-                if (continuation.Exception != null) { return (continuation, null); }
-                session.PendingOutput = null;
-            }
-            PlaylistPropertySaveCommit commit = TrySaveCore(session, values);
-            if (commit == null) { return (null, null); }
+            // 通知の収集先は受付より外側に置き、受付を解放した後に依頼します。外側の収集先があれば引き継ぐだけです。
+            using PlaylistOperationNotificationOwner.OperationNotificationSession operationNotifications =
+                session.Store.OperationNotificationOwner.BeginSession();
             try
             {
-                if (!commit.IsNewDraft)
-                {
-                    try { session.Store.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit> { [commit.Table] = commit.HeaderEdit }, authority); }
-                    catch (PlaylistMutationPostCommitException failure) { commit.Exception = failure.InnerException ?? failure; }
-                    commit.SavedValues = PlaylistPropertyValues.Capture(commit.Table);
-                }
-                await ApplyPostSaveUpdatesAsync(commit, authority).ConfigureAwait(false);
+                return await TrySaveAdmittedAsync(session, values, capability).ConfigureAwait(false);
             }
-            catch (Exception failure)
+            finally
             {
-                commit.Exception = failure;
+                await PublishNotificationsAfterReleaseAsync(operationNotifications, "playlist property save notification").ConfigureAwait(false);
             }
-            // baselineは初回の属性適用だけに使う。明示継続へ古い保存全体を持ち越さない。
-            commit.Baseline = null;
-            commit.RequestedValuesSaved = commit.SavedValues != null;
-            return (commit, null);
         });
+    }
+
+    private async Task<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)> TrySaveAdmittedAsync(
+        PlaylistPropertyEditSession session,
+        PlaylistPropertyValues values,
+        LibraryFileMutationCapability capability)
+    {
+        using LibraryFileMutationLease accepted = session.Store.AcquirePlaylistMutationLease("playlist_property_save", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
+        ValidateCurrentSession(session);
+        if (!IsOutputDirectoryInputValid(session, values))
+        {
+            return (null, PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName);
+        }
+        if (string.IsNullOrWhiteSpace(values.Name)) { return (null, null); }
+        if (session.PendingOutput != null)
+        {
+            var continuation = new PlaylistPropertySaveCommit(null, session.Table, session.Settings, session.IsNewTable)
+            {
+                SavedValues = session.OriginalValues,
+                PendingOutput = session.PendingOutput
+            };
+            List<Exception> continuationFailures = [];
+            CompleteReferencePublication(continuation.PendingOutput, continuationFailures);
+            await CompletePendingOutputsAsync(session.Store, continuation, authority, continuationFailures).ConfigureAwait(false);
+            continuation.Exception = CombineFailures(continuationFailures.Distinct());
+            if (continuation.Exception != null) { return (continuation, null); }
+            session.PendingOutput = null;
+        }
+        PlaylistPropertySaveCommit commit = TrySaveCore(session, values);
+        if (commit == null) { return (null, null); }
+        try
+        {
+            if (!commit.IsNewDraft)
+            {
+                try { session.Store.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit> { [commit.Table] = commit.HeaderEdit }, authority); }
+                catch (PlaylistMutationPostCommitException failure) { commit.Exception = failure.InnerException ?? failure; }
+                commit.SavedValues = PlaylistPropertyValues.Capture(commit.Table);
+            }
+            await ApplyPostSaveUpdatesAsync(commit, authority).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            commit.Exception = failure;
+        }
+        // baselineは初回の属性適用だけに使う。明示継続へ古い保存全体を持ち越さない。
+        commit.Baseline = null;
+        commit.RequestedValuesSaved = commit.SavedValues != null;
+        return (commit, null);
     }
 
     // 別列編集による旧値の継承は拒否せず、新規入力だけを未完了出力の継続より前に検査します。
@@ -633,7 +696,6 @@ internal sealed class PlaylistPropertySaveService
     {
         PlaylistPropertyPendingOutput pending = commit.PendingOutput;
         if (pending == null) { return; }
-        bool hasLr2Continuation = pending.Settings?.OperationModeLR2DB == true;
         using PlaylistOperationNotificationOwner.OperationNotificationSession ownedNotifications = existingNotifications == null ? store.OperationNotificationOwner.BeginSession() : null;
         PlaylistOperationNotificationOwner.OperationNotificationSession notifications = existingNotifications ?? ownedNotifications;
         if (pending.NeedsLr2Output)
@@ -684,23 +746,23 @@ internal sealed class PlaylistPropertySaveService
             }
             catch (Exception failure) { failures.Add(failure); }
         }
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt notificationReceipt = notifications.TakeReceipt();
-        if (hasLr2Continuation || !notificationReceipt.IsEmpty)
-        {
-            NotifyBestEffort(() => RaiseRequiredEvent(PlaylistOperationNotificationPresentationRequested,
-                new PlaylistOperationNotificationPresentationRequestedEventArgs(notificationReceipt,
-                    "playlist property custom folder notification"), "Playlist property notification flushing"));
-        }
+        NotifyBestEffort(() => PublishNotifications(notifications, "playlist property custom folder notification"));
         if (!pending.HasPendingWork) { commit.PendingOutput = null; }
     }
 
-    /// <summary>確定参照と保存値の採用後に任意の失敗通知を試み、今回の実処理失敗だけを呼出元へ返します。</summary>
+    /// <summary>
+    /// 確定参照と保存値の採用後に任意の失敗通知を試み、今回の実処理失敗だけを呼出元へ返します。
+    /// 外部同期の失敗の通知は、保存の操作の収集先へ積み、操作が受付を解放した後に表示します。
+    /// </summary>
     internal void PublishSaveFailure(PlaylistPropertySaveCommit commit)
     {
         if (commit.ExternalSyncFailure != null)
         {
             NotifyBestEffort(() => RaiseRequiredEvent(PlaylistPropertyExternalSyncFailed,
                 commit.ExternalSyncFailure, "Playlist property sync-failure presentation"));
+            NotifyBestEffort(() => PlaylistOperationNotices.Notify(
+                getPlaylistStore(), NoticePresenter, PlaylistOperationNotices.ExternalSyncFailure(commit.ExternalSyncFailure.Exception),
+                "playlist property external sync failure notification"));
         }
         if (commit.Exception != null) { ExceptionDispatchInfo.Capture(commit.Exception).Throw(); }
     }
@@ -728,9 +790,7 @@ internal sealed class PlaylistPropertySaveService
             }), "Playlist property sync-progress presentation"));
         NotifyBestEffort(() => RaiseRequiredEvent(PlaylistPropertySyncFinished,
             EventArgs.Empty, "Playlist property sync-finish presentation"));
-        NotifyBestEffort(() => RaiseRequiredEvent(PlaylistOperationNotificationPresentationRequested,
-            new PlaylistOperationNotificationPresentationRequestedEventArgs(notificationSession.TakeReceipt(),
-                "playlist property external sync notification"), "Playlist property notification flushing"));
+        NotifyBestEffort(() => PublishNotifications(notificationSession, "playlist property external sync notification"));
     }
 
     private static void NotifyBestEffort(Action notification)
@@ -1235,16 +1295,6 @@ internal enum PlaylistPropertyValidationError
     InvalidHeaderUri,
     InvalidDataUri,
     InvalidExternalSyncUris
-}
-
-internal sealed class PlaylistPropertyValidationErrorEventArgs : EventArgs
-{
-    internal PlaylistPropertyValidationErrorEventArgs(PlaylistPropertyValidationError error)
-    {
-        Error = error;
-    }
-
-    internal PlaylistPropertyValidationError Error { get; }
 }
 
 internal sealed class PlaylistPropertyFolderSelectionRemappedEventArgs : EventArgs

@@ -42,10 +42,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         string oldFile = Path.Combine(oldDirectory, "0000.lr2folder");
         string newFile = Path.Combine(fixture.Settings.LR2CustomFolderOutputBaseDir, "A", "0000.lr2folder");
         FileStream? held = null;
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
         PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(fixture.Playlist, fixture.Library,
-            () => fixture.OutputSettings, () => fixture.Config);
-        var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+            () => fixture.OutputSettings, () => fixture.Config, playlistWorkspaceDialogService: dialogs);
         try
         {
             if (failDatabaseCleanup)
@@ -68,13 +67,14 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 Assert.IsTrue(db.Table<LR2SongDB.folder>().Any(row => row.path == oldFile));
             }
             if (!failDatabaseCleanup) { Assert.IsTrue(File.Exists(oldFile)); }
-            IReadOnlyList<PlaylistOperationNotificationOwner.OperationNotification> receipt = notifications.Single().Receipt.Notifications;
-            Assert.IsTrue(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning));
-            Assert.IsTrue(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
-                && item.FormatMessage().Contains(oldDirectory, StringComparison.OrdinalIgnoreCase)), "残存する旧配置を警告で識別できます。");
-            Assert.IsTrue(receipt.Any(item => item.FormatMessage().Contains(Resources.Msg_success_playlist_restore, StringComparison.Ordinal)));
-            Assert.IsFalse(receipt.Any(item => item.Severity == PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error
-                || item.FormatMessage().Contains(Resources.Msg_failed_playlist_restore, StringComparison.Ordinal)));
+            // 同じ見出し・重要度の通知は一件へまとまるため、表示された通知の組で確認します。
+            IReadOnlyList<UiMessageRequest> shown = dialogs.MessageRequests;
+            Assert.IsTrue(shown.Any(item => item.Icon == System.Windows.MessageBoxImage.Exclamation));
+            Assert.IsTrue(shown.Any(item => item.Icon == System.Windows.MessageBoxImage.Exclamation
+                && item.MessageBoxText.Contains(oldDirectory, StringComparison.OrdinalIgnoreCase)), "残存する旧配置を警告で識別できます。");
+            Assert.IsTrue(shown.Any(item => item.MessageBoxText.Contains(Resources.Msg_success_playlist_restore, StringComparison.Ordinal)));
+            Assert.IsFalse(shown.Any(item => item.Icon == System.Windows.MessageBoxImage.Hand
+                || item.MessageBoxText.Contains(Resources.Msg_failed_playlist_restore, StringComparison.Ordinal)));
             Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
             Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
             held?.Dispose();
@@ -221,20 +221,61 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
     /// <summary>出力失敗のpath・詳細をworkspaceの受信境界へ渡し、warning receiptを既存表示通知へ配送して失敗情報の欠落を検出します。</summary>
     [TestMethod]
-    public void BmtOutputFailure_PublishesIndependentNotificationReceipt()
+    public async Task BmtOutputFailure_PublishesIndependentNotificationReceipt()
     {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
-        PlaylistOperationNotificationPresentationRequestedEventArgs? observed = null;
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => observed = request;
-        workspace.ReportBmtOutputFailures(Array.AsReadOnly(new[]
+        using var uiContext = new SingleThreadSynchronizationContext();
+        using var notices = new PlaylistNoticeProbe(() => SynchronizationContext.Current == uiContext);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: notices.Dialogs);
+        await uiContext.RunAsync(() => workspace.ReportBmtOutputFailures(Array.AsReadOnly(new[]
         {
             new BmtTableExportService.FileOperationFailure("owned-output/locked.bmt", "sharing-denied")
-        }));
-        Assert.IsNotNull(observed);
-        PlaylistOperationNotificationOwner.OperationNotification notification = observed!.Receipt.Notifications.Single();
-        Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, notification.Severity);
-        StringAssert.Contains(notification.FormatMessage(), "owned-output/locked.bmt");
-        StringAssert.Contains(notification.FormatMessage(), "sharing-denied");
+        })));
+        await notices.WaitForRequestsAsync(1);
+        Assert.IsFalse(notices.BlockedOnUiContext, "UIの文脈から依頼しません。");
+        UiMessageRequest notification = notices.Messages.Single();
+        Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, notification.Icon);
+        StringAssert.Contains(notification.MessageBoxText, "owned-output/locked.bmt");
+        StringAssert.Contains(notification.MessageBoxText, "sharing-denied");
+    }
+
+    /// <summary>
+    /// 操作の収集先がない呼出しの BMT 出力の失敗は、受付（P）が空くまで依頼を待ち、空いた後に、受付を取得できる状態で依頼する。
+    /// 収集先がないのに Pを保持したまま依頼する誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task BmtOutputFailure_WithoutOperationCollector_IsRequestedAfterThePlaylistIsIdle()
+    {
+        using var owned = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(owned.RootDirectory, "bmt-failure-without-collector");
+        Directory.CreateDirectory(directory);
+        string databasePath = Path.Combine(directory, "song.db");
+        using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(databasePath)) { }
+        using var uiContext = new SingleThreadSynchronizationContext();
+        using var notices = new PlaylistNoticeProbe(() => SynchronizationContext.Current == uiContext);
+        BMSPlaylist? playlistForProbe = null;
+        var admissionFreeAtRequest = new List<bool>();
+        notices.Requested = _ =>
+        {
+            bool free = playlistForProbe!.TryEnterPlaylistMutation(out IDisposable probe);
+            probe?.Dispose();
+            lock (admissionFreeAtRequest) { admissionFreeAtRequest.Add(free); }
+        };
+        using PlaylistWorkspaceViewModel workspace = CreateBackupWorkspace(databaseScope, databasePath,
+            [new BMSTable { playlist_id = 1, name = "R", symbol = "R", bmt_sort = 1 }],
+            out BMSPlaylist playlist, out _, modelUiScheduler: new TestUiScheduler(() => null),
+            playlistWorkspaceDialogService: notices.Dialogs);
+        playlistForProbe = playlist;
+        Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable held));
+        try
+        {
+            await uiContext.RunAsync(() => workspace.ReportBmtOutputFailures(new[] { new BmtTableExportService.FileOperationFailure("out/locked.bmt", "sharing-denied") }));
+        }
+        finally { held.Dispose(); }
+
+        await ConcurrencyProbe.AssertCompletesWhileHeldAsync(notices.WaitForRequestsAsync(1), "bmt-failure-request-after-idle");
+        // 受付を保持したまま依頼する誤りは、依頼の時点で受付を取得できない（false）として記録されます。
+        lock (admissionFreeAtRequest) { CollectionAssert.AreEqual(new[] { true }, admissionFreeAtRequest, "依頼の時点で受付を取得できます。"); }
+        Assert.IsFalse(notices.BlockedOnUiContext, "UIの文脈から依頼しません。");
     }
 
     /// <summary>代表順序入口を実configの解析・読取り・置換失敗へ接続し、確定DB、実通知中のP、出力保全と修復後の明示操作を保証します。</summary>
@@ -258,37 +299,34 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Exception? primaryFailure = null;
         try
         {
-            (TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath) fixture = await CreateBmtOrderFailureFixtureAsync(databaseScope, directory, outputEnabled: true);
+            // 表示は未完了のまま保持し、保存の操作が表示を待たずに完了し、Pを解放済みであることを確認します。
+            using var uiContext = new SingleThreadSynchronizationContext();
+            using var notices = new PlaylistNoticeProbe(() => SynchronizationContext.Current == uiContext) { HoldDisplay = true };
+            (TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath) fixture = await CreateBmtOrderFailureFixtureAsync(databaseScope, directory, outputEnabled: true, playlistWorkspaceDialogService: notices.Dialogs);
             playlist = fixture.Playlist;
             workspace = fixture.Workspace;
             string originalConfig = File.ReadAllText(fixture.ConfigPath);
             string[] files = Directory.GetFiles(fixture.OutputPath);
             Dictionary<string, byte[]> bytes = files.ToDictionary(path => path, File.ReadAllBytes);
             Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
-            List<string> notifications = [];
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-            {
-                notifications.Add(request.Receipt.Notifications.Single().FormatMessage());
-                entered.TrySetResult();
-                release.Task.GetAwaiter().GetResult();
-            };
             if (fault == "corrupt") { File.WriteAllText(fixture.ConfigPath, "{"); }
             else { heldConfig = new FileStream(fixture.ConfigPath, FileMode.Open, FileAccess.Read, fault == "read" ? FileShare.None : FileShare.ReadWrite); }
-            operation = workspace.MoveSummaryRowsToBmtTopAsync([workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 3)]);
-            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "BMT config failure notification");
-            Assert.IsFalse(operation.IsCompleted);
-            Assert.ThrowsExactly<InvalidOperationException>(() => playlist.AcquirePlaylistMutationLease("config-failure-competing"));
+            PlaylistWorkspaceViewModel startedWorkspace = workspace;
+            operation = uiContext.RunAsync(() => startedWorkspace.MoveSummaryRowsToBmtTopAsync([startedWorkspace.PlaylistSummaryView.Single(row => row.PlaylistId == 3)]));
+            PlaylistMutationPostCommitException failure = await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(() => operation);
+            failureObserved = true;
+            Assert.IsInstanceOfType(failure.GetBaseException(), fault == "corrupt" ? typeof(Newtonsoft.Json.JsonReaderException) : typeof(IOException));
+            await notices.WaitForRequestsAsync(1);
+            Assert.IsFalse(notices.BlockedOnUiContext, "UIの文脈から依頼しません。");
+            Assert.AreEqual(1, notices.Messages.Count);
+            StringAssert.Contains(notices.Messages[0].MessageBoxText, fixture.ConfigPath);
+            StringAssert.Contains(notices.Messages[0].MessageBoxText, failure.GetBaseException().Message);
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.DatabasePath).OpenSongDbReadOnly())
             {
                 CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
             }
-            release.TrySetResult();
-            PlaylistMutationPostCommitException failure = await Assert.ThrowsExactlyAsync<PlaylistMutationPostCommitException>(() => operation);
-            failureObserved = true;
-            Assert.IsInstanceOfType(failure.GetBaseException(), fault == "corrupt" ? typeof(Newtonsoft.Json.JsonReaderException) : typeof(IOException));
-            Assert.AreEqual(1, notifications.Count);
-            StringAssert.Contains(notifications[0], fixture.ConfigPath);
-            StringAssert.Contains(notifications[0], failure.GetBaseException().Message);
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable acceptedWhileDisplayHeld), "表示が未完了でも、保存の受付は解放済みです。");
+            acceptedWhileDisplayHeld.Dispose();
             foreach (string file in files)
             {
                 CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
@@ -312,7 +350,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             var actualUrls = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(fixture.ConfigPath))["tableURL"] as Newtonsoft.Json.Linq.JArray;
             Assert.IsNotNull(actualUrls);
             CollectionAssert.AreEqual(new[] { "https://example.com/unmanaged", "https://example.com/repaired-unmanaged", "bemusicseeker://playlist/2", "bemusicseeker://playlist/3", "bemusicseeker://playlist/1" }, actualUrls.Values<string>().ToArray());
-            Assert.AreEqual(1, notifications.Count);
+            Assert.AreEqual(1, notices.Messages.Count, "修復後の成功は通知を依頼しません。");
             foreach (string file in files)
             {
                 CollectionAssert.AreEqual(bytes[file], File.ReadAllBytes(file));
@@ -349,7 +387,41 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
 
-    /// <summary>四つの順序入口でconfig出力失敗後もheader表示TaskとPを保持し、解放後に元失敗と次受付へ到達します。</summary>
+    /// <summary>
+    /// 復元の失敗で、BMT 出力の失敗が先に集まっていても、復元の失敗の通知を補い、BMT の警告と両方を表示します。
+    /// BMT の警告を「警告・エラーが集まっている」と数えて、復元の失敗の通知を落とす誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistRestore_BmtOutputFailureDoesNotSuppressTheRestoreFailureNotice()
+    {
+        using var owned = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(owned.RootDirectory, "restore-bmt-failure");
+        Directory.CreateDirectory(directory);
+        string databasePath = Path.Combine(directory, "song.db");
+        using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(databasePath)) { }
+        using PlaylistWorkspaceViewModel workspace = CreateBackupWorkspace(databaseScope, databasePath,
+            [new BMSTable { playlist_id = 1, name = "R", symbol = "R", bmt_sort = 1 }],
+            out BMSPlaylist _, out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs,
+            modelUiScheduler: new TestUiScheduler(() => null));
+
+        bool restored = await workspace.RestorePlaylistBackupAsync(Path.Combine(directory, "absent.sql"), () =>
+        {
+            workspace.ReportBmtOutputFailures(new[] { new BmtTableExportService.FileOperationFailure("restore-output/locked.bmt", "sharing-denied") });
+            return Task.FromResult(true);
+        });
+
+        Assert.IsFalse(restored);
+        Assert.AreEqual(2, dialogs.MessageRequests.Count, "BMT の警告と、復元の失敗の通知の両方を表示します。");
+        UiMessageRequest warning = dialogs.MessageRequests.Single(request => request.Icon == System.Windows.MessageBoxImage.Exclamation);
+        Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_output_failure_format, "restore-output/locked.bmt", "sharing-denied"), warning.MessageBoxText);
+        UiMessageRequest failure = dialogs.MessageRequests.Single(request => request.Icon == System.Windows.MessageBoxImage.Hand);
+        StringAssert.Contains(failure.MessageBoxText, Resources.Msg_failed_playlist_restore);
+    }
+
+    /// <summary>
+    /// 四つの順序入口でconfig出力失敗後もheader表示TaskとPを保持し、解放後に元失敗と次受付へ到達します。
+    /// 出力失敗の通知は、Pを保持している間は依頼せず、Pが解放されて空いた後に、受付を取得できる状態で一件だけ依頼します。
+    /// </summary>
     [TestMethod]
     [DataRow("current")]
     [DataRow("top")]
@@ -362,32 +434,42 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Directory.CreateDirectory(directory);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var outputFailed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // 操作をUIの文脈から始め、通知の依頼がUIの文脈から行われて同期にブロックしないことも確かめます。
+        using var uiContext = new SingleThreadSynchronizationContext();
+        using var notices = new PlaylistNoticeProbe(() => SynchronizationContext.Current == uiContext);
+        var admissionFreeAtRequest = new List<bool>();
         bool hold = false;
         async Task Apply(Action action)
         {
             if (hold) { entered.TrySetResult(); await release.Task; }
             action();
         }
-        (TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath) fixture = await CreateBmtOrderFailureFixtureAsync(databaseScope, directory, outputEnabled: true, restoreUiApplyScheduler: Apply);
+        (TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath) fixture = await CreateBmtOrderFailureFixtureAsync(databaseScope, directory, outputEnabled: true, restoreUiApplyScheduler: Apply, playlistWorkspaceDialogService: notices.Dialogs);
         using PlaylistWorkspaceViewModel workspace = fixture.Workspace;
+        notices.Requested = _ =>
+        {
+            bool free;
+            try { using LibraryFileMutationLease probe = fixture.Playlist.AcquirePlaylistMutationLease("order-notice-request-probe"); free = true; }
+            catch (InvalidOperationException) { free = false; }
+            lock (admissionFreeAtRequest) { admissionFreeAtRequest.Add(free); }
+        };
         Task? operation = null;
         try
         {
             PlaylistSummaryRow[] rows = workspace.PlaylistSummaryView.ToArray();
             string config = File.ReadAllText(fixture.ConfigPath);
             File.WriteAllText(fixture.ConfigPath, "{");
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => outputFailed.TrySetResult();
             hold = true;
-            operation = route switch
+            operation = uiContext.RunAsync(() => route switch
             {
                 "current" => workspace.ApplyCurrentVisibleBmtOrderAsync(rows.Reverse()),
                 "top" => workspace.MoveSummaryRowsToBmtTopAsync([rows[2]]),
                 "bottom" => workspace.MoveSummaryRowsToBmtBottomAsync([rows[0]]),
                 _ => workspace.DropSummaryRowsInBmtOrderAsync(rows, [rows[2]], 0)
-            };
-            await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(entered.Task, outputFailed.Task), operation, "order output failure and header gate");
+            });
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, operation, "order output failure and header gate");
             Assert.IsFalse(operation.IsCompleted);
+            Assert.AreEqual(0, notices.Messages.Count, "Pを保持している間は、出力失敗の通知を依頼しません。");
             Assert.IsFalse(fixture.Playlist.WaitForPlaylistMutationIdleAsync().IsCompleted);
             Assert.ThrowsExactly<InvalidOperationException>(() => fixture.Playlist.AcquirePlaylistMutationLease("order-gate-competing"));
             int[] expected = route == "current" ? [3, 2, 1] : route == "bottom" ? [2, 3, 1] : [3, 1, 2];
@@ -400,6 +482,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.IsInstanceOfType<Newtonsoft.Json.JsonReaderException>(failure.GetBaseException());
             CollectionAssert.AreEqual(expected, workspace.PlaylistSummaryView.Select(row => row.PlaylistId ?? throw new AssertFailedException("現在行のIDがありません。")).ToArray());
             foreach (PlaylistSummaryRow row in rows) { Assert.AreEqual(fixture.Playlist.BMSTables.Single(table => table.playlist_id == row.PlaylistId).bmt_sort, row.BmtSort); }
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(notices.WaitForRequestsAsync(1), "order-bmt-failure-notice-request");
+            lock (admissionFreeAtRequest) { CollectionAssert.AreEqual(new[] { true }, admissionFreeAtRequest, "通知の依頼の時点で、Pを取得できます。"); }
+            Assert.IsFalse(notices.BlockedOnUiContext);
             File.WriteAllText(fixture.ConfigPath, config);
             hold = false;
             using LibraryFileMutationLease next = fixture.Playlist.AcquirePlaylistMutationLease("order-gate-next");
@@ -427,9 +512,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         FileStream? heldManifest = null;
         Task? operation = null;
         Exception? primaryFailure = null;
+        using var noOutputNotices = new PlaylistNoticeProbe(() => false);
         try
         {
-            (TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath) fixture = await CreateBmtOrderFailureFixtureAsync(databaseScope, directory, outputEnabled: false);
+            (TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath) fixture = await CreateBmtOrderFailureFixtureAsync(databaseScope, directory, outputEnabled: false, playlistWorkspaceDialogService: noOutputNotices.Dialogs);
             playlist = fixture.Playlist;
             workspace = fixture.Workspace;
             string manifest = Path.Combine(fixture.OutputPath, BmtTableExportService.ManifestFileName);
@@ -438,8 +524,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Dictionary<string, DateTime> times = files.ToDictionary(path => path, File.GetLastWriteTimeUtc);
             byte[] configBytes = File.ReadAllBytes(fixture.ConfigPath);
             DateTime configTime = File.GetLastWriteTimeUtc(fixture.ConfigPath);
-            int notifications = 0;
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => notifications++;
             heldConfig = new FileStream(fixture.ConfigPath, FileMode.Open, FileAccess.Read, FileShare.None);
             heldManifest = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.None);
             operation = workspace.MoveSummaryRowsToBmtTopAsync([workspace.PlaylistSummaryView.Single(row => row.PlaylistId == 3)]);
@@ -448,7 +532,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 CollectionAssert.AreEqual(new int?[] { 3, 1, 2 }, verify.Table<BMSTable>().OrderBy(table => table.bmt_sort).Select(table => table.playlist_id).ToArray());
             }
-            Assert.AreEqual(0, notifications);
+            Assert.AreEqual(0, noOutputNotices.Messages.Count);
             foreach (string file in files)
             {
                 byte[] actual = new byte[bytes[file].Length];
@@ -494,7 +578,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
     /// <summary>設定失敗と無効操作の判定に共用する、実SQLite・gzip・台帳・configと本番通知接続を持つ三表を準備します。</summary>
     /// <param name="databaseScope">呼出し元と接続・書込み排他を共有するfixtureのDB所有者。</param>
-    private static async Task<(TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath)> CreateBmtOrderFailureFixtureAsync(ApplicationDatabaseScope databaseScope, string directory, bool outputEnabled, Func<Action, Task>? restoreUiApplyScheduler = null)
+    private static async Task<(TestBmsPlaylist Playlist, PlaylistWorkspaceViewModel Workspace, string DatabasePath, string ConfigPath, string OutputPath)> CreateBmtOrderFailureFixtureAsync(ApplicationDatabaseScope databaseScope, string directory, bool outputEnabled, Func<Action, Task>? restoreUiApplyScheduler = null, IUiDialogService? playlistWorkspaceDialogService = null)
     {
         string db = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, db);
@@ -524,7 +608,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
             playlistLibraryProvider: () => library,
             playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
-            restoreUiApplyScheduler: restoreUiApplyScheduler);
+            restoreUiApplyScheduler: restoreUiApplyScheduler, playlistWorkspaceDialogService: playlistWorkspaceDialogService);
         workspace.RefreshPlaylistTreeTables(playlist, library);
         workspace.IsPlaylistSummaryMode = true;
         workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
@@ -542,22 +626,16 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _);
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> unavailableNotifications = [];
-            unavailableWorkspace.PlaylistOperationNotificationPresentationRequested +=
-                (_, request) => unavailableNotifications.Add(request);
+            var unavailableDialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+            PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: unavailableDialogs);
             string unavailablePath = Path.Combine(tempDirectory, "unavailable-backup.sql");
 
             await unavailableWorkspace.BackupPlaylistAsync(unavailablePath);
 
             Assert.IsFalse(File.Exists(unavailablePath));
-            Assert.AreEqual(1, unavailableNotifications.Count);
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
-                unavailableNotifications[0].Receipt.Notifications.Single().Severity);
-            StringAssert.Contains(
-                unavailableNotifications[0].Receipt.Notifications.Single().FormatMessage(),
-                BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup);
+            UiMessageRequest unavailableNotice = unavailableDialogs.MessageRequests.Single();
+            Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, unavailableNotice.Icon);
+            StringAssert.Contains(unavailableNotice.MessageBoxText, BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup);
 
             string successDbDirectory = Path.Combine(tempDirectory, "success");
             Directory.CreateDirectory(successDbDirectory);
@@ -566,12 +644,12 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
             }
             BMSPlaylist successPlaylist;
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> successNotifications;
+            PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService successDialogs;
             PlaylistWorkspaceViewModel successWorkspace = CreateBackupWorkspace(databaseScope,
                 successDbPath,
                 [new BMSTable { playlist_id = 1, name = "バックアップ", symbol = "B", bmt_sort = 1 }],
                 out successPlaylist,
-                out successNotifications, modelUiScheduler: new TestUiScheduler(() => null));
+                out successDialogs, modelUiScheduler: new TestUiScheduler(() => null));
             successPlaylist.CommitBMSTableHeaderToDB(successPlaylist.BMSTables.Single());
             string successPath = Path.Combine(tempDirectory, "backup.sql");
 
@@ -598,23 +676,17 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 Assert.AreEqual("バックアップ", restored.name);
                 Assert.AreEqual("B", restored.symbol);
             }
-            Assert.AreEqual(1, successNotifications.Count);
-            Assert.AreEqual("playlist backup notification", successNotifications[0].RouteName);
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
-                successNotifications[0].Receipt.Notifications.Single().Severity);
-            StringAssert.Contains(
-                successNotifications[0].Receipt.Notifications.Single().FormatMessage(),
-                BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup);
+            Assert.AreEqual(1, successDialogs.MessageRequests.Count);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, successDialogs.MessageRequests[0].Icon);
+            StringAssert.Contains(successDialogs.MessageRequests[0].MessageBoxText, BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup);
 
-            EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> brokenSubscriber =
-                (_, _) => throw new InvalidOperationException("backup notification subscriber failed");
-            successWorkspace.PlaylistOperationNotificationPresentationRequested += brokenSubscriber;
+            // 通知窓口が同期で失敗しても、確定した保存の結果を変えず、操作は失敗しません。
+            successDialogs.MessageTaskFactory = _ => throw new InvalidOperationException("backup notification dialog failed");
             string notifiedSuccessPath = Path.Combine(tempDirectory, "notified-success.sql");
             await successWorkspace.BackupPlaylistAsync(notifiedSuccessPath);
             CollectionAssert.AreEqual(backupBytes, File.ReadAllBytes(notifiedSuccessPath));
-            Assert.AreEqual(2, successNotifications.Count);
-            successWorkspace.PlaylistOperationNotificationPresentationRequested -= brokenSubscriber;
+            Assert.AreEqual(2, successDialogs.MessageRequests.Count);
+            successDialogs.MessageTaskFactory = null;
 
             string previousBackupPath = Path.Combine(tempDirectory, "previous-backup.sql");
             byte[] previousBackupBytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes("previous backup bytes");
@@ -628,10 +700,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 await successWorkspace.BackupPlaylistAsync(previousBackupPath);
             }
             CollectionAssert.AreEqual(previousBackupBytes, File.ReadAllBytes(previousBackupPath));
-            Assert.AreEqual(3, successNotifications.Count);
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
-                successNotifications[2].Receipt.Notifications.Single().Severity);
+            Assert.AreEqual(3, successDialogs.MessageRequests.Count);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, successDialogs.MessageRequests[2].Icon);
 
             string emptyDbDirectory = Path.Combine(tempDirectory, "empty");
             Directory.CreateDirectory(emptyDbDirectory);
@@ -640,24 +710,20 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
             }
             BMSPlaylist emptyPlaylist;
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> emptyNotifications;
+            PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService emptyDialogs;
             PlaylistWorkspaceViewModel emptyWorkspace = CreateBackupWorkspace(databaseScope,
                 emptyDbPath,
                 [],
                 out emptyPlaylist,
-                out emptyNotifications, modelUiScheduler: new TestUiScheduler(() => null));
+                out emptyDialogs, modelUiScheduler: new TestUiScheduler(() => null));
             string emptyPath = Path.Combine(tempDirectory, "empty-backup.sql");
 
             await emptyWorkspace.BackupPlaylistAsync(emptyPath);
 
             Assert.IsFalse(File.Exists(emptyPath));
-            Assert.AreEqual(1, emptyNotifications.Count);
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
-                emptyNotifications[0].Receipt.Notifications.Single().Severity);
-            StringAssert.Contains(
-                emptyNotifications[0].Receipt.Notifications.Single().FormatMessage(),
-                BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup);
+            UiMessageRequest emptyNotice = emptyDialogs.MessageRequests.Single();
+            Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, emptyNotice.Icon);
+            StringAssert.Contains(emptyNotice.MessageBoxText, BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup);
 
             string failureDbDirectory = Path.Combine(tempDirectory, "failure");
             Directory.CreateDirectory(failureDbDirectory);
@@ -666,31 +732,26 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
             }
             BMSPlaylist failurePlaylist;
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> failureNotifications;
+            PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService failureDialogs;
             PlaylistWorkspaceViewModel failureWorkspace = CreateBackupWorkspace(databaseScope,
                 failureDbPath,
                 [new BMSTable { playlist_id = 2, name = "Failure", symbol = "F", bmt_sort = 1 }],
                 out failurePlaylist,
-                out failureNotifications, modelUiScheduler: new TestUiScheduler(() => null));
+                out failureDialogs, modelUiScheduler: new TestUiScheduler(() => null));
             string invalidPath = Path.Combine(tempDirectory, "missing", "backup.sql");
 
             await failureWorkspace.BackupPlaylistAsync(invalidPath);
 
             Assert.IsFalse(File.Exists(invalidPath));
-            Assert.AreEqual(1, failureNotifications.Count);
-            PlaylistOperationNotificationOwner.OperationNotification failureNotification =
-                failureNotifications[0].Receipt.Notifications.Single();
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
-                failureNotification.Severity);
+            UiMessageRequest failureNotification = failureDialogs.MessageRequests.Single();
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, failureNotification.Icon);
             StringAssert.Contains(
-                failureNotification.FormatMessage(),
+                failureNotification.MessageBoxText,
                 BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup);
-            StringAssert.Contains(failureNotification.FormatMessage(), "missing");
-            Assert.IsFalse(failureNotifications.Any(request => request.Receipt.Notifications.Any(
-                notification => notification.FormatMessage().IndexOf(
-                    BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
-                    StringComparison.Ordinal) >= 0)));
+            StringAssert.Contains(failureNotification.MessageBoxText, "missing");
+            Assert.IsFalse(failureDialogs.MessageRequests.Any(request => request.MessageBoxText.IndexOf(
+                BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
+                StringComparison.Ordinal) >= 0));
         }
         finally
         {
@@ -724,7 +785,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 songDbPath,
                 [new BMSTable { playlist_id = 1, name = "Before background restore", symbol = "before" }],
                 out BMSPlaylist _,
-                out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
+                out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs,
                 action => Task.Run(action),
                 restoreUiThreadCheck: () => false, modelUiScheduler: new TestUiScheduler(() => null));
             string backupPath = Path.Combine(tempDirectory, "restore.sql");
@@ -732,9 +793,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             Assert.IsFalse(await workspace.RestorePlaylistBackupAsync(backupPath));
 
-            Assert.AreEqual(1, notifications.Count);
-            PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
-            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
+            UiMessageRequest failure = dialogs.MessageRequests.Single();
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, failure.Icon);
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 BMSTable existing = verify.Table<BMSTable>().Single();
@@ -776,7 +836,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 songDbPath,
                 [new BMSTable { playlist_id = 1, name = "Keep on failure", symbol = "keep" }],
                 out BMSPlaylist playlist,
-                out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications, modelUiScheduler: new TestUiScheduler(() => null));
+                out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs, modelUiScheduler: new TestUiScheduler(() => null));
             using (LR2SongDBExtended seed = databaseScope.OpenSongWrite(songDbPath))
             {
                 seed.Execute("INSERT INTO playlist_entry (playlist_id, md5, title) VALUES (1, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Old entry');");
@@ -791,10 +851,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             Assert.IsFalse(await workspace.RestorePlaylistBackupAsync(invalidBackupPath));
 
-            Assert.AreEqual(1, notifications.Count);
-            PlaylistOperationNotificationOwner.OperationNotification failure = notifications[0].Receipt.Notifications.Single();
-            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-            StringAssert.Contains(failure.FormatMessage(), BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
+            UiMessageRequest failure = dialogs.MessageRequests.Single();
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, failure.Icon);
+            StringAssert.Contains(failure.MessageBoxText, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
             using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
             {
                 Assert.AreEqual("Keep on failure", verify.Table<BMSTable>().Single().name);
@@ -843,9 +902,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             };
             playlist.BMSTables.Add(table);
             playlist.CommitBMSTableWithEntriesToDB(table);
-            workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library);
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+            workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(playlist, library, playlistWorkspaceDialogService: dialogs);
             customOutputInputs = 0;
             bmtOutputInputs = 0;
             outputPort.Operations.Clear();
@@ -869,7 +927,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(1, checks);
             Assert.IsTrue(libraryHeldDuringCheck, "最終検査は実L取得後に行います。");
             Assert.IsTrue(playlistHeldDuringCheck, "最終検査は実P取得後に行います。");
-            Assert.AreEqual(0, notifications.Count, "読込みへ進むと存在しないdumpの失敗通知が発生します。");
+            Assert.AreEqual(0, dialogs.MessageRequests.Count, "読込みへ進むと存在しないdumpの失敗通知が発生します。");
             Assert.AreEqual(0, customOutputInputs);
             Assert.AreEqual(0, bmtOutputInputs);
             Assert.AreEqual(0, outputPort.Operations.Count);
@@ -912,21 +970,21 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             {
                 values.OperationModeLR2DB = false;
             }));
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => owned.Store,
-            playlistLibraryProvider: () => library);
-        workspace.RefreshPlaylistTreeTables(owned.Store, library);
-        List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
         bool libraryReleasedBeforeNotification = false;
         bool playlistReleasedBeforeNotification = false;
-        void CaptureNotification(object? sender, PlaylistOperationNotificationPresentationRequestedEventArgs request)
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
         {
-            notifications.Add(request);
-            libraryReleasedBeforeNotification = library.OperationAdmission.TryEnter(out IDisposable libraryLease);
-            libraryLease?.Dispose();
-            playlistReleasedBeforeNotification = owned.Store.TryEnterPlaylistMutation(out IDisposable playlistLease);
-            playlistLease?.Dispose();
-        }
-        workspace.PlaylistOperationNotificationPresentationRequested += CaptureNotification;
+            MessageRequestedHook = _ =>
+            {
+                libraryReleasedBeforeNotification = library.OperationAdmission.TryEnter(out IDisposable libraryLease);
+                libraryLease?.Dispose();
+                playlistReleasedBeforeNotification = owned.Store.TryEnterPlaylistMutation(out IDisposable playlistLease);
+                playlistLease?.Dispose();
+            },
+        };
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => owned.Store,
+            playlistLibraryProvider: () => library, playlistWorkspaceDialogService: dialogs);
+        workspace.RefreshPlaylistTreeTables(owned.Store, library);
         try
         {
             Assert.AreSame(table, workspace.CapturePlaylistTreeTablesSnapshot().Single());
@@ -947,17 +1005,15 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(4202, published.playlist_id);
             Assert.AreEqual("Keep on read failure", published.name);
             Assert.AreEqual("keep", published.symbol);
-            Assert.AreEqual(1, notifications.Count);
+            UiMessageRequest failure = dialogs.MessageRequests.Single();
             Assert.IsTrue(libraryReleasedBeforeNotification);
             Assert.IsTrue(playlistReleasedBeforeNotification);
-            PlaylistOperationNotificationOwner.OperationNotification failure = notifications.Single().Receipt.Notifications.Single();
-            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-            StringAssert.Contains(failure.FormatMessage(), BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
-            StringAssert.Contains(failure.FormatMessage(), missingPath);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, failure.Icon);
+            StringAssert.Contains(failure.MessageBoxText, BeMusicSeeker.Properties.Resources.Msg_failed_playlist_restore);
+            StringAssert.Contains(failure.MessageBoxText, missingPath);
         }
         finally
         {
-            workspace.PlaylistOperationNotificationPresentationRequested -= CaptureNotification;
             workspace.RefreshPlaylistTreeTables(null);
         }
     }
@@ -977,8 +1033,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             SerializationObservedTable table = CreateJsonExportTable();
             var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             string headerPath = Path.Combine(tempDirectory, headerRelativePath);
             string dataPath = Path.Combine(tempDirectory, dataRelativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(headerPath) ?? throw new InvalidOperationException());
@@ -990,7 +1044,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             AssertExportedJsonDataReference(headerPath, dataPath, absoluteFileReference: false);
             AssertJsonExportSourceUrls(table, null);
-            Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
+            Assert.AreEqual(0, dialogs.MessageRequests.Count, "出力の成功は通知を依頼しません。");
         }
         finally { Directory.Delete(tempDirectory, recursive: true); }
     }
@@ -1012,8 +1066,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             table.DataUrlReadObserver = () => AssertJsonExportSourceUrls(table, persistedDataUrl);
             var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             string headerPath = Path.Combine(tempDirectory, "header.json");
             string otherDirectory = Path.Combine(tempDirectory, "other");
             Directory.CreateDirectory(otherDirectory);
@@ -1029,7 +1081,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(existingDataReference, (string?)header["data_url"]);
             Assert.AreEqual("Export chart", (string?)data[0]["title"]);
             AssertJsonExportSourceUrls(table, persistedDataUrl);
-            Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
+            Assert.AreEqual(0, dialogs.MessageRequests.Count, "出力の成功は通知を依頼しません。");
         }
         finally { Directory.Delete(tempDirectory, recursive: true); }
     }
@@ -1057,18 +1109,17 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             var diagnosticFailure = new InvalidOperationException("JSON export diagnostic failed");
             bool injectNotificationFailure = failNotification;
             bool injectDiagnosticFailure = failDiagnostics;
+            // 通知窓口の失敗は、操作の結果にも必須の診断先にも加えず、次の明示出力へ進めることを確認します。
+            dialogs.MessageTaskFactory = request => injectNotificationFailure
+                ? throw presentationFailure
+                : Task.FromResult(UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK));
+            int seenMessages = 0;
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
                 reloadFailureLog: (exception, diagnostic) =>
                 {
                     diagnostics.Add((exception, diagnostic));
                     if (injectDiagnosticFailure) { throw diagnosticFailure; }
                 }, playlistWorkspaceDialogService: dialogs);
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-            {
-                notifications.Add(request);
-                if (injectNotificationFailure) { throw presentationFailure; }
-            };
             string headerPath = Path.Combine(tempDirectory, "header.json");
             string dataPath = Path.Combine(tempDirectory, existingDestination ? "data.json" : Path.Combine("missing", "data.json"));
             File.WriteAllText(headerPath, "old header");
@@ -1085,7 +1136,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             else { Assert.IsFalse(File.Exists(dataPath)); }
             AssertExportFailure("data", dataPath, BeMusicSeeker.Properties.Resources.Playlist_json_export_partial_failure);
 
-            notifications.Clear();
+            seenMessages = dialogs.MessageRequests.Count;
             diagnostics.Clear();
             string failedHeader = existingDestination ? headerPath : Path.Combine(tempDirectory, "missing", "header.json");
             string untouchedData = Path.Combine(tempDirectory, "untouched-data.json");
@@ -1114,7 +1165,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             injectNotificationFailure = false;
             injectDiagnosticFailure = false;
-            notifications.Clear();
+            seenMessages = dialogs.MessageRequests.Count;
             diagnostics.Clear();
             string freshData = Path.Combine(tempDirectory, "fresh-data.json");
             dialogs.JsonExportResults.Enqueue(new(UiDialogStatus.Accepted, new(headerPath, freshData)));
@@ -1122,25 +1173,20 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual("Export failure", (string?)Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(headerPath))["name"]);
             Assert.AreEqual(0, Newtonsoft.Json.Linq.JArray.Parse(File.ReadAllText(freshData)).Count);
             Assert.IsNull(table.Data_url);
-            Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
+            Assert.AreEqual(seenMessages, dialogs.MessageRequests.Count, "出力の成功は通知を依頼しません。");
             Assert.AreEqual(0, diagnostics.Count);
 
             void AssertExportFailure(string stage, string path, string message)
             {
                 Assert.IsNull(table.Data_url);
-                PlaylistOperationNotificationOwner.OperationNotification failure = notifications.Single().Receipt.Notifications.Single();
-                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error, failure.Severity);
-                Assert.AreEqual(message, failure.FormatMessage());
-                Assert.AreEqual(1 + (failNotification ? 1 : 0), diagnostics.Count);
+                UiMessageRequest failure = dialogs.MessageRequests.Skip(seenMessages).Single();
+                Assert.AreEqual(System.Windows.MessageBoxImage.Hand, failure.Icon);
+                Assert.AreEqual(message, failure.MessageBoxText);
+                Assert.AreEqual(1, diagnostics.Count, "通知窓口の失敗は、操作の必須の診断先へ加えません。");
                 Assert.IsInstanceOfType<IOException>(diagnostics[0].Exception);
                 Assert.IsNotNull(diagnostics[0].Exception.InnerException, "元のI/O原因を保持します。");
                 StringAssert.Contains(diagnostics[0].Diagnostic, "playlist_json_export_write_failed stage=" + stage);
                 StringAssert.Contains(diagnostics[0].Diagnostic, "path=" + path);
-                if (failNotification)
-                {
-                    Assert.AreSame(presentationFailure, diagnostics[1].Exception);
-                    StringAssert.Contains(diagnostics[1].Diagnostic, "playlist table JSON export notification");
-                }
             }
         }
         finally { Directory.Delete(tempDirectory, recursive: true); }
@@ -1178,8 +1224,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistWorkspaceDialogService: dialogs);
-            var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             string headerPath = Path.Combine(tempDirectory, "header.json");
             string dataPath = Path.Combine(tempDirectory, "data.json");
             File.WriteAllText(headerPath, "existing header");
@@ -1194,7 +1238,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(beforeHeader, table.HeaderToJson());
             Assert.AreEqual(beforeData, table.DataToJson());
             CollectionAssert.AreEqual(beforeDb, File.ReadAllBytes(songDbPath));
-            Assert.AreEqual(0, notifications.Count);
+            Assert.AreEqual(cancelled ? 0 : 1, dialogs.MessageRequests.Count, "操作の通知は依頼せず、同一保存先の拒否だけを案内します。");
             if (!cancelled)
             {
                 Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_json_export_paths_same, dialogs.LastMessageRequest.MessageBoxText);
@@ -1214,8 +1258,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         {
             var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
-            var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             var table = new BMSTable { name = "Export dialog failure", Folder_order = [] };
             string headerPath = Path.Combine(tempDirectory, "header.json");
             string dataPath = Path.Combine(tempDirectory, "data.json");
@@ -1229,7 +1271,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreSame(error, failure.InnerException);
             Assert.AreEqual("existing header", File.ReadAllText(headerPath));
             Assert.AreEqual("existing data", File.ReadAllText(dataPath));
-            Assert.AreEqual(0, notifications.Count);
+            Assert.AreEqual(0, dialogs.MessageRequests.Count);
         }
         finally { Directory.Delete(tempDirectory, recursive: true); }
     }
@@ -1550,24 +1592,18 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             ChartFile chart = (
                 ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(CreateSongTableRow(md5, @"C:\Library\drop-chart.bms"))));
             var libraryRow = LibraryChartRow.FromChartFile(chart);
-            int notifications = 0;
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
-            {
-                using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
-                Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == table.playlist_id && entry.md5 == md5));
-                Assert.AreEqual("DROP", library.GetPlaylistReferenceDisplay(chart).Symbols);
-                Assert.AreEqual("Drop target", library.GetPlaylistReferenceDisplay(chart).Names);
-                notifications++;
-            };
-
             await workspace.AddRowsToFolderAsync(
                 [libraryRow],
                 table,
                 PlaylistFolderNode.CreateFolder("Imported"));
 
+            // 通知の依頼の時点では、確定したDBと参照が公開済みです。通知がなくても、終端の状態を確認します。
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(1, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == table.playlist_id && entry.md5 == md5));
+            }
             Assert.AreEqual("DROP", library.GetPlaylistReferenceDisplay(chart).Symbols);
             Assert.AreEqual("Drop target", library.GetPlaylistReferenceDisplay(chart).Names);
-            Assert.AreEqual(1, notifications);
         }
         finally
         {
@@ -2219,17 +2255,48 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             playlistForCleanup = playlist;
             // 初回保存はLR2/BMTを出力せず、正規の空表登録をDBと参照ownerへ確定する。
             playlist.CommitBMSTableWithEntriesToDB(table);
-            PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
-                playlist,
-                library,
-                () => outputSettings);
-            workspaceForCleanup = workspace;
             int uiInvalidationCount = 0;
             int uiEffectOutsideLeaseCount = 0;
             int notificationCount = 0;
             int notificationEffectOutsideLeaseCount = 0;
             bool notificationCallbackFailure = false;
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
+            var committedAtNotification = new List<bool>();
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+            {
+                // 通知の依頼の時点で、確定したDB・参照が公開済みで、LR2同期の受付を取得できる（Pを解放済み）ことを記録します。
+                MessageRequestedHook = _ =>
+                {
+                    using (LR2SongDBExtended committed = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
+                    {
+                        bool visible = true;
+                        foreach (BMSTableEntry current in table.GetEntriesExceptDummy())
+                        {
+                            visible &= committed.Table<LR2SongDBExtended.playlist_entry>().Count(entry =>
+                                entry.playlist_id == table.playlist_id && entry.md5 == current.md5) == 1;
+                            visible &= library.GetPlaylistReferenceDisplay(current.md5, current.sha256).Symbols == "DROP-ADMISSION";
+                        }
+                        lock (committedAtNotification) { committedAtNotification.Add(visible); }
+                    }
+                    using (LibraryFileMutationLease callbackLease = library.Lr2Synchronization.TryBeginMutation(
+                               "playlist_drop_notification_effect_probe"))
+                    {
+                        if (callbackLease != null)
+                        {
+                            notificationEffectOutsideLeaseCount++;
+                        }
+                    }
+                    notificationCount++;
+                    if (notificationCallbackFailure)
+                    {
+                        throw new InvalidOperationException("playlist drop secondary notification failure");
+                    }
+                },
+            };
+            PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
+                playlist,
+                library,
+                () => outputSettings, playlistWorkspaceDialogService: dialogs);
+            workspaceForCleanup = workspace;
             int legacyBmtScheduleCount = 0;
 
             workspace.PlaylistDetailReloadRefreshRequested +=
@@ -2244,36 +2311,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                         }
                     }
                     uiInvalidationCount++;
-                };
-            workspace.PlaylistOperationNotificationPresentationRequested +=
-                (_, request) =>
-                {
-                    if (request.RouteName == "playlist drop custom folder output notification")
-                    {
-                        using (LR2SongDBExtended committed = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
-                        {
-                            foreach (BMSTableEntry current in table.GetEntriesExceptDummy())
-                            {
-                                Assert.AreEqual(1, committed.Table<LR2SongDBExtended.playlist_entry>().Count(entry =>
-                                    entry.playlist_id == table.playlist_id && entry.md5 == current.md5));
-                                Assert.AreEqual("DROP-ADMISSION", library.GetPlaylistReferenceDisplay(current.md5, current.sha256).Symbols);
-                            }
-                        }
-                        notifications.Add(request);
-                        using (LibraryFileMutationLease callbackLease = library.Lr2Synchronization.TryBeginMutation(
-                                   "playlist_drop_notification_effect_probe"))
-                        {
-                            if (callbackLease != null)
-                            {
-                                notificationEffectOutsideLeaseCount++;
-                            }
-                        }
-                        notificationCount++;
-                        if (notificationCallbackFailure)
-                        {
-                            throw new InvalidOperationException("playlist drop secondary notification failure");
-                        }
-                    }
                 };
             playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => { legacyBmtScheduleCount++; return false; };
             const string md5 = "ffffffffffffffffffffffffffffffff";
@@ -2308,7 +2345,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 Assert.IsFalse(Directory.Exists(Path.Combine(outputBaseDirectory, table.Output_dir)));
                 Assert.AreEqual(0, uiInvalidationCount);
                 Assert.AreEqual(0, uiEffectOutsideLeaseCount);
-                Assert.AreEqual(0, notificationEffectOutsideLeaseCount);
+                // 拒否の案内は、受付を取得せずに待たずに依頼する一件だけです。LR2同期の受付は他者が保持しないため、依頼の時点で取得できます。
+                Assert.AreEqual(1, notificationCount);
+                Assert.AreEqual(1, notificationEffectOutsideLeaseCount);
+                Assert.AreEqual(Resources.Warn_PlaylistMutationBusy, dialogs.MessageRequests.Single().MessageBoxText);
                 Assert.AreEqual(0, legacyBmtScheduleCount);
                 Assert.AreEqual(0, lr2SyncProbeCount);
                 Assert.AreEqual(0, lr2SyncProbeLeaseUnavailableCount);
@@ -2338,7 +2378,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             }
             Assert.AreEqual(1, uiInvalidationCount);
             Assert.AreEqual(1, uiEffectOutsideLeaseCount);
-            Assert.AreEqual(notificationCountBeforeFreshRequest + 1, notificationCount);
+            Assert.AreEqual(notificationCountBeforeFreshRequest, notificationCount, "通知のない成功は、通知を依頼しません。");
             Assert.AreEqual(1, notificationEffectOutsideLeaseCount);
 
             Assert.AreEqual(1, lr2SyncProbeCount);
@@ -2375,15 +2415,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(2, uiEffectOutsideLeaseCount);
             Assert.AreEqual(notificationCountBeforeOutputFailure + 1, notificationCount);
             Assert.AreEqual(2, notificationEffectOutsideLeaseCount);
-            PlaylistOperationNotificationPresentationRequestedEventArgs outputFailureNotification = notifications[^1];
-            Assert.AreEqual(
-                1,
-                outputFailureNotification.Receipt.Notifications.Count(notification =>
-                    notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
-                        or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
-                outputFailureNotification.Receipt.Notifications.Single().Severity);
+            UiMessageRequest outputFailureNotification = dialogs.MessageRequests[^1];
+            Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, outputFailureNotification.Icon);
+            Assert.AreEqual(2, dialogs.MessageRequests.Count);
             Assert.AreEqual("DROP-ADMISSION", library.GetPlaylistReferenceDisplay(outputFailureChart).Symbols);
             Assert.AreEqual("Drop admission target", library.GetPlaylistReferenceDisplay(outputFailureChart).Names);
             Assert.AreEqual(0, legacyBmtScheduleCount);
@@ -2391,7 +2425,18 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
 
             synchronization.Failure = null!;
             NotSupportedException preparationFailure = new("playlist drop preparation failure");
-            synchronization.PhysicalSurfaceFactory = () => throw preparationFailure;
+            // 主な失敗の前に、操作が Information の通知と BMT 出力の失敗（Warning）を集めていた場合も、
+            // BMT 出力の失敗は補充の判定に数えず、主な失敗の Error を補い、すべて同じ操作の通知として表示する。
+            synchronization.PhysicalSurfaceFactory = () =>
+            {
+                Assert.IsTrue(playlist.OperationNotificationOwner.TryAddToCurrentSession(
+                    new PlaylistOperationNotificationOwner.OperationNotification(
+                        PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Beatoraja_table_url_import_no_urls)),
+                        nameof(Resources.Information),
+                        PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information)));
+                workspace.ReportBmtOutputFailures(new[] { new BmtTableExportService.FileOperationFailure("drop-output/locked.bmt", "sharing-denied") });
+                throw preparationFailure;
+            };
             int notificationCountBeforePreparationFailure = notificationCount;
 
             NotSupportedException caughtPreparationFailure = await Assert.ThrowsExactlyAsync<NotSupportedException>(() =>
@@ -2410,8 +2455,15 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             }
             Assert.AreEqual(3, uiInvalidationCount);
             Assert.AreEqual(3, uiEffectOutsideLeaseCount);
-            Assert.AreEqual(notificationCountBeforePreparationFailure + 1, notificationCount);
-            Assert.AreEqual(3, notificationEffectOutsideLeaseCount);
+            Assert.AreEqual(notificationCountBeforePreparationFailure + 3, notificationCount, "Information・BMT の Warning・補充の Error を、それぞれの組として依頼します。");
+            Assert.AreEqual(5, notificationEffectOutsideLeaseCount);
+            UiMessageRequest preparationInformation = dialogs.MessageRequests[^3];
+            UiMessageRequest preparationBmtWarning = dialogs.MessageRequests[^2];
+            Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, preparationBmtWarning.Icon);
+            Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_output_failure_format, "drop-output/locked.bmt", "sharing-denied"), preparationBmtWarning.MessageBoxText);
+            Assert.AreEqual(Resources.Beatoraja_table_url_import_no_urls, preparationInformation.MessageBoxText);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, preparationInformation.Icon);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, dialogs.MessageRequests[^1].Icon, "補充の Error は Information の後に続けます。");
             Assert.AreEqual(2, lr2SyncProbeCount);
             Assert.AreEqual(2, lr2SyncProbeLeaseUnavailableCount);
             using (LibraryFileMutationLease releasedPreparationLease = library.Lr2Synchronization.TryBeginMutation(
@@ -2460,13 +2512,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(databaseFailureChart).Symbols);
             Assert.AreEqual(notificationCountBeforeDatabaseFailure + 1, notificationCount);
             Assert.AreEqual(notificationEffectCountBeforeDatabaseFailure + 1, notificationEffectOutsideLeaseCount);
-            PlaylistOperationNotificationPresentationRequestedEventArgs databaseFailureNotification = notifications[^1];
-            Assert.AreEqual(1, databaseFailureNotification.Receipt.Notifications.Count);
-            PlaylistOperationNotificationOwner.OperationNotification databaseFailureNotice =
-                databaseFailureNotification.Receipt.Notifications.Single();
-            Assert.AreEqual(
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
-                databaseFailureNotice.Severity);
+            UiMessageRequest databaseFailureNotice = dialogs.MessageRequests[^1];
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, databaseFailureNotice.Icon);
+            lock (committedAtNotification) { Assert.IsTrue(committedAtNotification.All(visible => visible), "通知の依頼の時点で、確定したDBと参照は公開済みです。"); }
             Assert.IsTrue(outputAdmission.TryEnter(out IDisposable releasedAfterDatabaseFailure),
                 "DB失敗の通知終端後は同じPで次の明示操作を受け付けます。");
             releasedAfterDatabaseFailure.Dispose();
@@ -2489,10 +2537,10 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         }
     }
 
-    /// <summary>ドロップの通知結果の配送を保持する間はフォルダ改名をBusyで拒否し、配送解放後の次の明示改名だけを受理します。</summary>
-    /// <remarks>空の通知結果でも到達する任意の購読処理を保持します。実ダイアログ表示ではなく、配送終端までの排他権の寿命を確認します。</remarks>
+    /// <summary>ドロップの必要出力（LR2同期）でPを保持する間はフォルダ改名をBusyで拒否し、解放後の次の明示改名だけを受理します。</summary>
+    /// <remarks>通知は受付の解放後に依頼されるため、保持の地点は必要出力の途中です。排他権の寿命と、Busyの案内が一件だけ届くことを確認します。</remarks>
     [TestMethod]
-    public async Task PlaylistMutationAdmission_RejectsCompetingEditUntilDropNotificationCompletes()
+    public async Task PlaylistMutationAdmission_RejectsCompetingEditUntilDropOutputCompletes()
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string tempDirectory = Path.Combine(
@@ -2536,18 +2584,16 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             };
             BMSTable table = playlist.BMSTables.Single();
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
                 playlist,
                 library,
-                () => outputSettings);
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
+                () => outputSettings, playlistWorkspaceDialogService: dialogs);
+            synchronization.SynchronizationStartProbe = _ =>
             {
-                if (request.RouteName != "playlist drop custom folder output notification") { return; }
                 synchronizationStarted.TrySetResult(true);
                 releaseSynchronization.Wait();
             };
-            PlaylistWorkspaceMutationRejectedEventArgs? rejected = null;
-            workspace.MutationRejected += (_, request) => rejected = request;
             ChartFile chart = (
                 ChartSongStorageMapping.FromBmsRow(ChartSongStorageMapping.FromRawSongValues(
                     CreateSongTableRow(
@@ -2571,10 +2617,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 PlaylistFolderNode.CreateFolder("Imported"),
                 "Renamed");
 
-            Assert.IsNotNull(rejected);
-            Assert.AreEqual(PlaylistWorkspaceMutationKind.RenameFolder, rejected!.Kind);
-            Assert.IsTrue(rejected!.IsBusy);
-            Assert.IsFalse(rejected!.IsStale);
+            UiMessageRequest rejected = dialogs.MessageRequests.Single();
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationBusy, rejected.MessageBoxText);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, rejected.Icon);
             Assert.IsTrue(table.entries.Any(entry => entry.folder == "Imported"));
             Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"));
 
@@ -2646,12 +2691,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 BMSTables = new ObservableCollection<BMSTable>([currentTable])
             };
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
                 playlist,
                 library,
-                () => outputSettings);
-            List<PlaylistWorkspaceMutationRejectedEventArgs> rejections = [];
-            workspace.MutationRejected += (_, request) => rejections.Add(request);
+                () => outputSettings, playlistWorkspaceDialogService: dialogs);
             var staleTable = new BMSTable
             {
                 playlist_id = currentTable.playlist_id,
@@ -2670,12 +2714,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 new PlaylistDetailSourceRow(sameTitleDifferentHash, resolvedChart: null)]);
 
             Assert.AreEqual(1, currentTable.GetEntriesExceptDummy().Count());
-            Assert.IsTrue(rejections.Any(request =>
-                request.Kind == PlaylistWorkspaceMutationKind.RemoveEntries
-                && request.IsStale
-                && !request.IsBusy));
+            Assert.IsTrue(dialogs.MessageRequests.Any(request =>
+                request.MessageBoxText == BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale
+                && request.Icon == System.Windows.MessageBoxImage.Hand), "対象消失による拒否を、Pの解放後に通知します。");
 
-            rejections.Clear();
+            int rejectionsBefore = dialogs.MessageRequests.Count;
             var staleEntry = new BMSTableEntry
             {
                 playlist_id = currentTable.playlist_id,
@@ -2688,7 +2731,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 new PlaylistDetailSourceRow(staleEntry, resolvedChart: null)]);
 
             Assert.AreEqual(0, currentTable.GetEntriesExceptDummy().Count());
-            Assert.AreEqual(0, rejections.Count);
+            Assert.AreEqual(rejectionsBefore, dialogs.MessageRequests.Count);
         }
         finally
         {
@@ -2721,26 +2764,33 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     [TestMethod]
     public async Task PlaylistWorkspaceExternalMutationRejectsBeforePersistenceAccess()
     {
-        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!);
+        using var uiContext = new SingleThreadSynchronizationContext();
+        using var notices = new PlaylistNoticeProbe(() => SynchronizationContext.Current == uiContext);
+        PlaylistWorkspaceViewModel workspace = CreateBareHydrationWorkspace(PlaylistWorkspaceFixturePorts.PlaylistStoreProvider, () => null!,
+            playlistWorkspaceDialogService: notices.Dialogs);
         var table = new BMSTable { is_external_sync = true };
-        var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
-        workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
 
-        await workspace.CreateFolderAsync(table);
-        await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"), "Renamed");
-        await workspace.AddRowsToFolderAsync([], table);
-        await workspace.DeleteSelectedEntriesAsync([
-            new PlaylistDetailSourceRow(new BMSTableEntry { parent = table }, resolvedChart: null)]);
+        await uiContext.RunAsync(async () =>
+        {
+            await workspace.CreateFolderAsync(table);
+            await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"), "Renamed");
+            await workspace.AddRowsToFolderAsync([], table);
+            await workspace.DeleteSelectedEntriesAsync([
+                new PlaylistDetailSourceRow(new BMSTableEntry { parent = table }, resolvedChart: null)]);
+        });
+        // storeを持たない入口の拒否は、呼出し元が戻った後に待たずに依頼されます。
+        await notices.WaitForRequestsAsync(4);
+        Assert.IsFalse(notices.BlockedOnUiContext, "UIの文脈から依頼しません。");
 
-        CollectionAssert.AreEqual(
+        CollectionAssert.AreEquivalent(
             new[]
             {
-                PlaylistWorkspaceMutationKind.CreateFolder,
-                PlaylistWorkspaceMutationKind.RenameFolder,
-                PlaylistWorkspaceMutationKind.AddEntries,
-                PlaylistWorkspaceMutationKind.RemoveEntries
+                BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder,
+                BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder,
+                BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry,
+                BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry
             },
-            rejectedKinds);
+            notices.Messages.Select(request => request.MessageBoxText).ToArray());
     }
 
     /// <summary>空選択とnull・無関係なobjectを削除へ渡しても処理を開始せず、store未接続の永続化へ到達しないことを確認します。</summary>
@@ -2934,16 +2984,15 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             entries = [new BMSTableEntry { md5 = new string('b', 32), title = "Existing", folder = folderName }]
         };
         ChartFile chart = CreatePlaylistDropBmsFile(new string('a', 32), "Input", Path.Combine(directory, "input.bms"));
-        (BMSPlaylist playlist, TestBmsLibrary library, _, PlaylistWorkspaceViewModel workspace) = CreateRootDropStore(databaseScope, directory, table, [chart]);
+        var rootDropDialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+        (BMSPlaylist playlist, TestBmsLibrary library, _, PlaylistWorkspaceViewModel workspace) = CreateRootDropStore(databaseScope, directory, table, [chart], rootDropDialogs);
         try
         {
             var staleNode = PlaylistFolderNode.CreateFolder(folderName);
             await workspace.RenameFolderAsync(table, staleNode, "Renamed");
-            var rejected = new List<PlaylistWorkspaceMutationRejectedEventArgs>();
-            workspace.MutationRejected += (_, args) => rejected.Add(args);
             await workspace.AddRowsToFolderAsync([LibraryChartRow.FromChartFile(chart)], table, staleNode);
-            Assert.AreEqual(1, rejected.Count);
-            Assert.IsTrue(rejected[0].IsStale);
+            UiMessageRequest rejected = rootDropDialogs.MessageRequests.Single();
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale, rejected.MessageBoxText);
             Assert.AreEqual("Renamed", table.entries.Single().folder);
             using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), Path.Combine(directory, "song.db")).OpenSongDbReadOnly();
             LR2SongDBExtended.playlist_entry saved = db.Table<LR2SongDBExtended.playlist_entry>().Single(entry => entry.playlist_id == table.playlist_id && !entry.is_removed);
@@ -3365,7 +3414,8 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     private static (BMSPlaylist Playlist, TestBmsLibrary Library, BMSTable Table, PlaylistWorkspaceViewModel Workspace) CreateRootDropStore(ApplicationDatabaseScope databaseScope,
         string tempDirectory,
         BMSTable table,
-        IEnumerable<ChartFile> libraryFiles)
+        IEnumerable<ChartFile> libraryFiles,
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, tempDirectory);
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
@@ -3382,7 +3432,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
         PlaylistWorkspaceViewModel workspace = BmsPlaylistTestSupport.CreatePlaylistWorkspace(
             playlist,
             library,
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(), playlistWorkspaceDialogService: playlistWorkspaceDialogService);
         return (playlist, library, table, workspace);
     }
 

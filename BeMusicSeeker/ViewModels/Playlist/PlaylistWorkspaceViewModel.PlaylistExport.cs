@@ -93,9 +93,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            PublishPlaylistOperationNotificationReceipt(
-                session,
-                "playlist table JSON export notification");
+            // 出力は受付を持たず、Task.Run の中（UI の文脈の外）で動くため、操作の終端より前にここで依頼します。
+            if (!session.TryForwardToParent())
+            {
+                noticePresenter.Request(session.TakeReceipt(), "playlist table JSON export notification");
+            }
         }
     }
     private static void WritePlaylistJson(string path, string contents)

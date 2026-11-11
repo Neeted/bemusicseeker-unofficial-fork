@@ -219,7 +219,6 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                         // この代表は実保存・出力までを担い、Windowを要しない表示通知は終端だけ受けます。
                         service.PlaylistPropertyCatalogChanged += (_, _) => { };
                         service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
-                        service.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
                         Task<PlaylistPropertyEditSession> editing = service.CreateEditSessionAsync(table, false);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(editing, "accepted-property-edit");
                         using PlaylistPropertyEditSession session = editing.GetAwaiter().GetResult() ?? throw new AssertFailedException();

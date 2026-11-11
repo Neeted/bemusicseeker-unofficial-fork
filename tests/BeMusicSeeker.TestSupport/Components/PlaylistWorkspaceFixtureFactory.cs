@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.TestSupport.Components;
 
@@ -11,7 +12,8 @@ internal static class PlaylistWorkspaceFixtureFactory
     /// <summary>指定したstoreとlibraryの提供元を維持し、catalog通知を即時適用するworkspaceを返します。所有者が実Task終端とDisposeを回収します。</summary>
     internal static PlaylistWorkspaceViewModel CreateBareHydrationWorkspace(
         Func<BMSPlaylist> playlistStoreProvider,
-        Func<BMSLibrary> playlistLibraryProvider)
+        Func<BMSLibrary> playlistLibraryProvider,
+        IUiDialogService? playlistWorkspaceDialogService = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
@@ -52,7 +54,7 @@ internal static class PlaylistWorkspaceFixtureFactory
             (_, _) => false,
             PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler,
             PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
-            UndeclaredDialogs.Create());
+            playlistWorkspaceDialogService ?? UndeclaredDialogs.Create());
         workspace.ConfigureCatalogNotificationQueue(action => action());
         return workspace;
     }

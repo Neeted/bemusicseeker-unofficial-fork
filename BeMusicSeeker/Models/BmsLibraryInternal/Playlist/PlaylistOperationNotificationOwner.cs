@@ -4,6 +4,7 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Properties;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -78,12 +79,23 @@ internal sealed class PlaylistOperationNotificationOwner
     /// </summary>
     internal sealed class OperationNotification
     {
-        internal OperationNotification(OperationNotificationText message, string captionResourceName, OperationNotificationSeverity severity)
+        internal OperationNotification(
+            OperationNotificationText message,
+            string captionResourceName,
+            OperationNotificationSeverity severity,
+            bool isBmtOutputFailure = false)
         {
             Text = message ?? throw new ArgumentNullException(nameof(message));
             CaptionResourceName = captionResourceName ?? throw new ArgumentNullException(nameof(captionResourceName));
             Severity = severity;
+            IsBmtOutputFailure = isBmtOutputFailure;
         }
+
+        /// <summary>
+        /// BMT 出力の失敗を知らせる通知か。操作自身の失敗の通知とは別の事実なので、
+        /// 「警告・エラーが集まっていないときだけ操作の失敗の通知を補う」判定では数えません。
+        /// </summary>
+        internal bool IsBmtOutputFailure { get; }
 
         /// <summary>翻訳前の事実として保持した本文です。文字列は <see cref="FormatMessage"/> で表示直前の選択言語により作ります。</summary>
         internal OperationNotificationText Text { get; }
@@ -155,10 +167,10 @@ internal sealed class PlaylistOperationNotificationOwner
 
         internal OperationNotificationReceipt TakeReceipt()
         {
-            ThrowIfDisposed();
             List<OperationNotification> snapshot;
             lock (gate)
             {
+                ThrowIfDisposed();
                 snapshot = [.. notifications];
                 notifications.Clear();
             }
@@ -167,28 +179,82 @@ internal sealed class PlaylistOperationNotificationOwner
 
         internal void Add(OperationNotification notification)
         {
-            ThrowIfDisposed();
             if (notification == null)
             {
                 return;
             }
             lock (gate)
             {
+                ThrowIfDisposed();
                 notifications.Add(notification);
             }
         }
 
+        /// <summary>
+        /// 外側の収集先があれば、集めた事実をすべて外側へ移して true を返します。外側がなければ何もせず false を返します。
+        /// 外側の操作が受付（P）を解放した後に、まとめて表示を依頼するための引継ぎです。
+        /// 受付を保持したまま内側の操作が表示を依頼しないよう、最も外側の収集先だけが表示を依頼します。
+        /// </summary>
+        /// <remarks>外側の破棄との競合で通知を失わないよう、外側の破棄の判定と追加を外側の同じロックの中で行い、移せなかった事実はこの収集先へ戻します。</remarks>
+        /// <returns>事実を外側へ移した場合は true。移す先がない場合は false で、事実はこの収集先に残ります。</returns>
+        internal bool TryForwardToParent()
+        {
+            OperationNotificationSession target = parent;
+            if (target == null)
+            {
+                return false;
+            }
+            List<OperationNotification> moved;
+            lock (gate)
+            {
+                ThrowIfDisposed();
+                moved = [.. notifications];
+                notifications.Clear();
+            }
+            bool forwarded;
+            lock (target.gate)
+            {
+                forwarded = !target.disposed;
+                if (forwarded)
+                {
+                    target.notifications.AddRange(moved);
+                }
+            }
+            if (!forwarded)
+            {
+                lock (gate)
+                {
+                    notifications.InsertRange(0, moved);
+                }
+            }
+            return forwarded;
+        }
+
+        /// <summary>
+        /// 収集先を閉じ、現在の収集先を外側へ戻します。受け取られないまま残った通知は、失われたことを診断へ残します。
+        /// </summary>
         public void Dispose()
         {
-            if (disposed)
+            int discarded;
+            lock (gate)
             {
-                return;
+                if (disposed)
+                {
+                    return;
+                }
+                disposed = true;
+                discarded = notifications.Count;
+                notifications.Clear();
             }
             if (ReferenceEquals(owner.currentSession.Value, this))
             {
                 owner.currentSession.Value = parent;
             }
-            disposed = true;
+            if (discarded > 0)
+            {
+                try { NLogWrapper.FileLogger?.Warn("playlist_operation_notice_discarded reason=session_disposed_with_unpublished_notices count=" + discarded); }
+                catch (Exception) { /* 診断先の失敗で、操作の結果を変えません。 */ }
+            }
         }
 
         private void ThrowIfDisposed()
@@ -203,6 +269,28 @@ internal sealed class PlaylistOperationNotificationOwner
     internal OperationNotificationSession BeginSession()
     {
         return new OperationNotificationSession(this);
+    }
+
+    /// <summary>
+    /// 現在の操作の収集先があれば通知の事実を積んで true を返します。収集先がなければ積まず false を返します。
+    /// 収集先を持たない呼出し元が、操作の外側と同じ収集先に載せられるかを判断するために使います。
+    /// </summary>
+    internal bool TryAddToCurrentSession(OperationNotification notification)
+    {
+        OperationNotificationSession session = currentSession.Value;
+        if (session == null || notification == null)
+        {
+            return false;
+        }
+        try
+        {
+            session.Add(notification);
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
     }
 
     /// <summary>警告を積みます。見出しを省略すると、表示直前の言語の警告見出しを使います。</summary>

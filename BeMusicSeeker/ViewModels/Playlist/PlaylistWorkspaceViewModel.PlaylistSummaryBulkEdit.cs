@@ -19,7 +19,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     private readonly Func<Lr2ConfigOwner> getLr2Config;
     private readonly Action<string> summaryBulkWarningLog;
     private PlaylistSummaryBulkEditDialogViewModel activeSummaryBulkEditDialog;
-    internal event EventHandler<PlaylistSummaryBulkInvalidOutputDirectoryEventArgs> PlaylistSummaryBulkInvalidOutputDirectoryRequested;
 
     internal PlaylistSummaryBulkEditDialogViewModel ActiveSummaryBulkEditDialog => activeSummaryBulkEditDialog;
     internal bool IsCustomFolderOutputEnabled => GetCustomFolderOutputSettings().OperationModeLR2DB;
@@ -127,6 +126,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    /// <summary>
+    /// 一括編集の操作を、通知の収集先の内側で実行します。操作がPを取得し解放した後に、集めた通知をまとめて表示するよう依頼します。
+    /// </summary>
+    private Task RunWithBulkEditNoticesAsync(Func<Task> operation)
+        => RunWithOperationNoticesAsync(getPlaylistStore(), "playlist summary bulk edit notification", operation);
+
     private void RunPlaylistSummaryBulkOperation(Action operation, string routeName)
     {
         if (operation == null)
@@ -206,10 +211,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         catch (ArgumentNullException)
         {
-            RaiseRequiredEvent(
-                PlaylistSummaryBulkInvalidOutputDirectoryRequested,
-                new PlaylistSummaryBulkInvalidOutputDirectoryEventArgs(routeName),
-                nameof(PlaylistSummaryBulkInvalidOutputDirectoryRequested));
+            NotifyOperation(PlaylistOperationNotices.InvalidOutputDirectory(), routeName);
             throw;
         }
     }
@@ -826,7 +828,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>外部属性をDB確定後に採用します。確定後の出力故障でもguard解放後に概要・候補・通知の終端を一度試し、最初の操作原因を保持します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default, BMSPlaylist expectedStore = null)
+    internal Task ApplyPlaylistSummaryExternalPropertyInitializationAsync(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default, BMSPlaylist expectedStore = null)
+        => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryExternalPropertyInitializationAsyncCore(rows, options, cancellationToken, expectedStore));
+
+    private async Task ApplyPlaylistSummaryExternalPropertyInitializationAsyncCore(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default, BMSPlaylist expectedStore = null)
     {
         if (rows == null || options?.HasAnySelection != true)
         {
@@ -1269,7 +1274,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>開始時と同じstoreの全正本参照をP内で検証し、出力種別の保存と必要出力を待ちます。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal async Task ApplyPlaylistSummaryCustomFolderOutputTypes(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch, BMSPlaylist expectedStore = null)
+    internal Task ApplyPlaylistSummaryCustomFolderOutputTypes(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch, BMSPlaylist expectedStore = null)
+        => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryCustomFolderOutputTypesCore(rows, patch, expectedStore));
+
+    private async Task ApplyPlaylistSummaryCustomFolderOutputTypesCore(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch, BMSPlaylist expectedStore = null)
     {
         if (rows == null || patch == null)
         {
@@ -1351,7 +1359,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>P取得・借用後に開始時と同じstoreの全正本参照を検証し、一括保存と必要出力の実終端まで保持します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal async Task ApplyPlaylistSummaryExternalSync(IEnumerable<PlaylistSummaryRow> rows, bool isExternalSync, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
+    internal Task ApplyPlaylistSummaryExternalSync(IEnumerable<PlaylistSummaryRow> rows, bool isExternalSync, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
+        => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryExternalSyncCore(rows, isExternalSync, capability, expectedStore));
+
+    private async Task ApplyPlaylistSummaryExternalSyncCore(IEnumerable<PlaylistSummaryRow> rows, bool isExternalSync, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
@@ -1412,7 +1423,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>一要求の複数フラグ変更を同じPで保存・出力し、必須継続の終端を待ちます。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal async Task ApplyPlaylistSummaryFlags(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null, BMSPlaylist expectedStore = null)
+    internal Task ApplyPlaylistSummaryFlags(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null, BMSPlaylist expectedStore = null)
+        => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryFlagsCore(rows, isExternalSync, isRootFolder, expectedStore));
+
+    private async Task ApplyPlaylistSummaryFlagsCore(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
@@ -1433,7 +1447,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>P取得・借用後に開始時と同じstoreの全正本参照を検証し、root変更と必要出力の実終端まで保持します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal async Task ApplyPlaylistSummaryRootFolder(IEnumerable<PlaylistSummaryRow> rows, bool isRootFolder, LibraryFileMutationCapability capability = null, bool? isExternalSync = null, BMSPlaylist expectedStore = null)
+    internal Task ApplyPlaylistSummaryRootFolder(IEnumerable<PlaylistSummaryRow> rows, bool isRootFolder, LibraryFileMutationCapability capability = null, bool? isExternalSync = null, BMSPlaylist expectedStore = null)
+        => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryRootFolderCore(rows, isRootFolder, capability, isExternalSync, expectedStore));
+
+    private async Task ApplyPlaylistSummaryRootFolderCore(IEnumerable<PlaylistSummaryRow> rows, bool isRootFolder, LibraryFileMutationCapability capability = null, bool? isExternalSync = null, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
@@ -1545,7 +1562,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>P取得・借用後に開始時と同じstoreの全正本参照を検証し、基点変更と必要出力の実終端まで保持します。未登録名の旧先は推測せず、選択された新先へ生成します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal async Task ApplyPlaylistSummaryOutputBase(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
+    internal Task ApplyPlaylistSummaryOutputBase(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
+        => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryOutputBaseCore(rows, outputBaseName, capability, expectedStore));
+
+    private async Task ApplyPlaylistSummaryOutputBaseCore(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
@@ -1651,14 +1671,4 @@ public sealed partial class PlaylistWorkspaceViewModel
         }).ConfigureAwait(false);
     }
 
-}
-
-
-internal sealed class PlaylistSummaryBulkInvalidOutputDirectoryEventArgs : EventArgs
-{
-    internal PlaylistSummaryBulkInvalidOutputDirectoryEventArgs(string routeName)
-    {
-        RouteName = routeName ?? string.Empty;
-    }
-    internal string RouteName { get; }
 }

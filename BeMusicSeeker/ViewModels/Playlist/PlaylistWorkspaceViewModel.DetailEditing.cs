@@ -55,6 +55,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         detailEditCompletionInProgress = true;
         try
         {
+            // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。
+            using PlaylistOperationNotificationOwner.OperationNotificationSession operationNotifications =
+                getPlaylistStore()?.OperationNotificationOwner.BeginSession();
             IDisposable admission = null;
             LibraryFileMutationCapability authority = null;
             ExceptionDispatchInfo primaryFailure = null;
@@ -131,6 +134,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 catch (Exception failure) { CapturePresentationFailure(failure, "playlist_detail_edit_refresh_notification_failed"); }
                 authority?.Dispose();
                 admission?.Dispose();
+                if (operationNotifications != null)
+                {
+                    await PublishPlaylistOperationNotificationReceiptAsync(
+                        operationNotifications, "playlist detail cell edit notification").ConfigureAwait(true);
+                }
                 primaryFailure?.Throw();
             }
 

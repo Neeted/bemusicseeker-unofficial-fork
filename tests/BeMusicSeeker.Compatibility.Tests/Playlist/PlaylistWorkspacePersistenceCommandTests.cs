@@ -34,8 +34,6 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             SerializationObservedTable table = CreateJsonExportTable();
             var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistWorkspaceDialogService: dialogs);
-            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             string headerPath = Path.Combine(tempDirectory, "header.json");
             string dataPath = Path.Combine(drive.Root, "data.json");
             table.DataUrlReadObserver = () => AssertJsonExportSourceUrls(table, null);
@@ -46,7 +44,7 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             drive.AssertOwned();
             AssertExportedJsonDataReference(headerPath, dataPath, absoluteFileReference: true);
             AssertJsonExportSourceUrls(table, null);
-            Assert.IsTrue(notifications.Single().Receipt.IsEmpty);
+            Assert.AreEqual(0, dialogs.MessageRequests.Count, "出力の成功は通知を依頼しません。");
         }
         catch (Exception failure) { primary = failure; }
         finally

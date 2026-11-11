@@ -8,6 +8,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using PlaylistCatalogViewChangeTests = BeMusicSeeker.TestSupport.Components.PlaylistCatalogViewTestSupport;
 
 namespace BeMusicSeeker.TestSupport.Components;
@@ -52,7 +53,9 @@ internal static class PlaylistCatalogViewTestSupport
         internal Fixture(int count, bool bmson = false, string? firstFolder = null,
             bool regularDelivery = false, bool oracleScores = false, bool connectDelivery = true,
             Action<LR2SongDBExtended>? initializeEntryWriteConnection = null, Action<BMSTable, List<BMSTableEntry>>? prepareTable = null,
-            Func<Action, Task>? entryDeliveryScheduler = null, IUiScheduler? modelUiScheduler = null)
+            Func<Action, Task>? entryDeliveryScheduler = null, IUiScheduler? modelUiScheduler = null,
+            IUiDialogService? playlistWorkspaceDialogService = null,
+            Func<bool>? shutdownRequestedProvider = null)
         {
             try
             {
@@ -125,9 +128,10 @@ internal static class PlaylistCatalogViewTestSupport
                 Playlist.CommitBMSTableWithEntriesToDB(table);
                 Workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
                     playlistLibraryProvider: () => Library,
-                    dispatchPresentation: action => action(), restoreUiApplyScheduler: entryDeliveryScheduler);
+                    dispatchPresentation: action => action(), restoreUiApplyScheduler: entryDeliveryScheduler,
+                    reloadCleanupShutdownRequestedProvider: shutdownRequestedProvider,
+                    playlistWorkspaceDialogService: playlistWorkspaceDialogService);
                 Workspace.SetDetailDataSource(new PlaylistDetailDataSource(Library, Playlist, new MainChartRowProjectionOwner()));
-                Workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
                 MainTable = (MainChartListViewModel)(typeof(PlaylistWorkspaceViewModel).GetField("detailMainChartList",
                     BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(Workspace) ?? throw new InvalidOperationException());
                 Workspace.RequestDetailSelection(table);

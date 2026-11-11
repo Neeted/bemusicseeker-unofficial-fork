@@ -587,9 +587,8 @@ public sealed class SettingDialogOutputConfirmationTests
                 { BMSTables = new ObservableCollection<BMSTable>([table]) };
                 SetPrivateField(owner, "tables", playlist);
                 owner.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
-                var warnings = new List<string>();
-                owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-                    warnings.AddRange(request.Receipt.Notifications.Select(notification => notification.FormatMessage()));
+                // 通知は受付の解放後に、窓口へ依頼された組（同じ見出し・重要度は一件へまとまる）で観測します。
+                IEnumerable<string> warnings() => dialogs.MessageRequests.ToArray().Select(request => request.MessageBoxText);
                 var externalSync = new RecordingOutputSettingsSyncRuntime { FailNext = syncFailure };
                 SetPrivateField(owner.SettingDialog, "lr2SongDbSyncWorkflow", new Lr2SongDbSyncWorkflowOwner(externalSync));
                 try
@@ -636,10 +635,10 @@ public sealed class SettingDialogOutputConfirmationTests
                     Assert.AreEqual(cleanupOnly || syncFailure, File.ReadAllText(selectedFile) != "blocked output");
                     Assert.AreEqual(!rowCleanup && !syncFailure, File.Exists(oldFile));
                     Assert.AreEqual(cleanupOnly || syncFailure ? 1 : 0, externalSync.ExternalSyncCount, "旧先整理だけの失敗でも必要な外部同期へ進みます。");
-                    if (cleanupOnly) { Assert.IsTrue(warnings.Any(warning => warning.Contains(Path.GetDirectoryName(oldFile)!, StringComparison.Ordinal))); }
+                    if (cleanupOnly) { Assert.IsTrue(warnings().Any(warning => warning.Contains(Path.GetDirectoryName(oldFile)!, StringComparison.Ordinal))); }
                     if (rowCleanup)
                     {
-                        Assert.IsTrue(warnings.Any(warning => warning.Contains("old-output-row-delete-fault", StringComparison.Ordinal)));
+                        Assert.IsTrue(warnings().Any(warning => warning.Contains("old-output-row-delete-fault", StringComparison.Ordinal)));
                         using LR2SongDBExtended read = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
                         Assert.AreEqual(1, read.Table<LR2SongDB.folder>().Count(row => row.path == oldFile));
                         Assert.AreEqual(1, read.Table<LR2SongDB.folder>().Count(row => row.path == selectedFile));

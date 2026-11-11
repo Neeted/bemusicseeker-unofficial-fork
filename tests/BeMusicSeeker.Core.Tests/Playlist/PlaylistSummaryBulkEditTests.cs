@@ -397,8 +397,6 @@ public sealed class PlaylistSummaryBulkEditTests
         bool summaryActive, bool failSecondaryNotifications)
     {
         await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true, modelUiScheduler: new TestUiScheduler(() => null));
-        var receiptEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var releaseReceipt = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task<Exception?>? operation = null;
         try
         {
@@ -418,7 +416,6 @@ public sealed class PlaylistSummaryBulkEditTests
             int summaryRequests = 0, catalogNotifications = 0, keywordNotifications = 0, entryNotifications = 0;
             bool headerGuardsReleased = false, collectionGuardReleased = false;
             var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
-            var receipts = new ConcurrentQueue<PlaylistOperationNotificationPresentationRequestedEventArgs>();
             var keywordCandidates = new ConcurrentQueue<string[]>();
             var bmtFailures = new List<BmtTableExportService.FileOperationFailure>();
             fixture.Playlist.BmtOutput.FailureReporter = failures =>
@@ -453,14 +450,6 @@ public sealed class PlaylistSummaryBulkEditTests
                 if (failSecondaryNotifications) { throw secondary; }
             };
             fixture.Workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
-            fixture.Workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-            {
-                receipts.Enqueue(request);
-                if (request.RouteName != "playlist summary external property initialization notification") { return; }
-                receiptEntered.TrySetResult();
-                releaseReceipt.Task.GetAwaiter().GetResult();
-                if (failSecondaryNotifications) { throw secondary; }
-            };
             using var blocker = new FileStream(fixture.BmtManifestPath, FileMode.Open, FileAccess.Read, FileShare.None);
             operation = Task.Run(async () =>
             {
@@ -474,14 +463,6 @@ public sealed class PlaylistSummaryBulkEditTests
                 }
                 catch (Exception failure) { return failure; }
             });
-            await TestUiDispatcherHost.AwaitNotificationAsync(receiptEntered.Task, operation, "bulk external properties terminal receipt");
-            Assert.IsFalse(operation.IsCompleted);
-            Assert.IsFalse(fixture.Playlist.WaitForPlaylistMutationIdleAsync().IsCompleted);
-            Assert.ThrowsExactly<InvalidOperationException>(() =>
-            {
-                using LibraryFileMutationLease conflicting = fixture.Playlist.AcquirePlaylistMutationLease("bulk-notification-busy");
-            });
-            releaseReceipt.TrySetResult();
             Exception? failure = await operation;
             Assert.IsNotNull(failure);
             Assert.IsInstanceOfType<PlaylistMutationPostCommitException>(failure);
@@ -531,7 +512,6 @@ public sealed class PlaylistSummaryBulkEditTests
             // custom folder出力の段階通知は段階の事実で届き、段階を表す通知は表名を持たない。
             Assert.IsTrue(bulkProgress.Where(snapshot => snapshot.CustomFolderStage != CustomFolderProgressStage.TableName)
                 .All(snapshot => string.IsNullOrEmpty(snapshot.CurrentTableName) && snapshot.Kind == PlaylistSyncProgressKind.CustomFolderOutput));
-            Assert.AreEqual(1, receipts.Count(request => request.RouteName == "playlist summary external property initialization notification"));
             await fixture.Playlist.WaitForPlaylistMutationIdleAsync();
             using (fixture.Playlist.AcquirePlaylistMutationLease("bulk-failure-next-request")) { }
             using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
@@ -542,7 +522,6 @@ public sealed class PlaylistSummaryBulkEditTests
         }
         finally
         {
-            releaseReceipt.TrySetResult();
             if (operation != null) { await operation; }
         }
     }

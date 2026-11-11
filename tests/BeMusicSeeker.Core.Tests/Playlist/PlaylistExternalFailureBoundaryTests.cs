@@ -146,7 +146,6 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 workspace.RefreshPlaylistTreeTables(playlist, library);
             }
             else { workspace = CreatePlaylistWorkspace(playlist, library); }
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             var progress = new List<PlaylistSyncProgressSnapshot>();
             var execution = new List<bool>();
             int queuedCount = 0;
@@ -503,9 +502,8 @@ public sealed class PlaylistExternalFailureBoundaryTests
                 old.Page_url = server.Address; old.Header_url = server.Address;
                 playlist.CommitBMSTableHeaderToDB(old);
             }
-            workspace = CreatePlaylistWorkspace(playlist, library);
-            var notifications = new List<string>();
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, args) => notifications.AddRange(args.Receipt.Notifications.Select(item => item.FormatMessage()));
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+            workspace = CreatePlaylistWorkspace(playlist, library, playlistWorkspaceDialogService: dialogs);
             var progress = new List<PlaylistSyncProgressSnapshot>();
             workspace.PlaylistSyncProgressChanged += (_, args) => progress.Add(args.Snapshot);
             bool? succeeded = null;
@@ -518,7 +516,7 @@ public sealed class PlaylistExternalFailureBoundaryTests
             Assert.AreEqual("local memo", current.entries.Single(entry => entry.title == "Updated").memo);
             Assert.AreEqual(new DateTime(2020, 1, 2), current.entries.Single(entry => entry.title == "Updated").adddate);
             Assert.IsFalse(workspace.CapturePlaylistSyncStatusSnapshot()["id:7910"].HasFailureStatus);
-            Assert.AreEqual(0, notifications.Count, "任意日時の不適合をUI通知へ流しません。");
+            Assert.AreEqual(0, dialogs.MessageRequests.Count, "任意日時の不適合をUI通知へ流しません。");
             Assert.IsTrue(progress.Any(item => item.IsActive)); Assert.IsFalse(progress.Last().IsActive);
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly())
             {

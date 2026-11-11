@@ -142,7 +142,8 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 playlist,
                 library,
                 getViewModelSettings,
-                () => configOwner);
+                () => configOwner,
+                playlistWorkspaceDialogService: new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService());
 
             dialog = await workspace.OpenPropertyDialogAsync(table);
             Assert.IsFalse(playlist.IsWriteLockHeldBMSTables);

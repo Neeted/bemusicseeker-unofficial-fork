@@ -63,8 +63,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 session.Add(notification);
             }
-            if (!receipt.Notifications.Any(notification => notification.Severity is
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error
+            // BMT 出力の失敗は別の事実なので、復元の失敗の通知を補う判定では数えません。
+            if (!receipt.Notifications.Any(notification => !notification.IsBmtOutputFailure
+                && notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error
                     or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning))
             {
                 tables.OperationNotificationOwner.QueueError(
@@ -76,23 +77,16 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         if (refused)
         {
-            try
-            {
-                RaiseMutationRejected(PlaylistWorkspaceMutationKind.Restore, isBusy: true, isStale: false);
-            }
-            catch (Exception exception)
-            {
-                TryLogBackupRestoreFailure(exception, "playlist restore rejection notification");
-            }
-            return false;
+            session.Add(PlaylistOperationNotices.Rejection(PlaylistWorkspaceMutationKind.Restore, isBusy: true));
         }
-        if (restored)
+        else if (restored)
         {
             tables.OperationNotificationOwner.QueueInformation(
                 PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore)),
                 nameof(BeMusicSeeker.Properties.Resources.Success));
         }
-        PublishBackupRestoreNotificationBestEffort(session, "playlist restore notification");
+        // L/Pはここまでに解放済みです。表示の完了は待たず、依頼までを操作の終端に含めます。
+        await PublishBackupRestoreNotificationBestEffortAsync(session, "playlist restore notification").ConfigureAwait(false);
         return restored;
     }
 }

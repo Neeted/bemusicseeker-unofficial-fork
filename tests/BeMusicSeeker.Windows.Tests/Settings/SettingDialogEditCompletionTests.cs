@@ -2555,8 +2555,8 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
-    /// <summary>一般ページの実Table URLボタンで確定rootと別候補を識別し、破棄取消/実P拒否では保持、受理後は関係rootだけを戻して実通知終端まで同再操作を拒否します。通常Closeは同じTaskを保持して許可します。</summary>
-    /// <remarks>実workspaceの既存URL入力を使ってHTTPを避け、DB/順序/BMTの詳細はPlaylist系列へ分担します。通知gateを実Taskより先に完了条件にしません。</remarks>
+    /// <summary>一般ページの実Table URLボタンで確定rootと別候補を識別し、破棄取消/実P拒否では保持、受理後は関係rootだけを戻して、操作の実行中だけ同再操作を拒否します（要約の表示の完了は待たず、保持したまま実終端が完了します）。通常Closeは許可します。</summary>
+    /// <remarks>実workspaceの既存URL入力を使ってHTTPを避け、DB/順序/BMTの詳細はPlaylist系列へ分担します。通知の表示を実Taskの完了条件にしません。</remarks>
     [TestMethod]
     [DataRow("cancel")]
     [DataRow("busy")]
@@ -2588,7 +2588,7 @@ public sealed class SettingDialogEditCompletionTests
             fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Playlist.BMSTables.Last());
             SettingsDialogViewModel settings = fixture.Owner.SettingDialog;
             fixture.Dialogs.ConfirmationResult = outcome == "cancel" ? MessageBoxResult.Cancel : MessageBoxResult.Yes;
-            // 要約の表示は未完了の Task で止める。ワーカーのスレッドを同期で止めず、返す Task が表示の終端まで完了しないことを観測する。
+            // 要約の表示は未完了の Task で止める。ワーカーのスレッドを同期で止めず、返す Task が表示の完了を待たずに完了することを観測する。
             var summaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             var release = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
             playlistDialogs.MessageTaskFactory = request =>
@@ -2615,7 +2615,12 @@ public sealed class SettingDialogEditCompletionTests
                 terminal = settings.SettingsOperationCompletionTask;
                 if (outcome == "accepted")
                 {
-                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(summaryEntered.Task, terminal, "table URL summary gate"), "table URL summary arrival");
+                    // 取込みの実終端は、表示を待たずに完了します。UIスレッドが継続を処理する前の、実行中の間に再度押しても、確認を重ねません。
+                    Assert.IsFalse(terminal.IsCompleted, "UIスレッドが継続を処理する前は、実行中です。");
+                    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(ConcurrencyProbe.AssertCompletesWhileHeldAsync(summaryEntered.Task, "table-url-summary-request"), "table URL summary arrival");
+                    // 要約の表示を保持したまま、実終端が完了する。表示の完了を待つ誤りは、この待機の期限で検出する。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(ConcurrencyProbe.AssertCompletesWhileHeldAsync(terminal, "table-url-terminal-while-summary-held"), "table URL terminal while summary held");
                     Assert.AreEqual(beatoraja, settings.BeatorajaRootPath);
                     Assert.AreNotEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput, "取込みと無関係な候補を保持します。");
                     Assert.IsTrue(settings.CanCancelBmtSettings, "取込みと無関係なBMT候補は同期取消できます。");
@@ -2624,12 +2629,8 @@ public sealed class SettingDialogEditCompletionTests
                     cancelBmt.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                     Assert.AreEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput);
                     Assert.IsFalse(settings.CanCancelBmtSettings);
-                    Assert.AreSame(terminal, settings.SettingsOperationCompletionTask);
-                    Assert.IsFalse(terminal.IsCompleted);
                     Assert.AreEqual(1, confirmations());
-                    Assert.IsFalse(terminal.IsCompleted);
-                    Assert.IsTrue(settings.IsEditCancellationEnabled, "通知未終端でも通常Closeは同じTaskを保持したまま許可します。");
-                    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.IsTrue(settings.IsEditCancellationEnabled, "要約の表示が未完了でも、通常Closeを許可します。");
                     Assert.AreEqual(1, confirmations());
                     // 要約は既存の表一件の結果（既存一件、他は零）の本文で、窓口へ一件だけ届いている。
                     UiMessageRequest summaryRequest = playlistDialogs.MessageRequests.Single();
@@ -2894,7 +2895,7 @@ public sealed class SettingDialogEditCompletionTests
                     uiScheduler: completionUi, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge),
                     rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
-                    dialogService: UndeclaredDialogs.Create());
+                    dialogService: dialogs);
                 var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
                 {

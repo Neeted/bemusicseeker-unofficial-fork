@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -13,12 +14,11 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private const string ExternalPlaylistImportProgressSource = "external_playlist_import";
 
-    /// <summary>受付で開始した同じ実Taskを読取り専用の観測先へ渡します。集計通知より後の資源解放もTask終端に含みます。</summary>
-    internal event Action<Task> ExternalPlaylistImportStarted;
-
-    internal event EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> ExternalPlaylistImportQueueSummaryReady;
-
-    internal event EventHandler<ExternalPlaylistImportSummaryRefreshFailedEventArgs> ExternalPlaylistImportSummaryRefreshFailed;
+    /// <summary>
+    /// 受付で開始した同じ実Taskを読取り専用の観測先へ渡します。Pを解放した後の、通知と集計の表示の依頼までをTask終端に含み、
+    /// 表示の完了は含みません。Taskの結果は、受付の下で確定した通知の事実と集計です。
+    /// </summary>
+    internal event Action<Task<ExternalPlaylistImportCompletion>> ExternalPlaylistImportStarted;
 
     /// <summary>全入力元の選択を一要求として受け付け、登録済みURLを通信前に除きます。拒否した要求を予約しません。</summary>
     /// <param name="selectedUris">画面で検証済みの絶対URI。初出の選択順を維持して処理します。</param>
@@ -99,12 +99,12 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
 
             handedOff = true;
-            Task operation = ImportExternalPlaylistsAsync(tables, targets, skipped, admission);
+            Task<ExternalPlaylistImportCompletion> operation = ImportExternalPlaylistsAsync(tables, targets, skipped, admission);
             operation.ObserveFault("ImportExternalPlaylistsAsync");
-            Action<Task> observers = ExternalPlaylistImportStarted;
+            Action<Task<ExternalPlaylistImportCompletion>> observers = ExternalPlaylistImportStarted;
             if (observers != null)
             {
-                foreach (Action<Task> observer in observers.GetInvocationList())
+                foreach (Action<Task<ExternalPlaylistImportCompletion>> observer in observers.GetInvocationList())
                 {
                     try { observer(operation); }
                     catch (Exception failure) { Task.FromException(failure).ObserveFault("playlistImportObserver"); }
@@ -152,11 +152,40 @@ public sealed partial class PlaylistWorkspaceViewModel
         return snapshot;
     }
 
-    private async Task ImportExternalPlaylistsAsync(
+    /// <summary>
+    /// 取込みを実行し、Pを解放した後に、集めた通知と集計を表示するよう依頼します。
+    /// 通知は見出し・重要度ごとにまとめ、集計は通知の後に続けます。表示の完了は待たず、表示の失敗は取込みの結果へ加えません。
+    /// </summary>
+    private async Task<ExternalPlaylistImportCompletion> ImportExternalPlaylistsAsync(
         BMSPlaylist tables,
         IReadOnlyList<Uri> batch,
         IReadOnlyList<ExternalPlaylistImportOutcome> skipped,
         IDisposable admission)
+    {
+        var published = new System.Runtime.CompilerServices.StrongBox<ExternalPlaylistImportCompletion>();
+        try
+        {
+            await ImportExternalPlaylistsAdmittedAsync(tables, batch, skipped, admission, published).ConfigureAwait(false);
+        }
+        finally
+        {
+            ExternalPlaylistImportCompletion completion = published.Value ?? new ExternalPlaylistImportCompletion();
+            ExternalPlaylistImportQueueSummary summary = completion.Summary;
+            await noticePresenter.BeginRequest(
+                completion.Receipt,
+                "external playlist import notification",
+                summary is { HasNotifiableItems: true } ? () => CreateExternalPlaylistImportSummaryRequest(summary) : null)
+                .ConfigureAwait(false);
+        }
+        return published.Value ?? new ExternalPlaylistImportCompletion();
+    }
+
+    private async Task ImportExternalPlaylistsAdmittedAsync(
+        BMSPlaylist tables,
+        IReadOnlyList<Uri> batch,
+        IReadOnlyList<ExternalPlaylistImportOutcome> skipped,
+        IDisposable admission,
+        System.Runtime.CompilerServices.StrongBox<ExternalPlaylistImportCompletion> published)
     {
         const int ExternalPlaylistImportPostProgressStepCount = 4;
         List<ExternalPlaylistImportOutcome> outcomes = [.. skipped];
@@ -348,11 +377,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                     && !readiness.IsRequiredPlaylistReadinessFaulted
                     && !tables.IsShutdownRequested)
                 {
-                    ExternalPlaylistImportQueueSummaryReady?.Invoke(
-                        this,
-                        new ExternalPlaylistImportQueueSummaryReadyEventArgs(
-                            new ExternalPlaylistImportQueueSummary(outcomes),
-                            notificationSession.TakeReceipt()));
+                    published.Value = new ExternalPlaylistImportCompletion
+                    {
+                        Summary = new ExternalPlaylistImportQueueSummary(outcomes),
+                        Receipt = notificationSession.TakeReceipt(),
+                    };
                 }
             }
             finally
@@ -541,9 +570,51 @@ public sealed partial class PlaylistWorkspaceViewModel
         WriteExternalPlaylistImportWarning(exception, "external_playlist_import_summary_refresh_failed");
         // The playlist registration already succeeded; summary refresh is a presentation concern.
         // Keep the import result successful, but surface the refresh failure to the user.
-        ExternalPlaylistImportSummaryRefreshFailed?.Invoke(
-            this,
-            new ExternalPlaylistImportSummaryRefreshFailedEventArgs(exception));
+        NotifyOperation(PlaylistOperationNotices.SummaryRefreshFailure(exception), "external playlist import summary refresh failure notification");
+    }
+
+    /// <summary>取込みの集計を、選択言語の本文で表示する要求にします。件数と、種類ごとの最大5件の標本を示します。</summary>
+    private static UiMessageRequest CreateExternalPlaylistImportSummaryRequest(ExternalPlaylistImportQueueSummary summary)
+    {
+        var message = new System.Text.StringBuilder();
+        message.AppendFormat(
+            BeMusicSeeker.Properties.Resources.Playlist_import_result_summary_format,
+            summary.ImportedCount,
+            summary.SkippedDuplicateUrlCount,
+            summary.SkippedDuplicateNameCount,
+            summary.FailedCount);
+        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_url_header, summary.SkippedDuplicateUrlOutcomes);
+        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_header, summary.SkippedDuplicateNameOutcomes);
+        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_failed_header, summary.FailedOutcomes);
+        return new UiMessageRequest(
+            message.ToString(),
+            BeMusicSeeker.Properties.Resources.Playlist_import_result_title,
+            UiDialogButton.OK,
+            summary.FailedCount > 0 ? UiDialogIcon.Exclamation : UiDialogIcon.Information,
+            UiDialogDefaultResult.OK);
+    }
+
+    private static void AppendImportOutcomeSamples(System.Text.StringBuilder message, string header, IReadOnlyList<ExternalPlaylistImportOutcome> outcomes)
+    {
+        const int maxSamples = 5;
+        if (message == null || outcomes == null || outcomes.Count == 0)
+        {
+            return;
+        }
+        message.AppendLine();
+        message.AppendLine();
+        message.AppendLine(header);
+        foreach (ExternalPlaylistImportOutcome outcome in outcomes.Take(maxSamples))
+        {
+            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? string.Empty);
+            message.AppendLine(outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed && outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message)
+                ? "- " + nameOrUri + " (" + outcome.Exception.Message + ")"
+                : "- " + nameOrUri);
+        }
+        if (outcomes.Count > maxSamples)
+        {
+            message.AppendLine("- ...");
+        }
     }
 
     private void WriteExternalPlaylistImportWarning(Exception exception, string message)
@@ -562,33 +633,12 @@ public sealed partial class PlaylistWorkspaceViewModel
 
 }
 
-/// <summary>インポートの集計と処理中の通知事実を、UI応答を待たない一つの完了通知へまとめます。</summary>
-internal sealed class ExternalPlaylistImportQueueSummaryReadyEventArgs : EventArgs
+/// <summary>取込みの受付の下で確定した通知の事実と集計を、受付の解放後の表示へ渡します。</summary>
+internal sealed class ExternalPlaylistImportCompletion
 {
-    /// <summary>確定した集計と変更不能な通知レシートを接続します。</summary>
-    /// <param name="summary">成功・同URL・同名・失敗の集計。</param>
-    /// <param name="receipt">必要出力などが集めた通知事実。</param>
-    internal ExternalPlaylistImportQueueSummaryReadyEventArgs(
-        ExternalPlaylistImportQueueSummary summary,
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt)
-    {
-        Summary = summary;
-        Receipt = receipt;
-    }
+    /// <summary>必要出力などが集めた通知の事実です。通知を集める前に終わった取込みではnullです。</summary>
+    internal PlaylistOperationNotificationOwner.OperationNotificationReceipt Receipt { get; init; }
 
-    /// <summary>読み込みと登録の確定した結果を取得します。</summary>
-    internal ExternalPlaylistImportQueueSummary Summary { get; }
-
-    /// <summary>集計と同じ非同期表示境界で提示する通知事実を取得します。</summary>
-    internal PlaylistOperationNotificationOwner.OperationNotificationReceipt Receipt { get; }
-}
-
-internal sealed class ExternalPlaylistImportSummaryRefreshFailedEventArgs : EventArgs
-{
-    internal ExternalPlaylistImportSummaryRefreshFailedEventArgs(Exception exception)
-    {
-        Exception = exception;
-    }
-
-    internal Exception Exception { get; }
+    /// <summary>成功・同URL・同名・失敗の集計です。終了の要求などで集計を作らなかった取込みではnullです。</summary>
+    internal ExternalPlaylistImportQueueSummary Summary { get; init; }
 }

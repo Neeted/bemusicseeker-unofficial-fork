@@ -254,7 +254,6 @@ internal static class StartupCompletionTestFixture
                 }));
             }
             Owner.SettingDialog.AttachPresentationPort(Presentation);
-            Owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             Owner.PropertyChanged += (_, args) =>
             {
                 if (args.PropertyName == nameof(MainWindowViewModel.IsInitializationCompleted) && Owner.IsInitializationCompleted) { CompletionNotifications++; }

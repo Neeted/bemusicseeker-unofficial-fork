@@ -35,6 +35,29 @@ internal sealed class ApplicationLoggingTestScope
     /// <summary>ログ入力と出力を作る前から所有するケース領域です。</summary>
     internal string RootDirectory { get; }
 
+    /// <summary>ケース領域のファイルへ Info 以上を書く構成にし、そのパスを返します。</summary>
+    internal string ConfigureFileLog()
+    {
+        string logPath = Path.Combine(RootDirectory, "application.log");
+        LogManager.Configuration = new LoggingConfiguration();
+        NLogWrapper.AddApplicationFileTarget(new NLog.Targets.FileTarget
+        {
+            Name = "ApplicationFileTarget",
+            FileName = logPath,
+            Layout = NLogWrapper.DefaultLayout
+        }, LogLevel.Info);
+        return logPath;
+    }
+
+    /// <summary>出力を流し切ってから、ファイルのログ全体を読みます。</summary>
+    internal static string ReadFileLog(string logPath)
+    {
+        NLogWrapper.FlushBeforeExit(TimeSpan.FromSeconds(5));
+        using var stream = new FileStream(logPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+
     /// <summary>本体の失敗と構成・参照・領域の回収失敗を別々に保持し、全回収を試みます。</summary>
     internal static async Task RunAsync(Func<ApplicationLoggingTestScope, Task> body)
     {

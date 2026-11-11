@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -109,11 +110,11 @@ public sealed class BeatorajaTableUrlImportPresentationTests
     }
 
     /// <summary>
-    /// 保証：受付を取得した後に決まる通知（ここでは URL なし）は、受付を解放した後に窓口へ届き、
-    /// 返す Task は表示の終端まで完了しない。通知を受付の内側で待つ誤りと、表示を待たずに Task を終える誤りを検出する。
+    /// 保証：受付を取得した後に決まる通知（ここでは URL なし）は、受付を解放した後に窓口へ依頼され、
+    /// 返す Task は表示の完了を待たずに完了する。通知を受付の内側で依頼する誤りと、表示の完了を待って Task を終えない誤りを検出する。
     /// </summary>
     [TestMethod]
-    public async Task NoticeDecidedAfterAdmission_IsPresentedAfterReleaseAndHoldsTheTask()
+    public async Task NoticeDecidedAfterAdmission_IsRequestedAfterReleaseWithoutWaitingForDisplay()
     {
         var gate = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var messageArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -130,9 +131,9 @@ public sealed class BeatorajaTableUrlImportPresentationTests
         Task<BeatorajaTableUrlImportSummary?> importTask = fixture.Workspace.StartBeatorajaTableUrlImport(fixture.BeatorajaRoot);
         try
         {
-            await TestUiDispatcherHost.AwaitNotificationAsync(messageArrived.Task, importTask, "beatoraja no URLs notice");
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(messageArrived.Task, "beatoraja-no-urls-notice-request");
             Assert.IsTrue(admissionAvailableAtRequest, "通知の要求の時点で、受付は解放済みである必要がある。");
-            Assert.IsFalse(importTask.IsCompleted, "表示が未完了の間は Task も未完了である必要がある。");
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(importTask, "beatoraja-no-urls-task");
             fixture.AssertAdmissionIsAvailable();
             Assert.AreEqual(1, dialogs.MessageRequests.Count);
             UiMessageRequest notice = dialogs.MessageRequests[0];
@@ -151,12 +152,12 @@ public sealed class BeatorajaTableUrlImportPresentationTests
     }
 
     /// <summary>
-    /// 保証：操作通知は受領の順に要約より前へ、どちらも受付の解放後に表示し、返す Task は両方の表示の終端を待つ。
-    /// 表示役の順序・Owner・見出し・アイコンと、受付を保持した表示や要約の先行を検出する。
+    /// 保証：操作通知は受領の順に要約より前へ、どちらも受付の解放後に依頼し、返す Task は表示の完了を待たない。
+    /// 表示役の順序・Owner・見出し・アイコンと、受付を保持した依頼や要約の先行、表示の完了待ちを検出する。
     /// 警告は受信側（表示役・順序・受付の解放）の確認のため、取込みの途中の同期フックから実物の通知の積み先へ積む（生成元の確認ではない）。
     /// </summary>
     [TestMethod]
-    public async Task OperationNotificationThenSummary_ArePresentedInOrderAfterReleaseAndHoldTheTask()
+    public async Task OperationNotificationThenSummary_AreRequestedInOrderAfterReleaseWithoutHoldingTheTask()
     {
         var summaryGate = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var summaryArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -176,8 +177,8 @@ public sealed class BeatorajaTableUrlImportPresentationTests
         Task<BeatorajaTableUrlImportSummary?> importTask = fixture.Workspace.StartBeatorajaTableUrlImport(fixture.BeatorajaRoot);
         try
         {
-            await TestUiDispatcherHost.AwaitNotificationAsync(summaryArrived.Task, importTask, "beatoraja summary");
-            Assert.IsFalse(importTask.IsCompleted, "要約の表示が未完了の間は Task も未完了である必要がある。");
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(summaryArrived.Task, "beatoraja-summary-request");
+            await ConcurrencyProbe.AssertCompletesWhileHeldAsync(importTask, "beatoraja-summary-task");
             fixture.AssertAdmissionIsAvailable();
             IReadOnlyList<UiMessageRequest> requests = dialogs.MessageRequests;
             Assert.AreEqual(2, requests.Count, "操作通知、要約の順に二件。");
@@ -206,10 +207,12 @@ public sealed class BeatorajaTableUrlImportPresentationTests
     }
 
     /// <summary>
-    /// 保証：通知または要約の表示が失敗（失敗結果・失敗した Task・同期の例外）しても、警告の診断へ元の例外を残すだけで、
+    /// 保証：通知または要約の表示が失敗（失敗結果・失敗した Task・同期の例外）しても、
     /// 取込みの結果（Task の完了・DB・config）を変えず、残りの表示を続ける。任意の通知の失敗で取込みを失敗にする誤りを検出する。
+    /// 失敗した組ごとに、表示役が出す診断（file_db_mutation_notification_failed）が元の例外つきで一件だけ残ることも確認する。
     /// </summary>
     [TestMethod]
+    [DoNotParallelize]
     [DataRow("notification", "failed")]
     [DataRow("notification", "faulted")]
     [DataRow("notification", "throws")]
@@ -219,40 +222,38 @@ public sealed class BeatorajaTableUrlImportPresentationTests
     public async Task PresentationFailure_IsLoggedOnlyAndDoesNotChangeTheImportResult(string target, string form)
     {
         var sentinel = new InvalidOperationException("presentation failed");
-        var warnings = new List<(Exception Exception, string Message)>();
-        DialogService dialogs = CreateDialogs();
-        await using ExistingTableImportFixture fixture = await ExistingTableImportFixture.CreateAsync(
-            dialogs, warningLog: (exception, message) => { lock (warnings) { warnings.Add((exception, message)); } });
-        QueueOneWarningDuringImport(fixture);
-        bool IsTarget(UiMessageRequest request) => (request.Caption == Resources.Beatoraja_table_url_import_result_title) == (target == "summary");
-        dialogs.MessageTaskFactory = request =>
+        await ApplicationLoggingTestScope.RunAsync(async loggingScope =>
         {
-            if (!IsTarget(request)) { return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }
-            return form switch
+            string logPath = loggingScope.ConfigureFileLog();
+            DialogService dialogs = CreateDialogs();
+            await using ExistingTableImportFixture fixture = await ExistingTableImportFixture.CreateAsync(dialogs);
+            QueueOneWarningDuringImport(fixture);
+            bool IsTarget(UiMessageRequest request) => (request.Caption == Resources.Beatoraja_table_url_import_result_title) == (target == "summary");
+            dialogs.MessageTaskFactory = request =>
             {
-                "failed" => Task.FromResult(UiDialogResult.Failed(sentinel)),
-                "faulted" => Task.FromException<UiDialogResult>(sentinel),
-                _ => throw sentinel,
+                if (!IsTarget(request)) { return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); }
+                return form switch
+                {
+                    "failed" => Task.FromResult(UiDialogResult.Failed(sentinel)),
+                    "faulted" => Task.FromException<UiDialogResult>(sentinel),
+                    _ => throw sentinel,
+                };
             };
-        };
 
-        BeatorajaTableUrlImportSummary? summary = await fixture.Workspace.StartBeatorajaTableUrlImport(fixture.BeatorajaRoot);
+            BeatorajaTableUrlImportSummary? summary = await fixture.Workspace.StartBeatorajaTableUrlImport(fixture.BeatorajaRoot);
+            // 窓口の応答は完了済みの Task または同期の例外なので、表示役の依頼と診断は、取込みの Task の完了までに同期で終わっています。
 
-        Assert.IsNotNull(summary, "表示の失敗で取込みの結果を失わない。");
-        Assert.AreEqual(2, summary.ExistingCount);
-        Assert.AreEqual(2, dialogs.MessageRequests.Count, "ある表示が失敗しても残りの表示を続ける。");
-        (Exception Exception, string Message)[] presentationWarnings;
-        lock (warnings)
-        {
-            presentationWarnings = [.. warnings.Where(warning => warning.Message.StartsWith("beatoraja_table_url_import_presentation_failed", StringComparison.Ordinal))];
-        }
-        Assert.AreEqual(1, presentationWarnings.Length, "失敗した表示ごとに警告を一回だけ残す。");
-        Assert.IsTrue(
-            ReferenceEquals(sentinel, presentationWarnings[0].Exception) || ReferenceEquals(sentinel, presentationWarnings[0].Exception.InnerException),
-            "警告の例外は元の表示の失敗である必要がある。");
-        CollectionAssert.AreEqual(new[] { 3, 1, 2 }, fixture.ReadTableOrder());
-        CollectionAssert.AreEqual(new[] { "https://example.com/table3", "https://example.com/table1" }, fixture.ReadConfigUrls());
-        fixture.AssertAdmissionIsAvailable();
+            Assert.IsNotNull(summary, "表示の失敗で取込みの結果を失わない。");
+            Assert.AreEqual(2, summary.ExistingCount);
+            Assert.AreEqual(2, dialogs.MessageRequests.Count, "ある表示が失敗しても残りの表示を続ける。");
+            string log = ApplicationLoggingTestScope.ReadFileLog(logPath);
+            Assert.AreEqual(1, Regex.Count(log, "file_db_mutation_notification_failed"), "失敗した組について診断をちょうど一件残す。");
+            StringAssert.Contains(log, nameof(InvalidOperationException), "診断に元の例外の型が付く。");
+            StringAssert.Contains(log, sentinel.Message, "診断に元の例外のメッセージが付く。");
+            CollectionAssert.AreEqual(new[] { 3, 1, 2 }, fixture.ReadTableOrder());
+            CollectionAssert.AreEqual(new[] { "https://example.com/table3", "https://example.com/table1" }, fixture.ReadConfigUrls());
+            fixture.AssertAdmissionIsAvailable();
+        });
     }
 
     /// <summary>

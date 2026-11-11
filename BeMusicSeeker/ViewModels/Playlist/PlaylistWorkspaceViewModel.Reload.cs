@@ -98,6 +98,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         BMSPlaylist playlists = GetPlaylistStore();
+        // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。
+        await RunWithOperationNoticesAsync(playlists, "manual playlist resync notification",
+            () => ResyncPlaylistsAdmittedAsync(playlists, requestedTables)).ConfigureAwait(false);
+    }
+
+    private async Task ResyncPlaylistsAdmittedAsync(BMSPlaylist playlists, List<BMSTable> requestedTables)
+    {
         if (playlists.IsPlaylistUpdating
             || !TryEnterPlaylistMutationAdmission(playlists, out IDisposable admission))
         {

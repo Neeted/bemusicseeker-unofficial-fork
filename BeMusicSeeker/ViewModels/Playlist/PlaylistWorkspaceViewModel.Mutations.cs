@@ -15,11 +15,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private readonly Func<BMSLibrary> getPlaylistLibrary;
 
-    internal event EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> MutationRejected;
-
-    internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;
-
-
     private bool TryEnterPlaylistMutationAdmission(
         BMSPlaylist playlistStore,
         out IDisposable lease)
@@ -37,16 +32,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         return false;
     }
 
+    /// <summary>Pを非待機で取得します。取得できない場合の拒否の通知は、呼出し元が操作の収集先へ積みます。</summary>
     private IDisposable TryBeginPlaylistMutationForOwner(
         BMSPlaylist playlistStore,
         PlaylistWorkspaceMutationKind kind)
     {
-        if (TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable lease))
-        {
-            return lease;
-        }
-        RaiseMutationRejected(kind, isBusy: true, isStale: false);
-        return null;
+        return TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable lease) ? lease : null;
     }
 
     private bool TryBeginPlaylistMutation(
@@ -67,14 +58,25 @@ public sealed partial class PlaylistWorkspaceViewModel
         return false;
     }
 
+    /// <summary>
+    /// 操作を実行しなかった理由を通知します。操作の収集先があれば積み、その操作が受付を解放した後に表示します。
+    /// 収集先がなければ、呼出し元が戻った後に待たずに表示を依頼します。
+    /// </summary>
     private void RaiseMutationRejected(
         PlaylistWorkspaceMutationKind kind,
         bool isBusy,
         bool isStale)
     {
-        MutationRejected?.Invoke(
-            this,
-            new PlaylistWorkspaceMutationRejectedEventArgs(kind, isBusy, isStale));
+        NotifyOperation(PlaylistOperationNotices.Rejection(kind, isBusy, isStale), "playlist mutation rejection notification");
+    }
+
+    /// <summary>通知を現在の操作の収集先へ積みます。収集先がなければ待たずに表示を依頼します。通知の失敗は診断だけに残します。</summary>
+    private void NotifyOperation(PlaylistOperationNotificationOwner.OperationNotification notification, string routeName)
+    {
+        BMSPlaylist store = null;
+        try { store = getPlaylistStore(); }
+        catch (Exception exception) { TryLogPlaylistDropSecondaryFailure(exception, "playlist_operation_notification_store_failed route=" + routeName); }
+        PlaylistOperationNotices.Notify(store, noticePresenter, notification, routeName);
     }
 
     private bool TryResolvePlaylistTableForMutation(
@@ -105,10 +107,14 @@ public sealed partial class PlaylistWorkspaceViewModel
     private async Task ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind kind, Func<LibraryFileMutationCapability, Task> execute)
     {
         BMSPlaylist store = GetPlaylistStore();
-        if (!TryBeginPlaylistMutation(store, kind, out IDisposable admission)) { return; }
-        using IDisposable accepted = admission;
-        using LibraryFileMutationCapability capability = store.CreatePlaylistMutationCapability(admission);
-        await RunWithSavedHeaderPresentationAsync(() => Task.Run(() => execute(capability))).ConfigureAwait(false);
+        // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。内側の操作の通知は、この収集先へ引き継がれます。
+        await RunWithOperationNoticesAsync(store, "playlist mutation notification (" + kind + ")", async () =>
+        {
+            if (!TryBeginPlaylistMutation(store, kind, out IDisposable admission)) { return; }
+            using IDisposable accepted = admission;
+            using LibraryFileMutationCapability capability = store.CreatePlaylistMutationCapability(admission);
+            await RunWithSavedHeaderPresentationAsync(() => Task.Run(() => execute(capability))).ConfigureAwait(false);
+        }).ConfigureAwait(false);
     }
 
     /// <summary>手動改名の新しい空白入力だけを空文字へ揃え、同じ確定名を保存と選択の対応付けへ渡します。</summary>
@@ -774,7 +780,20 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        BMSPlaylist store = GetPlaylistStore();
+        await RunWithOperationNoticesAsync(GetPlaylistStore(), routeName, operation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 操作を、通知の収集先の内側で実行します。操作が受付（P）を取得し解放した後に、集めた通知をまとめて表示するよう依頼します。
+    /// 戻る Task は、終了の判定と最初の組の依頼までで完了し、表示の完了は待ちません。収集先を持てない（ストアがない）場合は、操作だけを実行します。
+    /// </summary>
+    private async Task RunWithOperationNoticesAsync(BMSPlaylist store, string routeName, Func<Task> operation)
+    {
+        if (store == null)
+        {
+            await operation().ConfigureAwait(false);
+            return;
+        }
         using PlaylistOperationNotificationOwner.OperationNotificationSession session = store.OperationNotificationOwner.BeginSession();
         try
         {
@@ -782,29 +801,77 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            PublishPlaylistOperationNotificationReceipt(session, routeName);
+            await PublishPlaylistOperationNotificationReceiptAsync(session, routeName).ConfigureAwait(false);
         }
     }
 
-    /// <summary>バックグラウンド BMT 処理の確定した失敗を、元の操作 session と独立して提示します。</summary>
+    /// <summary><see cref="RunWithOperationNoticesAsync(BMSPlaylist, string, Func{Task})"/> の、結果を返す操作の版です。</summary>
+    private async Task<T> RunWithOperationNoticesAsync<T>(BMSPlaylist store, string routeName, Func<Task<T>> operation)
+    {
+        if (store == null)
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        using PlaylistOperationNotificationOwner.OperationNotificationSession session = store.OperationNotificationOwner.BeginSession();
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        finally
+        {
+            await PublishPlaylistOperationNotificationReceiptAsync(session, routeName).ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// BMT 出力の確定した失敗を知らせます。BMT 出力は受付（P）の内側で走るため、現在の操作の収集先があれば同じ操作の通知として積み、
+    /// 最も外側の操作が受付を解放した後に表示を依頼します。収集先がなければ、受付が解放されて空いた後に、UI の文脈の外から依頼します。
+    /// どちらも表示の完了は待ちません。
+    /// </summary>
     internal void ReportBmtOutputFailures(IReadOnlyList<BmtTableExportService.FileOperationFailure> failures)
     {
-        var receipt = PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create(
-            failures.Select(failure => new PlaylistOperationNotificationOwner.OperationNotification(
+        BMSPlaylist store = getPlaylistStore();
+        List<PlaylistOperationNotificationOwner.OperationNotification> unassigned = [];
+        foreach (BmtTableExportService.FileOperationFailure failure in failures)
+        {
+            var notification = new PlaylistOperationNotificationOwner.OperationNotification(
                 PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
                     nameof(Resources.Beatoraja_bmt_output_failure_format), failure.Path, failure.Cause),
                 nameof(Resources.MessageBoxTitle_Warning),
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning)));
-        RaiseRequiredEvent(
-            PlaylistOperationNotificationPresentationRequested,
-            new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, "beatoraja BMT output failure"),
-            nameof(PlaylistOperationNotificationPresentationRequested));
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
+                isBmtOutputFailure: true);
+            if (store?.OperationNotificationOwner.TryAddToCurrentSession(notification) != true)
+            {
+                unassigned.Add(notification);
+            }
+        }
+        if (unassigned.Count == 0)
+        {
+            return;
+        }
+        var receipt =
+            PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create(unassigned);
+        Task idle = store?.WaitForPlaylistMutationIdleAsync() ?? Task.CompletedTask;
+        Task.Run(async () =>
+        {
+            try { await idle.ConfigureAwait(false); }
+            catch (Exception) { /* 待機の失敗は、通知の依頼を妨げません。 */ }
+            noticePresenter.Request(receipt, "beatoraja BMT output failure");
+        }).ObserveFault("beatoraja BMT output failure");
     }
 
+    /// <summary>
+    /// 操作の収集先が集めた通知を、外側の操作の収集先へ引き継ぎます。最も外側の収集先の場合だけ、待たずに表示を依頼します。
+    /// 受付を保持したまま表示を依頼しないよう、最も外側の収集先は受付の外側で作ります。
+    /// </summary>
     private void PublishPlaylistOperationNotificationReceipt(
         PlaylistOperationNotificationOwner.OperationNotificationSession session,
         string routeName)
     {
+        if (session.TryForwardToParent())
+        {
+            return;
+        }
         PublishPlaylistOperationNotificationReceipt(session.TakeReceipt(), routeName);
     }
 
@@ -812,23 +879,26 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
         string routeName)
     {
-        var request = new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, routeName);
-        try
-        {
-            RaiseRequiredEvent(
-                PlaylistOperationNotificationPresentationRequested,
-                request,
-                nameof(PlaylistOperationNotificationPresentationRequested));
-        }
-        catch (Exception exception)
-        {
-            // receipt取得とsession寿命は必須のまま、操作後の表示だけを局所診断で終えます。
-            TryLogPlaylistDropSecondaryFailure(
-                exception,
-                "playlist_operation_notification_presentation_failed route=" + routeName);
-        }
+        noticePresenter.RequestInBackground(receipt, routeName);
     }
 
+    /// <summary>
+    /// 操作の収集先が集めた通知を、外側の操作の収集先があれば引き継ぎ、最も外側であれば表示を依頼します。
+    /// 戻る Task は、終了の判定と最初の組の依頼までで完了し、表示の完了は待ちません。
+    /// </summary>
+    private Task PublishPlaylistOperationNotificationReceiptAsync(
+        PlaylistOperationNotificationOwner.OperationNotificationSession session,
+        string routeName)
+    {
+        return session.TryForwardToParent()
+            ? Task.CompletedTask
+            : noticePresenter.BeginRequest(session.TakeReceipt(), routeName);
+    }
+
+    /// <summary>
+    /// ドロップの通知を引き継ぎます。取消のときは通知を捨てます。主な失敗があり、BMT 出力の失敗を除いて警告もエラーもないときは、
+    /// 失敗の通知を補い、集めた他の通知（BMT 出力の警告を含む）と同じ操作の通知として扱います。
+    /// </summary>
     private void PublishPlaylistDropOperationNotificationReceipt(
         PlaylistOperationNotificationOwner.OperationNotificationSession session,
         ExceptionDispatchInfo primaryFailure)
@@ -842,27 +912,28 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
 
-            PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
-            if (primaryException != null
-                && !receipt.Notifications.Any(notification =>
-                    notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
-                        or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error))
+            if (primaryException != null)
             {
-                session.Add(
-                    new PlaylistOperationNotificationOwner.OperationNotification(
-                        PlaylistOperationNotificationOwner.OperationNotificationText.FromResourceWithDetail(
-                            nameof(Resources.Msg_error_unexpected), primaryException.Message, detailSeparatorLineBreaks: 1),
-                        nameof(Resources.Error),
-                        PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
-                receipt = session.TakeReceipt();
+                PlaylistOperationNotificationOwner.OperationNotificationReceipt collected = session.TakeReceipt();
+                foreach (PlaylistOperationNotificationOwner.OperationNotification notification in collected.Notifications)
+                {
+                    session.Add(notification);
+                }
+                if (!collected.Notifications.Any(notification =>
+                    !notification.IsBmtOutputFailure
+                    && notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
+                        or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error))
+                {
+                    session.Add(
+                        new PlaylistOperationNotificationOwner.OperationNotification(
+                            PlaylistOperationNotificationOwner.OperationNotificationText.FromResourceWithDetail(
+                                nameof(Resources.Msg_error_unexpected), primaryException.Message, detailSeparatorLineBreaks: 1),
+                            nameof(Resources.Error),
+                            PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
+                }
             }
 
-            RaiseRequiredEvent(
-                PlaylistOperationNotificationPresentationRequested,
-                new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                    receipt,
-                    "playlist drop custom folder output notification"),
-                nameof(PlaylistOperationNotificationPresentationRequested));
+            PublishPlaylistOperationNotificationReceipt(session, "playlist drop custom folder output notification");
         }
         catch (Exception exception)
         {
@@ -939,30 +1010,6 @@ internal enum PlaylistWorkspaceMutationKind
     Reload
 }
 
-/// <summary>編集を実行しなかった理由を、画面の通知へ渡します。</summary>
-internal sealed class PlaylistWorkspaceMutationRejectedEventArgs : EventArgs
-{
-    /// <summary>操作種別と、競合または対象消失による未実行の理由を保持します。</summary>
-    internal PlaylistWorkspaceMutationRejectedEventArgs(
-        PlaylistWorkspaceMutationKind kind,
-        bool isBusy = false,
-        bool isStale = false)
-    {
-        Kind = kind;
-        IsBusy = isBusy;
-        IsStale = isStale;
-    }
-
-    /// <summary>実行しなかった操作の種類です。</summary>
-    internal PlaylistWorkspaceMutationKind Kind { get; }
-
-    /// <summary>先行操作との競合により、待機せず未実行となったかを示します。</summary>
-    internal bool IsBusy { get; }
-
-    /// <summary>現在の対象を一意に解決できず、未実行となったかを示します。</summary>
-    internal bool IsStale { get; }
-}
-
 internal sealed class PlaylistFolderContextMenuAvailability
 {
     internal PlaylistFolderContextMenuAvailability(bool canDelete, bool canRename)
@@ -974,19 +1021,4 @@ internal sealed class PlaylistFolderContextMenuAvailability
     internal bool CanDelete { get; }
 
     internal bool CanRename { get; }
-}
-
-internal sealed class PlaylistOperationNotificationPresentationRequestedEventArgs : EventArgs
-{
-    internal PlaylistOperationNotificationPresentationRequestedEventArgs(
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
-        string routeName)
-    {
-        Receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
-        RouteName = routeName;
-    }
-
-    internal PlaylistOperationNotificationOwner.OperationNotificationReceipt Receipt { get; }
-
-    internal string RouteName { get; }
 }

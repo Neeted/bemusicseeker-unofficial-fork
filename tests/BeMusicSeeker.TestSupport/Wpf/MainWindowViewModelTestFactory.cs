@@ -116,8 +116,6 @@ internal static class MainWindowViewModelTestFactory
         this ApplicationComposition composition)
     {
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-        viewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested +=
-            (_, _) => { };
         return viewModel;
     }
 

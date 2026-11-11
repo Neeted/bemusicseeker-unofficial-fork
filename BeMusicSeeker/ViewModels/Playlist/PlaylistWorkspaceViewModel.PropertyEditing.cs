@@ -21,12 +21,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     // 既存編集sessionの対象・開始版で、自分のprefix差分だけをdrain時に分類します。保存終端で参照を解放します。
     private PlaylistPropertyEditSession summaryPropertyEditSession;
 
-    internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> PlaylistPropertyValidationError;
-
-    internal event EventHandler PlaylistPropertyInvalidOutputDirectoryRequested;
-
-    internal event EventHandler<PlaylistPropertyExternalSyncFailedEventArgs> PlaylistPropertyExternalSyncFailed;
-
     public PlaylistPropertyDialogViewModel ActivePropertyDialog
     {
         get => activePropertyDialog;
@@ -44,24 +38,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         !IsWriteLockHeldBMSTablesInitializeMin
         && !IsWriteLockHeldBMSTables
         && !IsWriteLockHeldAnyBMSTable;
-
-    private void ForwardPlaylistPropertyValidationError(
-        object sender,
-        PlaylistPropertyValidationErrorEventArgs request)
-    {
-        RaiseRequiredEvent(
-            PlaylistPropertyValidationError,
-            request,
-            nameof(PlaylistPropertyValidationError));
-    }
-
-    private void ForwardPlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
-    {
-        RaiseRequiredEvent(
-            PlaylistPropertyInvalidOutputDirectoryRequested,
-            EventArgs.Empty,
-            nameof(PlaylistPropertyInvalidOutputDirectoryRequested));
-    }
 
     private void ForwardPlaylistPropertySyncStarted(object sender, EventArgs e)
     {
@@ -133,10 +109,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(request.Table, request.Uri, request.Exception));
                 LogPlaylistPropertyExternalSyncFailure(request);
             }
-            RaiseRequiredEvent(
-                PlaylistPropertyExternalSyncFailed,
-                request,
-                nameof(PlaylistPropertyExternalSyncFailed));
         });
     }
 
@@ -211,16 +183,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         });
     }
 
-    private void ForwardPlaylistOperationNotificationPresentationRequested(
-        object sender,
-        PlaylistOperationNotificationPresentationRequestedEventArgs request)
-    {
-        ApplyPlaylistPropertyPresentation(() => RaiseRequiredEvent(
-            PlaylistOperationNotificationPresentationRequested,
-            request,
-            nameof(PlaylistOperationNotificationPresentationRequested)));
-    }
-
     private void ApplyPlaylistPropertyPresentation(Action action)
     {
         playlistRestoreUiApplyScheduler(action).GetAwaiter().GetResult();
@@ -250,34 +212,38 @@ public sealed partial class PlaylistWorkspaceViewModel
         try
         {
             BMSPlaylist store = GetPlaylistStore();
-            if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
+            // 準備中の通知（出力先が不正など）は、Pを解放した後に表示を依頼します。
+            return await RunWithOperationNoticesAsync(store, "playlist property dialog preparation notification", async () =>
             {
-                return null;
-            }
-            using IDisposable accepted = admission;
-            if (!CanOpenPlaylistEditDialog)
-            {
-                return null;
-            }
-
-            BMSTable table = await CreatePlaylistAsync();
-            PlaylistPropertyEditSession editSession = null;
-            try
-            {
-                editSession = await propertySaveService.CreateEditSessionAsync(
-                    table,
-                    isNewTable: true);
-                if (editSession == null)
+                if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
                 {
                     return null;
                 }
-                return OpenPropertyDialogCore(editSession);
-            }
-            catch
-            {
-                editSession?.Dispose();
-                throw;
-            }
+                using IDisposable accepted = admission;
+                if (!CanOpenPlaylistEditDialog)
+                {
+                    return null;
+                }
+
+                BMSTable table = await CreatePlaylistAsync();
+                PlaylistPropertyEditSession editSession = null;
+                try
+                {
+                    editSession = await propertySaveService.CreateEditSessionAsync(
+                        table,
+                        isNewTable: true);
+                    if (editSession == null)
+                    {
+                        return null;
+                    }
+                    return OpenPropertyDialogCore(editSession);
+                }
+                catch
+                {
+                    editSession?.Dispose();
+                    throw;
+                }
+            });
         }
         finally
         {
@@ -295,25 +261,29 @@ public sealed partial class PlaylistWorkspaceViewModel
         try
         {
             BMSPlaylist store = GetPlaylistStore();
-            if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
+            // 準備中の通知（出力先が不正など）は、Pを解放した後に表示を依頼します。
+            return await RunWithOperationNoticesAsync(store, "playlist property dialog preparation notification", async () =>
             {
-                return null;
-            }
-            using IDisposable accepted = admission;
-            if (!CanOpenPlaylistEditDialog)
-            {
-                return null;
-            }
-            BMSTable currentTable = store.ResolveActivePlaylistTableForMutation(table);
-            if (currentTable == null)
-            {
-                return null;
-            }
-            PlaylistPropertyEditSession editSession =
-                await propertySaveService.CreateEditSessionAsync(currentTable);
-            return editSession == null
-                ? null
-                : OpenPropertyDialogCore(editSession);
+                if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
+                {
+                    return null;
+                }
+                using IDisposable accepted = admission;
+                if (!CanOpenPlaylistEditDialog)
+                {
+                    return null;
+                }
+                BMSTable currentTable = store.ResolveActivePlaylistTableForMutation(table);
+                if (currentTable == null)
+                {
+                    return null;
+                }
+                PlaylistPropertyEditSession editSession =
+                    await propertySaveService.CreateEditSessionAsync(currentTable);
+                return editSession == null
+                    ? null
+                    : OpenPropertyDialogCore(editSession);
+            });
         }
         finally
         {
@@ -421,6 +391,18 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     private async Task<(bool Applied, PropertyValidationError? ValidationError)> ApplySummaryPropertyEditCoreAsync(
+        PlaylistSummaryRow row,
+        string propertyName,
+        string text)
+    {
+        // 保存の通知は、Pを解放した後に表示を依頼します。
+        return await RunWithOperationNoticesAsync(
+            GetPlaylistStore(),
+            "playlist summary property edit notification",
+            () => ApplySummaryPropertyEditAdmittedAsync(row, propertyName, text)).ConfigureAwait(false);
+    }
+
+    private async Task<(bool Applied, PropertyValidationError? ValidationError)> ApplySummaryPropertyEditAdmittedAsync(
         PlaylistSummaryRow row,
         string propertyName,
         string text)

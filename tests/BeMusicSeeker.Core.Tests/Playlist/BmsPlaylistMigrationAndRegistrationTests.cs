@@ -767,6 +767,10 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 BMSTables = new ObservableCollection<BMSTable>(new[] { table })
             };
             var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
@@ -802,21 +806,14 @@ public sealed class BmsPlaylistMigrationAndRegistrationTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
-                new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
-                {
-                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
-                });
+                dialogs);
             workspace.ConfigureCatalogNotificationQueue(action => action());
-            var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notifications.Add(request);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
 
             await workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync(
                 [new PlaylistSummaryRow { TableRef = table }]);
 
-            PlaylistOperationNotificationPresentationRequestedEventArgs notification =
-                notifications.Single(request => request.RouteName == "playlist remove custom folder notification");
-            Assert.IsNotNull(notification.Receipt);
+            Assert.AreEqual(0, dialogs.MessageRequests.Count, "通知がない削除では、表示を依頼しません。");
             Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > summaryDataGenerationBeforeRemoval);
             Assert.IsFalse(playlist.ContainsBMSTable(table));
             Assert.IsFalse(Directory.Exists(targetDir));

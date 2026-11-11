@@ -110,7 +110,11 @@ public sealed class BmsPlaylistExternalReloadTests
             {
                 workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
                     playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
-                    dispatchPresentation: TestUiDispatcherHost.Invoke);
+                    dispatchPresentation: TestUiDispatcherHost.Invoke,
+                    // 要約の適用と通知は本番と同じく UI スレッドで直列にします。既定のインラインでは、複数対象の適用がスレッドプールで並行し、
+                    // 通知の中の列挙と別対象の置換が競合します。
+                    restoreUiApplyScheduler: action => TestUiDispatcherHost.Dispatcher.InvokeAsync(action).Task,
+                    restoreUiThreadCheck: () => TestUiDispatcherHost.Dispatcher.CheckAccess());
                 workspace.RefreshPlaylistTreeTables(playlist, library);
                 workspace.RequestDetailSelection(good, PlaylistFolderNode.CreateFolder("1"));
                 workspace.SetPlaylistSummaryMode(true);
@@ -118,7 +122,6 @@ public sealed class BmsPlaylistExternalReloadTests
             });
             PlaylistWorkspaceViewModel currentWorkspace = workspace
                 ?? throw new AssertFailedException("Workspace was not created.");
-            currentWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             currentWorkspace.PlaylistDetailReloadRefreshRequested += (_, _) => Interlocked.Increment(ref detailRefreshCount);
             currentWorkspace.PlaylistExternalSyncCompleted += (_, _) => Interlocked.Increment(ref completionCount);
             currentWorkspace.PlaylistSyncProgressChanged += (_, change) =>

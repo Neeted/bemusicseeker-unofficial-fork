@@ -208,7 +208,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 { entered.TrySetResult(); await release.Task; }
             });
         current = workspace;
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.PlaylistSyncProgressChanged += (_, _) => { };
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RebuildPlaylistSummaryView(runAsync: false);
@@ -248,6 +247,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     /// 適用の前に取って代わられる分岐（古い要求の取消）は、非同期の構築と競合するため、このテストでは決定的に固定しません。
     /// 要求はshellの保留へ残し、保存の完了時点では適用世代が現在世代に届かない状態を観測します。
     /// 消化は同期のrebuildAsync:falseで行い、独立した要求の構築が同じ呼び出し内で完了した後にidleを待ちます。
+    /// 独立要求は、保存自身のentries通知の適用が保留の消化を終えた後に出します（先に出すと、その消化が独立要求を取り込みます）。
     /// </remarks>
     [TestMethod]
     public async Task PlaylistPropertySave_DoesNotWaitForSupersedingIndependentSummaryRequest()
@@ -260,6 +260,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         long ownGeneration = 0;
         int independentIssued = 0;
         int gated = 0;
+        // 保存自身の一覧要求を出す通知の適用（保存のスレッド）が、保留の消化まで含めて終わったことを示します。
+        int entriesCallbackThread = 0;
+        var entriesCallbackFinished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         PlaylistWorkspaceViewModel? current = null;
         PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs = CreateConfirmingDialogs();
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
@@ -268,7 +271,11 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             presentationRefreshDeferredProvider: request =>
             {
                 // 保存自身の一覧要求の受付時点のデータ世代を記録します。受付で現在世代が進むため、これより大きい世代の採用は受付後に始まった構築だけです。
-                if (request.Reason == "playlist_entries_updated") { Volatile.Write(ref ownGeneration, current?.CurrentPlaylistSummaryDataRebuildGeneration ?? 0); }
+                if (request.Reason == "playlist_entries_updated")
+                {
+                    Volatile.Write(ref ownGeneration, current?.CurrentPlaylistSummaryDataRebuildGeneration ?? 0);
+                    Volatile.Write(ref entriesCallbackThread, Environment.CurrentManagedThreadId);
+                }
                 // 独立要求の後に保存の通知経路から届く要求も、実shellが使用中の間と同じく同じ保留へ合流させ、終端時の状態を確定させます。
                 return request.Reason == IndependentReason || Volatile.Read(ref independentIssued) == 1;
             },
@@ -276,6 +283,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             {
                 long appliedBefore = current?.AppliedPlaylistSummaryDataGeneration ?? 0;
                 action();
+                // 保存自身の一覧要求を出した通知の適用が、保存の保留の消化（終端のdrain）まで終わった後です。
+                if (Volatile.Read(ref entriesCallbackThread) == Environment.CurrentManagedThreadId) { entriesCallbackFinished.TrySetResult(); }
                 // 受付後に始まった構築の採用（このaction自身が適用世代を、記録した世代を超えて進めた最初のUI適用）だけを、採用の直後で止めます。
                 // 保存の配送自身のUI適用（適用世代を進めない）では止めません。
                 long own = Volatile.Read(ref ownGeneration);
@@ -284,7 +293,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 { entered.TrySetResult(); await release.Task; }
             });
         current = workspace;
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.PlaylistSyncProgressChanged += (_, _) => { };
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RebuildPlaylistSummaryView(runAsync: false);
@@ -296,7 +304,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Task<PlaylistPropertyDialogOperationResult> saving = dialog.SaveAndApplyAsync();
         try
         {
-            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, saving, "independent-request-before-summary-apply");
+            // 独立要求は、保存自身の通知の適用が保留を消化し終えた後に出します。先に出すと、その消化が独立要求を取り込みます。
+            await TestUiDispatcherHost.AwaitNotificationAsync(Task.WhenAll(entered.Task, entriesCallbackFinished.Task), saving, "independent-request-before-summary-apply");
             Assert.IsFalse(saving.IsCompleted);
             Volatile.Write(ref independentIssued, 1);
             workspace.RequestPlaylistSummaryDataRefresh(IndependentReason);
@@ -362,7 +371,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 { entered.TrySetResult(); await release.Task; }
                 action();
             });
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RebuildPlaylistSummaryView(runAsync: false);
         await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
@@ -438,7 +446,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
             playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service,
             detailRetentionLog: logs.Add, presentationRefreshDeferredProvider: _ => true);
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RequestPlaylistSummarySort(sortColumn, sortColumn == nameof(PlaylistSummaryRow.TotalCharts)
@@ -539,7 +546,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         using PlaylistWorkspaceViewModel owned = workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
             playlistLibraryProvider: () => fixture.Library, propertySaveService: fixture.Service,
             presentationRefreshDeferredProvider: _ => true, restoreUiApplyScheduler: Schedule);
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.CompatPrefix), System.ComponentModel.ListSortDirection.Ascending);
@@ -644,7 +650,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         fixture.Workspace.Dispose();
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
             playlistLibraryProvider: () => fixture.Library, propertySaveService: service, presentationRefreshDeferredProvider: _ => true);
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.SetDetailDataSource(new PlaylistDetailDataSource(fixture.Library, fixture.Playlist, new MainChartRowProjectionOwner()));
         workspace.RefreshPlaylistTreeTables(fixture.Playlist, fixture.Library);
         workspace.RequestPlaylistSummaryMode(true);
@@ -701,7 +706,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         fixture.Workspace.Dispose();
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => fixture.Playlist,
             playlistLibraryProvider: () => fixture.Library, propertySaveService: service, presentationRefreshDeferredProvider: _ => true);
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RebuildPlaylistSummaryView(runAsync: false);
         await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
@@ -765,7 +769,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             try { publish(); sortDone.TrySetResult(); }
             catch (Exception failure) { sortDone.TrySetException(failure); throw; }
         }
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RequestPlaylistSummaryMode(true);
         workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.TotalCharts), System.ComponentModel.ListSortDirection.Descending);
         workspace.RebuildPlaylistSummaryView(runAsync: false);
@@ -847,7 +850,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 entered.TrySetResult(); await release.Task;
                 if (presentationFails) { throw presentationFailure; }
             });
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         // headerのgateを解放する前に、同じ保存の別通知が実配送を終える順序を固定します。
         service.PlaylistPropertyCatalogChanged += (_, _) => catalogDelivered.TrySetResult();
         workspace.RequestPlaylistSummaryMode(true);
@@ -1125,7 +1127,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => owned.Store,
             playlistWorkspaceDialogService: dialogs);
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RequestDetailSelection(table, operation == "special"
             ? PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned)
             : PlaylistFolderNode.CreateFolder(operation switch { "empty" => "Empty", "whitespace" => "B", _ => "A" }));
@@ -1320,7 +1321,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             var service = new PlaylistPropertySaveService(() => playlist, () => library, () => null!, () => new CustomFolderOutputSettingsSnapshot());
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library, propertySaveService: service);
 
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.PlaylistSyncProgressChanged += (_, _) => { };
             workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { };
             workspace.RefreshPlaylistTreeTables(playlist, library);
@@ -2156,7 +2156,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             var service = new PlaylistPropertySaveService(() => playlist, () => library, () => owner, () => output);
             workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library, propertySaveService: service, dispatchPresentation: action => action());
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.PlaylistSyncProgressChanged += (_, _) => { };
             using PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table, isNew) ?? throw new AssertFailedException();
             string[] filesBefore = Directory.GetFiles(directory, "*", SearchOption.AllDirectories).OrderBy(value => value).ToArray();
@@ -2388,15 +2387,22 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
     [TestMethod]
     public async Task PlaylistPropertySetter_RejectsRawReentryAndPreservesLegacyOnOtherEdits()
     {
-        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        // 入力をUIの文脈から行い、通知の依頼がUIの文脈から行われて同期にブロックしないことも確かめます。
+        using var uiContext = new SingleThreadSynchronizationContext();
+        using var notices = new PlaylistNoticeProbe(() => SynchronizationContext.Current == uiContext);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null),
+            playlistWorkspaceDialogService: notices.Dialogs);
         fixture.Execute(@"UPDATE playlist SET output_dir = 'Legacy\Name';");
         fixture.Table.output_dir = @"Legacy\Name";
-        PlaylistPropertyValidationError? reported = null;
-        fixture.Workspace.PlaylistPropertyValidationError += (_, request) => reported = request.Error;
         using PlaylistPropertyEditSession session = await fixture.Service.CreateEditSessionAsync(fixture.Table) ?? throw new AssertFailedException();
         using var dialog = new PlaylistPropertyDialogViewModel(fixture.Service, session, UndeclaredDialogs.Create());
-        dialog.output_dir = @"Legacy\Name";
-        Assert.AreEqual(PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName, reported);
+        await uiContext.RunAsync(() => { dialog.output_dir = @"Legacy\Name"; });
+        await notices.WaitForRequestsAsync(1);
+        Assert.IsFalse(notices.BlockedOnUiContext, "通知の依頼をUIの文脈から同期に行いません。");
+        UiMessageRequest reported = notices.Messages.Single();
+        Assert.AreEqual(Resources.Error_OutputFolderNameMustBeSingleName, reported.MessageBoxText, "入力不備を、同期のモーダルにせず専用の理由で通知します。");
+        Assert.AreEqual(Resources.Error, reported.Caption);
+        Assert.AreEqual(MessageBoxImage.Hand, reported.Icon);
         Assert.AreEqual("LegacyName", dialog.output_dir);
         dialog.symbol = "Other edit";
         Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
@@ -2729,7 +2735,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 propertySaveService: service,
                 playlistWorkspaceDialogService: dialogs);
 
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             int prefixPresentationCount = 0;
             service.PlaylistPropertyFolderSelectionRemapped += (_, _) =>
             {
@@ -3236,7 +3241,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 out _,
                 playlistStoreProvider: () => playlist,
                 playlistWorkspaceDialogService: dialogs);
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             await workspace.ApplyPlaylistSummaryCellActionAsync(
                 [new PlaylistSummaryRow { TableRef = table }],
@@ -3340,16 +3344,14 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
             playlistWorkspaceDialogService: dialogs);
-        var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
-        workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
 
         await workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(
             table,
             PlaylistFolderNode.CreateFolder("Folder"));
 
-        CollectionAssert.AreEqual(
-            new[] { PlaylistWorkspaceMutationKind.RemoveFolder },
-            rejectedKinds);
+        UiMessageRequest rejection = dialogs.MessageRequests.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder, rejection.MessageBoxText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Error, rejection.Caption);
     }
 
     /// <summary>未選択・確認取消では選択を変更せず、承諾時に選択と実DBの表削除を確定して削除workflowの配送を確認します。</summary>
@@ -3365,7 +3367,6 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _, playlistStoreProvider: () => owned.Store,
             playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
         bool selectionApplied = false;
         await workspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync(null, () => selectionApplied = true);
@@ -3483,7 +3484,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Directory.CreateDirectory(directory);
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
-        Task<ExternalPlaylistImportQueueSummary>? completion = null;
+        Task<ExternalPlaylistImportCompletion>? completion = null;
         try
         {
             string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
@@ -3493,9 +3494,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
-            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
-            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
-            completion = summaryReady.Task;
+            workspace.ExternalPlaylistImportStarted += task => completion = task;
             playlist.StartupReadiness.BeginPlaylistInitialization("test");
             playlist.StartupReadiness.MarkRequiredPlaylistReady();
             PlaylistImportStartResult submission = workspace.TryStartPlaylistImport(
@@ -3510,7 +3509,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             Assert.IsNull(dialogs.LastConfirmationRequest);
             Assert.IsNull(dialogs.LastMessageRequest);
             playlist.StartupReadiness.MarkRequiredPlaylistReady();
-            ExternalPlaylistImportQueueSummary summary = await completion;
+            ExternalPlaylistImportQueueSummary summary = (await completion!).Summary ?? throw new AssertFailedException("The import summary was not produced.");
             Assert.AreEqual(3, summary.ImportedCount);
             Assert.AreEqual(0, summary.FailedCount);
             Assert.AreEqual(3, playlist.BMSTables.Select(table => table.name).Distinct().Count());
@@ -3537,7 +3536,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Directory.CreateDirectory(directory);
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
-        Task<ExternalPlaylistImportQueueSummary>? completion = null;
+        Task<ExternalPlaylistImportCompletion>? completion = null;
         try
         {
             string databasePath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
@@ -3549,20 +3548,18 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist,
                 playlistWorkspaceDialogService: dialogs, playlistLibraryProvider: () => library);
             workspace.RefreshPlaylistTreeTables(playlist);
-            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
-            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) => summaryReady.TrySetResult(request.Summary);
-            completion = summaryReady.Task;
+            workspace.ExternalPlaylistImportStarted += task => completion = task;
             playlist.StartupReadiness.BeginPlaylistInitialization("test");
             Assert.AreEqual(PlaylistImportStartStatus.NotReady,
                 workspace.TryStartPlaylistImport([new Uri("bmseeker:table.recommended")]).Status);
             Assert.IsNull(dialogs.LastConfirmationRequest);
             Assert.AreEqual(0, reads);
             Assert.AreEqual(0, playlist.BMSTables.Count);
-            Assert.IsFalse(completion.IsCompleted);
+            Assert.IsNull(completion, "未開始の要求は取込みのTaskを作りません。");
             playlist.StartupReadiness.MarkRequiredPlaylistReady();
             Assert.AreEqual(PlaylistImportStartStatus.Started,
                 workspace.TryStartPlaylistImport([new Uri("bmseeker:table.recommended")]).Status);
-            ExternalPlaylistImportQueueSummary summary = await completion;
+            ExternalPlaylistImportQueueSummary summary = (await completion!).Summary ?? throw new AssertFailedException("The import summary was not produced.");
             Assert.AreEqual(1, summary.ImportedCount);
             Assert.AreEqual(0, summary.FailedCount);
             Assert.AreEqual(1, reads);

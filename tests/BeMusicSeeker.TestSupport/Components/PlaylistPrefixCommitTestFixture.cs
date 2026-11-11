@@ -94,7 +94,6 @@ internal sealed class PlaylistPrefixCommitTestFixture : IAsyncDisposable
                 playlistLibraryProvider: () => Library, propertySaveService: Service, dispatchPresentation: action => action(),
                 playlistWorkspaceDialogService: playlistWorkspaceDialogService);
 
-            Workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             Workspace.PlaylistSyncProgressChanged += (_, _) => { };
             Workspace.SetDetailDataSource(new PlaylistDetailDataSource(Library, Playlist, new MainChartRowProjectionOwner()));
             Workspace.RequestDetailSelection(Table);

@@ -59,6 +59,12 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
 
     private readonly PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
 
+    /// <summary>操作の受付（P）を解放した後に、集めた通知を待たずに表示するよう依頼する表示役です。</summary>
+    private readonly PlaylistOperationNoticePresenter noticePresenter;
+
+    /// <summary>通知の表示を依頼した要求の累計数です。明示シナリオが、操作が通知を依頼しなかったことを観測するために使います。</summary>
+    internal long PlaylistOperationNoticeRequestCount => noticePresenter.RequestCount;
+
     private readonly PlaylistCatalogSummaryOwner playlistCatalogSummaryOwner = new();
 
     internal PlaylistCatalogSummaryOwner CatalogSummaryOwner => playlistCatalogSummaryOwner;
@@ -247,6 +253,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             playlistReloadLog);
         this.playlistWorkspaceDialogService = playlistWorkspaceDialogService
             ?? throw new ArgumentNullException(nameof(playlistWorkspaceDialogService));
+        noticePresenter = new PlaylistOperationNoticePresenter(
+            this.playlistWorkspaceDialogService,
+            playlistReloadCleanupShutdownRequestedProvider);
         PlaylistRemovalWorkflow = new PlaylistRemovalWorkflowOwner(
             this.playlistWorkspaceDialogService,
             getPlaylistStore,
@@ -255,22 +264,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
             customFolderOutputSettingsProvider,
             (store, kind) => TryBeginPlaylistMutationForOwner(
                 store,
-                kind));
+                kind),
+            noticePresenter);
         PlaylistTableLevelOverwriteWorkflow = new PlaylistTableLevelOverwriteWorkflowOwner(
             this.playlistWorkspaceDialogService,
             getPlaylistLibrary);
         PlaylistRemovalWorkflow.SummaryRefreshRequested +=
             (_, _) => RequestPlaylistSummaryRefresh("playlist_table_removed", rebuildAsync: false);
-        PlaylistRemovalWorkflow.OperationNotificationPresentationRequested +=
-            (_, request) => RaiseRequiredEvent(
-                PlaylistOperationNotificationPresentationRequested,
-                request,
-                nameof(PlaylistOperationNotificationPresentationRequested));
-        PlaylistRemovalWorkflow.MutationRejected +=
-            (_, request) => RaiseRequiredEvent(
-                MutationRejected,
-                request,
-                nameof(MutationRejected));
         PlaylistRemovalWorkflow.FolderRemovalApplied +=
             (_, request) =>
             {
@@ -282,8 +282,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
                     });
                 PublishEntriesChanged(request.Table);
             };
-        propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
-        propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
+        propertySaveService.NoticePresenter = noticePresenter;
         propertySaveService.PlaylistPropertySyncStarted += ForwardPlaylistPropertySyncStarted;
         propertySaveService.PlaylistPropertySyncProgressChanged += ForwardPlaylistSyncProgressChanged;
         propertySaveService.PlaylistPropertySyncFinished += ForwardPlaylistPropertySyncFinished;
@@ -294,7 +293,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel, ISettingsDia
         propertySaveService.PlaylistPropertySummaryDataRefreshRequested += ForwardPlaylistSummaryDataRefreshRequested;
         propertySaveService.PlaylistPropertyEntriesChanged += ForwardPlaylistEntriesChanged;
         propertySaveService.PlaylistPropertyCatalogChanged += ForwardPlaylistPropertyCatalogChanged;
-        propertySaveService.PlaylistOperationNotificationPresentationRequested += ForwardPlaylistOperationNotificationPresentationRequested;
     }
 
     internal void ConfigureCatalogNotificationQueue(Action<Action> queueAction)

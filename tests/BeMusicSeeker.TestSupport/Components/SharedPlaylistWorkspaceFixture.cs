@@ -159,18 +159,23 @@ internal static class SharedPlaylistWorkspaceFixture
     /// <summary>実DBのバックアップ・復元と必要UIを接続します。受付を観測する場合は同じfixture libraryを共有します。</summary>
     /// <param name="databaseScope">復元する接続・ライブラリ・プレイリストが共有するDB所有者。</param>
     /// <param name="libraryOverride">復元のL/Pとモデルのbindingへ共通に渡す、テストが所有するlibrary。</param>
+    /// <param name="dialogs">操作の通知を、受付の解放後に届いた順に記録する窓口。表示は完了済みの結果で返します。</param>
+    /// <param name="playlistWorkspaceDialogService">指定すると、記録する窓口の代わりに通知の窓口として使います。省略時は<paramref name="dialogs"/>を使います。</param>
     /// <param name="reloadFailureLog">通知表示などの二次失敗を観測する診断先。省略時は記録しません。</param>
     /// <param name="modelUiScheduler">モデルと復元wrapperの内側だけに渡す配送境界。省略時は共有Dispatcherを維持します。</param>
+    /// <param name="reloadCleanupShutdownRequestedProvider">終了の要求の判定。通知の依頼の直前にも評価されるため、依頼の時点の状態を作る試験が使います。</param>
     internal static PlaylistWorkspaceViewModel CreateBackupWorkspace(
         ApplicationDatabaseScope databaseScope,
         string songDbPath,
         IEnumerable<BMSTable> tables,
         out BMSPlaylist playlist,
-        out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
+        out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs,
         Func<Action, Task>? restoreUiApplyScheduler = null,
         Func<bool>? restoreUiThreadCheck = null,
         TestBmsLibrary? libraryOverride = null,
-        Action<Exception, string>? reloadFailureLog = null, IUiScheduler? modelUiScheduler = null)
+        Action<Exception, string>? reloadFailureLog = null, IUiScheduler? modelUiScheduler = null,
+        IUiDialogService? playlistWorkspaceDialogService = null,
+        Func<bool>? reloadCleanupShutdownRequestedProvider = null)
     {
         PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
         Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
@@ -192,19 +197,19 @@ internal static class SharedPlaylistWorkspaceFixture
             BMSTables = new ObservableCollection<BMSTable>(tables)
         };
         createdPlaylist.StartupBackgroundTaskScheduler = (_, _, _, _) => false;
+        var recordedDialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
         PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
             out _,
             playlistStoreProvider: () => createdPlaylist,
             playlistLibraryProvider: () => library,
             reloadFailureLog: reloadFailureLog,
             restoreUiApplyScheduler: restoreUiApplyScheduler,
-            restoreUiThreadCheck: restoreUiThreadCheck);
+            restoreUiThreadCheck: restoreUiThreadCheck,
+            reloadCleanupShutdownRequestedProvider: reloadCleanupShutdownRequestedProvider,
+            playlistWorkspaceDialogService: playlistWorkspaceDialogService ?? recordedDialogs);
         workspace.RefreshPlaylistTreeTables(createdPlaylist);
-        List<PlaylistOperationNotificationPresentationRequestedEventArgs> capturedNotifications = [];
-        workspace.PlaylistOperationNotificationPresentationRequested +=
-            (_, request) => capturedNotifications.Add(request);
         playlist = createdPlaylist;
-        notifications = capturedNotifications;
+        dialogs = recordedDialogs;
         return workspace;
     }
 

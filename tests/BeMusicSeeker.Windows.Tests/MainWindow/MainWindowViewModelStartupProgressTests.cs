@@ -1482,7 +1482,6 @@ public sealed class MainWindowViewModelStartupProgressTests
             {
                 owner = new MainWindowViewModel(composition, factory, startupLibraryInitializationFailurePresenter: failures);
                 owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort());
-                owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
                 initialization = owner.InitializeAsync();
                 AwaitArrival(scoreRequestArrived.Task, initialization, "startup-score-failure-request");
 
@@ -1617,7 +1616,6 @@ public sealed class MainWindowViewModelStartupProgressTests
                 owner = new MainWindowViewModel(composition, factory, startupLibraryInitializationFailurePresenter: failures);
                 var presentation = new RecordingSettingsDialogPresentationPort();
                 owner.SettingDialog.AttachPresentationPort(presentation);
-                owner.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
                 initialization = owner.InitializeAsync();
                 AwaitArrival(scanner.Entered.Task, initialization, "startup-scan-entered");
                 AwaitArrival(dbRead.Task, initialization, "startup-scan-database-read");

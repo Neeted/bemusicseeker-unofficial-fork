@@ -1472,7 +1472,6 @@ public sealed class PlaylistUrlCompletionTests
             workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => store,
                 playlistLibraryProvider: () => catalog);
             workspace.SetDetailDataSource(new PlaylistDetailDataSource(catalog, store, new MainChartRowProjectionOwner()));
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.RequestDetailSelection(table);
             await workspace.RequestDetailRefreshTask(MainViewUpdateMode.PlaylistFilterSelected,
                 MainViewUpdateMode.PlaylistFilterSelected, MainViewUpdateMode.PlaylistFilterSelected, false, default);
@@ -1690,7 +1689,6 @@ public sealed class PlaylistUrlCompletionTests
         TestBmsLibrary acceptedLibrary = library;
         PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
             playlistStoreProvider: () => acceptedPlaylist, playlistLibraryProvider: () => acceptedLibrary);
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.SetDetailDataSource(new PlaylistDetailDataSource(acceptedLibrary, acceptedPlaylist, new MainChartRowProjectionOwner()));
         return workspace;
     }

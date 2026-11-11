@@ -1438,7 +1438,7 @@ public sealed class SettingsWindowPresentationTests
                 PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateBackupWorkspace(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope,
                     dbPath,
                     [new BMSTable { playlist_id = 1, name = "Saved backup", symbol = "B" }],
-                    out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
+                    out BMSPlaylist playlist, out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService notifications,
                     reloadFailureLog: (exception, route) => secondaryFailures.Add((exception, route)));
                 playlist.CommitBMSTableHeaderToDB(playlist.BMSTables.Single());
                 string destination = Path.Combine(directory, "backup.sql");
@@ -1451,16 +1451,8 @@ public sealed class SettingsWindowPresentationTests
                 };
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog, PlaylistWorkspace = workspace };
                 dialogs.ExpectedOwner = window;
-                workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-                {
-                    foreach (PlaylistOperationNotificationOwner.OperationNotification notice in request.Receipt.Notifications)
-                    {
-                        UiDialogResult result = dialogs.ShowMessageAsync(new UiMessageRequest(
-                            notice.FormatMessage(), notice.FormatCaption(), MessageBoxButton.OK, MessageBoxImage.Hand,
-                            MessageBoxResult.OK, owner: window)).GetAwaiter().GetResult();
-                        UiDialogRoute.ThrowIfNotShown(result, request.RouteName);
-                    }
-                };
+                // 作業領域の通知窓口の表示は、設定画面の窓口（表示失敗を返す）へ渡します。
+                notifications.MessageTaskFactory = request => dialogs.ShowMessageAsync(request);
                 windowTest.ShowAndWaitForContentRendered(window);
                 bool candidate = !owner.SettingDialog.EnableBeatorajaBmtOutput;
                 owner.SettingDialog.EnableBeatorajaBmtOutput = candidate;
@@ -1474,16 +1466,13 @@ public sealed class SettingsWindowPresentationTests
                 CollectionAssert.AreEqual(oldBytes, File.ReadAllBytes(destination));
                 Assert.AreEqual(candidate, owner.SettingDialog.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(1, dialogs.MessageRequests.Count);
-                Assert.AreEqual(1, notifications.Count);
-                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
-                    notifications.Single().Receipt.Notifications.Single().Severity);
+                Assert.AreEqual(1, notifications.MessageRequests.Count);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Hand, notifications.MessageRequests.Single().Icon);
                 Assert.IsTrue(grid.IsEnabled);
                 LogManager.Flush();
                 Assert.IsTrue(logs.Logs.Any(log => log.Contains("playlist backup path=" + destination, StringComparison.Ordinal)
                     && log.Contains(nameof(IOException), StringComparison.Ordinal)));
-                Assert.AreEqual(1, secondaryFailures.Count);
-                Assert.AreEqual("playlist_operation_notification_presentation_failed route=playlist backup notification", secondaryFailures.Single().Route);
-                Assert.AreSame(noticeFailure, secondaryFailures.Single().Exception.InnerException);
+                Assert.AreEqual(0, secondaryFailures.Count, "通知の表示の失敗は、バックアップの結果にも必須の診断先にも加えません。");
 
                 dialogs.MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
                 ClickBackupPageButton(window, Resources.Backup_playlist);
@@ -1501,7 +1490,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(candidate, owner.SettingDialog.EnableBeatorajaBmtOutput);
                 Assert.AreEqual(3, dialogs.SaveFileRequests.Count);
                 Assert.AreEqual(2, dialogs.MessageRequests.Count);
-                Assert.AreEqual(1, secondaryFailures.Count, "次の成功と取消では通知失敗の診断を重ねません。");
+                Assert.AreEqual(0, secondaryFailures.Count, "次の成功と取消では通知失敗の診断を重ねません。");
                 TestUiDispatcherHost.AssertNoUnhandledExceptions("共有Dispatcherの期間");
             }
             finally
@@ -1570,7 +1559,7 @@ public sealed class SettingsWindowPresentationTests
                     TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
                 PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateBackupWorkspace(library.DatabaseScope,
                     dbPath, [new BMSTable { playlist_id = 1, name = "Old live", symbol = "O" }],
-                    out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
+                    out BMSPlaylist playlist, out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService notifications,
                     restoreUiApplyScheduler: condition == "required-ui-failure"
                         ? _ => Task.FromException(new InvalidOperationException("required restore UI failed")) : null,
                     libraryOverride: library);
@@ -1581,8 +1570,6 @@ public sealed class SettingsWindowPresentationTests
                         throw new IOException("required restore publication failed");
                 }
                 BMSTable oldTable = playlist.BMSTables.Single();
-                int rejected = 0;
-                workspace.MutationRejected += (_, _) => rejected++;
                 if (condition == "library-busy")
                 {
                     Assert.IsTrue(library.OperationAdmission.TryEnter(out heldLease));
@@ -1629,8 +1616,10 @@ public sealed class SettingsWindowPresentationTests
                     Assert.AreEqual(2, playlist.BMSTables.Single().playlist_id, "必要公開の後段失敗で採用済み集合を巻き戻さない。");
                 }
                 else { Assert.AreSame(oldTable, playlist.BMSTables.Single()); }
-                Assert.AreEqual(committedFailure || condition == "picker-cancel" ? 0 : 1, rejected);
-                Assert.AreEqual(committedFailure ? 1 : 0, notifications.Count);
+                Assert.AreEqual(committedFailure || condition == "picker-cancel" ? 0 : 1,
+                    notifications.MessageRequests.Count(request => request.MessageBoxText == Resources.Warn_PlaylistMutationBusy));
+                Assert.AreEqual(committedFailure ? 1 : 0,
+                    notifications.MessageRequests.Count(request => request.MessageBoxText != Resources.Warn_PlaylistMutationBusy));
                 using (LR2SongDBExtended db = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(committedFailure ? 2 : 1, db.Table<BMSTable>().Single().playlist_id);
@@ -1698,7 +1687,7 @@ public sealed class SettingsWindowPresentationTests
                     TestSettingsFactory.CreateIsolatedSettings(values => values.OperationModeLR2DB = false));
                 PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateBackupWorkspace(library.DatabaseScope,
                     dbPath, [new BMSTable { playlist_id = 1, name = "Old live", symbol = "O" }],
-                    out BMSPlaylist playlist, out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications,
+                    out BMSPlaylist playlist, out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService notifications,
                     restoreUiApplyScheduler: action =>
                     {
                         Task operation = ApplyAsync(action);
@@ -1710,7 +1699,7 @@ public sealed class SettingsWindowPresentationTests
                 string dump = Path.Combine(directory, "restore.sql");
                 File.WriteAllText(dump, PlaylistWorkspaceFixtureData.CreatePlaylistRestoreDump(2, "Restored", "R"));
                 bool notificationAfterAdmissionRelease = false;
-                workspace.PlaylistOperationNotificationPresentationRequested += (_, _) =>
+                notifications.MessageRequestedHook = _ =>
                 {
                     bool libraryAvailable = library.OperationAdmission.TryEnter(out IDisposable l);
                     bool playlistAvailable = playlist.TryEnterPlaylistMutation(out IDisposable p);
@@ -1742,7 +1731,7 @@ public sealed class SettingsWindowPresentationTests
                     "compiled restore UI accepted");
                 Assert.IsTrue(window.IsVisible);
                 Assert.AreEqual(0, exits);
-                Assert.AreEqual(0, notifications.Count);
+                Assert.AreEqual(0, notifications.MessageRequests.Count);
                 execute.TrySetResult();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     TestUiDispatcherHost.AwaitNotificationAsync(executed.Task, closed.Task, "compiled restore UI execute"),
@@ -1763,9 +1752,8 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(1, exits);
                 Assert.IsTrue(notificationAfterAdmissionRelease);
-                Assert.AreEqual(1, notifications.Count);
-                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
-                    notifications.Single().Receipt.Notifications.Single().Severity);
+                Assert.AreEqual(1, notifications.MessageRequests.Count);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, notifications.MessageRequests.Single().Icon);
                 Assert.AreEqual(1, dialogs.MessageRequests.Count);
                 Assert.AreEqual(Resources.Msg_ApplicationWillExit, dialogs.MessageRequests.Single().MessageBoxText);
                 Assert.IsFalse(window.IsVisible);
@@ -1854,7 +1842,7 @@ public sealed class SettingsWindowPresentationTests
                     songDbPath,
                     [new BMSTable { playlist_id = 1, name = "Existing", symbol = "E" }],
                     out _,
-                    out List<PlaylistOperationNotificationPresentationRequestedEventArgs> restoreNotifications,
+                    out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService restoreNotifications,
                     restoreUiApplyScheduler: _ => throw new InvalidOperationException("restore UI completion failure"));
                 var dialogs = new RecordingSettingsRouteDialogService
                 {
@@ -1872,8 +1860,8 @@ public sealed class SettingsWindowPresentationTests
                 Task restoreTask = window.HandlePlaylistRestoreAsync();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(restoreTask, "settings restore failure");
                 Assert.IsTrue(restoreTask.IsCompletedSuccessfully);
-                Assert.AreEqual(1, restoreNotifications.Count);
-                StringAssert.Contains(restoreNotifications.Single().Receipt.Notifications.Single().FormatMessage(),
+                Assert.AreEqual(1, restoreNotifications.MessageRequests.Count);
+                StringAssert.Contains(restoreNotifications.MessageRequests.Single().MessageBoxText,
                     "restore UI completion failure");
                 Assert.AreEqual(0, dialogs.MessageRequests.Count, "下位の失敗receiptを再通知せず、終了案内も出さない。");
                 Assert.IsTrue(window.IsVisible);

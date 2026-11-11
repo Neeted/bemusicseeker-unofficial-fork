@@ -4,7 +4,6 @@ using System.Collections.Immutable;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 
@@ -77,16 +76,10 @@ internal sealed partial class ApplicationScenarioControl
                 break;
             case ScenarioPlaylistExportCommand input:
                 Dialogs.ArmJson(input.HeaderPath, input.DataPath);
-                PlaylistOperationNotificationOwner.OperationNotificationReceipt? exportReceipt = null;
-                void ExportNotified(object? sender, PlaylistOperationNotificationPresentationRequestedEventArgs args)
-                {
-                    if (args.RouteName == "playlist table JSON export notification") { exportReceipt = args.Receipt; }
-                }
-                workspace.PlaylistOperationNotificationPresentationRequested += ExportNotified;
-                try { await workspace.ExportPlaylistTableAsync(FindTable(workspace, input.TableId)); }
-                finally { workspace.PlaylistOperationNotificationPresentationRequested -= ExportNotified; }
-                if (exportReceipt is null || !exportReceipt.IsEmpty)
-                { throw new InvalidOperationException("The JSON export did not end with an empty notification receipt."); }
+                long noticeRequestsBeforeExport = workspace.PlaylistOperationNoticeRequestCount;
+                await workspace.ExportPlaylistTableAsync(FindTable(workspace, input.TableId));
+                if (workspace.PlaylistOperationNoticeRequestCount != noticeRequestsBeforeExport)
+                { throw new InvalidOperationException("The JSON export requested an operation notification."); }
                 Dialogs.AssertConsumed();
                 break;
             case ScenarioSettingsEditCommand input:
@@ -104,25 +97,21 @@ internal sealed partial class ApplicationScenarioControl
 
     private async Task<ImmutableArray<ScenarioImportOutcome>> ImportPlaylistAsync(PlaylistWorkspaceViewModel workspace, string url)
     {
-        Task? operation = null;
-        ExternalPlaylistImportQueueSummaryReadyEventArgs? receipt = null;
-        void Started(Task task) => operation = task;
-        void Completed(object? sender, ExternalPlaylistImportQueueSummaryReadyEventArgs value) => receipt = value;
+        Task<ExternalPlaylistImportCompletion>? operation = null;
+        void Started(Task<ExternalPlaylistImportCompletion> task) => operation = task;
         workspace.ExternalPlaylistImportStarted += Started;
-        workspace.ExternalPlaylistImportQueueSummaryReady += Completed;
         try
         {
             PlaylistImportStartResult start = workspace.TryStartPlaylistImport([new Uri(url, UriKind.Absolute)]);
             if (start.Status != PlaylistImportStartStatus.Started) { throw new InvalidOperationException("The import was not accepted: " + start.Status); }
-            await (operation ?? throw new InvalidOperationException("The import Task was not observed.")).WaitAsync(stopping.Token);
-            ExternalPlaylistImportQueueSummaryReadyEventArgs completed = receipt ?? throw new InvalidOperationException("The import ended without a summary.");
-            if (!completed.Receipt.IsEmpty) { throw new InvalidOperationException("The import produced operation notifications."); }
-            return completed.Summary.Outcomes.Select(item => new ScenarioImportOutcome(item.Uri.AbsoluteUri, item.TableName, item.Kind.ToString())).ToImmutableArray();
+            ExternalPlaylistImportCompletion completed = await (operation ?? throw new InvalidOperationException("The import Task was not observed.")).WaitAsync(stopping.Token);
+            if (completed.Receipt is not { IsEmpty: true }) { throw new InvalidOperationException("The import did not end with an empty notification receipt."); }
+            ExternalPlaylistImportQueueSummary summary = completed.Summary ?? throw new InvalidOperationException("The import ended without a summary.");
+            return summary.Outcomes.Select(item => new ScenarioImportOutcome(item.Uri.AbsoluteUri, item.TableName, item.Kind.ToString())).ToImmutableArray();
         }
         finally
         {
             workspace.ExternalPlaylistImportStarted -= Started;
-            workspace.ExternalPlaylistImportQueueSummaryReady -= Completed;
         }
     }
 

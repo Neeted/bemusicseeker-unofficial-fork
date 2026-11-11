@@ -113,13 +113,9 @@ internal static class BmsPlaylistTestSupport
             playlistWorkspaceDialogService ?? UndeclaredDialogs.Create());
         workspace.ConfigureCatalogNotificationQueue(action => action());
         PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
-        workspace.PlaylistPropertyValidationError += (_, _) => { };
-        workspace.PlaylistPropertyInvalidOutputDirectoryRequested += (_, _) => { };
-        workspace.PlaylistPropertyExternalSyncFailed += (_, _) => { };
         workspace.PlaylistSyncProgressChanged += (_, _) => { };
         workspace.PlaylistDetailReloadRefreshRequested += (_, _) => { };
 
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         workspace.RefreshPlaylistTreeTables(playlist, library);
         return workspace;
     }

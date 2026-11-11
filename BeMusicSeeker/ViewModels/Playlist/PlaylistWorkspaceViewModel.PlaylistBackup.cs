@@ -18,21 +18,17 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (PlaylistTreeTables == null || PlaylistTreeTables.Count() == 0)
             {
-                PublishBackupNotification(new PlaylistOperationNotificationOwner.OperationNotification(
+                return PublishBackupNotification(new PlaylistOperationNotificationOwner.OperationNotification(
                     PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup)),
                     nameof(BeMusicSeeker.Properties.Resources.Warning),
                     PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning));
             }
-            else
-            {
-                TryLogBackupRestoreFailure(new InvalidOperationException("Playlist persistence is not available."),
-                    "playlist backup path=" + fileName);
-                PublishBackupNotification(new PlaylistOperationNotificationOwner.OperationNotification(
-                    PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup)),
-                    nameof(BeMusicSeeker.Properties.Resources.Failure),
-                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
-            }
-            return Task.CompletedTask;
+            TryLogBackupRestoreFailure(new InvalidOperationException("Playlist persistence is not available."),
+                "playlist backup path=" + fileName);
+            return PublishBackupNotification(new PlaylistOperationNotificationOwner.OperationNotification(
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup)),
+                nameof(BeMusicSeeker.Properties.Resources.Failure),
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
         }
 
         return BackupPlaylistAsync(tables, fileName);
@@ -53,7 +49,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     nameof(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup), ex.Message, detailSeparatorLineBreaks: 2),
                 nameof(BeMusicSeeker.Properties.Resources.Failure));
         }
-        PublishBackupRestoreNotificationBestEffort(session, "playlist backup notification");
+        await PublishBackupRestoreNotificationBestEffortAsync(session, "playlist backup notification").ConfigureAwait(false);
     }
 
     private void BackupPlaylist(BMSPlaylist tables, string fileName)
@@ -81,27 +77,21 @@ public sealed partial class PlaylistWorkspaceViewModel
             nameof(BeMusicSeeker.Properties.Resources.Success));
     }
 
-    private void PublishBackupNotification(PlaylistOperationNotificationOwner.OperationNotification notification)
+    private Task PublishBackupNotification(PlaylistOperationNotificationOwner.OperationNotification notification)
     {
         // storeがない経路では操作sessionがないため、確定した通知からreceiptを直接作ります。
         var receipt = PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create([notification]);
-        try
-        {
-            PublishPlaylistOperationNotificationReceipt(receipt, "playlist backup notification");
-        }
-        catch (Exception exception)
-        {
-            TryLogBackupRestoreFailure(exception, "playlist backup notification");
-        }
+        return noticePresenter.BeginRequest(receipt, "playlist backup notification");
     }
 
-    private void PublishBackupRestoreNotificationBestEffort(
+    /// <summary>操作の収集先の通知を、操作の受付を持たない終端で依頼します。依頼の失敗は診断だけに残します。</summary>
+    private async Task PublishBackupRestoreNotificationBestEffortAsync(
         PlaylistOperationNotificationOwner.OperationNotificationSession session,
         string routeName)
     {
         try
         {
-            PublishPlaylistOperationNotificationReceipt(session, routeName);
+            await PublishPlaylistOperationNotificationReceiptAsync(session, routeName).ConfigureAwait(false);
         }
         catch (Exception exception)
         {

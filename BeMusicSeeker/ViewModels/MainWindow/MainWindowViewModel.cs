@@ -2932,23 +2932,27 @@ public partial class MainWindowViewModel : ViewModel,
             if (!IsRequiredInitializationShutdownRequested) { await FileDbMutationDialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning)); }
             return;
         }
-        StartupInitializationResult result;
-        using (admission)
-        using (LibraryFileMutationCapability authority = tables.CreatePlaylistMutationCapability(admission))
+        StartupInitializationResult result = null;
+        // 取込み中に集まった通知は、Pを解放した後にまとめて表示を依頼します。
+        await PlaylistWorkspace.RunWithPlaylistOperationNotificationsAsync(async () =>
         {
-            await _semaphore.WaitAsync();
-            long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
-            BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
-            try
+            using (admission)
+            using (LibraryFileMutationCapability authority = tables.CreatePlaylistMutationCapability(admission))
             {
-                await PlaylistTablesReloadWorkflow.ReloadAsync(new(operationToken, authority)).LoggingAndPropagate("ReloadTables");
-                await tables.ApplyRequiredLibraryReferencesAsync();
-                result = new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
-                    OperationKind: StartupProgressOperationKind.ReloadTables);
+                await _semaphore.WaitAsync();
+                long operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
+                BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
+                try
+                {
+                    await PlaylistTablesReloadWorkflow.ReloadAsync(new(operationToken, authority)).LoggingAndPropagate("ReloadTables");
+                    await tables.ApplyRequiredLibraryReferencesAsync();
+                    result = new(StartupInitializationOutcome.Succeeded, GetStartupSettingsSnapshot(), operationToken,
+                        OperationKind: StartupProgressOperationKind.ReloadTables);
+                }
+                catch (Exception failure) { result = CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ReloadTables, failure); }
+                finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
             }
-            catch (Exception failure) { result = CreateLimitedInitializationFailure(operationToken, StartupProgressOperationKind.ReloadTables, failure); }
-            finally { EndUiUpdateSuppression(scheduleFlush: false); _semaphore.Release(); }
-        }
+        }, "reload tables notification");
         await CompleteLimitedInitializationAsync(result);
     }
 

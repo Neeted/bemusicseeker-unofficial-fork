@@ -386,10 +386,9 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         TestBmsPlaylist? acceptedPlaylist = null;
         TestBmsLibrary? acceptedLibrary = null;
         PlaylistWorkspaceViewModel? workspace = null;
-        var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+        ExternalPlaylistImportObserver? importObserver = null;
         var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
         void OnProgress(object? sender, PlaylistSyncProgressChangedEventArgs request) => progress.Enqueue(request.Snapshot);
-        void OnSummary(object? sender, ExternalPlaylistImportQueueSummaryReadyEventArgs request) => summaryReady.TrySetResult(request.Summary);
         var outputEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var outputRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Task? importCompletion = null;
@@ -439,7 +438,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library);
             workspace.PlaylistSyncProgressChanged += OnProgress;
-            workspace.ExternalPlaylistImportQueueSummaryReady += OnSummary;
+            importObserver = new ExternalPlaylistImportObserver(workspace);
 
             server = OwnHttpServer(new SingleRequestHttpServer(httpOperation.Token, BmsPlaylistTestSupport.CreateUtf8BomBytes(
                 "{\"name\":\"한글\",\"symbol\":\"F\",\"tag\":\"FIRST\",\"data_url\":\"" + new Uri(firstDataPath).AbsoluteUri + "\"}"), holdBody: true));
@@ -461,8 +460,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             }), httpRequests, httpOperation.Token);
             server.ReleaseBody.TrySetResult();
             await (Task.WhenAny(outputEntered.Task, importCompletion)).WaitAsync(httpOperation.Token);
-            string outputDiagnostics = summaryReady.Task.IsCompletedSuccessfully
-                ? string.Join(Environment.NewLine, (await (summaryReady.Task).WaitAsync(httpOperation.Token)).FailedOutcomes.Select(outcome => outcome.Exception))
+            string outputDiagnostics = importObserver.LastOperation is { IsCompletedSuccessfully: true }
+                ? string.Join(Environment.NewLine, (await importObserver.LastSummaryAsync(httpOperation.Token)).FailedOutcomes.Select(outcome => outcome.Exception))
                 : string.Empty;
             Assert.IsTrue(outputEntered.Task.IsCompleted, "登録後の必要出力まで到達します。" + outputDiagnostics);
             Assert.IsFalse(importCompletion.IsCompleted);
@@ -470,8 +469,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 workspace.TryStartPlaylistImport([new Uri(secondUri)]).Status, "必要出力中も同じ受付を保持します。");
             outputRelease.TrySetResult();
             await SingleRequestHttpServer.AwaitOperationAsync(importCompletion, httpRequests, httpOperation.Token);
-            Assert.IsTrue(summaryReady.Task.IsCompleted, "実処理の終端までに結果を通知します。");
-            ExternalPlaylistImportQueueSummary summary = await (summaryReady.Task).WaitAsync(httpOperation.Token).ConfigureAwait(false);
+            ExternalPlaylistImportQueueSummary summary = await importObserver.LastSummaryAsync(httpOperation.Token).ConfigureAwait(false);
 
             PlaylistSyncProgressSnapshot[] notifications = progress.ToArray();
             Assert.IsTrue(notifications.Length > 0);
@@ -527,7 +525,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 if (workspace != null)
                 {
                     workspace.PlaylistSyncProgressChanged -= OnProgress;
-                    workspace.ExternalPlaylistImportQueueSummaryReady -= OnSummary;
+                    importObserver?.Dispose();
                     await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
                     await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
                     await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
@@ -1138,7 +1136,6 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 propertySaveService: propertySaveService,
                 catalogNotificationQueue: catalogNotificationQueue.Enqueue);
 
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             ISettingsDialogWorkspacePort settingsPort = workspace;
             var publishedEvents = new List<PlaylistCatalogChangedEventArgs>();
@@ -1384,8 +1381,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         TestBmsLibrary? library = null;
         PlaylistWorkspaceViewModel? workspace = null;
         var auxiliaryWork = new ConcurrentQueue<Task>();
-        var summaries = new List<ExternalPlaylistImportQueueSummary>();
-        EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> summaryHandler = (_, request) => summaries.Add(request.Summary);
+        ExternalPlaylistImportObserver? importObserver = null;
         Exception? primaryFailure = null;
         try
         {
@@ -1411,12 +1407,13 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             workspace = CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
-            workspace.ExternalPlaylistImportQueueSummaryReady += summaryHandler;
+            importObserver = new ExternalPlaylistImportObserver(workspace);
             Assert.AreEqual(0, workspace.CapturePlaylistImportExistingTables().Count);
 
             Assert.AreEqual(PlaylistImportStartStatus.Started, workspace.TryStartPlaylistImport([sourceUri]).Status);
             await playlist.WaitForPlaylistMutationIdleAsync();
-            ExternalPlaylistImportQueueSummary failed = summaries.Single();
+            Assert.AreEqual(1, importObserver.StartedCount);
+            ExternalPlaylistImportQueueSummary failed = await importObserver.LastSummaryAsync();
             Assert.AreEqual(0, failed.ImportedCount);
             Assert.AreEqual(1, failed.FailedCount);
             Exception? failure = failed.Outcomes.Single().Exception;
@@ -1428,10 +1425,11 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             using (LR2SongDBExtended rejected = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), databasePath).OpenSongDbReadOnly())
             { Assert.AreEqual(0, rejected.Table<BMSTable>().Count()); Assert.AreEqual(0, rejected.Table<BMSTableEntry>().Count()); }
             File.WriteAllText(Path.Combine(directory, "data.json"), "[{\"md5\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"title\":\"Date song\",\"adddate\":\"2024-12-31T13:24:35.0000001\"}]");
-            summaries.Clear();
+            importObserver.Reset();
             Assert.AreEqual(PlaylistImportStartStatus.Started, workspace.TryStartPlaylistImport([sourceUri]).Status);
             await playlist.WaitForPlaylistMutationIdleAsync();
-            ExternalPlaylistImportQueueSummary summary = summaries.Single();
+            Assert.AreEqual(1, importObserver.StartedCount);
+            ExternalPlaylistImportQueueSummary summary = await importObserver.LastSummaryAsync();
             Assert.AreEqual(1, summary.ImportedCount,
                 string.Join(Environment.NewLine, summary.FailedOutcomes.Select(outcome => outcome.Exception)));
             Assert.AreEqual(0, summary.FailedCount);
@@ -1482,7 +1480,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             if (playlist != null) { await CleanupAsync(playlist.WaitForPlaylistMutationIdleAsync); }
             if (workspace != null)
             {
-                workspace.ExternalPlaylistImportQueueSummaryReady -= summaryHandler;
+                importObserver?.Dispose();
                 await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
                 await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
                 await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
@@ -1516,8 +1514,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         BMSPlaylist? pendingPlaylist = null;
         TestBmsLibrary? pendingLibrary = null;
         PlaylistWorkspaceViewModel? workspace = null;
-        var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnSummary(object? sender, ExternalPlaylistImportQueueSummaryReadyEventArgs request) => summaryReady.TrySetResult(request.Summary);
+        ExternalPlaylistImportObserver? importObserver = null;
         Exception? primaryFailure = null;
         try
         {
@@ -1546,7 +1543,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                 out _,
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library);
-            workspace.ExternalPlaylistImportQueueSummaryReady += OnSummary;
+            importObserver = new ExternalPlaylistImportObserver(workspace);
 
             using (playlist.AcquirePlaylistMutationLease("explicit-import-busy"))
             {
@@ -1554,25 +1551,23 @@ public sealed class PlaylistWorkspaceExternalSourceTests
                     workspace.TryStartPlaylistImport([new Uri(firstHeaderPath)]).Status);
             }
             await playlist.WaitForPlaylistMutationIdleAsync();
-            Assert.IsFalse(summaryReady.Task.IsCompleted);
+            Assert.AreEqual(0, importObserver.StartedCount, "Busyで拒否した要求は取込みを開始しません。");
             Assert.AreEqual(0, playlist.BMSTables.Count);
 
             PlaylistImportStartResult firstStart = workspace.TryStartPlaylistImport([new Uri(firstHeaderPath)]);
             Assert.AreEqual(PlaylistImportStartStatus.Started, firstStart.Status);
             await playlist.WaitForPlaylistMutationIdleAsync();
-            Assert.IsTrue(summaryReady.Task.IsCompleted, "受理済み取込みの終端までに結果通知を完了します。");
-            ExternalPlaylistImportQueueSummary first = await summaryReady.Task;
+            ExternalPlaylistImportQueueSummary first = await importObserver.LastSummaryAsync();
             Assert.AreEqual(1, first.ImportedCount,
                 string.Join(Environment.NewLine, first.FailedOutcomes.Select(outcome => outcome.Uri + ": " + outcome.Exception)));
             Assert.AreEqual("한글", playlist.BMSTables.Single().name);
             Assert.AreEqual("CATALOG", playlist.BMSTables.Single().tag);
             Assert.IsTrue(string.IsNullOrWhiteSpace(playlist.BMSTables.Single().Output_dir));
-            summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
+            importObserver.Reset();
             Assert.AreEqual(PlaylistImportStartStatus.Started,
                 workspace.TryStartPlaylistImport([new Uri(secondHeaderPath)]).Status);
             await playlist.WaitForPlaylistMutationIdleAsync();
-            Assert.IsTrue(summaryReady.Task.IsCompleted, "次の明示要求も実終端までに結果を通知します。");
-            ExternalPlaylistImportQueueSummary second = await summaryReady.Task;
+            ExternalPlaylistImportQueueSummary second = await importObserver.LastSummaryAsync();
             Assert.AreEqual(1, second.ImportedCount);
             CollectionAssert.AreEqual(
                 new[] { new Uri(firstHeaderPath).AbsoluteUri, new Uri(secondHeaderPath).AbsoluteUri },
@@ -1601,7 +1596,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             if (pendingPlaylist != null) { await CleanupAsync(pendingPlaylist.WaitForPlaylistMutationIdleAsync); }
             if (workspace != null)
             {
-                workspace.ExternalPlaylistImportQueueSummaryReady -= OnSummary;
+                importObserver?.Dispose();
                 await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
                 await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
                 await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
@@ -1630,8 +1625,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         TestBmsPlaylist? playlist = null;
         TestBmsLibrary? library = null;
         PlaylistWorkspaceViewModel? workspace = null;
-        var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
-        void OnSummary(object? sender, ExternalPlaylistImportQueueSummaryReadyEventArgs request) => summaryReady.TrySetResult(request.Summary);
+        ExternalPlaylistImportObserver? importObserver = null;
         Exception? primaryFailure = null;
         try
         {
@@ -1657,13 +1651,12 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
             // 既存factoryのWorkspace設定はOperationModeLR2DB=falseです。登録先storeだけLR2を有効にします。
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
-            workspace.ExternalPlaylistImportQueueSummaryReady += OnSummary;
+            importObserver = new ExternalPlaylistImportObserver(workspace);
             PlaylistImportStartResult start = workspace.TryStartPlaylistImport([new Uri(rejectedHeader), new Uri(validHeader)]);
             Assert.AreEqual(PlaylistImportStartStatus.Started, start.Status);
             Assert.AreEqual(2, start.StartedCount);
             await playlist.WaitForPlaylistMutationIdleAsync();
-            Assert.IsTrue(summaryReady.Task.IsCompleted, "受理済み要求の実終端までに対象別結果を通知します。");
-            ExternalPlaylistImportQueueSummary summary = await summaryReady.Task;
+            ExternalPlaylistImportQueueSummary summary = await importObserver.LastSummaryAsync();
             string diagnostics = string.Join(Environment.NewLine, summary.FailedOutcomes.Select(outcome => outcome.Uri + ": " + outcome.Exception));
             Assert.AreEqual(1, summary.ImportedCount, diagnostics);
             Assert.AreEqual(1, summary.FailedCount, diagnostics);
@@ -1708,7 +1701,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             if (playlist != null) { await CleanupAsync(playlist.WaitForPlaylistMutationIdleAsync); }
             if (workspace != null)
             {
-                workspace.ExternalPlaylistImportQueueSummaryReady -= OnSummary;
+                importObserver?.Dispose();
                 await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
                 await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
                 await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
@@ -1769,13 +1762,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             library = new TestBmsLibrary(databaseScope, databasePath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: httpSettings);
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
                 playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
-            var summaryReady = new TaskCompletionSource<ExternalPlaylistImportQueueSummary>(TaskCreationOptions.RunContinuationsAsynchronously);
-            int notificationCount = 0;
-            workspace.ExternalPlaylistImportQueueSummaryReady += (_, request) =>
-            {
-                notificationCount++;
-                summaryReady.TrySetResult(request.Summary);
-            };
+            using var importObserver = new ExternalPlaylistImportObserver(workspace);
             Assert.AreEqual(0, workspace.CapturePlaylistImportExistingTables().Count);
             Uri[] selectedBeforeRegistration = [pageUri, headerUri, pageUri];
             var existing = new BMSTable
@@ -1798,7 +1785,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             Assert.AreEqual(PlaylistImportStartStatus.NoTargets, allSkipped.Status);
             Assert.AreEqual(0, allSkipped.StartedCount);
             Assert.AreEqual(2, allSkipped.SkippedDuplicateUrlCount);
-            Assert.AreEqual(0, notificationCount);
+            Assert.AreEqual(0, importObserver.StartedCount, "同URLだけの要求は取込みを開始しません。");
             using (playlist.AcquirePlaylistMutationLease("all-url-skipped-released")) { }
             Assert.IsFalse(existingServer.HeadersSent.Task.IsCompleted);
 
@@ -1808,9 +1795,8 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             Assert.AreEqual(3, started.StartedCount);
             Assert.AreEqual(2, started.SkippedDuplicateUrlCount);
             await SingleRequestHttpServer.AwaitOperationAsync(playlist.WaitForPlaylistMutationIdleAsync(), httpRequests, httpOperation.Token);
-            Assert.IsTrue(summaryReady.Task.IsCompleted);
-            ExternalPlaylistImportQueueSummary summary = await (summaryReady.Task).WaitAsync(httpOperation.Token);
-            Assert.AreEqual(1, notificationCount);
+            ExternalPlaylistImportQueueSummary summary = await importObserver.LastSummaryAsync(httpOperation.Token);
+            Assert.AreEqual(1, importObserver.StartedCount);
             Assert.AreEqual(1, summary.ImportedCount,
                 string.Join(Environment.NewLine, summary.FailedOutcomes.Select(outcome => outcome.Uri + ": " + outcome.Exception)));
             Assert.AreEqual(2, summary.SkippedDuplicateUrlCount);
@@ -2174,13 +2160,11 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             playlist.StartupBackgroundTaskScheduler = (_, _, _, work) => { tasks.Enqueue(Task.Run(work)); return true; };
             library = new TestBmsLibrary(databaseScope, path, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: httpSettings);
             workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
-            ExternalPlaylistImportQueueSummary? summary = null;
-            workspace.ExternalPlaylistImportQueueSummaryReady += (_, args) => summary = args.Summary;
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            using var importObserver = new ExternalPlaylistImportObserver(workspace);
             DateTime before = DateTime.Now;
             Assert.AreEqual(PlaylistImportStartStatus.Started, workspace.TryStartPlaylistImport([source]).Status);
             await SingleRequestHttpServer.AwaitOperationAsync(playlist.WaitForPlaylistMutationIdleAsync(), httpRequests, httpOperation.Token);
-            Assert.IsNotNull(summary);
+            ExternalPlaylistImportQueueSummary summary = await importObserver.LastSummaryAsync(httpOperation.Token);
             bool strict = sourceKind is "local-header" or "local-data";
             Assert.AreEqual(strict ? 0 : 1, summary.ImportedCount);
             Assert.AreEqual(strict ? 1 : 0, summary.FailedCount);

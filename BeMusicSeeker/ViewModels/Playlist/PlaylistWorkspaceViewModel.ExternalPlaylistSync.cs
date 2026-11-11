@@ -69,6 +69,15 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         BMSPlaylist playlists = getPlaylistStore();
         if (playlists == null) { return; }
+        // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。借用した権限の呼出し元は、自身の収集先の内側で呼びます。
+        await RunWithOperationNoticesAsync(playlists, "external playlist sync notification",
+            () => RunExternalPlaylistSyncAdmittedAsync(playlists, reason, fromReloadTables, publishReferenceReceipt, operationToken, capability))
+            .ConfigureAwait(false);
+    }
+
+    private async Task RunExternalPlaylistSyncAdmittedAsync(BMSPlaylist playlists, string reason, bool fromReloadTables, bool publishReferenceReceipt, long operationToken,
+        LibraryFileMutationCapability capability)
+    {
         IDisposable admission;
         if (capability != null)
         {

@@ -598,7 +598,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, dialogs);
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
             workspace.IsPlaylistDetailViewActive = true;
 
@@ -708,9 +707,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler,
                 PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck,
                 dialogs);
-            var notifications = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-            workspace.PlaylistOperationNotificationPresentationRequested +=
-                (_, request) => notifications.Add(request);
 
             await workspace.DeleteSelectedEntriesAsync([
                 new PlaylistDetailSourceRow(firstEntry, resolvedChart: null),
@@ -718,7 +714,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             Assert.IsFalse(firstTable.entries.Contains(firstEntry));
             Assert.IsFalse(secondTable.entries.Contains(secondEntry));
-            Assert.AreEqual(1, notifications.Count, "一要求の二表削除は成功事実を一つの通知receiptへ集約します。");
+            Assert.AreEqual(0, dialogs.MessageRequests.Count, "一要求の二表削除の成功は、通知を依頼しません。");
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count(entry =>
                 (entry.playlist_id == firstTable.playlist_id && entry.md5 == firstEntry.md5
@@ -762,8 +758,10 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 BMSTables = new ObservableCollection<BMSTable>([table])
             };
             playlist.CommitBMSTableWithEntriesToDB(table);
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
             PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
-                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library);
+                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                playlistWorkspaceDialogService: dialogs);
             var source = new PlaylistDetailSourceRow(entry, resolvedChart: null);
             workspace.DetailViewState.Source.Rows = [source];
             var context = new MainChartListCellEditContext(source.CreateViewRow(), nameof(PlaylistDetailRow.memo),
@@ -778,14 +776,13 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 playlist.RemoveBMSTable(table);
             }
             string deletedDatabase = playlist.GetPlaylistDump();
-            PlaylistWorkspaceMutationRejectedEventArgs? rejected = null;
-            workspace.MutationRejected += (_, args) => rejected = args;
 
             await workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "rejected memo", commit: true));
 
-            Assert.IsNotNull(rejected);
-            Assert.IsTrue(rejected.IsStale);
-            Assert.IsFalse(rejected.IsBusy);
+            UiMessageRequest rejected = dialogs.MessageRequests.Single();
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale, rejected.MessageBoxText, "対象消失による拒否を、Pの解放後に一件だけ通知します。");
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Error, rejected.Caption);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, rejected.Icon);
             Assert.AreEqual(deletedDatabase, playlist.GetPlaylistDump());
             using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
             Assert.AreEqual(removeEntryOnly ? 1 : 0, verify.Table<BMSTable>().Count(row => row.playlist_id == table.playlist_id));
@@ -1051,7 +1048,6 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
                 _ => { },
                 (exception, message) => { }, (_, _) => false, (_, _) => false, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceFixturePorts.PlaylistRestoreUiThreadCheck, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
             workspace.ConfigureCatalogNotificationQueue(action => action());
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }, new PlaylistSummaryRow { TableRef = tableC }],

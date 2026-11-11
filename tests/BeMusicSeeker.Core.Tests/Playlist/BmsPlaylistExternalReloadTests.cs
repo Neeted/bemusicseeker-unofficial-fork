@@ -12,6 +12,7 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Newtonsoft.Json.Linq;
 using static BeMusicSeeker.TestSupport.Components.BmsPlaylistTestSupport;
 using static BeMusicSeeker.TestSupport.Components.PlaylistTestFixture;
@@ -101,7 +102,6 @@ public sealed class BmsPlaylistExternalReloadTests
         using PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
             playlistStoreProvider: () => fixture.Playlist, playlistLibraryProvider: () => fixture.Library,
             restoreUiApplyScheduler: Schedule, presentationRefreshDeferredProvider: _ => true);
-        workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
         fixture.Playlist.BmtOutput.FailureReporter = workspace.ReportBmtOutputFailures;
         workspace.RequestPlaylistSummaryMode(true); workspace.RebuildPlaylistSummaryView(runAsync: false);
         await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
@@ -1022,13 +1022,33 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.AreEqual("P", initialReferences.Values[oldReferenceKey].Symbols);
             Assert.IsFalse(initialReferences.Values.ContainsKey(changedReferenceKey));
             var diagnostics = new List<(Exception Exception, string Diagnostic)>();
-            var diagnosticFailure = new InvalidOperationException("external receipt diagnostic failed");
-            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
-                reloadFailureLog: (exception, diagnostic) =>
+            var presentationFailure = new InvalidOperationException("external receipt display failed");
+            // 終端の通知（推薦skillの更新）の依頼の時点でPを取得できることを記録し、表示の失敗は窓口のTaskで表します。
+            bool? admittedAtTerminalRequest = null;
+            var warningRequested = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+            {
+                MessageRequestedHook = request => { if (request.Caption == Resources.MessageBoxTitle_Warning) { warningRequested.TrySetResult(); } },
+                MessageTaskFactory = async request =>
                 {
-                    diagnostics.Add((exception, diagnostic));
-                    throw diagnosticFailure;
+                    if (request.Caption == Resources.Recommend_SkillUpdatedTitle)
+                    {
+                        bool admitted = playlist!.TryEnterPlaylistMutation(out IDisposable probe);
+                        probe?.Dispose();
+                        admittedAtTerminalRequest ??= admitted;
+                        if (failPresentation)
+                        {
+                            receiptEntered.TrySetResult();
+                            await releaseReceipt.Task;
+                            throw presentationFailure;
+                        }
+                    }
+                    return UiDialogResult.FromMessageBoxResult(System.Windows.MessageBoxResult.OK);
                 },
+            };
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
+                reloadFailureLog: (exception, diagnostic) => diagnostics.Add((exception, diagnostic)),
+                playlistWorkspaceDialogService: dialogs,
                 playlistStoreProvider: () => playlist,
                 playlistLibraryProvider: () => library);
             var bmtFailures = new List<BmtTableExportService.FileOperationFailure>();
@@ -1041,53 +1061,33 @@ public sealed class BmsPlaylistExternalReloadTests
             workspace.RequestDetailSelection(original, PlaylistFolderNode.CreateFolder("1"));
             var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
             var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
-            var receipts = new List<PlaylistOperationNotificationPresentationRequestedEventArgs>();
-            var displayAttempts = new List<(string Route, PlaylistOperationNotificationOwner.OperationNotification Notification)>();
-            var presentationFailure = new InvalidOperationException("external receipt display failed");
             workspace.PlaylistSyncProgressChanged += (_, request) => progress.Enqueue(request.Snapshot);
             workspace.PlaylistExternalSyncCompleted += (_, completion) => completed.Add(completion);
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) =>
-            {
-                receipts.Add(request);
-                foreach (PlaylistOperationNotificationOwner.OperationNotification notification in request.Receipt.Notifications)
-                {
-                    displayAttempts.Add((request.RouteName, notification));
-                    // BMT Warningは必要出力の独立通知です。終端Informationだけを保持します。
-                    if (request.RouteName == "external playlist sync notification" && failPresentation)
-                    {
-                        receiptEntered.TrySetResult();
-                        releaseReceipt.Task.GetAwaiter().GetResult();
-                        throw presentationFailure;
-                    }
-                }
-            };
             File.WriteAllText(data, "[{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"level\":\"2\"}]");
             if (failBmt) { blocker = new FileStream(manifest, FileMode.Open, FileAccess.Read, FileShare.Read); }
             PlaylistWorkspaceViewModel currentWorkspace = workspace;
             operation = Task.Run(() => currentWorkspace.RunExternalPlaylistSyncAsync("receipt-display-failure", false, true, 31));
-            await TestUiDispatcherHost.AwaitNotificationAsync(receiptEntered.Task, operation, "external-sync.receipt-display");
-            Assert.IsFalse(operation.IsCompleted);
-            Assert.AreEqual(0, completed.Count, "receipt配送の実終端前に完了事実を公開しません。");
-            Assert.AreEqual(failBmt ? 2 : 1, receipts.Count);
-            PlaylistOperationNotificationPresentationRequestedEventArgs terminalReceipt = receipts.Single(request =>
-                request.RouteName == "external playlist sync notification");
-            Assert.IsFalse(terminalReceipt.Receipt.IsEmpty);
-            PlaylistOperationNotificationOwner.OperationNotification information = terminalReceipt.Receipt.Notifications.Single();
-            Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information, information.Severity);
-            Assert.AreEqual(Resources.Recommend_SkillUpdatedTitle, information.FormatCaption());
+            Exception? observedFailure = null;
+            try { await operation; }
+            catch (Exception failure) { observedFailure = failure; }
+            // 終端の通知の表示が未完了のまま（その後に失敗する）でも、操作は表示を待たずに完了し、完了の事実を公開します。
+            Assert.IsTrue(receiptEntered.Task.IsCompleted, "終端の通知の依頼は、操作の完了より前に窓口へ届いています。");
+            Assert.IsFalse(releaseReceipt.Task.IsCompleted);
+            Assert.AreEqual(1, completed.Count, "表示の完了を待たずに完了事実を公開します。");
+            Assert.AreEqual(true, admittedAtTerminalRequest, "通知の依頼の時点でPを取得できます。");
+            // BMT出力の失敗は同じ操作の通知として集めるため、組の順に、先行のInformationの表示の完了後に依頼されます。
+            Assert.AreEqual(1, dialogs.MessageRequests.Count, "後続の組（BMTの警告）は、先行の表示が未完了の間は依頼されません。");
+            UiMessageRequest information = dialogs.MessageRequests.Single(request => request.Caption == Resources.Recommend_SkillUpdatedTitle);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Asterisk, information.Icon);
             double expectedSkill = ReadWalkureCase("standard")["rating"]?.Value<double>("playerStarRating")
                 ?? throw new AssertFailedException("The independent recommendation skill expectation is missing.");
             Assert.AreEqual(string.Format(Resources.Recommend_SkillUpdatedMessage,
-                expectedSkill.ToString("F2"), (expectedSkill - 3.87).ToString(" (+#0.00); (-#0.00);")), information.FormatMessage());
-            Assert.AreSame(information, displayAttempts.Single(attempt => attempt.Route == "external playlist sync notification").Notification);
-            PlaylistOperationNotificationPresentationRequestedEventArgs[] bmtReceipts = receipts.Where(request =>
-                request.RouteName == "beatoraja BMT output failure").ToArray();
-            Assert.AreEqual(failBmt ? 1 : 0, bmtReceipts.Length);
-            bool acceptedWhilePresenting = playlist.TryEnterPlaylistMutation(out IDisposable admission);
+                expectedSkill.ToString("F2"), (expectedSkill - 3.87).ToString(" (+#0.00); (-#0.00);")), information.MessageBoxText);
+            bool acceptedAfterRequest = playlist.TryEnterPlaylistMutation(out IDisposable admission);
             admission?.Dispose();
-            Assert.IsFalse(acceptedWhilePresenting);
+            Assert.IsTrue(acceptedAfterRequest, "表示が未完了でも、Pは解放済みです。");
             Task mutationIdle = playlist.WaitForPlaylistMutationIdleAsync();
-            Assert.IsFalse(mutationIdle.IsCompleted);
+            await mutationIdle;
             Assert.AreEqual(2, playlist.BMSTables.Count);
             BMSTable confirmed = playlist.BMSTables.Single(table => table.playlist_id == original.playlist_id);
             Assert.AreNotSame(original, confirmed);
@@ -1126,10 +1126,9 @@ public sealed class BmsPlaylistExternalReloadTests
                 Assert.AreEqual("After", saved.title);
             }
             releaseReceipt.TrySetResult();
-            Exception? observedFailure = null;
-            try { await operation; }
-            catch (Exception failure) { observedFailure = failure; }
-            await mutationIdle;
+            if (failBmt) { await ConcurrencyProbe.AssertCompletesWhileHeldAsync(warningRequested.Task, "external-sync-bmt-warning-request"); }
+            UiMessageRequest[] bmtRequests = [.. dialogs.MessageRequests.Where(request => request.Caption == Resources.MessageBoxTitle_Warning)];
+            Assert.AreEqual(failBmt ? 1 : 0, bmtRequests.Length, "先行の表示が失敗しても、後続のBMTの警告を依頼します。");
             string outputFile = Directory.GetFiles(bmt, "*.bmt").Single();
             JObject exported = BeatorajaBmtTableImportService.ReadCachedTableData(outputFile);
             JToken song = exported["folder"]?.Single()?["songs"]?.Single()
@@ -1144,20 +1143,16 @@ public sealed class BmsPlaylistExternalReloadTests
                 Assert.IsInstanceOfType<IOException>(cause.GetBaseException());
                 StringAssert.Contains(cause.Message, manifest);
                 Assert.IsTrue(operation.IsFaulted);
-                PlaylistOperationNotificationOwner.OperationNotification warning = bmtReceipts.Single().Receipt.Notifications.Single();
-                Assert.IsFalse(bmtReceipts.Single().Receipt.IsEmpty);
-                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, warning.Severity);
-                Assert.AreEqual(Resources.MessageBoxTitle_Warning, warning.FormatCaption());
+                UiMessageRequest warning = bmtRequests.Single();
+                Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, warning.Icon);
                 BmtTableExportService.FileOperationFailure manifestFailure = bmtFailures.Single();
                 Assert.AreEqual(bmt, manifestFailure.Path, "manifest公開の例外はBMT出力先の失敗として通知されます。");
                 StringAssert.Contains(manifestFailure.Cause, manifest);
                 StringAssert.Contains(manifestFailure.Cause, cause.Message);
                 StringAssert.Contains(manifestFailure.Cause, cause.GetBaseException().Message);
                 Assert.AreEqual(string.Format(Resources.Beatoraja_bmt_output_failure_format,
-                    manifestFailure.Path, manifestFailure.Cause), warning.FormatMessage());
-                Assert.AreSame(warning, displayAttempts.Single(attempt => attempt.Route == "beatoraja BMT output failure").Notification);
+                    manifestFailure.Path, manifestFailure.Cause), warning.MessageBoxText);
                 Assert.IsFalse(failure.ToString().Contains(presentationFailure.Message, StringComparison.Ordinal));
-                Assert.IsFalse(failure.ToString().Contains(diagnosticFailure.Message, StringComparison.Ordinal));
                 CollectionAssert.AreEqual(originalManifest, File.ReadAllBytes(manifest));
             }
             else
@@ -1170,11 +1165,8 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.AreEqual(1, completed.Count);
             Assert.AreEqual(!failBmt, completed[0].Succeeded);
             Assert.IsFalse(completed[0].WasSkipped);
-            Assert.AreEqual(failBmt ? 2 : 1, receipts.Count, "表示失敗で操作や通知を再実行しません。");
-            Assert.AreEqual(failBmt ? 2 : 1, displayAttempts.Count);
-            Assert.AreEqual(1, diagnostics.Count);
-            Assert.AreSame(presentationFailure, diagnostics[0].Exception);
-            StringAssert.Contains(diagnostics[0].Diagnostic, "external playlist sync notification");
+            Assert.AreEqual(failBmt ? 2 : 1, dialogs.MessageRequests.Count, "表示失敗で操作や通知を再実行しません。");
+            Assert.AreEqual(0, diagnostics.Count, "表示の失敗は操作の必須の診断先へ加えません。");
             Assert.IsFalse(progress.Last().IsActive);
             Assert.IsFalse(playlist.IsPlaylistUpdating);
             Assert.IsFalse(playlist.HasShutdownBlockingWork);
@@ -1230,13 +1222,8 @@ public sealed class BmsPlaylistExternalReloadTests
             Assert.AreEqual(2, completed.Count);
             Assert.IsTrue(completed[1].Succeeded);
             Assert.IsFalse(completed[1].WasSkipped);
-            Assert.AreEqual(failBmt ? 3 : 2, receipts.Count);
-            PlaylistOperationNotificationPresentationRequestedEventArgs[] terminalReceipts = receipts.Where(request =>
-                request.RouteName == "external playlist sync notification").ToArray();
-            Assert.AreEqual(2, terminalReceipts.Length);
-            Assert.IsTrue(terminalReceipts[1].Receipt.IsEmpty, "推薦skillが不変の次操作は表示内容を生成しません。");
-            Assert.AreEqual(failBmt ? 2 : 1, displayAttempts.Count, "空receiptのevent配送では表示を試みません。");
-            Assert.AreEqual(1, diagnostics.Count, "前操作の表示失敗を次の明示要求へ持ち越しません。");
+            Assert.AreEqual(failBmt ? 2 : 1, dialogs.MessageRequests.Count, "推薦skillが不変の次操作は通知を依頼しません。");
+            Assert.AreEqual(0, diagnostics.Count, "前操作の表示失敗を次の明示要求へ持ち越しません。");
             Assert.IsFalse(progress.Last().IsActive);
             Assert.IsFalse(playlist.IsPlaylistUpdating);
             Assert.IsFalse(playlist.HasShutdownBlockingWork);
@@ -2300,7 +2287,6 @@ public sealed class BmsPlaylistExternalReloadTests
             workspace.ConfigureCatalogNotificationQueue(action => action());
             PlaylistWorkspaceTestPorts.AttachImmediatePlaylistPresentationRouter(workspace);
             workspace.RefreshPlaylistTreeTables(playlist);
-            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             var progress = new ConcurrentQueue<PlaylistSyncProgressSnapshot>();
             long summaryDataGenerationBeforeResync = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder(string.Empty));
