@@ -297,13 +297,11 @@ internal sealed class LibraryFileScanPipelineOwner
                 LibraryDirectoryPreflightRequest request = scan.DirectoryPreflightRequest;
                 // rootの消失でも必須の出力base検査を省略しないよう、用途別に同じ検査を行います。
                 directoryPreflightService.EnsureAvailable(
-                    new LibraryDirectoryPreflightRequest([], request.ScanRootDirectories, request.OutputBaseTargets),
-                    probeOutputBases: false);
+                    new LibraryDirectoryPreflightRequest([], request.ScanRootDirectories, request.OutputBaseTargets));
                 try
                 {
                     directoryPreflightService.EnsureAvailable(
-                        new LibraryDirectoryPreflightRequest(request.BmsRootDirectories, request.ScanRootDirectories, []),
-                        probeOutputBases: false);
+                        new LibraryDirectoryPreflightRequest(request.BmsRootDirectories, request.ScanRootDirectories, []));
                 }
                 catch (LibraryDirectoryPreflightException failure) when (
                     failure.Use == LibraryDirectoryPreflightUse.BmsRoot && IsOrdinaryScanFailure(failure))

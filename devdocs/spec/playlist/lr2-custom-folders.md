@@ -32,7 +32,7 @@
 
 新規draftは登録前の旧配置を持たず、初回保存では選択した通常・追加・ROOT先へ既存の出力管理主体で生成します。旧先整理は既存配置からの移行だけに適用し、共通基点や兄弟表のファイル・LR2行を保持します。ROOTの実効先はXMLへ保存し、失敗をメモリ内登録だけで成功扱いにしません。初回出力の失敗後も登録済みIDの未完了出力を同じ捕捉設定で明示継続します。空表の生成対象と空ディレクトリ整理は通常の出力規則に従います。
 
-起動・差分更新・初期化の前には全出力基点を検査し、読取りと自己所有の一時ファイルの作成・書込み・削除を要求します。使えない基点を自動作成して成功扱いにしません。配下の表ディレクトリや出力ファイルがまだないことは失敗ではありません。スタンドアロンではLR2出力先の残存設定で起動を止めません。
+起動・差分更新・初期化の前には全出力基点を検査し、BMSルートと同じ読取り（ディレクトリであること、直下を列挙できること）を要求します。検査は基点とその配下へファイルを作成・書込み・削除せず、内容と更新日時を変えません。基点の更新日時は `folder` 行の `date` と一致させる対象であり、変化のない起動で書き換えないためです。書込みできるかは事前に検査せず、実際に `.lr2folder` を出力する時点の失敗として扱います。使えない基点を自動作成して成功扱いにしません。配下の表ディレクトリや出力ファイルがまだないことは失敗ではありません。スタンドアロンではLR2出力先の残存設定で起動を止めません。
 
 設定変更前に有効な導入先を今回の通常・追加・ROOT管理領域へ取り込む変更は、同一・包含親のどちらも保存・XML・実配置変更前に拒否します。導入先以外の既存登録の採用は維持し、先に別の確定BMSルートへ導入先を変更すれば再選択できます。未受理候補は確定値へ戻し、再操作は今回入力と他項目の確定値から処理します。初回・既存不正状態の段階保存と比較方法の正本は[設定の導入先保護](../runtime/settings.md#カスタムフォルダと検索対象)です。
 
@@ -190,6 +190,7 @@ ROOT登録の補完・同期、表削除、プロパティ、一括編集は同�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
+| 出力基点の読取りだけの事前検査と、基点の内容・更新日時の不変 | [`LibraryDirectoryPreflightService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/LibraryDirectoryPreflightService.cs) | [`LibraryDirectoryPreflightTests`](../../../tests/BeMusicSeeker.Core.Tests/Library/LibraryDirectoryPreflightTests.cs) の `LinkedModePreflight_SucceedsWithoutChangingBmsRootOrAnyOutputBase` が本番の読取り境界と実ディレクトリで、読取り専用属性・既存内容・空の各基点の成功と、項目集合・ファイル内容・全ディレクトリの更新日時の不変を確認する。`LinkedModeInspectsEveryOutputBaseAndDoesNotCreateMissingBase` が通常・追加・ROOTの各基点の欠落を種別付きの失敗とし、自動作成しないことを確認する。書込み不能の事前判定は行わないため、ACLによる書込み拒否は検査しない。 |
 | 手動再同期の受付通知失敗時の両受付の解放 | 設定の出力確定、LR2楽曲DB同期の受付 | `BmsLibraryLr2SongDbSyncTests.QueueLr2SongDbSync_AdmissionNotificationFailureReleasesBothLeasesBeforePreparation` が確認する。 |
 | 新先生成後の旧管理行の整理失敗と後続同期 | 設定の出力確定 | `OutputConfirmation_GenerationAndCleanupFailuresAllowLatestRequest` が、実DELETE故障による旧行の残存、新先の維持、通知内容、後続同期への接続を確認する。 |
 | 起動時の必要出力の接続と、BMT・LR2出力の生産側通知 | 起動の必須初期化、[`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`StartupRequiredInitializationTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupRequiredInitializationTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) / [`BmsPlaylistMigrationAndRegistrationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)。 |

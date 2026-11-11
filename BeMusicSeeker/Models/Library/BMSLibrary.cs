@@ -4952,7 +4952,7 @@ public partial class BMSLibrary : ObservableObject
                     PostLibraryOperationBusyNotice();
                     return new();
                 }
-                directoryPreflightService.EnsureAvailable(CaptureDirectoryPreflightRequest(options), probeOutputBases: true);
+                directoryPreflightService.EnsureAvailable(CaptureDirectoryPreflightRequest(options));
                 leapYearRepairApproval ??= PrepareLeapYearFolderRepair();
                 if (IsShutdownRequested) { return new(); }
             }
@@ -5032,8 +5032,7 @@ public partial class BMSLibrary : ObservableObject
             {
                 directoryPreflightRequest = CaptureDirectoryPreflightRequest(options);
                 directoryPreflightService.EnsureAvailable(
-                    directoryPreflightRequest,
-                    probeOutputBases: true);
+                    directoryPreflightRequest);
                 leapYearRepairResult = initializationService.RepairLeapYearFolderTimestamps(dbGateway, leapYearRepairApproval.ApprovedCandidates,
                     fileMutationService, targetOnlyFileMutationOptions, GetDisplayedExceptionMessage);
             }
@@ -5605,8 +5604,7 @@ public partial class BMSLibrary : ObservableObject
                     : directoryPreflightService.CreateRequest(searchRoots.RequestedRoots,
                         searchRoots.Roots, options);
                 directoryPreflightService.EnsureAvailable(
-                    directoryPreflightRequest,
-                    probeOutputBases: true);
+                    directoryPreflightRequest);
                 bmsDirectories = [.. directoryPreflightRequest.ScanRootDirectories];
                 rootNormalization = CreateUpdateRootNormalizationSnapshot(
                     directoryPreflightRequest,

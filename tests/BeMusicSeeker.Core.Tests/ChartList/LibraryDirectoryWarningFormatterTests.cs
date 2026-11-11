@@ -66,21 +66,21 @@ public sealed class LibraryDirectoryWarningFormatterTests
         Assert.IsFalse(message.Contains(Resources.LibraryDirectoryPreflightLr2Guidance, StringComparison.Ordinal));
     }
 
-    /// <summary>起動後の追加出力先書込み失敗は対象パスと追加出力の役割、後片付け失敗とplaylist用の対処を同じ通知へ保持します。</summary>
+    /// <summary>
+    /// 保証：起動後の追加出力基点の読取り拒否は、Late書式・追加出力の役割・対象パス・拒否原因・LR2用の対処を一つの通知に含め、
+    /// BMS用の対処へ誤分類しない。
+    /// </summary>
     [TestMethod]
-    public void Format_LateAdditionalOutputFailureUsesPlaylistGuidanceAndCleanupCause()
+    public void Format_LateAdditionalOutputFailureUsesLr2RoleCauseAndGuidance()
     {
         const string outputPath = @"C:\playlist-output";
-        var cleanupFailure = new IOException("cleanup");
         var failure = new LibraryDirectoryPreflightException(
             LibraryDirectoryPreflightUse.Lr2OutputBase,
             outputPath,
-            LibraryDirectoryPreflightFailureCause.Write,
-            "write_failed;cleanup_failed",
+            LibraryDirectoryPreflightFailureCause.AccessDenied,
+            "read_failed",
             LibraryDirectoryPreflightOutputBaseKind.Additional,
-            probePath: Path.Combine(outputPath, ".bemusicseeker-probe.tmp"),
-            innerException: new IOException("write"),
-            cleanupException: cleanupFailure);
+            innerException: new UnauthorizedAccessException("read"));
 
         string message = LibraryDirectoryWarningFormatter.Format(
             failure,
@@ -89,9 +89,9 @@ public sealed class LibraryDirectoryWarningFormatterTests
         StringAssert.Contains(message, Resources.LibraryDirectoryPreflightLateWarningFormat[..Resources.LibraryDirectoryPreflightLateWarningFormat.IndexOf("{0}", StringComparison.Ordinal)]);
         StringAssert.Contains(message, Resources.LibraryDirectoryPreflightLr2AdditionalOutputRole);
         StringAssert.Contains(message, outputPath);
-        StringAssert.Contains(message, Resources.LibraryDirectoryPreflightCauseWrite);
-        StringAssert.Contains(message, Resources.LibraryDirectoryPreflightCleanupFailure);
+        StringAssert.Contains(message, Resources.LibraryDirectoryPreflightCauseAccessDenied);
         StringAssert.Contains(message, Resources.LibraryDirectoryPreflightLr2Guidance);
+        Assert.IsFalse(message.Contains(Resources.LibraryDirectoryPreflightBmsGuidance, StringComparison.Ordinal));
     }
 
 }

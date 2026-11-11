@@ -556,76 +556,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
-    /// <summary>受付時の事前検査を実scan前に再確認しても、受理済み要求の出力probeを繰り返し作成・読取り・削除しないことを確認します。</summary>
-    /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
-    [TestMethod]
-    public void ApplyActiveFileScan_RechecksSameRequestWithoutRepeatingOutputProbe()
-    {
-        using var caseWorkspace7 = TestWorkspace.Create(TestRunDirectory.RootDirectory);
-        string directoryPath = Path.Combine(
-            caseWorkspace7.RootDirectory,
-            nameof(LibraryFileScanPipelineOwnerTests),
-            Guid.NewGuid().ToString("N"));
-        string outputBase = Path.Combine(directoryPath, "output");
-        Directory.CreateDirectory(directoryPath);
-        Directory.CreateDirectory(outputBase);
-        try
-        {
-            string bmsPath = Path.Combine(directoryPath, "recheck.bms");
-            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Recheck\r\n#BPM 120\r\n#00111:01\r\n");
-            var fileSystem = new RecordingPreflightFileSystem();
-            var preflightService = new LibraryDirectoryPreflightService(fileSystem);
-            var preflightOptions = new BmsLibraryOptionsSnapshot
-            {
-                OperationModeLR2DB = true,
-                LR2CustomFolderOutputBaseDir = outputBase
-            };
-            LibraryDirectoryPreflightRequest request = preflightService.CreateRequest(
-                [directoryPath],
-                [directoryPath],
-                preflightOptions);
-            preflightService.EnsureAvailable(request, probeOutputBases: true);
-            int createdProbeCount = fileSystem.CreatedProbePaths.Count;
-            int openedPathCount = fileSystem.OpenedPaths.Count;
-            int deletedPathCount = fileSystem.DeletedPaths.Count;
-
-            IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
-                [bmsPath],
-                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
-                {
-                    [directoryPath] = []
-                },
-                [directoryPath]);
-            var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-            LibraryFileScanPipelineOwner owner = CreateOwner(
-                callbacks,
-                chartFileScanner: chartFileScanner,
-                directoryPreflightService: preflightService);
-            long generation = owner.BeginFileScanRequest(
-                new BmsLibraryOptionsSnapshot(),
-                [directoryPath],
-                "test_preflight_recheck",
-                directoryPreflightRequest: request);
-
-            Lr2FolderFileDiffPreparationResult result = owner.ApplyActiveFileScan(
-                generation,
-                trackLibraryFileCheckProgress: true,
-                installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
-
-            Assert.IsNotNull(result);
-            Assert.AreEqual(createdProbeCount, fileSystem.CreatedProbePaths.Count);
-            Assert.AreEqual(openedPathCount, fileSystem.OpenedPaths.Count);
-            Assert.AreEqual(deletedPathCount, fileSystem.DeletedPaths.Count);
-        }
-        finally
-        {
-            if (Directory.Exists(directoryPath))
-            {
-                Directory.Delete(directoryPath, recursive: true);
-            }
-        }
-    }
-
     /// <summary>空配下とnull配下の要求を続けて処理しても各走査・差分進捗を終端し、理由付き診断をそれぞれ公開することを確認します。</summary>
     /// <remarks>実走査の管理主体を保存・所持owner・通知callbackへ接続し、管理主体の入口から終端までの受渡しを観測します。</remarks>
     [TestMethod]
@@ -990,7 +920,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             BmsLibraryOptionsSnapshot options = BmsLibraryOptionsSnapshot.CreateCurrent(settings) with { StandaloneBmsRootPaths = registrations.CaptureStandaloneRoots() };
             var preflight = new LibraryDirectoryPreflightService();
             LibraryDirectoryPreflightRequest request = preflight.CreateRequest([requested], [requested], options);
-            preflight.EnsureAvailable(request, false);
+            preflight.EnsureAvailable(request);
             long generation = owner.BeginFileScanRequest(options, [requested], "root_spelling", scenario == "cancel" ? _ => throw new OperationCanceledException() : null,
                 directoryPreflightRequest: request);
             if (scenario == "root-recheck") { Directory.Delete(actual, true); }
@@ -1081,7 +1011,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         RecordingLibraryFileScanPipelineCallbacks callbacks,
         bool lr2ModeEnabled = false,
         IChartFileScanner? chartFileScanner = null,
-        LibraryDirectoryPreflightService? directoryPreflightService = null, string? directoryPath = null,
+        string? directoryPath = null,
         IRootFileEnumerator? rootFileEnumerator = null, BmsRootRegistrationStore? rootRegistrations = null)
     {
         directoryPath ??= ownedDirectoryPath ??= Path.Combine((ownedWorkspace ??= TestWorkspace.Create(TestRunDirectory.RootDirectory)).RootDirectory, nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
@@ -1150,7 +1080,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             new EverythingNative(ApplicationPathPolicy.Current),
             chartFileScanner,
             rootFileEnumerator,
-            directoryPreflightService: directoryPreflightService, bmsRootRegistrations: rootRegistrations);
+            bmsRootRegistrations: rootRegistrations);
     }
 
     private sealed class GatedPreparationRootFileEnumerator(
@@ -1216,41 +1146,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             int scanCount = Interlocked.Increment(ref nextResultIndex);
             int resultIndex = Math.Min(scanCount - 1, results.Count - 1);
             return results[resultIndex];
-        }
-    }
-
-    private sealed class RecordingPreflightFileSystem : ILibraryDirectoryPreflightFileSystem
-    {
-        internal List<string> CreatedProbePaths { get; } = [];
-
-        internal List<string> OpenedPaths { get; } = [];
-
-        internal List<string> DeletedPaths { get; } = [];
-
-        public FileAttributes GetAttributes(string path) => LongPathFileSystem.GetAttributes(path);
-
-        public IEnumerable<string> EnumerateDirectoryEntries(string path) =>
-            LongPathFileSystem.EnumerateFileSystemEntries(path, "*", SearchOption.TopDirectoryOnly);
-
-        public string CreateOwnedProbePath(string directoryPath, string purpose)
-        {
-            string path = Path.Combine(
-                directoryPath,
-                ".bemusicseeker-" + purpose + "-" + Guid.NewGuid().ToString("N") + ".tmp");
-            CreatedProbePaths.Add(path);
-            return path;
-        }
-
-        public Stream Open(string path, FileMode mode, FileAccess access, FileShare share)
-        {
-            OpenedPaths.Add(path);
-            return LongPathFileSystem.Open(path, mode, access, share);
-        }
-
-        public void DeleteFile(string path)
-        {
-            DeletedPaths.Add(path);
-            LongPathFileSystem.DeleteFile(path);
         }
     }
 

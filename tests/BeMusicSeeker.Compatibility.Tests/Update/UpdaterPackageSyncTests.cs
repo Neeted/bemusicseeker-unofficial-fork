@@ -100,7 +100,7 @@ public sealed class UpdaterPackageSyncTests
             LibraryDirectoryPreflightService preflight = new();
             LibraryDirectoryPreflightRequest request = preflight.CreateRequest(
                 savedRoots, savedRoots, new BmsLibraryOptionsSnapshot { OperationModeLR2DB = reloadedSettings.OperationModeLR2DB });
-            preflight.EnsureAvailable(request, probeOutputBases: true);
+            preflight.EnsureAvailable(request);
             Assert.IsFalse(File.Exists(packagePath));
             Assert.IsFalse(Directory.Exists(backupDirectory));
             Assert.IsFalse(File.Exists(Path.Combine(appDirectoryPath, "update_work", "update-transaction.json")));

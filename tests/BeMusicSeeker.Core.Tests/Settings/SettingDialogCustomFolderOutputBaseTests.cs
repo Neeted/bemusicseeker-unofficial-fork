@@ -80,7 +80,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                     () => StartupLibraryConstructionOwner.PrepareDirectoriesAsync(startup, new CustomFolderOutputSettingsSnapshot(), new Lr2ConfigSession()));
                 Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, failure.Use);
                 Assert.AreEqual(LibraryDirectoryPreflightFailureCause.InvalidConfiguration, failure.Cause);
-                Assert.IsFalse(Directory.Exists(reserved), "出力基点に含まれる明示登録も、write probe前に受理検査します。");
+                Assert.IsFalse(Directory.Exists(reserved), "出力基点に含まれる明示登録も、利用可能性の検査より前に受理検査します。");
             }
             finally { Directory.Delete(directory, recursive: true); }
             return;

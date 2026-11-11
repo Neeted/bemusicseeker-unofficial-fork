@@ -2734,15 +2734,6 @@ public class Resources
     /// <summary>読み取り I/O 失敗の原因名です。</summary>
     public static string LibraryDirectoryPreflightCauseIo => ResourceManager.GetString("LibraryDirectoryPreflightCauseIo", resourceCulture);
 
-    /// <summary>出力先書込み失敗の原因名です。</summary>
-    public static string LibraryDirectoryPreflightCauseWrite => ResourceManager.GetString("LibraryDirectoryPreflightCauseWrite", resourceCulture);
-
-    /// <summary>probe 後片付け失敗の原因名です。</summary>
-    public static string LibraryDirectoryPreflightCauseCleanup => ResourceManager.GetString("LibraryDirectoryPreflightCauseCleanup", resourceCulture);
-
-    /// <summary>probe 後片付けにも失敗した場合の補足です。</summary>
-    public static string LibraryDirectoryPreflightCleanupFailure => ResourceManager.GetString("LibraryDirectoryPreflightCleanupFailure", resourceCulture);
-
     /// <summary>BMS 検索フォルダーを復旧する案内です。</summary>
     public static string LibraryDirectoryPreflightBmsGuidance => ResourceManager.GetString("LibraryDirectoryPreflightBmsGuidance", resourceCulture);
 

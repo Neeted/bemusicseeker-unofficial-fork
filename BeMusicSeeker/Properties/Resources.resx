@@ -3218,9 +3218,6 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="LibraryDirectoryPreflightCauseInvalidPath" xml:space="preserve"><value>パスの形式が不正です。</value></data>
   <data name="LibraryDirectoryPreflightCauseInvalidConfiguration" xml:space="preserve"><value>ライブラリのディレクトリ設定が不正です。</value></data>
   <data name="LibraryDirectoryPreflightCauseIo" xml:space="preserve"><value>フォルダを読み取れません。</value></data>
-  <data name="LibraryDirectoryPreflightCauseWrite" xml:space="preserve"><value>出力先へ一時確認ファイルを書き込めません。</value></data>
-  <data name="LibraryDirectoryPreflightCauseCleanup" xml:space="preserve"><value>一時確認ファイルを削除できません。</value></data>
-  <data name="LibraryDirectoryPreflightCleanupFailure" xml:space="preserve"><value>一時確認ファイルの後片付けにも失敗しました。</value></data>
   <data name="LibraryDirectoryPreflightBmsGuidance" xml:space="preserve"><value>フォルダを再接続するか、「設定 &gt; 一般 &gt; BMS ディレクトリ」を修正してから再試行してください。</value></data>
   <data name="LibraryDirectoryPreflightLr2Guidance" xml:space="preserve"><value>フォルダを再接続するか、設定のプレイリスト出力先を修正してから再試行してください。</value></data>
   <data name="Error_InvalidLR2ConfigFile" xml:space="preserve">

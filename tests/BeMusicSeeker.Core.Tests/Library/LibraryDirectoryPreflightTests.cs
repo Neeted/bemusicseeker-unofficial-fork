@@ -96,31 +96,63 @@ public sealed class LibraryDirectoryPreflightTests
     }
 
     /// <summary>
-    /// 保証：空のBMSルートは読取り検査で成功し、走査対象に書込みprobeや削除を行わない。
+    /// 保証：LR2連携の事前検査は、空のBMSルートと、読取り専用属性・既存内容・空を含む通常・追加・ROOTの各出力基点を成功させ、
+    /// いずれの基点と配下にも項目を作成・削除・書込みせず、更新日時を変えない（LR2 folder.date との整合）。
     /// </summary>
+    /// <remarks>代替実装では System.IO を直接呼ぶ書込みを見逃すため、本番の既定の filesystem 境界と実ディレクトリで観測する。</remarks>
     [TestMethod]
-    public void EmptyBmsRoot_IsReadOnlyAndSucceeds()
+    public void LinkedModePreflight_SucceedsWithoutChangingBmsRootOrAnyOutputBase()
     {
         string root = CreateTemporaryDirectory();
+        string bmsRoot = Path.Combine(root, "bms");
+        string normal = Path.Combine(root, "normal");
+        string additional = Path.Combine(root, "additional");
+        string rootType = Path.Combine(root, "root-type");
+        string[] inspectedDirectories = [bmsRoot, normal, additional, rootType];
+        foreach (string directory in inspectedDirectories)
+        {
+            Directory.CreateDirectory(directory);
+        }
+        foreach (string populatedBase in new[] { normal, rootType })
+        {
+            File.WriteAllBytes(Path.Combine(populatedBase, "existing-sentinel.txt"), [0x10, 0x20, 0x30]);
+            string tableDirectory = Path.Combine(populatedBase, "table");
+            Directory.CreateDirectory(tableDirectory);
+            File.WriteAllBytes(Path.Combine(tableDirectory, "0000.lr2folder"), [0x41, 0x42]);
+        }
+        var fixedPastTime = new DateTime(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
         try
         {
-            var fileSystem = new RecordingPreflightFileSystem();
-            LibraryDirectoryPreflightService service = new(fileSystem);
+            List<string> allDirectories = [.. inspectedDirectories.SelectMany(directory =>
+                Directory.EnumerateDirectories(directory, "*", SearchOption.AllDirectories).Prepend(directory))];
+            foreach (string directory in allDirectories)
+            {
+                Directory.SetLastWriteTimeUtc(directory, fixedPastTime);
+            }
+            File.SetAttributes(normal, File.GetAttributes(normal) | FileAttributes.ReadOnly);
+            foreach (string directory in allDirectories)
+            {
+                // 作成と削除で項目集合が元へ戻る書込みも検出できるよう、検査前の時刻が固定値であることを確かめます。
+                Assert.AreEqual(fixedPastTime, Directory.GetLastWriteTimeUtc(directory), directory);
+            }
+            string[] before = CaptureTreeState(inspectedDirectories);
+            LibraryDirectoryPreflightService service = new();
             LibraryDirectoryPreflightRequest request = service.CreateRequest(
-                [root],
-                [root],
-                new BmsLibraryOptionsSnapshot());
+                [bmsRoot],
+                [bmsRoot],
+                CreateLinkedOptions(normal, additional, rootType));
 
-            service.EnsureAvailable(request, probeOutputBases: true);
+            service.EnsureAvailable(request);
 
-            CollectionAssert.Contains(fileSystem.AttributePaths, root);
-            CollectionAssert.Contains(fileSystem.EnumeratedPaths, root);
-            Assert.AreEqual(0, fileSystem.CreatedProbePaths.Count);
-            Assert.AreEqual(0, fileSystem.OpenedPaths.Count);
-            Assert.AreEqual(0, fileSystem.DeletedPaths.Count);
+            Assert.AreEqual(3, request.OutputBaseTargets.Count);
+            CollectionAssert.AreEqual(before, CaptureTreeState(inspectedDirectories));
         }
         finally
         {
+            if (Directory.Exists(normal))
+            {
+                File.SetAttributes(normal, File.GetAttributes(normal) & ~FileAttributes.ReadOnly);
+            }
             DeleteTemporaryDirectory(root);
         }
     }
@@ -140,16 +172,14 @@ public sealed class LibraryDirectoryPreflightTests
             LibraryDirectoryPreflightService service = new();
             LibraryDirectoryPreflightException missingFailure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(
-                    service.CreateRequest([missing], [missing], new BmsLibraryOptionsSnapshot()),
-                    probeOutputBases: false));
+                    service.CreateRequest([missing], [missing], new BmsLibraryOptionsSnapshot())));
             Assert.AreEqual(LibraryDirectoryPreflightFailureCause.NotFound, missingFailure.Cause);
             Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, missingFailure.Use);
             Assert.AreEqual(Path.GetFullPath(missing), missingFailure.DirectoryPath);
 
             LibraryDirectoryPreflightException fileFailure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(
-                    service.CreateRequest([filePath], [filePath], new BmsLibraryOptionsSnapshot()),
-                    probeOutputBases: false));
+                    service.CreateRequest([filePath], [filePath], new BmsLibraryOptionsSnapshot())));
             Assert.AreEqual(LibraryDirectoryPreflightFailureCause.NotDirectory, fileFailure.Cause);
             Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, fileFailure.Use);
         }
@@ -160,28 +190,26 @@ public sealed class LibraryDirectoryPreflightTests
     }
 
     /// <summary>
-    /// 保証：BMSルート列挙の権限不足は型付き停止として返し、読取り不能を空成功へ変換したり書込みで確認したりしない。
+    /// 保証：BMSルート直下の列挙開始が権限不足で失敗した場合、BMSルート用途・AccessDenied の型付き失敗として返し、
+    /// 読取り不能を空成功へ変換しない。
     /// </summary>
     [TestMethod]
-    public void BmsRootEnumerationFailureIsTypedAndDoesNotWrite()
+    public void BmsRootEnumerationFailureIsTyped()
     {
         string root = CreateTemporaryDirectory();
         try
         {
-            var fileSystem = new RecordingPreflightFileSystem
+            var fileSystem = new EnumerationFailurePreflightFileSystem
             {
                 EnumerationFailure = new UnauthorizedAccessException("enumeration denied")
             };
             LibraryDirectoryPreflightService service = new(fileSystem);
             LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
                 () => service.EnsureAvailable(
-                    service.CreateRequest([root], [root], new BmsLibraryOptionsSnapshot()),
-                    probeOutputBases: false));
+                    service.CreateRequest([root], [root], new BmsLibraryOptionsSnapshot())));
 
             Assert.AreEqual(LibraryDirectoryPreflightFailureCause.AccessDenied, failure.Cause);
             Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, failure.Use);
-            Assert.AreEqual(0, fileSystem.CreatedProbePaths.Count);
-            Assert.AreEqual(0, fileSystem.OpenedPaths.Count);
         }
         finally
         {
@@ -218,33 +246,55 @@ public sealed class LibraryDirectoryPreflightTests
     }
 
     /// <summary>
-    /// 保証：LR2連携では通常・追加・ルート形式の出力基点を検査し、欠落する基点を自動作成せず設定修復へ戻す。
+    /// 保証：LR2連携では通常・追加・ROOTの各出力基点を読取り検査し、欠落した基点はその種別・NotFound の型付き失敗として返し、
+    /// 自動作成しない。
     /// </summary>
+    /// <remarks>DataRow は欠落させる基点の種別。他の二つの基点とBMSルートは実在させ、検査から漏れた種別を区別する。</remarks>
     [TestMethod]
-    public void LinkedModeProbesEveryOutputBaseAndDoesNotCreateMissingBase()
+    [DataRow(nameof(LibraryDirectoryPreflightOutputBaseKind.Normal))]
+    [DataRow(nameof(LibraryDirectoryPreflightOutputBaseKind.Additional))]
+    [DataRow(nameof(LibraryDirectoryPreflightOutputBaseKind.RootType))]
+    public void LinkedModeInspectsEveryOutputBaseAndDoesNotCreateMissingBase(string missingKindName)
     {
+        LibraryDirectoryPreflightOutputBaseKind missingKind =
+            Enum.Parse<LibraryDirectoryPreflightOutputBaseKind>(missingKindName);
         string root = CreateTemporaryDirectory();
-        string normal = Path.Combine(root, "normal");
-        string additional = Path.Combine(root, "additional");
-        string missingRootType = Path.Combine(root, "root-type-missing");
-        Directory.CreateDirectory(normal);
-        Directory.CreateDirectory(additional);
+        string bmsRoot = Path.Combine(root, "bms");
+        var outputBases = new Dictionary<LibraryDirectoryPreflightOutputBaseKind, string>
+        {
+            [LibraryDirectoryPreflightOutputBaseKind.Normal] = Path.Combine(root, "normal"),
+            [LibraryDirectoryPreflightOutputBaseKind.Additional] = Path.Combine(root, "additional"),
+            [LibraryDirectoryPreflightOutputBaseKind.RootType] = Path.Combine(root, "root-type")
+        };
+        Directory.CreateDirectory(bmsRoot);
+        foreach (KeyValuePair<LibraryDirectoryPreflightOutputBaseKind, string> outputBase in outputBases)
+        {
+            if (outputBase.Key != missingKind)
+            {
+                Directory.CreateDirectory(outputBase.Value);
+            }
+        }
+        string missingBase = outputBases[missingKind];
         try
         {
-            BmsLibraryOptionsSnapshot options = CreateLinkedOptions(normal, additional, missingRootType);
+            BmsLibraryOptionsSnapshot options = CreateLinkedOptions(
+                outputBases[LibraryDirectoryPreflightOutputBaseKind.Normal],
+                outputBases[LibraryDirectoryPreflightOutputBaseKind.Additional],
+                outputBases[LibraryDirectoryPreflightOutputBaseKind.RootType]);
             LibraryDirectoryPreflightService service = new();
             LibraryDirectoryPreflightRequest request = service.CreateRequest(
-                [normal],
-                [normal],
+                [bmsRoot],
+                [bmsRoot],
                 options);
 
             LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
-                () => service.EnsureAvailable(request, probeOutputBases: true));
+                () => service.EnsureAvailable(request));
 
             Assert.AreEqual(LibraryDirectoryPreflightUse.Lr2OutputBase, failure.Use);
-            Assert.AreEqual(LibraryDirectoryPreflightOutputBaseKind.RootType, failure.OutputBaseKind);
+            Assert.AreEqual(missingKind, failure.OutputBaseKind);
             Assert.AreEqual(LibraryDirectoryPreflightFailureCause.NotFound, failure.Cause);
-            Assert.IsFalse(Directory.Exists(missingRootType));
+            Assert.AreEqual(Path.GetFullPath(missingBase), failure.DirectoryPath);
+            Assert.IsFalse(Directory.Exists(missingBase));
         }
         finally
         {
@@ -274,7 +324,7 @@ public sealed class LibraryDirectoryPreflightTests
                 [bmsRoot],
                 options);
 
-            service.EnsureAvailable(request, probeOutputBases: true);
+            service.EnsureAvailable(request);
 
             Assert.AreEqual(0, request.OutputBaseTargets.Count);
             Assert.IsFalse(Directory.Exists(options.LR2CustomFolderOutputBaseDir));
@@ -306,7 +356,7 @@ public sealed class LibraryDirectoryPreflightTests
                 [normal],
                 options);
 
-            service.EnsureAvailable(request, probeOutputBases: true);
+            service.EnsureAvailable(request);
 
             Assert.IsFalse(Directory.Exists(uncreatedChild));
             CollectionAssert.AreEqual(
@@ -317,141 +367,6 @@ public sealed class LibraryDirectoryPreflightTests
         }
         finally
         {
-            DeleteTemporaryDirectory(root);
-        }
-    }
-
-    /// <summary>
-    /// 保証：出力基点のprobeはその内部で一度作成・削除し、既存ファイルを保持して後段の読取り検査で再probeしない。
-    /// </summary>
-    [TestMethod]
-    public void OutputProbeIsOwnedInsideBaseAndLeavesExistingFilesUnchanged()
-    {
-        string root = CreateTemporaryDirectory();
-        string outputBase = Path.Combine(root, "output");
-        Directory.CreateDirectory(outputBase);
-        string sentinel = Path.Combine(outputBase, "existing-sentinel.txt");
-        byte[] sentinelBytes = [0x10, 0x20, 0x30];
-        File.WriteAllBytes(sentinel, sentinelBytes);
-        try
-        {
-            var fileSystem = new RecordingPreflightFileSystem();
-            LibraryDirectoryPreflightService service = new(fileSystem);
-            LibraryDirectoryPreflightRequest request = service.CreateRequest(
-                [],
-                [],
-                new BmsLibraryOptionsSnapshot
-                {
-                    OperationModeLR2DB = true,
-                    LR2CustomFolderOutputBaseDir = outputBase
-                });
-
-            service.EnsureAvailable(request, probeOutputBases: true);
-            int createdProbeCountAfterWriteProbe = fileSystem.CreatedProbePaths.Count;
-            int openedCountAfterWriteProbe = fileSystem.OpenedPaths.Count;
-            int deletedCountAfterWriteProbe = fileSystem.DeletedPaths.Count;
-
-            // late check は同じ request の read-only 検査だけを行います。
-            service.EnsureAvailable(request, probeOutputBases: false);
-
-            Assert.AreEqual(1, fileSystem.CreatedProbePaths.Count);
-            Assert.AreEqual(createdProbeCountAfterWriteProbe, fileSystem.CreatedProbePaths.Count);
-            Assert.AreEqual(openedCountAfterWriteProbe, fileSystem.OpenedPaths.Count);
-            Assert.AreEqual(deletedCountAfterWriteProbe, fileSystem.DeletedPaths.Count);
-            string probePath = fileSystem.CreatedProbePaths.Single();
-            StringAssert.StartsWith(probePath, Path.GetFullPath(outputBase) + Path.DirectorySeparatorChar);
-            CollectionAssert.Contains(fileSystem.OpenedPaths, probePath);
-            CollectionAssert.Contains(fileSystem.DeletedPaths, probePath);
-            CollectionAssert.AreEqual(sentinelBytes, File.ReadAllBytes(sentinel));
-            Assert.IsFalse(File.Exists(probePath));
-        }
-        finally
-        {
-            DeleteTemporaryDirectory(root);
-        }
-    }
-
-    /// <summary>
-    /// 保証：probe作成失敗は書込み原因と予定パスを返し、所有していない未作成ファイルの削除を試みない。
-    /// </summary>
-    [TestMethod]
-    public void OutputCreateFailureDoesNotAttemptDelete()
-    {
-        string root = CreateTemporaryDirectory();
-        try
-        {
-            string outputBase = Path.Combine(root, "output");
-            Directory.CreateDirectory(outputBase);
-            var fileSystem = new RecordingPreflightFileSystem
-            {
-                OpenFailure = new IOException("write denied")
-            };
-            LibraryDirectoryPreflightService service = new(fileSystem);
-            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
-                () => service.EnsureAvailable(
-                    service.CreateRequest(
-                        [],
-                        [],
-                        new BmsLibraryOptionsSnapshot
-                        {
-                            OperationModeLR2DB = true,
-                            LR2CustomFolderOutputBaseDir = outputBase
-                        }),
-                    probeOutputBases: true));
-
-            Assert.AreEqual(LibraryDirectoryPreflightFailureCause.Write, failure.Cause);
-            Assert.AreEqual(0, fileSystem.DeletedPaths.Count);
-            Assert.IsNotNull(failure.ProbePath);
-            Assert.IsNull(failure.CleanupException);
-        }
-        finally
-        {
-            DeleteTemporaryDirectory(root);
-        }
-    }
-
-    /// <summary>
-    /// 保証：probe削除失敗は残ったパスと清掃例外を保持し、書込み可能であることだけを理由に検査成功にしない。
-    /// </summary>
-    [TestMethod]
-    public void OutputCleanupFailureKeepsProbeDiagnostics()
-    {
-        string root = CreateTemporaryDirectory();
-        string? probePath = null;
-        try
-        {
-            string outputBase = Path.Combine(root, "output");
-            Directory.CreateDirectory(outputBase);
-            var fileSystem = new RecordingPreflightFileSystem
-            {
-                DeleteFailure = new UnauthorizedAccessException("cleanup denied")
-            };
-            LibraryDirectoryPreflightService service = new(fileSystem);
-            LibraryDirectoryPreflightException failure = Assert.ThrowsExactly<LibraryDirectoryPreflightException>(
-                () => service.EnsureAvailable(
-                    service.CreateRequest(
-                        [],
-                        [],
-                        new BmsLibraryOptionsSnapshot
-                        {
-                            OperationModeLR2DB = true,
-                            LR2CustomFolderOutputBaseDir = outputBase
-                        }),
-                    probeOutputBases: true));
-            probePath = failure.ProbePath;
-
-            Assert.AreEqual(LibraryDirectoryPreflightFailureCause.Cleanup, failure.Cause);
-            Assert.AreEqual(LibraryDirectoryPreflightFailureCause.Cleanup, failure.CleanupCause);
-            Assert.IsNotNull(failure.CleanupException);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(probePath));
-            Assert.IsTrue(File.Exists(probePath));
-        }
-        finally
-        {
-            if (!string.IsNullOrWhiteSpace(probePath) && File.Exists(probePath))
-            {
-                File.Delete(probePath);
-            }
             DeleteTemporaryDirectory(root);
         }
     }
@@ -488,37 +403,32 @@ public sealed class LibraryDirectoryPreflightTests
         }
     }
 
-    private sealed class RecordingPreflightFileSystem : ILibraryDirectoryPreflightFileSystem
+    /// <summary>対象と配下の項目集合・ファイル内容・ディレクトリの更新日時を、比較できる行の列として捕捉します。</summary>
+    private static string[] CaptureTreeState(IEnumerable<string> directories)
     {
-        internal List<string> AttributePaths { get; } = [];
+        List<string> state = [];
+        foreach (string directory in directories)
+        {
+            state.Add("D|" + directory + "|" + Directory.GetLastWriteTimeUtc(directory).Ticks);
+            foreach (string entry in Directory.EnumerateFileSystemEntries(directory, "*", SearchOption.AllDirectories))
+            {
+                state.Add(Directory.Exists(entry)
+                    ? "D|" + entry + "|" + Directory.GetLastWriteTimeUtc(entry).Ticks
+                    : "F|" + entry + "|" + Convert.ToHexString(File.ReadAllBytes(entry)));
+            }
+        }
+        state.Sort(StringComparer.Ordinal);
+        return [.. state];
+    }
 
-        internal List<string> EnumeratedPaths { get; } = [];
-
-        internal List<string> CreatedProbePaths { get; } = [];
-
-        internal List<string> OpenedPaths { get; } = [];
-
-        internal List<string> DeletedPaths { get; } = [];
-
+    /// <summary>実 filesystem の読取りへ、直下列挙の失敗だけを注入します。</summary>
+    private sealed class EnumerationFailurePreflightFileSystem : ILibraryDirectoryPreflightFileSystem
+    {
         internal Exception? EnumerationFailure { get; init; }
 
-        internal Exception? OpenFailure { get; init; }
-
-        internal Exception? DeleteFailure { get; init; }
-
-        public FileAttributes GetAttributes(string path)
-        {
-            AttributePaths.Add(path);
-            return LongPathFileSystem.GetAttributes(path);
-        }
+        public FileAttributes GetAttributes(string path) => LongPathFileSystem.GetAttributes(path);
 
         public IEnumerable<string> EnumerateDirectoryEntries(string path)
-        {
-            EnumeratedPaths.Add(path);
-            return EnumerateDirectoryEntriesCore(path);
-        }
-
-        private IEnumerable<string> EnumerateDirectoryEntriesCore(string path)
         {
             if (EnumerationFailure != null)
             {
@@ -529,35 +439,6 @@ public sealed class LibraryDirectoryPreflightTests
             {
                 yield return entry;
             }
-        }
-
-        public string CreateOwnedProbePath(string directoryPath, string purpose)
-        {
-            string path = Path.Combine(
-                directoryPath,
-                ".bemusicseeker-" + purpose + "-" + Guid.NewGuid().ToString("N") + ".tmp");
-            CreatedProbePaths.Add(path);
-            return path;
-        }
-
-        public Stream Open(string path, FileMode mode, FileAccess access, FileShare share)
-        {
-            OpenedPaths.Add(path);
-            if (OpenFailure != null)
-            {
-                throw OpenFailure;
-            }
-            return LongPathFileSystem.Open(path, mode, access, share);
-        }
-
-        public void DeleteFile(string path)
-        {
-            DeletedPaths.Add(path);
-            if (DeleteFailure != null)
-            {
-                throw DeleteFailure;
-            }
-            LongPathFileSystem.DeleteFile(path);
         }
     }
 }

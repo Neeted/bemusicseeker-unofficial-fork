@@ -344,7 +344,7 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 CollectionAssert.AreEqual(new[] { source, destination }, roots);
                 CollectionAssert.AreEqual(roots, BmsRootRegistrationStore.CaptureStandaloneRoots(library.FixtureSettings).ToArray());
                 var preflight = new LibraryDirectoryPreflightService();
-                preflight.EnsureAvailable(preflight.CreateRequest(roots, BmsRootRegistrationStore.CaptureStandaloneRoots(library.FixtureSettings), BmsLibraryOptionsSnapshot.CreateCurrent(saved)), probeOutputBases: false);
+                preflight.EnsureAvailable(preflight.CreateRequest(roots, BmsRootRegistrationStore.CaptureStandaloneRoots(library.FixtureSettings), BmsLibraryOptionsSnapshot.CreateCurrent(saved)));
             }
             finally
             {

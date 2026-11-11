@@ -1404,7 +1404,7 @@ At startup, BeMusicSeeker checks every registered BMS directory regardless of th
 
 If an external or network drive is temporarily disconnected, reconnect it. If a registered location is incorrect, correct BMS directories under `General` and custom folder output destinations under `Playlist` in Settings. If you have not yet created a folder at the intended location, create it; if access is denied, check its permissions. Creating an empty folder does not restore the charts that were previously stored there.
 
-After correcting the problem, confirm the corrected sections in Settings and press `Start with this environment` to retry initialization. You can also reconnect the drive and restart the application. BMS directories only need to be readable; LR2 custom output destinations must also allow files to be created, written, and deleted.
+After correcting the problem, confirm the corrected sections in Settings and press `Start with this environment` to retry initialization. You can also reconnect the drive and restart the application. For this check, both BMS directories and LR2 custom output destinations only need to be readable.
 
 #### Startup or Initialization Is Slow
 

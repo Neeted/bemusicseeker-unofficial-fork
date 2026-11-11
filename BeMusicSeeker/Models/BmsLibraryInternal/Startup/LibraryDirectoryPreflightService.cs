@@ -46,11 +46,7 @@ internal enum LibraryDirectoryPreflightFailureCause
     /// <summary>出力先一覧の形式または受理する設定の配置条件が不正です。</summary>
     InvalidConfiguration,
     /// <summary>属性取得または列挙で入出力エラーが発生しました。</summary>
-    Io,
-    /// <summary>出力先の確認用ファイルを作成・書込みできません。</summary>
-    Write,
-    /// <summary>自己所有の確認用ファイルを削除できません。</summary>
-    Cleanup
+    Io
 }
 
 /// <summary>
@@ -60,7 +56,7 @@ internal enum LibraryDirectoryPreflightFailureCause
 internal sealed class LibraryDirectoryPreflightException : IOException
 {
     /// <summary>
-    /// 主原因と後始末の失敗を分けて保持し、shell の通知と診断へ渡します。
+    /// 用途・パス・原因を保持し、shell の通知と診断へ渡します。
     /// </summary>
     internal LibraryDirectoryPreflightException(
         LibraryDirectoryPreflightUse use,
@@ -68,11 +64,9 @@ internal sealed class LibraryDirectoryPreflightException : IOException
         LibraryDirectoryPreflightFailureCause cause,
         string reason,
         LibraryDirectoryPreflightOutputBaseKind? outputBaseKind = null,
-        string probePath = null,
-        Exception innerException = null,
-        Exception cleanupException = null)
+        Exception innerException = null)
         : base(
-            CreateMessage(use, directoryPath, cause, reason, probePath, cleanupException),
+            CreateMessage(use, directoryPath, cause, reason),
             innerException)
     {
         Use = use;
@@ -80,11 +74,6 @@ internal sealed class LibraryDirectoryPreflightException : IOException
         Cause = cause;
         Reason = string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
         OutputBaseKind = outputBaseKind;
-        ProbePath = probePath;
-        CleanupException = cleanupException;
-        CleanupCause = cleanupException == null
-            ? null
-            : LibraryDirectoryPreflightFailureCause.Cleanup;
     }
 
     /// <summary>検査対象の用途です。</summary>
@@ -102,30 +91,17 @@ internal sealed class LibraryDirectoryPreflightException : IOException
     /// <summary>出力 base の設定上の用途です。</summary>
     internal LibraryDirectoryPreflightOutputBaseKind? OutputBaseKind { get; }
 
-    /// <summary>自己所有 probe file の予定または残留 path です。</summary>
-    internal string ProbePath { get; }
-
-    /// <summary>cleanup に失敗した例外です。</summary>
-    internal Exception CleanupException { get; }
-
-    /// <summary>cleanup 失敗がある場合の原因です。</summary>
-    internal LibraryDirectoryPreflightFailureCause? CleanupCause { get; }
-
     private static string CreateMessage(
         LibraryDirectoryPreflightUse use,
         string directoryPath,
         LibraryDirectoryPreflightFailureCause cause,
-        string reason,
-        string probePath,
-        Exception cleanupException)
+        string reason)
     {
         return "Required library directory preflight failed."
             + " use=" + use
             + " path=" + (directoryPath ?? string.Empty)
             + " cause=" + cause
-            + " reason=" + (string.IsNullOrWhiteSpace(reason) ? "unknown" : reason)
-            + (string.IsNullOrWhiteSpace(probePath) ? string.Empty : " probe=" + probePath)
-            + (cleanupException == null ? string.Empty : " cleanup=failed");
+            + " reason=" + (string.IsNullOrWhiteSpace(reason) ? "unknown" : reason);
     }
 }
 
@@ -174,7 +150,7 @@ internal sealed class LibraryDirectoryPreflightRequest
     /// <summary>scanner に渡す同一操作の root 集合です。</summary>
     internal IReadOnlyList<string> ScanRootDirectories { get; }
 
-    /// <summary>属性・直下列挙と write probe を行う出力 base です。</summary>
+    /// <summary>BMS root と同じ属性・直下列挙を行う出力 base です。</summary>
     internal IReadOnlyList<LibraryDirectoryPreflightOutputBase> OutputBaseTargets { get; }
 
     /// <summary>用途を除いた出力 base path の read view です。</summary>
@@ -193,7 +169,7 @@ internal sealed class LibraryDirectoryPreflightRequest
 }
 
 /// <summary>
-/// 更新前検査が利用する狭い filesystem 境界です。
+/// 更新前検査が利用する、読取りだけの狭い filesystem 境界です。
 /// </summary>
 internal interface ILibraryDirectoryPreflightFileSystem
 {
@@ -202,28 +178,21 @@ internal interface ILibraryDirectoryPreflightFileSystem
 
     /// <summary>対象ディレクトリの直下エントリ列挙を開始します。</summary>
     IEnumerable<string> EnumerateDirectoryEntries(string path);
-
-    /// <summary>対象 base 内に自己所有 probe file の path を生成します。</summary>
-    string CreateOwnedProbePath(string directoryPath, string purpose);
-
-    /// <summary>指定された path を指定された mode で開きます。</summary>
-    Stream Open(string path, FileMode mode, FileAccess access, FileShare share);
-
-    /// <summary>自己所有 probe file を削除します。</summary>
-    void DeleteFile(string path);
 }
 
 /// <summary>
 /// BMS root と LR2 output base を更新境界で検査します。
-/// BMS root は read-only、output base は初回だけ自己所有 probe file を
-/// 作成・書込み・削除します。
+/// どちらも属性取得と直下列挙だけの読取り検査です。
 /// </summary>
+/// <remarks>
+/// output base の書込み可否は検査しません。確認用ファイルの作成・削除は base の更新日時を変え、
+/// 実ディレクトリの時刻と一致させる LR2 の folder.date を毎回不一致にするためです。
+/// 書込み不能は実際の出力時点の失敗として扱います。
+/// </remarks>
 internal sealed class LibraryDirectoryPreflightService
 {
     /// <summary>既知のリソース化済み予約領域理由だけを通知へ渡す診断識別子です。任意の内側例外の表示には使いません。</summary>
     internal const string ReservedBuiltinCustomFolderReason = "reserved_builtin_custom_folder";
-
-    private static readonly byte[] OutputProbeBytes = [0x42, 0x4D, 0x53];
 
     private readonly ILibraryDirectoryPreflightFileSystem fileSystem;
 
@@ -263,12 +232,9 @@ internal sealed class LibraryDirectoryPreflightService
     }
 
     /// <summary>
-    /// request の全 root を read-only 検査し、必要なら output base の write probe
-    /// も一度だけ実行します。
+    /// request の全 root と output base を読取り検査します。対象と配下を変更しません。
     /// </summary>
-    internal void EnsureAvailable(
-        LibraryDirectoryPreflightRequest request,
-        bool probeOutputBases)
+    internal void EnsureAvailable(LibraryDirectoryPreflightRequest request)
     {
         if (request == null)
         {
@@ -284,7 +250,10 @@ internal sealed class LibraryDirectoryPreflightService
         }
         foreach (LibraryDirectoryPreflightOutputBase outputBase in request.OutputBaseTargets)
         {
-            ProbeOutputBase(outputBase, probeOutputBases);
+            ProbeDirectoryReadOnly(
+                outputBase.DirectoryPath,
+                LibraryDirectoryPreflightUse.Lr2OutputBase,
+                outputBase.Kind);
         }
     }
 
@@ -349,78 +318,6 @@ internal sealed class LibraryDirectoryPreflightService
                 outputBaseKind,
                 innerException: ex);
         }
-    }
-
-    private void ProbeOutputBase(
-        LibraryDirectoryPreflightOutputBase outputBase,
-        bool writeProbe)
-    {
-        ProbeDirectoryReadOnly(
-            outputBase.DirectoryPath,
-            LibraryDirectoryPreflightUse.Lr2OutputBase,
-            outputBase.Kind);
-        if (!writeProbe)
-        {
-            return;
-        }
-
-        string probePath = null;
-        bool probeCreated = false;
-        Exception writeFailure = null;
-        try
-        {
-            probePath = fileSystem.CreateOwnedProbePath(
-                outputBase.DirectoryPath,
-                "directory-preflight");
-            using Stream stream = fileSystem.Open(
-                probePath,
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None);
-            probeCreated = true;
-            stream.Write(OutputProbeBytes, 0, OutputProbeBytes.Length);
-            stream.Flush();
-        }
-        catch (Exception ex)
-        {
-            writeFailure = ex;
-        }
-
-        Exception cleanupFailure = null;
-        if (probeCreated)
-        {
-            try
-            {
-                fileSystem.DeleteFile(probePath);
-            }
-            catch (Exception ex)
-            {
-                cleanupFailure = ex;
-            }
-        }
-
-        if (writeFailure == null && cleanupFailure == null)
-        {
-            return;
-        }
-
-        LibraryDirectoryPreflightFailureCause cause = writeFailure == null
-            ? LibraryDirectoryPreflightFailureCause.Cleanup
-            : LibraryDirectoryPreflightFailureCause.Write;
-        string reason = writeFailure == null
-            ? "cleanup_failed"
-            : cleanupFailure == null
-                ? "write_failed"
-                : "write_failed;cleanup_failed";
-        throw CreateFailure(
-            LibraryDirectoryPreflightUse.Lr2OutputBase,
-            outputBase.DirectoryPath,
-            cause,
-            reason,
-            outputBase.Kind,
-            probePath,
-            writeFailure ?? cleanupFailure,
-            cleanupFailure);
     }
 
     private static List<LibraryDirectoryPreflightOutputBase> CreateConfiguredOutputBaseTargets(
@@ -544,9 +441,7 @@ internal sealed class LibraryDirectoryPreflightService
         LibraryDirectoryPreflightFailureCause cause,
         string reason,
         LibraryDirectoryPreflightOutputBaseKind? outputBaseKind = null,
-        string probePath = null,
-        Exception innerException = null,
-        Exception cleanupException = null)
+        Exception innerException = null)
     {
         return new LibraryDirectoryPreflightException(
             use,
@@ -554,9 +449,7 @@ internal sealed class LibraryDirectoryPreflightService
             cause,
             reason,
             outputBaseKind,
-            probePath,
-            innerException,
-            cleanupException);
+            innerException);
     }
 
     private sealed class LongPathLibraryDirectoryPreflightFileSystem
@@ -568,35 +461,5 @@ internal sealed class LibraryDirectoryPreflightService
         /// <inheritdoc />
         public IEnumerable<string> EnumerateDirectoryEntries(string path) =>
             LongPathFileSystem.EnumerateFileSystemEntries(path, "*", SearchOption.TopDirectoryOnly);
-
-        /// <inheritdoc />
-        public string CreateOwnedProbePath(string directoryPath, string purpose)
-        {
-            string normalizedDirectoryPath = LongPathFileSystem.NormalizePathForStorage(directoryPath);
-            string normalizedPurpose = string.IsNullOrWhiteSpace(purpose)
-                ? "probe"
-                : new string(purpose.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
-            if (string.IsNullOrWhiteSpace(normalizedPurpose))
-            {
-                normalizedPurpose = "probe";
-            }
-
-            string candidatePath;
-            do
-            {
-                candidatePath = Path.Combine(
-                    normalizedDirectoryPath,
-                    ".bemusicseeker-" + normalizedPurpose + "-" + Guid.NewGuid().ToString("N") + ".tmp");
-            }
-            while (LongPathFileSystem.EntryExists(candidatePath));
-            return candidatePath;
-        }
-
-        /// <inheritdoc />
-        public Stream Open(string path, FileMode mode, FileAccess access, FileShare share) =>
-            LongPathFileSystem.Open(path, mode, access, share);
-
-        /// <inheritdoc />
-        public void DeleteFile(string path) => LongPathFileSystem.DeleteFile(path);
     }
 }

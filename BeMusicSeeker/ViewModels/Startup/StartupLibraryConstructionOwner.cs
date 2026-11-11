@@ -135,7 +135,7 @@ internal sealed class StartupLibraryConstructionOwner
                 ? config.Capture().RegisteredRoots : startupSettings.StandaloneBmsRootPaths;
             LibraryDirectoryPreflightService.ValidateSettingsAcceptance(registeredRoots, request,
                 CreateStartupDirectoryPreflightOptions(startupSettings, customFolderSettings));
-            new LibraryDirectoryPreflightService().EnsureAvailable(request, probeOutputBases: true);
+            new LibraryDirectoryPreflightService().EnsureAvailable(request);
             return (ConfigValid: true, Config: config);
         }).LoggingAndPropagate("StartupDirectoryPreflight");
     }
