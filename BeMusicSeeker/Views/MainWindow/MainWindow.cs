@@ -160,8 +160,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private SettingsWindow settingsWindow;
 
-    private TaskCompletionSource<object> settingsPresentationClosed;
-
 #nullable enable
     private readonly Action<SettingsWindow>? settingsWindowCreated;
     private readonly Func<IntPtr> readPlaybackForegroundWindow;
@@ -898,27 +896,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         RunOnUiThread(() => settingsWindow?.CloseFromPresentation());
     }
 
-    Task ISettingDialogPresentationPort.CloseSettingsDialogAsync()
-    {
-        if (!Dispatcher.CheckAccess())
-        {
-            return Dispatcher.InvokeAsync(CloseSettingsWindowAsync).Task.Unwrap();
-        }
-        return CloseSettingsWindowAsync();
-    }
-
-    private Task CloseSettingsWindowAsync()
-    {
-        if (settingsWindow == null)
-        {
-            throw new InvalidOperationException("No settings presentation is active.");
-        }
-        TaskCompletionSource<object> closed = settingsPresentationClosed ??=
-            new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-        settingsWindow.CloseFromPresentation();
-        return closed.Task;
-    }
-
     void ISettingDialogPresentationPort.RefreshAppearanceSelection()
     {
         RunOnUiThread(() =>
@@ -955,7 +932,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         Visibility previousPlaybackOverlayVisibility = PlaybackOverlayVisibility;
-        Exception presentationFailure = null;
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
@@ -971,26 +947,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     this));
             ThrowIfWindowDialogFailed(result.Status, result.Error, "Settings window");
         }
-        catch (Exception exception)
-        {
-            presentationFailure = exception;
-            throw;
-        }
         finally
         {
-            TaskCompletionSource<object> closed = settingsPresentationClosed;
             settingsWindow = null;
-            settingsPresentationClosed = null;
             PlaybackOverlayVisibility = previousPlaybackOverlayVisibility;
-            // Closed だけでは ShowDialog のモーダル範囲が残るため、シェルの後片付け後に受け渡す。
-            if (presentationFailure == null)
-            {
-                closed?.TrySetResult(null);
-            }
-            else
-            {
-                closed?.TrySetException(presentationFailure);
-            }
         }
     }
 

@@ -77,12 +77,6 @@ internal sealed class WindowClosingPresentationPort : ISettingDialogPresentation
             .CloseFromPresentation();
     }
 
-    public Task CloseSettingsDialogAsync()
-    {
-        CloseSettingsDialog();
-        return Task.CompletedTask;
-    }
-
     public void RefreshAppearanceSelection()
     {
     }

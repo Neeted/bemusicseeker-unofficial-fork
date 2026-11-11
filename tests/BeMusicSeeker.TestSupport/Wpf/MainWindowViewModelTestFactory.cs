@@ -252,17 +252,6 @@ internal sealed class RecordingSettingsDialogPresentationPort : ISettingDialogPr
 
     public void CloseSettingsDialog() => Record("close");
 
-    internal Func<Task>? WaitForClose { get; set; }
-
-    public async Task CloseSettingsDialogAsync()
-    {
-        CloseSettingsDialog();
-        if (WaitForClose != null)
-        {
-            await WaitForClose();
-        }
-    }
-
     public void RefreshAppearanceSelection() => Record("refresh");
 
     private void Record(string request)

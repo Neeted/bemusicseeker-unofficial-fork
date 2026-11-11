@@ -1170,7 +1170,7 @@ public partial class BMSLibrary : ObservableObject
 
     internal OwnedChartCollectionVersionSnapshot CatalogStorageRowsVersion => catalogOwnedCollectionOwner.CaptureVersionSnapshot();
 
-    internal IEnumerable<ChartFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix(null);
+    internal IEnumerable<ChartFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix();
 
     internal IReadOnlyList<ChartFile> BmsonCharts
     {
@@ -1196,7 +1196,7 @@ public partial class BMSLibrary : ObservableObject
         }
     }
 
-    internal IEnumerable<ChartFile> ChartFilesNeedResourceFixIgnored => GetChartsNeedResourceFix(null, forceUpdate: false, isInIgnoredList: true);
+    internal IEnumerable<ChartFile> ChartFilesNeedResourceFixIgnored => GetChartsNeedResourceFix(isInIgnoredList: true);
 
     /// <summary>
     /// 重複検出済みの chart group 一覧です。重複検出処理の結果が格納されます。
@@ -7923,16 +7923,6 @@ public partial class BMSLibrary : ObservableObject
         return ResourceMaintenanceTargetSet.ForSubset(NormalizeResourceMaintenanceTargetCharts(charts));
     }
 
-    /// <summary>保守確定後の同じ所持項目を再捕捉し、旧選択の不変値を評価へ流しません。</summary>
-    private List<ChartFile> RefreshResourceMaintenanceTargetChartsFromCurrentValues(IEnumerable<ChartFile> charts)
-    {
-        lock (lockOwnedChartCollection)
-        {
-            return [.. (charts ?? []).Select(chart => catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart)))
-                .Where(chart => chart != null)];
-        }
-    }
-
     private ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -8291,43 +8281,16 @@ public partial class BMSLibrary : ObservableObject
         return CreateResourceMaintenanceTargetSet(targets);
     }
 
-    internal List<ChartFile> GetChartsNeedResourceFix(IEnumerable<ChartFile> charts, bool forceUpdate = false, bool isInIgnoredList = false)
+    /// <summary>
+    /// 現在の健全性索引から、リソース不足のある譜面を読取りだけで返します。
+    /// 索引が未構築なら、カタログ保存の書込みの終了を待ってから、捕捉済みの所持の値で索引を構築・公開して使います。
+    /// </summary>
+    /// <param name="isInIgnoredList">trueなら警告無視済みの対象、falseなら有効な対象を返します。</param>
+    /// <returns>索引の対象に対応する譜面。保守・DB書込み・ファイル読取りは行いません。</returns>
+    internal List<ChartFile> GetChartsNeedResourceFix(bool isInIgnoredList = false)
     {
-        bool useOwnedSnapshot = charts == null;
-        if (useOwnedSnapshot && !forceUpdate)
-        {
-            ResourceHealthIndexSnapshot currentSnapshot = libraryMutationOwner.GetResourceHealthIndexSnapshot("resource_health_filter");
-            return [.. CaptureCatalogReadSnapshot(isInIgnoredList ? currentSnapshot.IgnoredTargets : currentSnapshot.ActiveTargets).Charts.Values];
-        }
-
-        string resourceHealthReason = useOwnedSnapshot
-            ? "force_resource_health_filter"
-            : "resource_health_filter";
-        MaintenanceWorkflowResult maintenanceResult = forceUpdate
-            ? useOwnedSnapshot
-                ? ApplyOwnedCatalogMaintenance(
-                    resourceHealthReason,
-                    forceUpdate: true,
-                    resourceHealthMutationReason: resourceHealthReason)
-                : ApplyCatalogMaintenance(
-                    charts,
-                    forceUpdate: true,
-                    resourceHealthMutationReason: resourceHealthReason)
-            : new MaintenanceWorkflowResult();
-        if (useOwnedSnapshot)
-        {
-            ResourceHealthIndexSnapshot ownedSnapshot = libraryMutationOwner.GetResourceHealthIndexSnapshot(resourceHealthReason);
-            return [.. CaptureCatalogReadSnapshot(isInIgnoredList ? ownedSnapshot.IgnoredTargets : ownedSnapshot.ActiveTargets).Charts.Values];
-        }
-
-        List<ChartFile> targets = maintenanceResult.HasUpdates
-            ? RefreshResourceMaintenanceTargetChartsFromCurrentValues(charts)
-            : NormalizeResourceMaintenanceTargetCharts(charts);
-        if (targets.Count == 0)
-        {
-            return [];
-        }
-        return resourceHealthOwner.FilterTargetsByWarningState(targets, isInIgnoredList);
+        ResourceHealthIndexSnapshot currentSnapshot = libraryMutationOwner.GetResourceHealthIndexSnapshot("resource_health_filter");
+        return [.. CaptureCatalogReadSnapshot(isInIgnoredList ? currentSnapshot.IgnoredTargets : currentSnapshot.ActiveTargets).Charts.Values];
     }
 
     /// <summary>

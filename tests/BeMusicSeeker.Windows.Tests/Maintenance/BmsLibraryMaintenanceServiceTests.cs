@@ -36,7 +36,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             };
             EnsureCurrentResourceHealthIndex(library);
 
-            List<ChartFile> result = library.GetChartsNeedResourceFix(null);
+            List<ChartFile> result = library.GetChartsNeedResourceFix();
 
             Assert.AreEqual(1, result.Count);
             Assert.AreEqual(activeChart.Path, result[0].Path);
@@ -123,7 +123,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             };
 
             ResourceHealthIndexSnapshot snapshot = library.GetResourceHealthIndexSnapshotForView("r2c_exact_full");
-            List<ChartFile> result = library.GetChartsNeedResourceFix(null);
+            List<ChartFile> result = library.GetChartsNeedResourceFix();
             ResourceHealthWarningProjection upperProjection = snapshot.GetProjection(
                 ChartFileKind.Bms,
                 upperCasePath.Path,
@@ -282,7 +282,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult firstResult = library.RescanResourceHealthCharts([firstChart]);
             ResourceHealthIndexSnapshot afterFirst = library.TryGetCurrentResourceHealthIndexSnapshotForView();
             ResourceHealthIndexSnapshot firstGetter = library.GetResourceHealthIndexSnapshotForView("test_rescan_first_getter");
-            List<ChartFile> firstFixTargets = library.GetChartsNeedResourceFix([firstChart]);
             NormalLibraryRefreshNotificationBatch firstBatch = library.GetNormalLibraryRefreshNotificationsAfter(firstNotificationVersion);
 
             Assert.IsTrue(firstResult.HasUpdates);
@@ -291,7 +290,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsTrue(afterFirst.GetProjection(secondChart).HasIssues);
             Assert.AreEqual(afterFirst.Version, firstGetter.Version);
             Assert.IsFalse(firstGetter.GetProjection(firstChart).HasIssues);
-            Assert.AreEqual(0, firstFixTargets.Count);
             Assert.IsTrue(firstBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(firstBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
             Assert.AreEqual(ownedVersion + 1, library.CatalogRevision);
@@ -305,7 +303,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult secondResult = library.RescanResourceHealthCharts([secondChart]);
             ResourceHealthIndexSnapshot afterSecond = library.TryGetCurrentResourceHealthIndexSnapshotForView();
             ResourceHealthIndexSnapshot thirdGetter = library.GetResourceHealthIndexSnapshotForView("test_rescan_second_getter");
-            List<ChartFile> secondFixTargets = library.GetChartsNeedResourceFix([secondChart]);
             NormalLibraryRefreshNotificationBatch secondBatch = library.GetNormalLibraryRefreshNotificationsAfter(secondNotificationVersion);
 
             Assert.IsTrue(secondResult.HasUpdates);
@@ -313,7 +310,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.IsFalse(afterSecond.GetProjection(firstChart).HasIssues);
             Assert.IsFalse(afterSecond.GetProjection(secondChart).HasIssues);
             Assert.AreEqual(afterSecond.Version, thirdGetter.Version);
-            Assert.AreEqual(0, secondFixTargets.Count);
             Assert.IsTrue(secondBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(secondBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
             Assert.AreEqual(ownedVersion + 2, library.CatalogRevision);
@@ -381,38 +377,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             using LR2SongDBExtended verify = databaseScope.OpenSongReadOnly(songDbPath);
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", firstPath));
             Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM maintenance WHERE path = ?;", secondPath));
-        });
-    }
-
-    /// <summary>
-    /// 現在健全性索引がない選択強制検査は選択譜面の不足だけを返し、全所持索引を構築せず、少数要求による全件準備を検出する。
-    /// </summary>
-    [TestMethod]
-    public void GetChartsNeedResourceFix_SubsetForceUpdateDoesNotBuildFullOwnedIndexWhenCurrentIndexUnavailable()
-    {
-
-        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
-        {
-            string root = Path.GetDirectoryName(songDbPath)!;
-            string targetPath = Path.Combine(root, "target-missing.bms");
-            string unrelatedPath = Path.Combine(root, "unrelated-missing.bms");
-            File.WriteAllText(targetPath, "#PLAYER 1\r\n#TITLE target\r\n#WAV01 missing.wav\r\n#00111:01\r\n", Encoding.ASCII);
-            File.WriteAllText(unrelatedPath, "#PLAYER 1\r\n#TITLE unrelated\r\n#WAV01 missing.wav\r\n#00111:01\r\n", Encoding.ASCII);
-            ChartFile target = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            target = target with { Path = targetPath };
-            ChartFile unrelated = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            unrelated = unrelated with { Path = unrelatedPath };
-            ChartFile targetChart = (target);
-            var library = new TestBmsLibrary(databaseScope, songDbPath);
-            SetStorageRows(library, [target, unrelated], []);
-            library.BmsCharts = new List<ChartFile> { target, unrelated };
-
-            List<ChartFile> result = library.GetChartsNeedResourceFix([targetChart], forceUpdate: true);
-            ResourceHealthIndexSnapshot currentSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
-
-            Assert.AreEqual(1, result.Count);
-            Assert.AreEqual(targetPath, result[0].Path);
-            Assert.AreEqual(0, currentSnapshot.TargetCount);
         });
     }
 

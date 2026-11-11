@@ -6493,12 +6493,6 @@ public sealed class SettingsWindowPresentationTests
             CloseAction?.Invoke();
         }
 
-        public Task CloseSettingsDialogAsync()
-        {
-            CloseSettingsDialog();
-            return Task.CompletedTask;
-        }
-
         public void RefreshAppearanceSelection()
         {
         }

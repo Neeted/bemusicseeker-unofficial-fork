@@ -274,30 +274,6 @@ internal sealed class ResourceHealthIndexOwner
         }
     }
 
-    internal List<ChartFile> FilterTargetsByWarningState(
-        IReadOnlyList<ChartFile> targets,
-        bool isIgnored)
-    {
-        if (targets == null || targets.Count == 0)
-        {
-            return [];
-        }
-
-        ResourceHealthIndexSnapshot snapshot = TryGetCurrentSnapshot();
-        if (snapshot == ResourceHealthIndexSnapshot.Empty)
-        {
-            snapshot = ResourceHealthIndexSnapshot.Build(
-                targets,
-                maintenanceService,
-                version: 0);
-        }
-        return [.. targets.Where(chart =>
-        {
-            ResourceHealthWarningProjection projection = snapshot.GetProjection(chart);
-            return projection.HasIssues && projection.IsIgnored == isIgnored;
-        })];
-    }
-
     private bool PublishFullOwnedSnapshot(
         string reason,
         ResourceMaintenanceTargetSet targetSet,

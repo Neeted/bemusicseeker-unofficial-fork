@@ -58,7 +58,7 @@ public sealed class SelectedChartResourceHealthWorkflowOwnerTests
                 Assert.AreEqual(100, current.WAVHealth);
                 Assert.AreEqual(parsed.Md5, current.Md5);
                 Assert.IsFalse(current.Warnings.Any(w => w.Kind == ChartWarningKind.ResourceWavMissing));
-                Assert.IsFalse(library.GetChartsNeedResourceFix(null).Any(c => c.Path == path));
+                Assert.IsFalse(library.GetChartsNeedResourceFix().Any(c => c.Path == path));
                 Assert.AreEqual(untouched.Md5, library.BmsCharts.Single(c => c.Path == untouchedPath).Md5);
                 using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
                 LR2SongDBExtended.maintenance saved = read.Table<LR2SongDBExtended.maintenance>().Single();

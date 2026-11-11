@@ -3970,7 +3970,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.IsTrue(FindDescendants<TextBlock>(tableItem!).Any(block => block.Text == expectedName));
                 if (!sameSkill)
                 {
-                    // 通知の依頼は待たれないため、件数の表明の前に、表示の到着を待ちます。
+                    // 操作の Task は終了の判定と最初の組の依頼までで完了し、表示（到着と後続の組の依頼）は待たないため、件数の表明の前に到着を待ちます。
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(skillDisplayed.Task, "recommendation-message-presenter");
                 }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -4715,7 +4715,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var bulkFailures = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Hand).ToList();
-                Assert.AreEqual(bulkOutcome == "success" ? 0 : 1, bulkFailures.Count);
+                Assert.AreEqual(expectedHands, bulkFailures.Count);
                 if (bulkFailures.Count != 0)
                 {
                     Assert.AreSame(bulk.Window, bulkFailures.Single().Owner);
@@ -4728,7 +4728,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 if (confirmations.Count != 0) { Assert.AreSame(bulk.Window, confirmations.Single().Request.Owner); }
                 var outputWarnings = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Exclamation
                     && notification.Request is not UiConfirmationRequest).ToList();
-                Assert.AreEqual(bulkOutcome is "output_failure" or "notification_failure" ? 1 : 0, outputWarnings.Count);
+                Assert.AreEqual(expectedWarnings, outputWarnings.Count);
                 if (outputWarnings.Count != 0)
                 {
                     Assert.AreSame(bulk.Window, outputWarnings.Single().Owner, "実coordinatorは現在のmodalを通知ownerに解決します。");

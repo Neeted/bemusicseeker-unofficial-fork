@@ -1012,17 +1012,7 @@ public sealed class SettingDialogEditCompletionTests
                 var owner = new MainWindowViewModel(composition, factory);
                 Task? settingsLibraryTerminal = null;
                 Task? settingsPlaylistTerminal = null;
-                var presentation = new RecordingSettingsDialogPresentationPort
-                {
-                    WaitForClose = () =>
-                    {
-                        settingsLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
-                        settingsPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
-                        Assert.IsFalse(settingsLibraryTerminal.IsCompleted);
-                        Assert.IsFalse(settingsPlaylistTerminal.IsCompleted);
-                        return Task.CompletedTask;
-                    }
-                };
+                var presentation = new RecordingSettingsDialogPresentationPort();
                 owner.SettingDialog.AttachPresentationPort(presentation);
                 Task? apply = null;
                 Action? detachPendingNotifications = null;
@@ -2731,17 +2721,7 @@ public sealed class SettingDialogEditCompletionTests
                 var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
 ;
                 var viewModel = new MainWindowViewModel(composition, factory);
-                Task? parentLibraryTerminal = null;
-                Task? parentPlaylistTerminal = null;
-                var presentation = new RecordingSettingsDialogPresentationPort
-                {
-                    WaitForClose = () =>
-                    {
-                        parentLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
-                        parentPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
-                        return Task.CompletedTask;
-                    }
-                };
+                var presentation = new RecordingSettingsDialogPresentationPort();
                 viewModel.SettingDialog.AttachPresentationPort(presentation);
                 Task? apply = null;
                 SettingsWindow? window = null;
