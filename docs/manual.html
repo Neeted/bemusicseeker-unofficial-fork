@@ -1074,7 +1074,7 @@ Depending on library size, disk speed, and Everything availability, this may tak
 </tr>
 <tr>
 <td>Minimum audio completeness for automatic destination selection</td>
-<td>100%</td>
+<td>99%</td>
 <td>Automatic selection requires each chart’s audio completeness, combining the candidate destination and bundled files, to meet this value. Choose 90–100% in 1% steps. Missing-resource warnings remain, and this does not change the conditions for allowing new installation.</td>
 </tr>
 <tr>
@@ -1911,7 +1911,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h3 id="install-destination-estimation">Install-Destination Estimation</h3>
 <p>Use <code>Install</code> → <code>Estimate install destination</code> for both additional charts and packages containing only already-owned charts. It compares how many files used by the charts will be available after combining bundled resources with each candidate folder. When combined coverage is equal, candidates with more matching files of their own rank higher.</p>
 <p>When the bundled files alone verifiably cover at least 90% of the used audio, candidates are retained if TITLE / ARTIST match strongly or both the title and artist of the same chart are similar. Otherwise, similarity in either field is sufficient. This 90% uses audio brought in by the package before adding the destination, so it can differ from the displayed <code>WAV</code> value. If renamed titles or artists leave no suitable candidates, use <code>Estimate installation location (keep unrelated candidates)</code> to inspect candidates by their resource matches.</p>
-<p>Automatic confirmation of <code>INSTL DST</code> requires a strong TITLE / ARTIST match and each chart’s used-audio coverage from the package and candidate together to meet the configured threshold (100% by default). If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.</p>
+<p>Automatic confirmation of <code>INSTL DST</code> requires a strong TITLE / ARTIST match and each chart’s used-audio coverage from the package and candidate together to meet the configured threshold (99% by default). If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.</p>
 <p>With automatic installation during import enabled, packages whose destinations were determined by that import’s automatic estimation are installed after estimation completes successfully. Manually started estimation only sets destinations. If charts from the same source folder are grouped into one package and any unowned chart was not automatically assigned a destination by this import, the entire package remains pending.</p>
 <p>An explicit <code>INSTL DST</code> selects an existing folder. If that folder is renamed or deleted before installation, the chart stays at its source; select the destination again. Re-estimation preserves a package’s confirmed destinations. Clear all destinations first to estimate the package again.</p>
 <p>Confirming search roots removes pending inputs beneath those roots from Pending so they do not overlap with owned charts. Their source files remain in place.</p>

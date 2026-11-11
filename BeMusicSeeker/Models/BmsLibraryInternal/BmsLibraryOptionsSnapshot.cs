@@ -59,7 +59,7 @@ internal sealed record BmsLibraryOptionsSnapshot
     public bool AutoInstallAfterAutomaticEstimation { get; init; }
 
     /// <summary>導入先の自動設定に各譜面が必要とする最低音源充足率を捕捉します。許可範囲は90～100で、範囲外は評価側で拒否します。</summary>
-    public int InstallDestinationAutoApplyMinAudioHealth { get; init; } = 100;
+    public int InstallDestinationAutoApplyMinAudioHealth { get; init; } = 99;
 
     public bool EstimateOfflineScoreRanking { get; init; }
 

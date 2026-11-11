@@ -139,17 +139,17 @@ public sealed class PortableSettingsPersistenceTests
         Assert.IsTrue(TestSettingsFactory.OpenSettings(files.Path).ShowNewPackageInstallConfirmMsg);
         Assert.AreEqual(2, TestSettingsFactory.OpenSettings(files.Path).PlayerResamplingQuality);
         Assert.AreEqual(1, TestSettingsFactory.OpenSettings(files.Path).PlayerMixerThreadCount);
-        Assert.AreEqual(100, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        Assert.AreEqual(99, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
     }
 
-    /// <summary>旧設定の欠如は100%で読み、有効な90/97/100と範囲外の保存値を実保存・新reader・操作snapshotへそのまま渡し、黙った丸めを検出します。</summary>
+    /// <summary>新規と旧設定の欠如は既定の99%で読み、有効な90/97/100と範囲外の保存値を実保存・新reader・操作snapshotへそのまま渡し、黙った丸めを検出します。</summary>
     [TestMethod]
     public void InstallDestinationAudioThresholdRoundTripsWithoutNormalizingInvalidValues()
     {
         using var files = new SettingsFiles();
-        Assert.AreEqual(100, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        Assert.AreEqual(99, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
         File.WriteAllText(files.Path, Config());
-        Assert.AreEqual(100, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
+        Assert.AreEqual(99, TestSettingsFactory.OpenSettings(files.Path).InstallDestinationAutoApplyMinAudioHealth);
         foreach (int threshold in new[] { 90, 97, 100, 89, 101 })
         {
             Settings settings = TestSettingsFactory.OpenSettings(files.Path);

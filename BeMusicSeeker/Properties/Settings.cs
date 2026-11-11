@@ -1688,10 +1688,10 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
-    /// <summary>導入先を自動設定するときに各譜面へ要求する最低音源充足率です。旧設定での欠如は100とし、保存済み範囲外値は丸めません。</summary>
+    /// <summary>導入先を自動設定するときに各譜面へ要求する最低音源充足率です。旧設定での欠如は既定と同じ99とし、保存済み範囲外値は丸めません。</summary>
     [UserScopedSetting]
     [DebuggerNonUserCode]
-    [DefaultSettingValue("100")]
+    [DefaultSettingValue("99")]
     public int InstallDestinationAutoApplyMinAudioHealth
     {
         get => (int)this[nameof(InstallDestinationAutoApplyMinAudioHealth)];
