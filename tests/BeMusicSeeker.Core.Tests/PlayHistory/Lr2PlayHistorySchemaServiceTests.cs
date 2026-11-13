@@ -1,6 +1,7 @@
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using SQLite;
 
@@ -496,18 +497,24 @@ public sealed class Lr2PlayHistorySchemaServiceTests
     }
 
     /// <summary>
-    /// 導入SQLにLR2のSQLite3.6.7で使えないUPSERT・RETURNING・CTE・window・生成列構文を混ぜない。
+    /// 条件: 本人スコアの基本表だけの score.db へ、本番の導入・修復入口を通す。
+    /// 期待結果: 導入後に読取り専用で開いた score.db の sqlite_master と索引・表の形状が、全て SQLite 3.6.7 の互換範囲に収まる。
+    /// 検出する誤り: LR2 本体が開く score.db の履歴表・索引・トリガーへ、UPSERT・RETURNING・CTE・window・生成列や 3.6.7 にない関数を持ち込む退行。
     /// </summary>
+    /// <remarks>導入SQLの文字列ではなく保存された定義を検査し、実行時に組み立てた文や SQLite が正規化した定義も対象にする。</remarks>
     [TestMethod]
-    public void InstallSqlStatements_DoNotUseKnownSqlite367IncompatibleSyntax()
+    public void InstallOrRepair_LeavesOnlySqlite367CompatibleDefinitions()
     {
-        string sql = string.Join(Environment.NewLine, Lr2PlayHistorySchemaService.InstallSqlStatements);
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateBaseScoreDb(scoreDbPath);
+            var service = new Lr2PlayHistorySchemaService(databaseScope);
 
-        StringAssert.DoesNotMatch(sql, new System.Text.RegularExpressions.Regex(@"\bON\s+CONFLICT\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
-        StringAssert.DoesNotMatch(sql, new System.Text.RegularExpressions.Regex(@"\bRETURNING\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
-        StringAssert.DoesNotMatch(sql, new System.Text.RegularExpressions.Regex(@"\bWITH\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
-        StringAssert.DoesNotMatch(sql, new System.Text.RegularExpressions.Regex(@"\bOVER\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
-        StringAssert.DoesNotMatch(sql, new System.Text.RegularExpressions.Regex(@"\bGENERATED\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+            Assert.AreEqual(Lr2PlayHistorySchemaStatus.Installed, service.InstallOrRepair(scoreDbPath, isLr2LinkedProfile: true).Status);
+
+            using SQLiteConnectionEx verify = databaseScope.OpenProviderConnection(scoreDbPath, SQLiteOpenFlags.ReadOnly);
+            Sqlite367SchemaCompatibility.AssertCompatible(verify);
+        });
     }
 
     private static void WithScoreDb(Action<string> action)

@@ -649,8 +649,9 @@ internal sealed class PlaylistPersistenceRepository
     private static void DeleteEquivalentEntries(LR2SongDBExtended db, BMSTableEntry entry)
     {
         if (!entry.playlist_id.HasValue) { return; }
-        foreach (PlaylistEntryRowLocator row in db.Query<PlaylistEntryRowLocator>(
-            "SELECT rowid AS RowId FROM playlist_entry WHERE " + BuildExactPlaylistEntryPredicate(entry) + ";"))
+        var args = new List<object>();
+        string sql = BuildEquivalentEntryLookupSql(entry, args);
+        foreach (PlaylistEntryRowLocator row in db.Query<PlaylistEntryRowLocator>(sql + ";", [.. args]))
         {
             db.Execute("DELETE FROM playlist_entry WHERE rowid = ?;", row.RowId);
         }
@@ -662,31 +663,207 @@ internal sealed class PlaylistPersistenceRepository
         public long RowId { get; set; }
     }
 
-    /// <summary>live の既存正規化に対応する NULL/空 hash・folder・title を同値候補に含め、削除状態を区別します。</summary>
-    private static string BuildExactPlaylistEntryPredicate(BMSTableEntry entry)
-        => "playlist_id = " + entry.playlist_id
-            + " AND " + HashEquality("md5", entry.md5)
-            + " AND " + HashEquality("sha256", entry.sha256)
-            + " AND ifnull(folder, '')" + ExactEquality(entry.folder ?? string.Empty)
-            + " AND lr2_bmsid" + ExactEquality(entry.lr2_bmsid)
-            + " AND ifnull(title, '')" + ExactEquality(entry.title ?? string.Empty)
-            + " AND ifnull(is_removed, 0) = " + (entry.is_removed ? "1" : "0");
+    /// <summary>
+    /// live の既存正規化に対応する NULL/空/空白だけの hash、NULL/空の folder・title を同値候補に含め、削除状態を区別する rowid の取得 SQL を返します。
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// 非blank の hash は前後を削らず ASCII の大小文字だけを同一視し、従来受理する最終 LF 付き hash も別キーとして保持します。
+    /// folder・title は NULL と空だけを同一視して他は完全一致、lr2_bmsid は NULL と空も区別した完全一致、
+    /// is_removed は NULL と 0 を同じ生存状態とします。
+    /// </para>
+    /// <para>
+    /// 候補索引 <c>(playlist_id, md5 COLLATE NOCASE, sha256 COLLATE NOCASE, folder, lr2_bmsid, title, is_removed)</c> で同表の背景件数に比例せず絞れるよう、
+    /// blank の hash を索引で一点または狭い範囲に探索できる互いに素な形へ分け、形ごとの SELECT を UNION ALL で連結します。
+    /// 一つの WHERE の OR にすると、小さな表ではプランナーが表全体の走査を選ぶため、各 SELECT を単純な索引探索に保ちます。
+    /// 非blank の hash の一致で候補が一点に絞れる形（非blank の MD5、または一点の形の MD5 と非blank の SHA-256）は、後続列を残余条件だけで照合します。
+    /// 両 hash が blank で、どちらも一点探索の形（NULL または空）のときだけ、folder・lr2_bmsid・title・is_removed も <see cref="EnumerateKeySeekForms"/> の形で探索します。
+    /// hash が空白文字で始まる範囲の形では後続列を探索に使えないため、残余条件だけで照合します。
+    /// 各形は互いに素なので、同じ行が二度返ることはありません。条件の値は <paramref name="args"/> へ SQL 内の出現順に追加します。
+    /// </para>
+    /// </remarks>
+    private static string BuildEquivalentEntryLookupSql(BMSTableEntry entry, List<object> args)
+    {
+        var selects = new List<string>();
+        void AddSelect(Func<string> hashCondition, bool seekKeyColumns)
+        {
+            if (!seekKeyColumns)
+            {
+                args.Add(entry.playlist_id.Value);
+                string hash = hashCondition();
+                selects.Add(CandidateSelectPrefix + hash + ExactKeyConditions(entry, args));
+                return;
+            }
+            // 両 hash 列が blank の一点探索の形のときだけ、後続の所属キー列も索引で探索します。
+            // NULL と空を同一視する列は互いに素な一点探索の形へ分け、元の残余条件も残して意味を変えません。
+            foreach (HashKeyForm[] keyForms in EnumerateKeySeekForms(entry))
+            {
+                args.Add(entry.playlist_id.Value);
+                string hash = hashCondition();
+                string seek = string.Concat(keyForms.Select(form => " AND " + form.Append(args)));
+                selects.Add(CandidateSelectPrefix + hash + seek + ExactKeyConditions(entry, args));
+            }
+        }
 
-    private static string ExactEquality(string value)
-        => value == null ? " IS NULL" : " = '" + value.Replace("'", "''") + "'";
+        if (!IsBlankHash(entry.md5))
+        {
+            // 非blank の MD5 の一致だけで同表の候補は一点に絞れるため、SHA-256 は残余条件で照合します。
+            AddSelect(() => HashEquality("md5", entry.md5, args) + " AND " + HashResidual("sha256", entry.sha256, args), seekKeyColumns: false);
+            return string.Join(" UNION ALL ", selects);
+        }
+        foreach (HashKeyForm md5Form in EnumerateBlankHashForms("md5"))
+        {
+            if (md5Form.IsRange)
+            {
+                // 範囲探索の後ろの索引列は探索に使えないため、SHA-256 は残余条件で照合します。
+                AddSelect(() => md5Form.Append(args) + " AND " + HashResidual("sha256", entry.sha256, args), seekKeyColumns: false);
+            }
+            else if (!IsBlankHash(entry.sha256))
+            {
+                // MD5 が一点の形なら非blank の SHA-256 の一致で同表の候補は一点に絞れるため、後続の所属キー列は残余条件で照合します。
+                AddSelect(() => md5Form.Append(args) + " AND " + HashEquality("sha256", entry.sha256, args), seekKeyColumns: false);
+            }
+            else
+            {
+                // MD5 が blank の行は SHA-256 だけの表で多数になり得るため、SHA-256 の blank も索引で探索します。
+                foreach (HashKeyForm shaForm in EnumerateBlankHashForms("sha256"))
+                {
+                    AddSelect(() => md5Form.Append(args) + " AND " + shaForm.Append(args), seekKeyColumns: !shaForm.IsRange);
+                }
+            }
+        }
+        return string.Join(" UNION ALL ", selects);
+    }
 
-    private static string HashEquality(string column, string value)
-        => HashComparisonExpression(column) + ExactEquality(value ?? string.Empty);
+    private const string CandidateSelectPrefix = "SELECT rowid AS RowId FROM playlist_entry WHERE playlist_id = ? AND ";
 
     /// <summary>
-    /// hash setter の blank→null と ASCII hash の小文字化に対応する索引式です。
-    /// IsNullOrWhiteSpace の文字集合だけを blank 判定へ使い、非blank の原値は削りません。
-    /// 正規表現の $ が従来受理する最終 LF 付き hash も、LF を含む別の保存キーとして保持します。
+    /// folder・lr2_bmsid・title・is_removed を候補索引の順に一点探索する条件の組合せを、互いに素に列挙します。
+    /// 非空の folder・title は <c>= ?</c>、空は <c>IS NULL</c> と <c>= ''</c>、生存は <c>IS NULL</c> と <c>= 0</c> に分けます。
     /// </summary>
-    private static string HashComparisonExpression(string column)
-        => "(CASE WHEN " + column + " IS NULL OR trim(" + column
-            + ", char(9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288)) = '' THEN '' ELSE "
-            + column + " END) COLLATE NOCASE";
+    /// <remarks>
+    /// 両 hash が blank の項目では hash 列の探索だけでは同表の hash なしの行全体に広がるため、後続列でも絞ります。
+    /// 各条件は <see cref="ExactKeyConditions"/> の残余条件を満たす行だけを選ぶ冗長な条件で、組合せの和は残余条件と一致します。
+    /// </remarks>
+    private static IEnumerable<HashKeyForm[]> EnumerateKeySeekForms(BMSTableEntry entry)
+    {
+        HashKeyForm[] folders = EmptyEquivalentSeekForms("folder", entry.folder);
+        HashKeyForm bmsid = entry.lr2_bmsid == null
+            ? new HashKeyForm("lr2_bmsid IS NULL", [], IsRange: false)
+            : new HashKeyForm("lr2_bmsid = ?", [entry.lr2_bmsid], IsRange: false);
+        HashKeyForm[] titles = EmptyEquivalentSeekForms("title", entry.title);
+        HashKeyForm[] states = entry.is_removed
+            ? [new HashKeyForm("is_removed = 1", [], IsRange: false)]
+            : [new HashKeyForm("is_removed IS NULL", [], IsRange: false), new HashKeyForm("is_removed = 0", [], IsRange: false)];
+        foreach (HashKeyForm folder in folders)
+        {
+            foreach (HashKeyForm title in titles)
+            {
+                foreach (HashKeyForm state in states)
+                {
+                    yield return [folder, bmsid, title, state];
+                }
+            }
+        }
+    }
+
+    private static HashKeyForm[] EmptyEquivalentSeekForms(string column, string value)
+        => string.IsNullOrEmpty(value)
+            ? [new HashKeyForm(column + " IS NULL", [], IsRange: false), new HashKeyForm(column + " = ''", [], IsRange: false)]
+            : [new HashKeyForm(column + " = ?", [value], IsRange: false)];
+
+    /// <summary>hash 以外の所属キーと生存状態の残余条件を返し、値を <paramref name="args"/> へ出現順に追加します。</summary>
+    private static string ExactKeyConditions(BMSTableEntry entry, List<object> args)
+    {
+        args.Add(entry.folder ?? string.Empty);
+        string sql = " AND ifnull(folder, '') = ?";
+        if (entry.lr2_bmsid == null)
+        {
+            sql += " AND lr2_bmsid IS NULL";
+        }
+        else
+        {
+            args.Add(entry.lr2_bmsid);
+            sql += " AND lr2_bmsid = ?";
+        }
+        args.Add(entry.title ?? string.Empty);
+        sql += " AND ifnull(title, '') = ?";
+        return sql + " AND ifnull(is_removed, 0) = " + (entry.is_removed ? "1" : "0");
+    }
+
+    /// <summary>.NET の <see cref="string.IsNullOrWhiteSpace(string)"/> が hash setter で空とみなす値かどうかを返します。</summary>
+    private static bool IsBlankHash(string value) => string.IsNullOrWhiteSpace(value);
+
+    private static string HashEquality(string column, string value, List<object> args)
+    {
+        args.Add(value);
+        return column + " COLLATE NOCASE = ?";
+    }
+
+    /// <summary>索引を使わない残余条件として、hash の同値を判定します。blank は NULL・空・空白だけの値をまとめて扱います。</summary>
+    private static string HashResidual(string column, string value, List<object> args)
+    {
+        if (!IsBlankHash(value))
+        {
+            return HashEquality(column, value, args);
+        }
+        args.Add(BlankHashCharacters);
+        return "(" + column + " IS NULL OR trim(" + column + ", ?) = '')";
+    }
+
+    /// <summary>
+    /// blank の hash を、NULL、空、空白文字で始まる値の範囲（残余の <c>trim</c> で空白だけと確認）へ排他的に分けます。
+    /// 各形は候補索引の hash 列で一点または範囲探索できます。
+    /// </summary>
+    private static IEnumerable<HashKeyForm> EnumerateBlankHashForms(string column)
+    {
+        yield return new HashKeyForm(column + " IS NULL", [], IsRange: false);
+        yield return new HashKeyForm(column + " COLLATE NOCASE = ''", [], IsRange: false);
+        foreach ((string lower, string upper) in BlankHashLeadingRanges)
+        {
+            yield return new HashKeyForm(
+                column + " COLLATE NOCASE >= ? AND " + column + " COLLATE NOCASE < ? AND trim(" + column + ", ?) = ''",
+                [lower, upper, BlankHashCharacters],
+                IsRange: true);
+        }
+    }
+
+    /// <summary>候補 SELECT の一つの条件式（hash または所属キーの探索形）と、その式が SQL 内で参照する値です。</summary>
+    private readonly record struct HashKeyForm(string Sql, object[] Args, bool IsRange)
+    {
+        /// <summary>値を出現順に追加し、条件式を返します。</summary>
+        internal string Append(List<object> args)
+        {
+            args.AddRange(Args);
+            return Sql;
+        }
+    }
+
+    /// <summary>
+    /// .NET の <see cref="char.IsWhiteSpace(char)"/> が空白とする25文字です。
+    /// SQLite 3.6.7 にある <c>trim(X, Y)</c> の Y へ束縛し、3.7.16 で追加された <c>char()</c> を問い合わせに使いません。
+    /// </summary>
+    private const string BlankHashCharacters =
+        "\t\n\v\f\r \u0085\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000";
+
+    /// <summary>
+    /// <see cref="BlankHashCharacters"/> を連続する文字コードごとにまとめた半開区間です。
+    /// 空白だけの非空の値は、先頭文字によっていずれか一つの区間に入ります。
+    /// NOCASE は ASCII の英字だけを畳むため、英字を含まない区間の境界は UTF-8 の符号位置順と一致します。
+    /// </summary>
+    private static readonly (string Lower, string Upper)[] BlankHashLeadingRanges =
+    [
+        ("\t", "\u000e"),
+        (" ", "!"),
+        ("\u0085", "\u0086"),
+        ("\u00a0", "\u00a1"),
+        ("\u1680", "\u1681"),
+        ("\u2000", "\u200b"),
+        ("\u2028", "\u202a"),
+        ("\u202f", "\u2030"),
+        ("\u205f", "\u2060"),
+        ("\u3000", "\u3001")
+    ];
 
     private static string SqlQuote(string value = null)
     {
@@ -851,10 +1028,12 @@ internal sealed class PlaylistPersistenceRepository
             SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id),
             SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed)
         ]);
-        // UNIQUE と既存の raw 値用索引は変えず、局所保存の正規化同値候補だけを全キーで探索します。
+        // UNIQUE と既存の raw 値用索引は変えず、局所保存の正規化同値候補を hash で探索します。
+        // LR2 の SQLite 3.6.7 が解析できるよう列名と COLLATE だけで定義し、blank・NULL の正規化は問い合わせ側で行います。
+        // 残余条件の列も含めて候補の照合を索引だけで完結させ、MD5 IS NULL などで他の被覆索引が選ばれないようにします。
+        // 定義が異なる既存の同名索引（開発版の式索引を含む）は下の不一致判定で作り直し、一致すれば作り直しません。
         string candidateIndexSql = "CREATE INDEX playlist_entry_idx_candidate ON " + tableName
-            + " (playlist_id, ifnull(is_removed, 0), " + HashComparisonExpression("md5") + ", "
-            + HashComparisonExpression("sha256") + ", ifnull(folder, ''), lr2_bmsid, ifnull(title, ''))";
+            + " (playlist_id, md5 COLLATE NOCASE, sha256 COLLATE NOCASE, folder, lr2_bmsid, title, is_removed)";
         string currentCandidateIndexSql = db.ExecuteScalar<string>(
             "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_candidate';");
         if (!string.Equals(currentCandidateIndexSql?.TrimEnd(';'), candidateIndexSql, StringComparison.Ordinal))

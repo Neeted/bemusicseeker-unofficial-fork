@@ -50,6 +50,52 @@ public sealed class AppSchemaPreflightServiceTests
     }
 
     /// <summary>
+    /// 条件: standalone は本番の song.db 作成入口、LR2 連携は song・folder 表だけの DB へ通常起動または修復承認後のアプリ所有スキーマ準備を通し、
+    /// どちらも続けて起動後スキーマ準備を行う。
+    /// 期待結果: 準備後に読取り接続で読んだ sqlite_master と索引・表の形状が、全て SQLite 3.6.7 の互換範囲に収まる。
+    /// 検出する誤り: アプリが作る・作り直す表・索引・トリガー・ビューへ、部分・式索引、生成列、WITHOUT ROWID、STRICT や 3.6.7 にない構文・関数を持ち込む退行。
+    /// </summary>
+    [TestMethod]
+    [DataRow("standalone")]
+    [DataRow("lr2-ensure")]
+    [DataRow("lr2-repair")]
+    public void PrepareSchema_LeavesOnlySqlite367CompatibleDefinitions(string entry)
+    {
+        string root = Path.Combine(CaseWorkspace.RootDirectory, "AppSchemaPreflightServiceTests", Guid.NewGuid().ToString("N"));
+        string songDbPath;
+        if (entry == "standalone")
+        {
+            string executable = Path.Combine(root, "BeMusicSeeker.exe");
+            var paths = ApplicationPathSnapshot.FromLayout(executable, root, Path.Combine(root, "profile"),
+                Path.Combine(root, "lang"), Path.Combine(root, "temp"), Path.Combine(root, "legacy"));
+            songDbPath = StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, paths).SongDbPath;
+        }
+        else
+        {
+            Directory.CreateDirectory(root);
+            songDbPath = Path.Combine(root, "song.db");
+            BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, seed =>
+            {
+                seed.CreateTable<LR2SongDB.song>();
+                seed.CreateTable<LR2SongDB.folder>();
+            });
+            var lr2Gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            if (entry == "lr2-repair")
+            {
+                lr2Gateway.RepairAppOwnedSchema();
+            }
+            else
+            {
+                lr2Gateway.EnsureAppOwnedSchema();
+            }
+        }
+        var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+        gateway.EnsureLibraryStartupSchema();
+        using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+        Sqlite367SchemaCompatibility.AssertCompatible(db);
+    }
+
+    /// <summary>
     /// 起動準備終盤の実SQLite障害で今回の表・索引・列・版を全て戻し、元の行を保持して原因除去後の明示再実行を成立させます。
     /// </summary>
     [TestMethod]

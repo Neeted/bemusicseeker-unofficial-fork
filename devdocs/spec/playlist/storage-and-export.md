@@ -374,15 +374,26 @@ DB確定後のLR2・BMT出力の失敗では、保存済みの表や表示を巻
 
 #### 局所候補の照合キー
 
-局所候補の取得は、同じ正規化式による非一意の索引を使います。起動時の読込み、生存項目だけの読込み、局所候補のSQL、候補索引、LR2カスタムフォルダ生成のSQLは、次の照合と生存判定を揃えます。
+局所候補の取得は、非一意の候補索引 `playlist_entry_idx_candidate(playlist_id, md5 COLLATE NOCASE, sha256 COLLATE NOCASE, folder, lr2_bmsid, title, is_removed)` を使います。索引は[SQLiteの互換範囲](../core/data-and-indexes.md#sqliteの互換範囲)に従って列と `COLLATE` だけで定義し、次の正規化は局所候補のSQLの側で行います。起動時の読込み、生存項目だけの読込み、局所候補のSQL、LR2カスタムフォルダ生成のSQLは、次の照合と生存判定を揃えます。
 
 | 値 | 照合 |
 | --- | --- |
 | ハッシュ | NULL・空・Unicodeの空白だけの値は同じ空キー。非空の値は前後を削らず、ASCIIの大小文字だけを同一視する。従来受理している最終LF付きのハッシュは、LFを保持した別のキー。 |
-| title | NULLと空は、既存の項目の識別で同値。通常の読込みがNULLを空として読む場合も、起動時の生値読取りがNULLを保持する場合も、同じ対象を保存・削除する。 |
+| folder | NULLと空は同値。それ以外は大小文字・前後の空白も区別する完全一致。 |
+| title | NULLと空は、既存の項目の識別で同値。通常の読込みがNULLを空として読む場合も、起動時の生値読取りがNULLを保持する場合も、同じ対象を保存・削除する。それ以外は完全一致。 |
+| `lr2_bmsid` | NULLと空も区別する完全一致。 |
 | `is_removed` | NULLと0は同じ生存候補。1の削除履歴とは分ける。 |
 
-既存の同名の索引も更新します。全表の保存を伴わない再出力でもNULLの行を含め、LEVEL・ADDDATEの並び順には保存値を使います。保存行のNULLの一括書換えやUNIQUE条件の変更は行いません。
+局所候補のSQLは、空キーの各表現（NULL、空、空白文字の範囲ごとの形）を索引で引ける単純なSELECTに分け、`UNION ALL` で結合します。候補索引はこれらの照合に使う列をすべて含み、表の行を読まずに候補を決めます。索引で絞れる範囲は次のとおりです。
+
+- 非空のMD5は、MD5の一点で絞ります。同じ表で同じMD5の行は少数のため、SHA-256と後続の列は絞った行の照合だけで判定します。
+- MD5が空キーでSHA-256が非空のときは、MD5の一点の形（NULL、空）ごとにSHA-256の一点で絞ります。同じ表で同じSHA-256の行は少数のため、後続の列は絞った行の照合だけで判定します。
+- MD5とSHA-256がどちらも空キーで、どちらも一点の形（NULL、空）のときは、folder・`lr2_bmsid`・title・`is_removed` も索引で絞ります。NULLと空を同値とする folder・title と、NULLと0を同値とする `is_removed` は、NULLの形と値の形に分けて探索します。
+- 空白文字で始まる空キーの形は、ハッシュ列の範囲で絞った後、空白だけかどうかと後続の列を照合だけで判定します。空白文字で始まる値は通常の保存では作られないため、この範囲の行は少数を前提とします。
+
+背景の行数が増えても、候補の取得の仕事量は、上記で絞った範囲の行数だけに比例します。上記の前提を外れる行（空白文字で始まるハッシュを持つ多数の行など）は、同じ表の中で照合の対象として読みます。
+
+既存の同名の候補索引の定義が異なる場合は、スキーマの準備で同じ名前の索引に作り直します。以前の開発版が作った式の候補索引も、この処理で置き換えます。定義が一致する索引は作り直しません。全表の保存を伴わない再出力でもNULLの行を含め、LEVEL・ADDDATEの並び順には保存値を使います。保存行のNULLの一括書換えやUNIQUE条件の変更は行いません。
 
 #### 削除履歴と明示的な追加
 
@@ -680,7 +691,7 @@ LR2連携での旧配置の整理と、スタンドアロンでの扱いは[LR2�
 | フォルダの改名・削除と選択・詳細 | `PlaylistWorkspaceViewModel` | [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs): 改名、別のフォルダとNO SONGの選択保持、削除後の選択先、前後空白の名前でのDB・新しいDB窓口での読戻しと再選択。ツリーの選択同期は[一覧仕様](../ui/table-view.md#実装とテストの対応)が分担する。 |
 | 所属名の要求識別と元集合の再利用 | `PlaylistRequestFactory.CreateIdentity`、`PlaylistDetailBuildDecisionService.Decide` | `PlaylistViewPipelineTests.CreatePlaylistRequestIdentity_PreservesFolderKeysAndNormalizesKeywordForDedup`: 空名・空白名・`A`・前後空白の `A` とnullの区別。同 `PlaylistDetailBuildDecision_WhenOnlyPresentationChanges_AppliesViewOnly`: 前後空白の名前での再利用。`PlaylistWorkspaceDetailRefreshTests.RequestDetailRefresh_PreservesExactFolderMembershipThroughSelectionAndPresentation`: 各所属の完全な集合と、検索・並べ替えで元集合を再取得しないこと。 |
 | 構成の確定・旧捕捉値・局所SQLと複数表の原子性 | `PlaylistAggregatePersistenceOwner`、`PlaylistPersistenceRepository` | [`PlaylistEntryCommitTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistEntryCommitTests.cs): 接頭辞・改名の確定後の公開値、DB保存前の失敗での旧構成の維持、MEMO・URL補完での構成の再利用、二表目の保存失敗での全表の保持、背景16件と128件で捕捉・SQL対象が増えないこと。[`PlaylistCatalogViewChangeTests.WorkspaceRenameFolder_UsesReceiptAndRefreshesOnlyRemappedSelection`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistCatalogViewChangeTests.cs): 確定結果による通知の時点。 |
-| 局所候補の照合キーと読込み側の整合 | [`PlaylistPersistenceRepository`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistPersistenceRepository.cs) | `PlaylistEntryCommitTests`: 状態列NULLからの保存・削除後の新しい読込み、対象外の行と旧同名索引の更新。同じ表・フォルダ・NULLのtitleで背景だけを16件と128件にし、正規の保存の候補SELECTのSQLiteの実行ステップ数（`VM_STEP`）が背景件数に比例しないこと。返却行数・変更行数と全走査ステップ数だけでは、索引の広い範囲を読む退行を検出できない。 |
+| 局所候補の照合キーと読込み側の整合 | [`PlaylistPersistenceRepository`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistPersistenceRepository.cs) | `PlaylistEntryCommitTests`: 状態列NULLからの保存・削除後の新しい読込み、対象外の行の保持。`EnsureSchema_ReplacesDevelopmentExpressionCandidateIndexWithoutRewritingRows` が、開発版の式の候補索引をプレイリスト・アプリ所有・修復の各準備入口で同名の互換索引へ置き換え、全行のrowidと列値・UNIQUE索引を変えず、二回目の準備で候補索引の定義行を作り直さないこと（修復以外は `schema_version` も不変）。`CommitDraft_ExactKeyColumnsKeepCaseAndBlankDistinctions` が、`lr2_bmsid` のNULLと空・`'10'` と `'010'`、folder・titleの大小文字・前後空白だけが違う生存行を、MEMO保存と削除の両方で変更しないこと。`CommitDraft_NullHashEmptyEquivalentKeyFormsAllMatchForSaveAndRemoval` が、両ハッシュがNULLの対象について、folder・titleのNULLと空、`is_removed` のNULLと0の全組合せの生存行を、MEMO保存と削除の両方で同値として消し、削除履歴の行を残すこと（両ハッシュが空キーのときの所属キー列の探索形の欠落を検出する）。`CommitDraft_OtherHashBlankFormsMatchWhenOneHashIsNonBlank` が、片方のハッシュだけが非空の対象について、他方のハッシュが空・空白だけの生存行をMEMO保存と削除の両方で同値として消し、他方のハッシュが非空の別値の行と、空白の後に非空白が続く行を変更しないこと（非空のMD5で絞った後のSHA-256の空キーの残余照合と、非空のSHA-256のときのMD5の空の形・空白文字の範囲の形の欠落を検出する）。`CommitDraft_BlankHashLeadingWhitespaceRangesMatchOnlyWhitespaceOnlyValues` が、.NETの空白25文字それぞれについて、MD5側・SHA-256側で、その文字で始まる空白だけのハッシュの行を保存・削除で同値として扱い、同じ文字で始まり非空白が続く行を残すこと（空白文字の区間の境界と、区間の探索後の空白だけの照合の欠落を検出する）。`CommitDraft_CandidateLookupWorkDoesNotGrowWithBackground` が、同じ表・フォルダ・NULLのtitleでハッシュだけが違う背景と、両ハッシュがNULLでfolderまたはtitleだけが違う背景を16件と128件にし、正規の保存の候補SELECTのSQLiteの実行ステップ数（`VM_STEP`）が背景件数に比例しないこと。返却行数・変更行数と全走査ステップ数だけでは、索引の広い範囲を読む退行を検出できない。 |
 | NULL生存行のLR2再出力と保存値による順序 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) のカスタムフォルダ生成SQL | [`BmsPlaylistCustomFolderOutputTests.ReOutputCustomFolder_RawNullLiveEntriesRemainIncludedAndUsePersistedSortValues`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs): 状態列NULL・0・1の行で、生存行の抽出、削除履歴の除外、LEVEL・ADDDATEの保存値による順序。 |
 | ヘッダー編集の確定（接頭辞・プロパティ・一括） | [`PlaylistHeaderEdit`](../../../BeMusicSeeker/Models/Playlist/PlaylistHeaderEdit.cs)、[`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`PlaylistWorkspaceActionWorkflowTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) / [`PlaylistWorkspaceActionWorkflowTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、[`PlaylistSummaryBulkEditTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) / [`PlaylistSummaryBulkEditTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistSummaryBulkEditTests.cs): 配送と次の並べ替え・絞込み・編集の終端、DB保存前後の失敗。変換条件は [`BMSTableLoadTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BMSTableLoadTests.cs)、スタンドアロンの保存は [`BmsPlaylistPersistenceLifecycleTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) / [`BmsPlaylistPersistenceLifecycleTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) が分担する。 |
 | DB失敗後の同一オブジェクトの保持と次の正常な編集 | [`PlaylistAggregatePersistenceOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistAggregatePersistenceOwner.cs) | [`BmsPlaylistPersistenceLifecycleTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs) / [`BmsPlaylistPersistenceLifecycleTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistPersistenceLifecycleTests.cs)。 |

@@ -1447,6 +1447,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
                                  select r[1])];
         // quoteが切り詰める埋込みNULと、SQLバックアップの区切りに使う垂直TABだけ全byteから同じTEXTを復元する式にする。
         // その他はSQLite自身に引用させ、数値風TEXTや空白をカルチャ依存で再解釈しない。
+        // instr（3.7.15）・char（3.7.16）はSQLiteの互換範囲の例外: 3.6.7の関数だけでは埋込みNULを判別できず、
+        // 読取り専用の問い合わせなのでDBのスキーマには残らない。
         sQLiteCommand = CreateCommand("SELECT " + string.Join(", ", colNames.Select(column =>
         {
             string name = QuoteIdentifier(column);

@@ -467,6 +467,38 @@ LR2IDが確定した後のプレイヤーのスコアXMLの取得は、次の契
 
 初期化・再読込み・背景の更新の最中は受理しません。処理中は設定の操作を無効にし、成功後にアプリを終了します。アプリの表・索引を増やす場合は、この一覧と回帰テストも更新します。
 
+#### SQLiteの互換範囲
+
+LR2本体は SQLite 3.6.7 で `song.db` と `score.db` を開き、開くときにスキーマ全体を解析します。解析できない定義が一つでもあると、LR2はそのDBを使えません。そのため、アプリが作成・変更するSQLiteファイルのスキーマ定義は、SQLite 3.6.7 が解析できる範囲に限ります。
+
+| 対象 | 範囲 |
+| --- | --- |
+| LR2連携の `song.db` | アプリ所有の表・索引・トリガー・ビューと、`song`・`folder` などLR2の表へ追加した索引。 |
+| `score.db` | [プレイ履歴の取得](../playlist/lr2-history-schema.md)で導入する表・索引・トリガー。 |
+| standalone の `song.db` | LR2は開きませんが、同じ準備処理と定義を共有するため、同じ範囲に揃えます。 |
+
+スキーマに次を使いません。
+
+- 部分索引（`WHERE` 付きの索引）と、式を含む索引。索引は列と `COLLATE` だけで定義します。
+- 生成列、`WITHOUT ROWID`、`STRICT`。
+- トリガー・ビューの中の UPSERT（`ON CONFLICT ... DO`）、CTE（`WITH`）、ウィンドウ関数、`RETURNING`、行値、複数行の `VALUES`。
+- 3.6.7 より後に追加された関数（`char()`、`unicode()`、`instr()`、`printf()`、`iif()`、JSON関数など）と、`BINARY`・`NOCASE`・`RTRIM` 以外の照合順序。
+
+正規化した値で照合する必要がある場合は、索引を列と `COLLATE` だけで定義し、正規化は問い合わせ側で行います。プレイリスト項目の候補索引 `playlist_entry_idx_candidate` は、スキーマの準備で既存の定義文と比べ、異なれば同名の索引を作り直します。以前の開発版が作った式の索引も、この処理で置き換えます。行は書き換えず、定義が一致すれば作り直しません。
+
+アプリ自身が実行する問い合わせ（一時表を含む）も、同じ範囲を原則とします。範囲を超える場合は、次の表に箇所と理由を記録します。どの例外も、ファイルのスキーマに定義を残しません。
+
+| 箇所 | 超える構文・関数と追加版 | 理由 |
+| --- | --- | --- |
+| [`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs)、[`Lr2FolderExistingRowLookup`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderExistingRowLookup.cs)、[`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs)、[`Lr2SongDbWriter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbWriter.cs) の一時表への投入 | 複数行の `VALUES`（3.7.11） | 大量のパス・ハッシュ・生成列を一時表へ集める処理で、文の数と完了時間を抑えるため。一時表は接続の終了で消えます。 |
+| [`Lr2SongDbWriter.BulkInsertGeneratedSongs`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbWriter.cs) の `song` への挿入 | 複数行の `VALUES`（3.7.11） | 新しい譜面の生成行を、一時表を経由せずに `song` へ直接 `INSERT OR REPLACE` する処理で、文の数と完了時間を抑えるため。挿入されるのは行だけで、スキーマは変わりません。 |
+| [`Lr2SongDbSyncService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbSyncService.cs) の互換性の保守列とハッシュの変更判定、[`Lr2SongDbWriter`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SongDbWriter.cs) の譜面情報の投影列・生成列・パス・`chart_digest_map` の変更判定 | 右辺が `NULL` 以外の `IS` / `IS NOT`（3.6.19） | 旧値・新値のどちらかが `NULL` になり得る列で、値が変わった行だけを更新するため。`=`・`<>` では `NULL` を含む差分を検出できず、`NULL` を同値として扱う比較が必要です。読み書きする行の値だけに使い、スキーマには残りません。 |
+| sqlite-net の `SaveTransactionPoint`・`RollbackTo` を使う書込み（[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs)、[`PlaylistPersistenceRepository`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistPersistenceRepository.cs) など） | `SAVEPOINT`・`ROLLBACK TO`・`RELEASE`（3.6.8） | 複数の表への変更を一つの確定単位にまとめ、失敗時に途中の変更だけを巻き戻すため。トランザクションの制御だけで、スキーマには残りません。 |
+| [`SQLiteConnectionEx.TryApplyReadOptimizedPragmas`](../../../BeMusicSeeker/Models/LR2/SQLiteConnectionEx.cs) | 負の値でKiB単位を指定する `PRAGMA cache_size`（3.7.10）、`PRAGMA mmap_size`（3.7.17） | 読取り接続のページキャッシュとメモリマップを広げ、大量の読込みの完了時間を抑えるため。接続ごとの性能設定で、適用に失敗しても結果を記録して無視し、処理を続けます。ファイルにもスキーマにも残りません。 |
+| [`LR2SongDBExtended.Dump`](../../../BeMusicSeeker/Models/LR2/LR2SongDBExtended.cs) | `instr()`（3.7.15）、`char()`（3.7.16） | プレイリストのSQLバックアップで、`quote()` が切り詰める埋込みNULと、区切りに使う垂直TABを含む文字列を判別して復元可能に保つ必要があり、3.6.7 の関数だけでは埋込みNULを判別できないため。読取りだけの問い合わせです。 |
+
+検査は、テスト支援の [`Sqlite367SchemaCompatibility`](../../../tests/BeMusicSeeker.TestSupport/Components/Sqlite367SchemaCompatibility.cs) で行います。本番の準備入口を通したDBの `sqlite_master` の定義文を字句解析し、上記の構文と、3.6.7 にある関数・照合順序の許可一覧に含まれない名前を報告します。式索引・部分索引・生成列・`WITHOUT ROWID`・`STRICT` は、定義文に加えて `PRAGMA index_xinfo`・`index_list`・`table_xinfo`・`table_list` の結果でも確認します。実際の SQLite 3.6.7 でDBを開く検査は行いません。
+
 ### パス整理とハッシュの所有関係
 
 大量の削除と局所的なパスの整理（`PathCleanup`）は、対象のパス・ハッシュを一時表に集め、`song`、`bmson_song`、`maintenance`、`chart_digest_map` を同じトランザクションで集合として更新します。
@@ -502,6 +534,9 @@ LR2IDが確定した後のプレイヤーのスコアXMLの取得は、次の契
 | 使用ファイルの件数、単純な充足率、要求0件、未解決、旧い保存値、補助画像の組合せ | [`ResourceHealthMaintenanceSnapshot`](../../../BeMusicSeeker/Models/BmsLibraryInternal/ResourceHealth/ResourceHealthMaintenanceSnapshot.cs)、[`BmsLibraryMaintenanceService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/BmsLibraryMaintenanceService.cs) | [`BmsLibraryMaintenanceServiceTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) / [`BmsLibraryMaintenanceServiceTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/BmsLibraryMaintenanceServiceTests.cs) が、件数、キャッシュの共有、未解決の分離、保存、未判定の投影を確認する。既存の列からの検査完了の導出と、不完全な組合せの区別も、保守のテストで確認する。旧い保存値と未解決の結果をDBから復元した後の、通常の補完の省略と強制的な再評価は [`BmsLibraryInitializationLoadTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/BmsLibraryInitializationLoadTests.cs) が確認する。追加の移行や印がないことは静的に確認する。 |
 | 三分類、個別の照合できない参照の数、照合できる集合の存在のキャッシュ | `ChartResourceSnapshot`、`BmsLibraryMaintenanceService`、`ChartResourceExistence` | `BmsLibraryMaintenanceServiceTests` が、同じキーの1/1・1/2・1/3、拡張子のない裸のファイルの陰性、用途・ハッシュの衝突、既知の0/0、必要な配置が未取得の場合を確認する。 |
 | 起動のスキーマの準備の一括確定、途中の失敗、既存の行の保持、明示的な再実行 | [`BmsLibraryDbGateway.EnsureLibraryStartupSchema`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`AppSchemaPreflightServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/AppSchemaPreflightServiceTests.cs) が、新しい読取り専用の接続から、成功後の表・索引・版、後段のSQLの障害による構造・列・版の巻戻しと元の行の保持、障害を除いた後の明示的な再実行を確認する。 |
+| SQLiteの互換範囲の検査器 | [`Sqlite367SchemaCompatibility`](../../../tests/BeMusicSeeker.TestSupport/Components/Sqlite367SchemaCompatibility.cs) | [`Sqlite367SchemaCompatibilityTests`](../../../tests/BeMusicSeeker.Core.Tests/Verification/Sqlite367SchemaCompatibilityTests.cs) が、禁止事項ごとの定義文（以前の開発版が作った式の候補索引を含む）を報告の分類・関数名で拒否し、文字列・識別子・注釈の中の語、許可した関数・照合順序、sqlite-net が生成する定義を受理することを確認する。実DBでは、定義文だけでなく `PRAGMA` から式索引・部分索引・生成列・`WITHOUT ROWID`・`STRICT` を報告することを確認する。 |
+| `song.db` のスキーマ準備後の互換範囲 | [`StandaloneLibraryDatabase`](../../../BeMusicSeeker/Models/BmsLibraryInternal/StandaloneLibraryDatabase.cs)、[`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`AppSchemaPreflightServiceTests.PrepareSchema_LeavesOnlySqlite367CompatibleDefinitions`](../../../tests/BeMusicSeeker.Core.Tests/Startup/AppSchemaPreflightServiceTests.cs) が、standalone の作成、LR2連携の `EnsureAppOwnedSchema()`・`RepairAppOwnedSchema()` と続く `EnsureLibraryStartupSchema()` の後、読取り専用の接続で全定義が互換範囲に収まることを確認する。式の候補索引からの置換は [`PlaylistEntryCommitTests.EnsureSchema_ReplacesDevelopmentExpressionCandidateIndexWithoutRewritingRows`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistEntryCommitTests.cs) が担う。 |
+| `score.db` のプレイ履歴の導入後の互換範囲 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaServiceTests.InstallOrRepair_LeavesOnlySqlite367CompatibleDefinitions`](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaServiceTests.cs) が、導入後に読取り専用で開いた `score.db` の全定義が互換範囲に収まることを確認する。 |
 | 導入の差分の通知前の反映と、統合後の遅延構築 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Common.cs)、[`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) | [`BmsLibraryPackageInstallServiceTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) / [`BmsLibraryPackageInstallServiceTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) の `UsesPreflightDestinationAndWarmDelta` を含む自動・推定先・強制の導入のテストが、現在性、局所的な差分、旧いスナップショットを確認する。[`BmsLibraryDuplicateServiceTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) / [`BmsLibraryDuplicateServiceTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `MergeChartDirectory_RechecksResourcesWithinAcceptedOperation` が、BMS・BMSONの実際の統合後の未構築の状態、初回の表示での構築、同じ世代での再利用を確認する。 |
 | IRの取得の単一の期限と取消、失敗時の既存データの保持 | [`BmsLibraryIrService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Ir/BmsLibraryIrService.cs) | [`AppHttpClientTests`](../../../tests/BeMusicSeeker.Core.Tests/Runtime/AppHttpClientTests.cs)、[`BmsLibraryIrServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Ir/BmsLibraryIrServiceTests.cs)、[`BmsLibraryIrStartupTests`](../../../tests/BeMusicSeeker.Windows.Tests/Startup/BmsLibraryIrStartupTests.cs) |
 | 局所的なパスの整理、旧いハッシュの捕捉、残る所有者の保護 | [`BmsLibraryDbGateway`](../../../BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryDbGateway.cs) | [`CatalogMutationOwnerTests.ApplyCatalogMutation_PathCleanupUsesBoundedExactSetAndPreservesDigestOwnership`](../../../tests/BeMusicSeeker.Core.Tests/Catalog/CatalogMutationOwnerTests.cs) が、実際の接続の実行統計（`PROFILE`）で全件走査の手順（`FULLSCAN_STEP`）と仮想マシンの手順（`VM_STEP`）を観測し、補助的に問い合わせの計画も確認する。 |

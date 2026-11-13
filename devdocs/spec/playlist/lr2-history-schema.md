@@ -12,7 +12,7 @@ LR2のプレイヤー別スコアDBに追加する表・索引・トリガーと
 
 ### 互換性と所有範囲
 
-LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウィンドウ関数、RETURNING、部分・式索引、生成列に依存しません。既存の `score` と `player` の必要列・型を検査し、本アプリが管理する名前のオブジェクトだけを操作します。
+導入する表・索引・トリガーと導入・修復のSQLは、[SQLiteの互換範囲](../core/data-and-indexes.md#sqliteの互換範囲)に従います。既存の `score` と `player` の必要列・型を検査し、本アプリが管理する名前のオブジェクトだけを操作します。
 
 起動・スコア読込み・履歴表示は検査と読取りであり、DDLや自動修復を行いません。設定画面から対象DBを確認して明示的に導入・修復します。履歴導入前のスコアを過去のプレイとして補いません。
 
@@ -102,6 +102,7 @@ LR2が使うSQLite 3.6.7で動くSQLを使います。UPSERT構文、CTE、ウ�
 | --- | --- | --- |
 | 検査理由から現在語表示への接続 | `Lr2PlayHistorySchemaService`、`Lr2PlayHistorySchemaStatusSnapshot`、`Lr2PlayHistorySchemaStatusPresentation`、設定の言語購読 | `Lr2PlayHistorySchemaServiceTests` が実DB由来の理由、Core/Windows `Lr2PlayHistorySchemaUiTests` が受渡しと可否、`SettingsWindowPresentationTests.Lr2SchemaBanners_ActualPagesRevertSeverityAndAutomationStatusAfterRepairBecomesUnavailable` が現在語の実Binding・詳細・同対象再表示を確認する。 |
 | 列・索引・トリガー・衝突・明示操作 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaServiceTests.cs) |
+| SQLiteの互換範囲 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | `Lr2PlayHistorySchemaServiceTests.InstallOrRepair_LeavesOnlySqlite367CompatibleDefinitions` が、導入後に読取り専用で開いた `score.db` の全定義を [`Sqlite367SchemaCompatibility`](../../../tests/BeMusicSeeker.TestSupport/Components/Sqlite367SchemaCompatibility.cs) で検査し、互換範囲に収まることを確認する。 |
 | 設定からの対象選択・確認・受付 | 設定の補助操作 | `Lr2PlayHistorySchemaUiTests.SettingDialogViewModel_InstallUsesConfirmedPlayerAndPreservesCandidatesUntilAccepted` と既存の導入拒否・撤去の系列が、別XMLのプレイヤーDBを変更しないこと、候補の保持、キャッシュ失効、再読込みを確認する。導入・撤去の実ボタンの接続と閉じる操作の抑止は、`SettingsWindowPresentationTests` の導入・撤去の代表が分担する。 |
 | 状態表示・導入と削除の受付 | [`Lr2PlayHistorySchemaService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistorySchemaService.cs) | [`Lr2PlayHistorySchemaUiTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs)、[`Lr2PlayHistorySchemaUiTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/Lr2PlayHistorySchemaUiTests.cs) |
 | 記録された値と読取り条件 | [`Lr2PlayHistoryReader`](../../../BeMusicSeeker/Models/BmsLibraryInternal/PlayHistory/Lr2PlayHistoryReader.cs) | [`PlayHistoryReadModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/PlayHistory/PlayHistoryReadModelTests.cs)、[`PlayHistoryReadModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/PlayHistory/PlayHistoryReadModelTests.cs) |

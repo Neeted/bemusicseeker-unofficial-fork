@@ -27,15 +27,6 @@
 
 区分は[重大変更の判定](../spec/development/agent-workflow.md#重大変更の判定)による。重大は `critical-static-review`、通常は `repo-static-review` で最終レビューする。許可パスは目安であり、単位責任者が調査後に確定して引継ぎへ書く。新しい表示文言は `Resources.resx`、`Resources.cs`、`lang/` の6言語を同じ単位で揃える。リソース辞書は複数単位が追記するため、`dev` への統合時の更新で両方の追加を残して競合を解消する。利用者に見える挙動の変更は[利用者向け文書の編集方針](../README.md#利用者向け文書の編集方針)に従ってマニュアル・リリースノートへ反映する。
 
-### SQLiteの互換範囲
-
-- 区分: 重大（永続化・互換性）。対象: [LR2のsong.dbへ作る式索引](#lr2のsongdbへ作る式索引)。
-- 契約: 本アプリが作成・変更するすべてのSQLiteファイル（スタンドアロンのアプリDB、LR2連携の `song.db`、スコアDB、将来追加するもの）に残すスキーマ定義（表・索引・トリガー・ビュー、列の既定値・CHECK）は、SQLite 3.6.7が解析できる構文と関数だけを使う。部分索引、式索引、生成列、`WITHOUT ROWID`、`STRICT`、UPSERT、CTE、ウィンドウ関数、`RETURNING`、3.6.7より後に追加された関数（`char`、`unicode`、`instr`、`printf`、`iif`、JSON関数など）を含めない。アプリ自身が実行する問い合わせも同じ範囲を原則とし、超える場合は理由を仕様の例外表に書く。DBの種類で規則を分けない。
-- 正本: [データと索引](../spec/core/data-and-indexes.md)へ「SQLiteの互換範囲」を新設し、[LR2履歴のスキーマ](../spec/playlist/lr2-history-schema.md)の個別規定はそこへの参照に置き換える。[LR2楽曲DB](../spec/integration/lr2-song-db.md)からも参照する。
-- 修正: `playlist_entry_idx_candidate` を素の列の索引へ戻し、空白・NULLの正規化と大文字小文字の比較は問い合わせ側で行う。既存の式索引は、定義不一致時に作り直す既存の処理で置き換わるため、移行処理は追加しない。全DDLと、問い合わせで新しい関数を使う既存箇所（`Lr2FolderExistingRowLookup`、`LR2SongDBExtended`、`PlaylistPersistenceRepository`）を監査し、書き換えるか例外表へ理由を記載する。
-- 検証: 各DB種別のスキーマ準備後の `sqlite_master` の定義が許可範囲だけで構成されることを、共通の検査で確認する。判定基準は `test-contract-designer` が仕様から定める。
-- 許可パスの目安: `BeMusicSeeker/Models/BmsLibraryInternal/Playlist/`、`Models/BmsLibraryInternal/Lr2/`、`Models/LR2/`、関連テスト、上記仕様。
-
 ### 設定画面の操作
 
 - 区分: 通常。設定の不備の案内と同じファイルを扱うため、同じワークツリーでその統合後に直列で進める。対象: [追加出力先の複数追加の途中で拒否されたとき](#追加出力先の複数追加の途中で拒否されたとき)、[追加出力先の追加・改名後の選択](#追加出力先の追加改名後の選択)、[右クリック項目と履歴プリセットの即時保存](#右クリック項目と履歴プリセットの即時保存)。
@@ -82,14 +73,6 @@
 調査時点のコードに基づく成立条件・原因・影響と、調査時の修正案を残す。行番号は調査時点のもので、着手時に現在の入口と既存テストで再確認する。修正の契約は[実装単位](#実装単位)を優先し、ここに書いた案や分類と食い違う場合は実装単位に従う。
 
 ### 調査時の分類: 公開前修正を推奨
-
-#### LR2のsong.dbへ作る式索引
-
-LR2連携では、アプリ所有の表もLR2本体と共有する `song.db` に作る。修復不要の通常起動でも [StartupLibraryInitializationWorkflowOwner](../../BeMusicSeeker/ViewModels/Startup/StartupLibraryInitializationWorkflowOwner.cs) が `EnsureAppOwnedSchema` を呼び、[PlaylistPersistenceRepository](../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistPersistenceRepository.cs) の `RebuildPlaylistEntryIndexes`（855行付近）が `playlist_entry_idx_candidate` を `ifnull(...)`、`HashComparisonExpression` の `CASE ... trim(..., char(...)) ... END COLLATE NOCASE` を含む式索引として作る。式索引はSQLite 3.9.0以降、`char()` は3.7.16以降の構文であり、[LR2履歴のスキーマ](../spec/playlist/lr2-history-schema.md)が前提とするLR2のSQLite 3.6.7はスキーマを解析できず、`song.db` 全体を読めなくなる見込みである。3.2.0.0を一度起動しただけで成立し、v3.1.0.0へ戻しても索引は残る。スタンドアロンのアプリ専用DBはLR2に影響しない。LR2実機での確認は未実施である。
-
-v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修正では、候補索引の定義を式を含まない素の列だけの索引へ戻す。正規化した同値の判定は取得後またはクエリのWHERE句で行い、スキーマへ残さない。`RebuildPlaylistEntryIndexes` は既存定義と文字列が一致しなければ作り直すため、定義を戻せば作成済みの式索引も同じ経路で置き換わり、別の移行処理は要らない。候補探索の性能は約21万譜面規模で現行と比較する。
-
-「LR2が開くDBへSQLite 3.6.7で解析できない構文を残さない」契約を `song.db` のアプリ所有オブジェクト全体へ広げ、[LR2楽曲DB](../spec/integration/lr2-song-db.md)にも明記する。検証は、`EnsureAppOwnedSchema` 後の `sqlite_master` の全索引が列名と `COLLATE` だけで構成され、式・`WHERE` 句・新しい関数を含まないことと、式索引を持つDBを開くと素の列の索引へ置き換わることを、既存の索引再作成のテスト系列で確認する。LR2履歴スキーマの禁止構文検査と同種の検査を `song.db` へ広げられるかも確認する。
 
 ### 調査時の分類: 判断保留
 

@@ -231,19 +231,322 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreEqual("https://example.test/newer", db.ExecuteScalar<string>("SELECT url FROM playlist_entry WHERE playlist_id=9201 AND title='row-0';"));
     }
 
-    /// <summary>旧定義の同名索引を開き直して更新し、raw NULL値とUNIQUEを変更しません。</summary>
+    /// <summary>
+    /// 3.2.0.0 開発版が作った候補索引の定義文そのものです（基準版の <c>RebuildPlaylistEntryIndexes</c> と <c>HashComparisonExpression</c> から組み立てた固定入力）。
+    /// 式索引と 3.7.16 の <c>char()</c> を含み、SQLite 3.6.7 は解析できません。
+    /// </summary>
+    internal const string DevelopmentExpressionCandidateIndexSql =
+        "CREATE INDEX playlist_entry_idx_candidate ON playlist_entry (playlist_id, ifnull(is_removed, 0), "
+        + "(CASE WHEN md5 IS NULL OR trim(md5, char(9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288)) = '' THEN '' ELSE md5 END) COLLATE NOCASE, "
+        + "(CASE WHEN sha256 IS NULL OR trim(sha256, char(9, 10, 11, 12, 13, 32, 133, 160, 5760, 8192, 8193, 8194, 8195, 8196, 8197, 8198, 8199, 8200, 8201, 8202, 8232, 8233, 8239, 8287, 12288)) = '' THEN '' ELSE sha256 END) COLLATE NOCASE, "
+        + "ifnull(folder, ''), lr2_bmsid, ifnull(title, ''))";
+
+    /// <summary>
+    /// 条件: is_removed を NULL にした行を含む DB に、開発版の式の候補索引を置き、playlist・app-owned・repair の各準備入口を通す。
+    /// 期待結果: 準備前は検査器が式索引を報告し、準備後は sqlite_master 全体が SQLite 3.6.7 の互換範囲で、同名の候補索引が存在し、
+    /// 全行の rowid と各列の quote() 値と UNIQUE 索引の定義が準備前と一致する。同じ入口の二回目では候補索引の定義行（rowid・rootpage・sql）が変わらず、
+    /// playlist・app-owned では <c>PRAGMA schema_version</c> も変わらない。
+    /// 検出する誤り: 式索引が残る退行、置換のための行の書換え・UNIQUE 変更、一致した定義を毎回作り直す誤り。
+    /// </summary>
     [TestMethod]
-    public void EnsureSchema_UpdatesCandidateStateExpressionWithoutRewritingRows()
+    [DataRow("playlist")]
+    [DataRow("app-owned")]
+    [DataRow("repair")]
+    public void EnsureSchema_ReplacesDevelopmentExpressionCandidateIndexWithoutRewritingRows(string entry)
     {
         using var fixture = new Fixture();
         fixture.Execute("UPDATE playlist_entry SET is_removed = NULL WHERE playlist_id = 9201;",
             "DROP INDEX playlist_entry_idx_candidate;",
-            "CREATE INDEX playlist_entry_idx_candidate ON playlist_entry (playlist_id, is_removed, md5);");
-        fixture.EnsureSchema();
-        using LR2SongDBExtended db = fixture.OpenRead();
-        StringAssert.Contains(db.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE name = 'playlist_entry_idx_candidate';"), "ifnull(is_removed, 0)");
-        Assert.AreEqual(2, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND is_removed IS NULL;"));
-        Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='playlist_entry_idx_uniq';"));
+            DevelopmentExpressionCandidateIndexSql + ";");
+        string[] rowsBefore;
+        string uniqueBefore;
+        using (LR2SongDBExtended before = fixture.OpenRead())
+        {
+            CollectionAssert.Contains(Sqlite367SchemaCompatibility.FindViolations(before).Select(violation => violation.Category).ToList(),
+                Sqlite367ViolationCategory.ExpressionIndex);
+            rowsBefore = Fixture.ReadRawEntryRows(before);
+            uniqueBefore = before.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_uniq';");
+            Assert.AreEqual(2, before.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND is_removed IS NULL;"));
+        }
+        Action prepare = entry switch
+        {
+            "playlist" => fixture.EnsureSchema,
+            "app-owned" => fixture.EnsureAppOwnedSchema,
+            _ => fixture.RepairAppOwnedSchema,
+        };
+        prepare();
+        string candidateDefinition;
+        long schemaVersion;
+        using (LR2SongDBExtended after = fixture.OpenRead())
+        {
+            Sqlite367SchemaCompatibility.AssertCompatible(after);
+            candidateDefinition = Fixture.ReadCandidateIndexDefinition(after);
+            CollectionAssert.AreEqual(rowsBefore, Fixture.ReadRawEntryRows(after));
+            Assert.AreEqual(uniqueBefore, after.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_uniq';"));
+            schemaVersion = after.ExecuteScalar<long>("PRAGMA schema_version;");
+        }
+        prepare();
+        using LR2SongDBExtended again = fixture.OpenRead();
+        Assert.AreEqual(candidateDefinition, Fixture.ReadCandidateIndexDefinition(again));
+        // 修復は既存仕様で chart_digest_map を毎回 DROP・CREATE し schema_version を進めるため、修復では候補索引の定義行の不変だけを判定します。
+        if (entry != "repair")
+        {
+            Assert.AreEqual(schemaVersion, again.ExecuteScalar<long>("PRAGMA schema_version;"));
+        }
+    }
+
+    /// <summary>
+    /// 条件: 両 hash が NULL の対象を読み込んだ後、md5 側・sha256 側のそれぞれで、同じ所属の生存行として次の二行を生値で置き、対象の MEMO 保存と削除を行う。
+    /// 一つは指定の空白文字で始まり空白だけからなる hash の行、もう一つは同じ空白文字で始まり後ろに非空白が続く hash の行。
+    /// 期待結果: 空白だけの行は対象と同じ空キーとして保存・削除のどちらでも消え、非空白が続く行は rowid と全列の値ごと残る。
+    /// 検出する誤り: 空白文字の先頭区間の境界の誤り（区間から外れた空白文字の行が残る）と、
+    /// 区間の探索後の残余の <c>trim</c> 検査を落として非空白が続く別の hash を同値として消す誤り。
+    /// </summary>
+    /// <remarks>
+    /// .NET の <see cref="char.IsWhiteSpace(char)"/> が空白とする25文字すべてを、符号位置で指定します。
+    /// 非空白が続く hash は読込みで拒否されるため、対象の読込み後に置きます。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(0x09)]
+    [DataRow(0x0A)]
+    [DataRow(0x0B)]
+    [DataRow(0x0C)]
+    [DataRow(0x0D)]
+    [DataRow(0x20)]
+    [DataRow(0x85)]
+    [DataRow(0xA0)]
+    [DataRow(0x1680)]
+    [DataRow(0x2000)]
+    [DataRow(0x2001)]
+    [DataRow(0x2002)]
+    [DataRow(0x2003)]
+    [DataRow(0x2004)]
+    [DataRow(0x2005)]
+    [DataRow(0x2006)]
+    [DataRow(0x2007)]
+    [DataRow(0x2008)]
+    [DataRow(0x2009)]
+    [DataRow(0x200A)]
+    [DataRow(0x2028)]
+    [DataRow(0x2029)]
+    [DataRow(0x202F)]
+    [DataRow(0x205F)]
+    [DataRow(0x3000)]
+    public void CommitDraft_BlankHashLeadingWhitespaceRangesMatchOnlyWhitespaceOnlyValues(int codePoint)
+    {
+        string leading = ((char)codePoint).ToString();
+        Assert.IsTrue(char.IsWhiteSpace(leading[0]));
+        foreach (string column in new[] { "md5", "sha256" })
+        {
+            using var fixture = new Fixture();
+            fixture.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;");
+            fixture.InsertRawEntry(null, null, memo: "target");
+            BMSTable table = fixture.Tables[0];
+            table.entries = fixture.Repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true);
+            BMSTableEntry target = table.entries.Single(entry => entry.memo == "target");
+            string blank = leading + leading + " ";
+            string nonBlank = leading + LowerMd5;
+            void InsertVariant(string value, string memo)
+                => fixture.InsertRawEntry(column == "md5" ? value : null, column == "sha256" ? value : null, memo: memo);
+
+            InsertVariant(blank, "blank-save");
+            InsertVariant(nonBlank, "non-blank");
+            long nonBlankRowId = fixture.ReadRowIdByMemo("non-blank");
+            string nonBlankBefore = fixture.ReadRawEntryRow(nonBlankRowId);
+            fixture.Commit(target, "memo", "after");
+            Assert.AreEqual(0, fixture.CountByMemo("blank-save"), column + " U+" + codePoint.ToString("X4") + " の空白だけの行が保存で同値として扱われていません。");
+            Assert.AreEqual(1, fixture.CountByMemo("after"));
+            Assert.AreEqual(nonBlankBefore, fixture.ReadRawEntryRow(nonBlankRowId), column + " U+" + codePoint.ToString("X4") + " の非空白が続く行が保存で変わりました。");
+
+            InsertVariant(blank, "blank-remove");
+            fixture.Owner.CommitEntryMutations(new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+            { [table] = observer => table.PrepareEntryMutation([target], [], observer) }, fixture.Receipts.Add);
+            Assert.AreEqual(0, fixture.CountByMemo("blank-remove"), column + " U+" + codePoint.ToString("X4") + " の空白だけの行が削除で同値として扱われていません。");
+            Assert.AreEqual(0, fixture.CountByMemo("after"));
+            Assert.AreEqual(nonBlankBefore, fixture.ReadRawEntryRow(nonBlankRowId), column + " U+" + codePoint.ToString("X4") + " の非空白が続く行が削除で変わりました。");
+        }
+    }
+
+    /// <summary>
+    /// 条件: 同じ表・同じハッシュ・同じ生存状態で、所属キーの一列だけが違う対象と変種の生存行を置き、対象の MEMO 保存と削除を行う。
+    /// lr2_bmsid は NULL と空、'10' と '010'、folder・title は大小文字の違いと前後空白の違いを使う。
+    /// 期待結果: どちらの操作でも変種の行は残り、rowid と全列の値が変わらない。
+    /// 検出する誤り: 問い合わせ側の正規化を hash 以外の列へ広げ、大小文字・前後空白・NULL と空の違う別の所属を同値候補として消す誤り。
+    /// </summary>
+    /// <remarks>folder・title の NULL と空は既存の識別で同値のため、ここでは扱いません。</remarks>
+    [TestMethod]
+    [DataRow("lr2_bmsid", null, "")]
+    [DataRow("lr2_bmsid", "", null)]
+    [DataRow("lr2_bmsid", "10", "010")]
+    [DataRow("folder", "Folder", "folder")]
+    [DataRow("folder", " folder", "folder")]
+    [DataRow("title", "Title", "title")]
+    [DataRow("title", "title ", "title")]
+    public void CommitDraft_ExactKeyColumnsKeepCaseAndBlankDistinctions(string column, string? targetValue, string? variantValue)
+    {
+        using var fixture = new Fixture();
+        fixture.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;");
+        fixture.InsertKeyVariantEntry(column, targetValue, "target");
+        long variantRowId = fixture.InsertKeyVariantEntry(column, variantValue, "variant");
+        string variantBefore = fixture.ReadRawEntryRow(variantRowId);
+        BMSTable table = fixture.Tables[0];
+        table.entries = fixture.Repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true);
+        BMSTableEntry target = table.entries.Single(entry => entry.memo == "target");
+        Assert.AreEqual(targetValue, column switch { "lr2_bmsid" => target.lr2_bmsid, "folder" => target.folder, _ => target.title });
+        fixture.Commit(target, "memo", "after");
+        Assert.AreEqual(variantBefore, fixture.ReadRawEntryRow(variantRowId));
+        using (LR2SongDBExtended db = fixture.OpenRead())
+        {
+            Assert.AreEqual(1, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND memo = 'after';"));
+            Assert.AreEqual(0, db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND memo = 'target';"));
+        }
+        fixture.Owner.CommitEntryMutations(new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+        { [table] = observer => table.PrepareEntryMutation([target], [], observer) }, fixture.Receipts.Add);
+        Assert.AreEqual(variantBefore, fixture.ReadRawEntryRow(variantRowId));
+        using LR2SongDBExtended after = fixture.OpenRead();
+        Assert.AreEqual(0, after.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND memo = 'after';"));
+    }
+
+    /// <summary>
+    /// 条件: 両 hash・folder・title・is_removed が NULL の対象を読み込んだ後、同じ表に両 hash が NULL の生存行として、
+    /// folder（NULL・空）、title（NULL・空）、is_removed（NULL・0）の8通りの組合せと、is_removed が1の削除履歴の行を生値で置き、対象の MEMO 保存を行う。
+    /// 続けて同じ8通りの行を置き直し、対象を削除する。
+    /// 期待結果: 保存と削除のどちらでも8通りの行はすべて対象と同値として消え、保存後の対象は一行だけ残り、削除後は残らない。削除履歴の行は残る。
+    /// 検出する誤り: 両 hash が空キーのときに所属キー列を索引で探索する形から、folder・title の <c>IS NULL</c> または <c>= ''</c>、
+    /// is_removed の <c>IS NULL</c> または <c>= 0</c> の形を落とし、NULL と空、NULL と0の片方の表現の行を同値候補から漏らす誤り。
+    /// </summary>
+    /// <remarks>
+    /// 表現の違う行が別の行として残ることを確かめる <see cref="CommitDraft_ExactKeyColumnsKeepCaseAndBlankDistinctions"/> とは逆に、同値の表現がすべて同じ候補になることを確かめます。
+    /// 読込みの重複の統合に左右されないよう、変種は対象の読込み後に置きます。
+    /// </remarks>
+    [TestMethod]
+    public void CommitDraft_NullHashEmptyEquivalentKeyFormsAllMatchForSaveAndRemoval()
+    {
+        using var fixture = new Fixture();
+        fixture.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;");
+        fixture.InsertBlankHashEntry(null, null, null, "target");
+        fixture.InsertBlankHashEntry(null, null, 1, "removed");
+        BMSTable table = fixture.Tables[0];
+        table.entries = fixture.Repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true);
+        BMSTableEntry target = table.entries.Single(entry => entry.memo == "target");
+        string?[] blanks = [null, string.Empty];
+        int?[] liveStates = [null, 0];
+        IReadOnlyList<string> InsertVariants(string prefix)
+        {
+            var memos = new List<string>();
+            foreach (string? folder in blanks)
+            {
+                foreach (string? title in blanks)
+                {
+                    foreach (int? state in liveStates)
+                    {
+                        string memo = prefix + " folder=" + (folder ?? "NULL") + " title=" + (title ?? "NULL") + " is_removed=" + (state?.ToString() ?? "NULL");
+                        fixture.InsertBlankHashEntry(folder, title, state, memo);
+                        memos.Add(memo);
+                    }
+                }
+            }
+            return memos;
+        }
+
+        IReadOnlyList<string> saveVariants = InsertVariants("save");
+        fixture.Commit(target, "memo", "after");
+        foreach (string memo in saveVariants)
+        {
+            Assert.AreEqual(0, fixture.CountByMemo(memo), memo + " の行が保存で同値として扱われていません。");
+        }
+        Assert.AreEqual(1, fixture.CountByMemo("after"));
+        Assert.AreEqual(1, fixture.CountByMemo("removed"));
+
+        IReadOnlyList<string> removeVariants = InsertVariants("remove");
+        fixture.Owner.CommitEntryMutations(new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+        { [table] = observer => table.PrepareEntryMutation([target], [], observer) }, fixture.Receipts.Add);
+        foreach (string memo in removeVariants)
+        {
+            Assert.AreEqual(0, fixture.CountByMemo(memo), memo + " の行が削除で同値として扱われていません。");
+        }
+        Assert.AreEqual(0, fixture.CountByMemo("after"));
+        Assert.AreEqual(1, fixture.CountByMemo("removed"));
+    }
+
+    /// <summary>
+    /// 条件: 片方の hash だけが非空で他方が NULL の対象を読み込んだ後、同じ所属の生存行として、非空の hash は対象と同じで、
+    /// 他方の hash が空・空白一文字・空白だけ（全角空白とタブ）の行と、他方の hash が非空の別値の行・空白の後に非空白が続く値の行を生値で置き、
+    /// 対象の MEMO 保存を行う。続けて空と空白の行を置き直し、対象を削除する。
+    /// md5-target は対象の MD5 が非空で SHA-256 が NULL、sha256-target は対象の SHA-256 が非空で MD5 が NULL。
+    /// 期待結果: 空と空白の行は保存と削除のどちらでも対象と同値として消え、非空の別値の行と空白の後に非空白が続く行は rowid と全列の値ごと残る。
+    /// 検出する誤り: md5-target では、非空の MD5 で絞った後の SHA-256 の空キーの残余照合を <c>IS NULL</c> だけにし、空・空白だけの行を漏らす誤り。
+    /// sha256-target では、MD5 の空キーの探索形から空の一点の形や空白文字の範囲の形を外し、その表現の行を漏らす誤り。
+    /// どちらも、空白の後に非空白が続く値を空キーとして消す誤りも検出します。
+    /// </summary>
+    /// <remarks>
+    /// 両 hash が空キーの組合せは <see cref="CommitDraft_NullHashEmptyEquivalentKeyFormsAllMatchForSaveAndRemoval"/> と
+    /// <see cref="CommitDraft_BlankHashLeadingWhitespaceRangesMatchOnlyWhitespaceOnlyValues"/> が担い、ここでは一方の hash が非空の分岐を扱います。
+    /// 読込みで拒否される空白付きの値を含むため、変種は対象の読込み後に置きます。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("md5-target")]
+    [DataRow("sha256-target")]
+    public void CommitDraft_OtherHashBlankFormsMatchWhenOneHashIsNonBlank(string targetKind)
+    {
+        bool md5Target = targetKind == "md5-target";
+        string? Md5Of(string? other) => md5Target ? LowerMd5 : other;
+        string? Sha256Of(string? other) => md5Target ? other : LowerSha256;
+        using var fixture = new Fixture();
+        fixture.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;");
+        fixture.InsertRawEntry(Md5Of(null), Sha256Of(null), memo: "target");
+        BMSTable table = fixture.Tables[0];
+        table.entries = fixture.Repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true);
+        BMSTableEntry target = table.entries.Single(entry => entry.memo == "target");
+        Assert.AreEqual(Md5Of(null), target.md5);
+        Assert.AreEqual(Sha256Of(null), target.sha256);
+
+        string otherNonBlank = md5Target ? LowerSha256 : 2.ToString("x32");
+        string otherLeadingBlank = " " + (md5Target ? LowerSha256 : LowerMd5);
+        (string Value, string Name)[] blanks = [(string.Empty, "empty"), (" ", "space"), ("　\t", "ideographic-space-tab")];
+        IReadOnlyList<string> InsertBlankVariants(string prefix)
+        {
+            var memos = new List<string>();
+            foreach ((string value, string name) in blanks)
+            {
+                string memo = prefix + " " + targetKind + " other=" + name;
+                fixture.InsertRawEntry(Md5Of(value), Sha256Of(value), memo: memo);
+                memos.Add(memo);
+            }
+            return memos;
+        }
+
+        fixture.InsertRawEntry(Md5Of(otherNonBlank), Sha256Of(otherNonBlank), memo: "other-non-blank");
+        fixture.InsertRawEntry(Md5Of(otherLeadingBlank), Sha256Of(otherLeadingBlank), memo: "other-leading-blank");
+        long[] retainedRowIds = [fixture.ReadRowIdByMemo("other-non-blank"), fixture.ReadRowIdByMemo("other-leading-blank")];
+        string[] retainedBefore = [.. retainedRowIds.Select(fixture.ReadRawEntryRow)];
+        void AssertRetainedUnchanged(string operation)
+        {
+            for (int index = 0; index < retainedRowIds.Length; index++)
+            {
+                Assert.AreEqual(retainedBefore[index], fixture.ReadRawEntryRow(retainedRowIds[index]),
+                    targetKind + " の別キーの行が" + operation + "で変わりました。");
+            }
+        }
+
+        IReadOnlyList<string> saveVariants = InsertBlankVariants("save");
+        fixture.Commit(target, "memo", "after");
+        foreach (string memo in saveVariants)
+        {
+            Assert.AreEqual(0, fixture.CountByMemo(memo), memo + " の行が保存で同値として扱われていません。");
+        }
+        Assert.AreEqual(1, fixture.CountByMemo("after"));
+        AssertRetainedUnchanged("保存");
+
+        IReadOnlyList<string> removeVariants = InsertBlankVariants("remove");
+        fixture.Owner.CommitEntryMutations(new Dictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>>
+        { [table] = observer => table.PrepareEntryMutation([target], [], observer) }, fixture.Receipts.Add);
+        foreach (string memo in removeVariants)
+        {
+            Assert.AreEqual(0, fixture.CountByMemo(memo), memo + " の行が削除で同値として扱われていません。");
+        }
+        Assert.AreEqual(0, fixture.CountByMemo("after"));
+        AssertRetainedUnchanged("削除");
     }
 
     /// <summary>固定dot表示の往復・Float全体・空nullを実owner/DBで確認し、装飾・カンマ・部分数値・非有限値は保存前に拒否します。非編集値・日時・版・配送を保持します。</summary>
@@ -646,12 +949,21 @@ public sealed class PlaylistEntryCommitTests
         Assert.AreEqual("memo after", database.ExecuteScalar<string>("SELECT memo FROM playlist_entry WHERE playlist_id=? AND md5=?;", table.playlist_id, table.entries[0].md5));
     }
 
-    /// <summary>同表・同folder・NULL titleの背景だけを増やし、正規memo保存の候補SELECTの実VM_STEPが全件走査へ増えないことを確認します。</summary>
-    /// <remarks>SEARCHによる広い索引範囲走査はFULLSCAN_STEPや変更行triggerだけでは検出できないため、PROFILEの実VM_STEPを比較します。</remarks>
+    /// <summary>同表の背景だけを増やし、正規memo保存の候補SELECTの実VM_STEPが全件走査へ増えないことを確認します。</summary>
+    /// <remarks>
+    /// <para>md5・sha256・none は同folder・NULL titleで hash だけが違う背景です。</para>
+    /// <para>
+    /// none-folder・none-title は両 hash が NULL で、folder または title だけが違う背景です。
+    /// hash 列の探索の後で所属キー列を索引で絞れない退行（残余条件だけの照合）を、背景件数に比例する VM_STEP として検出します。
+    /// </para>
+    /// <para>SEARCHによる広い索引範囲走査はFULLSCAN_STEPや変更行triggerだけでは検出できないため、PROFILEの実VM_STEPを比較します。</para>
+    /// </remarks>
     [TestMethod]
     [DataRow("md5")]
     [DataRow("sha256")]
     [DataRow("none")]
+    [DataRow("none-folder")]
+    [DataRow("none-title")]
     public void CommitDraft_CandidateLookupWorkDoesNotGrowWithBackground(string hashKind)
     {
         CandidateLookupWork small = MeasureCandidateLookup(16, hashKind);
@@ -683,7 +995,7 @@ public sealed class PlaylistEntryCommitTests
         {
             "md5" => entry.md5 == LowerMd5,
             "sha256" => entry.sha256 == LowerSha256,
-            _ => entry.md5 == null && entry.sha256 == null
+            _ => entry.md5 == null && entry.sha256 == null && entry.folder == "folder" && string.IsNullOrEmpty(entry.title)
         });
         BMSTableEntry retained = table.entries.First(entry => !ReferenceEquals(entry, target));
         observeCommit = true;
@@ -816,6 +1128,16 @@ public sealed class PlaylistEntryCommitTests
         public string detail { get; set; } = string.Empty;
     }
 
+    private sealed class RawEntryRow
+    {
+        public string Value { get; set; } = string.Empty;
+    }
+
+    private sealed class ColumnRow
+    {
+        public string name { get; set; } = string.Empty;
+    }
+
     private sealed class WorkObserver : IPlaylistEntryMutationWorkObserver
     {
         internal int ReferenceReads;
@@ -882,6 +1204,47 @@ public sealed class PlaylistEntryCommitTests
         internal LR2SongDBExtended OpenRead() => new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly();
         internal IReadOnlyList<BMSTableEntry> FreshStartupEntries() => new PlaylistPersistenceRepository(databaseScope, dbPath).LoadStartupPlaylistEntries().Entries;
         internal void EnsureSchema() => PlaylistPersistenceRepository.EnsureSchema(databaseScope, dbPath);
+        /// <summary>LR2連携の通常起動と同じ gateway のアプリ所有スキーマ準備を、このfixtureのDBへ実行します。</summary>
+        internal void EnsureAppOwnedSchema() => new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).EnsureAppOwnedSchema();
+        /// <summary>修復承認後と同じ gateway のアプリ所有スキーマ修復を、このfixtureのDBへ実行します。</summary>
+        internal void RepairAppOwnedSchema() => new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).RepairAppOwnedSchema();
+        /// <summary>候補索引の sqlite_master 行（rowid・rootpage・sql）を一つの文字列として読みます。</summary>
+        internal static string ReadCandidateIndexDefinition(LR2SongDBExtended db)
+            => db.Query<RawEntryRow>("SELECT rowid || '|' || rootpage || '|' || sql AS Value FROM sqlite_master WHERE type = 'index' AND name = 'playlist_entry_idx_candidate';").Single().Value;
+        /// <summary>playlist_entry の全行を rowid 順に、rowid と全列の quote() 値の連結として読みます。</summary>
+        internal static string[] ReadRawEntryRows(LR2SongDBExtended db)
+            => [.. db.Query<RawEntryRow>("SELECT " + RawEntryRowExpression(db) + " AS Value FROM playlist_entry ORDER BY rowid;").Select(row => row.Value)];
+        /// <summary>指定 rowid の playlist_entry 行を、rowid と全列の quote() 値の連結として読みます。</summary>
+        internal string ReadRawEntryRow(long rowId)
+        {
+            using LR2SongDBExtended db = OpenRead();
+            return db.Query<RawEntryRow>("SELECT " + RawEntryRowExpression(db) + " AS Value FROM playlist_entry WHERE rowid = ?;", rowId).Single().Value;
+        }
+        /// <summary>表 9201 の指定 memo の行の rowid を返します。</summary>
+        internal long ReadRowIdByMemo(string memo)
+        {
+            using LR2SongDBExtended db = OpenRead();
+            return db.ExecuteScalar<long>("SELECT rowid FROM playlist_entry WHERE playlist_id = 9201 AND memo = ?;", memo);
+        }
+        /// <summary>表 9201 の指定 memo の行数を返します。</summary>
+        internal int CountByMemo(string memo)
+        {
+            using LR2SongDBExtended db = OpenRead();
+            return db.ExecuteScalar<int>("SELECT count(*) FROM playlist_entry WHERE playlist_id = 9201 AND memo = ?;", memo);
+        }
+        private static string RawEntryRowExpression(LR2SongDBExtended db)
+            => "rowid || " + string.Join(" || ", db.Query<ColumnRow>("PRAGMA table_info(playlist_entry);")
+                .Select(column => "'|' || quote(\"" + column.name + "\")"));
+        /// <summary>同じhash・folder・title・生存状態の行を、指定列だけ置き換えて raw 値のまま挿入し、その rowid を返します。</summary>
+        internal long InsertKeyVariantEntry(string column, string? value, string memo)
+        {
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(dbPath);
+            db.Execute("INSERT INTO playlist_entry (playlist_id, md5, sha256, folder, title, lr2_bmsid, is_removed, memo) VALUES (9201, ?, NULL, 'folder', 'title', NULL, 0, ?);",
+                LowerMd5, memo);
+            long rowId = db.ExecuteScalar<long>("SELECT last_insert_rowid();");
+            db.Execute("UPDATE playlist_entry SET " + column + " = ? WHERE rowid = ?;", value, rowId);
+            return rowId;
+        }
         internal IReadOnlyList<string> Explain(string sql)
         {
             using LR2SongDBExtended db = OpenRead();
@@ -896,11 +1259,15 @@ public sealed class PlaylistEntryCommitTests
                 db.Execute("DELETE FROM playlist_entry WHERE playlist_id = 9201;");
                 for (int index = 0; index < count; index++)
                 {
-                    string? md5 = hashKind == "sha256" || (hashKind == "none" && index == 0)
+                    bool noHash = hashKind.StartsWith("none-", StringComparison.Ordinal);
+                    string? md5 = noHash || hashKind == "sha256" || (hashKind == "none" && index == 0)
                         ? null : index == 0 ? LowerMd5 : index.ToString("x32");
                     string? sha256 = hashKind == "sha256" ? index == 0 ? LowerSha256 : index.ToString("x64") : null;
-                    db.Execute("INSERT INTO playlist_entry (playlist_id, md5, sha256, folder, title, lr2_bmsid, is_removed, memo) VALUES (9201, ?, ?, 'folder', NULL, NULL, NULL, 'before');",
-                        md5, sha256);
+                    // 対象は index 0。none-folder・none-title の背景は hash を持たず、folder または title だけが対象と違います。
+                    string folder = hashKind == "none-folder" && index != 0 ? "folder-" + index : "folder";
+                    string? title = hashKind == "none-title" && index != 0 ? "title-" + index : null;
+                    db.Execute("INSERT INTO playlist_entry (playlist_id, md5, sha256, folder, title, lr2_bmsid, is_removed, memo) VALUES (9201, ?, ?, ?, ?, NULL, NULL, 'before');",
+                        md5, sha256, folder, title);
                 }
             });
         }
@@ -910,6 +1277,13 @@ public sealed class PlaylistEntryCommitTests
             using LR2SongDBExtended db = databaseScope.OpenSongWrite(dbPath);
             db.Execute("INSERT INTO playlist_entry (playlist_id, md5, sha256, folder, title, lr2_bmsid, is_removed, memo) VALUES (9201, ?, ?, 'folder', ?, NULL, ?, ?);",
                 md5, sha256, title, removed ? 1 : 0, memo);
+        }
+        /// <summary>両 hash と lr2_bmsid が NULL の行を、指定の folder・title・is_removed の生値のまま表 9201 へ挿入します。</summary>
+        internal void InsertBlankHashEntry(string? folder, string? title, int? isRemoved, string memo)
+        {
+            using LR2SongDBExtended db = databaseScope.OpenSongWrite(dbPath);
+            db.Execute("INSERT INTO playlist_entry (playlist_id, md5, sha256, folder, title, lr2_bmsid, is_removed, memo) VALUES (9201, NULL, NULL, ?, ?, NULL, ?, ?);",
+                folder, title, isRemoved, memo);
         }
         internal void Execute(params string[] statements) { using LR2SongDBExtended db = databaseScope.OpenSongWrite(dbPath); foreach (string sql in statements) { db.Execute(sql); } }
         public void Dispose()
