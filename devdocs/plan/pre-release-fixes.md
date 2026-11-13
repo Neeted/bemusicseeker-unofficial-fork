@@ -42,7 +42,6 @@
 - 契約: 複数追加では拒否したものだけを除き、有効なものは保存し、拒否理由は一回にまとめて通知する。確定後の再同期は、現在の選択（改名後のパスを含む）が残っていれば維持する。BMSディレクトリ一覧が同じ形なら同じ契約に揃える。右クリック項目の「既定値へ戻す」、項目の削除、履歴プリセットの削除は確認を出し、取り消せば保存も一覧の変化も起こさない。
 - 許可パスの目安: `BeMusicSeeker/ViewModels/Settings/`、`Views/Settings/Pages/`、関連テスト、[設定](../spec/runtime/settings.md)。
 
-
 ### メイン画面の表示状態
 
 - 区分: 通常。受付使用中の拒否通知の単位と `MainWindow.cs` を共有するため、その統合後に着手する。対象: [起動中に拒否した操作で表示だけ変わる](#起動中に拒否した操作で表示だけ変わる)、[起動時の初期選択の設定がその場でツリー選択を変える](#起動時の初期選択の設定がその場でツリー選択を変える)、[導入しなかった操作でもツリー選択が移る](#導入しなかった操作でもツリー選択が移る)、[表単体の再読込みの完了時の選択](#表単体の再読込みの完了時の選択)、[最大化から最小化して終了したときの次回の表示](#最大化から最小化して終了したときの次回の表示)、[メニュー項目の名前の最初の下線](#メニュー項目の名前の最初の下線)、[譜面ビューアで開く操作の無通知](#譜面ビューアで開く操作の無通知)、[フォルダ統合で統合元配下の別作品も移る](#フォルダ統合で統合元配下の別作品も移る)。
@@ -62,12 +61,6 @@
 - 契約: 変換の実行前に一回だけ形式の可用性を確認し、利用できなければ警告して「WAVEで続行」か中止を選ばせる。中止なら変換せず、どちらでも共有設定の形式を書き換えない。ファイルごとの無通知の代替は削除する。進捗と完了の表示は実際の出力形式と一致させる。
 - 正本: [音声変換](../spec/runtime/audio-conversion.md)。
 - 許可パスの目安: `BeMusicSeeker/ViewModels/ChartOperations/SelectedChartAudioConversionWorkflowOwner.cs` と関連、関連テスト、上記仕様。
-
-### 割り切りの明記
-
-- 区分: 通常（文書のみ）。対象: [Everythingが索引していない範囲の譜面が削除扱いになる](#everythingが索引していない範囲の譜面が削除扱いになる)と、意図した挙動の明記。
-- 契約: Everythingによる走査はEverythingの索引を完全な走査として採用し、索引されない範囲（索引対象外のドライブ、ネットワークドライブ、ジャンクション先など）の譜面は保証外であることを、[Everythingの問い合わせ境界](../decisions/everything-query-boundary.md)と[パス長と入出力](../spec/core/path-length-and-io.md)に書く。利用者への案内（索引対象外の場所は通常走査を使う）は利用者向け文書の方針に従ってマニュアルへ加える。全再初期化でスコアを読み直さないこと、操作バーのボタンを使用中も有効にして押下時に拒否すること、自動改名で変更不要のフォルダだけなら実移動0件で終わることを、それぞれの仕様に意図として書く。
-- 許可パスの目安: `devdocs/`、`docs/` の該当文書。
 
 ## 並列化と統合
 
@@ -98,7 +91,6 @@ v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修�
 
 「LR2が開くDBへSQLite 3.6.7で解析できない構文を残さない」契約を `song.db` のアプリ所有オブジェクト全体へ広げ、[LR2楽曲DB](../spec/integration/lr2-song-db.md)にも明記する。検証は、`EnsureAppOwnedSchema` 後の `sqlite_master` の全索引が列名と `COLLATE` だけで構成され、式・`WHERE` 句・新しい関数を含まないことと、式索引を持つDBを開くと素の列の索引へ置き換わることを、既存の索引再作成のテスト系列で確認する。LR2履歴スキーマの禁止構文検査と同種の検査を `song.db` へ広げられるかも確認する。
 
-
 ### 調査時の分類: 判断保留
 
 #### 更新後初回の譜面情報の全件再解析
@@ -108,7 +100,6 @@ v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修�
 受付の使用自体は[譜面情報](../spec/library/chart-info.md)と[操作の競合ポリシー](../spec/core/operation-concurrency-policy.md)どおりだが、同じ譜面情報の仕様は補完の完了を利用開始の条件にしないとも定めており、版更新時の長時間保持は検討されていない。先に利用者に見える契約を決める。候補は、全件補完を区切りごとに受付を取り直して間で操作を受け付ける、解析入力を変えない試聴を補完中の拒否から外す区分を設ける、現行のまま待たされる理由と進捗を表示する、のいずれかである。前二者は受付規定の変更を伴う。どの案でも[明示要求の競合の案内](../spec/core/operation-concurrency-policy.md#明示要求の競合の案内)を前提にし、表示する案の件数行は[ステータスバーの進捗](../spec/runtime/statusbar-progress.md#実行中の処理行)の「譜面情報の補完」で実装済みである。
 
 検証は、解析版21の行を持つ実SQLiteから起動相当の補完を始め、その実行中に試聴と導入の受付が採用した契約どおりに受理または案内されることを確認する。所要時間は性能測定の補完系列で約21万件の旧版行からの全件補完を計測する。
-
 
 #### フォルダ統合で統合元配下の別作品も移る
 
@@ -127,12 +118,6 @@ v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修�
 右クリックメニューページの「既定値へ戻す」は確認なしでWeb・プログラムの両一覧を既定値に置き換えて保存し、項目の「削除」とプレイリストページの履歴プリセットの「削除」も確認なしで保存する。[RightClickSettingsPage](../../BeMusicSeeker/Views/Settings/Pages/RightClickSettingsPage.xaml.cs) から [SettingsDialogViewModel.Confirmation](../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs) の `CommitRightClickRecord`（1312行付近）を直接呼ぶ。利用者が登録したURLテンプレートや実行ファイルが誤クリック一回で失われ、戻す操作はない。即時保存は[設定](../spec/runtime/settings.md)どおりだが、v3.1.0.0は下書きだけを変えて「キャンセル」で戻せたため、取消経路だけがなくなった。
 
 案は、「既定値へ戻す」は現在の確定値が既定値と異なる場合に両一覧を置き換える旨の確認を出し、削除には確認を付けるかを並べ替えなど他の即時保存操作との釣り合いで決める形である。削除だけ確認する形がv3.1.0.0との体験差を最小にする。決めた内容を[設定](../spec/runtime/settings.md)へ追記する。検証は、確認を取り消すと保存要求がなく一覧も変わらず、承認すると一回だけ保存されることを確認する。
-
-#### Everythingが索引していない範囲の譜面が削除扱いになる
-
-Everything 1.5の既定で索引されないルート（exFAT・FATの外付けドライブ、ネットワークドライブ、リムーバブル）と、索引されるルートを併せて登録している場合や、ルート配下に別ドライブへのジャンクションがある場合、Everythingの走査結果にそれらの譜面が含まれず、走査のたびに削除として反映される。[EverythingFileScanner](../../BeMusicSeeker/Models/Utils/Scanning/EverythingFileScanner.cs) はルートの存在確認だけで、ブリッジ（[EverythingBridge](../../native/EverythingBridge/EverythingBridge.cpp) の `EBridge_ScanChartAndResources`）の結果を完全として返す。[LibraryFileScanPipelineOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs) は失敗時だけ通常走査へ代替し、[BmsLibraryInitializationService](../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) の空走査保護は全体0件のときだけ働く。[FileScanParseCommitOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) が走査にない既存パスを削除とし、favorite・tag・adddateが失われ、`song.db` からも行が消える。通常走査はジャンクション先を辿るため、取得元の切替だけで集合が変わる。v3.1.0.0から同じだが、利用者データの不可逆な消失である。Everythingの索引範囲は外部製品の挙動で、ジャンクションの扱いは未確認である。
-
-[パス長と入出力](../spec/core/path-length-and-io.md)は完全な走査だけを反映すると定めており、索引外のルートを完全とみなす割り切りはない。案は、Everythingの結果を採用する前に各登録ルートの被覆を確認し、確認できないルートやルート配下の再解析点があれば、既存の代替警告とともに通常走査へ代替することである。ブリッジがルート単位の件数を返す形にすれば、0件のルートだけを追加確認でき通常時の性能へ影響しにくい。同じブリッジを使う導入先推定とLR2の `folder` 列挙も同じ被覆判定に揃え、[パス長と入出力](../spec/core/path-length-and-io.md)、README、マニュアルの案内を合わせる。消えた行は戻せないため移行はない。検証は、走査パイプラインのCoreテストで一方のルートを返さない結果を与えて既存行を削除しないことを確認し、ブリッジのテストへルート単位の集計を加え、実際のexFAT・ジャンクションは環境統合の専用環境で確認する。
 
 ### 調査時の分類: 任意改善
 

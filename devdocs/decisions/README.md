@@ -8,7 +8,7 @@
 | [導入先推定のメタデータ照合](install-estimation-metadata-matching.md) | 正規化、Strong/Relatedと実在ペア、持込み使用音源90%での条件切り替え、関連性優先・同梱補完・各譜面音源閾値、逆引き集計を採用する理由と事前実験の限界。 |
 | [保留パッケージの分け方](pending-package-grouping.md) | 同梱資源・子作品・正規化した `(タイトル, アーティスト)` による単位の決定、共通率・類似度・推定後の再統合を採らない理由と割り切り。 |
 | [LR2楽曲DBの一括再生成](lr2-song-db-one-shot-reconciliation.md) | 完全な入力、保存済み途中位置を再開に使わない理由。 |
-| [Everythingの種別別検索](everything-query-boundary.md) | 外部検索の候補生成を暗黙の前提にしない理由。 |
+| [Everythingの問い合わせと索引の範囲](everything-query-boundary.md) | 外部検索の候補生成を暗黙の前提にしない理由と、索引の範囲を完全な走査とみなして索引外を保証しない割り切り。 |
 | [ManagedBassの採用](managedbass-adoption.md) | ラッパーとネイティブDLLの責務、配布条件。 |
 | [音声処理の設計判断](audio-library-boundaries.md) | ライブラリとの責務分担、音源ロードの並列化、音質・発音時刻・終了判定の採用理由と制約。 |
 | [詳細解析の座標索引と出力](chart-info-position-index.md) | 要求順の遅延時刻生成、現存ノートと完成LN被覆の分離、Java数値互換、UTF-8一括hash。 |

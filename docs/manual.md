@@ -136,6 +136,9 @@ During initialization, BeMusicSeeker enumerates a large number of BMS chart file
 
 Start BeMusicSeeker after Everything has finished indexing your BMS-related folders and can search them.
 
+> [!CAUTION]
+> When Everything is available, BeMusicSeeker treats Everything's search results as all of the charts in your BMS directories. Charts in locations that are not in Everything's index (such as drives or folders you have not added to the index, network drives, or junction targets that Everything does not follow) are not found and are removed from the library by the startup scan or a reload. In LR2-linked mode, they are also removed from `song.db`. The chart files themselves are not deleted, but information stored for each chart cannot be restored. If you register such a location as a BMS directory, add it to the index in Everything's options and confirm that Everything can search it, or exit Everything before using BeMusicSeeker. When Everything is unavailable, ordinary file searching is used and a warning says so.
+
 ### Migrating Existing Settings
 
 In an environment where the traditional BeMusicSeeker is already installed, existing settings are copied automatically on first launch. The destination is `config/user.config` under the folder where this application is placed. The original BeMusicSeeker settings file is not modified.
