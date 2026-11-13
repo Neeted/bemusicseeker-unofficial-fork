@@ -162,12 +162,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     [TestMethod]
     public void CompiledTableContextMenuState_UsesRowFallbackAndPreservesSelectedBmson()
     {
-        MainWindowScoreViewerTerminal scoreViewer = new(
-            _ => true,
-            _ => true,
-            (_, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!),
-            (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!));
-        MainWindowSelectedChartContextMenuTerminals terminals = CreateTerminals(scoreViewer: scoreViewer);
+        MainWindowSelectedChartContextMenuTerminals terminals = CreateTerminals();
         LibraryChartRow bmsRow = CreateChartRow(ChartFileKind.Bms, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", @"C:\wave6e-state\row.bms");
         LibraryChartRow bmsonRow = CreateChartRow(ChartFileKind.Bmson, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", @"C:\wave6e-state\row.bmson");
 
@@ -188,6 +183,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                 MenuItem fixEncoding = FindMenuItem(menu, "tableContextMenuItemFixEncoding");
                 Assert.AreEqual(Visibility.Visible, fixEncoding.Visibility);
                 Assert.AreEqual(Visibility.Visible, FindMenuItem(menu, "tableContextMenuItemFullScanCheck").Visibility);
+                Assert.AreEqual(Visibility.Visible, FindMenuItem(menu, "tableContextMenuItemRegisterScore").Visibility, "選択がなければ右クリックしたBMS行1件で開く。");
 
                 table.SelectRowsByPredicate(row => ReferenceEquals(row, bmsonRow));
                 OpenContextMenu(menu);
@@ -582,13 +578,13 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     public void CompiledChartContextMenus_HaveNoManualRankingAndRedundantVisibleSeparators(bool showViewer)
     {
         MainWindowScoreViewerTerminal scoreViewer = new(
-            _ => showViewer,
-            _ => showViewer,
-            (_, _) => throw new AssertFailedException("メニュー表示の確認では譜面ビューアを起動しません。"),
-            (_, _, _) => throw new AssertFailedException("メニュー表示の確認では譜面ビューアを起動しません。"));
-        LibraryChartRow owned = CreateChartRow(ChartFileKind.Bms, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", @"C:\context-menu\chart.bms");
+            (_, _) => throw new AssertFailedException("メニュー表示の確認では譜面ビューアを起動しません。"));
+        // 譜面ビューアの項目は共通判定で決まるため、表示する場合はBMS、表示しない場合はBMSONの行で作る。
+        LibraryChartRow owned = CreateChartRow(showViewer ? ChartFileKind.Bms : ChartFileKind.Bmson, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", @"C:\context-menu\chart.bms");
         var pending = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(owned.Chart));
-        PlaylistDetailRow missing = CreateMissingPlaylistRow("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE");
+        PlaylistDetailRow missing = showViewer
+            ? CreateMissingPlaylistRow("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
+            : CreatePlaylistRow("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", ChartFileKind.Bmson, null);
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
@@ -624,21 +620,23 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
     }
 
-    /// <summary>通常譜面と未所持詳細のcompiled閲覧Clickはそれぞれ選択行の譜面を端末へ渡してHandledを設定し、通常側では未完了Task中にもHandledが成立することを確認します。</summary>
+    /// <summary>
+    /// 通常譜面と未所持詳細のcompiled閲覧Clickが、それぞれ選択行1件の判定（開く・MD5・パス）を端末へ渡してHandledを設定し、
+    /// 通常側では未完了Task中にもHandledが成立することを確認します。判定は本番の実装で、実行部分だけを記録用に差し替えています。
+    /// </summary>
     [TestMethod]
     public void CompiledScoreViewerContextMenusDelegateNormalAndMissingSelectionWithHandledTiming()
     {
         TaskCompletionSource<ScoreViewerRegistrationResult> completion = NewCompletion<ScoreViewerRegistrationResult>();
-        var calls = new List<IReadOnlyList<ChartOperationTarget>>();
+        TaskCompletionSource<object?> called = NewCompletion<object?>();
+        var calls = new List<ScoreViewerMenuDecision>();
         MainWindowScoreViewerTerminal scoreViewer = new(
-            _ => true,
-            _ => true,
-            (targets, _) =>
+            (decision, _) =>
             {
-                calls.Add(targets);
+                calls.Add(decision);
+                called.TrySetResult(null);
                 return completion.Task;
-            },
-            (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!));
+            });
         LibraryChartRow normalRow = CreateChartRow(ChartFileKind.Bms, "11111111111111111111111111111111", @"C:\wave6e-score\chart.bms");
         PlaylistDetailRow missingRow = CreateMissingPlaylistRow("22222222222222222222222222222222");
 
@@ -663,13 +661,16 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     Assert.IsTrue(normalRegister.IsEnabled);
                     RoutedEventArgs normalArgs = RaiseMenuClick(normalRegister);
                     Assert.IsTrue(normalArgs.Handled);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(called.Task, "selected-chart-terminal-called");
                     Assert.IsFalse(completion.Task.IsCompleted);
                     Assert.AreEqual(1, calls.Count);
-                    Assert.AreEqual(1, calls[0].Count);
-                    Assert.AreSame(normalRow.Chart, calls[0][0].Chart);
+                    Assert.AreEqual(ScoreViewerMenuMode.Open, calls[0].Mode);
+                    Assert.AreEqual(normalRow.Chart.Md5, calls[0].Targets.Single().Hash);
+                    Assert.AreEqual(normalRow.Chart.Path, calls[0].Targets.Single().Path);
                     completion.SetResult(null!);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "selected-chart-terminal-delegate");
 
+                    called = NewCompletion<object?>();
                     table.ItemsSource = new List<object> { missingRow };
                     table.SelectRowsByPredicate(_ => true);
                     viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
@@ -682,9 +683,10 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     Assert.IsTrue(missingRegister.IsEnabled);
                     RoutedEventArgs missingArgs = RaiseMenuClick(missingRegister);
                     Assert.IsTrue(missingArgs.Handled);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(called.Task, "selected-chart-terminal-called-missing");
                     Assert.AreEqual(2, calls.Count);
-                    Assert.AreEqual(1, calls[1].Count);
-                    Assert.AreSame(missingRow.Chart, calls[1][0].Chart);
+                    Assert.AreEqual(ScoreViewerMenuMode.Open, calls[1].Mode);
+                    Assert.AreEqual(missingRow.Chart.Md5, calls[1].Targets.Single().Hash);
                 }
                 finally
                 {
@@ -697,61 +699,114 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
     }
 
     /// <summary>
-    /// 未所持のプレイリスト項目の譜面ビューアのメニューが、クリック時に処理する選択対象と同じ集合の件数で見出しと可否を決めることを確認します。
-    /// 一件ならファイルがなくても有効な「譜面ビューアで開く」、二件以上なら見出しは登録で、実在する譜面ファイルを持つ対象がなければ無効（所持ファイルが混ざれば有効）、
-    /// 譜面ビューアの対象が一件もなければ非表示です。クリックが同じ対象集合を端末へ渡すことも確認します。
-    /// 複数選択でも単数の見出しのまま有効になり、押しても何も起きない誤りを検出します。
+    /// 通常の譜面一覧と未所持のプレイリスト項目の実メニューが、本番の共通判定に従って見出し・表示・可否を決め、クリックで判定した対象を端末へ渡すことを確認します。
+    /// 代表は、1件ファイルなしは「譜面ビューアで開く」で有効、2件所持は「譜面ビューアに登録する」で有効（登録対象は所持の2件）、2件ファイルなしは非表示、
+    /// 未所持と所持の混在は登録で所持の1件だけを渡すことです。さらにメニューを開いた後で選択を1件へ変えてからクリックすると、
+    /// 表示時の判定を使い回さず、その時点の選択から判定し直した開く操作を渡します。
+    /// 件数だけで見出しを決める誤り、ファイルのない対象を登録対象へ渡す誤り、表示時の判定をクリックへ使い回す誤りを検出します。
     /// </summary>
     [TestMethod]
-    public void MissingPlaylistScoreViewerMenu_FollowsSelectionCount()
+    public void ScoreViewerMenu_FollowsTheSharedDecisionAndRedecidesOnClick()
     {
         using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
-        string ownedPath = Path.Combine(workspace.RootDirectory, "owned.bms");
-        File.WriteAllText(ownedPath, "#TITLE owned");
-        var clicked = new List<IReadOnlyList<ChartOperationTarget>>();
-        MainWindowScoreViewerTerminal scoreViewer = new(
-            targets => targets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer)),
-            targets => targets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer)
-                && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)),
-            (targets, _) =>
-            {
-                clicked.Add(targets);
-                return Task.FromResult<ScoreViewerRegistrationResult>(null!);
-            },
-            (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!));
-        PlaylistDetailRow missingA = CreateMissingPlaylistRow(new string('a', 32));
-        PlaylistDetailRow missingB = CreateMissingPlaylistRow(new string('b', 32));
-        PlaylistDetailRow owned = CreatePlaylistRow(new string('c', 32), ChartFileKind.Bms, ownedPath);
-        PlaylistDetailRow bmsonMissing = CreatePlaylistRow(new string('d', 32), ChartFileKind.Bmson, null);
+        string ownedPathA = Path.Combine(workspace.RootDirectory, "owned-a.bms");
+        string ownedPathB = Path.Combine(workspace.RootDirectory, "owned-b.bms");
+        File.WriteAllText(ownedPathA, "#TITLE owned a");
+        File.WriteAllText(ownedPathB, "#TITLE owned b");
+        string missingPath = Path.Combine(workspace.RootDirectory, "missing.bms");
+        var clicked = new List<ScoreViewerMenuDecision>();
+        TaskCompletionSource<object?> reached = NewCompletion<object?>();
+        MainWindowScoreViewerTerminal scoreViewer = new((decision, _) =>
+        {
+            clicked.Add(decision);
+            reached.TrySetResult(null);
+            return Task.FromResult<ScoreViewerRegistrationResult>(null!);
+        });
+        LibraryChartRow normalOwnedA = CreateChartRow(ChartFileKind.Bms, new string('a', 32), ownedPathA);
+        LibraryChartRow normalOwnedB = CreateChartRow(ChartFileKind.Bms, new string('b', 32), ownedPathB);
+        LibraryChartRow normalMissingA = CreateChartRow(ChartFileKind.Bms, new string('c', 32), missingPath);
+        LibraryChartRow normalMissingB = CreateChartRow(ChartFileKind.Bms, new string('d', 32), missingPath);
+        PlaylistDetailRow missingA = CreateMissingPlaylistRow(new string('e', 32));
+        PlaylistDetailRow missingB = CreateMissingPlaylistRow(new string('f', 32));
+        PlaylistDetailRow playlistOwned = CreatePlaylistRow(new string('1', 32), ChartFileKind.Bms, ownedPathA);
 
         MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
             TestSettingsFactory.CreateIsolatedSettings(),
             (viewModel, window) =>
             {
                 var table = (CustomTableView)window.FindName("customTableView");
-                void Check(string name, PlaylistDetailRow[] selected, PlaylistDetailRow contextRow, string expectedHeader, bool visible, bool enabled)
+                void Check(
+                    string name,
+                    string menuResource,
+                    MainViewUpdateMode mode,
+                    object[] rows,
+                    object[] selected,
+                    string? expectedHeader,
+                    string[] expectedTargetHashes)
                 {
-                    table.ItemsSource = new List<object>(new[] { missingA, missingB, owned, bmsonMissing });
+                    table.ItemsSource = new List<object>(rows);
                     table.SelectRowsByPredicate(row => selected.Any(candidate => ReferenceEquals(candidate, row)));
-                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
-                    var menu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
-                    menu.PlacementTarget = new FrameworkElement { DataContext = contextRow };
+                    viewModel.MainChartList.SetOperationContext(mode);
+                    var menu = (ContextMenu)window.FindResource(menuResource);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = selected[0] };
                     OpenContextMenu(menu);
                     MenuItem item = FindMenuItem(menu, "tableContextMenuItemRegisterScore");
+                    bool visible = expectedHeader != null;
                     Assert.AreEqual(visible ? Visibility.Visible : Visibility.Collapsed, item.Visibility, name + "：表示");
-                    Assert.AreEqual(enabled, item.IsEnabled, name + "：可否");
-                    if (visible) { Assert.AreEqual(expectedHeader, item.Header, name + "：見出し"); }
-                    if (visible && enabled)
+                    Assert.AreEqual(visible, item.IsEnabled, name + "：可否（表示するときは常に有効）");
+                    if (!visible)
                     {
-                        clicked.Clear();
-                        Assert.IsTrue(RaiseMenuClick(item).Handled);
-                        Assert.AreEqual(selected.Length, clicked.Single().Count, name + "：クリックは判定と同じ選択対象を渡す。");
+                        return;
                     }
+                    Assert.AreEqual(expectedHeader, item.Header, name + "：見出し");
+                    clicked.Clear();
+                    reached = NewCompletion<object?>();
+                    Assert.IsTrue(RaiseMenuClick(item).Handled);
+                    AwaitClicked(name);
+                    ScoreViewerMenuDecision decision = clicked.Single();
+                    Assert.AreEqual(
+                        expectedHeader == Resources.Register_chart_with_viewer ? ScoreViewerMenuMode.Register : ScoreViewerMenuMode.Open,
+                        decision.Mode,
+                        name + "：クリックで渡す判定");
+                    CollectionAssert.AreEqual(expectedTargetHashes, decision.Targets.Select(target => target.Hash).ToArray(), name + "：クリックで渡す対象");
                 }
-                Check("一件", [missingA], missingA, Resources.Open_chart_viewer, visible: true, enabled: true);
-                Check("二件でファイルなし", [missingA, missingB], missingA, Resources.Register_chart_with_viewer, visible: true, enabled: false);
-                Check("二件で所持ファイルが混在", [missingA, owned], missingA, Resources.Register_chart_with_viewer, visible: true, enabled: true);
-                Check("譜面ビューアの対象が0件", [bmsonMissing], bmsonMissing, Resources.Open_chart_viewer, visible: false, enabled: false);
+
+                void AwaitClicked(string name)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reached.Task, "score-viewer-click-" + name);
+                    Assert.AreEqual(1, clicked.Count, name + "：クリックが端末へ1回渡る。");
+                }
+
+                const string normal = "tableContextMenu";
+                const string notOwned = "tableContextMenuPlaylistMissing";
+                MainViewUpdateMode library = MainViewUpdateMode.FolderFilterSelected;
+                MainViewUpdateMode playlistNotOwned = MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
+                object[] normalRows = [normalOwnedA, normalOwnedB, normalMissingA, normalMissingB];
+                object[] notOwnedRows = [missingA, missingB, playlistOwned];
+                Check("通常・1件ファイルなし", normal, library, normalRows, [normalMissingA], Resources.Open_chart_viewer, [new string('c', 32)]);
+                Check("通常・2件所持", normal, library, normalRows, [normalOwnedA, normalOwnedB], Resources.Register_chart_with_viewer, [new string('a', 32), new string('b', 32)]);
+                Check("通常・2件ファイルなし", normal, library, normalRows, [normalMissingA, normalMissingB], null, []);
+                Check("通常・所持とファイルなしの混在", normal, library, normalRows, [normalMissingA, normalOwnedA], Resources.Register_chart_with_viewer, [new string('a', 32)]);
+                Check("未所持・1件ファイルなし", notOwned, playlistNotOwned, notOwnedRows, [missingA], Resources.Open_chart_viewer, [new string('e', 32)]);
+                Check("未所持・2件ファイルなし", notOwned, playlistNotOwned, notOwnedRows, [missingA, missingB], null, []);
+                Check("未所持・未所持と所持の混在", notOwned, playlistNotOwned, notOwnedRows, [missingA, playlistOwned], Resources.Register_chart_with_viewer, [new string('1', 32)]);
+
+                // 表示後に選択を1件へ変えてからクリックすると、その時点の選択から判定し直す。
+                table.ItemsSource = new List<object>(normalRows);
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, normalOwnedA) || ReferenceEquals(row, normalOwnedB));
+                viewModel.MainChartList.SetOperationContext(library);
+                var staleMenu = (ContextMenu)window.FindResource(normal);
+                staleMenu.PlacementTarget = new FrameworkElement { DataContext = normalOwnedA };
+                OpenContextMenu(staleMenu);
+                MenuItem staleItem = FindMenuItem(staleMenu, "tableContextMenuItemRegisterScore");
+                Assert.AreEqual(Resources.Register_chart_with_viewer, staleItem.Header, "前提: 表示時は2件所持の登録。");
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, normalMissingA));
+                clicked.Clear();
+                reached = NewCompletion<object?>();
+                Assert.IsTrue(RaiseMenuClick(staleItem).Handled);
+                AwaitClicked("選択変更後のクリック");
+                Assert.AreEqual(ScoreViewerMenuMode.Open, clicked.Single().Mode, "選択が1件へ変わったので開く操作へ判定し直す。");
+                CollectionAssert.AreEqual(new[] { new string('c', 32) }, clicked.Single().Targets.Select(target => target.Hash).ToArray());
             },
             selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
     }
@@ -1705,10 +1760,7 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
                     Task.FromResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false)),
                     Task.FromResult(ChartInfoParseFailureRemovalResult.NotStarted))),
             scoreViewer ?? new MainWindowScoreViewerTerminal(
-                _ => false,
-                _ => false,
-                (_, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!),
-                (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!)),
+                (_, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!)),
             selectedChartExternalActions ?? new MainWindowSelectedChartExternalActionsTerminal(
                 (_, _) => false,
                 (_, _) => { },

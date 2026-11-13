@@ -297,7 +297,6 @@ internal static class GridRowResolver
     {
         ChartOperationCapabilities capabilities = ChartOperationCapabilities.None;
         bool hasPath = !string.IsNullOrWhiteSpace(chart.Path);
-        bool hasMd5 = !string.IsNullOrWhiteSpace(chart.Md5);
         bool isBms = chart.Kind == ChartFileKind.Bms;
         if (hasPath && !isPlaylistMissing)
         {
@@ -316,10 +315,6 @@ internal static class GridRowResolver
             if (IsValidMd5(chart.Md5))
             {
                 capabilities |= ChartOperationCapabilities.UseLr2Ir;
-            }
-            if (hasMd5)
-            {
-                capabilities |= ChartOperationCapabilities.UseScoreViewer;
             }
             if (!isPlaylistMissing)
             {

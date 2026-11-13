@@ -167,7 +167,7 @@ UIからは、`ChartOperationTarget` に譜面、元の項目、所持・保留�
 | `OpenFile` / `OpenFolder` | 可 | 可 | 実パスがあり、欠落していないこと。 |
 | `OpenPlaylistUrls` | 可 | 可 | プレイリスト項目にURLまたは差分URLがあること。 |
 | `RunResourceHealthCheck` | 可 | 可 | 実パスがあり、欠落していないこと。 |
-| `UseLr2Ir` / `UseScoreViewer` | 可 | 不可 | BMSで、有効なMD5があること。BMS-IRへのリンクでLR2BMSIDを代用しない。 |
+| `UseLr2Ir` | 可 | 不可 | BMSで、有効なMD5があること。BMS-IRへのリンクでLR2BMSIDを代用しない。 |
 | `RunBmsEncodingCheck` / `RunBmsEncodingFix` / `RunZeroNoteCheck` | 可 | 不可 | 欠落していないBMSであること。 |
 | `RenameInvalidExtension` | 可 | 不可 | 欠落していないBMSであること。 |
 | `ConvertToAudio` | 可 | 可 | 実パスがあり、欠落・保留の状態ではないこと。 |
@@ -177,6 +177,8 @@ UIからは、`ChartOperationTarget` に譜面、元の項目、所持・保留�
 `GridRowResolver` は、通常一覧とプレイリストの行が公開する `Chart` をそのまま操作入力にします。内蔵再生と音声変換も共通の `ChartFile` を解決します。外部プレイヤーへの引渡しでは、そのプレイヤーの既存の形式条件を別に確認します。
 
 フォルダ名の編集は、`TryGetFolderEditChartOperationTarget(...)` で権限を確認し、UIスレッドで `RenameChartFolderRequest` を確定してから実行します。`ChartFile.Level` / `Folder` は読取り専用であり、LEVELの編集はプレイリスト項目の編集として扱います。
+
+譜面ビューアの項目は権限を使わず、[外部起動](../ui/external-launch.md#譜面ビューアの項目と登録結果の通知)の共通の判定で決めます。
 
 右クリックの外部操作は、メニューを開いた行から `RightClickActionResolutionInput` を作り、クリック時に同じ行と現在の設定で解決し直します。選択集合で代用しません。未所持のプレイリスト行・履歴行も、有効なハッシュがあればWeb操作を行えますが、外部プログラムは解決済みの実ファイルだけを対象にします。詳細は[外部起動](../ui/external-launch.md)を参照します。
 

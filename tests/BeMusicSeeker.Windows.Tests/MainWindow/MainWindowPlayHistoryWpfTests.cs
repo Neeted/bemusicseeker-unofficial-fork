@@ -958,6 +958,104 @@ public sealed class MainWindowPlayHistoryWpfTests
             }, selectedChartContextMenuTerminals: CreateHistoryTerminals(settings, (_, _, _) => Assert.Fail("関連付け操作を設定Web操作へ渡しません。"), (target, kind) => calls.Add((target, kind))));
     }
 
+    /// <summary>
+    /// プレイログの実メニューが、解決済みでパスが実在しないBMS行も複数選択中に「譜面ビューアで開く」を有効に表示し、
+    /// クリックでは右クリックした行1件のMD5・パスだけを渡す（選択中の別の行を混ぜず、登録にもならない）ことを確認します。
+    /// 解決済みの行と未解決のLR2行のそれぞれを右クリックして渡す対象を見て、未解決のbeatoraja行（譜面情報由来のMD5があっても）は非表示になることも確認します。
+    /// ファイルの実在を可否にして消えた行が無効になる誤り、複数選択を件数で数えて登録にする誤り、未解決のbeatorajaを開く誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void PlayHistoryScoreViewerMenu_DecidesFromTheRightClickedRowOnly()
+    {
+        var clicked = new List<ScoreViewerMenuDecision>();
+        MainWindowScoreViewerTerminal scoreViewer = new((decision, _) =>
+        {
+            clicked.Add(decision);
+            return Task.FromResult<ScoreViewerRegistrationResult>(null!);
+        });
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings([], []));
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            settings,
+            (scope, viewModel, window) =>
+            {
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                var table = (CustomTableView)window.FindName("customTableView");
+                PlayHistoryRow resolvedMissingFile = CreateResolvedPlayHistoryRow(playedAt: 1000);
+                PlayHistoryRow unresolvedLr2 = CreateUnresolvedPlayHistoryRow(playedAt: 1001);
+                PlayHistoryRow unresolvedBeatoraja = CreateUnresolvedBeatorajaPlayHistoryRow(
+                    new string('b', 64), new string('e', 32), playedAt: 1002);
+                var playHistoryMenu = (ContextMenu)window.FindResource("playHistoryContextMenu");
+                window.Resources["playHistoryContextMenu"] = playHistoryMenu;
+                table.ItemsSource = new List<object> { resolvedMissingFile, unresolvedLr2, unresolvedBeatoraja };
+                table.SelectRowsByPredicate(_ => true);
+                Assert.IsFalse(System.IO.File.Exists(resolvedMissingFile.Path), "前提: 解決済みの譜面ファイルは実在しない。");
+
+                void OpenOn(PlayHistoryRow row, int index)
+                {
+                    RaiseMenuOpened(playHistoryMenu, table, row, index);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
+
+                OpenOn(resolvedMissingFile, 0);
+                MenuItem item = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemRegisterScore");
+                Assert.AreEqual(Visibility.Visible, item.Visibility);
+                Assert.IsTrue(item.IsEnabled, "ファイルが消えた解決済みBMSも有効。");
+                Assert.AreEqual(Resources.Open_chart_viewer, item.Header, "複数選択中でも見出しは「開く」。");
+                Assert.IsTrue(RaiseMenuClickOn(item).Handled);
+                ScoreViewerMenuDecision resolvedDecision = clicked.Single();
+                Assert.AreEqual(ScoreViewerMenuMode.Open, resolvedDecision.Mode);
+                ScoreViewerTarget resolvedTarget = resolvedDecision.Targets.Single();
+                Assert.AreEqual(resolvedMissingFile.ResolvedChart!.Md5, resolvedTarget.Hash);
+                Assert.AreEqual(resolvedMissingFile.Path, resolvedTarget.Path);
+                RaiseMenuClosed(playHistoryMenu);
+
+                clicked.Clear();
+                OpenOn(unresolvedLr2, 1);
+                item = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemRegisterScore");
+                Assert.AreEqual(Visibility.Visible, item.Visibility);
+                Assert.IsTrue(item.IsEnabled);
+                Assert.IsTrue(RaiseMenuClickOn(item).Handled);
+                ScoreViewerTarget lr2Target = clicked.Single().Targets.Single();
+                Assert.AreEqual(unresolvedLr2.Md5, lr2Target.Hash);
+                Assert.IsTrue(string.IsNullOrEmpty(lr2Target.Path), "未解決のLR2行はパスなしでMD5だけ渡す。");
+                RaiseMenuClosed(playHistoryMenu);
+
+                clicked.Clear();
+                OpenOn(unresolvedBeatoraja, 2);
+                item = FindMenuItem(playHistoryMenu, "playHistoryContextMenuItemRegisterScore");
+                Assert.AreEqual(new string('e', 32), unresolvedBeatoraja.Md5, "前提: 譜面情報からMD5を得ている。");
+                Assert.AreEqual(Visibility.Collapsed, item.Visibility, "未解決のbeatoraja行は対象外。");
+                Assert.AreEqual(0, clicked.Count);
+                RaiseMenuClosed(playHistoryMenu);
+            },
+            selectedChartContextMenuTerminals: CreateHistoryTerminals(
+                settings,
+                (_, _, _) => Assert.Fail("譜面ビューアの操作を設定Web操作へ渡しません。"),
+                scoreViewer: scoreViewer));
+    }
+
+    private static RoutedEventArgs RaiseMenuClickOn(MenuItem item)
+    {
+        var args = new RoutedEventArgs(MenuItem.ClickEvent, item);
+        item.RaiseEvent(args);
+        return args;
+    }
+
+    private static PlayHistoryRow CreateUnresolvedBeatorajaPlayHistoryRow(string sha256, string chartInfoMd5, long playedAt)
+    {
+        PlayHistoryProjectionIndex index = PlayHistoryCatalogTestSupport.Create(
+            [],
+            chartInfoResolver: (_, _) => new BeMusicSeeker.Models.ChartDetails { sha256 = sha256, md5 = chartInfoMd5 });
+        return PlayHistoryRow.ProjectBeatorajaRows(
+            new BeatorajaPlayHistoryReadResult(
+                PlayHistorySourceProfile.Beatoraja("score.db"),
+                [new BeatorajaPlayHistoryRecord { sha256 = sha256, history_id = 3, played_at = playedAt }],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            index).Rows.Single();
+    }
+
     private static void AssertHistoryMenuShape(ContextMenu menu)
     {
         Assert.IsFalse(menu.Items.OfType<MenuItem>().Any(item => item.Name is "playHistoryContextMenuItemCopyMd5" or "playHistoryContextMenuItemCopySha256"));
@@ -970,7 +1068,8 @@ public sealed class MainWindowPlayHistoryWpfTests
     // 実resolverの現在設定で表示し、実クリックから端末へ届く入力だけを捕捉します。OS起動は行いません。
     private static MainWindowSelectedChartContextMenuTerminals CreateHistoryTerminals(Settings settings,
         Action<RightClickActionResolutionInput, ConfiguredExternalActionKind, string> configured,
-        Action<ChartOperationTarget, SelectedChartExternalActionKind>? local = null)
+        Action<ChartOperationTarget, SelectedChartExternalActionKind>? local = null,
+        MainWindowScoreViewerTerminal? scoreViewer = null)
     {
         var external = new MainWindowSelectedChartExternalActionsTerminal(
             (target, kind) => kind == SelectedChartExternalActionKind.OpenFile && target.HasCapability(ChartOperationCapabilities.OpenFile),
@@ -984,7 +1083,7 @@ public sealed class MainWindowPlayHistoryWpfTests
             new MainWindowSelectedChartResourceHealthTerminal(_ => throw new AssertFailedException(), (_, _) => throw new AssertFailedException()),
             new MainWindowSelectedChartAudioConversionTerminal((_, _) => throw new AssertFailedException()),
             new MainWindowChartInfoParseFailureRemovalTerminal(_ => throw new AssertFailedException()),
-            new MainWindowScoreViewerTerminal(_ => false, _ => false, (_, _) => throw new AssertFailedException(), (_, _, _) => throw new AssertFailedException()), external);
+            scoreViewer ?? new MainWindowScoreViewerTerminal((_, _) => throw new AssertFailedException()), external);
     }
 
     private static IReadOnlyList<T> FindVisualChildren<T>(DependencyObject root)

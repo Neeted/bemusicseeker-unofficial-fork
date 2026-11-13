@@ -2736,8 +2736,7 @@ public sealed class PlaylistViewPipelineTests
         const ChartOperationCapabilities ownedCommon = localCommon | ChartOperationCapabilities.ConvertToAudio
             | ChartOperationCapabilities.MoveInLibrary | ChartOperationCapabilities.RemoveFromLibrary
             | ChartOperationCapabilities.RepairInstalledLocation;
-        const ChartOperationCapabilities bmsHashes = ChartOperationCapabilities.UseLr2Ir
-            | ChartOperationCapabilities.UseScoreViewer;
+        const ChartOperationCapabilities bmsHashes = ChartOperationCapabilities.UseLr2Ir;
         const ChartOperationCapabilities bmsLocal = ChartOperationCapabilities.RunBmsEncodingCheck
             | ChartOperationCapabilities.RunBmsEncodingFix | ChartOperationCapabilities.RunZeroNoteCheck
             | ChartOperationCapabilities.RenameInvalidExtension;

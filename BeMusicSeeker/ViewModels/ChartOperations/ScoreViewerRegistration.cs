@@ -100,14 +100,23 @@ internal sealed class ScoreViewerRegistrationItem
     }
 }
 
+/// <summary>照会を終えた対象と、それを開く操作・登録する操作のどちらとして処理するかを保持します。</summary>
 internal sealed class ScoreViewerRegistrationPlan
 {
-    internal ScoreViewerRegistrationPlan(IReadOnlyList<ScoreViewerRegistrationItem> items)
+    internal ScoreViewerRegistrationPlan(IReadOnlyList<ScoreViewerRegistrationItem> items, ScoreViewerMenuMode mode)
     {
+        if (mode == ScoreViewerMenuMode.Hidden)
+        {
+            throw new ArgumentOutOfRangeException(nameof(mode), mode, "A plan requires the open or register mode.");
+        }
         Items = items ?? [];
+        Mode = mode;
     }
 
     internal IReadOnlyList<ScoreViewerRegistrationItem> Items { get; }
+
+    /// <summary>開く操作か登録する操作かです。確認の文言と省略の可否はこれで決まります。</summary>
+    internal ScoreViewerMenuMode Mode { get; }
 
     internal int TargetCount => Items.Count;
 
@@ -143,7 +152,7 @@ internal sealed class ScoreViewerRegistrationResult
 
     /// <summary>
     /// 新しく登録した譜面がなく、失敗もアップロードの辞退もないことを返します。
-    /// 全件が登録済み、譜面ファイルのない対象だけ、またはその混在がこれに当たります。
+    /// 全件が登録済み、または登録確認の後で譜面ファイルが消えた対象との混在がこれに当たります。
     /// </summary>
     internal bool HasNoNewRegistration => !HasUploadedRegistration && !HasFailures && !HasUploadDeclined;
 }
@@ -183,11 +192,17 @@ internal interface IScoreViewerRegistrationGateway
 
 internal interface IScoreViewerRegistrationInteraction
 {
+    /// <summary>
+    /// 新しく登録する対象があるときだけ確認します。確認の文言と省略の可否は <see cref="ScoreViewerRegistrationPlan.Mode"/> で決まります。
+    /// </summary>
+    /// <param name="plan">照会を終えた対象。</param>
+    /// <param name="showSingleTargetConfirmation">設定の「1件用の確認を表示する」。開く操作だけに適用します。</param>
+    /// <returns>登録を進めるなら true。</returns>
     Task<bool> ConfirmUploadAsync(ScoreViewerRegistrationPlan plan, bool showSingleTargetConfirmation);
 
     Task PresentResultAsync(ScoreViewerRegistrationResult result);
 
-    /// <summary>複数の譜面を対象にしたが、新しく登録する譜面がなかったことを一回だけ通知します。</summary>
+    /// <summary>登録する操作で、新しく登録する譜面がなかったことを一回だけ通知します。</summary>
     Task PresentNoNewRegistrationAsync();
 
     Task PresentFailureAsync(Exception exception);
@@ -216,52 +231,24 @@ internal sealed class ScoreViewerRegistrationWorkflowOwner
         this.warningLog = warningLog ?? throw new ArgumentNullException(nameof(warningLog));
     }
 
-    internal bool HasScoreViewerTarget(IEnumerable<ChartOperationTarget> targets)
-    {
-        return (targets ?? []).Any(target => target?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true);
-    }
-
-    internal bool CanRegisterScoreViewer(IEnumerable<ChartOperationTarget> targets)
-    {
-        return (targets ?? []).Any(target =>
-            target?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true
-            && !string.IsNullOrWhiteSpace(target.Chart.Path)
-            && LongPathFileSystem.FileExists(target.Chart.Path));
-    }
-
+    /// <summary>
+    /// 確定済みの判定に従って、開く操作または所持BMSだけの登録を行います。
+    /// 判定が非表示なら何もせず null を返します。開く操作は成功時にだけビューアを開き、登録する操作は開きません。
+    /// 新しく登録する件数が 0 の登録は確認せず、失敗も辞退もなければその旨を一回通知します。
+    /// </summary>
+    /// <param name="decision">クリック時の候補から求めた判定。</param>
+    /// <param name="logName">失敗の記録へ添える入口名。</param>
     internal async Task<ScoreViewerRegistrationResult> RunAsync(
-        IReadOnlyList<ChartOperationTarget> targets,
+        ScoreViewerMenuDecision decision,
         string logName)
     {
-        if (targets == null || targets.Count == 0)
-        {
-            return null;
-        }
-
-        List<ScoreViewerTarget> projectedTargets = ProjectTargets(targets);
-        if (projectedTargets.Count == 0)
-        {
-            return null;
-        }
-
-        return await RunAsync(
-            projectedTargets,
-            openSingleViewerOnSuccess: projectedTargets.Count == 1,
-            logName);
-    }
-
-    internal async Task<ScoreViewerRegistrationResult> RunAsync(
-        IReadOnlyList<ScoreViewerTarget> targets,
-        bool openSingleViewerOnSuccess,
-        string logName)
-    {
-        if (targets == null || targets.Count == 0)
+        if (decision == null || decision.Mode == ScoreViewerMenuMode.Hidden || decision.Targets.Count == 0)
         {
             return null;
         }
         try
         {
-            ScoreViewerRegistrationPlan plan = await Task.Run(() => Prepare(targets));
+            ScoreViewerRegistrationPlan plan = await Task.Run(() => Prepare(decision.Targets, decision.Mode));
             if (plan.TargetCount == 0)
             {
                 return null;
@@ -271,11 +258,11 @@ internal sealed class ScoreViewerRegistrationWorkflowOwner
                 showSingleTargetConfirmationProvider());
             ScoreViewerRegistrationResult result = await Task.Run(() => Complete(plan, uploadConfirmed));
             await interaction.PresentResultAsync(result);
-            if (!openSingleViewerOnSuccess && result.HasNoNewRegistration)
+            if (decision.Mode == ScoreViewerMenuMode.Register && result.HasNoNewRegistration)
             {
                 await interaction.PresentNoNewRegistrationAsync();
             }
-            if (openSingleViewerOnSuccess && !string.IsNullOrWhiteSpace(result.LastViewUrl))
+            if (decision.Mode == ScoreViewerMenuMode.Open && !string.IsNullOrWhiteSpace(result.LastViewUrl))
             {
                 interaction.OpenViewer(result.LastViewUrl);
             }
@@ -298,7 +285,11 @@ internal sealed class ScoreViewerRegistrationWorkflowOwner
         }
     }
 
-    internal ScoreViewerRegistrationPlan Prepare(IReadOnlyList<ScoreViewerTarget> targets)
+    /// <summary>
+    /// 対象ごとに、ファイルのない対象はMD5だけ、ファイルのある対象は登録状況の照会を行って計画を作ります。
+    /// 登録する操作の対象は判定が所持BMSだけに絞っているため、ここでは絞り直しません。
+    /// </summary>
+    internal ScoreViewerRegistrationPlan Prepare(IReadOnlyList<ScoreViewerTarget> targets, ScoreViewerMenuMode mode)
     {
         if (targets == null)
         {
@@ -328,19 +319,7 @@ internal sealed class ScoreViewerRegistrationWorkflowOwner
                 items.Add(ScoreViewerRegistrationItem.StatusCheckFailed(target, hash, ex));
             }
         }
-        return new ScoreViewerRegistrationPlan(items);
-    }
-
-    private static List<ScoreViewerTarget> ProjectTargets(IEnumerable<ChartOperationTarget> targets)
-    {
-        return [.. (targets ?? [])
-            .Where(target =>
-                target?.HasCapability(ChartOperationCapabilities.UseScoreViewer) == true
-                && !string.IsNullOrWhiteSpace(target.Chart.Md5))
-            .Select(target => new ScoreViewerTarget(
-                target.Chart.Md5,
-                target.Chart.Path,
-                target.Chart.Title))];
+        return new ScoreViewerRegistrationPlan(items, mode);
     }
 
     internal ScoreViewerRegistrationResult Complete(ScoreViewerRegistrationPlan plan, bool uploadConfirmed)
@@ -498,12 +477,12 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
         {
             return true;
         }
-        if (plan.TargetCount == 1 && plan.UploadCandidateCount == 1 && !showSingleTargetConfirmation)
+        if (plan.Mode == ScoreViewerMenuMode.Open && !showSingleTargetConfirmation)
         {
             return true;
         }
         string message;
-        if (plan.UploadCandidateCount > 1)
+        if (plan.Mode == ScoreViewerMenuMode.Register)
         {
             message = BeMusicSeeker.Properties.Resources.Msg_register_chart
                 + Environment.NewLine

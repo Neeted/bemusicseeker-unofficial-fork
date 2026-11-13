@@ -570,7 +570,7 @@ Right-clicking a chart row or playlist row opens operations for the selected row
 - `Open with default app`: Opens the chart file using the OS file association.
 - `Open with a program`: Runs a program configured in `Settings > Right-click settings` for a locally resolved chart.
 - `Open text file`: Opens document candidates such as readme files in the same folder from a submenu.
-- `Open in chart viewer`: Registers or displays the chart in the chart viewer.
+- `Open in chart viewer` / `Register chart with the chart viewer`: Shows BMS charts in the chart viewer. With one row selected, the menu shows `Open in chart viewer`; a chart that is not yet registered with the chart viewer is registered and then opened. Charts you do not own and charts whose file cannot be found are opened by MD5. With two or more rows selected, the menu shows `Register chart with the chart viewer` and registers only BMS charts whose files exist, without opening the viewer. The item is hidden when there is no applicable chart.
 
 #### Checking Encoding and File State
 

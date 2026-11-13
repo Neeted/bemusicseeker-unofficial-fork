@@ -6600,12 +6600,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         if (menuItem18 != null)
         {
-            bool hasScoreViewerTarget = selectedChartContextMenuTerminals.ScoreViewer.HasScoreViewerTarget(selectedTargets);
-            menuItem18.Header = selectedTargets.Count > 1
-                ? BeMusicSeeker.Properties.Resources.Register_chart_with_viewer
-                : BeMusicSeeker.Properties.Resources.Open_chart_viewer;
-            menuItem18.Visibility = hasScoreViewerTarget ? Visibility.Visible : Visibility.Collapsed;
-            menuItem18.IsEnabled = selectedChartContextMenuTerminals.ScoreViewer.CanRegisterScoreViewer(selectedTargets);
+            ApplyScoreViewerMenuItem(
+                menuItem18,
+                selectedChartContextMenuTerminals.ScoreViewer.ResolveMenuMode(ResolveScoreViewerCandidates(row)));
         }
         MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(item => item.Name == "tableContextMenuItemDeleteInstallPackages");
         List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
@@ -6856,10 +6853,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             webAnchorName: "tableContextMenuItemOpenURL",
             programParentName: "tableContextMenuItemOpenProgramActions");
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
-        // クリック時に処理する選択対象と同じ集合で、項目の見出し・表示・可否を決める。
-        ScoreViewerMissingMenuState scoreViewerMenuState = selectedChartContextMenuTerminals.ScoreViewer
-            .ResolveMissingPlaylistMenuState(ResolveScoreViewerContextTargets(rowTarget));
-        bool canOpenScoreViewer = scoreViewerMenuState.IsEnabled;
+        // クリック時に判定し直す候補と同じ取り方で、項目の見出し・表示・可否を決める。
+        ScoreViewerMenuMode scoreViewerMode = selectedChartContextMenuTerminals.ScoreViewer
+            .ResolveMenuMode(ResolveScoreViewerCandidates(row));
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
         PlaylistUrlContextMenuAvailability playlistUrlAvailability =
             playlistWorkspaceTerminals.UrlAcquisition.CaptureAvailability(
@@ -6896,17 +6892,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 case "tableContextMenuItemRegisterScore":
                     if (item is MenuItem scoreViewerMenuItem)
                     {
-                        scoreViewerMenuItem.Header = scoreViewerMenuState.RegistersMultiple
-                            ? BeMusicSeeker.Properties.Resources.Register_chart_with_viewer
-                            : BeMusicSeeker.Properties.Resources.Open_chart_viewer;
+                        ApplyScoreViewerMenuItem(scoreViewerMenuItem, scoreViewerMode);
                     }
-                    item.Visibility = scoreViewerMenuState.IsVisible ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = scoreViewerMenuState.IsEnabled;
                     break;
             }
         }
         CollapseRedundantTableContextMenuSeparators(contextMenu);
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenScoreViewer=" + canOpenScoreViewer);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " scoreViewerMode=" + scoreViewerMode);
     }
 
     /// <summary>現在表示する譜面メニューの先頭・連続・末尾に不要な区切り線を残しません。</summary>
@@ -7001,8 +6993,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     item.IsEnabled = state?.CanOpenExplorer == true && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
                 case "playHistoryContextMenuItemRegisterScore":
-                    item.Visibility = state?.CanOpenScoreViewer == true ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state?.CanOpenScoreViewer == true && LongPathFileSystem.FileExists(state.ChartPath);
+                    if (item is MenuItem playHistoryScoreViewerMenuItem)
+                    {
+                        ApplyScoreViewerMenuItem(
+                            playHistoryScoreViewerMenuItem,
+                            state == null
+                                ? ScoreViewerMenuMode.Hidden
+                                : selectedChartContextMenuTerminals.ScoreViewer.ResolveMenuMode([state.ScoreViewerCandidate]));
+                    }
                     break;
                 case "playHistoryContextMenuItemAddDateRangeToSearch":
                     item.Visibility = playHistoryDateSearchSnapshot != null ? Visibility.Visible : Visibility.Collapsed;
@@ -7088,18 +7086,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     e.Source,
                     PlayHistoryContextMenuActionKind.RegisterScoreViewer,
                     out PlayHistoryContextMenuAction action)
-                || action.ScoreViewerTarget == null)
+                || action.ScoreViewerDecision == null)
             {
                 return;
             }
 
-            var targets = new List<ScoreViewerTarget> { action.ScoreViewerTarget };
             e.Handled = true;
             if (base.DataContext is MainWindowViewModel viewModel)
             {
                 await selectedChartContextMenuTerminals.ScoreViewer.RunAsync(
-                    targets,
-                    openSingleViewerOnSuccess: true,
+                    action.ScoreViewerDecision,
                     "playHistoryContextMenuItemRegisterScoreViewerClick");
             }
         }
@@ -7294,17 +7290,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
 
     /// <summary>
-    /// 譜面ビューアの項目の判定とクリック時の処理で共通に使う対象を返します。
-    /// 選択行があればその対象、なければ右クリックした行の対象です。
+    /// 譜面ビューアの項目の表示時とクリック時で共通に使う、選択行ごとの候補を返します。
+    /// 選択行があればその行数、なければ右クリックした行の1行で、譜面操作の対象へ解決できない行も対象外の1行として数えます。
     /// </summary>
-    private List<ChartOperationTarget> ResolveScoreViewerContextTargets(ChartOperationTarget rowTarget)
+    private List<ScoreViewerCandidate> ResolveScoreViewerCandidates(object contextRow)
     {
-        List<ChartOperationTarget> targets = GetSelectedChartTargets();
-        if (targets.Count == 0 && rowTarget != null)
+        List<object> rows = GetSelectedGridRowsSnapshot();
+        if (rows.Count == 0 && contextRow != null)
         {
-            targets.Add(rowTarget);
+            rows.Add(contextRow);
         }
-        return targets;
+        ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
+        return [.. rows.Select(row =>
+            GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
+                ? ScoreViewerCandidate.FromChart(target.Chart)
+                : ScoreViewerCandidate.NotTarget)];
+    }
+
+    /// <summary>譜面ビューアの項目の見出し・表示・可否を共通判定の結果に合わせます。表示するときは常に有効です。</summary>
+    private static void ApplyScoreViewerMenuItem(MenuItem item, ScoreViewerMenuMode mode)
+    {
+        item.Header = mode == ScoreViewerMenuMode.Register
+            ? BeMusicSeeker.Properties.Resources.Register_chart_with_viewer
+            : BeMusicSeeker.Properties.Resources.Open_chart_viewer;
+        item.Visibility = mode == ScoreViewerMenuMode.Hidden ? Visibility.Collapsed : Visibility.Visible;
+        item.IsEnabled = mode != ScoreViewerMenuMode.Hidden;
     }
 
     private async void tableContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
@@ -7315,13 +7325,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
-            List<ChartOperationTarget> targets = ResolveScoreViewerContextTargets(rowTarget);
+            List<ScoreViewerCandidate> candidates = ResolveScoreViewerCandidates(row);
             e.Handled = true;
             if (base.DataContext is MainWindowViewModel viewModel)
             {
                 await selectedChartContextMenuTerminals.ScoreViewer.RunAsync(
-                    targets,
+                    candidates,
                     "tableContextMenuItemRegisterBMSFileToScoreViwer");
             }
         }

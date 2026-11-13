@@ -57,14 +57,7 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
             new MainWindowChartInfoParseFailureRemovalTerminal(
                 viewModel.ChartInfoParseFailureRemoval.BeginRemove),
             new MainWindowScoreViewerTerminal(
-                viewModel.ScoreViewerRegistration.HasScoreViewerTarget,
-                viewModel.ScoreViewerRegistration.CanRegisterScoreViewer,
-                viewModel.ScoreViewerRegistration.RunAsync,
-                (targets, openSingleViewerOnSuccess, logName) =>
-                    viewModel.ScoreViewerRegistration.RunAsync(
-                        targets,
-                        openSingleViewerOnSuccess,
-                        logName)),
+                viewModel.ScoreViewerRegistration.RunAsync),
             new MainWindowSelectedChartExternalActionsTerminal(
                 viewModel.SelectedChartExternalActions.CanExecute,
                 viewModel.SelectedChartExternalActions.Execute,
@@ -174,73 +167,54 @@ internal sealed class MainWindowChartInfoParseFailureRemovalTerminal
         => beginRemove(request ?? throw new ArgumentNullException(nameof(request)));
 }
 
-/// <summary>未所持のプレイリスト項目の譜面ビューアのメニューの、表示・可否・見出しの種別を表します。</summary>
-/// <param name="IsVisible">項目を表示するか。譜面ビューアの対象が一件もなければ表示しません。</param>
-/// <param name="IsEnabled">項目を押せるか。押しても何も起きない状態にしません。</param>
-/// <param name="RegistersMultiple">複数の譜面の登録として扱うか。真なら見出しは登録、偽なら開く操作です。</param>
-internal readonly record struct ScoreViewerMissingMenuState(bool IsVisible, bool IsEnabled, bool RegistersMultiple);
-
 /// <summary>
-/// Narrows score-viewer availability and registration operations to the existing owner.
+/// 譜面ビューアの項目の判定を本番の実装で持ち、判定後の処理だけを差し替え可能にして担当へ接続します。
+/// 通常の譜面一覧、未所持のプレイリスト項目、プレイログの3つのメニューが、表示時とクリック時の両方で同じ判定を使います。
 /// </summary>
 internal sealed class MainWindowScoreViewerTerminal
 {
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> hasScoreViewerTarget;
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> canRegisterScoreViewer;
-    private readonly Func<IReadOnlyList<ChartOperationTarget>, string, Task<ScoreViewerRegistrationResult>> runChartTargets;
-    private readonly Func<IReadOnlyList<ScoreViewerTarget>, bool, string, Task<ScoreViewerRegistrationResult>> runScoreViewerTargets;
+    private readonly Func<ScoreViewerMenuDecision, string, Task<ScoreViewerRegistrationResult>> run;
 
+    /// <summary>判定後の処理を接続して初期化します。</summary>
+    /// <param name="run">非表示でない判定と入口名を受けて、開く・登録する処理を行う実行部分。</param>
     internal MainWindowScoreViewerTerminal(
-        Func<IEnumerable<ChartOperationTarget>, bool> hasScoreViewerTarget,
-        Func<IEnumerable<ChartOperationTarget>, bool> canRegisterScoreViewer,
-        Func<IReadOnlyList<ChartOperationTarget>, string, Task<ScoreViewerRegistrationResult>> runChartTargets,
-        Func<IReadOnlyList<ScoreViewerTarget>, bool, string, Task<ScoreViewerRegistrationResult>> runScoreViewerTargets)
+        Func<ScoreViewerMenuDecision, string, Task<ScoreViewerRegistrationResult>> run)
     {
-        this.hasScoreViewerTarget = hasScoreViewerTarget ?? throw new ArgumentNullException(nameof(hasScoreViewerTarget));
-        this.canRegisterScoreViewer = canRegisterScoreViewer ?? throw new ArgumentNullException(nameof(canRegisterScoreViewer));
-        this.runChartTargets = runChartTargets ?? throw new ArgumentNullException(nameof(runChartTargets));
-        this.runScoreViewerTargets = runScoreViewerTargets ?? throw new ArgumentNullException(nameof(runScoreViewerTargets));
+        this.run = run ?? throw new ArgumentNullException(nameof(run));
     }
-
-    internal bool HasScoreViewerTarget(IEnumerable<ChartOperationTarget> targets)
-        => hasScoreViewerTarget(targets ?? throw new ArgumentNullException(nameof(targets)));
-
-    internal bool CanRegisterScoreViewer(IEnumerable<ChartOperationTarget> targets)
-        => canRegisterScoreViewer(targets ?? throw new ArgumentNullException(nameof(targets)));
 
     /// <summary>
-    /// 未所持のプレイリスト項目のメニューを、クリック時に処理する選択対象と同じ集合で判定します。
-    /// 一件ならファイルがなくても有効な「開く」、二件以上なら実在する譜面ファイルを持つ対象があるときだけ有効な「登録」です。
-    /// 譜面ビューアの対象が一件もなければ表示しません。通常の譜面メニューの規則は変えません。
+    /// メニューを開くときの項目の扱いを返します。所持BMSを1件見つけた時点で打ち切るので、UIスレッドで全件のファイルを確認しません。
+    /// 見出しは <see cref="ScoreViewerMenuMode.Open"/> が「譜面ビューアで開く」、<see cref="ScoreViewerMenuMode.Register"/> が「譜面ビューアに登録する」で、
+    /// <see cref="ScoreViewerMenuMode.Hidden"/> は項目を表示しません。
     /// </summary>
-    /// <param name="targets">クリック時に処理する選択対象。</param>
-    internal ScoreViewerMissingMenuState ResolveMissingPlaylistMenuState(IReadOnlyList<ChartOperationTarget> targets)
+    /// <param name="candidates">選択した行ごとの候補。</param>
+    internal ScoreViewerMenuMode ResolveMenuMode(IReadOnlyList<ScoreViewerCandidate> candidates)
+        => ScoreViewerMenuDecision.ResolveMode(candidates ?? throw new ArgumentNullException(nameof(candidates)));
+
+    /// <summary>
+    /// クリック時の候補から判定し直して処理します。判定が非表示なら通知もせず何もしません。
+    /// 全件のファイルの実在確認はUIスレッドの外で行います。
+    /// </summary>
+    /// <param name="candidates">クリック時点の選択した行ごとの候補。</param>
+    /// <param name="logName">失敗の記録へ添える入口名。</param>
+    internal async Task<ScoreViewerRegistrationResult> RunAsync(
+        IReadOnlyList<ScoreViewerCandidate> candidates,
+        string logName)
     {
-        ArgumentNullException.ThrowIfNull(targets);
-        if (!HasScoreViewerTarget(targets))
-        {
-            return new ScoreViewerMissingMenuState(IsVisible: false, IsEnabled: false, RegistersMultiple: false);
-        }
-        bool registersMultiple = targets.Count > 1;
-        return new ScoreViewerMissingMenuState(
-            IsVisible: true,
-            IsEnabled: !registersMultiple || CanRegisterScoreViewer(targets),
-            RegistersMultiple: registersMultiple);
+        ArgumentNullException.ThrowIfNull(candidates);
+        ScoreViewerMenuDecision decision = await Task.Run(() => ScoreViewerMenuDecision.Resolve(candidates));
+        return await RunAsync(decision, logName);
     }
 
-    internal Task<ScoreViewerRegistrationResult> RunAsync(
-        IReadOnlyList<ChartOperationTarget> targets,
-        string logName)
-        => runChartTargets(targets ?? throw new ArgumentNullException(nameof(targets)), logName);
-
-    internal Task<ScoreViewerRegistrationResult> RunAsync(
-        IReadOnlyList<ScoreViewerTarget> targets,
-        bool openSingleViewerOnSuccess,
-        string logName)
-        => runScoreViewerTargets(
-            targets ?? throw new ArgumentNullException(nameof(targets)),
-            openSingleViewerOnSuccess,
-            logName);
+    /// <summary>判定済みの結果を処理します。非表示の判定なら何もしません。</summary>
+    internal Task<ScoreViewerRegistrationResult> RunAsync(ScoreViewerMenuDecision decision, string logName)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        return decision.Mode == ScoreViewerMenuMode.Hidden
+            ? Task.FromResult<ScoreViewerRegistrationResult>(null)
+            : run(decision, logName);
+    }
 }
 
 /// <summary>

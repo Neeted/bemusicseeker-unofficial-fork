@@ -621,14 +621,18 @@ public sealed partial class ApplicationCompositionTests
                 dialogService: UndeclaredDialogs.Create());
 
             MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            string compositionHash = new('a', 32);
             ScoreViewerRegistrationResult result = await viewModel.ScoreViewerRegistration.RunAsync(
-                [new ScoreViewerTarget("composition-hash", chartPath, "Composition chart")],
-                openSingleViewerOnSuccess: false,
+                ScoreViewerMenuDecision.Resolve(
+                [
+                    new ScoreViewerCandidate(ChartFileKind.Bms, compositionHash, chartPath, "Composition chart"),
+                    ScoreViewerCandidate.NotTarget
+                ]),
                 logName: "composition-test");
 
             Assert.IsNotNull(result);
             Assert.AreEqual(1, result.UploadedCount);
-            CollectionAssert.AreEqual(new[] { "composition-hash" }, gateway.StatusHashes.ToArray());
+            CollectionAssert.AreEqual(new[] { compositionHash }, gateway.StatusHashes.ToArray());
             CollectionAssert.AreEqual(new[] { chartPath }, gateway.UploadPaths.ToArray());
             Assert.IsNotNull(dialogs.LastConfirmationRequest);
             Assert.IsNotNull(dialogs.LastMessageRequest);

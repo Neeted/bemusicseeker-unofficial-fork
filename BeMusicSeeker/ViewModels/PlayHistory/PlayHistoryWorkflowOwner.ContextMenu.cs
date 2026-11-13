@@ -39,12 +39,12 @@ public sealed partial class PlayHistoryWorkflowOwner
                 action = PlayHistoryContextMenuAction.ForPath(state.ChartPath);
                 return true;
             case PlayHistoryContextMenuActionKind.RegisterScoreViewer:
-                if (!state.CanOpenScoreViewer)
+                ScoreViewerMenuDecision decision = state.ResolveScoreViewerDecision();
+                if (decision.Mode != ScoreViewerMenuMode.Open)
                 {
                     return false;
                 }
-                action = PlayHistoryContextMenuAction.ForScoreViewer(
-                    new ScoreViewerTarget(state.Md5, state.ChartPath, state.ChartTitle));
+                action = PlayHistoryContextMenuAction.ForScoreViewer(decision);
                 return true;
             default:
                 return false;
