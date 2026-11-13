@@ -1086,6 +1086,246 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual("A", hub.Rows.Single().Detail);
     }
 
+    private static OperationProgressRow[] BackfillRows(OperationProgressHubViewModel hub) =>
+        [.. hub.Rows.Where(row => row.Key.StartsWith("background:chart_info_backfill:", StringComparison.Ordinal))];
+
+    private static void BackfillExecution(OperationProgressHubViewModel hub, OperationProgressRequest request, bool running) =>
+        hub.UpdateBackgroundTaskProgress(new("chart_info_backfill", request.Generation, request.Version, true, running, request));
+
+    private static void BackfillCounts(OperationProgressHubViewModel hub, OperationProgressRequest request, int total, int processed, string path) =>
+        hub.UpdateChartInfoBackfillProgress(new((int)request.Version, total, processed, path, request));
+
+    /// <summary>
+    /// 条件: 追加親の表示中に起動由来の補完要求の汎用実行通知と専用件数通知を、どちらが先でも届ける。
+    /// 期待: 名称行は常に追加親の子の一行で、不定ゲージ、[0/5]、[2/5]と対象、[5/5]の順に同じ行が表示され、終了後は行がない。
+    /// 追加親の値・最大値と他の子との相対順は変わらない。
+    /// 検出する誤り: 件数行と実行行の二重表示、件数だけで行を作る、親の分母・分子への混入、件数更新による並び替え。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void ChartInfoBackfillRows_StartupOriginMergesExecutionAndCountsIntoOneAdditionalChild(bool executionFirst)
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        hub.BeginBackgroundProgressGeneration(1);
+        hub.BeginStartupBackgroundInitializationPresentation(1, 1);
+        hub.UpdateAdditionalProgress(new(1, 1, 1, 3, 1, false));
+        var catalog = new OperationProgressRequest(1, 1, "scheduler:external_table_catalog", 1);
+        var prewarm = new OperationProgressRequest(1, 1, "scheduler:playlist_library_index_prewarm", 2);
+        hub.UpdateBackgroundTaskProgress(new("external_table_catalog", 1, 1, true, true, catalog));
+        hub.UpdateBackgroundTaskProgress(new("playlist_library_index_prewarm", 1, 2, true, true, prewarm));
+        OperationProgressRow parent = hub.Rows.Single(row => row.Key == "startup_background");
+        var request = new OperationProgressRequest(1, 1, "chart_info_backfill", 3);
+
+        void AssertShape(string stage, string expectedLabel, string expectedDetail, double value, double maximum, bool indeterminate)
+        {
+            OperationProgressRow row = BackfillRows(hub).Single();
+            Assert.AreEqual(expectedLabel, row.Label, stage);
+            Assert.AreEqual(expectedDetail, row.Detail, stage);
+            Assert.AreEqual(value, row.Value, stage);
+            Assert.AreEqual(maximum, row.Maximum, stage);
+            Assert.AreEqual(indeterminate, row.IsIndeterminate, stage);
+            Assert.AreEqual("startup_background", row.ParentKey, stage);
+            Assert.AreEqual(parent, hub.Rows.Single(item => item.Key == "startup_background"), stage + " 追加親の値・最大値は件数の影響を受けません。");
+            string[] children = [.. hub.Rows.Where(item => item.IsChild).Select(item => item.Key)];
+            Assert.AreEqual(3, children.Length, stage);
+            Assert.IsTrue(children[0].Contains("chart_info_backfill") && children[1].Contains("external_table_catalog")
+                && children[2].Contains("playlist_library_index_prewarm"), stage + " 他の子との相対順は変わりません。");
+        }
+
+        string phase = Resources.Statusbar_progress_phase_chart_info;
+        if (executionFirst)
+        {
+            BackfillExecution(hub, request, true);
+            BackfillCounts(hub, request, 0, 0, string.Empty);
+        }
+        else
+        {
+            BackfillCounts(hub, request, 0, 0, string.Empty);
+            BackfillCounts(hub, request, 5, 0, string.Empty);
+            Assert.AreEqual(0, BackfillRows(hub).Length, "件数通知だけでは行を作りません。");
+            BackfillExecution(hub, request, true);
+        }
+
+        if (executionFirst)
+        {
+            AssertShape("unknown total", phase, string.Empty, 0, 1, true);
+            BackfillCounts(hub, request, 5, 0, string.Empty);
+        }
+
+        AssertShape("0 of 5", "[0/5] " + phase, string.Empty, 0, 5, false);
+        BackfillCounts(hub, request, 5, 2, @"C:\bms\B.bms");
+        AssertShape("2 of 5", "[2/5] " + phase, @"C:\bms\B.bms", 2, 5, false);
+        BackfillCounts(hub, request, 5, 5, @"C:\bms\E.bms");
+        AssertShape("5 of 5", "[5/5] " + phase, @"C:\bms\E.bms", 5, 5, false);
+        BackfillExecution(hub, request, false);
+        Assert.AreEqual(0, BackfillRows(hub).Length);
+        BackfillCounts(hub, request, 5, 5, @"C:\bms\late.bms");
+        Assert.AreEqual(0, BackfillRows(hub).Length, "終了後に遅れた件数で行は戻りません。");
+    }
+
+    /// <summary>
+    /// 条件: 追加親が別操作・非表示、または操作トークン0の補完要求に、実行通知と件数通知を届ける。
+    /// 期待: 親なしの独立行が一行で、件数と対象パスを表示し、終了で消える。
+    /// 検出する誤り: 起動由来でない補完を追加親の子にする、独立行の件数を落とす。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, 5L)] // 差分再読込みなど、追加親を表示しない操作です。
+    [DataRow(false, 0L)] // 操作トークンを持たない要求です。
+    [DataRow(true, 5L)] // 追加親は別の操作の起動由来で、トークンが一致しません。
+    public void ChartInfoBackfillRows_NonStartupOriginStaysIndependentWithCounts(bool additionalParentVisible, long token)
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        hub.BeginBackgroundProgressGeneration(1);
+        if (additionalParentVisible) { hub.BeginStartupBackgroundInitializationPresentation(1, 1); }
+        var request = new OperationProgressRequest(1, token, "chart_info_backfill", 2);
+        BackfillExecution(hub, request, true);
+        BackfillCounts(hub, request, 4, 1, @"C:\bms\diff.bms");
+        OperationProgressRow row = BackfillRows(hub).Single();
+        Assert.AreEqual(string.Empty, row.ParentKey);
+        Assert.AreEqual("[1/4] " + Resources.Statusbar_progress_phase_chart_info, row.Label);
+        Assert.AreEqual(@"C:\bms\diff.bms", row.Detail);
+        Assert.AreEqual(1d, row.Value);
+        Assert.AreEqual(4d, row.Maximum);
+        BackfillExecution(hub, request, false);
+        Assert.AreEqual(0, BackfillRows(hub).Length);
+    }
+
+    /// <summary>
+    /// 条件: 要求AとBの件数を交互に送り、Aの終端後にAの遅れた件数を送る。さらに表示世代を進め、版番号がAと同じ別世代の要求Cを流す。
+    /// 期待: Bの行はAの件数で変わらずAの終端で消えない。旧世代の件数・終端でCの行は変わらず消えない。
+    /// 検出する誤り: 版番号だけの照合、直近の件数の流用、要求Aの終端によるBの削除。
+    /// </summary>
+    [TestMethod]
+    public void ChartInfoBackfillRows_OtherRequestOrGenerationNeverUpdatesCurrentRow()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        hub.BeginBackgroundProgressGeneration(1);
+        var a = new OperationProgressRequest(1, 0, "chart_info_backfill", 1);
+        var b = new OperationProgressRequest(1, 0, "chart_info_backfill", 2);
+        BackfillExecution(hub, a, true);
+        BackfillExecution(hub, b, true);
+        BackfillCounts(hub, a, 10, 1, "a1");
+        BackfillCounts(hub, b, 20, 2, "b1");
+        BackfillCounts(hub, a, 10, 3, "a3");
+        OperationProgressRow BRow() => BackfillRows(hub).Single(row => row.Key.EndsWith(":" + b.Version, StringComparison.Ordinal));
+        Assert.AreEqual("b1", BRow().Detail);
+        Assert.AreEqual(2d, BRow().Value);
+        BackfillExecution(hub, a, false);
+        Assert.AreEqual(1, BackfillRows(hub).Length);
+        OperationProgressRow beforeLate = BRow();
+        BackfillCounts(hub, a, 10, 9, "a9");
+        Assert.AreEqual(beforeLate, BRow());
+        Assert.AreEqual(1, BackfillRows(hub).Length, "終端後のAの件数でAの行は戻りません。");
+        BackfillExecution(hub, b, false);
+        Assert.AreEqual(0, BackfillRows(hub).Length);
+
+        hub.BeginBackgroundProgressGeneration(2);
+        var c = new OperationProgressRequest(2, 0, "chart_info_backfill", 1);
+        BackfillExecution(hub, c, true);
+        BackfillCounts(hub, c, 30, 4, "c4");
+        OperationProgressRow current = BackfillRows(hub).Single();
+        BackfillCounts(hub, a, 10, 5, "old");
+        BackfillExecution(hub, a, true);
+        BackfillExecution(hub, a, false);
+        Assert.AreEqual(current, BackfillRows(hub).Single(), "旧世代の同じ版の通知は現在の行を変えません。");
+        BackfillExecution(hub, c, false);
+        Assert.AreEqual(0, BackfillRows(hub).Length);
+    }
+
+    /// <summary>
+    /// 条件: 起動由来の補完行の表示中に、追加親の消去と表示世代の更新を行う。他の種類の旧世代の実行行も並べる。
+    /// 期待: 補完行は件数・対象を保って親なしの独立行として残り、その後の同じ要求の件数が反映され、旧世代の終了通知で消える。他の種類の旧世代行は従来どおり消える。
+    /// 検出する誤り: 世代更新で実行中の補完の行を消す、旧世代の終了通知が届かず行が残り続ける、他の種類の世代規則の変更。
+    /// </summary>
+    [TestMethod]
+    public void ChartInfoBackfillRows_GenerationChangeKeepsRunningBackfillAsIndependentRowUntilTerminal()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        hub.BeginBackgroundProgressGeneration(1);
+        hub.BeginStartupBackgroundInitializationPresentation(1, 1);
+        var request = new OperationProgressRequest(1, 1, "chart_info_backfill", 4);
+        var other = new OperationProgressRequest(1, 1, "scheduler:external_table_catalog", 5);
+        BackfillExecution(hub, request, true);
+        BackfillCounts(hub, request, 8, 3, @"C:\bms\keep.bms");
+        hub.UpdateBackgroundTaskProgress(new("external_table_catalog", 1, 5, true, true, other));
+        Assert.IsTrue(BackfillRows(hub).Single().IsChild);
+        Assert.AreEqual(1, hub.Rows.Count(row => row.Key.Contains("external_table_catalog")));
+
+        hub.ResetStartupBackgroundInitializationPresentation();
+        hub.BeginBackgroundProgressGeneration(2);
+        OperationProgressRow kept = BackfillRows(hub).Single();
+        Assert.AreEqual(string.Empty, kept.ParentKey);
+        Assert.AreEqual("[3/8] " + Resources.Statusbar_progress_phase_chart_info, kept.Label);
+        Assert.AreEqual(@"C:\bms\keep.bms", kept.Detail);
+        Assert.AreEqual(0, hub.Rows.Count(row => row.Key.Contains("external_table_catalog")), "他の種類の旧世代の行は消えます。");
+
+        BackfillCounts(hub, request, 8, 6, @"C:\bms\later.bms");
+        kept = BackfillRows(hub).Single();
+        Assert.AreEqual("[6/8] " + Resources.Statusbar_progress_phase_chart_info, kept.Label);
+        Assert.AreEqual(@"C:\bms\later.bms", kept.Detail);
+
+        BackfillExecution(hub, request, false);
+        Assert.IsFalse(hub.HasRows);
+    }
+
+    /// <summary>
+    /// 条件: 起動由来の補完要求が受理された後、待機中に表示世代が更新され、旧世代のままの要求で開始通知と件数が届く。
+    /// 期待: 件数と対象パスを持つ親なしの独立行が一行出て、その要求の終了通知で消える。他の種類の旧世代の開始通知は行を作らない。
+    /// 検出する誤り: 旧世代の開始通知の棄却による全件再解析中の行の欠落、旧世代の通知の他の行への適用。
+    /// </summary>
+    [TestMethod]
+    public void ChartInfoBackfillRows_StartAfterGenerationChangeStillShowsIndependentRowUntilTerminal()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        hub.BeginBackgroundProgressGeneration(1);
+        hub.BeginStartupBackgroundInitializationPresentation(1, 1);
+        var request = new OperationProgressRequest(1, 1, "chart_info_backfill", 4);
+        hub.ResetStartupBackgroundInitializationPresentation();
+        hub.BeginBackgroundProgressGeneration(2);
+        hub.UpdateBackgroundTaskProgress(new("external_table_catalog", 1, 5, true, true, new(1, 1, "scheduler:external_table_catalog", 5)));
+        Assert.IsFalse(hub.HasRows, "他の種類の旧世代の開始通知は行を作りません。");
+        BackfillCounts(hub, request, 6, 2, @"C:\bms\late.bms");
+        BackfillExecution(hub, request, true);
+        OperationProgressRow row = BackfillRows(hub).Single();
+        Assert.AreEqual(string.Empty, row.ParentKey);
+        Assert.AreEqual("[2/6] " + Resources.Statusbar_progress_phase_chart_info, row.Label);
+        Assert.AreEqual(@"C:\bms\late.bms", row.Detail);
+        BackfillExecution(hub, request, false);
+        Assert.IsFalse(hub.HasRows);
+    }
+
+    /// <summary>
+    /// 条件: UI投入を手動の待ち行列にして、補完の件数を1000件、未反映のまま送る。続けて1件送り、さらに終了通知を適用した後で保留分を反映する。
+    /// 期待: 未反映の投入は一件で、反映後は最後の件数と対象になる。反映後の通知は新しく一件投入される。終了後に保留分を反映しても行は戻らない。
+    /// 検出する誤り: 通知ごとのUI投入、最新値でない反映、反映後の通知の取りこぼし、終了後の行の復活。
+    /// </summary>
+    [TestMethod]
+    public void ChartInfoBackfillProgress_HighFrequencyCountsKeepOnePendingPostAndShowLatest()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        var pending = new ConcurrentQueue<Action>();
+        hub.AttachChartInfoBackfillProgressSource(pending.Enqueue);
+        hub.BeginBackgroundProgressGeneration(1);
+        var request = new OperationProgressRequest(1, 0, "chart_info_backfill", 1);
+        BackfillExecution(hub, request, true);
+        for (int index = 1; index <= 1000; index++) { BackfillCounts(hub, request, 1000, index, "p" + index); }
+        Assert.IsTrue(pending.Count <= 1, "未反映の投入は一件以下です。");
+        Assert.IsTrue(BackfillRows(hub).Single().IsIndeterminate, "反映前は件数を表示しません。");
+        DrainProgressPresentation(pending);
+        OperationProgressRow row = BackfillRows(hub).Single();
+        Assert.AreEqual("[1000/1000] " + Resources.Statusbar_progress_phase_chart_info, row.Label);
+        Assert.AreEqual("p1000", row.Detail);
+
+        BackfillCounts(hub, request, 1001, 1001, "next");
+        Assert.AreEqual(1, pending.Count, "反映後の通知は新しく一件投入されます。");
+        BackfillCounts(hub, request, 1002, 1002, "latest");
+        Assert.AreEqual(1, pending.Count);
+        BackfillExecution(hub, request, false);
+        DrainProgressPresentation(pending);
+        Assert.AreEqual(0, BackfillRows(hub).Length, "終了後に保留分を反映しても行は戻りません。");
+    }
+
     private static OperationProgressRow? GetRow(OperationProgressHubViewModel hub, string key) =>
         hub.Rows.SingleOrDefault(row => row.Key == key);
 

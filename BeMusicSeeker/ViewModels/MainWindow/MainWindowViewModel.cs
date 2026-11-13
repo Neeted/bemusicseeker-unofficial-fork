@@ -2443,6 +2443,7 @@ public partial class MainWindowViewModel : ViewModel,
             PlaylistWorkspace,
             DispatchMainChartListAction,
             () => ShellShutdownWorkflow?.IsClosingOrClosed == true);
+        ProgressHub.AttachChartInfoBackfillProgressSource(DispatchMainChartListAction);
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
@@ -3718,6 +3719,11 @@ public partial class MainWindowViewModel : ViewModel,
         listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoHydrationProgressSnapshot, delegate
         {
             startupProgressWorkflowOwner.UpdateStartupProgressChartInfoHydrationStatus(files.ChartInfoHydrationProgressSnapshot);
+        });
+        // 件数は作業スレッドから譜面ごとに届くため、Hubが最新値へ集約して表示側へ投入する。
+        listenerForBMSLibrary.RegisterHandler(() => files.ChartInfoBackfillProgressSnapshot, delegate
+        {
+            ProgressHub?.UpdateChartInfoBackfillProgress(files.ChartInfoBackfillProgressSnapshot);
         });
         listenerForBMSLibrary.RegisterHandler(() => files.Lr2SongDbSyncStatusVersion, delegate
         {

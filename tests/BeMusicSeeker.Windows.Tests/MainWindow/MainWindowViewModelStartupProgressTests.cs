@@ -1710,6 +1710,121 @@ public sealed class MainWindowViewModelStartupProgressTests
         }
     }
 
+    /// <summary>
+    /// 条件: 解析版が古い譜面情報を持つ実在の BMS 3件を DB に置いて実起動し、補完の最初の件数通知でワーカーを止める。
+    /// 期待: 実接続の Hub に名称行が一行だけ表示され、追加親の子で、最大3・値は記録した処理済み数、ラベルは [p/3]、詳細は記録した対象パスになる。解放して終端すると名称行がなくなる。
+    /// 検出する誤り: 件数購読の未接続、汎用行と件数行の二重表示、全再解析中の件数・対象の欠落、終端後の行残り。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void StartupChartInfoBackfill_StaleRowsShowOneCountedAdditionalChildUntilTerminal()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            using var workerGate = new ManualResetEventSlim(false);
+            var recorded = new TaskCompletionSource<ChartInfoWorkflowProgressSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var fixture = new CompletionFixture();
+            try
+            {
+                UseOwnedEmptyCatalog(fixture);
+                string[] chartPaths = SeedStaleChartInfoCatalog(fixture, 3);
+                Task<bool> initialization = fixture.Start();
+                AwaitArrival(fixture.OptionalEntered.Task, fixture.OptionalWork, "startup-chart-info-backfill-entered");
+                int blocked = 0;
+                // ViewModel の購読より後に呼ばれるため、件数の集約・投入を済ませたうえで作業スレッドを止める。
+                fixture.Library.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName != nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot)) { return; }
+                    ChartInfoWorkflowProgressSnapshot snapshot = fixture.Library.ChartInfoBackfillProgressSnapshot;
+                    if (snapshot.ProcessedCount < 1 || Interlocked.Exchange(ref blocked, 1) != 0) { return; }
+                    recorded.TrySetResult(snapshot);
+                    workerGate.Wait();
+                };
+                fixture.OptionalRelease.TrySetResult();
+                AwaitArrival(recorded.Task, fixture.OptionalWork, "startup-chart-info-backfill-count");
+                ChartInfoWorkflowProgressSnapshot count = recorded.Task.GetAwaiter().GetResult();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                OperationProgressRow row = fixture.Owner.ProgressHub.Rows.Single(item => item.Key.StartsWith("background:chart_info_backfill:", StringComparison.Ordinal));
+                Assert.AreEqual("startup_background", row.ParentKey);
+                Assert.AreEqual(3d, row.Maximum);
+                Assert.AreEqual(count.ProcessedCount, row.Value);
+                Assert.AreEqual("[" + count.ProcessedCount + "/3] " + Resources.Statusbar_progress_phase_chart_info, row.Label);
+                Assert.AreEqual(count.CurrentPath, row.Detail);
+                CollectionAssert.Contains(chartPaths, row.Detail);
+
+                workerGate.Set();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.OptionalWork, "startup-chart-info-backfill-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "startup-chart-info-background-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(fixture.Owner.ProgressHub.Rows.Any(item => item.Key.StartsWith("background:chart_info_backfill:", StringComparison.Ordinal)));
+            }
+            finally
+            {
+                workerGate.Set();
+                fixture.OptionalRelease.TrySetResult();
+                fixture.Dispose();
+            }
+        });
+    }
+
+    /// <summary>
+    /// 条件: 補完対象のない既定の空カタログで実起動する（補完は開始前に終端し、件数通知だけが届く）。
+    /// 期待: 後続処理の終端後と表示の反映後に、補完の名称行がない。
+    /// 検出する誤り: 件数通知だけで行を作る、スキップした補完の行が残る。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void StartupChartInfoBackfill_SkippedRequestLeavesNoRow()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var fixture = new CompletionFixture();
+            try
+            {
+                UseOwnedEmptyCatalog(fixture);
+                var counts = new ConcurrentQueue<ChartInfoWorkflowProgressSnapshot>();
+                fixture.Library.PropertyChanged += (_, args) =>
+                {
+                    if (args.PropertyName == nameof(BMSLibrary.ChartInfoBackfillProgressSnapshot)) { counts.Enqueue(fixture.Library.ChartInfoBackfillProgressSnapshot); }
+                };
+                fixture.OptionalRelease.TrySetResult();
+                Task<bool> initialization = fixture.Start();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "startup-skipped-chart-info-required");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "startup-skipped-chart-info-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(counts.IsEmpty, "スキップでも空の件数通知は届きます。");
+                Assert.IsTrue(counts.All(snapshot => snapshot.TotalCount == 0 && snapshot.ProcessedCount == 0), "スキップでは空の件数通知だけが届きます。");
+                Assert.IsFalse(fixture.Owner.ProgressHub.Rows.Any(item => item.Key.StartsWith("background:chart_info_backfill:", StringComparison.Ordinal)));
+            }
+            finally { fixture.OptionalRelease.TrySetResult(); fixture.Dispose(); }
+        });
+    }
+
+    /// <summary>起動が読む DB に、実在する BMS と解析版の古い譜面情報の行を置き、補完の全件対象を作ります。</summary>
+    private static string[] SeedStaleChartInfoCatalog(CompletionFixture fixture, int count)
+    {
+        string songDbPath = fixture.Composition.ApplicationPathSnapshot.StandaloneSongDbPath;
+        var paths = new List<string>();
+        var files = new List<ChartFile>();
+        for (int index = 0; index < count; index++)
+        {
+            string directory = Path.Combine(fixture.Settings.BMSRootPath, "progress-song" + index);
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, "chart" + index + ".bms");
+            File.WriteAllText(path, "#PLAYER 1\r\n#TITLE progress" + index + "\r\n#BPM 130\r\n#00111:01\r\n", System.Text.Encoding.ASCII);
+            paths.Add(path);
+            files.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)));
+        }
+        using (LR2SongDBExtended songDb = fixture.Composition.DatabaseScope.OpenSongWrite(songDbPath))
+        {
+            foreach (ChartFile file in files) { songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song)); }
+        }
+        new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath)
+            .UpsertChartInfos([.. files.Select(file => ChartInfoComponentTestSupport.CreateChartInfoRow(
+                file.Sha256, file.Md5, BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1))]);
+        return [.. paths];
+    }
+
     private static void AwaitArrival(Task arrival, Task initialization, string name)
     {
         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(arrival, initialization, name), name);

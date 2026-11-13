@@ -219,6 +219,10 @@ public sealed class OperationProgressHubLanguageTests
             hub.BeginStartupBackgroundInitializationPresentation(token, 1);
             hub.UpdateAdditionalProgress(new StartupAdditionalProgressSnapshot(token, 1, 1, 3, 1, false));
             hub.UpdateBackgroundTaskProgress(new("ranking_refresh", 1, 1, false, true));
+            // 起動由来の補完行は件数と対象パスを事実として保持し、文言は読取りのたびに現在語で作ります。
+            var backfillRequest = new OperationProgressRequest(1, token, "chart_info_backfill", 7);
+            hub.UpdateBackgroundTaskProgress(new("chart_info_backfill", 1, 7, true, true, backfillRequest));
+            hub.UpdateChartInfoBackfillProgress(new ChartInfoWorkflowProgressSnapshot(7, 30, 7, @"C:\bms\日本語\譜面.bms", backfillRequest));
             hub.UpdateInstallEstimationProgress(new InstallEstimationProgressSnapshot
             {
                 IsActive = true,
@@ -258,6 +262,10 @@ public sealed class OperationProgressHubLanguageTests
                 Assert.AreEqual("[5/20] " + Resources.Statusbar_progress_phase_chart_info_load, Row("task:chart_info_hydration").Label, stage);
                 Assert.AreEqual("[1/3] " + Resources.Statusbar_progress_startup_additional, Row("startup_background").Label, stage);
                 Assert.AreEqual(Resources.Statusbar_progress_phase_ranking_refresh, rows.Single(row => row.Key.StartsWith("background:ranking_refresh:", StringComparison.Ordinal)).Label, stage);
+                OperationProgressRow backfillRow = rows.Single(row => row.Key.StartsWith("background:chart_info_backfill:", StringComparison.Ordinal));
+                Assert.AreEqual("[7/30] " + Resources.Statusbar_progress_phase_chart_info, backfillRow.Label, stage);
+                Assert.AreEqual(@"C:\bms\日本語\譜面.bms", backfillRow.Detail, stage);
+                Assert.AreEqual("startup_background", backfillRow.ParentKey, stage);
                 Assert.AreEqual(string.Format(Resources.Install_estimation_label_format, 3, 8), Row("estimate").Label, stage);
                 Assert.AreEqual("pkg_日本語.zip", Row("estimate").Detail, stage);
                 OperationProgressRow lr2Row = Row("lr2");

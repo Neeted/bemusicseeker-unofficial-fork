@@ -34,6 +34,14 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private readonly Dictionary<string, PlaylistSyncProgressSnapshot> playlistStatuses = new();
     private long backgroundGeneration;
     private bool isReapplyingLanguagePresentation;
+    private readonly Dictionary<OperationProgressRequest, ChartInfoBackfillEntry> chartInfoBackfillEntries = new();
+    private readonly ConcurrentDictionary<OperationProgressRequest, ChartInfoWorkflowProgressSnapshot> pendingChartInfoBackfillCounts = new();
+    private Action<Action> dispatchChartInfoBackfillProgressAction;
+    private int chartInfoBackfillFlushPosted;
+    private long chartInfoBackfillEntrySequence;
+
+    /// <summary>実行行を持たないまま保持する件数の上限です。通知順の入れ違いを吸収するだけの小さな有界値です。</summary>
+    private const int MaxIdleChartInfoBackfillEntries = 16;
 
     /// <summary>親操作の段階数と完了条件の正本を取得します。</summary>
     public StartupProgressWorkflowOwner StartupProgress { get; }
@@ -89,6 +97,127 @@ public sealed class OperationProgressHubViewModel : ViewModel
             playlistUrlDownloadStatus = snapshot ?? PlaylistUrlDownloadStatusSnapshot.Inactive;
             RaiseRowsChanged();
         });
+    }
+
+    /// <summary>
+    /// 譜面情報の補完の件数通知を、UIスレッドへ集約して反映する投入先を接続します。
+    /// 件数は作業スレッドから譜面ごとに届くため、通知ごとに投入せず最新値だけを保持します。接続前は呼出しスレッドで直接反映します。
+    /// </summary>
+    internal void AttachChartInfoBackfillProgressSource(Action<Action> dispatchPresentationAction)
+    {
+        ArgumentNullException.ThrowIfNull(dispatchPresentationAction);
+        dispatchChartInfoBackfillProgressAction = dispatchPresentationAction;
+    }
+
+    /// <summary>
+    /// 譜面情報の補完の件数通知を受け取ります。どのスレッドからでも呼べ、要求ごとの最新値を保持して、
+    /// 未反映の投入がなければ一件だけ投入します。購読者の故障で補完を止めず、既存の表示故障の診断規則に従います。
+    /// </summary>
+    internal void UpdateChartInfoBackfillProgress(ChartInfoWorkflowProgressSnapshot snapshot)
+    {
+        try
+        {
+            if (snapshot?.Request == null) { return; }
+            Action<Action> dispatch = dispatchChartInfoBackfillProgressAction;
+            if (dispatch == null)
+            {
+                ApplyChartInfoBackfillCounts(snapshot);
+                return;
+            }
+
+            pendingChartInfoBackfillCounts[snapshot.Request] = snapshot;
+            if (Interlocked.Exchange(ref chartInfoBackfillFlushPosted, 1) != 0) { return; }
+            try { dispatch(FlushChartInfoBackfillCounts); }
+            catch
+            {
+                // 投入できなかった保留分は次の通知で再投入できるよう、投入済みの印を戻します。
+                Volatile.Write(ref chartInfoBackfillFlushPosted, 0);
+                throw;
+            }
+        }
+        catch (Exception exception) { ReportPresentationFailureOnce(exception, "ChartInfoBackfillProgress"); }
+    }
+
+    private void FlushChartInfoBackfillCounts()
+    {
+        // 先に印を戻すため、取り出し後に届いた通知は新しい投入として反映されます。
+        Volatile.Write(ref chartInfoBackfillFlushPosted, 0);
+        if (isShellClosing?.Invoke() == true)
+        {
+            pendingChartInfoBackfillCounts.Clear();
+            return;
+        }
+
+        foreach (OperationProgressRequest request in pendingChartInfoBackfillCounts.Keys.ToArray())
+        {
+            if (pendingChartInfoBackfillCounts.TryRemove(request, out ChartInfoWorkflowProgressSnapshot latest))
+            {
+                ApplyChartInfoBackfillCounts(latest);
+            }
+        }
+    }
+
+    /// <summary>同じ要求の件数だけを保持します。行は汎用の実行通知がある間だけ存在するため、ここでは行を作りません。</summary>
+    private void ApplyChartInfoBackfillCounts(ChartInfoWorkflowProgressSnapshot snapshot)
+    {
+        ChartInfoBackfillEntry entry = GetChartInfoBackfillEntry(snapshot.Request);
+        entry.Counts = snapshot;
+        if (entry.IsRunning) { RaiseRowsChanged(); }
+    }
+
+    private ChartInfoBackfillEntry GetChartInfoBackfillEntry(OperationProgressRequest request)
+    {
+        if (chartInfoBackfillEntries.TryGetValue(request, out ChartInfoBackfillEntry entry)) { return entry; }
+        // 実行通知が来ない要求（開始前に破棄された要求や終端後に遅れた件数）の保持を有界に保ちます。
+        while (chartInfoBackfillEntries.Count(pair => !pair.Value.IsRunning) >= MaxIdleChartInfoBackfillEntries)
+        {
+            chartInfoBackfillEntries.Remove(chartInfoBackfillEntries.Where(pair => !pair.Value.IsRunning)
+                .MinBy(pair => pair.Value.Sequence).Key);
+        }
+
+        entry = new ChartInfoBackfillEntry(++chartInfoBackfillEntrySequence);
+        chartInfoBackfillEntries[request] = entry;
+        return entry;
+    }
+
+    /// <summary>
+    /// 補完の汎用の実行通知で行の存在を決めます。表示世代が変わっても、その要求の終端まで行を保持します。
+    /// 補完は受理済みの継続で新しい操作に置き換えられず、実行中は他の操作を拒否するため、待つ理由と残り量を示し続けます。
+    /// </summary>
+    private void UpdateChartInfoBackfillExecution(StartupBackgroundTaskProgressSnapshot status)
+    {
+        if (status.Request == null) { return; }
+        if (status.IsRunning)
+        {
+            // 受理済みの補完は、待機中に表示世代が更新された後に開始することがあります。開始と終了は所有者のtry/finallyで対になり、
+            // 同じ配送のFIFOで届くため、世代によらず採用します。所属は要求の識別で決まり、旧世代なら独立行になります。
+            GetChartInfoBackfillEntry(status.Request).IsRunning = true;
+        }
+        else if (!chartInfoBackfillEntries.Remove(status.Request)) { return; }
+
+        RaiseRowsChanged();
+    }
+
+    private OperationProgressRow CreateChartInfoBackfillRow(OperationProgressRequest request, ChartInfoWorkflowProgressSnapshot counts)
+    {
+        string key = "background:chart_info_backfill:" + request.Version + ":" + GetRequestKey(request);
+        string parentKey = GetRequestParentKey(request);
+        string label = BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info;
+        if (counts == null || counts.TotalCount <= 0)
+        {
+            return new(key, label, string.Empty, IsIndeterminate: true, ParentKey: parentKey);
+        }
+
+        int processed = Math.Clamp(counts.ProcessedCount, 0, counts.TotalCount);
+        return new(key, StartupProgressWorkflowOwner.FormatStartupProgressCountLabel(label, processed, counts.TotalCount, string.Empty),
+            counts.CurrentPath, processed, counts.TotalCount, ParentKey: parentKey);
+    }
+
+    private sealed class ChartInfoBackfillEntry(long sequence)
+    {
+        internal long Sequence { get; } = sequence;
+        internal bool IsRunning { get; set; }
+        internal ChartInfoWorkflowProgressSnapshot Counts { get; set; }
     }
 
     /// <summary>現起動に属する追加仕事が実終端まで存続しているかを取得します。</summary>
@@ -258,6 +387,10 @@ public sealed class OperationProgressHubViewModel : ViewModel
                 rows.Add(new("background:" + status.Name + ":" + status.Version + (status.Request == null ? string.Empty : ":" + GetRequestKey(status.Request)),
                     GetBackgroundTaskLabel(status.Name), string.Empty, IsIndeterminate: true,
                     ParentKey: GetBackgroundParentKey(status)));
+            }
+            foreach (KeyValuePair<OperationProgressRequest, ChartInfoBackfillEntry> pair in chartInfoBackfillEntries.Where(pair => pair.Value.IsRunning))
+            {
+                rows.Add(CreateChartInfoBackfillRow(pair.Key, pair.Value.Counts));
             }
             if (playlistUrlDownloadStatus.IsActive)
             {
@@ -432,6 +565,12 @@ public sealed class OperationProgressHubViewModel : ViewModel
     /// <summary>スケジューラーの実行境界を表示へ反映し、旧世代を拒否します。</summary>
     internal void UpdateBackgroundTaskProgress(StartupBackgroundTaskProgressSnapshot status)
     {
+        if (status.Name == "chart_info_backfill")
+        {
+            UpdateChartInfoBackfillExecution(status);
+            return;
+        }
+
         if (status.Generation != backgroundGeneration)
         {
             return;
@@ -460,16 +599,14 @@ public sealed class OperationProgressHubViewModel : ViewModel
         {
             return true;
         }
-        string detailName = status.Name == "chart_info_backfill_after_hydration" ? "chart_info_backfill" : status.Name;
         return StartupProgress.IsExecutionProgressPartOfStartup(status.Request)
-            && rows.Any(row => row.Key == "task:" + detailName);
+            && rows.Any(row => row.Key == "task:" + status.Name);
     }
 
     private static string GetBackgroundTaskLabel(string name) => name switch
     {
         "score_hydration_deferred" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_score_hydration,
         "ranking_refresh" or "ranking_refresh_deferred" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_ranking_refresh,
-        "chart_info_backfill" or "chart_info_backfill_after_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info,
         "chart_info_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_chart_info_load,
         "playlist_entries_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading,
         "maintenance_hydration" => BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_maintenance,
@@ -554,7 +691,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
             "score_hydration_deferred" => 100,
             "ranking_refresh_deferred" or "ranking_refresh" => 110,
             "chart_info_hydration" => 120,
-            "chart_info_backfill" or "chart_info_backfill_after_hydration" => 130,
+            "chart_info_backfill" => 130,
             "playlist_entries_hydration" => 140,
             "playlist_ref_apply" => 150,
             "external_playlist_sync" or "playlist" => 160,

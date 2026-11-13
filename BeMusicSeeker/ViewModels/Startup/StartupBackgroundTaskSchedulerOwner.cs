@@ -370,7 +370,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static bool UsesExecutionProgressReporter(string name) =>
         name is "score_hydration_deferred" or "ranking_refresh_deferred"
-            or "chart_info_hydration" or "chart_info_backfill" or "chart_info_backfill_after_hydration"
+            or "chart_info_hydration" or "chart_info_backfill"
             or "maintenance_hydration" or "installable_maintenance"
             or "external_playlist_sync" or "playlist_ref_apply"
             or "playlist_custom_folder_output_repair" or "beatoraja_bmt_export_all";
