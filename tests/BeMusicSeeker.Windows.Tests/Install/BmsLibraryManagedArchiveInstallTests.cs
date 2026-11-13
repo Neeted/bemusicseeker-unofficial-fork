@@ -175,6 +175,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         await fixture.InitializeAsync();
         string input = fixture.CreateInput("folder", "Different", resources: false);
         File.Copy(Path.Combine(fixture.CandidateDirectory, "existing.bms"), Path.Combine(input, "owned.bms"));
+        // 所持譜面と未所持譜面はTITLEが異なるため、直下のpreview音声を同梱資源として置き、混在フォルダを一式にします。
+        File.WriteAllBytes(Path.Combine(input, "preview.ogg"), [9]);
         PackageInstallCommandResult result = await fixture.Library.InstallChartPackagesAutoWithProgressAsync(
             [input], CancellationToken.None, new RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
         Assert.IsTrue(result.HasDurableCommit);

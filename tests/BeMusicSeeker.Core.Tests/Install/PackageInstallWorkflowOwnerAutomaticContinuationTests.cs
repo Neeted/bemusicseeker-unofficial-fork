@@ -122,7 +122,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         await using var fixture = new AutomaticContinuationFixture(databaseScope, enabled, deleteSource);
         string source = fixture.WriteInput("Input", "a.bms", "a");
         fixture.WriteInput("Input", "b.bms", "b");
-        // 未同梱音源の参照が別々でも、明示した一式の範囲を保持します。
+        // 未同梱音源の参照が別々でも、全譜面が同じTITLE・ARTIST（Song／Artist）なので規則4で明示した一式の範囲を保持します。
         foreach (string name in new[] { "a", "b" })
         {
             string path = Path.Combine(source, name + ".bms");

@@ -617,8 +617,18 @@ internal sealed partial class BmsLibraryPackageInstallService
         IReadOnlyDictionary<string, PendingPackageScopeObservation> sourceScopes = null)
         => DiscoverDirectory(dirfullpath, recursive, sourceScopes: sourceScopes);
 
-    /// <summary>一度の探索でscope・完全性・既知entryを共有し、親の実在資源、子作品、明示一式の順に分類します。</summary>
-    /// <remarks>親一式の収集先を借用する子は既読entryだけを追加し、完全性の確認後に親だけがpackageを生成します。</remarks>
+    /// <summary>
+    /// 一度の探索でscope・完全性・既知entryを共有し、子ディレクトリは常に再帰して発見します。直下に譜面があるディレクトリは、次の順に最初に当たった規則で分けます。
+    /// 1. 直下の譜面が参照する実在資源、PREVIEW、直下のpreview・_preview音声のいずれかがあれば、子譜面を含むディレクトリ全体を一つにします。
+    /// 2. 譜面を持つ子ディレクトリがあれば、直下の譜面を各単体にし、子は別に発見します。
+    /// 3. 直下の譜面が1件ならディレクトリ全体を一つにします。
+    /// 4. 直下の全譜面の正規化した (TITLE, ARTIST) キーが一つに揃えばディレクトリ全体を一つにします。空TITLEを含めば揃わないとします。
+    /// 5. それ以外は直下の譜面を各単体にします。単体の親削除指定は規則2と同じです。
+    /// </summary>
+    /// <remarks>
+    /// 親一式の収集先を借用する子は既読entryだけを追加し、完全性の確認後に親だけがpackageを生成します。
+    /// 子の走査が不完全で譜面を持つ子の有無が確定しない場合は、一式・単体のどちらも確定しません。
+    /// </remarks>
     private ChartPackageDiscoveryResult DiscoverDirectory(string directory, bool recursive, IReadOnlyList<PackageChartEntry> knownDirectCharts = null, string[] knownEntries = null, CancellationToken token = default, List<PackageChartEntry> enclosingWholeCharts = null, List<PackageChartEntry> observedEntries = null, IReadOnlyDictionary<string, PendingPackageScopeObservation> sourceScopes = null, Func<ChartFileSnapshot, ChartFile> fixedEncodingSource = null)
     {
         observedEntries ??= [];
@@ -689,7 +699,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         if (enclosingWholeCharts != null) { return result; }
         if (directCharts.Count > 0)
         {
-            if (hasResources || !hasKnownChildCharts)
+            if (hasResources || (!hasKnownChildCharts && IsSingleWorkDirectCharts(directCharts)))
             {
                 result.Packages.Add(CreatePackageWithKnownCharts(directory, deleteParent: false, wholeCharts ?? directCharts));
                 return result;
@@ -698,6 +708,28 @@ internal sealed partial class BmsLibraryPackageInstallService
         }
         foreach (ChartPackageDiscoveryResult child in children) { result.Packages.AddRange(child.Packages); }
         return result;
+    }
+
+    /// <summary>
+    /// 同梱資源も譜面を持つ子もないディレクトリで、直下の譜面が1件か、全譜面の正規化した (TITLE, ARTIST) キーが一つに揃う場合にtrueを返します。
+    /// キーは導入先推定と同じ射影・正規化で作り、空TITLEの譜面があれば揃わないとします。
+    /// </summary>
+    /// <remarks>
+    /// 別曲を一式にすると推定・導入が一つの導入先へ混ざって誤導入になるため、参照名の共通率や類似度ではなく完全一致だけで同じ作品と判断します。
+    /// 単位は発見時に確定し、推定の後に組み替えません。
+    /// </remarks>
+    private static bool IsSingleWorkDirectCharts(IReadOnlyList<PackageChartEntry> directCharts)
+    {
+        if (directCharts.Count == 1) { return true; }
+        (string Title, string Artist)? shared = null;
+        foreach (PackageChartEntry entry in directCharts)
+        {
+            (string title, string artist, _) = PackageInstallEstimationSnapshotBuilder.ProjectMetadataRecord(entry.Chart);
+            (string Title, string Artist)? key = InstallEstimationMetadataNormalizer.BuildPairKey(title, artist);
+            if (key == null || (shared != null && !shared.Equals(key))) { return false; }
+            shared = key;
+        }
+        return true;
     }
 
     /// <summary>既取得の直下ファイルだけから未参照のpreview・_preview始まりの音声慣例を確認します。</summary>

@@ -8657,9 +8657,7 @@ public partial class BMSLibrary : ObservableObject
         return CreateOwnedRealPathChartRefsUnsafe(normalizedDestinationDirectory)
             .Select(chartRef => catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(chartRef))
             .Where(chart => chart != null)
-            .Select(chart => (chart.RawTitle ?? string.Empty,
-                (chart.Kind == ChartFileKind.Bms ? chart.RawArtist : chart.Artist) ?? string.Empty,
-                chart.Path ?? string.Empty));
+            .Select(PackageInstallEstimationSnapshotBuilder.ProjectMetadataRecord);
     }
     private static string NormalizeInstallDestinationDirectoryForLookup(string destinationDirectory)
     {

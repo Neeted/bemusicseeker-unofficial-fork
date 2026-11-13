@@ -4465,11 +4465,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 親資源のない差分集は直下二譜面と子・孫を分け、子譜面なしの明示一式はまとめます。
+    /// 親資源がなく譜面を持つ子がある差分集（規則2）は、直下二譜面を各単体にし、子・孫を別に発見します。
+    /// 再帰中の子ディレクトリの単体だけが親削除権限を持つことも確認し、子作品を親一式へ巻き込む誤りと親削除権限の取り違えを検出します。
+    /// 子譜面のない直下譜面の分け方（規則3〜5）は <c>SearchChartPackagesRecursivelyWithMetadata_DirectChartsFollowUnitRulesInOrder</c> が担当します。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]
-    [DataRow(0)]
     [DataRow(1)]
     [DataRow(2)]
     public void SearchChartPackagesRecursivelyWithMetadata_PackagesSplitsIndependentChartsIntoSingleFilePackages(int descendants)
@@ -4509,12 +4510,6 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 expectedPackages.Add(grandchild, [bmson]);
             }
 
-            if (descendants == 0)
-            {
-                string[] direct = expectedPackages.Values.SelectMany(paths => paths).ToArray();
-                expectedPackages.Clear();
-                expectedPackages.Add(packageDirectoryPath, direct);
-            }
             var service = new BmsLibraryPackageInstallService();
             ChartPackageDiscoveryResult result = service.SearchChartPackagesRecursivelyWithMetadata(packageDirectoryPath);
 
@@ -4557,7 +4552,8 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
-    /// 親の実在資源だけを子譜面を含む一式の根拠とし、直下1譜面・共通参照だけなら親直下と子作品を分けます。
+    /// 規則1（直下の譜面が参照する実在資源があれば子譜面を含む一式）と規則2（資源がなく譜面を持つ子があれば直下を各単体にして子を別に発見）を確認します。
+    /// 直下1譜面や、参照名が共通でも実在しない資源だけでは、規則3・4より規則2が先に当たり、親直下と子作品を分けます。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     [TestMethod]

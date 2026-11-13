@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class PackageInstallWorkflowOwnerTests
 {
-    /// <summary>譜面と内包ZIPのfolder／全選択を実確保・保留登録・通常推定・後段導入へ通します。投入前の独立treeと照合し、ZIP自身を同梱して内部譜面を別packageへ二重生成しないことを確認します。</summary>
+    /// <summary>譜面と内包ZIPのfolder／全選択を実確保・保留登録・通常推定・後段導入へ通します。a・bは同じTITLE・ARTIST（Song／Artist）なので規則4でfolderの一式です。投入前の独立treeと照合し、ZIP自身を同梱して内部譜面を別packageへ二重生成しないことを確認します。</summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -190,7 +190,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         return content.ToArray();
     }
 
-    /// <summary>元のfolder／中身全選択／部分選択を実materializerから実owner・port・SQLiteへ通します。部分copyで隣接ファイルが消えても、確保先の見かけで全選択へ逆転させません。</summary>
+    /// <summary>元のfolder／中身全選択／部分選択を実materializerから実owner・port・SQLiteへ通します。a・bは同じTITLE・ARTIST（Song／Artist）なのでfolder・全選択は規則4で一式、部分選択は単体です。部分copyで隣接ファイルが消えても、確保先の見かけで全選択へ逆転させません。</summary>
     [TestMethod]
     [DataRow("folder")]
     [DataRow("all")]
@@ -236,6 +236,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
     }
 
     /// <summary>同物理入力の二回の実取込みで、完全読取時だけ旧BMS/BMSON単体を一式へ登録置換します。DST非継承・同内容の指定文字コード保持・無関係保留を確認し、読取り・準備後取消・実DB失敗では旧群を先行変更しません。</summary>
+    /// <remarks>a.bmsはwindows-1252のバイト列で書き、指定文字コードを引き継いだ2回目の発見でbmsonと同じTITLE「Café」・ARTISTになるため規則4で一式です。preview音声は1回目の部分選択を昇格させるので使いません。</remarks>
     [TestMethod]
     [DataRow("success", false)]
     [DataRow("success", true)]
@@ -249,7 +250,7 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false);
         string source = fixture.WriteInput("Reimport", "a.bms", "a");
         string a = Path.Combine(source, "a.bms");
-        File.WriteAllText(a, CreateValidBmsText("Café").Replace("sound.wav", "missing-a.wav"), new UTF8Encoding(false));
+        File.WriteAllText(a, CreateValidBmsText("Café").Replace("sound.wav", "missing-a.wav"), Encoding.GetEncoding("windows-1252"));
         string b = Path.Combine(source, "b.bmson");
         File.WriteAllText(b, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Café\",\"artist\":\"Artist\"},\"sound_channels\":[{\"name\":\"missing-b.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}", new UTF8Encoding(false));
         File.WriteAllText(Path.Combine(source, "readme.txt"), "unselected");
@@ -358,4 +359,164 @@ public sealed partial class PackageInstallWorkflowOwnerTests
         public void TryWrite(PackageInstallProgressUpdate update) { }
     }
 
+    /// <summary>
+    /// 同梱資源も譜面を持つ子もない、別曲A・Bの2譜面とreadme・未参照のcover.pngを同居させたフォルダを、フォルダ指定・直下全項目選択・書庫で実確保から取り込みます。自動導入は有効で、所持側には曲ごとに別のフォルダ（各キー音付き）があります。
+    /// 規則5で単体2件を保留登録し（推定適用時点の保留とinstall行で観測）、推定は各曲の所持フォルダを導入先に自動設定して別曲の所持フォルダを候補へ入れず、それぞれの曲フォルダへ導入します。readme・coverは導入先へ入らず、終了後の保留とinstall行は0件です。
+    /// 検出する誤り: 別曲を一式にまとめて片方の曲フォルダへ混ぜて導入する、未参照の付属物を導入先へ持ち込む、入口ごとに単位が変わる。
+    /// </summary>
+    [TestMethod]
+    [DataRow("folder")]
+    [DataRow("all")]
+    [DataRow("zip")]
+    public async Task ProductionIngress_SeparateSongsInOneFolderEstimateAndInstallPerSong(string input)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        string alphaBody = "#PLAYER 1\n#TITLE Alpha Song\n#ARTIST Alpha Artist\n#BPM 120\n#WAV01 alpha1.wav\n#WAV02 alpha2.wav\n#00111:0102\n";
+        string betaBody = "#PLAYER 1\n#TITLE Beta Tune\n#ARTIST Beta Artist\n#BPM 120\n#WAV01 beta1.wav\n#WAV02 beta2.wav\n#00111:0102\n";
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, true, false, temporaryIngress: true, destinationSounds: ["unrelated.wav"],
+            ownedSongs: [("SongA", alphaBody + "#GENRE owned\n", ["alpha1.wav", "alpha2.wav"]), ("SongB", betaBody + "#GENRE owned\n", ["beta1.wav", "beta2.wav"])]);
+        string songA = Path.Combine(fixture.LibraryRoot, "SongA");
+        string songB = Path.Combine(fixture.LibraryRoot, "SongB");
+        var files = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["a.bms"] = Encoding.ASCII.GetBytes(alphaBody),
+            ["b.bms"] = Encoding.ASCII.GetBytes(betaBody),
+            ["readme.txt"] = Encoding.ASCII.GetBytes("readme"),
+            ["cover.png"] = [5, 6]
+        };
+        string[] selected;
+        if (input == "zip")
+        {
+            string archive = Path.Combine(fixture.Root, "input.zip");
+            using (var content = new MemoryStream())
+            {
+                using (var zip = new ZipArchive(content, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    foreach ((string name, byte[] bytes) in files)
+                    {
+                        using Stream stream = zip.CreateEntry(name).Open();
+                        stream.Write(bytes);
+                    }
+                }
+                File.WriteAllBytes(archive, content.ToArray());
+            }
+            selected = [archive];
+        }
+        else
+        {
+            string source = Path.Combine(fixture.Root, "ExternalTemp", "Pack");
+            Directory.CreateDirectory(source);
+            foreach ((string name, byte[] bytes) in files) { File.WriteAllBytes(Path.Combine(source, name), bytes); }
+            selected = input == "folder" ? [source] : Directory.GetFileSystemEntries(source);
+        }
+        Dictionary<string, byte[]> songABefore = CaptureArchiveTree(songA);
+        Dictionary<string, byte[]> songBBefore = CaptureArchiveTree(songB);
+        await fixture.InitializeAsync();
+        Dictionary<string, byte[]> destinationBefore = CaptureArchiveTree(fixture.Destination);
+        string[]? registeredPackages = null;
+        string[]? registeredRows = null;
+        // 推定適用ごとに、各項目の導入先と（自動設定した導入先を除く）残りの候補を最後の状態で記録します。
+        var estimated = new Dictionary<string, (string? Destination, string[] Suggestions)>(StringComparer.OrdinalIgnoreCase);
+        fixture.Observer.Applied = () =>
+        {
+            if (registeredPackages == null)
+            {
+                registeredPackages = [.. fixture.Library.ChartPackagesPending.Select(package => package.path)];
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
+                registeredRows = [.. db.Table<LR2SongDBExtended.install>().Select(row => row.path)];
+                foreach (ChartPackage package in fixture.Library.ChartPackagesPending)
+                {
+                    Assert.AreEqual(package.path, package.ChartEntries.Single().Chart.Path, "別曲は単体として保留します。");
+                }
+            }
+            foreach (PackageChartEntry entry in fixture.Library.ChartPackagesPending.SelectMany(package => package.ChartEntries))
+            { estimated[Path.GetFileName(entry.Chart.Path)] = (entry.Chart.InstallDestination, [.. entry.Chart.InstallDestinationSuggestions]); }
+        };
+        try
+        {
+            DroppedInstallIngressAcquisitionResult acquisition = fixture.Owner.AcquireAndTryEnqueueDroppedPaths(selected);
+            Assert.IsTrue(acquisition.Succeeded, acquisition.Exception?.ToString());
+            await fixture.Owner.WaitForIdleAsync();
+        }
+        finally { fixture.Observer.Applied = null; }
+        Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
+        Assert.IsNotNull(registeredPackages, "保留登録後・後段導入前の推定適用へ到達します。");
+        CollectionAssert.AreEquivalent(new[] { "a.bms", "b.bms" }, registeredPackages.Select(Path.GetFileName).ToArray());
+        CollectionAssert.AreEquivalent(registeredPackages, registeredRows);
+        foreach ((string name, string song) in new[] { ("a.bms", songA), ("b.bms", songB) })
+        {
+            Assert.IsTrue(estimated.TryGetValue(name, out (string? Destination, string[] Suggestions) state), name);
+            Assert.AreEqual(song, state.Destination, name + ": 曲ごとに自分の所持フォルダへ自動設定します。");
+            Assert.IsTrue(state.Suggestions.All(candidate => string.Equals(candidate, song, StringComparison.OrdinalIgnoreCase)), name + ": 別曲の所持フォルダを候補へ入れません。");
+        }
+        Assert.AreEqual(0, fixture.Library.ChartPackagesPending.Count);
+        CollectionAssert.AreEquivalent(new[] { Path.Combine(songA, "a.bms"), Path.Combine(songB, "b.bms") },
+            fixture.Library.ChartPackagesInstalled.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+        Assert.AreEqual(2, fixture.Library.ChartPackagesInstalled.Count);
+        songABefore.Add("a.bms", files["a.bms"]);
+        songBBefore.Add("b.bms", files["b.bms"]);
+        AssertArchiveTree(songABefore, songA);
+        AssertArchiveTree(songBBefore, songB);
+        AssertArchiveTree(destinationBefore, fixture.Destination);
+        using LR2SongDBExtended after = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
+        Assert.AreEqual(0, after.Table<LR2SongDBExtended.install>().Count());
+        Assert.IsNotNull(after.Find<LR2SongDB.song>(Path.Combine(songA, "a.bms")));
+        Assert.IsNotNull(after.Find<LR2SongDB.song>(Path.Combine(songB, "b.bms")));
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+    }
+
+    /// <summary>
+    /// 借用入力のフォルダを直下全項目選択で取り込み、各項目へ導入先を設定してから、同じフォルダをフォルダ指定または全項目選択で再ドロップします。自動導入は無効です。
+    /// 別曲なら規則5の単体2件、同じ作品（同じTITLE・ARTIST）なら規則4のDの一式で、再ドロップ後もpath・種別（ディレクトリか譜面ファイルか）・譜面集合、各項目の導入先・候補・表示ペア、install行（delete_parentを含む）が1回目と同じです。
+    /// 検出する誤り: 再ドロップで単位を組み替える、入口の違いで単位がずれる、同じ単位の導入先・候補や親削除指定を失う。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, "folder")]
+    [DataRow(false, "all")]
+    [DataRow(true, "folder")]
+    public async Task ProductionImport_FullSelectionRedropReproducesUnitsAndDestinations(bool sameWork, string redrop)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        await using var fixture = new AutomaticContinuationFixture(databaseScope, false, false);
+        string source = fixture.WriteInput("Redrop", "a.bms", "a");
+        fixture.WriteInput("Redrop", "b.bms", "b");
+        string a = Path.Combine(source, "a.bms");
+        string b = Path.Combine(source, "b.bms");
+        foreach ((string path, string title) in new[] { (a, "Alpha"), (b, "Beta") })
+        {
+            string body = File.ReadAllText(path).Replace("sound.wav", "missing-" + title + ".wav");
+            File.WriteAllText(path, sameWork ? body : body.Replace("#TITLE Song", "#TITLE " + title), Encoding.ASCII);
+        }
+        File.WriteAllText(Path.Combine(source, "readme.txt"), "readme");
+        await fixture.InitializeAsync();
+        Assert.IsTrue(fixture.Owner.Enqueue(Directory.GetFileSystemEntries(source)));
+        await fixture.Owner.WaitForIdleAsync();
+        Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
+        CollectionAssert.AreEquivalent(sameWork ? new[] { source } : new[] { a, b }, fixture.Library.ChartPackagesPending.Select(package => package.path).ToArray());
+        foreach (PackageChartEntry entry in fixture.Library.ChartPackagesPending.SelectMany(package => package.ChartEntries))
+        {
+            string name = Path.GetFileNameWithoutExtension(entry.Chart.Path);
+            entry.RestoreInstallDestinationState(new PackageChartInstallDestinationState(fixture.Destination, "Kept " + name, "Kept artist " + name, [fixture.Destination]));
+        }
+        string[] first = CaptureUnits();
+        string[] firstRows = CaptureRows();
+
+        Assert.IsTrue(fixture.Owner.Enqueue(redrop == "folder" ? [source] : Directory.GetFileSystemEntries(source)));
+        await fixture.Owner.WaitForIdleAsync();
+
+        Assert.IsNull(fixture.Failure, fixture.Failure?.Exception.ToString());
+        CollectionAssert.AreEquivalent(first, CaptureUnits());
+        CollectionAssert.AreEquivalent(firstRows, CaptureRows());
+        Assert.AreEqual(0, fixture.Library.ChartPackagesInstalled.Count);
+        Assert.IsFalse(fixture.Library.OperationAdmission.IsActive);
+
+        string[] CaptureUnits() => [.. fixture.Library.ChartPackagesPending.SelectMany(package => package.ChartEntries.Select(entry =>
+            string.Join("|", package.path, Directory.Exists(package.path), entry.Chart.Path, entry.Chart.InstallDestination,
+                entry.Chart.InstallDestinationTitle, entry.Chart.InstallDestinationArtist, string.Join(",", entry.Chart.InstallDestinationSuggestions))))];
+        string[] CaptureRows()
+        {
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.Database).OpenSongDbReadOnly();
+            return [.. db.Table<LR2SongDBExtended.install>().Select(row => row.path + "|" + row.delete_parent)];
+        }
+    }
 }

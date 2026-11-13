@@ -439,6 +439,44 @@ public sealed partial class BmsLibraryInitializationInstallTests
     }
 
     /// <summary>
+    /// 起動時の復元で、重複する保存行 [D(dir), D/a.bms] を取り込みと同じ分け方で再分類します。D は資源も譜面を持つ子もない二譜面とreadmeです。
+    /// 同じ作品（同じTITLE・ARTIST）なら規則4でDの一式を残してa.bms行を削除し、別曲なら規則5でa・bの単体へ分けてD行を削除しb行を追加します。
+    /// 検出する誤り: 起動時の復元だけ旧規則で別曲をDへまとめる、同じ作品を単体へ割る、変わらない行を不要に削除・再登録する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void LoadInstallTable_OverlappingRowsRestoreWithSameUnitRules(bool sameWork)
+    {
+        WithTemporaryLr2SongDb((lr2RootPath, songDbPath) =>
+        {
+            string parent = Path.Combine(lr2RootPath, "Collection");
+            Directory.CreateDirectory(parent);
+            string a = Path.Combine(parent, "a.bms");
+            string b = Path.Combine(parent, "b.bms");
+            File.WriteAllText(a, CreateValidBmsText(sameWork ? "Same" : "A"), Encoding.ASCII);
+            File.WriteAllText(b, CreateValidBmsText(sameWork ? "Same" : "B"), Encoding.ASCII);
+            File.WriteAllText(Path.Combine(parent, "readme.txt"), "readme");
+            ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
+            {
+                db.CreateTable<LR2SongDBExtended.install>();
+                db.Insert(new LR2SongDBExtended.install { path = parent, delete_parent = false });
+                db.Insert(new LR2SongDBExtended.install { path = a, delete_parent = false });
+            });
+            var dbGateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+
+            InstallTableLoadResult result = new BmsLibraryInitializationService().LoadInstallTable(dbGateway, []);
+
+            string[] expectedPackages = sameWork ? [parent] : [a, b];
+            CollectionAssert.AreEquivalent(expectedPackages, result.PendingPackages.Select(package => package.path).ToArray());
+            CollectionAssert.AreEquivalent(new[] { a, b }, result.PendingPackages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+            Assert.IsTrue(result.PendingPackages.All(package => !package.delete_parent));
+            CollectionAssert.AreEquivalent(sameWork ? new[] { a } : new[] { parent }, result.InstallPathsToDelete);
+            CollectionAssert.AreEquivalent(sameWork ? Array.Empty<string>() : new[] { b }, result.InstallRowsToUpsert.Select(package => package.path).ToArray());
+        });
+    }
+
+    /// <summary>
     /// 同一正規pathのpendingは先頭を採用し、重複alias・譜面なし・不存在の保存行を除いてDBと公開集合を一致させる。
     /// </summary>
     [TestMethod]

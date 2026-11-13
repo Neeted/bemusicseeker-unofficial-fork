@@ -217,6 +217,17 @@ internal static class InstallEstimationMetadataNormalizer
         return new InstallEstimationMetadataMatcher(target, InstallEstimationRelatedRule.AnyField).Evaluate(candidate).Relation == InstallEstimationMetadataRelation.Strong;
     }
 
+    /// <summary>
+    /// 実在ペアの集計と同じ正規化で、TITLE・ARTISTの小文字比較キーを返します。正規化後のTITLEが空なら比較材料がないとしてnullを返します。
+    /// ARTISTの空文字は有効な値で、空文字同士だけ一致します。
+    /// </summary>
+    internal static (string Title, string Artist)? BuildPairKey(string title, string artist)
+    {
+        string normalizedTitle = NormalizeTitleDisplay(title);
+        return normalizedTitle.Length == 0 ? null
+            : (normalizedTitle.ToLowerInvariant(), NormalizeArtistDisplay(artist).ToLowerInvariant());
+    }
+
     /// <summary>非空TITLEと空許容ARTISTの実在ペアを集計し、最多・パス順・入力順で同一レコードの比較キーと表示を選びます。</summary>
     internal static InstallEstimationMetadataProfile BuildProfile(IEnumerable<(string Title, string Artist, string Path)> records)
     {

@@ -528,8 +528,15 @@ internal static class PackageInstallEstimationSnapshotBuilder
             (targetEntries ?? [])
                 .Select(entry => entry?.Chart)
                 .Where(chart => chart != null)
-                .Select(chart => (chart.RawTitle ?? string.Empty,
-                    (chart.Kind == ChartFileKind.Bms ? chart.RawArtist : chart.Artist) ?? string.Empty,
-                    chart.Path ?? string.Empty)));
+                .Select(ProjectMetadataRecord));
     }
+
+    /// <summary>
+    /// 譜面1件から照合用の原題・作者・パスを射影します。BMSは原題と元作者、bmsonは原題と副作者を連結した現在の作者を使います。
+    /// 導入先推定と保留パッケージの分け方で同じ射影を共用し、二つの判定が異なる入力で同じ作品を判断しないようにします。
+    /// </summary>
+    internal static (string Title, string Artist, string Path) ProjectMetadataRecord(ChartFile chart)
+        => (chart.RawTitle ?? string.Empty,
+            (chart.Kind == ChartFileKind.Bms ? chart.RawArtist : chart.Artist) ?? string.Empty,
+            chart.Path ?? string.Empty);
 }

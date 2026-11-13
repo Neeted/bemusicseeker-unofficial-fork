@@ -111,7 +111,8 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
 
 
     /// <summary>単体・一括・APIの実取得と実導入・推定を通し、保留の正本、DB行、bytesを取得終端後も保ち、後の明示導入を成立させます。</summary>
-    /// <remarks>HTTPとAPI候補だけを固定します。空TITLEによる実推定の保留を必須とし、推定結果を注入しません。管理sessionの初期化を共有するため非並列です。</remarks>
+    /// <remarks>HTTPとAPI候補だけを固定します。空TITLEによる実推定の保留を必須とし、推定結果を注入しません。管理sessionの初期化を共有するため非並列です。
+    /// 取得先の直下へ事前にpreview.oggを置き、同梱資源（規則1）で取得物を一式1件にします。空TITLEの譜面だけでは規則5で単体に分かれるためです。</remarks>
     [TestMethod]
     [DataRow("single")]
     [DataRow("url")]
@@ -126,6 +127,8 @@ public sealed partial class PlaylistUrlAcquisitionOwnershipTests
         string staging = TempDirectoryPublisher.Get("url-pending");
         try
         {
+            // 取得物は取得先の直下へ保存されるため、直下のpreview音声が同梱資源として一式の根拠になります。
+            File.WriteAllBytes(Path.Combine(staging, "preview.ogg"), [9]);
             var gateway = new RecordingPlaylistUrlDownloadGateway(staging);
             Uri[] uris = [new("https://example.invalid/first.bms"), new("https://example.invalid/second.bms")];
             byte[][] contents = [.. Enumerable.Range(0, 2).Select(index => Encoding.ASCII.GetBytes(

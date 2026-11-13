@@ -64,10 +64,11 @@ internal static class PackageInstallComponentTestSupport
         /// <summary>実FSと捕捉する走査結果を同じ内容で準備し、必要な場合だけ最終子配置にも音源を置きます。</summary>
         /// <param name="databaseScope">接続先アプリケーションと共有するDB接続・排他の所有者です。</param>
         /// <param name="mutationPort">本番portの戻り値を観測する場合だけ渡します。省略時は従来と同じ本番portを使います。</param>
+        /// <param name="ownedSongs">既定の所持先とは別に、ライブラリ直下の各フォルダへ所持譜面1件（shift_jis）と音源を置く場合だけ渡します。別曲の所持先を曲ごとに用意する検証に使います。</param>
         internal AutomaticContinuationFixture(ApplicationDatabaseScope databaseScope, bool enabled, bool deleteSource, bool holdPlayback = false,
             ChartFileOperationSynchronizer? operationAdmission = null, ChartFileOperationSynchronizer? playlistOperationAdmission = null, IUiScheduler? uiScheduler = null, bool nestedAudio = false,
             IEnumerable<string>? destinationSounds = null, bool differentDestinations = false, bool temporaryIngress = false, IEnumerable<string>? installedChartBodies = null,
-            IPackageInstallMutationPort? mutationPort = null)
+            IPackageInstallMutationPort? mutationPort = null, IEnumerable<(string Directory, string ChartBody, IEnumerable<string> Sounds)>? ownedSongs = null)
         {
             try
             {
@@ -117,6 +118,17 @@ internal static class PackageInstallComponentTestSupport
                     File.WriteAllBytes(Path.Combine(second, "b.wav"), [1]);
                     installedPaths.Add(chart);
                     directorySounds.Add(second, ["b.wav"]);
+                }
+                foreach ((string name, string body, IEnumerable<string> songSounds) in ownedSongs ?? [])
+                {
+                    string song = Path.Combine(LibraryRoot, name);
+                    Directory.CreateDirectory(song);
+                    string chart = Path.Combine(song, "owned.bms");
+                    File.WriteAllText(chart, body, Encoding.GetEncoding("shift_jis"));
+                    installedPaths.Add(chart);
+                    List<string> names = [.. songSounds];
+                    foreach (string sound in names) { File.WriteAllBytes(Path.Combine(song, sound), [1]); }
+                    directorySounds.Add(song, names);
                 }
                 File.WriteAllBytes(Database, []);
                 options = CreateOptions(enabled, deleteSource);

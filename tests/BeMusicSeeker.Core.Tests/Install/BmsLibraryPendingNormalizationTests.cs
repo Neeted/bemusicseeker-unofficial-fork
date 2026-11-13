@@ -167,6 +167,42 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 今回入力と無関係な旧保留の重複群 [D(dir), D/a.bms] を、取り込みと同じ分け方で登録整理します。D は資源も譜面を持つ子もない二譜面です。
+    /// 同じ作品（同じTITLE・ARTIST）なら規則4でDの一式、別曲なら規則5でa・bの単体になり、群は完全で、登録だけの整理として自動導入の候補にしません。
+    /// 検出する誤り: 登録整理だけ旧規則で別曲をDへまとめる、同じ作品を単体へ割る、整理結果へ自動導入の資格を与える。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void PrepareAutoInstallWorkflow_OverlapCleanupAppliesSameUnitRules(bool sameWork)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string parent = Path.Combine(root, "Collection");
+            string a = CreateBmsFile(parent, "a.bms", CreateValidBmsText(sameWork ? "Same" : "A"));
+            string b = CreateBmsFile(parent, "b.bms", CreateValidBmsText(sameWork ? "Same" : "B"));
+            File.WriteAllText(Path.Combine(parent, "readme.txt"), "readme");
+            var oldParent = new ChartPackage { path = parent };
+            var oldA = new ChartPackage { path = a };
+            string input = CreateBmsFile(Path.Combine(root, "Input"), "input.bms", CreateValidBmsText("Input"));
+
+            AutoInstallWorkflowResult workflow = new BmsLibraryPackageInstallService().PrepareAutoInstallWorkflow([input], [oldParent, oldA], [], _ => false);
+
+            PendingPackageNormalizationGroup group = workflow.PendingPackageNormalizations.Single();
+            Assert.IsTrue(group.IsComplete);
+            CollectionAssert.AreEquivalent(new[] { oldParent, oldA }, group.Sources);
+            string[] expected = sameWork ? [parent] : [a, b];
+            CollectionAssert.AreEquivalent(expected, group.Packages.Select(package => package.path).ToArray());
+            CollectionAssert.AreEquivalent(new[] { a, b }, group.Packages.SelectMany(package => package.ChartEntries).Select(entry => entry.Chart.Path).ToArray());
+            foreach (ChartPackage package in group.Packages)
+            {
+                Assert.IsTrue(workflow.RegistrationOnlyPackages.Contains(package), package.path);
+                Assert.IsFalse(workflow.AutoInstallCandidates.Contains(package), package.path);
+            }
+        });
+    }
+
     /// <summary>旧複数登録の削除と新複数登録の追加を実state applierとSQLiteで一括確定します。最初のINSERT直後のabortでも旧全行・公開集合・入力を保持します。</summary>
     [TestMethod]
     [DataRow(false)]
