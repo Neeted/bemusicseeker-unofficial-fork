@@ -487,7 +487,9 @@ If automatic update fails, or if you prefer to inspect the release manually, pre
 
 ### Progress Display
 
-The status bar shows startup progress such as settings and file checks, chart loading, and preparation for install-destination estimation. Playlist, score, and maintenance loading may continue after the application becomes usable.
+The status bar shows startup progress such as settings and file checks, chart loading, and preparation for install-destination estimation. Chart information completion and playlist, score, and maintenance loading may continue after the application becomes usable.
+
+`Complete chart information` shows the number of processed charts, the number of target charts, and the chart file being processed. While it runs, library operations such as deleting or moving charts and starting a preview cannot start, and "Another library operation is in progress." is shown. Run them again after the completion finishes.
 
 ![Progress Display](img/進捗表示.PNG)
 

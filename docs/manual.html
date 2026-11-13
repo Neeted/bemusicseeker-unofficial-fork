@@ -1324,7 +1324,8 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <p>The update may wait for initialization or file operations to finish. Do not force-close the app while the update is running.</p>
 <p>If automatic update fails, or if you prefer to inspect the release manually, press <code>Release Page</code> to open the GitHub release page and update by downloading and overwriting the zip manually.</p>
 <h3 id="progress-display">Progress Display</h3>
-<p>The status bar shows startup progress such as settings and file checks, chart loading, and preparation for install-destination estimation. Playlist, score, and maintenance loading may continue after the application becomes usable.</p>
+<p>The status bar shows startup progress such as settings and file checks, chart loading, and preparation for install-destination estimation. Chart information completion and playlist, score, and maintenance loading may continue after the application becomes usable.</p>
+<p><code>Complete chart information</code> shows the number of processed charts, the number of target charts, and the chart file being processed. While it runs, library operations such as deleting or moving charts and starting a preview cannot start, and "Another library operation is in progress." is shown. Run them again after the completion finishes.</p>
 <p><img alt="Progress Display" src="img/進捗表示.PNG"/></p>
 <h3 id="library-reload">Library Reload</h3>
 <p><code>Reload</code> from the library context menu reflects additions, removals, and updates in your owned files. It does not rebuild the entire DB or reload scores.</p>

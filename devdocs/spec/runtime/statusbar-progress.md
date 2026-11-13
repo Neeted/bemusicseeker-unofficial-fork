@@ -6,7 +6,7 @@
 
 ## 用語
 
-[共通用語集](../glossary.md)を参照します。「親行」は操作全体、「子行」はその親に対応する実行中の処理、「独立行」は現在表示中の親が待つ要求に属さない処理です。以下の件数と対象名は表示例です。
+[共通用語集](../glossary.md)を参照します。「親行」は操作全体、「子行」はその親に対応する実行中の処理、「独立行」は現在表示中の親が待つ要求に属さない処理です。以下の件数と対象名は表示例です。親行の `[完了/予定]` の数値は、操作ごとに予定した必須段階の数で決まり、固定の段階数ではありません。
 
 ## 仕様
 
@@ -15,7 +15,7 @@
 起動の必須処理と追加処理は別の親で追います。通常起動は、必須処理、親の受付の解放、必須UIと実際のホスト接続を終えてから操作可能になります。追加処理の登録を閉鎖して開始するまで、追加処理を成功の根拠にせず、実行中の初期化の親は「初期化」のままです。
 
 ```text
-[8/11] 初期化
+[完了/予定] 初期化
   スコアの読込み・反映              （不定ゲージ）
   [120/300] 譜面情報の読込み
 ```
@@ -23,11 +23,18 @@
 必須初期化の完了余韻中は追加処理と併記し、余韻が終了した後も、対象起動の追加処理が実終端するまでその親と子を残します。追加処理は最大3件を並列実行し、依存とレーン制限は[起動仕様](startup.md#追加処理の並列実行と依存)に従います。順位更新は起動から独立しています。
 
 ```text
-[2/8] 起動に伴う追加処理
+[終端済み/受理済み] 起動に伴う追加処理
   難易度表リストの取得              （不定ゲージ）
   プレイリスト索引の準備            （不定ゲージ）
   譜面一覧の索引・ソートキャッシュの準備 （不定ゲージ）
 順位の更新                          （不定ゲージ）
+```
+
+起動・全再初期化で受理した譜面情報の補完は、追加親の子として件数と対象パスを表示します。
+
+```text
+[終端済み/受理済み] 起動に伴う追加処理
+  [120/300] 譜面情報の補完          C:\bms\song\chart.bms
 ```
 
 再読込みでは、実際にその操作が待つ要求だけを子にします。別要求や要求元の異なる処理を、同じ数値の要求版や処理名だけで子へ移しません。
@@ -35,15 +42,16 @@
 スコア反映中の表示例です。
 
 ```text
-[2/4] スコアの再読込み
+[完了/予定] スコアの再読込み
   スコアの読込み・反映              （不定ゲージ）
 ```
 
-同じ操作が順位更新へ進んだ時点の表示例です。
+順位の更新は、どの親の予定にも入らない任意処理です。親の子にも追加親の分母にもせず、常に独立した行として表示します。
 
 ```text
-[3/4] スコアの再読込み
-  順位の更新                        （不定ゲージ）
+[完了/予定] スコアの再読込み
+  スコアの読込み・反映              （不定ゲージ）
+順位の更新                          （不定ゲージ）
 ```
 
 独立した導入、推定、URL取得、編集などは同時に表示できます。行の取消・再試行はその行が所有する処理へ届きます。
@@ -59,18 +67,18 @@
 
 | 実表示名 | 条件 | ゲージ | 終了・状態 | 行の操作 |
 | --- | --- | --- | --- | --- |
-| 初期化 | 起動時の必須初期化 | 固定13段階 | 「初期化 完了」の余韻後に消す。失敗は「初期化 失敗」と明示理由を残す | なし |
-| ファイル差分の再読込み | 差分再読込み | 固定6段階 | 操作名に「完了」「失敗」を添える | なし |
-| スコアの再読込み | スコアだけの再読込み | 固定4段階 | 操作名に「完了」「失敗」を添える | なし |
-| プレイリストの再読込み | 項目・参照と外部同期の再読込み | 固定5段階 | 操作名に「完了」「失敗」を添える | なし |
-| 全再初期化 | DBとファイルから再構築 | 固定14段階 | 操作名に「完了」「失敗」を添える | なし |
-| 起動に伴う追加処理 | 起動の後続登録から対象起動の実終端まで | 受理した論理仕事数と終端済み数の確定ゲージ。分母は追加受付で増え得る | 登録閉鎖・開始と対象仕事・事前準備の実終端で消す。開放中0件や一時100%では消さず、独立仕事で延命しない | なし |
+| 初期化 | 起動時の必須初期化 | 予定した必須段階の完了数 | 「初期化 完了」の余韻後に消す。失敗は「初期化 失敗」と明示理由を残す | なし |
+| ファイル差分の再読込み | 差分再読込み | 予定した必須段階の完了数 | 操作名に「完了」「失敗」を添える | なし |
+| スコアの再読込み | スコアだけの再読込み | 予定した必須段階の完了数 | 操作名に「完了」「失敗」を添える | なし |
+| プレイリストの再読込み | 項目・参照と外部同期の再読込み | 予定した必須段階の完了数 | 操作名に「完了」「失敗」を添える | なし |
+| 全再初期化 | DBとファイルから再構築 | 予定した必須段階の完了数 | 操作名に「完了」「失敗」を添える | なし |
+| 起動に伴う追加処理 | 起動・全再初期化の後続登録から対象操作の実終端まで | 受理した論理仕事数と終端済み数の確定ゲージ。分母は追加受付で増え得る | 登録閉鎖・開始と対象仕事・事前準備の実終端で消す。開放中0件や一時100%では消さず、独立仕事で延命しない | なし |
 
-親の段階数はファイル数や所要時間の割合ではありません。追加親の所属・集約・失敗と破棄の計上は[追加処理の段階と終端](progress.md#追加処理の段階と終端)に従います。未完了段階を一つ選んで親の補足へ出すことはせず、失敗理由が空なら推測した子処理名を補いません。
+親の段階数は操作ごとの[予定](progress.md#操作ごとの予定)で決まる必須段階の数であり、ファイル数や所要時間の割合ではありません。追加親の所属・集約・失敗と破棄の計上は[追加処理の段階と終端](progress.md#追加処理の段階と終端)に従います。未完了段階を一つ選んで親の補足へ出すことはせず、失敗理由が空なら推測した子処理名を補いません。
 
 ### 実行中の処理行
 
-「対応親」は、捕捉した表示世代・発生元操作トークン・要求元・同主体内の要求版が、親の予定・追跡要求に一致する親です。起動由来の後続要求は「起動に伴う追加処理」へ属し、それ以外は独立行です。同じ要求の汎用通知と専用件数通知は、同名・同所属の一行へ統合します。
+「対応親」は、捕捉した表示世代・発生元操作トークン・要求元・同主体内の要求版が、親の予定・追跡要求に一致する親です。起動・全再初期化由来の後続要求は、追加親（「起動に伴う追加処理」）の操作トークン・世代と一致するものだけが追加親へ属し、それ以外は独立行です。以下の表の「起動の対応後続」は、起動・全再初期化が受理した後続を指します。同じ要求の汎用通知と専用件数通知は、同名・同所属の一行へ統合します。
 
 | 実表示名 | 所属・独立条件 | ゲージと対象 | 終了 | 操作・正本 |
 | --- | --- | --- | --- | --- |
@@ -80,17 +88,17 @@
 | LR2カスタムフォルダの変更確認 | 差分処理の子 | 管理外の確認対象ファイル数と対象パス。DB変更行数とは別 | 差分反映成功。準備件数100%では消さない | なし・[LR2同期](../integration/lr2-song-db.md) |
 | 画面準備 | 起動データ準備完了から操作可能まで、初期化の子 | 不定 | 操作可能に到達 | なし・[起動](startup.md) |
 | スコアの読込み・反映 | 対応親の子。それ以外は独立 | 不定 | 捕捉した要求の終端 | なし・[起動](startup.md) |
-| 順位の更新 | スコア再読込み・全再初期化が待つ対応要求は子。起動では独立 | 不定 | 捕捉した要求の終端。追加親の寿命に含めない | なし・[順位](../integration/lr2-ranking.md) |
+| 順位の更新 | 常に独立。どの親の子にも、追加親の分母にもしない | 不定 | 捕捉した要求の終端。追加親の寿命に含めない | なし・[順位](../integration/lr2-ranking.md) |
 | 譜面情報の読込み | 対応親の子。それ以外は独立 | 既知の読込み総数と適用件数。未確定で不定 | 対応要求の読込み完了 | なし・[譜面情報](../library/chart-info.md) |
-| 譜面情報の補完 | 対応親の子。それ以外は独立 | 対象譜面数と処理済み数、対象パス | 対応要求の補完完了 | なし・[譜面情報](../library/chart-info.md) |
+| 譜面情報の補完 | 起動・全再初期化由来で追加親の操作トークン・世代と一致する要求は追加親の子。それ以外（差分再読込み、操作トークン0、追加親の非表示）は独立 | 対象譜面数と処理済み数、処理中の対象パス。総数が未確定の間は不定 | 同じ要求の補完の終端。件数が全件に達しても終端まで消さない | なし・[譜面情報](../library/chart-info.md) |
 | プレイリスト項目の読込み | 対応親の子。それ以外は独立 | 不定 | 対応する読込み実行の終端 | なし・[起動](startup.md) |
 | プレイリスト参照の反映 | 対応親の子。起動の対応後続は追加親 | 不定 | 対応要求の終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
 | 外部プレイリストの同期 | 対応親の子。起動の対応後続は追加親。それ以外は独立 | 対象表数と試行終了数を「件処理済み」で表示。直近の処理終了名、空名ならURI。0件では補足なし。専用通知前は不定 | 同じ要求の複合終端 | なし・[保存と出力](../playlist/storage-and-export.md) |
 | 難易度表リストの取得 | 起動の対応後続は追加親 | 不定 | 要求終端 | なし・[起動](startup.md) |
 | プレイリストURLの補完 | 起動の対応後続は追加親 | 不定 | 要求終端 | なし・[起動](startup.md) |
 | フォルダ一覧の更新 | 起動の対応後続は追加親 | 不定 | 要求終端 | なし・[起動](startup.md) |
-| メンテナンス情報の読込み | 全再初期化が待つ対応要求は子。起動の対応後続は追加親 | 不定 | 対応要求の終端 | なし・[保守](../library/warnings.md) |
-| 導入可能譜面のメンテナンス情報更新 | 全再初期化が待つ対応要求は子。起動の対応後続は追加親 | 不定 | 対応要求の終端 | なし・[起動](startup.md) |
+| メンテナンス情報の読込み | 起動・全再初期化の対応後続は追加親の子。それ以外は独立 | 不定 | 対応要求の終端 | なし・[保守](../library/warnings.md) |
+| 導入可能譜面のメンテナンス情報更新 | 起動・全再初期化の対応後続は追加親の子。それ以外は独立 | 不定 | 対応要求の終端 | なし・[起動](startup.md) |
 | LR2カスタムフォルダ出力の修復 | 必須の出力は初期化・再読込みの子。同じ受理操作が実終端を待つ | 修復の準備・出力作業と同期段階の合計、現在の表名。探索ファイル数とは別 | 専用件数行は自身の終端。汎用実行行は要求終端 | なし・[カスタムフォルダ](../playlist/lr2-custom-folders.md) |
 | beatoraja BMTの出力 | 必須の出力は初期化・再読込みまたは変更操作の子。同じ受理操作が実終端を待つ | 投影段階は対象表数。出力段階は投影・出力作業の合計と現在の表名 | 同じ要求の専用・汎用終端 | なし・[BMT](../playlist/bmt-export.md) |
 | プレイリスト索引の準備 | 起動の対応後続は追加親 | 不定 | 要求終端 | なし・[起動](startup.md) |
@@ -99,7 +107,9 @@
 | LR2楽曲DB同期の準備 | 起動の対応後続は追加親 | 不定 | 登録終端 | なし・[LR2同期](../integration/lr2-song-db.md) |
 | LR2楽曲DBの同期 | 必須起動の対応する実行中は初期化親。終端後の警告・未完・失敗は独立 | 翻訳した実段階と段階内件数。楽曲の短いチャンク保存は同じ有限段階に含める。量不定の準備・再帰整理・一括保存・最終確認は不定。既知0件の件数段階は省略。全体保存位置は詳細の診断 | 正常終端で消す。未完・失敗は残す | 設定画面の手動同期・[LR2同期](../integration/lr2-song-db.md#同期状態と起動)、[段階と件数](progress.md#lr2楽曲db全体同期の段階) |
 
-ハッシュは統合された譜面情報パイプラインで補完します。独立したハッシュ補完が不要と確定する本番経路では、別の子行を出さず、親の固定分母にある段階はスキップとして完了します。
+ハッシュは統合された譜面情報パイプラインで補完します。ハッシュ専用の子行と、親の予定にあたる[段階](progress.md#段階の意味)はありません。
+
+譜面情報の補完の行は、同じ要求（捕捉した表示世代・操作トークン・要求元・要求版が一致するもの）の汎用の実行通知と専用の件数通知を一行へ統合します。行の存在は汎用の実行通知の開始から終了までで決め、件数通知だけでは行を作りません。補完を開始前に終えた要求は行を出しません。別の要求の件数で現在の行を更新せず、ある要求の終端で別の要求の行を消しません。補完は受理済みの継続で新しい操作に置き換えられないため、新しい操作の開始で表示世代が更新されても（補完が世代更新の後に開始した場合を含む）、実行中の補完は自分の件数を持つ独立行として終端まで残します。詳細は[同じワーカーが複数の要求を処理する場合](progress.md#同じワーカーが複数の要求を処理する場合)に従います。
 
 ### 独立した操作行
 
@@ -117,7 +127,7 @@
 | メンテナンス情報の再検査 | 今回の対象譜面数と対象パス | 処理終端 | 取消・[保守](../library/warnings.md) |
 | フォルダ名の自動変更 | 今回の変更対象フォルダ数と対象パス | 処理終端 | なし・[ライブラリ変更](../library/mutations.md) |
 
-外部同期と選択プレイリストの再同期は、成功・失敗とも表単位の再取得・反映試行が終了したときに加算します。開始対象で補足名を更新せず、既存の対象選択による分母を使います。全表が処理済みでもLR2カスタムフォルダ・BMT等の複合処理の実終端まで行を維持し、親の固定5段階は変えません。逆順通知の採用は[件数と通知](progress.md#件数と通知)に従います。
+外部同期と選択プレイリストの再同期は、成功・失敗とも表単位の再取得・反映試行が終了したときに加算します。開始対象で補足名を更新せず、既存の対象選択による分母を使います。全表が処理済みでもLR2カスタムフォルダ・BMT等の複合処理の実終端まで行を維持し、親の予定した必須段階は変えません。逆順通知の採用は[件数と通知](progress.md#件数と通知)に従います。
 
 プロパティ更新とサマリー一括編集は、出力段階では同じ操作行を「LR2カスタムフォルダの出力」、同期段階では「LR2カスタムフォルダ情報の同期」として更新します。件数は表の準備・出力作業と同期段階の合計であり、別の操作や探索ファイル数へ読み替えません。専用名を指定しない既存のプレイリスト同期通知は「プレイリストの同期」で表示します。
 
@@ -131,7 +141,7 @@ LR2の終端状態は「LR2楽曲DBの同期が必要です」「LR2楽曲DBの�
 | --- | --- | --- |
 | 操作親 `Statusbar_progress_startup` / `reload_files` / `reload_scores` / `reload_tables` / `full_reinitialize`、状態書式 `operation_completed_format` / `operation_failed_format` | [`StartupProgressWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupProgressWorkflowOwner.cs) | [`MainWindowViewModelStartupProgressTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) / [`MainWindowViewModelStartupProgressTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs): 5操作名、固定分母、空・明示失敗理由、画面準備、件数と対象 |
 | DB・探索・差分・画面 `Statusbar_progress_phase_library_db_load` / `file_enumeration` / `file_diff` / `lr2_folder_file_check` / `ui_prepare` | [`BMSLibrary`](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)からOwner | 同上と[`OperationProgressHubViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/OperationProgressHubViewModelTests.cs): 並行詳細、旧操作拒否。差分の保存境界は[進捗仕様](progress.md#lr2フォルダの確認と反映) |
-| 読込み・補完・参照・保守・順位 `Statusbar_progress_phase_score_hydration` / `ranking_refresh` / `chart_info_load` / `chart_info` / `playlist_loading` / `playlist_ref` / `maintenance` / `installable_maintenance` | 既存機能所有者から[`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs)とHub | [`ChartInfoInlineHydrationTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs) / [`ChartInfoInlineHydrationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`BmsLibraryIrStartupTests`](../../../tests/BeMusicSeeker.Windows.Tests/Startup/BmsLibraryIrStartupTests.cs)、[`PlaylistWorkspaceDetailRefreshTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceDetailRefreshTests.cs)、[`StartupBackgroundTaskSchedulerOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs): 受付・実行・要求捕捉と終端。[`StartupBackgroundTaskSchedulerOwnerTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs): プレイリストURL補完の受付時の世代捕捉。Owner/Hubで親一致と数値衝突を分担 |
+| 読込み・補完・参照・保守・順位 `Statusbar_progress_phase_score_hydration` / `ranking_refresh` / `chart_info_load` / `chart_info` / `playlist_loading` / `playlist_ref` / `maintenance` / `installable_maintenance` | 既存機能所有者から[`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs)とHub。補完の件数は[`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)が購読してHubへ渡し、Hubが最新値へ集約して一行へ統合する | [`ChartInfoInlineHydrationTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs) / [`ChartInfoInlineHydrationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartInfo/ChartInfoInlineHydrationTests.cs)、[`BmsLibraryIrStartupTests`](../../../tests/BeMusicSeeker.Windows.Tests/Startup/BmsLibraryIrStartupTests.cs)、[`PlaylistWorkspaceDetailRefreshTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceDetailRefreshTests.cs)、[`StartupBackgroundTaskSchedulerOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs): 受付・実行・要求捕捉と終端。[`StartupBackgroundTaskSchedulerOwnerTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Startup/StartupBackgroundTaskSchedulerOwnerTests.cs): プレイリストURL補完の受付時の世代捕捉。Owner/Hubで親一致と数値衝突を分担。[`OperationProgressHubViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/OperationProgressHubViewModelTests.cs) の `ChartInfoBackfillRows_*` / `ChartInfoBackfillProgress_*` は補完行の件数と対象、追加親の子と独立行の所属、汎用・件数通知の一行統合と終端、別要求・別世代の区別、世代更新後の存続、最新値の集約を確認する。[`MainWindowViewModelStartupProgressTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) の `StartupChartInfoBackfill_*` は実起動の購読接続で、全再解析中の件数・対象が追加親の子の一行に届くことと、スキップした補完で行が残らないことを確認する |
 | 起動の追加親 `Statusbar_progress_startup_additional` と後続子 `Statusbar_progress_task_*`、LR2 `Statusbar_progress_phase_lr2_song_db_sync` | [`StartupBackgroundTaskSchedulerOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupBackgroundTaskSchedulerOwner.cs)・[`StartupPostInitializationWarmupOwner`](../../../BeMusicSeeker/ViewModels/Startup/StartupPostInitializationWarmupOwner.cs)から[`OperationProgressHubViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs)へ段階を投影 | [`MainWindowViewModelStartupProgressTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs) / [`MainWindowViewModelStartupProgressTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowViewModelStartupProgressTests.cs)とHubで実起動の所属・必須完了後の存続・段階数・独立仕事による非延命・専用通知統合を分担。[`MainWindowProgressStatusBarWpfTests.StartupPostInitialization_ActualWorkReflectsThroughCompiledStatusBarBinding`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowProgressStatusBarWpfTests.cs)で実ProgressBarの値・最大値・確定表示、ラベル、20pxインデント、実終端後の親消去を確認 |
 | 外部同期・取込み・編集・出力 `Statusbar_progress_task_external_playlist_sync` / `playlist_manual_reload` / `custom_folder_repair` / `bmt_output` / `playlist_property_update` / `playlist_external_property_initialization`、`Playlist_*progress*` / `Beatoraja_*progress*` / `Custom_folder_output_progress*` / `Custom_folder_db_sync_progress_single_label` | [`PlaylistWorkspaceViewModel.SyncProgress`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.SyncProgress.cs)、[`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs)、[`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | プレイリストの既存の実操作テストとHub: 生産、終端、同じ要求だけの統合、別要求非抑止・旧終端隔離。[`MainWindowPlaylistWorkspaceWpfTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs)はHTTP経由の外部同期と実接続 |
 | 自動・選択再同期の `Playlist_reload_processed_label_format` / `Playlist_reload_last_processed_label_format` | [`PlaylistExternalSyncOwner.ReloadPlaylistTargetsAsync`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs)からWorkspace・Hub | [`BmsPlaylistExternalReloadTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalReloadTests.cs) / [`BmsPlaylistExternalReloadTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)で初期空名、実HTTP保持中の成功・失敗2/3と解放後3/3、実BMT中のN/N・Taskと行の存続を確認。Hubの `PlaylistReloadPresentation_KeepsProcessedSnapshotAcrossReversedNotifications` は自動・手動の即時／予約配送で件数と終了対象の一体採用、同数更新・URI代替・次要求0件・対象外の従来表示を担当。実WPFの `ReloadTables_ActualMainWindowPublishesCompletedSummariesWhileAnotherHttpBodyIsPending` は2/3のTextBlock・ProgressBarのBindingを担当 |

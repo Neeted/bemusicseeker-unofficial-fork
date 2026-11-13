@@ -36,12 +36,6 @@
 - 検証: 各DB種別のスキーマ準備後の `sqlite_master` の定義が許可範囲だけで構成されることを、共通の検査で確認する。判定基準は `test-contract-designer` が仕様から定める。
 - 許可パスの目安: `BeMusicSeeker/Models/BmsLibraryInternal/Playlist/`、`Models/BmsLibraryInternal/Lr2/`、`Models/LR2/`、関連テスト、上記仕様。
 
-### 進捗表示
-
-- 区分: 通常。対象: [譜面情報の補完の件数表示](#譜面情報の補完の件数表示)、[ステータスバー仕様の段階数と子行の所属](#ステータスバー仕様の段階数と子行の所属)。
-- 契約: 譜面情報の補完の行は、v3.1.0.0と同じく件数と対象パスを出す。起動由来の補完は「起動に伴う追加処理」の子、それ以外は独立行とし、汎用の実行行と二重にしない。[ステータスバーの進捗](../spec/runtime/statusbar-progress.md)の段階数・表示例・子行の所属は[進捗](../spec/runtime/progress.md)の規則に揃え、固定数を書かない。全件再解析の間に利用者が待つ理由と残り量は、この行で分かるようにする。
-- 許可パスの目安: `BeMusicSeeker/ViewModels/MainWindow/`（進捗の購読と行の生成）、関連テスト、上記仕様。
-
 ### 設定画面の操作
 
 - 区分: 通常。設定の不備の案内と同じファイルを扱うため、同じワークツリーでその統合後に直列で進める。対象: [追加出力先の複数追加の途中で拒否されたとき](#追加出力先の複数追加の途中で拒否されたとき)、[追加出力先の追加・改名後の選択](#追加出力先の追加改名後の選択)、[右クリック項目と履歴プリセットの即時保存](#右クリック項目と履歴プリセットの即時保存)。
@@ -124,7 +118,7 @@ v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修�
 
 譜面情報の解析版が21から22へ上がったため、v3.1.0.0から更新した初回は、メタデータ同梱データに含まれない所持譜面がすべて再解析の対象になる。[CatalogChartInfoOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs) は補完の全件処理の間、`EnterAcceptedBackgroundAsync`（666・1288行付近）で取得した共通の受付を保持する。その間、[PlaybackPanelViewModel](../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) の `AcceptTableRowActivation` などが試聴の開始を無言で拒否し、再生中の連続再生も止まる。導入・削除・改名などは拒否される。一覧は旧版の解析値で表示されるため空欄にはならない。v3.1.0.0の補完は受付を取らず、操作性の退行である。全件再解析の所要時間は未計測で、約21万譜面ではHDDで数分から十数分と見込む。別プロファイルの構成は同梱データを取り込まないため全所持譜面が対象になる。
 
-受付の使用自体は[譜面情報](../spec/library/chart-info.md)と[操作の競合ポリシー](../spec/core/operation-concurrency-policy.md)どおりだが、同じ譜面情報の仕様は補完の完了を利用開始の条件にしないとも定めており、版更新時の長時間保持は検討されていない。先に利用者に見える契約を決める。候補は、全件補完を区切りごとに受付を取り直して間で操作を受け付ける、解析入力を変えない試聴を補完中の拒否から外す区分を設ける、現行のまま待たされる理由と進捗を表示する、のいずれかである。前二者は受付規定の変更を伴う。どの案でも[明示要求の競合の案内](../spec/core/operation-concurrency-policy.md#明示要求の競合の案内)を前提にし、表示する案では[譜面情報の補完の件数表示](#譜面情報の補完の件数表示)を同じ単位で扱う。
+受付の使用自体は[譜面情報](../spec/library/chart-info.md)と[操作の競合ポリシー](../spec/core/operation-concurrency-policy.md)どおりだが、同じ譜面情報の仕様は補完の完了を利用開始の条件にしないとも定めており、版更新時の長時間保持は検討されていない。先に利用者に見える契約を決める。候補は、全件補完を区切りごとに受付を取り直して間で操作を受け付ける、解析入力を変えない試聴を補完中の拒否から外す区分を設ける、現行のまま待たされる理由と進捗を表示する、のいずれかである。前二者は受付規定の変更を伴う。どの案でも[明示要求の競合の案内](../spec/core/operation-concurrency-policy.md#明示要求の競合の案内)を前提にし、表示する案の件数行は[ステータスバーの進捗](../spec/runtime/statusbar-progress.md#実行中の処理行)の「譜面情報の補完」で実装済みである。
 
 検証は、解析版21の行を持つ実SQLiteから起動相当の補完を始め、その実行中に試聴と導入の受付が採用した契約どおりに受理または案内されることを確認する。所要時間は性能測定の補完系列で約21万件の旧版行からの全件補完を計測する。
 
@@ -188,16 +182,6 @@ Everything 1.5の既定で索引されないルート（exFAT・FATの外付け�
 詳細設定の「起動時にインストール保留を選択」を変えると、設定画面の裏でメイン画面のツリー選択と一覧が「ライブラリ」のルートまたは保留へ移り、作業中の表・フォルダ・履歴の選択が失われる。[MainWindow.xaml](../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) のライブラリのルート（1172行付近）と保留（1293行付近）が `IsSelected` を `ViewSettings.StartupSelectInstallPending` へ `Mode=OneWay` で常時結んでおり、一度も選ばれていない側のBindingが即時保存された値を反映して通常の選択として一覧を切り替える。v3.1.0.0からあるが、3.2.0.0の即時保存で起こりやすい。
 
 この設定は次回起動時の初期選択だけに使う。2か所のBindingを削除し、起動時の初期選択は既存の `ApplyStartupInitialSelectionRequest` だけで行い、初期一覧と同じ起動時の設定値を使う。画面側の利用者がなくなる変更通知の転送の要否も見直す。[設定](../spec/runtime/settings.md)の詳細設定の節へ「変更時点の選択は変えない」を明記する。検証は、別の項目を選んだ状態から設定を両方向へ変えてもツリーの選択と一覧の表示対象が変わらないことを、WPFテストまたはデスクトップE2Eで確認する。
-
-#### 譜面情報の補完の件数表示
-
-ステータスバーの「譜面情報の補完」行が件数と対象パスを出さず不定ゲージだけになる。モデルは [CatalogChartInfoOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs) で `ChartInfoBackfillProgressSnapshot` を通知しているが、ViewModelに購読がなく、[OperationProgressHubViewModel](../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs) の `HasDedicatedPresentation` が前提とする件数行 `task:chart_info_backfill` を作る処理がない。v3.1.0.0は件数とパスを表示しており、起動と設定適用の統合で購読ごと外れた退行である。[ステータスバーの進捗](../spec/runtime/statusbar-progress.md)は補完行に件数とパスを要求している。[更新後初回の全件再解析](#更新後初回の譜面情報の全件再解析)では残り量を知る唯一の手掛かりになるため、そちらで待たされる旨を表示する案を採るなら同じ単位で扱う。
-
-方針は、MainWindowViewModelでスナップショットを購読し、要求が起動由来なら「起動に伴う追加処理」の子、それ以外は独立行として、読込みの件数行と同じ形の件数行を作り、汎用行は既存の統合で一行にすることである。検証は、ステータスバーのWPFテストで汎用の実行通知と件数スナップショットを順に流し、一行だけで件数とパスを表示し完了で消えることを、起動由来と導入由来の両方で確認する。
-
-#### ステータスバー仕様の段階数と子行の所属
-
-[ステータスバーの進捗](../spec/runtime/statusbar-progress.md)の親行の段階数（初期化13、スコアの再読込み4、全再初期化14）と表示例、「順位の更新」「メンテナンス情報の読込み」「導入可能譜面のメンテナンス情報更新」を親の子とする記述がv3.1.0.0時点のまま残っている。現行の [StartupProgressWorkflowOwner](../../BeMusicSeeker/ViewModels/Startup/StartupProgressWorkflowOwner.cs) は任意処理を親の予定へ入れない[進捗](../spec/runtime/progress.md)の規則どおりで、初期化10、全再初期化9、スコアの再読込み3である。文書だけの修正で、仕様を正本に実装を直すと意図して外した処理を親へ戻す誤修正を招く。段階数・表示例・子行の所属・ハッシュ段階の記述を[進捗](../spec/runtime/progress.md)に揃え、固定数を書かず予定表を参照する形にする。
 
 #### 導入しなかった操作でもツリー選択が移る
 
