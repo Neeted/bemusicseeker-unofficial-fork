@@ -1,11 +1,13 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.RegularChartListOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -81,7 +83,7 @@ public sealed class RegularChartFolderRenameTests
         });
     }
 
-    /// <summary>実libraryの管理領域交差は共有Pの競合を再生停止前に拒否し、物理・DBを保持して予約せず、解放後の新しい明示要求だけを成功させることを確認します。</summary>
+    /// <summary>実libraryの管理領域交差は共有Pの競合を、例外なしで完了する受付拒否として再生停止前に終えます。案内以外を依頼せず、物理・DBを保持して予約せず、解放後の新しい明示要求だけを成功させることを確認します。</summary>
     [TestMethod]
     public void FolderRename_ManagedPlaylistBusyRejectsBeforePlaybackStopAndFreshRequestSucceeds()
     {
@@ -118,11 +120,15 @@ public sealed class RegularChartFolderRenameTests
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
             try
             {
-                InvalidOperationException busy = Assert.ThrowsExactly<InvalidOperationException>(() =>
-                    owner.RenameChartFolderAsync(CreateRenameRequest(chart), "Moved").GetAwaiter().GetResult());
-                StringAssert.Contains(busy.Message, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
-                Assert.AreEqual(1, mutationDialogs.Messages.Count(message => message.MessageBoxText.Contains(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, StringComparison.Ordinal)),
+                Task rejected = owner.RenameChartFolderAsync(CreateRenameRequest(chart), "Moved");
+                rejected.GetAwaiter().GetResult();
+                Assert.AreEqual(TaskStatus.RanToCompletion, rejected.Status, "Pの使用中による拒否は失敗にしない。");
+                UiMessageRequest notice = mutationDialogs.Messages.Single();
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, notice.MessageBoxText,
                     "物理処理の前の拒否の理由は、所有者の窓口へ一件だけ依頼する。");
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, notice.Caption);
+                Assert.AreEqual(MessageBoxImage.Exclamation, notice.Icon);
+                Assert.AreEqual(MessageBoxButton.OK, notice.Button);
                 Assert.IsTrue(busyRequestedAfterAdmissionRelease, "依頼の時点で論理Lは解放済み。");
                 Assert.AreEqual(0, libraryDialogs.ModelMessages, "モデルの窓口へ届けない。");
                 Assert.AreEqual(0, playback.StopCount);
@@ -134,6 +140,8 @@ public sealed class RegularChartFolderRenameTests
             }
             finally { held.Dispose(); }
             Assert.IsTrue(File.Exists(path), "P解放だけで拒否要求を予約実行しません。");
+            Assert.AreEqual(0, playback.StopCount, "P解放だけで再生停止へ進みません。");
+            Assert.AreEqual(1, mutationDialogs.Messages.Count, "P解放だけで案内を重ねません。");
             owner.RenameChartFolderAsync(CreateRenameRequest(chart), "Moved").GetAwaiter().GetResult();
             Assert.AreEqual(1, playback.StopCount);
             Assert.IsFalse(File.Exists(path));

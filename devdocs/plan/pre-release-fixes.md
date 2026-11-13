@@ -22,6 +22,8 @@
 | 実機確認 | 行わない。 |
 | 全再初期化でスコアを読み直さない | 意図した仕様。仕様に明記する。 |
 | SQLiteの構文 | LR2の `song.db` に限らず、本アプリが扱うSQLite全般の共通方針として定める。 |
+| 導入先が空の「インストール」の案内 | 現行どおり案内しない。意図として[導入先の推定](../spec/library/install-estimation.md#推定先への実導入)に明記済み。 |
+| 両ハッシュが空の局所候補の検索回数、空キーが型BLOBの行 | 最大62回のSELECTと、型BLOBの空キーを同値として拾わないことを、既知の割り切りとして受け入れる。[保存と出力](../spec/playlist/storage-and-export.md)に明記済み。 |
 
 ## 実装単位
 
@@ -29,7 +31,7 @@
 
 ### 統合時に見つかった小修正
 
-- 区分: 通常。対象: [統合時に見つかった方針の明確な課題](#統合時に見つかった方針の明確な課題)。
+- 区分: 通常。対象: [統合時に見つかった方針の明確な課題](#統合時に見つかった方針の明確な課題)。残る項目は、メイン画面の表示状態の単位のコードに依存するため、その統合後の版で扱う。
 - 契約: 各項目は同節の方針どおりに直す。利用者に見える挙動を変える判断が必要になった項目は作業を止め、選択肢を添えて全体ルートへ返す。
 - 許可パスの目安: 各項目の該当ファイル、関連テスト、関連仕様。
 
@@ -59,12 +61,7 @@
 
 #### 統合時に見つかった方針の明確な課題
 
-1. [PackageCatalogWorkflowOwner](../../BeMusicSeeker/ViewModels/Install/PackageCatalogWorkflowOwner.cs) の `ConfirmRemoval` がUIスレッドで `GetAwaiter().GetResult()` により非同期処理を同期的に待つ。AGENTS.mdの境界に反するため、呼出元まで非同期にする。
-2. [MainWindowViewModel](../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) の3160行付近に、利用者へ届きうる英語の固定文字列 "already active" がある。利用者への通知経路かを確かめ、通知経路ならリソース化し、開発診断なら現状のままにする。
-3. [RegularChartListOwner](../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) のフォルダ名セルの編集で、Pの使用中による拒否を警告した後に例外でTaskを失敗させている。[明示要求の競合の案内](../spec/core/operation-concurrency-policy.md#明示要求の競合の案内)どおり、警告の後は失敗として扱わずに終える。
-4. メイン画面の表示状態の最終レビューの任意提案: `NestedFolderCounter` のコメント（起点にアクセスできない場合は0を返す）、再読込みの拒否ログの理由 `target_not_found` を実際の理由へ、[導入先推定](../spec/library/install-estimation.md)の「一覧の選択を解く」の適用範囲、統合確認の処理の重複。未所持メニューで対象と対象外を混ぜた選択の見出しと動作のずれは、どちらかに揃える。
-5. 負荷に敏感なテストの最終レビューのP3: `VerificationRunnerTests` の FatalStage と ExpiredCleanup のremarksで、取消の不達は段階期限、Jobの未終端は検証全体の期限で検出すると書き分ける。[テスト検証](../spec/development/testing.md)の移行対象の一覧に `SuccessfulCoreDoesNotStartTheLaterUiCleanupBudget` と UiExecutions の30秒の上書きを加える。
-6. 設定画面の不備の案内の単位から持ち越した、ルートの確定時にスコアの候補を採用するかの留保。現行の仕様（[設定](../spec/runtime/settings.md)のルートの確定）と実装を照合し、食い違いがあれば仕様どおりに直す。仕様で決まらなければ選択肢を添えて全体ルートへ返す。
+- メイン画面の表示状態の最終レビューの任意提案: `NestedFolderCounter` のコメント（起点にアクセスできない場合は0を返す）、再読込みの拒否ログの理由 `target_not_found` を実際の理由へ、[導入先推定](../spec/library/install-estimation.md)の「一覧の選択を解く」の適用範囲、統合確認の処理の重複。未所持メニューで対象と対象外を混ぜた選択の見出しと動作のずれは、どちらかに揃える。
 
 ### 調査時の分類: 任意改善
 

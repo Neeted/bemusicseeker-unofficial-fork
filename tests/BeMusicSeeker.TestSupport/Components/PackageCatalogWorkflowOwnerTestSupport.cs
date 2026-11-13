@@ -39,9 +39,20 @@ internal static class PackageCatalogWorkflowOwnerTestSupport
             return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
         }
 
+        /// <summary>設定すると確認をこの完了まで未完了のまま返します。未設定なら <see cref="ConfirmationResult"/> で同期的に完了します。</summary>
+        internal TaskCompletionSource<UiDialogResult>? PendingConfirmation { get; set; }
+
+        /// <summary>設定すると確認の要求を受けた時点で完了し、確認への到達を生成元の通知で待てます。</summary>
+        internal TaskCompletionSource? ConfirmationReached { get; set; }
+
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationRequest = request;
+            ConfirmationReached?.TrySetResult();
+            if (PendingConfirmation != null)
+            {
+                return PendingConfirmation.Task;
+            }
             return Task.FromResult(ConfirmationResult
                 ?? throw new InvalidOperationException("Confirmation result was not configured."));
         }

@@ -388,6 +388,176 @@ public sealed class PackageCatalogWorkflowOwnerTests
         };
     }
 
+    /// <summary>
+    /// 確認が未完了の間、全消去・個別解除・選択解除は呼出元へ未完了のTaskを返し、共通受付Lを保持して目録・活動・抑制を始めません。
+    /// 判断の後は、承認で変更を一回実行して変更の時点でLを保持し、取消は未受理、表示失敗と確認Taskの故障は変更前の失敗として返し、いずれも終端でLを解放します。
+    /// 確認の同期待ちと、待機中の変更・Lの解放を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("clear-all-pending", "accept")]
+    [DataRow("clear-all-pending", "cancel")]
+    [DataRow("clear-all-pending", "failed")]
+    [DataRow("clear-all-pending", "throw")]
+    [DataRow("clear-all-installed", "accept")]
+    [DataRow("clear-all-installed", "cancel")]
+    [DataRow("clear-all-installed", "failed")]
+    [DataRow("clear-all-installed", "throw")]
+    [DataRow("remove-pending-package", "accept")]
+    [DataRow("remove-pending-package", "cancel")]
+    [DataRow("remove-pending-package", "failed")]
+    [DataRow("remove-pending-package", "throw")]
+    [DataRow("remove-selection", "accept")]
+    [DataRow("remove-selection", "cancel")]
+    [DataRow("remove-selection", "failed")]
+    [DataRow("remove-selection", "throw")]
+    public async Task ExplicitRemoval_PendingConfirmationReturnsToCallerAndHoldsAdmissionUntilDecision(string operation, string decision)
+    {
+        var synchronizer = new ChartFileOperationSynchronizer();
+        var events = new List<string>();
+        bool admissionHeldAtMutation = false;
+        var store = new RecordingStore(events) { OnMutation = () => admissionHeldAtMutation = !synchronizer.CanEnter };
+        var confirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dialogs = new FakeUiDialogService { PendingConfirmation = confirmation, ConfirmationReached = reached };
+        ChartMutationActivityOwner activity = new();
+        var phaseObserver = new RecordingPhaseObserver(events);
+        var owner = new PackageCatalogWorkflowOwner(
+            CreateLibrary,
+            synchronizer,
+            activity,
+            dialogs,
+            new NoOpChartMutationPlaybackPort(),
+            mutation => Task.Run(mutation),
+            store);
+        owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
+        activity.ActivityChanged += phaseObserver.OnActivityChanged;
+        var failure = new InvalidOperationException("dialog failed");
+        Task<Task<PackageCatalogMutationResult>>? call = null;
+        Task<PackageCatalogMutationResult>? pending = null;
+        try
+        {
+            call = ConcurrencyProbe.StartDedicated(() => operation switch
+            {
+                "clear-all-pending" => owner.ClearAllAsync(PackageCatalogSection.Pending),
+                "clear-all-installed" => owner.ClearAllAsync(PackageCatalogSection.Installed),
+                "remove-pending-package" => owner.RemovePackageAsync(PackageCatalogSection.Pending, new ChartPackage()),
+                _ => owner.RemoveSelectionAsync(PackageCatalogRemovalRequest.CreatePending([CreateTarget()])),
+            });
+            ConcurrencyProbe.AssertCompletesWhileHeld(call, "確認が未完了でも入口は呼出元へ戻ります。");
+            pending = call.Result;
+            Assert.AreSame(reached.Task, await Task.WhenAny(reached.Task, pending), "確認へ到達する前に入口が終わりました。");
+            Assert.IsFalse(pending.IsCompleted, "確認が未完了の間、入口のTaskは未完了です。");
+            Assert.IsFalse(synchronizer.TryEnter(out IDisposable? intruder), "確認の待機中も共通受付Lを保持します。");
+            intruder?.Dispose();
+            CollectionAssert.AreEqual(Array.Empty<string>(), events);
+            Assert.AreEqual(0, store.RemoveAllCount + store.RemovePackagesCount);
+
+            switch (decision)
+            {
+                case "accept": confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); break;
+                case "cancel": confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)); break;
+                case "failed": confirmation.TrySetResult(UiDialogResult.Failed(failure)); break;
+                default: confirmation.TrySetException(failure); break;
+            }
+            PackageCatalogMutationResult result = await pending;
+
+            Assert.IsFalse(result.Busy);
+            Assert.IsTrue(synchronizer.CanEnter, "結果の後に共通受付Lは解放済みです。");
+            if (decision == "accept")
+            {
+                Assert.IsTrue(result.Succeeded);
+                Assert.IsTrue(result.ShouldApplyView);
+                Assert.AreEqual(1, store.RemoveAllCount + store.RemovePackagesCount);
+                Assert.IsTrue(admissionHeldAtMutation, "変更の時点で共通受付Lを保持します。");
+                CollectionAssert.AreEqual(
+                    operation == "remove-selection"
+                        ? new[] { "activity-start", "suppression-start", "store-resolve", "store-remove-packages", "suppression-end", "activity-end" }
+                        : new[]
+                        {
+                            "activity-start",
+                            "suppression-start",
+                            operation.StartsWith("clear-all", StringComparison.Ordinal) ? "store-remove-all" : "store-remove-packages",
+                            "suppression-end",
+                            "activity-end",
+                        },
+                    events);
+            }
+            else
+            {
+                Assert.IsFalse(result.Succeeded);
+                Assert.IsFalse(result.ShouldApplyView);
+                Assert.AreEqual(0, store.RemoveAllCount + store.RemovePackagesCount);
+                CollectionAssert.AreEqual(Array.Empty<string>(), events);
+                if (decision == "cancel")
+                {
+                    Assert.IsNull(result.Failure);
+                }
+                else
+                {
+                    Assert.IsNotNull(result.Failure);
+                    Assert.IsTrue(
+                        ReferenceEquals(result.Failure, failure) || ReferenceEquals(result.Failure.InnerException, failure),
+                        "確認の失敗原因を保持します。");
+                }
+            }
+        }
+        finally
+        {
+            confirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            if (call != null)
+            {
+                await call;
+            }
+            if (pending != null)
+            {
+                await pending;
+            }
+        }
+    }
+
+    /// <summary>
+    /// 区画の範囲外・package null・request nullは、確認の要求と共通受付Lの取得より前に、呼出しの時点で同期的に例外とします。
+    /// 入口の例外が故障Taskへ変わることと、検証前のL取得を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("clear-all-out-of-range")]
+    [DataRow("remove-package-out-of-range")]
+    [DataRow("remove-package-null")]
+    [DataRow("remove-selection-null")]
+    public void Entry_ArgumentValidationThrowsSynchronouslyBeforeAdmission(string kind)
+    {
+        var synchronizer = new ChartFileOperationSynchronizer();
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        var owner = new PackageCatalogWorkflowOwner(
+            CreateLibrary,
+            synchronizer,
+            new ChartMutationActivityOwner(),
+            dialogs,
+            new NoOpChartMutationPlaybackPort(),
+            mutation => Task.Run(mutation),
+            new RecordingStore([]));
+        const PackageCatalogSection invalid = (PackageCatalogSection)999;
+
+        switch (kind)
+        {
+            case "clear-all-out-of-range":
+                Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => { _ = owner.ClearAllAsync(invalid); });
+                break;
+            case "remove-package-out-of-range":
+                Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => { _ = owner.RemovePackageAsync(invalid, new ChartPackage()); });
+                break;
+            case "remove-package-null":
+                Assert.ThrowsExactly<ArgumentNullException>(() => { _ = owner.RemovePackageAsync(PackageCatalogSection.Pending, null!); });
+                break;
+            default:
+                Assert.ThrowsExactly<ArgumentNullException>(() => { _ = owner.RemoveSelectionAsync(null!); });
+                break;
+        }
+
+        Assert.IsNull(dialogs.ConfirmationRequest);
+        Assert.IsTrue(synchronizer.CanEnter);
+    }
+
     /// <summary>終了要求で受付が閉じた後の全消去は、警告も確認も表示せず未受理で終え、終了中の不要な通知を検出します。</summary>
     [TestMethod]
     public async Task ClearAllAsync_ClosedAdmissionIsSilentlyRejected()
@@ -635,8 +805,12 @@ public sealed class PackageCatalogWorkflowOwnerTests
 
         internal Exception? Failure { get; set; }
 
+        /// <summary>変更の実行時に呼ばれ、その時点の状態（保持中のLなど）を記録します。</summary>
+        internal Action? OnMutation { get; set; }
+
         public Task RemoveAllAsync(BMSLibrary library, PackageCatalogSection section)
         {
+            OnMutation?.Invoke();
             events.Add("store-remove-all");
             RemoveAllCount++;
             LastSection = section;
@@ -649,6 +823,7 @@ public sealed class PackageCatalogWorkflowOwnerTests
             PackageCatalogSection section,
             IReadOnlyList<ChartPackage> packages)
         {
+            OnMutation?.Invoke();
             events.Add("store-remove-packages");
             RemovePackagesCount++;
             LastSection = section;

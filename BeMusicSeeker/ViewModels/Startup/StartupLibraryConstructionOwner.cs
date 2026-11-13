@@ -42,7 +42,7 @@ internal interface IStartupLibraryApplicationPort
     /// 組の構築成功後にLibraryを接続し、受理済み初期化の権限を同じ操作へ渡します。
     /// </summary>
     /// <param name="library">起動入力から構築したライブラリ。</param>
-    /// <param name="capability">受理済み設定・再初期化の生存権限。通常起動ではnullです。</param>
+    /// <param name="capability">必須手続きの受付から得た生存権限。本番の起動・再構築では常に渡します。nullは受付を持たない直接の接続で、非待機取得します。</param>
     void AttachStartupLibrary(BMSLibrary library, LibraryFileMutationCapability capability = null);
 
     /// <summary>
@@ -293,7 +293,7 @@ internal sealed class StartupLibraryConstructionOwner
     /// </summary>
     /// <param name="libraryProfile">今回捕捉した変更不能なprofile。</param>
     /// <param name="applicationPort">画面への接続境界。</param>
-    /// <param name="capability">受理済み設定・再初期化の生存権限。通常起動ではnullです。</param>
+    /// <param name="capability">必須手続きの受付から得た生存権限。本番の起動・再構築では常に渡します。</param>
     /// <param name="previousLibrary">構築成功後に停止する旧Library。構築失敗では生存させます。</param>
     /// <param name="previousPlaylist">構築成功後に停止する旧Playlist。</param>
     /// <returns>画面へ接続した新しい組。</returns>

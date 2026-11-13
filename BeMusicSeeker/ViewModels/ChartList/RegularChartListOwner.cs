@@ -1179,7 +1179,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return Task.CompletedTask;
     }
 
-    /// <summary>名前の正規化後も変わる改名だけをLへ非待機受付し、実変更・必要公開・cleanupの終端まで保持します。案内と終端の報告は、論理Lと対象別Pの解放後に依頼します。変更不要では受付もFS検査も行わず、Busyで予約しません。</summary>
+    /// <summary>名前の正規化後も変わる改名だけをLへ非待機受付し、実変更・必要公開・cleanupの終端まで保持します。案内と終端の報告は、論理Lと対象別Pの解放後に依頼します。Pの使用中による物理処理前の拒否はLの拒否と同じ受付拒否で、例外なしで完了し案内だけを依頼します。変更不要では受付もFS検査も行わず、Busyで予約しません。</summary>
     internal Task RenameChartFolderAsync(RenameChartFolderRequest request, string newFolder)
     {
         if (request?.HasTarget != true || string.IsNullOrWhiteSpace(newFolder)) { return Task.CompletedTask; }
@@ -1233,7 +1233,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
     /// <summary>
     /// 改名の実変更と必要公開・cleanupを論理Lと対象別Pの内側で行い、終端の報告に必要な事実を返します。
-    /// 案内と終端の報告は、呼出元が両方の受付を解放した後に依頼します。
+    /// Pの使用中は物理処理の前の受付拒否として失敗を持たない結果を返します。案内と終端の報告は、呼出元が両方の受付を解放した後に依頼します。
     /// </summary>
     private async Task<FolderRenameTerminal> ExecuteFolderRenameAsync(BMSLibrary library, RenameChartFolderRequest request, string newFolder, IDisposable operationGate)
     {
@@ -1244,12 +1244,11 @@ internal sealed partial class RegularChartListOwner : IDisposable
         LibraryFileMutationLease playlistLease = null;
         if (IsCurrentLibrary(library) && !library.TryEnterManagedOutputMutation(batch.Moves.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), true, out playlistLease, libraryCapability))
         {
-            // 物理処理の前の拒否です。理由の案内を受付の解放後に表示し、例外の型と本文は変えません。
+            // 物理処理の前の受付拒否です。失敗ではないため例外にせず、理由の案内だけを受付の解放後に依頼します。
             notices.Add(new BMSLibrary.OperationDialogMessage(
                 BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, BeMusicSeeker.Properties.Resources.Warning,
                 UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.None));
-            return FolderRenameTerminal.RejectedBeforeMutation(
-                notices, new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy));
+            return FolderRenameTerminal.RejectedBeforeMutation(notices);
         }
         using LibraryFileMutationLease acceptedPlaylist = playlistLease;
         using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
@@ -1416,12 +1415,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
 
         internal LibraryOperationNotices Notices { get; }
 
-        /// <summary>物理処理の前に拒否した結果か。終端の報告は行わず、案内と例外だけを返します。</summary>
+        /// <summary>物理処理の前に拒否した結果か。終端の報告は行わず、案内だけを依頼し、失敗は持ちません。</summary>
         internal bool IsRejectedBeforeMutation { get; private init; }
 
-        /// <summary>物理処理の前の拒否を、理由の案内と元の例外で表します。</summary>
-        internal static FolderRenameTerminal RejectedBeforeMutation(LibraryOperationNotices notices, Exception failure)
-            => new(null, [ExceptionDispatchInfo.Capture(failure)], notices) { IsRejectedBeforeMutation = true };
+        /// <summary>物理処理の前の受付拒否を、理由の案内だけで表します。失敗を持たないため <see cref="ThrowIfFailed"/> は何も送出しません。</summary>
+        internal static FolderRenameTerminal RejectedBeforeMutation(LibraryOperationNotices notices)
+            => new(null, [], notices) { IsRejectedBeforeMutation = true };
 
         /// <summary>確定した失敗を、一件なら元の例外のまま、複数なら集約して送出します。失敗がなければ何もしません。</summary>
         internal void ThrowIfFailed()

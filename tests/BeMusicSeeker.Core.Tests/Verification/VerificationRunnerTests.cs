@@ -1021,8 +1021,9 @@ public sealed class VerificationRunnerTests
     /// <remarks>
     /// 検査対象は取消による致命的失敗に限ります。cutoffは取消の登録による同期Abortでrunnerが確定します。
     /// テストの<c>FailureCleanup</c>呼出しもAbortを伴うため、runnerの回収経路の開始（CoreのJob終端）を確認してから読みます。取消の登録によるAbortが失われる回帰や取消がrunnerへ伝わらない回帰を、テストの読取りに伴うAbortが覆い隠さないためです。
-    /// CoreのJobが取消後に終端しない回帰では、Coreの終端待ちは期限を持ちませんが、段階期限（60秒）でrunnerがCoreを停止してJobが終端し、
-    /// その後の主失敗の表明（OperationCanceledExceptionでない）で失敗します（局所期限は置きません）。
+    /// 取消がrunnerへ届かない回帰（取消の不達）は、段階期限（60秒）でrunnerがCoreを停止してJobが終端し、
+    /// その後の主失敗の表明（OperationCanceledExceptionでない）で失敗します。
+    /// 取消は届いてもCoreのJobが終端しない回帰（Jobの未終端）は、Coreの終端待ちが期限を持たないため、検証全体の期限で検出します（局所期限は置きません）。
     /// cutoffを読む前のCoreのJob終端待ちは、後行Windows.Shellが使える回収猶予を先に消費します（runner自身のAbortを判別するためのトレードオフ）。
     /// 後行のWindows.ShellのStartの返却は、cutoffが先行・後行で同一であることを確認した後（cutoff確定後）に行い、
     /// 後行にも回収期限の残りの大半を使わせて、負荷で強制停止の時間が削られる組立てを避けます。
@@ -1128,8 +1129,9 @@ public sealed class VerificationRunnerTests
     /// 生存Jobの行では、期限後に全対象が停止しても回収失敗を消さないことを検査します。途中のファイル書込み取消は静的確認へ分担します。
     /// 検査対象は回収cutoff（1秒）の失効で、段階期限は検査対象ではなくfixture既定値です。回収は取消の経路で始まります。
     /// cutoffは取消の登録による同期Abortでrunnerが確定します。テストの<c>FailureCleanup</c>呼出しもAbortを伴うため、runnerの回収経路の開始（CoreのJob終端）を確認してから読みます。取消の登録によるAbortが失われる回帰や取消がrunnerへ伝わらない回帰を、テストの読取りに伴うAbortが覆い隠さないためです。
-    /// CoreのJobが取消後に終端しない回帰では、Coreの終端待ちは期限を持ちませんが、段階期限（60秒）でrunnerがCoreを停止してJobが終端し、
-    /// その後の主失敗の表明（OperationCanceledExceptionでない）で失敗します（局所期限は置きません）。
+    /// 取消がrunnerへ届かない回帰（取消の不達）は、段階期限（60秒）でrunnerがCoreを停止してJobが終端し、
+    /// その後の主失敗の表明（OperationCanceledExceptionでない）で失敗します。
+    /// 取消は届いてもCoreのJobが終端しない回帰（Jobの未終端）は、Coreの終端待ちが期限を持たないため、検証全体の期限で検出します（局所期限は置きません）。
     /// </remarks>
     [TestMethod]
     [DataRow(false)]

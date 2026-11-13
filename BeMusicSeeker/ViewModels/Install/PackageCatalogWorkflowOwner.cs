@@ -143,6 +143,10 @@ internal sealed class PackageCatalogWorkflowOwner
         this.store = store ?? new BmsLibraryPackageCatalogStore(playback.StopPlaybackForMutationAsync);
     }
 
+    /// <summary>
+    /// 区画全体を確認の承認後に解除します。引数検証と共通受付Lの取得・拒否は呼出しの時点で同期的に行い、確認は非同期に待ちます。
+    /// 確認の待機中も取得済みのLを保持し、結果が出るまで目録を変更しません。取消は <see cref="PackageCatalogMutationResult.Rejected"/>、確認の表示失敗は変更前の失敗として返します。
+    /// </summary>
     internal Task<PackageCatalogMutationResult> ClearAllAsync(PackageCatalogSection section)
     {
         ValidateSection(section);
@@ -150,21 +154,19 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             return RejectAdmissionAsync();
         }
-        PackageCatalogMutationResult confirmation = ConfirmRemoval(
+        return ConfirmThenScheduleAsync(
+            operationGate,
             section == PackageCatalogSection.Pending
                 ? BeMusicSeeker.Properties.Resources.Msg_clear_all_pendings
                 : BeMusicSeeker.Properties.Resources.Msg_clear_all_installed,
-            "Package catalog clear-all confirmation");
-        if (!confirmation.Succeeded)
-        {
-            operationGate.Dispose();
-            return Task.FromResult(confirmation);
-        }
-        return ScheduleWithAcquiredGate(
-            operationGate,
+            "Package catalog clear-all confirmation",
             () => ExecuteAsync(section, (library, operationStore) => operationStore.RemoveAllAsync(library, section), operationGate));
     }
 
+    /// <summary>
+    /// 一つの目録項目を解除します。確認するのは保留区画だけです。引数検証と共通受付Lの取得・拒否は呼出しの時点で同期的に行い、確認は非同期に待ちます。
+    /// 確認の待機中も取得済みのLを保持し、結果が出るまで目録を変更しません。取消は <see cref="PackageCatalogMutationResult.Rejected"/>、確認の表示失敗は変更前の失敗として返します。
+    /// </summary>
     internal Task<PackageCatalogMutationResult> RemovePackageAsync(
         PackageCatalogSection section,
         ChartPackage package)
@@ -178,25 +180,28 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             return RejectAdmissionAsync();
         }
+        Func<Task<PackageCatalogMutationResult>> mutation = () => ExecuteAsync(
+            section,
+            (library, operationStore) => operationStore.RemovePackagesAsync(library, section, [package]),
+            operationGate);
         if (section == PackageCatalogSection.Pending)
         {
-            PackageCatalogMutationResult confirmation = ConfirmRemoval(
+            return ConfirmThenScheduleAsync(
+                operationGate,
                 BeMusicSeeker.Properties.Resources.Msg_clear_pendings
                 + Environment.NewLine
                 + Environment.NewLine
                 + (package.DisplayTitle ?? string.Empty),
-                "Pending package catalog entry removal confirmation");
-            if (!confirmation.Succeeded)
-            {
-                operationGate.Dispose();
-                return Task.FromResult(confirmation);
-            }
+                "Pending package catalog entry removal confirmation",
+                mutation);
         }
-        return ScheduleWithAcquiredGate(
-            operationGate,
-            () => ExecuteAsync(section, (library, operationStore) => operationStore.RemovePackagesAsync(library, section, [package]), operationGate));
+        return ScheduleWithAcquiredGate(operationGate, mutation);
     }
 
+    /// <summary>
+    /// 選択した目録項目を確認の承認後に解除します。引数検証と共通受付Lの取得・拒否は呼出しの時点で同期的に行い、確認は非同期に待ちます。
+    /// 確認の待機中も取得済みのLを保持し、結果が出るまで目録を変更しません。取消は <see cref="PackageCatalogMutationResult.Rejected"/>、確認の表示失敗は変更前の失敗として返します。
+    /// </summary>
     internal Task<PackageCatalogMutationResult> RemoveSelectionAsync(PackageCatalogRemovalRequest request)
     {
         if (request == null)
@@ -208,18 +213,12 @@ internal sealed class PackageCatalogWorkflowOwner
         {
             return RejectAdmissionAsync();
         }
-        PackageCatalogMutationResult confirmation = ConfirmRemoval(
+        return ConfirmThenScheduleAsync(
+            operationGate,
             request.IsPending
                 ? BeMusicSeeker.Properties.Resources.Msg_clear_selected_pendings
                 : BeMusicSeeker.Properties.Resources.Msg_clear_selected_installed,
-            "Selected package catalog entry removal confirmation");
-        if (!confirmation.Succeeded)
-        {
-            operationGate.Dispose();
-            return Task.FromResult(confirmation);
-        }
-        return ScheduleWithAcquiredGate(
-            operationGate,
+            "Selected package catalog entry removal confirmation",
             () => ExecuteAsync(request.Section, (library, operationStore) =>
             {
                 IReadOnlyList<ChartPackage> packages = store.ResolvePackages(
@@ -373,16 +372,44 @@ internal sealed class PackageCatalogWorkflowOwner
         }
     }
 
-    private PackageCatalogMutationResult ConfirmRemoval(string message, string routeName)
+    /// <summary>
+    /// 確認を同期的に待たず、結果が出るまで未完了のTaskを呼出元へ返します。取得済みの共通受付Lは待機中も保持し、
+    /// 取消・表示失敗では変更前に解放し、承認では変更の終端まで保持して背景実行へ渡します。継続は呼出元の文脈で再開します。
+    /// </summary>
+    private async Task<PackageCatalogMutationResult> ConfirmThenScheduleAsync(
+        IDisposable operationGate,
+        string message,
+        string routeName,
+        Func<Task<PackageCatalogMutationResult>> mutation)
+    {
+        PackageCatalogMutationResult confirmation;
+        try
+        {
+            confirmation = await ConfirmRemovalAsync(message, routeName);
+        }
+        catch
+        {
+            operationGate.Dispose();
+            throw;
+        }
+        if (!confirmation.Succeeded)
+        {
+            operationGate.Dispose();
+            return confirmation;
+        }
+        return await ScheduleWithAcquiredGate(operationGate, mutation);
+    }
+
+    private async Task<PackageCatalogMutationResult> ConfirmRemovalAsync(string message, string routeName)
     {
         try
         {
-            UiDialogResult result = dialogs.ConfirmAsync(new UiConfirmationRequest(
+            UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
                 message,
                 BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxButton.OKCancel,
                 MessageBoxImage.Question,
-                MessageBoxResult.Cancel)).GetAwaiter().GetResult();
+                MessageBoxResult.Cancel));
             if (result == null)
             {
                 return PackageCatalogMutationResult.FailedBeforeMutation(

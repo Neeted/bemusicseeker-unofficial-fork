@@ -3154,7 +3154,7 @@ public partial class MainWindowViewModel : ViewModel,
     /// 一時導入試聴の参照交換にも同ownerの生存権限を渡します。
     /// </summary>
     /// <param name="library">今回構築した非nullのライブラリ。</param>
-    /// <param name="capability">外側の受理済み操作の権限。通常起動ではnullで非待機取得します。</param>
+    /// <param name="capability">必須手続きの受付から得た権限。本番の起動・再構築では常に渡します。nullは受付を持たない直接の接続で、非待機取得します。</param>
     void IStartupLibraryApplicationPort.AttachStartupLibrary(BMSLibrary library, LibraryFileMutationCapability capability)
     {
         if (library == null)
@@ -3165,6 +3165,8 @@ public partial class MainWindowViewModel : ViewModel,
         IDisposable operationGate = capability == null ? null : chartFileOperations.Borrow(capability);
         if (operationGate == null && !chartFileOperations.TryEnter(out operationGate))
         {
+            // 本番の起動・再構築は必須手続きの受付を取得した権限を必ず渡すため、ここへは到達しない不変条件の診断です。
+            // 利用者への使用中の案内は受付の取得側（Warn_LibraryOperationBusy）が担うため、表示リソースにしません。
             throw new InvalidOperationException("A chart-file operation is already active during startup attachment.");
         }
         using (operationGate)
