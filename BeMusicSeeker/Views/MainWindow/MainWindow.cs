@@ -5021,7 +5021,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         if (selectionTarget == null)
         {
-            NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=target_not_found");
+            // 受付の拒否（他の操作中・対象の失効）と、受理後に同じ正本が残っていない場合は、どちらも null で区別できない。
+            NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=rejected_or_target_missing");
             return;
         }
         if (!IsPlaylistTableSelectionReloadRestorable(viewModel, selectionTarget))

@@ -556,30 +556,27 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     /// フォルダ統合の確認を表示します。確認を表示する設定の場合だけ、統合元の配下のフォルダの件数を数えて確認文へ添えます。
     /// 統合は配下も相対配置のまま移すため、重複と無関係なフォルダが動くことを操作前に知らせます。
     /// </summary>
-    private async Task<ConfirmationDecision> ConfirmFolderMergeAsync(FolderMergeRequest request)
+    private Task<ConfirmationDecision> ConfirmFolderMergeAsync(FolderMergeRequest request)
     {
-        try
-        {
-            if (!showConfirmationProvider()) { return ConfirmationDecision.AcceptedResult; }
-            string message = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
-                + Environment.NewLine
-                + Environment.NewLine
-                + BeMusicSeeker.Properties.Resources.Msg_merge_bms_target
-                + ": "
-                + request.SourceDirectory
-                + Environment.NewLine
-                + BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination
-                + ": "
-                + request.DestinationDirectory;
-            string nestedNotice = await CreateNestedFolderNoticeAsync(request.SourceDirectory);
-            if (nestedNotice != null)
-            {
-                message += Environment.NewLine + Environment.NewLine + nestedNotice;
-            }
-            return await ConfirmAsync(new UiConfirmationRequest(message, BeMusicSeeker.Properties.Resources.Confirm,
-                MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel), "Duplicate folder merge confirmation");
-        }
-        catch (Exception exception) { return ConfirmationDecision.Failed(exception); }
+        return ConfirmIfNeededAsync(() => CreateFolderMergeMessageAsync(request), "Duplicate folder merge confirmation");
+    }
+
+    private async Task<string> CreateFolderMergeMessageAsync(FolderMergeRequest request)
+    {
+        string message = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
+            + Environment.NewLine
+            + Environment.NewLine
+            + BeMusicSeeker.Properties.Resources.Msg_merge_bms_target
+            + ": "
+            + request.SourceDirectory
+            + Environment.NewLine
+            + BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination
+            + ": "
+            + request.DestinationDirectory;
+        string nestedNotice = await CreateNestedFolderNoticeAsync(request.SourceDirectory);
+        return nestedNotice == null
+            ? message
+            : message + Environment.NewLine + Environment.NewLine + nestedNotice;
     }
 
     /// <summary>
@@ -737,11 +734,22 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         UiDialogRoute.ThrowIfNotShown(result, "Duplicate maintenance Busy notification");
     }
 
-    private async Task<ConfirmationDecision> ConfirmIfNeededAsync(string message, string routeName)
+    private Task<ConfirmationDecision> ConfirmIfNeededAsync(string message, string routeName)
+    {
+        return ConfirmIfNeededAsync(() => Task.FromResult(message), routeName);
+    }
+
+    /// <summary>
+    /// 確認を表示する設定の場合だけ確認文を組み立てて、件数確認の判断を待ちます。表示しない設定では承認として返します。
+    /// 確認文の組立ては表示する場合だけ行い、組立ての例外も表示の失敗と同じく非承認へ読み替えずに失敗として返します
+    /// （フォルダ統合で配下のフォルダを数えられない場合は、組立ての中で件数不明の案内に置き換えるため失敗になりません）。
+    /// </summary>
+    private async Task<ConfirmationDecision> ConfirmIfNeededAsync(Func<Task<string>> createMessage, string routeName)
     {
         try
         {
             if (!showConfirmationProvider()) { return ConfirmationDecision.AcceptedResult; }
+            string message = await createMessage();
             return await ConfirmAsync(new UiConfirmationRequest(message, BeMusicSeeker.Properties.Resources.Confirm,
                 MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel), routeName);
         }
