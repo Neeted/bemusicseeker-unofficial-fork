@@ -180,6 +180,18 @@ internal static class PlaybackPanelTestSupport
             return TemporaryFilesRemainNotification?.Invoke(directory) ?? Task.CompletedTask;
         }
 
+        private int libraryOperationBusyNotificationCount;
+
+        /// <summary>受付使用中の警告の呼出し回数です。背景workerから届くため、原子的に数えます。</summary>
+        internal int LibraryOperationBusyNotificationCount => Volatile.Read(ref libraryOperationBusyNotificationCount);
+
+        /// <summary>受付使用中の警告を数えます。</summary>
+        public Task NotifyLibraryOperationBusyAsync()
+        {
+            Interlocked.Increment(ref libraryOperationBusyNotificationCount);
+            return Task.CompletedTask;
+        }
+
         /// <summary>一時導入再生の確認に返す選択です。</summary>
         internal bool TemporaryInstallConfirmationResult { get; set; } = true;
 

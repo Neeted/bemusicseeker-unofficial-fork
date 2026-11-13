@@ -117,14 +117,15 @@ internal sealed class MainWindowInstallTreeTerminal
 /// </summary>
 internal sealed class MainWindowZeroNoteRecheckTerminal
 {
-    private readonly Func<Task<bool>> recheck;
+    private readonly Func<Task<ZeroNoteRecheckStatus>> recheck;
 
-    internal MainWindowZeroNoteRecheckTerminal(Func<Task<bool>> recheck)
+    internal MainWindowZeroNoteRecheckTerminal(Func<Task<ZeroNoteRecheckStatus>> recheck)
     {
         this.recheck = recheck ?? throw new ArgumentNullException(nameof(recheck));
     }
 
-    internal Task<bool> RecheckAsync() => recheck();
+    /// <summary>再確認の結果を返します。受付使用中の警告は所有者が表示済みのため、呼出し側は結果だけで再通知しません。</summary>
+    internal Task<ZeroNoteRecheckStatus> RecheckAsync() => recheck();
 
     internal static MainWindowZeroNoteRecheckTerminal Create(MainWindowViewModel viewModel)
     {
@@ -177,18 +178,19 @@ internal sealed class MainWindowColumnResetTerminal
 /// </summary>
 internal sealed class MainWindowFolderAutoRenameTerminal
 {
-    private readonly Func<IReadOnlyList<ChartOperationTarget>, bool> startSelected;
+    private readonly Func<IReadOnlyList<ChartOperationTarget>, Task> startSelected;
     private readonly Func<string, Task> startAll;
 
     internal MainWindowFolderAutoRenameTerminal(
-        Func<IReadOnlyList<ChartOperationTarget>, bool> startSelected,
+        Func<IReadOnlyList<ChartOperationTarget>, Task> startSelected,
         Func<string, Task> startAll)
     {
         this.startSelected = startSelected ?? throw new ArgumentNullException(nameof(startSelected));
         this.startAll = startAll ?? throw new ArgumentNullException(nameof(startAll));
     }
 
-    internal bool StartSelected(IReadOnlyList<ChartOperationTarget> targets)
+    /// <summary>選択譜面の自動改名を要求します。受付使用中の警告は所有者が表示するため、呼出し側は完了を待つだけです。</summary>
+    internal Task StartSelectedAsync(IReadOnlyList<ChartOperationTarget> targets)
         => startSelected(targets ?? throw new ArgumentNullException(nameof(targets)));
 
     internal Task StartAllAsync(string parentDirectory)
@@ -198,7 +200,7 @@ internal sealed class MainWindowFolderAutoRenameTerminal
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         return new MainWindowFolderAutoRenameTerminal(
-            viewModel.FolderAutoRenameWorkflow.RequestStartSelected,
+            viewModel.FolderAutoRenameWorkflow.RequestStartSelectedAsync,
             viewModel.FolderAutoRenameWorkflow.RequestStartAllAsync);
     }
 }

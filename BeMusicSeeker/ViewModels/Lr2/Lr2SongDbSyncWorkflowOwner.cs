@@ -67,6 +67,19 @@ internal sealed class Lr2SongDbSyncQueueResult
         Status == Lr2SongDbSyncQueueStatus.SkippedUnavailable;
 }
 
+/// <summary>設定の手動再同期の受付結果です。L/Pの使用中による拒否を、終了・モード外などの不成立と区別します。</summary>
+internal enum Lr2SongDbSyncManualResyncResult
+{
+    /// <summary>実受付後に準備・保存・cleanupの実終端まで進んだ要求。</summary>
+    Accepted,
+
+    /// <summary>LまたはPの使用中で、準備前に副作用なく拒否した要求。予約や自動再実行を行いません。</summary>
+    RejectedBusy,
+
+    /// <summary>終了要求・受付閉鎖・ライブラリ未接続・モード外などで成立しなかった要求。使用中の警告対象ではありません。</summary>
+    NotAccepted
+}
+
 internal interface ILr2SongDbSyncWorkflowRuntime
 {
     bool IsLr2ModeEnabled { get; }
@@ -88,6 +101,20 @@ internal interface ILr2SongDbSyncWorkflowRuntime
 
     /// <summary>受理済み設定後更新の実処理とcleanupを非同期で追跡します。</summary>
     Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason, LibraryFileMutationCapability capability = null, LibraryFileMutationCapability playlistCapability = null);
+
+    /// <summary>
+    /// 設定の手動再同期を強制要求として実終端まで待ち、L/Pの使用中による拒否を区別して返します。
+    /// 既定の実装は <see cref="QueueAsync"/> の受付結果だけを使い、使用中を区別しない窓口では不成立として返します。
+    /// </summary>
+    /// <param name="reason">診断用の要求理由。</param>
+    /// <param name="admissionResult">実L/P取得と最終検査後の受付結果を準備前に通知する窓口。</param>
+    async Task<Lr2SongDbSyncManualResyncResult> QueueManualResyncAsync(string reason, Action<bool> admissionResult)
+    {
+        bool admitted = false;
+        await QueueAsync(reason, force: true, prepareGeneratedData: true,
+            admissionResult: value => { admitted = value; admissionResult?.Invoke(value); }).ConfigureAwait(false);
+        return admitted ? Lr2SongDbSyncManualResyncResult.Accepted : Lr2SongDbSyncManualResyncResult.NotAccepted;
+    }
 
 }
 
@@ -210,6 +237,49 @@ internal sealed class BmsLr2SongDbSyncWorkflowRuntime : ILr2SongDbSyncWorkflowRu
                 mutationCapability, options));
     }
 
+    /// <summary>
+    /// 手動再同期のLとPを準備前に非待機で取得し、取得できた権限を全体同期へ渡して実終端まで保持します。
+    /// 全体同期の受付結果は終了・モード外・使用中を区別しないため、使用中の拒否は取得失敗の時点で判定します。
+    /// 受付が閉鎖済みなら使用中ではなく不成立として返します。
+    /// </summary>
+    public async Task<Lr2SongDbSyncManualResyncResult> QueueManualResyncAsync(string reason, Action<bool> admissionResult)
+    {
+        BMSLibrary library = libraryProvider();
+        if (library == null)
+        {
+            admissionResult?.Invoke(false);
+            return Lr2SongDbSyncManualResyncResult.NotAccepted;
+        }
+        ChartFileOperationSynchronizer operationAdmission = library.OperationAdmission;
+        ChartFileOperationSynchronizer playlistAdmission = library.Lr2Synchronization.PlaylistOperationAdmission;
+        if (!operationAdmission.TryEnter(out IDisposable lease))
+        {
+            admissionResult?.Invoke(false);
+            return RejectedOrNotAccepted(operationAdmission);
+        }
+        using (lease)
+        {
+            if (!playlistAdmission.TryEnter(out IDisposable playlistLease))
+            {
+                admissionResult?.Invoke(false);
+                return RejectedOrNotAccepted(playlistAdmission);
+            }
+            using (playlistLease)
+            using (LibraryFileMutationCapability playlistCapability = playlistAdmission.CreateMutationCapability(playlistLease))
+            using (LibraryFileMutationCapability capability = operationAdmission.CreateMutationCapability(lease))
+            {
+                bool admitted = false;
+                await QueueAsync(reason, force: true, prepareGeneratedData: true, capability: capability,
+                    playlistCapability: playlistCapability,
+                    admissionResult: value => { admitted = value; admissionResult?.Invoke(value); }).ConfigureAwait(false);
+                return admitted ? Lr2SongDbSyncManualResyncResult.Accepted : Lr2SongDbSyncManualResyncResult.NotAccepted;
+            }
+        }
+
+        static Lr2SongDbSyncManualResyncResult RejectedOrNotAccepted(ChartFileOperationSynchronizer admission)
+            => admission.IsAdmissionClosed ? Lr2SongDbSyncManualResyncResult.NotAccepted : Lr2SongDbSyncManualResyncResult.RejectedBusy;
+    }
+
     /// <summary>接続済みライブラリへ受理済みの設定後更新を渡し、実終端を待ちます。</summary>
     public Task SyncExternalFolderRowsForCustomFolderOutputBaseChangeAsync(string reason, LibraryFileMutationCapability capability = null, LibraryFileMutationCapability playlistCapability = null)
         => libraryProvider()?.Lr2Synchronization.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChangeAsync(reason, capability, playlistCapability) ?? Task.CompletedTask;
@@ -225,11 +295,14 @@ internal sealed class Lr2SongDbSyncWorkflowOwner
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
     }
 
-    /// <summary>新しい明示同期の実受付結果を準備前に通知し、準備・保存・cleanupの実終端後に受理の有無を返します。</summary>
-    internal async Task<bool> RequestManualResyncAsync(Action<bool> admissionResult = null)
+    /// <summary>
+    /// 新しい明示同期の実受付結果を準備前に通知し、準備・保存・cleanupの実終端後に受付結果を返します。
+    /// L/Pの使用中は <see cref="Lr2SongDbSyncManualResyncResult.RejectedBusy"/>、モード外・未接続・終了は <see cref="Lr2SongDbSyncManualResyncResult.NotAccepted"/> です。
+    /// </summary>
+    internal async Task<Lr2SongDbSyncManualResyncResult> RequestManualResyncAsync(Action<bool> admissionResult = null)
     {
-        if (!CanRun()) { admissionResult?.Invoke(false); return false; }
-        return await runtime.QueueAsync("setting_dialog_manual_resync", force: true, prepareGeneratedData: true, admissionResult: admissionResult).ConfigureAwait(false);
+        if (!CanRun()) { admissionResult?.Invoke(false); return Lr2SongDbSyncManualResyncResult.NotAccepted; }
+        return await runtime.QueueManualResyncAsync("setting_dialog_manual_resync", admissionResult).ConfigureAwait(false);
     }
 
     /// <summary>受理済み差分の共通権限でLR2の実終端を待ち、失敗時は後段へ進みません。</summary>

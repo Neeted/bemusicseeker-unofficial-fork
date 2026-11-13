@@ -252,10 +252,20 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <summary>同じ保存済み設定から捕捉したfactoryと形式能力を、実置換成功まで保持します。</summary>
     private sealed record NextPlaybackPlayerRequest(Func<IBMSPlayer> CreatePlayer, bool SupportsBmson);
 
-    /// <summary>試聴同士の受理済み開始は順次実行し、推定・変更中の新しい開始は副作用前に拒否します。</summary>
+    /// <summary>
+    /// 一時コピー試聴の開始がLの使用中で拒否されたことを、同じ選曲の終端へ伝えます。
+    /// 試聴入力の受付（<see cref="playbackInputGate"/>）の保持中だけ読み書きし、警告は受付の解放後に表示します。
+    /// </summary>
+    private bool temporaryAdmissionBusy;
+
+    /// <summary>
+    /// 試聴同士の受理済み開始は順次実行し、推定・変更中の新しい開始は副作用前に拒否します。
+    /// 明示的な開始（自然終了の次曲・<paramref name="stopIfBusy"/> の経路以外）がLの使用中で拒否された場合だけ、試聴入力の受付を解放した後に警告を一度表示します。
+    /// </summary>
     private async Task RunPlaybackSelectionAsync(long acceptedStopEpoch, Func<long, Task> selectAndStart, bool stopIfBusy = false,
         (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit = null)
     {
+        bool explicitStart = !naturalExit.HasValue && !stopIfBusy;
         // 変更中の入力を予約して後から再生しません。受付済みの開始は変更側の停止が待ちます。
         lock (sessionGate)
         {
@@ -264,44 +274,76 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         if (!naturalExit.HasValue && chartFileOperations.IsActive)
         {
             if (stopIfBusy) { await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false); }
+            else { await NotifyLibraryOperationBusyAsync().ConfigureAwait(false); }
             return;
         }
+        bool rejectedBusy = false;
         await playbackInputGate.WaitAsync().ConfigureAwait(false);
         try
         {
-            long previousGeneration;
+            rejectedBusy = await RunAdmittedPlaybackSelectionAsync(acceptedStopEpoch, selectAndStart, stopIfBusy, naturalExit).ConfigureAwait(false);
+        }
+        finally
+        {
+            rejectedBusy |= temporaryAdmissionBusy;
+            temporaryAdmissionBusy = false;
+            playbackInputGate.Release();
+        }
+        if (rejectedBusy && explicitStart) { await NotifyLibraryOperationBusyAsync().ConfigureAwait(false); }
+    }
+
+    /// <summary>試聴入力の受付の保持中に選曲・開始を実行し、明示開始がLの使用中で拒否された場合はtrueを返します。</summary>
+    private async Task<bool> RunAdmittedPlaybackSelectionAsync(long acceptedStopEpoch, Func<long, Task> selectAndStart, bool stopIfBusy,
+        (long Generation, IBMSPlayer Player, ChartFile File)? naturalExit)
+    {
+        long previousGeneration;
+        lock (sessionGate)
+        {
+            if (shutdownStarted || acceptedStopEpoch != playbackStopEpoch) { return false; }
+            previousGeneration = playbackGeneration;
+        }
+        if (naturalExit is { } acceptedExit)
+        {
             lock (sessionGate)
             {
-                if (shutdownStarted || acceptedStopEpoch != playbackStopEpoch) { return; }
-                previousGeneration = playbackGeneration;
-            }
-            if (naturalExit is { } acceptedExit)
-            {
-                lock (sessionGate)
-                {
-                    if (acceptedExit.Generation != playbackGeneration
-                        || !ReferenceEquals(acceptedExit.Player, bmsPlayer)
-                        || !ReferenceEquals(acceptedExit.File, NowPlayingChart)) { return; }
-                }
-            }
-            if (chartFileOperations.IsActive)
-            {
-                if (naturalExit is { } busyExit)
-                {
-                    await TryStopPlaybackForGeneration(busyExit.Generation, busyExit.File).ConfigureAwait(false);
-                }
-                else if (stopIfBusy) { await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false); }
-                return;
-            }
-            await selectAndStart(previousGeneration).ConfigureAwait(false);
-            bool started;
-            lock (sessionGate) { started = previousGeneration != playbackGeneration; }
-            if (started)
-            {
-                await PrepareNextSongAsync().ConfigureAwait(false);
+                if (acceptedExit.Generation != playbackGeneration
+                    || !ReferenceEquals(acceptedExit.Player, bmsPlayer)
+                    || !ReferenceEquals(acceptedExit.File, NowPlayingChart)) { return false; }
             }
         }
-        finally { playbackInputGate.Release(); }
+        if (chartFileOperations.IsActive)
+        {
+            if (naturalExit is { } busyExit)
+            {
+                await TryStopPlaybackForGeneration(busyExit.Generation, busyExit.File).ConfigureAwait(false);
+                return false;
+            }
+            if (stopIfBusy)
+            {
+                await CaptureStopPlayback(closeProcess: true, invalidateInputs: false)().ConfigureAwait(false);
+                return false;
+            }
+            return true;
+        }
+        await selectAndStart(previousGeneration).ConfigureAwait(false);
+        bool started;
+        lock (sessionGate) { started = previousGeneration != playbackGeneration; }
+        if (started)
+        {
+            await PrepareNextSongAsync().ConfigureAwait(false);
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 明示的な試聴開始がLの使用中で拒否されたことを一度だけ警告します。終了開始後とL受付の閉鎖後は警告しません。
+    /// 表示の失敗は診断へ残し、試聴の失敗通知へ置き換えません。
+    /// </summary>
+    private async Task NotifyLibraryOperationBusyAsync()
+    {
+        if (shutdownStarted || chartFileOperations.IsAdmissionClosed) { return; }
+        try { await playbackDialogs.NotifyLibraryOperationBusyAsync().ConfigureAwait(false); }
+        catch (Exception exception) { Task.FromException(exception).ObserveFault("PlaybackPanel.LibraryOperationBusyNotice"); }
     }
 
     /// <summary>
@@ -389,21 +431,34 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     /// <param name="receipt">当該入力だけの受取先。通常入力では省略し、再生・通知・停止の所有は変えません。</param>
     internal Task HandleTableRowActivation(int rowIndex, object row, Action requestPlayerSurface = null, PlaybackInputReceipt receipt = null)
     {
-        Func<Task> action = AcceptTableRowActivation(rowIndex, row, requestPlayerSurface, receipt);
-        return action == null ? Task.CompletedTask : StartBackgroundPlaybackAction(action, "PlaybackPanel.ActivateRow", receipt);
+        Func<Task> action = AcceptTableRowActivation(rowIndex, row, requestPlayerSurface, receipt, out bool rejectedBusy);
+        if (action != null) { return StartBackgroundPlaybackAction(action, "PlaybackPanel.ActivateRow", receipt); }
+        // 使用中による拒否も開始receiptを作らず、警告だけを背景で一度表示します。
+        return rejectedBusy ? StartBackgroundPlaybackAction(NotifyLibraryOperationBusyAsync, "PlaybackPanel.ActivateRowBusy") : Task.CompletedTask;
     }
 
     /// <summary>UI入力時に行と停止境界を受け付け、一回実行する短命な開始処理を返します。workerで再受付しません。</summary>
     /// <returns>受理した開始処理。入力を拒否した場合はnullで、業務Taskと開始receiptを作りません。</returns>
 #nullable enable annotations
     internal Func<Task>? AcceptTableRowActivation(int rowIndex, object row, Action requestPlayerSurface = null, PlaybackInputReceipt receipt = null)
+        => AcceptTableRowActivation(rowIndex, row, requestPlayerSurface, receipt, out _);
+
+    /// <summary>行の起動を受け付け、Lの使用中による拒否を他の拒否と区別して返します。</summary>
+    /// <param name="rejectedBusy">有効な行の起動をLの使用中で拒否した場合true。終了開始後・受付閉鎖・無効な行ではfalseです。</param>
+    private Func<Task>? AcceptTableRowActivation(int rowIndex, object row, Action requestPlayerSurface, PlaybackInputReceipt receipt, out bool rejectedBusy)
     {
+        rejectedBusy = false;
         long acceptedStopEpoch = CapturePlaybackStopEpoch();
-        if (shutdownStarted || chartFileOperations.IsActive || rowIndex < 0
+        if (shutdownStarted || rowIndex < 0
             || rowIndex >= playbackQueue.Count
             || !GridRowResolver.TryGetPlaybackChart(row, out ChartFile bmsFile)
             || (bmsFile.Kind == ChartFileKind.Bmson && !SupportsBmsonForNextPlayback()))
         {
+            return null;
+        }
+        if (chartFileOperations.IsActive)
+        {
+            rejectedBusy = !chartFileOperations.IsAdmissionClosed;
             return null;
         }
         Action acceptedSurfaceRequest = IsStoppedOrPaused ? requestPlayerSurface : null;
@@ -1624,7 +1679,12 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         if (NeedsTemporaryInstall(bmsFile))
         {
             // 回収・元名復元と受付解放を終えてから、同じ要求のcursorへ入力失敗を戻します。
-            if (!chartFileOperations.TryEnter(out IDisposable operationGate)) { return; }
+            if (!chartFileOperations.TryEnter(out IDisposable operationGate))
+            {
+                // 警告の要否は選曲の終端が明示開始かで判断し、受付の解放後に表示します。
+                temporaryAdmissionBusy = !chartFileOperations.IsAdmissionClosed;
+                return;
+            }
             (long startedGeneration, PlaybackStartObservation startedObservation, Exception failure) =
                 await StartTemporarilyInstalledChart(bmsFile, bmsFile, index,
                     bmsFile.InstallDestination, operationGate, request, generation, acceptedSurfaceRequest, candidate.Locator, receipt).ConfigureAwait(false);

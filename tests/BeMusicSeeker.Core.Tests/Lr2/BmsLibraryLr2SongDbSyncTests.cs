@@ -4206,6 +4206,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     /// <summary>
     /// ライブラリ・playlistの競合/受付閉鎖は、直接要求と通常の手動同期ownerの両方で準備・保存前に拒否します。実受付結果のfalse通知・部分権限解放・自動再実行0を確認します。
+    /// 手動同期ownerの結果はL/Pの使用中だけを使用中の拒否とし、受付閉鎖を使用中として警告対象にする誤りを検出します。
     /// </summary>
     [TestMethod]
     [DataRow(false, false)]
@@ -4243,7 +4244,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             var runtime = new BmsLr2SongDbSyncWorkflowRuntime(() => library,
                 () => { prepared++; throw new AssertFailedException("拒否後は生成入力を取得しません。"); }, () => true);
             var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
-            Assert.IsFalse(await owner.RequestManualResyncAsync(value => admitted = value));
+            Assert.AreEqual(closed ? Lr2SongDbSyncManualResyncResult.NotAccepted : Lr2SongDbSyncManualResyncResult.RejectedBusy,
+                await owner.RequestManualResyncAsync(value => admitted = value));
             Assert.AreEqual(false, admitted);
             Assert.AreEqual(0, prepared);
             Assert.AreEqual(requestedBefore, library.Lr2SongDbSyncRequestedVersion);

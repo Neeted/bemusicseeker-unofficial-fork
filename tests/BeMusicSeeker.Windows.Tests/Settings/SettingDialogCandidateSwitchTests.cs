@@ -466,7 +466,10 @@ public sealed class SettingDialogCandidateSwitchTests
             finally { CompleteCandidateFixture(owner, root, null, null, primaryFailure); }
         });
     }
-    /// <summary>独立導入先はL中に拒否し、解放だけでは保存せず次の明示選択を待ちます。Pや無関係Window操作中の普通保存を保ちます。BMS破棄確認だけは設定担当の単一所有に従って無効表示と入口拒否を揃え、普通保存・同じTask・元候補と終端後再操作を保ちます。</summary>
+    /// <summary>
+    /// 独立導入先はL中に拒否し、解放だけでは保存せず次の明示選択を待ちます。Pや無関係Window操作中の普通保存を保ちます。BMS破棄確認だけは設定担当の単一所有に従って無効表示と入口拒否を揃え、普通保存・同じTask・元候補と終端後再操作を保ちます。
+    /// Lの使用中による拒否だけが受付使用中の警告を一度表示し、P・Window操作中や受理では警告しないことを確認します。
+    /// </summary>
     [TestMethod]
     [DataRow("library", false)]
     [DataRow("playlist", true)]
@@ -521,6 +524,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 Assert.AreEqual(rejected ? original : alternate, combo.SelectedItem);
                 Assert.AreEqual(hasDraft && rejected, dialog.AvailableBMSDirectories.Contains(staged));
                 Assert.AreEqual(hasDraft && !rejected ? 1 : 0, dialogs.ConfirmationCount);
+                Assert.AreEqual(busy == "library" ? 1 : 0, CountBusyWarnings(dialogs), "Lの使用中による拒否だけを一度警告します。");
                 if (busy == "library")
                 {
                     dialog.StartupSortCachePrewarmPriority = 3;
@@ -533,6 +537,7 @@ public sealed class SettingDialogCandidateSwitchTests
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir, string.Join(Environment.NewLine, failures));
                     Assert.AreEqual(3, TestSettingsFactory.OpenSettings(path).StartupSortCachePrewarmPriority);
+                    Assert.AreEqual(1, CountBusyWarnings(dialogs), "解放後の明示選択は警告しません。");
                 }
                 if (busy == "window")
                 {
@@ -563,7 +568,10 @@ public sealed class SettingDialogCandidateSwitchTests
         });
     }
 
-    /// <summary>実ライブラリのLと同じ受付で独立選択を拒否し、次の明示入力だけを保存します。続く実root登録解除でも新導入先と無関係候補を保持します。</summary>
+    /// <summary>
+    /// 実ライブラリのLと同じ受付で独立選択を拒否し、受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示します。
+    /// 解放だけでは保存も再警告もせず、次の明示入力だけを警告なしで保存します。続く実root登録解除でも新導入先と無関係候補を保持します。
+    /// </summary>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -585,7 +593,8 @@ public sealed class SettingDialogCandidateSwitchTests
                 if (lr2) { var xml = new LR2Config(values.LR2ConfigXmlPath); xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath); }
                 else { values.OperationModeLR2DB = false; values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([original, alternate]); }
                 values.Save();
-                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: new RecordingRootDialogService());
+                var dialogs = new RecordingRootDialogService();
+                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs);
                 library = MainWindowViewModelTestFactory.CreateLibrary(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, values.LR2SongDBPath, values, owner);
                 held = library.Lr2Synchronization.TryBeginMutation("independent-install-test");
                 Assert.IsNotNull(held);
@@ -594,11 +603,16 @@ public sealed class SettingDialogCandidateSwitchTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-busy");
                 Assert.AreEqual(original, values.BMSInstallDir);
                 Assert.AreEqual(original, TestSettingsFactory.OpenSettings(config).BMSInstallDir);
+                Assert.AreEqual(original, dialog.BMSInstallDir, "拒否後の選択表示は保存済みの値へ戻ります。");
                 Assert.IsTrue(dialog.CanCancelBmtSettings);
+                AssertSingleBusyWarning(dialogs);
+                Assert.AreEqual(0, dialogs.ConfirmationCount);
                 held.Dispose(); held = null;
                 Assert.AreEqual(original, TestSettingsFactory.OpenSettings(config).BMSInstallDir);
+                Assert.AreEqual(1, dialogs.MessageCount, "解放だけでは再警告しません。");
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-explicit");
                 Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(config).BMSInstallDir);
+                Assert.AreEqual(1, dialogs.MessageCount, "次の明示選択は警告なしで保存します。");
                 Assert.IsTrue(dialog.CanCancelBmtSettings);
                 string chartPath = Path.Combine(original, "root-delete.bms");
                 File.WriteAllText(chartPath, "#TITLE Removed root");
@@ -623,6 +637,89 @@ public sealed class SettingDialogCandidateSwitchTests
                 CompleteCandidateFixture(owner, root, null, null, primaryFailure);
             }
         });
+    }
+
+    /// <summary>
+    /// BMS候補の破棄確認が必要な独立導入先の選択で、確認前にLが使用中なら確認を出さず警告を一度だけ表示します（予約なしの事前検査）。
+    /// 確認中にLを取られた場合は確認一回の後に警告を一度だけ表示します。どちらも保存せず、BMS候補と選択表示を保ち、
+    /// 解放だけでは何も実行せず、次の明示選択が警告なしで保存されることを確認します。答えても進めない確認・黙った拒否・候補の破棄・予約による自動保存を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void IndependentInstallSelection_BusyAroundCandidateConfirmationWarnsOnceWithoutSaving(bool takenDuringConfirmation)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            MainWindowViewModel? owner = null;
+            IDisposable? held = null;
+            Exception? primaryFailure = null;
+            try
+            {
+                string path = Path.Combine(root, "user.config");
+                Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(path));
+                string original = values.BMSInstallDir;
+                string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
+                var xml = new LR2Config(values.LR2ConfigXmlPath);
+                xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath);
+                values.Save();
+                var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+                owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs);
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                string staged = Directory.CreateDirectory(Path.Combine(root, "Staged")).FullName;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AddBmsSearchRootPathsAsync([staged]), "independent-install-bms-candidate");
+                Assert.IsTrue(dialog.RequiresBmsInstallDirectoryConfirmation);
+                ChartFileOperationSynchronizer admission = MainWindowViewModelTestFactory.GetComposition(owner).OperationAdmission;
+                if (takenDuringConfirmation)
+                {
+                    dialogs.ConfirmationObserved = _ =>
+                    {
+                        Assert.IsTrue(admission.TryEnter(out IDisposable acquired), "確認前の検査はLを予約しません。");
+                        held = acquired;
+                    };
+                }
+                else
+                {
+                    Assert.IsTrue(admission.TryEnter(out IDisposable acquired));
+                    held = acquired;
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-confirmation-busy");
+                Assert.AreEqual(takenDuringConfirmation ? 1 : 0, dialogs.ConfirmationCount, "使用中を確認前に知っている場合は確認を出しません。");
+                AssertSingleBusyWarning(dialogs);
+                Assert.AreEqual(original, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
+                Assert.AreEqual(original, dialog.BMSInstallDir, "拒否後の選択表示は保存済みの値へ戻ります。");
+                CollectionAssert.Contains(dialog.AvailableBMSDirectories, staged, "拒否ではBMS候補を破棄しません。");
+                dialogs.ConfirmationObserved = null;
+                Assert.IsNotNull(held);
+                held.Dispose(); held = null;
+                Assert.AreEqual(original, TestSettingsFactory.OpenSettings(path).BMSInstallDir, "解放だけでは保存しません。");
+                Assert.AreEqual(1, dialogs.MessageCount, "解放だけでは再警告しません。");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SelectBmsInstallDirectoryAsync(alternate), "independent-install-confirmation-retry");
+                Assert.AreEqual(alternate, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
+                Assert.AreEqual(1, dialogs.MessageCount, "次の明示選択は警告なしで保存します。");
+                Assert.AreEqual(takenDuringConfirmation ? 2 : 1, dialogs.ConfirmationCount);
+                CollectionAssert.DoesNotContain(dialog.AvailableBMSDirectories, staged);
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                held?.Dispose();
+                CompleteCandidateFixture(owner, root, null, null, primaryFailure);
+            }
+        });
+    }
+
+    private static int CountBusyWarnings(RecordingRootDialogService dialogs)
+        => dialogs.MessageRequests.Count(request => request.MessageBoxText == Resources.Warn_LibraryOperationBusy);
+
+    private static void AssertSingleBusyWarning(RecordingRootDialogService dialogs)
+    {
+        UiMessageRequest warning = dialogs.MessageRequests.Single();
+        Assert.AreEqual(Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+        Assert.AreEqual(Resources.Warning, warning.Caption);
+        Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+        Assert.AreEqual(MessageBoxButton.OK, warning.Button);
     }
 
     /// <summary>実providerの同期保存前後でも同じLを保有し、成功・実媒体失敗の両終端で解放します。</summary>

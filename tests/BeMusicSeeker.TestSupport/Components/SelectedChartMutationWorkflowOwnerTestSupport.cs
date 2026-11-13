@@ -157,8 +157,11 @@ internal static class SelectedChartMutationWorkflowOwnerTestSupport
 
         internal int PhysicalMutationStarts { get; private set; }
 
+        /// <summary>対象別受付Pの取得結果です。falseにすると、確認後に対象別受付が使用中だった場合を再現します。</summary>
+        internal bool PhysicalMutationAdmitted { get; set; } = true;
+
         public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease? lease)
-        { PhysicalMutationStarts++; lease = null; return true; }
+        { PhysicalMutationStarts++; lease = null; return PhysicalMutationAdmitted; }
 
         internal int PendingDeleteCalls { get; private set; }
 

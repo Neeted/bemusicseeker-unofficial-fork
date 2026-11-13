@@ -94,7 +94,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
         try
         {
             Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out ChartOperationTarget firstTarget));
-            Assert.IsTrue(owner.RequestStartSelected([firstTarget]));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync([firstTarget]));
             await owner.WaitForIdleAsync();
             Assert.IsNull(failure); Assert.IsNotNull(completion);
             Assert.AreEqual(1, terminals); Assert.AreEqual(1, playback.StopCount); Assert.AreEqual(1, publications);
@@ -136,7 +136,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             options = new BmsLibraryOptionsSnapshot { FolderNameFormat = "%TITLE%" };
             Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out ChartOperationTarget nextTarget));
             Assert.AreEqual(expectedBms, nextTarget.Chart.Path);
-            Assert.IsTrue(owner.RequestStartSelected([nextTarget]));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync([nextTarget]));
             await owner.WaitForIdleAsync();
             Assert.IsNull(failure); Assert.AreEqual(2, terminals); Assert.AreEqual(2, publications); Assert.AreEqual(2, playback.StopCount);
             Assert.AreSame(row, rowCache.SnapshotRows().Single()); Assert.AreEqual("Song", row.Folder);
@@ -151,7 +151,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 実移動だけで管理出力との交差を判定し、診断だけなら再生を止めず、実交差のBusyではFS・DBを変更せず、解放後の新規要求で確定することで予約や交差誤判定を検出する。
+    /// 実移動だけで管理出力との交差を判定し、診断だけなら再生を止めない。実交差のBusyではFS・DB・再生停止・進捗・完了/失敗/終端の通知を作らず、
+    /// LとPを解放して受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示する。解放後の新規要求は警告なしで確定することで、予約・交差誤判定・一般失敗への置換を検出する。
     /// </summary>
     /// <remarks>実計画・本番port・共通受付からFS移動とSQLite保存、通知終端まで接続する。局所portでは実交差判定と保存の接続を代用できない。</remarks>
     [TestMethod]
@@ -205,36 +206,44 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             {
                 if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion)) { refreshCount++; }
             };
+            var dialogs = new AcceptedFolderDialogService();
+            int progressEvents = 0;
             owner = new FolderAutoRenameWorkflowOwner(library.OperationAdmission, new ChartMutationActivityOwner(),
                 new BmsLibraryFolderAutoRenameMutationPort(preparedBatch: batch), playback, action => action(), action => action(),
-                new AcceptedFolderDialogService());
+                dialogs);
             owner.AttachLibrary(library);
             owner.FailurePublished += value => failure = value;
             owner.CompletionPublished += value => completion = value;
             owner.TerminalPublished += () => terminalCount++;
+            owner.ProgressChanged += _ => progressEvents++;
             Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out held));
-            Assert.IsTrue(owner.RequestStartSelected(selected.Select(CreatePhysicalTarget).ToArray()));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(selected.Select(CreatePhysicalTarget).ToArray()));
             await owner.WaitForIdleAsync();
-            Assert.AreEqual(1, terminalCount);
             Assert.IsFalse(library.OperationAdmission.IsActive);
             if (scenario == "intersection")
             {
-                Assert.IsNotNull(failure);
-                StringAssert.Contains(failure.Exception.Message, BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
+                Assert.IsNull(failure, "対象別受付の使用中は一般の失敗として通知しません。");
                 Assert.IsNull(completion);
+                Assert.AreEqual(0, terminalCount);
+                Assert.AreEqual(0, progressEvents);
+                UiMessageRequest warning = dialogs.Messages.Single();
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+                Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+                Assert.AreEqual(MessageBoxButton.OK, warning.Button);
                 Assert.AreEqual(0, playback.StopCount);
                 Assert.AreEqual(0, refreshCount);
                 foreach (ChartFile chart in charts) { Assert.IsTrue(File.Exists(chart.Path)); }
                 held.Dispose();
                 held = null;
                 Assert.IsTrue(File.Exists(charts[0].Path), "Pの解放だけでは拒否した操作を実行しません。");
-                failure = null;
-                Assert.IsTrue(owner.RequestStartSelected(selected.Select(CreatePhysicalTarget).ToArray()));
+                Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(selected.Select(CreatePhysicalTarget).ToArray()));
                 await owner.WaitForIdleAsync();
                 Assert.IsNull(failure);
-                Assert.AreEqual(2, terminalCount);
+                Assert.AreEqual(1, dialogs.BusyWarnings, "解放後の明示要求では警告しません。");
             }
-            else { Assert.IsNull(failure); }
+            else { Assert.IsNull(failure); Assert.AreEqual(0, dialogs.BusyWarnings); }
+            Assert.AreEqual(1, terminalCount);
             Assert.IsNotNull(completion);
             int expected = scenario == "diagnostics" ? 0 : 2;
             Assert.AreEqual(expected == 0 ? 0 : 1, playback.StopCount);
@@ -257,7 +266,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
             FolderAutoRenameFailure? nextFailure = null;
             owner.FailurePublished += value => nextFailure = value;
-            Assert.IsTrue(owner.RequestStartSelected([CreatePhysicalTarget(charts[4])]));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync([CreatePhysicalTarget(charts[4])]));
             await owner.WaitForIdleAsync();
             Assert.IsNull(nextFailure, nextFailure?.Exception.ToString());
             string thirdDestination = Path.Combine(root, "ThirdMoved", "chart.bms");
@@ -354,7 +363,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 }
             };
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.completion");
             await owner.WaitForIdleAsync();
             CollectionAssert.AreEqual(
@@ -452,10 +461,10 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.FailurePublished += failure => failurePublished.TrySetResult(failure);
             owner.TerminalPublished += () => terminalPublished.TrySetResult(true);
 
-            bool accepted = owner.RequestStartSelected(targets);
+            FolderAutoRenameRequestStatus accepted = await owner.RequestStartSelectedAsync(targets);
             await owner.WaitForIdleAsync();
 
-            Assert.IsTrue(accepted);
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, accepted);
             Assert.IsTrue(mutationReachedProgress.Task.IsCompleted);
             Assert.IsTrue(injectedProgressFailure.Task.IsCompleted);
             Assert.IsTrue(notificationFailure.Task.IsCompleted);
@@ -573,7 +582,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
             DrainNotifications(notifications);
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             Task batchIdle = owner.WaitForIdleAsync();
             await TestUiDispatcherHost.AwaitNotificationAsync(mutationPort.Started.Task, mutationTask!, "folder-progress.started");
             Assert.IsTrue(mutationPort.MutationIsBlocked);
@@ -1197,6 +1206,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             BMSLibrary replacement = CreateLibrary(replacementRoot, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             int completionCount = 0;
+            var activeRunDialogs = new AcceptedFolderDialogService();
             owner = CreateOwner(
                 (current, selectedRequest, progress) => new FolderAutoRenameExecutionResult { RefreshRequired = true },
                 (current, parentDirectory, progress) => throw new InvalidOperationException("all route was not expected"),
@@ -1212,13 +1222,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                         notifications.Enqueue(action);
                     }
                 },
-                dialogs: new AcceptedFolderDialogService());
+                dialogs: activeRunDialogs);
             owner.AttachLibrary(library);
             owner.CompletionPublished += _ => Interlocked.Increment(ref completionCount);
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             Assert.IsTrue(owner.IsActive);
-            Assert.IsFalse(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.RejectedBusy, await owner.RequestStartSelectedAsync(targets));
+            Assert.AreEqual(1, activeRunDialogs.BusyWarnings, "自分の実行中の明示要求は警告を一度だけ表示します。");
             Task firstIdle = owner.WaitForIdleAsync();
             Assert.IsFalse(firstIdle.IsCompleted, "Folder idle receipt must wait for queued terminal publication.");
 
@@ -1230,7 +1241,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             await owner.WaitForIdleAsync();
             Assert.IsTrue(firstIdle.IsCompleted);
             Assert.AreEqual(0, completionCount, "A stale terminal must not publish completion.");
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             DrainNotifications(notifications);
             await owner.WaitForIdleAsync();
             Assert.AreEqual(1, completionCount);
@@ -1258,7 +1269,8 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 到達済みの選択改名を保持中は二件目を拒否し、解放後に完了通知と実終端を回収して、同時変更を検出する。
+    /// 到達済みの選択改名を保持中の二件目は、実行・進捗を作らず受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示して拒否し、
+    /// 先行の実行は継続する。解放後に完了通知と実終端を回収して、同時変更や自分の実行中の黙った拒否を検出する。
     /// </summary>
     [TestMethod]
     public async Task Start_RejectsDuplicateWhileSelectedRequestIsActive()
@@ -1276,6 +1288,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var duplicateDialogs = new AcceptedFolderDialogService();
             owner = CreateOwner(
                 (current, selectedRequest, progress) =>
                 {
@@ -1291,13 +1304,19 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default).Unwrap(),
                 action => action(),
-                dialogs: new AcceptedFolderDialogService());
+                dialogs: duplicateDialogs);
             owner.AttachLibrary(library);
             owner.CompletionPublished += _ => completed.TrySetResult(true);
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.started");
-            Assert.IsFalse(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.RejectedBusy, await owner.RequestStartSelectedAsync(targets));
+            UiMessageRequest busyWarning = duplicateDialogs.Messages.Single();
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, busyWarning.MessageBoxText);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, busyWarning.Caption);
+            Assert.AreEqual(MessageBoxImage.Exclamation, busyWarning.Icon);
+            Assert.AreEqual(MessageBoxButton.OK, busyWarning.Button);
+            Assert.IsTrue(owner.IsActive, "先行の実行を取り消しません。");
             release.Set();
             await TestUiDispatcherHost.AwaitNotificationAsync(completed.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.completed");
             await owner.WaitForIdleAsync();
@@ -1380,14 +1399,14 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 completion.TrySetResult(true);
             };
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await TestUiDispatcherHost.AwaitNotificationAsync(firstStarted.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.firstStarted");
             owner.AttachLibrary(second);
             releaseFirst.Set();
             await owner.WaitForIdleAsync();
             Assert.AreEqual(0, completionCount);
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await TestUiDispatcherHost.AwaitNotificationAsync(secondStarted.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.secondStarted");
             await TestUiDispatcherHost.AwaitNotificationAsync(completion.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.completion");
             await owner.WaitForIdleAsync();
@@ -1416,7 +1435,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 共通譜面排他がBusyなら選択要求の変更を未開始で失敗通知し、解放後の新規要求だけ一回変更して、競合中の作用や自動再実行を検出する。
+    /// 共通譜面排他がBusyなら選択要求を未開始のまま受付使用中として拒否して警告を一度だけ出し、失敗通知を出さず、解放後の新規要求だけ警告なしに一回変更して、競合中の作用や自動再実行を検出する。
     /// </summary>
     [TestMethod]
     public async Task SelectedRequest_FailsFastWhenSharedChartFileGateIsBusyThenRunsAfterRelease()
@@ -1434,6 +1453,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             BMSLibrary first = CreateLibrary(firstRoot, "song.db");
             IReadOnlyList<ChartOperationTarget> targets = CreateSelectedTargets();
             var chartFileOperations = new ChartFileOperationSynchronizer();
+            var dialogs = new AcceptedFolderDialogService();
             var chartMutationActivity = new ChartMutationActivityOwner();
             int mutationCalls = 0;
             Exception? observedFailure = null;
@@ -1455,26 +1475,29 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default).Unwrap(),
                 action => action(),
-                new AcceptedFolderDialogService());
+                dialogs);
             owner.AttachLibrary(first);
             owner.FailurePublished += failure => observedFailure = failure.Exception;
 
             Assert.IsTrue(chartFileOperations.TryEnter(out IDisposable incumbent));
             try
             {
-                Assert.IsTrue(owner.RequestStartSelected(targets));
+                Assert.AreEqual(FolderAutoRenameRequestStatus.RejectedBusy, await owner.RequestStartSelectedAsync(targets));
                 await owner.WaitForIdleAsync();
                 Assert.AreEqual(0, mutationCalls);
-                Assert.IsInstanceOfType(observedFailure, typeof(InvalidOperationException));
+                Assert.IsNull(observedFailure);
+                Assert.AreEqual(1, dialogs.BusyWarnings);
             }
             finally
             {
                 incumbent.Dispose();
             }
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await owner.WaitForIdleAsync();
             Assert.AreEqual(1, mutationCalls);
+            Assert.IsNull(observedFailure);
+            Assert.AreEqual(1, dialogs.BusyWarnings, "解放後の明示要求では警告しません。");
         }
         catch (Exception ex)
         {
@@ -1561,7 +1584,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             };
             owner.AttachLibrary(first);
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await TestUiDispatcherHost.AwaitNotificationAsync(firstStarted.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.firstStarted");
             owner.AttachLibrary(second);
             releaseFirst.Set();
@@ -1634,10 +1657,11 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.started");
             owner.RequestShutdown();
-            Assert.IsFalse(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.NotStarted, await owner.RequestStartSelectedAsync(targets),
+                "終了要求後の要求は受付使用中として警告しません。");
             release.Set();
             await owner.WaitForIdleAsync();
         }
@@ -1695,7 +1719,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             owner.AttachLibrary(library);
             owner.FailurePublished += _ => failure.TrySetResult(true);
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await TestUiDispatcherHost.AwaitNotificationAsync(failure.Task, owner.WaitForIdleAsync(), "FolderAutoRenameWorkflowOwnerTests.failure");
             Assert.IsInstanceOfType(observed, typeof(InvalidOperationException));
             await owner.WaitForIdleAsync();
@@ -1750,7 +1774,7 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
                 dialogs: new AcceptedFolderDialogService());
             owner.AttachLibrary(library);
 
-            Assert.IsTrue(owner.RequestStartSelected(targets));
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await owner.RequestStartSelectedAsync(targets));
             await owner.WaitForIdleAsync();
             Assert.AreEqual(1, workflowFailures);
             Assert.IsTrue(notificationFailures > 0);
@@ -1925,6 +1949,78 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             if (failAfterAdd) { throw new IOException("auto rename failed"); }
             return CreateCommittedRenameResult();
         }
+    }
+
+    /// <summary>
+    /// 外部が共通受付Lを保持している間の選択改名・全フォルダ改名は、実行・確認・進捗・完了/失敗/終端の通知を作らず、
+    /// 受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示して受付使用中を返す。解放だけでは実行せず、次の明示要求は警告なしで一度実行する。
+    /// 黙った拒否、一般失敗への置換、確認の表示、自動再実行を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ExplicitRequest_SharedAdmissionBusyWarnsOnceThenNextRequestRuns(bool allFolders)
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        BMSLibrary library = CreateLibrary(root, "song.db");
+        var gate = new ChartFileOperationSynchronizer();
+        var dialogs = new AcceptedFolderDialogService();
+        int executions = 0;
+        int progressEvents = 0;
+        int terminalEvents = 0;
+        int failureEvents = 0;
+        var owner = new FolderAutoRenameWorkflowOwner(
+            gate,
+            new ChartMutationActivityOwner(),
+            new DelegateFolderAutoRenameMutationPort(
+                (current, request, progress) => { Interlocked.Increment(ref executions); return new FolderAutoRenameExecutionResult(); },
+                (current, parentDirectory, progress) => { Interlocked.Increment(ref executions); return new AutoRenameBatchResult(false, 0, LibraryMutationSessionReceipt.Empty); },
+                (current, parentDirectory) => true),
+            new NoOpChartMutationPlaybackPort(),
+            action => action(),
+            action => action(),
+            dialogs);
+        owner.AttachLibrary(library);
+        owner.ProgressChanged += _ => progressEvents++;
+        owner.TerminalPublished += () => terminalEvents++;
+        owner.FailurePublished += _ => failureEvents++;
+        try
+        {
+            Assert.IsTrue(gate.TryEnter(out IDisposable held));
+            using (held)
+            {
+                Assert.AreEqual(FolderAutoRenameRequestStatus.RejectedBusy, await RequestAsync());
+                Assert.IsFalse(owner.IsActive);
+                Assert.AreEqual(0, dialogs.ConfirmationCalls, "使用中の要求では確認を表示しません。");
+                UiMessageRequest warning = dialogs.Messages.Single();
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+                Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+                Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+                Assert.IsFalse(gate.CanEnter);
+            }
+            Assert.AreEqual(0, Volatile.Read(ref executions), "解放だけでは拒否した要求を実行しません。");
+            Assert.AreEqual(0, progressEvents);
+            Assert.AreEqual(0, terminalEvents);
+            Assert.AreEqual(0, failureEvents);
+
+            Assert.AreEqual(FolderAutoRenameRequestStatus.Started, await RequestAsync());
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(1, Volatile.Read(ref executions));
+            Assert.AreEqual(1, dialogs.BusyWarnings, "解放後の明示要求では警告しません。");
+            Assert.IsTrue(gate.CanEnter);
+        }
+        finally
+        {
+            await owner.WaitForIdleAsync();
+            library.RequestShutdown("folder-auto-rename-busy-test");
+            DeleteRoot(root);
+        }
+
+        Task<FolderAutoRenameRequestStatus> RequestAsync() => allFolders
+            ? owner.RequestStartAllAsync(root)
+            : owner.RequestStartSelectedAsync(CreateSelectedTargets());
     }
 
     private static FolderAutoRenameWorkflowOwner CreateOwner(
@@ -2167,8 +2263,26 @@ public sealed class FolderAutoRenameWorkflowOwnerTests
             pendingConfirmation.TrySetResult(ConfirmationResult);
         }
 
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) =>
-            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        /// <summary>表示を要求された通知です。</summary>
+        internal List<UiMessageRequest> Messages { get; } = [];
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            lock (Messages) { Messages.Add(request); }
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        /// <summary>受付使用中の警告の件数です。</summary>
+        internal int BusyWarnings
+        {
+            get
+            {
+                lock (Messages)
+                {
+                    return Messages.Count(message => message.MessageBoxText == BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
+                }
+            }
+        }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {

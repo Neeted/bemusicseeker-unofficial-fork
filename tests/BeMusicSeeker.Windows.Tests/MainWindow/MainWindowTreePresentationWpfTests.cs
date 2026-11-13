@@ -350,7 +350,7 @@ public sealed class MainWindowTreePresentationWpfTests
         var terminal = new MainWindowZeroNoteRecheckTerminal(() =>
         {
             calls++;
-            return Task.FromResult(true);
+            return Task.FromResult(ZeroNoteRecheckStatus.Completed);
         });
 
         MainWindowPresentationTestHarness.RunConstructorOnly(

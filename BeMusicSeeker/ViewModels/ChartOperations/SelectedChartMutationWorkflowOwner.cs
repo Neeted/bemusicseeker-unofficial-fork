@@ -174,13 +174,27 @@ internal sealed class SelectedChartMutationResult
         bool succeeded,
         Exception failure,
         LibraryMutationSessionReceipt mutationReceipt = null,
-        LibraryChartRemovalOutcome removalOutcome = null)
+        LibraryChartRemovalOutcome removalOutcome = null,
+        bool busy = false)
     {
         RemovalOutcome = removalOutcome;
         Succeeded = succeeded;
         Failure = failure;
         MutationReceipt = mutationReceipt;
+        Busy = busy;
     }
+
+    /// <summary>
+    /// 共通受付Lまたは対象別受付Pの使用中で、明示要求を副作用前に拒否したことを示します。
+    /// 拒否の通知は所有者が一度だけ表示済みで、<see cref="Failure"/> を持たないため、呼出し側は一般の失敗として再通知しません。
+    /// </summary>
+    internal bool Busy { get; }
+
+    /// <summary>受付使用中による未受理の結果です。成功・利用者の取消・失敗のいずれとも区別します。</summary>
+    internal static SelectedChartMutationResult RejectedBusy { get; } = new(false, null, busy: true);
+
+    /// <summary>終了要求で受付が閉じたため、通知せず受理しなかった結果です。</summary>
+    internal static SelectedChartMutationResult NotAccepted { get; } = new(false, null);
 
     /// <summary>Deletion facts retained independently of workflow cleanup failures.</summary>
     internal LibraryChartRemovalOutcome RemovalOutcome { get; }
@@ -314,8 +328,14 @@ internal sealed class SelectedChartMutationWorkflowOwner
             request.Section == MainViewOperationSection.InstallPending,
             out IDisposable operationGate))
         {
-            return SelectedChartMutationResult.Failed(
-                new InvalidOperationException("A chart-file operation is already active."));
+            try
+            {
+                return await RejectAdmissionAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return SelectedChartMutationResult.Failed(ex);
+            }
         }
         bool operationGateTransferred = false;
         try
@@ -426,6 +446,10 @@ internal sealed class SelectedChartMutationWorkflowOwner
                 if (pendingPublication != null) { FileDbMutationReport.NotifyBestEffort(pendingPublication); }
             }
             operationGateTransferred = true;
+            if (result.Busy)
+            {
+                return await NotifyPhysicalAdmissionBusyAsync().ConfigureAwait(false);
+            }
             if (removalOutcome != null)
             {
                 result = SelectedChartMutationResult.FromRemoval(removalOutcome, result.Failure);
@@ -483,8 +507,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
             List<ChartFile> charts = [.. targets.Select(target => target.Chart)];
             if (!TryEnterOperation(request.IsPendingSelected, out IDisposable operationGate))
             {
-                return SelectedChartMutationResult.Failed(
-                    new InvalidOperationException("A chart-file operation is already active."));
+                return await RejectAdmissionAsync().ConfigureAwait(false);
             }
             bool operationGateTransferred = false;
             try
@@ -551,9 +574,14 @@ internal sealed class SelectedChartMutationWorkflowOwner
                             .Concat(pCharts.SelectMany(chart => new[] { chart.Path, Path.ChangeExtension(chart.Path, ".pmx") }))));
                 }
                 operationGateTransferred = true;
+                SelectedChartMutationResult result = await task.ConfigureAwait(false);
+                if (result.Busy)
+                {
+                    return await NotifyPhysicalAdmissionBusyAsync().ConfigureAwait(false);
+                }
                 return !request.IsPendingSelected
-                    ? await ReportInvalidExtensionRenameAsync(task)
-                    : await task;
+                    ? await ReportInvalidExtensionRenameAsync(result).ConfigureAwait(false)
+                    : result;
             }
             finally
             {
@@ -570,9 +598,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
     }
 
     private async Task<SelectedChartMutationResult> ReportInvalidExtensionRenameAsync(
-        Task<SelectedChartMutationResult> mutationTask)
+        SelectedChartMutationResult result)
     {
-        SelectedChartMutationResult result = await mutationTask.ConfigureAwait(false);
         await FileDbMutationReport.ShowAsync(
             dialogs,
             BeMusicSeeker.Properties.Resources.Rename_invalid_ext,
@@ -600,8 +627,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
             if (!TryEnterOperation(pending: false, out IDisposable operationGate))
             {
-                return SelectedChartMutationResult.Failed(
-                    new InvalidOperationException("A chart-file operation is already active."));
+                return await RejectAdmissionAsync().ConfigureAwait(false);
             }
             bool operationGateTransferred = false;
             try
@@ -625,6 +651,10 @@ internal sealed class SelectedChartMutationWorkflowOwner
                     stopPlayback: moveRequest.PreparedBatch == null || moveRequest.PreparedBatch.Moves.Count > 0));
                 operationGateTransferred = true;
                 SelectedChartMutationResult result = await task.ConfigureAwait(false);
+                if (result.Busy)
+                {
+                    return await NotifyPhysicalAdmissionBusyAsync().ConfigureAwait(false);
+                }
                 await FileDbMutationReport.ShowAsync(dialogs, BeMusicSeeker.Properties.Resources.FileDbMutationReport_Move,
                     result.MutationReceipt, result.Failure).ConfigureAwait(false);
                 return result;
@@ -653,8 +683,14 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
         if (!TryEnterOperation(pending: false, out IDisposable operationGate))
         {
-            return SelectedChartMutationResult.Failed(
-                new InvalidOperationException("A chart-file operation is already active."));
+            try
+            {
+                return await RejectAdmissionAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return SelectedChartMutationResult.Failed(ex);
+            }
         }
         using IDisposable accepted = operationGate;
         try
@@ -683,15 +719,8 @@ internal sealed class SelectedChartMutationWorkflowOwner
         bool recursivePhysicalPaths = false,
         bool stopPlayback = true)
     {
-        IDisposable operationGate = acquiredOperationGate;
-        if (operationGate == null
-            && !TryEnterOperation(
-                refreshScope == SelectedChartMutationRefreshScope.Pending,
-                out operationGate))
-        {
-            return SelectedChartMutationResult.Failed(
-                new InvalidOperationException("A chart-file operation is already active."));
-        }
+        IDisposable operationGate = acquiredOperationGate
+            ?? throw new ArgumentNullException(nameof(acquiredOperationGate));
         BMSLibrary library;
         try
         {
@@ -713,36 +742,44 @@ internal sealed class SelectedChartMutationWorkflowOwner
         bool suppressionStarted = false;
         LibraryMutationSessionReceipt mutationReceipt = null;
         bool mutationApplied = false;
+        bool physicalAdmissionBusy = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
             if (physicalPaths != null)
             {
-                if (!operationStore.TryBeginPhysicalMutation(library, physicalPaths, recursivePhysicalPaths, out playlistLease))
-                { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
-                playlistCapability = playlistLease?.CreateMutationCapability();
-                combinedCapability = capability.WithPlaylistCapability(playlistCapability);
-                operationStore = store.ForAcceptedOperation(combinedCapability);
+                // 対象別受付Pの使用中は、活動・再生停止・変更へ進まず、解放後に所有者が一度だけ警告します。
+                physicalAdmissionBusy = !operationStore.TryBeginPhysicalMutation(
+                    library, physicalPaths, recursivePhysicalPaths, out playlistLease);
+                if (!physicalAdmissionBusy)
+                {
+                    playlistCapability = playlistLease?.CreateMutationCapability();
+                    combinedCapability = capability.WithPlaylistCapability(playlistCapability);
+                    operationStore = store.ForAcceptedOperation(combinedCapability);
+                }
             }
-            activityLease = chartMutationActivity.Enter();
-            if (stopPlayback) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
-            suppressionStarted = true;
-            PublishRefreshSuppressionChanged(isSuppressed: true, scope: refreshScope);
-            if (mutationWithReceipt == null)
+            if (!physicalAdmissionBusy)
             {
-                mutation(library, operationStore, notices);
-            }
-            else
-            {
-                mutationReceipt = mutationWithReceipt(library, operationStore, notices)
-                    ?? throw new InvalidOperationException("Selected chart mutation returned no session receipt.");
-            }
-            if (publishMutationApplied
-                && (mutationReceipt == null
-                    || (mutationReceipt.DurableCommit
-                        && !mutationReceipt.HasDurableFinalizationFailure)))
-            {
-                mutationApplied = true;
+                activityLease = chartMutationActivity.Enter();
+                if (stopPlayback) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
+                suppressionStarted = true;
+                PublishRefreshSuppressionChanged(isSuppressed: true, scope: refreshScope);
+                if (mutationWithReceipt == null)
+                {
+                    mutation(library, operationStore, notices);
+                }
+                else
+                {
+                    mutationReceipt = mutationWithReceipt(library, operationStore, notices)
+                        ?? throw new InvalidOperationException("Selected chart mutation returned no session receipt.");
+                }
+                if (publishMutationApplied
+                    && (mutationReceipt == null
+                        || (mutationReceipt.DurableCommit
+                            && !mutationReceipt.HasDurableFinalizationFailure)))
+                {
+                    mutationApplied = true;
+                }
             }
         }
         catch (Exception ex)
@@ -777,6 +814,7 @@ internal sealed class SelectedChartMutationWorkflowOwner
             dialogs, notices, () => library.IsShutdownRequested, "selectedChartMutation").ConfigureAwait(false);
         return failures.Count switch
         {
+            0 when physicalAdmissionBusy => SelectedChartMutationResult.RejectedBusy,
             0 => mutationReceipt == null
                 ? SelectedChartMutationResult.Completed
                 : SelectedChartMutationResult.FromReceipt(mutationReceipt),
@@ -871,6 +909,41 @@ internal sealed class SelectedChartMutationWorkflowOwner
 
     private bool TryEnterOperation(bool pending, out IDisposable operationGate) =>
         chartFileOperations.TryEnter(out operationGate);
+
+    /// <summary>
+    /// 共通受付Lを取得できなかった明示要求を、副作用前に終えます。終了要求で受付が閉じた場合は通知せず未受理を返し、
+    /// それ以外の使用中（同じ所有者の実行中を含む）は警告を一度だけ表示して <see cref="SelectedChartMutationResult.RejectedBusy"/> を返します。
+    /// </summary>
+    private async Task<SelectedChartMutationResult> RejectAdmissionAsync()
+    {
+        if (chartFileOperations.IsAdmissionClosed)
+        {
+            return SelectedChartMutationResult.NotAccepted;
+        }
+        await ShowBusyWarningAsync().ConfigureAwait(false);
+        return SelectedChartMutationResult.RejectedBusy;
+    }
+
+    /// <summary>
+    /// 確認後に対象別受付Pを取得できず、LとPを解放済みの実行結果を利用者へ一度だけ警告します。
+    /// 終了要求後は通知せず、受付使用中の結果だけを返します。
+    /// </summary>
+    private async Task<SelectedChartMutationResult> NotifyPhysicalAdmissionBusyAsync()
+    {
+        if (libraryProvider()?.IsShutdownRequested != true && !chartFileOperations.IsAdmissionClosed)
+        {
+            await ShowBusyWarningAsync().ConfigureAwait(false);
+        }
+        return SelectedChartMutationResult.RejectedBusy;
+    }
+
+    private async Task ShowBusyWarningAsync()
+    {
+        UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+            BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+            BeMusicSeeker.Properties.Resources.Warning)).ConfigureAwait(false);
+        UiDialogRoute.ThrowIfNotShown(result, "Selected chart mutation Busy notification");
+    }
 
     private static void CaptureCleanupFailure(Action action, ICollection<ExceptionDispatchInfo> failures)
     {

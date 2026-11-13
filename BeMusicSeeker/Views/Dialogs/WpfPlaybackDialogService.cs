@@ -54,6 +54,18 @@ internal sealed class WpfPlaybackDialogService : IPlaybackDialogService
         throw result.Exception ?? new InvalidOperationException("Temporary playback cleanup notification was not shown: " + result.Status);
     }
 
+    /// <inheritdoc />
+    public async Task NotifyLibraryOperationBusyAsync()
+    {
+        UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+            Resources.Warn_LibraryOperationBusy, Resources.Warning)).ConfigureAwait(false);
+        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+        throw result.Exception ?? new InvalidOperationException("Playback library operation busy notification was not shown: " + result.Status);
+    }
+
     public void NotifyPlaybackFailure(Exception exception)
     {
         if (exception == null)

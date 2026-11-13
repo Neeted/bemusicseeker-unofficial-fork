@@ -56,8 +56,10 @@ internal sealed class PackageCatalogMutationResult
         bool succeeded,
         Exception failure,
         bool shouldApplyView,
-        PackageCatalogSection? emptySection)
+        PackageCatalogSection? emptySection,
+        bool busy = false)
     {
+        Busy = busy;
         Succeeded = succeeded;
         Failure = failure;
         ShouldApplyView = shouldApplyView;
@@ -75,6 +77,14 @@ internal sealed class PackageCatalogMutationResult
     internal static PackageCatalogMutationResult Completed { get; } = new(true, null, true, null);
 
     internal static PackageCatalogMutationResult Rejected { get; } = new(false, null, false, null);
+
+    /// <summary>
+    /// 共通受付Lの使用中で、明示要求を確認・変更の前に拒否したことを示します。警告は所有者が一度だけ表示済みで、失敗を持たず、画面へ反映しません。
+    /// </summary>
+    internal bool Busy { get; }
+
+    /// <summary>受付使用中による未受理です。成功・利用者の取消・失敗のいずれとも区別します。</summary>
+    internal static PackageCatalogMutationResult RejectedBusy { get; } = new(false, null, false, null, busy: true);
 
     internal static PackageCatalogMutationResult CompletedFor(PackageCatalogSection? emptySection)
     {
@@ -138,7 +148,7 @@ internal sealed class PackageCatalogWorkflowOwner
         ValidateSection(section);
         if (!TryEnterOperation(section, out IDisposable operationGate))
         {
-            return Task.FromResult(PackageCatalogMutationResult.Rejected);
+            return RejectAdmissionAsync();
         }
         PackageCatalogMutationResult confirmation = ConfirmRemoval(
             section == PackageCatalogSection.Pending
@@ -166,7 +176,7 @@ internal sealed class PackageCatalogWorkflowOwner
         }
         if (!TryEnterOperation(section, out IDisposable operationGate))
         {
-            return Task.FromResult(PackageCatalogMutationResult.Rejected);
+            return RejectAdmissionAsync();
         }
         if (section == PackageCatalogSection.Pending)
         {
@@ -196,7 +206,7 @@ internal sealed class PackageCatalogWorkflowOwner
         ValidateSection(request.Section);
         if (!TryEnterOperation(request.Section, out IDisposable operationGate))
         {
-            return Task.FromResult(PackageCatalogMutationResult.Rejected);
+            return RejectAdmissionAsync();
         }
         PackageCatalogMutationResult confirmation = ConfirmRemoval(
             request.IsPending
@@ -223,14 +233,10 @@ internal sealed class PackageCatalogWorkflowOwner
     private async Task<PackageCatalogMutationResult> ExecuteAsync(
         PackageCatalogSection section,
         Func<BMSLibrary, IPackageCatalogStore, Task> mutation,
-        IDisposable acquiredOperationGate = null)
+        IDisposable acquiredOperationGate)
     {
-        IDisposable operationGate = acquiredOperationGate;
-        if (operationGate == null
-            && !TryEnterOperation(section, out operationGate))
-        {
-            return PackageCatalogMutationResult.Rejected;
-        }
+        IDisposable operationGate = acquiredOperationGate
+            ?? throw new ArgumentNullException(nameof(acquiredOperationGate));
         BMSLibrary library;
         try
         {
@@ -338,6 +344,33 @@ internal sealed class PackageCatalogWorkflowOwner
         out IDisposable operationGate)
     {
         return chartFileOperations.TryEnter(out operationGate);
+    }
+
+    /// <summary>
+    /// 共通受付Lを取得できなかった明示要求を確認・変更の前に終えます。終了要求で受付が閉じた場合は通知せず拒否を返し、
+    /// それ以外の使用中は警告を一度だけ表示して <see cref="PackageCatalogMutationResult.RejectedBusy"/> を返します。警告の表示失敗は変更前の失敗です。
+    /// </summary>
+    private Task<PackageCatalogMutationResult> RejectAdmissionAsync()
+    {
+        return chartFileOperations.IsAdmissionClosed
+            ? Task.FromResult(PackageCatalogMutationResult.Rejected)
+            : ShowBusyWarningAsync();
+    }
+
+    private async Task<PackageCatalogMutationResult> ShowBusyWarningAsync()
+    {
+        try
+        {
+            UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+                BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+                BeMusicSeeker.Properties.Resources.Warning)).ConfigureAwait(false);
+            UiDialogRoute.ThrowIfNotShown(result, "Package catalog Busy notification");
+            return PackageCatalogMutationResult.RejectedBusy;
+        }
+        catch (Exception exception)
+        {
+            return PackageCatalogMutationResult.FailedBeforeMutation(exception);
+        }
     }
 
     private PackageCatalogMutationResult ConfirmRemoval(string message, string routeName)

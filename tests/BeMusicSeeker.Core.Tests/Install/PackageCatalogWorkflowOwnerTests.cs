@@ -321,9 +321,16 @@ public sealed class PackageCatalogWorkflowOwnerTests
         Assert.AreSame(emptySectionFailure, exception.InnerExceptions[1]);
     }
 
-    /// <summary>共通受付のBusy中は確認・変更・活動を始めず、解放後の明示要求だけを処理する受付漏れと残留を検出します。</summary>
+    /// <summary>
+    /// 共通受付のBusy中の全消去・個別解除・選択解除は確認・変更・活動を始めず、受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示して、
+    /// 失敗を持たず画面へ反映しない受付使用中を返します。解放だけでは実行せず、次の明示要求は警告なしで一度処理します。
+    /// 黙った拒否、確認の表示、受付漏れと残留、自動再実行を検出します。
+    /// </summary>
     [TestMethod]
-    public async Task ClearAllAsync_FailsFastWhenSharedChartFileGateIsBusyThenRunsAfterRelease()
+    [DataRow("clear-all")]
+    [DataRow("remove-pending-package")]
+    [DataRow("remove-selection")]
+    public async Task ExplicitRemoval_WarnsOnceWhenSharedChartFileGateIsBusyThenRunsAfterRelease(string operation)
     {
         var synchronizer = new ChartFileOperationSynchronizer();
         var events = new List<string>();
@@ -346,23 +353,66 @@ public sealed class PackageCatalogWorkflowOwnerTests
         owner.MutationPhasePublished += phaseObserver.OnPhasePublished;
         activity.ActivityChanged += phaseObserver.OnActivityChanged;
         Assert.IsTrue(synchronizer.TryEnter(out IDisposable incumbent));
-        try
+        using (incumbent)
         {
-            PackageCatalogMutationResult removal = await owner.ClearAllAsync(PackageCatalogSection.Installed);
+            PackageCatalogMutationResult removal = await RunAsync();
             Assert.IsFalse(removal.Succeeded);
+            Assert.IsTrue(removal.Busy);
+            Assert.IsNull(removal.Failure);
             Assert.IsFalse(removal.ShouldApplyView);
             Assert.AreEqual(0, store.RemoveAllCount);
+            Assert.AreEqual(0, store.RemovePackagesCount);
             Assert.IsNull(dialogs.ConfirmationRequest);
             CollectionAssert.AreEqual(Array.Empty<string>(), events);
-        }
-        finally
-        {
-            incumbent.Dispose();
+            UiMessageRequest warning = dialogs.Messages.Single();
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+            Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+            Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+            Assert.IsFalse(synchronizer.CanEnter);
         }
 
-        PackageCatalogMutationResult result = await owner.ClearAllAsync(PackageCatalogSection.Installed);
+        Assert.AreEqual(0, store.RemoveAllCount + store.RemovePackagesCount, "解放だけでは拒否した要求を実行しません。");
+        PackageCatalogMutationResult result = await RunAsync();
         Assert.IsTrue(result.Succeeded);
-        Assert.AreEqual(1, store.RemoveAllCount);
+        Assert.IsFalse(result.Busy);
+        Assert.AreEqual(1, store.RemoveAllCount + store.RemovePackagesCount);
+        Assert.AreEqual(1, dialogs.Messages.Count, "解放後の明示要求では警告しません。");
+        Assert.IsTrue(synchronizer.CanEnter);
+
+        Task<PackageCatalogMutationResult> RunAsync() => operation switch
+        {
+            "clear-all" => owner.ClearAllAsync(PackageCatalogSection.Installed),
+            "remove-pending-package" => owner.RemovePackageAsync(PackageCatalogSection.Pending, new ChartPackage()),
+            _ => owner.RemoveSelectionAsync(PackageCatalogRemovalRequest.CreatePending([CreateTarget()])),
+        };
+    }
+
+    /// <summary>終了要求で受付が閉じた後の全消去は、警告も確認も表示せず未受理で終え、終了中の不要な通知を検出します。</summary>
+    [TestMethod]
+    public async Task ClearAllAsync_ClosedAdmissionIsSilentlyRejected()
+    {
+        var synchronizer = new ChartFileOperationSynchronizer();
+        synchronizer.CloseAdmission();
+        var store = new RecordingStore([]);
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        var owner = new PackageCatalogWorkflowOwner(
+            CreateLibrary,
+            synchronizer,
+            new ChartMutationActivityOwner(),
+            dialogs,
+            new NoOpChartMutationPlaybackPort(),
+            mutation => mutation(),
+            store);
+
+        PackageCatalogMutationResult result = await owner.ClearAllAsync(PackageCatalogSection.Installed);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsFalse(result.Busy);
+        Assert.IsNull(result.Failure);
+        Assert.AreEqual(0, dialogs.Messages.Count);
+        Assert.IsNull(dialogs.ConfirmationRequest);
+        Assert.AreEqual(0, store.RemoveAllCount);
     }
 
     /// <summary>借用保留だけの全解除と導入済み記録の解除は、再生停止へ入らず実体を保持します。</summary>

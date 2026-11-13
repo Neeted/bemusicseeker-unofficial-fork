@@ -45,7 +45,10 @@ internal enum MaintenanceRescanStartStatus
     Started,
     Rejected,
     NotStarted,
-    Failed
+    Failed,
+
+    /// <summary>共通受付Lの使用中（同じ所有者の実行中を含む）で副作用前に拒否し、受付使用中の警告を一度だけ表示しました。</summary>
+    RejectedBusy
 }
 
 internal sealed class MaintenanceRescanStartResult
@@ -70,6 +73,10 @@ internal sealed class MaintenanceRescanStartResult
 
     internal static MaintenanceRescanStartResult NotStarted { get; } =
         new(MaintenanceRescanStartStatus.NotStarted, null);
+
+    /// <summary>受付使用中による未受理です。警告は所有者が表示済みで、失敗を持ちません。</summary>
+    internal static MaintenanceRescanStartResult RejectedBusy { get; } =
+        new(MaintenanceRescanStartStatus.RejectedBusy, null);
 
     internal static MaintenanceRescanStartResult Failed(Exception failure)
     {
@@ -191,10 +198,18 @@ internal sealed class MaintenanceRescanWorkflowOwner
         DispatchNotification(() => ProgressChanged?.Invoke(CreateResetProgress()));
     }
 
+    /// <summary>
+    /// 確認の前に予約せず受付を判定し、使用中なら確認を出さずに警告を一度だけ表示して <see cref="MaintenanceRescanStartStatus.RejectedBusy"/> を返します。
+    /// 確認後に受付を失った場合も同じく警告します。終了要求後・ライブラリ未接続は通知せず <see cref="MaintenanceRescanStartStatus.NotStarted"/> です。
+    /// </summary>
     internal async Task<MaintenanceRescanStartResult> RequestStartAsync()
     {
         try
         {
+            if (IsBusyForExplicitRequest())
+            {
+                return await RejectBusyAsync().ConfigureAwait(false);
+            }
             UiDialogResult result = await dialogs.ConfirmAsync(new UiConfirmationRequest(
                 BeMusicSeeker.Properties.Resources.Msg_rescan_all_charts_confirm,
                 BeMusicSeeker.Properties.Resources.Confirm,
@@ -218,9 +233,10 @@ internal sealed class MaintenanceRescanWorkflowOwner
                     result.Exception ?? new InvalidOperationException(
                         "Maintenance rescan confirmation could not be displayed (" + result.Status + ")."));
             }
-            return StartCore()
-                ? MaintenanceRescanStartResult.StartedResult
-                : MaintenanceRescanStartResult.NotStarted;
+            MaintenanceRescanStartResult started = StartCore();
+            return started.Status == MaintenanceRescanStartStatus.RejectedBusy
+                ? await RejectBusyAsync().ConfigureAwait(false)
+                : started;
         }
         catch (Exception exception)
         {
@@ -228,16 +244,43 @@ internal sealed class MaintenanceRescanWorkflowOwner
         }
     }
 
-    private bool StartCore()
+    /// <summary>終了要求前で接続中のライブラリがあり、自分の実行中または共通受付Lの使用中なら真です。受付は予約しません。</summary>
+    private bool IsBusyForExplicitRequest()
+    {
+        lock (syncRoot)
+        {
+            return !shutdownRequested
+                && library != null
+                && (activeRun != null
+                    || (!library.OperationAdmission.CanEnter && !library.OperationAdmission.IsAdmissionClosed));
+        }
+    }
+
+    private async Task<MaintenanceRescanStartResult> RejectBusyAsync()
+    {
+        UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+            BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+            BeMusicSeeker.Properties.Resources.Warning)).ConfigureAwait(false);
+        UiDialogRoute.ThrowIfNotShown(result, "Maintenance rescan Busy notification");
+        return MaintenanceRescanStartResult.RejectedBusy;
+    }
+
+    private MaintenanceRescanStartResult StartCore()
     {
         RunContext run;
         lock (syncRoot)
         {
-            if (shutdownRequested || library == null || activeRun != null)
+            if (shutdownRequested || library == null)
             {
-                return false;
+                return MaintenanceRescanStartResult.NotStarted;
             }
-            if (!library.OperationAdmission.TryEnter(out IDisposable admission)) { return false; }
+            if (activeRun != null) { return MaintenanceRescanStartResult.RejectedBusy; }
+            if (!library.OperationAdmission.TryEnter(out IDisposable admission))
+            {
+                return library.OperationAdmission.IsAdmissionClosed
+                    ? MaintenanceRescanStartResult.NotStarted
+                    : MaintenanceRescanStartResult.RejectedBusy;
+            }
             generation++;
             run = new RunContext(generation, library, new CancellationTokenSource(), admission);
             activeRun = run;
@@ -256,13 +299,13 @@ internal sealed class MaintenanceRescanWorkflowOwner
                 throw new InvalidOperationException("Maintenance rescan scheduler returned no task.");
             }
             _ = ObserveScheduledAsync(run, scheduled);
-            return true;
+            return MaintenanceRescanStartResult.StartedResult;
         }
         catch (Exception exception)
         {
             CompleteFailure(run, exception);
             _ = FinishRunAsync(run);
-            return true;
+            return MaintenanceRescanStartResult.StartedResult;
         }
     }
 

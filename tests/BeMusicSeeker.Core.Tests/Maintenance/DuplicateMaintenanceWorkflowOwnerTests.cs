@@ -880,6 +880,99 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged { add { } remove { } }
     }
 
+    /// <summary>
+    /// 共通受付Lを外部が保持している間のフォルダ統合・ハッシュ整理は、確認・準備・変更へ進まず、受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示して、
+    /// 失敗を持たない受付使用中を返す。解放だけでは実行せず、次の明示要求は警告なしで一度実行する。黙った拒否、確認の表示、副作用、自動再実行を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("merge")]
+    [DataRow("hash")]
+    public async Task BusyAdmission_RejectsExplicitMaintenanceWithOneWarningAndRunsNextRequestAfterRelease(string operation)
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
+        Assert.IsTrue(gate.TryEnter(out IDisposable held));
+        using (held)
+        {
+            DuplicateMaintenanceMutationResult rejected = await RunDuplicateOperationAsync(owner, operation);
+
+            AssertBusyWarning(dialogs, rejected);
+            Assert.IsNull(dialogs.ConfirmationRequest, "使用中の要求では確認を表示しません。");
+            Assert.AreEqual(0, store.PhysicalMutationStarts);
+            CollectionAssert.AreEqual(Array.Empty<string>(), events);
+            Assert.IsFalse(gate.CanEnter);
+        }
+
+        Assert.AreEqual(0, store.PhysicalMutationStarts, "解放だけでは拒否した要求を実行しません。");
+        dialogs.Messages.Clear();
+        DuplicateMaintenanceMutationResult next = await RunDuplicateOperationAsync(owner, operation);
+        Assert.IsTrue(next.Succeeded, next.Failure?.ToString());
+        Assert.IsFalse(next.Busy);
+        Assert.AreEqual(1, store.PhysicalMutationStarts);
+        Assert.AreEqual(0, dialogs.Messages.Count(message => message.MessageBoxText == BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy));
+        Assert.IsTrue(gate.CanEnter);
+    }
+
+    /// <summary>
+    /// 確認後に対象別受付Pを取得できないフォルダ統合・ハッシュ整理は、活動・再生停止・変更へ進まず、LとPの解放後に受付使用中の警告を一度だけ表示する。
+    /// 結果は失敗を持たない非成功の受付使用中で、成功時の選択・FS/DB報告・一般失敗へ進まない。P拒否を成功として扱う誤りや、解放前の表示を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("merge")]
+    [DataRow("hash")]
+    public async Task PhysicalAdmissionBusyAfterConfirmation_WarnsOnceAfterReleaseWithoutSuccess(string operation)
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events) { PhysicalMutationAdmitted = false };
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        bool warnedAfterRelease = false;
+        dialogs.OnMessage = () => warnedAfterRelease = gate.CanEnter && !activity.IsActive;
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
+
+        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation);
+
+        AssertBusyWarning(dialogs, result);
+        Assert.IsTrue(warnedAfterRelease, "警告はLとPの解放後に表示します。");
+        Assert.IsNotNull(dialogs.ConfirmationRequest);
+        Assert.AreEqual(1, store.PhysicalMutationStarts);
+        Assert.AreEqual(0, result.RemovedChartCount);
+        Assert.IsNull(result.RemovalOutcome);
+        CollectionAssert.AreEqual(Array.Empty<string>(), events, "活動・再生停止・更新抑制・変更へ進みません。");
+        Assert.IsTrue(gate.CanEnter);
+    }
+
+    private static Task<DuplicateMaintenanceMutationResult> RunDuplicateOperationAsync(
+        DuplicateMaintenanceWorkflowOwner owner, string operation)
+    {
+        if (operation == "merge")
+        {
+            string source = @"C:\Songs\Source";
+            string destination = @"C:\Songs\Destination";
+            return owner.RunFolderMergeAsync(source, destination, new DuplicateGroup([], [source, destination]));
+        }
+        ChartFile first = CreateChart(@"C:\Songs\a.bms", "hash");
+        ChartFile second = CreateChart(@"C:\Songs\long-name.bms", "hash");
+        return owner.RunHashCleanupAsync(new DuplicateGroup([first, second], [@"C:\Songs"]), @"C:\Songs");
+    }
+
+    private static void AssertBusyWarning(FakeUiDialogService dialogs, DuplicateMaintenanceMutationResult result)
+    {
+        Assert.IsTrue(result.Busy);
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Failure, "受付使用中は一般の失敗として通知しません。");
+        UiMessageRequest warning = dialogs.Messages.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+        Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+        Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+    }
+
     private static DuplicateMaintenanceWorkflowOwner CreateOwner(
         List<string> events,
         RecordingPresentation presentation,

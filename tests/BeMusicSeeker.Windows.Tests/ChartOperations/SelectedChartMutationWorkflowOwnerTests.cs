@@ -669,7 +669,8 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         var presentation = new RecordingPresentation();
         var store = new HeldEncodingStore();
         var gate = new ChartFileOperationSynchronizer();
-        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, new FakeUiDialogService(), store, gate);
+        var dialogs = new FakeUiDialogService();
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store, gate);
         ChartOperationTarget target = CreateTarget("encoding.bms", ChartOperationSourceScope.Library, false,
             ChartOperationCapabilities.RunBmsEncodingFix);
         var request = new SelectedChartEncodingRequest([target], "utf-8");
@@ -694,7 +695,11 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.IsFalse(store.RanOnDispatcher);
                 Assert.AreEqual(0, notifications);
                 Assert.AreEqual(0, presentation.EncodingRefreshCalls);
-                Assert.IsFalse((await owner.ApplyEncodingAsync(request)).Succeeded);
+                SelectedChartMutationResult busy = await owner.ApplyEncodingAsync(request);
+                Assert.IsFalse(busy.Succeeded);
+                Assert.IsTrue(busy.Busy, "自分の実行中の明示要求も受付使用中として拒否します。");
+                Assert.IsNull(busy.Failure);
+                Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, dialogs.Messages.Single().MessageBoxText);
                 Assert.AreEqual(1, store.Attempts);
             });
             store.Failure = storeFails ? failure : null;
@@ -1045,7 +1050,10 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
                 Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable busy));
                 using (busy)
                 {
-                    Assert.IsFalse((await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], requestedEncoding))).Succeeded);
+                    SelectedChartMutationResult rejected = await owner.ApplyEncodingAsync(new SelectedChartEncodingRequest([target], requestedEncoding));
+                    Assert.IsFalse(rejected.Succeeded);
+                    Assert.IsTrue(rejected.Busy);
+                    Assert.IsNull(rejected.Failure, "使用中の拒否を汎用の失敗にしません。");
                     using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
                     Assert.IsFalse(read.Table<LR2SongDBExtended.maintenance>().Any(row => row.path == path));
                 }

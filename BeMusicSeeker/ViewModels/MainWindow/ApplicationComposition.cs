@@ -887,7 +887,8 @@ internal sealed class MainWindowChildComposition
             ?? throw new ArgumentNullException(nameof(scoreViewerRegistrationWorkflow));
         ZeroNoteMaintenanceWorkflow = new ZeroNoteMaintenanceWorkflowOwner(
             zeroNoteLibraryProvider ?? (() => null),
-            chartFileOperations);
+            chartFileOperations,
+            dialogService);
         PackageCatalogWorkflow = new PackageCatalogWorkflowOwner(
             packageCatalogLibraryProvider ?? (() => null),
             chartFileOperations,

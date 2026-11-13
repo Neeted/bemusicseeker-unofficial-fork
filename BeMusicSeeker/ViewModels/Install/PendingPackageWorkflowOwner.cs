@@ -205,10 +205,13 @@ internal interface IPendingPackageStore
     bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease)
     { lease = null; return true; }
 
-    /// <summary>保留導入または資源上書きの実scopeと実行窓口を一回準備します。取得Pは呼出元が実終端まで保持します。</summary>
-    IPendingPackageStore PreparePackagePhysicalMutation(BMSLibrary library, IReadOnlyList<ChartPackage> packages,
-        bool forceInstall, bool overwriteResources, out LibraryFileMutationLease lease)
-    { lease = null; return this; }
+    /// <summary>
+    /// 保留導入または資源上書きの実scopeと実行窓口を一回準備し、交差する対象別受付Pを取得します。取得Pは呼出元が実終端まで保持します。
+    /// Pが使用中ならfalseを返し、停止も物理実行も行いません。純portは常に受理します。
+    /// </summary>
+    bool TryPreparePackagePhysicalMutation(BMSLibrary library, IReadOnlyList<ChartPackage> packages,
+        bool forceInstall, bool overwriteResources, out IPendingPackageStore prepared, out LibraryFileMutationLease lease)
+    { prepared = this; lease = null; return true; }
 
     IReadOnlyList<ChartFile> SearchCorrect(
         BMSLibrary library,
@@ -1472,28 +1475,36 @@ internal sealed class PendingPackageWorkflowOwner
         IDisposable activityLease = null;
         bool suppressionStarted = false;
         bool mutationAttempted = false;
+        bool physicalAdmissionBusy = false;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
+            // 対象別受付Pの使用中は、活動・再生停止・変更へ進まず、受付の解放後に案内と同じ経路で一度だけ警告します。
             if (physicalPackages != null)
             {
-                operationStore = operationStore.PreparePackagePhysicalMutation(library, physicalPackages,
-                    forceInstall, overwriteResources, out playlistLease);
+                physicalAdmissionBusy = !operationStore.TryPreparePackagePhysicalMutation(library, physicalPackages,
+                    forceInstall, overwriteResources, out IPendingPackageStore prepared, out playlistLease);
+                if (!physicalAdmissionBusy) { operationStore = prepared; }
             }
-            else if (physicalPaths != null && !operationStore.TryBeginPhysicalMutation(library, physicalPaths, recursivePhysicalPaths, out playlistLease))
-            { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
-            playlistCapability = playlistLease?.CreateMutationCapability();
-            combinedCapability = capability.WithPlaylistCapability(playlistCapability);
-            operationStore = operationStore.ForAcceptedOperation(combinedCapability);
-            activityLease = chartMutationActivity.Enter();
-            if (changesFiles) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
-            suppressionStarted = true;
-            // 抑制の通知が失敗しても、開始済みの画面状態を復元する反映は必要です。
-            // 変更核の開始とは分け、変更後の目録照会を未開始時に行いません。
-            onRefreshSuppressionStarted?.Invoke();
-            PublishRefreshSuppressionChanged(isSuppressed: true, refreshScope);
-            mutationAttempted = true;
-            mutation(library, operationStore);
+            else if (physicalPaths != null)
+            {
+                physicalAdmissionBusy = !operationStore.TryBeginPhysicalMutation(library, physicalPaths, recursivePhysicalPaths, out playlistLease);
+            }
+            if (!physicalAdmissionBusy)
+            {
+                playlistCapability = playlistLease?.CreateMutationCapability();
+                combinedCapability = capability.WithPlaylistCapability(playlistCapability);
+                operationStore = operationStore.ForAcceptedOperation(combinedCapability);
+                activityLease = chartMutationActivity.Enter();
+                if (changesFiles) { await playback.StopPlaybackForMutationAsync().ConfigureAwait(false); }
+                suppressionStarted = true;
+                // 抑制の通知が失敗しても、開始済みの画面状態を復元する反映は必要です。
+                // 変更核の開始とは分け、変更後の目録照会を未開始時に行いません。
+                onRefreshSuppressionStarted?.Invoke();
+                PublishRefreshSuppressionChanged(isSuppressed: true, refreshScope);
+                mutationAttempted = true;
+                mutation(library, operationStore);
+            }
         }
         catch (Exception ex)
         {
@@ -1537,6 +1548,11 @@ internal sealed class PendingPackageWorkflowOwner
         }
 
         ThrowFailures(failures);
+        if (physicalAdmissionBusy)
+        {
+            noticeContext.PhysicalAdmissionBusy = true;
+            return false;
+        }
         return true;
     }
 
@@ -1609,12 +1625,25 @@ internal sealed class PendingPackageWorkflowOwner
         internal LibraryOperationNotices Notices { get; } = new();
 
         internal BMSLibrary Library { get; set; }
+
+        /// <summary>確認後に対象別受付Pが使用中で、変更へ進まなかったことを示します。受付の解放後に警告を一度だけ表示します。</summary>
+        internal bool PhysicalAdmissionBusy { get; set; }
     }
 
-    /// <summary>操作の収集先の案内を、受付の解放後に UI の外から待たずに依頼します（<see cref="FileDbMutationReport.BeginRequestOperationNotices"/>）。操作が使ったライブラリが終了の要求済みなら表示せず、診断へ残します。</summary>
-    private Task BeginShowOperationNotices(NoticeContext noticeContext) =>
-        FileDbMutationReport.BeginRequestOperationNotices(dialogs, noticeContext.Notices,
+    /// <summary>
+    /// 操作の収集先の案内を、受付の解放後に UI の外から待たずに依頼します（<see cref="FileDbMutationReport.BeginRequestOperationNotices"/>）。操作が使ったライブラリが終了の要求済みなら表示せず、診断へ残します。
+    /// 対象別受付Pの使用中で変更へ進まなかった場合は、その前に受付使用中の警告を一度だけ表示します。表示失敗は診断へ残し、一般の失敗へ置き換えません。
+    /// </summary>
+    private async Task BeginShowOperationNotices(NoticeContext noticeContext)
+    {
+        if (noticeContext.PhysicalAdmissionBusy && noticeContext.Library?.IsShutdownRequested != true)
+        {
+            try { await ShowPendingOperationAdmissionBusyAsync("Pending package physical"); }
+            catch (Exception exception) { LogPendingPresentationFailure(exception); }
+        }
+        await FileDbMutationReport.BeginRequestOperationNotices(dialogs, noticeContext.Notices,
             () => noticeContext.Library?.IsShutdownRequested == true, "pending_package", "shutdown_requested");
+    }
 
     /// <summary>呼出し元がすでに UI の外にいる場合に、同じ依頼を同期に行います（<see cref="FileDbMutationReport.RequestOperationNotices"/>）。</summary>
     private void ShowOperationNotices(NoticeContext noticeContext) =>
@@ -1763,16 +1792,20 @@ internal sealed class BmsLibraryPendingPackageStore : IPendingPackageStore
     public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease lease)
         => library.TryEnterManagedOutputMutation(paths, recursive, out lease, capability);
 
-    /// <summary>同じLで実scope・宛先・設定を捕捉し、交差Pを停止前に取得します。Busyでは物理実行しません。</summary>
-    public IPendingPackageStore PreparePackagePhysicalMutation(BMSLibrary library, IReadOnlyList<ChartPackage> packages,
-        bool forceInstall, bool overwriteResources, out LibraryFileMutationLease lease)
+    /// <summary>同じLで実scope・宛先・設定を捕捉し、交差Pを停止前に取得します。Busyではfalseを返し、物理実行しません。</summary>
+    public bool TryPreparePackagePhysicalMutation(BMSLibrary library, IReadOnlyList<ChartPackage> packages,
+        bool forceInstall, bool overwriteResources, out IPendingPackageStore prepared, out LibraryFileMutationLease lease)
     {
         (IReadOnlyList<string> paths, IReadOnlyDictionary<ChartPackage, string> destinations, BmsLibraryOptionsSnapshot options,
             PendingEstimatedInstallPreparation preparation)
             = library.PreparePendingPackagePhysicalScope(packages, forceInstall, overwriteResources);
         if (!library.TryEnterManagedOutputMutation(paths, true, out lease, capability, optionsSnapshot: options))
-        { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
-        return new BmsLibraryPendingPackageStore(capability, destinations, options, preparation);
+        {
+            prepared = null;
+            return false;
+        }
+        prepared = new BmsLibraryPendingPackageStore(capability, destinations, options, preparation);
+        return true;
     }
 
     /// <summary>パッケージ推定へ一操作の候補方針をそのまま渡します。</summary>

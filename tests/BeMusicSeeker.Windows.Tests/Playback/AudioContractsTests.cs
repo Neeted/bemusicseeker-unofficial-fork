@@ -2755,6 +2755,7 @@ public sealed class AudioContractsTests
             TemporaryFilesRemainNotifications++;
             return Task.CompletedTask;
         }
+        public Task NotifyLibraryOperationBusyAsync() => throw new AssertFailedException("Library operation admission is outside this input.");
         public void NotifyPlaybackFailure(Exception exception)
         {
             Notifications++;

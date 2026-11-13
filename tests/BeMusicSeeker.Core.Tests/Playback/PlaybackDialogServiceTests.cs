@@ -141,6 +141,36 @@ public sealed class PlaybackDialogServiceTests
             () => service.NotifyTemporaryFilesRemainAsync(directory)));
     }
 
+    /// <summary>
+    /// 試聴の明示開始の受付使用中の警告は、既存の警告リソース（本文・題名）とExclamation・OKの要求形式を使い、表示不能・表示失敗を成功へ置き換えません。
+    /// 本文の取り違え・アイコンの誤り・表示失敗の黙殺を検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task NotifyLibraryOperationBusy_UsesExistingWarningAndDialogOutcome()
+    {
+        var dialogs = new FakeUiDialogService
+        {
+            MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+        };
+        var service = new WpfPlaybackDialogService(dialogs);
+
+        await service.NotifyLibraryOperationBusyAsync();
+
+        UiMessageRequest request = dialogs.MessageRequest ?? throw new AssertFailedException("使用中の警告が要求されませんでした。");
+        Assert.AreEqual(Resources.Warn_LibraryOperationBusy, request.MessageBoxText);
+        Assert.AreEqual(Resources.Warning, request.Caption);
+        Assert.AreEqual(MessageBoxButton.OK, request.Button);
+        Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+        Assert.AreEqual(MessageBoxResult.OK, request.DefaultResult);
+
+        dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable);
+        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => service.NotifyLibraryOperationBusyAsync());
+        var failure = new InvalidOperationException("通知の表示失敗");
+        dialogs.MessageResult = UiDialogResult.Failed(failure);
+        Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => service.NotifyLibraryOperationBusyAsync()));
+    }
+
     private sealed class FakeUiDialogService : IUiDialogService
     {
         internal UiDialogResult? MessageResult { get; set; }

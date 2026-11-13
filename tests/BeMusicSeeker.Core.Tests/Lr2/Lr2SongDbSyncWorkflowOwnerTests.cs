@@ -17,7 +17,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
         var runtime = new RecordingRuntime { QueueTask = terminal.Task };
         var owner = new Lr2SongDbSyncWorkflowOwner(runtime);
         bool? admitted = null;
-        Task<bool> operation = owner.RequestManualResyncAsync(value => admitted = value);
+        Task<Lr2SongDbSyncManualResyncResult> operation = owner.RequestManualResyncAsync(value => admitted = value);
         try
         {
             Assert.AreEqual(true, admitted);
@@ -28,7 +28,7 @@ public sealed class Lr2SongDbSyncWorkflowOwnerTests
             Assert.IsFalse(runtime.QueueCalls[0].InitializationResult is not null);
             Assert.IsFalse(runtime.QueueCalls[0].AcceptedBackground);
             terminal.TrySetResult();
-            Assert.IsTrue(await operation);
+            Assert.AreEqual(Lr2SongDbSyncManualResyncResult.Accepted, await operation);
         }
         finally { terminal.TrySetResult(); await operation; }
     }

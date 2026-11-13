@@ -13,7 +13,10 @@ namespace BeMusicSeeker.Tests;
 
 public sealed partial class ApplicationCompositionTests
 {
-    /// <summary>実初期化後のBusyは依存操作を副作用前に拒否し、通常項目保存・候補・選択を維持します。通常Closeは未保存候補だけを確定値へ戻し、保存bytesを変えません。解放後の明示再生で共有受付を確認します。</summary>
+    /// <summary>
+    /// 実初期化後のBusyは依存操作を副作用前に拒否し、通常項目保存・候補・選択を維持します。通常Closeは未保存候補だけを確定値へ戻し、保存bytesを変えません。解放後の明示再生で共有受付を確認します。
+    /// 明示要求（保留の全消去と試聴の各明示開始）は、共通のダイアログ窓口へ受付使用中の警告を要求ごとに一度だけ出し、それ以外の案内を出しません。解放後の明示再生は警告しません。
+    /// </summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandardComposition_RejectsDependentOperationsWhileSavingOrdinaryItemsAndKeepingCandidates()
@@ -43,6 +46,7 @@ public sealed partial class ApplicationCompositionTests
         var session = new FakeSettingsEditSession { Values = values };
         var player = new FakeBmsPlayer();
         var dialogs = new FileDbReportRecordingDialogs();
+        var busyDialogs = new FileDbReportRecordingDialogs();
         var composition = new ApplicationComposition(settingsEditSession: session,
             defaultBmsPlayerFactory: () => player, uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
@@ -50,7 +54,7 @@ public sealed partial class ApplicationCompositionTests
             chartFileScanner: CapturedChartFileScanner.FromFixture([path], new Dictionary<string, IEnumerable<string>> { [root] = [] }, [root]),
             rootFileEnumerator: new FastRootFileEnumerator(),
             fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
-            dialogService: UndeclaredDialogs.Create());
+            dialogService: busyDialogs);
         var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
         MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(() => new MainWindowViewModel(composition, factory));
         IDisposable? lease = null;
@@ -68,8 +72,10 @@ public sealed partial class ApplicationCompositionTests
             viewModel.MainChartList.SelectedIndex = 0;
             bool before = viewModel.SettingDialog.KeepInstallablePackagesPending;
             int stopsBeforeBusy = player.CloseProcessCount;
+            Assert.AreEqual(0, busyDialogs.Messages.Count, "初期化までに共通の窓口へ案内を出しません。");
             Assert.IsTrue(composition.OperationAdmission.TryEnter(out lease));
             Assert.IsFalse((await viewModel.PackageCatalog.ClearAllAsync(PackageCatalogSection.Pending)).Succeeded);
+            AssertBusyWarnings(busyDialogs, 1);
             int messagesBeforeReload = dialogs.Messages.Count;
             await viewModel.ReloadFileDiffAsync();
             await viewModel.ReinitializeLibraryAsync();
@@ -79,6 +85,7 @@ public sealed partial class ApplicationCompositionTests
             await viewModel.PlaybackPanel.Next();
             await viewModel.PlaybackPanel.Previous();
             await viewModel.PlaybackPanel.ExecuteTableRowActivation(0, chart);
+            AssertBusyWarnings(busyDialogs, 6);
             Assert.IsFalse(player.Commands.Any(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
             Assert.AreEqual(stopsBeforeBusy, player.CloseProcessCount);
             Assert.IsNull(viewModel.PlaybackPanel.NowPlayingChart);
@@ -109,6 +116,7 @@ public sealed partial class ApplicationCompositionTests
             lease?.Dispose();
             await viewModel.PlaybackPanel.StartAtIndex(0);
             Assert.IsTrue(player.Commands.Any(command => command == "PlayStart:" + path));
+            AssertBusyWarnings(busyDialogs, 6);
             Assert.AreEqual(confirmedPlayer, viewModel.SettingDialog.BeatorajaPlayerId);
             Assert.AreEqual(confirmedPlayer, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaPlayerId);
         }
@@ -122,7 +130,10 @@ public sealed partial class ApplicationCompositionTests
     }
 
 
-    /// <summary>実LR2同期の受付保持中は既存試聴を保ち新規再生を拒否します。無関係な通常項目は実保存でき、終了時に別の保存や再読込みを合成しません。</summary>
+    /// <summary>
+    /// 実LR2同期の受付保持中は既存試聴を保ち新規再生を拒否します。無関係な通常項目は実保存でき、終了時に別の保存や再読込みを合成しません。
+    /// 同期中に拒否した明示的な試聴開始と保留の全消去は、受付使用中の警告をそれぞれ一度だけ出します。
+    /// </summary>
     [TestMethod]
     [DoNotParallelize]
     public async Task StandardComposition_ActualLr2KeepsPlaybackAndAllowsIndependentOrdinarySettings()
@@ -139,6 +150,7 @@ public sealed partial class ApplicationCompositionTests
         var session = new FakeSettingsEditSession { Values = values, PersistOwnedValues = true };
         var player = new FakeBmsPlayer();
         var dialogs = new FileDbReportRecordingDialogs();
+        var busyDialogs = new FileDbReportRecordingDialogs();
         var options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true };
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var release = new System.Threading.ManualResetEventSlim();
@@ -156,7 +168,7 @@ public sealed partial class ApplicationCompositionTests
             uiScheduler: new WpfUiScheduler(() => TestUiDispatcherHost.Dispatcher),
             applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
-            dialogService: UndeclaredDialogs.Create());
+            dialogService: busyDialogs);
         MainWindowViewModel viewModel = TestUiDispatcherHost.Dispatcher.Invoke(composition.CreateMainWindowViewModel);
         var profile = new LibraryProfile(true, scope.SongDbPath, [], composition.ResolveLr2Config(values.LR2ConfigXmlPath), null, false, false, false, false, "admission-lr2-test");
         BMSLibrary library = composition.CreateBmsLibrary(profile);
@@ -184,8 +196,10 @@ public sealed partial class ApplicationCompositionTests
             byte[] xmlBeforeBusy = File.ReadAllBytes(configPath);
             int reloadsBeforeBusy = session.ReloadCount;
             await viewModel.PlaybackPanel.StartAtIndex(0);
+            AssertBusyWarnings(busyDialogs, 1);
 
             Assert.IsFalse((await viewModel.PackageCatalog.ClearAllAsync(PackageCatalogSection.Pending)).Succeeded);
+            AssertBusyWarnings(busyDialogs, 2);
             Assert.AreEqual(playStarts, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
             Assert.AreEqual(stops, player.CloseProcessCount);
             Assert.AreEqual(0, session.SaveCount);
@@ -215,6 +229,19 @@ public sealed partial class ApplicationCompositionTests
                 viewModel.SettingDialog.Dispose();
                 viewModel.RegularChartList.Dispose();
             }
+        }
+    }
+
+    /// <summary>共通のダイアログ窓口に、受付使用中の警告（本文・題名・Exclamation・OK）だけが指定件数届いたことを確認します。</summary>
+    private static void AssertBusyWarnings(FileDbReportRecordingDialogs dialogs, int expected)
+    {
+        Assert.AreEqual(expected, dialogs.Messages.Count, "明示要求ごとに一度だけ警告し、他の案内を出しません。");
+        foreach (BeMusicSeeker.Views.Dialogs.UiMessageRequest warning in dialogs.Messages)
+        {
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, warning.Icon);
+            Assert.AreEqual(System.Windows.MessageBoxButton.OK, warning.Button);
         }
     }
 

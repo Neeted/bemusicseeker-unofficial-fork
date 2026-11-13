@@ -148,6 +148,17 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
         bool accepted = false;
         try
         {
+            // 確認の前に予約せず受付を判定し、使用中なら確認を出さずに警告だけを一度表示します。
+            BMSLibrary attached = libraryProvider();
+            if (attached != null
+                && !attached.OperationAdmission.CanEnter
+                && !attached.OperationAdmission.IsAdmissionClosed)
+            {
+                acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false));
+                await ShowBusyWarningAsync();
+                completion.TrySetResult(ChartInfoParseFailureRemovalResult.Busy);
+                return;
+            }
             UiDialogResult confirmation = await dialogs.ConfirmAsync(new UiConfirmationRequest(
                 BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record,
                 BeMusicSeeker.Properties.Resources.Confirm,
@@ -182,14 +193,12 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
             {
                 accepted = false;
                 acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false));
-                UiDialogResult warning = await dialogs.ShowMessageAsync(new UiMessageRequest(
-                    BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
-                    BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK,
-                    MessageBoxImage.Exclamation, MessageBoxResult.OK));
-                if (warning?.IsAccepted != true)
+                if (library.OperationAdmission.IsAdmissionClosed || library.IsShutdownRequested)
                 {
-                    throw new InvalidOperationException("Chart-info removal busy warning could not be displayed.", warning?.Exception);
+                    completion.TrySetResult(ChartInfoParseFailureRemovalResult.NotStarted);
+                    return;
                 }
+                await ShowBusyWarningAsync();
                 completion.TrySetResult(ChartInfoParseFailureRemovalResult.Busy);
                 return;
             }
@@ -213,6 +222,15 @@ internal sealed class ChartInfoParseFailureRemovalWorkflowOwner
             acceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted));
             completion.TrySetResult(ChartInfoParseFailureRemovalResult.Failed(exception, accepted));
         }
+    }
+
+    /// <summary>受付使用中の警告を一度表示します。×やAlt+F4で閉じても表示済みとして扱い、表示できなかった場合だけ失敗にします。</summary>
+    private async Task ShowBusyWarningAsync()
+    {
+        UiDialogResult warning = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+            BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+            BeMusicSeeker.Properties.Resources.Warning));
+        UiDialogRoute.ThrowIfNotShown(warning, "Chart-info removal busy warning");
     }
 }
 

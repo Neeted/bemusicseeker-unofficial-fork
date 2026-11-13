@@ -643,7 +643,10 @@ public sealed class PlaybackPanelViewModelTests
         finally { DisposeWorkspace(); }
     }
 
-    /// <summary>冒頭の競合確認後に別操作がLを先取りすると、Start/Next/Previous/実際の行activation入口はいずれも旧player・保留factory・session・異なる曲名/字幕/作者・表示対象・選択・イベント・実ファイルを変えません。旧終了callbackと後続の明示開始・停止・終了が引き続き有効で、受理後だけ保留playerを一回採用します。</summary>
+    /// <summary>
+    /// 冒頭の競合確認後に別操作がLを先取りすると、Start/Next/Previous/実際の行activation入口はいずれも旧player・保留factory・session・異なる曲名/字幕/作者・表示対象・選択・イベント・実ファイルを変えません。旧終了callbackと後続の明示開始・停止・終了が引き続き有効で、受理後だけ保留playerを一回採用します。
+    /// 一時コピーの受付競合で拒否した明示開始は受付使用中の警告を一度だけ表示し、解放後の明示開始は警告しません。
+    /// </summary>
     [TestMethod]
     [DataRow("Start")]
     [DataRow("Next")]
@@ -737,6 +740,7 @@ public sealed class PlaybackPanelViewModelTests
                 Assert.AreEqual(0, player.CloseProcessCount, "受付拒否では旧player/processを終了しません。");
                 Assert.AreEqual(0, replacementPlayer.Commands.Count);
                 Assert.AreEqual(entry == "PlayButton" ? 0 : 1, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+                Assert.AreEqual(1, dialogs.LibraryOperationBusyNotificationCount, "一時コピーの受付競合で拒否した明示開始は一度だけ警告します。");
                 otherOperation.Dispose();
                 otherOperation = null;
                 Assert.AreSame(oldChart, panel.NowPlayingChart);
@@ -757,6 +761,7 @@ public sealed class PlaybackPanelViewModelTests
                 await panel.CloseForShutdown();
                 Assert.IsFalse(operations.IsActive);
                 Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+                Assert.AreEqual(1, dialogs.LibraryOperationBusyNotificationCount, "解放後の明示開始は警告しません。");
             }
             finally
             {
@@ -1287,7 +1292,120 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
-    /// <summary>ファイル変更の受付中は再生を拒否し、現在曲の停止終端後だけ書込みを許可します。停止失敗時には物理変更と自動再開を行わないことも確認します。</summary>
+    /// <summary>
+    /// Lの使用中に受けた試聴の各明示開始（Start・再生ボタン・Next・Previous・行の起動・StartAtIndex）は、受付使用中の警告を一度だけ表示し、
+    /// 再生開始・現在曲の停止・process終了を行わず現在曲を保ちます。解放だけでは何も実行せず、次の明示開始は警告なしで一回だけ開始します。
+    /// 明示開始の黙った拒否・警告の重複・拒否時の停止・予約による自動開始を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("Start")]
+    [DataRow("PlayButton")]
+    [DataRow("Next")]
+    [DataRow("Previous")]
+    [DataRow("Activate")]
+    [DataRow("StartAtIndex")]
+    public async Task ExplicitStart_WhileLibraryOperationBusyWarnsOnceAndKeepsCurrentSong(string entry)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string[] paths = Enumerable.Range(0, 3).Select(index => workspace.GetPath($"busy-{index}.bms")).ToArray();
+        foreach (string path in paths) { File.WriteAllText(path, "busy"); }
+        var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
+        var operations = new ChartFileOperationSynchronizer();
+        var player = new FakeBmsPlayer();
+        var dialogs = new FakePlaybackDialogService();
+        int unexpectedNotificationCount = 0;
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Interlocked.Increment(ref unexpectedNotificationCount), operations,
+            temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
+        int PlayStarts() => player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal));
+        IDisposable? held = null;
+        try
+        {
+            await panel.StartAtIndex(1);
+            rows.SelectedIndex = 2;
+            ChartFile? current = panel.NowPlayingChart;
+            Assert.IsNotNull(current);
+            int startsBefore = PlayStarts();
+            Assert.IsTrue(operations.TryEnter(out held));
+            Task attempt = entry switch
+            {
+                "Start" => panel.Start(),
+                "PlayButton" => panel.HandlePlayButton(null),
+                "Next" => panel.Next(),
+                "Previous" => panel.Previous(),
+                "Activate" => panel.HandleTableRowActivation(2, rows.Rows[2]),
+                _ => panel.StartAtIndex(2)
+            };
+            await attempt;
+            Assert.AreEqual(1, dialogs.LibraryOperationBusyNotificationCount, "明示開始の拒否は一度だけ警告します。");
+            Assert.AreSame(current, panel.NowPlayingChart, "拒否では現在曲を変えません。");
+            Assert.AreEqual(startsBefore, PlayStarts(), "拒否では再生を開始しません。");
+            Assert.AreEqual(0, player.CloseProcessCount, "拒否では現在のprocessを終了しません。");
+            held.Dispose();
+            held = null;
+            Assert.AreEqual(startsBefore, PlayStarts(), "解放だけでは予約した開始を実行しません。");
+            await panel.StartAtIndex(2);
+            Assert.AreEqual(startsBefore + 1, PlayStarts());
+            Assert.AreEqual(paths[2], panel.NowPlayingChart?.Path);
+            Assert.AreEqual(1, dialogs.LibraryOperationBusyNotificationCount, "受理された次の明示開始は警告しません。");
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            held?.Dispose();
+            panel.BeginShutdown();
+            await panel.CloseForShutdown();
+        }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
+    }
+
+    /// <summary>
+    /// 試聴の自然終了による次曲がLの使用中で進めない場合は、従来どおり現在曲を停止し、受付使用中の警告を表示しません。
+    /// 自然終了を明示開始と同じ警告経路へ流す誤りと、次曲の開始を検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task NaturalExit_WhileLibraryOperationBusyStopsWithoutBusyWarning()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string[] paths = [workspace.GetPath("natural-0.tmp"), workspace.GetPath("natural-1.tmp")];
+        foreach (string path in paths) { File.WriteAllBytes(path, []); }
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var player = new PreloadBmsPlayer { Completion = completion.Task };
+        var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
+        var operations = new ChartFileOperationSynchronizer();
+        var dialogs = new FakePlaybackDialogService();
+        int unexpectedNotificationCount = 0;
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Interlocked.Increment(ref unexpectedNotificationCount), operations,
+            temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
+        var receipt = new PlaybackInputReceipt();
+        IDisposable? held = null;
+        try
+        {
+            await panel.HandleTableRowActivation(0, rows.Rows[0], receipt: receipt);
+            PlaybackStartReceipt start = receipt.Start ?? throw new AssertFailedException("開始の受領が記録されませんでした。");
+            ChartFile current = panel.NowPlayingChart ?? throw new AssertFailedException("現在曲がありません。");
+            Assert.IsTrue(operations.TryEnter(out held));
+            await panel.AcceptNextPlayback(player, EventArgs.Empty, (start.Generation, player, current))();
+            Assert.AreEqual(0, dialogs.LibraryOperationBusyNotificationCount, "自然終了の次曲は警告しません。");
+            Assert.IsNull(panel.NowPlayingChart, "使用中の自然終了は従来どおり現在曲を停止します。");
+            Assert.AreEqual(1, player.Starts.Count, "使用中の自然終了は次曲を開始しません。");
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            held?.Dispose();
+            completion.TrySetResult();
+            panel.BeginShutdown();
+            await panel.CloseForShutdown();
+        }
+        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
+    }
+
+    /// <summary>
+    /// ファイル変更の受付中は再生を拒否し、現在曲の停止終端後だけ書込みを許可します。停止失敗時には物理変更と自動再開を行わないことも確認します。
+    /// 変更受付中の明示開始の拒否は受付使用中の警告を一度だけ表示し、汎用の失敗通知を出しません。
+    /// </summary>
     /// <remarks>Ready待ちの代表はmutationの同期停止受付を現在曲解除で観測し、後発UI Stopのworkerを遅らせても変更前停止が実Closeへ合流することを確認します。</remarks>
     [TestMethod]
     [DataRow(false, false)]
@@ -1308,8 +1426,9 @@ public sealed class PlaybackPanelViewModelTests
         var player = new PreloadBmsPlayer { Ready = ready.Task, Completion = completion.Task };
         var rows = new MainChartListViewModel { Rows = paths.Select(path => (object)(ChartTestValues.Empty() with { Path = path })).ToList() };
         var operations = new ChartFileOperationSynchronizer();
+        var playbackDialogs = new FakePlaybackDialogService();
         var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
-            new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
+            new InMemoryPlaybackSettingsStore(), playbackDialogs, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), operations, temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
         var store = new PhysicalChartDeletionStore();
         var mutation = new SelectedChartMutationWorkflowOwner(
             () => UninitializedBmsLibrary.Create(),
@@ -1344,6 +1463,8 @@ public sealed class PlaybackPanelViewModelTests
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, deletion, "playback.mutation-stop");
             await panel.StartAtIndex(1);
             Assert.AreEqual(1, player.Starts.Count, "変更受付中の再生を後から実行する予約にはしません。");
+            Assert.AreEqual(1, playbackDialogs.LibraryOperationBusyNotificationCount, "変更受付中の明示開始は一度だけ警告します。");
+            Assert.AreEqual(0, playbackDialogs.PlaybackFailureNotificationCount);
             Assert.AreEqual(0, store.Mutations, "停止完了前にファイルを変更しません。");
             Assert.IsTrue(File.Exists(paths[1]));
             Assert.IsFalse(deletion.IsCompleted, "実Closeの終端前に変更要求を完了させません。");
@@ -1358,6 +1479,7 @@ public sealed class PlaybackPanelViewModelTests
             Assert.AreEqual(failStop, File.Exists(paths[1]));
             Assert.IsFalse(operations.IsActive);
             Assert.AreEqual(1, player.Starts.Count, "変更後には自動再開しません。");
+            Assert.AreEqual(1, playbackDialogs.LibraryOperationBusyNotificationCount, "解放だけでは再警告も再実行もしません。");
         }
         finally
         {

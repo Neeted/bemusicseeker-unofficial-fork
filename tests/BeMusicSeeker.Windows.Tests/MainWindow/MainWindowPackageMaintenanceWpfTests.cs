@@ -761,9 +761,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 }
                 else
                 {
-                    Assert.IsTrue(viewModel.FolderAutoRenameWorkflow.RequestStartSelected([
+                    Task<FolderAutoRenameRequestStatus> selectedRequest = viewModel.FolderAutoRenameWorkflow.RequestStartSelectedAsync([
                         new ChartOperationTarget((chart), null,
-                            ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary)]));
+                            ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary)]);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(selectedRequest, "B1 selected admission");
+                    Assert.AreEqual(FolderAutoRenameRequestStatus.Started, selectedRequest.Result);
                 }
 
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.FolderAutoRenameWorkflow.WaitForIdleAsync(), "B1 terminal");
@@ -1962,6 +1964,59 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             pendingInstallationTerminal: pendingInstallationTerminal);
     }
 
+    /// <summary>
+    /// インストール済みの「すべて消去」を実の導入目録ownerへ接続し、テストがLを保持した状態で操作したとき、
+    /// ownerと画面の通知先に共有した記録用ダイアログへ受付使用中の警告（本文・題名・Exclamation・OK）だけが一度届くことを確認します。
+    /// 結果は使用中でFailureを持たず、消去確認と汎用エラーを出さず、拒否後のLは解放済みで、解放だけでは再警告しません。
+    /// </summary>
+    [TestMethod]
+    public void CompiledInstalledClearAllBusyShowsOneOwningWarning()
+    {
+        var dialogs = new FileDbReportRecordingDialogs();
+        var admission = new ChartFileOperationSynchronizer();
+        var owner = new PackageCatalogWorkflowOwner(() => null, admission, new ChartMutationActivityOwner(),
+            dialogs, new NoOpChartMutationPlaybackPort(), mutation => Task.Run(mutation));
+        var results = new List<Task<PackageCatalogMutationResult>>();
+        var packageCatalogTerminal = new MainWindowPackageCatalogTerminal(
+            section =>
+            {
+                Task<PackageCatalogMutationResult> operation = owner.ClearAllAsync(section);
+                results.Add(operation);
+                return operation;
+            },
+            (_, _) => Task.FromResult(PackageCatalogMutationResult.Rejected),
+            _ => Task.FromResult(PackageCatalogMutationResult.Rejected));
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var installedMenu = (ContextMenu)window.FindResource("treeViewInstalledContextMenu");
+                Assert.IsTrue(admission.TryEnter(out IDisposable held));
+                using (held)
+                {
+                    MenuItem clearAll = installedMenu.Items.OfType<MenuItem>().Single();
+                    Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(clearAll));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "installed clear-all busy terminal");
+                    Task<PackageCatalogMutationResult> operation = results.Single();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "installed clear-all busy result");
+                    PackageCatalogMutationResult result = operation.Result;
+                    Assert.IsFalse(result.Succeeded);
+                    Assert.IsTrue(result.Busy, "使用中は成功・取消・失敗と区別します。");
+                    Assert.IsNull(result.Failure, "使用中を汎用の失敗にしません。");
+                    UiMessageRequest warning = dialogs.Messages.Single();
+                    Assert.AreEqual(Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+                    Assert.AreEqual(Resources.Warning, warning.Caption);
+                    Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+                    Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+                }
+                Assert.IsTrue(admission.TryEnter(out IDisposable next), "拒否はLを保持し続けません。");
+                next.Dispose();
+                Assert.AreEqual(1, dialogs.Messages.Count, "解放だけでは再警告しません。");
+            },
+            packageCatalogTerminal: packageCatalogTerminal,
+            playlistWorkspaceDialogService: dialogs);
+    }
+
     /// <summary>packageと選択譜面の手動・強制導入クリックが同じreceipt通知へ接続し、後片付け失敗と確定済み変更を報告します。</summary>
     [TestMethod]
     [DataRow(false, false)] // packageの強制導入。
@@ -2027,7 +2082,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             targets =>
             {
                 Assert.IsNotNull(targets);
-                return true;
+                return Task.CompletedTask;
             },
             path =>
             {
@@ -2076,7 +2131,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             targets =>
             {
                 capturedTargets = targets;
-                return true;
+                return Task.CompletedTask;
             },
             _ => Task.CompletedTask);
 

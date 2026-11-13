@@ -1208,6 +1208,71 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             playlistWorkspaceDialogService: dialogs);
     }
 
+    /// <summary>
+    /// compiledメニューの削除・改名・文字コード修正を実の選択譜面変更ownerへ接続し、テストがLを保持した状態で操作したとき、
+    /// ownerと画面の通知先に共有した記録用ダイアログへ受付使用中の警告（本文・題名・Exclamation・OK・画面所有）だけが一度届き、汎用エラーを重ねないことを確認します。
+    /// 結果は成功・失敗と区別した使用中で、確認ダイアログを出さず、拒否後にLが解放済みであることも確認します。移動は親フォルダ一覧の束縛が必要なためownerテストへ分担します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("delete")]
+    [DataRow("rename")]
+    [DataRow("encoding")]
+    public void CompiledSelectedMutationBusyShowsOneOwningWarning(string entry)
+    {
+        var dialogs = new FileDbReportRecordingDialogs();
+        var admission = new ChartFileOperationSynchronizer();
+        var owner = new SelectedChartMutationWorkflowOwner(() => UninitializedBmsLibrary.Create(), admission, new ChartMutationActivityOwner(),
+            new NoOpChartMutationPlaybackPort(), dialogs, new PlaybackPanelTestSupport.UnusedPendingDeletionDialog());
+        var results = new List<Task<SelectedChartMutationResult>>();
+        Task<SelectedChartMutationResult> Record(Task<SelectedChartMutationResult> operation) { results.Add(operation); return operation; }
+        var mutation = new MainWindowSelectedChartMutationTerminal(
+            request => Record(owner.DeleteAsync(request)),
+            request => Record(owner.RenameInvalidExtensionsAsync(request)),
+            request => Record(owner.MoveAsync(request)),
+            request => Record(owner.ApplyEncodingAsync(request)));
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('d', 32), @"C:\selected-busy\chart.bms");
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                MenuItem item = entry switch
+                {
+                    "delete" => (MenuItem)FindMenuItem(menu, "tableContextMenuItemDeleteFile").Items[1],
+                    "rename" => FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt"),
+                    _ => FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First()
+                };
+                Assert.IsTrue(admission.TryEnter(out IDisposable held));
+                using (held)
+                {
+                    Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected busy event terminal");
+                    Task<SelectedChartMutationResult> operation = results.Single();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selected busy owner result");
+                    SelectedChartMutationResult result = operation.Result;
+                    Assert.IsFalse(result.Succeeded);
+                    Assert.IsTrue(result.Busy, "使用中は成功・取消・失敗と区別します。");
+                    Assert.IsNull(result.Failure, "使用中を汎用の失敗にしません。");
+                    UiMessageRequest warning = dialogs.Messages.Single();
+                    Assert.AreEqual(Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+                    Assert.AreEqual(Resources.Warning, warning.Caption);
+                    Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+                    Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+                    Assert.AreEqual(0, dialogs.Messages.Count(message => message.MessageBoxText == Resources.Msg_error_unexpected));
+                }
+                Assert.IsTrue(admission.TryEnter(out IDisposable next), "拒否はLを保持し続けません。");
+                next.Dispose();
+                Assert.AreEqual(1, dialogs.Messages.Count, "解放だけでは再警告しません。");
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(mutation: mutation),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
     /// <summary>物理・DB反映・確定後反映・後片付けの四種のreceiptを実reportへ一度渡し、compiled rename入口が汎用通知を重ねないことを確認します。確定factsと実解放は下位ownerテストが分担します。</summary>
     [TestMethod]
     [DataRow(0)]

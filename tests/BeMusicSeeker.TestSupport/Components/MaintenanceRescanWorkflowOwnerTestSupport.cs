@@ -16,13 +16,23 @@ internal static class MaintenanceRescanWorkflowOwnerTestSupport
 
         internal UiConfirmationRequest LastConfirmationRequest { get; private set; } = null!;
 
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) =>
-            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        /// <summary>表示を要求された通知です。</summary>
+        internal List<UiMessageRequest> Messages { get; } = [];
+
+        /// <summary>確認の表示中に実行する処理です。確認後に受付を失う競合の再現に使います。</summary>
+        internal Action? OnConfirmation { get; set; }
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            Messages.Add(request);
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
             ConfirmationCalls++;
             LastConfirmationRequest = request;
+            OnConfirmation?.Invoke();
             return Task.FromResult(ConfirmationResult);
         }
 

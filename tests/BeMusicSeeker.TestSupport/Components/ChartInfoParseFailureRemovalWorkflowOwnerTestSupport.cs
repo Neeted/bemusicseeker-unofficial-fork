@@ -42,12 +42,29 @@ internal static class ChartInfoParseFailureRemovalWorkflowOwnerTestSupport
 
         internal UiConfirmationRequest LastConfirmationRequest { get; private set; } = null!;
 
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) =>
-            Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        /// <summary>表示を要求された通知です。</summary>
+        internal List<UiMessageRequest> Messages { get; } = [];
+
+        /// <summary>表示を要求された確認の件数です。</summary>
+        internal int ConfirmationCount { get; private set; }
+
+        /// <summary>確認の表示中に実行する処理です。確認後に受付を失う競合の再現に使います。</summary>
+        internal Action? OnConfirmation { get; set; }
+
+        /// <summary>通知の表示結果です。既定はOKで閉じた結果です。×やAlt+F4で閉じた結果の再現に使います。</summary>
+        internal UiDialogResult MessageResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            Messages.Add(request);
+            return Task.FromResult(MessageResult);
+        }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {
+            ConfirmationCount++;
             LastConfirmationRequest = request;
+            OnConfirmation?.Invoke();
             return Task.FromResult(ConfirmationResult);
         }
 

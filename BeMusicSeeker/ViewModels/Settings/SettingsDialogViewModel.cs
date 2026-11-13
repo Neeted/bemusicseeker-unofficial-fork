@@ -298,12 +298,17 @@ public partial class SettingsDialogViewModel : ViewModel
     internal async Task RequestLr2SongDbSyncCoreAsync(Action accepted = null)
     {
         if (!CanRequestLr2SongDbSyncCore) { return; }
-        await lr2SongDbSyncWorkflow.RequestManualResyncAsync(admitted =>
+        Lr2SongDbSyncManualResyncResult result = await lr2SongDbSyncWorkflow.RequestManualResyncAsync(admitted =>
         {
             if (!admitted) { return; }
             DiscardConflictingCandidates(ConflictingCandidates.Lr2Details | ConflictingCandidates.Lr2Mode);
             accepted?.Invoke();
         });
+        // L/Pの使用中による拒否だけを警告します。設定ウィンドウは閉じず、LR2の候補も保持します。
+        if (result == Lr2SongDbSyncManualResyncResult.RejectedBusy)
+        {
+            await ShowUiMessageAsync(Resources.Warn_LibraryOperationBusy, Resources.Warning, MessageBoxImage.Exclamation, "LR2 manual resync admission");
+        }
     }
 
     private Settings ApplicationSettings => settingsEditSession.Values;
@@ -2012,8 +2017,19 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             if (value == null || string.Equals(ApplicationSettings.BMSInstallDir, value, StringComparison.OrdinalIgnoreCase) || !IsBMSInstallDirValid(value)) { return; }
             if (RequiresBmsInstallDirectoryConfirmation && !allowCandidateConfirmation) { return; }
+            // 候補破棄の確認を出す場合だけ、使用中のLを確認前に予約なしで検査し、答えても進めない確認を出しません。
+            if (RequiresBmsInstallDirectoryConfirmation
+                && !operationAdmission.CanEnter && !operationAdmission.IsAdmissionClosed)
+            {
+                await ShowInstallDirectoryAdmissionBusyAsync();
+                return;
+            }
             if (!await ConfirmCandidateSwitchAsync(ConflictingCandidates.Bms)) { return; }
-            if (!operationAdmission.TryEnter(out IDisposable lease)) { return; }
+            if (!operationAdmission.TryEnter(out IDisposable lease))
+            {
+                if (!operationAdmission.IsAdmissionClosed) { await ShowInstallDirectoryAdmissionBusyAsync(); }
+                return;
+            }
             Exception saveFailure = null;
             using (lease)
             {
@@ -2026,6 +2042,10 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         finally { RaisePropertyChanged(nameof(BMSInstallDir)); RefreshDeficiencies(); RaiseValidationStateChanged(); }
     }
+
+    /// <summary>独立導入先の選択がLの使用中で保存されなかったことを、設定ウィンドウで一度だけ警告します。予約や再試行は行いません。</summary>
+    private Task ShowInstallDirectoryAdmissionBusyAsync()
+        => ShowUiMessageAsync(Resources.Warn_LibraryOperationBusy, Resources.Warning, MessageBoxImage.Exclamation, "BMS install directory admission");
 
     /// <summary>個別LR2パスの今回入力を検証し、非同期の候補確認と採用時再検査後に詳細組へ採用します。</summary>
     internal Task SelectLr2DetailPathAsync(string propertyName, string value) => RunSettingsOperationAsync(() => SelectLr2DetailPathCoreAsync(propertyName, value));

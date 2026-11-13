@@ -84,8 +84,10 @@ internal sealed class DuplicateMaintenanceMutationResult
         int removedChartCount,
         Exception failure,
         DuplicateMergeMaintenanceReceipt mutationReceipt = null,
-        LibraryChartRemovalOutcome removalOutcome = null)
+        LibraryChartRemovalOutcome removalOutcome = null,
+        bool busy = false)
     {
+        Busy = busy;
         RemovalOutcome = removalOutcome;
         Succeeded = succeeded;
         SelectionContext = selectionContext;
@@ -149,6 +151,18 @@ internal sealed class DuplicateMaintenanceMutationResult
     internal static DuplicateMaintenanceMutationResult Rejected(DuplicateViewContext selectionContext)
     {
         return new DuplicateMaintenanceMutationResult(false, selectionContext, 0, null);
+    }
+
+    /// <summary>
+    /// 共通受付Lまたは対象別受付Pの使用中で、明示要求を副作用前に拒否したことを示します。
+    /// 警告は所有者が一度だけ表示済みで、失敗を持たず、成功時の選択へ進みません。
+    /// </summary>
+    internal bool Busy { get; }
+
+    /// <summary>受付使用中による未受理を返します。成功・利用者の取消・失敗のいずれとも区別します。</summary>
+    internal static DuplicateMaintenanceMutationResult RejectedBusy(DuplicateViewContext selectionContext)
+    {
+        return new DuplicateMaintenanceMutationResult(false, selectionContext, 0, null, busy: true);
     }
 
     /// <summary>物理対象なしを返し、成功時の選択を行いません。</summary>
@@ -479,7 +493,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     {
         if (!chartFileOperations.TryEnter(out IDisposable operationGate))
         {
-            return DuplicateMaintenanceMutationResult.Rejected(request.SelectionContext);
+            return await RejectAdmissionAsync(request.SelectionContext);
         }
         bool operationGateTransferred = false;
         string message = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
@@ -521,6 +535,10 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 physicalPaths: [request.SourceDirectory, request.DestinationDirectory]));
             operationGateTransferred = true;
             DuplicateMaintenanceMutationResult result = await mutationTask;
+            if (result.Busy)
+            {
+                return await NotifyPhysicalAdmissionBusyAsync(result);
+            }
             if (result.MutationReceipt?.SessionReceipt.HasUnrestoredExistingDestination == true)
             {
                 await exitForUnrestoredDestination(result.MutationReceipt.SessionReceipt.PrimaryFailure);
@@ -547,7 +565,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     {
         if (!chartFileOperations.TryEnter(out IDisposable operationGate))
         {
-            return DuplicateMaintenanceMutationResult.Rejected(plan.SelectionContext);
+            return await RejectAdmissionAsync(plan.SelectionContext);
         }
         bool operationGateTransferred = false;
         try
@@ -612,6 +630,10 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 if (pendingPublication != null) { FileDbMutationReport.NotifyBestEffort(pendingPublication); }
             }
+            if (result.Busy)
+            {
+                return await NotifyPhysicalAdmissionBusyAsync(result);
+            }
             result = DuplicateMaintenanceMutationResult.FromRemoval(plan.SelectionContext, removalOutcome, result.Failure);
             await LibraryChartRemovalReport.ShowAsync(dialogs, removalOutcome, result.Failure);
             return result;
@@ -623,6 +645,53 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 operationGate.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// 共通受付Lを取得できなかった明示要求を副作用前に終えます。終了要求で受付が閉じた場合は通知せず拒否を返し、
+    /// それ以外の使用中（同じ所有者の実行中を含む）は警告を一度だけ表示して受付使用中を返します。警告の表示失敗は失敗として返します。
+    /// </summary>
+    private async Task<DuplicateMaintenanceMutationResult> RejectAdmissionAsync(DuplicateViewContext selectionContext)
+    {
+        if (chartFileOperations.IsAdmissionClosed)
+        {
+            return DuplicateMaintenanceMutationResult.Rejected(selectionContext);
+        }
+        try
+        {
+            await ShowBusyWarningAsync();
+            return DuplicateMaintenanceMutationResult.RejectedBusy(selectionContext);
+        }
+        catch (Exception exception)
+        {
+            return DuplicateMaintenanceMutationResult.Failed(selectionContext, exception);
+        }
+    }
+
+    /// <summary>確認後に対象別受付Pを取得できず、LとPを解放済みの要求を一度だけ警告します。終了要求後は通知しません。</summary>
+    private async Task<DuplicateMaintenanceMutationResult> NotifyPhysicalAdmissionBusyAsync(DuplicateMaintenanceMutationResult result)
+    {
+        if (libraryProvider()?.IsShutdownRequested == true || chartFileOperations.IsAdmissionClosed)
+        {
+            return result;
+        }
+        try
+        {
+            await ShowBusyWarningAsync();
+            return result;
+        }
+        catch (Exception exception)
+        {
+            return DuplicateMaintenanceMutationResult.Failed(result.SelectionContext, exception);
+        }
+    }
+
+    private async Task ShowBusyWarningAsync()
+    {
+        UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+            BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+            BeMusicSeeker.Properties.Resources.Warning));
+        UiDialogRoute.ThrowIfNotShown(result, "Duplicate maintenance Busy notification");
     }
 
     private async Task<ConfirmationDecision> ConfirmIfNeededAsync(string message, string routeName)
@@ -676,6 +745,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         IEnumerable<string> physicalPaths = null,
         bool stopPlayback = true)
     {
+        ArgumentNullException.ThrowIfNull(acquiredOperationGate);
         var failures = new List<ExceptionDispatchInfo>();
         BMSLibrary library = null;
         DuplicateMergeMaintenanceReceipt mutationReceipt = null;
@@ -690,10 +760,6 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         try
         {
             operationGate = acquiredOperationGate;
-            if (operationGate == null && !chartFileOperations.TryEnter(out operationGate))
-            {
-                return DuplicateMaintenanceMutationResult.Rejected(selectionContext);
-            }
             library = libraryProvider();
             if (library == null)
             {
@@ -705,8 +771,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             IDuplicateMaintenanceStore operationStore = store.ForAcceptedOperation(capability);
             if (physicalPaths != null)
             {
+                // 対象別受付Pの使用中は活動・再生停止・変更へ進まず、LとPの解放後に呼出し側が一度だけ警告します。
                 if (!operationStore.TryBeginPhysicalMutation(library, physicalPaths, true, out playlistLease))
-                { return DuplicateMaintenanceMutationResult.Rejected(selectionContext); }
+                { return DuplicateMaintenanceMutationResult.RejectedBusy(selectionContext); }
                 playlistCapability = playlistLease?.CreateMutationCapability();
                 combinedCapability = capability.WithPlaylistCapability(playlistCapability);
                 operationStore = store.ForAcceptedOperation(combinedCapability);

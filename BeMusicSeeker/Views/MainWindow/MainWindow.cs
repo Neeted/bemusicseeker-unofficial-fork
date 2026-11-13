@@ -7388,7 +7388,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            folderAutoRenameTerminal.StartSelected(targets);
+            await folderAutoRenameTerminal.StartSelectedAsync(targets);
         }
         catch (Exception exception)
         {

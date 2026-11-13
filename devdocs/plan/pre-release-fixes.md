@@ -36,14 +36,6 @@
 - 検証: 各DB種別のスキーマ準備後の `sqlite_master` の定義が許可範囲だけで構成されることを、共通の検査で確認する。判定基準は `test-contract-designer` が仕様から定める。
 - 許可パスの目安: `BeMusicSeeker/Models/BmsLibraryInternal/Playlist/`、`Models/BmsLibraryInternal/Lr2/`、`Models/LR2/`、関連テスト、上記仕様。
 
-### 受付使用中の拒否通知
-
-- 区分: 重大（受付・結果型・通知の責務）。対象: [ライブラリ操作の受付が使用中のときの拒否通知](#ライブラリ操作の受付が使用中のときの拒否通知)、[更新後初回の譜面情報の全件再解析](#更新後初回の譜面情報の全件再解析)の拒否表示。
-- 契約: 利用者が明示した要求が共通の受付（L）または管理出力の受付（P）の競合で拒否された場合は、副作用なしで `Warn_LibraryOperationBusy` を警告として一回だけ出す。汎用の「予期しないエラー」は実際の処理失敗だけに使う。確認ダイアログを先に出す入口は、確認の前に受付の可否を検査する（予約はしない）。背景処理、受理済みの継続、自然終了による次曲の開始は案内しない。メニューやボタンを使用中に無効化する方式は採らない。
-- 範囲: 右クリックの「ごみ箱へ移動」「移動」「無効な拡張子に変更」「文字コード」、Pの交差による拒否（所持・保留）、フォルダの自動リネーム（選択・一括）、インストール履歴・保留履歴の消去、重複の統合とハッシュ整理、全譜面の再検査、ゼロノートの再確認、設定の「LR2の派生データを再同期」、独立導入先の選択、試聴の明示的な開始（再生ボタン、行の起動、前へ・次へ）。単位責任者はLとPの取得箇所を列挙し、明示要求の入口に漏れがないことを確認する。
-- 正本: [操作の競合ポリシー](../spec/core/operation-concurrency-policy.md#競合拒否と見送り)に明示要求の案内規則を一か所で定め、[ライブラリ変更](../spec/library/mutations.md)、[設定](../spec/runtime/settings.md)、試聴の仕様はそこを参照する。
-- 許可パスの目安: `BeMusicSeeker/ViewModels/ChartOperations/`、`ViewModels/Install/`、`ViewModels/Maintenance/`、`ViewModels/Playback/`、`ViewModels/Settings/` の該当箇所、`Views/MainWindow/MainWindow.cs` の通知の接続、関連テスト、上記仕様。
-
 ### 進捗表示
 
 - 区分: 通常。対象: [譜面情報の補完の件数表示](#譜面情報の補完の件数表示)、[ステータスバー仕様の段階数と子行の所属](#ステータスバー仕様の段階数と子行の所属)。
@@ -125,31 +117,6 @@ v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修�
 
 「LR2が開くDBへSQLite 3.6.7で解析できない構文を残さない」契約を `song.db` のアプリ所有オブジェクト全体へ広げ、[LR2楽曲DB](../spec/integration/lr2-song-db.md)にも明記する。検証は、`EnsureAppOwnedSchema` 後の `sqlite_master` の全索引が列名と `COLLATE` だけで構成され、式・`WHERE` 句・新しい関数を含まないことと、式索引を持つDBを開くと素の列の索引へ置き換わることを、既存の索引再作成のテスト系列で確認する。LR2履歴スキーマの禁止構文検査と同種の検査を `song.db` へ広げられるかも確認する。
 
-#### ライブラリ操作の受付が使用中のときの拒否通知
-
-共通の受付（L）を他の処理が保持している間に利用者が明示的に要求した操作の拒否表示が、入口ごとに分かれている。[ライブラリ変更](../spec/library/mutations.md)と[操作の競合ポリシー](../spec/core/operation-concurrency-policy.md#競合拒否と見送り)は、通常の変更の競合を `Warn_LibraryOperationBusy` で案内すると定める。
-
-- 一覧の右クリックの「ファイル削除 > ごみ箱へ移動」「移動」「ファイル削除 > 無効な拡張子に変更」「文字コード」は、確認も出ずに「予期しないエラーが発生しました。」のエラーダイアログになる。[SelectedChartMutationWorkflowOwner](../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartMutationWorkflowOwner.cs) が受付の拒否を英文の `InvalidOperationException` を持つ `Failed` として返し（318・487・604行付近ほか）、[MainWindow](../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の `NotifyMainWindowOperationFailureAsync`（279行付近）が `Msg_error_unexpected` で表示する。v3.1.0.0はログだけの無言で、汎用エラー表示は退行である。
-- 管理出力との交差でPを取れない場合も、同じ管理主体が本文 `Warn_LibraryOperationBusy` の例外を失敗に入れ（722行付近）、表示は汎用エラーになる。[PendingPackageWorkflowOwner](../../BeMusicSeeker/ViewModels/Install/PendingPackageWorkflowOwner.cs) の同種の例外も右クリックのハンドラーで汎用エラーになる。
-- フォルダの自動リネーム（選択・一括）、インストール済み・保留の履歴の消去、重複の統合とハッシュ整理、全譜面の再検査、ゼロノートの再確認は、何も表示せずに実行しない。[FolderAutoRenameWorkflowOwner](../../BeMusicSeeker/ViewModels/Maintenance/FolderAutoRenameWorkflowOwner.cs) は拒否を英文例外の失敗にし、受領がないため [FileDbMutationReport](../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) が表示しない。[PackageCatalogWorkflowOwner](../../BeMusicSeeker/ViewModels/Install/PackageCatalogWorkflowOwner.cs) と [DuplicateMaintenanceWorkflowOwner](../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) は失敗のない `Rejected`、[MaintenanceRescanWorkflowOwner](../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceRescanWorkflowOwner.cs) は `NotStarted`、[ZeroNoteMaintenanceWorkflowOwner](../../BeMusicSeeker/ViewModels/Maintenance/ZeroNoteMaintenanceWorkflowOwner.cs) は `false` を返し、呼出し側は失敗以外を通知しない。全譜面の再検査は確認にOKした後に無言で終わる。
-- 入口の事前抑止 `ShouldBlockChartPackageMutationInteraction`（[MainWindow](../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) 1621行付近）は譜面変更自身の活動だけを見るため、背景処理のL保持ではメニューが開き押せる。
-
-無言の拒否自体はv3.1.0.0からあるが、3.2.0.0では譜面情報・保守情報の補完、導入可能譜面の保守、LR2全体同期が背景でLを保持するため、起動直後の数秒から十数秒や、後述の更新後初回の全件再解析の間に通常操作で頻繁に到達する。同じ右クリックの「再検査」「警告を無視」、解析失敗の登録の除去、音声変換、保留の各操作、フォルダ名のセル編集、再読込みは既に `Warn_LibraryOperationBusy` を出しており、これらと揃える。
-
-修正方針は次のとおり。
-
-- 上記の管理主体の結果へ、[SelectedChartResourceHealthWorkflowOwner](../../BeMusicSeeker/ViewModels/ChartOperations/SelectedChartResourceHealthWorkflowOwner.cs) の `RejectedBusy` と同じ形の受付拒否を加える。拒否時は管理主体が `Warn_LibraryOperationBusy` を警告として一回出し、保留系の `ShowPendingOperationAdmissionBusyAsync` と同じ責務配置にする。ゼロノートの再確認はダイアログ窓口の注入が要る。
-- Pの交差による拒否も例外ではなく同じ受付拒否の結果へ揃える。`NotifyMainWindowOperationFailureAsync` と汎用エラーは実際の処理失敗だけに使う。
-- 確認ダイアログを先に出す入口（全譜面の再検査、解析失敗の除去、自動リネームの一括）は、確認の前に受付の可否を事前検査し、全再初期化の既存の形に揃える。事前検査は予約ではなく、実受付の拒否は上記の案内で扱う。
-- メニュー・ボタンをLの使用中に無効化する案は採らない。背景処理がLを非同期に取るため競合は消えず、L不要の項目まで巻き込み、操作バーを有効のまま押下時に拒否する現行仕様とも分かれる。
-- [操作の競合ポリシー](../spec/core/operation-concurrency-policy.md#競合拒否と見送り)へ、利用者の明示要求の競合拒否は `Warn_LibraryOperationBusy` で一回案内し汎用の失敗として扱わないこと、背景処理・必須の継続・全体LR2同期の見送りは案内しないことを一か所で定め、[ライブラリ変更](../spec/library/mutations.md)の記述をそこへ寄せる。
-- 設定画面の「LR2の派生データを再同期」の見送りと、独立導入先の選択の拒否も利用者の明示操作が無言で終わるが、仕様は通知を定めていない。案内を加えるかは利用者に確認し、加える場合は同じ文言に揃える。
-- 何がLを保持しているかの表示は受付へ保持者の識別を持たせる必要があり、この修正には含めない。
-
-検証は、各管理主体のCoreテストで共通の受付を先取りした状態から要求し、副作用がないこと、記録用ダイアログへ警告アイコンの `Warn_LibraryOperationBusy` が一回だけ渡り `Msg_error_unexpected` が渡らないことを判定する。WPFでは右クリックの4操作の代表と、インストール履歴の「すべて消去」で同じことを確認する。結果値を固定している既存テスト（再検査の `NotStarted`、自動リネームのPのBusyを失敗本文で見るもの）は新しい結果へ期待を移す。
-
-関連する[更新後初回の譜面情報の全件再解析](#更新後初回の譜面情報の全件再解析)と[譜面情報の補完の件数表示](#譜面情報の補完の件数表示)は別項目とする。全件再解析の扱いを決める前でも、他のL保持中の拒否に同じ表示が要るため、この修正は独立に行う。
-
 
 ### 調査時の分類: 判断保留
 
@@ -157,7 +124,7 @@ v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修�
 
 譜面情報の解析版が21から22へ上がったため、v3.1.0.0から更新した初回は、メタデータ同梱データに含まれない所持譜面がすべて再解析の対象になる。[CatalogChartInfoOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs) は補完の全件処理の間、`EnterAcceptedBackgroundAsync`（666・1288行付近）で取得した共通の受付を保持する。その間、[PlaybackPanelViewModel](../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) の `AcceptTableRowActivation` などが試聴の開始を無言で拒否し、再生中の連続再生も止まる。導入・削除・改名などは拒否される。一覧は旧版の解析値で表示されるため空欄にはならない。v3.1.0.0の補完は受付を取らず、操作性の退行である。全件再解析の所要時間は未計測で、約21万譜面ではHDDで数分から十数分と見込む。別プロファイルの構成は同梱データを取り込まないため全所持譜面が対象になる。
 
-受付の使用自体は[譜面情報](../spec/library/chart-info.md)と[操作の競合ポリシー](../spec/core/operation-concurrency-policy.md)どおりだが、同じ譜面情報の仕様は補完の完了を利用開始の条件にしないとも定めており、版更新時の長時間保持は検討されていない。先に利用者に見える契約を決める。候補は、全件補完を区切りごとに受付を取り直して間で操作を受け付ける、解析入力を変えない試聴を補完中の拒否から外す区分を設ける、現行のまま待たされる理由と進捗を表示する、のいずれかである。前二者は受付規定の変更を伴う。どの案でも[受付使用中の拒否通知](#ライブラリ操作の受付が使用中のときの拒否通知)が前提になり、表示する案では[譜面情報の補完の件数表示](#譜面情報の補完の件数表示)を同じ単位で扱う。
+受付の使用自体は[譜面情報](../spec/library/chart-info.md)と[操作の競合ポリシー](../spec/core/operation-concurrency-policy.md)どおりだが、同じ譜面情報の仕様は補完の完了を利用開始の条件にしないとも定めており、版更新時の長時間保持は検討されていない。先に利用者に見える契約を決める。候補は、全件補完を区切りごとに受付を取り直して間で操作を受け付ける、解析入力を変えない試聴を補完中の拒否から外す区分を設ける、現行のまま待たされる理由と進捗を表示する、のいずれかである。前二者は受付規定の変更を伴う。どの案でも[明示要求の競合の案内](../spec/core/operation-concurrency-policy.md#明示要求の競合の案内)を前提にし、表示する案では[譜面情報の補完の件数表示](#譜面情報の補完の件数表示)を同じ単位で扱う。
 
 検証は、解析版21の行を持つ実SQLiteから起動相当の補完を始め、その実行中に試聴と導入の受付が採用した契約どおりに受理または案内されることを確認する。所要時間は性能測定の補完系列で約21万件の旧版行からの全件補完を計測する。
 

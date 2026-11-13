@@ -107,8 +107,11 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
         internal IReadOnlyList<string> ApprovedPaths { get; private set; } = [];
         internal int PhysicalMutationStarts { get; private set; }
 
+        /// <summary>対象別受付Pの取得結果です。falseにすると、確認後に対象別受付が使用中だった場合を再現します。</summary>
+        internal bool PhysicalMutationAdmitted { get; set; } = true;
+
         public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease? lease)
-        { PhysicalMutationStarts++; lease = null; return true; }
+        { PhysicalMutationStarts++; lease = null; return PhysicalMutationAdmitted; }
 
         public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
             => new(charts, WholeFolderCandidates, [], charts.Count, 0, registeredUserRoots: RegisteredUserRoots);

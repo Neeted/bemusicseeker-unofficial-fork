@@ -69,7 +69,8 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
             {
                 await TestUiDispatcherHost.AwaitNotificationAsync(storeStarted.Task, operation.Completion, "parse-failure-removal-store");
                 Assert.IsFalse(operation.Completion.IsCompleted);
-                CollectionAssert.AreEqual(new[] { "library", "schedule", "store" }, order.ToArray());
+                // 確認前の予約しない受付判定と、確認後の予約で、ライブラリを一回ずつ参照する。
+                CollectionAssert.AreEqual(new[] { "library", "library", "schedule", "store" }, order.ToArray());
                 Assert.IsNotNull(dialogs.LastConfirmationRequest);
                 Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record, dialogs.LastConfirmationRequest.MessageBoxText);
                 Assert.AreEqual(BeMusicSeeker.Properties.Resources.Confirm, dialogs.LastConfirmationRequest.Caption);
@@ -136,7 +137,8 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 実DBの解析失敗行は共通排他の保持中に変更せず、解放後の明示要求で選択MD5だけを削除して、対象外削除や受付の残存を検出する。
+    /// 実DBの解析失敗行は共通排他の保持中に確認を出さず変更もせず、受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示して、失敗を持たない受付使用中で終える。
+    /// 解放後の明示要求は警告なしで選択MD5だけを削除する。確認の表示、一般の失敗への置換、対象外削除や受付の残存を検出する。
     /// </summary>
     /// <remarks>実adapterと独立したSQLite DBを使い、固定対象の保存削除と受付解放を確認する。</remarks>
     [TestMethod]
@@ -160,17 +162,133 @@ public sealed class ChartInfoParseFailureRemovalWorkflowOwnerTests
             Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable busy));
             using (busy)
             {
-                ChartInfoParseFailureRemovalResult rejected = await owner.BeginRemove(new([selected])).Completion;
+                ChartInfoParseFailureRemovalOperation rejectedOperation = owner.BeginRemove(new([selected]));
+                ChartInfoParseFailureRemovalResult rejected = await rejectedOperation.Completion;
                 Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Busy, rejected.Status);
+                Assert.IsFalse(rejected.Accepted);
+                Assert.IsNull(rejected.Failure);
+                Assert.IsFalse((await rejectedOperation.Acceptance).Accepted);
+                Assert.AreEqual(0, dialogs.ConfirmationCount, "使用中の要求では確認を表示しません。");
+                AssertSingleBusyWarning(dialogs);
                 using LR2SongDBExtended read = gateway.OpenSongDbReadOnly();
                 Assert.AreEqual(2, read.Table<LR2SongDBExtended.chart_info_parse_failure>().Count());
             }
             Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Removed, (await owner.BeginRemove(new([selected])).Completion).Status);
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            Assert.AreEqual(1, dialogs.Messages.Count, "解放後の明示要求では警告しません。");
             using (LR2SongDBExtended read = gateway.OpenSongDbReadOnly())
             { Assert.AreEqual(keeper, read.Table<LR2SongDBExtended.chart_info_parse_failure>().Single().md5); }
             Assert.IsFalse(library.OperationAdmission.IsActive);
         }
         finally { library?.RequestShutdown("parse-failure-entry-test"); DeleteRoot(root); }
+    }
+
+    /// <summary>
+    /// 確認前の受付判定は予約せず、確認の表示中に別の処理が共通受付Lを取得してOKを返した場合は、確認一回・警告一回・保存削除なしの受付使用中で終える。
+    /// 確認前の判定が受付を予約する誤り、確認後に受付を失った要求の黙った拒否・一般失敗への置換・実行を検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task RemoveAsync_AdmissionLostDuringConfirmationWarnsOnceWithoutStore()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        BMSLibrary? library = null;
+        IDisposable? competitor = null;
+        try
+        {
+            library = CreateLibrary(root);
+            BMSLibrary attached = library;
+            bool enteredDuringConfirmation = false;
+            var dialogs = new RecordingDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                OnConfirmation = () => enteredDuringConfirmation = attached.OperationAdmission.TryEnter(out competitor)
+            };
+            var store = new RecordingStore();
+            var owner = new ChartInfoParseFailureRemovalWorkflowOwner(() => attached, dialogs, Task.Run, store);
+
+            ChartInfoParseFailureRemovalResult result = await owner.BeginRemove(new([new string('a', 32)])).Completion;
+
+            Assert.IsTrue(enteredDuringConfirmation, "確認前の判定は受付を予約しません。");
+            Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Busy, result.Status);
+            Assert.IsFalse(result.Accepted);
+            Assert.IsNull(result.Failure);
+            Assert.AreEqual(1, dialogs.ConfirmationCount);
+            AssertSingleBusyWarning(dialogs);
+            Assert.AreEqual(0, store.CallCount);
+            competitor?.Dispose();
+            competitor = null;
+            Assert.IsTrue(attached.OperationAdmission.CanEnter);
+        }
+        finally
+        {
+            competitor?.Dispose();
+            library?.RequestShutdown("parse-failure-confirmation-race-test");
+            DeleteRoot(root);
+        }
+    }
+
+    /// <summary>
+    /// 受付使用中の警告を×やAlt+F4で閉じた結果（ClosedByUser）は表示済みとして扱い、確認前の判定と確認後の受付喪失の両経路で、失敗を持たない受付使用中・警告一回・保存削除なしで終える。
+    /// 閉じ方の違いを表示失敗と取り違えて一般の失敗（Msg_error_unexpected）へ置き換える誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, DisplayName = "確認前の判定で使用中")]
+    [DataRow(true, DisplayName = "確認中に受付を失う")]
+    public async Task RemoveAsync_BusyWarningClosedByUserStaysBusyWithoutFailure(bool lostDuringConfirmation)
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        BMSLibrary? library = null;
+        IDisposable? competitor = null;
+        try
+        {
+            library = CreateLibrary(root);
+            BMSLibrary attached = library;
+            if (!lostDuringConfirmation)
+            {
+                Assert.IsTrue(attached.OperationAdmission.TryEnter(out competitor));
+            }
+            var dialogs = new RecordingDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                MessageResult = UiDialogResult.ClosedByUser(MessageBoxResult.OK),
+                OnConfirmation = () =>
+                {
+                    if (lostDuringConfirmation)
+                    {
+                        Assert.IsTrue(attached.OperationAdmission.TryEnter(out competitor));
+                    }
+                }
+            };
+            var store = new RecordingStore();
+            var owner = new ChartInfoParseFailureRemovalWorkflowOwner(() => attached, dialogs, Task.Run, store);
+
+            ChartInfoParseFailureRemovalResult result = await owner.BeginRemove(new([new string('a', 32)])).Completion;
+
+            Assert.AreEqual(ChartInfoParseFailureRemovalStatus.Busy, result.Status);
+            Assert.IsFalse(result.Accepted);
+            Assert.IsNull(result.Failure);
+            Assert.AreEqual(lostDuringConfirmation ? 1 : 0, dialogs.ConfirmationCount);
+            AssertSingleBusyWarning(dialogs);
+            Assert.IsFalse(dialogs.Messages.Any(message => message.MessageBoxText == BeMusicSeeker.Properties.Resources.Msg_error_unexpected));
+            Assert.AreEqual(0, store.CallCount);
+        }
+        finally
+        {
+            competitor?.Dispose();
+            library?.RequestShutdown("parse-failure-closed-warning-test");
+            DeleteRoot(root);
+        }
+    }
+
+    private static void AssertSingleBusyWarning(RecordingDialogService dialogs)
+    {
+        UiMessageRequest warning = dialogs.Messages.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+        Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+        Assert.AreEqual(MessageBoxButton.OK, warning.Button);
     }
 
     private static string CreateRoot(TestWorkspace workspace)

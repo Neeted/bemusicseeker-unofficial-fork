@@ -17,6 +17,30 @@ internal static class PendingPackageStoreTestFixture
             this.events = events;
         }
 
+        /// <summary>対象別受付Pを取得できるかを指定します。falseは交差するPの使用中を表します。</summary>
+        internal bool PhysicalMutationAdmitted { get; set; } = true;
+
+        /// <summary>対象別受付Pの取得を試みた回数です。</summary>
+        internal int PhysicalAdmissionAttempts { get; private set; }
+
+        /// <summary>指定した可否で固定済み物理scopeのPの取得を模擬します。実のleaseは作りません。</summary>
+        public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease? lease)
+        {
+            PhysicalAdmissionAttempts++;
+            lease = null;
+            return PhysicalMutationAdmitted;
+        }
+
+        /// <summary>指定した可否で保留導入の実scopeのPの取得を模擬し、受理時はこのstoreを実行窓口として返します。</summary>
+        public bool TryPreparePackagePhysicalMutation(BMSLibrary library, IReadOnlyList<ChartPackage> packages,
+            bool forceInstall, bool overwriteResources, out IPendingPackageStore prepared, out LibraryFileMutationLease? lease)
+        {
+            PhysicalAdmissionAttempts++;
+            prepared = this;
+            lease = null;
+            return PhysicalMutationAdmitted;
+        }
+
         internal int SearchPackagesCount { get; private set; }
 
         internal int SearchPendingCount { get; private set; }

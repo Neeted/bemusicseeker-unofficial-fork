@@ -21,11 +21,14 @@ internal interface IFolderAutoRenameMutationPort
     /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
     IFolderAutoRenameMutationPort ForAcceptedOperation(LibraryFileMutationCapability capability) => this;
 
-    /// <summary>実移動計画を固定した窓口を返します。純portの検証では独立した対象判断を維持します。</summary>
-    IFolderAutoRenameMutationPort PreparePhysicalMutation(BMSLibrary library, ChartFolderAutoRenameRequest request,
+    /// <summary>
+    /// 実移動計画を固定した窓口を作り、交差する対象別受付Pを取得します。Pが使用中ならfalseを返し、停止も変更も行いません。
+    /// 純portの検証では独立した対象判断を維持し、常に受理します。
+    /// </summary>
+    bool TryPreparePhysicalMutation(BMSLibrary library, ChartFolderAutoRenameRequest request,
         string parentDirectory, bool allFolders, LibraryFileMutationCapability capability,
-        out LibraryFileMutationLease playlistLease)
-    { playlistLease = null; return this; }
+        out IFolderAutoRenameMutationPort prepared, out LibraryFileMutationLease playlistLease)
+    { prepared = this; playlistLease = null; return true; }
 
     bool HasTargets(BMSLibrary library, string parentDirectory);
 
@@ -58,16 +61,20 @@ internal sealed class BmsLibraryFolderAutoRenameMutationPort : IFolderAutoRename
     /// <summary>受理済み操作の明示権限を物理変更へ渡す窓口を返します。呼出元が実処理・後片付けまで元leaseを保持します。</summary>
     public IFolderAutoRenameMutationPort ForAcceptedOperation(LibraryFileMutationCapability capability) => new BmsLibraryFolderAutoRenameMutationPort(capability, preparedBatch);
 
-    /// <summary>同じLで計画を捕捉し、交差する物理作用の前にPを取得します。取得失敗では停止も変更も行いません。</summary>
-    public IFolderAutoRenameMutationPort PreparePhysicalMutation(BMSLibrary library, ChartFolderAutoRenameRequest request,
+    /// <summary>同じLで計画を捕捉し、交差する物理作用の前にPを取得します。取得失敗ではfalseを返し、停止も変更も行いません。</summary>
+    public bool TryPreparePhysicalMutation(BMSLibrary library, ChartFolderAutoRenameRequest request,
         string parentDirectory, bool allFolders, LibraryFileMutationCapability capability,
-        out LibraryFileMutationLease playlistLease)
+        out IFolderAutoRenameMutationPort prepared, out LibraryFileMutationLease playlistLease)
     {
         FolderMoveBatch batch = preparedBatch ?? library.PrepareAutoRenameBatch(request?.Charts ?? [], parentDirectory, allFolders);
         if (!library.TryEnterManagedOutputMutation(batch.Moves
             .SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), true, out playlistLease, capability))
-        { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
-        return new BmsLibraryFolderAutoRenameMutationPort(capability, batch);
+        {
+            prepared = null;
+            return false;
+        }
+        prepared = new BmsLibraryFolderAutoRenameMutationPort(capability, batch);
+        return true;
     }
 
     public bool HasTargets(BMSLibrary library, string parentDirectory)
@@ -264,6 +271,22 @@ internal sealed class FolderAutoRenameFailure
     internal IReadOnlyList<string> RecoveryPaths => ExecutionResult?.RecoveryPaths ?? [];
 }
 
+/// <summary>フォルダ自動改名の明示要求の受付結果です。</summary>
+internal enum FolderAutoRenameRequestStatus
+{
+    /// <summary>対象なし、終了要求後、ライブラリ未接続、受付の閉鎖などで、通知せずに開始しませんでした。</summary>
+    NotStarted,
+
+    /// <summary>利用者が確認を取り消しました。</summary>
+    Cancelled,
+
+    /// <summary>実行を受理し、背景処理を予定しました。終端は進捗・完了・失敗の通知で公開します。</summary>
+    Started,
+
+    /// <summary>自分の実行中または共通受付Lの使用中で、副作用前に拒否し、受付使用中の警告を一度だけ表示しました。</summary>
+    RejectedBusy,
+}
+
 /// <summary>
 /// Owns the scheduled shell lifecycle for selected and all-folder auto-rename
 /// requests while the library remains responsible for filesystem/catalog mutation.
@@ -395,56 +418,56 @@ internal sealed class FolderAutoRenameWorkflowOwner
         }
     }
 
-    internal bool RequestStartSelected(IReadOnlyList<ChartOperationTarget> targets)
+    /// <summary>
+    /// 選択譜面のフォルダ自動改名を共通受付Lの取得後に開始します。自分の実行中または共通受付Lの使用中は、実行・進捗・通知を作らずに
+    /// 受付使用中の警告を一度だけ表示して <see cref="FolderAutoRenameRequestStatus.RejectedBusy"/> を返します。
+    /// 対象なし・終了要求後・ライブラリ未接続・受付の閉鎖は通知せず <see cref="FolderAutoRenameRequestStatus.NotStarted"/> です。
+    /// </summary>
+    internal async Task<FolderAutoRenameRequestStatus> RequestStartSelectedAsync(IReadOnlyList<ChartOperationTarget> targets)
     {
         if (!ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request))
         {
-            return false;
+            return FolderAutoRenameRequestStatus.NotStarted;
+        }
+        FolderAutoRenameRequestStatus admission = TryAcceptExplicitRequest(out IDisposable operationGate);
+        if (admission != FolderAutoRenameRequestStatus.Started)
+        {
+            return await CompleteRejectedRequestAsync(admission).ConfigureAwait(false);
         }
         RunContext run;
         lock (syncRoot)
         {
             if (!TryCreateRunUnsafe(allFolders: false, request, parentDirectory: null, out run))
             {
-                return false;
+                operationGate.Dispose();
+                return FolderAutoRenameRequestStatus.NotStarted;
             }
+            run.OperationGate = operationGate;
         }
-        if (!chartFileOperations.TryEnter(out run.OperationGate))
-        {
-            CompleteFailure(run, new InvalidOperationException("A chart-file operation is already active."));
-            return true;
-        }
-        return Schedule(run);
+        Schedule(run);
+        return FolderAutoRenameRequestStatus.Started;
     }
 
-    internal async Task RequestStartAllAsync(string parentDirectory)
+    /// <summary>
+    /// 範囲内の全フォルダ自動改名を、共通受付Lの取得後に確認してから開始します。Lは確認の前に取得し、確認中も保持します。
+    /// 自分の実行中または共通受付Lの使用中は、確認を出さずに受付使用中の警告を一度だけ表示して <see cref="FolderAutoRenameRequestStatus.RejectedBusy"/> を返します。
+    /// 利用者の取消は <see cref="FolderAutoRenameRequestStatus.Cancelled"/>、終了要求後・ライブラリ未接続・受付の閉鎖は通知せず未開始です。
+    /// </summary>
+    internal async Task<FolderAutoRenameRequestStatus> RequestStartAllAsync(string parentDirectory)
     {
         if (string.IsNullOrWhiteSpace(parentDirectory))
         {
-            return;
+            return FolderAutoRenameRequestStatus.NotStarted;
         }
         BMSLibrary requestedLibrary;
         lock (syncRoot)
         {
             requestedLibrary = library;
-            if (shutdownRequested || requestedLibrary == null || activeRun != null)
-            {
-                return;
-            }
         }
-
-        if (!chartFileOperations.TryEnter(out IDisposable operationGate))
+        FolderAutoRenameRequestStatus admission = TryAcceptExplicitRequest(out IDisposable operationGate);
+        if (admission != FolderAutoRenameRequestStatus.Started)
         {
-            RunContext rejectedRun;
-            lock (syncRoot)
-            {
-                if (!TryCreateRunUnsafe(allFolders: true, request: null, parentDirectory, out rejectedRun))
-                {
-                    return;
-                }
-            }
-            CompleteFailure(rejectedRun, new InvalidOperationException("A chart-file operation is already active."));
-            return;
+            return await CompleteRejectedRequestAsync(admission).ConfigureAwait(false);
         }
 
         bool operationGateTransferred = false;
@@ -457,9 +480,13 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 UiDialogIcon.Question,
                 UiDialogDefaultResult.Cancel));
             UiDialogRoute.ThrowIfNotShown(confirmation, "folderAutoRenameAllConfirmation");
-            if (!confirmation.IsAccepted || !LongPathFileSystem.DirectoryExists(parentDirectory))
+            if (!confirmation.IsAccepted)
             {
-                return;
+                return FolderAutoRenameRequestStatus.Cancelled;
+            }
+            if (!LongPathFileSystem.DirectoryExists(parentDirectory))
+            {
+                return FolderAutoRenameRequestStatus.NotStarted;
             }
 
             RunContext run;
@@ -468,12 +495,13 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 if (!ReferenceEquals(library, requestedLibrary)
                     || !TryCreateRunUnsafe(allFolders: true, request: null, parentDirectory, out run))
                 {
-                    return;
+                    return FolderAutoRenameRequestStatus.NotStarted;
                 }
                 run.OperationGate = operationGate;
                 operationGateTransferred = true;
             }
             Schedule(run);
+            return FolderAutoRenameRequestStatus.Started;
         }
         finally
         {
@@ -482,6 +510,51 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 operationGate.Dispose();
             }
         }
+    }
+
+    /// <summary>
+    /// 明示要求の受付を判定し、受理なら共通受付Lを返します。終了要求後・ライブラリ未接続・受付の閉鎖は未開始、
+    /// 自分の実行中と共通受付Lの使用中は受付使用中です。
+    /// </summary>
+    private FolderAutoRenameRequestStatus TryAcceptExplicitRequest(out IDisposable operationGate)
+    {
+        operationGate = null;
+        lock (syncRoot)
+        {
+            if (shutdownRequested || library == null)
+            {
+                return FolderAutoRenameRequestStatus.NotStarted;
+            }
+            if (activeRun != null)
+            {
+                return FolderAutoRenameRequestStatus.RejectedBusy;
+            }
+        }
+        if (chartFileOperations.TryEnter(out operationGate))
+        {
+            return FolderAutoRenameRequestStatus.Started;
+        }
+        return chartFileOperations.IsAdmissionClosed
+            ? FolderAutoRenameRequestStatus.NotStarted
+            : FolderAutoRenameRequestStatus.RejectedBusy;
+    }
+
+    /// <summary>受付使用中の明示要求だけに警告を一度表示します。表示失敗は呼出元の失敗として返します。</summary>
+    private async Task<FolderAutoRenameRequestStatus> CompleteRejectedRequestAsync(FolderAutoRenameRequestStatus status)
+    {
+        if (status == FolderAutoRenameRequestStatus.RejectedBusy)
+        {
+            await ShowBusyWarningAsync().ConfigureAwait(false);
+        }
+        return status;
+    }
+
+    private async Task ShowBusyWarningAsync()
+    {
+        UiDialogResult result = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+            BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy,
+            BeMusicSeeker.Properties.Resources.Warning)).ConfigureAwait(false);
+        UiDialogRoute.ThrowIfNotShown(result, "Folder auto-rename Busy notification");
     }
 
     internal void RequestShutdown()
@@ -556,11 +629,19 @@ internal sealed class FolderAutoRenameWorkflowOwner
                 CompleteStale(run);
                 return;
             }
+            bool physicalAdmitted;
+            IFolderAutoRenameMutationPort preparedPort;
             using (LibraryFileMutationCapability preparationCapability = chartFileOperations.CreateMutationCapability(run.OperationGate))
             {
-                run.PreparedPort = mutationPort.PreparePhysicalMutation(run.Library, run.SelectedRequest,
-                    run.ParentDirectory, run.AllFolders, preparationCapability, out run.PlaylistLease);
+                physicalAdmitted = mutationPort.TryPreparePhysicalMutation(run.Library, run.SelectedRequest,
+                    run.ParentDirectory, run.AllFolders, preparationCapability, out preparedPort, out run.PlaylistLease);
             }
+            if (!physicalAdmitted)
+            {
+                await CompletePhysicalAdmissionBusyAsync(run).ConfigureAwait(false);
+                return;
+            }
+            run.PreparedPort = preparedPort;
             if (run.AllFolders)
             {
                 bool hasTargets;
@@ -571,8 +652,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
                         run,
                         stopPlayback: false,
                         mutation: operationPort => hasTargets = operationPort.HasTargets(run.Library, run.ParentDirectory),
-                        refreshSuppression: false,
-                        releaseAcquiredOperationGate: false))
+                        refreshSuppression: false))
                     {
                         CompleteStale(run);
                         return;
@@ -606,8 +686,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
                                 run.ProgressWriter,
                                 run.Notices));
                     },
-                    refreshSuppression: true,
-                    releaseAcquiredOperationGate: false))
+                    refreshSuppression: true))
                 {
                     CompleteStale(run);
                     return;
@@ -626,8 +705,7 @@ internal sealed class FolderAutoRenameWorkflowOwner
                             run.ProgressWriter,
                             run.Notices);
                     },
-                    refreshSuppression: true,
-                    releaseAcquiredOperationGate: false))
+                    refreshSuppression: true))
                 {
                     CompleteStale(run);
                     return;
@@ -660,23 +738,19 @@ internal sealed class FolderAutoRenameWorkflowOwner
         RunContext run,
         bool stopPlayback,
         Action<IFolderAutoRenameMutationPort> mutation,
-        bool refreshSuppression,
-        bool releaseAcquiredOperationGate = true)
+        bool refreshSuppression)
     {
         BMSLibrary library = run.Library;
         IDisposable activityLease = null;
-        IDisposable operationGate = run.OperationGate;
-        bool ownsOperationGate = operationGate == null;
+        // 受付は要求の受理時に取得済みで、実行の終端まで run が所有します。
+        IDisposable operationGate = run.OperationGate
+            ?? throw new InvalidOperationException("Folder auto-rename run has no accepted operation gate.");
         LibraryFileMutationCapability capability = null;
         bool suppressionStarted = false;
         bool mutationAllowed = true;
         var failures = new List<ExceptionDispatchInfo>();
         try
         {
-            if (ownsOperationGate && !chartFileOperations.TryEnter(out operationGate))
-            {
-                throw new InvalidOperationException("A chart-file operation is already active.");
-            }
             activityLease = chartMutationActivity.Enter();
             if (!IsCurrentGeneration(run))
             {
@@ -717,10 +791,6 @@ internal sealed class FolderAutoRenameWorkflowOwner
             try { await acceptedPreparation.ConfigureAwait(false); }
             catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
             CaptureCleanupFailure(() => capability?.Dispose(), failures);
-            if (ownsOperationGate && operationGate != null && releaseAcquiredOperationGate)
-            {
-                CaptureCleanupFailure(operationGate.Dispose, failures);
-            }
         }
         switch (failures.Count)
         {
@@ -1032,6 +1102,32 @@ internal sealed class FolderAutoRenameWorkflowOwner
             }
         }
         if (completed)
+        {
+            CompleteIdle(run);
+        }
+    }
+
+    /// <summary>
+    /// 確認後に対象別受付Pを取得できなかった実行を、進捗・完了・失敗・終端の通知なしで終えます。
+    /// LとPを解放してから、現在の世代で終了要求前なら受付使用中の警告を一度だけ表示し、その後にidleを公開します。
+    /// 警告の表示失敗は通知失敗として報告し、一般の失敗へ置き換えません。
+    /// </summary>
+    private async Task CompletePhysicalAdmissionBusyAsync(RunContext run)
+    {
+        BeginProgressTerminalization(run);
+        ReleaseOperationGate(run);
+        try
+        {
+            if (IsCurrentGeneration(run) && !run.Library.IsShutdownRequested)
+            {
+                await ShowBusyWarningAsync().ConfigureAwait(false);
+            }
+        }
+        catch (Exception exception)
+        {
+            ReportNotificationFailure(exception);
+        }
+        finally
         {
             CompleteIdle(run);
         }

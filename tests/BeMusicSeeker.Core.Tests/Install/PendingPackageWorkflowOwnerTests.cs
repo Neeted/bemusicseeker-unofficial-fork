@@ -1546,6 +1546,100 @@ public sealed partial class PendingPackageWorkflowOwnerTests
         Assert.AreSame(package, store.LastPackages.Single());
     }
 
+    /// <summary>
+    /// 確認後に交差する対象別受付Pが使用中なら、活動・再生停止・抑制・削除storeへ進まず、受付の解放後に受付使用中の警告（本文・題名・Exclamation・OK）を一度だけ表示する。
+    /// 汎用の失敗や再試行を出さず、Pの解放後の次の明示要求は警告なしで削除する。P拒否の黙殺・一般失敗への置換・停止後の拒否を検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_PhysicalAdmissionBusyWarnsOnceWithoutMutation()
+    {
+        var events = new List<string>();
+        var package = ChartPackage.FromChartEntries([
+            PackageChartEntry.FromChart(CreateChart())
+        ]);
+        var store = new RecordingStore(events) { InstalledOnlyPendingPackages = [package], PhysicalMutationAdmitted = false };
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs);
+
+        await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
+
+        CollectionAssert.AreEqual(new[] { "store-get-installed-only" }, events, "P拒否では活動・停止・変更へ進みません。");
+        Assert.AreEqual(1, store.PhysicalAdmissionAttempts);
+        AssertSinglePendingBusyWarning(dialogs);
+
+        store.PhysicalMutationAdmitted = true;
+        events.Clear();
+        await owner.DeleteInstalledOnlyPendingPackageSourcesAsync();
+
+        CollectionAssert.Contains(events, "store-delete-sources");
+        Assert.AreEqual(1, dialogs.MessageRequests.Count, "受理された次の要求は警告しません。");
+    }
+
+    /// <summary>
+    /// 保留リソース上書きの確認後に交差する対象別受付Pが使用中なら、活動・再生停止・上書きstoreへ進まず、集計ダイアログを出さずに受付使用中の警告を一度だけ表示する。
+    /// P拒否の黙殺・一般失敗への置換・空の集計の表示を検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task OverwriteInstalledOnlyPendingPackageResourcesAsync_PhysicalAdmissionBusyWarnsOnceWithoutMutation()
+    {
+        var events = new List<string>();
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(CreateChart())]);
+        var store = new RecordingStore(events)
+        {
+            InstalledOnlyPendingPackages = [package],
+            OverwriteResult = new PendingInstalledOnlyResourceOverwriteResult { Requested = 1, Processed = 1, SucceededInstall = 1 },
+            PhysicalMutationAdmitted = false
+        };
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs,
+            presentation: new RecordingPresentation(events), playback: new RecordingPlayback(events));
+
+        await owner.OverwriteInstalledOnlyPendingPackageResourcesAsync();
+
+        Assert.AreEqual(1, store.PhysicalAdmissionAttempts);
+        CollectionAssert.DoesNotContain(events, "store-overwrite-resources");
+        CollectionAssert.DoesNotContain(events, "activity-start");
+        CollectionAssert.DoesNotContain(events, "playback-stop");
+        AssertSinglePendingBusyWarning(dialogs);
+    }
+
+    /// <summary>
+    /// 強制導入の確認後に交差する対象別受付Pが使用中なら、活動・再生停止・導入storeへ進まず、成功でも汎用の失敗でもない未実行の結果を返し、
+    /// 受付使用中の警告を一度だけ表示する。P拒否の黙殺・一般失敗への置換を検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task ForceInstallPackagesAsync_PhysicalAdmissionBusyWarnsOnceWithoutMutation()
+    {
+        var events = new List<string>();
+        ChartFile chart = CreateChart(installDestination: @"C:\Installed\song.bms");
+        var package = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(chart)]);
+        var store = new RecordingStore(events) { PhysicalMutationAdmitted = false };
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes)
+        };
+        PendingPackageWorkflowOwner owner = CreateOwner(CreateLibrary, events, store, dialogs,
+            presentation: new RecordingPresentation(events), playback: new RecordingPlayback(events));
+
+        PendingPackageMutationResult result = await owner.ForceInstallPackagesAsync([package]);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Failure, "P拒否を汎用の失敗にしません。");
+        CollectionAssert.DoesNotContain(events, "playback-stop");
+        CollectionAssert.DoesNotContain(events, "store-force-install");
+        CollectionAssert.DoesNotContain(events, "activity-start");
+        AssertSinglePendingBusyWarning(dialogs);
+    }
+
+    private static void AssertSinglePendingBusyWarning(FakeUiDialogService dialogs)
+    {
+        UiMessageRequest warning = dialogs.MessageRequests.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+        Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+        Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+    }
+
     /// <summary>所持済み保留元の対象が空なら、対象照会後に専用案内だけを表示して削除境界を開始しない。</summary>
     [TestMethod]
     public async Task DeleteInstalledOnlyPendingPackageSourcesAsync_EmptySelectionWarnsWithoutMutation()

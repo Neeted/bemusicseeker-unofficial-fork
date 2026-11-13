@@ -608,7 +608,11 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実同期ボタンの確認取消・実受付拒否・受理成功を分け、実受付前の画面/環境候補保持と、受理後閉鎖・強制要求・実Task終端の所有を確認します。</summary>
+    /// <summary>
+    /// 実同期ボタンの確認取消・実受付拒否・受理成功を分け、実受付前の画面/環境候補保持と、受理後閉鎖・強制要求・実Task終端の所有を確認します。
+    /// L/Pの使用中による拒否は、設定ウィンドウを閉じず候補を破棄せず、受付使用中の警告（本文・題名・Exclamation・OK）を設定ウィンドウの窓口で一度だけ表示します。
+    /// 取消と受理では警告を表示せず、拒否の黙殺・警告の重複・取消での誤警告を検出します。
+    /// </summary>
     /// <remarks>compiled buttonの接続をここで、実L/Pの競合と準備0をBmsLibraryLr2SongDbSyncTestsで分担します。</remarks>
     [TestMethod]
     [DataRow("cancel")]
@@ -626,10 +630,10 @@ public sealed class SettingsWindowPresentationTests
                 var releaseAdmission = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var releaseTerminal = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var runtime = new RecordingManualResyncRuntime { Admitted = outcome == "accepted", AdmissionWait = releaseAdmission.Task, TerminalWait = releaseTerminal.Task };
-                using SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime, values);
+                var dialogs = new DangerDialogService { HoldConfirmation = true };
+                using SettingsDialogViewModel settings = CreateManualResyncSettingsDialog(owner, runtime, values, dialogs);
                 string draft = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "candidate")).FullName, "song.db");
                 StartupLibraryConstructionTestSupport.CreateSongDatabase(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, draft);
-                var dialogs = new DangerDialogService { HoldConfirmation = true };
                 var ownerWindow = new Window { Width = 320, Height = 200, ShowInTaskbar = false };
                 var window = new SettingsWindow(dialogs) { DataContext = settings };
                 Task? terminal = null;
@@ -694,6 +698,16 @@ public sealed class SettingsWindowPresentationTests
                     }
                     Assert.AreEqual(Path.Combine(root, "LR2files", "Database", "song.db"), values.LR2SongDBPath, "候補を確定環境へ便乗保存しません。");
                     Assert.AreEqual(1, dialogs.ConfirmationCount);
+                    UiMessageRequest[] busyWarnings = dialogs.Messages
+                        .Where(message => message.MessageBoxText == Resources.Warn_LibraryOperationBusy).ToArray();
+                    Assert.AreEqual(outcome == "busy" ? 1 : 0, busyWarnings.Length, "L/Pの使用中による拒否だけを一度警告します。");
+                    Assert.AreEqual(busyWarnings.Length, dialogs.Messages.Count, "使用中の警告以外の案内を表示しません。");
+                    if (outcome == "busy")
+                    {
+                        Assert.AreEqual(Resources.Warning, busyWarnings[0].Caption);
+                        Assert.AreEqual(MessageBoxImage.Exclamation, busyWarnings[0].Icon);
+                        Assert.AreEqual(MessageBoxButton.OK, busyWarnings[0].Button);
+                    }
                     if (outcome == "accepted")
                     {
                         reopenedWindow = new SettingsWindow(dialogs) { DataContext = settings, Owner = ownerWindow };
@@ -5903,7 +5917,7 @@ public sealed class SettingsWindowPresentationTests
 
     private static SettingsDialogViewModel CreateManualResyncSettingsDialog(
         MainWindowViewModel owner,
-        RecordingManualResyncRuntime runtime, Settings? values = null)
+        RecordingManualResyncRuntime runtime, Settings? values = null, IUiDialogService? settingsDialogs = null)
     {
         var settingsSession = new ManualResyncSettingsEditSession(
             values ?? TestSettingsFactory.CreateIsolatedSettings(values =>
@@ -5918,7 +5932,7 @@ public sealed class SettingsWindowPresentationTests
             cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
             dialogService: UndeclaredDialogs.Create());
         var workflow = new Lr2SongDbSyncWorkflowOwner(runtime);
-        IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
+        IUiDialogService schemaDialogs = settingsDialogs ?? UndeclaredDialogs.Create();
         return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
             new ManualResyncStatePort(),
             new SettingsDialogHarness.RecordingWorkspacePort(),
@@ -6051,6 +6065,12 @@ public sealed class SettingsWindowPresentationTests
             if (Admitted) { await TerminalWait; }
             return Admitted;
         }
+
+        /// <summary>この記録用の窓口では、実受付の拒否をL/Pの使用中による拒否として返します。</summary>
+        public async Task<Lr2SongDbSyncManualResyncResult> QueueManualResyncAsync(string reason, Action<bool> admissionResult)
+            => await QueueAsync(reason, force: true, prepareGeneratedData: true, admissionResult: admissionResult)
+                ? Lr2SongDbSyncManualResyncResult.Accepted
+                : Lr2SongDbSyncManualResyncResult.RejectedBusy;
 
 
 

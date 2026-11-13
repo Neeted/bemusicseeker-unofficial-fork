@@ -30,8 +30,14 @@ internal static class PackageCatalogWorkflowOwnerTestSupport
 
         internal UiConfirmationRequest? ConfirmationRequest { get; private set; }
 
-        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+        /// <summary>表示を要求された通知です。受付使用中の警告以外の通知を期待しない検査は、件数で余分な通知を検出します。</summary>
+        internal List<UiMessageRequest> Messages { get; } = [];
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            Messages.Add(request);
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
         {

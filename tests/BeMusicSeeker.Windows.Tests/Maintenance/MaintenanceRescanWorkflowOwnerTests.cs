@@ -5,6 +5,7 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.MaintenanceRescanWorkflowOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -15,10 +16,11 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
     private readonly ApplicationDatabaseScope databaseScope = new();
 
     /// <summary>
-    /// 承認後もライブラリ不在または実行中なら未開始で返し、対象のないworker起動と重複実行を検出する。
+    /// ライブラリ不在の要求は通知せず未開始で返す。自分の実行中の新規要求は確認を出さずに受付使用中の警告を一度だけ表示して受付使用中を返し、
+    /// 先行の実行は継続する。対象のないworker起動、重複実行、自分の実行中の黙った拒否を検出する。
     /// </summary>
     [TestMethod]
-    public async Task RequestStartAsync_AcceptedButUnavailableOrActiveReturnsNotStarted()
+    public async Task RequestStartAsync_UnavailableIsSilentAndOwnActiveRunWarnsOnce()
     {
         using var release = new ManualResetEventSlim(false);
         var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -26,6 +28,7 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
         string root = CreateRoot(caseWorkspace);
         Exception? testFailure = null;
         MaintenanceRescanWorkflowOwner? owner = null;
+        var dialogs = new AcceptedDialogService();
         owner = new MaintenanceRescanWorkflowOwner(
             (current, progress, token, capability, readFailures) =>
             {
@@ -39,11 +42,12 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default),
             action => action(),
-            dialogs: new AcceptedDialogService());
+            dialogs: dialogs);
         try
         {
             MaintenanceRescanStartResult unavailable = await owner.RequestStartAsync();
             Assert.AreEqual(MaintenanceRescanStartStatus.NotStarted, unavailable.Status);
+            Assert.AreEqual(0, dialogs.Messages.Count);
 
             try
             {
@@ -51,8 +55,13 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
                 MaintenanceRescanStartResult startedResult = await owner.RequestStartAsync();
                 Assert.AreEqual(MaintenanceRescanStartStatus.Started, startedResult.Status);
                 await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, owner.WaitForIdleAsync(), "MaintenanceRescanWorkflowOwnerTests.started");
+                int confirmationsBeforeActive = dialogs.ConfirmationCalls;
                 MaintenanceRescanStartResult active = await owner.RequestStartAsync();
-                Assert.AreEqual(MaintenanceRescanStartStatus.NotStarted, active.Status);
+                Assert.AreEqual(MaintenanceRescanStartStatus.RejectedBusy, active.Status);
+                Assert.IsNull(active.Failure);
+                Assert.AreEqual(confirmationsBeforeActive, dialogs.ConfirmationCalls, "使用中の要求では確認を表示しません。");
+                AssertSingleBusyWarning(dialogs);
+                Assert.IsTrue(owner.IsActive, "先行の実行を取り消しません。");
                 release.Set();
                 await owner.WaitForIdleAsync();
             }
@@ -984,6 +993,89 @@ public sealed class MaintenanceRescanWorkflowOwnerTests
             }
 
         }
+    }
+
+    /// <summary>
+    /// 外部が共通受付Lを保持している間の要求は確認を出さずに警告を一度だけ表示して受付使用中を返し、進捗・実行を始めない。
+    /// 確認前の判定は予約せず、確認の表示中に別の処理がLを取得してOKを返した場合も、確認一回・警告一回・実行なしの受付使用中で終える。
+    /// 解放だけでは実行せず、次の明示要求は警告なしで一回開始する。黙った拒否、予約、自動再実行、一般失敗への置換を検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task RequestStartAsync_BusyAdmissionWarnsBeforeOrAfterConfirmationThenRunsNextRequest()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        BMSLibrary library = CreateLibrary(root, "song.db");
+        int executions = 0;
+        int progressEvents = 0;
+        var dialogs = new AcceptedDialogService();
+        var owner = new MaintenanceRescanWorkflowOwner(
+            (current, progress, token, capability, readFailures) =>
+            {
+                Interlocked.Increment(ref executions);
+                return new MaintenanceWorkflowResult();
+            },
+            action => Task.Run(action),
+            action => action(),
+            dialogs: dialogs);
+        owner.ProgressChanged += _ => progressEvents++;
+        owner.AttachLibrary(library);
+        progressEvents = 0;
+        IDisposable? competitor = null;
+        try
+        {
+            Assert.IsTrue(library.OperationAdmission.TryEnter(out IDisposable held));
+            using (held)
+            {
+                MaintenanceRescanStartResult rejected = await owner.RequestStartAsync();
+                Assert.AreEqual(MaintenanceRescanStartStatus.RejectedBusy, rejected.Status);
+                Assert.IsNull(rejected.Failure);
+                Assert.AreEqual(0, dialogs.ConfirmationCalls, "使用中の要求では確認を表示しません。");
+                AssertSingleBusyWarning(dialogs);
+            }
+            Assert.AreEqual(0, Volatile.Read(ref executions), "解放だけでは拒否した要求を実行しません。");
+            Assert.AreEqual(0, progressEvents);
+            Assert.IsFalse(owner.IsActive);
+
+            dialogs.Messages.Clear();
+            bool enteredDuringConfirmation = false;
+            dialogs.OnConfirmation = () => enteredDuringConfirmation = library.OperationAdmission.TryEnter(out competitor);
+            MaintenanceRescanStartResult lost = await owner.RequestStartAsync();
+            Assert.IsTrue(enteredDuringConfirmation, "確認前の判定は受付を予約しません。");
+            Assert.AreEqual(MaintenanceRescanStartStatus.RejectedBusy, lost.Status);
+            Assert.IsNull(lost.Failure);
+            Assert.AreEqual(1, dialogs.ConfirmationCalls);
+            AssertSingleBusyWarning(dialogs);
+            Assert.AreEqual(0, Volatile.Read(ref executions));
+            Assert.AreEqual(0, progressEvents);
+            competitor?.Dispose();
+            competitor = null;
+            dialogs.OnConfirmation = null;
+
+            dialogs.Messages.Clear();
+            Assert.AreEqual(MaintenanceRescanStartStatus.Started, (await owner.RequestStartAsync()).Status);
+            await owner.WaitForIdleAsync();
+            Assert.AreEqual(1, Volatile.Read(ref executions));
+            Assert.AreEqual(0, dialogs.Messages.Count(message => message.MessageBoxText == BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy),
+                "解放後の明示要求では受付使用中を警告しません。");
+            Assert.IsTrue(library.OperationAdmission.CanEnter);
+        }
+        finally
+        {
+            competitor?.Dispose();
+            await owner.WaitForIdleAsync();
+            library.RequestShutdown("maintenance-rescan-busy-test");
+            DeleteRoot(root);
+        }
+    }
+
+    private static void AssertSingleBusyWarning(AcceptedDialogService dialogs)
+    {
+        UiMessageRequest warning = dialogs.Messages.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+        Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, warning.Icon);
+        Assert.AreEqual(System.Windows.MessageBoxButton.OK, warning.Button);
     }
 
     private static string CreateRoot(TestWorkspace workspace)

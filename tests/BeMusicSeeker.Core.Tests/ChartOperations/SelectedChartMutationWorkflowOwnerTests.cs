@@ -887,6 +887,247 @@ public sealed class SelectedChartMutationWorkflowOwnerTests
         Assert.AreEqual(string.Empty, store.MovedDirectory);
     }
 
+    /// <summary>
+    /// 共通受付Lを外部が保持している間の選択譜面の明示操作（所有・保留削除、拡張子修正、移動、文字コード修正）は、確認・準備・変更へ進まず、
+    /// 受付使用中の警告を一度だけ表示して、失敗を持たない受付使用中の結果を返します。解放だけでは実行されず、次の明示要求は警告なしで一度実行されます。
+    /// 一般の失敗通知への置換、確認の表示、副作用、Lの保持漏れ、解放後の自動再実行を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("delete-library")]
+    [DataRow("delete-pending")]
+    [DataRow("rename")]
+    [DataRow("move")]
+    [DataRow("encoding")]
+    public async Task BusyAdmission_RejectsExplicitMutationWithOneWarningAndRunsNextRequestAfterRelease(string operation)
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var presentation = new RecordingPresentation(events);
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        int confirmations = 0;
+        var dialogs = new FakeUiDialogService
+        {
+            PendingDeleteResult = new UiInteractionResult<bool>(UiInteractionStatus.Accepted, false),
+            ConfirmationHandler = _ =>
+            {
+                confirmations++;
+                return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            }
+        };
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store, gate, activity);
+        Assert.IsTrue(gate.TryEnter(out IDisposable held));
+        using (held)
+        {
+            SelectedChartMutationResult rejected = await RunAsync();
+
+            AssertBusyWarning(dialogs, rejected);
+            Assert.AreEqual(0, confirmations, "使用中の要求では確認を表示しません。");
+            AssertNoSideEffects();
+            Assert.IsFalse(gate.CanEnter, "拒否した要求がテストの保持するLを解放していません。");
+        }
+
+        Assert.IsTrue(gate.CanEnter);
+        AssertNoSideEffects();
+        dialogs.Messages.Clear();
+        SelectedChartMutationResult next = await RunAsync();
+        Assert.IsTrue(next.Succeeded, next.Failure?.ToString());
+        Assert.IsFalse(next.Busy);
+        Assert.AreEqual(0, dialogs.Messages.Count, "解放後の明示要求は警告なしで実行します。");
+        Assert.AreEqual(1, operation switch
+        {
+            "delete-library" => store.LibraryDeleteCalls,
+            "delete-pending" => store.PendingDeleteCalls,
+            "rename" => store.RenameCallCount,
+            "move" => store.MovedDirectory.Length == 0 ? 0 : 1,
+            _ => store.EncodingCallCount,
+        });
+        Assert.IsTrue(gate.CanEnter);
+
+        void AssertNoSideEffects()
+        {
+            Assert.AreEqual(0, store.LibraryDeleteCalls);
+            Assert.AreEqual(0, store.PendingDeleteCalls);
+            Assert.AreEqual(0, store.RenameCallCount);
+            Assert.AreEqual(string.Empty, store.MovedDirectory);
+            Assert.AreEqual(0, store.EncodingCallCount);
+            Assert.AreEqual(0, store.PhysicalMutationStarts);
+            Assert.IsFalse(activity.IsActive);
+            CollectionAssert.AreEqual(Array.Empty<string>(), events, "活動・再生停止・更新抑制へ進みません。");
+        }
+
+        Task<SelectedChartMutationResult> RunAsync()
+        {
+            return operation switch
+            {
+                "delete-library" => owner.DeleteAsync(new SelectedChartDeleteRequest(
+                    [LibraryTarget(ChartOperationCapabilities.RemoveFromLibrary)],
+                    LibraryTarget(ChartOperationCapabilities.RemoveFromLibrary), MainViewOperationSection.Library)),
+                "delete-pending" => owner.DeleteAsync(new SelectedChartDeleteRequest(
+                    [PendingTarget()], PendingTarget(), MainViewOperationSection.InstallPending)),
+                "rename" => owner.RenameInvalidExtensionsAsync(new SelectedInvalidExtensionRenameRequest(
+                    [CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension)],
+                    isPendingSelected: false)),
+                "move" => owner.MoveAsync(new SelectedChartMoveRequest(
+                    [LibraryTarget(ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved")),
+                _ => owner.ApplyEncodingAsync(new SelectedChartEncodingRequest(
+                    [LibraryTarget(ChartOperationCapabilities.RunBmsEncodingFix)], "utf-8")),
+            };
+        }
+    }
+
+    /// <summary>
+    /// 確認後に対象別受付Pを取得できない削除・移動・拡張子修正は、活動・再生停止・変更へ進まず、LとPの解放後に受付使用中の警告を一度だけ表示します。
+    /// 結果は失敗を持たない受付使用中で、一般の失敗通知・FS/DB報告への置換と、Lの解放漏れを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("delete-library")]
+    [DataRow("delete-pending")]
+    [DataRow("rename")]
+    [DataRow("move")]
+    public async Task PhysicalAdmissionBusyAfterConfirmation_WarnsOnceAfterReleaseWithoutSideEffects(string operation)
+    {
+        var events = new List<string>();
+        // 移動は準備済みの移動計画がある場合だけ対象別Pを取得するため、計画を一件持つstoreで同じ経路へ進めます。
+        RecordingStore store = operation == "move"
+            ? new PlannedMoveStore(events) { PhysicalMutationAdmitted = false }
+            : new RecordingStore(events) { PhysicalMutationAdmitted = false };
+        var presentation = new RecordingPresentation(events);
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        int confirmations = 0;
+        bool warnedAfterRelease = false;
+        var dialogs = new FakeUiDialogService
+        {
+            PendingDeleteResult = new UiInteractionResult<bool>(UiInteractionStatus.Accepted, false),
+            ConfirmationHandler = _ =>
+            {
+                confirmations++;
+                return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            }
+        };
+        dialogs.OnMessage = () => warnedAfterRelease = gate.CanEnter && !activity.IsActive;
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store, gate, activity);
+
+        SelectedChartMutationResult result = operation switch
+        {
+            "delete-library" => await owner.DeleteAsync(new SelectedChartDeleteRequest(
+                [LibraryTarget(ChartOperationCapabilities.RemoveFromLibrary)],
+                LibraryTarget(ChartOperationCapabilities.RemoveFromLibrary), MainViewOperationSection.Library)),
+            "delete-pending" => await owner.DeleteAsync(new SelectedChartDeleteRequest(
+                [PendingTarget()], PendingTarget(), MainViewOperationSection.InstallPending)),
+            "rename" => await owner.RenameInvalidExtensionsAsync(new SelectedInvalidExtensionRenameRequest(
+                [CreateTarget("alpha.bme", ChartOperationSourceScope.Library, false, ChartOperationCapabilities.RenameInvalidExtension)],
+                isPendingSelected: false)),
+            _ => await owner.MoveAsync(new SelectedChartMoveRequest(
+                [LibraryTarget(ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved")),
+        };
+
+        AssertBusyWarning(dialogs, result);
+        Assert.IsTrue(warnedAfterRelease, "警告はLとPの解放後に表示します。");
+        Assert.AreEqual(operation == "delete-pending" ? 0 : 1, confirmations);
+        Assert.AreEqual(1, store.PhysicalMutationStarts);
+        Assert.AreEqual(0, store.LibraryDeleteCalls);
+        Assert.AreEqual(0, store.PendingDeleteCalls);
+        Assert.AreEqual(0, store.RenameCallCount);
+        Assert.AreEqual(string.Empty, store.MovedDirectory);
+        CollectionAssert.AreEqual(Array.Empty<string>(), events, "活動・再生停止・更新抑制へ進みません。");
+        Assert.IsTrue(gate.CanEnter);
+    }
+
+    /// <summary>
+    /// 同じ所有者の移動が確認待ちでLを保持している間の削除要求も、外部保持と同じく確認なしで警告を一度だけ表示して受付使用中を返します。
+    /// 先行の移動は取消されず、そのまま完了します。自分の実行中を黙って無視する誤りや、先行操作を巻き込む誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task BusyAdmission_HeldBySameOwnerRunRejectsSecondRequestWithOneWarning()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var presentation = new RecordingPresentation(events);
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        var firstConfirmation = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dialogs = new FakeUiDialogService { FirstConfirmation = firstConfirmation, ConfirmationReached = reached };
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(presentation, dialogs, store, gate, activity);
+        Task<SelectedChartMutationResult> move = owner.MoveAsync(new SelectedChartMoveRequest(
+            [LibraryTarget(ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
+        try
+        {
+            Assert.AreSame(reached.Task, await Task.WhenAny(reached.Task, move));
+
+            SelectedChartMutationResult rejected = await owner.DeleteAsync(new SelectedChartDeleteRequest(
+                [LibraryTarget(ChartOperationCapabilities.RemoveFromLibrary)],
+                LibraryTarget(ChartOperationCapabilities.RemoveFromLibrary), MainViewOperationSection.Library));
+
+            AssertBusyWarning(dialogs, rejected);
+            Assert.AreEqual(0, store.LibraryDeleteCalls);
+            Assert.IsFalse(move.IsCompleted);
+        }
+        finally
+        {
+            firstConfirmation.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        SelectedChartMutationResult moved = await move;
+        Assert.IsTrue(moved.Succeeded, moved.Failure?.ToString());
+        Assert.AreEqual(@"D:\Moved", store.MovedDirectory);
+        Assert.AreEqual(1, dialogs.Messages.Count, "先行操作の完了で警告を増やしません。");
+        Assert.IsTrue(gate.CanEnter);
+    }
+
+    /// <summary>
+    /// 終了要求で受付が閉じた後の明示操作は、警告も一般の失敗も表示せず、受付使用中とも成功とも区別した未受理を返します。終了中の不要な通知を検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task ClosedAdmission_RejectsWithoutWarningOrFailure()
+    {
+        var store = new RecordingStore();
+        var gate = new ChartFileOperationSynchronizer();
+        gate.CloseAdmission();
+        FakeUiDialogService dialogs = AcceptedMessageDialogs();
+        SelectedChartMutationWorkflowOwner owner = CreateOwner(new RecordingPresentation(), dialogs, store, gate);
+
+        SelectedChartMutationResult result = await owner.MoveAsync(new SelectedChartMoveRequest(
+            [LibraryTarget(ChartOperationCapabilities.MoveInLibrary)], @"D:\Moved"));
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsFalse(result.Busy);
+        Assert.IsNull(result.Failure);
+        Assert.AreEqual(0, dialogs.Messages.Count);
+        Assert.AreEqual(string.Empty, store.MovedDirectory);
+    }
+
+    /// <summary>移動計画を一件持たせ、所有者が停止前に対象別Pを取得する経路へ進ませる記録storeです。計画のパスは記録だけで実在の場所へ触れません。</summary>
+    private sealed class PlannedMoveStore(List<string> events) : RecordingStore(events), ISelectedChartMutationStore
+    {
+        public ChartLibraryMoveRequest PrepareLibraryMove(BMSLibrary library, ChartLibraryMoveRequest request)
+            => request.WithPreparedBatch(new FolderMoveBatch([new FolderAutoRenamePlan
+            {
+                SourceDirectory = @"C:\planned-move\Source",
+                DestinationDirectory = @"D:\Moved\Source"
+            }]));
+    }
+
+    private static ChartOperationTarget LibraryTarget(ChartOperationCapabilities capabilities) =>
+        CreateTarget("library.bms", ChartOperationSourceScope.Library, false, capabilities);
+
+    private static ChartOperationTarget PendingTarget() =>
+        CreateTarget("pending.bms", ChartOperationSourceScope.PendingPackage, true, ChartOperationCapabilities.UpdateInstallDestination);
+
+    private static void AssertBusyWarning(FakeUiDialogService dialogs, SelectedChartMutationResult result)
+    {
+        Assert.IsTrue(result.Busy);
+        Assert.IsFalse(result.Succeeded);
+        Assert.IsNull(result.Failure, "受付使用中は一般の失敗として通知しません。");
+        UiMessageRequest warning = dialogs.Messages.Single();
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, warning.Caption);
+        Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+        Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+    }
+
     private sealed class TerminalRecordingStore(
         LibraryMutationSessionReceipt receipt,
         List<string>? events = null)

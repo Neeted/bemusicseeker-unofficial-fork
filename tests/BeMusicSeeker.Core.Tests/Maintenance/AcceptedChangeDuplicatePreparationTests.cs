@@ -332,7 +332,9 @@ public sealed class AcceptedChangeDuplicatePreparationTests
                         };
                         var target = new ChartOperationTarget(first, playlistEntry: null, ChartOperationSourceScope.Library,
                             isOwned: true, isPending: false, isPlaylistMissing: false, ChartOperationCapabilities.MoveInLibrary);
-                        Assert.IsTrue(autoRename.RequestStartSelected([target]));
+                        Task<FolderAutoRenameRequestStatus> request = autoRename.RequestStartSelectedAsync([target]);
+                        Assert.IsTrue(request.IsCompletedSuccessfully, "受理の判定は待機なしで終わります。");
+                        Assert.AreEqual(FolderAutoRenameRequestStatus.Started, request.Result);
                         Task idle = autoRename.WaitForIdleAsync();
                         return (idle, () => failure?.Exception
                             ?? (completion == null ? new AssertFailedException("自動改名の完了通知がありません。") : null));

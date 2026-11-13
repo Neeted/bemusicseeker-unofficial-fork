@@ -279,7 +279,7 @@ public sealed class MainWindowPlaybackWpfTests
             playbackTerminal: playbackTerminal);
     }
 
-    /// <summary>標準構成の両再生入口では競合拒否の実終端まで面・保存値を変えず、解放後の次の明示入力だけが実面と保存値を切り替えます。</summary>
+    /// <summary>標準構成の両再生入口では競合拒否の実終端まで面・保存値を変えず受付使用中の警告を一度だけ出し、解放後の次の明示入力だけが警告なしに実面と保存値を切り替えます。</summary>
     /// <remarks>実BMIIDXView2015の設定・process・window操作を既存gatewayで代替し、実開始と対象pathを観測します。compiled表のキーから同じ入口への行identity転送は既存ケース、後段L競合と入力時状態の条件表はownerケースに委ねます。</remarks>
     [TestMethod]
     [DataRow(false)]
@@ -304,6 +304,7 @@ public sealed class MainWindowPlaybackWpfTests
                     values.BMIIDXViewPath = executable;
                     values.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
                 });
+                var busyDialogs = new FileDbReportRecordingDialogs();
                 var lifetime = new MainWindowPresentationTestHarness.PresentationApplicationLifetime();
                 var composition = new ApplicationComposition(
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
@@ -311,7 +312,7 @@ public sealed class MainWindowPlaybackWpfTests
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
                     applicationLifetime: lifetime,
                     cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
-                    dialogService: UndeclaredDialogs.Create());
+                    dialogService: busyDialogs);
                 MainWindowViewModel viewModel = composition.CreateMainWindowViewModelForTest();
                 var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
                 var processGateway = new RecordingExternalPlayerProcessGateway();
@@ -355,9 +356,11 @@ public sealed class MainWindowPlaybackWpfTests
                             Assert.IsNull(viewModel.PlaybackPanel.NowPlayingChart);
                             Assert.AreEqual(0, starts);
                             Assert.IsFalse(processGateway.Session.Started);
+                            AssertSingleBusyWarning(busyDialogs);
                         }
                         finally { lease.Dispose(); }
                         Assert.AreEqual(0, starts);
+                        AssertSingleBusyWarning(busyDialogs);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(Request(), "surface-accepted-request-terminal");
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.IsTrue(panelView.EffectivePlayerPanelState.HasFlag(PlayerPanelState.BMS_PLAYER));
@@ -366,12 +369,23 @@ public sealed class MainWindowPlaybackWpfTests
                         Assert.AreEqual(1, starts);
                         Assert.IsTrue(processGateway.Session.Started);
                         StringAssert.Contains(processGateway.LaunchRequest.Arguments, path);
+                        AssertSingleBusyWarning(busyDialogs);
                     }
                     finally { processGateway.Session.KeepRunning = false; }
                 });
             });
         }
         finally { Directory.Delete(directory, recursive: true); }
+    }
+
+    /// <summary>共通のダイアログ窓口へ、受付使用中の警告（本文・題名・Exclamation・OK）だけが一度届いたことを確認します。</summary>
+    private static void AssertSingleBusyWarning(FileDbReportRecordingDialogs dialogs)
+    {
+        BeMusicSeeker.Views.Dialogs.UiMessageRequest warning = dialogs.Messages.Single();
+        Assert.AreEqual(Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+        Assert.AreEqual(Resources.Warning, warning.Caption);
+        Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+        Assert.AreEqual(MessageBoxButton.OK, warning.Button);
     }
 
     /// <summary>読込・再生・一時停止・再開・停止を実表へ反映し時刻通知だけでは再描画せず、行と成績・選択・未確定メモを保つことを確認し、再生状態変更で行交換や編集確定を行う誤りを検出します。</summary>
