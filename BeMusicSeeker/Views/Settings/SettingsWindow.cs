@@ -1180,9 +1180,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
                 settings.SelectedCustomFolderAdditionalOutputBaseDir ?? settings.LR2CustomFolderOutputDir, true, this));
             ThrowIfPickerFailed(result.Status, result.Error, "Custom folder additional output base picker");
             if (result.Status != UiDialogStatus.Accepted) { return; }
-            string[] previous = settings.CustomFolderAdditionalOutputBaseDirList.ToArray();
-            foreach (string directory in result.FolderPaths) { settings.AddCustomFolderAdditionalOutputBaseDir(directory); }
-            if (previous.SequenceEqual(settings.CustomFolderAdditionalOutputBaseDirList, StringComparer.OrdinalIgnoreCase)) { return; }
+            if (!settings.AddCustomFolderAdditionalOutputBaseDirs(result.FolderPaths)) { return; }
             await settings.CommitOutputSettingsCoreAsync("additional");
         }, reportFailure);
     }

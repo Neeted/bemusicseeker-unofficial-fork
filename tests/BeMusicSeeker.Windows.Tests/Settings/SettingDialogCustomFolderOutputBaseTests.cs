@@ -767,7 +767,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             {
                 case "normal": dialog.LR2CustomFolderOutputDir = candidate; break;
                 case "root": dialog.LR2CustomFolderAsRootOutputDir = candidate; break;
-                case "additional": dialog.AddCustomFolderAdditionalOutputBaseDir(candidate); break;
+                case "additional": dialog.AddCustomFolderAdditionalOutputBaseDirs([candidate]); break;
             }
             Assert.AreEqual(accepted && role == "normal" ? candidate : normal, dialog.LR2CustomFolderOutputDir);
             Assert.AreEqual(accepted && role == "root" ? candidate : root, dialog.LR2CustomFolderAsRootOutputDir);

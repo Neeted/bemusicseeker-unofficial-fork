@@ -1,3 +1,4 @@
+using System.Configuration;
 using System.Globalization;
 using System.IO;
 using System.Windows;
@@ -1216,7 +1217,8 @@ public sealed class SettingsDialogBehaviorTests
             values.RightClickActionsJson = json;
             values.Save();
             var failures = new List<Exception>();
-            using var harness = SettingsDialogHarness.Create(values, reportApplyFailure: failures.Add);
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            using var harness = SettingsDialogHarness.Create(values, reportApplyFailure: failures.Add, dialogs: dialogs);
             RightClickActionSettingsEditor editor = harness.Dialog.RightClickActionSettingsEditor;
             string addedId;
             if (web)
@@ -1281,12 +1283,15 @@ public sealed class SettingsDialogBehaviorTests
                 CollectionAssert.AreEqual(new[] { prefix + "a", addedId, prefix + "b" }, SavedIds());
                 CollectionAssert.AreEqual(new[] { prefix + "a", addedId, prefix + "b" }, DisplayedIds());
             }
+            Assert.AreEqual(0, dialogs.ConfirmationCount, "並べ替えと項目の確定には確認を加えません。");
             using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             { harness.Dialog.CommitRightClickRecord(web, "delete"); }
+            Assert.AreEqual(1, dialogs.ConfirmationCount, "削除は保存失敗の回も保存の前に確認します。");
             Assert.AreEqual(2, failures.Count);
             CollectionAssert.AreEqual(new[] { prefix + "a", addedId, prefix + "b" }, SavedIds());
             CollectionAssert.AreEqual(new[] { prefix + "a", addedId, prefix + "b" }, DisplayedIds());
             harness.Dialog.CommitRightClickRecord(web, "delete");
+            Assert.AreEqual(2, dialogs.ConfirmationCount, "成功する削除もちょうど一回確認します。");
             CollectionAssert.AreEqual(new[] { prefix + "a", prefix + "b" }, SavedIds());
             CollectionAssert.AreEqual(new[] { prefix + "a", prefix + "b" }, DisplayedIds());
             await Task.CompletedTask;
@@ -1306,7 +1311,8 @@ public sealed class SettingsDialogBehaviorTests
             const string retainedJson = """[{"Name":"保持","Targets":[{"PlaylistId":101}]}]""";
             values.PlayHistoryDisplayTargetSetsJson = retainedJson;
             values.Save();
-            using var harness = SettingsDialogHarness.Create(values, playlistSnapshots:
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            using var harness = SettingsDialogHarness.Create(values, dialogs: dialogs, playlistSnapshots:
             [
                 PlaylistTablePresentationSnapshot.From(new BMSTable { playlist_id = 101, name = "表A" }),
                 PlaylistTablePresentationSnapshot.From(new BMSTable { playlist_id = 202, name = "表B" })
@@ -1375,13 +1381,260 @@ public sealed class SettingsDialogBehaviorTests
             Assert.IsTrue(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(renamed, out string renameError), renameError);
             Assert.AreSame(preset, dialog.SelectedPlayHistoryFolderDisplayPreset);
             AssertConfirmed("集中", 202);
+            Assert.AreEqual(0, dialogs.ConfirmationCount, "確定・対象変更・改名には確認を加えません。");
 
             dialog.RemoveSelectedPlayHistoryFolderDisplayPreset();
+            Assert.AreEqual(1, dialogs.ConfirmationCount, "削除だけを一回確認します。");
             AssertConfirmed(null, null);
             Assert.AreSame(retained, dialog.SelectedPlayHistoryFolderDisplayPreset);
             await Task.CompletedTask;
         }, nameof(PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval));
     }
+
+    /// <summary>
+    /// 条件：確定済みのBMSディレクトリ [R1, R2, R3] に R4 を候補として追加し、R2 を選択して明示確定します。単独モードとLR2モードの両方で行います。
+    /// 期待結果：確定後の一覧に R4 が加わり、選択は R2 のままで先頭の R1 へ移りません。
+    /// 検出する誤り：確定後の再同期が、確定前の選択が新しい一覧に残っていても先頭へ移す。
+    /// </summary>
+    /// <remarks>実 ListBox の Binding による選択解除は CompiledAdditionalOutputOperations_KeepOperatedItemSelectedInList が追加出力先で代表します。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    [DoNotParallelize]
+    public void BmsRootConfirmation_KeepsSelectionWhileItRemains(bool lr2)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory(CaseWorkspace, "bms-root-selection");
+            string[] roots = [.. new[] { "r1", "r2", "r3", "r4" }.Select(name => Directory.CreateDirectory(Path.Combine(directory.Path, "roots", name)).FullName)];
+            Settings values = OpenPersistedSettings(directory.Path);
+            if (lr2)
+            {
+                (string SongDbPath, string ConfigPath, string BmsRoot) layout = CreateValidLr2Layout(directory.Path, roots[..3]);
+                values.OperationModeLR2DB = true;
+                values.LR2RootPath = directory.Path; values.LR2ConfigXmlPath = layout.ConfigPath; values.LR2SongDBPath = layout.SongDbPath;
+            }
+            else { values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize(roots[..3]); values.BMSRootPath = roots[0]; }
+            values.BMSInstallDir = roots[0];
+            values.Save();
+            using var harness = SettingsDialogHarness.Create(values, activeLibraryProfile: true);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            CollectionAssert.AreEqual(roots[..3], dialog.ConfirmedBMSDirectories.ToArray());
+            await dialog.AddBmsSearchRootPathsAsync([roots[3]]);
+            dialog.SelectedBmsSearchRootPath = roots[1];
+            await dialog.CommitBmsRootsAsync();
+            CollectionAssert.AreEqual(roots, dialog.ConfirmedBMSDirectories.ToArray());
+            Assert.AreEqual(roots[1], dialog.SelectedBmsSearchRootPath, "確定前の選択が残っていれば先頭へ移しません。");
+        }, nameof(BmsRootConfirmation_KeepsSelectionWhileItRemains));
+    }
+
+    /// <summary>
+    /// 条件：右クリック設定ページの「既定値へ戻す」、保存済みのWeb項目・プログラム項目の削除、未保存の新規行の削除を、確認がOK・キャンセル・表示失敗の各結果のときに実行します。
+    /// 期待結果：表示失敗は取消へ置き換えず例外として呼出し元へ伝わり、確認は一回で本文は新しいリソース（削除は行の現在の入力名入り）です。OKのときだけ保存し（保存は一回、他行の未確定入力は保存しない）、キャンセル・表示失敗では保存0回でファイル・両一覧の内容と順序・各行の未確定入力・選択が変わりません。現在値が既定値と同じでも「既定値へ戻す」は確認します。
+    /// 検出する誤り：確認なしの即時保存、キャンセルでの保存や下書きの破棄、表示失敗を承認や取消へ置き換えて呼出し元へ伝えない、確認本文に別の項目名を入れる、他行の未確定入力を保存へ混ぜる。
+    /// </summary>
+    [TestMethod]
+    [DataRow("defaults", "ok")]
+    [DataRow("defaults", "cancel")]
+    [DataRow("defaults", "display-failed")]
+    [DataRow("defaults-already-default", "cancel")]
+    [DataRow("delete-web", "ok")]
+    [DataRow("delete-web", "cancel")]
+    [DataRow("delete-program", "ok")]
+    [DataRow("delete-program", "cancel")]
+    [DataRow("delete-unsaved", "ok")]
+    [DataRow("delete-unsaved", "cancel")]
+    [DoNotParallelize]
+    public void RightClickRecordDefaultsAndDelete_ConfirmBeforeSaving(string operation, string outcome)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory(CaseWorkspace, "rightclick-confirm");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string path = Path.Combine(directory.Path, "user.config");
+            string tool = Path.Combine(directory.Path, "tool.exe");
+            if (operation != "defaults-already-default")
+            {
+                var initial = new RightClickActionSettings(
+                    [new RightClickWebActionDefinition("web-a", "A", "https://example.com/a/{sha256}", true, ExternalChartKind.All),
+                     new RightClickWebActionDefinition("web-b", "B", "https://example.com/b/{sha256}", true, ExternalChartKind.All)],
+                    [new RightClickProgramActionDefinition("program-a", "PA", tool, "{filePath}", true),
+                     new RightClickProgramActionDefinition("program-b", "PB", tool, "{filePath}", true)]);
+                Assert.IsTrue(RightClickActionSettingsSerializer.TrySerialize(initial, out string json, out RightClickActionSettingsParseError parseError), parseError?.ToString());
+                values.RightClickActionsJson = json;
+                values.Save();
+            }
+            string savedJsonBefore = values.RightClickActionsJson;
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = ConfirmationFor(outcome) };
+            SettingsProperty property = values.Properties[nameof(Settings.RightClickActionsJson)];
+            SettingsProvider originalProvider = property.Provider;
+            var provider = new InstallAdmissionObservingSettingsProvider(originalProvider, () => { });
+            property.Provider = provider;
+            try
+            {
+                using var harness = SettingsDialogHarness.Create(values, dialogs: dialogs);
+                RightClickActionSettingsEditor editor = harness.Dialog.RightClickActionSettingsEditor;
+                bool web = operation is not "delete-program";
+                if (operation != "defaults-already-default")
+                {
+                    editor.WebActions[0].Name = "unsaved A";
+                    editor.ProgramActions[0].Name = "unsaved PA";
+                }
+                if (operation == "delete-web") { editor.SelectedWebAction = editor.WebActions.Single(row => row.Id == "web-b"); }
+                else if (operation == "delete-program") { editor.SelectedProgramAction = editor.ProgramActions.Single(row => row.Id == "program-b"); }
+                else if (operation == "delete-unsaved")
+                {
+                    editor.AddWebAction();
+                    editor.SelectedWebAction!.Name = "C";
+                    editor.SelectedWebAction.UrlTemplate = "https://example.com/c/{sha256}";
+                }
+                else
+                {
+                    editor.AddWebAction();
+                    editor.SelectedWebAction!.Name = "unsaved C";
+                }
+                string expectedMessage = operation switch
+                {
+                    "delete-web" => string.Format(Resources.Confirm_RightClickDeleteActionFormat, "B"),
+                    "delete-program" => string.Format(Resources.Confirm_RightClickDeleteActionFormat, "PB"),
+                    "delete-unsaved" => string.Format(Resources.Confirm_RightClickDeleteActionFormat, "C"),
+                    _ => Resources.Confirm_RightClickRestoreDefaults
+                };
+                string Snapshot() => string.Join("|", editor.WebActions.Select(row => $"{row.Id}:{row.Name}:{row.UrlTemplate}"))
+                    + "||" + string.Join("|", editor.ProgramActions.Select(row => $"{row.Id}:{row.Name}:{row.ExecutablePath}"));
+                string snapshotBefore = Snapshot();
+                RightClickWebActionEditorRow? selectedWeb = editor.SelectedWebAction;
+                RightClickProgramActionEditorRow? selectedProgram = editor.SelectedProgramAction;
+                byte[] fileBefore = File.ReadAllBytes(path);
+
+                Exception? thrown = null;
+                try { harness.Dialog.CommitRightClickRecord(web, operation.StartsWith("defaults", StringComparison.Ordinal) ? "defaults" : "delete"); }
+                catch (Exception failure) { thrown = failure; }
+                if (outcome == "display-failed") { Assert.IsNotNull(thrown, "確認の表示失敗を取消へ置き換えず、呼出し元へ伝えます。"); }
+                else { Assert.IsNull(thrown); }
+
+                UiConfirmationRequest request = dialogs.ConfirmationRequests.Single();
+                Assert.AreEqual(expectedMessage, request.MessageBoxText);
+                Assert.AreEqual(MessageBoxButton.OKCancel, request.Button);
+                Assert.AreEqual(0, dialogs.MessageCount);
+                if (outcome != "ok")
+                {
+                    Assert.AreEqual(0, provider.SaveCount, "取消・表示失敗では保存要求を出しません。");
+                    CollectionAssert.AreEqual(fileBefore, File.ReadAllBytes(path));
+                    Assert.AreEqual(snapshotBefore, Snapshot(), "両一覧の順序と各行の未確定入力を変えません。");
+                    Assert.AreSame(selectedWeb, editor.SelectedWebAction);
+                    Assert.AreSame(selectedProgram, editor.SelectedProgramAction);
+                    Assert.AreEqual(savedJsonBefore, values.RightClickActionsJson);
+                    return;
+                }
+                RightClickActionSettings saved = RightClickActionSettingsSerializer.Parse(TestSettingsFactory.OpenSettings(path).RightClickActionsJson).Settings!;
+                switch (operation)
+                {
+                    case "defaults":
+                        Assert.AreEqual(1, provider.SaveCount);
+                        Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, TestSettingsFactory.OpenSettings(path).RightClickActionsJson);
+                        CollectionAssert.AreEqual(RightClickActionSettingsDefaults.Create().WebActions.Select(row => row.Id).ToArray(), editor.WebActions.Select(row => row.Id).ToArray());
+                        CollectionAssert.AreEqual(RightClickActionSettingsDefaults.Create().ProgramActions.Select(row => row.Id).ToArray(), editor.ProgramActions.Select(row => row.Id).ToArray());
+                        break;
+                    case "delete-web":
+                        Assert.AreEqual(1, provider.SaveCount);
+                        CollectionAssert.AreEqual(new[] { "web-a" }, saved.WebActions.Select(row => row.Id).ToArray());
+                        Assert.AreEqual("A", saved.WebActions.Single().Name, "他行の未確定入力を保存へ混ぜません。");
+                        Assert.AreEqual("PA", saved.ProgramActions[0].Name, "他行の未確定入力を保存へ混ぜません。");
+                        break;
+                    case "delete-program":
+                        Assert.AreEqual(1, provider.SaveCount);
+                        CollectionAssert.AreEqual(new[] { "program-a" }, saved.ProgramActions.Select(row => row.Id).ToArray());
+                        Assert.AreEqual("PA", saved.ProgramActions.Single().Name, "他行の未確定入力を保存へ混ぜません。");
+                        Assert.AreEqual("A", saved.WebActions[0].Name, "他行の未確定入力を保存へ混ぜません。");
+                        break;
+                    default:
+                        Assert.IsTrue(provider.SaveCount <= 1);
+                        CollectionAssert.AreEqual(new[] { "web-a", "web-b" }, saved.WebActions.Select(row => row.Id).ToArray());
+                        Assert.AreEqual("A", saved.WebActions[0].Name);
+                        CollectionAssert.AreEqual(new[] { "web-a", "web-b" }, editor.WebActions.Select(row => row.Id).ToArray(), "未保存の新規行だけが消えます。");
+                        break;
+                }
+                await Task.CompletedTask;
+            }
+            finally { property.Provider = originalProvider; }
+        }, nameof(RightClickRecordDefaultsAndDelete_ConfirmBeforeSaving));
+    }
+
+    /// <summary>
+    /// 条件：保存済みの履歴表示プリセット2件のうち選択中の1件を、確認がOK・キャンセル・表示失敗の各結果のときに削除します。
+    /// 期待結果：表示失敗は取消へ置き換えず例外として呼出し元へ伝わり、確認は一回で本文は新しいリソースにプリセット名を入れたものです。OKのときだけ保存し、保存JSONから消え、プレイ履歴側の反映を保存JSONで一回呼びます。キャンセル・表示失敗では保存0回でファイル・一覧・選択が変わらず、プレイ履歴側へ反映しません。
+    /// 検出する誤り：確認なしの即時削除、キャンセルや表示失敗での削除、表示失敗を取消へ置き換えて呼出し元へ伝えない、プレイ履歴側への余分・不足の反映、確認本文の名前の取り違え。
+    /// </summary>
+    [TestMethod]
+    [DataRow("ok")]
+    [DataRow("cancel")]
+    [DataRow("display-failed")]
+    [DoNotParallelize]
+    public void PlayHistoryPresetRemoval_ConfirmsBeforeSavingAndCancelKeepsHistory(string outcome)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory(CaseWorkspace, "history-preset-removal-confirm");
+            Settings values = OpenPersistedSettings(directory.Path);
+            string path = Path.Combine(directory.Path, "user.config");
+            values.PlayHistoryDisplayTargetSetsJson = """[{"Name":"保持","Targets":[{"PlaylistId":101}]},{"Name":"削除","Targets":[{"PlaylistId":202}]}]""";
+            values.Save();
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = ConfirmationFor(outcome) };
+            SettingsProperty property = values.Properties[nameof(Settings.PlayHistoryDisplayTargetSetsJson)];
+            SettingsProvider originalProvider = property.Provider;
+            var provider = new InstallAdmissionObservingSettingsProvider(originalProvider, () => { });
+            property.Provider = provider;
+            try
+            {
+                using var harness = SettingsDialogHarness.Create(values, dialogs: dialogs, playlistSnapshots:
+                [
+                    PlaylistTablePresentationSnapshot.From(new BMSTable { playlist_id = 101, name = "表A" }),
+                    PlaylistTablePresentationSnapshot.From(new BMSTable { playlist_id = 202, name = "表B" })
+                ]);
+                SettingsDialogViewModel dialog = harness.Dialog;
+                PlayHistoryFolderDisplayPresetEditor retained = dialog.PlayHistoryFolderDisplayPresets.Single(preset => preset.Name == "保持");
+                PlayHistoryFolderDisplayPresetEditor target = dialog.PlayHistoryFolderDisplayPresets.Single(preset => preset.Name == "削除");
+                dialog.SelectedPlayHistoryFolderDisplayPreset = target;
+                int refreshesBefore = harness.PlayHistory.RefreshCount;
+                byte[] fileBefore = File.ReadAllBytes(path);
+
+                Exception? thrown = null;
+                try { dialog.RemoveSelectedPlayHistoryFolderDisplayPreset(); }
+                catch (Exception failure) { thrown = failure; }
+                if (outcome == "display-failed") { Assert.IsNotNull(thrown, "確認の表示失敗を取消へ置き換えず、呼出し元へ伝えます。"); }
+                else { Assert.IsNull(thrown); }
+
+                UiConfirmationRequest request = dialogs.ConfirmationRequests.Single();
+                Assert.AreEqual(string.Format(Resources.Confirm_RemovePlayHistoryFolderDisplayPresetFormat, "削除"), request.MessageBoxText);
+                Assert.AreEqual(MessageBoxButton.OKCancel, request.Button);
+                if (outcome != "ok")
+                {
+                    Assert.AreEqual(0, provider.SaveCount);
+                    CollectionAssert.AreEqual(fileBefore, File.ReadAllBytes(path));
+                    CollectionAssert.AreEqual(new[] { retained, target }, dialog.PlayHistoryFolderDisplayPresets.ToArray());
+                    Assert.AreSame(target, dialog.SelectedPlayHistoryFolderDisplayPreset);
+                    Assert.AreEqual(refreshesBefore, harness.PlayHistory.RefreshCount, "取消・表示失敗ではプレイ履歴側へ反映しません。");
+                    return;
+                }
+                Assert.AreEqual(1, provider.SaveCount);
+                string savedJson = TestSettingsFactory.OpenSettings(path).PlayHistoryDisplayTargetSetsJson;
+                CollectionAssert.AreEqual(new[] { "保持" }, JArray.Parse(savedJson).Select(record => record.Value<string>("Name")).ToArray());
+                CollectionAssert.AreEqual(new[] { retained }, dialog.PlayHistoryFolderDisplayPresets.ToArray());
+                Assert.AreEqual(refreshesBefore + 1, harness.PlayHistory.RefreshCount);
+                Assert.AreEqual(savedJson, harness.PlayHistory.LastSerializedDisplayTargetSets);
+                await Task.CompletedTask;
+            }
+            finally { property.Provider = originalProvider; }
+        }, nameof(PlayHistoryPresetRemoval_ConfirmsBeforeSavingAndCancelKeepsHistory));
+    }
+
+    private static UiDialogResult ConfirmationFor(string outcome) => outcome switch
+    {
+        "ok" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+        "cancel" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel),
+        _ => UiDialogResult.Failed(new InvalidOperationException("controlled confirmation display failure"))
+    };
 
     /// <summary>閉じる操作は局所候補だけを破棄し、再表示では確定値から作り、既に項目保存した通常設定を保持します。</summary>
     [TestMethod]
@@ -1553,7 +1806,7 @@ public sealed class SettingsDialogBehaviorTests
             byte[] xmlBefore = File.ReadAllBytes(layout.ConfigPath);
             if (section == "normal") { harness.Dialog.LR2CustomFolderOutputDir = builtin; }
             else if (section == "root") { harness.Dialog.LR2CustomFolderAsRootOutputDir = builtin; }
-            else { harness.Dialog.AddCustomFolderAdditionalOutputBaseDir(builtin); }
+            else { harness.Dialog.AddCustomFolderAdditionalOutputBaseDirs([builtin]); }
             Assert.AreEqual(0, dialogs.MessageCount, "候補では形式と従来衝突だけを検査します。");
             await harness.Dialog.CommitOutputSettingsAsync(section);
             Assert.AreEqual(1, dialogs.MessageCount);
@@ -1615,7 +1868,7 @@ public sealed class SettingsDialogBehaviorTests
                 Assert.AreEqual(unselected, harness.Dialog.LR2CustomFolderOutputDir);
             }
             string extra = Directory.CreateDirectory(Path.Combine(directory.Path, "SafeExtra")).FullName;
-            harness.Dialog.AddCustomFolderAdditionalOutputBaseDir(extra);
+            harness.Dialog.AddCustomFolderAdditionalOutputBaseDirs([extra]);
             await harness.Dialog.CommitOutputSettingsAsync("additional");
             string root = Directory.CreateDirectory(Path.Combine(directory.Path, "SafeRoot")).FullName;
             harness.Dialog.LR2CustomFolderAsRootOutputDir = root;

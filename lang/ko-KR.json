@@ -1390,5 +1390,10 @@
   "ChartPropertiesExcludedSyntax": "잘못된 구문",
   "ChartPropertiesCp932AlternativeInterpretation": "CP932로 해석한 경우의 문제 (일반 해석에도 표시될 수 있습니다)",
   "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}에는 LR2 기본 사용자 폴더의 예약 영역을 지정할 수 없습니다.\n지정 위치: {1}\n기본 폴더: {2}",
-  "DatabaseConnectionCloseFailed": "데이터베이스 연결을 닫는 중 오류가 발생했습니다."
+  "DatabaseConnectionCloseFailed": "데이터베이스 연결을 닫는 중 오류가 발생했습니다.",
+  "Error_AdditionalOutputBaseRejectedHeading": "다음 폴더는 추가 출력 대상으로 추가되지 않았습니다.",
+  "Confirm_RightClickRestoreDefaults": "오른쪽 클릭 설정의 웹 항목과 프로그램 항목을 기본값으로 바꾸고 저장합니다. 등록된 항목과 확정되지 않은 입력은 사라집니다.\n\n계속하시겠습니까?",
+  "Confirm_RightClickDeleteActionFormat": "오른쪽 클릭 항목 \"{0}\"을(를) 삭제하고 저장합니다.\n\n계속하시겠습니까?",
+  "Confirm_RightClickDeleteActionUnnamed": "선택한 오른쪽 클릭 항목을 삭제하고 저장합니다.\n\n계속하시겠습니까?",
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "플레이 로그 FOLDER 표시 프리셋 \"{0}\"을(를) 삭제하고 저장합니다.\n\n계속하시겠습니까?"
 }

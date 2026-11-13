@@ -339,7 +339,7 @@ Configure custom folder destinations and default folder types, the external tabl
 
 #### Play Log FOLDER Display Presets
 
-Click `Add` or `Edit`, enter a preset name, and select several playlists. Use these presets in the [Play Log Display Target and FOLDER](#display-target-and-folder) drop-down.
+Click `Add` or `Edit`, enter a preset name, and select several playlists. Use these presets in the [Play Log Display Target and FOLDER](#display-target-and-folder) drop-down. `Remove from list` saves only when you choose `OK` in the confirmation.
 
 ### Install
 
@@ -472,7 +472,7 @@ Specify a name and executable, and include `{filePath}` in the arguments. The de
 
 Group arguments with double quotes, for example `--file="{filePath}"`. Chart paths containing spaces are passed as one argument. Single quotes are literal characters; `{filePath}` is the only supported placeholder. The working directory is the executable's folder. Program entries require a local chart; hash-only rows use web pages only.
 
-Correct field errors before confirming the selected action. Disabled entries also need valid contents. Discarding the selected action restores its unconfirmed input. Delete, reorder, and `Restore defaults` save as explicit operations.
+Correct field errors before confirming the selected action. Disabled entries also need valid contents. Discarding the selected action restores its unconfirmed input. Reordering saves as soon as you do it. Delete and `Restore defaults` save only when you choose `OK` in the confirmation.
 
 ## Startup / Reload / Progress Display
 

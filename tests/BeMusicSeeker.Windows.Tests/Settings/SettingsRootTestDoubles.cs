@@ -70,11 +70,15 @@ internal sealed class InstallAdmissionObservingSettingsProvider : System.Configu
     public override string ApplicationName { get => inner.ApplicationName; set => inner.ApplicationName = value; }
     /// <summary>同期保存の要求回数です。初期表示や再表示からの追加保存を検出します。</summary>
     internal int SaveCount { get; private set; }
+    /// <summary>保存要求に含まれた追加出力先の値を書込み順に記録します。途中の部分集合を書いていないことを確認する入力です。</summary>
+    internal List<string> AdditionalOutputBaseDirsWrites { get; } = [];
     public override System.Configuration.SettingsPropertyValueCollection GetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyCollection properties)
         => inner.GetPropertyValues(context, properties);
     public override void SetPropertyValues(System.Configuration.SettingsContext context, System.Configuration.SettingsPropertyValueCollection values)
     {
         SaveCount++;
+        if (values[nameof(BeMusicSeeker.Properties.Settings.LR2CustomFolderAdditionalOutputBaseDirs)] is { } additional)
+        { AdditionalOutputBaseDirsWrites.Add(additional.PropertyValue as string ?? string.Empty); }
         observe();
         try { inner.SetPropertyValues(context, values); }
         finally { observe(); }

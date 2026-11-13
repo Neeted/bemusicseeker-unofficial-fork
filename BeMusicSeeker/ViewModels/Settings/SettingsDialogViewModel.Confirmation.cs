@@ -1114,6 +1114,8 @@ public partial class SettingsDialogViewModel
                                     previousLocations = await Task.Run(() => customFolderOutputPort.CommitCustomFolderOutputSettings(previous, target, renames, capability));
                                 }
                                 ApplicationSettings.Publish(values);
+                                // 公開が成立したので、戻す先の選択ではなく操作後の選択を維持します。
+                                additionalOutputSelectionFallback = null;
                                 AdoptPublishedOutputCandidates(section, target);
                                 if (rootChange != null) { GetConfirmedLr2Owner().Publish(rootChange, target); }
                                 publishOutputPlacement(target);
@@ -1251,6 +1253,7 @@ public partial class SettingsDialogViewModel
     internal void CommitRightClickRecord(bool web, string operation = "save")
     {
         if (!IsIndependentSectionEnabled) { return; }
+        if (!ConfirmRightClickRecordChange(web, operation)) { return; }
         if (!rightClickActionSettingsEditor.TryPrepareRecordChange(ApplicationSettings.RightClickActionsJson, web, operation,
             out string json, out string error)) { ShowSettingValidationError(error); return; }
         if (!TryCommitSetting(nameof(RightClickActionSettingsEditor), (nameof(Settings.RightClickActionsJson), json))) { return; }
@@ -1265,6 +1268,35 @@ public partial class SettingsDialogViewModel
             case (false, "down"): rightClickActionSettingsEditor.MoveSelectedProgramActionDown(); break;
             case (_, "defaults"): rightClickActionSettingsEditor.DiscardChanges(); break;
         }
+    }
+
+    /// <summary>
+    /// 即時に保存する削除と既定値への復帰だけ、保存の前に確認します。並べ替えと項目の確定には確認を加えません。
+    /// 削除の確認は、行の現在の入力名（未確定の編集中の名前を含む）を示します。
+    /// </summary>
+    private bool ConfirmRightClickRecordChange(bool web, string operation)
+    {
+        string message;
+        if (operation == "defaults") { message = Resources.Confirm_RightClickRestoreDefaults; }
+        else if (operation == "delete")
+        {
+            string name;
+            if (web)
+            {
+                if (rightClickActionSettingsEditor.SelectedWebAction is not { } webRow) { return true; }
+                name = webRow.Name;
+            }
+            else
+            {
+                if (rightClickActionSettingsEditor.SelectedProgramAction is not { } programRow) { return true; }
+                name = programRow.Name;
+            }
+            message = string.IsNullOrWhiteSpace(name) ? Resources.Confirm_RightClickDeleteActionUnnamed
+                : FormatResource(Resources.Confirm_RightClickDeleteActionFormat, name);
+        }
+        else { return true; }
+        // 確認の表示に失敗した場合は取消へ置き換えず、保存を始めないまま失敗を呼出し元へ伝えます。
+        return ShowUiConfirmation(message, Resources.Confirm, UiDialogIcon.Exclamation, UiDialogButton.OKCancel, "Right-click settings confirmation");
     }
 
     /// <summary>右クリックの選択recordの入力だけを取消します。</summary>

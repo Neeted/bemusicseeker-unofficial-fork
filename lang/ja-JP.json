@@ -1390,5 +1390,10 @@
   "ChartPropertiesExcludedSyntax": "不正構文",
   "ChartPropertiesCp932AlternativeInterpretation": "CP932で解釈した場合の問題 (通常の解釈と併記される場合があります)",
   "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}には、LR2組込みカスタムフォルダの予約領域を指定できません。\n指定先: {1}\n組込みフォルダ: {2}",
-  "DatabaseConnectionCloseFailed": "データベース接続の終了処理でエラーが発生しました。"
+  "DatabaseConnectionCloseFailed": "データベース接続の終了処理でエラーが発生しました。",
+  "Error_AdditionalOutputBaseRejectedHeading": "次のフォルダは追加出力先に追加しませんでした。",
+  "Confirm_RightClickRestoreDefaults": "右クリック設定のWeb項目とプログラム項目を既定値に置き換えて保存します。登録済みの項目と未確定の入力は失われます。\n\n続行しますか？",
+  "Confirm_RightClickDeleteActionFormat": "右クリック項目「{0}」を削除して保存します。\n\n続行しますか？",
+  "Confirm_RightClickDeleteActionUnnamed": "選択中の右クリック項目を削除して保存します。\n\n続行しますか？",
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "プレイログ FOLDER 表示プリセット「{0}」を削除して保存します。\n\n続行しますか？"
 }

@@ -493,6 +493,8 @@ public partial class SettingsDialogViewModel : ViewModel
     private string selectedLR2ConfigBmsDirectory;
 
     private string selectedCustomFolderAdditionalOutputBaseDir;
+    /// <summary>確定配置へ戻すときに選び直す、直前の追加出力先操作の確定側の項目です。選択が利用者操作で変わると捨てます。</summary>
+    private string additionalOutputSelectionFallback;
 
     private string selectedCustomFolderAdditionalOutputBaseName;
 
@@ -1327,6 +1329,7 @@ public partial class SettingsDialogViewModel : ViewModel
             if (!string.Equals(selectedCustomFolderAdditionalOutputBaseDir, value, StringComparison.Ordinal))
             {
                 selectedCustomFolderAdditionalOutputBaseDir = value;
+                additionalOutputSelectionFallback = null;
                 selectedCustomFolderAdditionalOutputBaseName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(value);
                 RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseDir));
                 RaisePropertyChanged(nameof(SelectedCustomFolderAdditionalOutputBaseName));
@@ -3988,12 +3991,14 @@ public partial class SettingsDialogViewModel : ViewModel
             : trimmed;
     }
 
+    /// <summary>BMS一覧の候補を確定値から作り直します。確定前の選択が新しい一覧に残っていれば維持し、残っていない場合だけ先頭へ移します。</summary>
     private void RefreshBmsRootCandidatesFromSettings()
     {
         IReadOnlyList<string> paths = GetConfirmedBmsRoots();
+        string preferredStandalone = selectedStandaloneBmsRootPath;
         bool pathsChanged = !BmsRootPathList.SequenceEqual(paths, StringComparer.OrdinalIgnoreCase);
-        string selectedPath = paths.FirstOrDefault();
-        bool selectedChanged = !string.Equals(SelectedStandaloneBmsRootPath, selectedPath, StringComparison.OrdinalIgnoreCase);
+        string selectedPath = FindPathIgnoringCase(paths, preferredStandalone) ?? paths.FirstOrDefault();
+        bool selectedChanged = !string.Equals(SelectedStandaloneBmsRootPath, selectedPath, StringComparison.Ordinal);
         if (!pathsChanged && !selectedChanged)
         {
             return;
@@ -4009,21 +4014,28 @@ public partial class SettingsDialogViewModel : ViewModel
             RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
         }
-        if (selectedChanged)
+        if (!string.Equals(SelectedStandaloneBmsRootPath, selectedPath, StringComparison.Ordinal))
         {
             SelectedStandaloneBmsRootPath = selectedPath;
         }
         RaiseValidationStateChanged();
     }
 
-
+    /// <summary>
+    /// 追加出力先の一覧を出力候補から作り直します。選択は、確定配置へ戻す直前の操作の確定側の項目、現在の選択の順に残っているものを維持し、
+    /// どちらも残っていない場合だけ先頭へ移します。表示上の選択だけで、検証や再操作の入力には持ち越しません。
+    /// </summary>
     private void RefreshCustomFolderAdditionalOutputBaseDirsFromSettings()
     {
         IReadOnlyList<string> paths = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(
             outputLR2CustomFolderAdditionalOutputBaseDirs);
+        string fallback = additionalOutputSelectionFallback;
+        additionalOutputSelectionFallback = null;
+        string selectedPath = FindPathIgnoringCase(paths, fallback)
+            ?? FindPathIgnoringCase(paths, selectedCustomFolderAdditionalOutputBaseDir)
+            ?? paths.FirstOrDefault();
         bool pathsChanged = !CustomFolderAdditionalOutputBaseDirList.SequenceEqual(paths, StringComparer.OrdinalIgnoreCase);
-        string selectedPath = paths.FirstOrDefault();
-        bool selectedChanged = !string.Equals(selectedCustomFolderAdditionalOutputBaseDir, selectedPath, StringComparison.OrdinalIgnoreCase);
+        bool selectedChanged = !string.Equals(selectedCustomFolderAdditionalOutputBaseDir, selectedPath, StringComparison.Ordinal);
         bool pendingRenamesChanged = customFolderAdditionalOutputBaseRename.HasValue;
         if (!pathsChanged && !selectedChanged && !pendingRenamesChanged)
         {
@@ -4037,7 +4049,8 @@ public partial class SettingsDialogViewModel : ViewModel
                 CustomFolderAdditionalOutputBaseDirList.Add(path);
             }
         }
-        if (selectedChanged)
+        // 一覧の作り直しで結び付いた表示が選択を解除しても、決めた選択へ戻します。
+        if (!string.Equals(selectedCustomFolderAdditionalOutputBaseDir, selectedPath, StringComparison.Ordinal))
         {
             SelectedCustomFolderAdditionalOutputBaseDir = selectedPath;
         }
@@ -4047,6 +4060,9 @@ public partial class SettingsDialogViewModel : ViewModel
         }
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
+
+    private static string FindPathIgnoringCase(IReadOnlyList<string> paths, string path)
+        => string.IsNullOrEmpty(path) ? null : paths.FirstOrDefault(item => string.Equals(item, path, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>表示だけを有効・失効にし、再表示の候補を最新確定値から作ります。受理済みTaskと保存後の修復要求は保持します。</summary>
     internal void SetPresentationActive(bool active)
@@ -4170,6 +4186,11 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return;
         }
+        // 確認の表示に失敗した場合は取消へ置き換えず、保存と一覧の変更を始めないまま失敗を呼出し元へ伝えます。
+        if (!ShowUiConfirmation(
+                FormatResource(BeMusicSeeker.Properties.Resources.Confirm_RemovePlayHistoryFolderDisplayPresetFormat, preset.Name),
+                BeMusicSeeker.Properties.Resources.Confirm, MessageBoxImage.Exclamation, MessageBoxButton.OKCancel,
+                "Play history display preset removal confirmation")) { return; }
         IEnumerable<PlayHistoryDisplayTargetSet> confirmed = PlayHistoryDisplayTargetSetStore.Deserialize(ApplicationSettings.PlayHistoryDisplayTargetSetsJson)
             .Where(item => !string.Equals(item.Name, preset.Name, StringComparison.OrdinalIgnoreCase));
         string json = PlayHistoryDisplayTargetSetStore.Serialize(confirmed);
@@ -4547,30 +4568,54 @@ public partial class SettingsDialogViewModel : ViewModel
         setter.Invoke(this, [value]);
     }
 
-    /// <summary>追加出力候補を検証して加えます。導入先保護を含む拒否時は未受理候補を復元します。</summary>
-    public void AddCustomFolderAdditionalOutputBaseDir(string path)
+    /// <summary>
+    /// 一回の選択で得たフォルダ列を選択順に一件ずつ検査し、拒否したものだけを除いて受理したものを追加出力先の候補へ加えます。
+    /// 同じ選択内で先に受理したフォルダも後続の検査の比較対象に含め、拒否は既存の候補・他区分の候補を変えません。
+    /// 拒否が一件以上あれば、パスと理由を一回の通知にまとめます。確定時にだけ行う検査はここでは行わず、確定処理が従来どおり判断します。
+    /// 受理したフォルダがあれば最後に受理したものを選択します。
+    /// </summary>
+    /// <param name="paths">選択画面が返したフォルダのパス。選択順に検査します。</param>
+    /// <returns>候補一覧が変わり、追加出力先の確定が必要なとき true。全件拒否や空の入力では false。</returns>
+    public bool AddCustomFolderAdditionalOutputBaseDirs(IEnumerable<string> paths)
     {
-        try
+        string selectedBefore = SelectedCustomFolderAdditionalOutputBaseDir;
+        string[] listBefore = [.. CustomFolderAdditionalOutputBaseDirList];
+        List<(string Path, string Reason)> rejected = [];
+        string lastAccepted = null;
+        foreach (string path in paths ?? [])
         {
-            string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
-            if (string.IsNullOrWhiteSpace(normalizedPath))
+            string displayPath = path;
+            try
             {
-                return;
-            }
-            ValidateCustomFolderAdditionalOutputBasePath(normalizedPath, oldPath: null);
-            if (!CustomFolderAdditionalOutputBaseDirList.Contains(normalizedPath, StringComparer.OrdinalIgnoreCase))
-            {
+                string normalizedPath = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path);
+                if (string.IsNullOrWhiteSpace(normalizedPath))
+                {
+                    continue;
+                }
+                displayPath = normalizedPath;
+                ValidateCustomFolderAdditionalOutputBasePath(normalizedPath, oldPath: null);
                 CustomFolderAdditionalOutputBaseDirList.Add(normalizedPath);
+                UpdateAdditionalOutputCandidate();
+                lastAccepted = normalizedPath;
             }
-            SelectedCustomFolderAdditionalOutputBaseDir = normalizedPath;
-            UpdateAdditionalOutputCandidate();
+            catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                rejected.Add((displayPath, ex.Message));
+            }
+        }
+        if (lastAccepted != null)
+        {
+            SelectedCustomFolderAdditionalOutputBaseDir = lastAccepted;
+            additionalOutputSelectionFallback = selectedBefore;
             RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
         }
-        catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
+        if (rejected.Count > 0)
         {
-            RestoreUnacceptedOutputCandidates();
-            ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+            string details = string.Join("\n\n", rejected.Select(item => item.Path + "\n" + item.Reason));
+            ShowUiMessage(BeMusicSeeker.Properties.Resources.Error_AdditionalOutputBaseRejectedHeading + "\n\n" + details,
+                BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
+        return !listBefore.SequenceEqual(CustomFolderAdditionalOutputBaseDirList, StringComparer.OrdinalIgnoreCase);
     }
 
     public void RemoveSelectedCustomFolderAdditionalOutputBaseDir()
@@ -4603,6 +4648,7 @@ public partial class SettingsDialogViewModel : ViewModel
             CustomFolderAdditionalOutputBaseDirList.Add(path);
         }
         SelectedCustomFolderAdditionalOutputBaseDir = CustomFolderAdditionalOutputBaseDirList.FirstOrDefault();
+        additionalOutputSelectionFallback = selectedPath;
         UpdateAdditionalOutputCandidate();
         RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
     }
@@ -4637,12 +4683,15 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             customFolderAdditionalOutputBaseRename = new(oldName, newName);
             SelectedCustomFolderAdditionalOutputBaseDir = newPath;
+            additionalOutputSelectionFallback = selectedPath;
             UpdateAdditionalOutputCandidate();
             RaiseCustomFolderAdditionalOutputBasePropertiesChanged();
         }
         catch (Exception ex) when (ex is ArgumentException || ex is InvalidOperationException || ex is NotSupportedException || ex is PathTooLongException)
         {
             RestoreUnacceptedOutputCandidates();
+            // 拒否した改名の入力は、確定配置へ戻した選択中の項目の名前へ揃えます。
+            SelectedCustomFolderAdditionalOutputBaseName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(SelectedCustomFolderAdditionalOutputBaseDir);
             ShowUiMessage(ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
         }
     }

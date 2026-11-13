@@ -105,7 +105,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 {
                     case "normal": dialog.LR2CustomFolderOutputDir = Path.Combine(root, "NewNormal"); request = dialog.CommitOutputSettingsAsync("normal"); break;
                     case "root-output": dialog.LR2CustomFolderAsRootOutputDir = Path.Combine(root, "NewRoot"); request = dialog.CommitOutputSettingsAsync("root"); break;
-                    case "additional": dialog.AddCustomFolderAdditionalOutputBaseDir(Path.Combine(root, "NewAdditional")); request = dialog.CommitOutputSettingsAsync("additional"); break;
+                    case "additional": dialog.AddCustomFolderAdditionalOutputBaseDirs([Path.Combine(root, "NewAdditional")]); request = dialog.CommitOutputSettingsAsync("additional"); break;
                     case "song": dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), song).GetAwaiter().GetResult(); break;
                     case "config": dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2ConfigXmlPath), config).GetAwaiter().GetResult(); break;
                     case "mode": request = dialog.SelectOperationModeAsync(false); break;

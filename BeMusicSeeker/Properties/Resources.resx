@@ -4102,4 +4102,17 @@ ON：すべての使用リソースを要求し、不足時は保留にします
 組込みフォルダ: {2}</value></data>
   <data name="Error_InstallDestinationMissing" xml:space="preserve"><value>導入先フォルダーが見つかりません。INSTL DSTを選び直してください。</value></data>
   <data name="DatabaseConnectionCloseFailed" xml:space="preserve"><value>データベース接続の終了処理でエラーが発生しました。</value></data>
+  <data name="Error_AdditionalOutputBaseRejectedHeading" xml:space="preserve"><value>次のフォルダは追加出力先に追加しませんでした。</value></data>
+  <data name="Confirm_RightClickRestoreDefaults" xml:space="preserve"><value>右クリック設定のWeb項目とプログラム項目を既定値に置き換えて保存します。登録済みの項目と未確定の入力は失われます。
+
+続行しますか？</value></data>
+  <data name="Confirm_RightClickDeleteActionFormat" xml:space="preserve"><value>右クリック項目「{0}」を削除して保存します。
+
+続行しますか？</value></data>
+  <data name="Confirm_RightClickDeleteActionUnnamed" xml:space="preserve"><value>選択中の右クリック項目を削除して保存します。
+
+続行しますか？</value></data>
+  <data name="Confirm_RemovePlayHistoryFolderDisplayPresetFormat" xml:space="preserve"><value>プレイログ FOLDER 表示プリセット「{0}」を削除して保存します。
+
+続行しますか？</value></data>
 </root>

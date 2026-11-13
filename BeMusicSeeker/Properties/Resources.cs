@@ -3271,4 +3271,14 @@ public class Resources
     public static string Error_InstallDestinationMissing => ResourceManager.GetString("Error_InstallDestinationMissing", resourceCulture);
     /// <summary>同じアプリでDB接続の終了失敗が発生し、正常終了を確認できないことを通知します。</summary>
     public static string DatabaseConnectionCloseFailed => ResourceManager.GetString("DatabaseConnectionCloseFailed", resourceCulture);
+    /// <summary>追加出力先の追加で拒否したフォルダの一覧に付ける見出しです。</summary>
+    public static string Error_AdditionalOutputBaseRejectedHeading => ResourceManager.GetString("Error_AdditionalOutputBaseRejectedHeading", resourceCulture);
+    /// <summary>右クリック設定の「既定値へ戻す」を保存する前の確認文です。</summary>
+    public static string Confirm_RightClickRestoreDefaults => ResourceManager.GetString("Confirm_RightClickRestoreDefaults", resourceCulture);
+    /// <summary>右クリック項目の削除を保存する前の確認の書式です。{0}は項目名です。</summary>
+    public static string Confirm_RightClickDeleteActionFormat => ResourceManager.GetString("Confirm_RightClickDeleteActionFormat", resourceCulture);
+    /// <summary>名前が空白だけの右クリック項目の削除を保存する前の確認文です。</summary>
+    public static string Confirm_RightClickDeleteActionUnnamed => ResourceManager.GetString("Confirm_RightClickDeleteActionUnnamed", resourceCulture);
+    /// <summary>プレイログ FOLDER 表示プリセットの削除を保存する前の確認の書式です。{0}はプリセット名です。</summary>
+    public static string Confirm_RemovePlayHistoryFolderDisplayPresetFormat => ResourceManager.GetString("Confirm_RemovePlayHistoryFolderDisplayPresetFormat", resourceCulture);
 }

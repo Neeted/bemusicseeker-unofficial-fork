@@ -871,9 +871,10 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実復元ボタンを押すと確認なしで編集器を既定 JSON に変え、保存済み JSON は変更しないことを確認します。</summary>
+    /// <summary>有効な下書きで実復元ボタンが有効であり、押すと確認を一回出し、OKの応答後にだけ既定 JSON を編集器と保存値へ反映することを確認します。</summary>
+    /// <remarks>取消・表示失敗で保存しないことと、現在値が既定値と同じ場合の確認はVM側の RightClickRecordDefaultsAndDelete_ConfirmBeforeSaving が分担します。</remarks>
     [TestMethod]
-    public void SettingsWindow_RightClickRestoreDefaultsIsEnabledForValidDraftAndDoesNotPrompt()
+    public void SettingsWindow_RightClickRestoreDefaultsIsEnabledForValidDraftAndConfirmsBeforeRestoring()
     {
         TestUiDispatcherHost.Invoke(() =>
         {
@@ -888,9 +889,9 @@ public sealed class SettingsWindowPresentationTests
                 values.ScanBmsFilesOnStartup = false;
                 values.SkipInitPlaylistLoad = true;
             });
-            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings);
+            var dialogs = new RecordingSettingsRouteDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(settings, settingsDialogs: dialogs);
             using BeMusicSeeker.ViewModels.SettingsDialogViewModel ownerSettingsLifetime = owner.SettingDialog;
-            var dialogs = new RecordingSettingsRouteDialogService();
             var window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
             dialogs.ExpectedOwner = window;
             try
@@ -915,7 +916,8 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsTrue(editor.TryPrepareSave(out string restoredJson, out string error), error);
                 Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, restoredJson);
                 Assert.AreEqual(RightClickActionSettingsDefaults.SerializedJson, settings.RightClickActionsJson);
-                Assert.AreEqual(0, dialogs.ConfirmationRequests.Count);
+                UiConfirmationRequest confirmation = dialogs.ConfirmationRequests.Single();
+                Assert.AreEqual(Resources.Confirm_RightClickRestoreDefaults, confirmation.MessageBoxText);
             }
             finally
             {

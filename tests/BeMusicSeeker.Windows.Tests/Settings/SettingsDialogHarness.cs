@@ -17,12 +17,13 @@ namespace BeMusicSeeker.Tests;
 internal sealed class SettingsDialogHarness : IDisposable
 {
     private SettingsDialogHarness(SettingsDialogViewModel dialog, RecordingSettingsStatePort state,
-        RecordingWorkspacePort workspace, RecordingCustomFolderOutputPort output)
+        RecordingWorkspacePort workspace, RecordingCustomFolderOutputPort output, RecordingPlayHistoryPort playHistory)
     {
         Dialog = dialog;
         State = state;
         Workspace = workspace;
         Output = output;
+        PlayHistory = playHistory;
     }
 
     /// <summary>判断と通知を検証する実設定VMです。</summary>
@@ -33,6 +34,8 @@ internal sealed class SettingsDialogHarness : IDisposable
     internal RecordingWorkspacePort Workspace { get; }
     /// <summary>出力設定の確定・再生成要求を局所的に観測します。</summary>
     internal RecordingCustomFolderOutputPort Output { get; }
+    /// <summary>プレイ履歴側の表示対象への反映要求の回数と最後のJSONを観測します。</summary>
+    internal RecordingPlayHistoryPort PlayHistory { get; }
 
     /// <summary>局所設定の実VMへ指定したportsを接続します。音声専用依存はcomposition未指定の構成で使います。</summary>
     /// <remarks>
@@ -70,7 +73,7 @@ internal sealed class SettingsDialogHarness : IDisposable
                 applicationPathSnapshot: ApplicationPathPolicy.Current, audioDeviceCatalog: audioDeviceCatalog ?? new TestAudioDeviceCatalog(),
                 audioSettingsGateway: audioSettingsGateway ?? new TestAudioSettingsGateway(), requestOperationModeRestart: restart ?? UnexpectedRestart,
                 audioDeviceTestWorkflow: audioDeviceTestWorkflow ?? AudioDeviceTestWorkflowTestFactory.Create());
-        return new SettingsDialogHarness(dialog, state, workspace, output);
+        return new SettingsDialogHarness(dialog, state, workspace, output, history);
     }
 
     /// <summary>実設定VMを破棄して共有リソースと音声通知の購読を解除します。</summary>
@@ -373,11 +376,19 @@ internal sealed class SettingsDialogHarness : IDisposable
 
     }
 
-    private sealed class RecordingPlayHistoryPort : ISettingsDialogPlayHistoryPort
+    /// <summary>プレイ履歴側の表示対象への反映要求を数え、最後に渡された保存JSONを保持します。</summary>
+    internal sealed class RecordingPlayHistoryPort : ISettingsDialogPlayHistoryPort
     {
+        /// <summary>反映要求の回数です。</summary>
+        internal int RefreshCount { get; private set; }
+
+        /// <summary>直近の反映要求に渡された表示対象セットのJSONです。</summary>
+        internal string? LastSerializedDisplayTargetSets { get; private set; }
 
         public void RefreshDisplayTargetSetsFromSettings(string serializedDisplayTargetSets, bool queueRefreshWhenSelectionChanges, string? previousName = null, string? confirmedName = null)
         {
+            RefreshCount++;
+            LastSerializedDisplayTargetSets = serializedDisplayTargetSets;
         }
     }
 

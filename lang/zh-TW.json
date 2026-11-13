@@ -1390,5 +1390,10 @@
   "ChartPropertiesExcludedSyntax": "語法錯誤",
   "ChartPropertiesCp932AlternativeInterpretation": "以 CP932 解讀時的問題 (也可能出現在一般解讀中)",
   "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0}不能使用 LR2 內建自訂資料夾的保留區域。\n指定位置: {1}\n內建資料夾: {2}",
-  "DatabaseConnectionCloseFailed": "關閉資料庫連線時發生錯誤。"
+  "DatabaseConnectionCloseFailed": "關閉資料庫連線時發生錯誤。",
+  "Error_AdditionalOutputBaseRejectedHeading": "以下資料夾未加入為額外輸出目標。",
+  "Confirm_RightClickRestoreDefaults": "右鍵設定的 Web 項目與程式項目將被取代為預設值並儲存。已登錄的項目與未確認的輸入將會遺失。\n\n要繼續嗎？",
+  "Confirm_RightClickDeleteActionFormat": "將刪除右鍵項目「{0}」並儲存。\n\n要繼續嗎？",
+  "Confirm_RightClickDeleteActionUnnamed": "將刪除所選的右鍵項目並儲存。\n\n要繼續嗎？",
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "將刪除遊玩記錄 FOLDER 顯示預設「{0}」並儲存。\n\n要繼續嗎？"
 }

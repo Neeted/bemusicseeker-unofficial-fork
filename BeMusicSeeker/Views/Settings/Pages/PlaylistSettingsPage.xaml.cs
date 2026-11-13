@@ -108,9 +108,17 @@ public partial class PlaylistSettingsPage : UserControl
         }
     }
 
-    private void buttonRemovePlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
+    private async void buttonRemovePlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)
     {
-        GetViewModel().RemoveSelectedPlayHistoryFolderDisplayPreset();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            GetViewModel().RemoveSelectedPlayHistoryFolderDisplayPreset();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "play history display preset removal");
+        }
     }
 
     private async void buttonEditPlayHistoryFolderDisplayPresetClicked(object sender, RoutedEventArgs e)

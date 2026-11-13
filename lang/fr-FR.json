@@ -1390,5 +1390,10 @@
   "ChartPropertiesExcludedSyntax": "Syntaxe incorrecte",
   "ChartPropertiesCp932AlternativeInterpretation": "Problèmes en interprétation CP932 (peuvent aussi apparaître dans l’interprétation habituelle)",
   "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0} ne peut pas utiliser un emplacement réservé aux dossiers personnalisés intégrés de LR2.\nEmplacement choisi : {1}\nDossier intégré : {2}",
-  "DatabaseConnectionCloseFailed": "Une erreur est survenue lors de la fermeture des connexions à la base de données."
+  "DatabaseConnectionCloseFailed": "Une erreur est survenue lors de la fermeture des connexions à la base de données.",
+  "Error_AdditionalOutputBaseRejectedHeading": "Les dossiers suivants n'ont pas été ajoutés comme destinations de sortie supplémentaires.",
+  "Confirm_RightClickRestoreDefaults": "Les éléments Web et Programme des paramètres du clic droit seront remplacés par les valeurs par défaut et enregistrés. Les éléments enregistrés et les saisies non confirmées seront perdus.\n\nContinuer ?",
+  "Confirm_RightClickDeleteActionFormat": "L'élément de clic droit « {0} » sera supprimé et la modification enregistrée.\n\nContinuer ?",
+  "Confirm_RightClickDeleteActionUnnamed": "L'élément de clic droit sélectionné sera supprimé et la modification enregistrée.\n\nContinuer ?",
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "Le préréglage d'affichage FOLDER du journal de jeu « {0} » sera supprimé et la modification enregistrée.\n\nContinuer ?"
 }

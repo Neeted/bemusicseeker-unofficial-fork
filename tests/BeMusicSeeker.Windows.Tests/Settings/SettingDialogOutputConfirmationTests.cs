@@ -46,6 +46,214 @@ public sealed class SettingDialogOutputConfirmationTests
     /// <summary>このクラスの準備とモデルで共有するDBの所有者です。</summary>
     private readonly ApplicationDatabaseScope databaseScope = new();
 
+    /// <summary>追加出力先の複数追加・改名・削除の設定VMケースが共有する、既存の追加出力先・実XML・保存先観測を準備して本体を実行します。</summary>
+    /// <remarks>ライブラリプロファイルは非アクティブで、確認の応答は <paramref name="confirmation"/> です。追加出力先の保存要求は専用providerで観測し、終了時に元のproviderと所有領域を回収します。</remarks>
+    private void RunAdditionalOutputCase(string[] existingNames, System.Windows.MessageBoxResult confirmation, Action<AdditionalOutputCase> body)
+    {
+        string directory = CreateTemporaryRoot(CaseWorkspace);
+        string settingsPath = Path.Combine(directory, "settings", "user.config");
+        string[] existing = [.. existingNames.Select(name => Path.Combine(directory, name))];
+        Settings values = CreateValidCustomFolderSettings(directory, existing, TestSettingsFactory.OpenSettings(settingsPath));
+        values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(existing);
+        values.Save();
+        System.Configuration.SettingsProperty property = values.Properties[nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs)];
+        System.Configuration.SettingsProvider originalProvider = property.Provider;
+        var provider = new InstallAdmissionObservingSettingsProvider(originalProvider, () => { });
+        property.Provider = provider;
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(confirmation) };
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
+                    reportSettingsApplyFailure: failures.Add, settingsDialogService: dialogs,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
+                MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
+                SetActiveLibraryProfile(owner, false);
+                try { body(new AdditionalOutputCase(directory, settingsPath, values, dialogs, failures, owner.SettingDialog, provider, existing)); }
+                finally
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "additional-output-case-cleanup");
+                    owner.SettingDialog.Dispose();
+                }
+            });
+        }
+        finally
+        {
+            property.Provider = originalProvider;
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    /// <summary>追加出力先のケース本体へ渡す、実VM・実保存先・観測の組です。</summary>
+    private sealed record AdditionalOutputCase(string Directory, string SettingsPath, Settings Values, RecordingRootDialogService Dialogs,
+        List<Exception> Failures, SettingsDialogViewModel Dialog, InstallAdmissionObservingSettingsProvider Provider, string[] Existing)
+    {
+        /// <summary>設定画面が候補を作る正規化と同じ形で、ケース内のフォルダのパスを返します。</summary>
+        internal string Path(params string[] parts) => CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(System.IO.Path.Combine(new[] { Directory }.Concat(parts).ToArray()));
+
+        /// <summary>確定済みの追加出力先の公開値です。</summary>
+        internal string[] Published() => [.. CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(Values.LR2CustomFolderAdditionalOutputBaseDirs)];
+
+        /// <summary>保存先を読み直した追加出力先です。</summary>
+        internal string[] Saved() => [.. CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(TestSettingsFactory.OpenSettings(SettingsPath).LR2CustomFolderAdditionalOutputBaseDirs)];
+
+        /// <summary>設定画面の追加出力先の候補一覧です。</summary>
+        internal string[] Candidates() => [.. Dialog.CustomFolderAdditionalOutputBaseDirList];
+
+        /// <summary>LR2設定XMLに登録された検索ディレクトリです。</summary>
+        internal string[] XmlRoots() => [.. new BeMusicSeeker.Models.LR2.LR2Config(Values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking()];
+    }
+
+    /// <summary>
+    /// 条件：既存の追加出力先 [E1, E2] へ、一回の「追加」で選んだ複数フォルダ（有効・同じ末尾名・通常出力先と同名・既存と同名などの組合せ）を渡します。
+    /// 期待結果：拒否したフォルダだけを除き、受理したフォルダは選択順にすべて追加して、一回の確定で保存・公開・XML登録します（途中の部分集合を保存しません）。拒否が一件以上あればパスと理由を一回の通知にまとめ、0件なら通知しません。全件拒否・単独拒否は保存・登録・確認なしで一覧と選択を変えず、確認の取消は保存せず確定配置へ戻して選択を残します。確定後の選択は最後に受理したフォルダです。
+    /// 検出する誤り：後続の拒否で先に受理したフォルダまで消える、同じ選択内で先に受理したフォルダを比較に含めない、拒否ごとの通知・通知漏れ、受理分を一件ずつ保存する、拒否で既存候補を戻す・外す、確定後の選択が先頭へ移る。
+    /// </summary>
+    [TestMethod]
+    [DataRow("valid-dup-valid")]
+    [DataRow("valid-valid-rejected")]
+    [DataRow("all-valid")]
+    [DataRow("all-rejected")]
+    [DataRow("single-rejected")]
+    [DataRow("rejected-then-confirmation-cancel")]
+    public void AdditionalOutputMultiAdd_SavesAcceptedInOneCommitAndReportsRejectionsOnce(string scenario)
+    {
+        bool cancelConfirmation = scenario == "rejected-then-confirmation-cancel";
+        RunAdditionalOutputCase(["E1", "E2"], cancelConfirmation ? System.Windows.MessageBoxResult.Cancel : System.Windows.MessageBoxResult.OK, context =>
+        {
+            SettingsDialogViewModel dialog = context.Dialog;
+            string e1 = context.Path("E1"), e2 = context.Path("E2");
+            string v1 = Directory.CreateDirectory(context.Path("n1", "V1")).FullName, duplicate = Directory.CreateDirectory(context.Path("n2", "V1")).FullName;
+            string v2 = Directory.CreateDirectory(context.Path("n3", "V2")).FullName;
+            string sameAsNormal = Directory.CreateDirectory(context.Path("n4", "NormalOutput")).FullName;
+            string sameAsExisting = Directory.CreateDirectory(context.Path("n5", "E1")).FullName;
+            (string[] Paths, string[] Accepted, (string Path, string Reason)[] Rejected) plan = scenario switch
+            {
+                "valid-dup-valid" => ([v1, duplicate, v2], [v1, v2], [(duplicate, Resources.Error_AdditionalOutputBaseNameDuplicate)]),
+                "valid-valid-rejected" => ([v1, v2, sameAsNormal], [v1, v2], [(sameAsNormal, Resources.Error_AdditionalOutputBaseNameMatchesNormalOutput)]),
+                "all-valid" => ([v1, v2], [v1, v2], []),
+                "all-rejected" => ([sameAsNormal, sameAsExisting], [], [(sameAsNormal, Resources.Error_AdditionalOutputBaseNameMatchesNormalOutput), (sameAsExisting, Resources.Error_AdditionalOutputBaseNameDuplicate)]),
+                "single-rejected" => ([sameAsNormal], [], [(sameAsNormal, Resources.Error_AdditionalOutputBaseNameMatchesNormalOutput)]),
+                _ => ([v1, sameAsNormal], [v1], [(sameAsNormal, Resources.Error_AdditionalOutputBaseNameMatchesNormalOutput)])
+            };
+            if (scenario == "single-rejected") { dialog.SelectedCustomFolderAdditionalOutputBaseDir = e2; }
+            if (cancelConfirmation)
+            {
+                string staged = Directory.CreateDirectory(context.Path("StagedSongs")).FullName;
+                dialog.AddBmsSearchRootPathsAsync([staged]).GetAwaiter().GetResult();
+            }
+            string selectedBefore = dialog.SelectedCustomFolderAdditionalOutputBaseDir;
+            byte[] settingsBefore = File.ReadAllBytes(context.SettingsPath);
+            byte[] xmlBefore = File.ReadAllBytes(context.Values.LR2ConfigXmlPath);
+
+            if (dialog.AddCustomFolderAdditionalOutputBaseDirs(plan.Paths))
+            { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "additional-output-multi-add"); }
+
+            Assert.AreEqual(0, context.Failures.Count, string.Join(Environment.NewLine, context.Failures));
+            if (plan.Rejected.Length == 0) { Assert.AreEqual(0, context.Dialogs.MessageCount, "拒否が0件なら拒否通知を出しません。"); }
+            else
+            {
+                string message = context.Dialogs.MessageRequests.Single().MessageBoxText;
+                StringAssert.Contains(message, Resources.Error_AdditionalOutputBaseRejectedHeading);
+                int searchFrom = 0;
+                foreach ((string path, string reason) in plan.Rejected)
+                {
+                    int pathIndex = message.IndexOf(path, searchFrom, StringComparison.OrdinalIgnoreCase);
+                    Assert.IsTrue(pathIndex >= 0, "拒否したフォルダのパスを通知へ含めます: " + path);
+                    int reasonIndex = message.IndexOf(reason, pathIndex, StringComparison.Ordinal);
+                    Assert.IsTrue(reasonIndex >= 0, "各パスの後にその理由を含めます: " + reason);
+                    searchFrom = reasonIndex;
+                }
+            }
+            if (plan.Accepted.Length == 0 || cancelConfirmation)
+            {
+                Assert.AreEqual(0, context.Provider.SaveCount, "受理分がないか確認を取り消したときは保存要求を出しません。");
+                CollectionAssert.AreEqual(settingsBefore, File.ReadAllBytes(context.SettingsPath));
+                CollectionAssert.AreEqual(xmlBefore, File.ReadAllBytes(context.Values.LR2ConfigXmlPath));
+                CollectionAssert.AreEqual(context.Existing.Select(path => CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path)).ToArray(), context.Candidates());
+                Assert.AreEqual(selectedBefore, dialog.SelectedCustomFolderAdditionalOutputBaseDir, "拒否・取消では選択を操作前のまま残します。");
+                Assert.AreEqual(cancelConfirmation ? 1 : 0, context.Dialogs.ConfirmationCount);
+                return;
+            }
+            string[] expected = [e1, e2, .. plan.Accepted];
+            string serialized = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(expected);
+            CollectionAssert.AreEqual(expected, context.Published());
+            CollectionAssert.AreEqual(expected, context.Saved());
+            CollectionAssert.AreEqual(expected, context.Candidates());
+            foreach (string accepted in plan.Accepted) { CollectionAssert.Contains(context.XmlRoots(), accepted); }
+            Assert.IsTrue(context.Provider.AdditionalOutputBaseDirsWrites.Count >= 1);
+            Assert.IsTrue(context.Provider.AdditionalOutputBaseDirsWrites.All(write => write == serialized), "途中の部分集合を保存せず、最終の集合だけを一回の確定で保存します。");
+            Assert.AreEqual(plan.Accepted[^1], dialog.SelectedCustomFolderAdditionalOutputBaseDir, "確定後の選択は最後に受理したフォルダです。");
+            Assert.AreEqual(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(plan.Accepted[^1]), dialog.SelectedCustomFolderAdditionalOutputBaseName);
+        });
+    }
+
+    /// <summary>
+    /// 条件：追加出力先の改名・削除を確定します。確定が成立する場合と、拒否・確定の確認の取消・保存失敗で確定配置へ戻る場合を扱います。
+    /// 期待結果：成立後は確定前の選択（改名なら改名後）が新しい一覧に残っていればその項目を指し続け（改名欄も同じ項目の末尾名）、残っていない削除だけが先頭（空ならなし）へ移ります。確定配置へ戻す場合は、操作対象の確定側の項目（改名前・削除対象）が戻した一覧に残っていればそれを選択します。
+    /// 検出する誤り：確定後の再同期が常に先頭を選ぶ、戻した一覧で操作対象でない先頭を選ぶ、改名欄が選択と食い違う。
+    /// </summary>
+    [TestMethod]
+    [DataRow("rename")]
+    [DataRow("delete")]
+    [DataRow("delete-last")]
+    [DataRow("rename-rejected")]
+    [DataRow("rename-confirmation-cancel")]
+    [DataRow("rename-save-failure")]
+    [DataRow("delete-confirmation-cancel")]
+    public void AdditionalOutputConfirmation_KeepsSelectionWhileItRemains(string scenario)
+    {
+        bool cancelConfirmation = scenario.EndsWith("confirmation-cancel", StringComparison.Ordinal);
+        string[] names = scenario switch { "delete" or "delete-confirmation-cancel" => ["A", "B", "C"], "delete-last" => ["A"], _ => ["A", "B"] };
+        RunAdditionalOutputCase(names, cancelConfirmation ? System.Windows.MessageBoxResult.Cancel : System.Windows.MessageBoxResult.OK, context =>
+        {
+            SettingsDialogViewModel dialog = context.Dialog;
+            string a = context.Path("A"), b = context.Path("B"), c = context.Path("C");
+            string[] published = [.. context.Existing.Select(path => CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(path))];
+            bool rename = scenario.StartsWith("rename", StringComparison.Ordinal);
+            string target = scenario == "delete-last" ? a : b;
+            dialog.SelectedCustomFolderAdditionalOutputBaseDir = target;
+            if (rename) { dialog.SelectedCustomFolderAdditionalOutputBaseName = scenario == "rename-rejected" ? "A" : "C"; }
+            if (cancelConfirmation)
+            {
+                string staged = Directory.CreateDirectory(context.Path("StagedSongs")).FullName;
+                dialog.AddBmsSearchRootPathsAsync([staged]).GetAwaiter().GetResult();
+            }
+            if (rename) { dialog.RenameSelectedCustomFolderAdditionalOutputBaseDir(); }
+            else { dialog.RemoveSelectedCustomFolderAdditionalOutputBaseDir(); }
+            if (!context.Candidates().SequenceEqual(published, StringComparer.OrdinalIgnoreCase))
+            {
+                if (scenario == "rename-save-failure")
+                {
+                    using (File.Open(context.SettingsPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "additional-output-selection-save-failure"); }
+                }
+                else { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "additional-output-selection"); }
+            }
+
+            (string[] List, string? Selected) expected = scenario switch
+            {
+                "rename" => ([a, c], c),
+                "delete" => ([a, c], a),
+                "delete-last" => ([], null),
+                "delete-confirmation-cancel" => (published, b),
+                _ => (published, b)
+            };
+            CollectionAssert.AreEqual(expected.List, context.Candidates());
+            Assert.AreEqual(expected.Selected, dialog.SelectedCustomFolderAdditionalOutputBaseDir);
+            Assert.AreEqual(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(expected.Selected), dialog.SelectedCustomFolderAdditionalOutputBaseName, "改名欄は選択中の項目の末尾名です。");
+            Assert.AreEqual(scenario == "rename-save-failure" ? 1 : 0, context.Failures.Count);
+            Assert.AreEqual(scenario == "rename-rejected" ? 1 : 0, context.Dialogs.MessageCount);
+            Assert.AreEqual(cancelConfirmation ? 1 : 0, context.Dialogs.ConfirmationCount);
+            if (expected.List.SequenceEqual(published)) { CollectionAssert.AreEqual(published, context.Published()); }
+            else { CollectionAssert.AreEqual(expected.List, context.Saved()); }
+        });
+    }
+
     /// <summary>有効な導入先の出力採用と確認中のP先着を実保存・XML・DB・配置変更前に拒否し、P解放だけでは再実行しません。別の確定ルートを導入先にした後の次の明示操作で実出力を完了し、初期化検査にも通ります。</summary>
     [TestMethod]
     public void OutputConfirmation_ProtectsInstallDirectoryUntilAnotherConfirmedRootIsSelected()
@@ -305,7 +513,7 @@ public sealed class SettingDialogOutputConfirmationTests
                 {
                     if (section == "normal") { dialog.LR2CustomFolderOutputDir = path; }
                     else if (section == "root") { dialog.LR2CustomFolderAsRootOutputDir = path; }
-                    else { dialog.AddCustomFolderAdditionalOutputBaseDir(path); }
+                    else { dialog.AddCustomFolderAdditionalOutputBaseDirs([path]); }
                 }
                 string Read(Settings settings) => section == "normal" ? settings.LR2CustomFolderOutputBaseDir
                     : section == "root" ? settings.LR2CustomFolderOutputBaseDirRootType : settings.LR2CustomFolderAdditionalOutputBaseDirs;
@@ -353,7 +561,7 @@ public sealed class SettingDialogOutputConfirmationTests
                     if (section == "normal")
                     {
                         string other = Path.Combine(directory, "OtherAdditional");
-                        dialog.AddCustomFolderAdditionalOutputBaseDir(other);
+                        dialog.AddCustomFolderAdditionalOutputBaseDirs([other]);
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync("additional"), "output-other-section-after-partial");
                         Settings otherSaved = TestSettingsFactory.OpenSettings(settingsPath);
                         Assert.AreEqual(first, otherSaved.LR2CustomFolderOutputBaseDir, "別区分の保存は、先行成功した未公開のnormal保存値を上書きしません。");

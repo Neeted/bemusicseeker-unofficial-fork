@@ -271,6 +271,78 @@ public sealed class SettingDialogCategoryPersistenceTests
         });
     }
 
+    /// <summary>
+    /// 条件：実の設定画面で追加出力先 [Alpha, Beta] の Beta を選び、改名欄に Gamma と入力して改名ボタンを押します。続けて選択画面の結果へ [V1, Alpha と同じ末尾名のフォルダ, V2] を積み、「追加」ボタンを押します。
+    /// 期待結果：改名後は一覧の選択と改名欄が Gamma を指し（保存値は [Alpha, Gamma]）、追加では選択画面の要求が複数選択で、拒否の通知が注入窓口へ一回届き、受理した V1・V2 だけが保存され（[Alpha, Gamma, V1, V2]）、一覧の選択は最後に受理した V2 です。
+    /// 検出する誤り：確定後の一覧の作り直しで実 ListBox の選択が null や先頭へ移る、「追加」ボタンが選択画面の全パスを渡さない、拒否の通知が届かない・複数回届く。
+    /// </summary>
+    /// <remarks>受理・拒否の組合せと保存の一回性は AdditionalOutputMultiAdd_SavesAcceptedInOneCommitAndReportsRejectionsOnce、確定後の選択の維持の条件網羅は AdditionalOutputConfirmation_KeepsSelectionWhileItRemains が設定VMで扱い、ここは実 Binding と実ボタンの接続だけを確認します。</remarks>
+    [TestMethod]
+    public void CompiledAdditionalOutputOperations_KeepOperatedItemSelectedInList()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            string path = Path.Combine(root, "user.config");
+            string alpha = Path.Combine(root, "Alpha"), beta = Path.Combine(root, "Beta"), gamma = Path.Combine(root, "Gamma");
+            Settings values = CreateValidCustomFolderSettings(root, [alpha, beta], TestSettingsFactory.OpenSettings(path));
+            values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([alpha, beta]);
+            values.Save();
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            var failures = new List<Exception>();
+            MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: true, dialogs: dialogs, reportSettingsApplyFailure: failures.Add);
+            SettingsWindow? window = null;
+            try
+            {
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                window = new SettingsWindow(dialogs) { DataContext = dialog };
+                scope.ShowAndWaitForContentRendered(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var editor = (TextBox)GetCategoryControl(window, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
+                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
+                Button rename = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Rename_folder));
+                Button add = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Add));
+                list.SelectedItem = beta;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                editor.SelectAll();
+                editor.SelectedText = "Gamma";
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                rename.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SettingsOperationCompletionTask, "additional-output-selection-rename-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(gamma, list.SelectedItem, "改名の確定後も実一覧の選択は改名した項目です。");
+                Assert.AreEqual("Gamma", editor.Text);
+                CollectionAssert.AreEqual(new[] { alpha, gamma }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(TestSettingsFactory.OpenSettings(path).LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
+
+                string v1 = Directory.CreateDirectory(Path.Combine(root, "n1", "V1")).FullName;
+                string duplicate = Directory.CreateDirectory(Path.Combine(root, "n2", "Alpha")).FullName;
+                string v2 = Directory.CreateDirectory(Path.Combine(root, "n3", "V2")).FullName;
+                dialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [v1, duplicate, v2]));
+                add.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SettingsOperationCompletionTask, "additional-output-selection-add-terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(dialogs.FolderRequests.Single().Multiselect);
+                Assert.AreEqual(1, dialogs.MessageCount, dialogs.LastMessageText);
+                StringAssert.Contains(dialogs.LastMessageText, duplicate);
+                Assert.AreEqual(v2, list.SelectedItem, "追加の確定後は最後に受理したフォルダを選択します。");
+                Assert.AreEqual("V2", editor.Text);
+                CollectionAssert.AreEqual(new[] { alpha, gamma, v1, v2 }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(TestSettingsFactory.OpenSettings(path).LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
+                Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+            }
+            finally
+            {
+                if (window != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.SettingDialog.SettingsOperationCompletionTask, "additional-output-selection-cleanup-terminal"); }
+                window?.CloseForOwnerShutdown();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "additional-output-selection-owner-terminal");
+                owner.SettingDialog.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
     /// <summary>実recordボタンは選択行の差分へBindingし、別行だけの変更では無効、無効入力でも取消可となり、実取消は選択行だけを戻します。不正な保存rawから追加した両種の新規行も取消でき、実保存rawは変更しません。</summary>
     [TestMethod]
     [DataRow(false)]

@@ -1390,5 +1390,10 @@
   "ChartPropertiesExcludedSyntax": "Malformed syntax",
   "ChartPropertiesCp932AlternativeInterpretation": "Issues when interpreted as CP932 (may also appear in the regular interpretation)",
   "Validation_Lr2BuiltinCustomFolderReservedFormat": "{0} cannot use a reserved location for LR2 built-in custom folders.\nSelected: {1}\nBuilt-in folder: {2}",
-  "DatabaseConnectionCloseFailed": "An error occurred while closing database connections."
+  "DatabaseConnectionCloseFailed": "An error occurred while closing database connections.",
+  "Error_AdditionalOutputBaseRejectedHeading": "The following folders were not added as additional output destinations.",
+  "Confirm_RightClickRestoreDefaults": "The Web and Program items of the right-click settings will be replaced with the defaults and saved. Registered items and unconfirmed input will be lost.\n\nContinue?",
+  "Confirm_RightClickDeleteActionFormat": "The right-click item \"{0}\" will be deleted and the change saved.\n\nContinue?",
+  "Confirm_RightClickDeleteActionUnnamed": "The selected right-click item will be deleted and the change saved.\n\nContinue?",
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "The play log FOLDER display preset \"{0}\" will be deleted and the change saved.\n\nContinue?"
 }

@@ -21,7 +21,7 @@ internal static class SettingsRootTestFixture
         switch (role)
         {
             case "normal": dialog.LR2CustomFolderOutputDir = path; break;
-            case "additional": dialog.AddCustomFolderAdditionalOutputBaseDir(path); break;
+            case "additional": dialog.AddCustomFolderAdditionalOutputBaseDirs([path]); break;
             case "root": dialog.LR2CustomFolderAsRootOutputDir = path; break;
             default: throw new ArgumentOutOfRangeException(nameof(role));
         }

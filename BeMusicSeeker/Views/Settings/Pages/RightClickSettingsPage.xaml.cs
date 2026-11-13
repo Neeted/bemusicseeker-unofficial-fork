@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using BeMusicSeeker.ViewModels;
@@ -31,7 +32,7 @@ public partial class RightClickSettingsPage : UserControl
 
     private void addWebActionButtonClicked(object sender, RoutedEventArgs e) => GetEditor().AddWebAction();
 
-    private void deleteWebActionButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(true, "delete");
+    private async void deleteWebActionButtonClicked(object sender, RoutedEventArgs e) => await CommitConfirmedRecordAsync(true, "delete");
 
     private void moveWebActionUpButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(true, "up");
 
@@ -39,13 +40,27 @@ public partial class RightClickSettingsPage : UserControl
 
     private void addProgramActionButtonClicked(object sender, RoutedEventArgs e) => GetEditor().AddProgramAction();
 
-    private void deleteProgramActionButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(false, "delete");
+    private async void deleteProgramActionButtonClicked(object sender, RoutedEventArgs e) => await CommitConfirmedRecordAsync(false, "delete");
 
     private void moveProgramActionUpButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(false, "up");
 
     private void moveProgramActionDownButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(false, "down");
 
-    private void restoreDefaultsButtonClicked(object sender, RoutedEventArgs e) => GetSettings().CommitRightClickRecord(true, "defaults");
+    private async void restoreDefaultsButtonClicked(object sender, RoutedEventArgs e) => await CommitConfirmedRecordAsync(true, "defaults");
+
+    /// <summary>確認を伴う削除・既定値への復帰を実行し、確認の表示失敗などを設定画面の失敗の経路へ渡します。</summary>
+    private async Task CommitConfirmedRecordAsync(bool web, string operation)
+    {
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            GetSettings().CommitRightClickRecord(web, operation);
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "right-click record " + operation);
+        }
+    }
 
     private async void browseProgramExecutableButtonClicked(object sender, RoutedEventArgs e)
     {
