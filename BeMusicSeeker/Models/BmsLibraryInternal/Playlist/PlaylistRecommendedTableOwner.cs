@@ -17,6 +17,19 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed record WalkureScoreInput(
     ScoreTableLoadStatus Status, ImmutableDictionary<string, WalkureLamp> Scores, string FailureMessage = "");
 
+/// <summary>
+/// スコアDBを利用できず、おすすめ表を生成できないことを表します。
+/// 対象を自動選択する一括同期がメッセージ文字列に頼らず、この条件だけをその表の見送りとして判別するために型で区別します。
+/// 読込み失敗や観測なしなど他の失敗は <see cref="InvalidOperationException"/> のままです。
+/// </summary>
+internal sealed class RecommendationScoreNotConfiguredException : InvalidOperationException
+{
+    /// <summary>利用者向けの未設定の文言をメッセージとして例外を作成します。</summary>
+    internal RecommendationScoreNotConfiguredException() : base(Resources.Error_RecommendationScoreNotConfigured)
+    {
+    }
+}
+
 /// <summary>同梱モデルから内蔵推定表と、選択中スコアのリコメンド表を生成します。</summary>
 internal sealed class PlaylistRecommendedTableOwner
 {
@@ -92,9 +105,11 @@ internal sealed class PlaylistRecommendedTableOwner
             cancellationToken.ThrowIfCancellationRequested();
             if (input.Status != ScoreTableLoadStatus.Loaded)
             {
-                throw new InvalidOperationException(input.Status == ScoreTableLoadStatus.NotConfigured
-                    ? Resources.Error_RecommendationScoreNotConfigured
-                    : Resources.Error_RecommendationScoreReadFailed + " " + input.FailureMessage);
+                if (input.Status == ScoreTableLoadStatus.NotConfigured)
+                {
+                    throw new RecommendationScoreNotConfiguredException();
+                }
+                throw new InvalidOperationException(Resources.Error_RecommendationScoreReadFailed + " " + input.FailureMessage);
             }
         }
         // モデル読込み・数学・行構築を UI スレッドから離し、原入力を一操作中に固定する。

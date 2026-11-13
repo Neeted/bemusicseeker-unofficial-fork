@@ -569,6 +569,120 @@ public sealed class PlaylistExternalFailureBoundaryTests
         }
     }
 
+    /// <summary>
+    /// スコアDBを利用できない構成で同期ONのおすすめ表がある起動時の外部同期が、予約した処理のTaskを例外にせず完了し、
+    /// 外部表の新しい内容をDBへ反映し、おすすめ表のDBと参照を保つことを実SQLiteとWorkspaceの境界で確認します。
+    /// おすすめ表のSTATUSは失敗のまま原因を残し、完了通知は全件成功とせず、更新中状態と次の受付を解放します。
+    /// 検出する誤り: 未設定が集約例外として再送出され起動時Taskが失敗する、他の表の同期が妨げられる、失敗を成功へ置き換える、受付の持越し。
+    /// 条件の組合せはowner単位のテストが担い、HTTP・WPF Windowは使いません。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ExternalSync_StartupWithoutScoreDatabaseCompletesAndKeepsRecommendedTable()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, nameof(PlaylistExternalFailureBoundaryTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        PlaylistWorkspaceViewModel? workspace = null;
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        Func<Task>? scheduledWork = null;
+        Task? startupTask = null;
+        Exception? primary = null;
+        try
+        {
+            Settings settings = TestSettingsFactory.OpenSettings(Path.Combine(directory, "user.config"));
+            string songPath = CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            WalkureScoreInput scoreInput = ReadWalkureInput("standard");
+            library = new TestBmsLibrary(databaseScope, songPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: settings);
+            playlist = new TestBmsPlaylist(databaseScope, songPath, null, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => new CustomFolderOutputSettingsSnapshot(), CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songPath, CustomFolderOutputPhysicalSurface.Empty), settings: settings, uiScheduler: new TestUiScheduler(() => null),
+                recommendationScoreReader: _ => Task.FromResult(scoreInput));
+            BMSTable external = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(header), cancellationToken: TestContext.CancellationToken);
+            BMSTable recommended = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri("bmseeker:table.recommended"), cancellationToken: TestContext.CancellationToken);
+            external.playlist_id = 7921;
+            recommended.playlist_id = 7922;
+            external.is_bmt_output = false;
+            recommended.is_bmt_output = false;
+            Assert.IsTrue(external.EnableExternalSync());
+            Assert.IsTrue(recommended.is_external_sync);
+            playlist.BMSTables = new ObservableCollection<BMSTable>([external, recommended]);
+            playlist.CommitBMSTablesWithEntriesToDB(playlist.BMSTables);
+            string recommendedHash = recommended.data_sha256;
+            DateTime recommendedUpdate = recommended.last_update;
+            int recommendedRows = recommended.entries.Count;
+            Assert.IsTrue(recommendedRows > 0);
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
+            scoreInput = new WalkureScoreInput(ScoreTableLoadStatus.NotConfigured, System.Collections.Immutable.ImmutableDictionary<string, WalkureLamp>.Empty);
+
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
+                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                externalSyncScheduler: (_, work) => { scheduledWork = work; return true; });
+            workspace.RefreshPlaylistTreeTables(playlist, library);
+            int completedCount = 0;
+            bool reportedSuccess = true, reportedSkipped = true;
+            workspace.PlaylistExternalSyncCompleted += (_, completion) =>
+            {
+                completedCount++;
+                reportedSuccess = completion.Succeeded;
+                reportedSkipped = completion.WasSkipped;
+            };
+
+            // 起動時と同じ予約入口で、schedulerが所有する実work Taskを終端まで待つ。
+            workspace.QueueExternalPlaylistSync("Initialize", false, true, 1);
+            Assert.IsNotNull(scheduledWork);
+            startupTask = Task.Run(scheduledWork);
+            await startupTask.WaitAsync(TestContext.CancellationToken);
+            Assert.IsTrue(startupTask.IsCompletedSuccessfully);
+            Assert.AreEqual(1, completedCount);
+            Assert.IsFalse(reportedSuccess);
+            Assert.IsFalse(reportedSkipped);
+
+            IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> statuses = workspace.CapturePlaylistSyncStatusSnapshot();
+            PlaylistSyncRuntimeStatus recommendedStatus = statuses["id:7922"];
+            Assert.AreEqual(PlaylistSyncStatusKind.UnknownError, recommendedStatus.Kind);
+            Assert.IsTrue(recommendedStatus.HasFailureStatus);
+            StringAssert.Contains(recommendedStatus.Detail, Resources.Error_RecommendationScoreNotConfigured);
+            Assert.IsFalse(statuses["id:7921"].HasFailureStatus);
+            Assert.AreEqual(2, playlist.BMSTables.Single(table => table.playlist_id == 7921).entries.Count);
+            Assert.AreSame(recommended, playlist.BMSTables.Single(table => table.playlist_id == 7922));
+            Assert.AreEqual(recommendedHash, recommended.data_sha256);
+            Assert.AreEqual(recommendedRows, recommended.entries.Count);
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
+            {
+                Assert.AreEqual(2, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == 7921));
+                Assert.AreEqual(recommendedRows, db.Table<LR2SongDBExtended.playlist_entry>().Count(entry => entry.playlist_id == 7922));
+                LR2SongDBExtended.playlist retained = db.Find<LR2SongDBExtended.playlist>(7922);
+                Assert.AreEqual(recommendedHash, retained.data_sha256);
+                Assert.AreEqual(recommendedUpdate, retained.last_update);
+            }
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
+            bool admissionAccepted = playlist.TryEnterPlaylistMutation(out IDisposable admission);
+            admission?.Dispose();
+            Assert.IsTrue(admissionAccepted, "見送りを含む同期の受付を解放します。");
+        }
+        catch (Exception error) { primary = error; throw; }
+        finally
+        {
+            using var cleanup = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var failures = new List<Exception>();
+            async Task Clean(Func<Task> work) { try { await work().WaitAsync(cleanup.Token); } catch (Exception error) { failures.Add(error); } }
+            if (startupTask != null) { await Clean(() => startupTask); }
+            if (playlist != null) { await Clean(playlist.WaitForPlaylistMutationIdleAsync); }
+            if (workspace != null)
+            {
+                await Clean(workspace.WaitForDetailBuildIdleAsync); await Clean(workspace.WaitForPlaylistSummaryDataBuildIdleAsync); await Clean(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await Clean(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            playlist?.RequestShutdown("startup-without-score-database"); library?.RequestShutdown("startup-without-score-database");
+            await Clean(() => { Directory.Delete(directory, recursive: true); return Task.CompletedTask; });
+            if (failures.Count > 0) { if (primary == null) { throw new AggregateException(failures); } Console.WriteLine(new AggregateException(failures)); }
+        }
+    }
+
     /// <summary>実readerから既存owner診断窓口へsource・文書URI・field・row・原値を渡し、診断故障でも日時省略の表成功を保ちます。</summary>
     [TestMethod]
     [DataRow(false)]

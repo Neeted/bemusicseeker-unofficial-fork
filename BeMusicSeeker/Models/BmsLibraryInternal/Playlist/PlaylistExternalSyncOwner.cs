@@ -442,6 +442,10 @@ internal sealed class PlaylistExternalSyncOwner
     /// <param name="publishReferenceReceipts">reference table 更新 receipt を publish するか。</param>
     /// <param name="capability">既に受理された同じ変更の局所権限。nullの新規要求は通信前に受付を判定します。</param>
     /// <param name="outputDerivedState">この入口がLR2/BMTまで所有するか。falseでは同じPの保存サービスが結果から必要出力を行います。</param>
+    /// <param name="skipRecommendationScoreNotConfigured">
+    /// 対象を自動選択する一括同期だけがtrueにし、おすすめ表のスコア未設定をその表だけの見送りとして集約失敗から除くか。
+    /// 名指しの再同期とプロパティ保存は既定のfalseで、失敗として集約します。
+    /// </param>
     /// <returns>対象ごとの確定参照・変更・失敗と、取消し・一括出力の全体失敗。取得中に退役した対象は再生成しません。</returns>
     internal async Task<PlaylistReloadOperationResult> ReloadPlaylistTargetsAsync(
         IEnumerable<BMSTable> targets,
@@ -452,7 +456,8 @@ internal sealed class PlaylistExternalSyncOwner
         bool requireCurrentTargetForApply = true,
         Func<BMSTable, Uri> uriProvider = null,
         bool publishReferenceReceipts = false,
-        LibraryFileMutationCapability capability = null, bool outputDerivedState = true)
+        LibraryFileMutationCapability capability = null, bool outputDerivedState = true,
+        bool skipRecommendationScoreNotConfigured = false)
     {
         using LibraryFileMutationLease admission = mutationAdmission?.Invoke(capability);
         using LibraryFileMutationCapability authority = admission?.CreateMutationCapability();
@@ -514,7 +519,8 @@ internal sealed class PlaylistExternalSyncOwner
                             requireCurrentTargetForApply,
                             allowUriOverride: uriProvider != null,
                             publishReferenceReceipt: publishReferenceReceipts,
-                            scoreCapture: scoreCapture).ConfigureAwait(false);
+                            scoreCapture: scoreCapture,
+                            skipRecommendationScoreNotConfigured: skipRecommendationScoreNotConfigured).ConfigureAwait(false);
                         lock (resultLock)
                         {
                             results.Add(result);
@@ -625,10 +631,13 @@ internal sealed class PlaylistExternalSyncOwner
         return results;
     }
 
-    /// <summary>現在表を捕捉して取得し、最初の反映から派生出力・必要通知の実終端まで一つの局所権限で更新します。</summary>
+    /// <summary>
+    /// 対象を自動選択する一括同期の入口です。現在表を捕捉して取得し、最初の反映から派生出力・必要通知の実終端まで一つの局所権限で更新します。
+    /// おすすめ表のスコアDB未設定はその表だけの見送りとして対象結果に失敗を残し、操作全体の集約失敗には含めません。
+    /// </summary>
     /// <param name="syncResultCallback">各対象の保存と必須参照反映後に、最終結果と同じ確定結果を逐次渡す任意callback。</param>
     /// <param name="capability">同じ受理済み変更の生存権限。nullは通信前に非待機で受付を判定します。</param>
-    /// <returns>確定参照と対象失敗を保持した結果。更新中状態の終端通知失敗も全体失敗として採用後に渡します。</returns>
+    /// <returns>確定参照と対象失敗を保持した結果。更新中状態の終端通知失敗も全体失敗として採用後に渡します。おすすめ表のスコア未設定の見送りは集約失敗に含めません。</returns>
     internal async Task<PlaylistReloadOperationResult> UpdateBMSTablesInternalAsync(
         bool reloadExtPlaylist = true,
         Action<PlaylistReloadTargetResult> syncResultCallback = null,
@@ -663,7 +672,8 @@ internal sealed class PlaylistExternalSyncOwner
                 "UpdateBMSTablesInternalAsync",
                 cancellationToken,
                 requireCurrentTargetForApply: true,
-                publishReferenceReceipts: publishReferenceReceipts, capability: authority).ConfigureAwait(false);
+                publishReferenceReceipts: publishReferenceReceipts, capability: authority,
+                skipRecommendationScoreNotConfigured: true).ConfigureAwait(false);
             stopwatch.Stop();
             List<BMSTable> updatedTables = [.. results
                 .Where(result => result.Succeeded && result.Updated && result.ResultTable != null)
@@ -1056,13 +1066,15 @@ internal sealed class PlaylistExternalSyncOwner
         bool requireCurrentTargetForApply = true,
         bool allowUriOverride = false,
         bool publishReferenceReceipt = false,
-        Lazy<Task<WalkureScoreInput>> scoreCapture = null)
+        Lazy<Task<WalkureScoreInput>> scoreCapture = null,
+        bool skipRecommendationScoreNotConfigured = false)
     {
         BMSTable newTable = table;
         PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision persistenceDecision = null;
         bool updated = false;
         bool applySkipped = false;
         bool handledExternalLoadFailure = false;
+        bool skippedScoreNotConfigured = false;
         Uri sourceUri = null;
         Exception failure = null;
         string previousOrgName = null;
@@ -1176,6 +1188,7 @@ internal sealed class PlaylistExternalSyncOwner
             newTable = table;
             persistenceDecision = null;
             updated = false;
+            skippedScoreNotConfigured = skipRecommendationScoreNotConfigured && ex is RecommendationScoreNotConfiguredException;
             if (!handledExternalLoadFailure)
             {
                 logWarning?.Invoke(
@@ -1213,6 +1226,7 @@ internal sealed class PlaylistExternalSyncOwner
             NeedsBmtExport = persistenceDecision?.NeedsBmtExport == true,
             Exception = failure,
             IsHandledExternalLoadFailure = handledExternalLoadFailure,
+            IsSkippedRecommendationScoreNotConfigured = skippedScoreNotConfigured,
             UpdateReceipt = updateReceipt
         };
         InvokeSyncResultCallback(syncResultCallback, result, reason);
@@ -1411,9 +1425,12 @@ internal sealed class PlaylistExternalSyncOwner
         /// <summary>操作全体の後続失敗。対象別失敗は各結果に保持します。</summary>
         internal Exception OperationException { get; }
 
-        /// <summary>処理済み外部取得失敗を除き、確定情報を採用した呼出元へ渡す未処理の対象失敗と全体失敗です。</summary>
+        /// <summary>
+        /// 処理済み外部取得失敗と、一括同期で見送ったおすすめ表のスコア未設定を除き、
+        /// 確定情報を採用した呼出元へ渡す未処理の対象失敗と全体失敗です。
+        /// </summary>
         internal Exception Exception => CombineFailures(targets
-            .Where(target => !target.IsHandledExternalLoadFailure)
+            .Where(target => !target.IsHandledExternalLoadFailure && !target.IsSkippedRecommendationScoreNotConfigured)
             .Select(target => target.Exception).Append(OperationException));
 
         /// <summary>固定された対象結果一覧の件数を取得します。</summary>
@@ -1432,7 +1449,7 @@ internal sealed class PlaylistExternalSyncOwner
         /// <returns>対象結果一覧の列挙子です。</returns>
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 
-        /// <summary>参照・変更の採用後に未処理失敗だけを通知境界へ伝播し、処理済み取得失敗は各対象に残します。</summary>
+        /// <summary>参照・変更の採用後に未処理失敗だけを通知境界へ伝播し、処理済み取得失敗と見送った未設定は各対象に残します。</summary>
         internal void ThrowIfFailed()
         {
             if (Exception is Exception failure) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw(); }
@@ -1476,6 +1493,13 @@ internal sealed class PlaylistExternalSyncOwner
         /// 元例外は単表プロパティ保存の既存契約に残し、保存・公開の失敗と区別します。
         /// </summary>
         internal bool IsHandledExternalLoadFailure { get; init; }
+
+        /// <summary>
+        /// 対象を自動選択する一括同期で、スコアDB未設定のおすすめ表を見送った対象か。
+        /// 対象の失敗とSTATUS・診断は通常の失敗と同じに保ち、操作全体の集約失敗からだけ除きます。
+        /// 外部取得の処理済み失敗とは別の印で、STATUS詳細や診断を省く判断には使いません。
+        /// </summary>
+        internal bool IsSkippedRecommendationScoreNotConfigured { get; init; }
 
         internal PlaylistTableUpdateReceipt UpdateReceipt { get; init; }
 

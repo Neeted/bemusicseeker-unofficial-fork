@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
@@ -20,6 +21,9 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistRecommendedTableOwnerTests
 {
+    // MSTestが各ケースの実行前に必ず注入します。
+    public TestContext TestContext { get; set; } = null!;
+
     private TestWorkspace? ownedCaseWorkspace;
 
     /// <summary>返却されたfixtureの終端まで、ケースが専有媒体の親領域を保持します。</summary>
@@ -190,7 +194,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Assert.AreEqual(0, reads);
     }
 
-    /// <summary>未設定・読取り失敗・正常だが観測なしの3状態では推薦生成を失敗させる。架空の実力や古いスコアへの置換を検出する。</summary>
+    /// <summary>未設定・読取り失敗・正常だが観測なしの3状態では推薦生成を失敗させる。未設定だけは一括同期が型で判別できる専用型、他の2状態は `InvalidOperationException` そのもので失敗する。架空の実力や古いスコアへの置換と、未設定以外の失敗を専用型へ含める誤りを検出する。</summary>
     [TestMethod]
     // 正常な空DBも未設定・読取り障害とは別入力として失敗を確認する。
     [DataRow(ScoreTableLoadStatus.NotConfigured)]
@@ -200,7 +204,132 @@ public sealed class PlaylistRecommendedTableOwnerTests
     {
         var status = (ScoreTableLoadStatus)statusValue;
         PlaylistRecommendedTableOwner owner = CreateOwner(_ => Task.FromResult(new WalkureScoreInput(status, ImmutableDictionary<string, WalkureLamp>.Empty)));
-        await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended")));
+        InvalidOperationException failure = status == ScoreTableLoadStatus.NotConfigured
+            ? await Assert.ThrowsAsync<InvalidOperationException>(() => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended")))
+            : await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => owner.LoadWalkureTableAsync(new Uri("bmseeker:table.recommended")));
+        Assert.AreEqual(status == ScoreTableLoadStatus.NotConfigured, failure is RecommendationScoreNotConfiguredException);
+        if (status == ScoreTableLoadStatus.NotConfigured)
+        {
+            Assert.AreEqual(Resources.Error_RecommendationScoreNotConfigured, failure.Message);
+        }
+    }
+
+    /// <summary>
+    /// 同期ONの外部表・内蔵推定表・おすすめ表を実SQLiteに保存し、おすすめ表のスコア状態だけを切り替えて同期する。
+    /// 対象を自動選択する一括同期でスコア未設定のおすすめ表だけを、既存のDB・行・参照・出力対象外のまま見送り、操作全体の集約失敗から除く。
+    /// 見送った対象は失敗のまま専用型の例外を保持し、診断へ同じ例外を渡し、他の2表は成功して反映される。
+    /// 名指しの再同期、読込み失敗、観測なしは集約失敗に含む。読取りは一操作で1回に限る。
+    /// 検出する誤り: 未設定が全体失敗として再送出される、他の表の同期が妨げられる、名指しや未設定以外まで見送る、保持すべき表の変更・出力、追加の読取り。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    // 一括・未設定だけが見送り、名指し・読込み失敗・観測なしは全体の失敗に含める。
+    [DataRow("notconfigured-batch")]
+    [DataRow("notconfigured-named")]
+    [DataRow("failed-batch")]
+    [DataRow("empty-batch")]
+    public async Task UpdateBmsTablesInternalAsync_ScoreNotConfiguredSkipsOnlyRecommendedInAutomaticBatch(string scenario)
+    {
+        string directory = NewDirectory();
+        try
+        {
+            string songPath = CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
+            var repository = new PlaylistPersistenceRepository(databaseScope, songPath);
+            var aggregate = new PlaylistAggregatePersistenceOwner(repository, new ReaderWriterLockSlimWrapper(), new TestUiScheduler(() => null));
+            WalkureScoreInput input = ReadWalkureInput("standard");
+            int reads = 0, updating = 0;
+            PlaylistRecommendedTableOwner recommended = CreateOwner(_ => { Interlocked.Increment(ref reads); return Task.FromResult(input); });
+            var warnings = new System.Collections.Concurrent.ConcurrentQueue<(Exception? Exception, string Message)>();
+            var reOutputTables = new List<BMSTable>();
+            var exportedTables = new List<BMSTable>();
+            var external = new PlaylistExternalSyncOwner(AppHttpClient.Shared, recommended, (exception, message) => warnings.Enqueue((exception, message)), () => false, _ => { },
+                playlistAggregatePersistenceOwner: aggregate, isActiveTable: aggregate.IsActive,
+                enterPlaylistUpdating: () => updating++, exitPlaylistUpdating: () => updating--,
+                exportBeatorajaBmts: (tables, _, _) => { exportedTables.AddRange(tables); return Task.CompletedTask; },
+                reOutputCustomFoldersAfterReload: (tables, _, _) => reOutputTables.AddRange(tables));
+
+            // ケース所有のローカルファイルを外部表の取得元にし、保存後にデータだけを変更して同期で新しい行が入るようにする。
+            string header = Path.Combine(directory, "header.json"), data = Path.Combine(directory, "data.json");
+            File.WriteAllText(header, "{\"name\":\"External\",\"symbol\":\"E\",\"data_url\":\"data.json\"}");
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"}]");
+            BMSTable externalTable = await external.LoadExternalTableAsync(new Uri(header));
+            BMSTable estimation = await external.LoadExternalTableAsync(new Uri("bmseeker:table.estimation?type=easy"));
+            BMSTable recommendedTable = await external.LoadExternalTableAsync(new Uri("bmseeker:table.recommended"));
+            BMSTable[] tables = [externalTable, estimation, recommendedTable];
+            Assert.IsTrue(externalTable.EnableExternalSync());
+            foreach (BMSTable table in tables) { table.is_bmt_output = false; Assert.IsTrue(table.is_external_sync); }
+            aggregate.SetActiveCollection(null, new System.Collections.ObjectModel.ObservableCollection<BMSTable>(tables));
+            aggregate.ReplaceTablesWithEntries(tables);
+            int recommendedId = recommendedTable.playlist_id ?? throw new InvalidOperationException("おすすめ表のIDが採番されていません。");
+            int externalId = externalTable.playlist_id ?? throw new InvalidOperationException("外部表のIDが採番されていません。");
+            BMSTable beforeHeader = repository.LoadPlaylistHeaders().Single(table => table.playlist_id == recommendedId);
+            string[] beforeRows = [.. repository.LoadPersistedPlaylistEntries(recommendedId, false).Select(entry => entry.md5 + "|" + entry.folder + "|" + entry.level).Order(StringComparer.Ordinal)];
+            Assert.IsTrue(beforeRows.Length > 0);
+            File.WriteAllText(data, "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Added\",\"level\":\"2\"}]");
+
+            input = scenario switch
+            {
+                "failed-batch" => new WalkureScoreInput(ScoreTableLoadStatus.Failed, ImmutableDictionary<string, WalkureLamp>.Empty, "read failed"),
+                "empty-batch" => new WalkureScoreInput(ScoreTableLoadStatus.Loaded, ImmutableDictionary<string, WalkureLamp>.Empty),
+                _ => new WalkureScoreInput(ScoreTableLoadStatus.NotConfigured, ImmutableDictionary<string, WalkureLamp>.Empty)
+            };
+            reads = 0;
+            bool skipExpected = scenario == "notconfigured-batch";
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = scenario == "notconfigured-named"
+                ? await external.ReloadPlaylistTargetsAsync(tables, cancellationToken: TestContext.CancellationToken)
+                : await external.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, cancellationToken: TestContext.CancellationToken);
+
+            Assert.AreEqual(1, reads);
+            Assert.AreEqual(0, updating);
+            Assert.AreEqual(3, result.Count);
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult recommendedResult = result.Single(target => ReferenceEquals(target.SourceTable, recommendedTable));
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult externalResult = result.Single(target => ReferenceEquals(target.SourceTable, externalTable));
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult estimationResult = result.Single(target => ReferenceEquals(target.SourceTable, estimation));
+            Assert.IsTrue(externalResult.Succeeded, externalResult.Exception?.ToString());
+            Assert.IsTrue(estimationResult.Succeeded, estimationResult.Exception?.ToString());
+            Assert.AreEqual(2, repository.LoadPersistedPlaylistEntries(externalId, true).Count);
+            Assert.IsTrue(reOutputTables.Any(table => table.playlist_id == externalId));
+
+            // おすすめ表は見送り・失敗のどちらでもDB・行・参照・出力対象を変えない。
+            Assert.IsFalse(recommendedResult.Succeeded);
+            Assert.IsNull(recommendedResult.UpdateReceipt);
+            Assert.IsFalse(recommendedResult.StatePersisted);
+            Assert.AreSame(recommendedTable, recommendedResult.ResultTable);
+            Assert.IsTrue(aggregate.IsActive(recommendedTable));
+            BMSTable afterHeader = repository.LoadPlaylistHeaders().Single(table => table.playlist_id == recommendedId);
+            Assert.AreEqual(beforeHeader.name, afterHeader.name);
+            Assert.AreEqual(beforeHeader.org_name, afterHeader.org_name);
+            Assert.AreEqual(beforeHeader.last_update, afterHeader.last_update);
+            Assert.AreEqual(beforeHeader.header_sha256, afterHeader.header_sha256);
+            Assert.AreEqual(beforeHeader.data_sha256, afterHeader.data_sha256);
+            CollectionAssert.AreEqual(beforeRows, repository.LoadPersistedPlaylistEntries(recommendedId, false).Select(entry => entry.md5 + "|" + entry.folder + "|" + entry.level).Order(StringComparer.Ordinal).ToArray());
+            Assert.IsFalse(reOutputTables.Any(table => table.playlist_id == recommendedId));
+            Assert.IsFalse(exportedTables.Any(table => table.playlist_id == recommendedId));
+
+            if (skipExpected)
+            {
+                // 見送りは集約と同期Taskの失敗だけから除き、対象の失敗・原因・診断は残す。
+                Assert.IsNull(result.Exception);
+                result.ThrowIfFailed();
+                Assert.IsNull(result.OperationException);
+                Assert.IsInstanceOfType<RecommendationScoreNotConfiguredException>(recommendedResult.Exception);
+                Assert.IsInstanceOfType<InvalidOperationException>(recommendedResult.Exception);
+                Assert.AreEqual(Resources.Error_RecommendationScoreNotConfigured, recommendedResult.Exception.Message);
+                Assert.IsTrue(warnings.Any(entry => ReferenceEquals(entry.Exception, recommendedResult.Exception)));
+            }
+            else
+            {
+                Assert.IsNotNull(result.Exception);
+                Assert.IsTrue(new AggregateException(result.Exception).Flatten().InnerExceptions.Any(failure => ReferenceEquals(failure, recommendedResult.Exception)));
+                Exception? surfaced = null;
+                try { result.ThrowIfFailed(); } catch (Exception failure) { surfaced = failure; }
+                Assert.AreSame(recommendedResult.Exception, surfaced);
+                Assert.AreEqual(scenario == "notconfigured-named", recommendedResult.Exception is RecommendationScoreNotConfiguredException);
+                Assert.IsInstanceOfType<InvalidOperationException>(recommendedResult.Exception);
+            }
+        }
+        finally { Directory.Delete(directory, true); }
     }
 
     /// <summary>旧mode・id・filter・nameと未知パラメーターを受理して同じ推薦を生成し、保存prefixを完成所属・明示順へ一度適用して出力設定を保ち、名称を自動名へ戻す。URI互換の誤拒否と属性だけのprefix復元を検出する。</summary>
