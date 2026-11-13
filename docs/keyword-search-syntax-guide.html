@@ -616,7 +616,7 @@ feature:
 </tr>
 <tr>
 <td style="text-align: left;"><code>Enter</code> / <code>Tab</code></td>
-<td style="text-align: left;">Insert the selected suggestion</td>
+<td style="text-align: left;">Insert the suggestion selected with <code>↑</code> / <code>↓</code>. When no suggestion is selected, <code>Enter</code> confirms the search as typed and saves it to history, and <code>Tab</code> moves to the next control</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Esc</code></td>
@@ -1090,7 +1090,10 @@ date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
 title:re:^alpha
 -title:re:^test
 path:re:\\BMS\\.*\.bms$
+title:re:^(alpha|beta)$
+title:re:"^a b"
 </code></pre></div>
+<p>Everything after <code>re:</code>, including any <code>|</code>, is one regular expression. <code>title:re:^(alpha|beta)$</code> matches <code>alpha</code> or <code>beta</code>. For an expression that contains a space, enclose the whole expression in double quotation marks, as in <code>title:re:"^a b"</code>.</p>
 <p>Regular-expression matching is case-insensitive. An expression that takes too long is stopped and treated as not matching that condition.</p>
 <p>Blank displayed values are also searched. <code>memo:re:^$</code> matches rows with a blank MEMO, and <code>-memo:re:^$</code> matches rows with a nonblank MEMO. Whitespace-only values are not blank. A field that searches multiple values, such as referenced playlist names, is not treated as an empty string when it has no values.</p>
 <h3 id="search-for--or--inside-double-quotes">Search for <code>"</code> or <code>\</code> Inside Double Quotes</h3>

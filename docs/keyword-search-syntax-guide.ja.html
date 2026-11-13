@@ -617,7 +617,7 @@ feature:
 </tr>
 <tr>
 <td style="text-align: left;"><code>Enter</code> / <code>Tab</code></td>
-<td style="text-align: left;">選択中の候補を入力する</td>
+<td style="text-align: left;"><code>↑</code> / <code>↓</code> で選んだ候補を入力する。候補を選んでいないときは、<code>Enter</code> で入力したとおりに検索を確定して履歴へ保存し、<code>Tab</code> で次の項目へ移動する</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Esc</code></td>
@@ -1091,7 +1091,10 @@ date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
 title:re:^alpha
 -title:re:^test
 path:re:\\BMS\\.*\.bms$
+title:re:^(alpha|beta)$
+title:re:"^a b"
 </code></pre></div>
+<p><code>re:</code> の後ろは、<code>|</code> を含めて全体が1つの正規表現です。<code>title:re:^(alpha|beta)$</code> は <code>alpha</code> または <code>beta</code> に一致します。スペースを含む式は、<code>title:re:"^a b"</code> のように式全体をダブルクォートで囲みます。</p>
 <p>正規表現は大文字・小文字を区別しません。処理に時間がかかりすぎる式は途中で停止し、その条件には一致しなかったものとして扱われます。</p>
 <p>表示上の空欄も検索対象です。<code>memo:re:^$</code> は MEMO が空欄の行、<code>-memo:re:^$</code> は空欄でない行に一致します。空白文字だけの値は空欄に含めません。参照プレイリスト名など複数の値を探す項目では、値がない場合を空文字として検索しません。</p>
 <h3 id="ダブルクォート内で--や--を検索する">ダブルクォート内で <code>"</code> や <code>\</code> を検索する</h3>

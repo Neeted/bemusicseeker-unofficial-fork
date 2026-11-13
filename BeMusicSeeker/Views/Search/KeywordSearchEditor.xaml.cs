@@ -438,7 +438,10 @@ public partial class KeywordSearchEditor : UserControl
     /// <param name="key">処理するキー。</param>
     /// <param name="modifiers">キー入力時の修飾キー。</param>
     /// <param name="imeProcessedKey">IME が処理した元のキー。</param>
-    /// <returns>検索支援が入力を処理した場合は <see langword="true"/>。</returns>
+    /// <returns>
+    /// 検索支援が入力を処理した場合は <see langword="true"/>。候補表示中の未選択のEnterは入力語のまま履歴へ確定して
+    /// 候補を閉じ <see langword="true"/>、未選択のTabは通常のフォーカス移動へ任せるため <see langword="false"/> を返します。
+    /// </returns>
     internal bool HandleInputKey(Key key, ModifierKeys modifiers, Key imeProcessedKey = Key.None)
     {
         if (key == Key.Escape && imeCompositionActive)
@@ -487,8 +490,16 @@ public partial class KeywordSearchEditor : UserControl
 
         if ((key is Key.Enter or Key.Tab) && AssistancePopup.IsOpen)
         {
+            // 上下キーまたは Ctrl+Space で選択表示された候補だけを適用する。
+            // 未選択の Enter は入力語のまま履歴へ確定して候補を閉じ、未選択の Tab は通常のフォーカス移動へ任せる。
             if (ApplySelectedItem())
             {
+                return true;
+            }
+            if (key == Key.Enter)
+            {
+                CommitCurrentHistory();
+                ApplyPresentation(assistanceOwner.SuppressCurrentSnapshot());
                 return true;
             }
             return false;
@@ -859,8 +870,7 @@ public partial class KeywordSearchEditor : UserControl
 
     private bool ApplySelectedItem()
     {
-        KeywordSearchPresentationItem item = SelectedItem
-            ?? presentation?.VisibleItems.FirstOrDefault();
+        KeywordSearchPresentationItem item = SelectedItem;
         if (item == null)
         {
             return false;

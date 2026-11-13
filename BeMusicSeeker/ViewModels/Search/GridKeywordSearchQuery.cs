@@ -275,7 +275,11 @@ internal sealed class GridKeywordSearchQuery
                     : GridKeywordSearchDiagnosticKind.EmptyFieldTerm;
             return SearchCondition.Invalid(isNegated, field, diagnosticKind, field ?? string.Empty);
         }
-        List<SearchAlternative> alternatives = [.. GridKeywordSearchSyntax.SplitUnquoted(rawTerms, '|')
+        // 正規表現の `|` は正規表現自身の選択を表すため、本体全体を一つの式として扱い、通常値だけを `|` で分割する。
+        IEnumerable<string> rawAlternatives = isRegex
+            ? [rawTerms]
+            : GridKeywordSearchSyntax.SplitUnquoted(rawTerms, '|');
+        List<SearchAlternative> alternatives = [.. rawAlternatives
             .Select(rawAlternative => CreateAlternative(rawAlternative, isRegex, field))
             .Where(alternative => !alternative.IsEmpty)];
         if (alternatives.Count == 0)

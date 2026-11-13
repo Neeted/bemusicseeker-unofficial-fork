@@ -163,6 +163,6 @@ internal static class GridKeywordSearchSyntax
     /// <param name="IsNegated">先頭に否定記号があるか。</param>
     /// <param name="FieldRange">項目名の範囲。項目指定がない場合はnull。</param>
     /// <param name="TermsRange">通常値または正規表現本体の範囲。</param>
-    /// <param name="IsRegex">語全体の選択肢を正規表現として扱うか。</param>
+    /// <param name="IsRegex">語の本体全体を、<c>|</c> で分割しない一つの正規表現として扱うか。</param>
     internal readonly record struct TokenSyntax(bool IsNegated, Range? FieldRange, Range TermsRange, bool IsRegex);
 }

@@ -56,7 +56,8 @@ public sealed class PlaylistWorkspacePresentationStateTests
         try
         {
             ResourceService.Current.ChangeCulture("ja-JP");
-            // 警告を持つregexのORにも有効な選択肢を残し、実フィルターで一致する行を表示します。
+            // 警告ありは本体全体（Alpha|[）が一つの無効な正規表現になり、条件が無効なため行は0件です。
+            // 警告なしは通常語の条件で一致する行を表示します。
             // 非表示中に条件を準備し、初期化時の非同期再取得を言語通知の観測へ持ち込みません。
             string raw = warning ? "  name:re:Alpha|[ na  " : "  name:alpha na  ";
             workspace.PlaylistSummaryKeywordFilter = raw;
@@ -78,7 +79,8 @@ public sealed class PlaylistWorkspacePresentationStateTests
             string history = settings.PlaylistSummaryKeywordSearchHistory;
             string favorites = settings.PlaylistSummaryKeywordSearchFavorites;
             ObservableCollection<PlaylistSummaryRow> rows = workspace.PlaylistSummaryView;
-            PlaylistSummaryRow row = rows.Single();
+            PlaylistSummaryRow? row = warning ? null : rows.Single();
+            Assert.AreEqual(warning ? 0 : 1, rows.Count);
             long generation = workspace.CurrentPlaylistSummaryPresentationGeneration;
             long dataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
@@ -92,7 +94,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
 
             ResourceService.Current.ChangeCulture("en-US");
 
-            Assert.AreEqual(warning ? string.Format(Resources.Keyword_search_warning_invalid_regex, "[") : string.Empty, workspace.PlaylistSummaryKeywordSearchWarningText);
+            Assert.AreEqual(warning ? string.Format(Resources.Keyword_search_warning_invalid_regex, "Alpha|[") : string.Empty, workspace.PlaylistSummaryKeywordSearchWarningText);
             Assert.AreEqual(string.Format(Resources.Keyword_search_help_template, Resources.Keyword_search_help_fields_playlist_summary), workspace.PlaylistSummaryKeywordSearchHelpText);
             Assert.AreEqual(warning, workspace.HasPlaylistSummaryKeywordSearchWarning);
             Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.PlaylistSummaryKeywordSearchHelpText)));
@@ -105,7 +107,14 @@ public sealed class PlaylistWorkspacePresentationStateTests
             Assert.AreEqual(history, settings.PlaylistSummaryKeywordSearchHistory);
             Assert.AreEqual(favorites, settings.PlaylistSummaryKeywordSearchFavorites);
             Assert.AreSame(rows, workspace.PlaylistSummaryView);
-            Assert.AreSame(row, workspace.PlaylistSummaryView.Single());
+            if (row != null)
+            {
+                Assert.AreSame(row, workspace.PlaylistSummaryView.Single());
+            }
+            else
+            {
+                Assert.AreEqual(0, workspace.PlaylistSummaryView.Count);
+            }
             Assert.AreEqual("summary", workspace.PlaylistSummaryText);
             Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
             Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.GridHeaderText)));
@@ -124,7 +133,7 @@ public sealed class PlaylistWorkspacePresentationStateTests
             Assert.AreEqual(Resources.Playlist_summary_header, workspace.GridHeaderText);
             Assert.AreNotEqual(enHeader, workspace.GridHeaderText);
             Assert.AreEqual("summary", workspace.PlaylistSummaryText);
-            Assert.AreEqual(warning ? string.Format(Resources.Keyword_search_warning_invalid_regex, "[") : string.Empty, workspace.PlaylistSummaryKeywordSearchWarningText);
+            Assert.AreEqual(warning ? string.Format(Resources.Keyword_search_warning_invalid_regex, "Alpha|[") : string.Empty, workspace.PlaylistSummaryKeywordSearchWarningText);
             Assert.AreEqual(1, notifications.Count(name => name == nameof(workspace.PlaylistSummaryKeywordSearchHelpText)));
             Assert.AreEqual(0, refreshes);
             Assert.AreSame(presentation, assistance.Presentation);

@@ -446,6 +446,67 @@ public sealed class GridKeywordSearchQueryTests
         Assert.IsFalse(query.MatchesChartListSourceRow(ChartListSourceRow.FromChartFile(other)));
     }
 
+    /// <summary>正規表現本体の縦線を選択肢の区切りへ分割せず一つの式として評価することを確認し、群の途中で式を割る誤り、引用本体の再分割、通常値のORまで正規表現にする誤りを検出します。</summary>
+    /// <remarks>通常一覧の表示行だけを入口にします。履歴DATEの本体全体は <c>MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp</c> が担当します。</remarks>
+    [TestMethod]
+    [DataRow("title:re:^(alpha|beta)$", "alpha", true)]
+    [DataRow("title:re:^(alpha|beta)$", "beta", true)]
+    [DataRow("title:re:^(alpha|beta)$", "alphabeta", false)]
+    [DataRow("title:re:^(alpha|beta)$", "gamma", false)]
+    [DataRow("-title:re:^(alpha|beta)$", "alpha", false)]
+    [DataRow("-title:re:^(alpha|beta)$", "gamma", true)]
+    [DataRow("re:^(alpha|beta)$", "beta", true)]
+    [DataRow("re:^(alpha|beta)$", "alphabeta", false)]
+    [DataRow("re:alpha|beta", "alpha", true)]
+    [DataRow("re:alpha|beta", "alphabeta", true)]
+    [DataRow("re:alpha|beta", "gamma", false)]
+    [DataRow("title:re:alpha|beta", "beta", true)]
+    [DataRow("title:re:alpha|beta", "alphabeta", true)]
+    [DataRow("title:re:alpha|beta", "gamma", false)]
+    [DataRow("title:re:\"^a b|c$\"", "a b x", true)]
+    [DataRow("title:re:\"^a b|c$\"", "xc", true)]
+    [DataRow("title:re:\"^a b|c$\"", "a", false)]
+    [DataRow("title:re:\"^(alpha|beta)$\"", "alpha", true)]
+    [DataRow("title:re:\"^(alpha|beta)$\"", "alphabeta", false)]
+    [DataRow("title:abc|re:x.", "re:x.", true)]
+    [DataRow("title:abc|re:x.", "xy", false)]
+    public void MatchesRegex_PipeInsideBodyIsOneExpression(string expression, string title, bool expected)
+    {
+        ChartFile file = ChartTestValues.Empty() with { Title = title, RawTitle = title };
+
+        var query = GridKeywordSearchQuery.Parse(expression);
+
+        Assert.AreEqual(expected, query.MatchesLibraryChartRow(LibraryChartRow.FromChartFile(file)), expression + " / " + title);
+        Assert.AreEqual(0, query.GetDiagnostics(GridKeywordSearchContext.ChartList).Count, expression);
+    }
+
+    /// <summary>本体全体が無効な正規表現は否定形を含め全行不一致で、本体全体を値とする警告を一件だけ出すことを確認し、選択肢ごとの部分有効判定や警告の重複・値の欠落を検出します。</summary>
+    [TestMethod]
+    [DataRow("title:re:(a|", "(a|")]
+    [DataRow("title:re:(alpha|beta", "(alpha|beta")]
+    [DataRow("re:(alpha|beta", "(alpha|beta")]
+    public void GetDiagnostics_InvalidRegexBodyInvalidatesWholeConditionWithOneDiagnostic(string expression, string body)
+    {
+        ChartFile file = ChartTestValues.Empty() with { Title = "alpha", RawTitle = "alpha" };
+        var row = LibraryChartRow.FromChartFile(file);
+
+        foreach (string text in new[] { expression, "-" + expression })
+        {
+            var query = GridKeywordSearchQuery.Parse(text);
+            IReadOnlyList<GridKeywordSearchDiagnostic> diagnostics = query.GetDiagnostics(GridKeywordSearchContext.ChartList);
+
+            Assert.IsFalse(query.MatchesLibraryChartRow(row), text);
+            Assert.AreEqual(1, diagnostics.Count, text);
+            Assert.AreEqual(GridKeywordSearchDiagnosticKind.InvalidRegex, diagnostics[0].Kind, text);
+            Assert.AreEqual(body, diagnostics[0].Value, text);
+        }
+        IReadOnlyList<GridKeywordSearchDiagnostic> history = GridKeywordSearchQuery.Parse("date:re:(2026|").GetDiagnostics(GridKeywordSearchContext.PlayHistory);
+        Assert.AreEqual(1, history.Count);
+        Assert.AreEqual(GridKeywordSearchDiagnosticKind.InvalidRegex, history[0].Kind);
+        Assert.AreEqual("(2026|", history[0].Value);
+        Assert.AreEqual(0, GridKeywordSearchQuery.Parse("title:re:^(alpha|beta)$").GetDiagnostics(GridKeywordSearchContext.ChartList).Count);
+    }
+
     /// <summary>memoの対応画面と非対応画面、および履歴だけの空date警告を区別することを確認し、表示先に関係なく同じ診断を出す誤りを検出します。</summary>
     [TestMethod]
     public void GetDiagnostics_ReportsContextSpecificWarnings()
@@ -826,7 +887,8 @@ public sealed class GridKeywordSearchQueryTests
             ("date:re:\"^2026-08-27 12:\"", [true, false, true, false]),
             ("date:re:\"^2026-08-27 12:34:56$\"", [true, false, false, false]),
             ("date:re:^2026-08-27$", [true, true, true, false]),
-            ("date:re:^2026/08/27$", [true, true, true, false])
+            ("date:re:^2026/08/27$", [true, true, true, false]),
+            ("date:re:^2026-08-(28|27.13:)", [false, true, false, true])
         ];
         foreach ((string expression, bool[] expected) in cases)
         {

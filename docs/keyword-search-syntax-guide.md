@@ -110,7 +110,7 @@ Search history is shared by the main chart list, playlist detail, and Play Log. 
 | Key | Result |
 | :--- | :--- |
 | `↑` / `↓` | Select a suggestion |
-| `Enter` / `Tab` | Insert the selected suggestion |
+| `Enter` / `Tab` | Insert the suggestion selected with `↑` / `↓`. When no suggestion is selected, `Enter` confirms the search as typed and saves it to history, and `Tab` moves to the next control |
 | `Esc` | Close suggestions |
 | `Ctrl+Space` | Open suggestions again |
 | `Shift+Tab` | Move to the action buttons for the selected Favorite or history row |
@@ -379,7 +379,11 @@ re:^alpha
 title:re:^alpha
 -title:re:^test
 path:re:\\BMS\\.*\.bms$
+title:re:^(alpha|beta)$
+title:re:"^a b"
 ```
+
+Everything after `re:`, including any `|`, is one regular expression. `title:re:^(alpha|beta)$` matches `alpha` or `beta`. For an expression that contains a space, enclose the whole expression in double quotation marks, as in `title:re:"^a b"`.
 
 Regular-expression matching is case-insensitive. An expression that takes too long is stopped and treated as not matching that condition.
 
