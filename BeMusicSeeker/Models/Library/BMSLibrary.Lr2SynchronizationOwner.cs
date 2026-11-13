@@ -81,6 +81,21 @@ public partial class BMSLibrary
                 lease = PlaylistOperationAdmission.Borrow(capability.PlaylistCapability);
                 return true;
             }
+            if (!IntersectsManagedOutput(paths, recursive, recursivePaths, options)) { return true; }
+            if (!PlaylistOperationAdmission.TryEnter(out IDisposable accepted)) { return false; }
+            lease = (LibraryFileMutationLease)accepted;
+            return true;
+        }
+
+        /// <summary>
+        /// パスが現行の管理領域（出力基点そのものと表の出力ディレクトリ）と同一・配下か、再帰対象が管理領域を含むかを判定します。Pは取得しません。
+        /// </summary>
+        /// <param name="paths">判定する物理パス。</param>
+        /// <param name="recursive">すべてのパスについて、祖先側の移動・再帰削除も交差として扱うか。</param>
+        /// <param name="recursivePaths">個別に再帰として扱う物理パス。</param>
+        /// <param name="options">同じ操作で捕捉した設定。</param>
+        private bool IntersectsManagedOutput(IEnumerable<string> paths, bool recursive, IEnumerable<string> recursivePaths, BmsLibraryOptionsSnapshot options)
+        {
             var regions = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string directory in new[] { options.LR2CustomFolderOutputBaseDir, options.LR2CustomFolderOutputBaseDirRootType }
                 .Concat(options.LR2CustomFolderAdditionalOutputBaseDirs))
@@ -90,13 +105,9 @@ public partial class BMSLibrary
             // 正本の対象数だけを読み、全所持譜面を列挙しません。読取不能は元例外で止めます。
             regions.UnionWith(data.CaptureLr2SongDbSyncAppManagedOutputScope(options, throwOnFailure: true).Directories);
             var recursiveTargets = new HashSet<string>(recursivePaths ?? [], StringComparer.OrdinalIgnoreCase);
-            bool intersects = (paths ?? []).Concat(recursiveTargets).Where(path => !string.IsNullOrWhiteSpace(path)).Any(path => regions.Any(region =>
+            return (paths ?? []).Concat(recursiveTargets).Where(path => !string.IsNullOrWhiteSpace(path)).Any(path => regions.Any(region =>
                 CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, region)
                 || ((recursive || recursiveTargets.Contains(path)) && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(region, path))));
-            if (!intersects) { return true; }
-            if (!PlaylistOperationAdmission.TryEnter(out IDisposable accepted)) { return false; }
-            lease = (LibraryFileMutationLease)accepted;
-            return true;
         }
 
         internal object RequestGate { get; } = new();
@@ -835,7 +846,11 @@ public partial class BMSLibrary
             }
         }
 
-        /// <summary>確定済みの譜面変更receiptを同じ生存権限でLR2へ反映します。確定済み変更を巻き戻さず必須反映失敗を伝播します。</summary>
+        /// <summary>
+        /// 確定済みの譜面変更receiptを同じ生存権限でLR2へ反映します。確定済み変更を巻き戻さず必須反映失敗を伝播します。
+        /// 通常行の生成・日時取り直しは変更の根拠となるdirectoryから登録rootまでの範囲Tに限り、変更と無関係な登録rootの行は生成も更新もしません。
+        /// Tと整理範囲が管理領域と交差する場合は呼出し元のPを借用し、Pを新たに取得しません。正常終了後は組込みの新曲フォルダ行の不足を補います。
+        /// </summary>
         internal void SyncLr2NormalFoldersForCatalogMutation(
             Lr2NormalFolderCatalogMutationReceipt receipt,
             string reason,
@@ -854,6 +869,8 @@ public partial class BMSLibrary
 
             RequireMutationCapability(mutationCapability);
             Exception failure = null;
+            // 失敗ログで、通常行の同期と組込みの新曲フォルダの作成のどちらで失敗したかを区別します。
+            string failurePhase = "normal_folder";
             var stopwatch = Stopwatch.StartNew();
             List<string> roots = [];
             Lr2NormalFolderSyncScope syncInput = Lr2NormalFolderSyncScope.Empty;
@@ -870,7 +887,10 @@ public partial class BMSLibrary
                     if (roots.Count > 0)
                     {
                         syncInput = Lr2NormalFolderSyncScopeBuilder.CreateForCatalogMutation(roots, receipt);
+                        // 登録root直下の譜面だけを削除してrootにBMSが残る場合など、整理を伴わず日時だけを取り直す変更もあるため、
+                        // 書込み範囲（DirectoryPaths）だけの場合も同期します。整理がなければAllowPruneはfalseのままです。
                         if (syncInput.ChartPaths.Count > 0
+                            || syncInput.DirectoryPaths.Count > 0
                             || syncInput.PruneScopeDirectories.Count > 0
                             || syncInput.PruneExactDirectories.Count > 0)
                         {
@@ -923,18 +943,25 @@ public partial class BMSLibrary
                                         .Where(path => !managedScope.Directories.Any(excluded => Lr2FolderPath.IsSameOrDescendant(path, excluded))
                                             && !managedScope.PruneExcludedPaths.Contains(path, StringComparer.Ordinal))
                                         .Select(Lr2FolderPath.SafeGetDirectoryName)));
+                            // 書込み範囲T: 変更と無関係な登録rootを含めず、変更の根拠となるdirectoryから登録rootまでの祖先だけにします。
+                            // P判定はこのTと整理範囲から同じ変数で作ります。
                             IReadOnlyCollection<string> directoryMetadataTargets = [..
-                                Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, syncInput.ChartPaths)
-                                .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots, remainingCustomParents))
-                                .Concat(Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots,
+                                syncInput.DirectoryPaths
+                                .Concat(Lr2NormalFolderDbSyncService.CreateAncestorDirectoryTargetsWithinRoots(roots,
+                                    syncInput.ChartPaths.Select(Lr2FolderPath.SafeGetDirectoryName)))
+                                .Concat(Lr2NormalFolderDbSyncService.CreateAncestorDirectoryTargetsWithinRoots(roots, remainingCustomParents))
+                                .Concat(Lr2NormalFolderDbSyncService.CreateAncestorDirectoryTargetsWithinRoots(roots,
                                     remainingFolderInfo.Paths.Select(Lr2FolderPath.SafeGetDirectoryName)))
-                                .Concat(dependencies.RetainedAncestorDirectories)
+                                .Concat((dependencies.RetainedAncestorDirectories ?? [])
+                                    .Where(directory => roots.Any(root => Lr2FolderPath.IsSameOrDescendant(directory, root))))
+                                .Select(Lr2FolderPath.NormalizeDirectoryPath)
+                                .Where(path => !string.IsNullOrWhiteSpace(path))
                                 .Distinct(StringComparer.Ordinal)];
-                            if (!TryEnterManagedOutputMutation(directoryMetadataTargets.Concat(syncInput.PruneExactDirectories),
-                                recursive: false, out LibraryFileMutationLease playlistLease, capability: mutationCapability,
-                                recursivePaths: syncInput.PruneScopeDirectories))
-                            { throw new InvalidOperationException(Resources.Warn_LibraryOperationBusy); }
-                            using LibraryFileMutationLease playlistOperation = playlistLease;
+                            using LibraryFileMutationLease playlistOperation = BorrowPlaylistAuthorityForCatalogMutationSync(
+                                directoryMetadataTargets.Concat(syncInput.PruneExactDirectories),
+                                syncInput.PruneScopeDirectories,
+                                mutationCapability,
+                                options);
                             Lr2OwnedMutationDirectoryMetadataSurface metadataSurface =
                                 CreateLr2OwnedMutationDirectoryMetadataSurface(directoryMetadataTargets);
                             Lr2NormalFolderDbSyncResult syncResult = data.ApplyLr2NormalFolderSync(
@@ -942,6 +969,7 @@ public partial class BMSLibrary
                                 {
                                     RootDirectories = roots,
                                     ChartPaths = syncInput.ChartPaths,
+                                    DirectoryPathsAreComplete = true,
                                     RequiredCustomParentDirectories = remainingCustomParents,
                                     RemovedCustomPaths = removedCustomPaths,
                                     PruneExcludedDirectories = managedScope.Directories,
@@ -974,6 +1002,8 @@ public partial class BMSLibrary
                                 + " deleted=" + syncResult.DeletedCount
                                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds;
                             BMSLibrary.LogInstallPerformance(successLog);
+                            failurePhase = "builtin_new_song";
+                            SyncLr2BuiltinNewSongFolderRowForCatalogMutation(options, receipt, reason);
                         }
                     }
                 }
@@ -999,6 +1029,7 @@ public partial class BMSLibrary
                     logReason: "lr2_normal_folder_mutation_sync_failed");
                 BMSLibrary.LogInstallPerformanceWarn("lr2_normal_folder_catalog_sync failed"
                     + " reason=" + (reason ?? "unknown")
+                    + " phase=" + failurePhase
                     + " paths=" + syncInput.ChartPaths.Count
                     + " pruneScopes=" + syncInput.PruneScopeDirectories.Count
                     + " exactPrunes=" + syncInput.PruneExactDirectories.Count
@@ -1017,6 +1048,138 @@ public partial class BMSLibrary
             }
             System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         }
+
+        /// <summary>
+        /// 確定後の局所同期が書き換える範囲Tと整理範囲について、呼出し元が物理変更の前に取得したPを借用します。Pを新たに取得しません。
+        /// 出力基点は登録rootの子に置けないため、範囲が管理領域と交差するのは物理変更の対象が交差する場合に限られ、
+        /// その場合は呼出し元がPを保持しています。保持していない交差は物理変更前の判定漏れを示す内部の不変条件違反として失敗させます。
+        /// </summary>
+        /// <param name="exactPaths">子孫を含めず判定する書込み範囲Tと完全一致の整理対象。</param>
+        /// <param name="recursivePaths">子孫を含めて整理する範囲。</param>
+        /// <param name="capability">呼出し元の変更権限。Pを保持していればその権限を借用します。</param>
+        /// <param name="options">同じ操作で捕捉した設定。</param>
+        /// <returns>借用したPのlease。呼出し元がPを持たず非交差の場合はnull。</returns>
+        private LibraryFileMutationLease BorrowPlaylistAuthorityForCatalogMutationSync(
+            IEnumerable<string> exactPaths,
+            IEnumerable<string> recursivePaths,
+            LibraryFileMutationCapability capability,
+            BmsLibraryOptionsSnapshot options)
+        {
+            if (capability?.PlaylistCapability != null)
+            {
+                return PlaylistOperationAdmission.Borrow(capability.PlaylistCapability);
+            }
+            if (IntersectsManagedOutput(exactPaths, recursive: false, recursivePaths, options))
+            {
+                throw new InvalidOperationException(
+                    "LR2 normal-folder catalog sync scope intersects the managed custom-folder output, "
+                    + "but the caller did not reserve the playlist operation before the physical mutation.");
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 局所同期の正常終了後、今回追加したBMSのsong.adddateがtitleflashの期間内で、folder表に組込みの新曲フォルダの行がなければ、
+        /// 組込みfolderの生成と同じ規則でその行を一件作ります。LR2rootに組込みのファイルがなければ作りません。
+        /// 期間と既存行（相対キー・旧版の絶対キーの完全一致）はファイルの列挙・読取りより先にDBだけで判定し、作成が不要ならファイルに触れません。
+        /// 判定は追加したBMSと新曲フォルダの行だけで行い、全譜面を走査しません。期限切れの行の撤去は起動時・差分読込み・全体同期に任せます。
+        /// 組込みのファイルの読取り失敗を含む失敗は、例外として呼出し元へ返し、局所同期の失敗と同じくIncompleteを記録して再送出させます。
+        /// </summary>
+        /// <exception cref="IOException">新曲フォルダのファイルを読み取れなかった場合。</exception>
+        /// <param name="options">操作で捕捉した設定。titleflashは<see cref="BmsLibraryOptionsSnapshot.Lr2Input"/>から取ります。</param>
+        /// <param name="receipt">確定済みの変更receipt。移動・改名は追加に含みません。</param>
+        /// <param name="reason">ログ用の操作理由。</param>
+        private void SyncLr2BuiltinNewSongFolderRowForCatalogMutation(
+            BmsLibraryOptionsSnapshot options,
+            Lr2NormalFolderCatalogMutationReceipt receipt,
+            string reason)
+        {
+            if (receipt.AddedBmsChartPaths.Count == 0)
+            {
+                return;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            DateTime nowUtc = DateTime.UtcNow;
+            Lr2ConfigSnapshot config = options.Lr2Input ?? data.CaptureLr2Config();
+            if (Lr2BuiltinCustomFolderSettings.CreateFromAddDates(config, [], nowUtc).TitleFlashHours <= 0)
+            {
+                return;
+            }
+
+            // 作成が不要な場合（期間外・相対キーか旧版の絶対キーの行が既にある）はファイルを列挙・読取りせず、その失敗で局所同期を失敗させません。
+            var creationCondition = new Lr2BuiltinNewSongFolderCreationCondition(
+                receipt.AddedBmsChartPaths, config, nowUtc, options.LR2RootPath);
+            if (!data.RequiresLr2BuiltinNewSongFolderRowCreation(creationCondition))
+            {
+                return;
+            }
+
+            List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
+            string newSongFolderPath = builtinSourceDirectories
+                .SelectMany(directory => LongPathFileSystem.EnumerateFiles(directory, Lr2BuiltinNewSongFolderFileName, SearchOption.TopDirectoryOnly))
+                .FirstOrDefault(path => string.Equals(Path.GetFileName(path), Lr2BuiltinNewSongFolderFileName, StringComparison.OrdinalIgnoreCase));
+            if (newSongFolderPath == null)
+            {
+                return;
+            }
+
+            var request = new Lr2SongDbSyncRequest
+            {
+                RootDirectories = [],
+                Lr2FolderFilePaths = [newSongFolderPath],
+                Lr2RootPath = options.LR2RootPath,
+                Lr2NormalCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDir,
+                Lr2AdditionalNormalCustomFolderOutputBaseDirs = options.LR2CustomFolderAdditionalOutputBaseDirs,
+                Lr2RootCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDirRootType,
+                Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
+            };
+            var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+            {
+                [newSongFolderPath] = new RootFileEnumerationEntry(
+                    newSongFolderPath, LongPathFileSystem.GetLastWriteTimeUtc(newSongFolderPath, isDirectory: false))
+            };
+            Lr2SongDbSyncService.Lr2FolderFileSyncItemsResult syncItems = Lr2SongDbSyncService.CreateLr2FolderFileSyncItems([newSongFolderPath], request, entries);
+            if (syncItems.HasReadFailures)
+            {
+                // 項目化は読取り失敗を例外にせず空の項目へ変えるため、ここで失敗へ戻します。
+                // 呼出し元の局所同期と同じ失敗経路（Incomplete記録・再送出）へ渡し、作成を黙って飛ばしません。
+                throw new IOException("Failed to read the LR2 built-in new-song folder file: " + newSongFolderPath);
+            }
+
+            List<Lr2FolderFileSyncItem> items = [.. syncItems.Items
+                .Where(item => item?.FolderType == Lr2BuiltinNewSongFolderType)];
+            if (items.Count == 0)
+            {
+                return;
+            }
+
+            Lr2FolderFileDbSyncResult result = data.ApplyLr2FolderFileSync(new Lr2FolderFileDbSyncRequest
+            {
+                Items = items,
+                DirectoryRowScopeDirectories = Lr2SongDbSyncService.CreateLr2FolderDirectoryRowScopeDirectories(request),
+                DirectoryRowGenerationScopeDirectories = Lr2SongDbSyncService.CreateLr2FolderDirectoryRowGenerationScopeDirectories(request),
+                DirectoryRowRootDirectories = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots(
+                    request.RootDirectories, request.Lr2NormalCustomFolderOutputBaseDir, request.Lr2AdditionalNormalCustomFolderOutputBaseDirs),
+                GeneratedAtUtc = nowUtc,
+                AllowPrune = false,
+                CreateOnlyWhenMissingForRecentSongs = creationCondition
+            });
+            stopwatch.Stop();
+            BMSLibrary.LogInstallPerformance("lr2_builtin_new_song_folder_catalog_sync done"
+                + " reason=" + (reason ?? "unknown")
+                + " addedPaths=" + receipt.AddedBmsChartPaths.Count
+                + " existingRows=" + result.ExistingReadCount
+                + " generated=" + result.GeneratedCount
+                + " upserted=" + result.UpsertedCount
+                + " skippedUnsupported=" + result.SkippedUnsupportedPathCount
+                + " skippedMissingMetadata=" + result.SkippedMissingMetadataCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+
+        private const string Lr2BuiltinNewSongFolderFileName = "newsong.lr2folder";
+
+        private const int Lr2BuiltinNewSongFolderType = 3;
 
         private static Lr2OwnedMutationDirectoryMetadataSurface CreateLr2OwnedMutationDirectoryMetadataSurface(
             IEnumerable<string> targetDirectories)

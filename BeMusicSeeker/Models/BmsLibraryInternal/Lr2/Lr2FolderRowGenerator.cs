@@ -38,6 +38,12 @@ internal sealed class Lr2FolderGenerationRequest
     public Func<string, Lr2FolderDirectoryMetadata> DirectoryMetadataResolver { get; set; }
 
     public DateTime GeneratedAtUtc { get; set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// trueのとき全登録rootの行を常に生成します。falseのときは<see cref="DirectoryPaths"/>に含まれるrootだけを生成し、
+    /// 局所mutationで変更と無関係な登録rootの行を生成・更新しません。
+    /// </summary>
+    public bool IncludeRootDirectories { get; set; } = true;
 }
 
 internal sealed class Lr2FolderGenerationResult(
@@ -85,9 +91,10 @@ internal static class Lr2FolderRowGenerator
         List<string> roots = NormalizeRootDirectories(request.RootDirectories);
         List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
         var progress = new Lr2SongDbSyncStageProgressReporter(progressReporter);
-        progress.Begin("normal_folder_roots", roots.Count);
+        List<string> generatedRoots = request.IncludeRootDirectories ? roots : [];
+        progress.Begin("normal_folder_roots", generatedRoots.Count);
         int processed = 0;
-        foreach (string root in roots)
+        foreach (string root in generatedRoots)
         {
             AddDirectory(
                 root,
@@ -102,7 +109,7 @@ internal static class Lr2FolderRowGenerator
                 generatedAt,
                 ref skippedUnsupportedPathCount,
                 ref skippedMissingMetadataCount);
-            progress.Advance(++processed, roots.Count);
+            progress.Advance(++processed, generatedRoots.Count);
         }
 
         if ((request.DirectoryPaths?.Count ?? 0) > 0)

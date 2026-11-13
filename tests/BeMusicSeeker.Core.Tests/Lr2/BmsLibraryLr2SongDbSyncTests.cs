@@ -136,6 +136,177 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     /// <summary>
+    /// 新曲フォルダの行がない状態から導入すると、局所同期の確定後に組込みの新曲フォルダ行をtype 3・ファイルの#TITLE・ROOT親・ファイル時刻で一件だけ作り、
+    /// 同じ場所の他の組込みファイルの行は作らないことを確認する。titleflashが0、既存行がある、組込みファイルがない条件では作らず、
+    /// 既存行の全列を変えない。旧版の絶対パスのキーの行だけがある場合も既存行として作らず、その行を変えない。
+    /// 導入後に新曲フォルダが出ない欠落、条件外の生成、既存行の上書き、必須失敗やIncompleteの記録を検出する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続し、本番経路で捕捉したLR2設定から局所同期後の反映を確認する。</remarks>
+    [TestMethod]
+    // recent: 行なし・組込みファイルあり・titleflash=24。titleflash0: 期間0。existing: 既存行あり。
+    // existing-absolute: 旧版の絶対パスのキーの行だけあり。missing-file: 組込みファイルなし。
+    [DataRow("recent")]
+    [DataRow("titleflash0")]
+    [DataRow("existing")]
+    [DataRow("existing-absolute")]
+    [DataRow("missing-file")]
+    public void InstallPendingPackages_CreatesBuiltinNewSongRowOnlyForRecentAdditionWithoutExistingRow(string condition)
+    {
+        using var scope = TestDatabaseScope.Create();
+        try
+        {
+            testSettings.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings(testSettings);
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            string sourceDirectory = Path.Combine(scope.DirectoryPath, "Pending");
+            Directory.CreateDirectory(sourceDirectory);
+            string sourceChartPath = Path.Combine(sourceDirectory, "chart.bms");
+            File.WriteAllText(sourceChartPath, "#TITLE Added\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFile sourceFile = CreateSyncTestFile(sourceChartPath, ChartFileContentReader.ReadSnapshot(sourceChartPath));
+            string destinationDirectory = Path.Combine(rootDirectory, "Pack", "Song");
+            Directory.CreateDirectory(destinationDirectory);
+            string destinationChartPath = Path.Combine(destinationDirectory, "chart.bms");
+
+            string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
+            string customFolderDirectory = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+            Directory.CreateDirectory(customFolderDirectory);
+            const string newSongDatabasePath = @"LR2files\CustomFolder\newsong.lr2folder";
+            const string courseDatabasePath = @"LR2files\CustomFolder\course1.lr2folder";
+            string newSongFilePath = Path.Combine(customFolderDirectory, "newsong.lr2folder");
+            DateTime newSongFileTime = new(2025, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+            if (condition != "missing-file")
+            {
+                File.WriteAllText(newSongFilePath, "#TITLE New Song", Encoding.GetEncoding("shift_jis"));
+                File.SetLastWriteTimeUtc(newSongFilePath, newSongFileTime);
+            }
+            File.WriteAllText(Path.Combine(customFolderDirectory, "course1.lr2folder"), "#TITLE Course", Encoding.GetEncoding("shift_jis"));
+            testSettings.LR2RootPath = lr2Root;
+            LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0, titleFlashHours: condition == "titleflash0" ? 0 : 24, rootDirectory);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
+            var existingRow = new LR2SongDB.folder
+            {
+                path = newSongDatabasePath,
+                type = 3,
+                title = "Existing New Song",
+                parent = "existing-parent",
+                date = 555,
+                adddate = 666
+            };
+            var legacyAbsoluteRow = new LR2SongDB.folder
+            {
+                path = newSongFilePath,
+                type = 3,
+                title = "Legacy New Song",
+                parent = "legacy-parent",
+                date = 777,
+                adddate = 888
+            };
+            using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
+            {
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.CreateTable<LR2SongDB.song>();
+                    if (condition == "existing") { setup.InsertOrReplace(existingRow); }
+                    if (condition == "existing-absolute") { setup.InsertOrReplace(legacyAbsoluteRow); }
+                });
+                Lr2SongDbSyncStatusService.MarkCompleted(setup, "previous-completed-run", 1, DateTime.UtcNow);
+            }
+
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    sourceFile,
+                    destinationDirectory));
+            package.path = sourceDirectory;
+            package.delete_parent = false;
+            BmsLibraryOptionsSnapshot options = new()
+            {
+                OperationModeLR2DB = true,
+                BMSInstallDir = rootDirectory,
+                LR2RootPath = lr2Root,
+                FolderNameFormat = "%TITLE%",
+                DeletePendingPackageSourceAfterInstall = false,
+                EnableSmartComponentOverwrite = false,
+                KeepSmartOverwriteProtectedFilesByRenaming = false
+            };
+            var library = new TestBmsLibrary(scope.DatabaseScope,
+                scope.SongDbPath,
+                getLR2Config: configOwner,
+                _lr2ScoreDB: null,
+                fileMutationService: new OwnedChartCollectionTestSupport.TestFileMutationService(),
+                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(),
+                uiScheduler: new TestUiScheduler(() => null!),
+                optionsSnapshotProvider: () => options, settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings))
+            {
+
+                BmsCharts = [],
+                BmsonCharts = [],
+                ChartPackagesPending = new ObservableCollection<ChartPackage>([package]),
+                ChartPackagesInstalled = new ObservableCollection<ChartPackage>()
+            };
+
+            try
+            {
+                PendingInstallBatchResult installResult = library.InstallPendingPackagesToEstimatedDestinationsWithReceipt(
+                    [package], new LibraryOperationNotices());
+                LibraryMutationSessionReceipt sessionReceipt = installResult.SessionReceipt;
+                Assert.IsTrue(installResult.HasDurableCommit);
+                Assert.IsFalse(installResult.HasDurableFinalizationFailure, sessionReceipt.ApplyFailure?.ToString());
+                Assert.IsNull(sessionReceipt.ApplyFailure, sessionReceipt.ApplyFailure?.ToString());
+                Assert.IsNull(sessionReceipt.FinalizationFailure, sessionReceipt.FinalizationFailure?.ToString());
+
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
+                Assert.IsNotNull(verify.Find<LR2SongDB.song>(destinationChartPath));
+                List<LR2SongDB.folder> folders = [.. verify.Table<LR2SongDB.folder>()];
+                List<LR2SongDB.folder> newSongRows = [.. folders.Where(folder => string.Equals(folder.path, newSongDatabasePath, StringComparison.OrdinalIgnoreCase))];
+                switch (condition)
+                {
+                    case "recent":
+                        Assert.AreEqual(1, newSongRows.Count);
+                        Assert.AreEqual(newSongDatabasePath, newSongRows[0].path);
+                        Assert.AreEqual(3, newSongRows[0].type);
+                        Assert.AreEqual("New Song", newSongRows[0].title);
+                        Assert.AreEqual(Lr2SongFolderParentNormalizer.RootParentHash, newSongRows[0].parent);
+                        Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(newSongFileTime), newSongRows[0].date);
+                        break;
+                    case "existing":
+                        Assert.AreEqual(1, newSongRows.Count);
+                        Assert.AreEqual(
+                            System.Text.Json.JsonSerializer.Serialize(new { existingRow.path, existingRow.title, existingRow.type, existingRow.parent, existingRow.date, existingRow.adddate }),
+                            System.Text.Json.JsonSerializer.Serialize(new { newSongRows[0].path, newSongRows[0].title, newSongRows[0].type, newSongRows[0].parent, newSongRows[0].date, newSongRows[0].adddate }),
+                            "既存の新曲フォルダ行は変更しません。");
+                        break;
+                    case "existing-absolute":
+                        Assert.AreEqual(0, newSongRows.Count, "旧版の絶対キーの行がある場合は相対キーの行を作りません。");
+                        LR2SongDB.folder legacyAfter = folders.Single(folder => string.Equals(folder.path, newSongFilePath, StringComparison.OrdinalIgnoreCase));
+                        Assert.AreEqual(
+                            System.Text.Json.JsonSerializer.Serialize(new { legacyAbsoluteRow.path, legacyAbsoluteRow.title, legacyAbsoluteRow.type, legacyAbsoluteRow.parent, legacyAbsoluteRow.date, legacyAbsoluteRow.adddate }),
+                            System.Text.Json.JsonSerializer.Serialize(new { legacyAfter.path, legacyAfter.title, legacyAfter.type, legacyAfter.parent, legacyAfter.date, legacyAfter.adddate }),
+                            "旧版の絶対キーの行は変更しません。");
+                        break;
+                    default:
+                        Assert.AreEqual(0, newSongRows.Count);
+                        break;
+                }
+                Assert.IsFalse(folders.Any(folder => string.Equals(folder.path, courseDatabasePath, StringComparison.OrdinalIgnoreCase)),
+                    "新曲フォルダ以外の組込み行は局所同期で作りません。");
+                LR2SongDBExtended.lr2_song_db_sync_status status =
+                    verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+                Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed.ToString(), status?.status, "局所同期の失敗としてIncompleteを記録しません。");
+            }
+            finally
+            {
+                library.RequestShutdown("lr2-install-builtin-new-song-test");
+            }
+        }
+        finally
+        {
+            ResetTouchedSettings(testSettings);
+        }
+    }
+
+    /// <summary>
     /// 進捗通知中に別進捗が入っても段階・件数・カーソルを同じ通知由来の組で公開し、混合スナップショットを防ぐ。
     /// </summary>
     [TestMethod]
@@ -2332,18 +2503,23 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     /// <summary>
     /// 実取込み後の譜面削除で該当songと通常フォルダを消し、残存譜面のフォルダ・祖先を保持して削除範囲の誤りを検出する。
+    /// 兄弟の譜面が残る中間の親（Pack）の日時を操作後の実時刻へ取り直し、旧日時の残存を検出する。
+    /// 通常出力先を走査ルートに含み表の処理がPを保持している条件では、非交差の削除が確定後のBusy失敗にならず、
+    /// 無関係な通常出力先の行と同期状態を変えないことを確認する。
     /// </summary>
     /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
     // 依存なし、譜面だけ削除してcustomが残る、フォルダごとcustomも消える条件を同じ実入口で比較します。
-    [DataRow(false, false, false, false, false)]
-    [DataRow(true, false, false, false, false)]
-    [DataRow(false, true, false, false, false)]
-    [DataRow(true, true, false, false, false)]
-    [DataRow(true, true, true, false, false)]
-    [DataRow(false, false, false, true, false)]
-    [DataRow(false, true, false, false, true)]
-    public void RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled(bool customPresent, bool folderInfoPresent, bool wholeFolder, bool siblingFolderInfo, bool disable)
+    // 最後の値は、通常出力先を走査ルートに含め、表の処理がPを保持している間に削除する条件です。
+    [DataRow(false, false, false, false, false, false)]
+    [DataRow(true, false, false, false, false, false)]
+    [DataRow(false, true, false, false, false, false)]
+    [DataRow(true, true, false, false, false, false)]
+    [DataRow(true, true, true, false, false, false)]
+    [DataRow(false, false, false, true, false, false)]
+    [DataRow(false, true, false, false, true, false)]
+    [DataRow(false, false, true, false, false, true)]
+    public void RemoveLibraryCharts_PrunesNormalFolderRowsForRemovedBmsWhenLr2SongDbSyncEnabled(bool customPresent, bool folderInfoPresent, bool wholeFolder, bool siblingFolderInfo, bool disable, bool unrelatedNormalOutputRootUnderPlaylist)
     {
         using var scope = TestDatabaseScope.Create();
         try
@@ -2360,6 +2536,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             string removePath = Path.Combine(removeDirectory, "remove.bms");
             File.WriteAllText(keepPath, "#TITLE Keep\r\n#00111:01\r\n", Encoding.ASCII);
             File.WriteAllText(removePath, "#TITLE Remove\r\n#00111:01\r\n", Encoding.ASCII);
+            string managedDirectory = Path.Combine(scope.DirectoryPath, "Managed");
+            if (unrelatedNormalOutputRootUnderPlaylist) { Directory.CreateDirectory(managedDirectory); }
+            string[] registeredRoots = unrelatedNormalOutputRootUnderPlaylist ? [rootDirectory, managedDirectory] : [rootDirectory];
             string customPath = Path.Combine(removeDirectory, "external.lr2folder");
             if (customPresent) { File.WriteAllText(customPath, "#TITLE External", Encoding.ASCII); }
             if (folderInfoPresent) { File.WriteAllText(Path.Combine(removeDirectory, "folderinfo.txt"), "#TITLE Retained Folder", Encoding.ASCII); }
@@ -2383,15 +2562,13 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 EnableDownloadLr2IrScoreAndDetectUnsent = false,
                 UseBeatorajaScoreDb = false,
                 EnableReadOptimizedPragmas = false,
-                PendingInstallEstimateMaxParallelPackages = 1
+                PendingInstallEstimateMaxParallelPackages = 1,
+                LR2CustomFolderOutputBaseDir = unrelatedNormalOutputRootUnderPlaylist ? managedDirectory : string.Empty
             };
             IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
                 [keepPath, removePath],
-                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
-                {
-                    [rootDirectory] = []
-                },
-                [rootDirectory]);
+                registeredRoots.ToDictionary(directory => directory, _ => (IEnumerable<string>)[], StringComparer.OrdinalIgnoreCase),
+                registeredRoots);
             var library = new TestBmsLibrary(scope.DatabaseScope,
                 scope.SongDbPath,
                 getLR2Config: null,
@@ -2401,17 +2578,41 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
                 chartFileScanner: chartFileScanner,
                 dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(),
-                settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings),
+                settings: TestBmsFactory.CreateRootSettings(registeredRoots, testSettings),
                 uiScheduler: new TestUiScheduler(() => null))
             {
 
                 BmsCharts = []
             };
 
+            IDisposable? heldPlaylist = null;
             try
             {
                 // 先に通常のファイル走査を通して、削除対象を含む実在カタログを構築する。
                 library.ReloadFileDiff();
+                // 兄弟の譜面が残る中間の親は、物理時刻を古くし行の日時を別の番兵値にして、操作後の取り直しを観測します。
+                const int packSentinelDate = 77777;
+                const int managedSentinelDate = 11111;
+                Directory.SetLastWriteTimeUtc(packDirectory, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+                LR2SongDB.folder? managedBefore = null;
+                using (LR2SongDBExtended setupDates = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
+                {
+                    setupDates.Execute("UPDATE folder SET date = ? WHERE path = ?;", packSentinelDate, ToFolderPath(packDirectory));
+                    if (unrelatedNormalOutputRootUnderPlaylist)
+                    {
+                        Assert.IsNotNull(setupDates.Find<LR2SongDB.folder>(ToFolderPath(managedDirectory)), "走査ルートに含む通常出力先の行が読込み後に存在する条件を固定します。");
+                        setupDates.Execute("UPDATE folder SET date = ? WHERE path = ?;", managedSentinelDate, ToFolderPath(managedDirectory));
+                        managedBefore = setupDates.Find<LR2SongDB.folder>(ToFolderPath(managedDirectory));
+                    }
+                }
+                string? statusBefore = null;
+                if (unrelatedNormalOutputRootUnderPlaylist)
+                {
+                    using LR2SongDBExtended statusRead = scope.DatabaseScope.OpenSongReadOnly(scope.SongDbPath);
+                    statusBefore = statusRead.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName)?.status;
+                    Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
+                    heldPlaylist = held;
+                }
                 if (customPresent)
                 {
                     using LR2SongDBExtended setupCustom = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath);
@@ -2442,11 +2643,33 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                         library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(currentRemoveFile)]),
                         sendToRecycleBin: false,
                         approvedWholeFolderDeletePaths: wholeFolder ? [removeDirectory] : [], notices: new LibraryOperationNotices());
-                    Assert.IsFalse(removal.HasError);
+                    Assert.IsFalse(removal.HasError, removal.RequiredFailure?.ToString());
+                    Assert.IsFalse(removal.RequiredFinalizationFailed, removal.RequiredFailure?.ToString());
                 }
 
                 using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
                 List<LR2SongDB.folder> folders = [.. verify.Table<LR2SongDB.folder>()];
+                if (!siblingFolderInfo && !disable)
+                {
+                    int packDate = folders.Single(folder => folder.path == ToFolderPath(packDirectory)).date ?? 0;
+                    Assert.AreNotEqual(packSentinelDate, packDate, "兄弟の譜面が残る中間の親の日時を取り直します。");
+                    Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(Directory.GetLastWriteTimeUtc(packDirectory)), packDate);
+                }
+                if (unrelatedNormalOutputRootUnderPlaylist)
+                {
+                    Assert.IsNotNull(heldPlaylist);
+                    Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive, "呼出し側が保持するPは操作後も有効です。");
+                    Assert.IsFalse(library.OperationAdmission.IsActive);
+                    LR2SongDB.folder managedAfter = folders.Single(folder => folder.path == ToFolderPath(managedDirectory));
+                    Assert.AreEqual(
+                        System.Text.Json.JsonSerializer.Serialize(new { managedBefore!.path, managedBefore.title, managedBefore.type, managedBefore.parent, managedBefore.date, managedBefore.adddate }),
+                        System.Text.Json.JsonSerializer.Serialize(new { managedAfter.path, managedAfter.title, managedAfter.type, managedAfter.parent, managedAfter.date, managedAfter.adddate }),
+                        "変更と無関係な通常出力先の行は更新しません。");
+                    Assert.AreEqual(managedSentinelDate, managedAfter.date);
+                    Assert.AreEqual(statusBefore,
+                        verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName)?.status,
+                        "確定後の局所同期の失敗でIncompleteを記録しません。");
+                }
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(keepDirectory)));
@@ -2478,7 +2701,112 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
             finally
             {
+                heldPlaylist?.Dispose();
                 library.RequestShutdown("lr2-remove-folder-prune-test");
+            }
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+        }
+        finally
+        {
+            ResetTouchedSettings(testSettings);
+        }
+    }
+
+    /// <summary>
+    /// 登録root直下の譜面を1件だけ削除してrootにBMSが残る場合、整理対象がなくても局所同期を行い、
+    /// 変更元を含むrootの行の日時を操作後の実時刻へ取り直すことを確認する。書込み範囲だけの変更で同期全体を飛ばす誤りを検出する。
+    /// </summary>
+    /// <remarks>実SQLiteと管理主体を接続して保存結果を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
+    [TestMethod]
+    public void RemoveLibraryCharts_RootLevelRemovalWithRemainingBmsRefreshesRootRowDate()
+    {
+        using var scope = TestDatabaseScope.Create();
+        try
+        {
+            testSettings.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings(testSettings);
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            string keepPath = Path.Combine(rootDirectory, "keep.bms");
+            string removePath = Path.Combine(rootDirectory, "remove.bms");
+            File.WriteAllText(keepPath, "#TITLE Keep\r\n#00111:01\r\n", Encoding.ASCII);
+            File.WriteAllText(removePath, "#TITLE Remove\r\n#00111:01\r\n", Encoding.ASCII);
+            ChartFile keepFile = CreateSyncTestFile(keepPath, ChartFileContentReader.ReadSnapshot(keepPath));
+            ChartFile removeFile = CreateSyncTestFile(removePath, ChartFileContentReader.ReadSnapshot(removePath));
+            using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
+            {
+                setup.RunInTransaction(() =>
+                {
+                    setup.CreateTable<LR2SongDB.folder>();
+                    setup.CreateTable<LR2SongDB.song>();
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                    setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(removeFile), typeof(LR2SongDB.song));
+                });
+            }
+            BmsLibraryOptionsSnapshot options = new()
+            {
+                OperationModeLR2DB = true,
+                ScanBmsFilesOnStartup = false,
+                UpdateLr2IrRankingCacheOnStartup = false,
+                EnableDownloadLr2IrScoreAndDetectUnsent = false,
+                UseBeatorajaScoreDb = false,
+                EnableReadOptimizedPragmas = false,
+                PendingInstallEstimateMaxParallelPackages = 1
+            };
+            string[] registeredRoots = [rootDirectory];
+            IChartFileScanner chartFileScanner = CapturedChartFileScanner.FromFixture(
+                [keepPath, removePath],
+                registeredRoots.ToDictionary(directory => directory, _ => (IEnumerable<string>)[], StringComparer.OrdinalIgnoreCase),
+                registeredRoots);
+            var library = new TestBmsLibrary(scope.DatabaseScope,
+                scope.SongDbPath,
+                getLR2Config: null,
+                _lr2ScoreDB: null,
+                startupRequiredFileScanReason: null,
+                optionsSnapshotProvider: () => options,
+                applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                chartFileScanner: chartFileScanner,
+                dialogService: new BmsLibraryInitializationTestSupport.RecordingDialogService(),
+                settings: TestBmsFactory.CreateRootSettings(registeredRoots, testSettings),
+                uiScheduler: new TestUiScheduler(() => null))
+            {
+                BmsCharts = []
+            };
+
+            try
+            {
+                library.ReloadFileDiff();
+                // rootの行の日時を番兵値にして、操作後の取り直しを観測します。
+                const int rootSentinelDate = 77777;
+                using (LR2SongDBExtended setupDates = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
+                {
+                    Assert.IsNotNull(setupDates.Find<LR2SongDB.folder>(ToFolderPath(rootDirectory)), "読込み後にrootの行が存在する条件を固定します。");
+                    setupDates.Execute("UPDATE folder SET date = ? WHERE path = ?;", rootSentinelDate, ToFolderPath(rootDirectory));
+                }
+
+                ChartFile currentRemoveFile = library.BmsCharts.Single(file =>
+                    string.Equals(file.Path, removePath, StringComparison.OrdinalIgnoreCase));
+                LibraryChartRemovalOutcome removal = library.RemoveLibraryCharts(
+                    library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(currentRemoveFile)]),
+                    sendToRecycleBin: false,
+                    approvedWholeFolderDeletePaths: [],
+                    notices: new LibraryOperationNotices());
+                Assert.IsFalse(removal.HasError, removal.RequiredFailure?.ToString());
+                Assert.IsFalse(removal.RequiredFinalizationFailed, removal.RequiredFailure?.ToString());
+                Assert.IsFalse(File.Exists(removePath));
+
+                using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
+                LR2SongDB.folder rootRow = verify.Find<LR2SongDB.folder>(ToFolderPath(rootDirectory));
+                Assert.IsNotNull(rootRow, "BMSが残るrootの行は残します。");
+                Assert.AreNotEqual(rootSentinelDate, rootRow.date, "変更元を含むrootの日時を取り直します。");
+                Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(Directory.GetLastWriteTimeUtc(rootDirectory)), rootRow.date);
+                Assert.IsNotNull(verify.Find<LR2SongDB.song>(keepPath));
+                Assert.IsNull(verify.Find<LR2SongDB.song>(removePath));
+            }
+            finally
+            {
+                library.RequestShutdown("lr2-remove-root-level-test");
             }
         }
         finally
@@ -2550,16 +2878,19 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     /// <summary>
     /// 実フォルダ移動でsong実キー・CRCと通常階層・custom全列を保持し、大小文字変更ではfolderinfoと必要祖先の局所結果を全体同期と比較して欠落・旧行残留を検出する。
+    /// 兄弟の譜面が残る移動元の親（Pack）をルート外へ移動した条件では、その行を残して日時を操作後の実時刻へ取り直し、旧日時の残存を検出する。
     /// </summary>
     /// <remarks>実SQLiteと管理主体を接続して保存結果または保存前の拒否を確認する。局所portだけではDB反映との順序を判定できない。</remarks>
     [TestMethod]
-    [DataRow("manual-case", false)]
-    [DataRow("auto-case", false)]
-    [DataRow("manual", false)]
-    [DataRow("manual", true)]
-    [DataRow("auto", false)]
-    [DataRow("root", false)]
-    public async Task RenameChartFolder_MovesNormalFolderRowsForMovedBmsWhenLr2SongDbSyncEnabled(string operation, bool nullAddDate)
+    // 最後の値は、移動元の親（Pack）に兄弟の譜面を残し、その行の日時が操作後の実時刻へ取り直されることを確認する条件です。
+    [DataRow("manual-case", false, false)]
+    [DataRow("auto-case", false, false)]
+    [DataRow("manual", false, false)]
+    [DataRow("manual", true, false)]
+    [DataRow("auto", false, false)]
+    [DataRow("root", false, false)]
+    [DataRow("root", false, true)]
+    public async Task RenameChartFolder_MovesNormalFolderRowsForMovedBmsWhenLr2SongDbSyncEnabled(string operation, bool nullAddDate, bool sibling)
     {
         using var scope = TestDatabaseScope.Create();
         TestBmsLibrary? library = null;
@@ -2591,6 +2922,16 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             File.SetLastWriteTimeUtc(customPath, DateTime.UnixEpoch.AddSeconds(321));
             ChartFile file = CreateSyncTestFile(oldPath, ChartFileContentReader.ReadSnapshot(oldPath)) with
             { Title = "Moved", RawTitle = "Moved", Artist = "Artist", RawArtist = "Artist" };
+            ChartFile? keepFile = null;
+            const int packSentinelDate = 77777;
+            if (sibling)
+            {
+                string keepPath = Path.Combine(packDirectory, "Keep", "keep.bms");
+                Directory.CreateDirectory(Path.GetDirectoryName(keepPath)!);
+                File.WriteAllText(keepPath, "#TITLE Keep\r\n#00111:01\r\n", Encoding.ASCII);
+                keepFile = CreateSyncTestFile(keepPath, ChartFileContentReader.ReadSnapshot(keepPath));
+                Directory.SetLastWriteTimeUtc(packDirectory, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+            }
             using (LR2SongDBExtended setup = scope.DatabaseScope.OpenSongWrite(scope.SongDbPath))
             {
                 setup.RunInTransaction(() =>
@@ -2598,6 +2939,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     setup.CreateTable<LR2SongDB.folder>();
                     setup.CreateTable<LR2SongDB.song>();
                     setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(file), typeof(LR2SongDB.song));
+                    if (keepFile != null)
+                    {
+                        setup.InsertOrReplace(ChartSongStorageMapping.ToBmsRow(keepFile), typeof(LR2SongDB.song));
+                        setup.InsertOrReplace(new LR2SongDB.folder { path = ToFolderPath(packDirectory), type = 1, title = "Pack", parent = Lr2StoredPathReference.Compute(ToFolderPath(rootDirectory)), date = packSentinelDate, adddate = 345 });
+                    }
                     setup.InsertOrReplace(new LR2SongDB.folder { path = ToFolderPath(oldDirectory), type = 1, title = "Old", parent = Lr2StoredPathReference.Compute(ToFolderPath(packDirectory)), adddate = nullAddDate ? null : 234 });
                     setup.InsertOrReplace(new LR2SongDB.folder { path = customPath, type = 2, title = "External", subtitle = "Subtitle", category = "Category", info_a = "Info A", info_b = "Info B", max = 12, banner = "banner.png", command = "song.level > 5", parent = Lr2StoredPathReference.Compute(ToFolderPath(customDirectory)), date = 321, adddate = nullAddDate ? null : 123 });
                 });
@@ -2614,7 +2960,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
                 BmsCharts = []
             };
-            library.BmsCharts = [file];
+            library.BmsCharts = keepFile == null ? [file] : [file, keepFile];
             LibraryMutationSessionReceipt moveReceipt = operation switch
             {
                 "root" => library.MoveLibraryRootFolderWithReceipt([LibraryChartRef.FromChartFile(file)], otherRoot, new LibraryOperationNotices()),
@@ -2634,9 +2980,15 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             {
                 folders = [.. verify.Table<LR2SongDB.folder>()];
                 Assert.AreEqual(oldPath, file.Path);
-                Assert.AreEqual(newPath, library.BmsCharts.Single().Path);
+                Assert.AreEqual(newPath, library.BmsCharts.Single(chart => !string.Equals(chart.Path, keepFile?.Path, StringComparison.OrdinalIgnoreCase)).Path);
                 Assert.IsTrue(folders.Any(folder => folder.path == ToFolderPath(rootDirectory)));
-                Assert.AreEqual(operation != "root", folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
+                Assert.AreEqual(operation != "root" || sibling, folders.Any(folder => folder.path == ToFolderPath(packDirectory)));
+                if (sibling)
+                {
+                    int packDate = folders.Single(folder => folder.path == ToFolderPath(packDirectory)).date ?? 0;
+                    Assert.AreNotEqual(packSentinelDate, packDate, "兄弟の譜面が残る移動元の親の日時を取り直します。");
+                    Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(Directory.GetLastWriteTimeUtc(packDirectory)), packDate);
+                }
                 Assert.IsFalse(folders.Any(folder => folder.path == ToFolderPath(oldDirectory)));
                 LR2SongDB.folder newFolder = folders.Single(folder => folder.path == ToFolderPath(newDirectory));
                 Assert.AreEqual("Owned Mutation New", newFolder.title);

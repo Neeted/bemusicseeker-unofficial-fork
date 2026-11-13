@@ -66,13 +66,6 @@
 - 契約: 複数追加では拒否したものだけを除き、有効なものは保存し、拒否理由は一回にまとめて通知する。確定後の再同期は、現在の選択（改名後のパスを含む）が残っていれば維持する。BMSディレクトリ一覧が同じ形なら同じ契約に揃える。右クリック項目の「既定値へ戻す」、項目の削除、履歴プリセットの削除は確認を出し、取り消せば保存も一覧の変化も起こさない。
 - 許可パスの目安: `BeMusicSeeker/ViewModels/Settings/`、`Views/Settings/Pages/`、関連テスト、[設定](../spec/runtime/settings.md)。
 
-### LR2の局所同期
-
-- 区分: 重大（受付・確定後の失敗・song.dbの書込み範囲）。対象: [通常出力先を走査ルートに含むLR2連携で確定後にBusy失敗になる](#通常出力先を走査ルートに含むlr2連携で確定後にbusy失敗になる)、[譜面フォルダの削除・移動後の中間親フォルダのfolder.date](#譜面フォルダの削除移動後の中間親フォルダのfolderdate)、[導入後のNEW SONGフォルダの行](#導入後のnew-songフォルダの行)。
-- 契約: 局所同期でPの交差判定に渡す集合は、実際に行を書き換える範囲だけにする。変更と無関係な登録ルートは含めない。LとPの両方が書く範囲が変更に入る場合だけ、物理変更の前に同じ規則で判定してL＋Pを確定させ、確定後にPを新たに取る経路をなくす。時刻を取り直す対象には、削除・移動元の存続する直接の親を加え、P判定の集合と同じ定義から作る。局所同期の確定後、追加した行が新曲の期間内で組込みの新曲フォルダの行がなければ、その行を作る（全譜面は走査しない）。
-- 正本: [LR2楽曲DB](../spec/integration/lr2-song-db.md)、[操作の競合ポリシー](../spec/core/operation-concurrency-policy.md)。
-- 許可パスの目安: `BeMusicSeeker/Models/Library/BMSLibrary.Lr2SynchronizationOwner.cs`、`Models/BmsLibraryInternal/Lr2/` の局所同期と範囲生成、関連テスト、上記仕様。表の出力処理（`PlaylistCustomFolderOutputMaintenanceOwner`）はプレイリストの単位が扱う。
-
 ### 保留パッケージの分け方
 
 - 区分: 重大（導入範囲・保留登録・テストの判定変更）。対象: [資源のない差分を複数曲分まとめたフォルダ](#資源のない差分を複数曲分まとめたフォルダ)。経緯は `11c33f362` を起点に、単位責任者が `git show` で確認する。
@@ -251,16 +244,6 @@ v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修�
 
 検証は、設定の項目保存系列で出力先未設定のバックアップ有効化が保存されず検証表示が出ること、beatorajaスコア・外部画像・BMTで理由が表示されることを確認し、起動進捗の系列でバックアップ有効・出力先なしの保存値を設定画面から作れないことを固定する。
 
-#### 通常出力先を走査ルートに含むLR2連携で確定後にBusy失敗になる
-
-LR2連携で通常出力先を設定していると、通常出力先は互換性のため走査ルートに残る（[Lr2SynchronizationPorts](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2SynchronizationPorts.cs) の `CreateExcludedCustomOutputRoots` は追加先とROOT型基点だけを除く）。起動直後の表の自動更新、表の再読込み、プロパティ保存などがPを保持している間に、通常出力先と無関係な導入・削除・移動・改名をすると、ファイルとDBの確定後にLR2の局所同期が失敗する。
-
-[BMSLibrary.Lr2SynchronizationOwner](../../BeMusicSeeker/Models/Library/BMSLibrary.Lr2SynchronizationOwner.cs) の `SyncLr2NormalFoldersForCatalogMutation` は、[Lr2NormalFolderDbSyncService](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2NormalFolderDbSyncService.cs) の `CreateDirectoryMetadataTargets`（263行付近）が変更と無関係な全ルートを常に含める集合を（927行付近）、そのまま `TryEnterManagedOutputMutation` の交差判定へ渡す（933行付近）。ルートである通常出力先が管理領域と同一と判定され、Pを非待機で取ろうとして失敗し、`Warn_LibraryOperationBusy` の例外になる。物理変更前の交差判定は実際の移動元・先だけで行い非交差ならPを取らないため、確定前と確定後の判定が食い違うことが原因である。例外は確定後に起きるため確定後の必須失敗となり、導入は失敗として返り自動推定へ進まず、`folder` 行は作られず同期状態は `Incomplete` になって、次の全体同期まで残る。実行済みの操作を再試行しても対象はもうない。v3.1.0.0の局所同期はPを取らず、退行である。
-
-修正方針は、局所同期のP判定に渡す集合を実際に行を書き換える範囲へ絞ることである。変更と無関係なルート自身は交差判定から外し、変更対象の祖先として入るルートは残す。通常出力先の基点行のようにLとPの双方が書く行が変更範囲に入る場合だけ、物理変更前のP判定へ同じ規則で含め、副作用の前にL＋Pを確定させる。確定後にPを新たに取る経路はなくす。ルート行の `date` を局所同期で更新する必要があるかも決め、不要なら無関係なルートを更新対象からも外す。同じ交差判定を使う削除・移動・改名・重複統合・自動改名・導入の全入口がこれで揃う。[中間の親フォルダのfolder.date](#譜面フォルダの削除移動後の中間親フォルダのfolderdate)も同じ更新対象の集合を扱うため、同時に着手する場合は集合の定義を揃える。
-
-検証は、導入の管理出力交差のCoreテストへ通常出力先をLR2の走査ルートに含めた構成を加え、P保持中の非交差の導入が必須失敗にならず、`folder` 行が作られ、同期状態が `Incomplete` にならないことを確認する。削除でも同じ構成を一件加える。
-
 ### 調査時の分類: 判断保留
 
 #### 更新後初回の譜面情報の全件再解析
@@ -364,18 +347,6 @@ Everything 1.5の既定で索引されないルート（exFAT・FATの外付け�
 通常・追加通常の表を削除した直後や、出力名が表名に追従する表を改名した直後は、出力基点の `folder` 行の `date` が実際の更新時刻とずれたまま残る。[PlaylistCustomFolderOutputMaintenanceOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs) の `TryRemoveCustomFolder`、`CompletePreparedMigrationCleanup`、`CleanupReplacedCustomFolderOutputs` は表ディレクトリを消した後に同期項目のない `SyncPrunedRows` を行い、[Lr2FolderFileDbSyncService](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderFileDbSyncService.cs) は祖先の行を同期項目からしか作らない。改名は新先の行を書いた後に旧ディレクトリを消すため、秒の境界をまたいだときだけずれる。次回起動の必要出力の判定で揃うが、それまでにLR2を起動すると更新処理の対象になり、次回起動で基点配下の全表の確認が一回余分に走る。設定画面からの再生成の経路で成立するかは未確認である。
 
 3経路が共有する `SyncPrunedRows` で、削除した表ディレクトリを含む通常・追加通常の基点までの祖先を、整理と同じ一回の同期で時刻の更新対象に含める。配下に出力を持つ表が残らない基点の行の扱いは[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)の既存の記述に揃え、削除・移行の終端での追従を同じ仕様へ追記する。ROOT型は基点の行を持たないため対象外である。検証は、カスタムフォルダ出力の実DB・実ファイルの系列で、同じ基点の一表を削除した直後と改名した直後に基点の `date` が実更新時刻と一致し、続く必要出力の判定で再確認対象が0件であることを確認する。
-
-#### 譜面フォルダの削除・移動後の中間親フォルダのfolder.date
-
-`R\Cat\SongA` のような構成で `SongA` を削除または別の場所へ移動すると、兄弟の曲が残る中間の親 `R\Cat` の `folder` 行の `date` が更新されない。[BMSLibrary.Lr2SynchronizationOwner](../../BeMusicSeeker/Models/Library/BMSLibrary.Lr2SynchronizationOwner.cs) の `SyncLr2NormalFoldersForCatalogMutation` は時刻を取り直す対象を変更後の譜面パスの祖先などから作り、[Lr2NormalFolderSyncScopeBuilder](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2NormalFolderSyncScopeBuilder.cs) の `CreateForCatalogMutation` は削除・移動元の親を加えない。v3.1.0.0からあり、次回起動の走査で揃う。
-
-削除・移動元の直接の親のうち、存続し登録ルート内にあるものを時刻の更新対象へ加える。既存の読取り面を使うため全件走査は増えない。この集合は[確定後にBusy失敗になる件](#通常出力先を走査ルートに含むlr2連携で確定後にbusy失敗になる)のP判定の集合と同じ変数から作るため、同時に着手する場合は定義を揃える。資源のみ導入でディレクトリが変わり局所同期が呼ばれない場合を同じ契約で扱うか、仕様で割り切るかも決める。検証は、削除と移動の既存のLR2同期テストに、兄弟が残る親の `date` が実更新時刻と一致することを加える。
-
-#### 導入後のNEW SONGフォルダの行
-
-直近の新曲がなく `folder` 表に `newsong.lr2folder`（type 3）の行がない状態から導入しても、同じ稼働中は行が作られず、LR2で新曲フォルダが出ない。新曲フォルダの判定 `CreateCurrentLr2BuiltinCustomFolderSettings`（[BMSLibrary.Lr2SynchronizationOwner](../../BeMusicSeeker/Models/Library/BMSLibrary.Lr2SynchronizationOwner.cs)）は起動・差分走査と全体同期・設定変更からだけ呼ばれ、導入後の局所同期は組込みフォルダを扱わない。v3.1.0.0からあり、再起動か差分読込みで回復する。LR2が行の有無だけで表示を決めることは実機未確認である。
-
-局所同期の確定後、今回追加した行の `adddate` が `titleflash` の範囲内で既存のtype 3行がない場合だけ、組込みの行を一件作る。全譜面を走査せず追加行だけで判定する。期限切れの行の撤去は起動時の判定に任せると[LR2楽曲DB](../spec/integration/lr2-song-db.md)で割り切る。検証は、type 3行のないDBへ導入した後に行ができることを確認する。
 
 #### 自動整列の表でフォルダを削除すると自動が外れる
 

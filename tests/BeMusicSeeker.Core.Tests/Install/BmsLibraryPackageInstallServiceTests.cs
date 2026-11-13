@@ -1016,6 +1016,112 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
 
     /// <summary>
+    /// 通常出力先を走査ルートに含むLR2連携で、表の処理がPを保持している間に通常出力先と無関係な導入をすると、
+    /// 確定後の局所同期がPを取りに行かず必須失敗なしで確定し、導入先のフォルダ行とその登録ルート行の日時を実時刻で作り、
+    /// 無関係な通常出力先の行を書き換えないことを確認する。確定後のBusy失敗、Incomplete記録、無関係なルート行の更新を検出する。
+    /// </summary>
+    /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
+    [TestMethod]
+    public void AutoInstall_UnrelatedNormalOutputScanRootSyncsFoldersWithoutPostCommitBusy()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb((songDbPath, root) =>
+        {
+            string installRoot = Path.Combine(root, "Library");
+            string managed = Path.Combine(root, "Managed");
+            string source = Path.Combine(root, "Incoming");
+            Directory.CreateDirectory(installRoot);
+            Directory.CreateDirectory(managed);
+            string sourcePath = CreateBmsFile(source, "first.bms", "#PLAYER 1\n#TITLE First");
+            const int installRootSentinelDate = 33333;
+            var managedSentinel = new LR2SongDB.folder
+            {
+                path = Lr2FolderPath.ToFolderPath(managed),
+                type = 1,
+                title = "Managed Sentinel",
+                parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                date = 11111,
+                adddate = 22222
+            };
+            using (LR2SongDBExtended setup = databaseScope.OpenSongWrite(songDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.InsertOrReplace(managedSentinel);
+                setup.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = Lr2FolderPath.ToFolderPath(installRoot),
+                    type = 1,
+                    title = "Library",
+                    parent = Lr2SongFolderParentNormalizer.RootParentHash,
+                    date = installRootSentinelDate,
+                    adddate = 44444
+                });
+                Lr2SongDbSyncStatusService.MarkCompleted(setup, "previous-completed-run", 1, DateTime.UtcNow);
+            }
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+                BMSInstallDir = installRoot,
+                LR2CustomFolderOutputBaseDir = managed,
+                FolderNameFormat = "%TITLE%",
+                KeepInstallablePackagesPending = false
+            };
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new RealFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null!), () => options, settings: TestBmsFactory.CreateRootSettings([installRoot, managed], lr2: true))
+            {
+                BmsCharts = [],
+                BmsonCharts = [],
+
+                ChartPackagesPending = CreatePackageCollection([]),
+                ChartPackagesInstalled = CreatePackageCollection([])
+            };
+            var notices = new LibraryOperationNotices();
+            Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.TryEnter(out IDisposable held));
+            try
+            {
+                PackageInstallCommandResult result = library.InstallChartPackagesAutoWithProgressAsync([source],
+                    CancellationToken.None, new RecordingPackageInstallProgressWriter(), notices).GetAwaiter().GetResult();
+                Assert.IsTrue(result.HasDurableCommit);
+                Assert.IsNull(result.SessionReceipt.ApplyFailure, result.SessionReceipt.ApplyFailure?.ToString());
+                Assert.IsNull(result.SessionReceipt.FinalizationFailure, result.SessionReceipt.FinalizationFailure?.ToString());
+                Assert.IsFalse(result.HasDurableFinalizationFailure);
+                Assert.AreEqual(0, result.SessionReceipt.ItemFailures.Count);
+                Assert.IsFalse(notices.Snapshot().Any(message => message.MessageBoxText?.Contains(Resources.Warn_LibraryOperationBusy, StringComparison.Ordinal) == true));
+                string installedDirectory = Path.Combine(installRoot, "First");
+                Assert.IsFalse(File.Exists(sourcePath));
+                Assert.IsTrue(File.Exists(Path.Combine(installedDirectory, "first.bms")));
+                using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
+                {
+                    Assert.IsNotNull(db.Find<LR2SongDB.song>(Path.Combine(installedDirectory, "first.bms")));
+                    LR2SongDB.folder installedRow = db.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(installedDirectory));
+                    Assert.IsNotNull(installedRow, "導入先のフォルダ行を作ります。");
+                    Assert.AreEqual(Lr2SongFolderParentNormalizer.ComputeDirectoryHash(installRoot), installedRow.parent);
+                    Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(Directory.GetLastWriteTimeUtc(installedDirectory)), installedRow.date);
+                    LR2SongDB.folder installRootRow = db.Find<LR2SongDB.folder>(Lr2FolderPath.ToFolderPath(installRoot));
+                    Assert.IsNotNull(installRootRow);
+                    Assert.AreNotEqual(installRootSentinelDate, installRootRow.date, "祖先として入る登録ルートの日時を取り直します。");
+                    Assert.AreEqual(Lr2SongRowEnricher.ToLr2UnixSeconds(Directory.GetLastWriteTimeUtc(installRoot)), installRootRow.date);
+                    LR2SongDB.folder managedRow = db.Find<LR2SongDB.folder>(managedSentinel.path);
+                    Assert.IsNotNull(managedRow);
+                    Assert.AreEqual(
+                        System.Text.Json.JsonSerializer.Serialize(new { managedSentinel.path, managedSentinel.title, managedSentinel.type, managedSentinel.parent, managedSentinel.date, managedSentinel.adddate }),
+                        System.Text.Json.JsonSerializer.Serialize(new { managedRow.path, managedRow.title, managedRow.type, managedRow.parent, managedRow.date, managedRow.adddate }),
+                        "変更と無関係な通常出力先の行は生成も更新もしません。");
+                    LR2SongDBExtended.lr2_song_db_sync_status status =
+                        db.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+                    Assert.AreEqual(Lr2SongDbSyncStatusKind.Completed.ToString(), status.status);
+                }
+                Assert.IsFalse(library.OperationAdmission.IsActive);
+                Assert.IsTrue(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive, "呼出し側が保持するPは操作後も有効です。");
+            }
+            finally { held.Dispose(); }
+            Assert.IsFalse(library.OperationAdmission.IsActive);
+            Assert.IsFalse(library.Lr2Synchronization.PlaylistOperationAdmission.IsActive);
+        });
+    }
+
+    /// <summary>
     /// 実Bmsonをパッケージから発見して所持判定へ渡し、BMS専用一覧に依存して所持のみのパッケージを取り落とす誤りを検出する。
     /// </summary>
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>

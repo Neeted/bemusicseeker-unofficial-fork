@@ -16,6 +16,13 @@ internal sealed class Lr2NormalFolderDbSyncRequest
 
     public IReadOnlyCollection<string> DirectoryPaths { get; set; } = [];
 
+    /// <summary>
+    /// trueのとき、<see cref="DirectoryPaths"/>を通常行の生成と日時取り直しの完全な対象集合として扱います。
+    /// 登録rootや<see cref="RequiredCustomParentDirectories"/>の祖先を暗黙に加えず、変更と無関係な登録rootの行を生成・更新しません。
+    /// 局所mutationだけが指定し、全体同期・差分読込み・初期化の既定動作（全登録rootを含める）は変えません。
+    /// </summary>
+    public bool DirectoryPathsAreComplete { get; set; }
+
     /// <summary>所有者が今回の物理残存を確定したcustomの親。DB行だけを残存根拠にしません。</summary>
     public IReadOnlyCollection<string> RequiredCustomParentDirectories { get; set; } = [];
 
@@ -130,13 +137,21 @@ internal static class Lr2NormalFolderDbSyncService
         var stepStopwatch = Stopwatch.StartNew();
 
         List<string> rootDirectories = NormalizeRootDirectories(request.RootDirectories);
-        IReadOnlyCollection<string> directoryMetadataTargets = ResolveDirectoryMetadataTargets(
-            rootDirectories,
-            request.DirectoryPaths,
-            request.ChartPaths);
-        directoryMetadataTargets = [.. directoryMetadataTargets.Concat(
-            CreateDirectoryMetadataTargetsFromDirectories(rootDirectories, request.RequiredCustomParentDirectories))
-            .Distinct(StringComparer.Ordinal)];
+        IReadOnlyCollection<string> directoryMetadataTargets;
+        if (request.DirectoryPathsAreComplete)
+        {
+            directoryMetadataTargets = ResolveCompleteDirectoryMetadataTargets(rootDirectories, request.DirectoryPaths);
+        }
+        else
+        {
+            directoryMetadataTargets = ResolveDirectoryMetadataTargets(
+                rootDirectories,
+                request.DirectoryPaths,
+                request.ChartPaths);
+            directoryMetadataTargets = [.. directoryMetadataTargets.Concat(
+                CreateDirectoryMetadataTargetsFromDirectories(rootDirectories, request.RequiredCustomParentDirectories))
+                .Distinct(StringComparer.Ordinal)];
+        }
         long targetBuildMs = RestartElapsed(stepStopwatch);
         Lr2FolderDirectoryMetadataSnapshot metadataSnapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
@@ -159,7 +174,8 @@ internal static class Lr2NormalFolderDbSyncService
             DirectoryPaths = directoryMetadataTargets,
             ExistingRows = existingRows,
             DirectoryMetadataResolver = metadataSnapshot.Resolve,
-            GeneratedAtUtc = request.GeneratedAtUtc
+            GeneratedAtUtc = request.GeneratedAtUtc,
+            IncludeRootDirectories = !request.DirectoryPathsAreComplete
         });
         long rowGenerateMs = RestartElapsed(stepStopwatch);
         bool hasExplicitPrune = request.PruneScopeDirectories?.Count > 0 || request.PruneExactDirectories?.Count > 0;
@@ -316,17 +332,39 @@ internal static class Lr2NormalFolderDbSyncService
             pathsAlreadyNormalized: true);
     }
 
+    /// <summary>
+    /// 指定directoryから、それを含む登録rootまでの祖先だけを返します。変更と無関係な登録rootは加えません。
+    /// 局所mutationが通常行を書き換える範囲を、変更の根拠となるdirectoryから限定して作るために使います。
+    /// </summary>
+    /// <param name="rootDirectories">包含rootの判定に使う登録root。</param>
+    /// <param name="directories">起点directory。登録rootの外は無視します。</param>
+    /// <returns>起点と祖先（包含rootを含む）の重複なし一覧。</returns>
+    internal static IReadOnlyList<string> CreateAncestorDirectoryTargetsWithinRoots(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> directories)
+    {
+        return CreateDirectoryMetadataTargetsFromDirectoriesCore(
+            rootDirectories,
+            directories,
+            pathsAlreadyNormalized: false,
+            includeAllRoots: false);
+    }
+
     private static IReadOnlyList<string> CreateDirectoryMetadataTargetsFromDirectoriesCore(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> chartDirectories,
-        bool pathsAlreadyNormalized)
+        bool pathsAlreadyNormalized,
+        bool includeAllRoots = true)
     {
         List<string> roots = NormalizeRootDirectories(rootDirectories);
         List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
         var result = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string root in roots)
+        if (includeAllRoots)
         {
-            result.Add(root);
+            foreach (string root in roots)
+            {
+                result.Add(root);
+            }
         }
 
         foreach (string chartDirectory in chartDirectories ?? [])
@@ -348,6 +386,25 @@ internal static class Lr2NormalFolderDbSyncService
             foreach (string directory in EnumerateDirectoriesFromRoot(root, normalized))
             {
                 result.Add(directory);
+            }
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static IReadOnlyCollection<string> ResolveCompleteDirectoryMetadataTargets(
+        IReadOnlyCollection<string> rootDirectories,
+        IEnumerable<string> directoryPaths)
+    {
+        List<string> rootsForMatching = [.. (rootDirectories ?? []).OrderByDescending(root => root.Length)];
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string directoryPath in directoryPaths ?? [])
+        {
+            string normalized = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
+            if (!string.IsNullOrWhiteSpace(normalized)
+                && !string.IsNullOrWhiteSpace(FindContainingRoot(normalized, rootsForMatching)))
+            {
+                result.Add(normalized);
             }
         }
 

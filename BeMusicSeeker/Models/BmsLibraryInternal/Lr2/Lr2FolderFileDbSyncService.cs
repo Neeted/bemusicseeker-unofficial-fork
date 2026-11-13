@@ -56,6 +56,59 @@ internal sealed class Lr2FolderFileDbSyncRequest
     public bool ScopeReadLr2FolderRowsOnly { get; set; }
 
     public bool UpdateParentDirectoryRowsForPreservedItems { get; set; } = true;
+
+    /// <summary>
+    /// 指定時は、項目の完全一致キーの行がなく、条件の追加譜面のsong.adddateが新曲期間内の場合だけ項目を書き込みます。
+    /// 局所同期の確定後に組込みの新曲フォルダを作る経路だけが指定します。条件を満たさない場合は何も書き込みません。
+    /// 書き込む場合は通常の組込みfolderの書込みと同じく、同じファイルの旧版の絶対パスのキーの行を新しいキーの行へ置き換えて退役させ、
+    /// 親directoryの行を整えます。整理（prune）は行いません。
+    /// </summary>
+    public Lr2BuiltinNewSongFolderCreationCondition CreateOnlyWhenMissingForRecentSongs { get; set; }
+}
+
+/// <summary>
+/// 局所同期の確定後に組込みの新曲フォルダ行を作る条件です。今回追加したBMSの完全一致パスだけでsong.adddateを読み、全譜面を走査しません。
+/// </summary>
+/// <param name="addedSongPaths">今回追加したBMSの保存パス。移動・改名で追加日時を引き継いだ譜面は含めません。</param>
+/// <param name="config">操作で捕捉したLR2設定。titleflashの期間に使います。</param>
+/// <param name="nowUtc">期間判定の基準時刻。</param>
+/// <param name="lr2RootPath">現在のLR2root。旧版の絶対パスのキーを作るために使います。空の場合は相対キーだけを照会します。</param>
+internal sealed class Lr2BuiltinNewSongFolderCreationCondition(
+    IReadOnlyCollection<string> addedSongPaths,
+    Lr2ConfigSnapshot config,
+    DateTime nowUtc,
+    string lr2RootPath)
+{
+    /// <summary>組込みの新曲フォルダのLR2root相対のfolderキーです。</summary>
+    internal static readonly string RelativeFolderKey = Path.Combine("LR2files", "CustomFolder", "newsong.lr2folder");
+
+    public IReadOnlyCollection<string> AddedSongPaths { get; } = addedSongPaths ?? [];
+
+    public Lr2ConfigSnapshot Config { get; } = config;
+
+    public DateTime NowUtc { get; } = nowUtc;
+
+    public string Lr2RootPath { get; } = lr2RootPath;
+
+    /// <summary>
+    /// 既存行の事前照会に使うfolderキーです。相対キーと、現在のLR2rootで作る旧版の絶対パスのキーを返します。
+    /// </summary>
+    internal IReadOnlyList<string> CreateExistingRowKeys()
+    {
+        var keys = new List<string> { RelativeFolderKey };
+        if (!string.IsNullOrWhiteSpace(Lr2RootPath))
+        {
+            try
+            {
+                keys.Add(Path.GetFullPath(Path.Combine(Lr2RootPath, RelativeFolderKey)));
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                // 絶対キーを作れないLR2rootでは、相対キーだけを照会します。
+            }
+        }
+        return keys;
+    }
 }
 
 internal sealed class Lr2FolderFileDbSyncResult(
@@ -128,6 +181,23 @@ internal static class Lr2FolderFileDbSyncService
         Lr2FolderExistingRowsReadResult existingRows = ReadExistingRows(songDb, request);
         List<LR2SongDB.folder> existingRowList = existingRows.Rows;
         Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingRowMap(existingRowList);
+        if (request.CreateOnlyWhenMissingForRecentSongs != null
+            && !ShouldCreateMissingItemsForRecentSongs(songDb, request, existingRowsByPath))
+        {
+            stopwatch.Stop();
+            return new Lr2FolderFileDbSyncResult(
+                request.Items?.Count ?? 0,
+                existingRowList.Count,
+                existingRows.ExactReadCount,
+                existingRows.ScopeReadCount,
+                generatedCount: 0,
+                upsertedCount: 0,
+                deletedCount: 0,
+                preservedCount: 0,
+                skippedUnsupportedPathCount: 0,
+                skippedMissingMetadataCount: 0,
+                stopwatch.ElapsedMilliseconds);
+        }
         var generatedPaths = new HashSet<string>(StringComparer.Ordinal);
         var generatedParentDirectoryKeys = new HashSet<string>(StringComparer.Ordinal);
         var upsertRows = new List<LR2SongDB.folder>();
@@ -273,6 +343,81 @@ internal static class Lr2FolderFileDbSyncService
             skippedUnsupportedPathCount,
             skippedMissingMetadataCount,
             stopwatch.ElapsedMilliseconds);
+    }
+
+    private const int SongAddDateQueryChunkSize = 500;
+
+    /// <summary>
+    /// 組込みの新曲フォルダのファイルを列挙・読み取る前に、DBだけで作成が必要かを判定します。
+    /// 追加譜面のsong.adddateがいずれも新曲期間外、またはfolder表に新曲フォルダの行（相対キーか、現在のLR2rootで作る旧版の絶対キーの完全一致）が
+    /// 既にある場合はfalseです。照会は主キーの完全一致だけで行い、folder表を走査しません。
+    /// 作成が不要な場合にファイルの読取り失敗で局所同期を失敗させないため、呼出し元はこの結果がtrueの場合だけファイルを読みます。
+    /// </summary>
+    /// <param name="songDb">読み取るsong.db。</param>
+    /// <param name="condition">追加譜面と期間の条件。</param>
+    /// <returns>作成が必要な可能性がある場合はtrue。</returns>
+    internal static bool RequiresBuiltinNewSongFolderRowCreation(
+        LR2SongDBExtended songDb,
+        Lr2BuiltinNewSongFolderCreationCondition condition)
+    {
+        ArgumentNullException.ThrowIfNull(songDb);
+        if (condition == null || !HasRecentAddedSong(songDb, condition))
+        {
+            return false;
+        }
+
+        return Lr2FolderExistingRowLookup.QueryExactPaths(songDb, condition.CreateExistingRowKeys()).Count == 0;
+    }
+
+    /// <summary>
+    /// 項目の完全一致キーの既存行がなく、追加譜面のsong.adddateのいずれかが組込みfolderと同じ規則で新曲期間内かを判定します。
+    /// 呼出し元の事前判定から書込みまでの間に行が作られた場合も、ここで既存行を変更しません。
+    /// </summary>
+    private static bool ShouldCreateMissingItemsForRecentSongs(
+        LR2SongDBExtended songDb,
+        Lr2FolderFileDbSyncRequest request,
+        IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath)
+    {
+        Lr2BuiltinNewSongFolderCreationCondition condition = request.CreateOnlyWhenMissingForRecentSongs;
+        foreach (Lr2FolderFileSyncItem item in request.Items ?? [])
+        {
+            string databasePath = NormalizeFilePath(item?.DatabasePath ?? item?.FilePath);
+            if (!string.IsNullOrWhiteSpace(databasePath) && existingRowsByPath.ContainsKey(databasePath))
+            {
+                return false;
+            }
+        }
+
+        return HasRecentAddedSong(songDb, condition);
+    }
+
+    /// <summary>
+    /// 追加譜面のsong.adddateのいずれかが組込みfolderと同じ規則で新曲期間内かを判定します。
+    /// song.adddateは主キーpathの完全一致で読み、期間内の行が見つかった時点で打ち切ります。
+    /// </summary>
+    private static bool HasRecentAddedSong(
+        LR2SongDBExtended songDb,
+        Lr2BuiltinNewSongFolderCreationCondition condition)
+    {
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string pathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+        string addDateColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.adddate);
+        foreach (string[] chunk in condition.AddedSongPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.Ordinal)
+            .Chunk(SongAddDateQueryChunkSize))
+        {
+            IEnumerable<int?> addDates = songDb.Query<LR2SongDB.song>(
+                "SELECT " + pathColumn + ", " + addDateColumn + " FROM " + songTable
+                + " WHERE " + pathColumn + " IN (" + string.Join(",", chunk.Select(_ => "?")) + ");",
+                chunk.Cast<object>().ToArray())
+                .Select(row => row.adddate);
+            if (Lr2BuiltinCustomFolderSettings.CreateFromAddDates(condition.Config, addDates, condition.NowUtc).IncludeNewSongFolder)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Lr2FolderExistingRowsReadResult ReadExistingRows(

@@ -351,6 +351,16 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>
+    /// 組込みの新曲フォルダの作成要否を、専用接続の限定読取りで判定します。追加譜面のsongと新曲フォルダのfolderを、主キーの完全一致だけで読みます。
+    /// </summary>
+    internal bool RequiresLr2BuiltinNewSongFolderRowCreation(Lr2BuiltinNewSongFolderCreationCondition condition)
+    {
+        using LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        return Lr2FolderFileDbSyncService.RequiresBuiltinNewSongFolderRowCreation(songDb, condition);
+    }
+
     /// <summary>通常親の局所pruneに必要なcustom候補のexact pathを、専用接続の限定読取りで捕捉します。</summary>
     internal IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(
         IEnumerable<string> roots, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)

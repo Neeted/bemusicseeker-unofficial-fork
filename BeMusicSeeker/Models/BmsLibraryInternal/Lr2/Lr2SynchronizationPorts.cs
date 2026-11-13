@@ -48,6 +48,11 @@ internal interface ILr2SynchronizationDataPort
 
     Lr2FolderFileDbSyncResult ApplyLr2FolderFileSync(Lr2FolderFileDbSyncRequest request);
 
+    /// <summary>
+    /// 組込みの新曲フォルダのファイルを読む前に、追加譜面の期間と、新曲フォルダの相対キー・旧版の絶対キーの完全一致の既存行だけから、作成が必要かをDBで判定します。
+    /// </summary>
+    bool RequiresLr2BuiltinNewSongFolderRowCreation(Lr2BuiltinNewSongFolderCreationCondition condition);
+
     /// <summary>通常親のprune依存を調べるため、限定範囲のcustom exact pathを捕捉します。</summary>
     IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(
         IEnumerable<string> roots, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories);
@@ -487,6 +492,10 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 
     public Lr2FolderFileDbSyncResult ApplyLr2FolderFileSync(Lr2FolderFileDbSyncRequest request) =>
         catalogMutationOwner.ApplyLr2FolderFileSync(request);
+
+    /// <summary>DB読取りを所有する窓口へ、組込みの新曲フォルダの作成要否の判定を委譲します。</summary>
+    public bool RequiresLr2BuiltinNewSongFolderRowCreation(Lr2BuiltinNewSongFolderCreationCondition condition) =>
+        catalogMutationOwner.RequiresLr2BuiltinNewSongFolderRowCreation(condition);
 
     /// <summary>DB読取りを所有する窓口へ、通常親のcustom依存候補捕捉を委譲します。</summary>
     public IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(

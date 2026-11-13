@@ -87,6 +87,57 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
     }
 
     /// <summary>
+    /// 削除元の存続する直接の親と、変更元を含む登録ルートだけを書込み範囲へ入れることを確認します。
+    /// 兄弟が残る親（Cat）は入り、BMSが残らない親（Empty）とルート外の削除元、変更と無関係な登録ルートは入りません。
+    /// 変更元を含む登録ルート（BMSが残らないR2を含む）は、BMSの有無によらず入ります。中間の親の日時の取り残し、
+    /// 消える親の誤った保持、無関係なルートの更新を検出します。
+    /// </summary>
+    [TestMethod]
+    public void CreateForCatalogMutation_AddsSurvivingDirectParentsAndChangedRootsOnly()
+    {
+        string root = Path.Combine("C:\\BMS");
+        string emptyRoot = Path.Combine("C:\\BMS2");
+        string unrelatedRoot = Path.Combine("C:\\BMS3");
+        string cat = Path.Combine(root, "Cat");
+        string songA = Path.Combine(cat, "SongA");
+        string songB = Path.Combine(cat, "SongB");
+        string empty = Path.Combine(root, "Empty");
+        string songC = Path.Combine(empty, "SongC");
+        string songD = Path.Combine(emptyRoot, "SongD");
+        string outside = Path.Combine("D:\\Other", "X");
+        var receipt = new Lr2NormalFolderCatalogMutationReceipt(
+            catalogRevision: 8,
+            addedBmsChartPaths: [],
+            removedBmsChartPaths:
+            [
+                Path.Combine(songA, "a.bms"),
+                Path.Combine(songC, "c.bms"),
+                Path.Combine(songD, "d.bms"),
+                Path.Combine(outside, "x.bms")
+            ],
+            pathChanges: [],
+            currentBmsFacts: Lr2NormalFolderCurrentBmsLookup.CreateFromScopedFacts(
+                [
+                    new KeyValuePair<string, int>(songA, 0),
+                    new KeyValuePair<string, int>(cat, 1),
+                    new KeyValuePair<string, int>(songC, 0),
+                    new KeyValuePair<string, int>(empty, 0),
+                    new KeyValuePair<string, int>(root, 1),
+                    new KeyValuePair<string, int>(songD, 0),
+                    new KeyValuePair<string, int>(emptyRoot, 0)
+                ],
+                [new KeyValuePair<string, IReadOnlyList<string>>(songB, [Path.Combine(songB, "b.bms")])]));
+
+        Lr2NormalFolderSyncScope scope = Lr2NormalFolderSyncScopeBuilder.CreateForCatalogMutation(
+            [root, emptyRoot, unrelatedRoot],
+            receipt);
+
+        CollectionAssert.AreEquivalent(new[] { root, cat, emptyRoot }, scope.DirectoryPaths.ToList());
+        Assert.AreEqual(0, scope.ChartPaths.Count);
+        CollectionAssert.AreEquivalent(new[] { songA, songC, songD }, scope.PruneScopeDirectories.ToList());
+    }
+
+    /// <summary>
     /// 捕捉後に元のパス一覧を変更しても受渡し済みの検索事実と世代を保ち、後続変更の混入を検出します。
     /// </summary>
     [TestMethod]
