@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -186,8 +187,8 @@ public sealed class SettingDialogEditCompletionTests
                     viewModel.SettingDialog.AttachPresentationPort(presentation);
                     try
                     {
-                        Assert.IsFalse(viewModel.SettingDialog.CheckValidationForInitialization(out string validationError));
-                        StringAssert.Contains(validationError, Resources.Error_InvalidLR2SongDbOrConfigPath);
+                        Assert.IsTrue(viewModel.SettingDialog.BuildDeficiencies().Any(item =>
+                            item.Category == SettingsCategory.General && item.Field == SettingsDeficiencyField.Lr2Environment && item.Reason == Resources.Error_InvalidLR2SongDbOrConfigPath));
 
                         Task<bool> initialization = viewModel.InitializeAsync();
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "invalid-lr2-settings-startup");
@@ -201,9 +202,12 @@ public sealed class SettingDialogEditCompletionTests
                         CollectionAssert.AreEqual(
                             firstStartup ? new[] { "initial-setup" } : new[] { "warning", "open" },
                             sequence);
+                        Assert.IsTrue(viewModel.SettingDialog.Deficiencies.Any(item =>
+                            item.Category == SettingsCategory.General && item.Field == SettingsDeficiencyField.Lr2Environment));
                         if (!firstStartup)
                         {
-                            StringAssert.Contains(dialogs.LastMessageText, Resources.Msg_init_settings_check);
+                            Assert.AreEqual(SettingsDeficiency.FormatStartupWarning(viewModel.SettingDialog.Deficiencies), dialogs.LastMessageText);
+                            StringAssert.Contains(dialogs.LastMessageText, string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_InvalidLR2SongDbOrConfigPath));
                         }
                         Assert.AreEqual(rawConfigPath, viewModel.SettingDialog.LR2ConfigXmlPath);
                         Assert.AreEqual(lr2Root, viewModel.SettingDialog.LR2RootPath);
@@ -1518,9 +1522,17 @@ public sealed class SettingDialogEditCompletionTests
                 presentation.Requests);
             bool languageSelection = firstStartup && !fromSettings;
             Assert.AreEqual(languageSelection ? 0 : 1, dialogs.MessageCount);
+            // 起動時検査の一覧はページ一覧の順で、開いた設定画面へそのまま公開します。初回の言語選択経路でも一覧は同じです。
+            CollectionAssert.AreEqual(
+                new[] { (SettingsCategory.General, SettingsDeficiencyField.BmsDirectories), (SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory) },
+                viewModel.SettingDialog.Deficiencies.Select(item => (item.Category, item.Field)).ToArray());
             if (!languageSelection)
             {
-                Assert.AreEqual(Resources.Msg_init_settings_check, dialogs.LastMessageText);
+                Assert.AreEqual(string.Join(Environment.NewLine,
+                    Resources.Msg_init_settings_check,
+                    string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_InvalidStandaloneBmsRootPaths),
+                    string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.Install, Resources.Error_InvalidBmsInstallDir)),
+                    dialogs.LastMessageText);
             }
             Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
             Assert.IsFalse(viewModel.IsInitializationCompleted);
@@ -1599,7 +1611,9 @@ public sealed class SettingDialogEditCompletionTests
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "invalid-lr2-warning-failed-typed");
                         StartupInitializationResult result = operation.GetAwaiter().GetResult();
                         Assert.AreEqual(StartupInitializationOutcome.SettingsRequired, result.Outcome);
-                        Assert.IsNotNull(result.ValidationFailure);
+                        Assert.IsNotNull(result.Deficiencies);
+                        Assert.AreNotEqual(0, result.Deficiencies.Count);
+                        Assert.AreSame(result.Deficiencies, dialog.Deficiencies, "起動時検査の一覧をそのまま設定画面へ公開します。");
                         Assert.IsNull(result.Failure);
                         Assert.IsFalse(result.CompletionPublished);
                     }
@@ -1611,7 +1625,9 @@ public sealed class SettingDialogEditCompletionTests
                     }
                     ObserveCleanup("terminal", string.Empty);
                     Assert.AreEqual(entry == "startup" ? 3 : 2, cleanupObservations.Count);
-                    Assert.AreEqual(Resources.Msg_init_settings_check, cleanupObservations.Single(value => value.Phase == "warning").Message);
+                    string warning = cleanupObservations.Single(value => value.Phase == "warning").Message;
+                    StringAssert.StartsWith(warning, Resources.Msg_init_settings_check + Environment.NewLine);
+                    StringAssert.Contains(warning, string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_InvalidLR2SongDbOrConfigPath));
                     foreach ((string Phase, string Message, bool LibraryActive, bool PlaylistActive, bool UiBlocked, bool OperationInProgress, bool Editing) observation in cleanupObservations)
                     {
                         Assert.IsFalse(observation.LibraryActive, observation.Phase);
@@ -2133,7 +2149,7 @@ public sealed class SettingDialogEditCompletionTests
                     session.SaveObserved = () => sequence.Add("save");
                     dialog.ShowRecommUpdatedMsg = !dialog.ShowRecommUpdatedMsg;
                     bool savedValue = dialog.ShowRecommUpdatedMsg;
-                    Assert.IsTrue(dialog.CheckValidationForInitialization(out string validationError), validationError);
+                    Assert.AreEqual(string.Empty, SettingsDeficiency.FormatDiagnostic(dialog.BuildDeficiencies()));
                     Task operation = dialog.StartConfirmedEnvironmentAsync();
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "startup-construction-failure-apply");
                     Assert.AreEqual(savedValue, settings.ShowRecommUpdatedMsg);
@@ -2153,7 +2169,7 @@ public sealed class SettingDialogEditCompletionTests
                     StartupInitializationResult result = operation.GetAwaiter().GetResult();
                     Assert.AreEqual(StartupInitializationOutcome.OperationFailed, result.Outcome);
                     Assert.AreSame(failure, result.Failure);
-                    Assert.IsNull(result.ValidationFailure);
+                    Assert.IsNull(result.Deficiencies);
                     Assert.IsFalse(result.CompletionPublished);
                 }
                 else
@@ -3161,7 +3177,7 @@ public sealed class SettingDialogEditCompletionTests
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(completionUi.Entered.Task, apply), "initial-lr2-ui-or-terminal");
                     if (!completionUi.Entered.Task.IsCompleted)
                     {
-                        viewModel.SettingDialog.CheckValidationForInitialization(out string initialError);
+                        string initialError = SettingsDeficiency.FormatDiagnostic(viewModel.SettingDialog.BuildDeficiencies());
                         Assert.Fail("初期化がUI公開前に終端: " + initialError + " / " + dialogs.LastMessageText + " / " + string.Join(Environment.NewLine, failures));
                     }
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(completionUi.Entered.Task, apply, "initial-lr2-required-ui"), "initial-lr2-required-ui");

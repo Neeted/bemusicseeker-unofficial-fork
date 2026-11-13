@@ -4,6 +4,7 @@
  xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
  xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
  xmlns:views="clr-namespace:BeMusicSeeker.Views"
+ xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings"
  x:Name="settingsWindow"
  Width="820"
  Height="760"
@@ -42,17 +43,17 @@
                  KeyboardNavigation.DirectionalNavigation="Continue"
                  KeyboardNavigation.TabNavigation="Local"
                  SelectionChanged="settingsNavigationSelectionChanged">
-          <ListBoxItem x:Name="navigationGeneral" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryGeneral" />
-          <ListBoxItem x:Name="navigationAppearance" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryAppearance" />
-          <ListBoxItem x:Name="navigationPlayback" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playback, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playback, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryPlayback" />
-          <ListBoxItem x:Name="navigationAudio" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryAudio" />
-          <ListBoxItem x:Name="navigationRecording" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recording, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recording, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryRecording" />
-          <ListBoxItem x:Name="navigationPlaylist" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryPlaylist" />
-          <ListBoxItem x:Name="navigationInstall" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryInstall" />
-          <ListBoxItem x:Name="navigationBackup" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryBackup" />
-          <ListBoxItem x:Name="navigationAdvanced" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryAdvanced" />
-          <ListBoxItem x:Name="navigationRightClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_actions, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_actions, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryRightClick" />
-          <ListBoxItem x:Name="navigationAbout" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.About_this_app, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.About_this_app, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryAbout" />
+          <ListBoxItem x:Name="navigationGeneral" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[General], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryGeneral" />
+          <ListBoxItem x:Name="navigationAppearance" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[Appearance], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryAppearance" />
+          <ListBoxItem x:Name="navigationPlayback" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[Playback], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playback, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playback, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryPlayback" />
+          <ListBoxItem x:Name="navigationAudio" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[Audio], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Audio, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryAudio" />
+          <ListBoxItem x:Name="navigationRecording" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[Recording], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recording, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Recording, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryRecording" />
+          <ListBoxItem x:Name="navigationPlaylist" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[Playlist], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryPlaylist" />
+          <ListBoxItem x:Name="navigationInstall" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[Install], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Install, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryInstall" />
+          <ListBoxItem x:Name="navigationBackup" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[Backup], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Backup, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryBackup" />
+          <ListBoxItem x:Name="navigationAdvanced" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[Advanced], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Advanced_settings, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryAdvanced" />
+          <ListBoxItem x:Name="navigationRightClick" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[RightClick], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_actions, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.RightClick_actions, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryRightClick" />
+          <ListBoxItem x:Name="navigationAbout" settings:SettingsNavigationMark.Status="{Binding DeficiencyCategoryMarks[About], Mode=OneWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.About_this_app, Mode=OneWay}" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.About_this_app, Mode=OneWay}" AutomationProperties.AutomationId="SettingsCategoryAbout" />
         </ListBox>
       </Border>
       <Border Grid.Column="1" Background="{DynamicResource App.SeparatorBrush}" />
@@ -62,6 +63,7 @@
           <RowDefinition Height="1" />
           <RowDefinition Height="*" />
           <RowDefinition Height="1" />
+          <RowDefinition Height="Auto" />
           <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <ContentControl x:Name="settingsPageHeader"
@@ -87,7 +89,34 @@
                           AutomationProperties.AutomationId="SettingsSelectedPageContent" />
         </ScrollViewer>
         <Border Grid.Row="3" Background="{DynamicResource App.SeparatorBrush}" />
-        <Grid Grid.Row="4" Margin="{StaticResource App.Layout.BodyPadding}">
+        <!-- 不備の一覧が空でない間だけ、本文と下部操作の間に案内を出す。行が多い場合は案内の内側で縦スクロールし、本文と下部操作を押し出さない。 -->
+        <settings:SettingsStatusBanner x:Name="settingsDeficiencyGuidance"
+                                       Grid.Row="4"
+                                       Margin="16,16,16,0"
+                                       Icon="!"
+                                       Status="Error"
+                                       HorizontalContentAlignment="Stretch"
+                                       AutomationProperties.AutomationId="SettingsDeficiencyGuidance"
+                                       AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_deficiency_guidance_title, Mode=OneWay}"
+                                       Visibility="{Binding HasDeficiencies, Converter={StaticResource BooleanToVisibilityConverter}}">
+          <StackPanel>
+            <TextBlock FontWeight="SemiBold" TextWrapping="Wrap" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_deficiency_guidance_title, Mode=OneWay}" />
+            <ScrollViewer x:Name="settingsDeficiencyGuidanceScrollViewer" Margin="0,4,0,0" MaxHeight="120" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Focusable="False">
+              <ItemsControl x:Name="settingsDeficiencyGuidanceItems" ItemsSource="{Binding Deficiencies, Mode=OneWay}" AutomationProperties.AutomationId="SettingsDeficiencyGuidanceItems" Focusable="False">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <Button Style="{StaticResource SettingsQuietButtonStyle}" Margin="0,4,0,0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"
+                            AutomationProperties.AutomationId="SettingsDeficiencyGuidanceItem" AutomationProperties.Name="{Binding DisplayText, Mode=OneWay}"
+                            Click="deficiencyGuidanceItemClick">
+                      <TextBlock TextWrapping="Wrap" Text="{Binding DisplayText, Mode=OneWay}" />
+                    </Button>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+          </StackPanel>
+        </settings:SettingsStatusBanner>
+        <Grid Grid.Row="5" Margin="{StaticResource App.Layout.BodyPadding}">
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
           <StackPanel Margin="0,0,0,8" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}">
             <TextBlock TextWrapping="Wrap" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_use_on_start}" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}" />

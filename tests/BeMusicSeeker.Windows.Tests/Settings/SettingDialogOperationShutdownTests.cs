@@ -226,7 +226,7 @@ public sealed class SettingDialogOperationShutdownTests
             var ownership = new MainWindowTestLifetime(owner, lifetime.ShutdownRequested.Task);
             try
             {
-                Assert.IsTrue(owner.SettingDialog.CheckValidationForInitialization(out string validationFailure), validationFailure);
+                Assert.AreEqual(string.Empty, SettingsDeficiency.FormatDiagnostic(owner.SettingDialog.BuildDeficiencies()));
                 fixture.OptionalRelease.TrySetResult();
                 Task initialization = owner.ShellActivationWorkflow.ActivateRenderedShell(() => { }, _ => { }, () => false);
                 fixture.Track(initialization);

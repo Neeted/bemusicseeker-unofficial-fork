@@ -129,7 +129,7 @@ public sealed class SettingDialogCandidateSwitchTests
                     if (operation == "lr2-root")
                     {
                         Assert.AreEqual(config, values.LR2ConfigXmlPath);
-                        Assert.IsFalse(dialog.CheckValidationForInitialization(out _), "新環境に導入先がなくても環境保存は成立し、利用開始前検査で止めます。");
+                        Assert.IsTrue(dialog.Deficiencies.Any(item => item.Field == SettingsDeficiencyField.InstallDirectory), "新環境に導入先がなくても環境保存は成立し、環境変更の終端で作り直した不備の一覧で止めます。");
                     }
                 }
                 else

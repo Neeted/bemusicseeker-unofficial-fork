@@ -1345,6 +1345,8 @@
   "Settings_replacement_install_required": "제거하려는 디렉터리는 현재 설치 위치입니다. 계속하려면 남아 있는 BMS 디렉터리에서 설치 위치를 다시 선택하세요.",
   "Settings_replacement_install_empty": "남아 있는 BMS 디렉터리가 없습니다. BMS 디렉터리를 추가하거나 변경을 취소하세요.",
   "Settings_use_on_start": "저장한 설정은 이 환경으로 시작할 때 사용합니다.",
+  "Settings_deficiency_guidance_title": "조치가 필요한 설정",
+  "Settings_deficiency_page_mark": "조치가 필요한 설정이 있습니다",
   "Settings_confirm_record": "이 항목 저장",
   "Settings_environment": "환경",
   "Settings_open_bms_roots": "BMS 폴더 편집",

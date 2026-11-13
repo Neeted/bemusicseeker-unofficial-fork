@@ -8,11 +8,14 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Markup;
+using System.Windows.Media;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
+using BeMusicSeeker.Views.Settings;
 using BeMusicSeeker.Views.Settings.Pages;
 
 namespace BeMusicSeeker.Views;
@@ -465,24 +468,6 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         await CompleteUserCancellationAsync(GetSettingDialogViewModel());
     }
 
-    private void PickRootFolderForSetting(string propertyName, string selectedPath, string title = null)
-    {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        UiFolderPickerResult result = dialogService
-            .PickFolderAsync(new UiFolderPickerRequest(
-                title,
-                selectedPath,
-                multiselect: false,
-                owner: Window.GetWindow(this)))
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfPickerFailed(result.Status, result.Error, propertyName + " folder picker");
-        if (result.Status == UiDialogStatus.Accepted)
-        {
-            settingDialogViewModel.SetRootFolderPathFromPicker(propertyName, result.FolderPath);
-        }
-    }
-
     private void PickDirectoryForSetting(string propertyName, string selectedPath, string title = null)
     {
         SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
@@ -845,11 +830,112 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     }
 
-    /// <summary>Owns the LR2 backup path picker route for the Backup page.</summary>
-    internal void HandleBrowseLr2BackupPath()
+    /// <summary>
+    /// LR2バックアップの有効化チェックを出力先との組で保存します。外すと無効化だけを保存し、有効な出力先がなければ続けてフォルダ選択を開きます。
+    /// 選択の取消・閉鎖・失敗では保存せず、チェックを外した表示へ戻します。
+    /// </summary>
+    /// <param name="enabled">チェック後の状態。現在の有効化候補と同じなら何もしません。</param>
+    /// <param name="reportFailure">選択の失敗を設定操作の失敗経路で通知する場合はtrue。</param>
+    internal Task HandleLr2BackupEnabledChangedAsync(bool enabled, bool reportFailure = false)
     {
-        SettingsDialogViewModel settingDialogViewModel = GetSettingDialogViewModel();
-        PickRootFolderForSetting(nameof(settingDialogViewModel.LR2BackupPath), settingDialogViewModel.LR2BackupPath);
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        // 候補と同じ状態の要求は、確定値・候補へ揃えた表示の更新なので何もしません。
+        if (settings.IsLR2BackupEnabled == enabled) { return Task.CompletedTask; }
+        if (!enabled || !settings.RequiresLr2BackupOutputSelection) { settings.IsLR2BackupEnabled = enabled; return Task.CompletedTask; }
+        if (!settings.IsSettingsOperationAvailable) { settings.CancelLr2BackupCandidate(); return Task.CompletedTask; }
+        return PickLr2BackupOutputAsync(settings, requestEnable: true, reportFailure);
+    }
+
+    /// <summary>チェックの前後によらずLR2バックアップの出力先を選び、保存済みの有効化と組で保存します。</summary>
+    /// <param name="reportFailure">選択の失敗を設定操作の失敗経路で通知する場合はtrue。</param>
+    internal Task HandleBrowseLr2BackupPathAsync(bool reportFailure = false)
+    {
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        return !settings.IsSettingsOperationAvailable ? Task.CompletedTask : PickLr2BackupOutputAsync(settings, requestEnable: false, reportFailure);
+    }
+
+    private Task PickLr2BackupOutputAsync(SettingsDialogViewModel settings, bool requestEnable, bool reportFailure)
+    {
+        return RunViewOperationAsync(async () =>
+        {
+            bool saved = false;
+            if (requestEnable) { settings.MarkLr2BackupEnabledCandidate(); }
+            try
+            {
+                UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(
+                    null, settings.LR2BackupPath, multiselect: false, owner: this));
+                if (result == null) { throw new InvalidOperationException("LR2 backup folder picker returned no result."); }
+                ThrowIfPickerFailed(result.Status, result.Error, "LR2 backup folder picker");
+                if (result.Status != UiDialogStatus.Accepted) { return; }
+                saved = settings.SelectLr2BackupOutput(result.FolderPath, requestEnable);
+            }
+            finally
+            {
+                if (!saved) { settings.CancelLr2BackupCandidate(); }
+            }
+        }, reportFailure, "LR2 backup folder picker");
+    }
+
+    private void deficiencyGuidanceItemClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is SettingsDeficiency deficiency) { ShowDeficiencyField(deficiency); }
+    }
+
+    /// <summary>
+    /// 案内の行の対象ページへ移り、対象の欄を表示範囲へ入れて最初のフォーカス可能な要素へフォーカスを移します。
+    /// 折り畳み欄の中なら展開し、対象が無効でフォーカスできない場合はスクロールだけを行います。
+    /// </summary>
+    /// <param name="deficiency">案内の行の不備。</param>
+    internal void ShowDeficiencyField(SettingsDeficiency deficiency)
+    {
+        ArgumentNullException.ThrowIfNull(deficiency);
+        settingsNavigation.SelectedIndex = (int)deficiency.Category;
+        UserControl page = GetOrCreateCategoryPage((int)deficiency.Category);
+        FrameworkElement target = FindDeficiencyTarget(page, deficiency.Field.ToString());
+        if (target == null) { return; }
+        for (DependencyObject current = target; current != null; current = LogicalTreeHelper.GetParent(current) ?? (current is Visual ? VisualTreeHelper.GetParent(current) : null))
+        {
+            if (current is Expander expander) { expander.IsExpanded = true; }
+        }
+        // 新しいページの生成・展開を同期で配置してから範囲とフォーカスを決め、遅延予約に依存しません。
+        UpdateLayout();
+        target.BringIntoView();
+        UpdateLayout();
+        if (FindFirstFocusable(target) is UIElement focusTarget)
+        {
+            FocusManager.SetFocusedElement(FocusManager.GetFocusScope(focusTarget), focusTarget);
+            focusTarget.Focus();
+        }
+    }
+
+    private static FrameworkElement FindDeficiencyTarget(DependencyObject root, string field)
+    {
+        var pending = new Stack<DependencyObject>();
+        var visited = new HashSet<DependencyObject>();
+        pending.Push(root);
+        while (pending.Count > 0)
+        {
+            DependencyObject current = pending.Pop();
+            if (!visited.Add(current)) { continue; }
+            if (current is FrameworkElement element && string.Equals(SettingsDeficiencyTarget.GetField(element), field, StringComparison.Ordinal)) { return element; }
+            foreach (object child in LogicalTreeHelper.GetChildren(current))
+            {
+                if (child is DependencyObject dependencyObject) { pending.Push(dependencyObject); }
+            }
+        }
+        return null;
+    }
+
+    private static UIElement FindFirstFocusable(DependencyObject root)
+    {
+        if (root is UIElement element && element.Focusable && element.IsEnabled && element.IsVisible && KeyboardNavigation.GetIsTabStop(element)
+            && root is not ScrollViewer)
+        { return element; }
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            if (FindFirstFocusable(VisualTreeHelper.GetChild(root, index)) is UIElement found) { return found; }
+        }
+        return null;
     }
 
     private static void LogSettingsDialogPerformance(string action, Stopwatch stopwatch, string detail = null)

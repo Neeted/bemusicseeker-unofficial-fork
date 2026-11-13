@@ -111,7 +111,12 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                         Assert.AreEqual(0, restarts);
                         Assert.AreEqual(0, dialogs.ConfirmationCount);
                         Assert.AreEqual(1, dialogs.MessageCount);
-                        StringAssert.Contains(dialogs.LastMessageText, Resources.Msg_init_settings_check);
+                        // 明示開始・fresh起動のどちらも、起動時検査の一覧（LR2環境の項目を含む）を警告の行と設定画面へ同じ形で公開します。
+                        Assert.IsTrue(owner.SettingDialog.Deficiencies.Any(item =>
+                            item.Category == SettingsCategory.General && item.Field == SettingsDeficiencyField.Lr2Environment));
+                        Assert.AreEqual(SettingsDeficiency.FormatStartupWarning(owner.SettingDialog.Deficiencies), dialogs.LastMessageText);
+                        StringAssert.Contains(dialogs.LastMessageText, string.Format(System.Globalization.CultureInfo.CurrentCulture,
+                            Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_InvalidLR2SongDbOrConfigPath));
                         Assert.AreEqual(0, factory.LibraryCallCount);
                         Assert.AreEqual(0, factory.PlaylistCallCount);
                         Assert.AreEqual(string.Empty, current.LR2RootPath);

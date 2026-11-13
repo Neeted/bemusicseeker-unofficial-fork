@@ -26,7 +26,7 @@ internal enum StartupInitializationOutcome
 /// <param name="Outcome">設定不備・処理失敗・終了・必須処理成功の分類。</param>
 /// <param name="Settings">この初期化で捕捉した設定。実完了へ進む本番の成功結果は必ず保持します。</param>
 /// <param name="OperationToken">既存の操作識別。警告等から新操作へ移った旧結果はその操作を完了しません。</param>
-/// <param name="ValidationFailure">想定済み設定不備の診断。設定借用でも親解放後の既存案内に使います。</param>
+/// <param name="Deficiencies">起動時検査が不備で止めた場合の不備の一覧。設定画面へ公開した同じ一覧を、親解放後の警告の行と診断に使います。不備で止めていなければnull。</param>
 /// <param name="Failure">元の実失敗。初回案内だけの失敗では、成立済みの必須成功と完了公開を保持して併記します。</param>
 /// <param name="CompletionPublished">親受付解放後の必須UIとhost接続を終え、この結果の完了を公開した場合だけ真。</param>
 /// <param name="RequiredResult">今回のファイル・必要LR2・必須譜面情報の実終端結果。限定操作では対象範囲だけ保持します。</param>
@@ -36,7 +36,7 @@ internal enum StartupInitializationOutcome
 /// <param name="BackupNotifications">バックアップ・走査で得た既存案内。新しい通知は開始前と成功後に寿命を確認します。</param>
 /// <param name="ScoreNotification">本体で採用済みのスコアの公開と取得失敗の案内。実親L/P解放後の共通終端で取り出し、実行後の結果へ再保存しません。</param>
 internal sealed record StartupInitializationResult(StartupInitializationOutcome Outcome,
-    StartupSettingsSnapshot Settings = null, long OperationToken = 0L, bool CompletionPublished = false, Exception Failure = null, string ValidationFailure = null,
+    StartupSettingsSnapshot Settings = null, long OperationToken = 0L, bool CompletionPublished = false, Exception Failure = null, IReadOnlyList<SettingsDeficiency> Deficiencies = null,
     StartupRequiredInitializationResult RequiredResult = null, LeapYearFolderRepairNotification RepairNotification = null,
     StartupProgressOperationKind OperationKind = StartupProgressOperationKind.Startup, bool ShowRootWarning = false, IReadOnlyList<UiMessageRequest> BackupNotifications = null, ScoreAdoptionNotification ScoreNotification = null);
 

@@ -606,6 +606,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RaisePropertyChanged(nameof(TableListUriValidationStatus));
         RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUriValidationMessage));
         RaisePropertyChanged(nameof(PlaylistMd5UrlMappingTsvUriValidationStatus));
+        RaiseFieldReasonsChanged();
     }
 
     private void RightClickActionSettingsEditorPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -2023,7 +2024,7 @@ public partial class SettingsDialogViewModel : ViewModel
             }
             if (saveFailure != null) { RaisePropertyChanged(nameof(BMSInstallDir)); reportApplyFailure(saveFailure); }
         }
-        finally { RaisePropertyChanged(nameof(BMSInstallDir)); RaiseValidationStateChanged(); }
+        finally { RaisePropertyChanged(nameof(BMSInstallDir)); RefreshDeficiencies(); RaiseValidationStateChanged(); }
     }
 
     /// <summary>個別LR2パスの今回入力を検証し、非同期の候補確認と採用時再検査後に詳細組へ採用します。</summary>
@@ -2569,53 +2570,6 @@ public partial class SettingsDialogViewModel : ViewModel
 
     /// <summary>TSV URLの拒否事実を現在の言語で表示します。再検査や再保存は行いません。</summary>
     public string PlaylistMd5UrlMappingTsvUriValidationMessage => playlistMd5UrlMappingTsvUriRejected ? Resources.Error_InvalidPlaylistMd5UrlMappingTsvUri : string.Empty;
-
-    /// <summary>バックアップ方針だけを保存し、LR2連携での有効化成功後に次回起動からの適用を案内します。</summary>
-    public bool IsLR2BackupEnabled
-    {
-        get
-        {
-            return ApplicationSettings.IsLR2BackupEnabled;
-        }
-        set
-        {
-            if (ApplicationSettings.IsLR2BackupEnabled != value)
-            {
-                if (!TryCommitSetting(nameof(IsLR2BackupEnabled), (nameof(Settings.IsLR2BackupEnabled), value))) { return; }
-                RaisePropertyChanged("IsLR2BackupEnabled");
-                RaiseValidationStateChanged();
-                if (value && ApplicationSettings.OperationModeLR2DB && !operationAdmission.IsAdmissionClosed)
-                {
-                    ShowUiMessage(Resources.Msg_LR2ConfigBackupEnabledNextStartup, Resources.Confirm, MessageBoxImage.Asterisk,
-                        "LR2 backup enabled notification");
-                }
-            }
-        }
-    }
-
-    public string LR2BackupPath
-    {
-        get
-        {
-            return ApplicationSettings.LR2BackupPath;
-        }
-        set
-        {
-            if (!(ApplicationSettings.LR2BackupPath == value))
-            {
-                if (IsLR2BackupPathValid(value))
-                {
-                    if (!TryCommitSetting(nameof(LR2BackupPath), (nameof(Settings.LR2BackupPath), value))) { return; }
-                }
-                else
-                {
-                    if (!TryCommitSetting(nameof(LR2BackupPath), (nameof(Settings.LR2BackupPath), null))) { return; }
-                }
-                RaisePropertyChanged("LR2BackupPath");
-                RaiseValidationStateChanged();
-            }
-        }
-    }
 
     public Backup.Target LR2BackupTarget
     {
@@ -3828,6 +3782,8 @@ public partial class SettingsDialogViewModel : ViewModel
             settingDialogViewModel.RaisePropertyChanged(nameof(AudioDeviceListStatusMessage));
             audioDeviceTestWorkflow.RefreshLocalizedOptionNames();
             settingDialogViewModel.RaiseValidationStateChanged();
+            // 理由とページ名は作成時の表示言語で固定するため、言語の変更で作り直します。
+            settingDialogViewModel.RefreshDeficiencies();
         });
         resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
         {
@@ -3866,6 +3822,7 @@ public partial class SettingsDialogViewModel : ViewModel
         RefreshBeatorajaDerivedSettings();
         InitializeSectionEditors();
         ResetLr2PlayHistorySchemaStatus();
+        deficiencies = BuildDeficiencies();
         this.operationAdmission.AvailabilityChanged += SettingsOperationAvailabilityChanged;
         this.customFolderOutputPort.OutputOperationAvailabilityChanged += SettingsOperationAvailabilityChanged;
         // 候補と表示状態の構築成功後だけ接続し、未完成の画面を共有storeへ残しません。
@@ -4079,6 +4036,8 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             long openingCatalogVersion = workspacePort.PlaylistCatalogVersion;
             InitializeSectionEditors();
+            // 表示開始時に確定値から不備の一覧を作り直し、表示中の外部変更は次の時機に反映します。
+            RefreshDeficiencies();
             // 候補の再構築で通知した版を記録します。その後のcatalog変更は通常の差分通知へ残します。
             Interlocked.Exchange(ref publishedPlaylistCatalogVersion, openingCatalogVersion);
         }

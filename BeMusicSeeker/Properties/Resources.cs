@@ -3154,6 +3154,10 @@ public class Resources
     public static string Settings_replacement_install_empty => ResourceManager.GetString("Settings_replacement_install_empty", resourceCulture);
     /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
     public static string Settings_use_on_start => ResourceManager.GetString("Settings_use_on_start", resourceCulture);
+    /// <summary>設定画面の下部で不備の一覧を示す案内欄の見出しです。</summary>
+    public static string Settings_deficiency_guidance_title => ResourceManager.GetString("Settings_deficiency_guidance_title", resourceCulture);
+    /// <summary>不備のあるページ一覧の項目に付ける印の、支援技術向けの状態名です。</summary>
+    public static string Settings_deficiency_page_mark => ResourceManager.GetString("Settings_deficiency_page_mark", resourceCulture);
     /// <summary>選択recordだけを確定する操作名です。</summary>
     public static string Settings_confirm_record => ResourceManager.GetString("Settings_confirm_record", resourceCulture);
     /// <summary>設定画面の環境とBMS編集の操作名です。</summary>

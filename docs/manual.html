@@ -475,6 +475,7 @@ hr {
 <li class="toc-level-3"><a href="#first-scan">First Scan</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#settings-dialog">Settings Dialog</a></summary><ul>
+<li class="toc-level-3"><a href="#settings-that-need-attention">Settings That Need Attention</a></li>
 <li class="toc-level-3"><details open><summary><a href="#general">General</a></summary><ul>
 <li class="toc-level-4"><a href="#registering-bms-directories">Registering BMS Directories</a></li>
 <li class="toc-level-4"><a href="#linked-with-lr2">Linked with LR2</a></li>
@@ -617,6 +618,7 @@ hr {
 <li class="toc-level-3"><a href="#logs--bug-reports">Logs / Bug Reports</a></li>
 <li class="toc-level-3"><details open><summary><a href="#startup--initialization">Startup / Initialization</a></summary><ul>
 <li class="toc-level-4"><a href="#a-registered-folder-is-unavailable">A Registered Folder Is Unavailable</a></li>
+<li class="toc-level-4"><a href="#startup-asks-you-to-check-settings">Startup Asks You to Check Settings</a></li>
 <li class="toc-level-4"><a href="#startup-or-initialization-is-slow">Startup or Initialization Is Slow</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#download--install">Download / Install</a></summary><ul>
@@ -675,6 +677,7 @@ hr {
 </ul>
 </li>
 <li><a href="#settings-dialog">Settings Dialog</a><ul>
+<li><a href="#settings-that-need-attention">Settings That Need Attention</a></li>
 <li><a href="#general">General</a><ul>
 <li><a href="#lr2-play-log">LR2 Play Log</a></li>
 </ul>
@@ -811,7 +814,7 @@ hr {
 <h3 id="first-launch">First Launch</h3>
 <p>On first launch, an initial setup dialog with language selection is shown.</p>
 <p><img alt="Initial setup" src="img/初回設定.PNG"/></p>
-<p>Choose a language, configure the required settings, and confirm the BMS directories. Press <code>Start with this environment</code> to begin the first scan.</p>
+<p>Choose a language, configure the required settings, and confirm the BMS directories. Press <code>Start with this environment</code> to begin the first scan. While any setting still needs correction, <code>Start with this environment</code> is unavailable. Use the entries under <code>Settings that need attention</code> at the bottom of the Settings dialog to go to each field and correct it.</p>
 <h3 id="operating-mode">Operating Mode</h3>
 <p>Choose the operating mode in the <code>General</code> settings category.</p>
 <div class="table-scroll"><table>
@@ -847,6 +850,9 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <p>Valid combinations of beatoraja directory and score source, audio output, player selection, and external image settings save automatically. Output locations save after folder selection and migration confirmation; additional locations save when added, removed, or renamed. Use each section’s confirmation button for BMS directories, BMT output, individual LR2 paths, and record editing. Switching categories keeps your input. <code>Discard these changes</code> resets that section’s unconfirmed input. <code>Close</code> discards remaining unconfirmed input and keeps saved settings. Reopening shows the latest saved values, including the BMT file retention option. Changing the language preserves your input and updates path and URL errors, history database status, and audio test results.</p>
 <p>Changing the score source reloads scores and play history together. Changing the beatoraja directory updates the required scores, history, and table output. The same window waits for processing to finish. Change and confirmation buttons are highlighted when there is an applicable change and disabled in gray when unnecessary. Right-click actions and play-log presets are confirmed one record at a time and apply from the next display or execution.</p>
 <p>If BMS, score, or BMT processing fails, its section shows that the settings are saved but processing is incomplete. Use the retry or confirmation button in that section. Saving another setting does not start a retry. During processing, you can still save unrelated ordinary settings and change audio output, images, and player selection or confirm right-click records. Audio tests and environment startup or restart retain their operation restrictions.</p>
+<h3 id="settings-that-need-attention">Settings That Need Attention</h3>
+<p>When a setting required to start using the library has a problem, <code>Settings that need attention</code> appears at the bottom of the Settings dialog and lists each problem as "Page: reason". Click an entry, or select it and press Enter or Space, to open that page and bring the field into view. Pages with problems show a <code>!</code> mark in the category list, and the reason also appears below the field. The list is updated when you save a setting, open the Settings dialog, change the display language, or when <code>Start with this environment</code> or the startup check finishes.</p>
+<p>Using scores, external images, BMT output, and external players are not saved when checked until the required directory or file is available; the reason appears below the field. Select the required item or clear the check to remove the reason. Combinations saved by earlier versions that do not meet these conditions are also listed. Clear the check and save, or correct the setting so that it meets the conditions.</p>
 <h3 id="general">General</h3>
 <p><img alt="General Settings" src="img/設定_一般.PNG"/></p>
 <p>Configure the language, operating mode, BMS directories, LR2 directory, beatoraja directory, and player to use.</p>
@@ -2045,7 +2051,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>Click <code>Restore playlists</code>, confirm, and select the saved SQL file. The application exits after restoration; start it again afterward.</p>
 <h3 id="automatic-lr2-file-backups">Automatic LR2 File Backups</h3>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Choose a destination folder dedicated to this feature. Folders directly inside it named with a date on or before today (<code>yyyy-MM-dd</code>) may be deleted during backup rotation, regardless of who created them or what they contain.</p></div>
-<p>In LR2 linked mode, enable <code>Backup and optimize LR2 data</code> in <code>Backup</code>. Choose an existing destination folder and select <code>config.xml</code>, <code>song.db</code>, and score databases as needed. Schedule choices are daily, weekly, and monthly; retention is <code>1</code>–<code>10</code> generations.</p>
+<p>In LR2 linked mode, enable <code>Backup and optimize LR2 data</code> in <code>Backup</code>. If no existing destination folder is set, a folder selection opens when you enable it. Choosing a folder saves the option and the destination together and shows that backups start from the next startup. Cancelling the selection leaves the option off. You can also choose the destination with <code>Browse</code> before enabling the option, and turning the option off keeps the destination. Then select <code>config.xml</code>, <code>song.db</code>, and score databases as needed. Schedule choices are daily, weekly, and monthly; retention is <code>1</code>–<code>10</code> generations.</p>
 <p>When the schedule is due at startup, files are saved in a <code>yyyy-MM-dd</code> folder under the destination. A date is saved only once; older generations exceeding retention are removed. Successful backup also optimizes the databases. Saving the setting does not run a backup immediately, so make manual copies when you need protection just before an operation.</p>
 <p>Folders dated in the future are excluded from scheduling, retention counts, and deletion until the current date reaches them. The total number of folders may therefore exceed the configured retention count.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>If score databases are selected for backup and the <code>Score</code> folder itself or any folder inside it is a folder link (such as a junction), the entire backup attempt fails. If database optimization cannot be completed after saving, a warning is shown and the saved backup is retained.</p></div>
@@ -2089,6 +2095,8 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>At startup, BeMusicSeeker checks every registered BMS directory regardless of the <code>Scan BMS files and component files at startup</code> setting. In LR2-linked mode, it also checks the normal, additional, and root folder custom output destinations. If any location cannot be found or accessed, initialization stops and a warning identifies the location. Unavailable registrations are not removed automatically.</p>
 <p>If an external or network drive is temporarily disconnected, reconnect it. If a registered location is incorrect, correct BMS directories under <code>General</code> and custom folder output destinations under <code>Playlist</code> in Settings. If you have not yet created a folder at the intended location, create it; if access is denied, check its permissions. Creating an empty folder does not restore the charts that were previously stored there.</p>
 <p>After correcting the problem, confirm the corrected sections in Settings and press <code>Start with this environment</code> to retry initialization. You can also reconnect the drive and restart the application. For this check, both BMS directories and LR2 custom output destinations only need to be readable.</p>
+<h4 id="startup-asks-you-to-check-settings">Startup Asks You to Check Settings</h4>
+<p>If a required setting has a problem at startup or when you press <code>Start with this environment</code>, "Please check that the setting is correct." is shown followed by each setting that needs correction as "Page: reason". After you close the message, the same entries are listed under <code>Settings that need attention</code> in the Settings dialog. At startup, the Settings dialog opens after you close the message; if you pressed <code>Start with this environment</code>, they appear in the Settings dialog that is already open. Go to each field from its entry, correct it, and press <code>Start with this environment</code> to retry initialization.</p>
 <h4 id="startup-or-initialization-is-slow">Startup or Initialization Is Slow</h4>
 <ul>
 <li>Install Everything 1.5 (x64) and check that it can search your BMS folders.</li>

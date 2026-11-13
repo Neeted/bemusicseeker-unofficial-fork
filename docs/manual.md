@@ -17,6 +17,7 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Operating Mode](#operating-mode)
     - [First Scan](#first-scan)
 - [Settings Dialog](#settings-dialog)
+    - [Settings That Need Attention](#settings-that-need-attention)
     - [General](#general)
         - [LR2 Play Log](#lr2-play-log)
     - [Appearance](#appearance)
@@ -145,7 +146,7 @@ On first launch, an initial setup dialog with language selection is shown.
 
 ![Initial setup](img/初回設定.PNG)
 
-Choose a language, configure the required settings, and confirm the BMS directories. Press `Start with this environment` to begin the first scan.
+Choose a language, configure the required settings, and confirm the BMS directories. Press `Start with this environment` to begin the first scan. While any setting still needs correction, `Start with this environment` is unavailable. Use the entries under `Settings that need attention` at the bottom of the Settings dialog to go to each field and correct it.
 
 ### Operating Mode
 
@@ -179,6 +180,12 @@ Valid combinations of beatoraja directory and score source, audio output, player
 Changing the score source reloads scores and play history together. Changing the beatoraja directory updates the required scores, history, and table output. The same window waits for processing to finish. Change and confirmation buttons are highlighted when there is an applicable change and disabled in gray when unnecessary. Right-click actions and play-log presets are confirmed one record at a time and apply from the next display or execution.
 
 If BMS, score, or BMT processing fails, its section shows that the settings are saved but processing is incomplete. Use the retry or confirmation button in that section. Saving another setting does not start a retry. During processing, you can still save unrelated ordinary settings and change audio output, images, and player selection or confirm right-click records. Audio tests and environment startup or restart retain their operation restrictions.
+
+### Settings That Need Attention
+
+When a setting required to start using the library has a problem, `Settings that need attention` appears at the bottom of the Settings dialog and lists each problem as "Page: reason". Click an entry, or select it and press Enter or Space, to open that page and bring the field into view. Pages with problems show a `!` mark in the category list, and the reason also appears below the field. The list is updated when you save a setting, open the Settings dialog, change the display language, or when `Start with this environment` or the startup check finishes.
+
+Using scores, external images, BMT output, and external players are not saved when checked until the required directory or file is available; the reason appears below the field. Select the required item or clear the check to remove the reason. Combinations saved by earlier versions that do not meet these conditions are also listed. Clear the check and save, or correct the setting so that it meets the conditions.
 
 ### General
 
@@ -1354,7 +1361,7 @@ Click `Restore playlists`, confirm, and select the saved SQL file. The applicati
 > [!CAUTION]
 > Choose a destination folder dedicated to this feature. Folders directly inside it named with a date on or before today (`yyyy-MM-dd`) may be deleted during backup rotation, regardless of who created them or what they contain.
 
-In LR2 linked mode, enable `Backup and optimize LR2 data` in `Backup`. Choose an existing destination folder and select `config.xml`, `song.db`, and score databases as needed. Schedule choices are daily, weekly, and monthly; retention is `1`–`10` generations.
+In LR2 linked mode, enable `Backup and optimize LR2 data` in `Backup`. If no existing destination folder is set, a folder selection opens when you enable it. Choosing a folder saves the option and the destination together and shows that backups start from the next startup. Cancelling the selection leaves the option off. You can also choose the destination with `Browse` before enabling the option, and turning the option off keeps the destination. Then select `config.xml`, `song.db`, and score databases as needed. Schedule choices are daily, weekly, and monthly; retention is `1`–`10` generations.
 
 When the schedule is due at startup, files are saved in a `yyyy-MM-dd` folder under the destination. A date is saved only once; older generations exceeding retention are removed. Successful backup also optimizes the databases. Saving the setting does not run a backup immediately, so make manual copies when you need protection just before an operation.
 
@@ -1405,6 +1412,10 @@ At startup, BeMusicSeeker checks every registered BMS directory regardless of th
 If an external or network drive is temporarily disconnected, reconnect it. If a registered location is incorrect, correct BMS directories under `General` and custom folder output destinations under `Playlist` in Settings. If you have not yet created a folder at the intended location, create it; if access is denied, check its permissions. Creating an empty folder does not restore the charts that were previously stored there.
 
 After correcting the problem, confirm the corrected sections in Settings and press `Start with this environment` to retry initialization. You can also reconnect the drive and restart the application. For this check, both BMS directories and LR2 custom output destinations only need to be readable.
+
+#### Startup Asks You to Check Settings
+
+If a required setting has a problem at startup or when you press `Start with this environment`, "Please check that the setting is correct." is shown followed by each setting that needs correction as "Page: reason". After you close the message, the same entries are listed under `Settings that need attention` in the Settings dialog. At startup, the Settings dialog opens after you close the message; if you pressed `Start with this environment`, they appear in the Settings dialog that is already open. Go to each field from its entry, correct it, and press `Start with this environment` to retry initialization.
 
 #### Startup or Initialization Is Slow
 

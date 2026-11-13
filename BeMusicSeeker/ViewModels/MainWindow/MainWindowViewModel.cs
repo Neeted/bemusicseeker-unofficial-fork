@@ -207,7 +207,7 @@ public partial class MainWindowViewModel : ViewModel,
 
     Task<LeapYearFolderRepairApproval> ISettingsDialogStatePort.PrepareLibraryInitializationAsync()
     {
-        if (!SettingDialog.CheckValidationForInitialization(out _)) { return Task.FromResult<LeapYearFolderRepairApproval>(null); }
+        if (SettingDialog.BuildDeficiencies().Count > 0) { return Task.FromResult<LeapYearFolderRepairApproval>(null); }
         StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
         return startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
             settings.OperationModeLR2DB ? settings.LR2SongDBPath : applicationComposition.ApplicationPathSnapshot.StandaloneSongDbPath,
@@ -3285,17 +3285,18 @@ public partial class MainWindowViewModel : ViewModel,
                     && !IsRequiredInitializationShutdownRequested)
                 {
                     startupProgressWorkflowOwner.SetStartupUiInteractionBlocked(false);
-                    if (result.ValidationFailure != null)
+                    if (result.Deficiencies != null)
                     {
-                        try { NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + result.ValidationFailure.Replace(Environment.NewLine, " | ")); }
+                        try { NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + SettingsDeficiency.FormatDiagnostic(result.Deficiencies)); }
                         catch (Exception diagnosticFailure) { ReportStartupSettingsValidationNotificationFailure(diagnosticFailure); }
                         try
                         {
                             if (isNormalStartup && applicationLifetime.IsFirstStartup) { SettingDialog?.RequestInitialSetupLanguageDialog(); }
                             else
                             {
+                                // 設定画面の案内欄と同じ一覧の行を添えます。
                                 UiDialogResult warning = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
-                                    BeMusicSeeker.Properties.Resources.Msg_init_settings_check, BeMusicSeeker.Properties.Resources.Warning,
+                                    SettingsDeficiency.FormatStartupWarning(result.Deficiencies), BeMusicSeeker.Properties.Resources.Warning,
                                     MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK));
                                 if (warning?.Status == UiDialogStatus.AppClosing && IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
                                 UiDialogRoute.ThrowIfNotShown(warning, "Startup settings validation notification");
@@ -3535,7 +3536,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
 
         if (isNormalStartup && outcome == StartupInitializationOutcome.SettingsRequired && !IsRequiredInitializationShutdownRequested
-            && !(initializationResult.ValidationFailure != null && applicationLifetime.IsFirstStartup))
+            && !(initializationResult.Deficiencies != null && applicationLifetime.IsFirstStartup))
         {
             SettingDialog?.RequestOpen();
         }
@@ -3586,14 +3587,17 @@ public partial class MainWindowViewModel : ViewModel,
                 startupSettings,
                 startupCustomFolderSettings, applicationComposition.Lr2ConfigSession);
             startupLr2Config = config;
-            string startupValidationErrorMessage = BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbOrConfigPath;
-            if (!configValid || !SettingDialog.CheckValidationForInitialization(out startupValidationErrorMessage))
+            // 起動時検査の一覧をそのまま設定画面へ公開し、警告の行・案内欄・開始ボタンを食い違わせません。
+            // 設定XMLを解決できない場合は、一覧が同じ解決を検査できなくても一般／LR2環境の項目を必ず含めます。
+            IReadOnlyList<SettingsDeficiency> deficiencies = SettingDialog.RefreshStartupDeficiencies(configValid);
+            if (deficiencies.Count > 0)
             {
-                return new(StartupInitializationOutcome.SettingsRequired, startupSettings, ValidationFailure: startupValidationErrorMessage ?? string.Empty);
+                return new(StartupInitializationOutcome.SettingsRequired, startupSettings, Deficiencies: deficiencies);
             }
         }
         catch (LibraryDirectoryPreflightException failure)
         {
+            SettingDialog.RefreshDeficiencies();
             recordDirectoryWarningPhase?.Invoke(LibraryDirectoryWarningPhase.Early);
             operationToken = startupProgressWorkflowOwner.StartStartupProgressOperation(
                 StartupProgressOperationKind.Startup);

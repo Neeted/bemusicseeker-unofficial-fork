@@ -48,12 +48,13 @@
     </settings:SettingsSection>
 
     <settings:SettingsSection Margin="0" IsEnabled="{Binding IsIndependentSectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}"><StackPanel>
-      <StackPanel>
+      <StackPanel settings:SettingsDeficiencyTarget.Field="ExternalImage">
         <CheckBox x:Name="checkBoxUseExternalPanelImage" IsChecked="{Binding UseExternalPanelImage}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}" />
         <settings:SettingsPathPicker Margin="26,8,0,0" IsEnabled="{Binding IsChecked, ElementName=checkBoxUseExternalPanelImage}"
                                      Label="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_StageFile, Mode=OneWay}"
                                      Path="{Binding StagefilePath, Mode=OneWay}" IsPathReadOnly="True"
                                      BrowseText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}"
+                                     ValidationMessage="{Binding FieldReasons[ExternalImage], Mode=OneWay}" ValidationStatus="{Binding FieldReasonStatuses[ExternalImage], Mode=OneWay}"
                                      BrowseRequested="browseStagefilePathButtonClick" />
       </StackPanel>
     <Button Tag="retry:image" Style="{StaticResource SettingsQuietButtonStyle}" HorizontalAlignment="Left" Margin="0,8,0,0" IsEnabled="{Binding IsIndependentSectionEnabled}" Visibility="{Binding CanRetryImageSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_retry, Mode=OneWay}" /></StackPanel></settings:SettingsSection>

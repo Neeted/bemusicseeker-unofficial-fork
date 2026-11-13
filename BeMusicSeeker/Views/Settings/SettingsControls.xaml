@@ -187,12 +187,22 @@
                 <ColumnDefinition Width="3" />
                 <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
               <Border x:Name="SelectionIndicator" Width="3" />
               <ContentPresenter Grid.Column="2"
                                 HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
                                 VerticalAlignment="Center"
                                 RecognizesAccessKey="True" />
+              <!-- 不備のあるページの印。状態の文言は SettingsNavigationMark が項目の AutomationProperties.ItemStatus へ写す。 -->
+              <settings:SettingsStatusIcon x:Name="DeficiencyMark"
+                                            Grid.Column="3"
+                                            Margin="8,0,0,0"
+                                            VerticalAlignment="Center"
+                                            FontWeight="Bold"
+                                            Foreground="{DynamicResource App.ErrorTextBrush}"
+                                            Visibility="Collapsed"
+                                            Text="!" />
             </Grid>
           </Border>
           <ControlTemplate.Triggers>
@@ -210,6 +220,9 @@
             <Trigger Property="IsEnabled" Value="False">
               <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
               <Setter TargetName="NavigationPill" Property="Opacity" Value="0.6" />
+            </Trigger>
+            <Trigger Property="settings:SettingsNavigationMark.IsMarked" Value="True">
+              <Setter TargetName="DeficiencyMark" Property="Visibility" Value="Visible" />
             </Trigger>
           </ControlTemplate.Triggers>
         </ControlTemplate>

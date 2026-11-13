@@ -1,6 +1,7 @@
 using System;
 using System.Windows;
 using System.Windows.Controls;
+using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views.Settings.Pages;
 
@@ -54,11 +55,31 @@ public partial class BackupSettingsPage : UserControl
         SettingsWindow settingsWindow = GetSettingsWindow();
         try
         {
-            settingsWindow.HandleBrowseLr2BackupPath();
+            await settingsWindow.HandleBrowseLr2BackupPathAsync(reportFailure: true);
         }
         catch (Exception exception)
         {
             await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 backup folder picker");
+        }
+    }
+
+    /// <summary>
+    /// クリック・キーボード・UIオートメーションの切替のどれでも通る表示状態の変化を、LR2バックアップの有効化の要求として扱います。
+    /// 束縛の更新で確定値・候補へ揃えた変化は要求と候補が一致するため処理せず、保存結果の反映から再入しません。
+    /// </summary>
+    private async void lr2BackupEnabledCheckBoxToggled(object sender, RoutedEventArgs e)
+    {
+        var checkBox = (CheckBox)sender;
+        bool requested = checkBox.IsChecked == true;
+        if (checkBox.DataContext is not SettingsDialogViewModel settings || settings.IsLR2BackupEnabled == requested) { return; }
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            await settingsWindow.HandleLr2BackupEnabledChangedAsync(requested, reportFailure: true);
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 backup enable");
         }
     }
 }

@@ -1345,6 +1345,8 @@
   "Settings_replacement_install_required": "The directory you are removing is the current install destination. To continue, select an install destination from the remaining BMS directories.",
   "Settings_replacement_install_empty": "No BMS directories remain. Add a BMS directory or cancel these changes.",
   "Settings_use_on_start": "Saved settings will be used when you start with this environment.",
+  "Settings_deficiency_guidance_title": "Settings that need attention",
+  "Settings_deficiency_page_mark": "Contains settings that need attention",
   "Settings_confirm_record": "Save this record",
   "Settings_environment": "Environment",
   "Settings_open_bms_roots": "Edit BMS directories",

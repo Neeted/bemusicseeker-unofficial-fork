@@ -1345,6 +1345,8 @@
   "Settings_replacement_install_required": "削除しようとしているディレクトリは現在のインストール先です。削除を続行する場合は残っているBMSディレクトリからインストール先を選び直してください。",
   "Settings_replacement_install_empty": "BMSディレクトリが残っていません。BMSディレクトリを追加するか、変更を取り消してください。",
   "Settings_use_on_start": "保存済みの設定は「この環境で開始」で使用します。",
+  "Settings_deficiency_guidance_title": "対応が必要な設定",
+  "Settings_deficiency_page_mark": "対応が必要な設定があります",
   "Settings_confirm_record": "この項目を確定",
   "Settings_environment": "環境",
   "Settings_open_bms_roots": "BMS一覧を編集",

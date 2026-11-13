@@ -55,6 +55,7 @@ public partial class SettingsDialogViewModel
         externalPlayerUsePlayerBMIIDXView = ApplicationSettings.UsePlayerBMIIDXView;
         imageUseExternalPanelImage = ApplicationSettings.UseExternalPanelImage;
         imageStagefilePath = ApplicationSettings.StagefilePath;
+        lr2BackupEnabledCandidate = ApplicationSettings.IsLR2BackupEnabled;
         outputLR2CustomFolderOutputBaseDir = ApplicationSettings.LR2CustomFolderOutputBaseDir;
         outputLR2CustomFolderOutputBaseDirRootType = ApplicationSettings.LR2CustomFolderOutputBaseDirRootType;
         outputLR2CustomFolderAdditionalOutputBaseDirs = ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs;
@@ -71,7 +72,6 @@ public partial class SettingsDialogViewModel
             if (changed && changes.Any(item => item.Name is nameof(Settings.EnablePlaylistUrlCompletion) or nameof(Settings.OverwritePlaylistUrlsWithCompletion)
                 or nameof(Settings.EnableStellaFullPlaylistUrlCompletion) or nameof(Settings.PlaylistMd5UrlMappingTsvUri)))
             { workspacePort.SchedulePlaylistUrlCompletionRefresh("settings item confirmation"); }
-            return true;
         }
         catch (Exception exception)
         {
@@ -79,6 +79,11 @@ public partial class SettingsDialogViewModel
             reportApplyFailure(exception);
             return false;
         }
+        // 項目保存の終端で確定値から不備の一覧を作り直します。保存は成功済みのため、作り直しの失敗は保存結果に混ぜず、
+        // 設定操作の失敗経路で別に通知します。
+        try { RefreshDeficiencies(); }
+        catch (Exception exception) { reportApplyFailure(exception); }
+        return true;
     }
 
     private bool refreshingSectionEditors;
@@ -149,6 +154,7 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(UseInternalPlayer));
         RaisePropertyChanged(nameof(UseExternalPanelImage));
         RaisePropertyChanged(nameof(StagefilePath));
+        RaisePropertyChanged(nameof(IsLR2BackupEnabled));
         RaisePropertyChanged(nameof(LR2CustomFolderOutputDir));
         RaisePropertyChanged(nameof(LR2CustomFolderAsRootOutputDir));
         RaisePropertyChanged(nameof(BMSInstallDir));
@@ -271,7 +277,7 @@ public partial class SettingsDialogViewModel
     internal async Task CommitScoreSettingsCoreAsync()
     {
         if (!IsSectionCompletionEnabled || statePort.IsLibraryOperationInProgress) { return; }
-        if (!IsScoreSelectionValid) { ShowSettingValidationError(Resources.Error_InvalidBeatorajaScoreDbPath); return; }
+        if (ScoreCandidateUnmetReason is string unmetReason) { ShowSettingValidationError(unmetReason); return; }
         if (!HasScoreSelectionChanges) { return; }
         bool useScore = scoreUseBeatorajaScoreDb;
         string player = scoreBeatorajaPlayerId;
@@ -295,7 +301,7 @@ public partial class SettingsDialogViewModel
             else if (operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation) { await SaveAndReload(null); }
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
-        finally { IsEditCompletionInProgress = false; RaiseEnvironmentAvailabilityChanged(); }
+        finally { IsEditCompletionInProgress = false; RefreshDeficiencies(); RaiseEnvironmentAvailabilityChanged(); }
     }
 
     /// <summary>新rootを独立確定し、確定済みスコア使用方針とBMT方針で両取得先を反映します。旧root前提の候補は採用点でだけ破棄します。</summary>
@@ -360,7 +366,7 @@ public partial class SettingsDialogViewModel
             else if (operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation) { await SaveAndReflect(null); }
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
-        finally { IsEditCompletionInProgress = false; RaiseEnvironmentAvailabilityChanged(); }
+        finally { IsEditCompletionInProgress = false; RefreshDeficiencies(); RaiseEnvironmentAvailabilityChanged(); }
     }
 
     private static string ResolveRootPlayer(string root)
@@ -379,8 +385,7 @@ public partial class SettingsDialogViewModel
         if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress) { return; }
         string root = ApplicationSettings.BeatorajaRootPath;
         string tablePath = BeatorajaConfigService.GetTablePath(root);
-        if (bmtEnableBeatorajaBmtOutput && (!BeatorajaConfigService.IsBeatorajaRootPathValid(root) || string.IsNullOrWhiteSpace(tablePath)))
-        { ShowSettingValidationError(Resources.Error_InvalidBeatorajaRootPath); return; }
+        if (BmtCandidateUnmetReason is string unmetReason) { ShowSettingValidationError(unmetReason); return; }
         if (bmtEnableBeatorajaBmtOutput && !ApplicationSettings.EnableBeatorajaBmtOutput
             && workspacePort.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(root)
             && !ShowUiConfirmation(Resources.Confirm_enable_beatoraja_bmt_output_before_table_url_import,
@@ -429,7 +434,7 @@ public partial class SettingsDialogViewModel
             else { await CompleteAcceptedSection(); }
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
-        finally { IsEditCompletionInProgress = false; RaiseEnvironmentAvailabilityChanged(); }
+        finally { IsEditCompletionInProgress = false; RefreshDeficiencies(); RaiseEnvironmentAvailabilityChanged(); }
     }
 
     /// <summary>BMTの未確定入力だけを取消します。</summary>
@@ -562,9 +567,8 @@ public partial class SettingsDialogViewModel
         && CheckBmsRootsBeforeConfirmation(out _)
         && (!RequiresReplacementBmsInstallDir || AvailableBMSDirectories.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase));
 
-    /// <summary>確定rootで有効な今回BMT候補の確定・全表再更新を受け付けます。</summary>
-    public bool CanConfirmBmtSettings => IsEnvironmentSelectionEnabled
-        && (!bmtEnableBeatorajaBmtOutput || BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath));
+    /// <summary>確定rootと表の出力先で成立する今回BMT候補の確定・全表再更新を受け付けます。未成立の理由は欄の直下に示します。</summary>
+    public bool CanConfirmBmtSettings => IsEnvironmentSelectionEnabled && BmtCandidateUnmetReason == null;
 
     /// <summary>BMTの未確定オプションだけに取消可能な差分があるかを示します。</summary>
     public bool CanCancelBmtSettings => IsSectionCompletionEnabled && HasBmtSelectionChanges;
@@ -653,7 +657,7 @@ public partial class SettingsDialogViewModel
             else { await SaveAndReload(null); }
         }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
-        finally { IsEditCompletionInProgress = false; RaiseEnvironmentAvailabilityChanged(); }
+        finally { IsEditCompletionInProgress = false; RefreshDeficiencies(); RaiseEnvironmentAvailabilityChanged(); }
     }
 
     /// <summary>利用者候補ではなく確定済み登録と配置から、存在確認前の実検索範囲を捕捉します。</summary>
@@ -676,72 +680,6 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(ReplacementBmsInstallDir));
     }
 
-    /// <summary>初期化が読む確定値だけを検証します。別セクションの入力途中の候補は初回開始を妨げません。</summary>
-    internal bool CheckValidationForInitialization(out string errMsg)
-    {
-        var failures = new List<string>();
-        Settings settings = ApplicationSettings;
-        if (settings.OperationModeLR2DB)
-        {
-            if (!IsLR2SongDBPathValid(settings.LR2SongDBPath) || !lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, out _))
-            { failures.Add(Resources.Error_InvalidLR2SongDbOrConfigPath); }
-            if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDir)) { failures.Add(Resources.Error_CustomFolderOutputPathNotSet); }
-            if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDirRootType)) { failures.Add(Resources.Error_CustomFolderRootOutputPathNotSet); }
-            if (lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, out Lr2ConfigOwner confirmedConfig))
-            {
-                IReadOnlyList<NestedBmsSearchRootConflict> conflicts = CollectNestedBmsSearchRootConflicts(confirmedConfig.Capture().RegisteredRoots);
-                if (conflicts.Count > 0) { failures.Add(BuildNestedBmsSearchRootConflictMessage(conflicts)); }
-                try
-                {
-                    var bases = new List<(string Path, string Label, bool Root)> {
-                        (settings.LR2CustomFolderOutputBaseDir, Resources.Label_NormalOutputBase, false),
-                        (settings.LR2CustomFolderOutputBaseDirRootType, Resources.Label_RootOutputBase, true) };
-                    bases.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(settings.LR2CustomFolderAdditionalOutputBaseDirs)
-                        .Select(path => (path, Resources.Label_AdditionalOutputBaseFolder, false)));
-                    var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    for (int index = 0; index < bases.Count; index++)
-                    {
-                        (string Path, string Label, bool Root) output = bases[index];
-                        CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(output.Path, output.Label);
-                        CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(output.Path,
-                            confirmedConfig.Capture().RegisteredRoots, output.Label, allowRegisteredChildren: output.Root);
-                        if (!output.Root && !names.Add(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(output.Path)))
-                        { failures.Add(FormatResource(Resources.Validation_OutputBaseNameDuplicateFormat, CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(output.Path))); }
-                        foreach ((string Path, string Label, bool Root) other in bases.Take(index)) { ValidateOutputBasesDoNotOverlap(output.Path, output.Label, other.Path, other.Label); }
-                    }
-                }
-                catch (Exception failure) when (failure is ArgumentException or InvalidOperationException or NotSupportedException or System.IO.PathTooLongException)
-                { failures.Add(failure.Message); }
-            }
-        }
-        else
-        {
-            IReadOnlyList<string> roots = StandaloneBmsRootPathSettings.Deserialize(settings.StandaloneBmsRootPaths, settings.BMSRootPath);
-            if (NormalizeStandaloneBmsRootPaths(roots).Count == 0) { failures.Add(Resources.Error_InvalidStandaloneBmsRootPaths); }
-            List<string> incompatible = GetLr2IncompatibleStandaloneBmsRootPaths(NormalizeStandaloneBmsRootPaths(roots));
-            if (incompatible.Count > 0) { failures.Add(Resources.Error_Lr2IncompatibleBmsRootPath + Environment.NewLine + string.Join(Environment.NewLine, incompatible)); }
-        }
-        if (settings.UseBeatorajaScoreDb && !IsBeatorajaScoreDbPathValid(settings.BeatorajaScoreDbPath)) { failures.Add(Resources.Error_InvalidBeatorajaScoreDbPath); }
-        if ((settings.UseBeatorajaScoreDb || settings.EnableBeatorajaBmtOutput) && !BeatorajaConfigService.IsBeatorajaRootPathValid(settings.BeatorajaRootPath))
-        { failures.Add(Resources.Error_InvalidBeatorajaRootPath); }
-        if (settings.EnableBeatorajaBmtOutput && BeatorajaConfigService.IsBeatorajaRootPathValid(settings.BeatorajaRootPath)
-            && string.IsNullOrWhiteSpace(BeatorajaConfigService.GetTablePath(settings.BeatorajaRootPath))) { failures.Add(Resources.Error_InvalidBeatorajaBmtTablePath); }
-        if (settings.UseExternalPanelImage && !IsStagefilePathValid(settings.StagefilePath)) { failures.Add(Resources.Error_InvalidStagefilePath); }
-        if (settings.UsePlayeruBMplay && !IsuBMplayPathValid(settings.uBMplayPath)) { failures.Add(Resources.Error_InvalidUBMPlayExecutablePath); }
-        if (settings.UsePlayerBMIIDXView && !IsBMIIDXViewPathValid(settings.BMIIDXViewPath)) { failures.Add(Resources.Error_InvalidBMIIDXViewPath); }
-        if (settings.UsePlayerLR2body)
-        {
-            if (!IsLR2PlayerRootPathValid(settings.LR2RootPath) || !lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, out _)) { failures.Add(Resources.Error_InvalidLR2RootPath); }
-            string executable = StartupSettingsSnapshot.CreateCurrent(settings).LR2bodyPath;
-            if (!System.IO.File.Exists(executable)) { failures.Add(FormatResource(Resources.Error_LR2ExecutableNotFoundFormat, executable)); }
-            if ((int)settings.LR2bodyResolution.X <= 0 || (int)settings.LR2bodyResolution.Y <= 0) { failures.Add(Resources.Error_InvalidLR2WindowSize); }
-        }
-        if (!IsBMSInstallDirValid(settings.BMSInstallDir)) { failures.Add(Resources.Error_InvalidBmsInstallDir); }
-        if (settings.IsLR2BackupEnabled && settings.OperationModeLR2DB && !IsLR2BackupPathValid(settings.LR2BackupPath)) { failures.Add(Resources.Error_LR2BackupPathNotSet); }
-        errMsg = string.Join(Environment.NewLine, failures);
-        return failures.Count == 0;
-    }
-
     /// <summary>有効なライブラリ環境がない場合は保存後の明示開始を表示します。</summary>
     public bool IsInitialEnvironment => !statePort.HasActiveLibraryProfile;
 
@@ -757,10 +695,10 @@ public partial class SettingsDialogViewModel
     private bool IsEnvironmentSelectionCoreEnabled => IsSectionCompletionEnabled && !environmentTransitionInProgress
         && !statePort.IsLibraryOperationInProgress;
 
-    /// <summary>確定済みの設定から初回開始を受け付けられるかを示します。</summary>
+    /// <summary>初回で受付可能かつ公開中の不備の一覧が空のときだけ、確定済みの設定から初回開始を受け付けます。無効の理由は案内欄で示します。</summary>
     public bool CanStartEnvironment => IsInitialEnvironment && IsEnvironmentSelectionEnabled
         && operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation
-        && CheckValidationForInitialization(out _);
+        && Deficiencies.Count == 0;
 
     /// <summary>LR2詳細の適用可能差分だけを確定できます。rootが空でも有効な個別パスを受理します。</summary>
     public bool CanConfirmEnvironment => HasEnvironmentChanges && IsEnvironmentSelectionEnabled
@@ -916,6 +854,7 @@ public partial class SettingsDialogViewModel
                 RaiseValidationStateChanged();
             }
             catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
+            finally { RefreshDeficiencies(); }
             return;
         }
         if (operationAdmission.IsAdmissionClosed || statePort.IsLibraryOperationInProgress) { return; }
@@ -1211,7 +1150,7 @@ public partial class SettingsDialogViewModel
                 else { await CompleteAcceptedSection(); }
             }
             catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
-            finally { IsEditCompletionInProgress = false; RaiseEnvironmentAvailabilityChanged(); }
+            finally { IsEditCompletionInProgress = false; RefreshDeficiencies(); RaiseEnvironmentAvailabilityChanged(); }
         }
         finally
         {

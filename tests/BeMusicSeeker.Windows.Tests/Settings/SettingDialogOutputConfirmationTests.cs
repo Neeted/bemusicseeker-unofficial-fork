@@ -182,7 +182,7 @@ public sealed class SettingDialogOutputConfirmationTests
                     Assert.IsTrue(File.Exists(pendingPath)); Assert.IsTrue(File.Exists(unrelatedPath));
                     using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly())
                     { CollectionAssert.AreEqual(new[] { unrelated.path }, pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray()); }
-                    Assert.IsTrue(owner.SettingDialog.CheckValidationForInitialization(out string error), error);
+                    Assert.AreEqual(string.Empty, SettingsDeficiency.FormatDiagnostic(owner.SettingDialog.BuildDeficiencies()));
                 }
                 finally
                 {

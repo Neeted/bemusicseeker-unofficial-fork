@@ -1345,6 +1345,8 @@
   "Settings_replacement_install_required": "您要移除的目录是当前安装位置。若要继续，请从剩余的 BMS 目录中重新选择安装位置。",
   "Settings_replacement_install_empty": "没有剩余的 BMS 目录。请添加 BMS 目录或取消更改。",
   "Settings_use_on_start": "保存的设置将在使用此环境启动时生效。",
+  "Settings_deficiency_guidance_title": "需要处理的设置",
+  "Settings_deficiency_page_mark": "包含需要处理的设置",
   "Settings_confirm_record": "保存此条目",
   "Settings_environment": "环境",
   "Settings_open_bms_roots": "编辑 BMS 文件夹",

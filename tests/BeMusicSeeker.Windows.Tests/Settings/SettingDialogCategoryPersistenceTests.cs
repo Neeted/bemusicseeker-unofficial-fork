@@ -719,14 +719,31 @@ public sealed class SettingDialogCategoryPersistenceTests
             SettingsWindow? window = null;
             try
             {
-                if (!missingPreviousDirectories) { Assert.IsFalse(owner.SettingDialog.CheckValidationForInitialization(out _)); }
+                if (!missingPreviousDirectories) { Assert.AreNotEqual(0, owner.SettingDialog.BuildDeficiencies().Count); }
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
                 scope.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
                 string otherSection = firstSection == "normal" ? "root" : "normal";
+                var start = (Button)window.FindName("buttonOK");
+                var guidance = (FrameworkElement)window.FindName("settingsDeficiencyGuidance");
+                SettingsDeficiencyField[] FieldsOf(IReadOnlyList<SettingsDeficiency> list) => list.Select(item => item.Field).ToArray();
+                if (!missingPreviousDirectories)
+                {
+                    // 未設定の理由を通常・ROOTの順に並べ、続く出力先の検査例外も原因の通常出力先の欄へ割り当てます。
+                    CollectionAssert.AreEqual(new[] { SettingsDeficiencyField.NormalOutput, SettingsDeficiencyField.RootOutput, SettingsDeficiencyField.NormalOutput }, FieldsOf(owner.SettingDialog.Deficiencies), SettingsDeficiency.FormatDiagnostic(owner.SettingDialog.Deficiencies));
+                }
                 SetCustomFolderOutput(owner.SettingDialog, otherSection, Path.Combine(root, "UnconfirmedOutput"));
+                // 他区分の局所候補は確定値ではないため、一覧を変えません。
+                IReadOnlyList<SettingsDeficiency> beforeSelection = owner.SettingDialog.Deficiencies;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreSame(beforeSelection, owner.SettingDialog.Deficiencies);
+                if (!missingPreviousDirectories)
+                {
+                    Assert.IsFalse(start.IsEnabled);
+                    Assert.AreEqual(Visibility.Visible, guidance.Visibility);
+                }
                 int completed = 0;
                 foreach (string section in new[] { firstSection, otherSection })
                 {
@@ -758,7 +775,20 @@ public sealed class SettingDialogCategoryPersistenceTests
                         else { CollectionAssert.DoesNotContain(registered, previousNormal); }
                     }
                     if (!missingPreviousDirectories || completed == 2)
-                    { Assert.AreEqual(completed == 2, owner.SettingDialog.CheckValidationForInitialization(out string error), error); }
+                    {
+                        // 出力先の確定操作の終端で一覧を作り直し、開始ボタンの可否も同じ一覧に従います。
+                        Assert.AreEqual(completed == 2, owner.SettingDialog.Deficiencies.Count == 0, SettingsDeficiency.FormatDiagnostic(owner.SettingDialog.Deficiencies));
+                        Assert.AreEqual(completed == 2, owner.SettingDialog.CanStartEnvironment);
+                        if (!missingPreviousDirectories && completed == 1)
+                        {
+                            SettingsDeficiencyField remaining = section == "normal" ? SettingsDeficiencyField.RootOutput : SettingsDeficiencyField.NormalOutput;
+                            CollectionAssert.AreEqual(new[] { remaining, remaining },
+                                FieldsOf(owner.SettingDialog.Deficiencies), SettingsDeficiency.FormatDiagnostic(owner.SettingDialog.Deficiencies));
+                        }
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(completed == 2, start.IsEnabled);
+                        Assert.AreEqual(completed == 2 ? Visibility.Collapsed : Visibility.Visible, guidance.Visibility);
+                    }
                 }
             }
             finally

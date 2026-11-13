@@ -1345,6 +1345,8 @@
   "Settings_replacement_install_required": "Le dossier à retirer est la destination d’installation actuelle. Pour continuer, sélectionnez une destination parmi les dossiers BMS restants.",
   "Settings_replacement_install_empty": "Il ne reste aucun dossier BMS. Ajoutez un dossier BMS ou annulez les modifications.",
   "Settings_use_on_start": "Les réglages enregistrés seront utilisés au démarrage de cet environnement.",
+  "Settings_deficiency_guidance_title": "Paramètres à corriger",
+  "Settings_deficiency_page_mark": "Contient des paramètres à corriger",
   "Settings_confirm_record": "Enregistrer cette entrée",
   "Settings_environment": "Environnement",
   "Settings_open_bms_roots": "Modifier les dossiers BMS",

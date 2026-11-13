@@ -499,7 +499,7 @@ public sealed class MainWindowViewModelStartupProgressTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(core, "limited-score-core");
                 result = core.GetAwaiter().GetResult();
                 Assert.AreEqual(uiFails ? StartupInitializationOutcome.Succeeded : StartupInitializationOutcome.OperationFailed, result.Outcome);
-                Assert.IsNull(result.ValidationFailure);
+                Assert.IsNull(result.Deficiencies);
                 Assert.IsFalse(result.CompletionPublished);
                 if (!uiFails) { Assert.AreSame(failure, result.Failure); }
             }
@@ -518,7 +518,7 @@ public sealed class MainWindowViewModelStartupProgressTests
             result = completion.GetAwaiter().GetResult();
             Assert.AreEqual(StartupInitializationOutcome.OperationFailed, result.Outcome);
             Assert.AreSame(failure, result.Failure);
-            Assert.IsNull(result.ValidationFailure);
+            Assert.IsNull(result.Deficiencies);
             Assert.IsFalse(result.CompletionPublished);
             Assert.AreEqual(0, fixture.Presentation.Requests.Count);
             Assert.IsFalse(fixture.Owner.IsLibraryOperationInProgress);
@@ -777,7 +777,7 @@ public sealed class MainWindowViewModelStartupProgressTests
         {
             using var fixture = new CompletionFixture(lr2Mode: true);
             UseOwnedEmptyCatalog(fixture);
-            Assert.IsTrue(fixture.Owner.SettingDialog.CheckValidationForInitialization(out string validationFailure), validationFailure);
+            Assert.AreEqual(string.Empty, SettingsDeficiency.FormatDiagnostic(fixture.Owner.SettingDialog.BuildDeficiencies()));
             string folder = Path.Combine(fixture.Settings.BMSInstallDir, "Leap");
             Directory.CreateDirectory(folder);
             Directory.SetLastWriteTime(folder, new DateTime(2024, 2, 29, 12, 0, 0));

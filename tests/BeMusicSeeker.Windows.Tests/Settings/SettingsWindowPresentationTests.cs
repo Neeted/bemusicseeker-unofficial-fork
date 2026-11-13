@@ -4476,7 +4476,7 @@ public sealed class SettingsWindowPresentationTests
         return Path.GetFileNameWithoutExtension(sources[0]);
     }
 
-    /// <summary>LR2 root・導入先・二種の出力先が、実 VM の検証 message／status を compiled ページへ受け取り、項目間の誤配線や検証表示 style の不採用を検出します。</summary>
+    /// <summary>LR2 root・導入先・二種の出力先が、欄の理由（既存の検証 message と不備の一覧の理由を統合したもの）と status を compiled ページへ受け取り、項目間の誤配線、既存の検証表示の欠落、検証表示 style の不採用を検出します。</summary>
     /// <remarks>BAML の接続を Window 表示なしで観測します。未設定時の判断条件は下位の設定検証、色・説明・Automation の表示は SettingsValidationPresentation が分担します。</remarks>
     [TestMethod]
     public void SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation()
@@ -4507,40 +4507,49 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 // 入力プロパティで配送先を特定し、各配送先の公開検証プロパティと実 VM 出力を照合する。
-                foreach ((UserControl page, string path, string message, string status) in new[]
+                foreach ((UserControl page, string path, SettingsDeficiencyField field, string message) in new[]
                 {
-                    (pages[0], nameof(SettingsDialogViewModel.LR2RootPath), nameof(SettingsDialogViewModel.Lr2RootPathValidationMessage), nameof(SettingsDialogViewModel.Lr2RootPathValidationStatus)),
-                    (pages[2], nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir), nameof(SettingsDialogViewModel.CustomFolderOutputDirValidationMessage), nameof(SettingsDialogViewModel.CustomFolderOutputDirValidationStatus)),
-                    (pages[2], nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir), nameof(SettingsDialogViewModel.CustomFolderRootOutputDirValidationMessage), nameof(SettingsDialogViewModel.CustomFolderRootOutputDirValidationStatus))
+                    (pages[0], nameof(SettingsDialogViewModel.LR2RootPath), SettingsDeficiencyField.Lr2Environment, settings.Lr2RootPathValidationMessage),
+                    (pages[2], nameof(SettingsDialogViewModel.LR2CustomFolderOutputDir), SettingsDeficiencyField.NormalOutput, settings.CustomFolderOutputDirValidationMessage),
+                    (pages[2], nameof(SettingsDialogViewModel.LR2CustomFolderAsRootOutputDir), SettingsDeficiencyField.RootOutput, settings.CustomFolderRootOutputDirValidationMessage)
                 })
                 {
                     SettingsPathPicker picker = FindDescendants<SettingsPathPicker>(page).Single(candidate =>
                         candidate.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == path);
-                    AssertValidationBinding(picker, SettingsPathPicker.ValidationMessageProperty, message);
-                    AssertValidationBinding(picker, SettingsPathPicker.ValidationStatusProperty, status);
+                    AssertValidationBinding(picker, SettingsPathPicker.ValidationMessageProperty, nameof(SettingsDialogViewModel.FieldReasons), field, message);
+                    AssertValidationBinding(picker, SettingsPathPicker.ValidationStatusProperty, nameof(SettingsDialogViewModel.FieldReasonStatuses), field, null);
                     AssertStyleIsAdopted(picker, typeof(SettingsPathPicker));
                 }
                 ComboBox installCombo = FindDescendants<ComboBox>(pages[1]).Single(candidate =>
                     candidate.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
                 SettingsField installField = FindDescendants<SettingsField>(pages[1]).Single(field =>
                     FindDescendants<ComboBox>(field).Contains(installCombo));
-                AssertValidationBinding(installField, SettingsField.ValidationMessageProperty, nameof(SettingsDialogViewModel.BmsInstallDirValidationMessage));
-                AssertValidationBinding(installField, SettingsField.ValidationStatusProperty, nameof(SettingsDialogViewModel.BmsInstallDirValidationStatus));
+                AssertValidationBinding(installField, SettingsField.ValidationMessageProperty, nameof(SettingsDialogViewModel.FieldReasons), SettingsDeficiencyField.InstallDirectory, settings.BmsInstallDirValidationMessage);
+                AssertValidationBinding(installField, SettingsField.ValidationStatusProperty, nameof(SettingsDialogViewModel.FieldReasonStatuses), SettingsDeficiencyField.InstallDirectory, null);
+                // 導入先の既存の検証表示と一覧の理由は同じ文言のため、欄の理由では一度だけ表示します。
+                Assert.AreEqual(settings.BmsInstallDirValidationMessage, settings.FieldReasons[nameof(SettingsDeficiencyField.InstallDirectory)]);
                 AssertStyleIsAdopted(installField, typeof(SettingsField));
                 AssertStyleIsAdopted(installCombo, "SettingsValidatedComboBoxStyle");
 
-                void AssertValidationBinding(FrameworkElement control, DependencyProperty property, string sourceProperty)
+                void AssertValidationBinding(FrameworkElement control, DependencyProperty property, string keyedProperty, SettingsDeficiencyField field, string? existingMessage)
                 {
+                    string sourceProperty = keyedProperty + "[" + field + "]";
                     BindingExpression? expression = control.GetBindingExpression(property);
                     Assert.IsNotNull(expression, sourceProperty);
                     Assert.AreEqual(BindingStatus.Active, expression.Status, sourceProperty);
-                    Assert.AreSame(settings, expression.DataItem, sourceProperty);
                     Assert.AreEqual(sourceProperty, expression.ParentBinding.Path?.Path);
-                    PropertyInfo? outputProperty = typeof(SettingsDialogViewModel).GetProperty(sourceProperty);
+                    PropertyInfo? outputProperty = typeof(SettingsDialogViewModel).GetProperty(keyedProperty);
                     Assert.IsNotNull(outputProperty, sourceProperty);
-                    object? output = outputProperty.GetValue(settings);
-                    Assert.IsFalse(string.IsNullOrWhiteSpace(output as string), sourceProperty);
+                    var keyed = (SettingsKeyedText?)outputProperty.GetValue(settings);
+                    Assert.IsNotNull(keyed, sourceProperty);
+                    string output = keyed[field.ToString()];
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(output), sourceProperty);
                     Assert.AreEqual(output, control.GetValue(property), sourceProperty);
+                    if (existingMessage != null)
+                    {
+                        Assert.IsFalse(string.IsNullOrWhiteSpace(existingMessage), sourceProperty);
+                        StringAssert.Contains(output, existingMessage, sourceProperty);
+                    }
                 }
                 static void AssertStyleIsAdopted(FrameworkElement control, object key)
                 {
