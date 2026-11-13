@@ -60,13 +60,29 @@ IRキャッシュ、設定、取込み・出力の補助、外部連携の一部
 次のような場合は走査範囲が不完全です。その走査から、追加・更新・削除・LR2同期・リソース索引の置換をしません。既存のDB、スコア、保留パッケージの読込みは継続できます。部分的な列挙でカタログを中途半端に更新しないための保護です。
 
 - ルートの不在。
-- 子ディレクトリの列挙の失敗、メタデータの取得不能。
+- 子ディレクトリの列挙の失敗、メタデータの取得不能。[リンク切れの再解析ポイント](#リンク切れの再解析ポイント)だけは例外です。
 - 上限の超過。
 - その他、対象を完全に列挙できなかった場合。
 
 走査の差分を反映する入口（`LibraryFileScanPipelineOwner.ApplyFileScanDiff()` と `BmsLibraryInitializationService.ApplyFileScanDiff()`）は、どちらも不完全な入力を拒否します。空の正常な走査へ読み替えて、削除へ進みません。
 
 ネイティブ連携の契約や版の不一致は、配置の異常として失敗させます。単なる不完全な走査の警告にはしません。
+
+#### リンク切れの再解析ポイント
+
+管理側の全件列挙（`FastRootFileEnumerator`）は、登録ルートより下で列挙またはメタデータの取得に失敗した対象が、リンク切れの再解析ポイント（ジャンクション、シンボリックリンクなど）である場合に限り、その項目だけを飛ばして走査を完全なまま続けます。壊れたリンク1件で、全ルートの走査と、それを根拠にする反映を止めないためです。譜面の走査の代替（`FastDirectoryFileScanner`）など、この列挙を使う経路に共通です。
+
+- 飛ばす条件は、失敗が不存在（ファイルまたはパスが見つからない）であり、かつ対象自身の属性が再解析ポイントであることです。属性はリンク先がなくてもリンク自身から取得できます。正常な項目には追加の確認を行いません。
+- 飛ばした項目ごとに、対象のパスと理由を警告として `application.log` へ一行記録します。同じ列挙の中で同じ項目を重ねて記録しません。
+- 飛ばしたリンク自身とその配下は、ファイルとディレクトリのどの結果にも含めません。対応する登録は、通常の削除の差分として反映されます。リンク先が削除された場合と、リンク先のドライブが一時的に利用できない場合は区別しません。
+- 次の失敗は、従来どおり走査を不完全にします。
+  - 再解析ポイントではない対象の失敗。
+  - 権限不足などの、不存在以外の失敗。
+  - 対象自身の属性を取得できず、再解析ポイントと判定できない場合。
+  - 登録ルート自身の失敗。登録ルートがリンク切れの場合も、ルートの不在として扱います。別の登録ルートの配下に入れ子で登録されたルートも、登録ルートとして同じ扱いです。
+- 正常なリンクは、従来どおりリンク先を辿ります。
+
+導入先推定の上限付きの列挙（[推定用探索の上限](#推定用探索の上限)）は、この扱いの対象外です。
 
 #### Everythingの結果の完全な取得
 
@@ -82,7 +98,7 @@ Everythingの問い合わせが成功した結果は、登録ルートの完全�
 - Everythingによる走査の事前確認は、登録ルートの存在確認だけです。索引されない範囲の譜面は走査結果に含まれず、既存の登録は通常の削除の差分として反映されます。譜面行に保存していた値と、LR2の `song.db` の行も削除され、戻しません。
 - 走査全体が0件の場合の保護（[差分0件と空の走査](../runtime/startup.md#差分0件と空の走査)）は維持しますが、一部のルートや範囲だけが欠けた結果は区別しません。
 - ライブラリの走査が管理側の走査へ切り替わるのは、Everythingを利用できない場合と問い合わせが失敗した場合だけです。ネイティブ連携の契約や版の不一致は、上記のとおり切り替えずに失敗させます。管理側の走査はリンク先も辿るため、取得元が切り替わると列挙される集合が変わる場合があります。
-- LR2の `folder` 行のためのディレクトリとファイルの探索（`Lr2FolderDirectoryEnumerationService`、`Lr2FolderFileDiscoveryService`）は、Everythingの結果が全体で0件のときだけ管理側の列挙で確かめ直します。これらを含め、Everythingを使う他の列挙も、一部の範囲だけが欠けた結果は検出しません。
+- LR2の `folder` 行のためのディレクトリとファイルの探索（`Lr2FolderDirectoryEnumerationService`、`Lr2FolderFileDiscoveryService`）も、Everythingの問い合わせが成功した結果を、全体が0件でも完全な結果として採用します。`.lr2folder` が1件もない状態は、初回の起動などで起きる正常な状態です。0件を理由に管理側の列挙で確かめ直しません。管理側の列挙へ切り替えるのは、ライブラリの走査と同じく、Everythingを利用できない場合と問い合わせが失敗した場合だけです。結果が0件で、登録ルート自体もEverythingの索引に現れない場合は、問い合わせの失敗として扱います。これらを含め、Everythingを使う他の列挙も、一部の範囲だけが欠けた結果は検出しません。
 
 利用者には、索引に含まれない場所をBMSディレクトリへ登録する場合に、その場所を索引へ加えるか、Everythingを終了して管理側の走査を使うよう[マニュアル](../../../docs/manual.ja.md#everything-15-x64-の準備)で案内します。
 
@@ -140,6 +156,8 @@ Explorerを開く処理は `ExplorerOpenService` に集約します。
 | --- | --- | --- |
 | Everythingの結果の完全な取得、短いパスの一回の取得、問い合わせ内での再利用と失敗の伝播 | [`EverythingBridge.cpp`](../../../native/EverythingBridge/EverythingBridge.cpp) の `GetCompleteResultString`、`ExecuteQuery` | [`EverythingBridgeQueryTests.cpp`](../../../native/EverythingBridge/tests/EverythingBridgeQueryTests.cpp) が、固定したSDKの実際の取得関数と製品の処理で、境界・サロゲート・再利用・失敗を確認し、公開APIの結果までパス・mtime・資源の所有を確認する。[ネイティブ専用の入口](../../../native/EverythingBridge/test-x64.ps1)で実行し、実際のEverythingとのプロセス間通信や製品の完了時間の測定とは区別する。 |
 | Everythingの索引の範囲を完全とみなし、利用不能・失敗の場合だけ管理側の走査へ切り替えること | [`EverythingFileScanner`](../../../BeMusicSeeker/Models/Utils/Scanning/EverythingFileScanner.cs) のルートの事前確認、[`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs) の `ExecuteChartScanWithManagedFallback` | 切り替えの条件は[`LibraryFileScanPipelineOwnerTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Scanning/LibraryFileScanPipelineOwnerTests.cs) の `ApplyActiveFileScan_EverythingUnavailableAppliesCompleteManagedFallback` が確認する。索引の範囲は外部製品の設定に依存し、保証しない範囲のため自動テストで固定しない。 |
+| グループ列挙で、Everythingの成功した結果を0件でも採用し、通常の失敗だけ管理側の列挙へ切り替え、ブリッジの契約不一致では切り替えないこと | [`RootFileEnumerationService`](../../../BeMusicSeeker/Models/Utils/Scanning/RootFileEnumeration.cs) の `EnumerateFilesWithFallback`、`SelectFallbackResult`、[`EverythingRootFileEnumerator`](../../../BeMusicSeeker/Models/Utils/Scanning/EverythingRootFileEnumerator.cs) | [`RootFileEnumerationTests`](../../../tests/BeMusicSeeker.Core.Tests/Scanning/RootFileEnumerationTests.cs) の `SelectFallbackResult_AdoptsSuccessfulEverythingResultAndFallsBackOnlyOnOrdinaryFailure` が、採用する結果と管理側の列挙の実行回数を確認する。実際のEverythingからこの選択までの接続と、LR2の探索が0件で分岐しないことは静的に確認する。LR2の同期のテストは列挙役を注入し、実行中のEverythingの索引の状態を合否条件にしない。 |
+| 管理側の列挙が、登録ルートより下のリンク切れの再解析ポイントを警告して飛ばし、それ以外の失敗では不完全のままにすること | [`FastRootFileEnumerator`](../../../BeMusicSeeker/Models/Utils/Scanning/FastRootFileEnumerator.cs) の `TrySkipBrokenLink` | 実リンクが必要なため、[`FastRootFileEnumeratorBrokenLinkTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Scanning/FastRootFileEnumeratorBrokenLinkTests.cs) を `EnvironmentIntegration` のJunctionのsuiteで明示実行する。配下のリンク切れのジャンクションで走査が完全なまま、リンク自身と配下が結果になく、通常のディレクトリと正常なジャンクションの先が残り、警告が記録されることと、登録ルート自身がリンク切れなら、入れ子に登録されたルートの場合も含めて不完全であることを確認する。通常の検証では、`RootFileEnumerationTests.FastEnumerator_DisappearingNonLinkRootRemainsIncomplete` が、リンクではないルートの消失が不完全のままであることを確認する。シンボリックリンク、権限不足などの不存在以外の失敗、リンクではない子ディレクトリの消失の扱いは静的に確認する。 |
 | 1024文字を超えるBMS・BMSONの登録と、同じ完全なパスの再走査での保持 | [`BmsLibraryInitializationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) | [`BmsLibraryInitializationFileScanTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) / [`BmsLibraryInitializationFileScanTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) の長いパスの2系列が、実際の解析・保存・再適用の後の保存行と保守行を確認する。BMSの利用者列、LR2の警告、文字コードの再読込みも確認する。不完全な走査の系列は、既存の長いパスが欠けた空でない部分結果から、追加・削除しないことを確認する。 |
 | 完全な走査と不完全な入力の保護、個別の失敗での継続 | [`LibraryFileScanPipelineOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs)、[`BmsLibraryInitializationService`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) | [`RootFileEnumerationTests`](../../../tests/BeMusicSeeker.Core.Tests/Scanning/RootFileEnumerationTests.cs)、[`LibraryFileScanPipelineOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Scanning/LibraryFileScanPipelineOwnerTests.cs) / [`LibraryFileScanPipelineOwnerTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Scanning/LibraryFileScanPipelineOwnerTests.cs)、[`BmsLibraryInitializationFileScanTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) / [`BmsLibraryInitializationFileScanTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Startup/BmsLibraryInitializationFileScanTests.cs) |
 | 上限付きの列挙の通常の失敗、独立したルートでの継続、狭い捕捉 | [`BoundedSourceSurfaceEnumerator`](../../../BeMusicSeeker/Models/Utils/Scanning/BoundedSourceSurfaceEnumerator.cs) | [`RootFileEnumerationTests`](../../../tests/BeMusicSeeker.Core.Tests/Scanning/RootFileEnumerationTests.cs) の `BoundedEnumerator_DisappearingRootPreservesIndependentPathsAndReportsIncomplete` が実ファイルの列挙と不完全な理由を、`OsEnumerator_MissingRootIsIncompleteAndNotSuccessful` が高速・上限付きの列挙での初期の欠落を確認する。属性・メタデータ・除外判定の捕捉と、内部例外の伝播は静的に確認する。推定用の受入と診断は[導入先推定](../library/install-estimation.md#実装とテストの対応)が分担する。 |

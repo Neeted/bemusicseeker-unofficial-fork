@@ -280,7 +280,16 @@ internal static class RootFileEnumerationService
     /// 各走査経路はこの共通処理で <c>root_missing_or_unavailable</c> などの不完全理由を記録し、個別に記録しません。
     /// 不完全理由のある走査結果は反映しないため、一時的に利用できないルート配下の譜面を削除扱いにしません。
     /// </remarks>
-    internal static List<string> NormalizeExecutionRoots(IEnumerable<string> rootDirectories, RootFileEnumerationResult result = null)
+    /// <param name="rootDirectories">登録された実行ルートです。一回だけ列挙します。</param>
+    /// <param name="result">不完全理由の記録先です。</param>
+    /// <param name="existingRegisteredRoots">
+    /// 存在確認を通った登録ルートを、祖先への縮約の前に、末尾区切りを除いた形で受け取る集合です。
+    /// 戻り値は子孫のルートを含まないため、入れ子に登録されたルートを登録ルートとして識別する呼出元が使います。
+    /// </param>
+    internal static List<string> NormalizeExecutionRoots(
+        IEnumerable<string> rootDirectories,
+        RootFileEnumerationResult result = null,
+        ICollection<string> existingRegisteredRoots = null)
     {
         var candidates = new List<string>();
         foreach (string path in rootDirectories ?? [])
@@ -305,6 +314,7 @@ internal static class RootFileEnumerationService
                 continue;
             }
             candidates.Add(normalizedPath);
+            existingRegisteredRoots?.Add(LongPathFileSystem.TrimTrailingDirectorySeparators(normalizedPath));
         }
 
         List<string> roots = [.. candidates
@@ -356,16 +366,19 @@ internal static class RootFileEnumerationService
     }
 
     /// <summary>
-    /// Enumerates the requested groups through the supplied bounded enumerator when present;
-    /// otherwise retains the production Everything-to-fast fallback and bridge fail-closed behavior.
+    /// 指定された列挙役があればそれで、なければEverythingで要求グループを列挙し、
+    /// Everythingを利用できない・問い合わせが失敗した場合だけ管理側の列挙へ切り替えます。
     /// </summary>
-    /// <param name="rootFileEnumerator">Optional internal enumerator for a caller-owned grouped surface.</param>
+    /// <remarks>
+    /// Everythingの問い合わせが成功した結果は、全体が0件でも完全な結果として採用します。
+    /// 0件を理由に管理側で歩き直すと、Everythingが辿らない範囲の失敗で正常な空結果まで不完全になるためです。
+    /// </remarks>
+    /// <param name="rootFileEnumerator">呼出元が所有する列挙役です。指定時はEverythingと切替えを使いません。</param>
     internal static RootFileEnumerationResult EnumerateFilesWithFallback(
         IEnumerable<string> rootDirectories,
         IEnumerable<RootFileEnumerationGroup> groups,
         EverythingNative everythingNative,
         bool verboseLog = false,
-        bool retryEmptyEverythingResultWithFastEnumerator = false,
         IRootFileEnumerator rootFileEnumerator = null)
     {
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
@@ -386,17 +399,23 @@ internal static class RootFileEnumerationService
         RootFileEnumerationResult result = new EverythingRootFileEnumerator(everythingNative).EnumerateFiles(rootDirectories, groupList, verboseLog);
         return SelectFallbackResult(
             result,
-            () => new FastRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog),
-            retryEmptyEverythingResultWithFastEnumerator);
+            () => new FastRootFileEnumerator().EnumerateFiles(rootDirectories, groupList, verboseLog));
     }
 
+    /// <summary>
+    /// Everythingの結果を採用するか、管理側の列挙へ切り替えるかを選びます。
+    /// </summary>
+    /// <remarks>
+    /// 権威ある完了の結果は件数によらず採用します。ブリッジの契約・版の不一致は配置の異常のため、切り替えずにその失敗を返します。
+    /// それ以外の失敗・不完全な結果だけ <paramref name="fallbackFactory"/> を一回実行します。
+    /// </remarks>
+    /// <param name="result">Everythingによる列挙の結果です。</param>
+    /// <param name="fallbackFactory">管理側の列挙を実行する処理です。</param>
     internal static RootFileEnumerationResult SelectFallbackResult(
         RootFileEnumerationResult result,
-        Func<RootFileEnumerationResult> fallbackFactory,
-        bool retryEmptyEverythingResultWithFastEnumerator)
+        Func<RootFileEnumerationResult> fallbackFactory)
     {
-        if (IsAuthoritativeComplete(result)
-            && (!retryEmptyEverythingResultWithFastEnumerator || !IsEmptyEverythingResult(result)))
+        if (IsAuthoritativeComplete(result))
         {
             return result;
         }
@@ -411,13 +430,6 @@ internal static class RootFileEnumerationService
             fallbackResult.ErrorReason = result?.ErrorReason ?? string.Empty;
         }
         return fallbackResult;
-    }
-
-    private static bool IsEmptyEverythingResult(RootFileEnumerationResult result)
-    {
-        return result != null
-            && string.Equals(result.BackendName, EverythingNative.GroupedEnumerationBackendName, StringComparison.OrdinalIgnoreCase)
-            && result.TotalFileCount == 0;
     }
 
     internal static bool IsBridgeContractFailure(string reason)

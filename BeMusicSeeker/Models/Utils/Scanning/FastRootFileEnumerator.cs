@@ -5,6 +5,11 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.Utils;
 
+/// <summary>登録ルートをOSの列挙で直接歩く、管理側の全件列挙です。</summary>
+/// <remarks>
+/// 列挙やメタデータ取得の失敗は結果全体を不完全にします。例外は、登録ルートより下にあるリンク切れの再解析ポイントだけで、
+/// 警告を残してその項目と配下を結果から除き、完全性は保ちます。壊れたリンク1件で全ルートの走査を無効にしないためです。
+/// </remarks>
 internal sealed class FastRootFileEnumerator : IRootFileEnumerator
 {
     public RootFileEnumerationResult EnumerateFiles(IEnumerable<string> rootDirectories, IEnumerable<RootFileEnumerationGroup> groups, bool verboseLog = false)
@@ -14,7 +19,8 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             BackendName = "fast"
         };
 
-        List<string> roots = NormalizeRoots(rootDirectories, result);
+        var brokenLinkSkips = new BrokenLinkSkipState();
+        List<string> roots = RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories, result, brokenLinkSkips.RegisteredRoots);
         List<RootFileEnumerationGroup> groupList = [.. (groups ?? []).Where(group => group != null && !string.IsNullOrWhiteSpace(group.Name))];
         RootFileEnumerationService.LogSearchConditions(result.BackendName, roots, groupList);
         foreach (RootFileEnumerationGroup group in groupList)
@@ -46,7 +52,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                         .Where(extension => !string.IsNullOrWhiteSpace(extension))
                         .Distinct(StringComparer.OrdinalIgnoreCase)];
                 foreach (RootFileEnumerationEntry entry in roots
-                    .SelectMany(root => EnumerateAllFilesForRoot(root, fileExtensions, sharedExcludedDirectories, result))
+                    .SelectMany(root => EnumerateAllFilesForRoot(root, fileExtensions, sharedExcludedDirectories, result, brokenLinkSkips))
                     .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
                 {
                     allFiles[entry.Path] = entry;
@@ -58,11 +64,17 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             {
                 string[] sharedExcludedDirectories = ResolveSharedExcludedDirectories(groupList.Where(group => group.IncludeDirectories));
                 foreach (RootFileEnumerationEntry entry in roots
-                    .SelectMany(root => EnumerateAllDirectoriesForRoot(root, sharedExcludedDirectories, result))
+                    .SelectMany(root => EnumerateAllDirectoriesForRoot(root, sharedExcludedDirectories, result, brokenLinkSkips))
                     .Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Path)))
                 {
                     allDirectories[entry.Path] = entry;
                 }
+            }
+
+            // リンク自身の属性は取得できるため、配下の列挙で失敗が分かる前にディレクトリ項目として追加済みになり得る。
+            foreach (string skippedBrokenLink in brokenLinkSkips.SkippedPaths)
+            {
+                allDirectories.Remove(skippedBrokenLink);
             }
 
             result.TotalFileCount = allFiles.Count + allDirectories.Count;
@@ -110,18 +122,26 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         }
     }
 
-    private static List<string> NormalizeRoots(IEnumerable<string> rootDirectories, RootFileEnumerationResult result)
+    /// <summary>一回の列挙の間だけ保持する、リンク切れを飛ばす判定の入力と記録です。</summary>
+    private sealed class BrokenLinkSkipState
     {
-        return RootFileEnumerationService.NormalizeExecutionRoots(rootDirectories, result);
+        /// <summary>
+        /// 存在確認を通った登録ルートです。祖先のルートへ縮約された入れ子のルートも含み、これらは飛ばしません。
+        /// </summary>
+        public HashSet<string> RegisteredRoots { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>飛ばしたリンク切れのパスです。警告の重複防止と、ディレクトリ結果からの除外に使います。</summary>
+        public HashSet<string> SkippedPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
     private static IEnumerable<RootFileEnumerationEntry> EnumerateAllFilesForRoot(
         string root,
         string[] extensions,
         string[] excludedDirectories,
-        RootFileEnumerationResult result)
+        RootFileEnumerationResult result,
+        BrokenLinkSkipState brokenLinkSkips)
     {
-        foreach (string directory in EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: true, result))
+        foreach (string directory in EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: true, result, brokenLinkSkips))
         {
             List<string> files;
             try
@@ -130,7 +150,10 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
             {
-                result?.MarkIncomplete("file_enumeration_failed:" + directory + ":" + ex.GetType().Name + ":" + ex.Message);
+                if (!TrySkipBrokenLink(directory, "file_enumeration", ex, brokenLinkSkips))
+                {
+                    result?.MarkIncomplete("file_enumeration_failed:" + directory + ":" + ex.GetType().Name + ":" + ex.Message);
+                }
                 continue;
             }
 
@@ -139,7 +162,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
                 if (!string.IsNullOrWhiteSpace(path)
                     && (extensions == null || extensions.Length == 0 || extensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)))
                 {
-                    RootFileEnumerationEntry entry = CreateEntryFromFileInfo(path, result);
+                    RootFileEnumerationEntry entry = CreateEntryFromFileInfo(path, result, brokenLinkSkips);
                     if (entry != null)
                     {
                         yield return entry;
@@ -152,22 +175,23 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
     private static IEnumerable<RootFileEnumerationEntry> EnumerateAllDirectoriesForRoot(
         string root,
         string[] excludedDirectories,
-        RootFileEnumerationResult result)
+        RootFileEnumerationResult result,
+        BrokenLinkSkipState brokenLinkSkips)
     {
         if (excludedDirectories?.Length > 0 && IsExcludedPath(root, excludedDirectories))
         {
             yield break;
         }
 
-        RootFileEnumerationEntry rootEntry = CreateEntryFromDirectoryInfo(root, result);
+        RootFileEnumerationEntry rootEntry = CreateEntryFromDirectoryInfo(root, result, brokenLinkSkips);
         if (rootEntry != null)
         {
             yield return rootEntry;
         }
 
-        foreach (string directory in EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: false, result))
+        foreach (string directory in EnumerateDirectoriesForTraversal(root, excludedDirectories, includeRoot: false, result, brokenLinkSkips))
         {
-            RootFileEnumerationEntry entry = CreateEntryFromDirectoryInfo(directory, result);
+            RootFileEnumerationEntry entry = CreateEntryFromDirectoryInfo(directory, result, brokenLinkSkips);
             if (entry != null)
             {
                 yield return entry;
@@ -179,7 +203,8 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         string root,
         string[] excludedDirectories,
         bool includeRoot,
-        RootFileEnumerationResult result)
+        RootFileEnumerationResult result,
+        BrokenLinkSkipState brokenLinkSkips)
     {
         string normalizedRoot = SafeNormalizeDirectory(root, result, "root_normalize_failed");
         if (string.IsNullOrWhiteSpace(normalizedRoot))
@@ -207,7 +232,10 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
             {
-                result?.MarkIncomplete("directory_enumeration_failed:" + current + ":" + ex.GetType().Name + ":" + ex.Message);
+                if (!TrySkipBrokenLink(current, "directory_enumeration", ex, brokenLinkSkips))
+                {
+                    result?.MarkIncomplete("directory_enumeration_failed:" + current + ":" + ex.GetType().Name + ":" + ex.Message);
+                }
                 continue;
             }
 
@@ -296,7 +324,64 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         return LongPathFileSystem.IsSameOrDescendantNormalizedDirectoryPath(normalizedCandidate, normalizedRoot);
     }
 
-    private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path, RootFileEnumerationResult result)
+    /// <summary>
+    /// 失敗した対象が登録ルートより下のリンク切れの再解析ポイントなら、警告を残して飛ばす対象として記録します。
+    /// </summary>
+    /// <remarks>
+    /// 飛ばすのは、失敗が不存在系で、対象自身の属性が再解析ポイントである場合だけです。属性はリンク先が無くてもリンク自身から取得できます。
+    /// 登録ルート自身、再解析ポイントでない対象、アクセス拒否などの不存在系以外の失敗、属性を取得できない対象は飛ばさず、
+    /// 呼出元が従来どおり不完全として記録します。登録ルートには、別の登録ルートの配下に入れ子で登録されたルートも含みます。
+    /// リンク先が一時的に利用できない場合も区別せず、配下の項目は通常の削除差分に従います。
+    /// 正常な項目に追加のI/Oを掛けないよう、属性は失敗時だけ取得します。警告は一回の列挙につき対象ごとに一行です。
+    /// </remarks>
+    /// <param name="path">列挙またはメタデータ取得に失敗した対象のパスです。</param>
+    /// <param name="stage">警告へ記録する失敗の段階です。</param>
+    /// <param name="failure">対象で発生した失敗です。</param>
+    /// <param name="brokenLinkSkips">この列挙の登録ルートと、飛ばしたパスの記録です。</param>
+    /// <returns>飛ばす対象なら真です。偽の場合、呼出元は結果を不完全にします。</returns>
+    private static bool TrySkipBrokenLink(string path, string stage, Exception failure, BrokenLinkSkipState brokenLinkSkips)
+    {
+        if (string.IsNullOrWhiteSpace(path)
+            || brokenLinkSkips.RegisteredRoots.Contains(LongPathFileSystem.TrimTrailingDirectorySeparators(path)))
+        {
+            return false;
+        }
+        if (brokenLinkSkips.SkippedPaths.Contains(path))
+        {
+            return true;
+        }
+        if (!LongPathFileSystem.IsNotFoundFailure(failure))
+        {
+            return false;
+        }
+
+        try
+        {
+            if ((LongPathFileSystem.GetAttributes(path) & FileAttributes.ReparsePoint) == 0)
+            {
+                return false;
+            }
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+        {
+            return false;
+        }
+
+        brokenLinkSkips.SkippedPaths.Add(path);
+        try
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
+                "file_enumeration_broken_link_skipped stage={0} path={1} reason={2}:{3}",
+                stage, path, failure.GetType().Name, failure.Message);
+        }
+        catch
+        {
+            // 診断出力で探索の成功・失敗を変えない。
+        }
+        return true;
+    }
+
+    private static RootFileEnumerationEntry CreateEntryFromFileInfo(string path, RootFileEnumerationResult result, BrokenLinkSkipState brokenLinkSkips)
     {
         try
         {
@@ -306,6 +391,10 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
+            if (TrySkipBrokenLink(path, "file_metadata", ex, brokenLinkSkips))
+            {
+                return null;
+            }
             result?.MarkIncomplete("file_metadata_failed:" + path + ":" + ex.GetType().Name + ":" + ex.Message);
             try
             {
@@ -318,7 +407,7 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         }
     }
 
-    private static RootFileEnumerationEntry CreateEntryFromDirectoryInfo(string path, RootFileEnumerationResult result)
+    private static RootFileEnumerationEntry CreateEntryFromDirectoryInfo(string path, RootFileEnumerationResult result, BrokenLinkSkipState brokenLinkSkips)
     {
         try
         {
@@ -333,6 +422,10 @@ internal sealed class FastRootFileEnumerator : IRootFileEnumerator
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {
+            if (TrySkipBrokenLink(path, "directory_metadata", ex, brokenLinkSkips))
+            {
+                return null;
+            }
             result?.MarkIncomplete("directory_metadata_failed:" + path + ":" + ex.GetType().Name + ":" + ex.Message);
             try
             {

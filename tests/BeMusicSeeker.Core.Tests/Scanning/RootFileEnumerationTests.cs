@@ -272,39 +272,114 @@ public sealed class RootFileEnumerationTests
     }
 
     /// <summary>
-    /// Everythingの空結果を再試行する要求だけが高速列挙の結果を採用し、明示された再試行方針の無視を検出する。
+    /// 保証：Everythingの問い合わせが成功した結果は0件でもそのまま採用して管理側の列挙を実行せず、
+    /// 通常の失敗だけ管理側の列挙へ一回切り替え、ブリッジの契約不一致は切り替えずに失敗を返す。
+    /// 0件を理由にした歩き直し、失敗時の切替えの欠落、配置異常の隠蔽を検出する。
     /// </summary>
+    /// <remarks>条件差：成功・0件、成功・1件、契約不一致ではない問い合わせ失敗、ブリッジの契約不一致。</remarks>
     [TestMethod]
-    public void SelectFallbackResult_RetriesFastForEmptyEverythingResult()
+    [DataRow(true, 0, "", false)]
+    [DataRow(true, 1, "", false)]
+    [DataRow(false, 0, "bridge_grouped_query_failed:2", true)]
+    [DataRow(false, 0, @"bridge_dll_not_found:D:\app\native\EverythingBridge_x64.dll", false)]
+    public void SelectFallbackResult_AdoptsSuccessfulEverythingResultAndFallsBackOnlyOnOrdinaryFailure(
+        bool everythingSucceeded, int everythingHitCount, string everythingFailureReason, bool expectsManagedFallback)
     {
+        const string groupName = "lr2folder";
+        const string managedOnlyPath = @"C:\temp\managed-only.lr2folder";
         var everythingResult = new RootFileEnumerationResult
         {
-            Success = true,
             BackendName = EverythingNative.GroupedEnumerationBackendName,
-            TotalFileCount = 0
+            TotalFileCount = everythingHitCount
         };
-        everythingResult.InitializeGroup("lr2folder");
-        var fastResult = new RootFileEnumerationResult
+        everythingResult.InitializeGroup(groupName);
+        for (int index = 0; index < everythingHitCount; index++)
+        {
+            everythingResult.AddEntry(groupName, new RootFileEnumerationEntry(@"C:\temp\indexed-" + index + ".lr2folder"));
+        }
+        if (everythingSucceeded)
+        {
+            everythingResult.Success = true;
+        }
+        else
+        {
+            everythingResult.MarkFailed(everythingFailureReason);
+        }
+        var managedResult = new RootFileEnumerationResult
         {
             Success = true,
             BackendName = "fast",
             TotalFileCount = 1
         };
-        fastResult.AddEntry("lr2folder", new RootFileEnumerationEntry(@"C:\temp\table.lr2folder"));
+        managedResult.AddEntry(groupName, new RootFileEnumerationEntry(managedOnlyPath));
+        int managedEnumerationCount = 0;
 
         RootFileEnumerationResult selected = RootFileEnumerationService.SelectFallbackResult(
             everythingResult,
-            () => fastResult,
-            retryEmptyEverythingResultWithFastEnumerator: true);
+            () =>
+            {
+                managedEnumerationCount++;
+                return managedResult;
+            });
 
-        Assert.AreSame(fastResult, selected);
-        CollectionAssert.Contains(selected.GetPaths("lr2folder").ToList(), @"C:\temp\table.lr2folder");
-        Assert.AreSame(
-            everythingResult,
-            RootFileEnumerationService.SelectFallbackResult(
-                everythingResult,
-                () => fastResult,
-                retryEmptyEverythingResultWithFastEnumerator: false));
+        Assert.AreEqual(expectsManagedFallback ? 1 : 0, managedEnumerationCount);
+        Assert.AreSame(expectsManagedFallback ? managedResult : everythingResult, selected);
+        Assert.AreEqual(expectsManagedFallback, selected.GetPaths(groupName).Contains(managedOnlyPath));
+        Assert.AreEqual(everythingSucceeded || expectsManagedFallback, RootFileEnumerationService.IsAuthoritativeComplete(selected));
+    }
+
+    /// <summary>
+    /// 保証：管理側の列挙は、リンクではない登録ルートが存在確認の後・実列挙の前に消えた場合、成功や権威ある完了にしない。
+    /// 登録ルート自身の不存在を飛ばして、残りのルートだけの完全な結果へ読み替える誤りを検出する。
+    /// </summary>
+    /// <remarks>
+    /// 条件差：譜面のグループだけの要求と、ディレクトリのグループも含む要求。前者は、ルートのディレクトリ項目の取得失敗に頼らず、
+    /// 列挙の失敗だけで不完全になることを確認する。
+    /// 登録ルートより下の対象が再解析ポイントかどうかの判定は、このケースでは区別しない。
+    /// リンク切れの再解析ポイントを飛ばす側の保証は、実リンクが必要なためCompatibilityのJunction suiteが分担する。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FastEnumerator_DisappearingNonLinkRootRemainsIncomplete(bool includeDirectoryGroup)
+    {
+        string tempRoot = Path.Combine(CaseWorkspace.RootDirectory, "BeMusicSeeker_FastRootDisappearance_" + Guid.NewGuid().ToString("N"));
+        string survivingRoot = Path.Combine(tempRoot, "Surviving");
+        string disappearingRoot = Path.Combine(tempRoot, "Gone");
+        string chartPath = Path.Combine(survivingRoot, "chart.bms");
+        try
+        {
+            Directory.CreateDirectory(survivingRoot);
+            Directory.CreateDirectory(disappearingRoot);
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            List<RootFileEnumerationGroup> groups = [new RootFileEnumerationGroup(ChartDirectoryScanBuilder.ChartGroupName, [".bms"])];
+            if (includeDirectoryGroup)
+            {
+                groups.Add(new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true));
+            }
+            RootFileEnumerationResult result = new FastRootFileEnumerator().EnumerateFiles(EnumerateRoots(), groups);
+
+            Assert.IsFalse(result.Success);
+            Assert.IsFalse(result.IsComplete);
+            Assert.IsFalse(result.ScanLimitExceeded);
+            Assert.IsFalse(RootFileEnumerationService.IsAuthoritativeComplete(result));
+            StringAssert.Contains(RootFileEnumerationService.GetNonAuthoritativeReason(result), disappearingRoot);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+
+        IEnumerable<string> EnumerateRoots()
+        {
+            yield return disappearingRoot;
+            // NormalizeExecutionRootsが直前のルートを確認した次のMoveNextで削除し、実走査前の外部消失順序を固定する。
+            Directory.Delete(disappearingRoot, recursive: true);
+            yield return survivingRoot;
+        }
     }
 
     /// <summary>

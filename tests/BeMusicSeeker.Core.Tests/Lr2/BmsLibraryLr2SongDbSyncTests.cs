@@ -4592,6 +4592,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings),
                 TestBmsFactory.AvailableEverythingBridge,
+                // LR2の探索を実行中のEverythingの索引状態に依存させず、ケースが所有する実ファイルから読む。
+                rootFileEnumerator: new FastRootFileEnumerator(),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings),
                 uiScheduler: new TestUiScheduler(() => null))
             {
@@ -4650,6 +4652,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings),
                 TestBmsFactory.AvailableEverythingBridge,
+                // LR2の探索を実行中のEverythingの索引状態に依存させず、ケースが所有する実ファイルから読む。
+                rootFileEnumerator: new FastRootFileEnumerator(),
                 settings: TestBmsFactory.CreateRootSettings([searchRootDirectory], testSettings),
                 uiScheduler: new TestUiScheduler(() => null))
             {
@@ -4750,6 +4754,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings),
                 TestBmsFactory.AvailableEverythingBridge,
+                // LR2の探索を実行中のEverythingの索引状態に依存させず、ケースが所有する実ファイルから読む。
+                rootFileEnumerator: new FastRootFileEnumerator(),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings),
                 uiScheduler: new TestUiScheduler(() => null))
             {
@@ -4830,6 +4836,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings),
                 TestBmsFactory.AvailableEverythingBridge,
+                // LR2の探索を実行中のEverythingの索引状態に依存させず、ケースが所有する実ファイルから読む。
+                rootFileEnumerator: new FastRootFileEnumerator(),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings),
                 uiScheduler: new TestUiScheduler(() => null))
             {
@@ -4892,6 +4900,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings),
                 TestBmsFactory.AvailableEverythingBridge,
+                // LR2の探索を実行中のEverythingの索引状態に依存させず、ケースが所有する実ファイルから読む。
+                rootFileEnumerator: new FastRootFileEnumerator(),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings),
                 uiScheduler: new TestUiScheduler(() => null))
             {
@@ -4940,6 +4950,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 () => BmsLibraryOptionsSnapshot.CreateCurrent(testSettings),
                 TestBmsFactory.AvailableEverythingBridge,
+                // LR2の探索を実行中のEverythingの索引状態に依存させず、ケースが所有する実ファイルから読む。
+                rootFileEnumerator: new FastRootFileEnumerator(),
                 settings: TestBmsFactory.CreateRootSettings([rootDirectory], testSettings),
                 uiScheduler: new TestUiScheduler(() => null))
             {
@@ -7605,6 +7617,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 null,
                 () => options,
                 TestBmsFactory.AvailableEverythingBridge,
+                // LR2の探索を実行中のEverythingの索引状態に依存させず、ケースが所有する実ファイルから読む。
+                rootFileEnumerator: new FastRootFileEnumerator(),
                 settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings),
                 uiScheduler: new TestUiScheduler(() => null))
             {

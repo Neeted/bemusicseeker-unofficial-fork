@@ -15,7 +15,7 @@
 | DriveRoot | 10 | 専有・非Z drive alias、必要caseの専有HKCU領域、実WPF、updater |
 | DirectorySymbolicLink | 6 | 実directory symlinkとfile symlinkを作成できる権限 |
 | CrossVolume | 4 | 異なる実volume上の既存入力rootを明示 |
-| Junction | 7 | PowerShell 7と実junction作成能力 |
+| Junction | 10 | PowerShell 7と実junction作成能力 |
 | install-acl | 2 | 専有container/rootのDACLを変更・復旧できるWindows環境 |
 | everything-native-path-identity | 2 | 明示した固定Everything SDK 3.0.0.9とpath identity fixture DLL |
 | audio-encoders | 1 | 明示opt-in、対象encoderと必要decoderの実exe |
