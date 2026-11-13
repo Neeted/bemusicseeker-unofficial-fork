@@ -33,6 +33,18 @@
 - 契約: 抑止中に拒否した入力は部品の表示状態も変えない。起動時の初期選択の設定は次回起動の初期選択だけに使い、変更時点の選択を変えない。導入・除去で対象が保留から外れた場合だけ選択を移す。表単体の再読込みは、選択が対象のまま、または置換で失われて他が選ばれていない場合だけ選び直し、受付の拒否では動かさない。最小化で終了したときは「元に戻すと最大化」の情報を保つ。利用者由来の文字列を見出しにする4か所のメニューは `_` をそのまま表示する。未所持の複数選択のメニューは選択件数で文言と可否を決め、何も起きない操作（内蔵表のページを開く、全件登録済みの譜面ビューアへの登録を含む）は理由を通知するか項目を出さない。フォルダ統合の確認画面は、統合元に配下のフォルダがある場合にその件数と、配下も移す旨を添える（確認を表示しない設定では追加しない）。
 - 許可パスの目安: `BeMusicSeeker/Views/MainWindow/`、`Views/CustomTable/`、`Themes/`、`ViewModels/ChartOperations/ScoreViewerRegistration.cs`、`ViewModels/Maintenance/` の統合確認、関連テスト、関連仕様。
 
+### 統合時に見つかった小修正
+
+- 区分: 通常。対象: [統合時に見つかった方針の明確な課題](#統合時に見つかった方針の明確な課題)。
+- 契約: 各項目は同節の方針どおりに直す。利用者に見える挙動を変える判断が必要になった項目は作業を止め、選択肢を添えて全体ルートへ返す。
+- 許可パスの目安: 各項目の該当ファイル、関連テスト、関連仕様。
+
+### 再生テストの停止
+
+- 区分: 通常（原因によっては重大へ引き上げる）。対象: [内蔵プレイヤーの先読み失敗のテストが停止する](#内蔵プレイヤーの先読み失敗のテストが停止する)。
+- 契約: 停止の原因を静的に特定し、製品側の競合なら[ワークフローと並行性](../spec/core/workflow-concurrency.md)に従って直し、テスト側の待ちの誤りならテストを直す。期限の延長や再試行で隠さない。原因を特定できなければ、調べた範囲と次に取るべき診断（hang dumpなど）を返す。
+- 許可パスの目安: `BeMusicSeeker/ViewModels/Playback/`、`Models/Playback/`、`tests/BeMusicSeeker.Windows.Tests/Playback/`、関連仕様。
+
 ## 並列化と統合
 
 作業ワークツリーはメイン以外に同時最大5本とし、メイン作業ツリーは `dev` の統合専用に保つ。着手前に本書と課題の詳細を `dev` へコミットし、各ワークツリーはその版から分岐する。
@@ -41,6 +53,7 @@
 | --- | --- | --- |
 | 第1波 | 保留パッケージの分け方、LR2の局所同期、受付使用中の拒否通知、設定の不備の案内、SQLiteの互換範囲 | 重大な単位を先に進める。 |
 | 第2波 | プレイリスト、進捗表示、メイン画面の表示状態、検索、割り切りの明記 | 空いたワークツリーから順に割り当てる。設定画面の操作は設定の不備の案内のワークツリーで続ける。メイン画面の表示状態は受付使用中の拒否通知の統合後に始める。 |
+| 第3波 | 統合時に見つかった小修正、再生テストの停止 | 第1波・第2波の統合中に見つかった課題を扱う。 |
 
 依存のない単位は着手順に縛らず、検証・独立レビュー・コミットが揃ったものから全体ルートが一件ずつ統合する。`verify` は全ワークツリーで同時に一件だけ実行し、全体ルートが順番を調整する。共有するファイル（`MainWindow.cs`、`ViewModels/Install/`、`Models/BmsLibraryInternal/Lr2/`、リソース辞書）は後から統合する側が `git rebase dev` で更新し、影響する検証とレビューを行う。
 
@@ -56,19 +69,24 @@
 
 ### 調査時の分類: 判断保留
 
-#### 更新後初回の譜面情報の全件再解析
-
-譜面情報の解析版が21から22へ上がったため、v3.1.0.0から更新した初回は、メタデータ同梱データに含まれない所持譜面がすべて再解析の対象になる。[CatalogChartInfoOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/CatalogChartInfoOwner.cs) は補完の全件処理の間、`EnterAcceptedBackgroundAsync`（666・1288行付近）で取得した共通の受付を保持する。その間、[PlaybackPanelViewModel](../../BeMusicSeeker/ViewModels/Playback/PlaybackPanelViewModel.cs) の `AcceptTableRowActivation` などが試聴の開始を無言で拒否し、再生中の連続再生も止まる。導入・削除・改名などは拒否される。一覧は旧版の解析値で表示されるため空欄にはならない。v3.1.0.0の補完は受付を取らず、操作性の退行である。全件再解析の所要時間は未計測で、約21万譜面ではHDDで数分から十数分と見込む。別プロファイルの構成は同梱データを取り込まないため全所持譜面が対象になる。
-
-受付の使用自体は[譜面情報](../spec/library/chart-info.md)と[操作の競合ポリシー](../spec/core/operation-concurrency-policy.md)どおりだが、同じ譜面情報の仕様は補完の完了を利用開始の条件にしないとも定めており、版更新時の長時間保持は検討されていない。先に利用者に見える契約を決める。候補は、全件補完を区切りごとに受付を取り直して間で操作を受け付ける、解析入力を変えない試聴を補完中の拒否から外す区分を設ける、現行のまま待たされる理由と進捗を表示する、のいずれかである。前二者は受付規定の変更を伴う。どの案でも[明示要求の競合の案内](../spec/core/operation-concurrency-policy.md#明示要求の競合の案内)を前提にし、表示する案の件数行は[ステータスバーの進捗](../spec/runtime/statusbar-progress.md#実行中の処理行)の「譜面情報の補完」で実装済みである。
-
-検証は、解析版21の行を持つ実SQLiteから起動相当の補完を始め、その実行中に試聴と導入の受付が採用した契約どおりに受理または案内されることを確認する。所要時間は性能測定の補完系列で約21万件の旧版行からの全件補完を計測する。
-
 #### フォルダ統合で統合元配下の別作品も移る
 
 重複譜面の確認で統合元に選んだフォルダの配下に、重複と無関係な別作品のサブフォルダがあると、それらも相対配置を保って統合先へ移る。[BMSLibrary.LibraryMutationOwner.Merge](../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.Merge.cs) の `PrepareMergeDirectory` は統合元配下全体から譜面を集め、物理計画も配下を再帰的に移す。重複グループと画面には統合元直下の譜面しか出ないため、利用者は配下が動くことを操作前に知れない。配下の譜面のうち他所に同じMD5があるものは仕様どおり除去される。挙動は[重複ファイル](../spec/library/duplicate-files.md)とマニュアルの「フォルダ全体」の説明どおりで、データは失われないが元に戻す操作はない。
 
 まず配下ごと移すのが正しいかを決める。正しいなら、確認ダイアログに配下のフォルダも移す旨と件数を出す。直下だけが正しいなら、対象収集・物理計画・後片付け・保留の確定DST追従と[重複ファイル](../spec/library/duplicate-files.md)・[ライブラリ変更](../spec/library/mutations.md)を揃える大きな変更になる。中間案として、配下に別の所持譜面フォルダを持つ統合元を候補から外すか警告する。確認ダイアログは設定で非表示にできる点も考慮する。検証は、統合元直下の1譜面と無関係な子フォルダの譜面を持つ実ファイル・SQLiteの統合で、決めた契約を固定する。
+
+#### 統合時に見つかった方針の明確な課題
+
+1. [PackageCatalogWorkflowOwner](../../BeMusicSeeker/ViewModels/Install/PackageCatalogWorkflowOwner.cs) の `ConfirmRemoval` がUIスレッドで `GetAwaiter().GetResult()` により非同期処理を同期的に待つ。AGENTS.mdの境界に反するため、呼出元まで非同期にする。
+2. [MainWindowViewModel](../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) の3160行付近に、利用者へ届きうる英語の固定文字列 "already active" がある。利用者への通知経路かを確かめ、通知経路ならリソース化し、開発診断なら現状のままにする。
+3. [RegularChartListOwner](../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs) のフォルダ名セルの編集で、Pの使用中による拒否を警告した後に例外でTaskを失敗させている。[明示要求の競合の案内](../spec/core/operation-concurrency-policy.md#明示要求の競合の案内)どおり、警告の後は失敗として扱わずに終える。
+4. メイン画面の表示状態の最終レビューの任意提案: `NestedFolderCounter` のコメント（起点にアクセスできない場合は0を返す）、再読込みの拒否ログの理由 `target_not_found` を実際の理由へ、[導入先推定](../spec/library/install-estimation.md)の「一覧の選択を解く」の適用範囲、統合確認の処理の重複。未所持メニューで対象と対象外を混ぜた選択の見出しと動作のずれは、どちらかに揃える。
+5. 負荷に敏感なテストの最終レビューのP3: `VerificationRunnerTests` の FatalStage と ExpiredCleanup のremarksで、取消の不達は段階期限、Jobの未終端は検証全体の期限で検出すると書き分ける。[テスト検証](../spec/development/testing.md)の移行対象の一覧に `SuccessfulCoreDoesNotStartTheLaterUiCleanupBudget` と UiExecutions の30秒の上書きを加える。
+6. 設定画面の不備の案内の単位から持ち越した、ルートの確定時にスコアの候補を採用するかの留保。現行の仕様（[設定](../spec/runtime/settings.md)のルートの確定）と実装を照合し、食い違いがあれば仕様どおりに直す。仕様で決まらなければ選択肢を添えて全体ルートへ返す。
+
+#### 内蔵プレイヤーの先読み失敗のテストが停止する
+
+`verify` で、Windowsの `AudioContractsTests.ParserInputPreloadFailureIsDeferredUntilMatchingNavigation (False,False,False)` が開始したまま終わらず、モジュールの600秒の期限で打ち切られた（一度だけ観測）。同じ行の `release` は必ずSetされ、`cleanupRelease` は待たれないため、テストの同期部品は原因ではないとみられる。CPU負荷だけでは5分以上の停止を説明できず、内蔵プレイヤーの先読み・採用・後片付けの間の競合が疑われる。
 
 ### 調査時の分類: 任意改善
 
