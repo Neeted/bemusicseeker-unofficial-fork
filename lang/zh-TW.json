@@ -423,6 +423,8 @@
   "AudioConversionOtherFailuresRemainingFormat": "其他轉換失敗：{0} 個。其餘 {1} 個的詳細資訊請查看記錄。",
   "AudioConversionOmittedSourcesFormat": "{0}：已省略 {1} 個音源。",
   "AudioConversionOmittedSourcesRemainingFormat": "共有 {0} 個譜面省略了音源。其餘 {1} 個譜面的詳細資訊請查看記錄。",
+  "AudioConversionEncoderUnavailableConfirmFormat": "找不到所選格式 {0} 的編碼器（{1}）。\n選擇「確定」將以 WAVE 繼續本次轉換，選擇「取消」將中止轉換。\n設定中儲存的格式不會變更。",
+  "AudioConversionOutputFormatFormat": "輸出格式：{0}",
   "Msg_error_unexpected": "發生了未預期的錯誤。",
   "Sampling_rate": "取樣率",
   "Open_image": "開啟圖片檔案",

@@ -282,16 +282,7 @@ internal sealed class BassAudioDeviceCatalog : IAudioDeviceCatalog
 
     public bool IsEncoderAvailable(EncoderType encoder, string encoderDirectory)
     {
-        string previousDirectory = Ribbit.Media.BassAudioWriter.EncoderDirectory;
-        try
-        {
-            Ribbit.Media.BassAudioWriter.EncoderDirectory = encoderDirectory;
-            return Ribbit.Media.BassAudioWriter.IsEncoderAvailable(encoder);
-        }
-        finally
-        {
-            Ribbit.Media.BassAudioWriter.EncoderDirectory = previousDirectory;
-        }
+        return Ribbit.Media.BassAudioWriter.IsEncoderAvailable(encoder, encoderDirectory);
     }
 
     private static AudioDeviceInfo CreateDefaultOption()
@@ -393,8 +384,6 @@ internal interface IAudioSettingsGateway
     AudioNormalization EncoderNormalization { get; set; }
 
     AudioEncodingSettingsSnapshot CaptureEncodingSettings();
-
-    void ApplyEncoderFallback(EncoderType encoder);
 }
 
 internal sealed class SettingsAudioGateway : IAudioSettingsGateway
@@ -448,11 +437,6 @@ internal sealed class SettingsAudioGateway : IAudioSettingsGateway
             values.EncoderAmplifier,
             values.EncodeFileNameFormat,
             values.PlayerResamplingQuality);
-    }
-
-    public void ApplyEncoderFallback(EncoderType encoder)
-    {
-        Values.Encoder = encoder;
     }
 }
 

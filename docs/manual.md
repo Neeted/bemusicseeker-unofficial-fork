@@ -735,7 +735,9 @@ Export selected owned charts to audio files without waiting for real-time playba
 2. Select charts in the list. You can select several rows at once.
 3. Right-click and choose `Convert to audio file`, then select an output folder.
 4. Normal playback stops and conversion begins in selection order. You can cancel from the progress display.
-5. Review the success, failure, and unprocessed counts at completion, and check the files in the output folder.
+5. Review the success, failure, and unprocessed counts and the output format at completion, and check the files in the output folder.
+
+If the encoder for the saved file type cannot be found, a warning appears before you choose the output folder. Select `OK` to convert only this time as WAVE, or `Cancel` to stop without converting. Either way, the file type saved in the recording settings does not change.
 
 Omitted audio resources are reported as warnings at completion. For failures, see [Audio Playback or Conversion Fails](#audio-playback-or-conversion-fails).
 

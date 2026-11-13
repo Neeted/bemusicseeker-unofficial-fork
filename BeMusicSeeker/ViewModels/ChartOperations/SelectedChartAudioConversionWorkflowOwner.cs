@@ -29,12 +29,20 @@ internal interface ISelectedChartAudioConversionPlaybackPort
 
 internal interface ISelectedChartAudioConversionExecutor
 {
+    /// <summary>
+    /// 渡されたスナップショットの形式をそのまま使って変換します。WAVEへの代替はしません。
+    /// 実行ファイルが見つからない場合は、そのファイルの通常の失敗として結果に残し、残りのファイルは続行します。
+    /// </summary>
+    /// <param name="bmsFiles">変換する譜面。</param>
+    /// <param name="saveDirectory">出力先フォルダ。</param>
+    /// <param name="settings">この変換で使う設定のスナップショット。</param>
+    /// <param name="cancellationToken">変換を取り消すトークン。</param>
+    /// <param name="reportFileCompleted">ファイルごとの結果の通知先。</param>
     void Execute(
         IReadOnlyList<ModelChartFile> bmsFiles,
         string saveDirectory,
         SelectedChartAudioConversionSettingsSnapshot settings,
         CancellationToken cancellationToken,
-        Action<EncoderType> applyEncoderFallback,
         Action<SelectedChartAudioConversionFileResult> reportFileCompleted);
 }
 
@@ -137,6 +145,27 @@ internal sealed class SelectedChartAudioConversionSettingsSnapshot
 
     /// <summary>この変換開始時に捕捉したサンプルレート変換品質です。</summary>
     internal int SampleRateConversionQuality { get; }
+
+    /// <summary>
+    /// 形式だけをWAVEへ置き換え、他の設定値をすべて保った今回の変換専用のスナップショットを返します。
+    /// 共有設定は変更しません。
+    /// </summary>
+    internal SelectedChartAudioConversionSettingsSnapshot WithWaveEncoder()
+    {
+        return new SelectedChartAudioConversionSettingsSnapshot(
+            EncoderType.WAVE,
+            EncoderSampleRate,
+            EncoderFormat,
+            EncoderNormalization,
+            EncoderQuality,
+            EncoderExeDirectory,
+            EncoderAmplifier,
+            EncodeFileNameFormat,
+            GetEncoderDisplayName(EncoderType.WAVE),
+            SampleRateDisplayName,
+            SampleFormatDisplayName,
+            SampleRateConversionQuality);
+    }
 
     internal static SelectedChartAudioConversionSettingsSnapshot CreateCurrent(AudioEncodingSettingsSnapshot settings)
     {
@@ -267,7 +296,7 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 {
     private readonly Func<SelectedChartAudioConversionSettingsSnapshot> settingsProvider;
 
-    private readonly Action<EncoderType> applyEncoderFallback;
+    private readonly Func<EncoderType, string, bool> isEncoderAvailable;
 
     private readonly ISelectedChartAudioConversionPlaybackPort playback;
 
@@ -277,28 +306,38 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
 
     private readonly ChartFileOperationSynchronizer operationAdmission;
 
+    /// <param name="settingsProvider">変換ごとに一回だけ呼ぶ設定のスナップショット提供元。</param>
+    /// <param name="isEncoderAvailable">形式と検索先から、外部エンコーダーを利用できるかを判定します。</param>
+    /// <param name="playback">変換前に停止する再生の窓口。</param>
+    /// <param name="dialogs">確認・出力先選択・進捗・通知の窓口。</param>
+    /// <param name="executor">変換の実行側。</param>
+    /// <param name="operationAdmission">ライブラリ操作の受付。</param>
     internal SelectedChartAudioConversionWorkflowOwner(
         Func<SelectedChartAudioConversionSettingsSnapshot> settingsProvider,
-        Action<EncoderType> applyEncoderFallback,
+        Func<EncoderType, string, bool> isEncoderAvailable,
         ISelectedChartAudioConversionPlaybackPort playback,
         IUiDialogService dialogs,
         ISelectedChartAudioConversionExecutor executor,
         ChartFileOperationSynchronizer operationAdmission)
     {
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
-        this.applyEncoderFallback = applyEncoderFallback ?? throw new ArgumentNullException(nameof(applyEncoderFallback));
+        this.isEncoderAvailable = isEncoderAvailable ?? throw new ArgumentNullException(nameof(isEncoderAvailable));
         this.playback = playback ?? throw new ArgumentNullException(nameof(playback));
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.executor = executor ?? throw new ArgumentNullException(nameof(executor));
         this.operationAdmission = operationAdmission ?? throw new ArgumentNullException(nameof(operationAdmission));
     }
 
-    /// <summary>選択譜面の音声変換を実行します。</summary>
+    /// <summary>
+    /// 選択譜面の音声変換を実行します。保存形式がWAVE以外で利用できない場合は、出力先の選択前に一度だけ警告し、
+    /// 承認時は今回の変換だけをWAVEで続行し、取消時は変換しません。共有設定の形式は書き換えません。
+    /// </summary>
     /// <param name="request">変換する譜面の要求。</param>
     /// <param name="cancellationToken">処理を取り消すトークン。</param>
     /// <returns>変換結果。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> が <see langword="null"/> の場合。</exception>
     /// <exception cref="DirectoryNotFoundException">選択後、再生停止前に出力先が存在しない場合。</exception>
+    /// <exception cref="InvalidOperationException">設定を取得できない場合、または警告確認が成否を判断できない結果を返した場合。</exception>
     internal async Task<SelectedChartAudioConversionResult> RunAsync(
         SelectedChartAudioConversionRequest request,
         CancellationToken cancellationToken = default)
@@ -311,6 +350,43 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
         {
             return SelectedChartAudioConversionResult.Empty;
         }
+        SelectedChartAudioConversionSettingsSnapshot settings = settingsProvider()
+            ?? throw new InvalidOperationException("Audio conversion settings snapshot was not provided.");
+        if (settings.Encoder != EncoderType.WAVE
+            && !isEncoderAvailable(settings.Encoder, settings.EncoderExeDirectory))
+        {
+            UiDialogResult confirmation = await dialogs.ConfirmAsync(
+                new UiConfirmationRequest(
+                    string.Format(
+                        BeMusicSeeker.Properties.Resources.AudioConversionEncoderUnavailableConfirmFormat,
+                        settings.EncoderDisplayName,
+                        settings.Encoder.GetEncoderFileName()),
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxButton.OKCancel,
+                    MessageBoxImage.Exclamation,
+                    MessageBoxResult.Cancel),
+                cancellationToken);
+            switch (confirmation?.Status)
+            {
+                case UiDialogStatus.Accepted:
+                    settings = settings.WithWaveEncoder();
+                    break;
+                case UiDialogStatus.CancelledByUser:
+                case UiDialogStatus.Rejected:
+                case UiDialogStatus.ClosedByUser:
+                    return SelectedChartAudioConversionResult.Create(
+                        SelectedChartAudioConversionStatus.Cancelled,
+                        request.Targets.Count,
+                        0,
+                        0);
+                default:
+                    throw new InvalidOperationException(
+                        "Audio conversion encoder unavailable confirmation failed: "
+                        + (confirmation?.Status.ToString() ?? "no result"),
+                        confirmation?.Exception);
+            }
+        }
+
         UiFolderPickerResult folderResult = await dialogs.PickFolderAsync(
             new UiFolderPickerRequest(BeMusicSeeker.Properties.Resources.Save_to),
             cancellationToken);
@@ -341,11 +417,6 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                 return SelectedChartAudioConversionResult.Empty;
             }
 
-            SelectedChartAudioConversionSettingsSnapshot settings = settingsProvider();
-            if (settings == null)
-            {
-                throw new InvalidOperationException("Audio conversion settings snapshot was not provided.");
-            }
             if (!LongPathFileSystem.DirectoryExists(folderResult.FolderPath))
             {
                 throw new DirectoryNotFoundException();
@@ -374,7 +445,6 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                     folderResult.FolderPath,
                     settings,
                     operationCancellation.Token,
-                    applyEncoderFallback,
                     reportFileCompleted),
                 CancellationToken.None);
             conversionTask.ObserveFault("tableContextMenuItemConvertToAudioFileClick");
@@ -474,7 +544,11 @@ internal sealed class SelectedChartAudioConversionWorkflowOwner
                 + Environment.NewLine
                 + BeMusicSeeker.Properties.Resources.Success + ": " + result.SucceededCount
                 + Environment.NewLine
-                + BeMusicSeeker.Properties.Resources.Failure + ": " + (result.UnprocessedCount + result.FailedCount));
+                + BeMusicSeeker.Properties.Resources.Failure + ": " + (result.UnprocessedCount + result.FailedCount)
+                + Environment.NewLine
+                + string.Format(
+                    BeMusicSeeker.Properties.Resources.AudioConversionOutputFormatFormat,
+                    settings.EncoderDisplayName));
 
         SelectedChartAudioConversionFileResult[] failures = result.FileResults
             .Where(fileResult => !fileResult.Succeeded)
@@ -723,7 +797,6 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
         string saveDirectory,
         SelectedChartAudioConversionSettingsSnapshot settings,
         CancellationToken cancellationToken,
-        Action<EncoderType> applyEncoderFallback,
         Action<SelectedChartAudioConversionFileResult> reportFileCompleted)
     {
         if (!LongPathFileSystem.DirectoryExists(saveDirectory))
@@ -759,7 +832,6 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
             sessionLease.Attach(ownedSession);
             operation = BassAudioRuntime.EnterAudioOperation();
             operationEntered = true;
-            EncoderType encoder = settings.Encoder;
             int index = 0;
             int totalCount = bmsFiles.Count;
             foreach (ModelChartFile bmsFile in bmsFiles)
@@ -803,15 +875,10 @@ internal sealed class BassSelectedChartAudioConversionExecutor : ISelectedChartA
                     }
                     string outputPath = Path.Combine(saveDirectory, fileName);
                     writer = new RibbitBmsAutoPlayWriter(source);
-                    if (!BassAudioWriter.IsEncoderAvailable(encoder))
-                    {
-                        encoder = EncoderType.WAVE;
-                        applyEncoderFallback(encoder);
-                    }
                     writer.LoadResources();
                     omittedAudioSourceCount = writer.OmittedAudioSources.Count;
                     writer.Write(
-                        encoder,
+                        settings.Encoder,
                         settings.EncoderQuality,
                         outputPath,
                         BassAudioMapping.ToBassNormalization(settings.EncoderNormalization),

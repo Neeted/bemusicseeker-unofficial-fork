@@ -26,7 +26,6 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     [TestMethod]
     public void ProductionExecutorExportsBmsonThroughTheSharedWriterAndReleasesItsSession()
     {
-        int unexpectedNotificationCount = 0;
         using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = CreateRoot(caseWorkspace);
         var lease = new BassAudioSessionLease();
@@ -45,7 +44,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 1f, "%TITLE%", "WAVE", "48000Hz", "float");
             var results = new List<SelectedChartAudioConversionFileResult>();
             executor.Execute([CreateTarget(path, ChartOperationCapabilities.ConvertToAudio).Chart], root, settings,
-                CancellationToken.None, _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), results.Add);
+                CancellationToken.None, results.Add);
             Assert.AreEqual(1, results.Count);
             Assert.IsNull(results[0].Error);
             Assert.IsNull(lease.Session);
@@ -67,7 +66,6 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
             DeleteRoot(root);
         }
-        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
     }
 
     /// <summary>実BMSとBMSONを一要求でWAVEへ変換し、独立したframe数・ステレオPCM・設定、解放と次の明示変換を確認します。Busyでは停止・writerを始めず、encoderとsessionの解放中も受付を保持します。</summary>
@@ -76,7 +74,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
     [TestMethod]
     public async Task RunAsync_RealNativeExecutorRetainsLibraryAdmissionThroughEncoderAndSessionCleanup()
     {
-        int unexpectedNotificationCount = 0;
+        int availabilityCheckCount = 0;
         using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = CreateRoot(caseWorkspace);
         var nativeLease = new BassAudioSessionLease();
@@ -111,7 +109,8 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             var owner = new SelectedChartAudioConversionWorkflowOwner(
                 () => new SelectedChartAudioConversionSettingsSnapshot(EncoderType.WAVE, SampleRate.SAMPLE_RATE_48000Hz,
                     SampleFormat.SAMPLE_FLOAT_32BIT, AudioNormalization.None, 0f, string.Empty, 2f, prefix + "%TITLE%", "WAVE", "48000Hz", "float"),
-                _ => System.Threading.Interlocked.Increment(ref unexpectedNotificationCount), playback, dialogs, executor, gate);
+                (_, _) => { System.Threading.Interlocked.Increment(ref availabilityCheckCount); return true; },
+                playback, dialogs, executor, gate);
             var request = new SelectedChartAudioConversionRequest([
                 CreateTarget(bmsPath, ChartOperationCapabilities.ConvertToAudio),
                 CreateTarget(path, ChartOperationCapabilities.ConvertToAudio)]);
@@ -149,6 +148,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             AssertNativeStereoWave(Path.Combine(root, "next-BMSON native export.wav"), 0, 4800, -0.04f, 0.12f);
             Assert.IsTrue(encoderCleanup > previousEncoderCleanup);
             Assert.IsTrue(sessionCleanup > previousSessionCleanup);
+            Assert.AreEqual(0, dialogs.ConfirmCalls, "WAVE設定では警告確認を表示しません。");
             Assert.IsNull(nativeLease.Session);
             Assert.IsFalse(gate.IsActive);
         }
@@ -163,7 +163,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
             DeleteRoot(root);
         }
-        Assert.AreEqual(0, unexpectedNotificationCount, "想定外の通知を呼び出しません。");
+        Assert.AreEqual(0, availabilityCheckCount, "WAVE設定では可用性を判定しません。");
     }
 
     /// <summary>受付後に実入力を削除しencoder解放も失敗させ、元入力失敗と解放失敗の保持・native所有権・完了通知の抑止を検出します。</summary>
@@ -428,7 +428,6 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                     outputDirectory,
                     settings,
                     CancellationToken.None,
-                    _ => { },
                     fileResult =>
                     {
                         priorFileResults.Add(fileResult);
@@ -554,7 +553,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                         "WAVE",
                         "44100Hz",
                         "16bit"),
-                    _ => { },
+                    (_, _) => throw new InvalidOperationException("WAVE設定では可用性を判定しません。"),
                     playback,
                     dialogs,
                     executor, new ChartFileOperationSynchronizer());
@@ -612,6 +611,92 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             }
 
         });
+    }
+
+    /// <summary>確認後に実行ファイルが消えた場合に相当し、実executorが各ファイルを通常の失敗として結果へ残してバッチを続け、WAVEへの代替出力を作らない誤りを検出します。</summary>
+    /// <remarks>
+    /// 実BASSと実executorを使い、可用性判定は常に利用可能にして確認後の消失を再現します。
+    /// 同じ二譜面をWAVE設定で再実行する対照で、失敗が入力ではなく形式の実行ファイル不在によることを区別します。
+    /// 共有native状態と静的なencoder検索先を使うため並列実行しません。
+    /// </remarks>
+    [DoNotParallelize]
+    [TestMethod]
+    public async Task RunAsync_RealExecutorReportsEachFileAsFailureWhenEncoderDisappearsAfterConfirmation()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        var nativeLease = new BassAudioSessionLease();
+        SampleRate previousFrequency = BassAudioPlayer.Frequency;
+        SampleFormat previousFormat = BassAudioPlayer.Format;
+        string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
+        try
+        {
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            string emptyEncoderDirectory = Path.Combine(root, "empty-encoder");
+            string outputDirectory = Path.Combine(root, "output");
+            Directory.CreateDirectory(emptyEncoderDirectory);
+            Directory.CreateDirectory(outputDirectory);
+            File.WriteAllBytes(Path.Combine(root, "tone.wav"), CreatePcmWave());
+            const string validChart = "#PLAYER 1\n#ARTIST Test\n#BPM 120\n#WAV01 tone.wav\n#00001:01\n";
+            string firstPath = Path.Combine(root, "first.bms");
+            string secondPath = Path.Combine(root, "second.bms");
+            File.WriteAllText(firstPath, "#TITLE First\n" + validChart, Encoding.ASCII);
+            File.WriteAllText(secondPath, "#TITLE Second\n" + validChart, Encoding.ASCII);
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [outputDirectory]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                MessageResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            var executor = new BassSelectedChartAudioConversionExecutor(
+                BassAudioWriter.TryReleaseEncoder,
+                session => BassAudioPlayer.Free(session),
+                nativeLease);
+            SelectedChartAudioConversionSettingsSnapshot snapshot = CreateSettings(
+                EncoderType.MP3_LAME, "MP3 LAME", emptyEncoderDirectory);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(
+                dialogs,
+                new RecordingPlayback(events),
+                executor,
+                events,
+                isEncoderAvailable: (_, _) => true,
+                settingsProvider: () => snapshot);
+            var request = new SelectedChartAudioConversionRequest([
+                CreateTarget(firstPath, ChartOperationCapabilities.ConvertToAudio),
+                CreateTarget(secondPath, ChartOperationCapabilities.ConvertToAudio)]);
+
+            SelectedChartAudioConversionResult missing = await owner.RunAsync(request);
+
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, missing.Status);
+            Assert.AreEqual(2, missing.CompletedCount);
+            Assert.AreEqual(2, missing.FailedCount);
+            Assert.AreEqual(2, missing.FileResults.Count);
+            Assert.IsTrue(missing.FileResults.All(file => !file.Succeeded && file.Error != null));
+            Assert.AreEqual(0, Directory.GetFileSystemEntries(outputDirectory).Length, "WAVEを含め何も出力しません。");
+            Assert.IsNull(nativeLease.Session);
+
+            snapshot = CreateSettings(EncoderType.WAVE, "WAVE", emptyEncoderDirectory);
+            SelectedChartAudioConversionResult control = await owner.RunAsync(request);
+
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, control.Status);
+            Assert.AreEqual(2, control.SucceededCount);
+            Assert.AreEqual(0, control.FailedCount);
+            Assert.AreEqual(2, Directory.GetFiles(outputDirectory, "*.wav").Length);
+            Assert.IsNull(nativeLease.Session);
+        }
+        finally
+        {
+            BassAudioWriter.TryReleaseEncoder();
+            if (nativeLease.Session != null) { nativeLease.TryRelease(BassAudioPlayer.Free); }
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.Frequency = previousFrequency;
+            BassAudioPlayer.Format = previousFormat;
+            BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
+            DeleteRoot(root);
+        }
     }
 
     private static byte[] CreatePcmWave()

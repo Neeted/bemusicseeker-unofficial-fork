@@ -473,7 +473,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Func<BMSLibrary> chartInfoParseFailureRemovalLibraryProvider = null,
         Func<Action, Task> chartInfoParseFailureRemovalScheduler = null,
         Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
-        Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
+        Func<EncoderType, string, bool> selectedChartAudioConversionEncoderAvailability = null,
         ISelectedChartAudioConversionExecutor selectedChartAudioConversionExecutor = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,
@@ -526,8 +526,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
             chartInfoParseFailureRemovalScheduler,
             selectedChartAudioConversionSettingsProvider
                 ?? (() => SelectedChartAudioConversionSettingsSnapshot.CreateCurrent(audioSettingsGateway.CaptureEncodingSettings())),
-            selectedChartAudioConversionEncoderFallback
-                ?? audioSettingsGateway.ApplyEncoderFallback,
+            selectedChartAudioConversionEncoderAvailability
+                ?? audioDeviceCatalog.IsEncoderAvailable,
             lr2SongDbSyncWorkflow,
             selectedChartExternalActionFileExists,
             libraryFolderTreeLog,
@@ -752,7 +752,7 @@ internal sealed class MainWindowChildComposition
         Func<BMSLibrary> chartInfoParseFailureRemovalLibraryProvider = null,
         Func<Action, Task> chartInfoParseFailureRemovalScheduler = null,
         Func<SelectedChartAudioConversionSettingsSnapshot> selectedChartAudioConversionSettingsProvider = null,
-        Action<EncoderType> selectedChartAudioConversionEncoderFallback = null,
+        Func<EncoderType, string, bool> selectedChartAudioConversionEncoderAvailability = null,
         Lr2SongDbSyncWorkflowOwner lr2SongDbSyncWorkflow = null,
         Func<string, bool> selectedChartExternalActionFileExists = null,
         Action<string> libraryFolderTreeLog = null,
@@ -930,7 +930,7 @@ internal sealed class MainWindowChildComposition
             chartInfoParseFailureRemovalScheduler ?? (action => Task.Run(action)));
         SelectedChartAudioConversion = new SelectedChartAudioConversionWorkflowOwner(
             selectedChartAudioConversionSettingsProvider ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionSettingsProvider)),
-            selectedChartAudioConversionEncoderFallback ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionEncoderFallback)),
+            selectedChartAudioConversionEncoderAvailability ?? throw new ArgumentNullException(nameof(selectedChartAudioConversionEncoderAvailability)),
             PlaybackPanel,
             dialogService,
             selectedChartAudioConversionExecutor,

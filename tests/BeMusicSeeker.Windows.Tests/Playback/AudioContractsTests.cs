@@ -1451,7 +1451,7 @@ public sealed class AudioContractsTests
         AssertNoFallback(asio, SampleRate.SAMPLE_RATE_44100Hz);
     }
 
-    /// <summary>設定gatewayは旧方式を読取り時だけ正規化し、未知列挙値と利用者指定機器・encoder変更を保存側へ欠落なく渡す。</summary>
+    /// <summary>設定gatewayは旧方式を読取り時だけ正規化し、未知列挙値と利用者指定機器・正規化変更を保存側へ欠落なく渡す。</summary>
     [TestMethod]
     public void SettingsAudioGateway_PreservesKnownAndUnknownPersistedValues()
     {
@@ -1460,7 +1460,6 @@ public sealed class AudioContractsTests
         string originalDevice = settings.PlayerDevice;
         string originalDeviceName = settings.PlayerDeviceName;
         BMSAutoPlayWriter.Normalization originalNormalization = settings.EncoderNormalization;
-        EncoderType originalEncoder = settings.Encoder;
         try
         {
             settings.PlayerDriver = Ribbit.Media.BassAudioPlayer.DeviceDriver.DIRECT_SOUND;
@@ -1489,13 +1488,11 @@ public sealed class AudioContractsTests
                 "replacement-device",
                 "Replacement Device"));
             gateway.EncoderNormalization = (AudioNormalization)67;
-            gateway.ApplyEncoderFallback(Ribbit.Media.Audio.EncoderType.FLAC);
 
             Assert.AreEqual((Ribbit.Media.BassAudioPlayer.DeviceDriver)61, settings.PlayerDriver);
             Assert.AreEqual("replacement-device", settings.PlayerDevice);
             Assert.AreEqual("Replacement Device", settings.PlayerDeviceName);
             Assert.AreEqual((Ribbit.BMS.BMSAutoPlayWriter.Normalization)67, settings.EncoderNormalization);
-            Assert.AreEqual(Ribbit.Media.Audio.EncoderType.FLAC, settings.Encoder);
         }
         finally
         {
@@ -1503,7 +1500,6 @@ public sealed class AudioContractsTests
             settings.PlayerDevice = originalDevice;
             settings.PlayerDeviceName = originalDeviceName;
             settings.EncoderNormalization = originalNormalization;
-            settings.Encoder = originalEncoder;
         }
     }
 

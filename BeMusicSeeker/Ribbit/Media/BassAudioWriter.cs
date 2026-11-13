@@ -115,13 +115,24 @@ public class BassAudioWriter : BassAudioPlayer
 
     private static string GetEncoderDirectory(EncoderType encodeType)
     {
-        return encodeType.SearchEncoderBinary(LongPathFileSystem.DirectoryExists(EncoderDirectory) ? EncoderDirectory : null);
+        return FindEncoderDirectory(encodeType, EncoderDirectory);
     }
 
-    /// <summary>指定した外部encoderが見つかるかを返します。</summary>
-    public static bool IsEncoderAvailable(EncoderType encodeType)
+    /// <summary>指定フォルダが存在すれば優先し、次に既定の素材配置を探す検索規則の唯一の実装です。</summary>
+    private static string FindEncoderDirectory(EncoderType encodeType, string encoderDirectory)
     {
-        return GetEncoderDirectory(encodeType) != null;
+        return encodeType.SearchEncoderBinary(LongPathFileSystem.DirectoryExists(encoderDirectory) ? encoderDirectory : null);
+    }
+
+    /// <summary>
+    /// 静的な <see cref="EncoderDirectory"/> を読み書きせず、指定した検索先でencoderが見つかるかを返します。
+    /// 検索規則は <see cref="EncoderDirectory"/> を使う場合と同じで、指定フォルダが存在すれば優先し、次に既定の素材配置を探します。
+    /// </summary>
+    /// <param name="encodeType">確認するencoderの形式。WAVEは常に利用できます。</param>
+    /// <param name="encoderDirectory">優先する検索先。存在しない場合は無視します。</param>
+    public static bool IsEncoderAvailable(EncoderType encodeType, string encoderDirectory)
+    {
+        return FindEncoderDirectory(encodeType, encoderDirectory) != null;
     }
 
     /// <summary>encoder開始前にcommand lineへ設定するmetadataを保存します。</summary>

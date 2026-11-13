@@ -559,8 +559,18 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
                 }
             };
             var playback = new RecordingPlayback(events);
-            var fallbackValues = new List<EncoderType>();
-            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(dialogs, playback, executor, events, fallbackValues);
+            var availabilityCalls = new List<(EncoderType Encoder, string Directory)>();
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(
+                dialogs,
+                playback,
+                executor,
+                events,
+                isEncoderAvailable: (encoder, directory) =>
+                {
+                    availabilityCalls.Add((encoder, directory));
+                    return true;
+                },
+                encoderExeDirectory: EncoderDirectoryMarker);
 
             SelectedChartAudioConversionResult result = await owner.RunAsync(
                 new SelectedChartAudioConversionRequest([first, second]));
@@ -587,6 +597,11 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             Assert.AreEqual(1, playback.StopCalls);
             Assert.AreEqual(1, dialogs.MessageCalls);
             Assert.AreEqual("MP3 LAME", dialogs.ProgressLabel.Split('-')[0].Trim());
+            Assert.AreEqual(1, availabilityCalls.Count);
+            Assert.AreEqual((EncoderType.MP3_LAME, EncoderDirectoryMarker), availabilityCalls[0]);
+            Assert.AreEqual(0, dialogs.ConfirmCalls);
+            Assert.AreEqual(EncoderDirectoryMarker, executedSettings.EncoderExeDirectory);
+            StringAssert.Contains(dialogs.LastMessage, FormatOutputFormat("MP3 LAME"));
             Assert.IsTrue(events.IndexOf("picker") < events.IndexOf("playback"));
             Assert.IsTrue(events.IndexOf("playback") < events.IndexOf("progress"));
             Assert.IsTrue(events.IndexOf("playback") < events.IndexOf("execute"));
@@ -1047,6 +1062,7 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
 
             releaseWorker.Set();
             Assert.AreEqual(SelectedChartAudioConversionStatus.Cancelled, (await first).Status);
+            StringAssert.Contains(dialogs.LastMessage, FormatOutputFormat("MP3 LAME"));
 
             dialogs.ProgressHandler = null;
             dialogs.ProgressResult = new UiProgressResult(UiDialogStatus.Accepted);
@@ -1073,6 +1089,307 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             DeleteRoot(root);
         }
     }
+
+    /// <summary>対象がない要求は従来どおり空結果を返し、可用性判定・確認・出力先選択・通知を呼ばない誤りを検出します。</summary>
+    /// <remarks>対象なしの入口だけを観測し、判定は常に利用不能にして呼出しの有無を区別します。</remarks>
+    [TestMethod]
+    public async Task RunAsync_NoTargetsReturnsEmptyWithoutAvailabilityConfirmationPickerOrNotification()
+    {
+        var events = new EventLog();
+        var dialogs = new RecordingDialogService(events);
+        int availabilityCalls = 0;
+        SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(
+            dialogs,
+            new RecordingPlayback(events),
+            new RecordingExecutor(events),
+            events,
+            isEncoderAvailable: (_, _) =>
+            {
+                availabilityCalls++;
+                return false;
+            });
+
+        SelectedChartAudioConversionResult result = await owner.RunAsync(new SelectedChartAudioConversionRequest([]));
+
+        Assert.AreSame(SelectedChartAudioConversionResult.Empty, result);
+        Assert.AreEqual(0, availabilityCalls);
+        Assert.AreEqual(0, dialogs.ConfirmCalls);
+        Assert.AreEqual(0, dialogs.PickerCalls);
+        Assert.AreEqual(0, dialogs.MessageCalls);
+        Assert.AreEqual(string.Empty, events.Join("|"));
+    }
+
+    /// <summary>保存形式がWAVEなら可用性の判定も警告確認もしない誤りを検出します。</summary>
+    /// <remarks>判定を常に利用不能にして、WAVEで判定へ到達した場合に確認が出ることで区別します。</remarks>
+    [TestMethod]
+    public async Task RunAsync_WaveFormatSkipsAvailabilityCheckAndConfirmation()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        try
+        {
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted)
+            };
+            var executor = new RecordingExecutor(events)
+            {
+                ExecuteAction = (_, _, _, _, _) => { }
+            };
+            int availabilityCalls = 0;
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(
+                dialogs,
+                new RecordingPlayback(events),
+                executor,
+                events,
+                isEncoderAvailable: (_, _) =>
+                {
+                    availabilityCalls++;
+                    return false;
+                },
+                encoder: EncoderType.WAVE,
+                encoderDisplayName: "WAVE");
+
+            await owner.RunAsync(CreateTwoTargetRequest(root));
+
+            Assert.AreEqual(0, availabilityCalls);
+            Assert.AreEqual(0, dialogs.ConfirmCalls);
+            Assert.AreEqual(1, executor.CallCount);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    /// <summary>利用できない形式の警告は出力先の選択前に一度だけ出し、承認では今回だけWAVEへ置き換えて他の設定を保つ誤りを検出します。</summary>
+    /// <remarks>確認を保留して受付の空きと順序を観測し、設定提供値は2回目以降を別形式にして読み直しを区別します。</remarks>
+    [TestMethod]
+    public async Task RunAsync_UnavailableEncoderConfirmedContinuesAsWaveWithoutRereadingSettings()
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        var confirmEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var confirmResult = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task<SelectedChartAudioConversionResult>? operation = null;
+        try
+        {
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ProgressResult = new UiProgressResult(UiDialogStatus.Accepted),
+                ConfirmHandler = () =>
+                {
+                    confirmEntered.TrySetResult();
+                    return confirmResult.Task;
+                }
+            };
+            SelectedChartAudioConversionSettingsSnapshot? executedSettings = null;
+            var executor = new RecordingExecutor(events)
+            {
+                ExecuteAction = (_, _, settings, _, report) =>
+                {
+                    executedSettings = settings;
+                    report(new SelectedChartAudioConversionFileResult("first.bms"));
+                    report(new SelectedChartAudioConversionFileResult("second.bms"));
+                }
+            };
+            var admission = new ChartFileOperationSynchronizer();
+            int providerCalls = 0;
+            SelectedChartAudioConversionSettingsSnapshot captured = CreateSettings(
+                EncoderType.MP3_LAME, "MP3 LAME", EncoderDirectoryMarker, encoderAmplifier: 1.5f, sampleRateConversionQuality: 2);
+            var availabilityCalls = new List<(EncoderType Encoder, string Directory)>();
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(
+                dialogs,
+                new RecordingPlayback(events),
+                executor,
+                events,
+                isEncoderAvailable: (encoder, directory) =>
+                {
+                    availabilityCalls.Add((encoder, directory));
+                    return false;
+                },
+                operationAdmission: admission,
+                settingsProvider: () => ++providerCalls == 1
+                    ? captured
+                    : CreateSettings(EncoderType.FLAC, "FLAC", "other-directory", encoderAmplifier: 3f));
+
+            operation = owner.RunAsync(CreateTwoTargetRequest(root));
+            await TestUiDispatcherHost.AwaitNotificationAsync(confirmEntered.Task, operation, "audio-conversion.encoder-confirm");
+
+            Assert.AreEqual(1, dialogs.ConfirmCalls);
+            Assert.AreEqual(0, dialogs.PickerCalls);
+            Assert.IsTrue(admission.TryEnter(out IDisposable? probe), "The confirmation must not hold the library operation admission.");
+            probe.Dispose();
+            UiConfirmationRequest request = dialogs.ConfirmRequest!;
+            Assert.AreEqual(MessageBoxButton.OKCancel, request.Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+            Assert.AreEqual(MessageBoxResult.Cancel, request.DefaultResult);
+            Assert.AreEqual(
+                string.Format(Resources.AudioConversionEncoderUnavailableConfirmFormat, "MP3 LAME", "lame.exe"),
+                request.MessageBoxText);
+
+            confirmResult.SetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+            SelectedChartAudioConversionResult result = await operation;
+
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Completed, result.Status);
+            Assert.AreEqual(1, dialogs.ConfirmCalls);
+            Assert.AreEqual(1, providerCalls);
+            Assert.AreEqual(1, availabilityCalls.Count);
+            Assert.AreEqual((EncoderType.MP3_LAME, EncoderDirectoryMarker), availabilityCalls[0]);
+            Assert.IsTrue(events.IndexOf("confirm") < events.IndexOf("picker"));
+            Assert.IsNotNull(executedSettings);
+            Assert.AreEqual(EncoderType.WAVE, executedSettings.Encoder);
+            Assert.AreEqual("WAVE", executedSettings.EncoderDisplayName);
+            Assert.AreEqual(captured.EncoderSampleRate, executedSettings.EncoderSampleRate);
+            Assert.AreEqual(captured.EncoderFormat, executedSettings.EncoderFormat);
+            Assert.AreEqual(captured.EncoderNormalization, executedSettings.EncoderNormalization);
+            Assert.AreEqual(captured.EncoderQuality, executedSettings.EncoderQuality);
+            Assert.AreEqual(captured.EncoderExeDirectory, executedSettings.EncoderExeDirectory);
+            Assert.AreEqual(captured.EncoderAmplifier, executedSettings.EncoderAmplifier);
+            Assert.AreEqual(captured.EncodeFileNameFormat, executedSettings.EncodeFileNameFormat);
+            Assert.AreEqual(captured.SampleRateDisplayName, executedSettings.SampleRateDisplayName);
+            Assert.AreEqual(captured.SampleFormatDisplayName, executedSettings.SampleFormatDisplayName);
+            Assert.AreEqual(captured.SampleRateConversionQuality, executedSettings.SampleRateConversionQuality);
+            StringAssert.Contains(dialogs.ProgressLabel, "WAVE");
+            Assert.IsFalse(dialogs.ProgressLabel.Contains("MP3 LAME", StringComparison.Ordinal));
+            StringAssert.Contains(dialogs.LastMessage, FormatOutputFormat("WAVE"));
+        }
+        finally
+        {
+            confirmResult.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            if (operation != null)
+            {
+                try
+                {
+                    await operation;
+                }
+                catch
+                {
+                }
+            }
+            DeleteRoot(root);
+        }
+    }
+
+    /// <summary>警告確認での取消・否定・閉鎖はいずれも変換を中止し、出力先選択以降と受付の保持を行わない誤りを検出します。</summary>
+    /// <remarks>三つの中止状態を同じ入口で区別し、確認以降の記録が空であることと受付の空きを観測します。</remarks>
+    [TestMethod]
+    [DataRow("CancelledByUser")]
+    [DataRow("Rejected")]
+    [DataRow("ClosedByUser")]
+    public async Task RunAsync_UnavailableEncoderAbortedByUserDoesNotConvertOrNotify(string statusName)
+    {
+        UiDialogStatus status = Enum.Parse<UiDialogStatus>(statusName);
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        try
+        {
+            var events = new EventLog();
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ConfirmResult = status == UiDialogStatus.ClosedByUser
+                    ? UiDialogResult.ClosedByUser(MessageBoxResult.Cancel)
+                    : UiDialogResult.FromMessageBoxResult(
+                        status == UiDialogStatus.Rejected ? MessageBoxResult.No : MessageBoxResult.Cancel)
+            };
+            Assert.AreEqual(status, dialogs.ConfirmResult.Status);
+            var executor = new RecordingExecutor(events);
+            var playback = new RecordingPlayback(events);
+            var admission = new ChartFileOperationSynchronizer();
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(
+                dialogs,
+                playback,
+                executor,
+                events,
+                isEncoderAvailable: (_, _) => false,
+                operationAdmission: admission);
+
+            SelectedChartAudioConversionResult result = await owner.RunAsync(CreateTwoTargetRequest(root));
+
+            Assert.AreEqual(SelectedChartAudioConversionStatus.Cancelled, result.Status);
+            Assert.AreEqual(2, result.TotalCount);
+            Assert.AreEqual(0, result.CompletedCount);
+            Assert.AreEqual(0, result.FailedCount);
+            Assert.AreEqual(0, result.FileResults.Count);
+            Assert.AreEqual("confirm", events.Join("|"));
+            Assert.AreEqual(1, dialogs.ConfirmCalls);
+            Assert.AreEqual(0, dialogs.PickerCalls);
+            Assert.AreEqual(0, playback.StopCalls);
+            Assert.AreEqual(0, executor.CallCount);
+            Assert.AreEqual(0, dialogs.MessageCalls);
+            Assert.IsTrue(admission.TryEnter(out IDisposable? probe));
+            probe.Dispose();
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    /// <summary>警告確認が表示失敗・未表示なら成功や中止へ置き換えず、出力先選択以降へ進まない誤りを検出します。</summary>
+    /// <remarks>Failedは原因例外をInnerExceptionへ残すことまで観測します。</remarks>
+    [TestMethod]
+    [DataRow("Failed")]
+    [DataRow("NotShown")]
+    public async Task RunAsync_UnavailableEncoderConfirmationFailureThrowsAndDoesNotContinue(string statusName)
+    {
+        UiDialogStatus status = Enum.Parse<UiDialogStatus>(statusName);
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = CreateRoot(caseWorkspace);
+        try
+        {
+            var events = new EventLog();
+            var error = new InvalidOperationException("confirm failed");
+            var dialogs = new RecordingDialogService(events)
+            {
+                FolderResult = new UiFolderPickerResult(UiDialogStatus.Accepted, [root]),
+                ConfirmResult = status == UiDialogStatus.Failed
+                    ? UiDialogResult.Failed(error)
+                    : UiDialogResult.NotShown(UiDialogStatus.NotShown)
+            };
+            var executor = new RecordingExecutor(events);
+            var playback = new RecordingPlayback(events);
+            SelectedChartAudioConversionWorkflowOwner owner = CreateOwner(
+                dialogs,
+                playback,
+                executor,
+                events,
+                isEncoderAvailable: (_, _) => false);
+
+            InvalidOperationException exception = await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+                () => owner.RunAsync(CreateTwoTargetRequest(root)));
+
+            if (status == UiDialogStatus.Failed)
+            {
+                Assert.AreSame(error, exception.InnerException);
+            }
+            Assert.AreEqual("confirm", events.Join("|"));
+            Assert.AreEqual(0, dialogs.PickerCalls);
+            Assert.AreEqual(0, playback.StopCalls);
+            Assert.AreEqual(0, executor.CallCount);
+            Assert.AreEqual(0, dialogs.MessageCalls);
+        }
+        finally
+        {
+            DeleteRoot(root);
+        }
+    }
+
+    private const string EncoderDirectoryMarker = "encoder-directory-marker";
+
+    private static string FormatOutputFormat(string displayName) =>
+        string.Format(Resources.AudioConversionOutputFormatFormat, displayName);
+
+    private static SelectedChartAudioConversionRequest CreateTwoTargetRequest(string root) =>
+        new([
+            CreateResolvedTarget(CreateChartFile(root, "first.bms")),
+            CreateResolvedTarget(CreateChartFile(root, "second.bms"))
+        ]);
 
     private static ChartOperationTarget CreateResolvedTarget(
         string path,
@@ -1106,7 +1423,6 @@ public sealed class SelectedChartAudioConversionWorkflowOwnerTests
             string saveDirectory,
             SelectedChartAudioConversionSettingsSnapshot settings,
             CancellationToken cancellationToken,
-            Action<EncoderType> applyEncoderFallback,
             Action<SelectedChartAudioConversionFileResult> reportFileCompleted)
         {
             CallCount++;

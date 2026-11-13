@@ -423,6 +423,8 @@
   "AudioConversionOtherFailuresRemainingFormat": "Other conversion failures: {0}. See the log for the remaining {1} details.",
   "AudioConversionOmittedSourcesFormat": "{0}: {1} audio source(s) were skipped.",
   "AudioConversionOmittedSourcesRemainingFormat": "Audio sources were skipped in {0} charts. See the log for the remaining {1} charts.",
+  "AudioConversionEncoderUnavailableConfirmFormat": "The encoder for the selected format, {0} ({1}), was not found.\nSelect OK to continue this conversion as WAVE. Select Cancel to stop the conversion.\nThe saved format in Settings will not be changed.",
+  "AudioConversionOutputFormatFormat": "Output format: {0}",
   "Msg_error_unexpected": "An unexpected error occurred.",
   "Sampling_rate": "Sample rate",
   "Open_image": "Open image file",

@@ -491,6 +491,10 @@ public class Resources
 
     public static string AudioConversionOmittedSourcesRemainingFormat => ResourceManager.GetString("AudioConversionOmittedSourcesRemainingFormat", resourceCulture);
 
+    public static string AudioConversionEncoderUnavailableConfirmFormat => ResourceManager.GetString("AudioConversionEncoderUnavailableConfirmFormat", resourceCulture);
+
+    public static string AudioConversionOutputFormatFormat => ResourceManager.GetString("AudioConversionOutputFormatFormat", resourceCulture);
+
     public static string Diff_URL => ResourceManager.GetString("Diff_URL", resourceCulture);
 
     public static string Directory => ResourceManager.GetString("Directory", resourceCulture);

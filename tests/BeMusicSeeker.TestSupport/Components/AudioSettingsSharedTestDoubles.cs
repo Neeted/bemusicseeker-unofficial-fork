@@ -61,12 +61,10 @@ internal sealed class TestAudioSettingsGateway : IAudioSettingsGateway
 
     internal int SampleRateConversionQuality { get; set; } = AudioResamplingQuality.Default;
 
-    internal EncoderType Encoder { get; private set; } = EncoderType.WAVE;
-
     public AudioEncodingSettingsSnapshot CaptureEncodingSettings()
     {
         return new AudioEncodingSettingsSnapshot(
-            Encoder,
+            EncoderType.WAVE,
             SampleRate.AUTO,
             SampleFormat.AUTO,
             EncoderNormalization,
@@ -75,11 +73,6 @@ internal sealed class TestAudioSettingsGateway : IAudioSettingsGateway
             1f,
             "%TITLE%",
             SampleRateConversionQuality);
-    }
-
-    public void ApplyEncoderFallback(EncoderType encoder)
-    {
-        Encoder = encoder;
     }
 }
 

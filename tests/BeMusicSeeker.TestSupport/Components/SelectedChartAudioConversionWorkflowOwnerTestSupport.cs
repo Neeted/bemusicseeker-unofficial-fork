@@ -13,33 +13,58 @@ namespace BeMusicSeeker.TestSupport.Components;
 internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
 {
     /// <summary>各ケースが渡す依存を使って検証対象の管理主体を構成し、既存の通知接続を維持します。</summary>
+    /// <param name="isEncoderAvailable">形式と検索先の可用性判定。省略時は常に利用可能です。</param>
+    /// <param name="operationAdmission">共有する受付。省略時は専用の受付を作ります。</param>
+    /// <param name="settingsProvider">設定提供値。指定時は形式・表示名・検索先の個別指定より優先します。</param>
     internal static SelectedChartAudioConversionWorkflowOwner CreateOwner(
         RecordingDialogService dialogs,
         RecordingPlayback playback,
         ISelectedChartAudioConversionExecutor executor,
         EventLog events,
-        List<EncoderType> fallbackValues = null!,
+        Func<EncoderType, string, bool>? isEncoderAvailable = null,
+        ChartFileOperationSynchronizer? operationAdmission = null,
+        EncoderType encoder = EncoderType.MP3_LAME,
+        string encoderDisplayName = "MP3 LAME",
+        string encoderExeDirectory = "",
+        Func<SelectedChartAudioConversionSettingsSnapshot>? settingsProvider = null,
         float encoderAmplifier = 1f,
         int sampleRateConversionQuality = AudioResamplingQuality.Default)
     {
         return new SelectedChartAudioConversionWorkflowOwner(
-            () => new SelectedChartAudioConversionSettingsSnapshot(
-                EncoderType.MP3_LAME,
-                SampleRate.SAMPLE_RATE_44100Hz,
-                SampleFormat.SAMPLE_INT_16BIT,
-                AudioNormalization.None,
-                0.8f,
-                string.Empty,
+            settingsProvider ?? (() => CreateSettings(
+                encoder,
+                encoderDisplayName,
+                encoderExeDirectory,
                 encoderAmplifier,
-                "%TITLE%",
-                "MP3 LAME",
-                "44100Hz",
-                "16bit",
-                sampleRateConversionQuality),
-            encoder => fallbackValues?.Add(encoder),
+                sampleRateConversionQuality)),
+            isEncoderAvailable ?? ((_, _) => true),
             playback,
             dialogs,
-            executor, new ChartFileOperationSynchronizer());
+            executor,
+            operationAdmission ?? new ChartFileOperationSynchronizer());
+    }
+
+    /// <summary>形式・表示名・検索先以外は共通の値を持つ設定スナップショットを作ります。</summary>
+    internal static SelectedChartAudioConversionSettingsSnapshot CreateSettings(
+        EncoderType encoder = EncoderType.MP3_LAME,
+        string encoderDisplayName = "MP3 LAME",
+        string encoderExeDirectory = "",
+        float encoderAmplifier = 1f,
+        int sampleRateConversionQuality = AudioResamplingQuality.Default)
+    {
+        return new SelectedChartAudioConversionSettingsSnapshot(
+            encoder,
+            SampleRate.SAMPLE_RATE_44100Hz,
+            SampleFormat.SAMPLE_INT_16BIT,
+            AudioNormalization.None,
+            0.8f,
+            encoderExeDirectory,
+            encoderAmplifier,
+            "%TITLE%",
+            encoderDisplayName,
+            "44100Hz",
+            "16bit",
+            sampleRateConversionQuality);
     }
 
     /// <summary>指定された譜面と操作条件を、そのまま検証対象へ渡す操作対象にまとめます。</summary>
@@ -129,6 +154,14 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
 
         internal UiProgressResult ProgressResult { get; set; } = new(UiDialogStatus.Accepted);
 
+        internal UiDialogResult ConfirmResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+
+        internal Func<Task<UiDialogResult>>? ConfirmHandler { get; set; }
+
+        internal UiConfirmationRequest? ConfirmRequest { get; private set; }
+
+        internal int ConfirmCalls { get; private set; }
+
         internal UiDialogResult MessageResult { get; set; } = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
 
         internal string ProgressLabel { get; private set; } = null!;
@@ -154,8 +187,13 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
             return Task.FromResult(MessageResult);
         }
 
-        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
+        {
+            events.Add("confirm");
+            ConfirmCalls++;
+            ConfirmRequest = request;
+            return ConfirmHandler?.Invoke() ?? Task.FromResult(ConfirmResult);
+        }
 
         public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(
             UiWindowDialogRequest<TWindow, TResult> request,

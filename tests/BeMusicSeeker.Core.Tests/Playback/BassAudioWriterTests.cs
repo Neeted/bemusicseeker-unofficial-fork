@@ -1,5 +1,6 @@
 using BeMusicSeeker.TestSupport.Files;
 using Ribbit.Media;
+using Ribbit.Media.Audio;
 
 namespace BeMusicSeeker.Tests;
 
@@ -19,6 +20,25 @@ public sealed class BassAudioWriterTests
                 path + " (2)" + extension,
                 BassAudioWriter.GetAvailableOutputFile(path, extension));
         });
+    }
+
+    /// <summary>指定した検索先だけでencoderの有無を判定し、静的な検索先を書き換えず、WAVEは常に利用できる。</summary>
+    /// <remarks>ケース所有の一時フォルダに空の実行ファイルを置いて区別し、既定の素材配置にflac.exeがない前提を使います。</remarks>
+    [TestMethod]
+    public void IsEncoderAvailable_UsesTheGivenDirectoryWithoutChangingTheStaticDirectory()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string withEncoder = Path.Combine(workspace.RootDirectory, "with-encoder");
+        string empty = Path.Combine(workspace.RootDirectory, "empty");
+        Directory.CreateDirectory(withEncoder);
+        Directory.CreateDirectory(empty);
+        File.WriteAllText(Path.Combine(withEncoder, EncoderType.FLAC.GetEncoderFileName()), string.Empty);
+        string staticDirectory = BassAudioWriter.EncoderDirectory;
+
+        Assert.IsTrue(BassAudioWriter.IsEncoderAvailable(EncoderType.FLAC, withEncoder));
+        Assert.IsFalse(BassAudioWriter.IsEncoderAvailable(EncoderType.FLAC, empty));
+        Assert.IsTrue(BassAudioWriter.IsEncoderAvailable(EncoderType.WAVE, empty));
+        Assert.AreEqual(staticDirectory, BassAudioWriter.EncoderDirectory);
     }
 
     private static void WithCollisionFixture(string extension, Action<string> assertion)
