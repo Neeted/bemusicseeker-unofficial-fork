@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.IO.Compression;
@@ -1050,9 +1051,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     var terminal = Task.WhenAll(tasks); started.Add(terminal);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, stage);
                 }
+                // 構築だけでは初期選択を行わないため、起動時の初期選択と同じ実画面のライブラリのルートの選択を行う。
+                ((TreeViewItem)window.FindName("treeViewItemLibraryRoot")).IsSelected = true;
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(rootArrived.Task, "constructor Root actual typed arrival");
                 started.AddRange(rootRequests.Select(request => request.Presentation));
-                Assert.AreEqual(1, rootRequests.Count, "実constructorの通常Rootを修復再選択せず捕捉します。");
+                Assert.AreEqual(1, rootRequests.Count, "実画面の通常Rootの選択を修復再選択せず捕捉します。");
                 RegularChartTreeNavigationPresentationRequestedEventArgs initialRoot = rootRequests.Single();
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(initialRoot.Presentation, "constructor Root actual Presentation terminal");
                 Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, initialRoot.RefreshMode);
@@ -3592,6 +3595,278 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             packageCatalogTerminal: catalog,
             pendingBulkMaintenanceTerminal: bulk,
             playlistWorkspaceDialogService: dialogs);
+    }
+
+    /// <summary>
+    /// 重複フォルダの統合先のメニューが、フォルダ名の「_」（先頭・途中・連続・末尾）をアクセスキーとして扱わず、描画された文字列としてそのまま表示し、
+    /// クリック時に使う値は元のフォルダの文字列のままであることを確認します。
+    /// 破壊的操作の宛先確認に使う表示が、実際の宛先と食い違う誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void UserDerivedMenuHeaders_ShowUnderscoresLiterally()
+    {
+        string[] names = ["_lead", "mid_dle", "a__b", "trail_", "__"];
+        string[] destinations = [.. names.Select(name => @"C:\dst\" + name)];
+        MenuHeaderRenderProbe.WithApplicationStyles(() => MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (scope, _, window) =>
+            {
+                var menu = (ContextMenu)window.FindResource("treeViewDuplicateFolderContextMenu");
+                MenuItem mergeInto = menu.Items.OfType<MenuItem>().Single(item => item.Name == "treeViewDuplicateFolderContextMenuItemMergeInto");
+                mergeInto.ItemsSource = destinations;
+                MenuItem[] items = [.. destinations.Select((_, index) => MenuHeaderRenderProbe.GenerateContainer(mergeInto, index))];
+                CollectionAssert.AreEqual(destinations, items.Select(item => (string)item.DataContext).ToArray(), "クリック時に使う値は元の文字列のまま。");
+                var converter = new pathAbbreviationConvberter();
+                string[] expected = [.. destinations.Select(destination => (string)converter.Convert(destination, typeof(string), null!, System.Globalization.CultureInfo.InvariantCulture))];
+                CollectionAssert.AreEqual(expected, MenuHeaderRenderProbe.RenderHeaderTexts(scope, window, items).ToArray(),
+                    "描画された文字列は「_」を含めて元のまま。");
+            }));
+    }
+
+    /// <summary>導入・除去の入口です。</summary>
+    public enum PackageSelectionEntry
+    {
+        /// <summary>ツリーの右クリックの「インストール」（手動導入）。</summary>
+        TreeInstall,
+
+        /// <summary>ツリーの右クリックの「新規としてインストール」（強制導入）。</summary>
+        TreeInstallAsNew,
+
+        /// <summary>一覧の右クリックの導入。</summary>
+        ListInstall,
+
+        /// <summary>操作バーの選択譜面の導入。</summary>
+        OperationBarInstall,
+
+        /// <summary>保留のツリーの右クリックからの除去。</summary>
+        TreePendingRemove,
+
+        /// <summary>一覧の右クリックからの保留の除去。</summary>
+        ListPendingRemove,
+
+        /// <summary>導入済みのツリーの右クリックからの除去。</summary>
+        TreeInstalledRemove,
+    }
+
+    /// <summary>操作の結果と、選択中のパッケージが区画から外れたかの組合せです。</summary>
+    public enum PackageSelectionOutcome
+    {
+        /// <summary>受付の拒否。何も変わらない。</summary>
+        Rejected,
+
+        /// <summary>完了したが選択中のパッケージは区画に残る（導入先なしのスキップ・新規導入の確認でいいえ・一部だけ導入など）。</summary>
+        StaysCompleted,
+
+        /// <summary>変更後の失敗付き結果で、選択中のパッケージは区画に残る。</summary>
+        StaysFailedAfterMutation,
+
+        /// <summary>完了し、選択中のパッケージが区画から外れる。</summary>
+        LeavesCompleted,
+
+        /// <summary>変更後の失敗付き結果で、選択中のパッケージが区画から外れる。</summary>
+        LeavesFailedAfterMutation,
+    }
+
+    public static IEnumerable<object[]> PackageSelectionCases()
+    {
+        foreach (PackageSelectionEntry entry in Enum.GetValues<PackageSelectionEntry>())
+        {
+            foreach (PackageSelectionOutcome outcome in Enum.GetValues<PackageSelectionOutcome>())
+            {
+                yield return [entry, outcome];
+            }
+        }
+    }
+
+    /// <summary>
+    /// 導入・除去の各入口（ツリーの手動・強制導入、一覧の導入、操作バー、保留・導入済みからの除去）で、
+    /// 選択中のパッケージが区画から外れた場合だけツリー選択を次の兄弟へ移し、一覧の選択を解くことを確認します。
+    /// 受付拒否・完了しても区画に残る場合・失敗付きで残る場合は、ツリー選択も一覧の選択も変えず、
+    /// 変更後の失敗付き結果でも区画から外れたなら次へ移します。実際の区画の増減は偽の端点が行い、ツリーの選択項目と一覧の選択を観測します。
+    /// 何も導入されないのに選択だけが隣へ移る誤りと、外れたのに選択が消えたままになる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DynamicData(nameof(PackageSelectionCases))]
+    public void PendingPackageOperations_MoveTreeSelectionOnlyWhenSelectedPackageLeavesSection(
+        PackageSelectionEntry entry,
+        PackageSelectionOutcome outcome)
+    {
+        bool leaves = outcome is PackageSelectionOutcome.LeavesCompleted or PackageSelectionOutcome.LeavesFailedAfterMutation;
+        bool failed = outcome is PackageSelectionOutcome.StaysFailedAfterMutation or PackageSelectionOutcome.LeavesFailedAfterMutation;
+        bool installedSection = entry == PackageSelectionEntry.TreeInstalledRemove;
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = false);
+        ChartPackage[] pendingPackages = [.. Enumerable.Range(0, 3).Select(index => new ChartPackage { path = Path.Combine(workspace.RootDirectory, "pending" + index) })];
+        ChartPackage[] installedPackages = [.. Enumerable.Range(0, 3).Select(index => new ChartPackage { path = Path.Combine(workspace.RootDirectory, "installed" + index) })];
+        ChartPackage[] section = installedSection ? installedPackages : pendingPackages;
+        ChartPackage target = section[1];
+        ChartPackage nextSibling = section[2];
+        var failure = new IOException("package-selection-failure-marker");
+        var dialogs = new FileDbReportRecordingDialogs();
+        TestBmsLibrary? library = null;
+        TreeViewItem? pendingRoot = null;
+
+        void LeaveSection()
+        {
+            // 実際の区画の増減は、画面が観測するライブラリの目録を差し替えて行う。
+            if (!leaves) { return; }
+            if (installedSection)
+            {
+                library!.ChartPackagesInstalled = new ObservableCollection<ChartPackage>(installedPackages.Where(package => !ReferenceEquals(package, target)));
+            }
+            else
+            {
+                library!.ChartPackagesPending = new ObservableCollection<ChartPackage>(pendingPackages.Where(package => !ReferenceEquals(package, target)));
+            }
+        }
+        Task<PendingPackageMutationResult> InstallResult()
+        {
+            if (outcome == PackageSelectionOutcome.Rejected) { return Task.FromResult(PendingPackageMutationResult.Rejected); }
+            LeaveSection();
+            return Task.FromResult(failed
+                ? PendingPackageMutationResult.FailedAfterMutation(failure)
+                : PendingPackageMutationResult.CompletedFor(null));
+        }
+        Task<PackageCatalogMutationResult> RemoveResult()
+        {
+            if (outcome == PackageSelectionOutcome.Rejected) { return Task.FromResult(PackageCatalogMutationResult.Rejected); }
+            LeaveSection();
+            return Task.FromResult(failed
+                ? PackageCatalogMutationResult.Failed(failure)
+                : PackageCatalogMutationResult.CompletedFor(null));
+        }
+        var installationTerminal = new MainWindowPendingInstallationTerminal(_ => InstallResult(), _ => InstallResult(), _ => InstallResult());
+        var catalogTerminal = new MainWindowPackageCatalogTerminal(
+            _ => Task.FromResult(PackageCatalogMutationResult.Rejected), (_, _) => RemoveResult(), _ => RemoveResult());
+        var mutationViewTerminal = new MainWindowPendingPackageMutationViewTerminal(
+            () => pendingRoot?.IsSelected == true, () => pendingRoot?.Items.Count ?? 0, _ => Task.FromResult(true), dialogs);
+        var installTerminal = new MainWindowInstallTreeTerminal((_, _) => Task.FromResult(true));
+        try
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
+            {
+                MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                var tree = (TreeView)window.FindName("treeView");
+                pendingRoot = (TreeViewItem)window.FindName("treeViewItemInstallPending");
+                var installedRoot = (TreeViewItem)window.FindName("newlyInstalledTreeViewItem");
+                TreeViewItem root = installedSection ? installedRoot : pendingRoot;
+                Assert.AreEqual(3, root.Items.Count);
+                TreeViewItem targetItem = MainWindowTreePresentationWpfTests.RealizeChild(tree, root, 1);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(MainWindowEventCompletion.CaptureAsyncEventCompletion(() => targetItem.IsSelected = true), "package-selection.select-target");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreSame(target, tree.SelectedItem, "操作前の選択は対象のパッケージ。");
+
+                // 一覧と操作バーの入口は、対象パッケージの譜面行を選択した状態から操作する。
+                var table = (CustomTableView)window.FindName("customTableView");
+                LibraryChartRow? row = null;
+                if (entry is PackageSelectionEntry.ListInstall or PackageSelectionEntry.OperationBarInstall or PackageSelectionEntry.ListPendingRemove)
+                {
+                    ChartFile chart = ChartTestValues.Empty() with { Path = Path.Combine(target.path, "chart.bms"), Md5 = new string('a', 32) };
+                    row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(chart));
+                    table.ItemsSource = new List<object> { row };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                    Assert.IsTrue(table.IsRowSelected(0));
+                }
+
+                Task terminal = RunEntry();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "package-selection.operation");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                if (leaves)
+                {
+                    Assert.AreSame(nextSibling, tree.SelectedItem, "外れた場合は次の兄弟へ移す。");
+                    if (row != null) { Assert.IsFalse(table.IsRowSelected(0), "外れた場合は一覧の選択を解く。"); }
+                }
+                else
+                {
+                    Assert.AreSame(target, tree.SelectedItem, "外れなかった場合はツリー選択を変えない。");
+                    Assert.IsTrue(targetItem.IsSelected);
+                    if (row != null) { Assert.IsTrue(table.IsRowSelected(0), "外れなかった場合は一覧の選択を変えない。"); }
+                }
+
+                Task RunEntry()
+                {
+                    switch (entry)
+                    {
+                        case PackageSelectionEntry.TreeInstall:
+                        case PackageSelectionEntry.TreeInstallAsNew:
+                            {
+                                var menu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
+                                menu.PlacementTarget = targetItem;
+                                return ClickAsync(FindInstallCommand(menu, manual: entry == PackageSelectionEntry.TreeInstall));
+                            }
+                        case PackageSelectionEntry.ListInstall:
+                            {
+                                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                                return ClickAsync(FindInstallCommand(menu, manual: true));
+                            }
+                        case PackageSelectionEntry.OperationBarInstall:
+                            {
+                                var targets = new List<ChartOperationTarget>();
+                                Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget operationTarget));
+                                targets.Add(operationTarget);
+                                return window.ManualInstallSelectedPendingChartsAsync(targets);
+                            }
+                        case PackageSelectionEntry.TreePendingRemove:
+                            {
+                                var menu = (ContextMenu)window.FindResource("treeViewInstallPackageContextMenu");
+                                menu.PlacementTarget = targetItem;
+                                return ClickAsync(menu.Items.OfType<MenuItem>().Last());
+                            }
+                        case PackageSelectionEntry.ListPendingRemove:
+                            {
+                                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                                return ClickAsync(menu.Items.OfType<MenuItem>().Single(item => item.Name == "tableContextMenuItemDeleteInstallPackages"));
+                            }
+                        default:
+                            {
+                                var menu = (ContextMenu)window.FindResource("treeViewInstalledFolderContextMenu");
+                                menu.PlacementTarget = targetItem;
+                                return ClickAsync(menu.Items.OfType<MenuItem>().Last());
+                            }
+                    }
+                }
+            }, packageCatalogTerminal: catalogTerminal, pendingInstallationTerminal: installationTerminal,
+                pendingPackageMutationViewTerminal: mutationViewTerminal, installTreeTerminal: installTerminal,
+                playlistWorkspaceDialogService: dialogs, prepareViewModel: viewModel =>
+                {
+                    ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+                    string songDb = Path.Combine(workspace.RootDirectory, "song.db");
+                    BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(composition.DatabaseScope, songDb, db =>
+                    {
+                        db.CreateTable<LR2SongDB.song>();
+                        db.CreateTable<LR2SongDB.folder>();
+                        db.CreateTable<LR2SongDBExtended.maintenance>();
+                    });
+                    library = new TestBmsLibrary(composition.DatabaseScope, songDb, null, null,
+                        new OwnedChartCollectionTestSupport.TestFileMutationService(), dialogService: new UnexpectedBmsLibraryDialogService(),
+                        uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                        optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                        operationAdmission: composition.OperationAdmission,
+                        playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: settings)
+                    { BmsCharts = [] };
+                    library.ChartPackagesPending = new ObservableCollection<ChartPackage>(pendingPackages);
+                    library.ChartPackagesInstalled = new ObservableCollection<ChartPackage>(installedPackages);
+                    viewModel.InstallTree.AttachLibrary(library);
+                });
+        }
+        finally
+        {
+            library?.RequestShutdown("package_selection_fixture");
+        }
+
+        static MenuItem FindInstallCommand(ContextMenu menu, bool manual)
+        {
+            MenuItem group = menu.Items.OfType<MenuItem>()
+                .Single(item => item.Items.OfType<MenuItem>().Any(child => Equals(child.Header, Resources.Estimate_install_loc)));
+            return group.Items.OfType<MenuItem>().Single(item => Equals(item.Header, manual ? Resources.Install_to_estimation : Resources.Force_install));
+        }
+
+        static Task ClickAsync(MenuItem item)
+            => MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
     }
 
     private static void RaiseMenuClick(MenuItem item)

@@ -12,8 +12,6 @@ public interface IMainWindowViewSettingsStore : INotifyPropertyChanged
 {
     double TreeViewWidth { get; }
 
-    bool StartupSelectInstallPending { get; }
-
     double CustomTableRowHeight { get; }
 
     double CustomTableHeaderHeight { get; }
@@ -60,8 +58,6 @@ internal sealed class SettingsMainWindowViewSettingsStore : IMainWindowViewSetti
         }
     }
 
-    public bool StartupSelectInstallPending => Values.StartupSelectInstallPending;
-
     public double CustomTableRowHeight => Values.CustomTableRowHeight;
 
     public double CustomTableHeaderHeight => Values.CustomTableHeaderHeight;
@@ -89,7 +85,6 @@ internal sealed class SettingsMainWindowViewSettingsStore : IMainWindowViewSetti
         if (string.IsNullOrEmpty(e?.PropertyName))
         {
             RaisePropertyChanged(nameof(TreeViewWidth));
-            RaisePropertyChanged(nameof(StartupSelectInstallPending));
             RaisePropertyChanged(nameof(CustomTableRowHeight));
             RaisePropertyChanged(nameof(CustomTableHeaderHeight));
             RaisePropertyChanged(nameof(CustomTableFontSize));
@@ -101,9 +96,6 @@ internal sealed class SettingsMainWindowViewSettingsStore : IMainWindowViewSetti
         {
             case nameof(Settings.TreeViewWidth):
                 RaisePropertyChanged(nameof(TreeViewWidth));
-                break;
-            case nameof(Settings.StartupSelectInstallPending):
-                RaisePropertyChanged(nameof(StartupSelectInstallPending));
                 break;
             case nameof(Settings.CustomTableRowHeight):
                 RaisePropertyChanged(nameof(CustomTableRowHeight));
@@ -128,6 +120,41 @@ internal sealed class SettingsMainWindowViewSettingsStore : IMainWindowViewSetti
 
 internal static class MainWindowViewSettingsPolicy
 {
+    private const int ShowCommandNormal = 1;
+
+    private const int ShowCommandMinimized = 2;
+
+    private const int ShowCommandMaximized = 3;
+
+    /// <summary>最小化の復元先が最大化であることを示す GetWindowPlacement のフラグ（WPF_RESTORETOMAXIMIZED）です。</summary>
+    private const int RestoreToMaximizedFlag = 0x0002;
+
+    /// <summary>
+    /// 保存した配置を、次回起動で SetWindowPlacement へ渡す配置へ変換します。
+    /// 最小化のまま終了した場合に起動直後を最小化にしないため、最小化は「元に戻すと最大化」のフラグがあれば最大化、なければ通常にします。
+    /// 最大化・通常・その他の値は従来どおり渡し、位置と大きさは変えません。渡す Flags は常に0です。
+    /// </summary>
+    /// <param name="saved">保存した配置。</param>
+    /// <returns>復元に使う配置。</returns>
+    internal static WindowPlacement ResolveRestorePlacement(WindowPlacement saved)
+    {
+        ArgumentNullException.ThrowIfNull(saved);
+        int showCommand = saved.ShowCommand == ShowCommandMinimized
+            ? ((saved.Flags & RestoreToMaximizedFlag) != 0 ? ShowCommandMaximized : ShowCommandNormal)
+            : saved.ShowCommand;
+        return new WindowPlacement(
+            flags: 0,
+            showCommand,
+            saved.MinX,
+            saved.MinY,
+            saved.MaxX,
+            saved.MaxY,
+            saved.Left,
+            saved.Top,
+            saved.Right,
+            saved.Bottom);
+    }
+
     internal static double ResolveTreeViewWidthForSave(
         double actualColumnWidth,
         double assignedColumnWidth,

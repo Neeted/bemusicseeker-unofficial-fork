@@ -2256,9 +2256,7 @@ public sealed partial class CustomTableView : Grid
         ListSortDirection newDirection = string.Equals(SortColumnName, column.SortMemberPath, StringComparison.Ordinal) && SortDirection == ListSortDirection.Ascending
             ? ListSortDirection.Descending
             : ListSortDirection.Ascending;
-        SetCurrentValue(SortColumnNameProperty, column.SortMemberPath);
-        SetCurrentValue(SortDirectionProperty, newDirection);
-        RequestRedraw("sort_state");
+        // 並べ替えの列と方向は購読側のBindingの更新でだけ変える。要求が拒否された場合に矢印だけが先に変わらないようにする。
         SortRequested?.Invoke(this, new CustomTableSortRequestedEventArgs(column, newDirection));
     }
 

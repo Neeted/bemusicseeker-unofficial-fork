@@ -241,6 +241,10 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     /// <summary>履歴の有効化/解除に実dropdownの表示が追随し、保存した表示対象の選択変更が主体へ戻ることを確認し、履歴状態とcompiled双方向Bindingの切断を検出します。</summary>
+    /// <remarks>
+    /// 構築前に有効化した履歴は、ライブラリのルートの実選択（ツリーの選択から一覧所有者への移動）で解除します。
+    /// 初期選択は構築時ではなくContentRendered後に行い一覧を再要求しないため、構築時の選択による解除へは頼らず、ルートを明示的に選びます。
+    /// </remarks>
     [TestMethod]
     public void PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState()
     {
@@ -268,6 +272,11 @@ public sealed class MainWindowPlayHistoryWpfTests
                         Visibility.Collapsed);
                     try
                     {
+                        // 初期選択はContentRendered後に捕捉値で行い一覧を再要求しないため、構築だけではルートを選びません。
+                        // 履歴の解除は、利用者がライブラリのルートを選んだときと同じ実選択の経路で明示的に起こします。
+                        var libraryRoot = (TreeViewItem)window.FindName("treeViewItemLibraryRoot");
+                        Assert.IsFalse(libraryRoot.IsSelected, "構築だけではライブラリのルートを選びません。");
+                        libraryRoot.IsSelected = true;
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(
                             startupDeactivated.Task,
                             "play-history startup deactivation");
@@ -450,6 +459,10 @@ public sealed class MainWindowPlayHistoryWpfTests
     }
 
     /// <summary>履歴の有効化で指定カードと診断を実表へ表示し、カード操作で対応フィルターを選ぶことを確認し、履歴専用表示や操作接続の欠落を検出します。</summary>
+    /// <remarks>
+    /// 構築前に有効化した履歴は、ライブラリのルートの実選択（ツリーの選択から一覧所有者への移動）で解除します。
+    /// 初期選択は構築時ではなくContentRendered後に行い一覧を再要求しないため、構築時の選択による解除へは頼らず、ルートを明示的に選びます。
+    /// </remarks>
     [TestMethod]
     public void PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics()
     {
@@ -471,6 +484,11 @@ public sealed class MainWindowPlayHistoryWpfTests
                         Visibility.Collapsed);
                     try
                     {
+                        // 初期選択はContentRendered後に捕捉値で行い一覧を再要求しないため、構築だけではルートを選びません。
+                        // 履歴の解除は、利用者がライブラリのルートを選んだときと同じ実選択の経路で明示的に起こします。
+                        var libraryRoot = (TreeViewItem)window.FindName("treeViewItemLibraryRoot");
+                        Assert.IsFalse(libraryRoot.IsSelected, "構築だけではライブラリのルートを選びません。");
+                        libraryRoot.IsSelected = true;
                         TestUiDispatcherHost.AwaitTaskOnDispatcher(
                             startupDeactivated.Task,
                             "play-history startup deactivation");

@@ -224,6 +224,19 @@ sequenceDiagram
 
 この経路は当該操作の通常の終端を待ちますが、通常のCloseが行う全ての処理の待機・全ての資源の解放は追加で保証しません。プロセスの終了後の自動修復や回復の記録も設けません。
 
+### メイン画面の配置の保存と次回の復元
+
+終了時のウィンドウの配置（`GetWindowPlacement` の結果）は、表示状態・通常時の矩形・最小化と最大化の位置・復元先を示すフラグを含めて設定へ保存します。次回起動では、保存値の表示状態を次のとおり決めて `SetWindowPlacement` へ渡し、最小化で起動しません。
+
+| 保存した表示状態 | 復元する表示状態 |
+| --- | --- |
+| 最小化で、元に戻すと最大化するフラグ（`WPF_RESTORETOMAXIMIZED`）あり | 最大化 |
+| 最小化で、フラグなし | 通常 |
+| 最大化 | 最大化 |
+| 通常（フラグの有無によらない） | 通常 |
+
+その他の値は従来どおり渡します。位置と通常時の矩形は変えず、渡すフラグは0です。変換は `MainWindowViewSettingsPolicy.ResolveRestorePlacement` の純粋関数が行い、`MainWindow.OnSourceInitialized` が使います。外部プレイヤーのウィンドウの復元（`ExternalPlayerWindowHost`）は別の仕様で、この規則を使いません。
+
 ### 保証の範囲
 
 追跡の対象は、現在把握している長時間のDB・ファイル・通信の処理です。全ての `Task.Run` の意味的な安全性を証明する台帳ではありません。新しい長時間の処理は、終了要求で停止するか、実完了を待つ対象へ登録します。個別の進捗画面が持つ取消も、その所有に従います。未処理の致命的例外からの `Environment.Exit(1)` は、通常終了の整合性の待機を保証しません。構成で共有する受付の閉鎖は[構成で共有する受付の閉鎖](#構成で共有する受付の閉鎖)に従います。
@@ -254,6 +267,7 @@ sequenceDiagram
 | 一時領域の生存leaseと終了順 | [`TemporaryDirectorySession`](../../../BeMusicSeeker/Runtime/TemporaryDirectorySession.cs)、[`AppApplicationLifetime`](../../../BeMusicSeeker/AppApplicationLifetime.cs) | [`TempDirectoryPublisherTests`](../../../tests/BeMusicSeeker.Core.Tests/FileOperations/TempDirectoryPublisherTests.cs)が独立ownerで既知・未知・生存markerと実Task終端を、[`RuntimeIsolationProcessTests`](../../../tests/BeMusicSeeker.Windows.Tests/Runtime/RuntimeIsolationProcessTests.cs)が実processの生存中保全・強制停止後回収・scope分離を確認する。Shellの一時回収Task待機と後継起動順は[`ShellShutdownWorkflowOwnerTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/ShellShutdownWorkflowOwnerTests.cs)が分担する。 |
 | 自ownerのreadonly待機とmetadata所有Taskの待機の脱落検出 | `ShellShutdownWorkflowOwner.CollectShutdownPreparationResultAsync` | [`ShellShutdownDatabaseScopeTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/ShellShutdownDatabaseScopeTests.cs) は、終了側の `wait_start` 到達通知をClose Taskと競合して待ち、対象待機の呼出し脱落を動的に識別する。待機呼出しを残したまま `await` だけを除く変更までは動的に保証せず、SQLite idleとstartup scheduler待機への二つの呼出しと各helper内の `await` の接続は独立静的レビューで確認する。 |
 | 更新Gatewayによる実プロセスの停止 | [`UpdaterProcessGateway`](../../../BeMusicSeeker/Models/Update/UpdaterProcessGateway.cs) | [`UpdaterProcessGatewayTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Update/UpdaterProcessGatewayTests.cs) は、stdinのreleaseを送らず、製品Gatewayによる実root終了と両pipeのEOFを観測する。その後の親Job回収を正常停止の表明には使わない。 |
+| 最小化のまま終了した次回の表示（最小化のフラグ付きなら最大化、なければ通常） | [`MainWindowViewSettingsPolicy.ResolveRestorePlacement`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewSettingsStore.cs)、[`MainWindow.OnSourceInitialized`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowPlacementRestoreTests`](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/MainWindowPlacementRestoreTests.cs) の `RestorePlacement_MapsSavedShowCommand` は、最小化とフラグは最大化、フラグなしの最小化は通常、最大化は最大化、通常はフラグがあっても通常、契約外の値は素通しで、結果が最小化にならず渡すフラグが0であることを、`RestorePlacement_KeepsNormalRectangleAndPositions` は位置と矩形の保持を確認する。実HWNDへの `SetWindowPlacement` の結果は自動テストでは確認していない。 |
 
 ## 関連資料
 

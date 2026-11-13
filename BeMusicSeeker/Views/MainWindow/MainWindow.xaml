@@ -168,6 +168,7 @@
           <ItemsControl.ItemContainerStyle>
             <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource {x:Type MenuItem}}">
               <Setter Property="Header" Value="{Binding Mode=OneWay, Converter={StaticResource fileNameConverter}}" />
+              <Setter Property="HeaderTemplate" Value="{x:Static v:LiteralMenuHeader.Template}" />
               <EventSetter Event="Click" Handler="tableContextMenuItemOpenDocumentFileClick" />
             </Style>
           </ItemsControl.ItemContainerStyle>
@@ -219,6 +220,7 @@
           </MenuItem.Header>
           <ItemsControl.ItemContainerStyle>
             <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource {x:Type MenuItem}}">
+              <Setter Property="HeaderTemplate" Value="{x:Static v:LiteralMenuHeader.Template}" />
               <EventSetter Event="Click" Handler="tableContextMenuItemMoveFileClick" />
             </Style>
           </ItemsControl.ItemContainerStyle>
@@ -329,6 +331,7 @@
           <ItemsControl.ItemContainerStyle>
             <Style TargetType="{x:Type MenuItem}" BasedOn="{StaticResource {x:Type MenuItem}}">
               <Setter Property="Header" Value="{Binding Mode=OneWay, Converter={StaticResource pathAbbreviationConvberter}}" />
+              <Setter Property="HeaderTemplate" Value="{x:Static v:LiteralMenuHeader.Template}" />
               <Setter Property="FrameworkElement.Tag" Value="{Binding PlacementTarget, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type ContextMenu}}}" />
               <EventSetter Event="Click" Handler="treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick" />
             </Style>
@@ -470,7 +473,7 @@
       </ContextMenu>
       <ContextMenu x:Key="playlistSummaryContextMenu" HasDropShadow="True">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="playlistSummaryContextMenuResyncClick" />
-        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_page, Mode=OneWay}" Click="playlistSummaryContextMenuOpenPageClick" />
+        <MenuItem Name="playlistSummaryContextMenuOpenPage" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_page, Mode=OneWay}" Click="playlistSummaryContextMenuOpenPageClick" />
         <MenuItem Name="playlistSummaryContextMenuOpenLampViewer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lamp_viewer, Mode=OneWay}" Click="playlistSummaryContextMenuOpenLampViewerClick" />
         <Separator />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Playlist_summary_apply_current_order_to_bmt_sort, Mode=OneWay}" Click="playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick" />
@@ -1048,7 +1051,7 @@
     <RowDefinition Height="*" />
   </Grid.RowDefinitions>
   <Border Grid.RowSpan="2" BorderThickness="0" IsHitTestVisible="False" />
-  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" PreviewKeyDown="treeViewPreviewKeyDown" PreviewTextInput="treeViewPreviewTextInput" SelectedItemChanged="treeViewSelectedItemChanged">
     <TreeView.Resources>
       <Style x:Key="App.Canonical.ScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowScrollBarStyle}" />
     </TreeView.Resources>
@@ -1165,11 +1168,11 @@
   </TreeView>
   <!-- 5px のドラッグ領域を境界に重ね、透明ヒットゾーンで上下 TreeView のレイアウトを削らない。 -->
   <GridSplitter Name="gridSplitterTree" Style="{StaticResource SidebarSplitterStyle}" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Top" ResizeDirection="Rows" ResizeBehavior="PreviousAndCurrent" Margin="0,-2,0,0" Panel.ZIndex="1" />
-  <TreeView Name="treeView" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeView" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" PreviewKeyDown="treeViewPreviewKeyDown" PreviewTextInput="treeViewPreviewTextInput" SelectedItemChanged="treeViewSelectedItemChanged">
     <TreeView.Resources>
       <Style x:Key="App.Canonical.ScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowBottomEdgeScrollBarStyle}" />
     </TreeView.Resources>
-<TreeViewItem AutomationProperties.AutomationId="LibraryTreeRoot" IsExpanded="True" IsSelected="{Binding ViewSettings.StartupSelectInstallPending, Mode=OneWay, Converter={StaticResource notOperatorBoolConverter}}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
+<TreeViewItem Name="treeViewItemLibraryRoot" AutomationProperties.AutomationId="LibraryTreeRoot" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Library, Mode=OneWay}" Selected="rootFolderSelect">
               <FrameworkElement.Resources>
                 <ResourceDictionary>
                   <DataTemplate x:Key="templateTreeViewItemHeaderFolder">
@@ -1290,7 +1293,7 @@
                   </Style>
                 </ItemsControl.ItemContainerStyle>
               </TreeViewItem>
-              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" IsSelected="{Binding ViewSettings.StartupSelectInstallPending, Mode=OneWay}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding InstallTree.ChartPackagesPending}" Selected="pendingInstallFolderSelect" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
+              <TreeViewItem Name="treeViewItemInstallPending" ContextMenu="{StaticResource treeViewInstallPendingContextMenu}" HeaderTemplate="{StaticResource templateTreeViewItemHeaderInstallPending}" IsExpanded="True" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Pending, Mode=OneWay}" ItemsSource="{Binding InstallTree.ChartPackagesPending}" Selected="pendingInstallFolderSelect" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
                 <ItemsControl.ItemContainerStyle>
                   <Style TargetType="{x:Type TreeViewItem}">
                     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />

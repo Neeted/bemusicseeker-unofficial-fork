@@ -132,6 +132,12 @@ public partial class MainWindowViewModel : ViewModel,
     public IMainWindowViewSettingsStore ViewSettings { get; }
 
     /// <summary>
+    /// 構築時に捕捉した「起動時にインストール保留を選択」の値を取得します。初期一覧のモードと画面側の初期選択が同じ値に従い、
+    /// 設定を後から変えても起動中の初期選択を動かさないために、設定ストアではなくここに固定します。
+    /// </summary>
+    internal bool StartupInitialSelectionIsInstallPending { get; }
+
+    /// <summary>
     /// Gets playlist detail/summary presentation state while shell workflows remain in the root ViewModel.
     /// </summary>
     public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
@@ -2106,7 +2112,8 @@ public partial class MainWindowViewModel : ViewModel,
             LogUiSuppression,
             TryLogStartupInitializationComplete,
             startupBackgroundTaskProgressSynchronization);
-        treeViewFilterTypeSelected = GetStartupSettingsSnapshot().StartupSelectInstallPending
+        StartupInitialSelectionIsInstallPending = GetStartupSettingsSnapshot().StartupSelectInstallPending;
+        treeViewFilterTypeSelected = StartupInitialSelectionIsInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected : MainViewUpdateMode.FolderFilterSelected;
         treeViewFilterParameterSelected = null;
         appliedNavigation = null;

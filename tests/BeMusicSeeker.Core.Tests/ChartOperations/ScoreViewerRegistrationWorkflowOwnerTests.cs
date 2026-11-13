@@ -2,6 +2,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Newtonsoft.Json;
@@ -407,6 +408,164 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         Assert.AreEqual("https://viewer/hash", shell.LastRequest.Target);
     }
 
+    /// <summary>
+    /// 複数の対象で新しく登録した譜面がなく、失敗もアップロード辞退もない場合（全件登録済み・ファイルのない対象だけ・その混在）に、
+    /// 実際の表示窓口で新しく登録する譜面がない旨の情報メッセージが一回だけ出ることを確認します。
+    /// アップロードが一件でもあれば成功通知だけ、失敗があれば失敗通知だけ、アップロード確認に「いいえ」なら追加の通知がありません。
+    /// 何も起きないまま操作が終わる誤りと、成功・失敗・辞退の通知へ重ねて案内する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(NoRegistrationScenario.AllRegistered, 1, DisplayName = "全件登録済みは情報を一回")]
+    [DataRow(NoRegistrationScenario.FilelessOnly, 1, DisplayName = "ファイルのない対象だけは情報を一回")]
+    [DataRow(NoRegistrationScenario.RegisteredAndFileless, 1, DisplayName = "登録済みとファイルなしの混在は情報を一回")]
+    [DataRow(NoRegistrationScenario.UploadedOne, 0, DisplayName = "一件アップロードすれば成功通知だけ")]
+    [DataRow(NoRegistrationScenario.StatusFailure, 0, DisplayName = "失敗があれば失敗通知だけ")]
+    [DataRow(NoRegistrationScenario.UploadDeclined, 0, DisplayName = "アップロードを辞退すれば追加の通知なし")]
+    public async Task WpfInteraction_MultipleWithoutNewRegistration_ShowsSingleInformation(
+        NoRegistrationScenario scenario,
+        int expectedInformationCount)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string registeredPath = CreateChartFile(workspace, "registered.bms");
+        string uploadPath = CreateChartFile(workspace, "upload.bms");
+        string missingPath = workspace.GetPath("missing.bms");
+        var gateway = new RecordingGateway
+        {
+            RegistrationStatus = hash => hash switch
+            {
+                "registered" => true,
+                "status-failure" => throw new IOException("status failed"),
+                _ => false,
+            },
+            UploadResult = _ => ScoreViewerUploadResponse.Success("server-hash"),
+        };
+        var dialogs = new RecordingUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(
+                scenario == NoRegistrationScenario.UploadDeclined ? MessageBoxResult.No : MessageBoxResult.Yes),
+        };
+        var interaction = new WpfScoreViewerRegistrationInteraction((_, _) => { }, new RecordingExternalShellGateway(), dialogs);
+        var owner = new ScoreViewerRegistrationWorkflowOwner(gateway, interaction, () => true, (_, _) => { });
+        ScoreViewerTarget[] targets = scenario switch
+        {
+            NoRegistrationScenario.AllRegistered =>
+                [new("registered", registeredPath, "A"), new("registered", registeredPath, "B")],
+            NoRegistrationScenario.FilelessOnly =>
+                [new("hash-a", missingPath, "A"), new("hash-b", null, "B")],
+            NoRegistrationScenario.RegisteredAndFileless =>
+                [new("registered", registeredPath, "A"), new("hash-b", missingPath, "B")],
+            NoRegistrationScenario.UploadedOne =>
+                [new("registered", registeredPath, "A"), new("needs-upload", uploadPath, "B")],
+            NoRegistrationScenario.StatusFailure =>
+                [new("registered", registeredPath, "A"), new("status-failure", uploadPath, "B")],
+            _ => [new("registered", registeredPath, "A"), new("needs-upload", uploadPath, "B")],
+        };
+
+        ScoreViewerRegistrationResult? result = await owner.RunAsync(targets, openSingleViewerOnSuccess: false, "multiple");
+
+        Assert.IsNotNull(result);
+        string[] messages = dialogs.MessageRequests.Select(request => request.MessageBoxText).ToArray();
+        Assert.AreEqual(
+            expectedInformationCount,
+            messages.Count(message => message == Resources.Msg_score_viewer_no_new_registration),
+            "新しく登録する譜面がない旨の通知の回数");
+        switch (scenario)
+        {
+            case NoRegistrationScenario.UploadedOne:
+                CollectionAssert.AreEqual(new[] { Resources.Msg_success_register_chart }, messages);
+                break;
+            case NoRegistrationScenario.StatusFailure:
+                CollectionAssert.AreEqual(new[] { Resources.Error_ScoreViewerRegistrationPartialFailure }, messages);
+                break;
+            case NoRegistrationScenario.UploadDeclined:
+                Assert.AreEqual(0, messages.Length);
+                break;
+            default:
+                CollectionAssert.AreEqual(new[] { Resources.Msg_score_viewer_no_new_registration }, messages);
+                break;
+        }
+        Assert.AreEqual(0, gateway.UploadPaths.Count(path => path == registeredPath), "登録済みの譜面はアップロードしない。");
+    }
+
+    /// <summary>
+    /// 一件の対象でビューアを開く場合は、登録済みでも新しく登録する譜面がない旨を通知せず、従来どおりそのままビューアを開くことを確認します。
+    /// 一件の操作へ複数対象用の案内を出す誤りと、登録済みの一件でビューアが開かない誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task WpfInteraction_SingleAlreadyRegistered_OpensWithoutNotice()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string registeredPath = CreateChartFile(workspace, "registered.bms");
+        var gateway = new RecordingGateway { RegistrationStatus = _ => true };
+        var dialogs = new RecordingUiDialogService();
+        var shell = new RecordingExternalShellGateway();
+        var interaction = new WpfScoreViewerRegistrationInteraction((_, _) => { }, shell, dialogs);
+        var owner = new ScoreViewerRegistrationWorkflowOwner(gateway, interaction, () => true, (_, _) => { });
+
+        ScoreViewerRegistrationResult? result = await owner.RunAsync(
+            [new ScoreViewerTarget("registered", registeredPath, "Registered")],
+            openSingleViewerOnSuccess: true,
+            "single");
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual(0, dialogs.MessageRequests.Count);
+        Assert.AreEqual(ExternalShellRequestKind.Url, shell.LastRequest.Kind);
+        Assert.AreEqual(result.LastViewUrl, shell.LastRequest.Target);
+    }
+
+    /// <summary>
+    /// 新しく登録する譜面がない旨の通知の表示が失敗した場合に、既存の結果通知と同じく失敗通知へ渡り、通常終了として隠されないことを確認します。
+    /// </summary>
+    [TestMethod]
+    public async Task RunAsync_NoNewRegistrationDisplayFailure_UsesFailurePresentation()
+    {
+        var interaction = new RecordingInteraction();
+        var owner = new ScoreViewerRegistrationWorkflowOwner(
+            new RecordingGateway(),
+            new ThrowingNoNewInteraction(interaction),
+            () => true,
+            (_, _) => { });
+
+        ScoreViewerRegistrationResult? result = await owner.RunAsync(
+            [new ScoreViewerTarget("a", null, "A"), new ScoreViewerTarget("b", null, "B")],
+            openSingleViewerOnSuccess: false,
+            "display_failure");
+
+        Assert.IsNull(result);
+        Assert.AreEqual("no new display failed", interaction.PresentedFailure?.Message);
+    }
+
+    private static string CreateChartFile(TestWorkspace workspace, string name)
+    {
+        string path = workspace.GetPath(name);
+        File.WriteAllText(path, "#TITLE test");
+        return path;
+    }
+
+    public enum NoRegistrationScenario
+    {
+        AllRegistered,
+        FilelessOnly,
+        RegisteredAndFileless,
+        UploadedOne,
+        StatusFailure,
+        UploadDeclined,
+    }
+
+    private sealed class ThrowingNoNewInteraction(RecordingInteraction inner) : IScoreViewerRegistrationInteraction
+    {
+        public Task<bool> ConfirmUploadAsync(ScoreViewerRegistrationPlan plan, bool showSingleTargetConfirmation)
+            => inner.ConfirmUploadAsync(plan, showSingleTargetConfirmation);
+
+        public Task PresentResultAsync(ScoreViewerRegistrationResult result) => inner.PresentResultAsync(result);
+
+        public Task PresentNoNewRegistrationAsync() => Task.FromException(new InvalidOperationException("no new display failed"));
+
+        public Task PresentFailureAsync(Exception exception) => inner.PresentFailureAsync(exception);
+
+        public void OpenViewer(string url) => inner.OpenViewer(url);
+    }
+
     /// <summary>結果通知の表示失敗を呼出元へ伝え、通常終了として隠す誤りを検出します。</summary>
     [TestMethod]
     public async Task WpfInteraction_DoesNotTreatResultDisplayFailureAsUserRejection()
@@ -511,6 +670,8 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
 
         internal ScoreViewerRegistrationResult? PresentedResult { get; private set; }
 
+        internal int NoNewRegistrationCount { get; private set; }
+
         internal Exception? PresentedFailure { get; private set; }
 
         internal string? OpenedUrl { get; private set; }
@@ -529,6 +690,12 @@ public sealed class ScoreViewerRegistrationWorkflowOwnerTests
         public Task PresentResultAsync(ScoreViewerRegistrationResult result)
         {
             PresentedResult = result;
+            return Task.CompletedTask;
+        }
+
+        public Task PresentNoNewRegistrationAsync()
+        {
+            NoNewRegistrationCount++;
             return Task.CompletedTask;
         }
 

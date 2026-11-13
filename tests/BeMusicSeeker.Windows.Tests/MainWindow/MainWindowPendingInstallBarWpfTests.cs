@@ -92,7 +92,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     }
 
     /// <summary>未選択・単一・複数・解除・差替え・空化・並替えで実Bindingの有効状態と現在の要求が一致し、フォーカス要求後も選択を維持し、未選択の兄弟を追加しません。</summary>
-    /// <remarks>実Button.Clickから選択譜面用terminalへの要求を観測し、推定/導入/クリア本体とreceiptは既存の下位・代表フローテストが担当します。</remarks>
+    /// <remarks>導入で選択中のpackageが保留から外れた場合だけ、一覧の選択解除とツリーの選択計画が適用されます（外れない導入では変えません）。実Button.Clickから選択譜面用terminalへの要求を観測し、推定/導入/クリア本体とreceiptは既存の下位・代表フローテストが担当します。</remarks>
     [TestMethod]
     public void PendingInstallBar_UsesCurrentBoundSelectionAndPreservesMultipleRowsAfterFocusRequest()
     {
@@ -188,6 +188,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     CollectionAssert.AreEqual(entries[..2], installs.Single().Targets.Select(t => t.PackageEntry).ToArray());
                     Assert.AreEqual(0, packageInstalls);
                     Assert.IsTrue(child.IsSelected, "導入完了前はツリー選択を移しません。");
+                    // 実際の導入は区画からパッケージを外す。外れた場合だけ、一覧の選択解除とツリーの選択計画（最後のpackageからrootへ）が適用される。
+                    pendingRoot.ItemsSource = Array.Empty<ChartPackage>();
                     installCompletion.SetResult(PendingPackageMutationResult.CompletedFor(PackageCatalogSection.Pending));
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(installEvent, "pending-bar install consumer");
                     TestUiDispatcherHost.ProcessQueuedPresentation();

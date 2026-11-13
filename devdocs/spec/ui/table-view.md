@@ -267,6 +267,10 @@ TSVは可視列の順で出力し、nullの行を除いた選択行の順序と�
 
 見出しのクリックは `SortRequested` を送り、同じ列なら昇順と降順を切り替えます。`SortMemberPath` のない列と状態の列は対象外です。並べ替え中の見出しの上部中央に方向を描きます。見出しの境界で幅、見出しのドラッグで可視列の順序、右クリックで表示する列を変えます。状態の列は幅と位置を固定します。
 
+部品自身は、並べ替えの要求の送出前に並べ替えの列・方向を書き換えません。矢印は購読側のBinding（`SortColumnName`・`SortDirection`）の更新だけで変わり、要求が拒否された場合（起動中の抑止など）は矢印がBindingの値のまま残ります。次のクリックの向きは、現在の表示値から決めます。
+
+カスタム右クリック操作、関連文書のファイル名、移動先、重複フォルダの統合先の4か所は、利用者が決めた文字列を見出しにするため、名前の `_`（先頭・途中・連続・末尾）をアクセスキーとして扱わず、`TextBlock` の見出しテンプレート（`LiteralMenuHeader`）でそのまま表示します。クリック時に使う値（`DataContext`・`Tag`）は元の文字列のままです。既定のメニュー項目のスタイルは変えず、固定の見出しでは従来どおり `_` がアクセスキーになります。
+
 ライブラリのツリーのルートのメニューは、再読込み・再初期化の項目の後に末尾の区切り線を置きません。通常のフォルダのメニューは、後に続くエクスプローラー等の操作を区切る区切り線を保ちます。
 
 ### 行のドラッグと編集
@@ -403,6 +407,7 @@ FOLDERの変更不要の判定と改名の反映は、[ライブラリ変更](..
 - 元集合の置換中にWPFが選ぶ親を、新しい利用者の選択として採用しません。項目の生成後に、同じ選択の版の表示だけを同期します。
 - 改名・接頭辞の変更は確定した対応へ追従し、別のフォルダの更新と、特殊な NO SONG の項目の選択を保ちます。同期の配送前の新しい明示的な選択を、古い復元で上書きしません。
 - 通常の初回の選択、再クリック、キーボードによる選択は、通常の要求の経路を使います。選択中のフォルダの削除後の選択先は[保存仕様の手動編集](../playlist/storage-and-export.md#手動編集と失敗)に従います。
+- 表単体の再読込みは、完了時に表を選び直すのを、選択が対象の表のまま（同じ正本の解決結果を含む）か、置換で選択が失われてどちらのツリーにも選択がない場合だけにします。取得中に利用者が別のプレイリストの表やライブラリ側の項目を選んだ場合と、表の配下のフォルダの選択が残っている場合は動かしません。受付が拒否された場合（他の操作中・対象の失効）も選択を動かさず、拒否の通知は従来どおりです。`PlaylistWorkspaceViewModel.ResyncPlaylistTableAsync` は、受理された場合だけ現在の正本の表を返します。
 
 通常のフォルダの見出し・選択・詳細の要求は、保存済みの所属名の前後の空白を保ち、`A` と ` A ` を別の所属として表示します。空の名前・空白だけの名前も表のルートへ読み替えません。同じ所属の検索や並べ替えだけの変更では元集合を取り直さず、その所属の行から表示を作ります。保存と再読込みでの識別は[保存仕様の手動編集](../playlist/storage-and-export.md#手動編集と失敗)に従います。
 
@@ -827,6 +832,14 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 [`MainWindowPlaylistWorkspaceWpfTests.PlaylistFolderStructure_ActualTreeKeepsWorkspaceSelectionAndNewExplicitSelection`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) は実TreeViewの構造置換・親Selected・改名・接頭辞保存・別フォルダ更新と、復元配送前の明示選択を通し、ツリー・workspace・詳細hashの一致を確認します。同じWindow寿命内のA/前後空白A切替ではcompiled見出し・選択node・workspaceと実詳細行のhash・title・folderを照合します。選択の判断と削除先・保存再読込みの条件差は [`PlaylistWorkspaceActionWorkflowTests.PlaylistFolderMutation_PreservesOrRemapsSelectionAndDetail`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs)、新構成の同キー明示選択と旧prefix対応の衝突は同クラスの `PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap` が担います。空名を含む実要求と元集合再利用は `PlaylistWorkspaceDetailRefreshTests.RequestDetailRefresh_PreservesExactFolderMembershipThroughSelectionAndPresentation` へ分担します。表置換と古い要求の拒否は既存の詳細更新・外部表置換系列へ維持します。
 
 同じ実ツリー代表で、prefix確定後・構成通知前の旧ItemsSourceから選択する区間と、新Bindingを適用して同名の別譜面を選択する区間を制御します。通常Selectedはキー操作後も使う確定経路として確認し、再クリックは実PreviewMouseDownから配送します。物理キーとOSフォーカス移動は自動検証の保証に含めません。構成Bindingのtarget転送と、その後の遅延選択同期の終端を待ち、workerの完了や一般的なidleから表示成功を推測しません。
+
+### 起動中の抑止と導入・再読込みの選択
+
+| 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| 見出しの並べ替えで表自身が矢印を先に書き換えない | [`CustomTableView.RequestSort`](../../../BeMusicSeeker/Views/CustomTable/CustomTableView.cs) | [`CustomTableSortStateTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableSortStateTests.cs) が、拒否した要求ではBindingの値のままで元の値の変更に追従すること、採用した要求では更新に追従することを確認する。起動中の抑止との接続は[起動](../runtime/startup.md#実装とテストの対応)の対応表を参照する。 |
+| 表単体の再読込みの完了時の選択 | [`MainWindow.RestorePlaylistTableSelectionAfterReload`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`PlaylistWorkspaceViewModel.ResyncPlaylistTableAsync`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.Reload.cs) | [`MainWindowPlaylistWorkspaceWpfTests.PlaylistTableReload_ReselectsOnlyWhenSelectionStaysOrIsLost`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) は実HTTP応答を保留した再読込みで、対象のまま・選択なしは新しい表を選び直し、取得中に別のプレイリストの表やライブラリ側を選んだ場合と受付拒否では選択を動かさないことを確認する。[`BmsPlaylistExternalReloadTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalReloadTests.cs) の `PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle` は受理で表を返し、他の操作中・対象の失効で返さないことを確認する。プロパティ保存後の選択復元はこの規則の対象外である。 |
+| 利用者由来の見出しの `_` の表示 | [`LiteralMenuHeader`](../../../BeMusicSeeker/Views/MainWindow/LiteralMenuHeader.cs)、[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)、`MainWindow.CreateConfiguredExternalActionMenuItem` | [`MainWindowSelectedChartContextMenuWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowSelectedChartContextMenuWpfTests.cs) の `UserDerivedMenuHeaders_ShowUnderscoresLiterally` はカスタム操作・関連文書・移動先の見出しが `_lead`・`mid_dle`・`a__b`・`trail_`・`__` を含めて描画された文字列のまま表示され、クリック時の値が元の文字列であることを、[`MainWindowPackageMaintenanceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の同名のケースは統合先を、`DefaultMenuItemStyle_KeepsAccessKey` は既定のスタイルで `_Q` がアクセスキーのままであることを確認する。 |
 
 ### ツリー名編集
 

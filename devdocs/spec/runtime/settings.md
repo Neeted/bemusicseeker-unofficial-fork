@@ -231,6 +231,12 @@ LR2パスとURL入力の拒否は、受理済みの値とは別に理由・事�
 - 保存済みの値が0～3の範囲外なら、補正せず、無選択と警告を表示します。setterへのnullや範囲外の入力では確定値を変更せず、有効な値を明示的に選択したときに、その項目だけを保存します。無関係な項目・局所操作の保存は妨げません。
 - 必須の起動検査はこの任意設定を条件に加えず、範囲外の値での実行は起動後処理の失敗として扱います。
 
+### 起動時にインストール保留を選択
+
+詳細設定の「初期化」の「起動時の初期選択を インストール > 保留 にする」（`StartupSelectInstallPending`）は、次回起動の初期選択だけに使い、変更した時点のツリーの選択と一覧は変えません。
+
+画面は、ViewModelが構築時に捕捉した値（初期一覧のモードを決めたときと同じ値）で、起動の抑止の解除後に、真ならインストールの保留、偽ならライブラリのルートを選びます。起動後に設定を変えても、その起動の初期選択は捕捉値に従い、次回起動から新しい値を使います。設定を画面のBindingへ直接結ばず、画面側へ設定の変更通知も転送しません。初期選択と抑止中の入力の扱いは[起動](startup.md#必須初期化中の読取りと変更)に従います。
+
 ### 新規としてインストールの確認
 
 詳細設定の「メッセージ表示」に `ShowNewPackageInstallConfirmMsg` を配置します。既定値はtrueで、旧設定にキーがない場合も確認を有効にします。変更時の項目保存と、保存に成功した後のプロパティ通知は、他の確認設定と同じ経路を使います。
@@ -688,6 +694,7 @@ setterや、通常の走査・表の編集・出力・同期では、組込み�
 | Table URL取込みの確定root、実Task、同じ再操作の拒否 | [`PlaylistWorkspaceViewModel.BeatorajaTableUrlImport`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.BeatorajaTableUrlImport.cs)、[`SettingsWindow`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs) | `SettingDialogEditCompletionTests.BeatorajaTableUrlButton_DeliversConfirmedRootToWorkspace` が、既存のURLと別候補のrootを実際のbuttonへ入力し、確認の取消、実際のP拒否、受理後の関係候補の破棄と、通知の終端ゲート中の通常Closeの許可と再操作の拒否を確認する。取得・DB・BMTの内容は `PlaylistWorkspaceExternalSourceTests` へ分担する。 |
 | 終了操作の案内の統合、候補の保持、受理済みTaskの回収 | `SettingsWindow`、既存の復元・撤去・Shell終了の担当 | `BackupPage_RestoreRefusalOrRequiredFailureNeverRequestsExit` の、取消・受付の拒否・必須失敗での非終了、既存の復元の成功/撤去のShell終端、`SettingDialogOperationShutdownTests` の手動同期の先行の閉鎖と直接の合流を維持する。score失敗の後の復元確認、通常の再表示、次のコンパイル済みの入力は `SettingsWindowPresentationTests.ScoreProcessingFailure_AllowsNextSelectionAndRestoreAfterReopen` が確認する。BMT失敗の後の復元確認は `SettingsWindowPresentationTests.BmtProcessingFailure_AllowsExplicitCurrentUpdateAndRestoreAfterReopen`、LR2再起動の許可と確認中の競合の拒否は `SettingsDialogBehaviorTests.EnvironmentRestart_AllowsPreviousBeatorajaFailureAndRejectsConcurrentSettings` が確認する。 |
 | 履歴プリセットの改名での選択の追従と、画面別の言語購読 | `SettingsDialogViewModel`、`ISettingsDialogPlayHistoryPort`、履歴・通常一覧の主体 | 実際のproviderでのrecord保存は `SettingsDialogBehaviorTests.PlayHistoryPreset_ConfirmedNameKeepsSavedRecordAcrossEditsAndRemoval`、両履歴モードの希望識別は `PlayHistoryReadModelTests.WorkflowOwner_ConfirmedPresetRenameKeepsLogicalSelection`、採用済みの集計・通常件数・解除は、履歴仕様の対応表へ分担する。 |
+| 起動時にインストール保留を選択する設定が次回起動の初期選択だけに使われ、変更時点の選択を変えない | [`MainWindowViewModel.StartupInitialSelectionIsInstallPending`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)、[`MainWindow.ApplyStartupInitialSelectionRequest`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`MainWindowViewSettingsStore`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewSettingsStore.cs) | [`MainWindowViewHostTests.StartupInitialSelection_UsesCapturedSetting`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowViewHostTests.cs) と [`MainWindowTreePresentationWpfTests.StartupSelectInstallPendingChange_DoesNotMoveCurrentSelection`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) が、起動時の捕捉値に従う初期選択と、設定の変更でツリーの選択・一覧の要求・表示モードが変わらないことを確認する。 |
 
 実際のAppでの節の確定・取消と次回の起動は、`ApplicationScenarioDialogs.SettingsHistory` と既存のSettings所有者に接続します。`SettingsScenarioTests.StandaloneRoots_SectionCommitAndImmediateSettingPersistAcrossNewProcess` が、BMS候補の採用・取消、実際の差分終端、即時のfont保存、Closeによる別候補の取消、rawの設定・DB・表示と別プロセスでの復元を確認する。`Lr2OutputAndDetails_CommitReachesSingleOwnedSuccessor` が、通常出力の取消・確定・実際のフォルダ同期と、LR2詳細候補の取消・実際の確認後の製品再起動を確認する。
 

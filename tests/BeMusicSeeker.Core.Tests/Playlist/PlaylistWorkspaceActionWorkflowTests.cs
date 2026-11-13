@@ -1642,6 +1642,31 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             () => failingWorkspace.OpenPlaylistTablePage(table));
     }
 
+    /// <summary>
+    /// サマリー行の「ページを開く」の可否が、実際にブラウザーへ渡すかどうかと一致することを確認します。
+    /// null・相対URI・内蔵表の <c>bmseeker</c> は開けず、https などの絶対URIは開けます。
+    /// 可否と実際の起動の条件がずれて、押しても何も起きない項目が有効になる誤りと、開けるページを無効にする誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(null, false, DisplayName = "URIなしは無効")]
+    [DataRow("relative/page", false, DisplayName = "相対URIは無効")]
+    [DataRow("bmseeker:table.recommended", false, DisplayName = "内蔵表は無効")]
+    [DataRow("https://example.test/page", true, DisplayName = "httpsは有効")]
+    [DataRow("http://example.test/page", true, DisplayName = "httpは有効")]
+    public async Task PlaylistSummaryPageAvailability_MatchesWhatSummaryOpenActuallyOpens(string? uriText, bool expectedOpenable)
+    {
+        var openedUris = new List<Uri>();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _, browserOpenSink: openedUris.Add);
+        Uri? uri = uriText == null ? null : new Uri(uriText, UriKind.RelativeOrAbsolute);
+
+        bool canOpen = PlaylistWorkspaceViewModel.CanOpenPlaylistSummaryUri(uri);
+        await workspace.OpenPlaylistSummaryUriAsync(uri!);
+
+        Assert.AreEqual(expectedOpenable, canOpen);
+        Assert.AreEqual(canOpen, openedUris.Count == 1, "可否は実際にブラウザーへ渡すかどうかと一致する。");
+        Assert.AreEqual(expectedOpenable, workspace.CanOpenPlaylistSummaryRowPage(new PlaylistSummaryRow { LinkUri = uri }));
+    }
+
     /// <summary>同IDの古い表・summary参照を現表へ解決し、削除済IDやIDなしを名前・URIだけで現表へ誤接続しないことを確認します。</summary>
     [TestMethod]
     public void PlaylistWorkspaceResolvesCurrentTableIdentityOutsideTheView()

@@ -450,6 +450,12 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Msg_merge_bms_destination" xml:space="preserve">
     <value>マージ先（上書きされる場合があります）</value>
   </data>
+  <data name="Msg_merge_bms_nested_folders" xml:space="preserve">
+    <value>マージ元の配下にあるフォルダ {0} 件も、相対的な配置を保ったままマージ先へ移動します。</value>
+  </data>
+  <data name="Msg_merge_bms_nested_folders_unknown" xml:space="preserve">
+    <value>マージ元の配下にフォルダがある場合は、それらも相対的な配置を保ったままマージ先へ移動します。</value>
+  </data>
   <data name="Weekly" xml:space="preserve">
     <value>7日ごと</value>
   </data>
@@ -802,6 +808,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Msg_success_register_chart" xml:space="preserve">
     <value>譜面の登録に成功しました</value>
+  </data>
+  <data name="Msg_score_viewer_no_new_registration" xml:space="preserve">
+    <value>譜面ビューアに新しく登録する譜面はありません。選択した譜面は登録済みか、譜面ファイルが見つかりません。</value>
   </data>
   <data name="Fix_installed_loc" xml:space="preserve">
     <value>インストール先を修正</value>

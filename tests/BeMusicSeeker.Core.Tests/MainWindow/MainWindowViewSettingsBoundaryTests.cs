@@ -11,14 +11,13 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowViewSettingsBoundaryTests
 {
     private readonly BeMusicSeeker.Properties.Settings testSettings = TestSettingsFactory.CreateIsolatedSettings();
-    /// <summary>利用者の一覧寸法と起動選択を読み、変更したツリー幅を設定へ保存し設定側の文字サイズ変更を一回通知することを確認し、画面設定の双方向接続漏れを検出します。</summary>
+    /// <summary>利用者の一覧寸法を読み、変更したツリー幅を設定へ保存し設定側の文字サイズ変更を一回通知することを確認し、画面設定の双方向接続漏れを検出します。</summary>
     [TestMethod]
     public void ViewSettingsStoreCapturesViewStateAndForwardsDraftChanges()
     {
         Settings settings = testSettings;
 
         settings.TreeViewWidth = 280d;
-        settings.StartupSelectInstallPending = false;
         settings.CustomTableRowHeight = 22d;
         settings.CustomTableHeaderHeight = 24d;
         settings.CustomTableFontSize = 12d;
@@ -34,7 +33,6 @@ public sealed class MainWindowViewSettingsBoundaryTests
         };
 
         Assert.AreEqual(280d, store.TreeViewWidth);
-        Assert.IsFalse(store.StartupSelectInstallPending);
         Assert.AreEqual(22d, store.CustomTableRowHeight);
         Assert.AreEqual(24d, store.CustomTableHeaderHeight);
         Assert.AreEqual(12d, store.CustomTableFontSize);

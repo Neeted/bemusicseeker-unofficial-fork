@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.IO;
 using System.Net;
@@ -5308,6 +5309,322 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 CustomTableColumn statusColumn = columns.VisibleEntries.Single(entry => entry.Column.Id == "Status").Column;
                 Assert.AreEqual(updated.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture), summary.GetCellValue(row, lastUpdate, out _).Text);
                 Assert.AreEqual(status, summary.GetCellValue(row, statusColumn, out _).Text);
+            }
+        });
+    }
+
+    /// <summary>
+    /// プレイリスト一覧（サマリー）の行の右クリックメニューの「ページを開く」が、右クリックした行に外部で開けるページがある場合だけ有効になることを確認します。
+    /// ページなし・相対URI・内蔵表（bmseeker）は無効、httpsなどの絶対URIは有効で、判定は実際に開くかどうかと一致します。
+    /// 押しても何も起きない項目を有効にする誤りと、開けるページの項目を無効にする誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void PlaylistSummaryOpenPageMenu_IsEnabledOnlyForExternalPages()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            try
+            {
+                var summary = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                MethodInfo requested = typeof(MainWindow).GetMethod(
+                    "customTablePlaylistSummary_RowContextMenuRequested", BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new AssertFailedException("サマリー行の右クリック入口がありません。");
+                var menu = (ContextMenu)fixture.Window.FindResource("playlistSummaryContextMenu");
+                (string? Uri, bool Enabled)[] cases =
+                [
+                    (null, false),
+                    ("relative/page", false),
+                    ("bmseeker:table.recommended", false),
+                    ("https://example.test/page", true),
+                ];
+                try
+                {
+                    foreach ((string? uri, bool enabled) in cases)
+                    {
+                        var row = new PlaylistSummaryRow { Name = "Row", LinkUri = uri == null ? null : new Uri(uri, UriKind.RelativeOrAbsolute) };
+                        var hit = new CustomTableHitTestResult(CustomTableHitKind.Cell, 0, row, null!, -1, Rect.Empty);
+                        requested.Invoke(fixture.Window, [summary, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: false)]);
+                        MenuItem openPage = menu.Items.OfType<MenuItem>().Single(item => item.Name == "playlistSummaryContextMenuOpenPage");
+                        Assert.AreEqual(enabled, openPage.IsEnabled, "「ページを開く」の可否: " + (uri ?? "(なし)"));
+                        Assert.AreEqual(enabled, fixture.ViewModel.PlaylistWorkspace.CanOpenPlaylistSummaryRowPage(row));
+                    }
+                }
+                finally { menu.IsOpen = false; }
+            }
+            finally { fixture.Close(); }
+        });
+    }
+
+    /// <summary>
+    /// 実MainWindowと実ViewModelで、通常の一覧・プレイリスト詳細・サマリーの3系統について、列見出しの並べ替えを確認します。
+    /// 起動中の抑止では、見出しをUIAで押しても表の並べ替えの列・方向がViewModelの値のままで、解除後の受理された並べ替えでは表の値がViewModelの値へ追従します。
+    /// 抑止中に矢印だけが先に変わる誤りと、受理されたのに購読側の通知が表へ届かず矢印が追従しない誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DataRow("Regular")]
+    [DataRow("Detail")]
+    [DataRow("Summary")]
+    public void HeaderSort_StartupBlockKeepsViewModelStateAndAcceptedSortFollows(string system)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture fixture = CreateActualMainWindowFixture(windowTest);
+            try
+            {
+                MainWindowViewModel vm = fixture.ViewModel;
+                PlaylistWorkspaceViewModel workspace = vm.PlaylistWorkspace;
+                CustomTableView table;
+                Func<(string? Column, ListSortDirection? Direction)> viewModelSort;
+                INotifyPropertyChanged sortOwner;
+                string sortPropertyName;
+                if (system == "Summary")
+                {
+                    table = (CustomTableView)fixture.Window.FindName("customTablePlaylistSummary");
+                    workspace.SetPlaylistSummaryMode(true);
+                    viewModelSort = () => (workspace.PlaylistSummarySortParameters?.ColumnsName, workspace.PlaylistSummarySortParameters?.Direction);
+                    sortOwner = workspace;
+                    sortPropertyName = nameof(PlaylistWorkspaceViewModel.PlaylistSummarySortParameters);
+                }
+                else
+                {
+                    table = (CustomTableView)fixture.Window.FindName("customTableView");
+                    if (system == "Detail")
+                    {
+                        workspace.RequestDetailSelection(fixture.Table, PlaylistFolderNode.CreateFolder(string.Empty));
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), "header-sort.detail-idle");
+                    }
+                    else { workspace.SetPlaylistSummaryMode(false); }
+                    viewModelSort = () => (vm.MainChartList.SortParameters?.ColumnsName, vm.MainChartList.SortParameters?.Direction);
+                    sortOwner = vm.MainChartList;
+                    sortPropertyName = nameof(MainChartListViewModel.SortParameters);
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(table.IsVisible, system + "：表が表示されている");
+
+                (string? Column, ListSortDirection? Direction) before = viewModelSort();
+                vm.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
+                try
+                {
+                    InvokeSortableHeader(table);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(before, viewModelSort(), system + "：抑止中はViewModelの並べ替えが変わらない");
+                    Assert.AreEqual(before.Column, table.SortColumnName, system + "：抑止中は表の列がViewModelの値のまま");
+                    Assert.AreEqual(before.Direction, table.SortDirection, system + "：抑止中は表の方向がViewModelの値のまま");
+                }
+                finally { vm.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false); }
+
+                // 受理は購読側の並べ替えの値の変更通知で観測します。通知が表示の予約を経ても、同じ通知の到達まで共通Dispatcherを進めます。
+                var accepted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                void SortAccepted(object? sender, PropertyChangedEventArgs args)
+                {
+                    if (args.PropertyName == sortPropertyName && viewModelSort() != before) { accepted.TrySetResult(); }
+                }
+                sortOwner.PropertyChanged += SortAccepted;
+                try
+                {
+                    InvokeSortableHeader(table);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(accepted.Task, "header-sort.accepted." + system);
+                }
+                finally { sortOwner.PropertyChanged -= SortAccepted; }
+                (string? Column, ListSortDirection? Direction) after = viewModelSort();
+                Assert.AreNotEqual(before, after, system + "：解除後の要求はViewModelに受理される");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(after.Column, table.SortColumnName, system + "：受理後は表の列がViewModelの値へ追従する");
+                Assert.AreEqual(after.Direction, table.SortDirection, system + "：受理後は表の方向がViewModelの値へ追従する");
+            }
+            finally { fixture.Close(); }
+        });
+
+        static void InvokeSortableHeader(CustomTableView table)
+        {
+            AutomationPeer root = UIElementAutomationPeer.CreatePeerForElement(table) ?? throw new AssertFailedException("表peerがありません。");
+            foreach (AutomationPeer child in root.GetChildren().Where(child => child.GetAutomationControlType() == AutomationControlType.HeaderItem))
+            {
+                if (child.GetPattern(PatternInterface.Invoke) is IInvokeProvider invoke)
+                {
+                    invoke.Invoke();
+                    return;
+                }
+            }
+            throw new AssertFailedException("並べ替えできる見出しがありません。");
+        }
+    }
+
+    /// <summary>表単体の再読込み中の選択の状況です。</summary>
+    public enum PlaylistTableReloadSelectionScenario
+    {
+        /// <summary>取得中も対象の表を選んだまま。置換で選択が失われ、他の項目も選ばれていない。</summary>
+        TargetStaysSelected,
+
+        /// <summary>どちらのツリーにも選択がない。</summary>
+        NothingSelected,
+
+        /// <summary>取得中に別のプレイリストの表を選んだ。</summary>
+        OtherPlaylistItemSelected,
+
+        /// <summary>取得中にライブラリ側の項目を選んだ。</summary>
+        LibraryItemSelected,
+
+        /// <summary>取得中に対象の表の配下のフォルダを選び、置換でそのフォルダの選択が失われてどちらのツリーにも選択がない。</summary>
+        FolderUnderTargetLostByReplacement,
+
+        /// <summary>受付が拒否された（他の操作中）。別のプレイリストの表を選んでいる。</summary>
+        RejectedWhileOtherSelected,
+    }
+
+    /// <summary>
+    /// 表を右クリックして再読込みしたとき、完了時に表を選び直すのは、選択が対象の表のまま、または置換で失われてどちらのツリーにも選択がない場合だけで、
+    /// 取得中に利用者が別のプレイリストの表・ライブラリ側の項目を選んだ場合と、受付が拒否された場合は選択を動かさないことを確認します。
+    /// 取得の保留は実HTTP応答を保持するサーバーで行い、ツリーの選択項目を観測します。
+    /// 取得中に選んだ別の項目を完了時に奪い返す誤りと、受付拒否でも選択を動かす誤り、置換で失われた選択を復元しない誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DataRow(PlaylistTableReloadSelectionScenario.TargetStaysSelected, DisplayName = "対象のまま（置換で失われ他は未選択）")]
+    [DataRow(PlaylistTableReloadSelectionScenario.NothingSelected, DisplayName = "どちらのツリーにも選択がない")]
+    [DataRow(PlaylistTableReloadSelectionScenario.OtherPlaylistItemSelected, DisplayName = "取得中に別のプレイリストの表を選んだ")]
+    [DataRow(PlaylistTableReloadSelectionScenario.LibraryItemSelected, DisplayName = "取得中にライブラリ側の項目を選んだ")]
+    [DataRow(PlaylistTableReloadSelectionScenario.FolderUnderTargetLostByReplacement, DisplayName = "対象の表の配下のフォルダの選択が置換で失われる")]
+    [DataRow(PlaylistTableReloadSelectionScenario.RejectedWhileOtherSelected, DisplayName = "受付が拒否された")]
+    public void PlaylistTableReload_ReselectsOnlyWhenSelectionStaysOrIsLost(PlaylistTableReloadSelectionScenario scenario)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            ActualMainWindowFixture? fixture = null;
+            BlockingPlaylistJsonServer? server = null;
+            Task reloadEvent = Task.CompletedTask;
+            Exception? primaryFailure = null;
+            try
+            {
+                fixture = CreateActualMainWindowFixture(
+                    windowTest,
+                    messagePresenter: (_, _) => new ThemedMessageBoxResponse(MessageBoxResult.OK, false));
+                BMSTable localTable = CreateAdmissionFixtureTable();
+                fixture.Playlist.BMSTables.Add(localTable);
+                PersistFixtureTable(fixture.Library.DatabaseScope, Path.Combine(fixture.Root, "data", "song.db"), localTable);
+                server = new BlockingPlaylistJsonServer(
+                    "{\"name\":\"Reload target\",\"symbol\":\"R\",\"data_url\":\"./score.json\",\"level_order\":[1]}",
+                    "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Reload result\",\"artist\":\"Artist\",\"level\":\"1\"}]");
+                BMSTable target = fixture.Table;
+                target.Page_url = server.PageUri;
+                target.Header_url = server.PageUri;
+                target.Data_url = new Uri("./score.json", UriKind.Relative);
+                target.EnableExternalSync();
+                PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
+                workspace.RefreshPlaylistTreeTables(fixture.Playlist);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                var playlistTree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                var mainTree = (TreeView)fixture.Window.FindName("treeView");
+                playlistTree.Height = 300;
+                playlistTree.UpdateLayout();
+                var root = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                root.IsExpanded = true;
+                MaterializeTreeItems(root);
+                var targetItem = (TreeViewItem)root.ItemContainerGenerator.ContainerFromItem(target);
+                var localItem = (TreeViewItem)root.ItemContainerGenerator.ContainerFromItem(localTable);
+                var libraryRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemLibraryRoot");
+                switch (scenario)
+                {
+                    case PlaylistTableReloadSelectionScenario.TargetStaysSelected:
+                        targetItem.IsSelected = true;
+                        break;
+                    case PlaylistTableReloadSelectionScenario.RejectedWhileOtherSelected:
+                        localItem.IsSelected = true;
+                        break;
+                }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                var menu = (ContextMenu)fixture.Window.FindResource("treeViewPlaylistTableContextMenu");
+                menu.DataContext = target;
+                menu.PlacementTarget = targetItem;
+                MenuItem reload = menu.Items.OfType<MenuItem>().Single(item => item.Name == "treeViewPlaylistTableContextMenuItemReload");
+                IDisposable? heldAdmission = null;
+                object? folderSelection = null;
+                if (scenario == PlaylistTableReloadSelectionScenario.RejectedWhileOtherSelected)
+                {
+                    Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out heldAdmission));
+                }
+                try
+                {
+                    reloadEvent = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(reload));
+                    if (scenario == PlaylistTableReloadSelectionScenario.RejectedWhileOtherSelected)
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadEvent, "playlist-reload-selection.rejected-terminal");
+                    }
+                    else
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            Task.WhenAny(reloadEvent, server.DataRequestAccepted.Task), "playlist-reload-selection.data-request");
+                        Assert.IsFalse(reloadEvent.IsCompleted, "取得は保留している。");
+                        // 取得中に利用者が選び直す。
+                        if (scenario == PlaylistTableReloadSelectionScenario.OtherPlaylistItemSelected) { localItem.IsSelected = true; }
+                        if (scenario == PlaylistTableReloadSelectionScenario.LibraryItemSelected) { libraryRoot.IsSelected = true; }
+                        if (scenario == PlaylistTableReloadSelectionScenario.FolderUnderTargetLostByReplacement)
+                        {
+                            targetItem.IsExpanded = true;
+                            MaterializeTreeItems(targetItem);
+                            TreeViewItem folderItem = FindDescendants<TreeViewItem>(targetItem).FirstOrDefault(item => item.DataContext is PlaylistFolderNode)
+                                ?? throw new AssertFailedException("対象の表の配下のフォルダの項目がありません。");
+                            folderItem.IsSelected = true;
+                            folderSelection = playlistTree.SelectedItem;
+                            Assert.IsInstanceOfType(folderSelection, typeof(PlaylistFolderNode));
+                        }
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        server.ReleaseResponse();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadEvent, "playlist-reload-selection.terminal");
+                    }
+                }
+                finally { heldAdmission?.Dispose(); }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                BMSTable current = fixture.Playlist.BMSTables.Single(table => table.playlist_id == target.playlist_id);
+                switch (scenario)
+                {
+                    case PlaylistTableReloadSelectionScenario.TargetStaysSelected:
+                    case PlaylistTableReloadSelectionScenario.NothingSelected:
+                        Assert.AreNotSame(target, current, "再読込みで表は置換される。");
+                        Assert.AreSame(current, playlistTree.SelectedItem, "選択が対象のまま、または失われて他が未選択なら、表を選び直す。");
+                        break;
+                    case PlaylistTableReloadSelectionScenario.FolderUnderTargetLostByReplacement:
+                        // 置換で配下のフォルダの選択が失われ、他も未選択なら表を選び直す。フォルダの選択が残る場合は動かさない契約は、置換を伴わない再読込みでしか生じない。
+                        Assert.IsFalse(ReferenceEquals(folderSelection, playlistTree.SelectedItem), "置換前のフォルダ項目は残らない。");
+                        Assert.AreSame(current, playlistTree.SelectedItem, "フォルダの選択が失われ他が未選択なら、表を選び直す。");
+                        break;
+                    case PlaylistTableReloadSelectionScenario.OtherPlaylistItemSelected:
+                    case PlaylistTableReloadSelectionScenario.RejectedWhileOtherSelected:
+                        Assert.AreSame(localTable, playlistTree.SelectedItem, "別のプレイリストの表の選択は動かさない。");
+                        break;
+                    default:
+                        Assert.IsNull(playlistTree.SelectedItem, "ライブラリ側を選んだ場合はプレイリスト側に選択を作らない。");
+                        Assert.AreSame(libraryRoot, mainTree.SelectedItem, "ライブラリ側の選択は動かさない。");
+                        break;
+                }
+                if (scenario == PlaylistTableReloadSelectionScenario.RejectedWhileOtherSelected)
+                {
+                    Assert.AreSame(target, current, "拒否では表を置換しない。");
+                }
+            }
+            catch (Exception failure) { primaryFailure = failure; throw; }
+            finally
+            {
+                server?.ReleaseResponse();
+                var cleanupFailures = new List<Exception>();
+                try { TestUiDispatcherHost.AwaitTaskOnDispatcher(reloadEvent, "playlist-reload-selection.cleanup-event"); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+                try { server?.Dispose(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+                try { fixture?.Close(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+                if (cleanupFailures.Count > 0)
+                {
+                    var cleanupFailure = new AggregateException("Playlist reload selection fixture cleanup failed.", cleanupFailures);
+                    if (primaryFailure != null) { primaryFailure.Data["PlaylistReloadSelectionCleanupFailure"] = cleanupFailure.ToString(); }
+                    else { throw cleanupFailure; }
+                }
             }
         });
     }

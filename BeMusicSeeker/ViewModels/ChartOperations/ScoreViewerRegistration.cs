@@ -140,6 +140,12 @@ internal sealed class ScoreViewerRegistrationResult
     internal bool HasFailures => FailureCount > 0;
 
     internal bool HasUploadDeclined => UploadDeclinedCount > 0;
+
+    /// <summary>
+    /// 新しく登録した譜面がなく、失敗もアップロードの辞退もないことを返します。
+    /// 全件が登録済み、譜面ファイルのない対象だけ、またはその混在がこれに当たります。
+    /// </summary>
+    internal bool HasNoNewRegistration => !HasUploadedRegistration && !HasFailures && !HasUploadDeclined;
 }
 
 internal sealed class ScoreViewerUploadResponse
@@ -180,6 +186,9 @@ internal interface IScoreViewerRegistrationInteraction
     Task<bool> ConfirmUploadAsync(ScoreViewerRegistrationPlan plan, bool showSingleTargetConfirmation);
 
     Task PresentResultAsync(ScoreViewerRegistrationResult result);
+
+    /// <summary>複数の譜面を対象にしたが、新しく登録する譜面がなかったことを一回だけ通知します。</summary>
+    Task PresentNoNewRegistrationAsync();
 
     Task PresentFailureAsync(Exception exception);
 
@@ -262,6 +271,10 @@ internal sealed class ScoreViewerRegistrationWorkflowOwner
                 showSingleTargetConfirmationProvider());
             ScoreViewerRegistrationResult result = await Task.Run(() => Complete(plan, uploadConfirmed));
             await interaction.PresentResultAsync(result);
+            if (!openSingleViewerOnSuccess && result.HasNoNewRegistration)
+            {
+                await interaction.PresentNoNewRegistrationAsync();
+            }
             if (openSingleViewerOnSuccess && !string.IsNullOrWhiteSpace(result.LastViewUrl))
             {
                 interaction.OpenViewer(result.LastViewUrl);
@@ -551,6 +564,15 @@ internal sealed class WpfScoreViewerRegistrationInteraction : IScoreViewerRegist
                 MessageBoxImage.Exclamation,
                 "Score Viewer registration partial failure notification");
         }
+    }
+
+    public Task PresentNoNewRegistrationAsync()
+    {
+        return ShowMessageAsync(
+            BeMusicSeeker.Properties.Resources.Msg_score_viewer_no_new_registration,
+            BeMusicSeeker.Properties.Resources.Information,
+            MessageBoxImage.Asterisk,
+            "Score Viewer registration no new registration notification");
     }
 
     public Task PresentFailureAsync(Exception exception)

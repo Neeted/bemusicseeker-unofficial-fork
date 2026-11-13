@@ -999,6 +999,10 @@ public class Resources
 
     public static string Msg_merge_bms_folder => ResourceManager.GetString("Msg_merge_bms_folder", resourceCulture);
 
+    public static string Msg_merge_bms_nested_folders => ResourceManager.GetString("Msg_merge_bms_nested_folders", resourceCulture);
+
+    public static string Msg_merge_bms_nested_folders_unknown => ResourceManager.GetString("Msg_merge_bms_nested_folders_unknown", resourceCulture);
+
     public static string Msg_merge_bms_target => ResourceManager.GetString("Msg_merge_bms_target", resourceCulture);
 
     public static string Msg_move_to_other_root => ResourceManager.GetString("Msg_move_to_other_root", resourceCulture);
@@ -1026,6 +1030,8 @@ public class Resources
     public static string Msg_rename_folders => ResourceManager.GetString("Msg_rename_folders", resourceCulture);
 
     public static string Msg_rename_to_invalid => ResourceManager.GetString("Msg_rename_to_invalid", resourceCulture);
+
+    public static string Msg_score_viewer_no_new_registration => ResourceManager.GetString("Msg_score_viewer_no_new_registration", resourceCulture);
 
     public static string Msg_show_chart => ResourceManager.GetString("Msg_show_chart", resourceCulture);
 

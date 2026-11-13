@@ -43,11 +43,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             && rows.All(row => row?.TableRef != null && ContainsActivePlaylistTable(row.TableRef));
     }
 
-    internal Task ResyncPlaylistsAsync(IEnumerable<PlaylistSummaryRow> rows)
+    internal Task<bool> ResyncPlaylistsAsync(IEnumerable<PlaylistSummaryRow> rows)
     {
         if (rows == null)
         {
-            return Task.CompletedTask;
+            return Task.FromResult(false);
         }
         List<BMSTable> tables = [.. rows
             .Where(row => row?.TableRef != null)
@@ -56,6 +56,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         return ResyncPlaylistsAsync(tables);
     }
 
+    /// <summary>
+    /// 単体の表を再同期し、受理された場合だけ現在の正本の表を返します。
+    /// 受付が拒否された場合（他の操作中・対象の失効）は、表が残っていても返さず、呼出元が選択を動かさないことを区別できるようにします。
+    /// </summary>
+    /// <param name="table">再同期する表。</param>
+    /// <returns>受理され、同じ正本が残っている場合はその表。拒否された場合と対象がなくなった場合は <see langword="null"/>。</returns>
     internal async Task<BMSTable> ResyncPlaylistTableAsync(BMSTable table)
     {
         if (table == null)
@@ -63,8 +69,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             return null;
         }
 
-        await ResyncPlaylistsAsync([table]);
-        return GetPlaylistStore().ResolveActivePlaylistTableForMutation(table);
+        bool accepted = await ResyncPlaylistsAsync([table]);
+        return accepted
+            ? GetPlaylistStore().ResolveActivePlaylistTableForMutation(table)
+            : null;
     }
 
     internal BMSTable ResolveActivePlaylistSummaryTable(PlaylistSummaryRow row)
@@ -86,31 +94,32 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>手動再同期の保存・出力と、この操作が要求した一覧公開およびheader配送の実終端を同じP内で回収します。</summary>
-    internal async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
+    /// <returns>再同期を受理して実行した場合は <see langword="true"/>。受付の拒否（他の操作中・対象の失効）や対象なしでは <see langword="false"/>。</returns>
+    internal async Task<bool> ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
     {
         if (tablesToResync == null)
         {
-            return;
+            return false;
         }
         List<BMSTable> requestedTables = [.. tablesToResync.Where(table => table != null).Distinct()];
         if (requestedTables.Count == 0)
         {
-            return;
+            return false;
         }
         BMSPlaylist playlists = GetPlaylistStore();
         // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。
         // 明示の再読込みは、出力を止めた表（出力先が他の表と重なる表）を一件の警告で案内します。
-        await RunWithOperationNoticesAsync(playlists, "manual playlist resync notification",
+        return await RunWithOperationNoticesAsync(playlists, "manual playlist resync notification",
             () => ResyncPlaylistsAdmittedAsync(playlists, requestedTables), warnStoppedOutputs: true).ConfigureAwait(false);
     }
 
-    private async Task ResyncPlaylistsAdmittedAsync(BMSPlaylist playlists, List<BMSTable> requestedTables)
+    private async Task<bool> ResyncPlaylistsAdmittedAsync(BMSPlaylist playlists, List<BMSTable> requestedTables)
     {
         if (playlists.IsPlaylistUpdating
             || !TryEnterPlaylistMutationAdmission(playlists, out IDisposable admission))
         {
             RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: true, isStale: false);
-            return;
+            return false;
         }
         using (admission)
         {
@@ -121,7 +130,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (resolvedRequestedTables.Count == 0)
             {
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: false, isStale: true);
-                return;
+                return false;
             }
             List<BMSTable> activeTables = [.. resolvedRequestedTables
                 .Where(playlists.ContainsBMSTable)
@@ -133,7 +142,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (activeTables.Count == 0)
             {
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: false, isStale: true);
-                return;
+                return false;
             }
             bool isFullReload = activeTables.Count > 1;
             var stopwatch = Stopwatch.StartNew();
@@ -214,6 +223,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     notificationSession, "manual playlist resync notification"), failures);
             }
             ThrowPlaylistWorkflowFailures(failures);
+            return true;
         }
     }
 

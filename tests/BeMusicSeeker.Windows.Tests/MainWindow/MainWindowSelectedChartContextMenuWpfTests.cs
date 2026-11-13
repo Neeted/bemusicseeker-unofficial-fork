@@ -696,6 +696,176 @@ public sealed class MainWindowSelectedChartContextMenuWpfTests
             selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
     }
 
+    /// <summary>
+    /// 未所持のプレイリスト項目の譜面ビューアのメニューが、クリック時に処理する選択対象と同じ集合の件数で見出しと可否を決めることを確認します。
+    /// 一件ならファイルがなくても有効な「譜面ビューアで開く」、二件以上なら見出しは登録で、実在する譜面ファイルを持つ対象がなければ無効（所持ファイルが混ざれば有効）、
+    /// 譜面ビューアの対象が一件もなければ非表示です。クリックが同じ対象集合を端末へ渡すことも確認します。
+    /// 複数選択でも単数の見出しのまま有効になり、押しても何も起きない誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void MissingPlaylistScoreViewerMenu_FollowsSelectionCount()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string ownedPath = Path.Combine(workspace.RootDirectory, "owned.bms");
+        File.WriteAllText(ownedPath, "#TITLE owned");
+        var clicked = new List<IReadOnlyList<ChartOperationTarget>>();
+        MainWindowScoreViewerTerminal scoreViewer = new(
+            targets => targets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer)),
+            targets => targets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer)
+                && !string.IsNullOrWhiteSpace(target.Chart.Path) && File.Exists(target.Chart.Path)),
+            (targets, _) =>
+            {
+                clicked.Add(targets);
+                return Task.FromResult<ScoreViewerRegistrationResult>(null!);
+            },
+            (_, _, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!));
+        PlaylistDetailRow missingA = CreateMissingPlaylistRow(new string('a', 32));
+        PlaylistDetailRow missingB = CreateMissingPlaylistRow(new string('b', 32));
+        PlaylistDetailRow owned = CreatePlaylistRow(new string('c', 32), ChartFileKind.Bms, ownedPath);
+        PlaylistDetailRow bmsonMissing = CreatePlaylistRow(new string('d', 32), ChartFileKind.Bmson, null);
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                void Check(string name, PlaylistDetailRow[] selected, PlaylistDetailRow contextRow, string expectedHeader, bool visible, bool enabled)
+                {
+                    table.ItemsSource = new List<object>(new[] { missingA, missingB, owned, bmsonMissing });
+                    table.SelectRowsByPredicate(row => selected.Any(candidate => ReferenceEquals(candidate, row)));
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = contextRow };
+                    OpenContextMenu(menu);
+                    MenuItem item = FindMenuItem(menu, "tableContextMenuItemRegisterScore");
+                    Assert.AreEqual(visible ? Visibility.Visible : Visibility.Collapsed, item.Visibility, name + "：表示");
+                    Assert.AreEqual(enabled, item.IsEnabled, name + "：可否");
+                    if (visible) { Assert.AreEqual(expectedHeader, item.Header, name + "：見出し"); }
+                    if (visible && enabled)
+                    {
+                        clicked.Clear();
+                        Assert.IsTrue(RaiseMenuClick(item).Handled);
+                        Assert.AreEqual(selected.Length, clicked.Single().Count, name + "：クリックは判定と同じ選択対象を渡す。");
+                    }
+                }
+                Check("一件", [missingA], missingA, Resources.Open_chart_viewer, visible: true, enabled: true);
+                Check("二件でファイルなし", [missingA, missingB], missingA, Resources.Register_chart_with_viewer, visible: true, enabled: false);
+                Check("二件で所持ファイルが混在", [missingA, owned], missingA, Resources.Register_chart_with_viewer, visible: true, enabled: true);
+                Check("譜面ビューアの対象が0件", [bmsonMissing], bmsonMissing, Resources.Open_chart_viewer, visible: false, enabled: false);
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
+    }
+
+    /// <summary>
+    /// 利用者由来の文字列を見出しにするメニュー項目（カスタム右クリック操作・関連文書のファイル名・移動先）が、名前の「_」（先頭・途中・連続・末尾）を
+    /// アクセスキーとして扱わず、描画された文字列としてそのまま表示することを確認します。
+    /// 先頭の「_」が消える・連続が一つになるなど、操作名や宛先の表示が実際と食い違う誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void UserDerivedMenuHeaders_ShowUnderscoresLiterally()
+    {
+        string[] names = ["_lead", "mid_dle", "a__b", "trail_", "__"];
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(
+            [.. names.Select((name, index) => new RightClickWebActionDefinition("web" + index, name, "https://example.test/" + index + "/{sha256}", true, ExternalChartKind.All))], []));
+        var owner = new SelectedChartExternalActionWorkflowOwner(_ => false, ExternalShellGatewayPolicy.Current, settingsProvider: () => settings);
+        var external = new MainWindowSelectedChartExternalActionsTerminal(owner.CanExecute, owner.Execute,
+            _ => false, (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable), _ => { },
+            owner.CreateResolutionInput, owner.ResolveConfiguredActions, owner.ExecuteConfiguredAction);
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('f', 32), @"C:\Owned\chart.bms");
+
+        MenuHeaderRenderProbe.WithApplicationStyles(() => MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
+        {
+            var table = (CustomTableView)window.FindName("customTableView");
+            table.ItemsSource = new List<object> { row };
+            table.SelectRowsByPredicate(_ => true);
+            viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+            var menu = (ContextMenu)window.FindResource("tableContextMenu");
+            menu.PlacementTarget = new FrameworkElement { DataContext = row };
+            OpenContextMenu(menu);
+
+            // カスタム右クリック操作：名前と実行対象のTagは元のまま、表示だけが文字列どおりになる。
+            MenuItem[] actions = [.. EnumerateMenuItems(menu).Where(item => item.Name.StartsWith("configuredWebAction_", StringComparison.Ordinal))];
+            CollectionAssert.AreEqual(names, actions.Select(item => (string)item.Header).ToArray(), "見出しの値は操作名のまま。");
+            AssertRendered("カスタム操作", scope, window, [.. actions.Select(item => new MenuItem { Header = item.Header, HeaderTemplate = item.HeaderTemplate })], names);
+
+            // 関連文書：見出しはファイル名。
+            MenuItem documents = FindMenuItem(menu, "tableContextMenuItemOpenDocument");
+            documents.ItemsSource = names.Select(name => @"C:\docs\" + name + ".txt").ToArray();
+            AssertRendered("関連文書", scope, window,
+                [.. names.Select((_, index) => MenuHeaderRenderProbe.GenerateContainer(documents, index))],
+                [.. names.Select(name => name + ".txt")]);
+
+            // 移動先：見出しは移動先のフォルダ。クリック時に使う値（DataContext）は元の文字列のまま。
+            MenuItem move = FindMenuItem(menu, "tableContextMenuItemMoveFile");
+            string[] destinations = [.. names.Select(name => @"C:\songs\" + name)];
+            move.ItemsSource = destinations;
+            MenuItem[] moveItems = [.. destinations.Select((_, index) => MenuHeaderRenderProbe.GenerateContainer(move, index))];
+            CollectionAssert.AreEqual(destinations, moveItems.Select(item => (string)item.DataContext).ToArray(), "クリック時に使う値は元の文字列のまま。");
+            AssertRendered("移動先", scope, window, moveItems, destinations);
+        }, selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external)));
+    }
+
+    /// <summary>
+    /// 既定のメニュー項目スタイルは「_」をアクセスキーとして扱い続けることを確認します。
+    /// 利用者由来の文字列だけを文字どおりに表示するための変更が、固定の見出し（「_Q」のようなアクセスキー指定）まで変える誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void DefaultMenuItemStyle_KeepsAccessKey()
+    {
+        MenuHeaderRenderProbe.WithApplicationStyles(() => MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (scope, _, window) =>
+        {
+            Assert.AreEqual((char?)'Q', MenuHeaderRenderProbe.FindAccessKey(scope, window, new MenuItem { Header = "_Q" }),
+                "既定のスタイルでは文字列の見出しの最初の「_」はアクセスキーとして扱われる。");
+            Assert.IsNull(MenuHeaderRenderProbe.FindAccessKey(scope, window, new MenuItem { Header = "_Q", HeaderTemplate = LiteralMenuHeader.Template }),
+                "文字どおりに表示する見出しはアクセスキーを持たない。");
+        }));
+    }
+
+    private static void AssertRendered(string label, TestWindowPresentationScope scope, Window window, IReadOnlyList<MenuItem> items, IReadOnlyList<string> expected)
+    {
+        CollectionAssert.AreEqual(expected.ToArray(), MenuHeaderRenderProbe.RenderHeaderTexts(scope, window, items).ToArray(), label + "：描画された文字列は「_」を含めて元のまま。");
+    }
+
+    private static PlaylistDetailRow CreatePlaylistRow(string md5, ChartFileKind kind, string? path)
+    {
+        var entry = BMSTableEntry.CreateHydratedPlaylistEntry(
+            playlistId: 1,
+            md5Value: md5,
+            sha256Value: new string('b', 64),
+            levelValue: null,
+            titleValue: "Playlist chart",
+            artistValue: "Artist",
+            folderValue: string.Empty,
+            lr2BmsIdValue: string.Empty,
+            urlValue: string.Empty,
+            urlDiffValue: string.Empty,
+            nameDiffValue: string.Empty,
+            orgMd5Value: string.Empty,
+            addDateValue: null,
+            commentValue: string.Empty,
+            memoValue: string.Empty,
+            isRemovedValue: false);
+        ChartFile chart = new(
+            kind,
+            path: path!,
+            md5,
+            new string('b', 64),
+            "Playlist chart",
+            "Playlist chart",
+            "Artist",
+            string.Empty,
+            "Charts",
+            string.Empty,
+            "7",
+            7,
+            1,
+            null,
+            null,
+            null);
+        return new PlaylistDetailSourceRow(entry, chart).CreateViewRow();
+    }
+
     /// <summary>外部操作端末が全操作を不可としたメニューでは区切り線も隠し、操作のない空groupだけを表示しません。</summary>
     [TestMethod]
     public void CompiledTableContextMenuHidesExternalSeparatorWithoutVisibleExternalActions()

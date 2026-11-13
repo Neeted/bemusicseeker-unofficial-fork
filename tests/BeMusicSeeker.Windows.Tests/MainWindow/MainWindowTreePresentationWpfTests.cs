@@ -3,6 +3,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
@@ -387,20 +388,215 @@ public sealed class MainWindowTreePresentationWpfTests
         }, allowStartupUiInteraction: true, libraryReloadMenuTerminal: terminal);
     }
 
-    /// <summary>保留を起動時に選ぶ利用者設定で構成した実MainWindowが保留rootを選択することを確認し、初期選択の設定を無視する接続漏れを検出します。</summary>
+    /// <summary>
+    /// 設定画面で「起動時にインストール保留を選択」を両方向へ変えても、別の項目を選んだ状態のツリー選択・一覧要求・ViewModelの表示モードが変わらないことを確認します。
+    /// この設定は次回起動の初期選択にだけ使うため、変更時点の選択を動かす誤り（Bindingの常時反映）を検出します。
+    /// </summary>
     [TestMethod]
-    public void ConstructorAppliesSavedInitialPendingSelection()
+    [DataRow(false, DisplayName = "偽から真へ")]
+    [DataRow(true, DisplayName = "真から偽へ")]
+    public void StartupSelectInstallPendingChange_DoesNotMoveCurrentSelection(bool initial)
     {
-        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
-            {
-                values.StartupSelectInstallPending = true;
-            });
-
-        MainWindowPresentationTestHarness.RunConstructorOnly(settings, (viewModel, window) =>
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => values.StartupSelectInstallPending = initial);
+        var calls = new List<string>();
+        var folderTerminal = new MainWindowRegularLibraryTreeTerminal((kind, key) => { calls.Add("folder:" + kind + ":" + key); return true; });
+        var installTerminal = new MainWindowInstallTreeTerminal((mode, _) => { calls.Add("install:" + mode); return Task.FromResult(true); });
+        MainWindowPresentationTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
         {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var tree = (TreeView)window.FindName("treeView");
+            TreeViewItem root = GetNamedElement<TreeViewItem>(window, "treeViewItemLibraryRoot");
             TreeViewItem pending = GetNamedElement<TreeViewItem>(window, "treeViewItemInstallPending");
-            Assert.IsTrue(pending.IsSelected);
+            TreeViewItem other = GetNamedElement<TreeViewItem>(window, "treeViewItemFullScanCheck");
+            Assert.IsFalse(root.IsSelected, "構築だけでは初期選択を行わない。");
+            Assert.IsFalse(pending.IsSelected, "構築だけでは初期選択を行わない。");
+            MainViewUpdateMode? modeBefore = viewModel.MainChartList.LastAppliedColumnMode;
+            calls.Clear();
+            other.IsSelected = true;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.AreSame(other, tree.SelectedItem);
+            int callsBefore = calls.Count;
+
+            settings.StartupSelectInstallPending = !initial;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            settings.StartupSelectInstallPending = initial;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+
+            Assert.AreSame(other, tree.SelectedItem, "設定を変えても現在の選択は変わらない。");
+            Assert.IsFalse(root.IsSelected);
+            Assert.IsFalse(pending.IsSelected);
+            Assert.AreEqual(callsBefore, calls.Count, "設定の変更で一覧の要求を増やさない。");
+            Assert.AreEqual(modeBefore, viewModel.MainChartList.LastAppliedColumnMode, "ViewModelの表示モードは変わらない。");
+        }, allowStartupUiInteraction: true, regularLibraryTreeTerminal: folderTerminal, installTreeTerminal: installTerminal,
+            maintenanceTreeTerminal: new MainWindowMaintenanceTreeTerminal((mode, _) => Task.FromResult(true)));
+    }
+
+    /// <summary>
+    /// 起動中の抑止では、ライブラリのフォルダ・保守ノード・保留パッケージ・プレイリスト側の項目への左・右クリックとキーの選択移動を処理済みにして、
+    /// 選択も一覧の要求も起こさず、表示と一覧の対象を食い違わせないことを確認します。抑止の解除後は同じ入力が処理済みにならず、通常どおり選べます。
+    /// 抑止中に選択だけが先に変わって一覧が前の表示のまま残る誤りと、解除後も入力を止め続ける誤りを検出します。
+    /// </summary>
+    /// <remarks>実際のマウスとキーボードからの選択は実機の入力経路であり、ここでは同じ入力のイベントを項目へ発生させて処理済みと選択の有無を確認します。</remarks>
+    [TestMethod]
+    public void StartupBlockedTreeInputs_KeepSelectionAndListTarget()
+    {
+        var calls = new List<string>();
+        var folderTerminal = new MainWindowRegularLibraryTreeTerminal((kind, key) => { calls.Add("folder:" + kind + ":" + key); return true; });
+        var maintenanceTerminal = new MainWindowMaintenanceTreeTerminal((mode, _) => { calls.Add("maintenance:" + mode); return Task.FromResult(true); });
+        var installTerminal = new MainWindowInstallTreeTerminal((mode, _) => { calls.Add("install:" + mode); return Task.FromResult(true); });
+        MainWindowPresentationTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (scope, viewModel, window) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var tree = (TreeView)window.FindName("treeView");
+            var playlistTree = (TreeView)window.FindName("treeViewPlaylist");
+            viewModel.LibraryFolderTree.BMSParentFolderList.Add(@"C:\Songs\A");
+            tree.UpdateLayout();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            var folders = (TreeViewItem)FindElementWithBinding(tree, ItemsControl.ItemsSourceProperty, "LibraryFolderTree.BMSParentFolderList")!;
+            TreeViewItem folder = RealizeChild(tree, folders, 0);
+            TreeViewItem maintenance = GetNamedElement<TreeViewItem>(window, "treeViewItemFullScanCheck");
+            TreeViewItem pending = GetNamedElement<TreeViewItem>(window, "treeViewItemInstallPending");
+            var package = new TreeViewItem { DataContext = new ChartPackage { path = @"C:\blocked-package" }, Header = "package" };
+            pending.Items.Add(package);
+            TreeViewItem playlistRoot = GetNamedElement<TreeViewItem>(window, "treeViewItemPlaylist");
+            TreeViewItem[] items = [folder, maintenance, package, playlistRoot];
+            calls.Clear();
+            Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked, "起動中の抑止を前提にする。");
+
+            foreach (TreeViewItem item in items)
+            {
+                MouseButtonEventArgs left = RaiseMouse(item, Mouse.PreviewMouseDownEvent, MouseButton.Left);
+                Assert.IsTrue(left.Handled, "左クリックは処理済みにする: " + item.DataContext);
+                MouseButtonEventArgs right = RaiseMouse(item, Mouse.MouseDownEvent, MouseButton.Right);
+                Assert.IsTrue(right.Handled, "右クリックは処理済みにする: " + item.DataContext);
+                foreach (Key key in new[] { Key.Up, Key.Down, Key.Home, Key.End, Key.PageUp, Key.PageDown })
+                {
+                    Assert.IsTrue(RaiseKey(item, key).Handled, "選択移動キーは処理済みにする: " + key);
+                }
+                Assert.IsFalse(item.IsSelected, "選択を起こさない。");
+            }
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.IsNull(tree.SelectedItem);
+            Assert.IsNull(playlistTree.SelectedItem);
+            CollectionAssert.AreEqual(Array.Empty<string>(), calls, "一覧の要求を起こさない。");
+
+            viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+            foreach (TreeViewItem item in items)
+            {
+                Assert.IsFalse(RaiseMouse(item, Mouse.PreviewMouseDownEvent, MouseButton.Left).Handled, "解除後の左クリックは処理済みにしない。");
+                Assert.IsFalse(RaiseMouse(item, Mouse.MouseDownEvent, MouseButton.Right).Handled, "解除後の右クリックは処理済みにしない。");
+                Assert.IsFalse(RaiseKey(item, Key.Down).Handled, "解除後の選択移動キーは処理済みにしない。");
+            }
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.IsTrue(folder.IsSelected, "解除後は右クリックで通常どおり選べる。");
+            Assert.IsTrue(calls.Contains("folder:Directory:" + @"C:\Songs\A"), "選択した項目の一覧要求が届く。");
+            Assert.AreSame(folder.DataContext, tree.SelectedItem);
+        }, regularLibraryTreeTerminal: folderTerminal, maintenanceTreeTerminal: maintenanceTerminal, installTreeTerminal: installTerminal);
+    }
+
+    /// <summary>
+    /// 起動中の抑止でも、展開・折りたたみのキー、展開ボタンのクリック、コードからの選択は妨げないことを確認します。
+    /// 選択を伴わない操作まで止めて展開できなくなる誤りと、コードからの初期選択・復元・仮想化中の選択維持を妨げる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void StartupBlockedTreeInputs_AllowExpansionAndProgrammaticSelection()
+    {
+        MainWindowPresentationTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (scope, viewModel, window) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var tree = (TreeView)window.FindName("treeView");
+            TreeViewItem pending = GetNamedElement<TreeViewItem>(window, "treeViewItemInstallPending");
+            var package = new TreeViewItem { DataContext = new ChartPackage { path = @"C:\expand-package" }, Header = "package" };
+            pending.Items.Add(package);
+            tree.UpdateLayout();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked, "起動中の抑止を前提にする。");
+
+            pending.IsExpanded = true;
+            foreach (Key key in new[] { Key.Add, Key.Subtract, Key.Multiply })
+            {
+                Assert.IsFalse(RaiseKey(pending, key).Handled, "展開キーは妨げない: " + key);
+            }
+            Assert.IsFalse(RaiseKey(pending, Key.Left).Handled, "展開中の左は折りたたみで、選択を移さないため妨げない。");
+            Assert.IsTrue(RaiseKey(pending, Key.Right).Handled, "展開中の右は子へ選択を移すため止める。");
+            pending.IsExpanded = false;
+            Assert.IsFalse(RaiseKey(pending, Key.Right).Handled, "折りたたみ中の右は展開で、選択を移さないため妨げない。");
+            Assert.IsTrue(RaiseKey(pending, Key.Left).Handled, "折りたたみ中の左は親へ選択を移すため止める。");
+            pending.IsExpanded = true;
+            tree.UpdateLayout();
+
+            ToggleButton? expander = FindDescendants<ToggleButton>(pending).FirstOrDefault();
+            Assert.IsNotNull(expander, "展開ボタン");
+            Assert.IsFalse(RaiseMouse(expander, Mouse.PreviewMouseDownEvent, MouseButton.Left).Handled, "展開ボタンのクリックは妨げない。");
+            ScrollBar? scrollBar = FindDescendants<ScrollBar>(tree).FirstOrDefault();
+            if (scrollBar != null)
+            {
+                Assert.IsFalse(RaiseMouse(scrollBar, Mouse.PreviewMouseDownEvent, MouseButton.Left).Handled, "スクロールバーの操作は妨げない。");
+            }
+
+            package.IsSelected = true;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.IsTrue(package.IsSelected, "コードからの選択は妨げない。");
+            Assert.AreSame(package, tree.SelectedItem);
         });
+    }
+
+    /// <summary>
+    /// 抑止の解除後に、ツリーの選択表示と一覧の表示対象が一致していることを確認します。
+    /// 抑止中の入力を拒否して選択も一覧要求も変えず、解除後の次の選択でツリーの選択項目と一覧の要求対象が同じ項目になります。
+    /// 抑止中だけ選択表示が先に変わり、解除後も一覧が前の表示のまま食い違う誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void StartupBlockRelease_TreeSelectionMatchesListTarget()
+    {
+        var requests = new List<string?>();
+        var folderTerminal = new MainWindowRegularLibraryTreeTerminal((kind, key) => { requests.Add(key); return true; });
+        MainWindowPresentationTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (scope, viewModel, window) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var tree = (TreeView)window.FindName("treeView");
+            viewModel.LibraryFolderTree.BMSParentFolderList.Add(@"C:\Songs\A");
+            viewModel.LibraryFolderTree.BMSParentFolderList.Add(@"C:\Songs\B");
+            tree.UpdateLayout();
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            var folders = (TreeViewItem)FindElementWithBinding(tree, ItemsControl.ItemsSourceProperty, "LibraryFolderTree.BMSParentFolderList")!;
+            TreeViewItem first = RealizeChild(tree, folders, 0);
+            TreeViewItem second = RealizeChild(tree, folders, 1);
+            requests.Clear();
+
+            Assert.IsTrue(RaiseMouse(first, Mouse.PreviewMouseDownEvent, MouseButton.Left).Handled);
+            Assert.IsTrue(RaiseMouse(first, Mouse.MouseDownEvent, MouseButton.Right).Handled);
+            Assert.IsFalse(first.IsSelected);
+            Assert.IsNull(tree.SelectedItem);
+            Assert.AreEqual(0, requests.Count, "抑止中は表示と一覧の対象のどちらも変えない。");
+
+            viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+            Assert.IsFalse(RaiseMouse(second, Mouse.PreviewMouseDownEvent, MouseButton.Left).Handled);
+            second.IsSelected = true;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+
+            Assert.AreSame(second.DataContext, tree.SelectedItem);
+            Assert.AreEqual(@"C:\Songs\B", requests.Last(), "一覧の要求対象はツリーの選択項目と一致する。");
+            Assert.IsFalse(first.IsSelected);
+        }, regularLibraryTreeTerminal: folderTerminal);
+    }
+
+    private static MouseButtonEventArgs RaiseMouse(UIElement element, RoutedEvent routedEvent, MouseButton button)
+    {
+        var args = new MouseButtonEventArgs(Mouse.PrimaryDevice, Environment.TickCount, button) { RoutedEvent = routedEvent, Source = element };
+        element.RaiseEvent(args);
+        return args;
+    }
+
+    private static KeyEventArgs RaiseKey(UIElement element, Key key)
+    {
+        // 項目が未実体化でも、表示中のWindowの入力元でキーイベントを作る。
+        PresentationSource source = PresentationSource.FromVisual(element)
+            ?? Application.Current.Windows.Cast<Window>().Select(window => PresentationSource.FromVisual(window)).First(candidate => candidate != null)!;
+        var args = new KeyEventArgs(Keyboard.PrimaryDevice, source, Environment.TickCount, key)
+        { RoutedEvent = Keyboard.PreviewKeyDownEvent, Source = element };
+        element.RaiseEvent(args);
+        return args;
     }
 
     /// <summary>
@@ -616,7 +812,7 @@ public sealed class MainWindowTreePresentationWpfTests
     /// ツリーの根から所有者までの各段を展開して公開APIで生成し、仮想化で未生成の子の入れ物を生成して返します。
     /// 固定項目の所有者自身も、上位の段の仮想化で画面外では未生成になるため、根から順に生成します。
     /// </summary>
-    private static TreeViewItem RealizeChild(TreeView tree, TreeViewItem owner, int index)
+    internal static TreeViewItem RealizeChild(TreeView tree, TreeViewItem owner, int index)
     {
         var chain = new List<TreeViewItem>();
         for (DependencyObject? current = owner; current is TreeViewItem item; current = ItemsControl.ItemsControlFromItemContainer(item))

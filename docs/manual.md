@@ -425,7 +425,7 @@ If startup scanning is OFF, [reload the library](#library-reload) before estimat
 | Message Display | Show Recommend update messages | ON | Shows a notification when a recommendation update is applied and the estimated skill changes. |
 | Initialization | Scan BMS files and component files at startup | ON | Check owned-file changes on startup. When OFF, reload the library manually before using install-destination estimation. |
 | Initialization | Do not check playlist updates at startup | OFF | Skips external playlist update checks on startup. Reload playlists manually if needed. |
-| Initialization | Set initial selection to Install > Pending at startup | ON | Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup. |
+| Initialization | Set initial selection to Install > Pending at startup | ON | Opens the pending package screen as the initial view from the next startup. When OFF, the library root is selected. Changing the setting does not change the current selection. Intended for users who want to prioritize new installs and pending cleanup. |
 | Initialization | Enable song.db access optimization PRAGMAs | ON | Optimize database reading. Normally leave this ON. |
 | Initialization | Startup sort cache preparation | Basic only | Choose which columns to sort in advance after startup. See the [column comparison](#startup-sort-cache-preparation). Changes apply from the next application start. |
 | LR2 Integration | Update LR2IR ranking cache on startup | OFF | Reads LR2IR ranking data from existing local XML files after startup and updates display data such as `RANKING`, `RANK UPDATE`, `T-SCORE`, and `ΔMAX`. This may be heavy during the first build or after changing LR2ID, so enable it only when needed. |
@@ -1258,6 +1258,8 @@ Duplicate groups are built by connecting folders that contain charts with the sa
 > Merging moves source files and may delete already-owned duplicate charts or the source folder. Same-name audio and BGA resources follow [Smart Overwrite](#smart-overwrite). Check the quality and formats you want to keep, and make copies of source files you need.
 
 Select **the folder you want to merge away** in the duplicate-file-check tree and choose the folder to keep from `Merge to`. By default, confirm source and destination before proceeding. Turning OFF `Show a confirmation message when merging or cleaning up in “Duplicate file check”` in `Advanced settings` skips confirmation.
+
+When the source folder contains subfolders, the confirmation also shows the number of those folders and states that they are moved to the destination keeping their relative layout.
 
 BMS / bmson and bundled resources are merged. Same-hash charts are deduplicated; different charts with the same filename are retained under adjusted names. The source folder is deleted when empty or containing only already-owned charts. It remains when unidentifiable files or similar items are left.
 

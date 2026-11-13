@@ -388,7 +388,7 @@ public sealed partial class MainWindowViewHostTests
             {
                 ApplicationComposition composition = CreateComposition(settingsSession, applicationLifetime);
                 viewModel = composition.CreateMainWindowViewModel();
-                // 保存済み初期選択を実Controlへ配送し、起動前の選択handlerは既存gateで抑止します。
+                // 寸法・幅の保存値の配送を確認します。初期選択は構築では行いません。
                 viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
                 viewModel.StartupUpdateWorkflow.NotifyClosing();
                 ownership = new MainWindowTestLifetime(viewModel, applicationLifetime.ShutdownRequested.Task);
@@ -407,8 +407,8 @@ public sealed partial class MainWindowViewHostTests
                 Assert.AreEqual(rowHeight, summaryTable.RowHeight);
                 Assert.AreEqual(headerHeight, summaryTable.HeaderHeight);
                 Assert.AreEqual(fontSize, summaryTable.TextFontSize);
-                Assert.IsTrue(pendingItem.IsSelected);
-                Assert.IsTrue(viewModel.ViewSettings.StartupSelectInstallPending);
+                // 初期選択は起動時の初期選択の要求だけが行い、構築では設定を選択へ配送しない。
+                Assert.IsFalse(pendingItem.IsSelected);
 
                 treeColumn.Width = new GridLength(capturedTreeViewWidth, GridUnitType.Pixel);
                 window.Close();
@@ -432,6 +432,131 @@ public sealed partial class MainWindowViewHostTests
             }
             finally
             {
+                ownership?.DisposeAfterBodyFailure(bodyFailure);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 実際の起動（描画後の初期化と抑止の解除）で、初期選択が構築時に捕捉した設定値に従うことを確認します。
+    /// 真ならインストールの保留、偽ならライブラリのルートが選ばれ、ViewModelの初期一覧のモードと一致します。
+    /// 構築後に設定を反転しても結果は変わらず、選択後に設定を変えても選択は動きません。
+    /// 設定をその場でツリー選択へ反映する誤りと、偽のときにルートが選ばれない誤り、初期一覧と選択表示が食い違う誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true, DisplayName = "真は保留を選ぶ")]
+    [DataRow(false, DisplayName = "偽はライブラリのルートを選ぶ")]
+    public void StartupInitialSelection_UsesCapturedSetting(bool selectPending)
+    {
+        using var directory = new TestTemporaryDirectory("main-window-initial-selection");
+        Settings settings = CreatePlaybackHostSettings(directory.Path);
+        settings.StartupSelectInstallPending = selectPending;
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            MainWindowViewModel? viewModel = null;
+            MainWindow? window = null;
+            bool closed = false;
+            var windowClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            MainWindowTestLifetime? ownership = null;
+            Exception? bodyFailure = null;
+            var lifetime = new RecordingApplicationLifetime();
+            var selected = new TaskCompletionSource<TreeViewItem>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var initialized = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            PropertyChangedEventHandler? initializationObserver = null;
+            try
+            {
+                var composition = new ApplicationComposition(
+                    settingsEditSession: new NoOpSettingsEditSession(settings),
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: lifetime,
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(directory.Path, "BeMusicSeeker.exe"))),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
+                viewModel = CreatePlaybackHostViewModel(composition, settings, directory.Path);
+                viewModel.StartupUpdateWorkflow.NotifyClosing();
+                // 捕捉は構築時です。構築後に設定を反転しても、初期選択と初期一覧は同じ捕捉値に従います。
+                settings.StartupSelectInstallPending = !selectPending;
+                Assert.AreEqual(selectPending, viewModel.StartupInitialSelectionIsInstallPending);
+                Assert.AreEqual(
+                    selectPending ? MainViewOperationSection.InstallPending : MainViewOperationSection.Library,
+                    viewModel.MainChartList.CurrentOperationContext.OperationSection,
+                    "初期一覧のモードは捕捉値で決まります。");
+                initializationObserver = (_, args) =>
+                {
+                    if (args.PropertyName == nameof(MainWindowViewModel.IsInitializationCompleted) && viewModel!.IsInitializationCompleted)
+                    {
+                        initialized.TrySetResult();
+                    }
+                };
+                viewModel.PropertyChanged += initializationObserver;
+                ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
+                window = ownership.CreateWindow(() => new MainWindow(viewModel));
+                window.Closed += (_, _) =>
+                {
+                    closed = true;
+                    windowClosed.TrySetResult();
+                };
+                TreeViewItem root = GetNamedElement<TreeViewItem>(window, "treeViewItemLibraryRoot");
+                TreeViewItem pending = GetNamedElement<TreeViewItem>(window, "treeViewItemInstallPending");
+                // 本番の選択処理が処理済みにしたSelectedも観測します。
+                root.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler((sender, args) =>
+                {
+                    if (ReferenceEquals(args.OriginalSource, root)) { selected.TrySetResult(root); }
+                }), handledEventsToo: true);
+                pending.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler((sender, args) =>
+                {
+                    if (ReferenceEquals(args.OriginalSource, pending)) { selected.TrySetResult(pending); }
+                }), handledEventsToo: true);
+                Assert.IsFalse(root.IsSelected, "構築だけでは選択しません。");
+                Assert.IsFalse(pending.IsSelected, "構築だけでは選択しません。");
+
+                // 実際のContentRenderedが初期化を始め、抑止の解除後に初期選択を一回だけ反映します。
+                ShowMainWindow(scope, window);
+                // ContentRenderedが開始した実初期化の終端と、その前に公開される完了通知を待ちます。通知前の失敗・取消もその場で表面化します。
+                Task<StartupInitializationResult> startup = viewModel.ShellActivationWorkflow.StartupCompletion;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(initialized.Task, startup, "initial-selection.initialized"),
+                    "initial-selection.initialized");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(startup, "initial-selection.startup-terminal");
+                StartupInitializationResult startupResult = startup.GetAwaiter().GetResult();
+                Assert.AreEqual(StartupInitializationOutcome.Succeeded, startupResult.Outcome, "起動の初期化が完了する。");
+                Assert.IsTrue(startupResult.CompletionPublished, "起動の初期化が完了を公開する。");
+                // 初期選択は抑止の解除通知からContextIdleで予約されます。解除は初期化の終端より前に通知・予約されるため、
+                // その後に積むApplicationIdleの印が実行された時点で選択の予約は実行済みで、印の前に選択が届かなければその場で失敗します。
+                Task selectionReceived = window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle).Task;
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                    TestUiDispatcherHost.AwaitNotificationAsync(selected.Task, selectionReceived, "initial-selection.selected"),
+                    "initial-selection.selected");
+                TreeViewItem expected = selectPending ? pending : root;
+                TreeViewItem unexpected = selectPending ? root : pending;
+                Assert.AreSame(expected, selected.Task.Result);
+                Assert.IsTrue(expected.IsSelected);
+                Assert.IsFalse(unexpected.IsSelected);
+                var tree = (TreeView)window.FindName("treeView");
+                Assert.AreSame(expected, tree.SelectedItem, "ツリーの選択表示は初期一覧のモードと一致する。");
+                Assert.AreEqual(
+                    selectPending ? MainViewOperationSection.InstallPending : MainViewOperationSection.Library,
+                    viewModel.MainChartList.CurrentOperationContext.OperationSection);
+
+                settings.StartupSelectInstallPending = selectPending;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(expected.IsSelected, "選択後に設定を変えても選択は動かない。");
+                Assert.IsFalse(unexpected.IsSelected);
+
+                window.Close();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(lifetime.ShutdownRequested.Task, window.CloseCompletion, "initial-selection.shutdown"), "initial-selection.shutdown");
+                window.Close();
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(windowClosed.Task, "initial-selection.window-closed");
+                Assert.IsTrue(closed);
+            }
+            catch (Exception exception)
+            {
+                bodyFailure = exception;
+                throw;
+            }
+            finally
+            {
+                if (viewModel != null && initializationObserver != null) { viewModel.PropertyChanged -= initializationObserver; }
                 ownership?.DisposeAfterBodyFailure(bodyFailure);
             }
         });

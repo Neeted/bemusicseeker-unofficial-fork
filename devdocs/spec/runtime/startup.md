@@ -268,6 +268,14 @@ LR2の失敗の保存・公開は既存のLR2の管理主体で終結し、確�
 
 確定済みの一覧の閲覧・検索と、独立したフォルダの最終読取りは、必須処理の終端を妨げません。変更操作はLとPで拒否し、UIスレッド・DBトランザクション・モデルロックを持ったまま、別の管理主体の完了を同期的に待ちません。設定の閲覧・編集・取消と、Busy時の編集内容の保持は維持します。
 
+起動中の操作制限で拒否した入力は、表とツリーの表示状態も変えません。
+
+- 表の見出しの並べ替え要求では、部品自身が並べ替えの列・方向を先に書き換えず、矢印は購読側の並べ替え状態のBindingの更新だけで変わります。拒否した要求では矢印がBindingの値のまま残り、受理されて購読側の値が変われば追従します。
+- メインのツリー（ライブラリ・インストール・保守の各ノードを含む）とプレイリストのツリーでは、抑止中のマウス（左・右クリック）とキーボードによる選択移動を処理済みにして、選択自体を起こしません。展開・折りたたみ（展開ボタン・展開キー）とスクロール、コードからの選択（初期選択・復元・仮想化中の選択維持）は妨げません。抑止中は、ダブルクリックによる見出しの展開は効かず、右クリックのメニューは選択を変えずに開きます。
+- 抑止の解除後は、ツリーの選択表示と一覧の表示対象が一致します。
+
+起動時の初期選択は、描画後の初期化の抑止が解除された後に、ViewModelが構築時に捕捉した「起動時にインストール保留を選択」の値で一回だけ反映します。真ならインストールの保留、偽ならライブラリのルートを選び、初期一覧のモードと一致させます。初期一覧はすでに同じ値で作られているため、選択に伴う一覧の再要求はしません。解除の後に利用者が先に選んだ場合は、その選択を優先します。設定の扱いは[設定](settings.md#起動時にインストール保留を選択)に従います。
+
 #### 初回の完了案内
 
 初回の完了案内は、必須のローカル準備と操作解禁、追加処理の一括登録・閉鎖・開始の後に表示します。既存のダイアログ処理の実Taskとして終端を待ちますが、難易度表リストの取得は、案内の終了や無関係な追加処理を待たずに開始できます。
@@ -728,6 +736,8 @@ DB確定前の読取り・DBの失敗は `PendingPackageRestoreException` が元
 | 実UI操作の一回観測、更新確認の終端観測、自然終了 | `ApplicationScenarioControl`、`StartupUpdateWorkflowOwner`、`ApplicationScenarioExternalShell` | `ApplicationScenarioObservationTests`（Windows）は、観測の登録・実Task識別・投影抑止と、更新確認の終端観測の未開始・実行中・終端後を確認する。自然終了と通信故障は `ApplicationScenarioDriverTests`（Core）が分担する。導入開始の順序と観測先の隔離は `PackageInstallWorkflowOwnerTests`（Windows）、初回同期の観測の同じTask・結果記録の先行・DB窓口の欠落は `PlaylistWorkspaceDetailRefreshTests` が確認する。実UI入力から保存までの確認は、Desktopの各業務シナリオで行う。 |
 | プレイリスト・設定の保存接続 | `ApplicationScenarioControl` | [`PlaylistDailyScenarioTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Playlist/PlaylistDailyScenarioTests.cs) は、専有profileの実Appで、外部同期ONのMEMO、ローカル表の登録・編集・JSON、設定の即時保存と候補取消をraw SQLite・JSON・新provider・表示から照合する。通常Closeと所有process全終端の後、一回の別processで保存identityと値を再確認する。入力・テーマ・同期ONのContentRendered起動全体はDesktopの代表、権限と失敗の条件表は既存機能テストへ分担する。 |
 | 設定変更による製品再起動と所有 | `ApplicationScenarioDriver`、通常の環境確定・Shell終了 | `SettingsScenarioTests.Lr2OutputAndDetails_CommitReachesSingleOwnedSuccessor` は、旧root退出0とcontrol EOFを中間として、同じJobに所属する一回の後継の実初期化・保存値・catalog・表示を確認し、後継Close後に元ownerの全子孫・両出力を回収する。`ApplicationScenarioDriverTests.RestartHelloRejectsLiveProcessOutsideOwnedJob` は、別Jobの正常形式helloを拒否し、そのprocessの寿命を侵害しないことを確認する。 |
+| 起動中に拒否した入力が表とツリーの表示状態を変えない | [`CustomTableView.RequestSort`](../../../BeMusicSeeker/Views/CustomTable/CustomTableView.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の `treeViewLeftClick`・`treeViewItemOnRightClick`・`treeViewPreviewKeyDown`・`treeViewPreviewTextInput` | [`CustomTableSortStateTests`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableSortStateTests.cs) は購読側が要求を採用しない場合に表の並べ替え列・方向がBindingの値（初期のnullを含む）のままで、元の値の変更には追従すること、採用した場合は更新に追従して次の向きが表示値から決まることを確認する。[`MainWindowTreePresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) の `StartupBlockedTreeInputs_KeepSelectionAndListTarget` はライブラリのフォルダ・保守ノード・保留パッケージ・プレイリスト側の項目への左・右クリックと選択移動キーが処理済みになり選択と一覧の要求が起きないこと、解除後は処理済みにならず通常どおり選べることを、`StartupBlockedTreeInputs_AllowExpansionAndProgrammaticSelection` は展開キー・展開ボタン・コードからの選択を妨げないことを、`StartupBlockRelease_TreeSelectionMatchesListTarget` は解除後のツリーの選択と一覧の要求対象の一致を確認する。実際のマウスとキーボードからの選択は、同じ入力のイベントの発生で代えている。 |
+| 起動時の初期選択は捕捉値に従い、設定の変更でその場の選択を変えない | [`MainWindow.ApplyStartupInitialSelectionRequest`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs)、[`MainWindowViewModel.StartupInitialSelectionIsInstallPending`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) | [`MainWindowViewHostTests.StartupInitialSelection_UsesCapturedSetting`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowViewHostTests.cs) は実際のContentRenderedからの起動で、真は保留・偽はライブラリのルートが選ばれ、構築後に設定を反転しても結果が変わらないこと、初期一覧のモードとの一致を確認する。`MainWindowTreePresentationWpfTests.StartupSelectInstallPendingChange_DoesNotMoveCurrentSelection` は別の項目を選んだ状態で設定を両方向へ変えても、ツリーの選択・一覧の要求・表示モードが変わらないことを確認する。 |
 
 ## 関連資料
 

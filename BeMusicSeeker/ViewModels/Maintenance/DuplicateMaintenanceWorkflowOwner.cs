@@ -217,6 +217,8 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     private readonly IUiDialogService dialogs;
     private readonly Func<bool> showConfirmationProvider;
 
+    private readonly Func<string, Task<int>> nestedFolderCountProvider;
+
     private readonly Func<string, bool> duplicateFolderDirectoryExists;
 
     private readonly Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen;
@@ -228,6 +230,7 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
     /// <summary>重複保守の操作を所有し、既存宛先の復元不能を実終端後のアプリ終了へ接続します。</summary>
     /// <param name="duplicateGroupNextSelectionProvider">現在結果の次グループを所属値で操作前に捕捉する境界です。末尾ではnullを返します。</param>
+    /// <param name="nestedFolderCountProvider">統合元の配下にあるフォルダの件数を、UIスレッドを塞がずに数える境界です。確認を表示する場合だけ呼び、省略時は実ファイルシステムを数えます。</param>
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -239,8 +242,10 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Func<string, ExplorerOpenResult> duplicateFolderExplorerOpen,
         Func<DuplicateGroup, DuplicateViewContext> duplicateGroupNextSelectionProvider,
         IDuplicateMaintenanceStore store = null,
-        Func<Exception, Task> exitForUnrestoredDestination = null)
+        Func<Exception, Task> exitForUnrestoredDestination = null,
+        Func<string, Task<int>> nestedFolderCountProvider = null)
     {
+        this.nestedFolderCountProvider = nestedFolderCountProvider ?? NestedFolderCounter.CountAsync;
         this.exitForUnrestoredDestination = exitForUnrestoredDestination
             ?? (failure => Task.FromException(new InvalidOperationException("Unrestored destination exit is not connected.", failure)));
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
@@ -496,21 +501,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             return await RejectAdmissionAsync(request.SelectionContext);
         }
         bool operationGateTransferred = false;
-        string message = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
-            + Environment.NewLine
-            + Environment.NewLine
-            + BeMusicSeeker.Properties.Resources.Msg_merge_bms_target
-            + ": "
-            + request.SourceDirectory
-            + Environment.NewLine
-            + BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination
-            + ": "
-            + request.DestinationDirectory;
         try
         {
-            ConfirmationDecision confirmation = await ConfirmIfNeededAsync(
-                message,
-                "Duplicate folder merge confirmation");
+            ConfirmationDecision confirmation = await ConfirmFolderMergeAsync(request);
             if (confirmation.Failure != null)
             {
                 return DuplicateMaintenanceMutationResult.Failed(
@@ -556,6 +549,56 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             {
                 operationGate.Dispose();
             }
+        }
+    }
+
+    /// <summary>
+    /// フォルダ統合の確認を表示します。確認を表示する設定の場合だけ、統合元の配下のフォルダの件数を数えて確認文へ添えます。
+    /// 統合は配下も相対配置のまま移すため、重複と無関係なフォルダが動くことを操作前に知らせます。
+    /// </summary>
+    private async Task<ConfirmationDecision> ConfirmFolderMergeAsync(FolderMergeRequest request)
+    {
+        try
+        {
+            if (!showConfirmationProvider()) { return ConfirmationDecision.AcceptedResult; }
+            string message = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
+                + Environment.NewLine
+                + Environment.NewLine
+                + BeMusicSeeker.Properties.Resources.Msg_merge_bms_target
+                + ": "
+                + request.SourceDirectory
+                + Environment.NewLine
+                + BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination
+                + ": "
+                + request.DestinationDirectory;
+            string nestedNotice = await CreateNestedFolderNoticeAsync(request.SourceDirectory);
+            if (nestedNotice != null)
+            {
+                message += Environment.NewLine + Environment.NewLine + nestedNotice;
+            }
+            return await ConfirmAsync(new UiConfirmationRequest(message, BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel), "Duplicate folder merge confirmation");
+        }
+        catch (Exception exception) { return ConfirmationDecision.Failed(exception); }
+    }
+
+    /// <summary>
+    /// 統合元の配下にフォルダがあれば、その件数と配下も移す旨を返します。配下がなければnullです。
+    /// 数えられなかった場合は警告を記録し、配下の存在を断定しない文を返して確認を止めません。
+    /// </summary>
+    private async Task<string> CreateNestedFolderNoticeAsync(string sourceDirectory)
+    {
+        try
+        {
+            int count = await nestedFolderCountProvider(sourceDirectory);
+            return count > 0
+                ? string.Format(BeMusicSeeker.Properties.Resources.Msg_merge_bms_nested_folders, count)
+                : null;
+        }
+        catch (Exception exception)
+        {
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, "duplicate_folder_merge nested_folder_count_failed source=" + sourceDirectory);
+            return BeMusicSeeker.Properties.Resources.Msg_merge_bms_nested_folders_unknown;
         }
     }
 

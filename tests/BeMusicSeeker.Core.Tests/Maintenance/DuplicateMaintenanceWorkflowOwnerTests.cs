@@ -947,6 +947,106 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.IsTrue(gate.CanEnter);
     }
 
+    /// <summary>
+    /// フォルダ統合の確認文が、統合元の配下にフォルダがある場合だけ件数と配下も移す旨を添え、配下がなければ従来の文のままであることを確認します。
+    /// 件数を数えられなかった場合は配下の存在を断定しない文を添え、確認を止めずに統合を続けます。
+    /// 配下も移す事実を操作前に知らせない誤りと、配下がないのに案内する誤り、数えられない場合に確認や統合が失われる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(0, DisplayName = "配下なしは追記なし")]
+    [DataRow(3, DisplayName = "配下の件数を追記")]
+    [DataRow(-1, DisplayName = "数えられない場合は件数なしで追記")]
+    public async Task RunFolderMergeAsync_ConfirmationMentionsNestedFolders(int nestedCount)
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+        var requestedSources = new List<string>();
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store,
+            nestedFolderCount: source =>
+            {
+                requestedSources.Add(source);
+                return nestedCount < 0
+                    ? Task.FromException<int>(new IOException("count failed"))
+                    : Task.FromResult(nestedCount);
+            });
+        string source = @"C:\Songs\Source";
+        string destination = @"C:\Songs\Destination";
+
+        DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(
+            source, destination, new DuplicateGroup([], [source, destination]));
+
+        string baseMessage = BeMusicSeeker.Properties.Resources.Msg_merge_bms_folder
+            + Environment.NewLine + Environment.NewLine
+            + BeMusicSeeker.Properties.Resources.Msg_merge_bms_target + ": " + source + Environment.NewLine
+            + BeMusicSeeker.Properties.Resources.Msg_merge_bms_destination + ": " + destination;
+        string expected = nestedCount switch
+        {
+            0 => baseMessage,
+            > 0 => baseMessage + Environment.NewLine + Environment.NewLine
+                + string.Format(BeMusicSeeker.Properties.Resources.Msg_merge_bms_nested_folders, nestedCount),
+            _ => baseMessage + Environment.NewLine + Environment.NewLine
+                + BeMusicSeeker.Properties.Resources.Msg_merge_bms_nested_folders_unknown,
+        };
+        Assert.AreEqual(expected, dialogs.ConfirmationRequest!.MessageBoxText);
+        CollectionAssert.AreEqual(new[] { source }, requestedSources, "件数は統合元だけを数える。");
+        Assert.IsTrue(result.Succeeded, "件数を数えられなくても統合は続く。");
+        Assert.AreEqual(1, events.Count(value => value == "store-merge"));
+    }
+
+    /// <summary>
+    /// 確認を表示しない設定では、配下のフォルダの件数を数えず追記もせず、そのまま統合することを確認します。
+    /// 利用者が確認を無効にしたのに無駄な列挙を行う誤りと、確認なしの統合が止まる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task RunFolderMergeAsync_ConfirmationDisabled_SkipsCount()
+    {
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        var dialogs = new FakeUiDialogService();
+        int countCalls = 0;
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store,
+            showConfirmation: false,
+            nestedFolderCount: _ =>
+            {
+                countCalls++;
+                return Task.FromResult(5);
+            });
+        string source = @"C:\Songs\Source";
+        string destination = @"C:\Songs\Destination";
+
+        DuplicateMaintenanceMutationResult result = await owner.RunFolderMergeAsync(
+            source, destination, new DuplicateGroup([], [source, destination]));
+
+        Assert.IsTrue(result.Succeeded);
+        Assert.AreEqual(0, countCalls);
+        Assert.IsNull(dialogs.ConfirmationRequest);
+        Assert.AreEqual(1, events.Count(value => value == "store-merge"));
+    }
+
+    /// <summary>
+    /// 実ファイルシステムの数え方が、統合元の配下の全階層のフォルダ（隠しフォルダを含む）だけを数え、ファイルを数えないことを確認します。
+    /// 配下が一階層だけ・ファイルを含めて数える・隠しフォルダを落とす誤りと、存在しない起点を件数0として隠す誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public async Task NestedFolderCounter_CountsAllLevelsIncludingHiddenFoldersButNotFiles()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string source = Directory.CreateDirectory(workspace.GetPath("Source")).FullName;
+        Directory.CreateDirectory(Path.Combine(source, "A", "B"));
+        Directory.CreateDirectory(Path.Combine(source, "C"));
+        DirectoryInfo hidden = Directory.CreateDirectory(Path.Combine(source, "A", ".hidden"));
+        hidden.Attributes |= FileAttributes.Hidden;
+        File.WriteAllText(Path.Combine(source, "root.bms"), "x");
+        File.WriteAllText(Path.Combine(source, "A", "B", "nested.bms"), "x");
+        string empty = Directory.CreateDirectory(workspace.GetPath("Empty")).FullName;
+
+        Assert.AreEqual(4, await NestedFolderCounter.CountAsync(source));
+        Assert.AreEqual(0, await NestedFolderCounter.CountAsync(empty));
+        await Assert.ThrowsExactlyAsync<DirectoryNotFoundException>(
+            () => NestedFolderCounter.CountAsync(workspace.GetPath("Missing")));
+    }
+
     private static Task<DuplicateMaintenanceMutationResult> RunDuplicateOperationAsync(
         DuplicateMaintenanceWorkflowOwner owner, string operation)
     {
@@ -983,7 +1083,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Func<DuplicateGroup, DuplicateViewContext?>? duplicateGroupNextSelectionProvider = null,
         bool showConfirmation = true,
         ChartFileOperationSynchronizer? gate = null,
-        ChartMutationActivityOwner? activity = null)
+        ChartMutationActivityOwner? activity = null,
+        Func<string, Task<int>>? nestedFolderCount = null)
     {
         activity ??= new();
         var owner = new DuplicateMaintenanceWorkflowOwner(
@@ -996,7 +1097,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             directoryExists ?? (_ => true),
             explorerOpen ?? (_ => new ExplorerOpenResult()),
             duplicateGroupNextSelectionProvider ?? (_ => null),
-            store);
+            store,
+            nestedFolderCountProvider: nestedFolderCount ?? (_ => Task.FromResult(0)));
         owner.WorkflowChanged += presentation.OnWorkflowChanged;
         activity.ActivityChanged += presentation.OnActivityChanged;
         return owner;

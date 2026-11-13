@@ -1197,7 +1197,7 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>Initialization</td>
 <td>Set initial selection to Install &gt; Pending at startup</td>
 <td>ON</td>
-<td>Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup.</td>
+<td>Opens the pending package screen as the initial view from the next startup. When OFF, the library root is selected. Changing the setting does not change the current selection. Intended for users who want to prioritize new installs and pending cleanup.</td>
 </tr>
 <tr>
 <td>Initialization</td>
@@ -1999,6 +1999,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h4 id="merge-duplicate-folders">Merge Duplicate Folders</h4>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Merging moves source files and may delete already-owned duplicate charts or the source folder. Same-name audio and BGA resources follow <a href="#smart-overwrite">Smart Overwrite</a>. Check the quality and formats you want to keep, and make copies of source files you need.</p></div>
 <p>Select <strong>the folder you want to merge away</strong> in the duplicate-file-check tree and choose the folder to keep from <code>Merge to</code>. By default, confirm source and destination before proceeding. Turning OFF <code>Show a confirmation message when merging or cleaning up in “Duplicate file check”</code> in <code>Advanced settings</code> skips confirmation.</p>
+<p>When the source folder contains subfolders, the confirmation also shows the number of those folders and states that they are moved to the destination keeping their relative layout.</p>
 <p>BMS / bmson and bundled resources are merged. Same-hash charts are deduplicated; different charts with the same filename are retained under adjusted names. The source folder is deleted when empty or containing only already-owned charts. It remains when unidentifiable files or similar items are left.</p>
 <h4 id="continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></h4>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Use <code>Ctrl + G</code> on the folder you want to merge away. Cleanup within one folder keeps one chart and moves the others to the Recycle Bin.</p></div>

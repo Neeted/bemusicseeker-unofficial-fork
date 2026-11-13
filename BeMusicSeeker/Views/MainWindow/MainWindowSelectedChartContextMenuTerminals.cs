@@ -174,6 +174,12 @@ internal sealed class MainWindowChartInfoParseFailureRemovalTerminal
         => beginRemove(request ?? throw new ArgumentNullException(nameof(request)));
 }
 
+/// <summary>未所持のプレイリスト項目の譜面ビューアのメニューの、表示・可否・見出しの種別を表します。</summary>
+/// <param name="IsVisible">項目を表示するか。譜面ビューアの対象が一件もなければ表示しません。</param>
+/// <param name="IsEnabled">項目を押せるか。押しても何も起きない状態にしません。</param>
+/// <param name="RegistersMultiple">複数の譜面の登録として扱うか。真なら見出しは登録、偽なら開く操作です。</param>
+internal readonly record struct ScoreViewerMissingMenuState(bool IsVisible, bool IsEnabled, bool RegistersMultiple);
+
 /// <summary>
 /// Narrows score-viewer availability and registration operations to the existing owner.
 /// </summary>
@@ -201,6 +207,26 @@ internal sealed class MainWindowScoreViewerTerminal
 
     internal bool CanRegisterScoreViewer(IEnumerable<ChartOperationTarget> targets)
         => canRegisterScoreViewer(targets ?? throw new ArgumentNullException(nameof(targets)));
+
+    /// <summary>
+    /// 未所持のプレイリスト項目のメニューを、クリック時に処理する選択対象と同じ集合で判定します。
+    /// 一件ならファイルがなくても有効な「開く」、二件以上なら実在する譜面ファイルを持つ対象があるときだけ有効な「登録」です。
+    /// 譜面ビューアの対象が一件もなければ表示しません。通常の譜面メニューの規則は変えません。
+    /// </summary>
+    /// <param name="targets">クリック時に処理する選択対象。</param>
+    internal ScoreViewerMissingMenuState ResolveMissingPlaylistMenuState(IReadOnlyList<ChartOperationTarget> targets)
+    {
+        ArgumentNullException.ThrowIfNull(targets);
+        if (!HasScoreViewerTarget(targets))
+        {
+            return new ScoreViewerMissingMenuState(IsVisible: false, IsEnabled: false, RegistersMultiple: false);
+        }
+        bool registersMultiple = targets.Count > 1;
+        return new ScoreViewerMissingMenuState(
+            IsVisible: true,
+            IsEnabled: !registersMultiple || CanRegisterScoreViewer(targets),
+            RegistersMultiple: registersMultiple);
+    }
 
     internal Task<ScoreViewerRegistrationResult> RunAsync(
         IReadOnlyList<ChartOperationTarget> targets,

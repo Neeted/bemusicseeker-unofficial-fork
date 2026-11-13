@@ -374,6 +374,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private bool startupInitialSelectionApplied;
 
+    /// <summary>起動時の初期選択の反映中だけ真になり、選択に伴う一覧の再要求を省きます。</summary>
+    private bool startupInitialSelectionInProgress;
+
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
     private StartupProgressWorkflowOwner _startupInitialSelectionReadyOwner;
@@ -1153,8 +1156,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     /// <summary>
-    /// アプリケーション起動時に、設定 (StartupSelectInstallPending) に基づいて
-    /// プレイリストツリーの「インストール待ち（保留）」ノードを自動的に展開・選択します。
+    /// アプリケーション起動時に、ViewModel が初期一覧のモードを決めたときと同じ捕捉済みの設定値で初期選択を行います。
+    /// 真ならインストールの保留、偽ならライブラリのルートを選びます。設定の変更は次回起動の初期選択にだけ使い、
+    /// 実行中のツリー選択は動かしません。
     /// </summary>
     private void ApplyStartupInitialSelectionRequest()
     {
@@ -1163,24 +1167,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         startupInitialSelectionApplied = true;
-        if (DataContext is not MainWindowViewModel viewModel
-            || !viewModel.ViewSettings.StartupSelectInstallPending)
+        if (DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        if (treeViewItemInstallPending != null && treeViewItemInstallPending.IsSelected)
-        {
-            return;
-        }
+        bool selectInstallPending = viewModel.StartupInitialSelectionIsInstallPending;
         if (viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked)
         {
-            QueueStartupInitialSelectionUntilOperable(viewModel.ProgressHub.StartupProgress);
+            QueueStartupInitialSelectionUntilOperable(viewModel.ProgressHub.StartupProgress, selectInstallPending);
             return;
         }
-        ApplyStartupInitialSelectionNow();
+        ApplyStartupInitialSelectionNow(selectInstallPending);
     }
 
-    private void QueueStartupInitialSelectionUntilOperable(StartupProgressWorkflowOwner startupProgress)
+    private void QueueStartupInitialSelectionUntilOperable(StartupProgressWorkflowOwner startupProgress, bool selectInstallPending)
     {
         if (_startupInitialSelectionReadyHandler != null)
         {
@@ -1198,27 +1198,48 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             startupProgress.PropertyChanged -= _startupInitialSelectionReadyHandler;
             _startupInitialSelectionReadyHandler = null;
             _startupInitialSelectionReadyOwner = null;
-            ApplyStartupInitialSelectionNow();
+            ApplyStartupInitialSelectionNow(selectInstallPending);
         };
         startupProgress.PropertyChanged += _startupInitialSelectionReadyHandler;
     }
 
-    private void ApplyStartupInitialSelectionNow()
+    /// <summary>
+    /// 初期一覧は構築時に同じ設定値のモードで作られているため、選択の反映では一覧の再要求をしません。
+    /// 解除から実行までの間に利用者が選んだ場合は、その選択を優先して何も選びません。
+    /// </summary>
+    private void ApplyStartupInitialSelectionNow(bool selectInstallPending)
     {
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
         {
-            if (IsShellClosingOrClosed())
+            if (IsShellClosingOrClosed()
+                || treeView.SelectedItem != null
+                || treeViewPlaylist.SelectedItem != null)
             {
                 return;
             }
-            if (treeViewItemInstall != null)
+            startupInitialSelectionInProgress = true;
+            try
             {
-                treeViewItemInstall.IsExpanded = true;
+                if (selectInstallPending)
+                {
+                    if (treeViewItemInstall != null)
+                    {
+                        treeViewItemInstall.IsExpanded = true;
+                    }
+                    if (treeViewItemInstallPending != null)
+                    {
+                        treeViewItemInstallPending.IsExpanded = true;
+                        treeViewItemInstallPending.IsSelected = true;
+                    }
+                }
+                else if (treeViewItemLibraryRoot != null)
+                {
+                    treeViewItemLibraryRoot.IsSelected = true;
+                }
             }
-            if (treeViewItemInstallPending != null)
+            finally
             {
-                treeViewItemInstallPending.IsExpanded = true;
-                treeViewItemInstallPending.IsSelected = true;
+                startupInitialSelectionInProgress = false;
             }
         });
     }
@@ -1409,10 +1430,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            Win32API.WINDOWPLACEMENT lpwndpl = Win32WindowPlacementAdapter.ToNative(viewModel.ViewSettings.WindowPlacement);
+            Win32API.WINDOWPLACEMENT lpwndpl = Win32WindowPlacementAdapter.ToNative(
+                MainWindowViewSettingsPolicy.ResolveRestorePlacement(viewModel.ViewSettings.WindowPlacement));
             lpwndpl.Length = Marshal.SizeOf(typeof(Win32API.WINDOWPLACEMENT));
-            lpwndpl.Flags = 0;
-            lpwndpl.ShowCmd = ((lpwndpl.ShowCmd == Win32API.ShowWindowCommands.ShowMinimized) ? Win32API.ShowWindowCommands.Normal : lpwndpl.ShowCmd);
             Win32API.SetWindowPlacement(new WindowInteropHelper(this).Handle, ref lpwndpl);
         }
         catch
@@ -2069,6 +2089,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         CloseContextMenuIfOpen(contextMenu);
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            // 内蔵表など、外部で開けるページがない行では「ページを開く」を無効にし、押しても何も起きない項目にしない。
+            foreach (MenuItem item in contextMenu.Items.OfType<MenuItem>())
+            {
+                if (item.Name == "playlistSummaryContextMenuOpenPage")
+                {
+                    item.IsEnabled = viewModel.PlaylistWorkspace.CanOpenPlaylistSummaryRowPage(e.Row as PlaylistSummaryRow);
+                }
+            }
+        }
         contextMenu.Tag = new CustomTableContextMenuContext(e.Row, e.RowIndex);
         contextMenu.PlacementTarget = customTablePlaylistSummary;
         contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
@@ -2579,6 +2610,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             Name = name ?? string.Empty,
             Header = header ?? string.Empty,
+            HeaderTemplate = LiteralMenuHeader.Template,
             Tag = new ConfiguredExternalActionMenuTag(kind, actionId)
         };
     }
@@ -2916,6 +2948,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         TreeViewItem treeViewItem = FindAncestor<TreeViewItem>(source);
+        if (treeViewItem != null && ShouldBlockStartupUiInteraction("tree_left_click"))
+        {
+            // 抑止中の左クリックは選択自体を起こさず、見出しの表示と一覧の対象を食い違わせない。
+            e.Handled = true;
+            return;
+        }
         if (treeViewItem == null || !treeViewItem.IsSelected)
         {
             return;
@@ -3046,26 +3084,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return PackageCatalogSelectionPlan.None;
         }
+        var trackedPackage = currentItem as ChartPackage;
         int count = rootTreeViewItem.Items.Count;
         if (count == 0)
         {
-            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem);
+            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem, trackedPackage);
         }
         int currentIndex = rootTreeViewItem.Items.IndexOf(currentItem);
         if (currentIndex == 0 && count == 1)
         {
-            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem);
+            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem, trackedPackage);
         }
         if (currentIndex == -1)
         {
             NLogWrapper.FileLogger?.Info(logScope + " selection_fallback reason=current_not_found root=" + rootTreeViewItem.Header);
-            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem);
+            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem, trackedPackage);
         }
         int targetIndex = ((count - 1 == currentIndex) ? (currentIndex - 1) : (currentIndex + 1));
         return PackageCatalogSelectionPlan.SelectTarget(
             rootTreeViewItem,
             rootTreeViewItem.Items[targetIndex],
-            logScope);
+            logScope,
+            trackedPackage);
     }
 
     private void SelectNextSiblingOrRoot(TreeViewItem rootTreeViewItem, object currentItem, string logScope)
@@ -3078,30 +3118,82 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         private readonly TreeViewItem rootTreeViewItem;
         private readonly object targetDataContext;
         private readonly string logScope;
+        private readonly ChartPackage trackedPackage;
+        private readonly string trackedPackagePath;
 
         private PackageCatalogSelectionPlan(
             TreeViewItem rootTreeViewItem,
             object targetDataContext,
-            string logScope)
+            string logScope,
+            ChartPackage trackedPackage)
         {
             this.rootTreeViewItem = rootTreeViewItem;
             this.targetDataContext = targetDataContext;
             this.logScope = logScope;
+            this.trackedPackage = trackedPackage;
+            // 導入で実体の path が移動先へ変わる場合と、再読込みで別の実体に置き換わる場合を区別するため、操作前の path を控える。
+            trackedPackagePath = trackedPackage?.path;
         }
 
-        internal static PackageCatalogSelectionPlan None { get; } = new(null, null, string.Empty);
+        internal static PackageCatalogSelectionPlan None { get; } = new(null, null, string.Empty, null);
 
-        internal static PackageCatalogSelectionPlan SelectRoot(TreeViewItem rootTreeViewItem)
+        internal static PackageCatalogSelectionPlan SelectRoot(TreeViewItem rootTreeViewItem, ChartPackage trackedPackage)
         {
-            return new PackageCatalogSelectionPlan(rootTreeViewItem, null, string.Empty);
+            return new PackageCatalogSelectionPlan(rootTreeViewItem, null, string.Empty, trackedPackage);
         }
 
         internal static PackageCatalogSelectionPlan SelectTarget(
             TreeViewItem rootTreeViewItem,
             object targetDataContext,
-            string logScope)
+            string logScope,
+            ChartPackage trackedPackage)
         {
-            return new PackageCatalogSelectionPlan(rootTreeViewItem, targetDataContext, logScope);
+            return new PackageCatalogSelectionPlan(rootTreeViewItem, targetDataContext, logScope, trackedPackage);
+        }
+
+        /// <summary>
+        /// 操作前に選択していたパッケージが、操作後の区画に残っていないかを返します。
+        /// 同じ実体か、再読込みで置き換わった同じ path の実体が残っていれば外れていないとみなします。
+        /// 選択中のパッケージがない計画（区画のルートの選択など）は外れていないものとして扱います。
+        /// </summary>
+        internal bool HasTrackedPackageLeftSection()
+        {
+            if (rootTreeViewItem == null || trackedPackage == null)
+            {
+                return false;
+            }
+            foreach (object item in rootTreeViewItem.Items)
+            {
+                if (ReferenceEquals(item, trackedPackage))
+                {
+                    return false;
+                }
+                if (trackedPackagePath != null
+                    && item is ChartPackage candidate
+                    && string.Equals(candidate.path, trackedPackagePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 選択中のパッケージが区画から外れた場合だけ、前後の兄弟またはルートへ選択を移します。
+        /// 外れなかった場合はツリー選択も一覧の選択も変えません。
+        /// </summary>
+        /// <param name="owner">選択を反映する画面。</param>
+        /// <param name="onLeftSection">選択を移す前に、外れた場合だけ実行する処理。</param>
+        /// <returns>選択を移した場合は <see langword="true"/>。</returns>
+        internal bool ApplyWhenTrackedPackageLeft(MainWindow owner, Action onLeftSection = null)
+        {
+            if (!HasTrackedPackageLeftSection())
+            {
+                return false;
+            }
+            onLeftSection?.Invoke();
+            Apply(owner);
+            return true;
         }
 
         internal void Apply(MainWindow owner)
@@ -3491,8 +3583,52 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             treeViewItem.ItemsSource as IReadOnlyList<PlaylistFolderNode>);
     }
 
+    /// <summary>
+    /// 起動中の抑止では、フォーカス移動に伴う選択の変更を起こす選択移動キーを処理済みにします。
+    /// 展開キー（加算・減算・乗算、展開・折りたたみに当たる左右）と名前編集中の入力は妨げません。
+    /// </summary>
+    private void treeViewPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source
+            && (FindAncestor<TextBoxBase>(source) != null || FindAncestor<EditableTextBlock>(source) is { IsInEditMode: true }))
+        {
+            return;
+        }
+        TreeViewItem focusedItem = FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject);
+        bool movesSelection = e.Key switch
+        {
+            Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown => true,
+            Key.Left => focusedItem == null || !focusedItem.IsExpanded,
+            Key.Right => focusedItem == null || !focusedItem.HasItems || focusedItem.IsExpanded,
+            _ => false,
+        };
+        if (movesSelection && ShouldBlockStartupUiInteraction("tree_selection_key"))
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>起動中の抑止では、先頭文字検索による選択の移動を起こす文字入力を処理済みにします。名前編集中の入力は妨げません。</summary>
+    private void treeViewPreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source
+            && (FindAncestor<TextBoxBase>(source) != null || FindAncestor<EditableTextBlock>(source) is { IsInEditMode: true }))
+        {
+            return;
+        }
+        if (ShouldBlockStartupUiInteraction("tree_text_search"))
+        {
+            e.Handled = true;
+        }
+    }
+
     private void treeViewItemOnRightClick(object sender, MouseButtonEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_right_click"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.OriginalSource is TextBlock reference)
         {
             DependencyObject parent = VisualTreeHelper.GetParent(reference);
@@ -3509,6 +3645,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void mouseRightButtonDown(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_item_right_click"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (sender is TreeViewItem treeViewItem)
         {
             treeViewItem.IsSelected = true;
@@ -3578,6 +3719,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void rootFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (startupInitialSelectionInProgress)
+        {
+            return;
+        }
         if (ShouldBlockStartupUiInteraction("tree_root_folder_select"))
         {
             e.Handled = true;
@@ -4580,6 +4725,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void pendingInstallFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (startupInitialSelectionInProgress)
+        {
+            e.Handled = true;
+            return;
+        }
         if (ShouldBlockStartupUiInteraction("tree_pending_install_select"))
         {
             e.Handled = true;
@@ -4860,14 +5010,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistTableContextMenuItemReloadClick");
             return;
         }
-        RestorePlaylistTableSelectionAfterReload(selectionTarget);
+        RestorePlaylistTableSelectionAfterReload(viewModel, selectionTarget);
     }
 
-    private void RestorePlaylistTableSelectionAfterReload(BMSTable selectionTarget)
+    /// <summary>
+    /// 表単体の再読込みの完了時に、選択が対象の表のまま、または置換で失われて他が選ばれていない場合だけ表を選び直します。
+    /// 取得中に利用者が他の項目（プレイリスト側・ライブラリ側）を選んだ場合と、表の配下のフォルダの選択が残っている場合は動かしません。
+    /// </summary>
+    private void RestorePlaylistTableSelectionAfterReload(MainWindowViewModel viewModel, BMSTable selectionTarget)
     {
         if (selectionTarget == null)
         {
             NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=target_not_found");
+            return;
+        }
+        if (!IsPlaylistTableSelectionReloadRestorable(viewModel, selectionTarget))
+        {
+            NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=selection_changed table=" + selectionTarget.name);
             return;
         }
         bool restored = TrySelectPlaylistTreeItem(selectionTarget, out bool usedVirtualizationFallback, out bool realizeByIndexAvailable);
@@ -4877,6 +5036,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload restored=true table=" + selectionTarget.name + " expanded=true usedVirtualizationFallback=" + usedVirtualizationFallback);
+    }
+
+    /// <summary>
+    /// 完了時の選択が対象の表のまま（同じ正本の解決結果を含む）か、どちらのツリーにも選択がない場合だけ真を返します。
+    /// 二つのツリーは排他選択のため、一方に選択があれば他方は無選択です。
+    /// </summary>
+    private bool IsPlaylistTableSelectionReloadRestorable(MainWindowViewModel viewModel, BMSTable selectionTarget)
+    {
+        if (treeView.SelectedItem == null && treeViewPlaylist.SelectedItem == null)
+        {
+            return true;
+        }
+        return treeViewPlaylist.SelectedItem is BMSTable selectedTable
+            && (ReferenceEquals(selectedTable, selectionTarget)
+                || ReferenceEquals(viewModel.PlaylistWorkspace.ResolveActivePlaylistTable(selectedTable), selectionTarget));
     }
 
     /// <summary>
@@ -5390,7 +5564,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PackageCatalogSection section,
         MainViewUpdateMode emptySectionMode,
         string routeName,
-        Action prepareView = null)
+        Action onLeftSection = null)
     {
         if (result == null)
         {
@@ -5401,8 +5575,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             if (result.ShouldApplyView)
             {
                 bool sectionRootWasSelected = sectionRoot?.IsSelected == true;
-                prepareView?.Invoke();
-                selectionPlan?.Apply(this);
+                selectionPlan?.ApplyWhenTrackedPackageLeft(this, onLeftSection);
                 if (result.EmptySection == section
                     && sectionRootWasSelected
                     && sectionRoot?.IsSelected == true
@@ -5658,7 +5831,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 PackageCatalogSection.Pending,
                 MainViewUpdateMode.PendingInstallFolderSelected,
                 "treeViewInstallPackageContextMenuForceInstallClick",
-                () => selectionPlan.Apply(this));
+                () => selectionPlan.ApplyWhenTrackedPackageLeft(this));
         }
         catch (Exception exception)
         {
@@ -5698,7 +5871,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 PackageCatalogSection.Pending,
                 MainViewUpdateMode.PendingInstallFolderSelected,
                 "treeViewInstallPackageContextMenuManualInstallClick",
-                () => selectionPlan.Apply(this));
+                () => selectionPlan.ApplyWhenTrackedPackageLeft(this));
         }
         catch (Exception exception)
         {
@@ -6682,7 +6855,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             webAnchorName: "tableContextMenuItemOpenURL",
             programParentName: "tableContextMenuItemOpenProgramActions");
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
-        bool canOpenScoreViewer = selectedChartContextMenuTerminals.ScoreViewer.HasScoreViewerTarget([rowTarget]);
+        // クリック時に処理する選択対象と同じ集合で、項目の見出し・表示・可否を決める。
+        ScoreViewerMissingMenuState scoreViewerMenuState = selectedChartContextMenuTerminals.ScoreViewer
+            .ResolveMissingPlaylistMenuState(ResolveScoreViewerContextTargets(rowTarget));
+        bool canOpenScoreViewer = scoreViewerMenuState.IsEnabled;
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
         PlaylistUrlContextMenuAvailability playlistUrlAvailability =
             playlistWorkspaceTerminals.UrlAcquisition.CaptureAvailability(
@@ -6717,8 +6893,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     item.IsEnabled = entry != null;
                     break;
                 case "tableContextMenuItemRegisterScore":
-                    item.Visibility = canOpenScoreViewer ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = canOpenScoreViewer;
+                    if (item is MenuItem scoreViewerMenuItem)
+                    {
+                        scoreViewerMenuItem.Header = scoreViewerMenuState.RegistersMultiple
+                            ? BeMusicSeeker.Properties.Resources.Register_chart_with_viewer
+                            : BeMusicSeeker.Properties.Resources.Open_chart_viewer;
+                    }
+                    item.Visibility = scoreViewerMenuState.IsVisible ? Visibility.Visible : Visibility.Collapsed;
+                    item.IsEnabled = scoreViewerMenuState.IsEnabled;
                     break;
             }
         }
@@ -7110,15 +7292,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
 
 
+    /// <summary>
+    /// 譜面ビューアの項目の判定とクリック時の処理で共通に使う対象を返します。
+    /// 選択行があればその対象、なければ右クリックした行の対象です。
+    /// </summary>
+    private List<ChartOperationTarget> ResolveScoreViewerContextTargets(ChartOperationTarget rowTarget)
+    {
+        List<ChartOperationTarget> targets = GetSelectedChartTargets();
+        if (targets.Count == 0 && rowTarget != null)
+        {
+            targets.Add(rowTarget);
+        }
+        return targets;
+    }
+
     private async void tableContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
     {
         try
         {
-            if (!TryGetContextMenuRow(e.Source, out _))
+            if (!TryGetContextMenuRow(e.Source, out object row))
             {
                 return;
             }
-            List<ChartOperationTarget> targets = GetSelectedChartTargets();
+            GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget rowTarget);
+            List<ChartOperationTarget> targets = ResolveScoreViewerContextTargets(rowTarget);
             e.Handled = true;
             if (base.DataContext is MainWindowViewModel viewModel)
             {
@@ -7629,11 +7826,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             PackageCatalogSection.Pending,
             MainViewUpdateMode.PendingInstallFolderSelected,
             "forceInstallSelectedPendingCharts",
-            () =>
-            {
-                ClearMainGridSelection();
-                selectionPlan.Apply(this);
-            });
+            () => selectionPlan.ApplyWhenTrackedPackageLeft(this, ClearMainGridSelection));
         return result;
     }
 
@@ -7689,11 +7882,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             PackageCatalogSection.Pending,
             MainViewUpdateMode.PendingInstallFolderSelected,
             "manualInstallSelectedPendingCharts",
-            () =>
-            {
-                ClearMainGridSelection();
-                selectionPlan.Apply(this);
-            });
+            () => selectionPlan.ApplyWhenTrackedPackageLeft(this, ClearMainGridSelection));
         return result;
     }
 

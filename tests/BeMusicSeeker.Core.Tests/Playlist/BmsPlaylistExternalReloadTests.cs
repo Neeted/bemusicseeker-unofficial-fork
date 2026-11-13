@@ -2214,6 +2214,8 @@ public sealed class BmsPlaylistExternalReloadTests
     /// 実手動再取得で行・ヘッダー変更の参照置換と進捗終端を確認します。不正JSONでは現在参照とDBを保ち、
     /// STATUSに形式不正・日時・取得元を残して、Workspaceから元例外を再送出・重複記録しません。
     /// 元例外の診断はPlaylistExternalFailureBoundaryTestsの取得境界テストで確認します。
+    /// 受理された再同期は現在の正本の表を返し、受付の拒否（他の操作中・対象の失効）では表を返さず、
+    /// 呼出元が受理と拒否を区別して拒否時に選択を動かさないことを確認します。
     /// </summary>
     [TestMethod]
     [TestCategory("Playlist")]
@@ -2363,6 +2365,19 @@ public sealed class BmsPlaylistExternalReloadTests
                 failedStatus.CheckedAt.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture),
                 failureUri.ToString()), failedStatus.Detail,
                 "STATUSには分類・日時・取得元だけを渡し、例外詳細はログへ分離します。");
+
+            // 他の操作が受付を保持している間の要求は拒否され、表が残っていても返さない。
+            Assert.IsTrue(playlist.TryEnterPlaylistMutation(out IDisposable heldAdmission));
+            BMSTable? busyTarget;
+            try { busyTarget = await workspace.ResyncPlaylistTableAsync(headerRefreshedTable); }
+            finally { heldAdmission.Dispose(); }
+            Assert.IsNull(busyTarget, "受付使用中の拒否では表を返さない。");
+            // 正本に存在しない表（失効した対象）も拒否され、名前や取得元だけで別の表へ接続しない。
+            BMSTable? staleTarget = await workspace.ResyncPlaylistTableAsync(
+                new BMSTable { playlist_id = 9999, Header_url = new Uri(headerJsonPath) });
+            Assert.IsNull(staleTarget, "対象の失効による拒否では表を返さない。");
+            Assert.AreSame(headerRefreshedTable, playlist.BMSTables.Single());
+            Assert.IsFalse(playlist.IsPlaylistUpdating);
 
             BMSTable persistedAfterFailure = new PlaylistPersistenceRepository(databaseScope, songDbPath)
                 .LoadPlaylistHeaders().Single();
