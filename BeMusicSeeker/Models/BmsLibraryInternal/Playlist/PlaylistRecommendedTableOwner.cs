@@ -147,8 +147,17 @@ internal sealed class PlaylistRecommendedTableOwner
                 & ~LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
         };
         List<BMSTableEntry> entries;
+        // 生成内容の識別です。org_name は表示言語のリソースから作るため含めず、言語に依存しない種類・方針・★の値だけで作ります。
+        string contentIdentity;
         if (input == null)
         {
+            contentIdentity = "estimation:" + estimationLamp switch
+            {
+                WalkureLamp.Easy => "easy",
+                WalkureLamp.Normal => "normal",
+                WalkureLamp.Hard => "hard",
+                _ => "fc"
+            };
             table.org_name = estimationLamp switch
             {
                 WalkureLamp.Easy => Resources.Insane_estimation_table_easy,
@@ -194,6 +203,12 @@ internal sealed class PlaylistRecommendedTableOwner
                 WalkureScorePolicy.FailedAsUnplayed => Resources.Recommended_failed_as_unplayed,
                 _ => Resources.Recommended_standard
             };
+            contentIdentity = "recommended:" + policy switch
+            {
+                WalkureScorePolicy.UnplayedAsFailed => "unplayed_as_failed",
+                WalkureScorePolicy.FailedAsUnplayed => "failed_as_unplayed",
+                _ => "standard"
+            } + ":" + rating.StarRating.ToString("F2", CultureInfo.InvariantCulture);
             table.org_name = string.Format(Resources.RecommendFormat, policyName, rating.StarRating.ToString("F2", CultureInfo.InvariantCulture));
             table.org_symbol = "R★";
             table.ignore_folder_output |= LR2SongDBExtended.playlist.CustomFolderType.LevelFolder;
@@ -210,7 +225,7 @@ internal sealed class PlaylistRecommendedTableOwner
         // 外部表と同じ変更検知へ、時刻や利用者設定を含まない生成内容を渡す。
         table.header_sha256 = BMSTable.ComputeSha256Hex(new JObject
         {
-            ["name"] = table.org_name,
+            ["identity"] = contentIdentity,
             ["symbol"] = table.org_symbol,
             ["folder_sort_ascending"] = table.folder_sort_ascending,
             ["folder_order"] = new JArray(table.Folder_order)

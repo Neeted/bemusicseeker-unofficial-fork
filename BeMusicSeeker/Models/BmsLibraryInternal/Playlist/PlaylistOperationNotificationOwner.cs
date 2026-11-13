@@ -83,13 +83,21 @@ internal sealed class PlaylistOperationNotificationOwner
             OperationNotificationText message,
             string captionResourceName,
             OperationNotificationSeverity severity,
-            bool isBmtOutputFailure = false)
+            bool isBmtOutputFailure = false,
+            bool isStoppedOutputsWarning = false)
         {
             Text = message ?? throw new ArgumentNullException(nameof(message));
             CaptionResourceName = captionResourceName ?? throw new ArgumentNullException(nameof(captionResourceName));
             Severity = severity;
             IsBmtOutputFailure = isBmtOutputFailure;
+            IsStoppedOutputsWarning = isStoppedOutputsWarning;
         }
+
+        /// <summary>
+        /// 出力を止めた表の一覧の警告か。同じ見出し・重要度の他の通知とまとめず、本文を省略せず別の一件として表示します。
+        /// 操作自身の失敗とは別の事実なので、失敗の通知を補う判定では BMT 出力の失敗と同じく数えません。
+        /// </summary>
+        internal bool IsStoppedOutputsWarning { get; }
 
         /// <summary>
         /// BMT 出力の失敗を知らせる通知か。操作自身の失敗の通知とは別の事実なので、
@@ -156,6 +164,10 @@ internal sealed class PlaylistOperationNotificationOwner
 
         private readonly List<OperationNotification> notifications = [];
 
+        private readonly List<PlaylistStoppedOutput> stoppedOutputs = [];
+
+        private bool warnStoppedOutputs;
+
         private bool disposed;
 
         internal OperationNotificationSession(PlaylistOperationNotificationOwner owner)
@@ -165,15 +177,68 @@ internal sealed class PlaylistOperationNotificationOwner
             owner.currentSession.Value = this;
         }
 
+        /// <summary>
+        /// この操作を、出力を止めた表を警告として利用者へ案内する明示操作として扱います。
+        /// 明示操作でない出力（項目の変更に伴う出力、表の削除、自動出力）は設定せず、止めた事実を診断ログだけに残します。
+        /// </summary>
+        internal void WarnStoppedOutputs()
+        {
+            lock (gate)
+            {
+                ThrowIfDisposed();
+                warnStoppedOutputs = true;
+            }
+        }
+
+        /// <summary>
+        /// 未登録の追加基点を止めた事実を、通知にせずこの収集先へ事実として集めるか。
+        /// 受付を持たない起動の必須出力が、受付の解放後に不変の結果として通知するために使います。
+        /// </summary>
+        internal bool CollectsUnregisteredBase { get; init; }
+
+        internal void AddStoppedOutput(PlaylistStoppedOutput stoppedOutput)
+        {
+            ArgumentNullException.ThrowIfNull(stoppedOutput);
+            lock (gate)
+            {
+                ThrowIfDisposed();
+                AddDistinct(stoppedOutputs, stoppedOutput);
+            }
+        }
+
+        /// <summary>集めた止めた表の事実を取り出して空にします。起動の必須出力が受付の解放後に通知するための結果として使います。</summary>
+        internal IReadOnlyList<PlaylistStoppedOutput> TakeStoppedOutputs()
+        {
+            lock (gate)
+            {
+                ThrowIfDisposed();
+                List<PlaylistStoppedOutput> snapshot = [.. stoppedOutputs];
+                stoppedOutputs.Clear();
+                return snapshot.AsReadOnly();
+            }
+        }
+
+        private static void AddDistinct(List<PlaylistStoppedOutput> target, PlaylistStoppedOutput value)
+        {
+            if (!target.Contains(value)) { target.Add(value); }
+        }
+
         internal OperationNotificationReceipt TakeReceipt()
         {
             List<OperationNotification> snapshot;
+            List<PlaylistStoppedOutput> collisions;
             lock (gate)
             {
                 ThrowIfDisposed();
                 snapshot = [.. notifications];
                 notifications.Clear();
+                collisions = warnStoppedOutputs
+                    ? [.. stoppedOutputs.Where(stopped => stopped.Reason == PlaylistOutputStopReason.Collision)]
+                    : [];
+                if (warnStoppedOutputs) { stoppedOutputs.RemoveAll(stopped => stopped.Reason == PlaylistOutputStopReason.Collision); }
             }
+            // 出力を止めた表は、操作ごとに一件の警告へまとめます。明示操作だけが警告し、ほかは診断ログに残した事実だけです。
+            if (collisions.Count > 0) { snapshot.Add(CreateStoppedOutputsNotification(collisions)); }
             return OperationNotificationReceipt.Create(snapshot);
         }
 
@@ -205,11 +270,16 @@ internal sealed class PlaylistOperationNotificationOwner
                 return false;
             }
             List<OperationNotification> moved;
+            List<PlaylistStoppedOutput> movedStopped;
+            bool movedWarn;
             lock (gate)
             {
                 ThrowIfDisposed();
                 moved = [.. notifications];
                 notifications.Clear();
+                movedStopped = [.. stoppedOutputs];
+                stoppedOutputs.Clear();
+                movedWarn = warnStoppedOutputs;
             }
             bool forwarded;
             lock (target.gate)
@@ -218,6 +288,8 @@ internal sealed class PlaylistOperationNotificationOwner
                 if (forwarded)
                 {
                     target.notifications.AddRange(moved);
+                    foreach (PlaylistStoppedOutput stopped in movedStopped) { AddDistinct(target.stoppedOutputs, stopped); }
+                    target.warnStoppedOutputs |= movedWarn;
                 }
             }
             if (!forwarded)
@@ -225,6 +297,7 @@ internal sealed class PlaylistOperationNotificationOwner
                 lock (gate)
                 {
                     notifications.InsertRange(0, moved);
+                    foreach (PlaylistStoppedOutput stopped in movedStopped) { AddDistinct(stoppedOutputs, stopped); }
                 }
             }
             return forwarded;
@@ -266,9 +339,10 @@ internal sealed class PlaylistOperationNotificationOwner
         }
     }
 
-    internal OperationNotificationSession BeginSession()
+    /// <param name="collectsUnregisteredBase">未登録の追加基点を止めた事実を、通知にせず事実として集めるか。受付を持たない起動の必須出力だけが指定します。</param>
+    internal OperationNotificationSession BeginSession(bool collectsUnregisteredBase = false)
     {
-        return new OperationNotificationSession(this);
+        return new OperationNotificationSession(this) { CollectsUnregisteredBase = collectsUnregisteredBase };
     }
 
     /// <summary>
@@ -292,6 +366,52 @@ internal sealed class PlaylistOperationNotificationOwner
             return false;
         }
     }
+
+    /// <summary>
+    /// 出力を止めた表を報告します。止めた事実は常に診断ログへ残します。収集先がなければ通知せず、失敗にもしません。
+    /// 衝突は、操作の収集先へ事実として集め、明示操作（<see cref="OperationNotificationSession.WarnStoppedOutputs"/>）だけが一件の警告にまとめます。
+    /// 未登録の追加基点は、既存の表ごとの警告として積みます。起動の必須出力の収集先（<see cref="OperationNotificationSession.CollectsUnregisteredBase"/>）では事実として集めます。
+    /// </summary>
+    internal void ReportStoppedOutput(PlaylistStoppedOutput stoppedOutput)
+    {
+        ArgumentNullException.ThrowIfNull(stoppedOutput);
+        try
+        {
+            NLogWrapper.FileLogger?.Warn("playlist_output_stopped reason=" + stoppedOutput.Reason
+                + " table=" + stoppedOutput.TableName + " outputDir=" + stoppedOutput.OutputDirectory + " base=" + stoppedOutput.BaseName);
+        }
+        catch (Exception) { /* 診断先の失敗で、操作の結果を変えません。 */ }
+        OperationNotificationSession session = currentSession.Value;
+        if (session == null) { return; }
+        try
+        {
+            if (stoppedOutput.Reason == PlaylistOutputStopReason.UnregisteredBase && !session.CollectsUnregisteredBase)
+            {
+                session.Add(new OperationNotification(
+                    OperationNotificationText.FromResource(nameof(Resources.Warn_UnregisteredCustomFolderOutputBase), stoppedOutput.TableName, stoppedOutput.BaseName),
+                    nameof(Resources.MessageBoxTitle_Warning), OperationNotificationSeverity.Warning));
+                return;
+            }
+            session.AddStoppedOutput(stoppedOutput);
+        }
+        catch (ObjectDisposedException) { /* 閉じた収集先へは積めません。事実は診断ログに残しています。 */ }
+    }
+
+    /// <summary>現在の操作の収集先を、出力を止めた表を警告として案内する明示操作にします。収集先がなければ何もしません。</summary>
+    internal void WarnStoppedOutputsInCurrentSession()
+    {
+        try { currentSession.Value?.WarnStoppedOutputs(); }
+        catch (ObjectDisposedException) { /* 閉じた収集先は案内を表示できません。事実は診断ログに残しています。 */ }
+    }
+
+    /// <summary>出力を止めた表の一覧を、導入文と「表名: 出力先」の行の一覧として一件の警告にまとめます。件数の上限や省略は設けません。</summary>
+    private static OperationNotification CreateStoppedOutputsNotification(IReadOnlyList<PlaylistStoppedOutput> stoppedOutputs)
+        => new(CreateStoppedOutputsText(stoppedOutputs), nameof(Resources.Warning), OperationNotificationSeverity.Warning, isStoppedOutputsWarning: true);
+
+    /// <summary>出力を止めた表の警告本文を、表示直前の言語で整形できる事実として作ります。</summary>
+    internal static OperationNotificationText CreateStoppedOutputsText(IEnumerable<PlaylistStoppedOutput> stoppedOutputs)
+        => OperationNotificationText.FromResourceWithDetail(nameof(Resources.Warn_PlaylistOutputOverlapStopped),
+            string.Join(Environment.NewLine, stoppedOutputs.Select(stopped => stopped.TableName + ": " + stopped.OutputDirectory)), 2);
 
     /// <summary>警告を積みます。見出しを省略すると、表示直前の言語の警告見出しを使います。</summary>
     internal void QueueWarning(OperationNotificationText message, string captionResourceName = null)

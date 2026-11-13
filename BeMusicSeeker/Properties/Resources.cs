@@ -1843,8 +1843,6 @@ public class Resources
     public static string Warn_PendingPackageNotFound => ResourceManager.GetString("Warn_PendingPackageNotFound", resourceCulture);
 
 
-    public static string Warn_PlaylistMutationBusy => ResourceManager.GetString("Warn_PlaylistMutationBusy", resourceCulture);
-
 
     public static string Warn_PlaylistMutationStale => ResourceManager.GetString("Warn_PlaylistMutationStale", resourceCulture);
 
@@ -3187,6 +3185,8 @@ public class Resources
 
     /// <summary>管理表の同一・包含出力を拒否する案内です。</summary>
     public static string Error_ManagedPlaylistOutputOverlap => ResourceManager.GetString(nameof(Error_ManagedPlaylistOutputOverlap), resourceCulture);
+    /// <summary>出力先が他の表と重なる表を出力対象外にしたことを案内する導入文です。表名と出力先の一覧が続きます。</summary>
+    public static string Warn_PlaylistOutputOverlapStopped => ResourceManager.GetString(nameof(Warn_PlaylistOutputOverlapStopped), resourceCulture);
     /// <summary>競合する未確定編集を破棄して別操作へ切り替える確認です。</summary>
     public static string Settings_confirm_discard_conflicting_candidates => ResourceManager.GetString(nameof(Settings_confirm_discard_conflicting_candidates), resourceCulture);
     /// <summary>未確定編集の破棄確認に示すLR2詳細パスの範囲名です。</summary>

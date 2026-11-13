@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Diagnostics;
@@ -212,8 +213,10 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
             : new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy);
 
     /// <summary>成功公開後の警告と初回案内を受付外で待ちます。通知だけの失敗を初期化結果へ返さず、終了と要求の鮮度は維持します。</summary>
+    /// <param name="stoppedOutputs">必須出力が止めた表。出力先が重なる表は、表名と出力先の一覧を一件の警告にまとめます。未登録の追加基点は既存の文言のまま理由ごとに分けて、一件の警告にまとめます。</param>
     internal async Task PresentCompletionNotificationsAsync(LeapYearFolderRepairNotification repair, bool showRootWarning,
-        bool firstStartup, IUiDialogService dialogs, Func<bool> shutdownRequested, Func<bool> isCurrent, IReadOnlyList<UiMessageRequest> backupNotifications = null, Exception lr2Failure = null)
+        bool firstStartup, IUiDialogService dialogs, Func<bool> shutdownRequested, Func<bool> isCurrent, IReadOnlyList<UiMessageRequest> backupNotifications = null, Exception lr2Failure = null,
+        IReadOnlyList<PlaylistStoppedOutput> stoppedOutputs = null)
     {
         foreach (UiMessageRequest request in backupNotifications ?? [])
         {
@@ -221,6 +224,10 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         }
         await PresentLeapYearFolderRepairAsync(repair, dialogs, shutdownRequested, isCurrent).ConfigureAwait(false);
         if (showRootWarning) { await Show(BeMusicSeeker.Properties.Resources.Warning_LR2RootPathNotSet, BeMusicSeeker.Properties.Resources.Warning, UiDialogIcon.Exclamation).ConfigureAwait(false); }
+        foreach (UiMessageRequest request in CreateStoppedOutputNotifications(stoppedOutputs))
+        {
+            await PresentNotificationAsync(request, dialogs, shutdownRequested, isCurrent, "Startup stopped output notification").ConfigureAwait(false);
+        }
         if (lr2Failure != null)
         {
             await Show(BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_lr2_song_db_sync
@@ -231,6 +238,29 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         Task Show(string message, string title, UiDialogIcon image)
             => PresentNotificationAsync(new UiMessageRequest(message, title, UiDialogButton.OK, image, UiDialogDefaultResult.OK),
                 dialogs, shutdownRequested, isCurrent, "Startup completion notification");
+    }
+
+    /// <summary>
+    /// 必須出力が止めた表を、受付の解放後に通知する要求へ変換します。理由ごとに最大一件です。
+    /// 未登録の追加基点は既存の文言を表ごとに整形して一件へまとめ、出力先が重なる表は導入文と「表名: 出力先」の一覧の一件にします。
+    /// </summary>
+    internal static IReadOnlyList<UiMessageRequest> CreateStoppedOutputNotifications(IReadOnlyList<PlaylistStoppedOutput> stoppedOutputs)
+    {
+        List<UiMessageRequest> requests = [];
+        PlaylistStoppedOutput[] unregistered = [.. (stoppedOutputs ?? []).Where(stopped => stopped.Reason == PlaylistOutputStopReason.UnregisteredBase)];
+        if (unregistered.Length > 0)
+        {
+            requests.Add(new(string.Join(Environment.NewLine, unregistered.Select(stopped => string.Format(
+                BeMusicSeeker.Properties.Resources.Warn_UnregisteredCustomFolderOutputBase, stopped.TableName, stopped.BaseName))),
+                BeMusicSeeker.Properties.Resources.Warning, UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK));
+        }
+        PlaylistStoppedOutput[] collisions = [.. (stoppedOutputs ?? []).Where(stopped => stopped.Reason == PlaylistOutputStopReason.Collision)];
+        if (collisions.Length > 0)
+        {
+            requests.Add(new(PlaylistOperationNotificationOwner.CreateStoppedOutputsText(collisions).Format(),
+                BeMusicSeeker.Properties.Resources.Warning, UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK));
+        }
+        return requests;
     }
 
     // 起動後の案内だけを扱います。事前のConfirmAsyncには適用しません。
@@ -366,9 +396,10 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
                 path => BmsLibraryOptionsSnapshot.ApplyConfirmedRootPrefixes(path, [pathChange.Previous], [pathChange.Current]));
         }
         RequiredChartInfoHydrationResult chartInfo = await Task.Run(() => library.EnsureRequiredStartupData(capability, originatingRequest)).ConfigureAwait(false);
-        Lr2SongDbSyncPreparedDataSurface prepared = await playlist.CompleteStartupOutputsAsync(verifyRows, syncNeeded,
+        PlaylistStartupOutputsResult outputs = await playlist.CompleteStartupOutputsAsync(verifyRows, syncNeeded,
             capability.PlaylistCapability, originatingRequest, customFolderSettings, forceBeatorajaBmtProjection,
             fileResult.NormalOutputBasePathChange).ConfigureAwait(false);
+        Lr2SongDbSyncPreparedDataSurface prepared = outputs.PreparedSurface;
         Exception lr2Failure = null;
         bool convergenceReady = false;
         try
@@ -386,7 +417,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
             Task.FromException(failure).ObserveFault("RequiredStartupLr2Sync");
         }
         if (library.IsShutdownRequested) { throw new OperationCanceledException(); }
-        return new(fileResult, lr2Failure, chartInfo, CatalogConvergenceReady: convergenceReady);
+        return new(fileResult, lr2Failure, chartInfo, CatalogConvergenceReady: convergenceReady, StoppedOutputs: outputs.StoppedOutputs);
     }
 
     /// <summary>
@@ -460,5 +491,7 @@ internal sealed class StartupRequiredOperationLease : IDisposable
 /// <summary>ローカル成功・LR2単独失敗と、親受付解放後に引き渡す明示終了選択を区別します。ローカル失敗は例外で伝播します。</summary>
 /// <param name="CatalogConvergenceReady">正本・索引・必須LR2と参照の終端が成功し、必須UIの成功後に受付へ公開できる事実です。</param>
 /// <param name="ExitRequested">保留復元の選択で明示した終了です。通常成功と出力・後続の開始より前に、親受付解放後の既存Closeへ渡します。</param>
+/// <param name="StoppedOutputs">必須出力が止めた表（衝突した表、未登録の追加基点を使う表）の不変の事実です。受付の保持中は通知せず、受付の解放後に一件ずつ通知します。</param>
 internal sealed record StartupRequiredInitializationResult(LibraryFileInitializationResult FileResult, Exception Lr2Failure,
-    RequiredChartInfoHydrationResult ChartInfo = null, bool ExitRequested = false, bool CatalogConvergenceReady = false);
+    RequiredChartInfoHydrationResult ChartInfo = null, bool ExitRequested = false, bool CatalogConvergenceReady = false,
+    IReadOnlyList<PlaylistStoppedOutput> StoppedOutputs = null);

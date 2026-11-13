@@ -742,7 +742,8 @@ internal static class BmtTableExportService
             ["tag"] = ResolveTag(table) ?? string.Empty,
             ["isExternalSync"] = table.is_external_sync,
             ["compatiblePrefix"] = table.compat_prefix ?? string.Empty,
-            ["folderOrder"] = new JArray(table.Folder_order ?? []),
+            // 空の明示順と空文字だけの明示順は、どちらも自動整列として同じ入力にそろえる（BMSTable.IsAutoFolderOrder）。
+            ["folderOrder"] = new JArray(BMSTable.IsAutoFolderOrder(table.Folder_order) ? Array.Empty<string>() : table.Folder_order),
             ["courses"] = new JArray((table.Courses ?? [])
                 .Select(course => course?.course_json)
                 .Where(courseJson => !string.IsNullOrWhiteSpace(courseJson)))

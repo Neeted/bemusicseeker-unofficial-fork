@@ -952,6 +952,140 @@ public sealed class PlaylistWorkspaceExternalSourceTests
         }
     }
 
+    /// <summary>
+    /// 条件：LR2連携で、新規プレイリストの出力除外の既定を既定以外の値にし、beatorajaのTable URL取込みを二つのURLで行う。一つは取得に成功し、もう一つは取得できずBMTキャッシュから復元する。
+    /// 期待結果：二つの新規表のDBの ignore_folder_output がどちらも設定値になり、生成された .lr2folder の集合も二つの表で同じ（設定どおり）になる。
+    /// 検出する誤り：BMTキャッシュから復元した新規表だけが設定の既定を使わず固定の既定のまま出力される誤り、取得成功と復元で既定の決め方が分かれる誤り。
+    /// </summary>
+    /// <remarks>既存表の再読込みと基底表からの引継ぎで既存の値を上書きしない保証は BmsPlaylistExternalLoadTests の基底表のケースが担います。</remarks>
+    [TestMethod]
+    public async Task StartBeatorajaTableUrlImport_NewTablesUseDefaultIgnoreFolderOutputForFetchAndBmtRestore()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(migrationWorkspace.RootDirectory, nameof(PlaylistWorkspaceExternalSourceTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        Task operation = Task.CompletedTask;
+        var auxiliaryWork = new ConcurrentQueue<Task>();
+        PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs = CreateBeatorajaImportDialogs();
+        Exception? primaryFailure = null;
+        try
+        {
+            string songDbPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, root);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            string fetchedHeader = Path.Combine(root, "fetched.json");
+            File.WriteAllText(fetchedHeader, "{\"name\":\"FetchedImport\",\"symbol\":\"F\",\"tag\":\"FETCH\",\"compat_prefix\":\"\",\"data_url\":\"./fetched-data.json\"}");
+            File.WriteAllText(Path.Combine(root, "fetched-data.json"), "[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Fetched song\",\"level\":\"1\"}]");
+            string fetchedUrl = new Uri(fetchedHeader).AbsoluteUri;
+            // 存在しないファイルは取得に失敗し、同じURLのBMTキャッシュから復元します。
+            string restoredUrl = new Uri(Path.Combine(root, "missing-restored.json")).AbsoluteUri;
+            string beatorajaRoot = Path.Combine(root, "beatoraja");
+            string tablePath = Path.Combine(beatorajaRoot, "table");
+            Directory.CreateDirectory(tablePath);
+            File.WriteAllBytes(Path.Combine(beatorajaRoot, "beatoraja.jar"), []);
+            File.WriteAllText(Path.Combine(beatorajaRoot, BeatorajaConfigService.ConfigFileName), new JObject
+            {
+                ["tablepath"] = "table",
+                ["tableURL"] = new JArray(fetchedUrl, restoredUrl)
+            }.ToString());
+            WriteBmtJson(BeatorajaBmtTableImportService.GetCachedTablePath(tablePath, restoredUrl), new JObject
+            {
+                ["url"] = "https://example.test/restored-cache.json",
+                ["name"] = "RestoredImport",
+                ["tag"] = "RST",
+                ["folder"] = new JArray(new JObject
+                {
+                    ["name"] = "RST1",
+                    ["songs"] = new JArray(new JObject { ["title"] = "Restored song", ["md5"] = new string('b', 32) })
+                })
+            });
+            LR2SongDBExtended.playlist.CustomFolderType configuredMask = LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder;
+            string outputBase = Path.Combine(root, "Output");
+            var outputSettings = new CustomFolderOutputSettingsSnapshot
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = outputBase,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "RootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]",
+                PlaylistDefaultIgnoreFolderOutput = (int)configuredMask
+            };
+            var configOwner = new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(Path.Combine(root, "LR2"), outputBase));
+            playlist = new TestBmsPlaylist(databaseScope, songDbPath, configOwner, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => outputSettings, PlaylistTestFixture.CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), uiScheduler: new TestUiScheduler(() => null))
+            { BMSTables = [] };
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                auxiliaryWork.Enqueue(Task.Run(work));
+                return true;
+            };
+            library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null));
+            workspace = CreateDetailWorkspace(out _, playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library,
+                playlistSummaryBmtSort: new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
+                playlistWorkspaceDialogService: dialogs);
+
+            Task<BeatorajaTableUrlImportSummary?> importTask = workspace.StartBeatorajaTableUrlImport(beatorajaRoot);
+            operation = importTask;
+            BeatorajaTableUrlImportSummary summary = await RequireSummaryAsync(importTask);
+            AssertOnlyBeatorajaSummaryPresented(dialogs, summary, 1);
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await work; }
+            string diagnostics = string.Join(Environment.NewLine, summary.Outcomes.Select(outcome => $"{outcome.Kind}: {outcome.Exception}"));
+            Assert.AreEqual(1, summary.ImportedCount, diagnostics);
+            Assert.AreEqual(1, summary.RestoredFromBmtCount, diagnostics);
+            Assert.AreEqual(0, summary.FailedCount, diagnostics);
+
+            using (LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly())
+            {
+                BMSTable[] saved = [.. verify.Table<BMSTable>()];
+                CollectionAssert.AreEquivalent(new[] { "FetchedImport", "RestoredImport" }, saved.Select(table => table.name).ToArray());
+                foreach (BMSTable table in saved)
+                {
+                    Assert.AreEqual(configuredMask, table.ignore_folder_output, table.name);
+                }
+            }
+            foreach (BMSTable table in playlist.BMSTables) { Assert.AreEqual(configuredMask, table.ignore_folder_output, table.name); }
+            string[] FileNames(string table) => [.. Directory.EnumerateFiles(Path.Combine(outputBase, table), "*.lr2folder", SearchOption.AllDirectories)
+                .Select(path => Path.GetRelativePath(Path.Combine(outputBase, table), path)).OrderBy(name => name, StringComparer.Ordinal)];
+            string[] fetchedFiles = FileNames("FetchedImport");
+            string[] restoredFiles = FileNames("RestoredImport");
+            Assert.IsTrue(fetchedFiles.Length > 0, "必要なLR2出力まで完了します。");
+            CollectionAssert.AreEqual(fetchedFiles, restoredFiles, "取得成功と復元で、設定どおり同じ種類の.lr2folderを出力します。");
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            async Task CleanupAsync(Func<Task> action)
+            {
+                try { await action(); }
+                catch (Exception failure) { cleanupFailures.Add(failure); }
+            }
+            await CleanupAsync(() => operation);
+            if (workspace != null)
+            {
+                await CleanupAsync(workspace.WaitForDetailBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistSummaryDataBuildIdleAsync);
+                await CleanupAsync(workspace.WaitForPlaylistReloadCleanupIdleAsync);
+                await CleanupAsync(() => { workspace.RefreshPlaylistTreeTables(null); workspace.Dispose(); return Task.CompletedTask; });
+            }
+            while (auxiliaryWork.TryDequeue(out Task? work)) { await CleanupAsync(() => work); }
+            await CleanupAsync(() => { playlist?.RequestShutdown("default-ignore-import-fixture"); return Task.CompletedTask; });
+            await CleanupAsync(() => { library?.RequestShutdown("default-ignore-import-fixture"); return Task.CompletedTask; });
+            await CleanupAsync(() => { Directory.Delete(root, recursive: true); return Task.CompletedTask; });
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("Default ignore folder output import cleanup", cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                Console.WriteLine(cleanupFailure);
+            }
+        }
+    }
+
     /// <summary>ストア未接続では準備未完了を返し、空の選択は実行対象なしとして区別します。</summary>
     [TestMethod]
     public void TryStartPlaylistImport_ReportsNotReadyAndEmptySelection()

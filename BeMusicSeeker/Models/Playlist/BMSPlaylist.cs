@@ -490,6 +490,18 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>取得・予約せず、設定の限定前段を始められるか読み取ります。実受付は確認後に再判定します。</summary>
     internal bool CanEnterPlaylistMutation => !IsShutdownRequested && playlistMutationAdmission.CanEnter;
 
+    /// <summary>
+    /// 利用者の明示要求を、受付（P）の競合として案内してよいかを返します。終了の要求中と受付の閉鎖は、競合ではないため案内しません。
+    /// </summary>
+    internal bool CanAnnouncePlaylistMutationBusy => !IsShutdownRequested && !playlistMutationAdmission.IsAdmissionClosed;
+
+    /// <summary>
+    /// 明示要求が受付（P）の競合で拒否される見込みかを、取得・予約せずに読み取ります。確認を先に出す入口が、確認の前に可否を検査するために使います。
+    /// 使用中に加え、再読込み・初期化の実行中（<see cref="IsPlaylistUpdating"/>）も競合です。確認の間も他の操作が受付を取得できるため、実際の取得は確認後に再判定します。
+    /// </summary>
+    internal bool IsPlaylistMutationBusyForExplicitRequest
+        => CanAnnouncePlaylistMutationBusy && (IsPlaylistUpdating || !playlistMutationAdmission.CanEnter);
+
     /// <summary>終了の前段で新規プレイリスト変更の受付を閉じたかを返し、単なるBusyと区別します。</summary>
     internal bool IsPlaylistMutationAdmissionClosed => playlistMutationAdmission.IsAdmissionClosed;
 
@@ -640,7 +652,8 @@ public partial class BMSPlaylist : ObservableObject
         string normalizedFolderName = folderName ?? string.Empty;
         using (activeTable.ReaderWriterLock.GetReaderGuard())
         {
-            return (activeTable.Folder_order ?? []).Contains(normalizedFolderName, StringComparer.Ordinal)
+            // 自動整列の表の明示順（空文字だけの旧記録を含む）は並びの指定ではないため、フォルダの存在の根拠にしません。
+            return (!BMSTable.IsAutoFolderOrder(activeTable.Folder_order) && activeTable.Folder_order.Contains(normalizedFolderName, StringComparer.Ordinal))
                 || (activeTable.entries ?? []).Any(entry =>
                     entry != null
                     && string.Equals(entry.folder ?? string.Empty, normalizedFolderName, StringComparison.Ordinal));
@@ -1014,17 +1027,21 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>ローカルライブラリ準備後に項目・必要修復・BMTを確定し、全体同期に必要な完全な生成面を返します。</summary>
     /// <param name="forceBeatorajaBmtProjection">今回の必要BMT出力で署名一致による生成省略を迂回するか。</param>
     /// <param name="normalOutputBasePathChange">全体生成が不要な場合に、hydration後の必須出力へ渡す今回確認済みの旧・新基点。</param>
-    internal async Task<Lr2SongDbSyncPreparedDataSurface> CompleteStartupOutputsAsync(bool verifyRows, bool prepareAllCustomFolders,
+    /// <returns>全体同期に必要な生成面と、必須出力が止めた表（衝突、未登録の追加基点）の不変の事実。受付を保持したまま通知せず、呼出元が受付の解放後に一件ずつ通知します。</returns>
+    internal async Task<PlaylistStartupOutputsResult> CompleteStartupOutputsAsync(bool verifyRows, bool prepareAllCustomFolders,
         LibraryFileMutationCapability capability, OperationProgressRequest originatingRequest = null, CustomFolderOutputSettingsSnapshot settings = null, bool forceBeatorajaBmtProjection = false,
         (string Previous, string Current)? normalOutputBasePathChange = null)
     {
         capability.Validate(playlistMutationAdmission);
         settings ??= GetCustomFolderOutputSettings();
+        // 起動の必須出力には通知の収集先がないため、止めた表の事実をこの収集先へ集め、受付の解放後に通知する結果として返します。
+        using PlaylistOperationNotificationOwner.OperationNotificationSession stopped = operationNotificationOwner.BeginSession(collectsUnregisteredBase: true);
         // 読取りと独立走査の合流後に設定正本を更新し、並列の見出し読取りへ書込みを混ぜない。
         bool rootsChanged = await Task.Run(() => SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
             settings.LR2CustomFolderOutputBaseDirRootType, settings)).ConfigureAwait(false);
-        return await HydrateRequiredAsync("Initialize", true, verifyRows || rootsChanged, capability, prepareAllCustomFolders, originatingRequest, settings, forceBeatorajaBmtProjection,
+        Lr2SongDbSyncPreparedDataSurface surface = await HydrateRequiredAsync("Initialize", true, verifyRows || rootsChanged, capability, prepareAllCustomFolders, originatingRequest, settings, forceBeatorajaBmtProjection,
             normalOutputBasePathChange: normalOutputBasePathChange).ConfigureAwait(false);
+        return new PlaylistStartupOutputsResult(surface, stopped.TakeStoppedOutputs());
     }
 
     private bool InitializeHeaders(bool synchronizeOutputRoots = true, bool scheduleUrlCompletion = true)
@@ -1119,6 +1136,8 @@ public partial class BMSPlaylist : ObservableObject
     /// <summary>受理済みPを借用し、ヘッダーと必須継続の実終端まで待ちます。</summary>
     internal async Task ReloadTablesAsync(bool exportBeatorajaBmt, LibraryFileMutationCapability capability)
     {
+        // 表の明示の再読込みは、出力を止めた表（出力先が他の表と重なる表）を、操作の収集先があれば一件の警告で案内します。
+        operationNotificationOwner.WarnStoppedOutputsInCurrentSession();
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("ReloadTables", capability: capability);
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         bool verifyRows = await Task.Run(() => ReloadHeaders(scheduleUrlCompletion: capability == null)).ConfigureAwait(false);
@@ -2000,12 +2019,14 @@ public partial class BMSPlaylist : ObservableObject
             .Select(entry => entry.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
         using (rwlockBMSTables.GetReaderGuard())
         {
+            // 変更前に衝突していた表の旧配置は未知として捕捉し、共有している可能性のある旧先を整理しません。
+            HashSet<BMSTable> collidingBefore = ManagedPlaylistOutputPlacement.FindCollidingTables(BMSTables.Where(table => table != null), previous);
             foreach (BMSTable table in BMSTables)
             {
                 string oldBase = table.is_root_folder ? previous.LR2CustomFolderOutputBaseDirRootType
                     : CustomFolderOutputBaseRegistry.ResolveNormalOutputBaseDirectory(table.custom_folder_output_base_name,
                         previous.LR2CustomFolderOutputBaseDir, previous.LR2CustomFolderAdditionalOutputBaseDirs);
-                if (!string.IsNullOrWhiteSpace(oldBase) && !string.IsNullOrWhiteSpace(table.Output_dir))
+                if (!string.IsNullOrWhiteSpace(oldBase) && !string.IsNullOrWhiteSpace(table.Output_dir) && !collidingBefore.Contains(table))
                 {
                     locations.Add(new(table, Path.Combine(oldBase, table.Output_dir), oldBase, table.is_root_folder));
                 }
@@ -2267,6 +2288,9 @@ public partial class BMSPlaylist : ObservableObject
                 && string.IsNullOrWhiteSpace(table.custom_folder_output_base_name)
                 && !string.IsNullOrWhiteSpace(table.Output_dir))];
         }
+        // 衝突した表は対象の選択の段階で除きます。準備できない表として数え、起動を失敗させないためです。
+        HashSet<BMSTable> colliding = customFolderOutputMaintenanceOwner.FindCollidingTables(settings);
+        tables.RemoveAll(colliding.Contains);
         if (tables.Count == 0) { return; }
         string[] previousDirectories = [.. tables.Select(table => Path.Combine(pathChange.Previous, table.Output_dir))];
         PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderOutputPreparation preparation =
@@ -2524,7 +2548,8 @@ public partial class BMSPlaylist : ObservableObject
             discoveryComplete: false);
         statusDirectories = [];
         settings ??= GetCustomFolderOutputSettings();
-        ValidateCustomFolderOutputLayout(settings);
+        // 保存済みの配置が衝突していても必須修復を失敗させず、衝突した表だけを対象外にします。集合は一度だけ求めます。
+        HashSet<BMSTable> collidingTables = customFolderOutputMaintenanceOwner.FindCollidingTables(settings);
         var statusStopwatch = Stopwatch.StartNew();
         Dictionary<int, CustomFolderOutputStatusRow> statusRows = customFolderOutputStatusOwner.ReadStatusRows();
         statusStopwatch.Stop();
@@ -2546,6 +2571,11 @@ public partial class BMSPlaylist : ObservableObject
             try
             {
                 if (customFolderOutputMaintenanceOwner.NotifyUnregisteredOutputBase(table, settings)) { continue; }
+                if (collidingTables.Contains(table))
+                {
+                    customFolderOutputMaintenanceOwner.ReportCollidingOutput(table, settings);
+                    continue;
+                }
                 string outputDirectory = ResolveCustomFolderOutputDirectory(table, settings);
                 if (string.IsNullOrWhiteSpace(outputDirectory))
                 {
@@ -2731,7 +2761,6 @@ public partial class BMSPlaylist : ObservableObject
         }
 
         var rowLookupStopwatch = Stopwatch.StartNew();
-        ValidateCustomFolderOutputLayout(settings);
         IReadOnlyDictionary<string, LR2SongDB.folder> rowsByPath = ReadCustomFolderOutputRows(pendingProjections, out bool rowLookupSucceeded, layoutOnly: true);
         rowLookupStopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair row_lookup_done"
@@ -3638,15 +3667,25 @@ public partial class BMSPlaylist : ObservableObject
         public bool IsAll { get; set; }
     }
 
-    /// <summary>変更後の全管理表の実効先を副作用前に検査します。候補resolverは未保存の属性だけを置き換えます。</summary>
-    internal void ValidateCustomFolderOutputLayout(CustomFolderOutputSettingsSnapshot settings,
-        Func<BMSTable, string> resolveCandidate = null)
+    /// <summary>
+    /// 編集後の全管理表の実効先を、副作用前に事前検査します。公開済みの配置と候補の配置を比べ、配置が変わる表が他の表と重なる場合だけ拒否します。
+    /// 配置が変わらない表同士の既存の衝突は問いません。候補resolverは未保存の属性だけを置き換えます。
+    /// </summary>
+    /// <param name="previousSettings">公開済みの配置を求める設定。省略すると<paramref name="settings"/>です。</param>
+    internal void ValidateCustomFolderOutputEdit(CustomFolderOutputSettingsSnapshot settings,
+        Func<BMSTable, string> resolveCandidate, CustomFolderOutputSettingsSnapshot previousSettings = null)
     {
         if (settings?.OperationModeLR2DB != true) { return; }
-        ManagedPlaylistOutputPlacement.Validate(GetCustomFolderTablesSnapshot()
-            .Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
-            .Select(table => resolveCandidate == null ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : resolveCandidate(table)));
+        previousSettings ??= settings;
+        IReadOnlyList<BMSTable> tables = [.. GetCustomFolderTablesSnapshot().Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))];
+        ManagedPlaylistOutputPlacement.ValidateEdit(
+            tables.Select(table => new ManagedPlaylistOutputPlacement.Placement(table, ManagedPlaylistOutputPlacement.Resolve(table, previousSettings))),
+            tables.Select(table => new ManagedPlaylistOutputPlacement.Placement(table, resolveCandidate(table))));
     }
+
+    /// <summary>保存済みの表と設定から、出力先が他の表と重なる表の集合を一度だけ求めます。永続せず、一操作の中で受け渡します。</summary>
+    internal HashSet<BMSTable> FindCollidingOutputTables(CustomFolderOutputSettingsSnapshot settings = null)
+        => customFolderOutputMaintenanceOwner.FindCollidingTables(settings ?? GetCustomFolderOutputSettings());
 
     /// <summary>追加基点の改名・削除を反映した全表配置を、設定媒体とヘッダーの保存前に検査します。</summary>
     internal void ValidateCustomFolderOutputRegistration(CustomFolderOutputSettingsSnapshot settings,
@@ -3659,7 +3698,8 @@ public partial class BMSPlaylist : ObservableObject
             if (!finalNames.ContainsKey(oldEntry.Name)
                 && !CustomFolderOutputBaseRegistry.ContainsBaseName(oldEntry.Name, settings.LR2CustomFolderAdditionalOutputBaseDirs)) { finalNames[oldEntry.Name] = null; }
         }
-        ValidateCustomFolderOutputLayout(settings, table => ManagedPlaylistOutputPlacement.Resolve(table, settings, finalNames));
+        ValidateCustomFolderOutputEdit(settings, table => ManagedPlaylistOutputPlacement.Resolve(table, settings, finalNames),
+            previousSettings: GetCustomFolderOutputSettings());
     }
 
     private IReadOnlyList<BMSTable> GetCustomFolderTablesSnapshot()
@@ -3753,7 +3793,9 @@ public partial class BMSPlaylist : ObservableObject
         RemoveCustomFolder(bmsTable, null);
     }
 
-    internal void RemoveCustomFolder(BMSTable bmsTable, CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null)
+    /// <param name="collidingTables">削除前の集合で出力先が他の表と重なっていた表。複数の表を削除する操作が一度だけ求めて渡します。nullなら現在の表から求めます。</param>
+    internal void RemoveCustomFolder(BMSTable bmsTable, CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability = null,
+        IReadOnlySet<BMSTable> collidingTables = null)
     {
         using LibraryFileMutationLease accepted = AcquirePlaylistMutationLease("RemoveCustomFolder", capability: capability);
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
@@ -3792,7 +3834,8 @@ public partial class BMSPlaylist : ObservableObject
                 settings.LR2CustomFolderOutputBaseDirRootType,
                 CreateCustomFolderManagedOutputBase(bmsTable, bmsTable.is_root_folder, settings: settings),
                 settings,
-                request => SyncCustomFolderRowsBatch(request, mutationCapability));
+                request => SyncCustomFolderRowsBatch(request, mutationCapability),
+                collidingTables);
         }
         // Notification and diagnostic publication happen after the lease scope.
         customFolderOutputMaintenanceOwner.PublishPostLeaseResult(result, progressCallback: null);
@@ -4605,7 +4648,6 @@ public partial class BMSPlaylist : ObservableObject
         }
         if (isCurrentTable)
         {
-            ValidateCustomFolderOutputLayout(settings);
             EnsurePlaylistEntriesLoaded(bmsTable, "ReOutputCustomFolderAndCommitToDB");
             using (rwlockBMSTables.GetReaderGuard())
             {

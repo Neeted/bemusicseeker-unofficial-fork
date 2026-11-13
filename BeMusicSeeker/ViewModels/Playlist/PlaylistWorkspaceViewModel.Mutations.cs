@@ -67,7 +67,59 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool isBusy,
         bool isStale)
     {
+        if (isBusy && !CanAnnouncePlaylistBusy()) { return; }
         NotifyOperation(PlaylistOperationNotices.Rejection(kind, isBusy, isStale), "playlist mutation rejection notification");
+    }
+
+    /// <summary>
+    /// 利用者の明示要求が受付（P）の競合で受け付けられなかったことを、明示要求の競合の案内として一回通知します。
+    /// 副作用の有無は呼出し元が保証します。終了の要求中・受付の閉鎖・ライブラリの未接続では案内しません。
+    /// </summary>
+    private void NotifyPlaylistBusyRejection(string routeName)
+    {
+        if (!CanAnnouncePlaylistBusy()) { return; }
+        NotifyOperation(PlaylistOperationNotices.Busy(), routeName);
+    }
+
+    private bool CanAnnouncePlaylistBusy()
+    {
+        try { return getPlaylistStore()?.CanAnnouncePlaylistMutationBusy == true; }
+        catch (Exception exception)
+        {
+            TryLogPlaylistDropSecondaryFailure(exception, "playlist_busy_announcement_store_failed");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 明示要求の受付（P）を非待機で取得します。競合（使用中、再読込み・初期化の実行中）なら副作用なしで<see cref="PlaylistOperationNotices.Busy"/>を一回通知し、nullを返します。
+    /// 受理済みの継続（<paramref name="capability"/>あり）は同じ権限を借用し、案内しません。
+    /// </summary>
+    private LibraryFileMutationLease TryAcquirePlaylistMutationLeaseOrNotify(
+        BMSPlaylist store, string operation, string routeName, LibraryFileMutationCapability capability = null)
+    {
+        if (capability != null) { return store.AcquirePlaylistMutationLease(operation, capability: capability); }
+        if (TryEnterPlaylistMutationAdmission(store, out IDisposable lease)) { return (LibraryFileMutationLease)lease; }
+        NotifyPlaylistBusyRejection(routeName);
+        return null;
+    }
+
+    /// <summary>
+    /// 確認を先に出す入口が、確認の前に受付（P）の可否を検査します。競合する見込みなら副作用なしで案内し、trueを返します（確認は出しません）。
+    /// 予約ではないため、確認の間に別の操作が受付を取得でき、確認後の実取得で競合した場合は取得側が再び一回案内します。
+    /// </summary>
+    internal bool RejectIfPlaylistBusyBeforeConfirmation(string routeName)
+    {
+        BMSPlaylist store;
+        try { store = getPlaylistStore(); }
+        catch (Exception exception)
+        {
+            TryLogPlaylistDropSecondaryFailure(exception, "playlist_busy_precheck_store_failed route=" + routeName);
+            return false;
+        }
+        if (store?.IsPlaylistMutationBusyForExplicitRequest != true) { return false; }
+        NotifyOperation(PlaylistOperationNotices.Busy(), routeName);
+        return true;
     }
 
     /// <summary>通知を現在の操作の収集先へ積みます。収集先がなければ待たずに表示を依頼します。通知の失敗は診断だけに残します。</summary>
@@ -787,7 +839,8 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// 操作を、通知の収集先の内側で実行します。操作が受付（P）を取得し解放した後に、集めた通知をまとめて表示するよう依頼します。
     /// 戻る Task は、終了の判定と最初の組の依頼までで完了し、表示の完了は待ちません。収集先を持てない（ストアがない）場合は、操作だけを実行します。
     /// </summary>
-    private async Task RunWithOperationNoticesAsync(BMSPlaylist store, string routeName, Func<Task> operation)
+    /// <param name="warnStoppedOutputs">この操作が、出力を止めた表（出力先が他の表と重なる表）を警告として案内する明示操作か。明示の再読込み・表の属性の明示保存・外部登録・SQL復元が指定します。</param>
+    private async Task RunWithOperationNoticesAsync(BMSPlaylist store, string routeName, Func<Task> operation, bool warnStoppedOutputs = false)
     {
         if (store == null)
         {
@@ -795,6 +848,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         using PlaylistOperationNotificationOwner.OperationNotificationSession session = store.OperationNotificationOwner.BeginSession();
+        if (warnStoppedOutputs) { session.WarnStoppedOutputs(); }
         try
         {
             await operation().ConfigureAwait(false);
@@ -806,13 +860,14 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary><see cref="RunWithOperationNoticesAsync(BMSPlaylist, string, Func{Task})"/> の、結果を返す操作の版です。</summary>
-    private async Task<T> RunWithOperationNoticesAsync<T>(BMSPlaylist store, string routeName, Func<Task<T>> operation)
+    private async Task<T> RunWithOperationNoticesAsync<T>(BMSPlaylist store, string routeName, Func<Task<T>> operation, bool warnStoppedOutputs = false)
     {
         if (store == null)
         {
             return await operation().ConfigureAwait(false);
         }
         using PlaylistOperationNotificationOwner.OperationNotificationSession session = store.OperationNotificationOwner.BeginSession();
+        if (warnStoppedOutputs) { session.WarnStoppedOutputs(); }
         try
         {
             return await operation().ConfigureAwait(false);
@@ -920,7 +975,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     session.Add(notification);
                 }
                 if (!collected.Notifications.Any(notification =>
-                    !notification.IsBmtOutputFailure
+                    !notification.IsBmtOutputFailure && !notification.IsStoppedOutputsWarning
                     && notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
                         or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error))
                 {

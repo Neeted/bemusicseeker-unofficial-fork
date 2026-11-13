@@ -168,6 +168,65 @@ public sealed class PlaylistRecommendedTableOwnerTests
             System.Globalization.CultureInfo.CurrentCulture = previousCulture;
         }
     }
+    /// <summary>
+    /// 条件：ja-JPで取り込んだ内蔵の難度推定表・推薦表を、表示言語を en-US へ切り替えてから再読込みする。内容（推定の種類・推薦の方針・★）は変わらない。
+    /// 期待結果：更新扱いにならず、DBの last_update と header_sha256 は変わらず、org_name だけが英語の名称へ保存される。
+    /// 検出する誤り：表示言語のリソース文字列を header_sha256 へ含め、言語切替の最初の再読込みで「更新」と判定して last_update を進め、BMTを再生成する誤り。
+    /// </summary>
+    /// <remarks>★の変化による推薦表の更新は Core の ReloadPlaylistTargetsAsync_SavedRecommendedPrefixSurvivesSelectedScoreDatabaseChange が担います。言語の切替と Resources.Culture の復元は AppliedSkillNotification の既存ケースに倣います。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow("bmseeker:table.estimation?type=easy")]
+    [DataRow("bmseeker:table.recommended")]
+    public async Task ReloadPlaylistTargetsAsync_LanguageChangeDoesNotUpdateBuiltInTable(string uri)
+    {
+        CultureInfo previousCulture = System.Globalization.CultureInfo.CurrentCulture;
+        CultureInfo? previousResourcesCulture = Resources.Culture;
+        string directory = NewDirectory();
+        try
+        {
+            ResourceService.Current.ChangeCulture("ja-JP");
+            string songPath = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, directory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songPath);
+            var repository = new PlaylistPersistenceRepository(databaseScope, songPath);
+            var aggregate = new PlaylistAggregatePersistenceOwner(repository, new ReaderWriterLockSlimWrapper(), new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+            PlaylistRecommendedTableOwner owner = CreateOwner(_ => Task.FromResult(ReadWalkureInput("standard")));
+            var external = new PlaylistExternalSyncOwner(AppHttpClient.Shared, owner, (_, _) => { }, () => false, _ => { },
+                playlistAggregatePersistenceOwner: aggregate, isActiveTable: aggregate.IsActive,
+                enterPlaylistUpdating: () => { }, exitPlaylistUpdating: () => { });
+            BMSTable table = await external.LoadExternalTableAsync(new Uri(uri));
+            string japaneseName = table.org_name;
+            // 日時の前進を観測できるよう、取込み直後の日時を過去の固定値へそろえて保存します。
+            table.last_update = new DateTime(2024, 1, 2, 3, 4, 5);
+            var tables = new System.Collections.ObjectModel.ObservableCollection<BMSTable>([table]);
+            aggregate.SetActiveCollection([], tables);
+            aggregate.MarkActiveTables([table]);
+            aggregate.ReplaceTablesWithEntries([table]);
+            BMSTable before = repository.LoadPlaylistHeaders().Single();
+            Assert.AreEqual(japaneseName, before.org_name);
+
+            ResourceService.Current.ChangeCulture("en-US");
+            string englishName = (await external.LoadExternalTableAsync(new Uri(uri))).org_name;
+            Assert.AreNotEqual(japaneseName, englishName, "言語を切り替えると名称は変わります。");
+            PlaylistExternalSyncOwner.PlaylistReloadTargetResult result = (await external.ReloadPlaylistTargetsAsync([table])).Single();
+
+            Assert.IsNull(result.Exception);
+            Assert.IsFalse(result.Updated, "言語だけの差は更新扱いにしません。");
+            BMSTable after = repository.LoadPlaylistHeaders().Single();
+            Assert.AreEqual(before.last_update, after.last_update);
+            Assert.AreEqual(before.header_sha256, after.header_sha256);
+            Assert.AreEqual(before.data_sha256, after.data_sha256);
+            Assert.AreEqual(englishName, after.org_name, "名称は英語へ保存します。");
+        }
+        finally
+        {
+            ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+            Resources.Culture = previousResourcesCulture;
+            System.Globalization.CultureInfo.CurrentCulture = previousCulture;
+            Directory.Delete(directory, true);
+        }
+    }
+
     private string NewDirectory()
     {
         string directory = Path.Combine(CaseWorkspace.RootDirectory, nameof(PlaylistRecommendedTableOwnerTests), Guid.NewGuid().ToString("N"));

@@ -1630,10 +1630,13 @@ public sealed class SettingsWindowPresentationTests
                     Assert.AreEqual(2, playlist.BMSTables.Single().playlist_id, "必要公開の後段失敗で採用済み集合を巻き戻さない。");
                 }
                 else { Assert.AreSame(oldTable, playlist.BMSTables.Single()); }
-                Assert.AreEqual(committedFailure || condition == "picker-cancel" ? 0 : 1,
-                    notifications.MessageRequests.Count(request => request.MessageBoxText == Resources.Warn_PlaylistMutationBusy));
+                // 受付の競合（L・Pの使用中）だけを、警告として一回案内します。受付の閉鎖・取消・確定後の失敗では競合を案内しません。
+                Assert.AreEqual(condition is "library-busy" or "playlist-busy" ? 1 : 0,
+                    notifications.MessageRequests.Count(request => request.MessageBoxText == Resources.Warn_LibraryOperationBusy));
+                Assert.IsTrue(notifications.MessageRequests.Where(request => request.MessageBoxText == Resources.Warn_LibraryOperationBusy)
+                    .All(request => request.Icon == MessageBoxImage.Exclamation));
                 Assert.AreEqual(committedFailure ? 1 : 0,
-                    notifications.MessageRequests.Count(request => request.MessageBoxText != Resources.Warn_PlaylistMutationBusy));
+                    notifications.MessageRequests.Count(request => request.MessageBoxText != Resources.Warn_LibraryOperationBusy));
                 using (LR2SongDBExtended db = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath).OpenSongDbReadOnly())
                 {
                     Assert.AreEqual(committedFailure ? 2 : 1, db.Table<BMSTable>().Single().playlist_id);

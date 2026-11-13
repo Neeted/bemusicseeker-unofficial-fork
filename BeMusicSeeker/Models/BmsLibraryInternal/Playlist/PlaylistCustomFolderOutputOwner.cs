@@ -664,6 +664,64 @@ internal sealed class PlaylistCustomFolderOutputOwner
         }
     }
 
+    /// <summary>
+    /// 表ディレクトリを削除した後に、削除したディレクトリの祖先から出力基点までの <c>folder</c> 行を、整理と同じ一回の同期で実際の更新時刻へ揃える入力を作ります。
+    /// 通常・追加通常の基点（ROOT型は基点の行を持たないため対象外）で、配下に <c>.lr2folder</c> が残る最も近い祖先を選びます。
+    /// 祖先の行は配下の出力ファイルから作る既存の規則に従うため、配下に出力が残らない基点の行は作らず、更新もしません。
+    /// </summary>
+    /// <param name="removedDirectories">削除に成功した表ディレクトリと、その表が削除・移行の前にROOT型だったか。</param>
+    internal CustomFolderBatchMaterializationResult CreateAncestorRowRefresh(
+        IEnumerable<(string Directory, bool WasRootFolder)> removedDirectories,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        var result = new CustomFolderBatchMaterializationResult { Settings = settings };
+        foreach ((string directory, bool wasRootFolder) in removedDirectories ?? [])
+        {
+            if (wasRootFolder || string.IsNullOrWhiteSpace(directory)) { continue; }
+            // 削除前の表の型は通常です。現在のROOT型かどうかに左右されないよう表を渡さず、含む通常・追加通常の基点で境界を決めます。
+            IReadOnlyCollection<string> scopes = directoryRowGenerationScopesProvider(directory, null, settings) ?? [];
+            string boundary = scopes.Count == 1 ? Lr2FolderPath.NormalizeDirectoryPath(scopes.First()) : null;
+            string child = Lr2FolderPath.NormalizeDirectoryPath(directory);
+            if (string.IsNullOrWhiteSpace(boundary) || string.IsNullOrWhiteSpace(child)) { continue; }
+            string ancestor = Lr2FolderPath.SafeGetDirectoryName(child);
+            while (!string.IsNullOrWhiteSpace(ancestor)
+                && !string.Equals(ancestor, boundary, StringComparison.OrdinalIgnoreCase)
+                && Lr2FolderPath.IsSameOrDescendant(ancestor, boundary))
+            {
+                if (HasLr2FolderFile(ancestor))
+                {
+                    result.SyncItems.Add(new Lr2FolderFileSyncItem { FilePath = child, ParentRowsOnly = true });
+                    result.DirectoryRowGenerationScopeDirectories.AddRange(scopes);
+                    result.DirectoryRowRootDirectories.UnionWith(registeredRootsProvider());
+                    result.DirectoryRowRootDirectories.UnionWith(Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots([],
+                        settings.LR2CustomFolderOutputBaseDir,
+                        CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs)));
+                    break;
+                }
+                child = ancestor;
+                ancestor = Lr2FolderPath.SafeGetDirectoryName(ancestor);
+            }
+        }
+        if (result.SyncItems.Count > 0)
+        {
+            AddOwnedDirectoryEntries(result.DirectoryEntries, result.SyncItems, result.DirectoryRowGenerationScopeDirectories, result.DirectoryRowRootDirectories);
+        }
+        return result;
+    }
+
+    private static bool HasLr2FolderFile(string directory)
+    {
+        try
+        {
+            return LongPathFileSystem.DirectoryExists(directory)
+                && LongPathFileSystem.EnumerateFiles(directory, "*.lr2folder", SearchOption.AllDirectories).Any();
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
     private static void AddOwnedDirectoryEntries(
         IDictionary<string, RootFileEnumerationEntry> result,
         IReadOnlyCollection<Lr2FolderFileSyncItem> items,

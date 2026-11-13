@@ -203,6 +203,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
             notificationSession = tables.OperationNotificationOwner.BeginSession();
+            notificationSession.WarnStoppedOutputs();
             BeginPlaylistSyncProgressOperation(ExternalPlaylistImportProgressSource);
             progressStarted = true;
             {
@@ -275,7 +276,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             PlaylistImportProgressPhase.RegisterPlaylists);
                         await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
                             registrationItems.Select(item => item.LoadedTable), renameDuplicateName: false,
-                            "external_playlist_import", cancellationToken, authority).ConfigureAwait(false);
+                            "external_playlist_import", cancellationToken, authority, applyNewTableDefaults: true).ConfigureAwait(false);
                         registeredItems = registrationItems;
                     }
                     catch (OperationCanceledException) when (IsExternalPlaylistImportShutdownRequested(tables, cancellationToken)) { throw; }

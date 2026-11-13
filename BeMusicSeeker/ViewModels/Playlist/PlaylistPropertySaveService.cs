@@ -110,7 +110,8 @@ internal sealed class PlaylistPropertySaveService
                     (store.BMSTables?.Cast<BMSTable>() ?? Enumerable.Empty<BMSTable>())
                         .Where(candidate => candidate != null && candidate != table && !string.IsNullOrWhiteSpace(candidate.Output_dir))
                         .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir)
-                        .ToArray());
+                        .ToArray(),
+                    !isNewTable && settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : null);
             }
         }
         finally
@@ -163,7 +164,7 @@ internal sealed class PlaylistPropertySaveService
             OutputDirectory = storedOutputDirectory,
             CustomFolderOutputBaseName = baseName,
             IsRootFolder = isRoot
-        }, session.OtherOutputDirectories);
+        }, session.OtherOutputDirectories, session.OriginalOutputDirectory);
     }
 
     /// <summary>入力不備を任意通知します。受付を持たない入力時の通知で、表示は待たずに依頼します。通知失敗を入力の承認や保存成功へ置き換えません。</summary>
@@ -172,6 +173,19 @@ internal sealed class PlaylistPropertySaveService
         NotifyBestEffort(() => PlaylistOperationNotices.Notify(
             getPlaylistStore(), NoticePresenter, PlaylistOperationNotices.ValidationError(error),
             "playlist property validation notification"));
+    }
+
+    /// <summary>
+    /// 保存の要求が受付（P）の競合で受け付けられなかったことを、明示要求の競合の案内として一回通知します。操作の収集先があればそこへ積みます。
+    /// 副作用の有無は呼出し元が保証します。終了の要求中・受付の閉鎖では案内しません。通知失敗を保存結果へ置き換えません。
+    /// </summary>
+    internal void NotifyPlaylistBusyRejection(PlaylistPropertyEditSession session)
+    {
+        BMSPlaylist store = session?.Store;
+        if (store?.CanAnnouncePlaylistMutationBusy != true) { return; }
+        NotifyBestEffort(() => PlaylistOperationNotices.Notify(
+            store, NoticePresenter, PlaylistOperationNotices.Busy(),
+            "playlist property save busy notification"));
     }
 
     /// <summary>出力先が不正なことを通知します。操作の収集先があればそこへ積み、その操作が受付を解放した後に表示します。</summary>
@@ -259,6 +273,8 @@ internal sealed class PlaylistPropertySaveService
             // 通知の収集先は受付より外側に置き、受付を解放した後に依頼します。外側の収集先があれば引き継ぐだけです。
             using PlaylistOperationNotificationOwner.OperationNotificationSession operationNotifications =
                 session.Store.OperationNotificationOwner.BeginSession();
+            // 表の属性の明示保存は、出力を止めた表（出力先が他の表と重なる表）を一件の警告で案内します。
+            operationNotifications.WarnStoppedOutputs();
             try
             {
                 return await TrySaveAdmittedAsync(session, values, capability).ConfigureAwait(false);
@@ -370,7 +386,6 @@ internal sealed class PlaylistPropertySaveService
                     throw new InvalidOperationException(
                         "Playlist properties changed after editing began. Reopen the dialog and apply the edit again.");
                 }
-                store.ValidateCustomFolderOutputLayout(settings);
                 if (!IsValid(table, store, settings, values))
                 {
                     return null;
@@ -386,15 +401,17 @@ internal sealed class PlaylistPropertySaveService
                 Uri pageUrl = NormalizeUriTextForStandardStorage(values.PageUrl);
                 Uri headerUrl = NormalizeUriTextForStandardStorage(values.HeaderUrl);
                 Uri dataUrl = NormalizeUriTextForStandardStorage(values.DataUrl);
-                var baseline = PlaylistPropertyBaseline.Capture(table, !session.IsNewTable && settings.OperationModeLR2DB
-                    ? ResolveCustomFolderOutputDirectory(table, settings) : null, hasPreviousOutput: !session.IsNewTable);
+                // 操作前に衝突していた表の旧配置は未知（null）として捕捉し、共有している可能性のある旧先を移行・整理に渡しません。
+                bool collidedBefore = !session.IsNewTable && settings.OperationModeLR2DB && store.FindCollidingOutputTables(settings).Contains(table);
+                var baseline = PlaylistPropertyBaseline.Capture(table, !session.IsNewTable && settings.OperationModeLR2DB && !collidedBefore
+                    ? ResolveCustomFolderOutputDirectory(table, settings) : null, hasPreviousOutput: !session.IsNewTable && !collidedBefore);
                 return new PlaylistPropertySaveCommit(
                     baseline,
                     table,
                     settings,
                     session.IsNewTable)
                 {
-                    HeaderEdit = CreateHeaderEdit(table, values, pageUrl, headerUrl, dataUrl),
+                    HeaderEdit = CreateHeaderEdit(table, session.OriginalValues, values, pageUrl, headerUrl, dataUrl),
                     PrefixFolderSelectionMap = table.CreateValidatedCompatibleFolderPrefixRewriteMap(table.compat_prefix, values.CompatPrefix)
                 };
             }
@@ -405,13 +422,17 @@ internal sealed class PlaylistPropertySaveService
         }
     }
 
-    private static PlaylistHeaderEdit CreateHeaderEdit(BMSTable table, PlaylistPropertyValues values,
+    private static PlaylistHeaderEdit CreateHeaderEdit(BMSTable table, PlaylistPropertyValues original, PlaylistPropertyValues values,
         Uri pageUrl, Uri headerUrl, Uri dataUrl)
     {
         PlaylistHeaderFields fields = PlaylistHeaderFields.None;
         void Changed(bool changed, PlaylistHeaderFields field) { if (changed) { fields |= field; } }
         string[] order = values.IsAutoFolderSort ? [] : [.. values.FolderOrder ?? []];
-        Changed(!(table.Folder_order ?? []).SequenceEqual(order, StringComparer.Ordinal), PlaylistHeaderFields.FolderOrder);
+        // 並び順欄を編集していない保存（名前だけの保存、概要のセル編集など）は、保存済みの明示順を書き換えない。
+        // 手動順の表の表示順や、旧版が保存した空文字だけの明示順を、別項目の保存で固定・正規化しないための判定です。
+        bool folderOrderEdited = values.IsAutoFolderSort != original.IsAutoFolderSort
+            || (!values.IsAutoFolderSort && !(values.FolderOrder ?? []).SequenceEqual(original.FolderOrder ?? [], StringComparer.Ordinal));
+        Changed(folderOrderEdited && !(table.Folder_order ?? []).SequenceEqual(order, StringComparer.Ordinal), PlaylistHeaderFields.FolderOrder);
         Changed(table.folder_sort_key != values.FolderSortKey, PlaylistHeaderFields.FolderSortKey);
         Changed(table.folder_sort_ascending != values.FolderSortAscending, PlaylistHeaderFields.FolderSortAscending);
         Changed(table.ignore_folder_output != values.IgnoreFolderOutput, PlaylistHeaderFields.IgnoreFolderOutput);
@@ -671,6 +692,11 @@ internal sealed class PlaylistPropertySaveService
         pending.NeedsLr2Output = true;
         pending.NeedsSearchPathSave = baseline.IsRootFolder != pending.IsRootFolder
             || (pending.IsRootFolder && !string.Equals(pending.OldOutputDirectory, pending.NewOutputDirectory, StringComparison.OrdinalIgnoreCase));
+        // 保存後も他の表と出力先が重なる表は凍結し、ROOT登録の追加と除去を行いません。
+        if (pending.NeedsSearchPathSave && commit.Table != null && GetPlaylistStore().FindCollidingOutputTables(settings).Contains(commit.Table))
+        {
+            pending.NeedsSearchPathSave = false;
+        }
     }
 
     private void CompleteReferencePublication(PlaylistPropertyPendingOutput pending, ICollection<Exception> failures)
@@ -838,7 +864,9 @@ internal sealed class PlaylistPropertySaveService
             values,
             (store.BMSTables?.Cast<BMSTable>() ?? Enumerable.Empty<BMSTable>())
                 .Where(candidate => candidate != null && candidate != table && !string.IsNullOrWhiteSpace(candidate.Output_dir))
-                .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir));
+                .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir),
+            settings.OperationModeLR2DB && store.BMSTables?.Cast<BMSTable>().Contains(table) == true
+                ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : null);
     }
 
     private static bool IsValidForPresentation(
@@ -848,13 +876,15 @@ internal sealed class PlaylistPropertySaveService
         return IsValid(
             session.Settings,
             values,
-            session.OtherOutputDirectories);
+            session.OtherOutputDirectories,
+            session.OriginalOutputDirectory);
     }
 
     private static bool IsValid(
         CustomFolderOutputSettingsSnapshot settings,
         PlaylistPropertyValues values,
-        IEnumerable<string> otherOutputDirectories)
+        IEnumerable<string> otherOutputDirectories,
+        string originalOutputDirectory)
     {
         if (string.IsNullOrWhiteSpace(values.Name)) { return false; }
         if ((values.PageUrl != null && (!IsUrlValid(values.PageUrl) || !values.PageUrl.IsAbsoluteUri))
@@ -870,19 +900,28 @@ internal sealed class PlaylistPropertySaveService
         }
         if (settings.OperationModeLR2DB)
         {
-            if (!IsPlacementValid(settings, values, otherOutputDirectories)) { return false; }
+            if (!IsPlacementValid(settings, values, otherOutputDirectories, originalOutputDirectory)) { return false; }
             NormalizeFolderSettings(values);
         }
         return true;
     }
 
+    /// <summary>
+    /// 保存と画面の可否で共通の配置の事前検査です。編集する表の公開済みの配置（新規はなし）と候補の配置を比べ、
+    /// 配置が変わる、または新規の表が他の表と同一・親子になる場合だけ拒否します。他の表同士の既存の衝突は問いません。
+    /// </summary>
     private static bool IsPlacementValid(CustomFolderOutputSettingsSnapshot settings, PlaylistPropertyValues values,
-        IEnumerable<string> otherOutputDirectories)
+        IEnumerable<string> otherOutputDirectories, string originalOutputDirectory)
     {
         if (string.IsNullOrWhiteSpace(BMSTable.ResolveOutputDirectoryName(values.Name, values.OutputDirectory))) { return false; }
         string candidate = ManagedPlaylistOutputPlacement.Resolve(values.Name, values.OutputDirectory,
             values.CustomFolderOutputBaseName, values.IsRootFolder, settings);
-        return ManagedPlaylistOutputPlacement.IsValid((otherOutputDirectories ?? []).Append(candidate));
+        const string editedKey = "edited";
+        List<ManagedPlaylistOutputPlacement.Placement> others = [.. (otherOutputDirectories ?? []).Select(
+            (directory, index) => new ManagedPlaylistOutputPlacement.Placement(index, directory))];
+        return !ManagedPlaylistOutputPlacement.IsEditRejected(
+            string.IsNullOrWhiteSpace(originalOutputDirectory) ? others : [.. others, new(editedKey, originalOutputDirectory)],
+            [.. others, new(editedKey, candidate)]);
     }
 
     private static void NormalizeFolderSettings(PlaylistPropertyValues values)
@@ -968,7 +1007,8 @@ internal sealed class PlaylistPropertyEditSession : IDisposable
         bool isNewTable,
         CustomFolderOutputSettingsSnapshot settings,
         PlaylistPropertyValues values,
-        IReadOnlyList<string> otherOutputDirectories)
+        IReadOnlyList<string> otherOutputDirectories,
+        string originalOutputDirectory = null)
     {
         Store = store;
         Table = table;
@@ -977,6 +1017,7 @@ internal sealed class PlaylistPropertyEditSession : IDisposable
         OriginalValues = values;
         Values = values.Clone();
         OtherOutputDirectories = otherOutputDirectories ?? [];
+        OriginalOutputDirectory = originalOutputDirectory;
     }
 
     internal BMSPlaylist Store { get; }
@@ -1013,6 +1054,9 @@ internal sealed class PlaylistPropertyEditSession : IDisposable
 
     internal IReadOnlyList<string> OtherOutputDirectories { get; }
 
+    /// <summary>開いた時点の編集する表の公開済みの実効先。新規の表、LR2モードでない、未解決の追加基点ではnullです。配置が変わらない保存を、保存済みの衝突で拒否しないために使います。</summary>
+    internal string OriginalOutputDirectory { get; }
+
     internal void ThrowIfDisposed()
     {
         if (disposed)
@@ -1038,7 +1082,17 @@ internal sealed class PlaylistPropertyValues
 
     internal IReadOnlyList<string> PersistedFolderOrder { get; set; }
 
+    /// <summary>
+    /// 捕捉時の項目版（<see cref="BMSTable.PlaylistEntriesRevision"/>）です。現行性の比較には使いません。
+    /// 自分の保存結果の差分が編集開始時の表へそのまま適用されたかを、結果の元の版と照合するためだけに使います。
+    /// </summary>
     internal int EntriesRevision { get; set; }
+
+    /// <summary>
+    /// 捕捉時の所属と解決キーの版（<see cref="BMSTable.EntryLookupRevision"/>）です。現行性の比較に使います。
+    /// URLの補完など所属・解決キーを変えない項目値の更新は進めないため、利用者操作でない反映を編集の競合とみなしません。
+    /// </summary>
+    internal int EntryLookupRevision { get; set; }
 
     internal bool IsAutoFolderSort { get; set; }
 
@@ -1077,7 +1131,8 @@ internal sealed class PlaylistPropertyValues
             FolderOrder = [.. table.folder_list],
             PersistedFolderOrder = [.. table.Folder_order ?? []],
             EntriesRevision = table.PlaylistEntriesRevision,
-            IsAutoFolderSort = table.Folder_order == null || !table.Folder_order.Any(),
+            EntryLookupRevision = table.EntryLookupRevision,
+            IsAutoFolderSort = BMSTable.IsAutoFolderOrder(table.Folder_order),
             FolderSortKey = table.folder_sort_key,
             FolderSortAscending = table.folder_sort_ascending,
             IgnoreFolderOutput = table.ignore_folder_output,
@@ -1113,7 +1168,7 @@ internal sealed class PlaylistPropertyValues
             && (left.PersistedFolderOrder ?? []).SequenceEqual(
                 right.PersistedFolderOrder ?? [],
                 StringComparer.Ordinal)
-            && left.EntriesRevision == right.EntriesRevision
+            && left.EntryLookupRevision == right.EntryLookupRevision
             && left.IsAutoFolderSort == right.IsAutoFolderSort
             && left.FolderSortKey == right.FolderSortKey
             && left.FolderSortAscending == right.FolderSortAscending
@@ -1138,6 +1193,7 @@ internal sealed class PlaylistPropertyValues
             FolderOrder = [.. FolderOrder ?? []],
             PersistedFolderOrder = [.. PersistedFolderOrder ?? []],
             EntriesRevision = EntriesRevision,
+            EntryLookupRevision = EntryLookupRevision,
             IsAutoFolderSort = IsAutoFolderSort,
             FolderSortKey = FolderSortKey,
             FolderSortAscending = FolderSortAscending,

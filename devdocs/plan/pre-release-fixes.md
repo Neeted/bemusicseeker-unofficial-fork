@@ -43,19 +43,6 @@
 - 許可パスの目安: `BeMusicSeeker/ViewModels/Settings/`、`Views/Settings/Pages/`、関連テスト、[設定](../spec/runtime/settings.md)。
 
 
-### プレイリスト
-
-- 区分: 重大（保存の競合判定・出力配置・起動時の必須処理）。対象: [URL補完の反映後にプロパティを保存できない](#url補完の反映後にプロパティを保存できない)、[自動整列の表でフォルダを削除すると自動が外れる](#自動整列の表でフォルダを削除すると自動が外れる)、[内蔵の難度推定表と推薦表の更新日時が表示言語で進む](#内蔵の難度推定表と推薦表の更新日時が表示言語で進む)、[BMTキャッシュから復元した表の出力フォルダの既定](#bmtキャッシュから復元した表の出力フォルダの既定)、[区切り文字を含む出力名の一つの名前への整形](#区切り文字を含む出力名の一つの名前への整形)、[表の削除・改名の後の出力基点のfolder.date](#表の削除改名の後の出力基点のfolderdate)。
-- 契約:
-  - プロパティ保存の現行性確認は、所属と解決キーの版で行い、利用者操作でないURL補完の反映を編集の競合とみなさない。補完した値を保存で失わない。
-  - 明示順が空の表ではフォルダの削除・名前なしへの改名で明示順を作らず、フォルダ欄を編集していない保存では `FolderOrder` を変更対象にしない。空文字だけの明示順は自動として読む。
-  - 内蔵表の生成ヘッダーの識別から表示言語に依存する値を除き、言語に依存しない識別を使う。一度だけ保存済みの識別と食い違う際の日時の前進は許容する。
-  - 新規表の出力除外の既定を設定から決める処理を登録側の一か所へ寄せ、取得成功とBMT復元の両方に適用する。
-  - 旧出力名は最小の対応とする。整形後の出力先が重なった場合も起動全体を失敗させず、衝突した表を出力対象外にして表名と出力先を一回通知し、他の表とLR2同期を続ける。プロパティ保存・一括編集・表削除の事前検査は編集後または削除後の集合で判定し、衝突を解消する編集を受理する。旧階層の出力は自動で移動・削除しないことを仕様に明記し、移行処理は作らない。
-  - 表の削除・改名後の整理と同じ同期で、出力基点までの祖先の時刻を更新する。
-- 正本: [保存と出力](../spec/playlist/storage-and-export.md)、[プロパティ](../spec/ui/playlist-properties.md)、[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)、[表URL取込み](../spec/playlist/table-url-import.md)、[ローカルのリコメンド](../spec/playlist/local-recommendations.md)。
-- 許可パスの目安: `BeMusicSeeker/Models/Playlist/`、`Models/BmsLibraryInternal/Playlist/`、`ViewModels/Playlist/`、`Models/BmsLibraryInternal/Lr2/ManagedPlaylistOutputPlacement.cs`、`Lr2FolderFileDbSyncService.cs`、関連テスト、上記仕様。LR2の局所同期の単位と `Models/BmsLibraryInternal/Lr2/` を共有するため、同じファイルに触れる場合は後から統合する側が更新して整合を確認する。
-
 ### メイン画面の表示状態
 
 - 区分: 通常。受付使用中の拒否通知の単位と `MainWindow.cs` を共有するため、その統合後に着手する。対象: [起動中に拒否した操作で表示だけ変わる](#起動中に拒否した操作で表示だけ変わる)、[起動時の初期選択の設定がその場でツリー選択を変える](#起動時の初期選択の設定がその場でツリー選択を変える)、[導入しなかった操作でもツリー選択が移る](#導入しなかった操作でもツリー選択が移る)、[表単体の再読込みの完了時の選択](#表単体の再読込みの完了時の選択)、[最大化から最小化して終了したときの次回の表示](#最大化から最小化して終了したときの次回の表示)、[メニュー項目の名前の最初の下線](#メニュー項目の名前の最初の下線)、[譜面ビューアで開く操作の無通知](#譜面ビューアで開く操作の無通知)、[フォルダ統合で統合元配下の別作品も移る](#フォルダ統合で統合元配下の別作品も移る)。
@@ -141,23 +128,6 @@ v3.1.0.0の索引は `(<列> COLLATE NOCASE)` だけで、退行である。修�
 
 案は、「既定値へ戻す」は現在の確定値が既定値と異なる場合に両一覧を置き換える旨の確認を出し、削除には確認を付けるかを並べ替えなど他の即時保存操作との釣り合いで決める形である。削除だけ確認する形がv3.1.0.0との体験差を最小にする。決めた内容を[設定](../spec/runtime/settings.md)へ追記する。検証は、確認を取り消すと保存要求がなく一覧も変わらず、承認すると一回だけ保存されることを確認する。
 
-#### 区切り文字を含む出力名の一つの名前への整形
-
-v3.1.0.0では通常型の表の出力先に `Parent\Child` のような階層を保存でき、階層付きで出力していた。3.2.0.0の [BMSTable](../../BeMusicSeeker/Models/Playlist/BMSTable.cs) の `NormalizeOutputDirectoryName` は保存値全体を一つの名前として整形し、`ResolveOutputDirectoryName` と管理出力の配置判定が `ParentChild` を使う。[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)はこの整形と、旧階層の物理ファイルを自動で移動・削除しないことを定めている。これにより二つの問題が生じる。
-
-- 旧階層の `.lr2folder` が残り、通常出力先はLR2の検索ルートに残るため、LR2の選曲画面に更新されない旧フォルダと新しいフォルダが並ぶ。旧ディレクトリを手で消せば解消する。
-- 整形後に別表と同じまたは親子の実効パスになる旧保存値（例: `AB` と `A\B`）があると、起動時の検索ルート同期で [ManagedPlaylistOutputPlacement](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/ManagedPlaylistOutputPlacement.cs) の `Validate` が例外になり、毎回の起動のローカル初期化が失敗してLR2同期・BMT出力・プレイリストの必須準備が止まる。[PlaylistPropertySaveService](../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs) は編集後集合の前に現在保存済みの全表の配置を検査するため、出力先を直す保存も、無関係な表の保存・一括編集・表削除も拒否され、アプリ内で解消できない。到達には旧版で特殊な出力名を保存している必要があり、稀である。
-
-拒否の契約は合意済みのため維持し、次を決める。旧出力は、整形で実効パスが変わる表を起動時に一度だけ通知して残すか、v3.1.0.0の規則で旧実効パスを求め、初回出力の成立後に既存の移行整理へ旧→新の移行として渡すかを選ぶ。後者では旧パスが他表の現在出力を含まないことを同じ配置検査で確かめる。衝突は、起動の検索ルート同期と必須修復で起動全体を失敗させず、衝突した表を出力対象外にして表名と出力先を通知し、他表の出力とLR2同期を続ける。プロパティ保存・一括編集・表削除の事前検査は編集後または削除後の最終集合に一本化し、衝突を解消する編集を受理する（[プロパティ](../spec/ui/playlist-properties.md)の保存直前の実効パス集合の検査と一致する）。[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)の既存保存値と保存済み不正配置の節へ、起動時の扱いと解消手順を書き、マニュアルの出力先の説明も揃える。
-
-検証は、カスタムフォルダ出力のCoreテストで、旧値 `Parent\Child` と旧階層の `.lr2folder` を置いた状態から起動相当の必須修復を通し、採用した方針の通知または整理を判定する。衝突では、起動相当の出力処理が例外で終わらず衝突表を通知すること、衝突表の出力先を変える保存と無関係な表の保存が成功することを加える。
-
-#### URL補完の反映後にプロパティを保存できない
-
-起動完了の直後、URL補完の取得中に表のプロパティを開き、補完が反映された後にOKを押すと、`Playlist properties changed after editing began.` の例外全文が「予期しないエラー」として表示され保存されない。[PlaylistPropertySaveService](../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs) は開始時の編集値と現在の表を比べ、比較に項目版 `EntriesRevision` を含む。[BMSPlaylist.UrlCompletion](../../BeMusicSeeker/Models/Playlist/BMSPlaylist.UrlCompletion.cs) の補完反映はPを取らずに `CommitEntryValues` を呼び、変化があれば項目版を進める。実行時の補完は保存しないため、補完対象のある表では起動のたびに起こりうる。取得はセッションで一回で、取得が終わるまでの数秒から最大60秒に開いた場合に限られ、外部同期の開始後はPのため開けない。取消して開き直せば保存できる。[プロパティ](../spec/ui/playlist-properties.md)は項目の版による同時編集の判定を定めるが、利用者操作でない補完による版の進行を競合とみなすかは定めていない。
-
-項目版を比較から外すと所属に依存する編集の現行性確認が弱まるため避ける。案は、比較を所属と解決キーだけの版（`EntryLookupRevision`）へ替える、URL補完の反映をPの非待機取得に揃えて編集画面の準備・保存と直列にする、例外を翻訳済みの「開き直してください」通知へ替える、のいずれかである。最初の案はプロパティ保存と概要のセル編集の両方を一か所で揃えられる。検証は、編集セッションの作成後に補完を反映しても保存が成功することを確認する。
-
 #### Everythingが索引していない範囲の譜面が削除扱いになる
 
 Everything 1.5の既定で索引されないルート（exFAT・FATの外付けドライブ、ネットワークドライブ、リムーバブル）と、索引されるルートを併せて登録している場合や、ルート配下に別ドライブへのジャンクションがある場合、Everythingの走査結果にそれらの譜面が含まれず、走査のたびに削除として反映される。[EverythingFileScanner](../../BeMusicSeeker/Models/Utils/Scanning/EverythingFileScanner.cs) はルートの存在確認だけで、ブリッジ（[EverythingBridge](../../native/EverythingBridge/EverythingBridge.cpp) の `EBridge_ScanChartAndResources`）の結果を完全として返す。[LibraryFileScanPipelineOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/LibraryFileScanPipelineOwner.cs) は失敗時だけ通常走査へ代替し、[BmsLibraryInitializationService](../../BeMusicSeeker/Models/BmsLibraryInternal/Startup/BmsLibraryInitializationService.cs) の空走査保護は全体0件のときだけ働く。[FileScanParseCommitOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Scanning/FileScanParseCommitOwner.cs) が走査にない既存パスを削除とし、favorite・tag・adddateが失われ、`song.db` からも行が消える。通常走査はジャンクション先を辿るため、取得元の切替だけで集合が変わる。v3.1.0.0から同じだが、利用者データの不可逆な消失である。Everythingの索引範囲は外部製品の挙動で、ジャンクションの扱いは未確認である。
@@ -188,24 +158,6 @@ Everything 1.5の既定で索引されないルート（exFAT・FATの外付け�
 保留のパッケージを選び、導入先が空の「インストール」や、確認に「いいえ」と答えた「新規としてインストール」を実行すると、何も導入されないのにツリー選択が隣のパッケージへ移り、一覧の選択も消える。[MainWindow](../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) の一覧・操作バーとツリーの計4入口が実行前に `CaptureNextSiblingOrRoot` で移動先を決め、[MainWindowFeatureTerminals](../../BeMusicSeeker/Views/MainWindow/MainWindowFeatureTerminals.cs) が `ShouldApplyView` だけで適用する。導入先が空の正常スキップも、承認0件の新規導入も `CompletedFor` になる。資源を持つ入れ子の拒否、移動対象0件の資源のみ導入、物理失敗も同じである。v3.1.0.0からあるが、選択があれば常に有効な操作バーの「インストール」で到達しやすくなった。
 
 選択計画の適用を、対象パッケージが保留から外れた場合に限る。4入口を揃え、保留から除去する入口も同じ形か確認する。導入先なしの無言スキップへ案内を足すかは、複数選択で一部だけ導入先なしの場合の文言とともに別に判断する。[導入先推定](../spec/library/install-estimation.md)の新規導入の確認へ拒否・スキップ時の選択保持を追記する。検証は、保留2件で上記の操作の後にツリーと一覧の選択が変わらないことと、導入成功時に次の兄弟へ移ることを対で確認する。
-
-#### 表の削除・改名の後の出力基点のfolder.date
-
-通常・追加通常の表を削除した直後や、出力名が表名に追従する表を改名した直後は、出力基点の `folder` 行の `date` が実際の更新時刻とずれたまま残る。[PlaylistCustomFolderOutputMaintenanceOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistCustomFolderOutputMaintenanceOwner.cs) の `TryRemoveCustomFolder`、`CompletePreparedMigrationCleanup`、`CleanupReplacedCustomFolderOutputs` は表ディレクトリを消した後に同期項目のない `SyncPrunedRows` を行い、[Lr2FolderFileDbSyncService](../../BeMusicSeeker/Models/BmsLibraryInternal/Lr2/Lr2FolderFileDbSyncService.cs) は祖先の行を同期項目からしか作らない。改名は新先の行を書いた後に旧ディレクトリを消すため、秒の境界をまたいだときだけずれる。次回起動の必要出力の判定で揃うが、それまでにLR2を起動すると更新処理の対象になり、次回起動で基点配下の全表の確認が一回余分に走る。設定画面からの再生成の経路で成立するかは未確認である。
-
-3経路が共有する `SyncPrunedRows` で、削除した表ディレクトリを含む通常・追加通常の基点までの祖先を、整理と同じ一回の同期で時刻の更新対象に含める。配下に出力を持つ表が残らない基点の行の扱いは[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)の既存の記述に揃え、削除・移行の終端での追従を同じ仕様へ追記する。ROOT型は基点の行を持たないため対象外である。検証は、カスタムフォルダ出力の実DB・実ファイルの系列で、同じ基点の一表を削除した直後と改名した直後に基点の `date` が実更新時刻と一致し、続く必要出力の判定で再確認対象が0件であることを確認する。
-
-#### 自動整列の表でフォルダを削除すると自動が外れる
-
-フォルダ順が自動の表で、譜面を含むフォルダを削除するか名前なしへ改名すると、[BMSTable.EntryCommit](../../BeMusicSeeker/Models/Playlist/BMSTable.EntryCommit.cs) の `PrepareFolderRename`（390行付近）が明示順へ空文字を挿入し、[PlaylistPropertySaveService](../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs) が明示順の有無で自動を判定するため手動整列として読まれる。次にプロパティや概要のセルで別の項目だけを保存すると、表示順が明示順として固定され、以後のフォルダは末尾へ並ぶ。BMT出力の `folderOrder` も同じ明示順を使う。v3.1.0.0からある。
-
-案は、明示順が空の表では空文字を挿入しない形と、フォルダ欄を編集していない保存では `FolderOrder` を変更対象にしない形である。後者は別項目の保存で明示順が書き換わる他の場合も止められる。既に空文字だけを保存している表の扱いも決め、[保存と出力](../spec/playlist/storage-and-export.md)の名前なしの順序の記述を補う。検証は、フォルダ削除の後に表名だけを保存しても明示順と自動が保たれることを確認する。
-
-#### 内蔵の難度推定表と推薦表の更新日時が表示言語で進む
-
-表示言語を変えた後の最初の再読込みで、内容が同じ内蔵の難度推定表と推薦表の `last_update` が進み「更新」と判定され、BMTが再生成される。[PlaylistRecommendedTableOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistRecommendedTableOwner.cs) が表示言語のリソースから作る `org_name` を生成ヘッダーハッシュ `header_sha256` に含め、名称差が既知のハッシュ差として扱われる。[保存と出力](../spec/playlist/storage-and-export.md)と[ローカルのリコメンド](../spec/playlist/local-recommendations.md)は名称差だけでは `last_update` を進めないと定めている。v3.1.0.0からある。
-
-生成ヘッダーハッシュから表示言語に依存する値を除き、推定の種類や推薦の方針識別子と★の数値などの言語に依存しない識別を入れる。名称の保存・公開・出力は既存の名称差の処理で維持する。保存済みハッシュとは一度だけ食い違うが、その一回の日時の前進は許容する。検証は、ja-JPで取り込んだ推定表をen-USで再読込みしても更新扱いにならず、`org_name` は英語へ保存されること、推薦表は★の変化でだけ更新されることを確認する。
 
 #### 正規表現の中の縦線
 
@@ -238,7 +190,3 @@ Everything 1.5の既定で索引されないルート（exFAT・FATの外付け�
 #### 追加出力先の追加・改名後の選択
 
 追加出力先を追加または改名すると、確定直後に一覧の選択と改名欄が先頭の追加先へ移る。[SettingsDialogViewModel](../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.cs) の `RefreshCustomFolderAdditionalOutputBaseDirsFromSettings` が確定後の再同期で選択を常に先頭へ置き換える。続けて名前を打つと先頭の追加先を改名しうる。v3.1.0.0は操作した項目を選択したままで退行である。現在の選択（改名後の新パスを含む）が新しい一覧にあれば維持し、ない場合だけ先頭へ移す。BMSディレクトリ一覧の再同期も同じ形なら揃える。検証は、2件目を改名した後の選択と改名欄が改名後の項目を指すことを確認する。
-
-#### BMTキャッシュから復元した表の出力フォルダの既定
-
-プレイリストページの「新規プレイリストの出力フォルダ」の既定（`PlaylistDefaultIgnoreFolderOutput`）を変えても、beatorajaの表URL取込みで取得に失敗しBMTキャッシュから復元した表には適用されず、固定の既定でLR2フォルダが出力される。[BeatorajaBmtTableImportService](../../BeMusicSeeker/Models/Playlist/BeatorajaBmtTableImportService.cs) が `new BMSTable()`（115行付近）のコンストラクター既定のまま返し、[PlaylistExternalSyncOwner](../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) の `RegistrateExternalTablesAsync` は出力除外を設定しない。設定値を使うのは取得成功時の新規表と新規作成の表だけである。既定を変えた利用者だけに影響し、プロパティで直せる。v3.1.0.0からある。[LR2カスタムフォルダ](../spec/playlist/lr2-custom-folders.md)は新しい通常表に設定値を使うと定めている。新規表の出力除外を設定から決める処理を登録側へ寄せ、取得成功とBMT復元の両経路で同じ正規化を使い、キャッシュの変換自体は設定を知らないまま保つ。[表URL取込み](../spec/playlist/table-url-import.md)のBMT復元の節へ設定の既定に従うことを追記する。検証は、既定以外の設定のLR2連携でBMT復元した表の `ignore_folder_output` と生成された `.lr2folder` の集合を確認する。

@@ -155,6 +155,58 @@ public sealed class StartupRequiredInitializationTests
         nextPlaylist.Dispose();
     }
 
+    /// <summary>
+    /// 条件：旧版が保存した出力名が単一名化で衝突する二表（<c>AB</c> と <c>A\B</c>）、無関係な表、衝突しない旧階層 <c>Parent\Child</c> の表と旧階層の <c>.lr2folder</c>、未登録の追加基点を使う表を持つ保存済みデータで、必須初期化を通す。
+    /// 期待結果：例外にならず、衝突した二表と未登録の表だけが出力を止まり、無関係な表と衝突しない旧階層の表は生成する。衝突した共有先と旧階層のファイル・DB行・更新時刻は変わらない。必須のLR2同期は不完全にならずCompletedで終わる。
+    /// 止めた表の名前と出力先（衝突）・基点名（未登録）は不変の結果として返し、受付を保持している間は警告を表示しない（受付の解放後に通知する）。
+    /// 検出する誤り：保存済みの衝突で毎回の起動が失敗する誤り、衝突した表の共有先への書込み・整理、衝突の除外を投影失敗として数えてLR2同期を不完全にする誤り、旧階層の自動の移動・削除、
+    /// 未登録の追加基点が起動時に通知の収集先なしで例外になる誤り、受付の保持中の表示。
+    /// </summary>
+    [TestMethod]
+    public async Task RequiredInitialization_LegacyCollidingOutputsStopOnlyCollidingTablesAndReportThem()
+    {
+        using var fixture = new Fixture(collidingLayout: true);
+        using var semaphore = new SemaphoreSlim(1, 1);
+        var owner = new StartupLibraryInitializationWorkflowOwner(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
+        var runtime = new GatedRuntime(fixture.Library, fixture.Playlist);
+        runtime.Release.TrySetResult();
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs();
+        int shownWhileHolding = 0;
+        dialogs.MessageObservedAsync = _ => { Interlocked.Increment(ref shownWhileHolding); return Task.CompletedTask; };
+        StartupRequiredInitializationResult result;
+        using (StartupRequiredOperationLease accepted = owner.AcquireRequiredOperation(fixture.Library.OperationAdmission,
+            fixture.Library.Lr2Synchronization.PlaylistOperationAdmission))
+        {
+            result = await owner.InitializeRequiredAsync(fixture.Library, fixture.Playlist,
+                new Lr2SongDbSyncWorkflowOwner(runtime), PerformanceInteraction.Start("test_required_colliding"), accepted.Capability, dialogs, leapYearRepairApproval: new(fixture.SongDbPath), repairNotificationObserver: _ => { }, scoreNotificationObserver: fixture.CaptureScoreNotification);
+        }
+
+        Assert.IsNull(result.Lr2Failure, "衝突による除外でLR2同期を失敗させません。");
+        Assert.AreEqual(0, shownWhileHolding, "受付の保持中に警告を表示しません。");
+        string shared = Path.Combine(fixture.NormalOutputBase, "AB");
+        PlaylistStoppedOutput[] collisions = [.. result.StoppedOutputs!.Where(stopped => stopped.Reason == PlaylistOutputStopReason.Collision)];
+        CollectionAssert.AreEquivalent(new[] { "CollideA", "CollideB" }, collisions.Select(stopped => stopped.TableName).ToArray());
+        Assert.IsTrue(collisions.All(stopped => string.Equals(stopped.OutputDirectory, shared, StringComparison.OrdinalIgnoreCase)));
+        PlaylistStoppedOutput unregistered = result.StoppedOutputs!.Single(stopped => stopped.Reason == PlaylistOutputStopReason.UnregisteredBase);
+        Assert.AreEqual("Orphan", unregistered.TableName);
+        Assert.AreEqual("Missing", unregistered.BaseName);
+        Assert.AreEqual(3, result.StoppedOutputs!.Count, "止めた表だけを返します。");
+        Assert.AreEqual(2, StartupLibraryInitializationWorkflowOwner.CreateStoppedOutputNotifications(result.StoppedOutputs).Count, "理由ごとに一件です。");
+        foreach (string generated in new[] { "Unrelated", "ParentChild" })
+        {
+            Assert.IsTrue(Directory.EnumerateFiles(Path.Combine(fixture.NormalOutputBase, generated), "*.lr2folder", SearchOption.AllDirectories).Any(), generated + "は生成します。");
+        }
+        Assert.IsFalse(Directory.Exists(Path.Combine(fixture.NormalOutputBase, "Orphan")));
+        foreach ((string path, string text) in new[] { (fixture.LegacyHierarchyFile!, "legacy hierarchy"), (fixture.SharedFile!, "shared preserved") })
+        {
+            Assert.AreEqual(text, File.ReadAllText(path), "旧階層・衝突先は自動で移動・削除・書換えをしません。");
+            Assert.AreEqual(new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc), File.GetLastWriteTimeUtc(path));
+        }
+        using LR2SongDBExtended readback = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDbPath).OpenSongDbReadOnly();
+        Assert.IsNull(readback.Find<LR2SongDB.folder>(fixture.SharedFile!), "衝突した表の共有先の行を作りません。");
+        Assert.AreEqual("Completed", readback.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName).status);
+    }
+
     /// <summary>必須スコアの実行開始で終了要求を起こし、元の取消・同一要求の終端と両受付解放を確認します。</summary>
     /// <remarks>実score読込みから終了要求を発生させ、後続出力とLR2を開始しない取消境界を確認する。</remarks>
     [TestMethod]
@@ -686,7 +738,7 @@ public sealed class StartupRequiredInitializationTests
     {
         private readonly TestDatabaseScope scope = TestDatabaseScope.Create();
         internal ApplicationDatabaseScope DatabaseScope => scope.DatabaseScope;
-        internal Fixture(bool blockBmtOutput = false, bool failLr2 = false, bool lr2Enabled = true, bool outputOutsideScanRoot = false, bool withSavedScore = false)
+        internal Fixture(bool blockBmtOutput = false, bool failLr2 = false, bool lr2Enabled = true, bool outputOutsideScanRoot = false, bool withSavedScore = false, bool collidingLayout = false)
         {
             string root = Path.Combine(scope.DirectoryPath, "Songs");
             Directory.CreateDirectory(root);
@@ -711,6 +763,7 @@ public sealed class StartupRequiredInitializationTests
             }
             BMSTableEntry entry = PlaylistTestFixture.CreateEntry(content.Md5, "Folder");
             entry.playlist_id = table.playlist_id;
+            NormalOutputBase = normalOutputBase;
             using (LR2SongDBExtended setup = DatabaseScope.OpenSongWrite(SongDbPath))
             {
                 setup.RunInTransaction(() =>
@@ -718,6 +771,7 @@ public sealed class StartupRequiredInitializationTests
                     setup.CreateTable<LR2SongDB.folder>();
                     setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                     setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                    if (collidingLayout) { SeedCollidingLayout(setup, content.Md5, normalOutputBase); }
                     if (failLr2)
                     {
                         setup.Execute("CREATE TRIGGER fail_lr2 BEFORE INSERT ON lr2_song_db_sync_status WHEN NEW.status = 'Running' BEGIN SELECT RAISE(ABORT, 'lr2-only-failure'); END;");
@@ -729,7 +783,8 @@ public sealed class StartupRequiredInitializationTests
             File.WriteAllText(configPath, "<config><system><customfolder>0</customfolder><titleflash>0</titleflash></system><jukebox><path>"
                 + System.Security.SecurityElement.Escape(root + Path.DirectorySeparatorChar) + "</path></jukebox></config>");
             var config = new LR2Config(configPath);
-            string[] scanRoots = outputOutsideScanRoot ? [root] : [root, OutputDirectory];
+            // 旧版の通常出力基点は、LR2の検索ルートの配下に置かれていた配置を再現します。
+            string[] scanRoots = collidingLayout ? [root, OutputDirectory, normalOutputBase] : outputOutsideScanRoot ? [root] : [root, OutputDirectory];
             config.SetBMSSearchDirectories(scanRoots);
             config.Save(config.ConfigFilePath);
             var configOwner = new Lr2ConfigOwner(config);
@@ -778,6 +833,40 @@ public sealed class StartupRequiredInitializationTests
                 }, settings: settings, uiScheduler: PlaylistScheduler);
             Playlist.StartupBackgroundTaskScheduler = (_, _, _, _) => { OptionalRegistrations++; return true; };
         }
+        /// <summary>
+        /// 旧版が保存した出力名を持つ表と物理出力を用意します。
+        /// 出力名 <c>AB</c> と <c>A\B</c>（単一名化で同一の出力先）の衝突する二表、無関係な表、衝突しない旧階層 <c>Parent\Child</c>（単一名では <c>ParentChild</c>）の表と旧階層の <c>.lr2folder</c>、
+        /// 登録されていない追加基点を使う表です。旧階層と衝突先の旧ファイルは、更新時刻を過去の固定値にして、触れたかを判定できるようにします。
+        /// </summary>
+        private void SeedCollidingLayout(LR2SongDBExtended setup, string md5, string normalOutputBase)
+        {
+            BMSTable Extra(int id, string name, string? outputDirectory, string? baseName = null)
+            {
+                var extra = new BMSTable { playlist_id = id, name = name, symbol = "X", Folder_order = ["Folder"], custom_folder_output_base_name = baseName };
+                extra.output_dir = outputDirectory;
+                BMSTableEntry extraEntry = PlaylistTestFixture.CreateEntry(md5, "Folder");
+                extraEntry.playlist_id = id;
+                setup.InsertOrReplace(extra, typeof(LR2SongDBExtended.playlist));
+                setup.InsertOrReplace(extraEntry, typeof(LR2SongDBExtended.playlist_entry));
+                return extra;
+            }
+            Extra(9911, "CollideA", "AB");
+            Extra(9912, "CollideB", @"A\B");
+            Extra(9913, "Unrelated", null);
+            Extra(9914, "LegacyHierarchy", @"Parent\Child");
+            Extra(9915, "Orphan", null, "Missing");
+            LegacyHierarchyFile = Path.Combine(normalOutputBase, "Parent", "Child", "0000.lr2folder");
+            SharedFile = Path.Combine(normalOutputBase, "AB", "0000.lr2folder");
+            foreach (string path in new[] { LegacyHierarchyFile, SharedFile })
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, path == SharedFile ? "shared preserved" : "legacy hierarchy");
+                File.SetLastWriteTimeUtc(path, new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc));
+            }
+        }
+        internal string NormalOutputBase { get; }
+        internal string? LegacyHierarchyFile { get; private set; }
+        internal string? SharedFile { get; private set; }
         private readonly List<Action> scoreNotifications = [];
         internal void CaptureScoreNotification(ScoreAdoptionNotification? notification)
         {

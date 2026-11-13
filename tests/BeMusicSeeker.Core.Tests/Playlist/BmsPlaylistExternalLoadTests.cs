@@ -50,40 +50,6 @@ public sealed partial class BmsPlaylistExternalLoadTests
         }
     }
 
-    /// <summary>新規外部表を実JSONから取得すると利用者指定の複合出力除外maskを採用し、空表作成との設定接続差を検出します。</summary>
-    [TestMethod]
-    [TestCategory("Playlist")]
-    public async Task LoadExternalTableAsync_NewExternalTableUsesPlaylistDefaultIgnoreFolderOutputSetting()
-    {
-        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
-        LR2SongDBExtended.playlist.CustomFolderType expectedMask = LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
-            | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder;
-        testSettings.PlaylistDefaultIgnoreFolderOutput = (int)expectedMask;
-        string tempDirectory = Path.Combine(migrationWorkspace.RootDirectory, "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
-        {
-            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
-            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
-            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"DefaultMaskImport\",\"symbol\":\"D\",\"data_url\":\"./score.json\"}"));
-            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
-
-            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
-            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, lr2PlaylistFolderSynchronization: new TestLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath), uiScheduler: new TestUiScheduler(() => null), settings: testSettings);
-
-            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
-
-            Assert.AreEqual(expectedMask, table.ignore_folder_output);
-        }
-        finally
-        {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
-        }
-    }
-
     /// <summary>既存表を再取得すると新規表の出力除外設定より既存表のmaskを優先し、利用者設定の上書きを防ぎます。</summary>
     [TestMethod]
     [TestCategory("Playlist")]

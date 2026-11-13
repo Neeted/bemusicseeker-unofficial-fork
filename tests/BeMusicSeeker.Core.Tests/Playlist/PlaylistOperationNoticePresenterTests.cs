@@ -39,7 +39,7 @@ public sealed class PlaylistOperationNoticePresenterTests
         PlaylistOperationNotificationOwner.OperationNotificationSeverity error = PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error;
 
         await presenter.BeginRequest(Receipt(
-            Notice(nameof(Resources.Warn_PlaylistMutationBusy), nameof(Resources.MessageBoxTitle_Warning), warning),
+            Notice(nameof(Resources.Warn_LibraryOperationBusy), nameof(Resources.MessageBoxTitle_Warning), warning),
             Notice(nameof(Resources.Msg_failed_add_playlist_entry), nameof(Resources.Error), error),
             Notice(nameof(Resources.Warn_PlaylistMutationStale), nameof(Resources.MessageBoxTitle_Warning), warning)),
             "test route");
@@ -51,11 +51,40 @@ public sealed class PlaylistOperationNoticePresenterTests
         StringAssert.Contains(notices.Messages[0].MessageBoxText, string.Format(Resources.Notice_GroupedCount, 2));
         StringAssert.Contains(
             notices.Messages[0].MessageBoxText,
-            string.Join(" ", Resources.Warn_PlaylistMutationBusy.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
+            string.Join(" ", Resources.Warn_LibraryOperationBusy.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)),
             "まとめた組は、本文の改行を空白へ畳んで一覧にします。");
         Assert.AreEqual(Resources.Msg_failed_add_playlist_entry, notices.Messages[1].MessageBoxText, "一件だけの組は本文のままです。");
         Assert.AreEqual(MessageBoxImage.Hand, notices.Messages[1].Icon);
         Assert.IsNull(notices.Messages[1].Owner, "Owner は窓口の解決に任せます。");
+    }
+
+    /// <summary>
+    /// 条件：出力を止めた表の警告（6表、本文が200文字を超える）と、見出しが同じ別の警告（未登録の追加基点）を同じ領収書に入れる。
+    /// 期待結果：二件を別の通知として表示し、衝突の警告は全表の「表名: 出力先」を省略せず全文で出す。
+    /// 検出する誤り：同じ見出しの他の警告とまとめられる誤り、一覧が標本として省略される誤り。
+    /// </summary>
+    [TestMethod]
+    public async Task Request_StoppedOutputsWarningIsStandaloneAndNotTruncated()
+    {
+        using var notices = new PlaylistNoticeProbe(() => false);
+        var presenter = new PlaylistOperationNoticePresenter(notices.Dialogs, () => false);
+        PlaylistStoppedOutput[] stopped = [.. Enumerable.Range(1, 6).Select(index =>
+            new PlaylistStoppedOutput("Table " + index, @"C:\Output\Very\Long\Shared\Directory\Name\" + index, PlaylistOutputStopReason.Collision))];
+        var collision = new PlaylistOperationNotificationOwner.OperationNotification(
+            PlaylistOperationNotificationOwner.CreateStoppedOutputsText(stopped), nameof(Resources.Warning),
+            PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, isStoppedOutputsWarning: true);
+        var unregistered = new PlaylistOperationNotificationOwner.OperationNotification(
+            PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Warn_UnregisteredCustomFolderOutputBase), "Orphan", "Missing"),
+            nameof(Resources.Warning), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning);
+
+        await presenter.BeginRequest(Receipt(unregistered, collision), "test route");
+        await notices.WaitForRequestsAsync(2);
+
+        Assert.AreEqual(2, notices.Messages.Count);
+        string full = collision.FormatMessage();
+        Assert.IsTrue(full.Length > 200);
+        Assert.AreEqual(1, notices.Messages.Count(message => message.MessageBoxText == full), "衝突の警告は全文のまま別の一件で出ます。");
+        Assert.IsFalse(notices.Messages.Any(message => message.MessageBoxText.Contains(string.Format(Resources.Notice_GroupedCount, 2), StringComparison.Ordinal)));
     }
 
     /// <summary>先行の組の表示が完了するまで次の組を依頼せず、完了後に続ける。表示の完了を待たずに全組を依頼する誤りを検出する。</summary>
@@ -66,7 +95,7 @@ public sealed class PlaylistOperationNoticePresenterTests
         var presenter = new PlaylistOperationNoticePresenter(notices.Dialogs, () => false);
 
         await presenter.BeginRequest(Receipt(
-            Notice(nameof(Resources.Warn_PlaylistMutationBusy), nameof(Resources.MessageBoxTitle_Warning), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning),
+            Notice(nameof(Resources.Warn_LibraryOperationBusy), nameof(Resources.MessageBoxTitle_Warning), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning),
             Notice(nameof(Resources.Msg_failed_add_playlist_entry), nameof(Resources.Error), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error)),
             "test route");
         await notices.WaitForRequestsAsync(1);
@@ -114,7 +143,7 @@ public sealed class PlaylistOperationNoticePresenterTests
                 var presenter = new PlaylistOperationNoticePresenter(notices.Dialogs, () => false);
 
                 await presenter.BeginRequest(Receipt(
-                    Notice(nameof(Resources.Warn_PlaylistMutationBusy), nameof(Resources.MessageBoxTitle_Warning), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning),
+                    Notice(nameof(Resources.Warn_LibraryOperationBusy), nameof(Resources.MessageBoxTitle_Warning), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning),
                     Notice(nameof(Resources.Msg_failed_add_playlist_entry), nameof(Resources.Error), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error)),
                     "test route");
                 // 失敗した組の診断は、後続の組の依頼より前に残るため、後続の組の到達を終端の根拠にします。
@@ -201,7 +230,7 @@ public sealed class PlaylistOperationNoticePresenterTests
             {
                 session.Add(Notice(nameof(Resources.Msg_failed_add_playlist_entry), nameof(Resources.Error), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
                 Assert.IsFalse(session.TakeReceipt().IsEmpty);
-                session.Add(Notice(nameof(Resources.Warn_PlaylistMutationBusy), nameof(Resources.MessageBoxTitle_Warning), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning));
+                session.Add(Notice(nameof(Resources.Warn_LibraryOperationBusy), nameof(Resources.MessageBoxTitle_Warning), PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning));
             }
 
             string log = ApplicationLoggingTestScope.ReadFileLog(logPath);

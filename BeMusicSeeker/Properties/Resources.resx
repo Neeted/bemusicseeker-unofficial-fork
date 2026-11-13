@@ -538,10 +538,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Msg_failed_load_playlist" xml:space="preserve">
     <value>プレイリスト読み込みに失敗しました。</value>
   </data>
-  <data name="Warn_PlaylistMutationBusy" xml:space="preserve">
-    <value>別のプレイリスト処理が実行中のため、操作を開始できません。
-処理の完了後に再実行してください。</value>
-  </data>
   <data name="Warn_PlaylistMutationStale" xml:space="preserve">
     <value>表示中のプレイリスト対象が更新されたか、既に削除されています。
 現在の対象を選択してから再実行してください。</value>
@@ -3985,6 +3981,9 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   </data>
   <data name="Error_ManagedPlaylistOutputOverlap" xml:space="preserve">
     <value>管理プレイリストの出力先が同一または親子になっています。重ならない出力先を指定してください。</value>
+  </data>
+  <data name="Warn_PlaylistOutputOverlapStopped" xml:space="preserve">
+    <value>出力先が他の表と重なるため、次の表のLR2フォルダを出力していません。出力名を変更してください。</value>
   </data>
   <data name="Settings_confirm_discard_conflicting_candidates" xml:space="preserve">
     <value>{0} の未確定編集を取り消して進めますか？ 保存済みの設定と未完了の処理は保持します。</value>

@@ -20,6 +20,13 @@ public partial class BMSTable
     /// <summary>所属と解決キーだけの版です。memo・URL・level の更新で所持数を再走査しません。</summary>
     internal int EntryLookupRevision => entryLookupRevision;
 
+    /// <summary>
+    /// 明示順が自動整列として読まれるかを判定します。空の順序と、空文字だけの順序は自動です。
+    /// 名前なしへの所属変更が旧版で作った <c>[""]</c> を手動順と区別しない、読取り・保存・出力・改名の共通の規則です。
+    /// 空文字以外を含む順序（<c>["", "A"]</c> を含む）は手動です。
+    /// </summary>
+    internal static bool IsAutoFolderOrder(IEnumerable<string> order) => order == null || order.All(string.IsNullOrEmpty);
+
     private void RebuildEntryMembership()
     {
         entryOrder.Clear();
@@ -381,6 +388,8 @@ public partial class BMSTable
         EntryMutation mutation = PrepareEntryMutation(removals, additions, observer,
             preserveEmptyFoldersAfterRemoval: false, replaceRemovedDestinations: false);
         List<string> order = [.. _Folder_order ?? []];
+        // 自動整列の表では、改名・削除で明示順を作らず、空文字だけの記録も書き換えない。
+        if (IsAutoFolderOrder(order)) { return mutation; }
         if (string.IsNullOrEmpty(after))
         {
             bool hasRootEntries = members.Any(entry => entry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER)

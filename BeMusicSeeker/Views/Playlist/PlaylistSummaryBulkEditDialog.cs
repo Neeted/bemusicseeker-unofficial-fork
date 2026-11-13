@@ -184,7 +184,7 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
             "PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization").ObserveFault("PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization");
     }
 
-    private Task RunApplyAsync(Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply, Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName, Func<Task<bool>> confirm = null)
+    private Task RunApplyAsync(Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task<bool>> apply, Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName, Func<Task<bool>> confirm = null)
     {
         if (DataContext is not PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulkEditDialogViewModel
             || Interlocked.CompareExchange(ref applyInProgress, 1, 0) != 0)
@@ -200,7 +200,7 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
 
     private async Task RunApplyCoreAsync(
         PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulkEditDialogViewModel,
-        Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply,
+        Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task<bool>> apply,
         Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply,
         string logName,
         TaskCompletionSource<bool> completion,
@@ -217,8 +217,11 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
                 {
                     return;
                 }
-                await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false));
-                afterApply?.Invoke(bulkEditDialogViewModel);
+                // 受付（P）の競合で拒否された場合は、管理主体が副作用なしで案内済みです。入力を保ち、汎用の失敗にも重ねません。
+                if (await Task.Run(async () => await apply(bulkEditDialogViewModel).ConfigureAwait(false)))
+                {
+                    afterApply?.Invoke(bulkEditDialogViewModel);
+                }
             }
             catch (Exception ex)
             {
@@ -278,6 +281,11 @@ public partial class PlaylistSummaryBulkEditDialog : ThemedWindow
     {
         if (base.DataContext is not PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulkEditDialogViewModel
             || bulkEditDialogViewModel.ExternalSyncOption?.Value is not bool enabled)
+        {
+            return false;
+        }
+        // 確認の前に受付の可否を検査し、使用中なら確認を出さずに案内します。
+        if (bulkEditDialogViewModel.RejectExternalSyncApplyIfPlaylistBusy())
         {
             return false;
         }

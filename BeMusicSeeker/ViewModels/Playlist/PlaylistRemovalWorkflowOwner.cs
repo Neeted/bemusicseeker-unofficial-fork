@@ -70,6 +70,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
         {
             throw new ArgumentNullException(nameof(applySelectionBeforeMutation));
         }
+        if (await RejectIfBusyBeforeConfirmationAsync("playlist remove table busy notification").ConfigureAwait(true)) { return; }
         if (!await ConfirmAsync(
                 BeMusicSeeker.Properties.Resources.Msg_remove_playlist,
                 "Playlist table removal confirmation")
@@ -88,6 +89,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
         {
             return;
         }
+        if (await RejectIfBusyBeforeConfirmationAsync("playlist remove summary rows busy notification").ConfigureAwait(true)) { return; }
         if (!await ConfirmAsync(
                 BeMusicSeeker.Properties.Resources.Msg_remove_playlist,
                 "Playlist summary removal confirmation")
@@ -107,6 +109,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
         }
 
         string folderName = folder.FolderName;
+        if (await RejectIfBusyBeforeConfirmationAsync("playlist remove folder busy notification").ConfigureAwait(true)) { return; }
         if (!await ConfirmAsync(
                 BeMusicSeeker.Properties.Resources.Msg_remove_folder,
                 "Playlist folder removal confirmation")
@@ -138,6 +141,21 @@ internal sealed class PlaylistRemovalWorkflowOwner
         {
             await noticePresenter.BeginRequest(notificationSession.TakeReceipt(), "playlist remove folder notification").ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// 確認の前に、受付（P）の可否を取得・予約せずに読み取ります。競合する見込みなら副作用なしで案内し、trueを返します（確認は出しません）。
+    /// 確認の間も他の操作が受付を取得できるため、確認後の実際の取得で競合した場合は取得側が一回案内します。
+    /// </summary>
+    private async Task<bool> RejectIfBusyBeforeConfirmationAsync(string routeName)
+    {
+        // 未接続の保存先は競合ではないため案内せず、従来どおり確認以降の経路へ進めます。
+        BMSPlaylist store = playlistStoreProvider();
+        if (store?.IsPlaylistMutationBusyForExplicitRequest != true) { return false; }
+        await noticePresenter.BeginRequest(
+            PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create([PlaylistOperationNotices.Busy()]),
+            routeName).ConfigureAwait(false);
+        return true;
     }
 
     private async Task<bool> ConfirmAsync(string message, string routeName)
@@ -178,7 +196,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
         IDisposable admission = tryBeginPlaylistMutation != null
             ? tryBeginPlaylistMutation(store, kind)
             : store.TryEnterPlaylistMutation(out IDisposable lease) ? lease : null;
-        if (admission == null)
+        if (admission == null && store.CanAnnouncePlaylistMutationBusy)
         {
             notificationSession.Add(PlaylistOperationNotices.Rejection(kind, isBusy: true));
         }
@@ -216,6 +234,8 @@ internal sealed class PlaylistRemovalWorkflowOwner
         List<Exception> failures = [];
         CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+        // 削除前の集合で出力先が他の表と重なっていた表は、出力状態だけを消します。集合は一度だけ求めて全表へ渡します。
+        IReadOnlySet<BMSTable> collidingBefore = settings.OperationModeLR2DB ? store.FindCollidingOutputTables(settings) : new HashSet<BMSTable>();
         List<BMSTable> prepared = [];
         foreach (BMSTable requested in requestedTables)
         {
@@ -228,7 +248,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
             }
             try
             {
-                await Task.Run(() => PrepareTableRemoval(store, table, settings, authority)).ConfigureAwait(false);
+                await Task.Run(() => PrepareTableRemoval(store, table, settings, authority, collidingBefore)).ConfigureAwait(false);
                 prepared.Add(table);
             }
             catch (Exception failure) { failures.Add(failure); }
@@ -242,7 +262,7 @@ internal sealed class PlaylistRemovalWorkflowOwner
         catch (Exception failure) { failures.Add(failure); }
         foreach (BMSTable table in removed)
         {
-            try { PublishRemovedTable(table, settings, notificationSession); }
+            try { PublishRemovedTable(table, settings, notificationSession, collidingBefore); }
             catch (Exception failure) { failures.Add(failure); }
         }
         try { await store.BmtOutput.RemoveTablesAsync(removed, "playlist_remove_tables", authority).ConfigureAwait(false); }
@@ -257,20 +277,22 @@ internal sealed class PlaylistRemovalWorkflowOwner
     }
 
     private static void PrepareTableRemoval(BMSPlaylist playlistStore, BMSTable table,
-        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability)
+        CustomFolderOutputSettingsSnapshot settings, LibraryFileMutationCapability capability, IReadOnlySet<BMSTable> collidingBefore)
     {
         if (settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(table.Output_dir))
         {
-            playlistStore.RemoveCustomFolder(table, settings, capability);
+            playlistStore.RemoveCustomFolder(table, settings, capability, collidingBefore);
         }
     }
 
     private void PublishRemovedTable(
         BMSTable table,
         CustomFolderOutputSettingsSnapshot settings,
-        PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession)
+        PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession,
+        IReadOnlySet<BMSTable> collidingBefore)
     {
-        if (settings.OperationModeLR2DB && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
+        // 削除前に出力先が他の表と重なっていた表の登録は、共有している可能性があるため残します。
+        if (settings.OperationModeLR2DB && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir) && !collidingBefore.Contains(table))
         {
             Lr2ConfigOwner owner = lr2ConfigProvider() ?? throw new InvalidOperationException("LR2 config owner is not configured.");
             string removed = ResolveCustomFolderOutputDirectory(table, settings, notificationSession);

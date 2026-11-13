@@ -101,9 +101,9 @@ JSONの数値の `level_order` / `folder_order` と、データの数値の `lev
 
 #### LR2の出力先を変える保存
 
-LR2の管理出力先を変える保存は、副作用の前に[出力配置条件](lr2-custom-folders.md#出力先と事前検査)を満たす必要があります。保存済みの包含配置への明示的な出力・移行・削除も同じ条件で拒否し、正本の保存や出力先の自動修正を行いません。
+LR2の管理出力先を変える保存は、副作用の前に[出力配置条件](lr2-custom-folders.md#出力先と事前検査)を満たす必要があります。配置が変わる表または新規の表が他の表と重なる場合だけ拒否し、他の表同士の保存済みの衝突は問いません。保存済みの衝突に残る表は、出力・移行・出力削除・DB行の整理・ROOT登録の追加と除去を行わず凍結します。正本の保存や出力先の自動修正は行いません。
 
-配置を変えない項目の追加・削除は、DBを先に確定します。付随するLR2出力が包含配置のため拒否された場合は、編集済みのDB・モデルを保持し、確定後の出力失敗として通知します。
+配置を変えない項目の追加・削除は、DBを先に確定します。保存済みの衝突に残る表の付随するLR2出力は止め、編集済みのDB・モデルを保持して、止めた表を診断ログだけに残します（警告は表の属性の明示保存・明示の再読込み・外部登録・SQL復元に限ります）。出力以外の付随する処理の失敗は、確定後の失敗として通知します。
 
 ### 保存済みヘッダーの配送
 
@@ -292,6 +292,8 @@ DB保存だけでは再読込みの成功になりません。DB接続と短い�
 
 内蔵表の再読込みの名前と実力の更新通知は[内蔵リコメンド](local-recommendations.md#uriui取消と保存)に従います。名前の差だけでも、DB保存と画面の公開を行います。
 
+内蔵の難度推定表・推薦表の生成ヘッダーハッシュには、表示言語のリソースから作る名称（`org_name`）を含めません。推定の種類（ランプ）、推薦の方針の識別子、★の数値（Invariant書式）、`symbol`、並び順など、言語に依存しない値だけで作ります。表示言語を切り替えた最初の再読込みでも、内容が同じなら更新と判定せず、`last_update` を進めずBMTを再生成しません。名称は既存の名称差の処理のとおりヘッダーへ保存して公開します。この規則の導入後の最初の再読込みは、保存済みのハッシュと一度だけ食い違い、その一回に限り日時が進むことを許容します。
+
 内蔵表の再生成では、未修飾の生成ヘッダーハッシュとデータハッシュを確定した後、保存済みの互換接頭辞を、未公開の完成した所属と明示フォルダ順へ、既存の共通変換で一度適用します。リコメンドの内容が変わる再読込みでも保存済みの接頭辞を保ち、旧内容の有効な所属を残したり、接頭辞を生成ハッシュへ混ぜたりしません。同じ入力・設定での次の通常の再読込みでは、不要な保存とBMTの再生成を省略します。BMTでは既存のタグと互換レベルを使い、保存した接頭辞を除いた名前を出力します。
 
 フォルダの作成・改名、項目の追加・削除など構成の手動編集では、更新日時を編集時刻へ更新します。名前、記号、URL、出力先、整列・順序、接頭辞だけの保存では更新しません。接頭辞に伴う表示名の変換も、項目の所属の変更ではありません。
@@ -323,6 +325,9 @@ DB読込み、復元、JSON・BMTの取込み、外部同期、出力、並べ�
 - 名前なしに指定済みの順序があれば尊重し、未指定の場合だけ先頭へ置きます。
 - 空の通常フォルダを名前なしへ改名しても、空ノードやダミーは作りません。名前なしの最後の項目を移動・削除した後もノードを残しません。
 - 非表示になった名前なしの明示順序の記録は残してよく、再出現時に利用できます。読込みだけで一般の並べ替えや保存順序を書き換えません。
+- 明示順が自動整列として読まれる規則は一つです。空の順序と、空文字だけの順序（旧版が名前なしへの所属変更で保存した `[""]`）は自動で、`["", "A"]` のように空文字以外を含む順序は手動です。プロパティ画面の自動判定、フォルダの削除・名前なしへの改名での「明示順が空」の判定、BMT出力の入力指紋の `folderOrder` が、同じ規則に従います。
+- 自動整列の表では、フォルダの削除・名前なしへの改名で明示順を作らず、保存済みの空文字だけの順序も書き換えません。手動順の表での名前なしへの改名は、名前なしに指定済みの順序がなければ先頭へ置く既存の挙動を保ちます。
+- 並び順・自動指定のフォルダ欄を編集していない保存（プロパティの別項目の保存、概要のセル編集）は、保存済みの明示順を変更対象にしません。手動順の表の表示順を、別項目の保存で明示順として固定しません。
 
 通常の名前への改名は、元の順序を保持します。保存済みの非空の空白名も通常の所属として、明示順序・並べ替え・空フォルダの保持を維持します。空の通常フォルダを空文字へ改名するとき、別の所属である空白名にある項目を、空文字の所属の存在とは数えません。
 
@@ -650,6 +655,8 @@ LR2連携での旧配置の整理と、スタンドアロンでの扱いは[LR2�
 | プロパティURLのnull解除、相対参照、外部同期の必須条件 | [`PlaylistPropertySaveService`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs)、[`PlaylistPropertyDialogViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertyDialogViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_UrlAcceptancePreservesClearRelativeSourcesAndSyncRequirements`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs): 同期OFFの解除・片側指定・相対参照、同期ONの必須URL・絶対の基点、相対Pageの拒否時のDB不変。画面の操作は[プロパティ画面の対応表](../ui/playlist-properties.md#実装とテストの対応)が分担する。 |
 | 互換接頭辞の変更と選択・詳細の追従 | `PlaylistPropertySaveService`、`PlaylistWorkspaceViewModel` | `PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_PrefixReceiptUpdatesExistingDetailAndLaterRequests`: 接頭辞の変更への詳細の追従と後続の編集。同 `PlaylistPropertySave_NewExplicitSelectionDoesNotApplyOldPrefixMap`: 確定後に明示的に選んだ項目へ旧対応を再適用しないこと。 |
 | 内蔵リコメンドの保存済み接頭辞と生成内容の変更 | [`PlaylistRecommendedTableOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistRecommendedTableOwner.cs)、`BMSTable.PrepareHeaderMutation`・`ApplyEntryMutation` | [`PlaylistRecommendedTableOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs) の `LoadWalkureTable_RecommendedPreservesBasePropertiesAndIgnoresLegacyParameters`: 利用者属性と完成した所属・明示順。`ReloadPlaylistTargetsAsync_SavedRecommendedPrefixSurvivesSelectedScoreDatabaseChange`: スコアDBの切替を通した再読込みで、接頭辞付きの所属・明示順・未修飾のハッシュ・DB・BMTが揃い、次回の保存・出力を省略すること。 |
+| 空文字だけの明示順の読取りと、フォルダの削除・名前なしへの改名 | [`BMSTable.IsAutoFolderOrder`](../../../BeMusicSeeker/Models/Playlist/BMSTable.EntryCommit.cs)、`BMSTable.PrepareFolderRename`、[`BmtTableExportService.BuildProjectionInputSha256`](../../../BeMusicSeeker/Models/Playlist/BmtTableExportService.cs) | [`PlaylistWorkspacePersistenceCommandTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) の `PlaylistFolderMutation_AutoOrderTableKeepsEmptyExplicitOrder`: 自動整列の表でフォルダを削除・名前なしへ改名しても、メモリ・DB・再読込みで明示順が空のままで、続く名前だけの保存でも自動のまま。`PlaylistPropertySave_NameOnlyKeepsStoredFolderOrder`: `[""]` は自動、`["", "A"]` は手動で、BMT出力の入力の `folderOrder` が同じ規則に従う。手動順の表での名前なしへの挿入は `PlaylistFolderRename_NewInputUsesCanonicalUnnamedMembership` が維持する。 |
+| 内蔵表の識別から表示言語を除く | [`PlaylistRecommendedTableOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistRecommendedTableOwner.cs) | [`PlaylistRecommendedTableOwnerTests.ReloadPlaylistTargetsAsync_LanguageChangeDoesNotUpdateBuiltInTable`](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistRecommendedTableOwnerTests.cs)（Windows、非並列）: ja-JPで取り込んだ推定表・推薦表をen-USで再読込みしても更新扱いにならず、`last_update` と `header_sha256` はDBで変わらず、`org_name` は英語へ保存される。★の変化による推薦表の更新は Core の同名クラスの `ReloadPlaylistTargetsAsync_SavedRecommendedPrefixSurvivesSelectedScoreDatabaseChange` が維持する。 |
 | 内蔵表の名前の差と不要な保存の省略 | `PlaylistAggregatePersistenceOwner`、`PlaylistExternalSyncOwner` | `PlaylistReloadMergeTests`: 名前の差のヘッダー保存と日時の維持。`BmsPlaylistExternalReloadTests.LocalRecommendations_KeepUserStateAndAvoidUnchangedWritesThenReachLr2AndBmt`: DB再読込み・公開・同じ入力での不要な保存の省略。通知と表示は[内蔵リコメンドの対応表](local-recommendations.md#実装とテストの対応)が分担する。 |
 | 外部取得・変更判定・表示の完了 | [`PlaylistExternalSyncOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistExternalSyncOwner.cs) | [`BmsPlaylistExternalLoadTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalLoadTests.cs)、[`BmsPlaylistExternalReloadTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalReloadTests.cs) / [`BmsPlaylistExternalReloadTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistExternalReloadTests.cs)、[`PlaylistReloadMergeTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistReloadMergeTests.cs)。 |
 | データ転送後の参照と、登録・DB再読込み | `PlaylistExternalSyncOwner.LoadExternalTableAsync` / `RegistrateExternalTableAsync` | [`BmsPlaylistExternalLoadTests.RegistrateExternalTableAsync_RedirectedDataPreservesReferencesAfterDatabaseReload`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalLoadTests.cs): 実HTTPのデータ転送後に、相対の本体・差分URL、元のヘッダー、公開のデータ基準が、取得した表・登録済みの集合・別接続のDB読戻しで一致すること。 |

@@ -982,7 +982,7 @@ Choose playlist output folders that are neither identical nor nested. Use differ
 
 Custom `.lr2folder` files placed directly under an output base or in separate folders outside playlist output folders continue to be read. Playlist output cleanup does not delete the entire base or unrelated separate folders.
 
-Previously saved names such as `TableName\sub` or `TableName/sub` are displayed and used for output as `TableNamesub`, with the separators removed. If the resulting name overlaps another output folder, change the name or destination. Files in the old hierarchy are not automatically moved or deleted.
+Previously saved names such as `TableName\sub` or `TableName/sub` are displayed and used for output as `TableNamesub`, with the separators removed. A table whose resulting output location is identical to, or nested with, another playlist's output location stops outputting its LR2 folders, and a warning shows the table name and location. See [Table Output Stops Because Output Locations Overlap](#table-output-stops-because-output-locations-overlap). Files in the old hierarchy are not automatically moved or deleted.
 
 > [!IMPORTANT]
 > LR2 custom folder output is an LR2 linked mode feature. Even in standalone mode, playlist names and folder settings are saved in the in-app DB, but LR2 `.lr2folder` output is not updated.
@@ -1473,6 +1473,14 @@ Check whether the chart appears in `LR2 compatibility warnings`. Charts containi
 In LR2 linked mode, also check the `Syncing LR2 song.db` state in the status bar. If incomplete or failed work remains, LR2 may be reading an old `song.db`. Use `Resync LR2 song.db data` in the settings dialog and let synchronization finish before starting LR2.
 
 If you cannot browse folders or open custom folders in the LR2 song selection screen, use `Resync LR2 song.db data` in the settings dialog. This rebuilds all generated information in the `folder` / `song` tables and restores levels to the values defined in the charts.
+
+#### Table Output Stops Because Output Locations Overlap
+
+The warning "The LR2 folders of the following tables were not output because their output locations overlap with other tables." appears when a table saved by an older version with a hierarchical output name such as `A\B` now has an output location that is identical to, or nested with, another playlist's location under the current single-name rule (`AB`). Only the listed tables stop outputting. Startup, the other playlists' output, and LR2 synchronization continue.
+
+In the playlist `Properties` or the `FOLDER NAME` column of the playlist summary (hidden by default), change the output name of each listed table to a name that does not overlap other output locations. The changed table is output to its new location. The table it overlapped is output the next time its output is needed, such as the next startup, a change to that table, or a playlist reload.
+
+Files left in the old hierarchy (for example `A\B`) are not moved or deleted automatically. If outdated folders remain in the LR2 song selection screen, delete the old hierarchy folders under the output base yourself.
 
 ### Play Log Troubleshooting
 

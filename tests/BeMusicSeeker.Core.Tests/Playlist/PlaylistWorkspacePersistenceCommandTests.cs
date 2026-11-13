@@ -419,6 +419,37 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
     }
 
     /// <summary>
+    /// 復元の失敗で、出力を止めた表の警告が先に集まっていても、復元の失敗の通知を補い、停止警告と両方を表示します。
+    /// 停止警告を「警告・エラーが集まっている」と数えて、復元の失敗の通知を落とす誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistRestore_StoppedOutputsWarningDoesNotSuppressTheRestoreFailureNotice()
+    {
+        using var owned = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(owned.RootDirectory, "restore-stopped-failure");
+        Directory.CreateDirectory(directory);
+        string databasePath = Path.Combine(directory, "song.db");
+        using (LR2SongDBExtended _ = databaseScope.OpenSongWrite(databasePath)) { }
+        using PlaylistWorkspaceViewModel workspace = CreateBackupWorkspace(databaseScope, databasePath,
+            [new BMSTable { playlist_id = 1, name = "R", symbol = "R", bmt_sort = 1 }],
+            out BMSPlaylist playlist, out PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService dialogs,
+            modelUiScheduler: new TestUiScheduler(() => null));
+
+        bool restored = await workspace.RestorePlaylistBackupAsync(Path.Combine(directory, "absent.sql"), () =>
+        {
+            playlist.OperationNotificationOwner.ReportStoppedOutput(new PlaylistStoppedOutput("Stopped", @"C:\Output\Shared", PlaylistOutputStopReason.Collision));
+            return Task.FromResult(true);
+        });
+
+        Assert.IsFalse(restored);
+        Assert.AreEqual(2, dialogs.MessageRequests.Count, "停止警告と、復元の失敗の通知の両方を表示します。");
+        UiMessageRequest warning = dialogs.MessageRequests.Single(request => request.Icon == System.Windows.MessageBoxImage.Exclamation);
+        StringAssert.Contains(warning.MessageBoxText, @"Stopped: C:\Output\Shared");
+        UiMessageRequest failure = dialogs.MessageRequests.Single(request => request.Icon == System.Windows.MessageBoxImage.Hand);
+        StringAssert.Contains(failure.MessageBoxText, Resources.Msg_failed_playlist_restore);
+    }
+
+    /// <summary>
     /// 四つの順序入口でconfig出力失敗後もheader表示TaskとPを保持し、解放後に元失敗と次受付へ到達します。
     /// 出力失敗の通知は、Pを保持している間は依頼せず、Pが解放されて空いた後に、受付を取得できる状態で一件だけ依頼します。
     /// </summary>
@@ -2348,7 +2379,11 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 // 拒否の案内は、受付を取得せずに待たずに依頼する一件だけです。LR2同期の受付は他者が保持しないため、依頼の時点で取得できます。
                 Assert.AreEqual(1, notificationCount);
                 Assert.AreEqual(1, notificationEffectOutsideLeaseCount);
-                Assert.AreEqual(Resources.Warn_PlaylistMutationBusy, dialogs.MessageRequests.Single().MessageBoxText);
+                // Pの競合の案内は、ライブラリ側の明示要求の競合と同じ文言・重大度（警告）・見出しです。
+                UiMessageRequest busyNotice = dialogs.MessageRequests.Single();
+                Assert.AreEqual(Resources.Warn_LibraryOperationBusy, busyNotice.MessageBoxText);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, busyNotice.Icon);
+                Assert.AreEqual(Resources.Warning, busyNotice.Caption);
                 Assert.AreEqual(0, legacyBmtScheduleCount);
                 Assert.AreEqual(0, lr2SyncProbeCount);
                 Assert.AreEqual(0, lr2SyncProbeLeaseUnavailableCount);
@@ -2618,8 +2653,9 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
                 "Renamed");
 
             UiMessageRequest rejected = dialogs.MessageRequests.Single();
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationBusy, rejected.MessageBoxText);
-            Assert.AreEqual(System.Windows.MessageBoxImage.Hand, rejected.Icon);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, rejected.MessageBoxText);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, rejected.Icon, "Pの競合は警告として案内し、エラーにしない。");
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, rejected.Caption);
             Assert.IsTrue(table.entries.Any(entry => entry.folder == "Imported"));
             Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"));
 
@@ -3062,6 +3098,156 @@ public sealed class PlaylistWorkspacePersistenceCommandTests
             workspace.Dispose();
             playlist.RequestShutdown("playlist_whitespace_rename_test");
             library.RequestShutdown("playlist_whitespace_rename_test");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
+    /// <summary>
+    /// 条件：BMT保存順の移動（先頭・末尾）を、別の処理がPを保持している状態で行う。
+    /// 期待結果：副作用なしで拒否し、BMT保存順を変えず、競合の警告を一回だけ案内する（汎用の失敗にしない）。解放後に自動再実行しない。
+    /// 検出する誤り：受付拒否の無言化・汎用の失敗化、拒否した順序の変更を後から適用する誤り。
+    /// </summary>
+    [TestMethod]
+    [DataRow("top")]
+    [DataRow("bottom")]
+    public async Task BmtOrderCommand_PlaylistBusyWarnsOnceWithoutChanges(string direction)
+    {
+        using var notices = new PlaylistNoticeProbe(() => false);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: notices.Dialogs);
+        var second = new BMSTable { playlist_id = 7494, name = "Second", symbol = "S", entries = [], bmt_sort = 2 };
+        fixture.Table.bmt_sort = 1;
+        fixture.Playlist.BMSTables.Add(second);
+        fixture.Playlist.CommitBMSTableHeadersToDB([fixture.Table, second]);
+        var rows = new List<PlaylistSummaryRow> { new() { TableRef = direction == "top" ? second : fixture.Table } };
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable lease));
+        using (lease)
+        {
+            await (direction == "top" ? fixture.Workspace.MoveSummaryRowsToBmtTopAsync(rows) : fixture.Workspace.MoveSummaryRowsToBmtBottomAsync(rows));
+
+            await notices.WaitForRequestsAsync(1);
+            PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+            Assert.AreEqual(1, fixture.Table.bmt_sort);
+            Assert.AreEqual(2, second.bmt_sort);
+            using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
+            Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT bmt_sort FROM playlist WHERE playlist_id = 7492;"));
+        }
+
+        Assert.AreEqual(1, fixture.Table.bmt_sort, "解放後に拒否した移動を自動で再実行しません。");
+        Assert.AreEqual(2, second.bmt_sort);
+        PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+    }
+
+    /// <summary>
+    /// 条件：フォルダ順が自動（明示順が空）の表で、譜面を含むフォルダを削除するか名前なしへ改名し、続けて表名だけを保存する。
+    /// 期待結果：メモリ・DB・再読込みのいずれでも明示順が空のままで自動として読まれ、名前なしの所属は表示順に現れる。
+    /// 検出する誤り：名前なしへの所属変更が空文字だけの明示順を作って手動整列へ切り替わる誤り、別項目の保存で表示順を明示順として固定する誤り。
+    /// </summary>
+    [TestMethod]
+    [DataRow("delete")]
+    [DataRow("rename-to-unnamed")]
+    public async Task PlaylistFolderMutation_AutoOrderTableKeepsEmptyExplicitOrder(string operation)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, "playlist-auto-order-folder-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var table = new BMSTable
+        {
+            playlist_id = 7851,
+            name = "Auto order",
+            Folder_order = [],
+            entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" },
+                new BMSTableEntry { md5 = new string('c', 32), title = "Kept", folder = "Keep" }]
+        };
+        (BMSPlaylist playlist, TestBmsLibrary library, _, PlaylistWorkspaceViewModel workspace) = CreateRootDropStore(databaseScope, directory, table, []);
+        try
+        {
+            string songDb = Path.Combine(directory, "song.db");
+            Assert.IsTrue(PlaylistPropertyValues.Capture(table).IsAutoFolderSort);
+
+            Assert.IsTrue(operation == "delete"
+                ? playlist.RemoveFolderBMSTable(table, "A")
+                : playlist.RenameFolderBMSTable(table, "A", ""));
+
+            (string Hash, string Folder)[] expectedEntries = [(new string('a', 32), ""), (new string('c', 32), "Keep")];
+            AssertPersistedFolderMutationState(databaseScope, songDb, table, [], ["Keep", ""], expectedEntries);
+            Assert.IsTrue(PlaylistPropertyValues.Capture(table).IsAutoFolderSort);
+
+            // 続く名前だけの保存（概要のセル編集）も、明示順を作らず自動のままにします。
+            Assert.AreEqual(PlaylistSummaryPropertyEditCompletion.Success, await workspace.CompleteSummaryPropertyEditAsync(
+                new PlaylistSummaryRow { TableRef = table }, nameof(PlaylistSummaryRow.Name), "Auto order renamed", commit: true));
+
+            Assert.AreEqual("Auto order renamed", table.name);
+            AssertPersistedFolderMutationState(databaseScope, songDb, table, [], ["Keep", ""], expectedEntries);
+            Assert.IsTrue(PlaylistPropertyValues.Capture(table).IsAutoFolderSort);
+        }
+        finally
+        {
+            workspace.CancelDetailBuilds();
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            workspace.Dispose();
+            playlist.RequestShutdown("playlist_auto_order_folder_test");
+            library.RequestShutdown("playlist_auto_order_folder_test");
+            if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
+        }
+    }
+
+    /// <summary>
+    /// 条件：保存済みの明示順が手動の `[B]`、旧版が保存した空文字だけの `[""]`、先頭が空文字の手動順 `["", "A"]` の表で、表名だけを保存する。
+    /// 期待結果：どの表も保存済みの明示順をメモリ・DBで保ち、`[""]` は自動、`["", "A"]` と `[B]` は手動として読み、BMT出力の folder_order は `[""]` だけ空の配列にする。
+    /// 検出する誤り：並び順欄を編集していない保存が表示順を明示順として固定する誤り、`[""]` を手動として扱う誤り、`["", "A"]` を自動へ潰す誤り、BMT出力が規則と食い違う誤り。
+    /// </summary>
+    [TestMethod]
+    [DataRow("manual", new[] { "B" }, false)]
+    [DataRow("legacy-empty", new[] { "" }, true)]
+    [DataRow("empty-then-name", new[] { "", "A" }, false)]
+    public async Task PlaylistPropertySave_NameOnlyKeepsStoredFolderOrder(string label, string[] storedOrder, bool expectedAuto)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string directory = Path.Combine(migrationWorkspace.RootDirectory, "playlist-name-only-order-" + label + "-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var table = new BMSTable
+        {
+            playlist_id = 7852,
+            name = "Name only",
+            Folder_order = storedOrder,
+            entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" },
+                new BMSTableEntry { md5 = new string('b', 32), title = "B", folder = "B" },
+                new BMSTableEntry { md5 = new string('c', 32), title = "C", folder = "C" }]
+        };
+        (BMSPlaylist playlist, TestBmsLibrary library, _, PlaylistWorkspaceViewModel workspace) = CreateRootDropStore(databaseScope, directory, table, []);
+        try
+        {
+            string songDb = Path.Combine(directory, "song.db");
+            string[] expectedNodeOrder = [.. table.folder_list];
+            Assert.AreEqual(expectedAuto, PlaylistPropertyValues.Capture(table).IsAutoFolderSort);
+            // BMT出力の入力指紋は、空文字だけの順序を空の順序（自動）と同じ入力にし、手動の順序とは区別します。
+            string Fingerprint(string[] order) => BmtTableExportService.CreatePlaylistExportMetadata(new BMSTable
+            {
+                playlist_id = 7853,
+                name = "Fingerprint",
+                Folder_order = order,
+                entries = [new BMSTableEntry { md5 = new string('a', 32), title = "A", folder = "A" }]
+            })!.ProjectionInputSha256;
+            Assert.AreEqual(expectedAuto, Fingerprint(storedOrder) == Fingerprint([]));
+
+            // 名前だけの保存（概要のセル編集）は、保存済みの明示順を変更対象にしません。
+            Assert.AreEqual(PlaylistSummaryPropertyEditCompletion.Success, await workspace.CompleteSummaryPropertyEditAsync(
+                new PlaylistSummaryRow { TableRef = table }, nameof(PlaylistSummaryRow.Name), "Name only renamed", commit: true));
+
+            Assert.AreEqual("Name only renamed", table.name);
+            AssertPersistedFolderMutationState(databaseScope, songDb, table, storedOrder, expectedNodeOrder,
+                [(new string('a', 32), "A"), (new string('b', 32), "B"), (new string('c', 32), "C")]);
+            Assert.AreEqual(expectedAuto, PlaylistPropertyValues.Capture(table).IsAutoFolderSort);
+        }
+        finally
+        {
+            workspace.CancelDetailBuilds();
+            await workspace.WaitForDetailBuildIdleAsync();
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            workspace.Dispose();
+            playlist.RequestShutdown("playlist_name_only_order_test");
+            library.RequestShutdown("playlist_name_only_order_test");
             if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
         }
     }

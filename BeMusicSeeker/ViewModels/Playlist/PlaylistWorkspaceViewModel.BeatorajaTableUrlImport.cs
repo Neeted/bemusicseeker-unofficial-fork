@@ -219,6 +219,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             authority = admission.CreateMutationCapability();
             notificationSession = tables.OperationNotificationOwner.BeginSession();
+            notificationSession.WarnStoppedOutputs();
             BeginPlaylistSyncProgressOperation(BeatorajaTableUrlImportProgressSource);
             try
             {
@@ -351,7 +352,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             registrationItems.Select(item => item.LoadedTable),
                             renameDuplicateName: true,
                             "beatoraja_table_url_import",
-                            CancellationToken.None, authority).ConfigureAwait(false);
+                            CancellationToken.None, authority, applyNewTableDefaults: true).ConfigureAwait(false);
                             registered = true;
                             postProgressCompletedCount++;
                         }

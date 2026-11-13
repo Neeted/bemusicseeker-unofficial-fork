@@ -173,6 +173,68 @@ public sealed class PlaylistSummaryBulkEditTests
         }
     }
 
+    /// <summary>
+    /// 条件：一括編集の六つの適用（BMT・外部同期・ROOT・出力種別・基点・外部属性の初期化）を、別の処理がPを保持している状態で行う。外部ヘッダーを削除し、外部取得へ進めば識別できるようにする。
+    /// 期待結果：どの適用も例外にせず副作用なしで拒否し（DB・モデル・管理BMT不変、外部取得へ進まない）、競合の警告を一回だけ案内する。draftは保持し、解放後に自動再実行せず、次の明示適用だけが成功して案内は増えない。
+    /// 検出する誤り：受付拒否を例外（汎用の失敗）にする誤り、無言にする誤り、拒否前に変更や外部取得を始める誤り、拒否後にdraftを破棄する誤り。
+    /// </summary>
+    [TestMethod]
+    [DataRow("bmt")]
+    [DataRow("sync")]
+    [DataRow("root")]
+    [DataRow("mask")]
+    [DataRow("base")]
+    [DataRow("external")]
+    public async Task BulkApply_PlaylistBusyRejectsBeforeChangesAndWarnsOnce(string operation)
+    {
+        using var notices = new PlaylistNoticeProbe(() => false);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(enableBmtOutput: true, modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: notices.Dialogs);
+        BMSTable table = fixture.Table;
+        table.custom_folder_output_base_name = "Old";
+        table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.None;
+        fixture.Playlist.CommitBMSTableHeadersToDB([table]);
+        await fixture.Playlist.BmtOutput.ExportTablesAsync([table], "busy_bulk_setup");
+        PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel draft = fixture.Workspace.OpenSummaryBulkEditDialog([new PlaylistSummaryRow { TableRef = table }])
+            ?? throw new AssertFailedException("一括編集を準備できません。");
+        draft.BmtOutputOption = draft.OffOption;
+        draft.ExternalSyncOption = draft.OnOption;
+        draft.RootFolderOption = draft.OnOption;
+        draft.OutputUserFolder = false;
+        draft.OutputBaseOption = draft.OutputBaseOptions.Single(option => !option.IsNoChange);
+        draft.InitializeNameFromExternal = true;
+        string beforeModel = CaptureBulkHeader(table);
+        string beforeDb;
+        using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb)) { beforeDb = CaptureBulkHeader(db.Table<BMSTable>().Single()); }
+        string bmtRoot = Path.GetDirectoryName(fixture.BmtManifestPath) ?? throw new AssertFailedException();
+        Dictionary<string, byte[]> beforeFiles = Directory.GetFiles(bmtRoot, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
+        string headerText = File.ReadAllText(fixture.HeaderPath);
+        File.Delete(fixture.HeaderPath);
+
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable lease));
+        using (lease)
+        {
+            await ApplyBulkDraftAsync(draft, operation);
+
+            await notices.WaitForRequestsAsync(1);
+            PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+            Assert.AreEqual(beforeModel, CaptureBulkHeader(table));
+            using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb)) { Assert.AreEqual(beforeDb, CaptureBulkHeader(db.Table<BMSTable>().Single())); }
+            CollectionAssert.AreEquivalent(beforeFiles.Keys.ToArray(), Directory.GetFiles(bmtRoot, "*", SearchOption.AllDirectories));
+            foreach (KeyValuePair<string, byte[]> file in beforeFiles) { CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(file.Key)); }
+            Assert.AreSame(draft.OffOption, draft.BmtOutputOption, "draftを保持します。");
+            Assert.AreSame(draft.OnOption, draft.ExternalSyncOption);
+            Assert.AreSame(draft.OnOption, draft.RootFolderOption);
+            Assert.AreEqual(false, draft.OutputUserFolder);
+            Assert.IsTrue(draft.InitializeNameFromExternal);
+        }
+
+        Assert.AreEqual(beforeModel, CaptureBulkHeader(table), "解放後に拒否した適用を自動で再実行しません。");
+        File.WriteAllText(fixture.HeaderPath, headerText);
+        await ApplyBulkDraftAsync(draft, operation);
+        if (operation != "external") { Assert.AreNotEqual(beforeModel, CaptureBulkHeader(table), "解放後の明示適用は成功します。"); }
+        PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+    }
+
     /// <summary>実外部再同期で同IDの別正本へ置換した後は古いBMT編集を拒否し、旧選択から開き直した編集だけがDBと実出力を変更します。</summary>
     [TestMethod]
     public async Task BulkBmtApply_ExternalReplacementRejectsOldDraftAndReopenedDraftSaves()

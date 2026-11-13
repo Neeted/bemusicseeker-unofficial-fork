@@ -215,13 +215,16 @@ public sealed partial class PlaylistWorkspaceViewModel
             // 準備中の通知（出力先が不正など）は、Pを解放した後に表示を依頼します。
             return await RunWithOperationNoticesAsync(store, "playlist property dialog preparation notification", async () =>
             {
+                // 受付の競合は副作用なしで一回案内します。同じ画面を開く処理が進行中のための二重起動の抑止（上の判定）は案内しません。
                 if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
                 {
+                    NotifyPlaylistBusyRejection("playlist property dialog busy notification");
                     return null;
                 }
                 using IDisposable accepted = admission;
                 if (!CanOpenPlaylistEditDialog)
                 {
+                    NotifyPlaylistBusyRejection("playlist property dialog busy notification");
                     return null;
                 }
 
@@ -266,11 +269,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
                 {
+                    NotifyPlaylistBusyRejection("playlist property dialog busy notification");
                     return null;
                 }
                 using IDisposable accepted = admission;
                 if (!CanOpenPlaylistEditDialog)
                 {
+                    NotifyPlaylistBusyRejection("playlist property dialog busy notification");
                     return null;
                 }
                 BMSTable currentTable = store.ResolveActivePlaylistTableForMutation(table);
@@ -338,10 +343,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         bool applied;
+        bool rejectedAsBusy;
         PropertyValidationError? validationError;
         try
         {
-            (applied, validationError) = await ApplySummaryPropertyEditCoreAsync(row, propertyName, text);
+            (applied, validationError, rejectedAsBusy) = await ApplySummaryPropertyEditCoreAsync(row, propertyName, text);
         }
         catch (Exception exception)
         {
@@ -357,6 +363,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (applied)
         {
             return PlaylistSummaryPropertyEditCompletion.Success;
+        }
+        if (rejectedAsBusy)
+        {
+            // 受付の競合は副作用なしで案内済みです。入力不備や汎用の失敗として重ねず、セルを保存済みの表示へ戻します。
+            return PlaylistSummaryPropertyEditCompletion.RequiresRefresh;
         }
 
         await ShowSummaryPropertyEditMessageAsync(
@@ -390,7 +401,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 routeName + " could not be displayed (" + result.Status + ").");
     }
 
-    private async Task<(bool Applied, PropertyValidationError? ValidationError)> ApplySummaryPropertyEditCoreAsync(
+    private async Task<(bool Applied, PropertyValidationError? ValidationError, bool RejectedAsBusy)> ApplySummaryPropertyEditCoreAsync(
         PlaylistSummaryRow row,
         string propertyName,
         string text)
@@ -402,30 +413,36 @@ public sealed partial class PlaylistWorkspaceViewModel
             () => ApplySummaryPropertyEditAdmittedAsync(row, propertyName, text)).ConfigureAwait(false);
     }
 
-    private async Task<(bool Applied, PropertyValidationError? ValidationError)> ApplySummaryPropertyEditAdmittedAsync(
+    private async Task<(bool Applied, PropertyValidationError? ValidationError, bool RejectedAsBusy)> ApplySummaryPropertyEditAdmittedAsync(
         PlaylistSummaryRow row,
         string propertyName,
         string text)
     {
         BMSPlaylist store = GetPlaylistStore();
-        if (!TryBeginPlaylistMutation(store, PlaylistWorkspaceMutationKind.PropertySave, out IDisposable admission)) { return (false, null); }
+        // 競合の案内は受付の取得側が一回出します。呼出し元は受付拒否として扱い、入力不備や汎用の失敗にしません。
+        if (!TryBeginPlaylistMutation(store, PlaylistWorkspaceMutationKind.PropertySave, out IDisposable admission)) { return (false, null, true); }
         using IDisposable accepted = admission;
         using LibraryFileMutationCapability authority = store.CreatePlaylistMutationCapability(admission);
 
         PlaylistPropertySaveService service = propertySaveService
             ?? throw new InvalidOperationException("Playlist property editing is not available.");
         BMSTable table = ResolveActivePlaylistSummaryTable(row);
+        if (table != null && !CanOpenPlaylistEditDialog)
+        {
+            // 受付の取得後に別の保存・初期化が表の書込みを保持している場合も、競合です。
+            NotifyPlaylistBusyRejection("playlist summary property edit busy notification");
+            return (false, null, true);
+        }
         if (table == null
-            || !CanOpenPlaylistEditDialog
             || !IsSummaryPropertyEditable(propertyName))
         {
-            return (false, null);
+            return (false, null, false);
         }
         PlaylistPropertyEditSession editSession =
             await service.CreateEditSessionAsync(table);
         if (editSession == null)
         {
-            return (false, null);
+            return (false, null, false);
         }
         PlaylistPropertySaveCommit commit = null;
         try
@@ -440,7 +457,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         if (string.Equals(values.Name ?? string.Empty, name, StringComparison.Ordinal))
                         {
                             await ApplySummarySavedPropertiesAsync(table);
-                            return (true, null);
+                            return (true, null, false);
                         }
                         values.Name = name;
                         break;
@@ -449,7 +466,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     {
                         if (!BMSTable.IsOutputDirectoryNameInputValid(text))
                         {
-                            return (false, PropertyValidationError.OutputDirectoryNameMustBeSingleName);
+                            return (false, PropertyValidationError.OutputDirectoryNameMustBeSingleName, false);
                         }
                         string outputDirectory = PlaylistPropertySaveService.NormalizeSummaryOutputDirectory(
                             values.Name,
@@ -460,7 +477,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             StringComparison.Ordinal))
                         {
                             await ApplySummarySavedPropertiesAsync(table);
-                            return (true, null);
+                            return (true, null, false);
                         }
                         values.OutputDirectory = outputDirectory;
                         break;
@@ -471,7 +488,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         if (string.Equals(values.CompatPrefix ?? string.Empty, compatPrefix, StringComparison.Ordinal))
                         {
                             await ApplySummarySavedPropertiesAsync(table);
-                            return (true, null);
+                            return (true, null, false);
                         }
                         values.CompatPrefix = compatPrefix;
                         break;
@@ -482,18 +499,18 @@ public sealed partial class PlaylistWorkspaceViewModel
                         if (string.Equals(values.Symbol ?? string.Empty, symbol, StringComparison.Ordinal))
                         {
                             await ApplySummarySavedPropertiesAsync(table);
-                            return (true, null);
+                            return (true, null, false);
                         }
                         values.Symbol = symbol;
                         break;
                     }
                 default:
-                    return (false, null);
+                    return (false, null, false);
             }
             (commit, PropertyValidationError? validationError) = await service.TrySaveAsync(editSession, values, authority);
             if (commit == null)
             {
-                return (false, validationError);
+                return (false, validationError, false);
             }
             editSession.Adopt(commit);
             try
@@ -506,7 +523,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 TryLogPlaylistDropSecondaryFailure(failure, "playlist_summary_edit_projection_failed");
             }
             service.PublishSaveFailure(commit);
-            return (true, null);
+            return (true, null, false);
         }
         finally
         {

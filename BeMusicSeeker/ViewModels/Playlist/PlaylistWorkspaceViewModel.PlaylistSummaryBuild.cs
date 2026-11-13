@@ -35,15 +35,20 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <param name="rows">編集開始時に捕捉した対象行。</param>
     /// <param name="isBmtOutput">保存するBMT出力指定。</param>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal async Task ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput, BMSPlaylist expectedStore = null)
+    /// <returns>受付を取得して処理した（変更なしを含む）場合は true。受付（P）の競合で拒否し、副作用なしで案内した場合は false。</returns>
+    internal Task<bool> ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput, BMSPlaylist expectedStore = null)
+        => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryBmtOutputCore(rows, isBmtOutput, expectedStore));
+
+    private async Task<bool> ApplyPlaylistSummaryBmtOutputCore(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput, BMSPlaylist expectedStore)
     {
         if (rows == null)
         {
-            return;
+            return true;
         }
 
         BMSPlaylist playlists = GetPlaylistStore();
-        using LibraryFileMutationLease accepted = playlists.AcquirePlaylistMutationLease("playlist_summary_bmt_output_changed");
+        using LibraryFileMutationLease accepted = TryAcquirePlaylistMutationLeaseOrNotify(playlists, "playlist_summary_bmt_output_changed", "playlist summary bmt output busy notification");
+        if (accepted == null) { return false; }
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         await RunWithSavedHeaderPresentationAsync(async () =>
         {
@@ -65,6 +70,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             await playlists.BmtOutput.ExportTablesAsync(changedTables, "playlist_summary_bmt_output_changed", authority);
 
         }).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>

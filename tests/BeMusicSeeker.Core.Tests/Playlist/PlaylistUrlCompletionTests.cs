@@ -1560,6 +1560,71 @@ public sealed class PlaylistUrlCompletionTests
         }
     }
 
+    /// <summary>
+    /// 条件：プロパティの編集セッションを作成した後に、利用者操作でないURL補完の反映が項目版を進める。
+    /// 期待結果：名前だけの保存が競合とならず成功し、DBの名前が更新され、補完した実行時のURLは保存で失われず、DBへ保存もされない。
+    /// 検出する誤り：補完の反映による項目版の進行を編集の競合とみなして例外にする誤り、保存で補完値を失う誤り、実行時の補完をDBへ書く誤り。
+    /// </summary>
+    /// <remarks>所属・解決キーの変更を引き続き拒否する保証は、PlaylistWorkspaceActionWorkflowTests の古い編集セッションの拒否ケースの entries / reference が担います。</remarks>
+    [TestMethod]
+    public async Task PropertySave_AfterUrlCompletionCommitSucceedsAndKeepsRuntimeUrls()
+    {
+        string path = CreateEmptySongDbPath(databaseScope);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, path);
+        TestBmsPlaylist? playlist = null;
+        TestBmsLibrary? library = null;
+        PlaylistWorkspaceViewModel? workspace = null;
+        try
+        {
+            testSettings.OperationModeLR2DB = false;
+            testSettings.EnablePlaylistUrlCompletion = true;
+            testSettings.EnableStellaFullPlaylistUrlCompletion = false;
+            testSettings.OverwritePlaylistUrlsWithCompletion = false;
+            testSettings.PlaylistMd5UrlMappingTsvUri = "https://example.com/property-save.tsv";
+            const string completedMain = "https://example.com/property-completed";
+            const string completedDiff = "https://example.com/property-completed-diff";
+            playlist = new TestBmsPlaylist(databaseScope, path, null, null, null, () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings), () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), null, (_, _) => Task.FromResult($"md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t{completedDiff}\t{completedMain}"), (_, _) => Task.FromResult("[]"), uiScheduler: new TestUiScheduler(() => null));
+            BMSTable table = CreateTable(6301, "property completion");
+            table.entries = [CreateEntry(new string('a', 32), "property entry")];
+            playlist.BMSTables = new ObservableCollection<BMSTable>([table]);
+            playlist.CommitBMSTableWithEntriesToDB(table);
+            library = new TestBmsLibrary(databaseScope, path, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
+            TestBmsPlaylist store = playlist; TestBmsLibrary catalog = library;
+            var service = new PlaylistPropertySaveService(() => store, () => catalog, () => null!, () => new CustomFolderOutputSettingsSnapshot());
+            // 保存後の公開先（概要・候補の更新）を実workspaceへ接続し、保存の全終端を通します。
+            workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => store,
+                playlistLibraryProvider: () => catalog, propertySaveService: service);
+            using PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            int entriesRevisionBefore = table.PlaylistEntriesRevision;
+            int lookupRevisionBefore = table.EntryLookupRevision;
+
+            await ScheduleUrlCompletionRefreshAsync(store, "property_save_overlap");
+
+            Assert.AreNotEqual(entriesRevisionBefore, table.PlaylistEntriesRevision, "実際の補完反映が項目版を進めること。");
+            Assert.AreEqual(lookupRevisionBefore, table.EntryLookupRevision, "補完は所属と解決キーの版を進めない。");
+            Assert.AreEqual(new Uri(completedMain), table.entries[0].EffectiveUrl);
+            session.Values.Name = "renamed after completion";
+            (PlaylistPropertySaveCommit? commit, PlaylistPropertyValidationError? validationError) = await service.TrySaveAsync(session, session.Values);
+
+            Assert.IsNotNull(commit);
+            Assert.IsNull(validationError);
+            Assert.IsNull(commit.Exception);
+            Assert.AreEqual("renamed after completion", table.name);
+            Assert.AreEqual(new Uri(completedMain), table.entries[0].EffectiveUrl, "補完した実行時のURLを保存で失わない。");
+            Assert.AreEqual(new Uri(completedDiff), table.entries[0].EffectiveUrlDiff);
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), path).OpenSongDbReadOnly();
+            Assert.AreEqual("renamed after completion", db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = 6301;"));
+            Assert.IsTrue(string.IsNullOrEmpty(db.ExecuteScalar<string?>("SELECT url FROM playlist_entry;")), "実行時の補完はDBへ保存しない。");
+        }
+        finally
+        {
+            if (workspace != null) { workspace.CancelDetailBuilds(); await workspace.WaitForDetailBuildIdleAsync(); workspace.Dispose(); }
+            playlist?.RequestShutdown("property_save_completion_fixture"); library?.RequestShutdown("property_save_completion_fixture");
+            DeleteTempSongDbDirectory(path);
+        }
+    }
+
     private static async Task ScheduleUrlCompletionRefreshAsync(BMSPlaylist playlist, string reason)
     {
         Task scheduledWork = Task.CompletedTask;

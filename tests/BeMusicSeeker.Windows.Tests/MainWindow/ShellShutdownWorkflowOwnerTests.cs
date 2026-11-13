@@ -1383,7 +1383,9 @@ public sealed partial class ShellShutdownWorkflowOwnerTests
             Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
             await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Imported"), "Renamed");
             UiMessageRequest rejected = dialogs.MessageRequests.Single();
-            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationBusy, rejected.MessageBoxText);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy, rejected.MessageBoxText);
+            Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, rejected.Icon, "Pの競合は警告として案内する。");
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Warning, rejected.Caption);
             Assert.IsTrue(table.entries.Any(entry => entry.folder == "Imported"));
             Assert.IsFalse(table.entries.Any(entry => entry.folder == "Renamed"));
 

@@ -21,6 +21,7 @@ namespace BeMusicSeeker.ViewModels;
 /// 終了の要求後は表示せず診断へ残し、表示の失敗は診断へ残すだけで操作の結果を変えません。
 /// 見出しと本文は依頼の時点の言語で整形し、表示窓口の解決に任せて Owner は指定しません。
 /// まとめ方と表示の順は、ライブラリ側の操作通知（<see cref="FileDbMutationReport.ShowOperationMessagesAsync"/>）と同じ規則です。
+/// 出力を止めた表の警告だけは、まとめた組の表示後に、他の通知とまとめず本文を省略せず別の一件として表示します。
 /// </remarks>
 internal sealed class PlaylistOperationNoticePresenter
 {
@@ -73,8 +74,9 @@ internal sealed class PlaylistOperationNoticePresenter
                     + " count=" + (hasNotifications ? receipt.Notifications.Count : 0));
                 return;
             }
-            List<BMSLibrary.OperationDialogMessage> messages = hasNotifications ? ToMessages(receipt, routeName) : [];
-            PresentAsync(messages, createTrailing, routeName).ObserveFault(routeName);
+            List<BMSLibrary.OperationDialogMessage> messages = hasNotifications ? ToMessages(receipt, routeName, standalone: false) : [];
+            List<BMSLibrary.OperationDialogMessage> standaloneMessages = hasNotifications ? ToMessages(receipt, routeName, standalone: true) : [];
+            PresentAsync(messages, standaloneMessages, createTrailing, routeName).ObserveFault(routeName);
         }
         catch (Exception exception)
         {
@@ -120,11 +122,13 @@ internal sealed class PlaylistOperationNoticePresenter
 
     private static List<BMSLibrary.OperationDialogMessage> ToMessages(
         PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
-        string routeName)
+        string routeName,
+        bool standalone)
     {
         List<BMSLibrary.OperationDialogMessage> messages = [];
         foreach (PlaylistOperationNotificationOwner.OperationNotification notification in receipt.Notifications)
         {
+            if (notification.IsStoppedOutputsWarning != standalone) { continue; }
             try
             {
                 // 本文と見出しは、確定時ではなく依頼の時点の言語で整形します。
@@ -152,12 +156,31 @@ internal sealed class PlaylistOperationNoticePresenter
 
     private async Task PresentAsync(
         List<BMSLibrary.OperationDialogMessage> messages,
+        List<BMSLibrary.OperationDialogMessage> standaloneMessages,
         Func<UiMessageRequest> createTrailing,
         string routeName)
     {
         if (messages.Count > 0)
         {
             await FileDbMutationReport.ShowOperationMessagesAsync(dialogs, messages).ConfigureAwait(false);
+        }
+        // まとめない通知は、まとめた組とは別の一件として、本文を省略せずそのまま表示します。
+        foreach (BMSLibrary.OperationDialogMessage message in standaloneMessages)
+        {
+            try
+            {
+                UiDialogResult result = await dialogs.ShowMessageAsync(new UiMessageRequest(
+                    message.MessageBoxText, message.Caption, message.Button, message.Icon, message.DefaultResult)).ConfigureAwait(false);
+                if (result == null || result.Status is not (UiDialogStatus.Accepted
+                    or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser))
+                {
+                    throw new InvalidOperationException(routeName + " was not displayed: " + result?.Status, result?.Exception);
+                }
+            }
+            catch (Exception exception)
+            {
+                FileDbMutationReport.LogNotificationFailure(exception);
+            }
         }
         if (createTrailing == null)
         {
@@ -183,15 +206,16 @@ internal sealed class PlaylistOperationNoticePresenter
 /// <summary>プレイリスト側の操作が表示する通知の事実を、資源名と重要度から作ります。</summary>
 internal static class PlaylistOperationNotices
 {
-    /// <summary>操作を実行しなかった理由の通知です。Busy・対象消失・種類ごとの文言は、見出し <c>Error</c> の Error として扱います。</summary>
+    /// <summary>
+    /// 操作を実行しなかった理由の通知です。受付（P）の競合は<see cref="Busy"/>の警告、対象消失・種類ごとの文言は、見出し <c>Error</c> の Error として扱います。
+    /// </summary>
     internal static PlaylistOperationNotificationOwner.OperationNotification Rejection(
         PlaylistWorkspaceMutationKind kind,
         bool isBusy = false,
         bool isStale = false)
     {
-        string resourceName = isBusy
-            ? nameof(Resources.Warn_PlaylistMutationBusy)
-            : isStale
+        if (isBusy) { return Busy(); }
+        string resourceName = isStale
                 ? nameof(Resources.Warn_PlaylistMutationStale)
                 : kind switch
                 {
@@ -205,6 +229,17 @@ internal static class PlaylistOperationNotices
                 };
         return Error(PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(resourceName));
     }
+
+    /// <summary>
+    /// 利用者が明示した要求が、受付（P）の競合（使用中、再読込み・初期化の実行中、自分の管理主体の実行中）で受け付けられなかったことの警告です。
+    /// ライブラリ側の明示要求の競合と同じ文言・重大度で、<see cref="Resources.Warning"/> の見出しにします。
+    /// 規則は操作の競合ポリシー（devdocs/spec/core/operation-concurrency-policy.md）の「明示要求の競合の案内」に従います。
+    /// </summary>
+    internal static PlaylistOperationNotificationOwner.OperationNotification Busy()
+        => new(
+            PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Warn_LibraryOperationBusy)),
+            nameof(Resources.Warning),
+            PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning);
 
     /// <summary>出力先が不正なため処理できなかったことの警告です。</summary>
     internal static PlaylistOperationNotificationOwner.OperationNotification InvalidOutputDirectory()

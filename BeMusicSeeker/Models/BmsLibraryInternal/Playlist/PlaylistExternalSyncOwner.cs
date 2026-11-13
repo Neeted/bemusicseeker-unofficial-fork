@@ -247,11 +247,7 @@ internal sealed class PlaylistExternalSyncOwner
                 bmsTable.bmt_sort = baseTable.bmt_sort;
                 bmsTable.is_bmt_output = baseTable.is_bmt_output;
             }
-            else
-            {
-                bmsTable.ignore_folder_output = NormalizeNewPlaylistIgnoreFolderOutputDefault(
-                    GetCustomFolderOutputSettings().PlaylistDefaultIgnoreFolderOutput);
-            }
+            // 新規表の出力除外の既定は、取得と復元で共通の登録側（ApplyNewTableDefaults）が決めます。
 
             resolvedDataUri = bmsTable.Data_url == null ? null
                 : bmsTable.Data_url.IsAbsoluteUri ? bmsTable.Data_url : new Uri(responseHeaderUri, bmsTable.Data_url);
@@ -739,16 +735,31 @@ internal sealed class PlaylistExternalSyncOwner
             table,
             renameDuplicateName,
             reason ?? "RegistrateExternalTableAsync",
-            cancellationToken, authority).ConfigureAwait(false);
+            cancellationToken, authority, applyNewTableDefaults: true).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 新規表の既定値を登録の直前に決めます。出力除外は設定の既定へそろえ、取得成功とBMTキャッシュからの復元で同じ規則にします。
+    /// 内蔵表（bmseeker）は生成時の固定値を保ちます。既存表の再読込みと基底表からの引継ぎは登録を通らないため対象外です。
+    /// </summary>
+    private static void ApplyNewTableDefaults(IEnumerable<BMSTable> tables, CustomFolderOutputSettingsSnapshot settings)
+    {
+        foreach (BMSTable table in tables)
+        {
+            if (table.Page_url?.Scheme == "bmseeker") { continue; }
+            table.ignore_folder_output = NormalizeNewPlaylistIgnoreFolderOutputDefault(settings.PlaylistDefaultIgnoreFolderOutput);
+        }
     }
 
     /// <summary>準備済み外部表を保存・公開し、必要出力の終端まで待ちます。空のLR2出力名は捕捉したLR2連携モードでだけ拒否し、スタンドアロンでは実名を保持します。</summary>
+    /// <param name="applyNewTableDefaults">新規表の出力除外を設定の既定へそろえるか。呼出し元が明示値を持たせた表は false のまま渡します。</param>
     internal async Task<BMSTable> RegistrateExternalTableAsync(
         BMSTable bmsTable,
         bool renameDuplicateName,
         string reason,
         CancellationToken cancellationToken = default,
-        LibraryFileMutationCapability capability = null)
+        LibraryFileMutationCapability capability = null,
+        bool applyNewTableDefaults = false)
     {
         using LibraryFileMutationLease admission = mutationAdmission?.Invoke(capability);
         using LibraryFileMutationCapability authority = admission?.CreateMutationCapability();
@@ -768,6 +779,7 @@ internal sealed class PlaylistExternalSyncOwner
         {
             cancellationToken.ThrowIfCancellationRequested();
             settings = GetCustomFolderOutputSettings();
+            if (applyNewTableDefaults) { ApplyNewTableDefaults([bmsTable], settings); }
             PlaylistAggregatePersistenceOwner.PlaylistRegistrationPreparation preparation =
                 playlistAggregatePersistenceOwner.PrepareExternalRegistration([bmsTable], renameDuplicateName, settings).Single();
             if (preparation.DuplicateName)
@@ -830,7 +842,8 @@ internal sealed class PlaylistExternalSyncOwner
         bool renameDuplicateName,
         string reason,
         CancellationToken cancellationToken = default,
-        LibraryFileMutationCapability capability = null)
+        LibraryFileMutationCapability capability = null,
+        bool applyNewTableDefaults = false)
     {
         using LibraryFileMutationLease admission = mutationAdmission?.Invoke(capability);
         using LibraryFileMutationCapability authority = admission?.CreateMutationCapability();
@@ -852,6 +865,7 @@ internal sealed class PlaylistExternalSyncOwner
         {
             cancellationToken.ThrowIfCancellationRequested();
             settings = GetCustomFolderOutputSettings();
+            if (applyNewTableDefaults) { ApplyNewTableDefaults(tableList, settings); }
             IReadOnlyList<PlaylistAggregatePersistenceOwner.PlaylistRegistrationPreparation> preparations =
                 playlistAggregatePersistenceOwner.PrepareExternalRegistration(tableList, renameDuplicateName, settings);
             for (int index = 0; index < tableList.Count; index++)

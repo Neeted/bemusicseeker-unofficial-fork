@@ -99,8 +99,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         BMSPlaylist playlists = GetPlaylistStore();
         // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。
+        // 明示の再読込みは、出力を止めた表（出力先が他の表と重なる表）を一件の警告で案内します。
         await RunWithOperationNoticesAsync(playlists, "manual playlist resync notification",
-            () => ResyncPlaylistsAdmittedAsync(playlists, requestedTables)).ConfigureAwait(false);
+            () => ResyncPlaylistsAdmittedAsync(playlists, requestedTables), warnStoppedOutputs: true).ConfigureAwait(false);
     }
 
     private async Task ResyncPlaylistsAdmittedAsync(BMSPlaylist playlists, List<BMSTable> requestedTables)

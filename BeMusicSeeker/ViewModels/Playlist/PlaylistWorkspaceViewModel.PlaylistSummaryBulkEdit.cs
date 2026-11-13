@@ -27,12 +27,18 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal PlaylistSummaryBulkEditDialogViewModel OpenSummaryBulkEditDialog(IEnumerable<PlaylistSummaryRow> rows)
     {
         BMSPlaylist store = GetPlaylistStore();
+        // 受付の競合は、副作用なしで案内します。
         if (!TryEnterPlaylistMutationAdmission(store, out IDisposable admission))
         {
+            NotifyPlaylistBusyRejection("playlist summary bulk edit busy notification");
             return null;
         }
         using IDisposable accepted = admission;
-        if (!CanOpenPlaylistEditDialog) { return null; }
+        if (!CanOpenPlaylistEditDialog)
+        {
+            NotifyPlaylistBusyRejection("playlist summary bulk edit busy notification");
+            return null;
+        }
         var requestedRows = rows?.ToList();
         if (requestedRows == null || requestedRows.Count == 0) { return null; }
         BMSTable[] currentTables = CapturePlaylistSummaryCurrentTables(store);
@@ -129,8 +135,9 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>
     /// 一括編集の操作を、通知の収集先の内側で実行します。操作がPを取得し解放した後に、集めた通知をまとめて表示するよう依頼します。
     /// </summary>
-    private Task RunWithBulkEditNoticesAsync(Func<Task> operation)
-        => RunWithOperationNoticesAsync(getPlaylistStore(), "playlist summary bulk edit notification", operation);
+    /// <returns>受付を取得して処理した（変更なしを含む）場合は true。受付（P）の競合で拒否した場合は、案内済みの副作用なしの拒否として false。</returns>
+    private Task<bool> RunWithBulkEditNoticesAsync(Func<Task<bool>> operation)
+        => RunWithOperationNoticesAsync(getPlaylistStore(), "playlist summary bulk edit notification", operation, warnStoppedOutputs: true);
 
     private void RunPlaylistSummaryBulkOperation(Action operation, string routeName)
     {
@@ -576,19 +583,19 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         /// <summary>カスタムフォルダの一括保存と必要な出力の実終端を返します。</summary>
-        public Task ApplyCustomFolderOutputTypesAsync()
+        public Task<bool> ApplyCustomFolderOutputTypesAsync()
         {
             return ownerWorkspace.ApplyPlaylistSummaryCustomFolderOutputTypes(targetRows, BuildCustomFolderOutputPatch(), targetStore);
         }
 
         /// <summary>root指定の一括保存と必要な出力の実終端を返します。未変更なら処理しません。</summary>
-        public Task ApplyRootFolderAsync()
+        public Task<bool> ApplyRootFolderAsync()
         {
             if (RootFolderOption?.Value is bool value)
             {
                 return ownerWorkspace.ApplyPlaylistSummaryFlags(targetRows, isRootFolder: value, expectedStore: targetStore);
             }
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
 
         public void ResetRootFolderOption()
@@ -597,14 +604,20 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         /// <summary>外部同期指定の一括保存と必要な出力の実終端を返します。未変更なら処理しません。</summary>
-        public Task ApplyExternalSyncAsync()
+        public Task<bool> ApplyExternalSyncAsync()
         {
             if (ExternalSyncOption?.Value is bool value)
             {
                 return ownerWorkspace.ApplyPlaylistSummaryExternalSync(targetRows, value, expectedStore: targetStore);
             }
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
+
+        /// <summary>
+        /// 外部同期の一括適用の確認を出す前に、受付（P）の可否を検査します。競合する見込みなら副作用なしで案内し、trueを返します（確認は出しません）。
+        /// </summary>
+        public bool RejectExternalSyncApplyIfPlaylistBusy()
+            => ownerWorkspace.RejectIfPlaylistBusyBeforeConfirmation("playlist summary bulk external sync busy notification");
 
         public void ResetExternalSyncOption()
         {
@@ -612,13 +625,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         /// <summary>BMT指定の一括保存と必要な出力の実終端を返します。未変更なら処理しません。</summary>
-        public Task ApplyBmtOutputAsync()
+        public Task<bool> ApplyBmtOutputAsync()
         {
             if (BmtOutputOption?.Value is bool value)
             {
                 return ownerWorkspace.ApplyPlaylistSummaryBmtOutput(targetRows, value, targetStore);
             }
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
 
         public void ResetBmtOutputOption()
@@ -627,13 +640,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         /// <summary>出力先の一括保存と必要な出力の実終端を返します。未変更なら処理しません。</summary>
-        public Task ApplyOutputBaseAsync()
+        public Task<bool> ApplyOutputBaseAsync()
         {
             if (OutputBaseOption != null && !OutputBaseOption.IsNoChange)
             {
                 return ownerWorkspace.ApplyPlaylistSummaryOutputBase(targetRows, OutputBaseOption.BaseName, expectedStore: targetStore);
             }
-            return Task.CompletedTask;
+            return Task.FromResult(true);
         }
 
         public void ResetOutputBaseOption()
@@ -641,7 +654,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             OutputBaseOption = OutputBaseOptions.FirstOrDefault(option => option.IsNoChange) ?? OutputBaseOptions.FirstOrDefault();
         }
 
-        public Task ApplyExternalPropertyInitializationAsync()
+        public Task<bool> ApplyExternalPropertyInitializationAsync()
         {
             return ownerWorkspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(targetRows, BuildExternalPropertyInitializationOptions(), expectedStore: targetStore);
         }
@@ -828,17 +841,18 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>外部属性をDB確定後に採用します。確定後の出力故障でもguard解放後に概要・候補・通知の終端を一度試し、最初の操作原因を保持します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal Task ApplyPlaylistSummaryExternalPropertyInitializationAsync(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default, BMSPlaylist expectedStore = null)
+    internal Task<bool> ApplyPlaylistSummaryExternalPropertyInitializationAsync(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default, BMSPlaylist expectedStore = null)
         => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryExternalPropertyInitializationAsyncCore(rows, options, cancellationToken, expectedStore));
 
-    private async Task ApplyPlaylistSummaryExternalPropertyInitializationAsyncCore(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default, BMSPlaylist expectedStore = null)
+    private async Task<bool> ApplyPlaylistSummaryExternalPropertyInitializationAsyncCore(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryExternalPropertyInitializationOptions options, CancellationToken cancellationToken = default, BMSPlaylist expectedStore = null)
     {
         if (rows == null || options?.HasAnySelection != true)
         {
-            return;
+            return true;
         }
         BMSPlaylist tables = GetPlaylistStore();
-        using LibraryFileMutationLease accepted = tables.AcquirePlaylistMutationLease("playlist_summary_edit");
+        using LibraryFileMutationLease accepted = TryAcquirePlaylistMutationLeaseOrNotify(tables, "playlist_summary_edit", "playlist summary bulk edit busy notification");
+        if (accepted == null) { return false; }
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         await RunWithSavedHeaderPresentationAsync(async () =>
         {
@@ -846,7 +860,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
                 ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
-            tables.ValidateCustomFolderOutputLayout(settings);
             const string reason = "playlist_summary_external_property_initialization";
             bool headersCommitted = false;
             bool playlistTablesReaderLockHeld = false;
@@ -947,6 +960,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
                 var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
                 var wasRootFolderBeforeByTable = new Dictionary<BMSTable, bool>();
+                // 操作前に衝突していた表の旧配置は未知として扱い、共有している可能性のある旧先を移行・整理に渡しません。集合は一度だけ求めます。
+                IReadOnlySet<BMSTable> collidingBefore = tables.FindCollidingOutputTables(settings);
                 var entryChangedTables = new List<BMSTable>();
                 var outputChangedTables = new List<BMSTable>();
                 var headerOnlyTables = new List<BMSTable>();
@@ -962,7 +977,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     string beforeEffectiveOutputDir = change.EffectiveOutputDirBefore;
                     string afterEffectiveOutputDir = change.EffectiveOutputDirAfter;
                     bool outputDirChanged = !string.Equals(beforeEffectiveOutputDir ?? string.Empty, afterEffectiveOutputDir ?? string.Empty, StringComparison.OrdinalIgnoreCase);
-                    if (outputDirChanged)
+                    if (outputDirChanged && !collidingBefore.Contains(table))
                     {
                         CapturePlaylistSummaryOutputDirectoryBefore(
                             table,
@@ -1145,6 +1160,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 if (completionFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(completionFailure).Throw(); }
             }
         }).ConfigureAwait(false);
+        return true;
     }
 
     private void UpdatePlaylistSummaryExternalPropertyInitializationLoadProgress(PlaylistSyncProgressSnapshot snapshot)
@@ -1183,16 +1199,21 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         // 除外した表は旧配置に残るため、受理するごとに現在の最終集合を置き換えます。
-        var finalDirectories = GetPlaylistStore().BMSTables.Where(table => !string.IsNullOrWhiteSpace(table.Output_dir)).ToDictionary(table => table,
+        // 配置が変わる表だけが他の表と重なる場合に除外し、配置が変わらない表同士の保存済みの衝突は問いません。
+        var currentDirectories = GetPlaylistStore().BMSTables.Where(table => !string.IsNullOrWhiteSpace(table.Output_dir)).ToDictionary(table => table,
             table => ManagedPlaylistOutputPlacement.Resolve(table, settings));
+        var finalDirectories = new Dictionary<BMSTable, string>(currentDirectories);
         var acceptedChanges = new List<PlaylistSummaryExternalPropertyInitializationChange>();
         foreach (PlaylistSummaryExternalPropertyInitializationChange change in pendingChanges)
         {
             if (string.IsNullOrWhiteSpace(change.EffectiveOutputDirAfter)) { continue; }
             string candidate = ManagedPlaylistOutputPlacement.Resolve(change.DesiredName, change.DesiredOutputDir,
                 change.Table.custom_folder_output_base_name, change.Table.is_root_folder, settings);
-            if (!string.IsNullOrWhiteSpace(candidate) && finalDirectories.Any(item => !ReferenceEquals(item.Key, change.Table)
-                && !string.IsNullOrWhiteSpace(item.Value) && ManagedPlaylistOutputPlacement.Overlaps(candidate, item.Value)))
+            var before = finalDirectories.Select(item => new ManagedPlaylistOutputPlacement.Placement(item.Key, item.Value)).ToList();
+            var after = finalDirectories.Select(item => new ManagedPlaylistOutputPlacement.Placement(item.Key,
+                ReferenceEquals(item.Key, change.Table) ? candidate : item.Value)).ToList();
+            if (!finalDirectories.ContainsKey(change.Table)) { after.Add(new(change.Table, candidate)); }
+            if (ManagedPlaylistOutputPlacement.IsEditRejected(before, after))
             {
                 LogPlaylistSummaryBulkWarning("playlist_summary_external_property_initialization_skipped reason=overlapping_output_dir table=" + change.Table.name);
                 continue;
@@ -1200,7 +1221,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             finalDirectories[change.Table] = candidate;
             acceptedChanges.Add(change);
         }
-        ManagedPlaylistOutputPlacement.Validate(finalDirectories.Values);
         return acceptedChanges;
     }
 
@@ -1251,8 +1271,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
+        // 出力先が他の表と重なる表は凍結し、ROOT登録の追加を行いません。
+        IReadOnlySet<BMSTable> collidingAfter = GetPlaylistStore().FindCollidingOutputTables(settings);
         List<BMSTable> rootTables = [.. (outputChangedTables ?? [])
-            .Where(table => table != null && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
+            .Where(table => table != null && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir) && !collidingAfter.Contains(table))
             .Distinct()];
         if (rootTables.Count == 0)
         {
@@ -1274,17 +1296,18 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>開始時と同じstoreの全正本参照をP内で検証し、出力種別の保存と必要出力を待ちます。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal Task ApplyPlaylistSummaryCustomFolderOutputTypes(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch, BMSPlaylist expectedStore = null)
+    internal Task<bool> ApplyPlaylistSummaryCustomFolderOutputTypes(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch, BMSPlaylist expectedStore = null)
         => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryCustomFolderOutputTypesCore(rows, patch, expectedStore));
 
-    private async Task ApplyPlaylistSummaryCustomFolderOutputTypesCore(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch, BMSPlaylist expectedStore = null)
+    private async Task<bool> ApplyPlaylistSummaryCustomFolderOutputTypesCore(IEnumerable<PlaylistSummaryRow> rows, PlaylistSummaryCustomFolderOutputPatch patch, BMSPlaylist expectedStore = null)
     {
         if (rows == null || patch == null)
         {
-            return;
+            return true;
         }
         BMSPlaylist tables = GetPlaylistStore();
-        using LibraryFileMutationLease accepted = tables.AcquirePlaylistMutationLease("playlist_summary_edit");
+        using LibraryFileMutationLease accepted = TryAcquirePlaylistMutationLeaseOrNotify(tables, "playlist_summary_edit", "playlist summary bulk edit busy notification");
+        if (accepted == null) { return false; }
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         await RunWithSavedHeaderPresentationAsync(async () =>
         {
@@ -1341,6 +1364,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 () => tables.BmtOutput.ExportTablesAsync(changedTables, "playlist_summary_custom_folder_types_changed", authority),
                 PublishPlaylistCatalogChanged).ConfigureAwait(false);
         }).ConfigureAwait(false);
+        return true;
     }
 
     private void UpdatePlaylistSummaryCustomFolderOutputProgress(int completedTableCount, int totalTableCount, CustomFolderProgressDetail detail)
@@ -1359,17 +1383,18 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>P取得・借用後に開始時と同じstoreの全正本参照を検証し、一括保存と必要出力の実終端まで保持します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal Task ApplyPlaylistSummaryExternalSync(IEnumerable<PlaylistSummaryRow> rows, bool isExternalSync, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
+    internal Task<bool> ApplyPlaylistSummaryExternalSync(IEnumerable<PlaylistSummaryRow> rows, bool isExternalSync, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
         => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryExternalSyncCore(rows, isExternalSync, capability, expectedStore));
 
-    private async Task ApplyPlaylistSummaryExternalSyncCore(IEnumerable<PlaylistSummaryRow> rows, bool isExternalSync, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
+    private async Task<bool> ApplyPlaylistSummaryExternalSyncCore(IEnumerable<PlaylistSummaryRow> rows, bool isExternalSync, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
-            return;
+            return true;
         }
         BMSPlaylist tables = GetPlaylistStore();
-        using LibraryFileMutationLease accepted = tables.AcquirePlaylistMutationLease("playlist_summary_edit", capability: capability);
+        using LibraryFileMutationLease accepted = TryAcquirePlaylistMutationLeaseOrNotify(tables, "playlist_summary_edit", "playlist summary bulk edit busy notification", capability);
+        if (accepted == null) { return false; }
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         await RunWithSavedHeaderPresentationAsync(async () =>
         {
@@ -1401,6 +1426,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 PublishPlaylistCatalogChanged).ConfigureAwait(false);
 
         }).ConfigureAwait(false);
+        return true;
     }
 
     internal static bool ApplyPlaylistSummaryExternalSyncFlagForTable(BMSTable table, bool isExternalSync)
@@ -1423,41 +1449,43 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     /// <summary>一要求の複数フラグ変更を同じPで保存・出力し、必須継続の終端を待ちます。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal Task ApplyPlaylistSummaryFlags(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null, BMSPlaylist expectedStore = null)
+    internal Task<bool> ApplyPlaylistSummaryFlags(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null, BMSPlaylist expectedStore = null)
         => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryFlagsCore(rows, isExternalSync, isRootFolder, expectedStore));
 
-    private async Task ApplyPlaylistSummaryFlagsCore(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null, BMSPlaylist expectedStore = null)
+    private async Task<bool> ApplyPlaylistSummaryFlagsCore(IEnumerable<PlaylistSummaryRow> rows, bool? isExternalSync = null, bool? isRootFolder = null, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
-            return;
+            return true;
         }
-        using LibraryFileMutationLease accepted = GetPlaylistStore().AcquirePlaylistMutationLease("playlist_summary_flags");
+        using LibraryFileMutationLease accepted = TryAcquirePlaylistMutationLeaseOrNotify(GetPlaylistStore(), "playlist_summary_flags", "playlist summary flags busy notification");
+        if (accepted == null) { return false; }
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         if (isRootFolder.HasValue)
         {
-            await ApplyPlaylistSummaryRootFolder(rows, isRootFolder.Value, authority, isExternalSync, expectedStore);
-            return;
+            return await ApplyPlaylistSummaryRootFolder(rows, isRootFolder.Value, authority, isExternalSync, expectedStore);
         }
         if (isExternalSync.HasValue)
         {
-            await ApplyPlaylistSummaryExternalSync(rows, isExternalSync.Value, authority, expectedStore);
+            return await ApplyPlaylistSummaryExternalSync(rows, isExternalSync.Value, authority, expectedStore);
         }
+        return true;
     }
 
     /// <summary>P取得・借用後に開始時と同じstoreの全正本参照を検証し、root変更と必要出力の実終端まで保持します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal Task ApplyPlaylistSummaryRootFolder(IEnumerable<PlaylistSummaryRow> rows, bool isRootFolder, LibraryFileMutationCapability capability = null, bool? isExternalSync = null, BMSPlaylist expectedStore = null)
+    internal Task<bool> ApplyPlaylistSummaryRootFolder(IEnumerable<PlaylistSummaryRow> rows, bool isRootFolder, LibraryFileMutationCapability capability = null, bool? isExternalSync = null, BMSPlaylist expectedStore = null)
         => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryRootFolderCore(rows, isRootFolder, capability, isExternalSync, expectedStore));
 
-    private async Task ApplyPlaylistSummaryRootFolderCore(IEnumerable<PlaylistSummaryRow> rows, bool isRootFolder, LibraryFileMutationCapability capability = null, bool? isExternalSync = null, BMSPlaylist expectedStore = null)
+    private async Task<bool> ApplyPlaylistSummaryRootFolderCore(IEnumerable<PlaylistSummaryRow> rows, bool isRootFolder, LibraryFileMutationCapability capability = null, bool? isExternalSync = null, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
-            return;
+            return true;
         }
         BMSPlaylist tables = GetPlaylistStore();
-        using LibraryFileMutationLease accepted = tables.AcquirePlaylistMutationLease("playlist_summary_edit", capability: capability);
+        using LibraryFileMutationLease accepted = TryAcquirePlaylistMutationLeaseOrNotify(tables, "playlist_summary_edit", "playlist summary bulk edit busy notification", capability);
+        if (accepted == null) { return false; }
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         await RunWithSavedHeaderPresentationAsync(async () =>
         {
@@ -1473,11 +1501,12 @@ public sealed partial class PlaylistWorkspaceViewModel
             CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
                 ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
-            tables.ValidateCustomFolderOutputLayout(settings);
             var changedSet = changedTables.ToHashSet();
-            tables.ValidateCustomFolderOutputLayout(settings, table => ManagedPlaylistOutputPlacement.Resolve(
+            tables.ValidateCustomFolderOutputEdit(settings, table => ManagedPlaylistOutputPlacement.Resolve(
                 table.name, table.output_dir, table.custom_folder_output_base_name,
                 changedSet.Contains(table) ? isRootFolder : table.is_root_folder, settings));
+            // 操作前に衝突していた表の旧配置は未知として扱い、共有している可能性のある旧先を移行・整理に渡しません。集合は一度だけ求めます。
+            IReadOnlySet<BMSTable> collidingBefore = tables.FindCollidingOutputTables(settings);
 
             var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
             var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
@@ -1501,6 +1530,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 string beforeDirectory = settings.OperationModeLR2DB
                     && beforeBaseDirectoryResolved
                     && !string.IsNullOrWhiteSpace(table.Output_dir)
+                    && !collidingBefore.Contains(table)
                     ? Path.Combine(beforeBaseDirectory, table.Output_dir)
                     : null;
                 if (!string.IsNullOrWhiteSpace(beforeDirectory))
@@ -1538,8 +1568,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 if (isRootFolder)
                 {
+                    // 変更後に出力先が他の表と重なる表は凍結し、ROOT登録の追加を行いません。
+                    IReadOnlySet<BMSTable> collidingAfter = tables.FindCollidingOutputTables(settings);
                     IEnumerable<string> addDirectories = changedTables
-                        .Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
+                        .Where(table => !string.IsNullOrWhiteSpace(table.Output_dir) && !collidingAfter.Contains(table))
                         .Select(table => ResolvePlaylistSummaryCustomFolderOutputDirectory(
                             table,
                             "playlist summary root output directory notification",
@@ -1558,21 +1590,23 @@ public sealed partial class PlaylistWorkspaceViewModel
                 PublishPlaylistCatalogChanged).ConfigureAwait(false);
 
         }).ConfigureAwait(false);
+        return true;
     }
 
     /// <summary>P取得・借用後に開始時と同じstoreの全正本参照を検証し、基点変更と必要出力の実終端まで保持します。未登録名の旧先は推測せず、選択された新先へ生成します。</summary>
     /// <param name="expectedStore">編集開始時に捕捉したstoreの同一参照。省略時は直接操作として現在storeの対象を検証します。</param>
-    internal Task ApplyPlaylistSummaryOutputBase(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
+    internal Task<bool> ApplyPlaylistSummaryOutputBase(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
         => RunWithBulkEditNoticesAsync(() => ApplyPlaylistSummaryOutputBaseCore(rows, outputBaseName, capability, expectedStore));
 
-    private async Task ApplyPlaylistSummaryOutputBaseCore(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
+    private async Task<bool> ApplyPlaylistSummaryOutputBaseCore(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName, LibraryFileMutationCapability capability = null, BMSPlaylist expectedStore = null)
     {
         if (rows == null)
         {
-            return;
+            return true;
         }
         BMSPlaylist tables = GetPlaylistStore();
-        using LibraryFileMutationLease accepted = tables.AcquirePlaylistMutationLease("playlist_summary_edit", capability: capability);
+        using LibraryFileMutationLease accepted = TryAcquirePlaylistMutationLeaseOrNotify(tables, "playlist_summary_edit", "playlist summary bulk edit busy notification", capability);
+        if (accepted == null) { return false; }
         using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         await RunWithSavedHeaderPresentationAsync(async () =>
         {
@@ -1596,11 +1630,12 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
 
-            tables.ValidateCustomFolderOutputLayout(settings);
             var changedSet = changedTables.ToHashSet();
-            tables.ValidateCustomFolderOutputLayout(settings, table => ManagedPlaylistOutputPlacement.Resolve(
+            tables.ValidateCustomFolderOutputEdit(settings, table => ManagedPlaylistOutputPlacement.Resolve(
                 table.name, table.output_dir, changedSet.Contains(table) ? normalizedBaseName : table.custom_folder_output_base_name,
                 table.is_root_folder, settings));
+            // 操作前に衝突していた表の旧配置は未知として扱い、共有している可能性のある旧先を移行・整理に渡しません。集合は一度だけ求めます。
+            IReadOnlySet<BMSTable> collidingBefore = tables.FindCollidingOutputTables(settings);
 
             var previousBaseNames = changedTables.ToDictionary(table => table, table => table.custom_folder_output_base_name);
             var migrationTables = new List<BMSTable>();
@@ -1619,6 +1654,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     string beforeDirectory = settings.OperationModeLR2DB
                         && beforeBaseDirectoryResolved
                         && !string.IsNullOrWhiteSpace(table.Output_dir)
+                        && !collidingBefore.Contains(table)
                         ? Path.Combine(beforeBaseDirectory, table.Output_dir)
                         : null;
                     if (!string.IsNullOrWhiteSpace(beforeDirectory))
@@ -1669,6 +1705,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 PublishPlaylistCatalogChanged).ConfigureAwait(false);
 
         }).ConfigureAwait(false);
+        return true;
     }
 
 }

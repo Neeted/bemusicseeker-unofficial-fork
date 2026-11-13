@@ -365,12 +365,15 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 if (settings.OperationModeLR2DB && preparations.All(preparation => !preparation.DuplicateName)
                     && tableList.All(table => !string.IsNullOrWhiteSpace(table.Output_dir)))
                 {
-                    ManagedPlaylistOutputPlacement.Validate(
-                        activeTableOrder.Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
-                            .Select(table => ManagedPlaylistOutputPlacement.Resolve(table, settings))
-                            .Concat(tableList.Select((table, index) => ManagedPlaylistOutputPlacement.Resolve(
-                                preparations[index].Name, table.output_dir, table.custom_folder_output_base_name,
-                                table.is_root_folder, settings))));
+                    // 既存の表の配置は変わらないため、新規の候補が既存の表または候補同士と重なる場合だけ拒否します。
+                    // 既存の表同士の保存済みの衝突は、外部登録の可否に影響しません。
+                    List<ManagedPlaylistOutputPlacement.Placement> existing = [.. activeTableOrder
+                        .Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
+                        .Select(table => new ManagedPlaylistOutputPlacement.Placement(table, ManagedPlaylistOutputPlacement.Resolve(table, settings)))];
+                    ManagedPlaylistOutputPlacement.ValidateEdit(existing,
+                        [.. existing, .. tableList.Select((table, index) => new ManagedPlaylistOutputPlacement.Placement(table,
+                            ManagedPlaylistOutputPlacement.Resolve(preparations[index].Name, table.output_dir,
+                                table.custom_folder_output_base_name, table.is_root_folder, settings)))]);
                 }
                 return preparations.AsReadOnly();
             }

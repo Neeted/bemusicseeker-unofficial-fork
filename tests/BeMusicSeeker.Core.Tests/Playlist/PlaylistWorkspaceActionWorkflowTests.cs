@@ -965,11 +965,15 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
-    /// <summary>他P中は三つの編集準備を副作用なしで拒否し、解放後は同じ明示要求を新しく準備します。画面寿命へPを持ち越さず、未登録draftの取消も正本を増やしません。</summary>
+    /// <summary>
+    /// 他P中は三つの編集準備（一括編集・既存表・新規作成）を副作用なしで拒否し、各入口で競合の警告を一回だけ案内します。解放後は同じ明示要求を新しく準備でき、案内は増えず、拒否した要求を自動で再実行しません。
+    /// 画面寿命へPを持ち越さず、未登録draftの取消も正本を増やしません。受付拒否を無言にする誤りと、汎用の失敗にする誤りを検出します。
+    /// </summary>
     [TestMethod]
     public async Task PlaylistEditPreparation_RejectsBusyWithoutSideEffectsAndReleasesBeforePublication()
     {
-        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        using var notices = new PlaylistNoticeProbe(() => false);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: notices.Dialogs);
         int captures = 0;
         var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library,
             () => throw new AssertFailedException("LR2設定は不要です。"), () =>
@@ -978,14 +982,18 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 return new CustomFolderOutputSettingsSnapshot();
             });
         using PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _,
-            playlistStoreProvider: () => fixture.Playlist, propertySaveService: service);
+            playlistStoreProvider: () => fixture.Playlist, propertySaveService: service, playlistWorkspaceDialogService: notices.Dialogs);
         var row = new PlaylistSummaryRow { TableRef = fixture.Table };
         Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable lease));
         using (lease)
         {
             Assert.IsNull(workspace.OpenSummaryBulkEditDialog([row]));
+            await notices.WaitForRequestsAsync(1);
             Assert.IsNull(await workspace.OpenPropertyDialogAsync(fixture.Table));
+            await notices.WaitForRequestsAsync(2);
             Assert.IsNull(await workspace.CreatePlaylistPropertyDialogAsync());
+            await notices.WaitForRequestsAsync(3);
+            PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 3);
             Assert.IsNull(workspace.ActivePropertyDialog);
             Assert.IsNull(workspace.ActiveSummaryBulkEditDialog);
             Assert.AreEqual(0, captures);
@@ -1004,13 +1012,15 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await created.ResetPropertiesAsync());
         using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
         Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist"));
+        PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 3);
     }
 
     /// <summary>実外部再同期後の旧選択から現正本の初期値を取得し、実hydrationのLoading通知gate中はPを保持して別準備を拒否し、準備Task終端で解放します。</summary>
     [TestMethod]
     public async Task PlaylistPropertyPreparation_ResolvesCurrentAndHoldsAdmissionThroughHydration()
     {
-        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null));
+        using var notices = new PlaylistNoticeProbe(() => false);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: notices.Dialogs);
         File.WriteAllText(fixture.HeaderPath, "{\"name\":\"Current name\",\"symbol\":\"NOW\",\"data_url\":\"data.json\"}");
         PlaylistExternalSyncOwner.PlaylistReloadOperationResult reload = await fixture.Playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([fixture.Table]);
         reload.ThrowIfFailed();
@@ -1039,7 +1049,10 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, opening, "property-prepare-hydration");
             Assert.IsFalse(opening.IsCompleted);
             Assert.IsFalse(fixture.Playlist.CanEnterPlaylistMutation);
+            // 自分のプロパティ準備中にPの競合で一括編集を開こうとすると、副作用なしで警告を一回だけ案内します。
             Assert.IsNull(fixture.Workspace.OpenSummaryBulkEditDialog([new PlaylistSummaryRow { TableRef = current }]));
+            await notices.WaitForRequestsAsync(1);
+            // 同じ画面の準備が進行中のための二重起動の抑止は、案内しません。
             Assert.IsNull(await fixture.Workspace.CreatePlaylistPropertyDialogAsync());
             release.Set();
             dialog = await opening ?? throw new AssertFailedException();
@@ -1047,6 +1060,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             Assert.AreEqual("NOW", dialog.symbol);
             Assert.IsTrue(fixture.Playlist.CanEnterPlaylistMutation);
             Assert.IsTrue(current.ArePlaylistEntriesLoaded);
+            PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
         }
         finally
         {
@@ -3040,6 +3054,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         Directory.CreateDirectory(tempDirectory);
         PlaylistPropertyDialogViewModel? dialog = null;
         Task<PlaylistPropertyDialogViewModel>? firstOpen = null;
+        using var duplicateNotices = new PlaylistNoticeProbe(() => false);
         var firstSettingsCaptured = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var releaseFirstCreation = new ManualResetEventSlim();
         try
@@ -3068,7 +3083,8 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
                 out _,
                 playlistStoreProvider: () => playlist,
-                propertySaveService: service);
+                propertySaveService: service,
+                playlistWorkspaceDialogService: duplicateNotices.Dialogs);
             firstOpen = workspace.CreatePlaylistPropertyDialogAsync();
             await TestUiDispatcherHost.AwaitNotificationAsync(firstSettingsCaptured.Task, firstOpen, "playlist-property.creation-settings");
             Assert.IsFalse(playlist.CanEnterPlaylistMutation, "新規編集の準備await中もPを保持します。");
@@ -3078,6 +3094,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
             PlaylistPropertyDialogViewModel secondDialog =
                 await workspace.CreatePlaylistPropertyDialogAsync();
             Assert.IsNull(secondDialog);
+            // 同じ画面を開く処理が進行中のための二重起動の抑止は、競合の案内を出しません。
+            Assert.AreEqual(0, duplicateNotices.Messages.Count);
+            Assert.AreEqual(0L, workspace.PlaylistOperationNoticeRequestCount);
             releaseFirstCreation.Set();
             dialog = await firstOpen;
 
@@ -3101,6 +3120,163 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+
+    /// <summary>
+    /// 条件：プロパティ画面で名前を編集し、保存の時点で別の処理がPを保持している。
+    /// 期待結果：保存は結果 Busy で副作用なく拒否され、競合の警告を一回だけ案内し、画面の下書き・正本・DBの名前を変えない。解放後に自動再実行せず、次の明示保存だけが成功して案内は増えない。
+    /// 検出する誤り：受付拒否を無言で終える誤り、汎用の失敗や入力不備として案内する誤り、拒否後に下書きを破棄・自動再実行する誤り。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistPropertySave_PlaylistBusyWarnsOnceAndKeepsDraft()
+    {
+        using var notices = new PlaylistNoticeProbe(() => false);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: notices.Dialogs);
+        using PlaylistPropertyDialogViewModel dialog = await fixture.Workspace.OpenPropertyDialogAsync(fixture.Table)
+            ?? throw new AssertFailedException("プロパティ画面を準備できません。");
+        string savedName = fixture.Table.name;
+        dialog.name = "Draft while busy";
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable lease));
+        using (lease)
+        {
+            Assert.AreEqual(PlaylistPropertyDialogOperationResult.Busy, await dialog.SaveAndApplyAsync());
+            await notices.WaitForRequestsAsync(1);
+            PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+            Assert.AreEqual(savedName, fixture.Table.name);
+            Assert.AreEqual("Draft while busy", dialog.name, "下書きを保持します。");
+            using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
+            Assert.AreEqual(savedName, db.ExecuteScalar<string>("SELECT name FROM playlist WHERE playlist_id = 7492;"));
+        }
+
+        Assert.AreEqual(savedName, fixture.Table.name, "解放後に拒否した保存を自動で再実行しません。");
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        Assert.AreEqual("Draft while busy", fixture.Table.name);
+        PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+    }
+
+    /// <summary>
+    /// 条件：概要のセルで表名を編集し、保存の時点で別の処理がPを保持している。
+    /// 期待結果：副作用なしで拒否し、競合の警告を一回だけ案内し、入力不備（Msg_invalid_setting）や汎用の失敗を重ねない。セルは保存済みの表示へ戻す指示（RequiresRefresh）を返す。解放後に自動再実行せず、次の明示編集だけが成功する。
+    /// 検出する誤り：受付拒否を入力不備のエラーとして重ねて表示する誤り、拒否を無言にする誤り。
+    /// </summary>
+    [TestMethod]
+    public async Task PlaylistSummaryPropertyEdit_PlaylistBusyWarnsOnceWithoutValidationMessage()
+    {
+        using var notices = new PlaylistNoticeProbe(() => false);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: notices.Dialogs);
+        var row = new PlaylistSummaryRow { TableRef = fixture.Table };
+        string savedName = fixture.Table.name;
+        Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out IDisposable lease));
+        using (lease)
+        {
+            PlaylistSummaryPropertyEditCompletion rejected = await fixture.Workspace.CompleteSummaryPropertyEditAsync(
+                row, nameof(PlaylistSummaryRow.Name), "Renamed while busy", commit: true);
+
+            Assert.IsFalse(rejected.IsApplied);
+            Assert.IsTrue(rejected.RefreshRequired, "セルを保存済みの表示へ戻します。");
+            await notices.WaitForRequestsAsync(1);
+            PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+            Assert.AreEqual(savedName, fixture.Table.name);
+        }
+
+        Assert.AreEqual(savedName, fixture.Table.name, "解放後に拒否した編集を自動で再実行しません。");
+        PlaylistSummaryPropertyEditCompletion accepted = await fixture.Workspace.CompleteSummaryPropertyEditAsync(
+            row, nameof(PlaylistSummaryRow.Name), "Renamed after release", commit: true);
+        Assert.IsTrue(accepted.IsApplied);
+        Assert.AreEqual("Renamed after release", fixture.Table.name);
+        PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+    }
+
+    /// <summary>
+    /// 条件：概要のフラグセル（ROOT・BMT出力・外部同期）を操作し、別の処理がPを保持している。外部同期の有効化は確認を先に出す入口で、Pを確認の前から保持している場合と、確認の間に別の操作が取得した場合を分ける。
+    /// 期待結果：副作用なしで競合の警告を一回だけ案内し、例外・汎用の失敗にしない。確認の前に使用中なら確認を出さず、確認の間に取得されたなら確認は一回出て、その後に警告を一回案内する。解放後に自動再実行しない。
+    /// 検出する誤り：受付拒否の無言化・汎用の失敗化、確認の後でしか受付の可否を判定しない誤り、確認後の競合の無言化。
+    /// </summary>
+    [TestMethod]
+    [DataRow("IsRootFolder", false)]
+    [DataRow("IsBmtOutput", false)]
+    [DataRow("IsExternalSync", false)]
+    [DataRow("IsExternalSync", true)]
+    public async Task PlaylistSummaryCellAction_PlaylistBusyWarnsOnceWithoutGenericFailure(string columnId, bool acquiredDuringConfirmation)
+    {
+        using var notices = new PlaylistNoticeProbe(() => false);
+        notices.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: notices.Dialogs);
+        var row = new PlaylistSummaryRow { TableRef = fixture.Table };
+        string Flags() => string.Join("|", fixture.Table.is_root_folder, fixture.Table.is_bmt_output, fixture.Table.is_external_sync);
+        string before = Flags();
+        IDisposable? lease = null;
+        if (acquiredDuringConfirmation)
+        {
+            notices.Dialogs.ConfirmationRequestedHook = _ => Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out lease));
+        }
+        else
+        {
+            Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out lease));
+        }
+        try
+        {
+            await fixture.Workspace.HandlePlaylistSummaryCellActionAsync([row], row, columnId);
+
+            await notices.WaitForRequestsAsync(1);
+            PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+            Assert.AreEqual(columnId == "IsExternalSync" && acquiredDuringConfirmation ? 1 : 0, notices.Dialogs.ConfirmationRequests.Count);
+            Assert.AreEqual(before, Flags());
+            using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
+            Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist WHERE playlist_id = 7492 AND is_external_sync = 1;"));
+        }
+        finally { lease?.Dispose(); }
+
+        Assert.AreEqual(before, Flags(), "解放後に拒否した操作を自動で再実行しません。");
+        PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+    }
+
+    /// <summary>
+    /// 条件：表（ツリー）・概要の行・フォルダの削除を、別の処理がPを保持している状態で始める。確認を先に出す入口のため、Pを確認の前から保持している場合と、確認の間に別の操作が取得した場合を分ける。
+    /// 期待結果：確認の前に使用中なら確認を出さず競合の警告を一回案内し、確認の間に取得されたなら確認は一回出て、その後に警告を一回案内する。どちらも表・フォルダの所属・DBは変わらず、汎用の失敗にならない。
+    /// 検出する誤り：確認の後でしか受付の可否を判定しない誤り（確認だけ出して失敗する）、削除の受付拒否の無言化・エラー表示。
+    /// </summary>
+    [TestMethod]
+    [DataRow("table", false)]
+    [DataRow("table", true)]
+    [DataRow("rows", false)]
+    [DataRow("rows", true)]
+    [DataRow("folder", false)]
+    [DataRow("folder", true)]
+    public async Task PlaylistRemoval_PlaylistBusyIsCheckedBeforeConfirmationAndWarnsOnce(string kind, bool acquiredDuringConfirmation)
+    {
+        using var notices = new PlaylistNoticeProbe(() => false);
+        notices.Dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK);
+        await using var fixture = new PlaylistPrefixCommitTestFixture(modelUiScheduler: new TestUiScheduler(() => null), playlistWorkspaceDialogService: notices.Dialogs);
+        string entriesBefore = string.Join("|", fixture.Table.entries.Select(entry => entry.md5 + ":" + entry.folder));
+        IDisposable? lease = null;
+        if (acquiredDuringConfirmation)
+        {
+            notices.Dialogs.ConfirmationRequestedHook = _ => Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out lease));
+        }
+        else
+        {
+            Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out lease));
+        }
+        try
+        {
+            await (kind switch
+            {
+                "table" => fixture.Workspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync(fixture.Table, () => { }),
+                "rows" => fixture.Workspace.PlaylistRemovalWorkflow.RemoveSummaryRowsAsync([new PlaylistSummaryRow { TableRef = fixture.Table }]),
+                _ => fixture.Workspace.PlaylistRemovalWorkflow.RemoveFolderAsync(fixture.Table, PlaylistFolderNode.CreateFolder("P1"))
+            });
+
+            await notices.WaitForRequestsAsync(1);
+            PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+            Assert.AreEqual(acquiredDuringConfirmation ? 1 : 0, notices.Dialogs.ConfirmationRequests.Count);
+            Assert.AreEqual(1, fixture.Playlist.BMSTables.Count);
+            Assert.AreEqual(entriesBefore, string.Join("|", fixture.Table.entries.Select(entry => entry.md5 + ":" + entry.folder)));
+            using LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
+            Assert.AreEqual(1L, db.ExecuteScalar<long>("SELECT COUNT(*) FROM playlist;"));
+        }
+        finally { lease?.Dispose(); }
+        PlaylistBusyNoticeAssertions.AssertOnlyBusyWarnings(notices.Messages, 1);
+    }
 
     /// <summary>BMSとBMSONの実所属行を登録し、導入パッケージの参照表示を同じ登録済み索引から解決します。</summary>
     [TestMethod]

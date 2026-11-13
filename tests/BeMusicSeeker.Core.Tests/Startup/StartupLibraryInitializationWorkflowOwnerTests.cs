@@ -51,6 +51,57 @@ public sealed partial class StartupLibraryInitializationWorkflowOwnerTests
         Assert.AreEqual(0, dialogs.ConfirmationCount, "事後通知の局所化で事前の承認を代替しません。");
     }
 
+    /// <summary>
+    /// 条件：必須出力が止めた表（出力先が重なる二表、未登録の追加基点を使う二表）を、親受付の解放後の完了案内へ渡す。
+    /// 期待結果：理由ごとに最大一件、警告（Exclamation・見出し「警告」）で通知する。未登録の追加基点は既存の文言を表ごとに整形して一件へまとめ、出力先が重なる表は導入文と「表名: 出力先」の行の一覧を一件にまとめる。警告はルート未設定の警告の後、LR2の失敗・初回案内の前に出す。止めた表がなければ警告しない。
+    /// 検出する誤り：表ごとに通知を重ねる誤り、理由の取り違え、警告の重大度・見出しの誤り、一覧の省略、止めた表がないときの空の通知。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task CompletionNotifications_PresentStoppedOutputsOncePerReason(bool hasStoppedOutputs)
+    {
+        using var gate = new SemaphoreSlim(1, 1);
+        var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
+        var requests = new List<UiMessageRequest>();
+        var dialogs = new StartupCompletionTestFixture.CompletionDialogs
+        {
+            MessageObservedAsync = request => { requests.Add(request); return Task.CompletedTask; }
+        };
+        IReadOnlyList<PlaylistStoppedOutput> stopped = hasStoppedOutputs
+            ?
+            [
+                new("Table A", @"C:\Out\Shared", PlaylistOutputStopReason.Collision),
+                new("Orphan 1", null, PlaylistOutputStopReason.UnregisteredBase, "Missing1"),
+                new("Table B", @"C:\Out\Shared\Sub", PlaylistOutputStopReason.Collision),
+                new("Orphan 2", null, PlaylistOutputStopReason.UnregisteredBase, "Missing2")
+            ]
+            : [];
+
+        await owner.PresentCompletionNotificationsAsync(null, true, true, dialogs, () => false, () => true, stoppedOutputs: stopped);
+
+        string[] expectedMessages = hasStoppedOutputs
+            ?
+            [
+                Resources.Warning_LR2RootPathNotSet,
+                string.Format(Resources.Warn_UnregisteredCustomFolderOutputBase, "Orphan 1", "Missing1") + Environment.NewLine
+                    + string.Format(Resources.Warn_UnregisteredCustomFolderOutputBase, "Orphan 2", "Missing2"),
+                Resources.Warn_PlaylistOutputOverlapStopped + Environment.NewLine + Environment.NewLine
+                    + @"Table A: C:\Out\Shared" + Environment.NewLine + @"Table B: C:\Out\Shared\Sub",
+                Resources.Msg_init_completed
+            ]
+            : [Resources.Warning_LR2RootPathNotSet, Resources.Msg_init_completed];
+        CollectionAssert.AreEqual(expectedMessages, requests.Select(request => request.MessageBoxText).ToArray());
+        if (hasStoppedOutputs)
+        {
+            foreach (UiMessageRequest request in requests.Skip(1).Take(2))
+            {
+                Assert.AreEqual(Resources.Warning, request.Caption);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, request.Icon);
+            }
+        }
+    }
+
     /// <summary>通知待機後に終了または新要求が先着した場合は、それ以降の旧要求の案内を開始しません。</summary>
     /// <remarks>表示は実Taskで待ち、終了だけを取消しとして区別します。新要求では旧要求を静穏に終えます。</remarks>
     [TestMethod]

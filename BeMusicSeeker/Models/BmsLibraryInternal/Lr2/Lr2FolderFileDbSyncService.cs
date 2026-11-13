@@ -23,6 +23,13 @@ internal sealed class Lr2FolderFileSyncItem
     public string ParentHash { get; set; }
 
     public bool PreserveExistingRowOnly { get; set; }
+
+    /// <summary>
+    /// このパス自体の行は作らず、親ディレクトリの行だけを実際の更新時刻へ揃える項目です。
+    /// 表ディレクトリを削除した後に、削除したディレクトリの祖先（基点まで）の行を同じ同期で追従させるために使い、
+    /// パスには削除したディレクトリ（または、その祖先のうち行を揃える最も近い祖先の直下の要素）を指定します。
+    /// </summary>
+    public bool ParentRowsOnly { get; set; }
 }
 
 internal sealed class Lr2FolderFileDbSyncRequest
@@ -226,6 +233,20 @@ internal static class Lr2FolderFileDbSyncService
             if (string.IsNullOrWhiteSpace(databasePath))
             {
                 skippedUnsupportedPathCount++;
+                continue;
+            }
+            if (item.ParentRowsOnly)
+            {
+                UpsertParentDirectoryRows(
+                    item,
+                    databasePath,
+                    directoryRowGenerationScopeMatcher,
+                    existingRowsByPath,
+                    request.GeneratedAtUtc,
+                    request.DirectoryMetadataResolver,
+                    generatedPaths,
+                    generatedParentDirectoryKeys,
+                    upsertRows);
                 continue;
             }
             existingRowsByPath.TryGetValue(databasePath, out LR2SongDB.folder existingRow);

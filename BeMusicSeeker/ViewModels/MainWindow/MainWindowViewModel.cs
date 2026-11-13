@@ -3390,7 +3390,7 @@ public partial class MainWindowViewModel : ViewModel,
             }
             await startupLibraryInitializationWorkflowOwner.PresentCompletionNotificationsAsync(
                 result.RepairNotification, result.ShowRootWarning, firstStartup, FileDbMutationDialogs,
-                () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(operationToken), result.BackupNotifications, result.RequiredResult?.Lr2Failure);
+                () => IsRequiredInitializationShutdownRequested, () => IsStartupCompletionTokenCurrent(operationToken), result.BackupNotifications, result.RequiredResult?.Lr2Failure, result.RequiredResult?.StoppedOutputs);
             if (IsRequiredInitializationShutdownRequested)
             {
                 if (result.Failure != null) { return result; }

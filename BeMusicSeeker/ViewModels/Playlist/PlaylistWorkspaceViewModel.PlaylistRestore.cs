@@ -23,21 +23,31 @@ public sealed partial class PlaylistWorkspaceViewModel
         BMSPlaylist tables = GetPlaylistStore();
         using PlaylistOperationNotificationOwner.OperationNotificationSession session =
             tables.OperationNotificationOwner.BeginSession();
+        // SQL復元は、出力を止めた表（出力先が他の表と重なる表）を一件の警告で案内します。
+        session.WarnStoppedOutputs();
         bool restored = false;
         bool refused = false;
+        // 受付の競合だけを案内します。ライブラリの未接続、受付の閉鎖、終了の要求中の不成立は案内しません。
+        bool announceBusy = false;
         try
         {
-            if (library == null || !library.OperationAdmission.TryEnter(out IDisposable libraryLease))
+            if (library == null)
             {
                 refused = true;
+            }
+            else if (!library.OperationAdmission.TryEnter(out IDisposable libraryLease))
+            {
+                refused = true;
+                announceBusy = !library.OperationAdmission.IsAdmissionClosed && tables.CanAnnouncePlaylistMutationBusy;
             }
             else
             {
                 using (libraryLease)
                 {
-                    if (!tables.TryEnterPlaylistMutation(out IDisposable playlistLease))
+                    if (!TryEnterPlaylistMutationAdmission(tables, out IDisposable playlistLease))
                     {
                         refused = true;
+                        announceBusy = tables.CanAnnouncePlaylistMutationBusy;
                     }
                     else
                     {
@@ -63,8 +73,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 session.Add(notification);
             }
-            // BMT 出力の失敗は別の事実なので、復元の失敗の通知を補う判定では数えません。
-            if (!receipt.Notifications.Any(notification => !notification.IsBmtOutputFailure
+            // BMT 出力の失敗と出力を止めた表の警告は別の事実なので、復元の失敗の通知を補う判定では数えません。
+            if (!receipt.Notifications.Any(notification => !notification.IsBmtOutputFailure && !notification.IsStoppedOutputsWarning
                 && notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error
                     or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning))
             {
@@ -77,7 +87,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         if (refused)
         {
-            session.Add(PlaylistOperationNotices.Rejection(PlaylistWorkspaceMutationKind.Restore, isBusy: true));
+            if (announceBusy) { session.Add(PlaylistOperationNotices.Rejection(PlaylistWorkspaceMutationKind.Restore, isBusy: true)); }
         }
         else if (restored)
         {

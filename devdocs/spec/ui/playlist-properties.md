@@ -25,13 +25,15 @@
 
 保存サービスは、新規表または出力名の生値を変更した要求だけを入力検査し、禁止入力は未完了出力の継続より前に理由付きで拒否します。既存値を変更せずに引き継ぐ別列の編集は許可します。
 
-LR2連携では、保存直前の実効絶対パスの集合を[共通配置条件](../playlist/lr2-custom-folders.md#出力先と事前検査)で検査します。名前由来の出力名、明示した出力名、基点の選択、ルート型の変更、新規の編集中の値の登録を同じ条件で拒否し、拒否した編集はDB・正本へ適用しません。
+LR2連携では、保存の事前検査を[共通配置条件](../playlist/lr2-custom-folders.md#出力先と事前検査)の一つの判定で行います。公開済みの配置と候補の配置を比べ、配置が変わる表または新規の表が、後の集合で他の表と同一・親子になる場合だけ、名前由来の出力名、明示した出力名、基点の選択、ルート型の変更、新規の編集中の値の登録を拒否します。拒否した編集はDB・正本へ適用しません。他の表同士の保存済みの衝突は問わないため、衝突を解消する保存は受理し、画面の入力の可否も保存と同じ判定です。配置が変わらない保存（配置以外の項目の保存）で、保存済みの衝突に残る表は、DBへ保存して出力を止め、止めた表を一件の警告で案内します。
 
 #### 受付と準備
 
 保存・一括編集・順序変更の受付と編集中の値の現行性は、[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従います。新規作成の取消は未登録の編集中の値を閉じるだけで、正本の仮登録・削除を行いません。
 
 既存プロパティ・新規プロパティ・一括編集の準備は、Pを待たずに取得できた場合だけ開始し、準備の間だけ保持します。
+
+利用者が明示した操作がPの競合（Pの使用中、再読込み・初期化の実行中、自分の管理主体の実行中）で受け付けられない場合は、[操作の競合ポリシー](../core/operation-concurrency-policy.md)の「明示要求の競合の案内」に従い、副作用なしで `Warn_LibraryOperationBusy` を警告として一回案内し、汎用の失敗や入力不備の案内と重ねません。対象は、プロパティ画面と一括編集を開く操作、それらの保存と一括の各適用、概要のセル編集の保存、BMT保存順の移動、概要のフラグのセル、表・概要の行・フォルダの削除です。画面の入力は保持して閉じず、セル編集は保存済みの表示へ戻します。拒否した要求は自動で再実行しません。外部同期の有効化と削除のように確認を先に出す操作は、確認の前に受付の可否を取得せずに読み取って検査し、使用中なら確認を出さずに案内します。確認の後の取得で競合した場合も一回案内します。同じ画面を開く処理が進行中のための二重起動の抑止（新規作成と既存表のプロパティは同じ画面として扱います）は案内しません。終了の要求中、受付の閉鎖、ライブラリの未接続は案内しません。
 
 - 既存の選択は、そのP内で同IDの一意な現在の正本へ解決し、その正本から初期値を読みます。
 - 要求集合は一度だけ捕捉します。空の選択や解決できない選択を含む場合は全体を拒否し、同じ現在の正本への重複はまとめます。
@@ -78,7 +80,7 @@ Pageと出力フォルダ名の画面検証は、型変換後・setterの前に�
 
 取消・Esc・通常閉鎖は、最新の保存値の復元と表示が成功すれば閉じます。手動保存用の名前検査は取消へ適用せず、外部取込みで受理した空名も、変更せずに取り消せます。DB確定後の出力失敗からの取消は、最新の確定値へ戻し、再保存や自動の出力再試行を行いません。
 
-保存サービスは、一つの保存結果として、確定した参照、最新の保存値、未完了の必要出力、今回の実処理の失敗を返します。画面はそれらを採用してから失敗を通知します。同時編集の判定は、最新の保存値、現行の参照、項目の版に基づき、同じ保存の確定を古い編集スナップショットとの差として拒否しません。新規作成中の表は作成経路と実際の登録結果で判定し、旧参照が集合から外れたことを新規作成と読み替えません。
+保存サービスは、一つの保存結果として、確定した参照、最新の保存値、未完了の必要出力、今回の実処理の失敗を返します。画面はそれらを採用してから失敗を通知します。同時編集の判定は、最新の保存値、現行の参照、所属と解決キーの版（`EntryLookupRevision`）に基づき、同じ保存の確定を古い編集スナップショットとの差として拒否しません。URLの補完のように、利用者操作でなく所属・解決キーを変えない項目値の更新は、編集の競合とみなしません。補完した実行時の値は保存で失わず、DBへも保存しません。所属・解決キーの変更は引き続き競合として拒否します。プロパティ画面の保存と概要のセル編集は、同じ比較を使います。新規作成中の表は作成経路と実際の登録結果で判定し、旧参照が集合から外れたことを新規作成と読み替えません。
 
 #### 外部同期の再取得
 
@@ -156,9 +158,12 @@ BMT、外部同期、ルート型、出力種別、出力先、外部属性の�
 | 出力名の実Binding入力・訂正・取消 | `PlaylistPropertyDialog` | `MainWindowPlaylistWorkspaceWpfTests.PlaylistPropertyOutputName_InvalidBindingKeepsDraftAndAllowsCorrectionOrCancel` が未反映rawの実OK、専用通知、DB不変、訂正保存または取消を確認する。 |
 | 実効同期元と再取得条件 | `PlaylistPropertySaveService` | `PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_EffectiveSourceChangeReloadsOnlyWhenRequired` がPage追加・解除、Header変更、同一実効元と同期OFFを実sessionとSQLiteで確認する。保存後取得失敗と必要BMT・Reset基準は `BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_ExternalSourceFailureAdoptsSavedValuesAndCompletesRequiredOutput` が担う。 |
 | 表名の入力検査と訂正 | `PlaylistPropertySaveService` | [`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_BlankNamesRejectWithoutMutationAndAllowCorrection`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) は、実sessionの検査・保存と既存のViewModel経路で、空名の拒否、無変更、訂正後の保存を確認する。 |
-| LR2連携の最終配置の重なり拒否 | `PlaylistPropertySaveService` | [`ManagedPlaylistOutputPlacementTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/ManagedPlaylistOutputPlacementTests.cs) が条件の網羅を、同クラスの `PropertySave_RejectsOverlappingFinalPlacementBeforeMutation` が実編集sessionへの接続を確認する。 |
+| LR2連携の最終配置の重なり拒否と、保存済みの衝突を問わない保存 | `PlaylistPropertySaveService` | [`ManagedPlaylistOutputPlacementTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/ManagedPlaylistOutputPlacementTests.cs) が条件の網羅（`EditPrecheck_RejectsOnlyChangedOrNewTablesOverlappingAfterSet`）を、同クラスの `PropertySave_RejectsOverlappingFinalPlacementBeforeMutation` が実編集sessionへの接続を、[`BmsPlaylistCustomFolderOutputTests.SavedCollidingOutput_ExplicitOperationsFreezeOnlyCollidingTables`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) が衝突を解消する保存の受理と、配置以外の保存の警告を確認する。 |
 | 外部情報での初期化の除外と旧配置 | `PlaylistWorkspaceViewModel` | `BmsPlaylistPersistenceLifecycleTests` の外部初期化ケースが、除外後の旧配置への再衝突と、安全な表の保存を確認する。 |
 | 外部同期の切替えの確認（確定は承認後、確認中の保存と初期化は終端を待つ、表示失敗） | [`PlaylistPropertyDialogViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertyDialogViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) の `PlaylistPropertyDialog_PendingExternalSyncConfirmation_*` は、確認中に値を確定せず再切替えで確認を重ねないこと、保存と初期化が確認の終端を待ち受付を保持しないこと、承認・取消ごとの確定値を確認する。`PlaylistPropertyDialog_ExternalSyncConfirmationDisplayFailure_*` は、表示の失敗（失敗結果・失敗したTask・同期の例外）で例外を出さず値を変えず、Errorの通知が一件で、次の切替えが新しい確認を出すことを確認する。編集セッションの終了後の承認は値を適用しないことは、到達できる入口がテストの窓口だけのため、静的に確認する。 |
+| 保存の現行性は所属と解決キーの版で判定し、URL補完の反映を競合にしない | [`PlaylistPropertySaveService`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs)（`PlaylistPropertyValues`）、[`BMSTable.EntryLookupRevision`](../../../BeMusicSeeker/Models/Playlist/BMSTable.EntryCommit.cs) | [`PlaylistUrlCompletionTests.PropertySave_AfterUrlCompletionCommitSucceedsAndKeepsRuntimeUrls`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistUrlCompletionTests.cs): 編集セッションの作成後に実際の補完を反映しても、名前だけの保存が成功してDBの名前を更新し、補完した実行時のURLを保持してDBへ保存しない。`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_RejectsAStaleDetachedSessionWithoutOverwritingConcurrentChanges` が、所属・解決キーの変更（entries・reference）と属性競合を引き続き拒否する。 |
+| 並び順欄を編集していない保存は保存済みの明示順を変更対象にしない | `PlaylistPropertySaveService.CreateHeaderEdit` | [`PlaylistWorkspacePersistenceCommandTests.PlaylistPropertySave_NameOnlyKeepsStoredFolderOrder`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs): 手動 `[B]`・旧 `[""]`・`["", "A"]` の表で名前だけを保存し、保存済みの順序とメモリ・DBの自動判定を保つ。 |
+| 明示要求の競合の案内（プロパティ・一括編集・セル編集・削除・BMT順・フラグ） | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.Mutations.cs)、[`PlaylistOperationNotices.Busy`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistOperationNoticePresenter.cs)、[`PlaylistRemovalWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRemovalWorkflowOwner.cs)、[`PlaylistSummaryBulkEditDialog`](../../../BeMusicSeeker/Views/Playlist/PlaylistSummaryBulkEditDialog.cs) | `PlaylistWorkspaceActionWorkflowTests` の `PlaylistEditPreparation_*`・`PlaylistPropertySave_PlaylistBusyWarnsOnceAndKeepsDraft`・`PlaylistSummaryPropertyEdit_PlaylistBusyWarnsOnceWithoutValidationMessage`・`PlaylistSummaryCellAction_PlaylistBusyWarnsOnceWithoutGenericFailure`、`PlaylistSummaryBulkEditTests.BulkApply_PlaylistBusyRejectsBeforeChangesAndWarnsOnce`、`PlaylistWorkspacePersistenceCommandTests.BmtOrderCommand_PlaylistBusyWarnsOnceWithoutChanges`と削除の確認前検査、`MainWindowPlaylistWorkspaceWpfTests.MainWindowPlaylistDialogs_UseOwnedNativeModalLifetimeAndCleanup` が、副作用なし・警告一回・汎用の失敗なし・確認の前の検査・下書き保持を確認する。 |
 | 取消ボタンの翻訳 | `PlaylistPropertyDialog.xaml` | [DialogPresentationTests](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) の `CancelButtons_NewDialogsUseCurrentLanguageAndKeepCancellation` が6言語のContentを確認する。取消・Esc・draftは既存ケースが担当する。 |
 
 ## 関連資料

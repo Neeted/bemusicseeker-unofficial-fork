@@ -690,6 +690,8 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             if (!editSession.Store.TryEnterPlaylistMutation(out admission))
             {
                 Volatile.Write(ref operationInProgress, 0);
+                // 受付（P）の競合は、副作用なし・下書き保持で一回案内します。同じ画面の操作が進行中のための拒否（上の判定）は案内しません。
+                saveService.NotifyPlaylistBusyRejection(editSession);
                 return PlaylistPropertyDialogOperationResult.Busy;
             }
             capability = editSession.Store.CreatePlaylistMutationCapability(admission);

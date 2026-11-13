@@ -4505,7 +4505,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     /// <remarks>propertyの初回表示・再表示と解放はsuccess行を代表とし、一括適用の終端と解放は成功・Busy・DB失敗・出力失敗・通知失敗・確認失敗の全6条件で確認します。</remarks>
     [TestMethod]
     [DataRow("success")] // 必要な出力が成功してdraftをreset。
-    [DataRow("busy")] // 先行受付中なのでDBとdraftを変えない。
+    [DataRow("busy")] // 先行受付中なのでDBとdraftを変えず、警告を一回だけ案内する（汎用の失敗にしない）。
+    [DataRow("busy_before_confirmation")] // 外部同期の確認の前に受付の使用中を検査し、確認を出さずに警告を一回案内する。
     [DataRow("database_failure")] // DB保存が失敗し、同じdraftで次の明示適用を通す。
     [DataRow("output_failure")] // DB確定後の出力が失敗して変更事実とdraftを保持。
     [DataRow("notification_failure")] // 出力失敗通知も失敗しても、確定済み変更とdraftを保持して実Taskを終える。
@@ -4521,8 +4522,9 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             var displayed = new List<(Window Owner, UiMessageRequest Request)>();
             // 通知は受付の解放後に非同期で依頼されるため、期待する通知が窓口へ届いたことを、モーダルを閉じる前の根拠にします。
             // 通知のownerは表示の時点の現在のモーダルに解決されるので、閉じた後に届くとMainWindowになります。
-            int expectedHands = bulkOutcome == "success" ? 0 : 1;
-            int expectedWarnings = bulkOutcome is "output_failure" or "notification_failure" ? 1 : 0;
+            // 受付（P）の競合は、汎用の失敗（Hand）ではなく、明示要求の競合の案内（警告）を一回だけ出す。
+            int expectedHands = bulkOutcome is "success" or "busy" or "busy_before_confirmation" ? 0 : 1;
+            int expectedWarnings = bulkOutcome is "output_failure" or "notification_failure" or "busy" or "busy_before_confirmation" ? 1 : 0;
             var expectedNoticesArrived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             void CheckExpectedNotices()
             {
@@ -4649,10 +4651,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     (dialog, observation) =>
                     {
                         var draft = (PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel)dialog.DataContext;
-                        if (bulkOutcome == "busy") { Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out busyLease)); }
+                        if (bulkOutcome is "busy" or "busy_before_confirmation") { Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out busyLease)); }
                         draft.BmtOutputOption = draft.OnOption;
-                        if (bulkOutcome == "confirmation_failure") { draft.ExternalSyncOption = draft.OnOption; }
-                        RaiseButtonClick(FindAutomationButton(dialog, bulkOutcome == "confirmation_failure"
+                        if (bulkOutcome is "confirmation_failure" or "busy_before_confirmation") { draft.ExternalSyncOption = draft.OnOption; }
+                        RaiseButtonClick(FindAutomationButton(dialog, bulkOutcome is "confirmation_failure" or "busy_before_confirmation"
                             ? "PlaylistSummaryApplyExternalSync"
                             : "PlaylistSummaryApplyBmtOutput"));
                         apply = confirmationApply ?? dialog.WaitForApplyCompletionAsync();
@@ -4676,6 +4678,13 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                             Assert.IsTrue(confirmationCloseWasGuarded);
                             Assert.IsFalse(fixture.Table.is_external_sync);
                             Assert.AreSame(draft.OnOption, draft.ExternalSyncOption);
+                        }
+                        if (bulkOutcome == "busy_before_confirmation")
+                        {
+                            // 確認の前に拒否するため、確認を出さず、正本・draftとも変えない。
+                            Assert.IsFalse(fixture.Table.is_external_sync);
+                            Assert.AreSame(draft.OnOption, draft.ExternalSyncOption);
+                            Assert.AreEqual(0, displayed.Count(call => call.Request is UiConfirmationRequest));
                         }
                         Assert.IsTrue(dialog.IsEnabled);
                         Assert.AreSame(bulkOutcome == "success" ? draft.NoChangeOption : draft.OnOption, draft.BmtOutputOption);
@@ -4711,7 +4720,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     bulk.DataContext,
                     typeof(PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel));
                 Assert.IsTrue(bulk.VisibleAfterApply);
-                Assert.AreEqual(bulkOutcome is not ("busy" or "confirmation_failure"), fixture.Table.is_bmt_output);
+                Assert.AreEqual(bulkOutcome is not ("busy" or "confirmation_failure" or "busy_before_confirmation"), fixture.Table.is_bmt_output);
                 // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var bulkFailures = displayed.Where(notification => notification.Request.Icon == MessageBoxImage.Hand).ToList();
@@ -4733,6 +4742,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 {
                     Assert.AreSame(bulk.Window, outputWarnings.Single().Owner, "実coordinatorは現在のmodalを通知ownerに解決します。");
                     Assert.IsNull(outputWarnings.Single().Request.Owner, "Owner は窓口の解決に任せます。");
+                    if (bulkOutcome is "busy" or "busy_before_confirmation")
+                    {
+                        Assert.AreEqual(Resources.Warn_LibraryOperationBusy, outputWarnings.Single().Request.MessageBoxText);
+                        Assert.AreEqual(Resources.Warning, outputWarnings.Single().Request.Caption);
+                    }
                 }
                 Assert.AreEqual(1, bulk.DataContextDetachCount);
                 Assert.IsNull(fixture.ViewModel.PlaylistWorkspace.ActiveSummaryBulkEditDialog);
@@ -5285,7 +5299,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 windowTest,
                 messagePresenter: (_, request) =>
                 {
-                    if (request.MessageBoxText == Resources.Warn_PlaylistMutationBusy) { busyRejection?.TrySetResult(request); }
+                    if (request.MessageBoxText == Resources.Warn_LibraryOperationBusy) { busyRejection?.TrySetResult(request); }
                     return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
                 });
             try
@@ -5345,7 +5359,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     busyRejection.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.manual-busy-rejection");
-                Assert.AreEqual(Resources.Warn_PlaylistMutationBusy, busyRejection!.Task.Result.MessageBoxText);
+                Assert.AreEqual(Resources.Warn_LibraryOperationBusy, busyRejection!.Task.Result.MessageBoxText);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, busyRejection.Task.Result.Icon, "Pの競合は警告として案内し、エラーにしない。");
                 Assert.AreEqual("Local", localTable.entries.Single().folder);
                 Assert.IsFalse(
                     localTable.entries.Any(entry => entry.folder == "Local while manual reload is active"),
@@ -5437,7 +5452,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(
                     busyRejection.Task,
                     "MainWindowPlaylistWorkspaceWpfTests.deferred-busy-rejection");
-                Assert.AreEqual(Resources.Warn_PlaylistMutationBusy, busyRejection!.Task.Result.MessageBoxText);
+                Assert.AreEqual(Resources.Warn_LibraryOperationBusy, busyRejection!.Task.Result.MessageBoxText);
+                Assert.AreEqual(System.Windows.MessageBoxImage.Exclamation, busyRejection.Task.Result.Icon, "Pの競合は警告として案内し、エラーにしない。");
                 Assert.AreEqual("Local", localTable.entries.Single().folder);
 
                 deferredResponse.ReleaseResponse();

@@ -3459,6 +3459,215 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
+    /// <summary>
+    /// 保証：通常・追加通常の基点に出力ファイルを持つ別の表が残る状態で、一つの表を削除するか出力名を改名すると、
+    /// 整理と同じ一回の同期で、削除した表ディレクトリを含む基点の folder 行の date を実際の更新時刻（Unix秒）へ揃える。
+    /// 続く必要出力の判定は再確認対象を作らず、同期操作と書込みを起こさず、残した表・移行した表のファイルを書き直さない。
+    /// 操作前に基点の更新時刻と行の date を実時刻と異なる古い固定値にしておく。
+    /// 表ディレクトリの削除後に基点の行を更新せず、次の判定で基点配下の全表を再確認させる誤りを検出する。
+    /// </summary>
+    /// <remarks>
+    /// DataRow は削除・改名と、通常・追加通常の基点。基点配下に出力を持つ表が残らない場合は既存仕様どおりで本ケースの対象外。ROOT型は基点の行を持たないため対象外。
+    /// 改名は新先のファイルの生成後に旧ディレクトリを削除するため、判定は実DB・実ファイルの最終状態で行う。
+    /// </remarks>
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DataRow("remove", false)]
+    [DataRow("remove", true)]
+    [DataRow("rename", false)]
+    [DataRow("rename", true)]
+    public async Task TableRemoveOrRename_UpdatesBaseRowToActualMtimeAndNextJudgmentIsClean(string operation, bool additionalBase)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = Path.Combine(migrationWorkspace.RootDirectory, "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        TestBmsPlaylist? playlist = null;
+        var acceptedWork = new System.Collections.Concurrent.ConcurrentQueue<Task>();
+        Exception? primaryFailure = null;
+        try
+        {
+            string lr2RootPath = Path.Combine(tempDirectory, "LR2");
+            string bmsRoot = Path.Combine(tempDirectory, "BMS");
+            string normalBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            string extraBase = Path.Combine(tempDirectory, "Additional");
+            Directory.CreateDirectory(normalBase);
+            Directory.CreateDirectory(extraBase);
+            string additionalSerialized = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([extraBase]);
+            testSettings.OperationModeLR2DB = true;
+            testSettings.LR2RootPath = lr2RootPath;
+            testSettings.LR2CustomFolderOutputBaseDir = normalBase;
+            testSettings.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput");
+            testSettings.LR2CustomFolderAdditionalOutputBaseDirs = additionalSerialized;
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2RootPath,
+                LR2CustomFolderOutputBaseDir = normalBase,
+                LR2CustomFolderOutputBaseDirRootType = testSettings.LR2CustomFolderOutputBaseDirRootType,
+                LR2CustomFolderAdditionalOutputBaseDirs = additionalSerialized
+            };
+            string targetBase = additionalBase ? extraBase : normalBase;
+            string? baseName = additionalBase ? "Additional" : null;
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            BMSTable CreateTargetBaseTable(int playlistId, string name, char hash) => new()
+            {
+                playlist_id = playlistId,
+                name = name,
+                symbol = name[..2],
+                Output_dir = name,
+                custom_folder_output_base_name = baseName,
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
+                entries = [CreateEntry(new string(hash, 32), "Folder A")],
+                Folder_order = ["Folder A"]
+            };
+            BMSTable keptTable = CreateTargetBaseTable(7640, "KeptTable", 'a');
+            BMSTable targetTable = CreateTargetBaseTable(7641, "TargetTable", 'b');
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+                foreach (BMSTable table in new[] { keptTable, targetTable })
+                {
+                    db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                    foreach (BMSTableEntry entry in table.entries)
+                    {
+                        entry.playlist_id = table.playlist_id;
+                        db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                    }
+                }
+            }
+            string[] EnumerateOutputFiles() => [.. new[] { normalBase, extraBase }
+                .SelectMany(directory => Directory.EnumerateFiles(directory, "*.lr2folder", SearchOption.AllDirectories))
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            LR2Config config = TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot);
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(config);
+            TestLr2PlaylistFolderSynchronizationPort synchronization = CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty);
+            synchronization.PhysicalSurfaceFactory = () => CustomFolderOutputPhysicalSurface.FromEntries(
+                EnumerateOutputFiles().Select(path => new RootFileEnumerationEntry(path, File.GetLastWriteTimeUtc(path))),
+                discoveryComplete: true);
+            playlist = new TestBmsPlaylist(databaseScope, songDbPath, configOwner, null, null, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot(), () => outputSettings, synchronization, settings: testSettings, uiScheduler: new TestUiScheduler(() => null))
+            {
+                BMSTables = new ObservableCollection<BMSTable>(new[] { keptTable, targetTable })
+            };
+            var repairProgress = new List<PlaylistSyncProgressSnapshot>();
+            playlist.CustomFolderOutputRepairProgressReporter = repairProgress.Add;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                acceptedWork.Enqueue(Task.Run(work));
+                return true;
+            };
+            TestBmsPlaylist target = playlist;
+            async Task ReloadAsync()
+            {
+                repairProgress.Clear();
+                await target.ReloadTablesAsync(exportBeatorajaBmt: false);
+                await Task.WhenAll(acceptedWork.ToArray());
+            }
+            List<LR2SongDB.folder> ReadRows(string path)
+            {
+                using LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath);
+                return db.Query<LR2SongDB.folder>("SELECT * FROM folder WHERE path = ?;", path);
+            }
+
+            playlist.ReOutputCustomFoldersAndCommitHeadersToDB([keptTable, targetTable], "test_seed_remove_or_rename_base_row");
+            await ReloadAsync();
+            // 再読込みは正本の表を読み直して置き換えるため、以後の操作は現行の表で行います。
+            targetTable = target.BMSTables.Single(table => table.playlist_id == 7641);
+
+            string targetDirectory = Path.Combine(targetBase, targetTable.name);
+            string baseRowPath = Lr2FolderPath.ToFolderPath(targetBase);
+            string keptDirectory = Path.Combine(targetBase, keptTable.name);
+            Assert.IsTrue(Directory.EnumerateFiles(targetDirectory, "*.lr2folder").Any());
+            Assert.IsTrue(Directory.EnumerateFiles(keptDirectory, "*.lr2folder").Any(), "同じ基点に出力ファイルを持つ別の表が残る前提です。");
+
+            // 基点の更新時刻と行の date を、操作後の実時刻と異なる古い固定値にそろえます。
+            var staleTime = new DateTime(2025, 1, 2, 3, 4, 5, 500, DateTimeKind.Utc);
+            Directory.SetLastWriteTimeUtc(targetBase, staleTime);
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
+            {
+                Assert.AreEqual(1, db.Execute("UPDATE folder SET date = ? WHERE path = ?;", staleTime.ToUnixtime(), baseRowPath));
+            }
+
+            if (operation == "remove")
+            {
+                playlist.RemoveCustomFolder(targetTable);
+                playlist.RemoveBMSTable(targetTable);
+                Assert.IsFalse(Directory.Exists(targetDirectory));
+            }
+            else
+            {
+                targetTable.Output_dir = "TargetRenamed";
+                playlist.MigrateCustomFolderOutputDirectory(targetTable, targetDirectory, outputBaseDirBefore: targetBase);
+                Assert.IsFalse(Directory.Exists(targetDirectory));
+                Assert.IsTrue(Directory.EnumerateFiles(Path.Combine(targetBase, "TargetRenamed"), "*.lr2folder").Any());
+            }
+
+            DateTime actualBaseTime = Directory.GetLastWriteTimeUtc(targetBase);
+            Assert.AreNotEqual(staleTime.ToUnixtime(), actualBaseTime.ToUnixtime(), "操作で基点の更新時刻が進む前提です。");
+            LR2SongDB.folder baseRow = ReadRows(baseRowPath).Single();
+            Assert.AreEqual(actualBaseTime.ToUnixtime(), baseRow.date, "削除・移行の終端の同期で基点の行の date を実際の更新時刻へ揃えます。");
+
+            if (operation == "rename")
+            {
+                // 製品の改名は、移行と同じ操作で表の保存と出力状態も確定します。基点の行の確認の後に、その確定を再現します。
+                playlist.ReOutputCustomFoldersAndCommitHeadersToDB([targetTable], "test_rename_commit_status");
+                Assert.AreEqual(actualBaseTime.ToUnixtime(), ReadRows(baseRowPath).Single().date);
+            }
+
+            // 続く必要出力の判定は、再確認も同期もファイルの書直しも起こしません。
+            Dictionary<string, (string Body, long Ticks)> CaptureFiles() => EnumerateOutputFiles().ToDictionary(
+                path => path,
+                path => (Convert.ToHexString(File.ReadAllBytes(path)), File.GetLastWriteTimeUtc(path).Ticks),
+                StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, (string Body, long Ticks)> filesBefore = CaptureFiles();
+            int operations = synchronization.Operations.Count;
+            await ReloadAsync();
+            Assert.IsFalse(repairProgress.Any(snapshot => snapshot.IsActive), "基点配下の表を再確認対象へ戻しません。");
+            Assert.AreEqual(operations, synchronization.Operations.Count);
+            Dictionary<string, (string Body, long Ticks)> filesAfter = CaptureFiles();
+            CollectionAssert.AreEquivalent(filesBefore.Keys, filesAfter.Keys);
+            foreach (KeyValuePair<string, (string Body, long Ticks)> file in filesBefore)
+            {
+                Assert.AreEqual(file.Value, filesAfter[file.Key], file.Key);
+            }
+            Assert.AreEqual(actualBaseTime.ToUnixtime(), ReadRows(baseRowPath).Single().date);
+        }
+        catch (Exception ex)
+        {
+            primaryFailure = ex;
+            throw;
+        }
+        finally
+        {
+            var cleanupFailures = new List<Exception>();
+            var workCompletion = Task.WhenAll(acceptedWork.ToArray());
+            try { await workCompletion; }
+            catch (Exception ex) { if (!ReferenceEquals(ex, primaryFailure)) { cleanupFailures.Add(workCompletion.Exception ?? ex); } }
+            if (playlist != null)
+            {
+                try
+                {
+                    playlist.RequestShutdown("remove-or-rename-base-row-test-complete");
+                    await playlist.WaitForPlaylistMutationIdleAsync();
+                }
+                catch (Exception ex) { cleanupFailures.Add(ex); }
+            }
+            try
+            {
+                if (Directory.Exists(tempDirectory)) { Directory.Delete(tempDirectory, recursive: true); }
+            }
+            catch (Exception ex) { cleanupFailures.Add(ex); }
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException(cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                System.Diagnostics.Trace.WriteLine("remove-or-rename base row fixtureのcleanup二次失敗: " + cleanupFailure);
+            }
+        }
+    }
+
     /// <summary>実生成済み表の出力を削除すると保存した出力状態も除去します。次の修復判断が消した出力を現行扱いする誤りを検出します。</summary>
     [TestMethod]
     [TestCategory("Playlist")]
@@ -4038,115 +4247,178 @@ public sealed class BmsPlaylistCustomFolderOutputTests
         }
     }
 
-    /// <summary>旧保存値の単一名化で衝突する場合、単独・一括出力、出力削除、表削除、検索root準備を副作用前に拒否し、正本と旧ファイル・DB行を保ちます。</summary>
-    [TestMethod]
-    [DataRow("single")]
-    [DataRow("bulk")]
-    [DataRow("remove")]
-    [DataRow("table")]
-    [DataRow("roots")]
-    [TestCategory("Playlist")]
-    public async Task SavedCollidingOutput_RejectsOutputAndRemovalBeforeMutation(string operation)
+    /// <summary>
+    /// 旧版の出力名 <c>AB</c> と <c>A\B</c> が、単一名化後に同じ出力先 <c>AB</c> になる保存済みの二表（T1・T2）と、無関係な表（T3）を、共有先の旧ファイル・DB行・ROOT登録とともに用意します。
+    /// 共有先の旧ファイルはどちらの表の生成物とも言えないため、表の操作が触れたかを内容・更新時刻・DB行で判定できるようにします。
+    /// </summary>
+    private static async Task<(BMSTable T1, BMSTable T2, BMSTable T3, string SharedDirectory, string SharedFile, DateTime SharedTimestamp)> CreateCollidingLayoutAsync(
+        PlaylistRestoreOutputFixture fixture, bool root)
     {
-        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
-        string tempDirectory = Path.Combine(migrationWorkspace.RootDirectory, "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectory);
-        try
+        BMSTable t1 = PlaylistRestoreOutputFixture.Table(8101, "AB", "Folder 1", root);
+        BMSTable t2 = PlaylistRestoreOutputFixture.Table(8102, "Other", "Folder 2", root);
+        t2.output_dir = @"A\B";
+        BMSTable t3 = PlaylistRestoreOutputFixture.Table(8103, "Third", "Folder 3");
+        Assert.AreEqual(t1.Output_dir, t2.Output_dir, "旧値の区切りを除いた単一名が同一の出力先になります。");
+        fixture.Playlist.BMSTables = new ObservableCollection<BMSTable>([t1, t2, t3]);
+        fixture.Playlist.CommitBMSTablesWithEntriesToDB([t1, t2, t3]);
+        string shared = fixture.OutputDirectory(t1);
+        string sharedFile = Path.Combine(shared, "0000.lr2folder");
+        Directory.CreateDirectory(shared);
+        File.WriteAllText(sharedFile, "shared preserved output");
+        using (LR2SongDBExtended db = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb))
         {
-            string lr2RootPath = Path.Combine(tempDirectory, "LR2");
-            string bmsRoot = Path.Combine(tempDirectory, "BMS");
-            string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
-            Directory.CreateDirectory(bmsRoot);
-            testSettings.LR2RootPath = lr2RootPath;
-            testSettings.OperationModeLR2DB = true;
-            testSettings.LR2CustomFolderOutputBaseDir = outputBaseDir;
-            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
-            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
-            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
-            {
-                db.CreateTable<LR2SongDB.folder>();
-            }
-            var parentTable = new BMSTable
-            {
-                playlist_id = 7607,
-                name = "NestedParent",
-                symbol = "NP",
-                Output_dir = "NestedParent",
-                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
-                entries =
-                [
-                    CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Parent Folder")
-                ],
-                Folder_order = ["Parent Folder"]
-            };
-            var childTable = new BMSTable
-            {
-                playlist_id = 7608,
-                name = "NestedChild",
-                symbol = "NC",
-                output_dir = @"Nested\Parent",
-                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
-                entries =
-                [
-                    CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Child Folder")
-                ],
-                Folder_order = ["Child Folder"]
-            };
-            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, new Lr2ConfigOwner(TestLr2ConfigFactory.CreateLr2Config(lr2RootPath, bmsRoot)), null, null, () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(testSettings), () => BeatorajaBmtOptionsSnapshot.CreateCurrent(testSettings), () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings), CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), uiScheduler: new TestUiScheduler(() => null), settings: testSettings)
-            {
-                BMSTables = new ObservableCollection<BMSTable>(new[] { parentTable, childTable })
-            };
-            // 旧保存値を直接準備し、不正な配置の生成成功を前提にしません。
-            parentTable.is_root_folder = childTable.is_root_folder = operation == "roots";
-            testSettings.LR2CustomFolderOutputBaseDirRootType = outputBaseDir;
-            playlist.CommitBMSTableHeadersToDB([parentTable, childTable]);
-            string childOutputDir = Path.Combine(outputBaseDir, "NestedParent", "NestedChild");
-            string childOutputFile = Path.Combine(childOutputDir, "0000.lr2folder");
-            Directory.CreateDirectory(childOutputDir);
-            File.WriteAllText(childOutputFile, "preserved old output");
-            DateTime childTimestamp = File.GetLastWriteTimeUtc(childOutputFile);
-            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(songDbPath))
-            {
-                db.Insert(new LR2SongDB.folder { path = childOutputFile, title = "old child", type = 2 });
-                db.Insert(new LR2SongDB.folder { path = Lr2FolderPath.ToFolderPath(childOutputDir), title = "old directory", type = 1 });
-            }
-            int notices = 0;
-            parentTable.PropertyChanged += (_, _) => notices++;
-            switch (operation)
-            {
-                case "single": Assert.ThrowsExactly<InvalidOperationException>(() => playlist.ReOutputCustomFolderAndCommitToDB(parentTable)); break;
-                case "bulk": Assert.ThrowsExactly<InvalidOperationException>(() => playlist.ReOutputCustomFoldersAndCommitHeadersToDB([parentTable, childTable], "invalid_saved_layout")); break;
-                case "remove": Assert.ThrowsExactly<InvalidOperationException>(() => playlist.RemoveCustomFolder(parentTable)); break;
-                case "roots": Assert.ThrowsExactly<InvalidOperationException>(() => playlist.PrepareCustomFolderOutputSearchRoots(outputBaseDir, [], CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings))); break;
-                case "table":
-                    var dialogs = new BlockingConfirmationDialogService();
-                    dialogs.ReleaseConfirmation();
-                    var removal = new PlaylistRemovalWorkflowOwner(dialogs, () => playlist, () => null!, () => null!,
-                        () => CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
-                    await Assert.ThrowsExactlyAsync<InvalidOperationException>(() => removal.RemoveSummaryRowsAsync([new() { TableRef = parentTable }]));
-                    break;
-            }
-            Assert.AreEqual(0, notices);
-            Assert.AreEqual(2, playlist.BMSTables.Count);
-            Assert.AreEqual("preserved old output", File.ReadAllText(childOutputFile));
-            Assert.AreEqual(childTimestamp, File.GetLastWriteTimeUtc(childOutputFile));
-            Assert.AreEqual(1, Directory.GetFiles(outputBaseDir, "*", SearchOption.AllDirectories).Length);
-            using LR2SongDBExtended verify = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
-            Assert.AreEqual(2, verify.Table<BMSTable>().Count());
-            Assert.AreEqual("old child", verify.Table<LR2SongDB.folder>().Single(row => row.path == childOutputFile).title);
-            Assert.AreEqual(2, verify.Table<LR2SongDB.folder>().Count());
+            db.CreateTable<LR2SongDB.folder>();
+            db.InsertOrReplace(new LR2SongDB.folder { path = sharedFile, title = "shared old file", type = 2 });
+            db.InsertOrReplace(new LR2SongDB.folder { path = Lr2FolderPath.ToFolderPath(shared), title = "shared old directory", type = 1 });
         }
-        finally
+        if (root) { fixture.Config.SaveRoots(new Lr2RootChange([], [shared])); }
+        await Task.CompletedTask;
+        return (t1, t2, t3, shared, sharedFile, File.GetLastWriteTimeUtc(sharedFile));
+    }
+
+    private static void AssertSharedOutputUntouched(PlaylistRestoreOutputFixture fixture, string sharedFile, DateTime sharedTimestamp)
+    {
+        Assert.AreEqual("shared preserved output", File.ReadAllText(sharedFile), "衝突した表の共有先の本文は変更しません。");
+        Assert.AreEqual(sharedTimestamp, File.GetLastWriteTimeUtc(sharedFile));
+        using LR2SongDBExtended verify = fixture.DatabaseScope.OpenSongWrite(fixture.SongDb);
+        Assert.AreEqual("shared old file", verify.Table<LR2SongDB.folder>().Single(row => row.path == sharedFile).title, "衝突した表の共有先のDB行は整理しません。");
+    }
+
+    /// <summary>
+    /// 条件：保存済みの出力先が衝突している二表（T1・T2）と無関係な表（T3）に対し、利用者の明示操作（出力先の解消、無関係な保存、配置以外の保存、項目の追加、表の削除）を行う。
+    /// 期待結果：衝突を解消する保存（T2の出力先変更）は受理して新しい出力先だけを生成し、共有先は変えない（相手のT1は次の必要出力で生成する）。T3の保存・削除は通常どおり成立する。
+    /// 衝突したままのT1の配置以外の保存はDBへ保存して出力を止め、警告を一件だけ案内する。項目の追加に伴う出力は警告せず診断ログだけに残す。衝突した表の削除は出力状態だけを消し、共有先のファイル・DB行・ROOT登録は残す（両方を削除しても残す）。
+    /// 検出する誤り：保存済みの衝突が無関係な操作を止める誤り、解消する保存の拒否、衝突した表の共有先を書換え・削除・整理して相手の出力を巻き込む誤り、衝突した表の削除でROOT登録を除く誤り、
+    /// 項目の追加のような明示でない出力で警告を出す誤り、明示の保存で警告を出さない誤り。
+    /// </summary>
+    [TestMethod]
+    [DataRow("resolve")]
+    [DataRow("unrelatedSave")]
+    [DataRow("nonPlacementSave")]
+    [DataRow("entryAdd")]
+    [DataRow("deleteColliding")]
+    [DataRow("deleteUnrelated")]
+    [DataRow("deleteBoth")]
+    [TestCategory("Playlist")]
+    public async Task SavedCollidingOutput_ExplicitOperationsFreezeOnlyCollidingTables(string operation)
+    {
+        await using var fixture = new PlaylistRestoreOutputFixture();
+        bool root = operation is "deleteColliding" or "deleteBoth";
+        (BMSTable t1, BMSTable t2, BMSTable t3, string shared, string sharedFile, DateTime sharedTimestamp) = await CreateCollidingLayoutAsync(fixture, root);
+        var service = new PlaylistPropertySaveService(() => fixture.Playlist, () => fixture.Library, () => fixture.Config, () => fixture.OutputSettings);
+        service.PlaylistPropertyCatalogChanged += (_, _) => { };
+        service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
+        string t3Directory = fixture.OutputDirectory(t3);
+        if (operation == "deleteUnrelated") { fixture.Playlist.ReOutputCustomFolder(t3); Assert.IsTrue(Directory.Exists(t3Directory)); }
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notices = fixture.Playlist.OperationNotificationOwner.BeginSession();
+        bool sharedKept = true;
+
+        async Task SaveAsync(BMSTable table, Action<PlaylistPropertyValues> edit)
         {
-            if (Directory.Exists(tempDirectory))
-            {
-                Directory.Delete(tempDirectory, recursive: true);
-            }
+            using PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("編集セッションを作成できません。");
+            edit(session.Values);
+            (PlaylistPropertySaveCommit? commit, PlaylistPropertyValidationError? error) = await service.TrySaveAsync(session, session.Values);
+            Assert.IsNotNull(commit, "保存は受理されます。検証エラー=" + error);
+            Assert.IsNull(commit.Exception);
         }
+        async Task RemoveAsync(params BMSTable[] tables)
+        {
+            var dialogs = new BlockingConfirmationDialogService();
+            dialogs.ReleaseConfirmation();
+            var removal = new PlaylistRemovalWorkflowOwner(dialogs, () => fixture.Playlist, () => fixture.Library, () => fixture.Config, () => fixture.OutputSettings);
+            await removal.RemoveSummaryRowsAsync([.. tables.Select(table => new PlaylistSummaryRow { TableRef = table })]);
+        }
+
+        switch (operation)
+        {
+            case "resolve":
+                await SaveAsync(t2, values => values.OutputDirectory = "Moved");
+                Assert.AreEqual("Moved", t2.Output_dir);
+                Assert.IsTrue(Directory.GetFiles(fixture.OutputDirectory(t2), "*.lr2folder", SearchOption.AllDirectories).Length > 0, "解消した表は新しい出力先へ生成します。");
+                AssertSharedOutputUntouched(fixture, sharedFile, sharedTimestamp);
+                // 衝突が解消した相手の出力は、次の必要出力の判定（明示の再読込み）で生成します。
+                await fixture.Playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
+                Assert.AreNotEqual("shared preserved output", File.ReadAllText(sharedFile));
+                sharedKept = false;
+                break;
+            case "unrelatedSave":
+                await SaveAsync(t3, values => values.Symbol = "Z");
+                Assert.AreEqual("Z", t3.symbol);
+                Assert.AreEqual(0, notices.TakeReceipt().Notifications.Count, "衝突した表を操作していない保存は警告しません。");
+                break;
+            case "nonPlacementSave":
+                await SaveAsync(t1, values => values.Symbol = "Z");
+                Assert.AreEqual("Z", t1.symbol);
+                PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = notices.TakeReceipt();
+                PlaylistOperationNotificationOwner.OperationNotification warning = receipt.Notifications.Single();
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, warning.Severity);
+                Assert.AreEqual(Resources.Warning, warning.FormatCaption());
+                Assert.IsTrue(warning.IsStoppedOutputsWarning, "本番の停止警告は、まとめない通知の区別を持ちます。");
+                StringAssert.Contains(warning.FormatMessage(), Resources.Warn_PlaylistOutputOverlapStopped);
+                StringAssert.Contains(warning.FormatMessage(), t1.name + ": " + shared);
+                break;
+            case "entryAdd":
+                Assert.IsTrue(fixture.Playlist.AddPlaylistEntriesToFolderBMSTable([PlaylistTestFixture.CreateEntry(new string('d', 32), "Folder 1")], t1, "Folder 1"));
+                Assert.AreEqual(2, t1.entries.Count());
+                Assert.AreEqual(0, notices.TakeReceipt().Notifications.Count, "項目の追加に伴う出力は警告せず、診断ログだけに残します。");
+                break;
+            case "deleteColliding":
+                await RemoveAsync(t2);
+                Assert.IsFalse(fixture.Playlist.BMSTables.Contains(t2));
+                break;
+            case "deleteUnrelated":
+                await RemoveAsync(t3);
+                Assert.IsFalse(fixture.Playlist.BMSTables.Contains(t3));
+                Assert.IsFalse(Directory.Exists(t3Directory), "衝突していない表は通常どおり出力先を整理します。");
+                break;
+            default:
+                await RemoveAsync(t1, t2);
+                Assert.AreEqual(1, fixture.Playlist.BMSTables.Count);
+                break;
+        }
+
+        if (sharedKept) { AssertSharedOutputUntouched(fixture, sharedFile, sharedTimestamp); }
+        Assert.IsTrue(Directory.Exists(shared), "衝突した表の共有先ディレクトリは削除しません。");
+        if (root)
+        {
+            Assert.IsTrue(fixture.Config.CaptureSaved().RegisteredRoots.Any(registered => string.Equals(Path.TrimEndingDirectorySeparator(registered), shared, StringComparison.OrdinalIgnoreCase)), "衝突した表の削除ではROOT登録を除きません。");
+        }
+        using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), fixture.SongDb).OpenSongDbReadOnly();
+        Assert.AreEqual(operation switch { "deleteColliding" or "deleteUnrelated" => 2, "deleteBoth" => 1, _ => 3 }, db.Table<BMSTable>().Count());
+    }
+
+    /// <summary>
+    /// 条件：保存済みの出力先が衝突している二表と無関係な表を持つ状態で、表の明示の再読込み（再読込み）とSQL復元を行う。
+    /// 期待結果：例外にならず、衝突した表の共有先は変更せず、無関係な表は生成する。衝突した表の表名と出力先を一件の警告にまとめて案内する。SQL復元は復元前に衝突していた旧配置を整理しない。
+    /// 検出する誤り：保存済みの衝突で再読込み・復元が失敗する誤り、衝突した表の共有先を書換え・整理する誤り、衝突した表ごとに警告を重ねる誤り。
+    /// </summary>
+    [TestMethod]
+    [DataRow("reload")]
+    [DataRow("restore")]
+    [TestCategory("Playlist")]
+    public async Task CollidingOutput_ReloadAndSqlRestoreContinueWithSingleWarning(string operation)
+    {
+        await using var fixture = new PlaylistRestoreOutputFixture();
+        (BMSTable t1, BMSTable t2, BMSTable t3, string shared, string sharedFile, DateTime sharedTimestamp) = await CreateCollidingLayoutAsync(fixture, root: false);
+        string dump = fixture.Playlist.GetPlaylistDump();
+        string t3Directory = fixture.OutputDirectory(t3);
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notices = fixture.Playlist.OperationNotificationOwner.BeginSession();
+        // 明示の操作として、止めた表を警告で案内します（作業領域の入口が収集先へ指定する）。
+        notices.WarnStoppedOutputs();
+
+        if (operation == "reload") { await fixture.Playlist.ReloadTablesAsync(exportBeatorajaBmt: false); }
+        else { await fixture.Playlist.RestorePlaylistDumpAsync(dump); }
+
+        PlaylistOperationNotificationOwner.OperationNotification warning = notices.TakeReceipt().Notifications.Single();
+        Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, warning.Severity);
+        string text = warning.FormatMessage();
+        StringAssert.Contains(text, t1.name + ": " + shared);
+        StringAssert.Contains(text, t2.name + ": " + shared);
+        Assert.IsFalse(text.Contains(t3.name, StringComparison.Ordinal), "衝突していない表は警告に含めません。");
+        Assert.IsTrue(Directory.GetFiles(t3Directory, "*.lr2folder", SearchOption.AllDirectories).Length > 0, "衝突していない表は生成します。");
+        AssertSharedOutputUntouched(fixture, sharedFile, sharedTimestamp);
+        Assert.IsTrue(Directory.Exists(shared));
     }
 
     /// <summary>実詳細編集のDB保存、LR2出力、BMT準備・取消を分け、DB前失敗だけ旧levelへ戻します。空receiptのconsumer故障と実LR2警告の表示・診断故障を区別し、元結果を保って配送終端まで受付と編集状態を保持し、次の明示編集を保存します。各実Task終端後の開始gate解除も確認し、終了取消後の新保存成功は要求しません。</summary>
