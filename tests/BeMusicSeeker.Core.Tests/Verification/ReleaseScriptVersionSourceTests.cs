@@ -1065,7 +1065,7 @@ public sealed class ReleaseScriptVersionSourceTests
         {
             RequireTime(deadline);
             cancellationToken.ThrowIfCancellationRequested();
-            ProcessDeadline commandDeadline = deadline.LimitRemaining(TimeSpan.FromSeconds(60));
+            // 待機の上限はケース共通の期限だけで、一回のcommandに独自の入れ子上限を設けない。
             var childEnvironment = new Dictionary<string, string?>(environment, StringComparer.OrdinalIgnoreCase);
             if (additions is not null)
             {
@@ -1079,7 +1079,7 @@ public sealed class ReleaseScriptVersionSourceTests
             {
                 process = OwnedProcess.Start(new ProcessStartRequest(fileName, arguments.ToArray(),
                     workingDirectory, childEnvironment, ProcessOwnershipPolicy.Application), () => failureCleanup.Value);
-                completion = await process.WaitForExitAsync(commandDeadline, cancellationToken);
+                completion = await process.WaitForExitAsync(deadline, cancellationToken);
             }
             catch (Exception failure)
             {
@@ -1091,7 +1091,7 @@ public sealed class ReleaseScriptVersionSourceTests
             {
                 try
                 {
-                    ProcessStopResult stopped = await process.StopAsync(null, primary is null ? commandDeadline : failureCleanup.Value);
+                    ProcessStopResult stopped = await process.StopAsync(null, primary is null ? deadline : failureCleanup.Value);
                     cleanup = stopped.CleanupFailure;
                     if (cleanup is not null) { _ = failureCleanup.Value; }
                     if (cleanup is not null || !process.Completion.IsCompletedSuccessfully) { PreserveArtifacts(); }

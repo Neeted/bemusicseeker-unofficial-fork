@@ -190,7 +190,15 @@ public sealed class VerificationRunnerTests
         Assert.AreEqual(0, result.Modules.Single().Cases);
     }
 
-    /// <summary>単一suiteの開始後の待機とroot終了後の所有child待機が、同じtest期限で失敗し回収されることを保証します。</summary>
+    /// <summary>Compatibilityの期限超過の検査で、起動・ready観測・生存確認を含む窓（TestTimeout）です。</summary>
+    private static readonly TimeSpan CompatibilityWindow = TimeSpan.FromSeconds(20);
+
+    /// <summary>単一suiteの開始後の待機とroot終了後の所有child待機が、同じtest期限でTimeoutExceptionとして失敗し、runner復帰時に全root・child・両pipe・Jobが終端していることを保証します。</summary>
+    /// <remarks>
+    /// 期限超過の主失敗がTimeoutExceptionであること、runner復帰時に所有Jobのroot・stdout・stderr・Completionと保持した実root/childが終端済みであることを確認します。
+    /// 期限は<see cref="CompatibilityWindow"/>（20秒）で、起動・ready観測・生存確認を含む窓です。窓内でreadyを観測できなければ、期限超過の検査にならないため前提不成立として失敗させます。
+    /// 回収猶予はfixture既定（10秒）です。取消による致命的失敗の共有cutoffは別caseが担当します。
+    /// </remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -198,6 +206,7 @@ public sealed class VerificationRunnerTests
     {
         var fixture = new RunnerFixture();
         using var canceled = new CancellationTokenSource();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var owned = new ConcurrentDictionary<string, OwnedProcess>();
         var observed = new List<Process>();
         fixture.Configure = (name, command) => name == "Compatibility" ? command with
@@ -208,24 +217,38 @@ public sealed class VerificationRunnerTests
             ChildRelease = fixture.Path("child-release"),
             ExitBeforeChild = exitBeforeChild,
         } : command;
-        fixture.AfterStart = (name, process) => { if (name == "Compatibility") { owned[name] = process; } };
-        VerificationRun run = fixture.Run() with { TestTimeout = TimeSpan.FromSeconds(5), CleanupGrace = TimeSpan.FromSeconds(5) };
+        fixture.AfterStart = (name, process) =>
+        {
+            if (name != "Compatibility") { return; }
+            owned[name] = process;
+            started.TrySetResult();
+        };
+        VerificationRun run = fixture.Run() with { TestTimeout = CompatibilityWindow };
         Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(
             VerificationPlan.Parse(["compatibility", "--suite", "chart-info-bms"], 8), run, canceled.Token);
         try
         {
-            await WaitForFileAsync(fixture.Path("ready"));
+            await TestUiDispatcherHost.AwaitNotificationAsync(started.Task, execution, "Compatibilityの起動");
+            OwnedProcess process = owned["Compatibility"];
+            Task producer = FirstOf(process.Completion, execution);
+            string rootProcessId = await WaitForFileAsync(fixture.Path("ready"), producer);
+            string childProcessId = await WaitForFileAsync(fixture.Path("child-ready"), producer);
             // root先行終了ではPIDの再取得を避け、元RootExitを観測する。
-            if (exitBeforeChild) { Assert.AreEqual(0, await owned["Compatibility"].RootExit.WaitAsync(TimeSpan.FromSeconds(10))); }
-            else { observed.Add(Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("ready"))))); }
-            observed.Add(Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("child-ready")))));
-            Assert.IsFalse(owned["Compatibility"].Completion.IsCompleted);
-            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(15));
+            if (exitBeforeChild) { Assert.AreEqual(0, await process.RootExit); }
+            else { observed.Add(GetLiveProcess(rootProcessId, CompatibilityWindow)); }
+            observed.Add(GetLiveProcess(childProcessId, CompatibilityWindow));
+            Assert.IsFalse(process.Completion.IsCompleted, $"前提不成立: 窓（{CompatibilityWindow.TotalSeconds:0}秒）内に生存を確認できませんでした。");
+            VerificationRunResult result = await execution;
+            // 他の待機より前に、runner復帰時点で全対象が終端済みであることを確認する。
+            Assert.IsTrue(process.RootExit.IsCompletedSuccessfully && process.StandardOutput.IsCompletedSuccessfully
+                && process.StandardError.IsCompletedSuccessfully && process.Completion.IsCompletedSuccessfully,
+                "runner復帰時に所有Jobのroot・両pipe・Completionが終端していません。");
+            Assert.IsTrue(observed.All(item => item.HasExited), "runner復帰時に保持したroot/childが終了していません。");
             Assert.AreEqual(1, result.ExitCode);
             Assert.IsInstanceOfType<TimeoutException>(result.Commands.Single(command => command.Name == "Compatibility").PrimaryFailure);
             Assert.IsFalse(result.Modules.Single().Passed);
             using var summary = JsonDocument.Parse(File.ReadAllText(fixture.Path("run/summary.json")));
-            Assert.AreEqual(5d, summary.RootElement.GetProperty("testTimeoutSeconds").GetDouble());
+            Assert.AreEqual(CompatibilityWindow.TotalSeconds, summary.RootElement.GetProperty("testTimeoutSeconds").GetDouble());
         }
         finally
         {
@@ -233,7 +256,7 @@ public sealed class VerificationRunnerTests
             bool terminated = false;
             try
             {
-                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                VerificationRunResult result = await execution;
                 await ConfirmOwnedTerminationAsync(owned, observed, result);
                 terminated = true;
             }
@@ -428,7 +451,7 @@ public sealed class VerificationRunnerTests
         DateTime released = default;
         try
         {
-            await WaitForFileAsync(ready);
+            await WaitForFileAsync(ready, execution);
             Assert.IsTrue(await Task.Run(() => checkStarted.Wait(TimeSpan.FromSeconds(30))), "整形が完了しませんでした。");
             await Task.Delay(50);
             released = DateTime.UtcNow;
@@ -467,16 +490,21 @@ public sealed class VerificationRunnerTests
     {
         using var fixture = new RunnerFixture { FormatInput = true, FormatterChangesContent = false };
         string ready = fixture.Path("build-ready");
+        OwnedProcess? build = null;
         fixture.Configure = (name, command) => name switch
         {
             "build" => command with { Ready = ready, Release = fixture.Path("build-release") },
             "style" => command with { ExitCode = 17 },
             _ => command,
         };
+        fixture.AfterStart = (name, process) => { if (name == "build") { build = process; } };
         // buildが解放待ちに入ってから整形を失敗させ、取消だけがbuildを終わらせる状態を作ります。
+        // buildは整形より先に起動する契約で、未起動なら待たずに前提不成立として失敗させます。
         fixture.BeforeStart = (name, _) =>
         {
-            if (name == "style") { WaitForFileAsync(ready).GetAwaiter().GetResult(); }
+            if (name != "style") { return; }
+            OwnedProcess started = build ?? throw new InvalidOperationException("前提不成立: 整形の起動時に同時のbuildが起動していません。");
+            WaitForFileAsync(ready, started.Completion).GetAwaiter().GetResult();
         };
         VerificationRunResult result = await fixture.ExecuteAsync("verify");
         Assert.AreEqual(1, result.ExitCode);
@@ -525,7 +553,11 @@ public sealed class VerificationRunnerTests
     /// 準備commandが実行期限内に非ゼロ終了しても、期限を跨ぐ停止処理の後に共有回収猶予で両ログとsummaryを保存し、元の失敗を保つことを保証します。
     /// 失敗確定時に回収期限を固定しない誤り、期限後にログを保存しない誤り、主失敗を期限超過へすり替える誤りを検出します。
     /// 終了の観測が実行期限内であることは、時間の余裕ではなく準備段階の直前に作った下限の期限の包含で確認し、外れた場合は前提不成立として失敗させます。
-    /// 下限には直前の<c>dotnet --version</c>の起動とrestoreの起動・ready・releaseが含まれるため、それらが実行予算を超える極端な負荷では前提不成立になります。
+    /// 下限は<c>dotnet --version</c>がreadyで止まった後に作り、その後にreleaseするため、窓は<c>--version</c>の解放からrestoreのreleaseと終了の観測までで、<c>--version</c>の終了、Metadata段階の解放、restore段階の生成を含みます。
+    /// 実行予算B（10秒）と回収猶予G（30秒）は次の制約で選びます。
+    /// (a) G &gt; B + 回収時間（cleanupElapsedは失敗観測から復帰までで、境界待ち（約B）を含むため）。
+    /// (b) テストが開始するStopAsyncの期限（120秒）の半分（正常終了要求の待機）が、コールバックの開放（B付近）までを収める。
+    /// 回収cutoffはこのテストが開始する停止の期限には使われません。
     /// </summary>
     [TestMethod]
     public async Task FailedPreparationUsesSharedCleanupGraceForLogsAndSummary()
@@ -535,20 +567,25 @@ public sealed class VerificationRunnerTests
         var allowExit = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var terminated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var allowCleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var executionBudget = TimeSpan.FromSeconds(3);
+        var executionBudget = TimeSpan.FromSeconds(10);
+        // テストが開始するStopAsyncの期限です。正常終了要求の待機はその半分（60秒）で、コールバックの開放（B付近）を収めます。
+        var stopRequestBudget = TimeSpan.FromSeconds(120);
         ProcessDeadline? observedExecutionDeadline = null;
         long failureObserved = 0;
         ProcessDeadline? lowerBound = null;
-        fixture.Configure = (name, command) => name == "restore" ? command with
+        fixture.Configure = (name, command) => name switch
         {
-            Ready = fixture.Path("restore-ready"),
-            Release = fixture.Path("restore-release"),
-            ExitCode = 17,
-        } : command;
+            "restore" => command with
+            {
+                Ready = fixture.Path("restore-ready"),
+                Release = fixture.Path("restore-release"),
+                ExitCode = 17,
+            },
+            "--version" => command with { Ready = fixture.Path("version-ready"), Release = fixture.Path("version-release") },
+            _ => command,
+        };
         fixture.BeforeStart = (name, _) =>
         {
-            // 準備段階の構築直前の最後の起動で作るため、実際の実行期限はこれより後に始まり、この期限に含まれる終了は実行期限内の終了でもある。
-            if (name == "--version") { lowerBound = ProcessDeadline.FromTimeout(executionBudget); }
             // 段階開始後の境界で作るため、この期限が切れれば実行期限も確実に過ぎている。
             if (name == "restore") { observedExecutionDeadline = ProcessDeadline.FromTimeout(executionBudget); }
         };
@@ -558,7 +595,7 @@ public sealed class VerificationRunnerTests
             // 既存の正常終了要求をgateで制御し、runnerのfinallyを実行期限後まで進ませない。
             _ = process.StopAsync(async token =>
             {
-                await WaitForFileAsync(fixture.Path("restore-ready"));
+                await WaitForFileAsync(fixture.Path("restore-ready"), process.Completion, token);
                 readyToExit.TrySetResult();
                 await allowExit.Task.WaitAsync(token);
                 File.WriteAllText(fixture.Path("restore-release"), "release");
@@ -566,12 +603,17 @@ public sealed class VerificationRunnerTests
                 failureObserved = Stopwatch.GetTimestamp();
                 terminated.TrySetResult();
                 await allowCleanup.Task.WaitAsync(token);
-            }, Deadline());
+            }, ProcessDeadline.FromTimeout(stopRequestBudget));
         };
-        VerificationRun run = fixture.Run() with { PreparationTimeout = executionBudget };
+        VerificationRun run = fixture.Run() with { PreparationTimeout = executionBudget, CleanupGrace = TimeSpan.FromSeconds(30) };
         Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 1), run);
         try
         {
+            // 準備段階の構築直前の最後の起動（--version）がreadyで止まっている間に下限を作る。
+            // 実際の実行期限はこれより後に始まり、この期限に含まれる終了は実行期限内の終了でもある。
+            await WaitForFileAsync(fixture.Path("version-ready"), execution);
+            lowerBound = ProcessDeadline.FromTimeout(executionBudget);
+            File.WriteAllText(fixture.Path("version-release"), "release");
             // 到達は局所期限なしで、通知か実行Taskの終端のどちらかまで待つ。
             await TestUiDispatcherHost.AwaitNotificationAsync(readyToExit.Task, execution, "準備processのready");
             ProcessDeadline boundary = observedExecutionDeadline ?? throw new InvalidOperationException("準備段階の起動を観測していません。");
@@ -605,7 +647,9 @@ public sealed class VerificationRunnerTests
         {
             allowExit.TrySetResult();
             allowCleanup.TrySetResult();
-            await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            // 本体が--versionの保持中に失敗しても、保持したprocessを解放して回収させる。
+            if (!File.Exists(fixture.Path("version-release"))) { File.WriteAllText(fixture.Path("version-release"), "release"); }
+            await execution;
         }
     }
 
@@ -652,28 +696,28 @@ public sealed class VerificationRunnerTests
                 for (int index = 0; index < gated.Length; index++)
                 {
                     string name = gated[index];
-                    await WaitForFileAsync(fixture.Path(name + "-child-ready"));
+                    await WaitForFileAsync(fixture.Path(name + "-child-ready"), execution);
                     CollectionAssert.AreEqual(gated.Take(index + 1).ToArray(), fixture.Requests.Where(item => gated.Contains(item.Name)).Select(item => item.Name).ToArray());
                     Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Scenarios"));
                     Release(name);
                 }
-                await WaitForFileAsync(fixture.Path("Scenarios-child-ready"));
+                await WaitForFileAsync(fixture.Path("Scenarios-child-ready"), execution);
                 Release("Scenarios");
             }
             else
             {
                 // B8のUI枠は2。DailyとShellが先に入り、Dailyの全終端で空いた枠をRemainingが使う。
-                foreach (string name in new[] { "Scenarios", "Core", "Windows.Shell" }) { await WaitForFileAsync(fixture.Path(name + "-child-ready")); }
+                foreach (string name in new[] { "Scenarios", "Core", "Windows.Shell" }) { await WaitForFileAsync(fixture.Path(name + "-child-ready"), execution); }
                 Assert.IsFalse(fixture.Requests.Any(item => item.Name is "Windows.Remaining" or "Windows.Settings"), "DailyもUI枠を占有します。");
                 Release("Scenarios");
-                await WaitForFileAsync(fixture.Path("Windows.Remaining-child-ready"));
+                await WaitForFileAsync(fixture.Path("Windows.Remaining-child-ready"), execution);
                 Assert.IsFalse(owned["Core"].Completion.IsCompleted);
                 Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Windows.Settings"));
                 File.WriteAllText(fixture.Path("Windows.Shell-release"), "release");
                 await owned["Windows.Shell"].RootExit.WaitAsync(TimeSpan.FromSeconds(10));
                 Assert.IsFalse(fixture.Requests.Any(item => item.Name == "Windows.Settings"), "rootだけの終了でWindows枠を解放しません。");
                 File.WriteAllText(fixture.Path("Windows.Shell-child-release"), "release");
-                await WaitForFileAsync(fixture.Path("Windows.Settings-child-ready"));
+                await WaitForFileAsync(fixture.Path("Windows.Settings-child-ready"), execution);
                 Assert.IsFalse(owned["Windows.Remaining"].Completion.IsCompleted);
                 Assert.IsFalse(owned["Core"].Completion.IsCompleted);
                 Release("Windows.Remaining");
@@ -781,7 +825,7 @@ public sealed class VerificationRunnerTests
             // 同じOwnedProcessの既存正常終了要求を先に開始し、正常終端後の要求失敗だけを作る。
             _ = process.StopAsync(async _ =>
             {
-                await WaitForFileAsync(fixture.Path("core-ready"));
+                await WaitForFileAsync(fixture.Path("core-ready"), process.Completion);
                 File.WriteAllText(fixture.Path("core-release"), "release");
                 await process.Completion;
                 throw failure;
@@ -798,6 +842,7 @@ public sealed class VerificationRunnerTests
     }
 
     /// <summary>root非成功・ログ保存失敗・正常終了要求失敗が重なってもすべてを保持し、Job内の生存childを回収することを保証します。</summary>
+    /// <remarks>段階期限は検査対象ではなくfixture既定値です。回収は主失敗の観測直後の取消の経路で始まり、timeoutの保証は専用caseが担います。</remarks>
     [TestMethod]
     public async Task PrimaryOutputAndCleanupFailuresAreAllRetained()
     {
@@ -827,27 +872,28 @@ public sealed class VerificationRunnerTests
         };
         VerificationRun run = fixture.Run() with
         {
-            TestTimeout = TimeSpan.FromSeconds(5),
             RequestGracefulExit = (_, _) => Task.FromException(new IOException("graceful-failure")),
         };
         Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 1), run, canceled.Token);
         Process? child = null;
         try
         {
-            OwnedProcess process = await coreStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            await WaitForFileAsync(fixture.Path("child-ready"));
-            child = Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("child-ready"))));
+            await TestUiDispatcherHost.AwaitNotificationAsync(coreStarted.Task, execution, "Coreの起動");
+            OwnedProcess process = await coreStarted.Task;
+            string childProcessId = await WaitForFileAsync(fixture.Path("child-ready"), FirstOf(process.Completion, execution));
+            child = Process.GetProcessById(int.Parse(childProcessId));
             observed.Add(child);
-            Assert.AreEqual(7, await process.RootExit.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.AreEqual(7, await process.RootExit);
             // ここは三種類の失敗の併存を検査する。timeoutは専用caseへ分担し、主失敗の観測直後に回収を開始する。
             canceled.Cancel();
-            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            VerificationRunResult result = await execution;
             VerificationCommandResult core = result.Commands.Single(command => command.Name == "Core");
             Assert.AreEqual(1, result.ExitCode);
             Assert.AreEqual(7, core.Completion?.ExitCode);
-            Assert.AreEqual(7, (await process.Completion.WaitAsync(TimeSpan.FromSeconds(10))).ExitCode);
-            Assert.AreEqual("stdout", await process.StandardOutput.WaitAsync(TimeSpan.FromSeconds(10)));
-            Assert.AreEqual("stderr", await process.StandardError.WaitAsync(TimeSpan.FromSeconds(10)));
+            // runner復帰後は回収が済んでいるため、読取りに新しい局所期限を加えない。
+            Assert.AreEqual(7, (await process.Completion).ExitCode);
+            Assert.AreEqual("stdout", await process.StandardOutput);
+            Assert.AreEqual("stderr", await process.StandardError);
             Assert.IsNotNull(core.PrimaryFailure);
             StringAssert.Contains(core.PrimaryFailure.ToString(), "7");
             Assert.IsNotNull(core.OutputFailure);
@@ -863,7 +909,7 @@ public sealed class VerificationRunnerTests
             bool resourcesTerminated = false;
             try
             {
-                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                VerificationRunResult result = await execution;
                 await ConfirmOwnedTerminationAsync(owned, observed, result);
                 resourcesTerminated = true;
             }
@@ -948,7 +994,7 @@ public sealed class VerificationRunnerTests
         Task<VerificationRunResult> execution = VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 1), run, canceled.Token);
         try
         {
-            await WaitForFileAsync(fixture.Path("windows-ready"));
+            await WaitForFileAsync(fixture.Path("windows-ready"), execution);
             using var root = Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path("windows-ready"))));
             // 取消の直前に観測する。回収期限は取消の時点以後に始まるため、この時刻から回収猶予までを含む。
             long beforeCancel = Stopwatch.GetTimestamp();
@@ -971,19 +1017,26 @@ public sealed class VerificationRunnerTests
         }
     }
 
-    /// <summary>二つの実Jobをready後に取消または期限超過させ、遅れて回収へ入ったprocessも同じcutoffを使い、全root・childが終端することを保証します。</summary>
-    /// <remarks>後行のWindows.ShellのStartの返却は、先行のCoreが回収の猶予待ちへ入り、本体が両callbackの同一cutoffを確認した後（cutoff確定後）に行います。後行にも回収期限の残りの大半を使わせ、負荷で強制停止の時間が削られる組立てを避けます。</remarks>
+    /// <summary>二つの実Jobをready後に取消し、遅れて回収へ入ったprocessも同じcutoffを使い、runner復帰時に全root・child・両pipe・Jobが終端していることを保証します。</summary>
+    /// <remarks>
+    /// 検査対象は取消による致命的失敗に限ります。cutoffは取消の登録による同期Abortでrunnerが確定します。
+    /// テストの<c>FailureCleanup</c>呼出しもAbortを伴うため、runnerの回収経路の開始（CoreのJob終端）を確認してから読みます。取消の登録によるAbortが失われる回帰や取消がrunnerへ伝わらない回帰を、テストの読取りに伴うAbortが覆い隠さないためです。
+    /// CoreのJobが取消後に終端しない回帰では、Coreの終端待ちは期限を持ちませんが、段階期限（60秒）でrunnerがCoreを停止してJobが終端し、
+    /// その後の主失敗の表明（OperationCanceledExceptionでない）で失敗します（局所期限は置きません）。
+    /// cutoffを読む前のCoreのJob終端待ちは、後行Windows.Shellが使える回収猶予を先に消費します（runner自身のAbortを判別するためのトレードオフ）。
+    /// 後行のWindows.ShellのStartの返却は、cutoffが先行・後行で同一であることを確認した後（cutoff確定後）に行い、
+    /// 後行にも回収期限の残りの大半を使わせて、負荷で強制停止の時間が削られる組立てを避けます。
+    /// 停止は既定経路（コンソールprocessの正常終了要求は即Job終了）で、段階期限の超過による失敗の保証はCompatibilityの検査が担います。
+    /// </remarks>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task FatalStageFailureSharesOneCutoffAndTerminatesAllOwnedProcesses(bool timeout)
+    public async Task FatalStageFailureSharesOneCutoffAndTerminatesAllOwnedProcesses()
     {
         var fixture = new RunnerFixture();
         using var canceled = new CancellationTokenSource();
         var returnWindows = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var firstGraceStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var coreStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var windowsStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var owned = new ConcurrentDictionary<string, OwnedProcess>();
-        var gateFailures = new ConcurrentQueue<Exception>();
         fixture.Configure = (name, command) => name is "Core" or "Windows.Shell" ? command with
         {
             Ready = fixture.Path(name + "-ready"),
@@ -993,33 +1046,26 @@ public sealed class VerificationRunnerTests
         } : command;
         fixture.AfterStart = (name, process) =>
         {
-            if (name is "Core" or "Windows.Shell") { owned[name] = process; }
-            // start要求は実processを返す前で止める。先行回収が猶予待ちへ入ることが、後行回収の開始gateになる。
-            // gateが開かなくても起動済みprocessはrunnerへ返して回収させ、失敗は本体で表明する。
-            if (name == "Windows.Shell") { WaitStartGate(returnWindows.Task, gateFailures); }
+            if (name is not ("Core" or "Windows.Shell")) { return; }
+            owned[name] = process;
+            // gateより先に起動を通知する。start要求は実processを返す前で止め、本体がcutoffを確認した後に開放する。
+            (name == "Core" ? coreStarted : windowsStarted).TrySetResult();
+            if (name == "Windows.Shell") { WaitStartGate(returnWindows.Task); }
         };
-        VerificationRun run = fixture.Run() with
-        {
-            TestTimeout = TimeSpan.FromSeconds(timeout ? 20 : 60),
-            CleanupGrace = TimeSpan.FromSeconds(10),
-            RequestGracefulExit = async (process, token) =>
-            {
-                bool first = fixture.Names[process.ProcessId] == "Core";
-                // runnerがcutoffを確定した後の先行回収の入口では開始だけを通知する。後行の開放は、本体がcutoffを読んだ後に行う。
-                if (first) { firstGraceStarted.TrySetResult(); }
-                await Task.Delay(Timeout.InfiniteTimeSpan, token);
-            },
-        };
+        VerificationRun run = fixture.Run();
         // Start内の同期gateと解除側を分け、runner内のawaitが同期完了しても解除側へ到達する。
         Task<VerificationRunResult> execution = Task.Run(() => VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 2), run, canceled.Token));
         var observed = new List<Process>();
         try
         {
+            await TestUiDispatcherHost.AwaitNotificationAsync(coreStarted.Task, execution, "Coreの起動");
+            await TestUiDispatcherHost.AwaitNotificationAsync(windowsStarted.Task, execution, "Windows.Shellの起動");
             foreach (string name in new[] { "Core", "Windows.Shell" })
             {
+                Task producer = FirstOf(owned[name].Completion, execution);
                 foreach (string suffix in new[] { "-ready", "-child-ready" })
                 {
-                    int processId = int.Parse(await WaitForFileAsync(fixture.Path(name + suffix), TimeSpan.FromSeconds(30)));
+                    int processId = int.Parse(await WaitForFileAsync(fixture.Path(name + suffix), producer));
                     if (suffix == "-ready")
                     {
                         Assert.AreEqual(owned[name].ProcessId, processId);
@@ -1034,19 +1080,20 @@ public sealed class VerificationRunnerTests
                     }
                 }
             }
-            if (!timeout) { canceled.Cancel(); }
-            await firstGraceStarted.Task.WaitAsync(TimeSpan.FromSeconds(45));
-            // Abort済みの境界だけを読む。callbackを先に呼んで失敗時刻を作らない。後行の開放前に読み、後行が入口でcutoffを更新する誤りを検出する。
+            // cutoffは取消の登録による同期Abortでrunnerが確定し、その後にCoreのJobを停止する。
+            // テスト自身のFailureCleanup呼出しもAbortを伴うため、runnerの回収経路の開始を示すCoreのJob終端を待ってから読む。取消の登録によるAbortが失われる回帰や取消がrunnerへ伝わらない回帰を、テストの読取りに伴うAbortが覆い隠さないためである。
+            // 後行の開放前に読み、後行が入口でcutoffを更新する誤りを検出する。
+            canceled.Cancel();
+            await FirstOf(owned["Core"].Completion, execution);
+            Assert.IsTrue(owned["Core"].Completion.IsCompleted, "前提不成立: CoreのJob終端の前に実行が終わりました。");
             ProcessDeadline cutoff = fixture.FailureCleanup["Core"]();
             Assert.AreSame(cutoff, fixture.FailureCleanup["Windows.Shell"](), "同じ段階に別の回収cutoffがあります。");
             // 後行にも回収期限の残りの大半を使わせるため、先行の猶予の終了を待たずに返却する。
             returnWindows.TrySetResult();
-            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(30));
-            Assert.IsTrue(gateFailures.IsEmpty, "後行回収の開始gateが開かないまま観測期限を超えています。" + Environment.NewLine + string.Join(Environment.NewLine, gateFailures));
+            VerificationRunResult result = await execution;
             Assert.AreEqual(1, result.ExitCode);
             Exception? primary = result.Commands.Single(command => command.Name == "Core").PrimaryFailure;
-            if (timeout) { Assert.IsInstanceOfType<TimeoutException>(primary); }
-            else { Assert.IsInstanceOfType<OperationCanceledException>(primary); }
+            Assert.IsInstanceOfType<OperationCanceledException>(primary);
             Assert.AreEqual(2, owned.Count);
             Assert.IsTrue(owned.Values.All(process => process.RootExit.IsCompletedSuccessfully
                 && process.StandardOutput.IsCompletedSuccessfully && process.StandardError.IsCompletedSuccessfully
@@ -1064,14 +1111,12 @@ public sealed class VerificationRunnerTests
             bool resourcesTerminated = false;
             try
             {
-                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(30));
+                VerificationRunResult result = await execution;
                 await ConfirmOwnedTerminationAsync(owned, observed, result);
                 resourcesTerminated = true;
             }
             finally
             {
-                // 本体が先に失敗しても、記録したgateの失敗を診断として残す。成否は変えない。
-                if (!gateFailures.IsEmpty) { Console.Error.WriteLine("後行回収の開始gateの失敗: " + string.Join(Environment.NewLine, gateFailures)); }
                 foreach (Process process in observed) { process.Dispose(); }
                 if (resourcesTerminated) { fixture.Dispose(); }
             }
@@ -1079,7 +1124,13 @@ public sealed class VerificationRunnerTests
     }
 
     /// <summary>返却をcutoff後まで保留したprocessのログは書込み前に拒否し、既存stdoutと未作成stderrを保ち、summaryも非成功にします。</summary>
-    /// <remarks>生存Jobの行では、期限後に全対象が停止しても回収失敗を消さないことを検査します。途中のファイル書込み取消は静的確認へ分担します。</remarks>
+    /// <remarks>
+    /// 生存Jobの行では、期限後に全対象が停止しても回収失敗を消さないことを検査します。途中のファイル書込み取消は静的確認へ分担します。
+    /// 検査対象は回収cutoff（1秒）の失効で、段階期限は検査対象ではなくfixture既定値です。回収は取消の経路で始まります。
+    /// cutoffは取消の登録による同期Abortでrunnerが確定します。テストの<c>FailureCleanup</c>呼出しもAbortを伴うため、runnerの回収経路の開始（CoreのJob終端）を確認してから読みます。取消の登録によるAbortが失われる回帰や取消がrunnerへ伝わらない回帰を、テストの読取りに伴うAbortが覆い隠さないためです。
+    /// CoreのJobが取消後に終端しない回帰では、Coreの終端待ちは期限を持ちませんが、段階期限（60秒）でrunnerがCoreを停止してJobが終端し、
+    /// その後の主失敗の表明（OperationCanceledExceptionでない）で失敗します（局所期限は置きません）。
+    /// </remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -1088,10 +1139,10 @@ public sealed class VerificationRunnerTests
         var fixture = new RunnerFixture();
         using var canceled = new CancellationTokenSource();
         var returnWindows = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var firstStop = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var coreStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var windowsStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var owned = new ConcurrentDictionary<string, OwnedProcess>();
         var observed = new List<Process>();
-        var gateFailures = new ConcurrentQueue<Exception>();
         fixture.Configure = (name, command) => name == "Core" || (name == "Windows.Shell" && keepWindowsAlive) ? command with
         {
             Ready = fixture.Path(name + "-ready"),
@@ -1103,54 +1154,42 @@ public sealed class VerificationRunnerTests
         {
             if (name is not ("Core" or "Windows.Shell")) { return; }
             owned[name] = process;
-            // gateの待機は本体の観測と同じ長さの観測期限にし、本体のfinallyが必ず開放する。開かなくても起動済みprocessはrunnerへ返して回収させ、失敗は本体で表明する。
-            if (name == "Windows.Shell") { WaitStartGate(returnWindows.Task, gateFailures); }
+            // gateより先に起動を通知する。本体のfinallyが必ずgateを開放し、起動済みprocessはrunnerへ返して回収させる。
+            (name == "Core" ? coreStarted : windowsStarted).TrySetResult();
+            if (name == "Windows.Shell") { WaitStartGate(returnWindows.Task); }
         };
-        VerificationRun run = fixture.Run() with
-        {
-            TestTimeout = TimeSpan.FromSeconds(20),
-            CleanupGrace = TimeSpan.FromSeconds(1),
-            RequestGracefulExit = (process, _) =>
-            {
-                if (fixture.Names[process.ProcessId] == "Core") { firstStop.TrySetResult(); }
-                return Task.CompletedTask;
-            },
-        };
+        VerificationRun run = fixture.Run() with { CleanupGrace = TimeSpan.FromSeconds(1) };
         string rootDirectory = fixture.Path("");
         // 同期Startの保留中も、test側はcutoffの観測とgate解除を進められる。
         Task<VerificationRunResult> execution = Task.Run(() => VerificationRunner.ExecuteAsync(VerificationPlan.Parse(["dev"], 2), run, canceled.Token));
         try
         {
-            await WaitForFileAsync(fixture.Path("Core-child-ready"));
+            await TestUiDispatcherHost.AwaitNotificationAsync(coreStarted.Task, execution, "Coreの起動");
             // WindowsのStart callbackに到達したことを、実所有対象で確認する。
-            ProcessDeadline readyDeadline = Deadline();
-            while (!owned.ContainsKey("Windows.Shell"))
-            {
-                if (readyDeadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("Windowsが起動しません。"); }
-                await Task.Delay(10);
-            }
+            await TestUiDispatcherHost.AwaitNotificationAsync(windowsStarted.Task, execution, "Windows.Shellの起動");
             foreach (string name in keepWindowsAlive ? new[] { "Core", "Windows.Shell" } : new[] { "Core" })
             {
+                Task producer = FirstOf(owned[name].Completion, execution);
                 foreach (string suffix in new[] { "-ready", "-child-ready" })
                 {
-                    await WaitForFileAsync(fixture.Path(name + suffix));
-                    observed.Add(Process.GetProcessById(int.Parse(File.ReadAllText(fixture.Path(name + suffix)))));
+                    string processId = await WaitForFileAsync(fixture.Path(name + suffix), producer);
+                    observed.Add(Process.GetProcessById(int.Parse(processId)));
                 }
             }
-            if (!keepWindowsAlive) { await owned["Windows.Shell"].Completion.WaitAsync(TimeSpan.FromSeconds(10)); }
+            // executionは後行の開始gateの保持中は終端できず生成元に結べない。偽processが自然終了する前提で、終端まで待つ。
+            if (!keepWindowsAlive) { await owned["Windows.Shell"].Completion; }
             string stdout = fixture.Path("run/Windows.Shell/process.stdout.log");
             string stderr = fixture.Path("run/Windows.Shell/process.stderr.log");
             File.WriteAllText(stdout, "sentinel");
             Assert.IsFalse(File.Exists(stderr));
+            // cutoffは取消の登録による同期Abortでrunnerが確定し、その後にCoreのJobを停止する。テストのFailureCleanup呼出しもAbortを伴うため、CoreのJob終端の後に読む。取消の登録によるAbortが失われる回帰や取消がrunnerへ伝わらない回帰を、テストの読取りに伴うAbortが覆い隠さないためである。
+            // この待機が1秒のcutoffの一部を消費しても、次でcutoffの実失効まで待つため検査は変わらない。
             canceled.Cancel();
-            await firstStop.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await FirstOf(owned["Core"].Completion, execution);
+            Assert.IsTrue(owned["Core"].Completion.IsCompleted, "前提不成立: CoreのJob終端の前に実行が終わりました。");
             ProcessDeadline cutoff = fixture.FailureCleanup["Core"]();
             // タイマーの配送だけで失効とせず、Windowsの返却を元cutoffの実失効まで保留する。
-            while (cutoff.Remaining > TimeSpan.Zero)
-            {
-                if (readyDeadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("回収cutoffの観測期限を超えています。"); }
-                await Task.Delay(1).WaitAsync(readyDeadline.Remaining);
-            }
+            while (cutoff.Remaining > TimeSpan.Zero) { await Task.Delay(cutoff.Remaining + TimeSpan.FromMilliseconds(10)); }
             Assert.AreEqual(TimeSpan.Zero, cutoff.Remaining);
             Assert.AreEqual(TimeSpan.Zero, fixture.FailureCleanup["Windows.Shell"]().Remaining);
             if (keepWindowsAlive)
@@ -1159,10 +1198,10 @@ public sealed class VerificationRunnerTests
                 Assert.IsTrue(observed.Skip(2).All(process => !process.HasExited));
             }
             returnWindows.TrySetResult();
-            VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+            VerificationRunResult result = await execution;
             VerificationCommandResult windows = result.Commands.Single(command => command.Name == "Windows.Shell");
-            Assert.IsTrue(gateFailures.IsEmpty, "Windowsの返却gateが開かないまま観測期限を超えています。" + Environment.NewLine + string.Join(Environment.NewLine, gateFailures));
             Assert.AreEqual(1, result.ExitCode);
+            Assert.IsInstanceOfType<OperationCanceledException>(result.Commands.Single(command => command.Name == "Core").PrimaryFailure);
             // 生存Jobの行はpipeが回収期限内に終端する保証がないため、保存拒否は完了済みの行で確認する。
             if (!keepWindowsAlive) { Assert.IsNotNull(windows.OutputFailure); }
             Assert.IsNotNull(result.SummaryFailure);
@@ -1181,13 +1220,12 @@ public sealed class VerificationRunnerTests
             bool resourcesTerminated = false;
             try
             {
-                VerificationRunResult result = await execution.WaitAsync(TimeSpan.FromSeconds(10));
+                VerificationRunResult result = await execution;
                 await ConfirmOwnedTerminationAsync(owned, observed, result);
                 resourcesTerminated = true;
             }
             finally
             {
-                if (!gateFailures.IsEmpty) { Console.Error.WriteLine("Windowsの返却gateの失敗: " + string.Join(Environment.NewLine, gateFailures)); }
                 foreach (Process process in observed) { process.Dispose(); }
                 // 未終端の所有対象がある場合は領域を残し、削除で失敗を覆い隠さない。
                 if (resourcesTerminated) { fixture.Dispose(); }
@@ -1271,38 +1309,70 @@ public sealed class VerificationRunnerTests
         return (terminated, failure, watchdogFailure);
     }
 
-    /// <summary>起動済みprocessを返す前の同期gateを観測期限（60秒）まで待ち、期限超過は例外にせず記録します。</summary>
-    /// <remarks>Startの途中で例外にすると起動済みprocessをrunnerが所有できず回収されないため、gateの失敗は本体の表明へ移します。</remarks>
-    private static void WaitStartGate(Task gate, ConcurrentQueue<Exception> failures)
-    {
-        try { gate.WaitAsync(Deadline().Remaining).GetAwaiter().GetResult(); }
-        catch (TimeoutException error) { failures.Enqueue(error); }
-    }
+    /// <summary>起動済みprocessを返す前の同期gateが開くまで、期限なしで待ちます。</summary>
+    /// <remarks>
+    /// gateは本体のfinallyが必ず開放するため、待機の上限は検査全体の期限だけです。
+    /// Startの途中で例外にすると起動済みprocessをrunnerが所有できず回収されないため、ここでは例外を投げません。
+    /// </remarks>
+    private static void WaitStartGate(Task gate) => gate.GetAwaiter().GetResult();
 
-    // 実OSの起動・終端観測の期限です。Deadline()と終端観測の共有watchdogが同じ値を使い、検査対象の明示期限とは分けます。
+    // 実OSの終端観測の期限です。Deadline()と終端観測の共有watchdogが同じ値を使い、検査対象の明示期限とは分けます。
     private static readonly TimeSpan ObservationTimeout = TimeSpan.FromSeconds(60);
 
     private static ProcessDeadline Deadline() => ProcessDeadline.FromTimeout(ObservationTimeout);
 
-    private static async Task<string> WaitForFileAsync(string path, TimeSpan? timeout = null)
+    /// <summary>readyで通知されたprocessを取得します。既に終了していれば、検査の窓が尽きた前提不成立として失敗させます。</summary>
+    private static Process GetLiveProcess(string processId, TimeSpan window)
     {
-        ProcessDeadline deadline = timeout is { } budget ? ProcessDeadline.FromTimeout(budget) : Deadline();
+        try { return Process.GetProcessById(int.Parse(processId)); }
+        catch (ArgumentException error) { throw new InvalidOperationException($"前提不成立: 窓（{window.TotalSeconds:0}秒）内にprocessの生存を確認できませんでした（既に終了）。PID=" + processId, error); }
+    }
+
+    /// <summary>どちらかのTaskが終端したら、その終端を表すTaskです。失敗・取消は元の例外を保持します。</summary>
+    private static async Task FirstOf(Task first, Task second) => await await Task.WhenAny(first, second);
+
+    /// <summary>
+    /// fixtureがファイルを書くまで、局所期限なしで待ちます。ファイルが現れたら内容を返し、共有違反の間は待ち続けます。
+    /// 生成元（<paramref name="producer"/>）が終端したら、共有違反の間だけ読み直しを続け（生成元が書込み側を含むJobの終端であれば有限。そうでない場合の停止は検証全体の期限で検出し、局所期限は置かない）、ファイルがなければ
+    /// 生成元の失敗・取消を元の例外で、正常終了を通知なしの終端として表面化します。
+    /// </summary>
+    /// <param name="path">fixtureが書くファイル。</param>
+    /// <param name="producer">ファイルを書く処理の終端を表すTask。</param>
+    /// <param name="cancellationToken">待機を中断するtoken。</param>
+    private static async Task<string> WaitForFileAsync(string path, Task producer, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(producer);
         while (true)
         {
-            if (deadline.Remaining == TimeSpan.Zero) { throw new TimeoutException("fixtureのgateが開きません: " + path); }
-            try
+            cancellationToken.ThrowIfCancellationRequested();
+            // 生成元の終端は読取りより先に取る。終端後の読取りで見つからない場合だけが、通知なしの終端になる。
+            bool ended = producer.IsCompleted;
+            if (TryReadFile(path, out bool locked) is { } content) { return content; }
+            if (ended && !locked)
             {
-                if (File.Exists(path) && new FileInfo(path).Length > 0)
-                {
-                    return File.ReadAllText(path);
-                }
+                await producer;
+                throw new InvalidOperationException("前提不成立: 生成元が通知なしで終端しました（fixtureのgateが開く前）: " + path);
             }
-            catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
-            {
-                // readyの公開後も読取りが共有違反になる間は、同じ観測期限内で待ちます。
-            }
-            await Task.Delay(10);
+            // 共有違反は、生成元の終了後も読めるまで読み直す。
+            if (ended) { await Task.Delay(10, cancellationToken); }
+            else { await Task.WhenAny(producer, Task.Delay(10, cancellationToken)); }
         }
+    }
+
+    /// <summary>内容を読めたらその文字列を返します。共有違反なら<paramref name="locked"/>を真にして null を返します。</summary>
+    private static string? TryReadFile(string path, out bool locked)
+    {
+        locked = false;
+        try
+        {
+            if (File.Exists(path) && new FileInfo(path).Length > 0) { return File.ReadAllText(path); }
+        }
+        catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+        {
+            // readyの公開後も読取りが共有違反になる間は、待機を続けます。
+            locked = true;
+        }
+        return null;
     }
 
     private sealed class RunnerFixture(DistributionFixture? distribution = null) : IDisposable

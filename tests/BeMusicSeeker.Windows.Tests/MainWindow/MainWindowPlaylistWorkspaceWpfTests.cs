@@ -812,7 +812,11 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
     }
 
     /// <summary>fr-FRの実ENTRY LEVELセルで固定dot表示を無変更Enterし、Escape・不正入力の実通知・次の正常保存まで正本とDBを確認します。</summary>
-    /// <remarks>実列・Binding・F2/Enter/Escapeからdefault端末への接続を担当します。文化別の数値条件は保存主体へ分担し、数値文化と翻訳文化を分けます。</remarks>
+    /// <remarks>
+    /// 実列・Binding・F2/Enter/Escapeからdefault端末への接続を担当します。文化別の数値条件は保存主体へ分担し、数値文化と翻訳文化を分けます。
+    /// 次のF2は、直前のEnter/Escapeが開始した実際の完了Task（ScenarioOperationStartedで捕捉）の終端を待ってから押します。
+    /// 先行する編集の終端までF2を拒否するのは製品の契約で、受付の解放だけでは完了していないため、受付の終端だけを待つ組立てを避けます。
+    /// </remarks>
     [TestMethod]
     public void EntryLevel_CurrentCultureRoundTripAndCancelKeepSavedNumber()
     {
@@ -823,6 +827,8 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             ActualMainWindowFixture? fixture = null;
             Task? terminal = null;
             Exception? primary = null;
+            var completions = new List<Task>();
+            Action<BeMusicSeeker.Runtime.ScenarioUiOperationInput, Task> onOperationStarted = (_, operation) => completions.Add(operation);
             try
             {
                 CultureInfo.CurrentCulture = CultureInfo.GetCultureInfo("fr-FR");
@@ -835,6 +841,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     firstMessage.TrySetResult(null);
                     return new ThemedMessageBoxResponse(MessageBoxResult.OK, false);
                 });
+                fixture.ViewModel.ScenarioOperationStarted += onOperationStarted;
                 PlaylistWorkspaceViewModel workspace = fixture.ViewModel.PlaylistWorkspace;
                 fixture.Table.is_external_sync = false;
                 var entry = new BMSTableEntry { md5 = new string('a', 32), title = "Culture target", level = 1.5 };
@@ -869,41 +876,31 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual("1.5", Editor()?.Text);
                 Assert.IsTrue(workspace.DetailViewState.Source.IsPlaylistCellEditing);
                 // Pの終端は保存・必要表示・draft cleanupの後です。同値でDB差分がなくても実終端を待ちます。
-                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
-                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-enter-terminal");
+                EndEdit(Key.Return, "culture-level-enter");
                 AssertSavedNumberAndDisplay();
 
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                 TextBox editor = Editor() ?? throw new AssertFailedException("実ENTRY LEVELセルのeditorがありません。");
                 Assert.AreEqual("1.5", editor.Text);
                 editor.Text = "2,5";
-                Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
-                // 取消は保存せず同期的にdraft/sessionを終了します。受付終端も回収してから次の実セルを確認します。
-                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-cancel-terminal");
+                // 取消は保存せず同期的にdraft/sessionを終了します。完了Taskと受付終端も回収してから次の実セルを確認します。
+                EndEdit(Key.Escape, "culture-level-cancel");
                 AssertSavedNumberAndDisplay();
 
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                 TextBox invalidEditor = Editor() ?? throw new AssertFailedException("不正入力用editorがありません。");
                 invalidEditor.Text = "2,5";
-                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
-                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-invalid-terminal");
-                // 通知は受付の解放後に待たずに依頼されるため、表示の到着を独立に待ちます。
-                TestUiDispatcherHost.AwaitPresentationOnDispatcher(firstMessage.Task, "culture-level-invalid-message");
+                // 通知の依頼は完了Taskの終端までに窓口の予約（Normal優先度）まで同期に済むため、EndEdit内で予約済みの表示を処理します。
+                EndEdit(Key.Return, "culture-level-invalid");
+                Assert.IsTrue(firstMessage.Task.IsCompletedSuccessfully, "完了Taskの終端と予約済み表示の処理の後に、不正入力の通知が表示されていません。");
                 AssertSavedNumberAndDisplay();
-                // 通知の表示は待たずに依頼され、窓口の表示はNormal優先度で予約されるため、予約済みの表示を処理してから読みます。
-                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(1, messages.Count);
                 Assert.AreEqual(Resources.Error_PlaylistEntryLevelFormat, messages.Single().MessageBoxText);
                 Assert.IsNull(messages.Single().Owner, "Owner は窓口の解決に任せます。");
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                 TextBox nextEditor = Editor() ?? throw new AssertFailedException("次編集用editorがありません。");
                 nextEditor.Text = "2.5e1";
-                Assert.IsTrue(table.HandleKeyDown(Key.Return, ModifierKeys.None));
-                terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
-                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-next-terminal");
+                EndEdit(Key.Return, "culture-level-next");
                 Assert.AreEqual(25d, entry.level);
                 Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
                 Assert.AreEqual("25", fixture.ViewModel.MainChartList.Rows.OfType<PlaylistDetailRow>().Single(row => ReferenceEquals(row.Entry, entry)).Level);
@@ -912,6 +909,18 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Assert.AreEqual(1, messages.Count);
 
                 TextBox? Editor() => table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).SingleOrDefault();
+                // 編集欄を開いている間（F2から終了キーまで）はDispatcherを進めず待機を挟みません。終了キーは完了Taskを一件だけ開始します。
+                void EndEdit(Key key, string name)
+                {
+                    int before = completions.Count;
+                    Assert.IsTrue(table.HandleKeyDown(key, ModifierKeys.None));
+                    Assert.AreEqual(before + 1, completions.Count, name + ": 終了キーが実際の完了Taskを同期に一件だけ開始していません。");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(completions[^1], name + "-completion");
+                    terminal = fixture.Playlist.WaitForPlaylistMutationIdleAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, name + "-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(workspace.WaitForDetailBuildIdleAsync(), name + "-detail-owner-idle");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
                 void AssertSavedNumberAndDisplay()
                 {
                     Assert.IsNull(Editor());
@@ -925,7 +934,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Assert.AreEqual(7.5, db.ExecuteScalar<double?>("SELECT level FROM playlist_entry WHERE title = 'Other row';"));
                     Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                     Assert.AreEqual("1.5", Editor()?.Text);
-                    Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+                    EndEdit(Key.Escape, "culture-level-assert-escape");
                     Assert.IsFalse(workspace.DetailViewState.Source.IsPlaylistCellEditing);
                 }
             }
@@ -934,11 +943,30 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             {
                 try
                 {
-                    try { if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "culture-level-cleanup"); } }
-                    catch (Exception cleanupFailure) when (primary != null) { primary.Data["EntryLevelTerminalCleanupFailure"] = cleanupFailure.ToString(); }
+                    try
+                    {
+                        // 捕捉した完了Taskと受付終端を個別に待ち、最初の失敗で残りの回収を止めない。失敗は集めて、全Taskの終端の後に報告する。
+                        List<Task> pending = [.. completions];
+                        if (terminal != null) { pending.Add(terminal); }
+                        var cleanupFailures = new List<Exception>();
+                        foreach (Task pendingTask in pending)
+                        {
+                            try { TestUiDispatcherHost.AwaitTaskOnDispatcher(pendingTask, "culture-level-cleanup"); }
+                            catch (Exception cleanupFailure) { cleanupFailures.Add(cleanupFailure); }
+                        }
+                        if (cleanupFailures.Count > 0)
+                        {
+                            if (primary != null) { primary.Data["EntryLevelTerminalCleanupFailure"] = string.Join(Environment.NewLine, cleanupFailures.Select(failure => failure.ToString())); }
+                            else { throw new AggregateException(cleanupFailures); }
+                        }
+                    }
                     finally
                     {
-                        try { fixture?.Close(); }
+                        try
+                        {
+                            if (fixture != null) { fixture.ViewModel.ScenarioOperationStarted -= onOperationStarted; }
+                            fixture?.Close();
+                        }
                         catch (Exception cleanupFailure) when (primary != null) { primary.Data["EntryLevelWindowCleanupFailure"] = cleanupFailure.ToString(); }
                     }
                 }

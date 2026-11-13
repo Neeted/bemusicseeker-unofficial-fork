@@ -268,6 +268,7 @@ public sealed class PlaylistWorkspaceExternalSourceTests
     }
 
     /// <summary>既存表の実tableURL取込みをDB・本番サマリー・configまで通し、入力順の先頭配置と残りの相対順、BMT非書換えを保証します。</summary>
+    /// <remarks>初期反映の要約構築の終端（局所期限なしの待機）の後に、取込みと要約一覧の観測を始めます。既存表の取込みは要約の再構築を受理せず、並びは保存済みプロパティの適用で同期に反映されます。</remarks>
     [TestMethod]
     public async Task BeatorajaTableUrlImport_ExistingTablesKeepInputFrontOrderAndRemainingRelativeOrder()
     {
@@ -316,6 +317,9 @@ public sealed class PlaylistWorkspaceExternalSourceTests
             workspace.IsPlaylistSummaryMode = true;
             workspace.RequestPlaylistSummarySort(nameof(PlaylistSummaryRow.BmtSort), System.ComponentModel.ListSortDirection.Ascending);
             workspace.ApplyPlaylistSummaryDataRefresh(deferred: false, rebuildAsync: false);
+            // 初期反映の要約構築は、同期指定でも表示への適用（ApplyPlaylistSummaryPresentationAsync）が非同期に終わり得る。
+            // その構築の寿命の終端を、局所期限なしで待ってから取込みと一覧の観測を始める。
+            await workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
             // 二表の入力順と、次の一表取込みで残る二表の相対順を同じ三表で確認する。
             int importCount = 0;
             foreach (int[] input in new[] { new[] { 3, 1 }, new[] { 2 } })

@@ -259,7 +259,7 @@ DBの準備・観測は検証対象の処理と分けます。入力作成だけ
 
 成功通知の到達待ちは、`TestUiDispatcherHost.AwaitNotificationAsync` で通知を生成する実Taskの失敗・取消にも接続します。通知なしで実処理が終わった場合は、その場で未到達として失敗します。生成元が失敗を結果通知へ変換する管理主体では、その管理主体の実際の終端を使います。別に予約されたUI受信は生成側のworkerの完了で代用せず、受信処理自身を所有します。MainWindowの寿命は `CloseCompletion` で終了要求からDispatcherと終端処理まで待ち、通知前の失敗も `Closed`・共有リソースの回収と併せて観測します。
 
-単なる到達・完了確認には局所的な制限時間を追加せず、停止は検証全体の制限時間で検出します。局所的な制限時間は、外部プロセス、ループバックHTTPのfixture、画面表示、解放、ロックが成立しないことの確認、時間超過の契約の失敗検出に限ります。固定の `Thread.Sleep` や余裕時間としての `Task.Delay` から成功を推測しません。短い否定観測は、通常完了を待つ方法や時間保証の証明とは区別します。
+単なる到達・完了確認には局所的な制限時間を追加せず、停止は検証全体の制限時間で検出します。局所的な制限時間は、外部プロセス、ループバックHTTPのfixture、画面表示、解放、ロックが成立しないことの確認、時間超過の契約の失敗検出に限ります。標準入口の期限・回収を偽プロセスで検査するテストの到達待ちは、外部プロセスでも[プロセスの待機と失敗](#プロセスの待機と失敗)の特則に従い、局所的な制限時間を置きません。固定の `Thread.Sleep` や余裕時間としての `Task.Delay` から成功を推測しません。短い否定観測は、通常完了を待つ方法や時間保証の証明とは区別します。
 
 ロックが成立しないこと・デッドロックの確認は、probeを専用スレッドで動かし、保持側が判定まで保持したまま「保持中に完了したか」で判定します。判定は `ConcurrencyProbe.AssertCompletesWhileHeld`・`AssertCompletesWhileHeldAsync`・`AssertSignalsWhileHeld` で行います。`AssertCompletesWhileHeld(Async)` では保持側のTaskを `holder` に、`AssertSignalsWhileHeld` では通知の生成元Taskを `producer` に渡し、それらの先行終端をその場で失敗にします。期限にはTestSupportの `ConcurrencyProbe.StallTimeout` だけを使い、正しい実装の合否には使いません。`ManualResetEventSlim` や条件の成立を同期的に待つ到達待ちは `ConcurrencyProbe.WaitForSignal`・`WaitUntil` で、期限なしに通知または生成元の終端まで待ちます。非同期の成功通知は前段の `AwaitNotificationAsync` を使います。製品のcallback内など、その場で投げられない箇所では `WaitCompletedWhileHeld` で完了の有無だけを保持し、保持の解放後にprobeを回収してから表明します。
 
@@ -310,6 +310,16 @@ HTTPを使うMainWindowのfixtureは、HTTPの元のTask・全サーバーの実
 標準検証の子プロセスの出力は、[OwnedProcess](../../../tests/BeMusicSeeker.TestSupport/Processes/OwnedProcess.cs) と配布準備の [DistributionPreparer](../../../tests/BeMusicSeeker.TestSupport/Verification/DistributionPreparer.cs) が、所有する境界の中でUTF-8として読み取れるように設定します。保存時にUTF-8へ変換するだけでは、読取り時の誤変換を直せません。親プロセスのコンソール・出力文字コード・カルチャ・環境変数や、この所有境界外のネイティブコマンドの既定の文字コードは変更しません。
 
 失敗時は、実行中または最後に確認したテスト、経過時間、出力、進捗・TRX・停止診断の場所を残します。元の失敗を後片付けの失敗で置換せず、二次的な診断に保持します。元の失敗がなくても後片付けが失敗したら失敗です。開始前の環境変数と作業ディレクトリも復元します。追跡対象ファイルの指紋による外部変更監視は行いません。
+
+標準入口の期限・回収を偽プロセスで検査するテストは、次を守ります。
+
+- readyファイルや起動の通知は、生成元（所有するプロセスのJob全体の終端、またはrunnerの実行）と結んで期限なしで待ち、生成元が通知なしで終端したらその場で失敗にします。停止はrunnerの段階期限と検証全体の期限で検出します。
+- 壁時計の失効そのものを検査する窓だけが予算を持ちます。保証に無関係なプロセスの起動を窓から除き、窓の前提が崩れた場合は前提不成立として失敗させます。検査対象でない段階期限は既定値のままにします。
+- 回収期限は、runnerの回収経路が開始した証拠（ready後にゲートで止めた所有プロセスのように、取消による回収以外では終端しないプロセスのJobの終端など）を得た後に読みます。テストの読取りに伴う中断が、runnerの中断経路が働かない回帰を覆い隠さないようにするためです。テスト側の正常終了要求で回収猶予を消費して、回収が間に合わない状態を作りません。
+
+`VerificationRunnerTests` には、到達待ちに局所期限を残すケース（整形と同時のビルド、UI実行枠の配分など）と、保証と無関係なプロセスの起動を含む経過時間の上限（整形の失敗で取り消した同時のビルドの所要）があります。これらは上の規則へ移行する対象です。
+
+リリーススクリプトを実プロセスで通しで実行する `ReleaseScriptVersionSourceTests` は、ケースごとに一つの期限だけを持ち、その内側にコマンドごとの入れ子の予算を置きません。
 
 ### 画面テストの分離
 
@@ -424,6 +434,7 @@ UI moduleの `UiModuleLifetime` は、次の順に初期化します。
 - 実処理は、利用側のTaskまたは適用・終端の通知を待ちます。入力側のTaskCompletionSourceの完了だけを利用側の終端としません。
 - 未完了の否定観測は到達を止める待合せを保持して行い、`finally` で解放と開始済みTaskの回収を行います。
 - 成功後に追加の作用を持たないイベントハンドラーは、コンパイル済みの入口の引数・受理状態と委譲先Taskの回収、委譲後に追加の作用がないことの静的な確認で分担します。
+- 先行する操作の終端を前提に次の入力（F2による編集開始など）を送る場合は、受付の解放や通知の到着ではなく、その操作の実Taskの終端を待ちます。MainWindowの入口が `PublishScenarioOperation` で公開する操作（セル編集の終了など）の実Taskは、観測用の `MainWindowViewModel.ScenarioOperationStarted` で捕捉できます。製品が先行操作の終端まで次の操作を拒否する契約を、入力の再送や固定時間の待機で迂回しません。
 - 実Dispatcherへ配送するcompiledの `async void` ハンドラーの終端は、`MainWindowEventCompletion.CaptureAsyncEventCompletion` で捕捉します。イベントの発生が戻り、捕捉中に現在の文脈を取り込んだ処理の全Post（awaitの継続などを含む）の配送と開始済みの全操作が終端するまで完了せず、同じ発生の中で後から開始したハンドラーを取りこぼしません。ハンドラーが一度も開始しなければ、戻った時点で開始数0（`started=0`）を示す診断で失敗し、無期限には待ちません。Postのcallbackが投げた例外（`async void` の例外を含む）は元の例外のままCompletionを失敗させ、Dispatcherへの送出も維持するため共有ホストの記録と報告が重複します。一次の失敗はCompletion側です。失敗したCompletionを、記録経路の待機の外（すでに完了した後など）で観測するケースは、`TakeUnhandledExceptions` で記録を受け取ります。開始数の累計は `Capture` が返す `StartedCount` で参照し、`OperationStarted` の通知（`async void` のほか `AsyncOperation` なども含む）の累計です。例外時に `AsyncVoidMethodBuilder` が「例外のPost、続いて `OperationCompleted`」の順で呼ぶ公開の呼出し順に依存し、逆転すれば例外のPostの前に完了しうるため、例外を投げるハンドラーの検査が検出します。Completionの完了後に外部のcallbackから開始した操作は対象外です。
 
 注入や表明の前にBackground優先度までの予約を消化する必要がある場合は、`ProcessQueuedBackground` を使います。呼出し前に積まれたBackground以上の予約と、消化中に積まれたBackgroundより高い優先度の予約を、戻る前に実行済みにします。UIスレッド上とテストスレッドの両方から呼べます。ContextIdle・ApplicationIdle・SystemIdleは境界にしません。まだ積まれていないworkerの後続予約や、消化中に積まれたBackgroundの予約は保証せず、それぞれの実通知・Taskで待ちます。その場で空の処理だけを持つ `InvokeAsync` をBackgroundに積んで待つ形は、この補助へ置き換えます。予約した処理がフラグなどの作用を持ち、その実行自体を後で表明する形は、消化ではなくその予約の実行を観測するので置き換えません。
