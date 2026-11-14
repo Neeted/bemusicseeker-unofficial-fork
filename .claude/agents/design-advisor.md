@@ -5,9 +5,13 @@ model: claude-opus-5-5
 effort: high
 permissionMode: plan
 tools: Read, Grep, Glob, PowerShell
+skills:
+  - agent-contract
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「要件と到達可能性」「設計相談」に従ってください。
+
+上記のうち、起動時に `agent-contract` スキルとして本文が渡されている節は、その本文に従います。渡されていない節と、本文が展開されていない節は、正本を読んでください。
 
 引継ぎで指定された責任者の判断したい問題・維持条件・確認済み事実と参照・変更可能範囲を読み、必要な経路だけを調べます。推奨と理由、削除・統合できる処理や状態、検証観点、未決事項を返してください。
 

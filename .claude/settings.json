@@ -51,6 +51,7 @@
       "PowerShell(dotnet run --project tools/BeMusicSeeker.Verify -- full *)",
       "PowerShell(pwsh -NoProfile -File scripts/format-code.ps1 *)",
       "PowerShell(pwsh -NoProfile -File .\\scripts\\format-code.ps1 *)",
+      "PowerShell(pwsh -NoProfile -File .claude/scripts/print-sections.ps1 *)",
       "PowerShell(uv run scripts/build-doc-html.py *)",
       "PowerShell(pwsh -NoProfile -File scripts/lang/convert-resx-to-json.ps1 *)",
       "PowerShell(pwsh native/EverythingBridge/build-x64.ps1 *)",
@@ -71,6 +72,55 @@
       "PowerShell(git stash pop *)",
       "PowerShell(git stash drop *)",
       "PowerShell(pwsh -NoProfile -File scripts/release.ps1 *)"
+    ]
+  },
+  "hooks": {
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-File", "${CLAUDE_PROJECT_DIR}/.claude/hooks/precompact.ps1"]
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "PowerShell(git commit *)",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-File", "${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-reminder.ps1"]
+          },
+          {
+            "type": "command",
+            "if": "PowerShell(git merge --ff-only *)",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-File", "${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-reminder.ps1"]
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-File", "${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-reminder.ps1"]
+          },
+          {
+            "type": "command",
+            "if": "Bash(git merge --ff-only *)",
+            "command": "pwsh",
+            "args": ["-NoProfile", "-File", "${CLAUDE_PROJECT_DIR}/.claude/hooks/commit-reminder.ps1"]
+          }
+        ]
+      }
     ]
   }
 }

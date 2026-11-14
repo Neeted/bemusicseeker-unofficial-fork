@@ -13,7 +13,7 @@
 - 競合を処理できる設計を考える前に、その競合を許す操作仕様や表示の細かな時機を保証する必要が、利用者の目的から本当にあるかを判断し、[判断手順](devdocs/spec/core/workflow-concurrency.md#競合対策を決める手順)に従います。仮説だけを理由に、永続状態、再試行、再実行、巻き戻し、抽象化を追加しません。失敗を隠すために意味の異なる結果へ置き換えません。
 - 利用者に見える挙動や保証に未確定事項があれば、[要件の確定手順](devdocs/spec/development/agent-workflow.md#要件と到達可能性)に従って質問し、回答に依存する設計・実装・テストの期待結果を確定しません。合意済み事項の再質問や、契約内の実装詳細の確認は不要です。
 - nullable 警告は、実際の null 許容契約を型へ反映して解消します。`!`、`#pragma warning disable`、`NoWarn` で警告だけを隠しません。フレームワーク注入など静的解析から見えない非 null 保証がある場合だけ、保証の根拠が分かる局所的な抑制を使います。
-- 無関係な未コミット差分を変更・破棄しません。標準検証・整形コマンドによる自動整形は、選択した対象範囲に適用します。依頼範囲内の通常のローカルコミットは、全体ルートと単位責任者が管理する作業ワークツリーで、必要な検証・独立レビュー後に行えます。日本語の現在形の件名・箇条書き本文と適切なプレフィックスを使います。送信、タグ、署名、公開、バージョン更新は、明示指示または合意済みの手順がある場合だけ行います。
+- 無関係な未コミット差分を変更・破棄しません。標準検証・整形コマンドによる自動整形は、選択した対象範囲に適用します。依頼範囲内の通常のローカルコミットは、全体ルートと単位責任者が管理する作業ワークツリーで、必要な検証・独立レビュー後に、実装単位ごとに行います。日本語の現在形の件名・箇条書き本文と適切なプレフィックスを使います。送信、タグ、署名、公開、バージョン更新は、明示指示または合意済みの手順がある場合だけ行います。
 - 変更する公開・保護・内部 API の契約と存在理由は、日本語の XML ドキュメントに反映します。コメントは、コードだけでは分からない採用理由・互換条件・性能上の制約を説明します。
 
 ## 先に読む資料
@@ -27,7 +27,7 @@
 | 非同期処理、受付、世代番号、状態の受渡し | [ワークフローと並行性](devdocs/spec/core/workflow-concurrency.md)、[操作の競合ポリシー](devdocs/spec/core/operation-concurrency-policy.md) |
 | 例外の停止範囲、操作結果、診断と通知 | [例外・操作結果・診断](devdocs/spec/core/exception-handling.md) |
 | 譜面・フォルダ・パッケージの変更 | [ライブラリ変更](devdocs/spec/library/mutations.md)、[ファイルとDBの整合性](devdocs/spec/library/file-db-consistency.md) |
-| 複数段階の作業、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md) |
+| 依頼の区分と適用する工程、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md)、[工程の適用範囲](devdocs/spec/development/agent-workflow.md#工程の適用範囲) |
 | リリースノート、ユーザーマニュアルなど利用者向け文書 | [利用者向け文書の編集方針](devdocs/README.md#利用者向け文書の編集方針) |
 | テストの追加・変更・削除、保証の分担 | [テスト設計](devdocs/spec/development/test-authoring.md)、[テスト配下の指針](tests/AGENTS.md) |
 | 検証の実行範囲・期限・結果判定 | [テスト検証](devdocs/spec/development/testing.md) |
@@ -37,7 +37,7 @@
 
 委譲した実装の不備は、まず元の実装担当へ差し戻します。差し戻し先の選択は[不備の差し戻し](devdocs/spec/development/agent-workflow.md#不備の差し戻し)、レビューの反復が上限に達したときの再計画と `issue-resolver` への切替は[反復回数と再計画](devdocs/spec/development/agent-workflow.md#反復回数と再計画)に従います。
 
-静的レビューと実行検証は独立した合格条件です。局所検証の成功と凍結ができれば全体テストの完了を待たず予備レビューを開始し、統合・完了時には最終差分へ適用できる両方の合格を要求します。開始条件、凍結、予備・最終レビューの進め方は[レビューの進行](devdocs/spec/development/agent-workflow.md#レビューの進行)に従います。
+静的レビューと実行検証は独立した合格条件です。局所検証の成功と凍結ができれば全体テストの完了を待たず予備レビューを開始し、統合・完了時には最終差分へ適用できる両方の合格を要求します。軽微な修正で省略できる工程は[工程の適用範囲](devdocs/spec/development/agent-workflow.md#工程の適用範囲)に従います。開始条件、凍結、予備・最終レビューの進め方は[レビューの進行](devdocs/spec/development/agent-workflow.md#レビューの進行)に従います。
 
 ## 実装で守る境界
 
@@ -65,7 +65,7 @@
 
 変更ごとに[テスト設計](devdocs/spec/development/test-authoring.md)で必要な保証と既存テストの扱いを決め、[検証仕様](devdocs/spec/development/testing.md)で実行範囲を選びます。新しいテストを作らない判断は、既存の回帰検証を省略する理由にはなりません。
 
-標準入口は `dotnet run --project tools/BeMusicSeeker.Verify -- <profile>` です。反復中は対象moduleの局所MTP実行、通常開発のコミット・`dev` への統合は `verify`、正式リリース前の公開候補は `full` を使います。作業段階による区分の選択と、変更の影響に応じた追加検証は[実行範囲の選択](devdocs/spec/development/testing.md#実行範囲の選択)、実行回数、時間制限、失敗時の扱いは同じ検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
+標準入口は `dotnet run --project tools/BeMusicSeeker.Verify -- <profile>` です。反復中は対象moduleの局所MTP実行、通常開発のコミット・`dev` への統合は `verify`、正式リリース前の公開候補は `full` を使います。軽微な修正に当たる条件と、その場合に省略できる工程は[工程の適用範囲](devdocs/spec/development/agent-workflow.md#工程の適用範囲)に従います。作業段階による区分の選択と、変更の影響に応じた追加検証は[実行範囲の選択](devdocs/spec/development/testing.md#実行範囲の選択)、実行回数、時間制限、失敗時の扱いは同じ検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
 
 Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `verify` / `full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
 

@@ -5,9 +5,13 @@ model: claude-opus-5-5
 effort: high
 permissionMode: plan
 tools: Read, Grep, Glob, PowerShell
+skills:
+  - review-contract
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「重大変更の判定」「レビューの共通確認」「レビューの進行」「最終レビュー」「領域単位の凍結」「反復回数と再計画」に従ってください。
+
+上記のうち、起動時に `review-contract` スキルとして本文が渡されている節は、その本文に従います。渡されていない節と、本文が展開されていない節は、正本を読んでください。
 
 目的・受入条件・分類理由・比較版・対象差分・検証要約・必要な承認済みテスト設計を読み、予備レビューの指摘・会話・修正履歴を前提にせず、現在の凍結した変更と関連経路を独立して確認します。指摘の重大度を制限しません。
 

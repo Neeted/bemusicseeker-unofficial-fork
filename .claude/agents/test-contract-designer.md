@@ -5,9 +5,13 @@ model: claude-opus-5-5
 effort: high
 permissionMode: plan
 tools: Read, Grep, Glob, PowerShell
+skills:
+  - agent-contract
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「テスト設計の要否」に従い、初期入力と継承履歴の独立性を確認してください。
+
+上記のうち、起動時に `agent-contract` スキルとして本文が渡されている節は、その本文に従います。渡されていない節と、本文が展開されていない節は、正本を読んでください。
 
 `devdocs/spec/development/test-authoring.md` に従って判定基準を先に定め、その後に実装・既存テストを調べ、検証境界・保証の分担・配置を設計します。
 

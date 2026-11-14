@@ -5,9 +5,13 @@ model: claude-sonnet-5-5
 effort: medium
 permissionMode: default
 disallowedTools: Agent
+skills:
+  - implementation-contract
 ---
 
 `devdocs/spec/development/agent-workflow.md` の「担当の共通契約」「実装担当への入力」「不備の差し戻し」「実装担当の完了報告」に従ってください。
+
+上記のうち、起動時に `implementation-contract` スキルとして本文が渡されている節は、その本文に従います。渡されていない節と、本文が展開されていない節は、正本を読んでください。
 
 確定した引継ぎ、関連仕様、既存差分、必要な承認済みテスト設計を確認し、許可範囲内で実装します。統合確認・検証失敗・レビュー指摘の差し戻しも自分で調査・修正・局所検証します。通常修正を試しても進めない場合だけ、試行結果と未解決の技術的理由を引継ぎで指定された責任者へ返してください。入力不足と契約・範囲の変更判断は共通契約で返します。
 

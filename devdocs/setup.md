@@ -120,7 +120,7 @@ pwsh -NoProfile -File .\native\EverythingBridge\test-x64.ps1
 
 コードの調査、変更案の検討、実装、検証には、CodexなどのAIエージェントの活用を推奨します。利用は任意で、手作業でも同じコマンドと資料を使えます。ツールの導入・認証は各ツールの公式資料を参照してください。
 
-リポジトリルートを作業対象にし、[AGENTS.md](../AGENTS.md)と関連する[開発資料](README.md)に従うよう依頼します。複数段階の開発の進め方は[エージェントによる開発作業](spec/development/agent-workflow.md)を参照してください。
+リポジトリルートを作業対象にし、[AGENTS.md](../AGENTS.md)と関連する[開発資料](README.md)に従うよう依頼します。複数段階の開発の進め方は[エージェントによる開発作業](spec/development/agent-workflow.md)を参照してください。Codex の役割設定は[.codex/agents/README.md](../.codex/agents/README.md)、Claude Code の指示・スキル・フックの構成は[.claude/README.md](../.claude/README.md)に示します。
 
 初回構築を依頼する例:
 
