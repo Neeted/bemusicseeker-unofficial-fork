@@ -71,9 +71,10 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
 
     /// <summary>検証済みDBの限定候補を作業スレッドで読み、親受付前に既存YesNo判断を捕捉します。成功した前段の境界で終了を伝播し、実際の読取・画面障害は保持します。予約やDB作成はしません。</summary>
     /// <param name="songDbPath">検証済み設定が指定する候補読取対象DB。</param>
+    /// <param name="lr2TableNormalizationRoot">読込み側と同じ基準の補正用ルート。LR2連携モードの実効LR2ルートで、決まらなければ空です。</param>
     /// <param name="dialogs">受付外で利用者判断を待つ既存の画面通知先。</param>
     /// <param name="isShutdownRequested">既存の終了寿命。新しい利用者取消や共有予約は持ちません。</param>
-    internal async Task<LeapYearFolderRepairApproval> PrepareLeapYearFolderRepairAsync(string songDbPath, IUiDialogService dialogs, Func<bool> isShutdownRequested = null)
+    internal async Task<LeapYearFolderRepairApproval> PrepareLeapYearFolderRepairAsync(string songDbPath, string lr2TableNormalizationRoot, IUiDialogService dialogs, Func<bool> isShutdownRequested = null)
     {
         void ThrowIfShutdownRequested()
         {
@@ -83,7 +84,7 @@ internal sealed class StartupLibraryInitializationWorkflowOwner
         var service = new BmsLibraryInitializationService();
         IReadOnlyList<LeapYearFolderRepairCandidate> unreadable = [];
         IReadOnlyList<LeapYearFolderRepairCandidate> candidates = await Task.Run(() =>
-            service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, databaseLoadOptions, songDbPath), out unreadable));
+            service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, databaseLoadOptions, songDbPath), lr2TableNormalizationRoot, out unreadable));
         ThrowIfShutdownRequested();
         List<LeapYearFolderRepairCandidate> approved = [];
         foreach (LeapYearFolderRepairCandidate candidate in candidates)

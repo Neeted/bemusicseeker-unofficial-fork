@@ -58,7 +58,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var gateway = new RecordingExternalPlayerProcessGateway();
             var player = new LR2body(
                 executablePath,
-                new Lr2ConfigOwner(new LR2Config(configPath)),
+                new Lr2ConfigOwner(TestLr2ConfigFactory.Load(configPath)),
                 new SettingsPlayerSettingsGateway(() => testSettings),
                 gateway,
                 waitPolicy: CreateWaitPolicy());
@@ -323,7 +323,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var settingsGateway = new RecordingPlayerSettingsGateway();
             var player = new LR2body(
                 executablePath,
-                new Lr2ConfigOwner(new LR2Config(configPath)),
+                new Lr2ConfigOwner(TestLr2ConfigFactory.Load(configPath)),
                 settingsGateway,
                 gateway,
                 waitPolicy: CreateWaitPolicy());
@@ -374,7 +374,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             };
             var player = new LR2body(
                 executablePath,
-                new Lr2ConfigOwner(new LR2Config(configPath)),
+                new Lr2ConfigOwner(TestLr2ConfigFactory.Load(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
                 CreateWaitPolicy(TimeSpan.FromMilliseconds(100)));
@@ -399,7 +399,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             string configPath = CreateLr2Config(
                 root,
                 "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode><customfolder>保存済み</customfolder></system><sound><volumemaster>23</volumemaster></sound><jukebox /></config>");
-            Lr2ConfigOwner playerConfig = new(new LR2Config(configPath));
+            Lr2ConfigOwner playerConfig = new(TestLr2ConfigFactory.Load(configPath));
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
@@ -465,7 +465,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             string configPath = CreateLr2Config(
                 root,
                 "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster></sound><jukebox><path>RootA\\</path></jukebox></config>");
-            Lr2ConfigOwner playerConfig = new(new LR2Config(configPath));
+            Lr2ConfigOwner playerConfig = new(TestLr2ConfigFactory.Load(configPath));
             Lr2ConfigSnapshot? settingsDraft = null;
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
@@ -512,7 +512,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             string configPath = CreateLr2Config(
                 root,
                 "<config><system><windowsize_x>640</windowsize_x><windowsize_y>480</windowsize_y><screenmode>0</screenmode></system><sound><volumemaster>23</volumemaster><volumeflag>0</volumeflag></sound><jukebox /></config>");
-            Lr2ConfigOwner playerConfig = new(new LR2Config(configPath));
+            Lr2ConfigOwner playerConfig = new(TestLr2ConfigFactory.Load(configPath));
             var startFailure = new InvalidOperationException("start rejected");
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.StartException = startFailure;
@@ -562,7 +562,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             var windowHost = new RecordingExternalPlayerWindowHost(new ExternalWindowHandle(new IntPtr(99)));
             var player = new LR2body(
                 executablePath,
-                new Lr2ConfigOwner(new LR2Config(configPath)),
+                new Lr2ConfigOwner(TestLr2ConfigFactory.Load(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
                 CreateWaitPolicy(TimeSpan.FromMilliseconds(80)));
@@ -610,7 +610,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             };
             var player = new LR2body(
                 executablePath,
-                new Lr2ConfigOwner(new LR2Config(configPath)),
+                new Lr2ConfigOwner(TestLr2ConfigFactory.Load(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
                 CreateWaitPolicy(TimeSpan.FromMilliseconds(40)));
@@ -652,7 +652,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             };
             var player = new LR2body(
                 executablePath,
-                new Lr2ConfigOwner(new LR2Config(configPath)),
+                new Lr2ConfigOwner(TestLr2ConfigFactory.Load(configPath)),
                 new RecordingPlayerSettingsGateway(),
                 gateway,
                 CreateWaitPolicy(TimeSpan.FromMilliseconds(80)));
@@ -707,7 +707,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
             {
                 var player = new LR2body(
                     executablePath,
-                    new Lr2ConfigOwner(new LR2Config(configPath)),
+                    new Lr2ConfigOwner(TestLr2ConfigFactory.Load(configPath)),
                     new RecordingPlayerSettingsGateway(),
                     gateway,
                     CreateWaitPolicy(TimeSpan.FromMilliseconds(80)));

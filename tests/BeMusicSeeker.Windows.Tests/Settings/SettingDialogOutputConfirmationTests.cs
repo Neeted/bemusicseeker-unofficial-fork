@@ -105,7 +105,7 @@ public sealed class SettingDialogOutputConfirmationTests
         internal string[] Candidates() => [.. Dialog.CustomFolderAdditionalOutputBaseDirList];
 
         /// <summary>LR2設定XMLに登録された検索ディレクトリです。</summary>
-        internal string[] XmlRoots() => [.. new BeMusicSeeker.Models.LR2.LR2Config(Values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking()];
+        internal string[] XmlRoots() => [.. BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(Values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking()];
     }
 
     /// <summary>
@@ -431,7 +431,7 @@ public sealed class SettingDialogOutputConfirmationTests
                     applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     dialogService: UndeclaredDialogs.Create());
                 MainWindowViewModel owner = composition.CreateMainWindowViewModelForTest();
-                var config = new LR2Config(values.LR2ConfigXmlPath);
+                LR2Config config = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 SetPrivateField(owner, "lr2config", configOwner);
                 SetActiveLibraryProfile(owner, true);
@@ -572,14 +572,14 @@ public sealed class SettingDialogOutputConfirmationTests
                         Assert.AreEqual(expectedAdditional, otherSaved.LR2CustomFolderAdditionalOutputBaseDirs);
                         Assert.AreEqual(expectedAdditional, values.LR2CustomFolderAdditionalOutputBaseDirs);
                         Assert.AreEqual(expectedAdditional, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderAdditionalOutputBaseDirs);
-                        CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), first);
+                        CollectionAssert.DoesNotContain(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), first);
                     }
                     Choose(latest);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync(section), "output-latest-save");
                     Assert.AreEqual(3, failures.Count, string.Join(Environment.NewLine, failures));
                     Assert.AreEqual(Expected(latest), Read(values));
                     Assert.AreEqual(Expected(latest), Read(TestSettingsFactory.OpenSettings(settingsPath)));
-                    CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), first);
+                    CollectionAssert.DoesNotContain(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), first);
                     CollectionAssert.DoesNotContain(xml.Capture().RegisteredRoots.ToArray(), first);
                     if (section != "additional")
                     {
@@ -839,7 +839,7 @@ public sealed class SettingDialogOutputConfirmationTests
                     Assert.AreEqual(selected, values.LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(selected, TestSettingsFactory.OpenSettings(settingsPath).LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(selected, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
-                    CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), selected);
+                    CollectionAssert.Contains(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), selected);
                     Assert.AreEqual(cleanupOnly || syncFailure, File.ReadAllText(selectedFile) != "blocked output");
                     Assert.AreEqual(!rowCleanup && !syncFailure, File.Exists(oldFile));
                     Assert.AreEqual(cleanupOnly || syncFailure ? 1 : 0, externalSync.ExternalSyncCount, "旧先整理だけの失敗でも必要な外部同期へ進みます。");

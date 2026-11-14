@@ -30,6 +30,43 @@ internal sealed class Lr2ConfigOwner
     /// <summary>この所有者が採用したXMLの正規化済み保存先です。</summary>
     internal string ConfigFilePath => document.ConfigFilePath;
 
+    /// <summary>相対登録の解決に使う、採用中の環境の実効LR2ルートです。空文字はルートなしです。</summary>
+    internal string Lr2RootPath { get { lock (gate) { return document.Lr2RootPath; } } }
+
+    /// <summary>
+    /// 確定した環境の実効LR2ルートへ束縛し直します。同じ設定XMLのまま実効ルートが変わる環境変更を、所有者を増やさずに反映します。
+    /// </summary>
+    /// <remarks>
+    /// 呼ぶのは起動時（検査入口と、その所有者の採用）と、有効なプロファイルがない状態の環境確定だけです。ファイルは読まず書かず、
+    /// 保存済みの全文を新しいルートで解釈し直して公開値を作り直します。配置は旧ルートを含むため破棄し、次の接続で入れ直します。
+    /// これは後継プロセスが同じファイルから所有者を作る場合と同じ結果です。
+    /// </remarks>
+    /// <param name="lr2RootPath">確定した環境の実効LR2ルート。不明な場合は空文字。</param>
+    internal void BindLr2Root(string lr2RootPath)
+    {
+        lock (gate)
+        {
+            if (Lr2EffectiveRoot.IsSameRoot(document.Lr2RootPath, lr2RootPath)) { return; }
+            document = new LR2Config(document, lr2RootPath);
+            published = new Lr2ConfigSnapshot(document, null);
+        }
+    }
+
+    /// <summary>
+    /// 未確定の環境候補を検査するため、その候補の実効LR2ルートで解釈した登録を返します。所有者の状態は変えません。
+    /// </summary>
+    /// <param name="lr2RootPath">候補の環境の実効LR2ルート。</param>
+    /// <returns>採用中のルートと同じなら公開済みの登録、異なれば保存済みの全文を候補のルートで解釈した登録。</returns>
+    internal IReadOnlyList<string> CaptureRegisteredRootsFor(string lr2RootPath)
+    {
+        lock (gate)
+        {
+            return Lr2EffectiveRoot.IsSameRoot(document.Lr2RootPath, lr2RootPath)
+                ? published.RegisteredRoots
+                : Array.AsReadOnly(new LR2Config(document, lr2RootPath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
+        }
+    }
+
     /// <summary>実処理へ公開した登録と分類用配置を、一つの変更不能な入力として捕捉します。</summary>
     internal Lr2ConfigSnapshot Capture() { lock (gate) { return published; } }
 
@@ -79,9 +116,13 @@ internal sealed class Lr2ConfigOwner
     /// <returns>正規化した今回の要求差分です。別媒体成立後の限定公開へ渡せます。</returns>
     internal Lr2RootChange SaveRoots(Lr2RootChange change, bool publish = true, bool forceSave = false)
     {
-        Lr2RootChange normalized = change.Normalize(document.NormalizeRequestedSearchDirectory);
-        return Save(config => config.SetBMSSearchDirectories(normalized.Apply(config.GetBMSSearchDirectoriesForChangeTracking())),
-            publish, normalized, forceSave);
+        // 要求の正規化と保存を同じ排他内で行い、束縛し直しの前後で異なるルートが混ざらないようにします。
+        lock (gate)
+        {
+            Lr2RootChange normalized = change.Normalize(document.NormalizeRequestedSearchDirectory);
+            return Save(config => config.SetBMSSearchDirectories(normalized.Apply(config.GetBMSSearchDirectoriesForChangeTracking())),
+                publish, normalized, forceSave);
+        }
     }
 
     /// <summary>必要媒体成立後に今回の登録差分と分類用配置だけを公開します。全文の未公開値を巻き込みません。</summary>
@@ -286,11 +327,21 @@ internal sealed class Lr2ConfigSnapshot
     internal int MasterVolume { get; }
     /// <summary>試聴一時値を含まない通常の音量有効状態です。</summary>
     internal bool VolumeEnabled { get; }
-    /// <summary>操作時に存在・Shift_JIS互換と重複範囲を検査し、従来と同じ走査対象を返します。</summary>
+    /// <summary>
+    /// 物理的な検査・走査の対象にできる登録だけを返します。実効LR2ルートが決まらず解決できなかった相対登録は含めません。
+    /// </summary>
+    /// <remarks>
+    /// 完全修飾でないパスの検査は現在ディレクトリ基準になり、起動場所によって結果が変わるうえ、利用開始前の検査で
+    /// 見つからない登録として起動を止めてしまうためです。登録自体は <see cref="RegisteredRoots"/> に残し、保存と変更追跡では保持します。
+    /// </remarks>
+    internal IReadOnlyList<string> CapturePhysicalRoots()
+        => Array.AsReadOnly(RegisteredRoots.Where(Path.IsPathFullyQualified).ToArray());
+
+    /// <summary>操作時に存在・Shift_JIS互換と重複範囲を検査し、走査対象を返します。</summary>
     internal IReadOnlyList<string> CaptureExistingSearchRoots()
     {
         var roots = new List<string>();
-        foreach (string path in RegisteredRoots.Where(LongPathFileSystem.DirectoryExists).Where(path => path.IsSjisSchemeString())
+        foreach (string path in CapturePhysicalRoots().Where(LongPathFileSystem.DirectoryExists).Where(path => path.IsSjisSchemeString())
             .Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(path => path.Length))
         {
             if (!roots.Any(parent => path.StartsWith(parent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))) { roots.Add(path); }
@@ -311,31 +362,45 @@ internal sealed class Lr2ConfigSession
 
     /// <summary>同一採用済みパスは読み直さず、未採用入力は元の読込み失敗を保持して検証します。</summary>
     /// <param name="path">起動要求または選択候補のXMLパス。</param>
+    /// <param name="lr2RootPath">
+    /// その環境の実効LR2ルート。新しく読み込む所有者だけに使います。採用済みの同じパスの所有者はそのまま返し、
+    /// ここでは束縛し直しません（束縛し直しは <see cref="Adopt"/>・<see cref="BindCurrent"/> と起動時の検査入口だけが行います）。
+    /// </param>
     /// <param name="adoptInitial">確定済み入力の初回読込みを採用する場合だけtrue。未確定環境の候補検証ではfalseです。</param>
-    internal Lr2ConfigOwner Resolve(string path, bool adoptInitial = true)
+    internal Lr2ConfigOwner Resolve(string path, string lr2RootPath, bool adoptInitial = true)
     {
         string normalized = LongPathFileSystem.NormalizePathForStorage(path);
         if (current != null && string.Equals(current.ConfigFilePath, normalized, StringComparison.OrdinalIgnoreCase)) { return current; }
-        Lr2ConfigOwner owner = new(new LR2Config(path));
+        Lr2ConfigOwner owner = new(new LR2Config(path, lr2RootPath));
         if (adoptInitial) { current ??= owner; }
         return owner;
     }
 
     /// <summary>初回入力の想定済み不備だけを検証失敗として返し、採用済みパスの外部内容は再検査しません。</summary>
     /// <param name="path">未指定・空白も入力不備として受け付ける設定XMLのパスです。</param>
+    /// <param name="lr2RootPath">その環境の実効LR2ルート。新しく読み込む所有者だけに使います。</param>
     /// <param name="owner">成功時だけ検証済みの所有者を返します。失敗時はnullで、空の設定には置き換えません。</param>
     /// <param name="adoptInitial">初回の確定入力を採用するかどうかです。</param>
-    internal bool TryResolve(string? path, [NotNullWhen(true)] out Lr2ConfigOwner? owner, bool adoptInitial = true)
+    internal bool TryResolve(string? path, string? lr2RootPath, [NotNullWhen(true)] out Lr2ConfigOwner? owner, bool adoptInitial = true)
     {
         owner = null;
         if (string.IsNullOrWhiteSpace(path)) { return false; }
-        try { owner = Resolve(path, adoptInitial); return true; }
+        try { owner = Resolve(path, lr2RootPath ?? string.Empty, adoptInitial); return true; }
         catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException
             or System.Security.SecurityException or NotSupportedException or System.Xml.XmlException)
         { return false; }
     }
 
-    /// <summary>検証済み起動要求の所有者を採用します。同じ設定での再初期化は現在の正本を使います。</summary>
-    internal void Adopt(Lr2ConfigOwner owner) => current = owner ?? throw new ArgumentNullException(nameof(owner));
+    /// <summary>検証済みの確定環境の所有者を採用し、その環境の実効LR2ルートへ束縛します。同じ設定での再初期化は現在の正本を使います。</summary>
+    /// <param name="owner">採用する所有者。</param>
+    /// <param name="lr2RootPath">確定した環境の実効LR2ルート。</param>
+    internal void Adopt(Lr2ConfigOwner owner, string? lr2RootPath)
+    {
+        current = owner ?? throw new ArgumentNullException(nameof(owner));
+        owner.BindLr2Root(lr2RootPath ?? string.Empty);
+    }
+
+    /// <summary>所有者を差し替えない環境確定（モードだけの確定など）の後、採用済みの所有者を確定環境の実効LR2ルートへ束縛します。</summary>
+    internal void BindCurrent(string? lr2RootPath) => current?.BindLr2Root(lr2RootPath ?? string.Empty);
 
 }

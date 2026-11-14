@@ -34,6 +34,31 @@ public sealed class LR2ConfigTests
     /// <summary>このケースのモデルと接続で共有するDBの所有者です。</summary>
     private readonly ApplicationDatabaseScope databaseScope = new();
 
+    /// <summary>
+    /// 保証：実効LR2ルートがなく解決できない相対登録は、登録としては保持するが走査対象にしない。現在ディレクトリ基準では実在するフォルダを指す
+    /// ドライブ相対の登録でも採用せず、完全修飾の登録だけを走査対象にする。現在ディレクトリで補完して走査する誤りを検出する。
+    /// </summary>
+    /// <remarks>プロセスの現在ディレクトリは変更せず、現在ディレクトリから所有領域へ辿るドライブ相対パスを入力にします。</remarks>
+    [TestMethod]
+    public void ExistingSearchRoots_ExcludeUnresolvedRelativeRegistrationWithoutLr2Root()
+    {
+        string absoluteRoot = Path.Combine(CaseWorkspace.RootDirectory, "Absolute");
+        string relativeTarget = Path.Combine(CaseWorkspace.RootDirectory, "RelativeTarget");
+        Directory.CreateDirectory(absoluteRoot);
+        Directory.CreateDirectory(relativeTarget);
+        string drive = Path.GetPathRoot(relativeTarget)?.TrimEnd('\\') ?? throw new AssertFailedException();
+        string driveRelative = drive + Path.GetRelativePath(Path.GetFullPath(drive), relativeTarget);
+        Assert.IsFalse(Path.IsPathFullyQualified(driveRelative));
+        Assert.IsTrue(Directory.Exists(driveRelative), "現在ディレクトリで補完すれば実在する入力です。");
+
+        var owner = new Lr2ConfigOwner(LR2Config.CreateRootPlanningDocument(
+            Path.Combine(CaseWorkspace.RootDirectory, "config.xml"), string.Empty, [driveRelative, absoluteRoot]));
+        Lr2ConfigSnapshot captured = owner.Capture();
+
+        CollectionAssert.AreEquivalent(new[] { driveRelative, absoluteRoot }, captured.RegisteredRoots.ToArray());
+        CollectionAssert.AreEqual(new[] { absoluteRoot }, captured.CaptureExistingSearchRoots().ToArray());
+    }
+
     /// <summary>実在に依存しない登録計画で、root-relative・drive-relative・通常相対をLR2 root基準で解決し、要求・保存本文・raw読取りの基準を揃えます。</summary>
     [TestMethod]
     [DataRow(@"\Songs", @"D:\Songs")]
@@ -45,7 +70,7 @@ public sealed class LR2ConfigTests
     [DataRow(@"E:\Songs\.\Pack\..", @"E:\Songs")]
     public void RootPlanningDocument_ResolvesRegistrationsAgainstLr2RootWithoutFileAccess(string input, string expected)
     {
-        var config = LR2Config.CreateRootPlanningDocument(@"D:\LR2\LR2files\Config\config.xml", [input]);
+        var config = LR2Config.CreateRootPlanningDocument(@"D:\LR2\LR2files\Config\config.xml", @"D:\LR2", [input]);
         Assert.AreEqual(expected, config.NormalizeRequestedSearchDirectory(input));
         XElement path = config.Element("config")?.Element("jukebox")?.Element("path") ?? throw new AssertFailedException();
         Assert.AreEqual(expected + "\\", path.Value);
@@ -88,7 +113,7 @@ public sealed class LR2ConfigTests
     [DataRow("invalid\0path")]
     public void SessionTryResolve_UnsetOrInvalidPathReturnsNoConfig(string? path)
     {
-        Assert.IsFalse(new Lr2ConfigSession().TryResolve(path, out Lr2ConfigOwner? config));
+        Assert.IsFalse(new Lr2ConfigSession().TryResolve(path, string.Empty, out Lr2ConfigOwner? config));
         Assert.IsNull(config);
     }
 
@@ -107,9 +132,9 @@ public sealed class LR2ConfigTests
         {
             byte[] before = File.ReadAllBytes(configPath);
 
-            Assert.IsFalse(new Lr2ConfigSession().TryResolve(configPath, out Lr2ConfigOwner? config));
+            Assert.IsFalse(new Lr2ConfigSession().TryResolve(configPath, string.Empty, out Lr2ConfigOwner? config));
             Assert.IsNull(config);
-            Assert.ThrowsExactly<XmlException>(() => new LR2Config(configPath));
+            Assert.ThrowsExactly<XmlException>(() => TestLr2ConfigFactory.Load(configPath));
             CollectionAssert.AreEqual(before, File.ReadAllBytes(configPath));
         });
     }
@@ -135,7 +160,7 @@ public sealed class LR2ConfigTests
             string missingRoot = Path.Combine(lr2Root, "missing-bms");
 
             Assert.IsFalse(Directory.Exists(missingRoot));
-            Assert.IsTrue(new Lr2ConfigSession().TryResolve(candidatePath, out Lr2ConfigOwner? config));
+            Assert.IsTrue(new Lr2ConfigSession().TryResolve(candidatePath, lr2Root, out Lr2ConfigOwner? config));
             Assert.IsNotNull(config);
             CollectionAssert.AreEqual(new[] { missingRoot }, config.Capture().RegisteredRoots.ToArray());
             CollectionAssert.AreEqual(before, File.ReadAllBytes(candidatePath));
@@ -153,7 +178,7 @@ public sealed class LR2ConfigTests
         {
             byte[] before = File.ReadAllBytes(configPath);
 
-            Assert.IsTrue(new Lr2ConfigSession().TryResolve(configPath, out Lr2ConfigOwner? config));
+            Assert.IsTrue(new Lr2ConfigSession().TryResolve(configPath, string.Empty, out Lr2ConfigOwner? config));
             Assert.IsNotNull(config);
             Assert.AreEqual(0, config.Capture().RegisteredRoots.Count);
             Assert.IsNull(XDocument.Load(configPath).Element("config")?.Element("system"));
@@ -190,7 +215,7 @@ public sealed class LR2ConfigTests
                 Assert.AreEqual(LR2Config.DatabaseAutoReloadManualOnly, config.GetDatabaseAutoReloadMode());
                 config.Save(config.ConfigFilePath);
                 Assert.AreEqual("0", XDocument.Load(configPath).Element("config")?.Element("system")?.Element("autoreload")?.Value);
-                var reloaded = new LR2Config(configPath);
+                LR2Config reloaded = TestLr2ConfigFactory.Load(configPath);
                 Assert.AreEqual(12, reloaded.GetCustomFolderMask());
                 Assert.AreEqual(24, reloaded.GetTitleFlashHours());
                 Assert.AreEqual(0, reloaded.GetDatabaseAutoReloadMode());
@@ -832,7 +857,7 @@ public sealed class LR2ConfigTests
                 values.LR2CustomFolderOutputBaseDir = string.Empty; values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
                 values.LR2CustomFolderOutputBaseDirRootType = string.Empty;
             });
-            var owner = new Lr2ConfigOwner(new LR2Config(configPath));
+            var owner = new Lr2ConfigOwner(TestLr2ConfigFactory.Load(configPath));
             StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(StartupSettingsSnapshot.CreateCurrent(settings), owner);
             var service = new BmsLibraryInitializationService();
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
@@ -878,7 +903,7 @@ public sealed class LR2ConfigTests
 
     private void WithConfig(string xml, Action<string, LR2Config> action)
     {
-        WithConfigFile(xml, configPath => action(configPath, new LR2Config(configPath)));
+        WithConfigFile(xml, configPath => action(configPath, TestLr2ConfigFactory.Load(configPath)));
     }
 
     private void WithConfigFile(string xml, Action<string> action)

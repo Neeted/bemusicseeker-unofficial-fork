@@ -334,7 +334,7 @@ public sealed class Lr2SynchronizationArchitectureTests
                 LR2CustomFolderOutputBaseDirRootType = excludedRoot
             };
             Settings settings = TestBmsFactory.CreateRootSettings([excludedRoot, excludedChild, retainedRoot], lr2: true);
-            var config = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(new BeMusicSeeker.Models.LR2.LR2Config(settings.LR2ConfigXmlPath));
+            var config = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(settings.LR2ConfigXmlPath));
             config.SetPlacement(options.CaptureOutputPlacement());
             var owner = new Lr2SearchRootSnapshotOwner(config, () => options);
 
@@ -394,7 +394,7 @@ public sealed class Lr2SynchronizationArchitectureTests
                 LR2CustomFolderAdditionalOutputBaseDirs = [excludedRoot]
             };
             Settings settings = TestBmsFactory.CreateRootSettings([excludedRoot, excludedChild], lr2: true);
-            var config = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(new BeMusicSeeker.Models.LR2.LR2Config(settings.LR2ConfigXmlPath));
+            var config = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(settings.LR2ConfigXmlPath));
             config.SetPlacement(options.CaptureOutputPlacement());
             var owner = new Lr2SearchRootSnapshotOwner(config, () => options);
 

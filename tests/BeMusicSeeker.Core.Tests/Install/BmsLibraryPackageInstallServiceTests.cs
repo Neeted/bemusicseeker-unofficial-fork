@@ -2101,7 +2101,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 new XDocument(new XElement("config",
                     new XElement("jukebox", new XElement("path", registeredRoot))))
                     .Save(configPath);
-                config = new LR2Config(configPath);
+                config = TestLr2ConfigFactory.Load(configPath);
             }
             Lr2ConfigOwner? configOwner = config == null ? null : new Lr2ConfigOwner(config);
             var library = new TestBmsLibrary(databaseScope,

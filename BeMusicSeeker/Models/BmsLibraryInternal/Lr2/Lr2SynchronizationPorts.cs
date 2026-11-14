@@ -274,7 +274,7 @@ internal sealed class Lr2SearchRootSnapshotOwner
         options ??= optionsProvider()
             ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
         Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() ?? throw new InvalidOperationException("LR2 root registration owner is unavailable.") : null;
-        IEnumerable<string> requestedRoots = captured?.RegisteredRoots ?? options.StandaloneBmsRootPaths;
+        IEnumerable<string> requestedRoots = captured?.CapturePhysicalRoots() ?? options.StandaloneBmsRootPaths;
         options = WithCapturedPlacement(options, captured);
         HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
         List<string> existingRoots = captured != null ? [.. captured.CaptureExistingSearchRoots()]
@@ -294,7 +294,7 @@ internal sealed class Lr2SearchRootSnapshotOwner
     /// 更新操作用に存在確認前の設定 root を capture します。
     /// <see cref="Lr2SearchRootSnapshot.Roots"/> は scanner の既存の
     /// managed output 除外を維持し、<see cref="Lr2SearchRootSnapshot.RequestedRoots"/>
-    /// は preflight 用に全登録値を保持します。
+    /// は preflight 用に、物理的な検査の対象にできる全登録値を保持します（解決できなかった相対登録は含めません）。
     /// </summary>
     internal Lr2SearchRootSnapshot CaptureForUpdate(BmsLibraryOptionsSnapshot options)
     {
@@ -302,7 +302,7 @@ internal sealed class Lr2SearchRootSnapshotOwner
             ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
         Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() ?? throw new InvalidOperationException("LR2 root registration owner is unavailable.") : null;
         options = WithCapturedPlacement(options, captured);
-        List<string> requestedRoots = [.. (captured?.RegisteredRoots ?? options.StandaloneBmsRootPaths)
+        List<string> requestedRoots = [.. (captured?.CapturePhysicalRoots() ?? options.StandaloneBmsRootPaths)
             .Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path.Trim())];
         HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
         List<string> scanRoots = [.. requestedRoots

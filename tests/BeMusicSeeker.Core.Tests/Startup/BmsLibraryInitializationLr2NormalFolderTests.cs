@@ -469,7 +469,7 @@ public sealed class BmsLibraryInitializationLr2NormalFolderTests
             // 譜面削除後もmtimeを同値へ戻し、実Applyが生産する削除親scopeと旧raw exactの接続を検証する。
             Directory.SetLastWriteTimeUtc(pack, timestamp);
             Directory.SetLastWriteTimeUtc(root, timestamp);
-            var config = new Lr2ConfigOwner(LR2Config.CreateRootPlanningDocument(Path.Combine(lr2RootPath, "config.xml"), [root]));
+            var config = new Lr2ConfigOwner(LR2Config.CreateRootPlanningDocument(Path.Combine(lr2RootPath, "config.xml"), string.Empty, [root]));
             BmsLibraryOptionsSnapshot options = new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = lr2RootPath }.WithLr2Input(config.Capture());
             ChartScanResult scan = CreateScanResult([bmsPath], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [pack] = [] });
             RootFileEnumerationEntry folderInfoEntry = new(folderInfoPath, File.GetLastWriteTimeUtc(folderInfoPath), new FileInfo(folderInfoPath).Length);

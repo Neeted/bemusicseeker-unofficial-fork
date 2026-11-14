@@ -104,7 +104,7 @@ internal sealed class StartupLibraryConstructionOwner
             customFolderSettings);
         IReadOnlyList<string> registeredRoots = startupSettings.OperationModeLR2DB
             ? (startupLr2Config ?? throw new ArgumentNullException(nameof(startupLr2Config)))
-                .Capture().RegisteredRoots
+                .Capture().CapturePhysicalRoots()
             : startupSettings.StandaloneBmsRootPaths;
         return new LibraryDirectoryPreflightService().CreateRequest(
             registeredRoots,
@@ -121,18 +121,20 @@ internal sealed class StartupLibraryConstructionOwner
         {
             Lr2ConfigOwner config = null;
             if (startupSettings.OperationModeLR2DB
-                && !configSession.TryResolve(startupSettings.LR2ConfigXmlPath, out config))
+                && !configSession.TryResolve(startupSettings.LR2ConfigXmlPath, startupSettings.LR2RootPath, out config))
             {
                 // 検査入力を構成できない場合は設定不備へ戻し、空ルートでの検査成功にしません。
                 return (ConfigValid: false, Config: (Lr2ConfigOwner)null);
             }
+            // 同じ設定XMLのまま実効ルートが変わった環境も、今回捕捉した実効ルートで登録を解釈します。
+            config?.BindLr2Root(startupSettings.LR2RootPath);
 
             LibraryDirectoryPreflightRequest request = CreateStartupDirectoryPreflightRequest(
                 startupSettings,
                 customFolderSettings,
                 config);
             IReadOnlyList<string> registeredRoots = startupSettings.OperationModeLR2DB
-                ? config.Capture().RegisteredRoots : startupSettings.StandaloneBmsRootPaths;
+                ? config.Capture().CapturePhysicalRoots() : startupSettings.StandaloneBmsRootPaths;
             LibraryDirectoryPreflightService.ValidateSettingsAcceptance(registeredRoots, request,
                 CreateStartupDirectoryPreflightOptions(startupSettings, customFolderSettings));
             new LibraryDirectoryPreflightService().EnsureAvailable(request);
@@ -195,7 +197,7 @@ internal sealed class StartupLibraryConstructionOwner
         ArgumentNullException.ThrowIfNull(startupLr2Config);
         // ディレクトリ準備はXML排他外で済ませ、純粋な登録差分だけを渡します。
         IReadOnlyList<string> before = startupLr2Config.CaptureSaved().RegisteredRoots;
-        var draft = LR2Config.CreateRootPlanningDocument(startupLr2Config.ConfigFilePath, before);
+        var draft = LR2Config.CreateRootPlanningDocument(startupLr2Config.ConfigFilePath, startupLr2Config.Lr2RootPath, before);
         CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(draft,
             startupSettings.LR2CustomFolderOutputBaseDir, startupSettings.LR2CustomFolderAdditionalOutputBaseDirs);
         startupLr2Config.SaveRoots(new Lr2RootChange(before, draft.GetBMSSearchDirectoriesForChangeTracking()));
@@ -214,8 +216,13 @@ internal sealed class StartupLibraryConstructionOwner
         List<UiMessageRequest> notifications = [];
         if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
         {
-            Backup.Target lR2BackupTarget = startupSettings.LR2BackupTarget;
-            string scoreDirectoryPath = Path.Combine(startupSettings.LR2RootPath, "LR2files", "Database", "Score");
+            // 実効ルートが決まらない環境ではスコアDBの場所が分からないため、スコアDBだけを対象から外します。
+            // 空のルートから相対パスを作ると、現在ディレクトリ配下を誤って対象にするためです。
+            bool scoreDirectoryKnown = !string.IsNullOrWhiteSpace(startupSettings.LR2RootPath);
+            Backup.Target lR2BackupTarget = scoreDirectoryKnown
+                ? startupSettings.LR2BackupTarget : startupSettings.LR2BackupTarget & ~Backup.Target.ScoreDB;
+            string scoreDirectoryPath = scoreDirectoryKnown
+                ? Path.Combine(startupSettings.LR2RootPath, "LR2files", "Database", "Score") : null;
             (Backup.BackupSaveResult backupSaveResult, bool optimizationFailed) = await Task.Run(() =>
             {
                 try

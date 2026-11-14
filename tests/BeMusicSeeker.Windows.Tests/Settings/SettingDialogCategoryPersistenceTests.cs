@@ -773,7 +773,7 @@ public sealed class SettingDialogCategoryPersistenceTests
             {
                 Directory.CreateDirectory(previousNormal);
                 Directory.CreateDirectory(previousRoot);
-                var config = new BeMusicSeeker.Models.LR2.LR2Config(values.LR2ConfigXmlPath);
+                LR2Config config = BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 config.AddBMSSearchDirectories([previousNormal]);
                 config.Save(config.ConfigFilePath);
                 Directory.Delete(previousNormal);
@@ -837,7 +837,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                     CustomFolderOutputSettingsSnapshot reader = MainWindowViewModelTestFactory.GetComposition(owner).CustomFolderOutputSettingsProvider();
                     Assert.AreEqual(expectedNormal, reader.LR2CustomFolderOutputBaseDir);
                     Assert.AreEqual(expectedRoot, reader.LR2CustomFolderOutputBaseDirRootType);
-                    string[] registered = new BeMusicSeeker.Models.LR2.LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray();
+                    string[] registered = BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray();
                     CollectionAssert.Contains(registered, normal);
                     if (missingPreviousDirectories)
                     {

@@ -18,6 +18,7 @@ internal sealed class StartupSettingsSnapshot
 
     public string LR2SongDBPath { get; init; }
 
+    /// <summary>実効LR2ルートです。保存値が空でも song.db と設定XMLの標準配置から決まる場合はその値で、決められなければ空です。</summary>
     public string LR2RootPath { get; init; }
 
     public string LR2CustomFolderOutputBaseDir { get; init; }
@@ -76,12 +77,13 @@ internal sealed class StartupSettingsSnapshot
         {
             throw new ArgumentNullException(nameof(settings));
         }
+        string effectiveLr2RootPath = Lr2EffectiveRoot.Resolve(settings);
         return new StartupSettingsSnapshot
         {
             OperationModeLR2DB = settings.OperationModeLR2DB,
             LR2ConfigXmlPath = settings.LR2ConfigXmlPath,
             LR2SongDBPath = settings.LR2SongDBPath,
-            LR2RootPath = settings.LR2RootPath,
+            LR2RootPath = effectiveLr2RootPath,
             LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
             LR2CustomFolderAdditionalOutputBaseDirs = settings.LR2CustomFolderAdditionalOutputBaseDirs,
             StandaloneBmsRootPaths = BmsRootRegistrationStore.CaptureStandaloneRoots(settings),
@@ -90,7 +92,7 @@ internal sealed class StartupSettingsSnapshot
             UsePlayerBMIIDXView = settings.UsePlayerBMIIDXView,
             BMIIDXViewPath = settings.BMIIDXViewPath,
             UsePlayerLR2body = settings.UsePlayerLR2body,
-            LR2bodyPath = ResolveLr2bodyPath(settings.LR2RootPath, settings.LR2ConfigXmlPath),
+            LR2bodyPath = ResolveLr2bodyPath(effectiveLr2RootPath, settings.LR2ConfigXmlPath),
             IsLR2BackupEnabled = settings.IsLR2BackupEnabled,
             LR2BackupTarget = settings.LR2BackupTarget,
             LR2BackupPath = settings.LR2BackupPath,

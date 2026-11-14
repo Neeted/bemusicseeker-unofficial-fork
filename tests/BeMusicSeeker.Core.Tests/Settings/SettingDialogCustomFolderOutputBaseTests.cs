@@ -3,6 +3,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.PlayHistoryPresetTestFixture;
@@ -26,6 +27,61 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     /// <summary>ケース固有の処理と既存finallyが終わった後に、開始済みの所有媒体だけを回収します。</summary>
     [TestCleanup]
     public void CleanupWorkspace() => ownedWorkspace?.Dispose();
+
+    /// <summary>
+    /// 保証：同じ設定XMLのまま実効LR2ルートが変わった環境を、起動時の検査入口が同じ所有者へ反映し、相対登録を新しいルートで解釈する。
+    /// 途中でファイルを書き換えても読み直さず、ルートなしの環境の採用では相対登録を解決しない。解決できない相対登録は利用開始前の検査の対象にもせず、検査は成功する。
+    /// 最初のルートを使い続ける誤り、所有者を作り直す誤り、ディスクを読み直す誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public async Task StartupPreflight_RebindsAdoptedConfigOwnerToCapturedEffectiveRoot()
+    {
+        string directory = Path.Combine(CaseWorkspace.RootDirectory, "effective-root-rebind");
+        string firstRoot = Path.Combine(directory, "First");
+        string secondRoot = Path.Combine(directory, "Second");
+        string output = Path.Combine(directory, "Output");
+        foreach (string path in new[] { Path.Combine(firstRoot, "Songs"), Path.Combine(secondRoot, "Songs"), output, Path.Combine(directory, "Shared") })
+        { Directory.CreateDirectory(path); }
+        string configPath = Path.Combine(directory, "Shared", "config.xml");
+        File.WriteAllText(configPath, "<config><system/><player/><jukebox><path>Songs</path></jukebox></config>");
+        var session = new Lr2ConfigSession();
+        StartupSettingsSnapshot Capture(string lr2RootPath) => new()
+        {
+            OperationModeLR2DB = true,
+            LR2RootPath = lr2RootPath,
+            LR2ConfigXmlPath = configPath,
+            LR2CustomFolderOutputBaseDir = output,
+            LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+        };
+
+        (bool firstValid, Lr2ConfigOwner first) = await StartupLibraryConstructionOwner.PrepareDirectoriesAsync(
+            Capture(firstRoot), new CustomFolderOutputSettingsSnapshot(), session);
+        Assert.IsTrue(firstValid);
+        CollectionAssert.AreEqual(new[] { Path.Combine(firstRoot, "Songs") }, first.Capture().RegisteredRoots.ToArray());
+
+        File.WriteAllText(configPath, "<config><system/><player/><jukebox><path>ExternalEdit</path></jukebox></config>");
+        (bool secondValid, Lr2ConfigOwner second) = await StartupLibraryConstructionOwner.PrepareDirectoriesAsync(
+            Capture(secondRoot), new CustomFolderOutputSettingsSnapshot(), session);
+
+        Assert.IsTrue(secondValid);
+        Assert.AreSame(first, second, "設定XMLのパスごとの所有者を作り直しません。");
+        CollectionAssert.AreEqual(new[] { Path.Combine(secondRoot, "Songs") }, second.Capture().RegisteredRoots.ToArray());
+        Assert.AreEqual(secondRoot, second.Lr2RootPath);
+
+        session.Adopt(second, string.Empty);
+
+        Assert.AreEqual(string.Empty, second.Lr2RootPath);
+        CollectionAssert.AreEqual(new[] { "Songs" }, second.Capture().RegisteredRoots.ToArray(), "ルートなしの環境では相対登録を解決しません。");
+
+        // 解決できない相対登録は利用開始前の検査の対象にせず、ルートなしの環境の起動を設定不備で止めません。
+        (bool unresolvedValid, Lr2ConfigOwner unresolved) = await StartupLibraryConstructionOwner.PrepareDirectoriesAsync(
+            Capture(string.Empty), new CustomFolderOutputSettingsSnapshot(), session);
+
+        Assert.IsTrue(unresolvedValid);
+        Assert.AreSame(first, unresolved);
+        CollectionAssert.AreEqual(new[] { "Songs" }, unresolved.Capture().RegisteredRoots.ToArray());
+        Assert.AreEqual(0, unresolved.Capture().CapturePhysicalRoots().Count);
+    }
 
     /// <summary>設定受理の予約領域条件を集約する。出力基点三種は組込み自身・配下・直上を拒否し、LR2rootより上の祖先、BMS親・drive、兄弟と未知LR2rootを維持する。実drive/UNCへアクセスしない。</summary>
     [TestMethod]
@@ -66,7 +122,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 string reserved = Path.Combine(directory, "LR2files", "CustomFolder");
                 string configPath = Path.Combine(directory, "config.xml");
                 File.WriteAllText(configPath, "<config><system/><player/><jukebox/></config>");
-                var config = new LR2Config(configPath);
+                LR2Config config = TestLr2ConfigFactory.Load(configPath);
                 config.SetBMSSearchDirectories([reserved]); config.Save(configPath);
                 var startup = new StartupSettingsSnapshot
                 {

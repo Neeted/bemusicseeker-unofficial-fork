@@ -76,7 +76,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 string settingsPath = Path.Combine(root, "settings", "user.config");
                 Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(settingsPath));
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "AlternateSongs")).FullName;
-                var xml = new LR2Config(values.LR2ConfigXmlPath);
+                LR2Config xml = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 xml.AddBMSSearchDirectories([alternate]);
                 xml.Save(xml.ConfigFilePath);
                 values.Save();
@@ -384,7 +384,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(path));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
-                var xml = new LR2Config(values.LR2ConfigXmlPath);
+                LR2Config xml = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath);
                 values.Save();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(accepted ? MessageBoxResult.OK : MessageBoxResult.Cancel) };
@@ -417,7 +417,7 @@ public sealed class SettingDialogCandidateSwitchTests
                     Assert.AreEqual(accepted ? alternate : original, TestSettingsFactory.OpenSettings(path).BMSInstallDir);
                     Assert.AreEqual(accepted ? alternate : original, combo.SelectedItem);
                     Assert.AreEqual(!accepted, dialog.AvailableBMSDirectories.Contains(staged));
-                    CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), staged);
+                    CollectionAssert.DoesNotContain(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), staged);
                     Assert.IsTrue(combo.IsEnabled);
                     Assert.AreEqual(accepted, enabledDuringAcceptedOperation, "採用点の候補破棄だけでも可否を通知し、取消では候補を保持します。");
                 }
@@ -441,7 +441,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 string path = Path.Combine(root, "user.config");
                 Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(path));
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
-                var xml = new LR2Config(values.LR2ConfigXmlPath);
+                LR2Config xml = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath);
                 values.Save();
                 byte[] beforeXml = File.ReadAllBytes(values.LR2ConfigXmlPath);
@@ -492,7 +492,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(path));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
-                var xml = new LR2Config(values.LR2ConfigXmlPath);
+                LR2Config xml = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath);
                 values.Save();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
@@ -590,7 +590,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(config));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
-                if (lr2) { var xml = new LR2Config(values.LR2ConfigXmlPath); xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath); }
+                if (lr2) { LR2Config xml = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath); xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath); }
                 else { values.OperationModeLR2DB = false; values.StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Serialize([original, alternate]); }
                 values.Save();
                 var dialogs = new RecordingRootDialogService();
@@ -661,7 +661,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 Settings values = CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(path));
                 string original = values.BMSInstallDir;
                 string alternate = Directory.CreateDirectory(Path.Combine(root, "Alternate")).FullName;
-                var xml = new LR2Config(values.LR2ConfigXmlPath);
+                LR2Config xml = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 xml.AddBMSSearchDirectories([alternate]); xml.Save(xml.ConfigFilePath);
                 values.Save();
                 var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };

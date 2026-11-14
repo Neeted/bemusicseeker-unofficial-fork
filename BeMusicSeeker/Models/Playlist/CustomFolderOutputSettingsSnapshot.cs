@@ -13,6 +13,7 @@ internal sealed class CustomFolderOutputSettingsSnapshot
 {
     public bool OperationModeLR2DB { get; init; }
 
+    /// <summary>実効LR2ルートです。設定の保存値ではなく、<see cref="BeMusicSeeker.Models.LR2.Lr2EffectiveRoot"/> が決めた値を運びます。決められなければ空です。</summary>
     public string LR2RootPath { get; init; }
 
     public string LR2CustomFolderOutputBaseDir { get; init; }
@@ -59,7 +60,7 @@ internal sealed class CustomFolderOutputSettingsSnapshot
         return new CustomFolderOutputSettingsSnapshot
         {
             OperationModeLR2DB = placement != null ? placement.OperationModeLR2DB : settings.OperationModeLR2DB,
-            LR2RootPath = placement != null ? placement.LR2RootPath : settings.LR2RootPath,
+            LR2RootPath = placement != null ? placement.LR2RootPath : BeMusicSeeker.Models.LR2.Lr2EffectiveRoot.Resolve(settings),
             LR2CustomFolderOutputBaseDir = placement != null ? placement.LR2CustomFolderOutputBaseDir : settings.LR2CustomFolderOutputBaseDir,
             LR2CustomFolderOutputBaseDirRootType = placement != null ? placement.LR2CustomFolderOutputBaseDirRootType : settings.LR2CustomFolderOutputBaseDirRootType,
             LR2CustomFolderAdditionalOutputBaseDirs = placement != null ? placement.LR2CustomFolderAdditionalOutputBaseDirs : settings.LR2CustomFolderAdditionalOutputBaseDirs,

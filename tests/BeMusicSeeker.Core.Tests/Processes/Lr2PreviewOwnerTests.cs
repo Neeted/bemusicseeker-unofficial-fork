@@ -15,7 +15,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
         WithTemporaryPlayerFiles("LR2body.exe", (root, executable, chart) =>
         {
             string path = CreateLr2Config(root, "<config><system><windowsize_x>640</windowsize_x></system><jukebox /></config>");
-            Lr2ConfigOwner owner = new(new LR2Config(path));
+            Lr2ConfigOwner owner = new(TestLr2ConfigFactory.Load(path));
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
@@ -37,7 +37,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
                 Assert.AreEqual("640", ReadLr2Value(XDocument.Load(path), "system", "windowsize_x"));
                 gateway.Session.KeepRunning = false;
                 gateway.Session.RaiseExited();
-                CollectionAssert.AreEquivalent(new[] { "B", "C" }, new LR2Config(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
+                CollectionAssert.AreEquivalent(new[] { "B", "C" }, TestLr2ConfigFactory.Load(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
                 Assert.IsNull(XDocument.Load(path).Element("config")?.Element("sound"));
             }
             finally
@@ -57,7 +57,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
         WithTemporaryPlayerFiles("LR2body.exe", (root, executable, chart) =>
         {
             string path = CreateLr2Config(root, "<config><system><windowsize_x>640</windowsize_x></system><jukebox /></config>");
-            Lr2ConfigOwner owner = new(new LR2Config(path));
+            Lr2ConfigOwner owner = new(TestLr2ConfigFactory.Load(path));
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));
@@ -90,7 +90,7 @@ public sealed partial class ExternalPlayerProcessGatewayTests
         {
             string path = CreateLr2Config(root, "<config><jukebox /></config>");
             byte[] before = File.ReadAllBytes(path);
-            Lr2ConfigOwner owner = new(new LR2Config(path));
+            Lr2ConfigOwner owner = new(TestLr2ConfigFactory.Load(path));
             var gateway = new RecordingExternalPlayerProcessGateway();
             gateway.Session.KeepRunning = true;
             gateway.Session.MainWindowHandle = new ExternalWindowHandle(new IntPtr(21));

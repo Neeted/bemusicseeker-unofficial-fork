@@ -122,7 +122,7 @@ public partial class SettingsDialogViewModel
         if (settings.OperationModeLR2DB)
         {
             // 起動時の PrepareDirectoriesAsync と同じ設定XMLの解決を検査し、表示開始時の作り直しでもこの項目を保ちます。
-            bool configResolved = lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, out Lr2ConfigOwner confirmedConfig);
+            bool configResolved = lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, ConfirmedEffectiveLr2RootPath, out Lr2ConfigOwner confirmedConfig);
             if (!IsLR2SongDBPathValid(settings.LR2SongDBPath) || !configResolved)
             { Add(SettingsCategory.General, SettingsDeficiencyField.Lr2Environment, Resources.Error_InvalidLR2SongDbOrConfigPath); }
             if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDir))
@@ -192,7 +192,7 @@ public partial class SettingsDialogViewModel
         { Add(SettingsCategory.Playback, SettingsDeficiencyField.PlayerBMIIDXView, Resources.Error_InvalidBMIIDXViewPath); }
         if (settings.UsePlayerLR2body)
         {
-            if (!IsLR2PlayerRootPathValid(settings.LR2RootPath) || !lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, out _))
+            if (!IsLR2PlayerRootPathValid(ConfirmedEffectiveLr2RootPath) || !lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, ConfirmedEffectiveLr2RootPath, out _))
             { Add(SettingsCategory.Playback, SettingsDeficiencyField.PlayerLR2body, Resources.Error_InvalidLR2RootPath); }
             string executable = StartupSettingsSnapshot.CreateCurrent(settings).LR2bodyPath;
             if (!System.IO.File.Exists(executable))

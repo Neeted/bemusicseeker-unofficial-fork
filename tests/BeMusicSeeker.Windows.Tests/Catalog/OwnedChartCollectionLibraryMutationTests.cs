@@ -400,7 +400,7 @@ public sealed class OwnedChartCollectionLibraryMutationTests
                 Settings fresh = TestSettingsFactory.OpenSettings(configPath);
                 if (lr2)
                 {
-                    CollectionAssert.AreEquivalent(new[] { retained, managed }, new LR2Config(settings.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
+                    CollectionAssert.AreEquivalent(new[] { retained, managed }, TestLr2ConfigFactory.Load(settings.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
                     CollectionAssert.AreEqual(new[] { retained }, new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray());
                     Assert.IsTrue(Directory.Exists(managed));
                 }

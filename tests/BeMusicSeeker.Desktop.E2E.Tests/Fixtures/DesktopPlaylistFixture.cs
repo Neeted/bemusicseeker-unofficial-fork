@@ -141,7 +141,7 @@ internal sealed class DesktopPlaylistFixture : IAsyncDisposable
         {
             string configPath = lr2Config ?? throw new InvalidOperationException("専有LR2設定がありません。");
             File.WriteAllText(configPath, "<config><system /><jukebox /><player><id>selected</id></player></config>");
-            var config = new LR2Config(configPath);
+            LR2Config config = TestLr2ConfigFactory.Load(configPath);
             config.AddBMSSearchDirectories([LibraryRoot]);
             config.Save(configPath);
             using (var initial = new SQLite.SQLiteConnection(SongDatabasePath))

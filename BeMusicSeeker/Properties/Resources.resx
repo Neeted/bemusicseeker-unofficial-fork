@@ -1829,7 +1829,10 @@ OK を選ぶと、今回の変換を WAVE で続行します。キャンセル�
     <value>警告</value>
   </data>
   <data name="Warning_LR2RootPathNotSet" xml:space="preserve">
-    <value>LR2ディレクトリが設定されていません。LR2のスコアDBの場所を解決できないため、LR2のスコアDBを利用できません。LR2バックアップやLR2標準カスタムフォルダの検出で予期しない動作になる可能性があります。設定画面でLR2ディレクトリを設定してください。</value>
+    <value>LR2ディレクトリが設定されておらず、song.db と設定XMLの場所からも特定できません。このため、LR2のスコアDBを利用できず、LR2標準カスタムフォルダをLR2の楽曲DBへ同期せず、LR2バックアップでスコアDBを保存しません。設定画面でLR2ディレクトリを設定してください。</value>
+  </data>
+  <data name="Warning_LR2RootPathInferredFormat" xml:space="preserve">
+    <value>LR2ディレクトリが設定されていないため、song.db と設定XMLの場所から「{0}」と推測して動作しています。LR2ディレクトリを設定することを推奨します。</value>
   </data>
   <data name="Record_setting_encoder_tooltip" xml:space="preserve">
     <value>エンコーダの実行ファイルが保存されているディレクトリを指定してください</value>

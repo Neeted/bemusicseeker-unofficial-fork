@@ -2977,7 +2977,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
                 foreach (string path in sentinels) { Assert.AreEqual("sentinel", db.Table<LR2SongDB.folder>().Single(row => row.path == path).title); }
             }
             foreach (string path in sentinels) { Assert.AreEqual("sentinel", File.ReadAllText(path)); }
-            var reloaded = new LR2Config(config.ConfigFilePath);
+            LR2Config reloaded = TestLr2ConfigFactory.Load(config.ConfigFilePath);
             Assert.AreEqual(destination == "root", reloaded.GetBMSSearchDirectoriesForChangeTracking().Any(path => string.Equals(path.TrimEnd(Path.DirectorySeparatorChar), target, StringComparison.OrdinalIgnoreCase)));
             string[] bmtFiles = Directory.Exists(bmt) ? Directory.GetFiles(bmt, "*.bmt") : [];
             Assert.AreEqual(failure == "content" ? 1 : 0, bmtFiles.Length);

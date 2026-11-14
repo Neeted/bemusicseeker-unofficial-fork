@@ -62,7 +62,7 @@ internal static class MainWindowViewModelTestFactory
             databaseScope,
             songDbPath,
             getLR2Config: settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath)
-                ? composition?.ResolveLr2Config(settings.LR2ConfigXmlPath) ?? new Lr2ConfigOwner(new LR2Config(settings.LR2ConfigXmlPath)) : null,
+                ? composition?.ResolveLr2Config(settings.LR2ConfigXmlPath) ?? new Lr2ConfigOwner(TestLr2ConfigFactory.Load(settings.LR2ConfigXmlPath)) : null,
             _lr2ScoreDB: null,
             startupRequiredFileScanReason: null,
             optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),

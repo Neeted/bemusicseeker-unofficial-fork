@@ -1010,7 +1010,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.AreSame(replacement, playlist.BMSTables.Single(candidate => candidate.playlist_id == table.playlist_id));
             Assert.IsFalse(Directory.Exists(a));
             Assert.IsTrue(Directory.GetFiles(b, "*.lr2folder").Length > 0);
-            LR2Config disk = new(Path.Combine(directory, "LR2files", "Config", "config.xml"));
+            LR2Config disk = TestLr2ConfigFactory.Load(Path.Combine(directory, "LR2files", "Config", "config.xml"));
             CollectionAssert.DoesNotContain(disk.GetBMSSearchDirectoriesForChangeTracking(), a);
             CollectionAssert.Contains(disk.GetBMSSearchDirectoriesForChangeTracking(), b);
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
@@ -1153,7 +1153,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             {
                 Assert.IsFalse(Directory.Exists(a));
                 Assert.IsTrue(Directory.GetFiles(b, "*.lr2folder").Length > 0);
-                LR2Config disk = new(configPath);
+                LR2Config disk = TestLr2ConfigFactory.Load(configPath);
                 CollectionAssert.Contains(disk.GetBMSSearchDirectoriesForChangeTracking(), a);
                 CollectionAssert.DoesNotContain(disk.GetBMSSearchDirectoriesForChangeTracking(), b);
             }
@@ -1211,7 +1211,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             Assert.IsFalse(Directory.Exists(a));
             if (editAgain) { Assert.IsFalse(Directory.Exists(b)); }
             Assert.IsTrue(Directory.GetFiles(finalDirectory, "*.lr2folder").Length > 0);
-            LR2Config finalConfig = new(configPath);
+            LR2Config finalConfig = TestLr2ConfigFactory.Load(configPath);
             CollectionAssert.DoesNotContain(finalConfig.GetBMSSearchDirectoriesForChangeTracking(), a);
             CollectionAssert.Contains(finalConfig.GetBMSSearchDirectoriesForChangeTracking(), finalDirectory);
             using (LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songPath).OpenSongDbReadOnly())
@@ -3198,7 +3198,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
             config.Save(config.ConfigFilePath);
             await playlist.ReloadTablesAsync(exportBeatorajaBmt: false);
 
-            var persistedConfig = new LR2Config(config.ConfigFilePath);
+            LR2Config persistedConfig = TestLr2ConfigFactory.Load(config.ConfigFilePath);
             CollectionAssert.Contains(persistedConfig.GetBMSSearchDirectories(), outputDirectory);
             CollectionAssert.DoesNotContain(persistedConfig.GetBMSSearchDirectories(), settingsRootOutputBaseDir);
             Assert.AreEqual(outputFileTimestamp, File.GetLastWriteTimeUtc(outputFile));

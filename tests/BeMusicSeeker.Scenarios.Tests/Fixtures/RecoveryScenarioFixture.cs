@@ -52,7 +52,7 @@ internal sealed class RecoveryScenarioFixture : IAsyncDisposable
         { Directory.CreateDirectory(path); }
         Charts = Enumerable.Range(0, 3).Select(index => WriteChart(library, index)).ToArray();
         File.WriteAllText(Config, "<config><system /><jukebox /><player><id>selected</id></player></config>");
-        var config = new LR2Config(Config);
+        LR2Config config = TestLr2ConfigFactory.Load(Config);
         config.AddBMSSearchDirectories([library]);
         config.Save(Config);
 

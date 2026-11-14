@@ -214,6 +214,11 @@ When an LR2 directory is configured, its built-in `LR2files\CustomFolder` and su
 
 Normally, specifying the `LR2 directory` automatically sets the standard locations for `song.db` and `config.xml` / `config.xmh`. Use each file's `Browse` button only when the standard location cannot be used. The status display identifies standard and individually configured paths.
 
+Even when the `LR2 directory` is empty, if `song.db` and `config.xml` / `config.xmh` are in the standard locations of the same LR2 folder, BeMusicSeeker uses that folder as the LR2 directory and shows the inferred path in the warning under the field. Setting the `LR2 directory` is still recommended.
+
+> [!CAUTION]
+> When the `LR2 directory` is empty and cannot be determined from the locations of `song.db` and `config.xml` / `config.xmh`, the LR2 score DB cannot be used, LR2's built-in custom folders (`LR2files\CustomFolder`) are not synchronized to the LR2 song DB, and LR2 backup does not save the score DB.
+
 To select files individually, open `Details` in the environment section. Select both paths, then use `Apply environment (restart when running)` in that Details section to apply them with one restart. During initial setup, this only saves the settings. Complete the required settings and press `Start with this environment` to begin initialization.
 
 Add or remove BMS directories through BeMusicSeeker's `General` category. LR2 database auto-update is set to manual-only when saving the initial setup and on startup.

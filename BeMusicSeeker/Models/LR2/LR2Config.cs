@@ -36,22 +36,17 @@ internal sealed class LR2Config : XDocument
             if (LongPathFileSystem.FileExists(value) && (string.Equals(Path.GetFileName(value), "config.xml", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetFileName(value), "config.xmh", StringComparison.OrdinalIgnoreCase)))
             {
                 _configPath = value;
-                string directoryName = Path.GetDirectoryName(_configPath);
-                if (string.Equals(Path.GetFileName(directoryName), "Config", StringComparison.OrdinalIgnoreCase))
-                {
-                    string directoryName2 = Path.GetDirectoryName(directoryName);
-                    if (string.Equals(Path.GetFileName(directoryName2), "LR2files", StringComparison.OrdinalIgnoreCase))
-                    {
-                        LR2RootPath = Path.GetDirectoryName(directoryName2);
-                    }
-                }
                 return;
             }
             throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2ConfigFile, value);
         }
     }
 
-    public string LR2RootPath { get; private set; }
+    /// <summary>
+    /// 相対登録を解決する基準の実効LR2ルートです。空文字はルートなしを表し、相対登録を解決しません。
+    /// 設定XMLの場所からは推測せず、構築時に受け取った値だけを使います。
+    /// </summary>
+    internal string Lr2RootPath { get; }
 
     /// <summary>
     /// このインスタンスが保存する config.xml の正規化済み path です。
@@ -62,12 +57,16 @@ internal sealed class LR2Config : XDocument
     /// 指定された設定XMLを読み込み、検索ルートを取得できる構造を確認します。
     /// </summary>
     /// <param name="configPath">config.xml または config.xmh のパスです。</param>
+    /// <param name="lr2RootPath">相対登録の基準にする実効LR2ルートです。不明な場合は空文字を明示します。</param>
     /// <exception cref="XmlException">XMLが不正、または config/jukebox 要素がありません。</exception>
-    public LR2Config(string configPath)
+    public LR2Config(string configPath, string lr2RootPath)
         : base(LoadConfigDocument(configPath))
     {
         ConfigPath = configPath;
+        Lr2RootPath = NormalizeRoot(lr2RootPath);
     }
+
+    private static string NormalizeRoot(string lr2RootPath) => string.IsNullOrWhiteSpace(lr2RootPath) ? string.Empty : lr2RootPath;
 
     private static XDocument LoadConfigDocument(string configPath)
     {
@@ -82,25 +81,30 @@ internal sealed class LR2Config : XDocument
     }
 
     /// <summary>採用済み全文から、ファイルを読み直さず操作用の独立した文書を作ります。</summary>
-    internal LR2Config(LR2Config source) : base(source)
+    internal LR2Config(LR2Config source) : this(source, source.Lr2RootPath)
     {
-        _configPath = source._configPath;
-        LR2RootPath = source.LR2RootPath;
     }
 
-    private LR2Config(string path, XDocument document) : base(document)
+    /// <summary>採用済み全文を、ファイルを読み直さず別の実効LR2ルートで解釈する文書として複製します。</summary>
+    internal LR2Config(LR2Config source, string lr2RootPath) : base(source)
+    {
+        _configPath = source._configPath;
+        Lr2RootPath = NormalizeRoot(lr2RootPath);
+    }
+
+    private LR2Config(string path, string lr2RootPath, XDocument document) : base(document)
     {
         _configPath = path;
-        string configDirectory = Path.GetDirectoryName(path);
-        if (string.Equals(Path.GetFileName(configDirectory), "Config", StringComparison.OrdinalIgnoreCase)
-            && string.Equals(Path.GetFileName(Path.GetDirectoryName(configDirectory)), "LR2files", StringComparison.OrdinalIgnoreCase))
-        { LR2RootPath = Path.GetDirectoryName(Path.GetDirectoryName(configDirectory)); }
+        Lr2RootPath = NormalizeRoot(lr2RootPath);
     }
 
     /// <summary>全文を共有せず、既存の登録計画サービスが操作する一時入力を作ります。読込み・保存は行いません。</summary>
-    internal static LR2Config CreateRootPlanningDocument(string path, IEnumerable<string> roots)
+    /// <param name="path">計画の対象とする設定XMLのパスです。</param>
+    /// <param name="lr2RootPath">保存先の所有者と同じ実効LR2ルートです。異なる値を渡すと相対登録の正規化がずれ、偽の差分になります。</param>
+    /// <param name="roots">計画の初期登録です。</param>
+    internal static LR2Config CreateRootPlanningDocument(string path, string lr2RootPath, IEnumerable<string> roots)
     {
-        LR2Config plan = new(path, new XDocument(new XElement("config", new XElement("jukebox"))));
+        LR2Config plan = new(path, lr2RootPath, new XDocument(new XElement("config", new XElement("jukebox"))));
         plan.SetBMSSearchDirectories(roots);
         return plan;
     }
@@ -188,7 +192,7 @@ internal sealed class LR2Config : XDocument
         {
             IEnumerable<string> source = Element("config").Element("jukebox").Elements("path")
                 .Select(dirs => TrimConfiguredDirectorySeparators(dirs.Value));
-            if (!string.IsNullOrWhiteSpace(LR2RootPath))
+            if (!string.IsNullOrWhiteSpace(Lr2RootPath))
             {
                 source = source.Select(NormalizeBmsSearchDirectoryForChangeTracking);
             }
@@ -224,7 +228,7 @@ internal sealed class LR2Config : XDocument
     /// <summary>完全修飾でない登録は既知のLR2 root基準で構文解決し、現在ディレクトリに依存させません。実在確認・保存はせず、不能なら従来の結合結果を保持します。</summary>
     private string NormalizeBmsSearchDirectoryForChangeTracking(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(LR2RootPath))
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(Lr2RootPath))
         {
             return path;
         }
@@ -233,8 +237,8 @@ internal sealed class LR2Config : XDocument
         {
             if (!Path.IsPathFullyQualified(path))
             {
-                if (!Path.IsPathRooted(path)) { resolved = Path.Combine(LR2RootPath, path); }
-                resolved = Path.GetFullPath(path, LR2RootPath);
+                if (!Path.IsPathRooted(path)) { resolved = Path.Combine(Lr2RootPath, path); }
+                resolved = Path.GetFullPath(path, Lr2RootPath);
             }
             return LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(resolved));
         }
@@ -262,13 +266,13 @@ internal sealed class LR2Config : XDocument
         {
             source = [.. (from dirs in Element("config").Element("jukebox").Elements("path")
                       select dirs.Value.TrimEnd('\\'))];
-            list = (string.IsNullOrWhiteSpace(LR2RootPath) ? source.Where(dir => LongPathFileSystem.DirectoryExists(dir) && dir.IsSjisSchemeString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [.. (from dir in source.Select(delegate (string d)
+            list = (string.IsNullOrWhiteSpace(Lr2RootPath) ? source.Where(dir => LongPathFileSystem.DirectoryExists(dir) && dir.IsSjisSchemeString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [.. (from dir in source.Select(delegate (string d)
                 {
                     try
                     {
                         if (!Path.IsPathRooted(d))
                         {
-                            d = Path.Combine(LR2RootPath, d);
+                            d = Path.Combine(Lr2RootPath, d);
                             needSave = true;
                         }
                     }

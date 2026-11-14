@@ -21,7 +21,18 @@ internal static class TestLr2ConfigFactory
             configPath,
             "<config><system><customfolder>0</customfolder><titleflash>24</titleflash></system><jukebox>" + pathElements + "</jukebox></config>",
             Encoding.UTF8);
-        return new LR2Config(configPath);
+        return new LR2Config(configPath, lr2RootPath);
+    }
+
+    /// <summary>
+    /// 既存の設定XMLを読み込みます。LR2ルートは設定XMLの場所から直接は決めず、同じLR2環境の標準配置の song.db を持つ
+    /// フィクスチャとして、本番の実効LR2ルートの規則で導出します。標準配置でない設定XMLはルートなしになります。
+    /// </summary>
+    internal static LR2Config Load(string configPath)
+    {
+        string lr2FilesDirectory = Path.GetDirectoryName(Path.GetDirectoryName(configPath)) ?? string.Empty;
+        string standardSongDbPath = Path.Combine(lr2FilesDirectory, "Database", "song.db");
+        return new LR2Config(configPath, Lr2EffectiveRoot.Resolve(true, string.Empty, standardSongDbPath, configPath));
     }
 
     /// <summary>設定に埋め込む値のXML特殊文字をエスケープします。</summary>

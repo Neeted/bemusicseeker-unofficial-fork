@@ -168,7 +168,7 @@ public sealed class BmsPlaylistCustomFolderOutputTests
                 "受付時の適用配置へ接続し、古い編集時の基点のcleanupを再開しません。");
             Assert.IsTrue(File.Exists(Path.Combine(newOutputDirectory, "0001.lr2folder")));
             Assert.IsFalse(Directory.Exists(Path.Combine(initialRootOutputBaseDir, table.Output_dir)));
-            var reloadedConfig = new LR2Config(Path.Combine(tempDirectory, "LR2files", "Config", "config.xml"));
+            LR2Config reloadedConfig = TestLr2ConfigFactory.Load(Path.Combine(tempDirectory, "LR2files", "Config", "config.xml"));
             CollectionAssert.Contains(reloadedConfig.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
 
             currentSettings = additionalSettings;

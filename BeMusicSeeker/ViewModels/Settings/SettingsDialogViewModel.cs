@@ -561,10 +561,21 @@ public partial class SettingsDialogViewModel : ViewModel
     public RightClickActionSettingsEditor RightClickActionSettingsEditor => rightClickActionSettingsEditor;
 
 
-    /// <summary>LR2 ディレクトリ未設定時に表示する、保存を阻止しない警告です。</summary>
-    public string Lr2RootPathValidationMessage => OperationModeLR2DB && string.IsNullOrWhiteSpace(LR2RootPath)
-        ? BeMusicSeeker.Properties.Resources.Warning_LR2RootPathNotSet
-        : string.Empty;
+    /// <summary>
+    /// LR2 ディレクトリ未設定時に表示する、保存を阻止しない警告です。編集中の song.db と設定XMLから実効LR2ルートを
+    /// 推測できる場合は推測したパスと設定の推奨を、推測できない場合は利用できない機能を伝えます。入力欄へ推測値は入れません。
+    /// </summary>
+    public string Lr2RootPathValidationMessage
+    {
+        get
+        {
+            if (!OperationModeLR2DB || !string.IsNullOrWhiteSpace(LR2RootPath)) { return string.Empty; }
+            string inferredRootPath = GetCandidateEffectiveLr2RootPath(LR2ConfigXmlPath);
+            return string.IsNullOrWhiteSpace(inferredRootPath)
+                ? BeMusicSeeker.Properties.Resources.Warning_LR2RootPathNotSet
+                : string.Format(BeMusicSeeker.Properties.Resources.Warning_LR2RootPathInferredFormat, inferredRootPath);
+        }
+    }
 
     /// <summary>LR2 ディレクトリ欄の検証表示種別です。</summary>
     public string Lr2RootPathValidationStatus => string.IsNullOrWhiteSpace(Lr2RootPathValidationMessage) ? string.Empty : "Warning";
@@ -1272,7 +1283,7 @@ public partial class SettingsDialogViewModel : ViewModel
         {
             return null;
         }
-        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ApplicationSettings.LR2RootPath, () => GetConfirmedLr2Owner()?.Capture().PlayerId);
+        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ConfirmedEffectiveLr2RootPath, () => GetConfirmedLr2Owner()?.Capture().PlayerId);
     }
 
     private void RaiseLr2PlayHistorySchemaStatusChanged()
@@ -1406,7 +1417,7 @@ public partial class SettingsDialogViewModel : ViewModel
             bool previousParsed = isLr2ConfigPathParsed;
             Lr2ConfigOwner previousConfig = lr2config;
             string previousError = Lr2PathSelectionError;
-            if (lr2ConfigSession.TryResolve(value, out Lr2ConfigOwner parsedConfig, adoptInitial: false))
+            if (lr2ConfigSession.TryResolve(value, GetCandidateEffectiveLr2RootPath(value), out Lr2ConfigOwner parsedConfig, adoptInitial: false))
             {
                 if (!PathsEqual(previousPath, value))
                 {
@@ -1533,11 +1544,11 @@ public partial class SettingsDialogViewModel : ViewModel
         string configXmlPath = Path.Combine(rootPath, "LR2files", "Config", "config.xml");
         string configXmhPath = Path.Combine(rootPath, "LR2files", "Config", "config.xmh");
         configPath = CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(rootPath, ApplicationSettings.LR2RootPath) ? GetConfirmedLr2Owner()?.ConfigFilePath : null;
-        if (configPath != null) { return lr2ConfigSession.TryResolve(configPath, out parsedConfig, adoptInitial: false); }
+        if (configPath != null) { return lr2ConfigSession.TryResolve(configPath, rootPath, out parsedConfig, adoptInitial: false); }
         configPath = File.Exists(configXmlPath) && File.Exists(configXmhPath)
             ? File.GetLastWriteTime(configXmhPath) >= File.GetLastWriteTime(configXmlPath) ? configXmhPath : configXmlPath
             : File.Exists(configXmlPath) ? configXmlPath : configXmhPath;
-        return lr2ConfigSession.TryResolve(configPath, out parsedConfig, adoptInitial: false);
+        return lr2ConfigSession.TryResolve(configPath, rootPath, out parsedConfig, adoptInitial: false);
     }
 
     /// <summary>確定rootに対するスコア使用候補です。有効な実入力だけがスコア項目の自動確定を要求します。</summary>
@@ -1730,16 +1741,23 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>確定設定の実効LR2ルートです。予約領域の検査、LR2本体の解決、スコアDBの解決に使い、保存・比較・入力欄には使いません。</summary>
+    private string ConfirmedEffectiveLr2RootPath => Lr2EffectiveRoot.Resolve(ApplicationSettings);
+
+    /// <summary>編集中の環境候補（設定XMLだけ別の値を試す場合を含む）の実効LR2ルートです。</summary>
+    private string GetCandidateEffectiveLr2RootPath(string configXmlPath)
+        => Lr2EffectiveRoot.Resolve(operationModeLR2DB, environmentLR2RootPath, environmentLR2SongDBPath, configXmlPath);
+
     private Lr2ConfigOwner GetConfirmedLr2Owner()
     {
-        if (!lr2ConfigSession.TryResolve(ApplicationSettings.LR2ConfigXmlPath, out Lr2ConfigOwner owner)) { return null; }
+        if (!lr2ConfigSession.TryResolve(ApplicationSettings.LR2ConfigXmlPath, ConfirmedEffectiveLr2RootPath, out Lr2ConfigOwner owner)) { return null; }
         owner.SetPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings));
         return owner;
     }
 
     private void RefreshParsedLr2ConfigState(bool showSelectionError, bool? useLr2Mode = null)
     {
-        isLr2ConfigPathParsed = lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, out Lr2ConfigOwner parsedConfig);
+        isLr2ConfigPathParsed = lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, GetCandidateEffectiveLr2RootPath(environmentLR2ConfigXmlPath), out Lr2ConfigOwner parsedConfig);
         lr2config = isLr2ConfigPathParsed && (useLr2Mode ?? OperationModeLR2DB) ? parsedConfig : null;
         SetLr2PathSelectionError(showSelectionError && !string.IsNullOrWhiteSpace(environmentLR2ConfigXmlPath) && !isLr2ConfigPathParsed
             ? Lr2PathSelectionFailure.DatabaseOrConfig
@@ -2059,7 +2077,7 @@ public partial class SettingsDialogViewModel : ViewModel
         bool IsValid() => propertyName switch
         {
             nameof(LR2SongDBPath) => IsLR2SongDBPathValid(value),
-            nameof(LR2ConfigXmlPath) => lr2ConfigSession.TryResolve(value, out _, adoptInitial: false),
+            nameof(LR2ConfigXmlPath) => lr2ConfigSession.TryResolve(value, GetCandidateEffectiveLr2RootPath(value), out _, adoptInitial: false),
             _ => throw new ArgumentOutOfRangeException(nameof(propertyName))
         };
         string previous = propertyName == nameof(LR2SongDBPath) ? environmentLR2SongDBPath : environmentLR2ConfigXmlPath;
@@ -3732,7 +3750,7 @@ public partial class SettingsDialogViewModel : ViewModel
         Settings registrationSettings = settingsEditSession.Values;
         Lr2ConfigSession registrationSession = this.lr2ConfigSession;
         this.bmsRootRegistrations = bmsRootRegistrations ?? new BmsRootRegistrationStore(registrationSettings,
-            () => registrationSession.TryResolve(registrationSettings.LR2ConfigXmlPath, out Lr2ConfigOwner owner) ? owner : null);
+            () => registrationSession.TryResolve(registrationSettings.LR2ConfigXmlPath, Lr2EffectiveRoot.Resolve(registrationSettings), out Lr2ConfigOwner owner) ? owner : null);
         this.applicationLifetime = applicationLifetime
             ?? throw new ArgumentNullException(nameof(applicationLifetime));
         this.requestOperationModeRestart = requestOperationModeRestart
@@ -3896,7 +3914,7 @@ public partial class SettingsDialogViewModel : ViewModel
         string value3 = Path.Combine(value, "LR2files\\Config\\config.xmh");
         return Directory.Exists(value)
             && (File.Exists(path) || File.Exists(path2))
-            && (CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(value, ApplicationSettings.LR2RootPath) && GetConfirmedLr2Owner() != null
+            && (CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(value, ConfirmedEffectiveLr2RootPath) && GetConfirmedLr2Owner() != null
                 || IsLR2ConfigXmlPathValid(value2) || IsLR2ConfigXmlPathValid(value3));
     }
 
@@ -4398,7 +4416,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private bool IsLR2ConfigXmlPathValid(string value)
     {
-        return lr2ConfigSession.TryResolve(value, out _, adoptInitial: false);
+        return lr2ConfigSession.TryResolve(value, GetCandidateEffectiveLr2RootPath(value), out _, adoptInitial: false);
     }
 
     private bool IsBeatorajaScoreDbPathValid(string value)
@@ -4704,7 +4722,7 @@ public partial class SettingsDialogViewModel : ViewModel
             throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_CustomFolderOutputBaseNameEmpty);
         }
         string defaultName = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(ApplicationSettings.LR2CustomFolderOutputBaseDir);
-        if (!IsUncorrectedOutputBase(ApplicationSettings.LR2CustomFolderOutputBaseDir, ApplicationSettings.LR2RootPath)
+        if (!IsUncorrectedOutputBase(ApplicationSettings.LR2CustomFolderOutputBaseDir, ConfirmedEffectiveLr2RootPath)
             && !string.IsNullOrWhiteSpace(defaultName)
             && string.Equals(name, defaultName, StringComparison.OrdinalIgnoreCase))
         {
@@ -4850,7 +4868,7 @@ public partial class SettingsDialogViewModel : ViewModel
     private void ValidatePreviousOutputBase(
         string path, string label, string previousPath, string previousLabel, bool allowSameDirectory = true)
     {
-        if (IsUncorrectedOutputBase(previousPath, ApplicationSettings.LR2RootPath)) { return; }
+        if (IsUncorrectedOutputBase(previousPath, ConfirmedEffectiveLr2RootPath)) { return; }
         if (allowSameDirectory && CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(path, previousPath))
         {
             return;

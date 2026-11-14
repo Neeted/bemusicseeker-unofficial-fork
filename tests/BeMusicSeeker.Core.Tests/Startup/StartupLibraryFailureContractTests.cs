@@ -82,6 +82,48 @@ public sealed class StartupLibraryFailureContractTests
         }
     }
 
+    /// <summary>
+    /// 保証：実効LR2ルートが空の起動時バックアップは、スコアDBのディレクトリを対象から外して song.db の保存を続け、失敗も警告も通知しない。
+    /// 対象がスコアDBだけなら何も保存しない。空のルートから相対パスを作り、スコアDBの欠損として保存全体を失敗させる誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(Backup.Target.SongDB | Backup.Target.ScoreDB, true, DisplayName = "song.db とスコアDB")]
+    [DataRow(Backup.Target.ScoreDB, false, DisplayName = "スコアDBだけ")]
+    public async Task PrepareBackupAsync_EmptyEffectiveRootExcludesOnlyScoreDirectory(Backup.Target target, bool songSaved)
+    {
+        using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(caseWorkspace.RootDirectory, "BeMusicSeeker_StartupLibraryOwner_" + Guid.NewGuid().ToString("N"));
+        string song = Path.Combine(root, "data", "song.db");
+        string backups = Path.Combine(root, "backups");
+        Directory.CreateDirectory(Path.GetDirectoryName(song)!);
+        Directory.CreateDirectory(backups);
+        CreateSongDatabase(databaseScope, song);
+        var settings = new StartupSettingsSnapshot
+        {
+            OperationModeLR2DB = true,
+            IsLR2BackupEnabled = true,
+            LR2BackupTarget = target,
+            LR2RootPath = string.Empty,
+            LR2SongDBPath = song,
+            LR2BackupPath = backups,
+            LR2BackupSpan = 1,
+            LR2BackupNum = 1
+        };
+
+        IReadOnlyList<UiMessageRequest> notifications = await StartupLibraryConstructionOwner.PrepareBackupAsync(databaseScope, settings);
+
+        Assert.AreEqual(0, notifications.Count);
+        string today = Path.Combine(backups, DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture));
+        if (songSaved)
+        {
+            CollectionAssert.AreEqual(new[] { Path.Combine(today, "song.db") }, Directory.GetFileSystemEntries(today));
+        }
+        else
+        {
+            Assert.AreEqual(0, Directory.GetFileSystemEntries(backups).Length);
+        }
+    }
+
     /// <summary>正常な実song・score DBは保存後に最適化して警告を出さず、同日保存済みなら不正SQLiteでも最適化せず公開済み・元の内容を保持します。</summary>
     [TestMethod]
     [DataRow(false)]

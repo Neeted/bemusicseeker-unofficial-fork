@@ -46,7 +46,7 @@ public sealed class SettingDialogLr2OwnerTests
             values.BMSInstallDir = existing;
             values.FolderNameFormat = "%TITLE%";
             values.KeepInstallablePackagesPending = false;
-            LR2Config config = new(values.LR2ConfigXmlPath);
+            LR2Config config = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
             config.AddBMSSearchDirectories([existing]);
             config.Save(config.ConfigFilePath);
             File.WriteAllText(Path.Combine(owned.Root, "outside-table.txt"), "inside volume, outside table");
@@ -156,7 +156,7 @@ public sealed class SettingDialogLr2OwnerTests
             Assert.AreEqual("outside volume", File.ReadAllText(Path.Combine(root, "outside-volume.txt")));
             Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
 
-            string[] ReadRegisteredRoots() => new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray();
+            string[] ReadRegisteredRoots() => TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray();
             string[] ReadFolderPaths()
             {
                 using LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();

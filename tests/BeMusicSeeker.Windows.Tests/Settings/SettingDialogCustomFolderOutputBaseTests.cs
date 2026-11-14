@@ -374,7 +374,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             CollectionAssert.AreEqual(expected, dialog.LR2ConfigBMSDirectories);
             CollectionAssert.AreEqual(expected, dialog.ConfirmedBMSDirectories.ToArray());
             Assert.AreEqual(normal, testSettings.LR2CustomFolderOutputBaseDir);
-            CollectionAssert.AreEquivalent(retainedRegistrations, new LR2Config(config.ConfigFilePath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
+            CollectionAssert.AreEquivalent(retainedRegistrations, TestLr2ConfigFactory.Load(config.ConfigFilePath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
             testSettings.BMSInstallDir = missing;
             Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialog.BmsInstallDirValidationMessage);
             testSettings.BMSInstallDir = manual;
@@ -419,7 +419,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             CollectionAssert.AreEquivalent(expected, dialog.ConfirmedBMSDirectories.ToArray());
             Lr2ConfigOwner configOwner = MainWindowViewModelTestFactory.GetComposition(owner).ResolveLr2Config(config.ConfigFilePath);
             CollectionAssert.AreEquivalent(retainedRegistrations, configOwner.Capture().RegisteredRoots.ToArray());
-            CollectionAssert.AreEquivalent(retainedRegistrations, new LR2Config(config.ConfigFilePath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
+            CollectionAssert.AreEquivalent(retainedRegistrations, TestLr2ConfigFactory.Load(config.ConfigFilePath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
         }
         finally { TryDeleteDirectory(root); }
     }
@@ -620,7 +620,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                     CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings));
 
             Assert.IsTrue(changed);
-            config = new LR2Config(config.ConfigFilePath);
+            config = TestLr2ConfigFactory.Load(config.ConfigFilePath);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), manualBmsRoot);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), playlistOutputRoot);
             CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
@@ -664,7 +664,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             Assert.IsTrue(changed);
             Assert.IsTrue(Directory.Exists(playlistOutputRoot));
-            config = new LR2Config(config.ConfigFilePath);
+            config = TestLr2ConfigFactory.Load(config.ConfigFilePath);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), manualBmsRoot);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), playlistOutputRoot);
             CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
@@ -1020,7 +1020,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 bool changed = SavePreparedCustomFolderSearchRoots(viewModel, startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
 
                 Assert.IsTrue(changed);
-                config = new LR2Config(config.ConfigFilePath);
+                config = TestLr2ConfigFactory.Load(config.ConfigFilePath);
                 Assert.AreEqual(rootOutputChild, testSettings.BMSInstallDir);
                 Assert.AreEqual(savedDialogInstallDir, dialog.BMSInstallDir);
                 CollectionAssert.Contains(config.GetBMSSearchDirectories(), manualBmsRoot);
@@ -1090,7 +1090,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             bool changed = SavePreparedCustomFolderSearchRoots(viewModel, startupSettings.LR2CustomFolderOutputBaseDirRootType, startupSettings);
 
             Assert.IsTrue(changed);
-            config = new LR2Config(config.ConfigFilePath);
+            config = TestLr2ConfigFactory.Load(config.ConfigFilePath);
             CollectionAssert.Contains(config.GetBMSSearchDirectories(), rootOutputChild);
             CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), rootOutputBase);
             CollectionAssert.DoesNotContain(config.GetBMSSearchDirectories(), changedRootOutputBase);
@@ -1104,7 +1104,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     private MainWindowViewModel CreateViewModel(LR2Config config, IUiDialogService? settingsDialogs = null)
     {
         testSettings.OperationModeLR2DB = true;
-        testSettings.LR2ConfigXmlPath = Path.Combine(config.LR2RootPath, "LR2files", "Config", "config.xml");
+        testSettings.LR2ConfigXmlPath = config.ConfigFilePath;
         config.Save(config.ConfigFilePath);
         MainWindowViewModel viewModel = MainWindowViewModelTestFactory.Create(testSettings, settingsDialogs: settingsDialogs);
         // 初期化を走らせないfixtureでも、設定と出力窓口へ同じ構成寿命のXML所有者を接続します。
@@ -1142,7 +1142,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
     private void SetViewModelTables(MainWindowViewModel viewModel, string songDbPath, BMSTable[] tables)
     {
-        MainWindowViewModelTestFactory.GetComposition(viewModel).Lr2ConfigSession.TryResolve(testSettings.LR2ConfigXmlPath, out Lr2ConfigOwner? config);
+        MainWindowViewModelTestFactory.GetComposition(viewModel).Lr2ConfigSession.TryResolve(testSettings.LR2ConfigXmlPath, Lr2EffectiveRoot.Resolve(testSettings), out Lr2ConfigOwner? config);
         TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(MainWindowViewModelTestFactory.GetComposition(viewModel).DatabaseScope, songDbPath, testSettings, getLr2Config: config);
         playlist.BMSTables = new ObservableCollection<BMSTable>(tables);
         SetViewModelField(viewModel, "tables", playlist);

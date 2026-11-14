@@ -180,7 +180,7 @@ internal static class StartupCompletionTestFixture
                 File.WriteAllBytes(Path.Combine(directory, "LR2body.exe"), []);
                 string songs = Path.Combine(directory, "Songs");
                 Directory.CreateDirectory(songs);
-                var config = new LR2Config(lr2Config);
+                LR2Config config = TestLr2ConfigFactory.Load(lr2Config);
                 config.AddBMSSearchDirectories([songs]);
                 config.Save(config.ConfigFilePath);
                 Directory.CreateDirectory(Path.Combine(directory, "NormalOutput"));

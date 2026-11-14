@@ -127,7 +127,7 @@ internal sealed class BmsRootRegistrationStore
         string[] next = roots.ToArray();
         foreach (string root in next)
         {
-            CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(root, settings.LR2RootPath,
+            CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(root, Lr2EffectiveRoot.Resolve(settings),
                 Resources.LibraryDirectoryPreflightBmsRootRole);
         }
         var values = new List<(string Name, object Value)>();

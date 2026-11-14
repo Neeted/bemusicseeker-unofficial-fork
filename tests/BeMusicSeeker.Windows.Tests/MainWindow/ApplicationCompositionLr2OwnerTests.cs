@@ -47,7 +47,7 @@ public sealed partial class ApplicationCompositionTests
                 try
                 {
                     player.PlayStart(Path.Combine(root, "test.bms"));
-                    CollectionAssert.AreEquivalent(new[] { "A", "B" }, new LR2Config(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
+                    CollectionAssert.AreEquivalent(new[] { "A", "B" }, TestLr2ConfigFactory.Load(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
                     Assert.AreEqual("original", XDocument.Load(path).Element("config")?.Element("player")?.Element("id")?.Value);
                 }
                 finally { gateway.Session.KeepRunning = false; player.CloseProcess(); }

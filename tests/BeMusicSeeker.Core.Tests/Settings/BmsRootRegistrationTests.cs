@@ -120,7 +120,7 @@ public sealed class BmsRootRegistrationTests
             settings.LR2ConfigXmlPath = xml.ConfigFilePath;
             settings.BMSInstallDir = original;
             settings.Save();
-            var owner = new Lr2ConfigOwner(new LR2Config(xml.ConfigFilePath));
+            var owner = new Lr2ConfigOwner(TestLr2ConfigFactory.Load(xml.ConfigFilePath));
             var store = new BmsRootRegistrationStore(settings, () => owner);
             byte[] originalConfig = File.ReadAllBytes(configPath);
             using (File.Open(scenario == "xml-failure" ? xml.ConfigFilePath : configPath, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -143,7 +143,7 @@ public sealed class BmsRootRegistrationTests
             CollectionAssert.AreEqual(new[] { original }, reopened.CaptureUserRoots().ToArray());
             CollectionAssert.AreEqual(partialConfig, File.ReadAllBytes(configPath));
             CollectionAssert.AreEqual(partialXml, File.ReadAllBytes(xml.ConfigFilePath));
-            CollectionAssert.AreEqual(new[] { scenario == "xml-failure" ? original : first }, new Lr2ConfigOwner(new LR2Config(xml.ConfigFilePath)).Capture().RegisteredRoots.Select(Trim).ToArray());
+            CollectionAssert.AreEqual(new[] { scenario == "xml-failure" ? original : first }, new Lr2ConfigOwner(TestLr2ConfigFactory.Load(xml.ConfigFilePath)).Capture().RegisteredRoots.Select(Trim).ToArray());
             string target = scenario == "runtime-equal" ? original : scenario == "same-input" ? first : latest;
             if (scenario == "same-input")
             {
@@ -291,7 +291,7 @@ public sealed class BmsRootRegistrationTests
         finally { Directory.Delete(directory, true); }
     }
 
-    private static string[] ReadRoots(string path) => new LR2Config(path).GetBMSSearchDirectoriesForChangeTracking().Select(Trim).ToArray();
+    private static string[] ReadRoots(string path) => TestLr2ConfigFactory.Load(path).GetBMSSearchDirectoriesForChangeTracking().Select(Trim).ToArray();
     private static string Trim(string value) => value.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
     private static bool Same(string left, string right) => string.Equals(Trim(left), Trim(right), StringComparison.OrdinalIgnoreCase);
     private static string NewDirectory(TestWorkspace workspace)

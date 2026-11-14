@@ -1,6 +1,7 @@
 using System.Xml.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 
 namespace BeMusicSeeker.Tests;
@@ -72,7 +73,7 @@ public sealed class Lr2ConfigOwnerTests
             owner.SaveRoots(new Lr2RootChange([], ["G"]));
             string?[] actual = owner.Capture().RegisteredRoots.Select(Path.GetFileName).ToArray();
             CollectionAssert.AreEquivalent(new[] { "A", "G" }, actual);
-            CollectionAssert.AreEquivalent(actual, new LR2Config(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
+            CollectionAssert.AreEquivalent(actual, TestLr2ConfigFactory.Load(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
         });
     }
 
@@ -112,7 +113,7 @@ public sealed class Lr2ConfigOwnerTests
     {
         WithConfig("<config><jukebox /></config>", (path, owner) =>
         {
-            var other = new Lr2ConfigOwner(new LR2Config(path));
+            var other = new Lr2ConfigOwner(TestLr2ConfigFactory.Load(path));
             Lr2ConfigOwner.PreviewScope scope = owner.BeginPreview();
             Assert.ThrowsExactly<ArgumentException>(() => other.RestorePreview(scope));
             owner.PublishPreview(scope, 800, 600, true, 75, true);
@@ -126,7 +127,7 @@ public sealed class Lr2ConfigOwnerTests
             owner.SaveRoots(new Lr2RootChange([], ["C"]));
             Assert.IsNull(XDocument.Load(path).Element("config")?.Element("system"));
             owner.RestorePreview(scope);
-            CollectionAssert.AreEquivalent(new[] { "B", "C" }, new LR2Config(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
+            CollectionAssert.AreEquivalent(new[] { "B", "C" }, TestLr2ConfigFactory.Load(path).GetBMSSearchDirectoriesForChangeTracking().Select(Path.GetFileName).ToArray());
             owner.EndPreview(scope);
             Assert.ThrowsExactly<InvalidOperationException>(() => owner.RestorePreview(scope));
         });
@@ -139,13 +140,13 @@ public sealed class Lr2ConfigOwnerTests
         WithConfig("<config><player><id>candidate</id></player><jukebox /></config>", (path, _) =>
         {
             var session = new Lr2ConfigSession();
-            Assert.IsTrue(session.TryResolve(path, out Lr2ConfigOwner? candidate, adoptInitial: false));
+            Assert.IsTrue(session.TryResolve(path, string.Empty, out Lr2ConfigOwner? candidate, adoptInitial: false));
             File.WriteAllText(path, "<external-broken");
-            Assert.IsFalse(session.TryResolve(path, out Lr2ConfigOwner? rejected, adoptInitial: false));
+            Assert.IsFalse(session.TryResolve(path, string.Empty, out Lr2ConfigOwner? rejected, adoptInitial: false));
             Assert.IsNull(rejected);
             Assert.IsNotNull(candidate);
-            session.Adopt(candidate);
-            Assert.IsTrue(session.TryResolve(path, out Lr2ConfigOwner? adopted));
+            session.Adopt(candidate, string.Empty);
+            Assert.IsTrue(session.TryResolve(path, string.Empty, out Lr2ConfigOwner? adopted));
             Assert.IsNotNull(adopted);
             Assert.AreEqual("candidate", adopted.Capture().PlayerId);
         });
@@ -233,7 +234,7 @@ public sealed class Lr2ConfigOwnerTests
         try
         {
             File.WriteAllText(path, xml.Replace("{ROOT}", root, StringComparison.Ordinal));
-            run(path, new Lr2ConfigOwner(new LR2Config(path)));
+            run(path, new Lr2ConfigOwner(TestLr2ConfigFactory.Load(path)));
         }
         finally { Directory.Delete(root, recursive: true); }
     }

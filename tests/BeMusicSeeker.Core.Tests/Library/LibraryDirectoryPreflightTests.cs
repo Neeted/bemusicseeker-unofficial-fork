@@ -2,6 +2,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using Newtonsoft.Json;
 
@@ -61,7 +62,7 @@ public sealed class LibraryDirectoryPreflightTests
             + "</path></jukebox></config>");
         try
         {
-            LR2Config config = new(configPath);
+            LR2Config config = TestLr2ConfigFactory.Load(configPath);
             List<string> roots = config.GetBMSSearchDirectoriesForChangeTracking();
 
             CollectionAssert.Contains(roots, Path.Combine(root, "relative"));

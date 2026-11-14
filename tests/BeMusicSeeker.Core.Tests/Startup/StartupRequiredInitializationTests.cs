@@ -782,7 +782,7 @@ public sealed class StartupRequiredInitializationTests
             Directory.CreateDirectory(Path.GetDirectoryName(configPath)!);
             File.WriteAllText(configPath, "<config><system><customfolder>0</customfolder><titleflash>0</titleflash></system><jukebox><path>"
                 + System.Security.SecurityElement.Escape(root + Path.DirectorySeparatorChar) + "</path></jukebox></config>");
-            var config = new LR2Config(configPath);
+            LR2Config config = TestLr2ConfigFactory.Load(configPath);
             // 旧版の通常出力基点は、LR2の検索ルートの配下に置かれていた配置を再現します。
             string[] scanRoots = collidingLayout ? [root, OutputDirectory, normalOutputBase] : outputOutsideScanRoot ? [root] : [root, OutputDirectory];
             config.SetBMSSearchDirectories(scanRoots);

@@ -151,7 +151,7 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                 string chart = Path.Combine(manual, "chart.bms");
                 File.WriteAllText(chart, BmsLibraryInitializationTestSupport.CreateValidBmsText("Accepted settings"));
                 (string SongDb, string Config) layout = CreateValidLr2Layout(lr2);
-                var xml = new LR2Config(layout.Config);
+                LR2Config xml = TestLr2ConfigFactory.Load(layout.Config);
                 xml.SetBMSSearchDirectories([manual]); xml.Save(xml.ConfigFilePath);
                 string builtin = Directory.CreateDirectory(Path.Combine(lr2, "LR2files", "CustomFolder")).FullName;
                 string sentinel = Path.Combine(builtin, "sentinel.lr2folder");
@@ -347,6 +347,100 @@ public sealed class SettingDialogEnvironmentConfirmationTests
         });
     }
 
+    /// <summary>
+    /// 保証：有効なプロファイルがない状態の環境確定は、同じ設定XMLのまま実効LR2ルートが変わっても、採用済みの同じ所有者を確定後の実効ルートへ束縛し直す。
+    /// song.db だけを個別指定へ変えるとルートなし、標準配置へ戻すと推測したルート、モードだけの確定でも単独動作はルートなし、LR2連携は推測したルートになる。
+    /// 確定時に束縛し直さない誤りと、所有者を作り直す誤りを検出する。
+    /// </summary>
+    /// <remarks>設定画面の実際の確定入口と構成の所有者取得を接続して確認します。束縛し直しの内容は起動時の検査入口のテストが担います。</remarks>
+    [TestMethod]
+    public void InitialEnvironmentCommit_RebindsAdoptedLr2ConfigOwnerToConfirmedEffectiveRoot()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        try
+        {
+            string confirmedRoot = Path.Combine(root, "confirmed");
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")));
+            (string standardSong, string configPath) = CreateValidLr2Layout(confirmedRoot);
+            (values.LR2SongDBPath, values.LR2ConfigXmlPath) = (standardSong, configPath);
+            values.LR2RootPath = string.Empty;
+            values.Save();
+            string individualSong = Path.Combine(root, "individual", "song.db");
+            Directory.CreateDirectory(Path.GetDirectoryName(individualSong)!);
+            File.WriteAllBytes(individualSong, []);
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs, reportSettingsApplyFailure: _ => { });
+            using SettingsDialogViewModel dialog = owner.SettingDialog;
+            ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(owner);
+            dialog.SelectOperationModeAsync(true).GetAwaiter().GetResult();
+            Assert.IsFalse(owner.HasActiveLibraryProfile);
+            Lr2ConfigOwner config = composition.ResolveLr2Config(configPath);
+            Assert.AreEqual(confirmedRoot, config.Lr2RootPath, ignoreCase: true);
+
+            dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), individualSong).GetAwaiter().GetResult();
+            dialog.CommitEnvironmentAsync().GetAwaiter().GetResult();
+
+            Assert.AreEqual(individualSong, values.LR2SongDBPath);
+            Assert.AreSame(config, composition.ResolveLr2Config(configPath));
+            Assert.AreEqual(string.Empty, config.Lr2RootPath);
+
+            dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), standardSong).GetAwaiter().GetResult();
+            dialog.CommitEnvironmentAsync().GetAwaiter().GetResult();
+
+            Assert.AreEqual(standardSong, values.LR2SongDBPath);
+            Assert.AreEqual(confirmedRoot, config.Lr2RootPath, ignoreCase: true);
+
+            dialog.SelectOperationModeAsync(false).GetAwaiter().GetResult();
+            Assert.IsFalse(values.OperationModeLR2DB);
+            Assert.AreEqual(string.Empty, config.Lr2RootPath);
+
+            dialog.SelectOperationModeAsync(true).GetAwaiter().GetResult();
+            Assert.IsTrue(values.OperationModeLR2DB);
+            Assert.AreSame(config, composition.ResolveLr2Config(configPath));
+            Assert.AreEqual(confirmedRoot, config.Lr2RootPath, ignoreCase: true);
+            Assert.AreEqual(string.Empty, values.LR2RootPath, "推測した値を設定へ保存しません。");
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>
+    /// 保証：環境確定の予約領域の検査は、保存するLR2ディレクトリではなく確定後の環境の実効LR2ルートで行う。LR2ディレクトリが空のまま
+    /// song.db を標準配置へ変える確定で実効ルートが決まる場合、その組込みカスタムフォルダ配下にあるBMS登録を理由に確定を拒否し、設定を変えない。
+    /// 保存値のルートだけで検査して受理する誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void InitialEnvironmentCommit_ChecksReservedBuiltinFolderWithCandidateEffectiveRoot()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        try
+        {
+            string lr2Root = Path.Combine(root, "confirmed");
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")));
+            (string standardSong, string configPath) = CreateValidLr2Layout(lr2Root);
+            string reservedRegistration = Path.Combine(lr2Root, "LR2files", "CustomFolder", "Registered");
+            Directory.CreateDirectory(reservedRegistration);
+            File.WriteAllText(configPath, "<config><system /><jukebox><path>" + System.Security.SecurityElement.Escape(reservedRegistration) + "\\</path></jukebox></config>");
+            string individualSong = Path.Combine(root, "individual", "song.db");
+            Directory.CreateDirectory(Path.GetDirectoryName(individualSong)!);
+            File.WriteAllBytes(individualSong, []);
+            values.OperationModeLR2DB = true;
+            values.LR2RootPath = string.Empty;
+            (values.LR2SongDBPath, values.LR2ConfigXmlPath) = (individualSong, configPath);
+            values.Save();
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) };
+            MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, dialogs: dialogs, reportSettingsApplyFailure: _ => { });
+            using SettingsDialogViewModel dialog = owner.SettingDialog;
+            Assert.IsFalse(owner.HasActiveLibraryProfile);
+
+            dialog.SelectLr2DetailPathAsync(nameof(SettingsDialogViewModel.LR2SongDBPath), standardSong).GetAwaiter().GetResult();
+            dialog.CommitEnvironmentAsync().GetAwaiter().GetResult();
+
+            Assert.AreEqual(individualSong, values.LR2SongDBPath, "実効ルートの組込み領域にある登録を残したままの確定は保存しません。");
+            Assert.AreEqual(string.Empty, values.LR2RootPath);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     /// <summary>モードは保存済み個別組（空rootも可）、root選択は今回の標準組だけを保存します。詳細候補・Busy・実保存失敗から混成値や遅延適用を公開しません。</summary>
     [TestMethod]
     public void Lr2AutomaticSelection_UsesConfirmedModeTupleAndSelectedRootAndKeepsFailureRepairable()
@@ -393,7 +487,8 @@ public sealed class SettingDialogEnvironmentConfirmationTests
             using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
             { dialog.SelectLr2RootAsync(Path.Combine(root, "selected")).GetAwaiter().GetResult(); }
             Assert.AreEqual(1, failures.Count);
-            Assert.AreEqual(string.Empty, composition.CustomFolderOutputSettingsProvider().LR2RootPath, "保存失敗では出力readerへ新rootを公開しません。");
+            Assert.AreEqual(Path.Combine(root, "confirmed"), composition.CustomFolderOutputSettingsProvider().LR2RootPath,
+                "保存失敗では出力readerへ新rootを公開せず、保存済みの組から決まる実効LR2ルートのままにします。");
             Assert.AreEqual(savedSong, values.LR2SongDBPath);
             Assert.AreEqual(savedConfig, values.LR2ConfigXmlPath);
             dialog.SelectLr2RootAsync(Path.Combine(root, "selected")).GetAwaiter().GetResult();

@@ -1,3 +1,5 @@
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
@@ -91,6 +93,36 @@ public sealed class StartupSettingsSnapshotTests
             testSettings.BeatorajaPlayerId = previousBeatorajaPlayerId;
             testSettings.BeatorajaScoreDbPath = previousBeatorajaScoreDbPath;
         }
+    }
+
+    /// <summary>
+    /// 保証：保存したLR2ディレクトリが空のLR2連携で、起動・ライブラリ操作・カスタムフォルダ出力の三つの入力が同じ実効LR2ルートを運び、
+    /// LR2本体のパスもその値から決まる。推測できる環境では song.db と設定XMLの共通フォルダ、song.db だけ標準配置の環境では空になる。
+    /// 保存値をそのまま渡す誤りと、推測値を設定へ書き戻す誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true, DisplayName = "song.db と設定XMLが同じフォルダの標準配置")]
+    [DataRow(false, DisplayName = "song.db だけ標準配置")]
+    public void CreateCurrentCarriesEffectiveLr2RootWithoutSavingIt(bool configInSameRoot)
+    {
+        string lr2Root = Path.Combine(CaseWorkspace.RootDirectory, "LR2");
+        testSettings.OperationModeLR2DB = true;
+        testSettings.LR2RootPath = string.Empty;
+        testSettings.LR2SongDBPath = Path.Combine(lr2Root, "LR2files", "Database", "song.db");
+        testSettings.LR2ConfigXmlPath = configInSameRoot
+            ? Path.Combine(lr2Root, "LR2files", "Config", "config.xml")
+            : Path.Combine(CaseWorkspace.RootDirectory, "Elsewhere", "config.xml");
+        string expectedRoot = configInSameRoot ? lr2Root : string.Empty;
+
+        var startup = StartupSettingsSnapshot.CreateCurrent(testSettings);
+        var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
+        var output = CustomFolderOutputSettingsSnapshot.CreateCurrent(testSettings);
+
+        Assert.AreEqual(expectedRoot, startup.LR2RootPath, ignoreCase: true);
+        Assert.AreEqual(expectedRoot, options.LR2RootPath, ignoreCase: true);
+        Assert.AreEqual(expectedRoot, output.LR2RootPath, ignoreCase: true);
+        Assert.AreEqual(configInSameRoot ? Path.Combine(lr2Root, "LR2body.exe") : string.Empty, startup.LR2bodyPath, ignoreCase: true);
+        Assert.AreEqual(string.Empty, testSettings.LR2RootPath, "推測した値を設定へ保存しません。");
     }
 
     /// <summary>

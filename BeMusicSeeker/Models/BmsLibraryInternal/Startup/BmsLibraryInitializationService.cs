@@ -487,14 +487,30 @@ internal sealed class BmsLibraryInitializationService
 
     private readonly FileScanParseCommitOwner fileScanParseCommitOwner;
 
+    /// <summary>
+    /// LR2連携モードの実効LR2ルートを返します。単独動作モードと実効ルートが決まらない環境では空を返します。
+    /// 実際に補正するかは、読み込む song.db の場所と合わせて <see cref="Lr2EffectiveRoot.ResolveSongTableCorrectionRoot"/> が決めます。
+    /// </summary>
+    internal static string GetLr2TableNormalizationRoot(BmsLibraryOptionsSnapshot options)
+        => GetLr2TableNormalizationRoot(options?.OperationModeLR2DB == true, options?.LR2RootPath);
+
+    /// <summary>モードと実効LR2ルートから、同じ基準のLR2連携モードの実効LR2ルートを返します。</summary>
+    internal static string GetLr2TableNormalizationRoot(bool operationModeLR2DB, string effectiveLr2RootPath)
+        => operationModeLR2DB && !string.IsNullOrWhiteSpace(effectiveLr2RootPath) ? effectiveLr2RootPath : string.Empty;
+
     /// <summary>受付前に完全修飾pathのfolder候補だけを読取専用接続で捕捉します。DB・schemaを作らず通常カタログを読み込みません。</summary>
+    /// <param name="lr2TableNormalizationRoot">
+    /// <see cref="GetLr2TableNormalizationRoot(BmsLibraryOptionsSnapshot)"/> と同じ基準のルート。読込み側と同じく、対象の song.db が
+    /// このルートの標準配置にあるときだけ候補を作ります。
+    /// </param>
     internal IReadOnlyList<LeapYearFolderRepairCandidate> CaptureLeapYearFolderRepairCandidates(BmsLibraryDbGateway dbGateway,
-        out IReadOnlyList<LeapYearFolderRepairCandidate> unreadableFolders)
+        string lr2TableNormalizationRoot, out IReadOnlyList<LeapYearFolderRepairCandidate> unreadableFolders)
     {
         unreadableFolders = [];
-        if (!File.Exists(dbGateway.SongDbPath)) { return []; }
+        lr2TableNormalizationRoot = Lr2EffectiveRoot.ResolveSongTableCorrectionRoot(true, lr2TableNormalizationRoot, dbGateway.SongDbPath);
+        if (string.IsNullOrWhiteSpace(lr2TableNormalizationRoot) || !File.Exists(dbGateway.SongDbPath)) { return []; }
         using LR2SongDBExtended songDb = dbGateway.OpenSongDbReadOnly();
-        if (string.IsNullOrWhiteSpace(songDb.LR2RootPath) || !TableExists(songDb, "folder")) { return []; }
+        if (!TableExists(songDb, "folder")) { return []; }
         int futureLimit = (DateTime.Now + new TimeSpan(30, 0, 0, 0)).ToUnixtime();
         List<LeapYearFolderRepairCandidate> candidates = [];
         List<LeapYearFolderRepairCandidate> unreadable = [];
@@ -713,7 +729,10 @@ internal sealed class BmsLibraryInitializationService
 
         List<LR2SongDB.folder> folders = [];
         Dictionary<string, LR2SongDB.folder> effectiveFolders = null;
-        if (options?.OperationModeLR2DB == true || !string.IsNullOrWhiteSpace(songDb.LR2RootPath))
+        // 補正は、LR2連携モードで song.db が実効LR2ルートの標準配置にあるときだけ行います。
+        string lr2TableNormalizationRoot = Lr2EffectiveRoot.ResolveSongTableCorrectionRoot(
+            options?.OperationModeLR2DB == true, options?.LR2RootPath, dbGateway.SongDbPath);
+        if (options?.OperationModeLR2DB == true)
         {
             var folderRead = Stopwatch.StartNew();
             folders = [.. songDb.Table<LR2SongDB.folder>()];
@@ -729,10 +748,11 @@ internal sealed class BmsLibraryInitializationService
         }
         List<LR2SongDB.song> deletedFiles = [];
         logDebugTrace?.Invoke("relative path and invalid md5 check");
-        if (!string.IsNullOrWhiteSpace(songDb.LR2RootPath))
+        if (!string.IsNullOrWhiteSpace(lr2TableNormalizationRoot))
         {
             NormalizeSongTable(
                 songDb,
+                lr2TableNormalizationRoot,
                 loadedSongs,
                 deletedFiles,
                 folders,
@@ -2232,6 +2252,7 @@ internal sealed class BmsLibraryInitializationService
 
     private static void NormalizeSongTable(
         LR2SongDBExtended songDb,
+        string lr2RootPath,
         List<LR2SongDB.song> loadedSongs,
         List<LR2SongDB.song> deletedFiles,
         List<LR2SongDB.folder> folders,
@@ -2256,7 +2277,7 @@ internal sealed class BmsLibraryInitializationService
                 string originalPath = song.path;
                 if (wasRelativePath)
                 {
-                    if (Lr2SongFolderParentNormalizer.ApplyExpected(song, songDb.LR2RootPath, fixRelativePath: true))
+                    if (Lr2SongFolderParentNormalizer.ApplyExpected(song, lr2RootPath, fixRelativePath: true))
                     {
                         if (Path.IsPathRooted(song.path))
                         {
@@ -2285,7 +2306,7 @@ internal sealed class BmsLibraryInitializationService
                     result.CrcSkippedCount++;
                     continue;
                 }
-                if (Lr2SongFolderParentNormalizer.ApplyExpected(song, songDb.LR2RootPath, fixRelativePath: false))
+                if (Lr2SongFolderParentNormalizer.ApplyExpected(song, lr2RootPath, fixRelativePath: false))
                 {
                     updatedSongs.Add(song);
                 }
@@ -2311,7 +2332,7 @@ internal sealed class BmsLibraryInitializationService
                     if (!folder.path.StartsWith("LR2files" + Path.DirectorySeparatorChar + "CustomFolder" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                         && !folder.path.StartsWith("LR2files" + Path.DirectorySeparatorChar + "Rival" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                     {
-                        string targetPath = Path.Combine(songDb.LR2RootPath, folder.path);
+                        string targetPath = Path.Combine(lr2RootPath, folder.path);
                         result.DeletedFolderPaths.Add(folder.path);
                         // 元集合にtargetがあれば、その行自身の日時補正・削除結果だけを採用します。
                         if (originalFolderPaths.Contains(targetPath)) { return false; }

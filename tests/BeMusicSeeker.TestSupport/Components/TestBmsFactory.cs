@@ -64,7 +64,7 @@ internal sealed class TestBmsLibrary : BMSLibrary
 
     private static Lr2ConfigOwner ResolveOwner(Settings settings)
         => settings?.OperationModeLR2DB == true && !string.IsNullOrWhiteSpace(settings.LR2ConfigXmlPath)
-            ? new Lr2ConfigOwner(new LR2Config(settings.LR2ConfigXmlPath)) : null;
+            ? new Lr2ConfigOwner(TestLr2ConfigFactory.Load(settings.LR2ConfigXmlPath)) : null;
 
     /// <summary>専用設定または固定の既定入力を捕捉し、利用者設定を読みません。</summary>
     private static Func<BmsLibraryOptionsSnapshot> CreateOptions(Settings settings)

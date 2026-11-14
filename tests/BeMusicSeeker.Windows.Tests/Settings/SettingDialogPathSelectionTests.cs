@@ -81,6 +81,90 @@ public sealed class SettingDialogPathSelectionTests
         }
     }
 
+    /// <summary>
+    /// 保証：LR2ディレクトリ欄の警告は編集中の値で決まる。LR2連携でルートが空のとき、song.db と設定XMLから推測できれば推測したパスを含む案内、
+    /// 推測できなければ利用できない機能の警告を Warning で示し、song.db の候補の変更と取消のどちらでも切り替えて通知する。入力欄へ推測値は入れず、保存もしない。
+    /// 保存値だけで警告を選ぶ誤り、書式引数の誤り、推測値を入力欄へ入れる誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void Lr2RootWarning_SwitchesBetweenInferredRootAndLimitationsFromDraftPaths()
+    {
+        string scope = CreateTemporaryRoot(CaseWorkspace);
+        try
+        {
+            string root = Path.Combine(scope, "root");
+            (string standardSong, string configPath) = CreateValidLr2Layout(root);
+            string individualSong = Path.Combine(scope, "individual", "songs.db");
+            Directory.CreateDirectory(Path.GetDirectoryName(individualSong)!);
+            File.WriteAllBytes(individualSong, []);
+
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.OperationModeLR2DB = true;
+            values.LR2RootPath = string.Empty;
+            values.LR2SongDBPath = standardSong;
+            values.LR2ConfigXmlPath = configPath;
+            var session = new CountingSettingsEditSession(values);
+            using var harness = SettingsDialogHarness.Create(values, settingsEditSession: session);
+            SettingsDialogViewModel dialog = harness.Dialog;
+
+            Assert.AreEqual(string.Format(Resources.Warning_LR2RootPathInferredFormat, root), dialog.Lr2RootPathValidationMessage);
+            Assert.AreEqual("Warning", dialog.Lr2RootPathValidationStatus);
+            Assert.AreEqual(string.Empty, dialog.LR2RootPath);
+
+            var notifications = new List<string>();
+            dialog.PropertyChanged += (_, args) => notifications.Add(args.PropertyName ?? string.Empty);
+            dialog.SelectLr2DetailPathAsync(nameof(dialog.LR2SongDBPath), individualSong).GetAwaiter().GetResult();
+
+            CollectionAssert.Contains(notifications, nameof(dialog.Lr2RootPathValidationMessage));
+            Assert.AreEqual(Resources.Warning_LR2RootPathNotSet, dialog.Lr2RootPathValidationMessage);
+            Assert.AreEqual("Warning", dialog.Lr2RootPathValidationStatus);
+            Assert.AreEqual(string.Empty, dialog.LR2RootPath);
+            Assert.AreEqual(string.Empty, values.LR2RootPath);
+            Assert.AreEqual(0, session.SaveCount);
+
+            // 候補の取消で確定値へ戻した結果も、欄の警告へ通知して反映します。
+            notifications.Clear();
+            dialog.CancelEnvironment();
+
+            CollectionAssert.Contains(notifications, nameof(dialog.Lr2RootPathValidationMessage));
+            Assert.AreEqual(string.Format(Resources.Warning_LR2RootPathInferredFormat, root), dialog.Lr2RootPathValidationMessage);
+            Assert.AreEqual(0, session.SaveCount);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 保証：LR2ディレクトリを設定済みの環境と単独動作モードでは、song.db と設定XMLの配置に依らずLR2ディレクトリ欄の警告を表示しない。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true, true, DisplayName = "LR2連携でルート設定済み")]
+    [DataRow(false, false, DisplayName = "単独動作でルートが空")]
+    public void Lr2RootWarning_IsHiddenWhenRootIsConfiguredOrStandalone(bool operationModeLR2DB, bool rootConfigured)
+    {
+        string scope = CreateTemporaryRoot(CaseWorkspace);
+        try
+        {
+            string root = Path.Combine(scope, "root");
+            (string standardSong, string configPath) = CreateValidLr2Layout(root);
+            Settings values = CreateValidStandaloneSettings(scope);
+            values.OperationModeLR2DB = operationModeLR2DB;
+            values.LR2RootPath = rootConfigured ? root : string.Empty;
+            values.LR2SongDBPath = standardSong;
+            values.LR2ConfigXmlPath = configPath;
+            using var harness = SettingsDialogHarness.Create(values, settingsEditSession: new CountingSettingsEditSession(values));
+
+            Assert.AreEqual(string.Empty, harness.Dialog.Lr2RootPathValidationMessage);
+            Assert.AreEqual(string.Empty, harness.Dialog.Lr2RootPathValidationStatus);
+        }
+        finally
+        {
+            Directory.Delete(scope, recursive: true);
+        }
+    }
+
     /// <summary>個別 path と標準 song.db／config.xmh を往復選択すると現 path の由来を表示し、過去の選択履歴を引き継ぐ誤りを検出します。</summary>
     [TestMethod]
     public void Lr2PathSource_UsesCurrentStandardLayoutInsteadOfSelectionHistory()

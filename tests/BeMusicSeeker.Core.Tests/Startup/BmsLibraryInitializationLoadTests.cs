@@ -13,6 +13,59 @@ public sealed class BmsLibraryInitializationLoadTests
     private readonly ApplicationDatabaseScope databaseScope = new();
 
     /// <summary>
+    /// 保証：LR2用の補正は、LR2連携モードの実効LR2ルートがあるときだけ行う。実効ルートが空のLR2連携と、ルートが残っている単独動作では、
+    /// song.db が標準配置でも相対パスの <c>song</c>・<c>folder</c> 行を削除も絶対化もせず保持し、読込みは成功する。
+    /// song.db の場所から個別に推測する誤りと、ルートの有無だけで補正を決める誤りを検出する。
+    /// </summary>
+    /// <remarks>相対パスの実体を song.db から見たLR2フォルダ配下に置き、song.db の場所から推測する実装なら補正が起きる入力にしている。</remarks>
+    [TestMethod]
+    [DataRow(true, false, DisplayName = "LR2連携で実効ルートが空")]
+    [DataRow(false, true, DisplayName = "単独動作でルートが残っている")]
+    public void LoadSongTable_KeepsRelativeRowsWithoutLr2ModeEffectiveRoot(bool operationModeLR2DB, bool rootConfigured)
+    {
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            string relativeChartPath = Path.Combine("Songs", "chart.bms");
+            Directory.CreateDirectory(Path.Combine(lr2RootPath, "Songs"));
+            File.WriteAllText(Path.Combine(lr2RootPath, relativeChartPath), "#PLAYER 1");
+            var relativeFolder = new LR2SongDB.folder { path = "Songs\\", title = "Songs", subtitle = "Keep", parent = "e2977170", type = 1, date = 12, adddate = 333, max = 4 };
+            using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+            {
+                songDb.RunInTransaction(() =>
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDB.folder>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    ChartFile song = ChartTestValues.Empty() with { Path = relativeChartPath, Folder = "0a1b2c3d", Tag = "relative-user", AddDate = 5432 };
+                    song = song with { Md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+                    songDb.InsertOrReplace(ChartTestValues.CreateBmsStorageRow(song, "4e5f6a7b"), typeof(LR2SongDB.song));
+                    songDb.Insert(relativeFolder);
+                });
+            }
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+
+            SongTableLoadResult result = new BmsLibraryInitializationService().LoadSongTable(
+                gateway,
+                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = operationModeLR2DB, LR2RootPath = rootConfigured ? lr2RootPath : string.Empty },
+                new TestFileMutationService(),
+                null,
+                ex => ex.Message,
+                leapYearRepairApproval: new(songDbPath));
+
+            Assert.AreEqual(0, result.RelativePathFixedCount);
+            Assert.AreEqual(0, result.DeletedSongPaths.Count);
+            Assert.AreEqual(0, result.DeletedFolderPaths.Count);
+            Assert.AreEqual(0, result.UpdatedFolders.Count);
+            using LR2SongDBExtended verify = gateway.OpenSongDbReadOnly();
+            LR2SongDB.song savedSong = verify.Table<LR2SongDB.song>().Single();
+            Assert.AreEqual(relativeChartPath, savedSong.path);
+            Assert.AreEqual(("relative-user", (int?)5432), (savedSong.tag, savedSong.adddate));
+            Assert.AreEqual(System.Text.Json.JsonSerializer.Serialize(relativeFolder),
+                System.Text.Json.JsonSerializer.Serialize(verify.Table<LR2SongDB.folder>().Single()));
+        });
+    }
+
+    /// <summary>
     /// LR2の相対譜面の三列と親hashを保ち、folderの新規targetだけ通常adddateで作る。共存target自身の保持・削除をDBと返却面で揃え、maintenanceを混ぜない。
     /// </summary>
     [TestMethod]
@@ -79,7 +132,7 @@ public sealed class BmsLibraryInitializationLoadTests
             var service = new BmsLibraryInitializationService();
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
-                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true },
+                new BmsLibraryOptionsSnapshot { OperationModeLR2DB = true, LR2RootPath = lr2RootPath },
                 new TestFileMutationService(),
                 null,
                 ex => ex.Message,
@@ -761,7 +814,6 @@ public sealed class BmsLibraryInitializationLoadTests
             };
             ExecuteSongDbFixtureTransaction(databaseScope, songDbPath, db =>
             {
-                Assert.AreEqual(lr2RootPath, db.LR2RootPath, "標準LR2 DBの候補判定まで到達させます。");
                 db.CreateTable<LR2SongDB.song>();
                 db.CreateTable<LR2SongDB.folder>();
                 db.CreateTable<LR2SongDBExtended.maintenance>();
@@ -769,7 +821,7 @@ public sealed class BmsLibraryInitializationLoadTests
             });
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
             var service = new BmsLibraryInitializationService();
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(gateway, out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(gateway, lr2RootPath, out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
             Assert.AreEqual(0, candidates.Count);
             Assert.AreEqual(0, unreadable.Count);
             var mutation = new RecordingFileMutationService();
@@ -841,7 +893,7 @@ public sealed class BmsLibraryInitializationLoadTests
 
             var service = new BmsLibraryInitializationService();
             var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
-            IReadOnlyList<LeapYearFolderRepairCandidate> captured = service.CaptureLeapYearFolderRepairCandidates(gateway, out _);
+            IReadOnlyList<LeapYearFolderRepairCandidate> captured = service.CaptureLeapYearFolderRepairCandidates(gateway, lr2RootPath, out _);
             CollectionAssert.AreEquivalent(new[] { primary.path, alias.path }, captured.Select(candidate => candidate.OriginalFolderPath).ToArray());
             IEnumerable<LeapYearFolderRepairCandidate> approved = condition == "primary-only"
                 ? captured.Where(candidate => string.Equals(candidate.OriginalFolderPath, primary.path, StringComparison.Ordinal))
@@ -928,7 +980,7 @@ public sealed class BmsLibraryInitializationLoadTests
             var fileMutationService = new RecordingFileMutationService();
             var service = new BmsLibraryInitializationService();
 
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), out _);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), lr2RootPath, out _);
             Assert.AreEqual(0, candidates.Count);
             SongTableLoadResult result = service.LoadSongTable(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),

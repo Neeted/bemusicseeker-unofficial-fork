@@ -193,7 +193,7 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
         Settings registrationSettings = this.settingsEditSession.Values;
         Lr2ConfigSession registrationSession = Lr2ConfigSession;
         BmsRootRegistrations = new BmsRootRegistrationStore(registrationSettings,
-            () => registrationSession.TryResolve(registrationSettings.LR2ConfigXmlPath, out Lr2ConfigOwner owner) ? owner : null,
+            () => registrationSession.TryResolve(registrationSettings.LR2ConfigXmlPath, Lr2EffectiveRoot.Resolve(registrationSettings), out Lr2ConfigOwner owner) ? owner : null,
             () => Volatile.Read(ref appliedCustomFolderOutputPlacement),
             placement => Volatile.Write(ref appliedCustomFolderOutputPlacement, placement));
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
@@ -568,7 +568,8 @@ internal sealed class ApplicationComposition : ISettingsDialogPlayerFactoryPort,
     }
 
     /// <summary>プレイヤーも構成が保持する採用済み正本を使います。</summary>
-    internal Lr2ConfigOwner ResolveLr2Config(string path) => Lr2ConfigSession.Resolve(path);
+    /// <remarks>新しく読み込む場合の相対登録の基準は、確定設定の実効LR2ルートです。採用済みの所有者はそのまま返します。</remarks>
+    internal Lr2ConfigOwner ResolveLr2Config(string path) => Lr2ConfigSession.Resolve(path, Lr2EffectiveRoot.Resolve(settingsEditSession.Values));
 
     internal IBMSPlayer CreateBmsPlayer(
         StartupSettingsSnapshot startupSettings,

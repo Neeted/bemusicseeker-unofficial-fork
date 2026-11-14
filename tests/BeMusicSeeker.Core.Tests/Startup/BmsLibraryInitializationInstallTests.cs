@@ -846,7 +846,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             var fileMutationService = new RecordingFileMutationService();
             var service = new BmsLibraryInitializationService();
 
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), out _);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), lr2RootPath, out _);
             Assert.AreEqual(1, candidates.Count);
             Assert.AreEqual(0, fileMutationService.TimestampCalls.Count);
             Assert.AreEqual(folderPath + Path.DirectorySeparatorChar, candidates[0].OriginalFolderPath);
@@ -887,7 +887,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             }
 
             var service = new BmsLibraryInitializationService();
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), out _);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), lr2RootPath, out _);
             Assert.AreEqual(1, candidates.Count);
             Assert.AreEqual(folderPath, candidates[0].Path);
             var unapprovedAlias = new LR2SongDB.folder
@@ -960,7 +960,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             }
 
             var service = new BmsLibraryInitializationService();
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), out _);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), lr2RootPath, out _);
             Assert.AreEqual(1, candidates.Count);
 
             // 3月1日も旧不具合の対象範囲なので、現在日時の条件だけでは置換後のfolderを誤修復する。
@@ -1015,7 +1015,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             }
 
             var service = new BmsLibraryInitializationService();
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), out _);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath), lr2RootPath, out _);
             LeapYearFolderRepairResult repair = service.RepairLeapYearFolderTimestamps(
                 new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath),
                 candidates,
@@ -1277,7 +1277,7 @@ public sealed partial class BmsLibraryInitializationInstallTests
             }
             byte[] saved = File.ReadAllBytes(dbPath);
             var service = new BmsLibraryInitializationService();
-            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath), out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
+            IReadOnlyList<LeapYearFolderRepairCandidate> candidates = service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), dbPath), lr2Root, out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
             Assert.AreEqual(1, candidates.Count);
             Assert.AreEqual(folder, candidates[0].Path);
             Assert.AreEqual(0, unreadable.Count);
@@ -1288,10 +1288,12 @@ public sealed partial class BmsLibraryInitializationInstallTests
                 Assert.AreEqual(0L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM sqlite_master WHERE name IN ('song','chart_info','app_schema');"));
                 Assert.AreEqual(6L, db.ExecuteScalar<long>("SELECT COUNT(1) FROM folder;"));
             }
-            string absent = Path.Combine(lr2Root, "absent", "song.db");
-            Assert.AreEqual(0, service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), absent), out _).Count);
+            // 補正の対象になる標準配置のパスを使い、存在しない song.db を作らないことまで到達させます。
+            string absentRoot = Path.Combine(lr2Root, "absent");
+            string absent = Path.Combine(absentRoot, "LR2files", "Database", "song.db");
+            Assert.AreEqual(0, service.CaptureLeapYearFolderRepairCandidates(new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), absent), absentRoot, out _).Count);
             Assert.IsFalse(File.Exists(absent));
-            Assert.IsFalse(Directory.Exists(Path.GetDirectoryName(absent)));
+            Assert.IsFalse(Directory.Exists(absentRoot));
         });
     }
 

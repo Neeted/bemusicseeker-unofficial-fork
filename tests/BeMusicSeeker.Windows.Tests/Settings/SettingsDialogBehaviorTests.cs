@@ -1881,7 +1881,7 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(root, Fresh().LR2CustomFolderOutputBaseDirRootType);
             CollectionAssert.AreEqual(new[] { extra }, CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(Fresh().LR2CustomFolderAdditionalOutputBaseDirs).ToArray());
             CollectionAssert.AreEquivalent(new[] { manual, lr2, normal, extra }, xml.Capture().RegisteredRoots.ToArray());
-            CollectionAssert.AreEquivalent(xml.Capture().RegisteredRoots.ToArray(), new LR2Config(layout.ConfigPath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
+            CollectionAssert.AreEquivalent(xml.Capture().RegisteredRoots.ToArray(), TestLr2ConfigFactory.Load(layout.ConfigPath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
             Assert.AreEqual(root, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDirRootType);
             foreach (string path in sentinels) { Assert.AreEqual("preserve-old-physical", File.ReadAllText(path)); }
         }, nameof(OutputCorrection_SectionsAndAdditionalShrinkKeepBuiltinFilesWithoutStartingBackend));
@@ -1941,7 +1941,7 @@ public sealed class SettingsDialogBehaviorTests
         File.WriteAllBytes(songDbPath, []);
         File.WriteAllText(configPath, "<config><system /><jukebox /></config>");
 
-        var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+        LR2Config config = BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(configPath);
         config.SetBMSSearchDirectories(searchRoots);
         config.Save(config.ConfigFilePath);
         return (songDbPath, configPath, bmsRoot);

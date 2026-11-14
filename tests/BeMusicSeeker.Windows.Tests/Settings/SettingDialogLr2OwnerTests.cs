@@ -61,7 +61,7 @@ public sealed class SettingDialogLr2OwnerTests
             string pack = Directory.CreateDirectory(Path.Combine(values.LR2CustomFolderOutputBaseDir, "Pack")).FullName;
             File.WriteAllText(Path.Combine(pack, "normal.bms"), BmsLibraryInitializationTestSupport.CreateValidBmsText("Normal output BMS"));
             File.WriteAllText(Path.Combine(values.BMSInstallDir, "song.bms"), BmsLibraryInitializationTestSupport.CreateValidBmsText("Separate BMS root"));
-            var config = new LR2Config(values.LR2ConfigXmlPath);
+            LR2Config config = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
             config.AddBMSSearchDirectories([values.LR2CustomFolderOutputBaseDir]);
             config.Save(config.ConfigFilePath);
         }, (root, values, composition, shell, factory, failures, dialogs) =>
@@ -188,7 +188,7 @@ public sealed class SettingDialogLr2OwnerTests
             string previousBase = Path.Combine(root, initialName);
             Assert.AreEqual(previousBase, values.LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(previousBase, TestSettingsFactory.OpenSettings(Path.Combine(root, "settings", "user.config")).LR2CustomFolderOutputBaseDir);
-            CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), previousBase);
+            CollectionAssert.Contains(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), previousBase);
             CollectionAssert.AreEqual(stableRows, ReadManaged(MainWindowViewModelTestFactory.GetComposition(shell).DatabaseScope, values, Path.Combine(previousBase, "Table")));
             using LR2SongDBExtended db = new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(shell).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), values.LR2SongDBPath).OpenSongDbReadOnly();
             LR2SongDB.song song = db.Table<LR2SongDB.song>().Single(row => row.hash == hash);
@@ -224,7 +224,7 @@ public sealed class SettingDialogLr2OwnerTests
             Assert.AreEqual(currentBase, TestSettingsFactory.OpenSettings(Path.Combine(root, "settings", "user.config")).LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(currentBase, composition.CustomFolderOutputSettingsProvider().LR2CustomFolderOutputBaseDir);
             Assert.AreEqual(currentBase, composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().Placement.LR2CustomFolderOutputBaseDir);
-            CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), currentBase);
+            CollectionAssert.Contains(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), currentBase);
             CollectionAssert.Contains(composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().RegisteredRoots.ToArray(), currentBase);
             AssertCompletedRun(composition.DatabaseScope, values);
         }
@@ -309,7 +309,7 @@ public sealed class SettingDialogLr2OwnerTests
     {
         WithInitializedLr2Owner(CaseWorkspace, (root, values) =>
         {
-            LR2Config initial = new(values.LR2ConfigXmlPath);
+            LR2Config initial = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
             initial.AddBMSSearchDirectories([values.LR2CustomFolderOutputBaseDir]);
             initial.Save(initial.ConfigFilePath);
         }, (root, values, composition, shell, factory, failures, dialogs) =>
@@ -330,14 +330,14 @@ public sealed class SettingDialogLr2OwnerTests
             else if (Directory.Exists(original)) { Directory.Delete(original); }
             CollectionAssert.AreEqual(new[] { songs }, dialog.AvailableBMSDirectories);
             CollectionAssert.AreEqual(new[] { songs }, dialog.ConfirmedBMSDirectories.ToArray());
-            CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), staged);
+            CollectionAssert.DoesNotContain(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), staged);
             dialog.CancelBmsRoots();
             CollectionAssert.AreEqual(new[] { songs }, dialog.AvailableBMSDirectories);
             string added = Directory.CreateDirectory(Path.Combine(root, "C")).FullName;
             dialog.AddBmsSearchRootPathsAsync([added]).GetAwaiter().GetResult();
             TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitBmsRootsAsync(), "lr2-user-confirm");
             Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
-            string[] saved = new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray();
+            string[] saved = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().ToArray();
             CollectionAssert.DoesNotContain(saved, original);
             CollectionAssert.Contains(saved, destination);
             CollectionAssert.Contains(saved, added);
@@ -356,7 +356,7 @@ public sealed class SettingDialogLr2OwnerTests
             string user = Directory.CreateDirectory(Path.Combine(root, "UserU")).FullName;
             string removed = Directory.CreateDirectory(Path.Combine(root, "RemovedUser")).FullName;
             File.WriteAllText(Path.Combine(user, "general.txt"), "keep general file");
-            LR2Config initial = new(values.LR2ConfigXmlPath);
+            LR2Config initial = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
             initial.AddBMSSearchDirectories([user, removed]);
             initial.Save(initial.ConfigFilePath);
         }, (root, values, composition, shell, factory, failures, dialogs) =>
@@ -380,7 +380,7 @@ public sealed class SettingDialogLr2OwnerTests
             CollectionAssert.Contains(owner.Capture().RegisteredRoots.ToArray(), user);
             CollectionAssert.Contains(owner.CaptureSaved().RegisteredRoots.ToArray(), removed);
             CollectionAssert.DoesNotContain(owner.CaptureSaved().RegisteredRoots.ToArray(), added);
-            CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), added);
+            CollectionAssert.DoesNotContain(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), added);
 
             string destination = Path.Combine(root, "OutputB");
             dialog.LR2CustomFolderOutputDir = destination;
@@ -394,7 +394,7 @@ public sealed class SettingDialogLr2OwnerTests
             CollectionAssert.DoesNotContain(owner.CaptureSaved().RegisteredRoots.ToArray(), user);
             CollectionAssert.Contains(owner.CaptureSaved().RegisteredRoots.ToArray(), removed);
             CollectionAssert.DoesNotContain(owner.CaptureSaved().RegisteredRoots.ToArray(), added);
-            CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), user);
+            CollectionAssert.DoesNotContain(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), user);
 
             dialog.BmsRootPathList.Remove(removed);
             dialog.AddBmsSearchRootPathsAsync([added]).GetAwaiter().GetResult();
@@ -403,7 +403,7 @@ public sealed class SettingDialogLr2OwnerTests
             CollectionAssert.AreEqual(new[] { songs, added }, dialog.ConfirmedBMSDirectories.ToArray());
             CollectionAssert.AreEqual(new[] { songs, added }, dialog.AvailableBMSDirectories);
             foreach (IReadOnlyList<string> roots in new[] { owner.Capture().RegisteredRoots, owner.CaptureSaved().RegisteredRoots,
-                new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking() })
+                TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking() })
             {
                 CollectionAssert.DoesNotContain(roots.ToArray(), user);
                 CollectionAssert.DoesNotContain(roots.ToArray(), removed);
@@ -460,7 +460,7 @@ public sealed class SettingDialogLr2OwnerTests
             CollectionAssert.Contains(owner.Capture().RegisteredRoots.ToArray(), added);
             CollectionAssert.DoesNotContain(owner.Capture().RegisteredRoots.ToArray(), original);
             CollectionAssert.DoesNotContain(owner.Capture().RegisteredRoots.ToArray(), managed);
-            CollectionAssert.DoesNotContain(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), managed);
+            CollectionAssert.DoesNotContain(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), managed);
         });
     }
 
@@ -473,13 +473,13 @@ public sealed class SettingDialogLr2OwnerTests
             string added = Path.Combine(root, "InitialB");
             Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
             CollectionAssert.Contains((factory.CreatedLibrary ?? throw new AssertFailedException()).Lr2Synchronization.CaptureBmsDirectories().RequestedRoots.ToArray(), added);
-            CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), added);
+            CollectionAssert.Contains(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), added);
         }, (root, values, shell) =>
         {
             string added = Directory.CreateDirectory(Path.Combine(root, "InitialB")).FullName;
             shell.SettingDialog.AddBmsSearchRootPathsAsync([added]).GetAwaiter().GetResult();
             TestUiDispatcherHost.AwaitTaskOnDispatcher(shell.SettingDialog.CommitBmsRootsAsync(), "lr2-initial-settings-save");
-            CollectionAssert.Contains(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), added);
+            CollectionAssert.Contains(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking(), added);
             File.WriteAllText(values.LR2ConfigXmlPath, "<external-broken");
         });
     }

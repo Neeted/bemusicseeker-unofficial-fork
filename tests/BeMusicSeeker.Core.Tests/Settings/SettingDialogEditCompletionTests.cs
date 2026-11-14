@@ -75,7 +75,7 @@ public sealed class SettingDialogEditCompletionTests
             };
             using var gate = new SemaphoreSlim(1, 1);
             var owner = new StartupLibraryInitializationWorkflowOwner(databaseScope, new BmsDatabaseLoadOptions(true, true, true), gate);
-            Task<LeapYearFolderRepairApproval> operation = owner.PrepareLeapYearFolderRepairAsync(settings.LR2SongDBPath, dialogs, () => shutdown);
+            Task<LeapYearFolderRepairApproval> operation = owner.PrepareLeapYearFolderRepairAsync(settings.LR2SongDBPath, StartupSettingsSnapshot.CreateCurrent(settings).LR2RootPath, dialogs, () => shutdown);
             if (resultKind is 0 or 1) { await Assert.ThrowsExactlyAsync<OperationCanceledException>(() => operation); }
             else if (resultKind == 4) { Assert.AreSame(original, await Assert.ThrowsExactlyAsync<IOException>(() => operation)); }
             else

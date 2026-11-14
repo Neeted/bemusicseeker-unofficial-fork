@@ -4863,7 +4863,7 @@ public partial class BMSLibrary : ObservableObject
     /// <summary>公開初期化の閏年候補だけを受付前に読み、既存のNo既定YesNoで承認対象を捕捉します。</summary>
     internal LeapYearFolderRepairApproval PrepareLeapYearFolderRepair()
     {
-        IReadOnlyList<LeapYearFolderRepairCandidate> candidates = initializationService.CaptureLeapYearFolderRepairCandidates(dbGateway, out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
+        IReadOnlyList<LeapYearFolderRepairCandidate> candidates = initializationService.CaptureLeapYearFolderRepairCandidates(dbGateway, InitializationLr2TableNormalizationRoot, out IReadOnlyList<LeapYearFolderRepairCandidate> unreadable);
         List<LeapYearFolderRepairCandidate> approved = [];
         foreach (LeapYearFolderRepairCandidate candidate in candidates)
         {
@@ -4881,6 +4881,10 @@ public partial class BMSLibrary : ObservableObject
 
     /// <summary>再初期化の限定候補を読む、このライブラリが所有するDBの対象です。</summary>
     internal string InitializationSongDbPath => dbGateway.SongDbPath;
+
+    /// <summary>次の全体初期化が <c>song</c>・<c>folder</c> 表の補正に使うルートです。受付前の閏年候補の読取りを、読込み側と同じ基準に揃えます。</summary>
+    internal string InitializationLr2TableNormalizationRoot => BmsLibraryInitializationService.GetLr2TableNormalizationRoot(
+        optionsSnapshotProvider() ?? throw new InvalidOperationException("BMS library options snapshot provider returned null."));
 
     /// <summary>
     /// 実終端の通知結果を、自有の公開初期化の受付解放後に待たずに投函します。元の対象・原因と既存警告を保ちます。

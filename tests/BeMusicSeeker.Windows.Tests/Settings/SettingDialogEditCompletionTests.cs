@@ -1124,7 +1124,7 @@ public sealed class SettingDialogEditCompletionTests
                     Assert.IsFalse(apply.IsCompleted);
                     Assert.IsTrue(composition.BmsRootRegistrations.CaptureUserRoots().Contains(candidateRoot, StringComparer.OrdinalIgnoreCase),
                         "走査が保留中でも検索rootは保存・公開済みです。");
-                    if (lr2) { Assert.IsTrue(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().Contains(candidateRoot, StringComparer.OrdinalIgnoreCase)); }
+                    if (lr2) { Assert.IsTrue(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().Contains(candidateRoot, StringComparer.OrdinalIgnoreCase)); }
                     Assert.IsTrue(composition.OperationAdmission.IsActive);
                     Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
                     CollectionAssert.DoesNotContain(presentation.Requests, "close");
@@ -1181,7 +1181,7 @@ public sealed class SettingDialogEditCompletionTests
                         BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new InvalidOperationException("Actual playlist is unavailable.");
                         Assert.IsTrue(capturedRoots.Any(roots => roots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase)), "同じ確定操作の実走査へ新登録を渡します。");
                         Assert.IsTrue(composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().RegisteredRoots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
-                        Assert.IsTrue(new LR2Config(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
+                        Assert.IsTrue(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
                     }
                     Assert.AreEqual(!failScan, owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Folder B"));
                     Assert.IsTrue(settingsLibraryTerminal.IsCompletedSuccessfully);
@@ -1656,13 +1656,18 @@ public sealed class SettingDialogEditCompletionTests
         finally { Directory.Delete(root, recursive: true); }
     }
 
-    /// <summary>有効な DB／config がある LR2 root 未設定は通常起動だけ警告し、設定経由は警告を重ねず、どちらも実初期化を成功できることを確認します。</summary>
+    /// <summary>
+    /// 保証：LR2ディレクトリ未設定の警告は、実効LR2ルートを決められない通常起動の成功後に一回だけ、利用できない機能を伝える文言で表示する。
+    /// ルート設定済み、song.db と設定XMLから推測できる環境、設定経由の開始では表示せず、どの場合も実初期化は成功し設定画面を自動で開かない。
+    /// 保存値だけで警告を判断する誤りと、実効ルートが空の環境で起動を失敗させる誤りを検出する。
+    /// </summary>
+    /// <remarks>警告の判断が実際の初期化で捕捉した値と表示の順序につながることを、実初期化を通して確認します。規則の条件網羅は規則のテストが担います。</remarks>
     [TestMethod]
-    [DataRow(false, false)]
-    [DataRow(false, true)]
-    [DataRow(true, false)]
-    [DataRow(true, true)]
-    public void InitializeLibrary_Lr2RootPathWarningIsLimitedToEmptyRootOnNormalStartup(bool rootPathEmpty, bool fromSettings)
+    [DataRow("configured", false)]
+    [DataRow("inferable", false)]
+    [DataRow("uninferable", false)]
+    [DataRow("uninferable", true)]
+    public void InitializeLibrary_Lr2RootPathWarningIsLimitedToEmptyRootOnNormalStartup(string rootState, bool fromSettings)
     {
         string scope = CreateTemporaryRoot(CaseWorkspace);
         string lr2LayoutRoot = Path.Combine(scope, "lr2-layout");
@@ -1670,9 +1675,17 @@ public sealed class SettingDialogEditCompletionTests
         try
         {
             Settings settings = CreateValidCustomFolderSettings(lr2LayoutRoot, []);
-            if (rootPathEmpty)
+            if (rootState != "configured")
             {
                 settings.LR2RootPath = string.Empty;
+            }
+            if (rootState == "uninferable")
+            {
+                // 設定XMLだけを別の場所へ移し、song.db との共通のLR2フォルダを無くします。
+                string movedConfigPath = Path.Combine(scope, "moved-config", "config.xml");
+                Directory.CreateDirectory(Path.GetDirectoryName(movedConfigPath)!);
+                File.Move(settings.LR2ConfigXmlPath, movedConfigPath);
+                settings.LR2ConfigXmlPath = movedConfigPath;
             }
             string songDbPath = settings.LR2SongDBPath;
             using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(songDbPath))
@@ -1689,7 +1702,7 @@ public sealed class SettingDialogEditCompletionTests
 
             TestUiDispatcherHost.Invoke(() =>
             {
-                var config = new LR2Config(settings.LR2ConfigXmlPath);
+                LR2Config config = TestLr2ConfigFactory.Load(settings.LR2ConfigXmlPath);
                 var composition = new ApplicationComposition(
                     settingsEditSession: settingsSession,
                     uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
@@ -1736,7 +1749,7 @@ public sealed class SettingDialogEditCompletionTests
                         Assert.IsTrue(initialization.GetAwaiter().GetResult());
                     }
 
-                    bool warningExpected = rootPathEmpty && !fromSettings;
+                    bool warningExpected = rootState == "uninferable" && !fromSettings;
                     Assert.AreEqual(warningExpected ? 1 : 0, dialogs.MessageCount);
                     if (warningExpected)
                     {
@@ -2514,7 +2527,7 @@ public sealed class SettingDialogEditCompletionTests
                 Directory.CreateDirectory(path);
             }
             (string songDb, string configPath) = CreateValidLr2Layout(root);
-            var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+            LR2Config config = BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(configPath);
             config.AddBMSSearchDirectories([musicRoot]);
             config.Save(config.ConfigFilePath);
             Settings values = CreateValidStandaloneSettings(musicRoot);
@@ -3360,7 +3373,7 @@ public sealed class SettingDialogEditCompletionTests
                     applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                     settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer(),
                     dialogService: UndeclaredDialogs.Create());
-                var config = new LR2Config(values.LR2ConfigXmlPath);
+                LR2Config config = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
                 var actualLibrary = new TestBmsLibrary(composition.DatabaseScope, targetDb, configOwner, null, mutation, new UnexpectedBmsLibraryDialogService(), scheduler,
                     () => BmsLibraryOptionsSnapshot.CreateCurrent(values), chartFileScanner: CapturedChartFileScanner.FromFixture([],

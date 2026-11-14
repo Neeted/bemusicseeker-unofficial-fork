@@ -15,7 +15,7 @@ internal static class PlayHistoryPresetTestFixture
         Directory.CreateDirectory(configDirectoryPath);
         string configPath = Path.Combine(configDirectoryPath, "config.xml");
         File.WriteAllText(configPath, "<config><system /><jukebox /></config>", new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        return new LR2Config(configPath);
+        return TestLr2ConfigFactory.Load(configPath);
     }
 
     internal static BMSTable CreatePresetTable(int playlistId, string name, string symbol)

@@ -8002,6 +8002,69 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     /// <summary>
+    /// 保証：実効LR2ルートが空の環境（LR2ディレクトリが未設定で song.db と設定XMLが別の場所）でも、LR2同期は成功して <c>Completed</c> になり、
+    /// 場所が分からない組込みカスタムフォルダは <c>folder</c> 表へ同期しない。実効ルートが空のときに同期が例外で止まる誤りを検出する。
+    /// </summary>
+    /// <remarks>実管理主体とSQLite保存を接続し、設定から捕捉した実効ルートが同期の終端まで届くことを確認する。</remarks>
+    [TestMethod]
+    public async Task QueueLr2SongDbSync_CompletesWithoutBuiltinCustomFolderWhenEffectiveRootIsEmpty()
+    {
+        using var scope = TestDatabaseScope.Create();
+        try
+        {
+            testSettings.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings(testSettings);
+            string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(bmsRoot);
+            string lr2Root = Path.Combine(scope.DirectoryPath, "LR2beta3");
+            string customFolderDirectory = Path.Combine(lr2Root, "LR2files", "CustomFolder");
+            Directory.CreateDirectory(customFolderDirectory);
+            File.WriteAllText(Path.Combine(customFolderDirectory, "favorite.lr2folder"), "#TITLE Favorite", Encoding.GetEncoding("shift_jis"));
+            LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x2, titleFlashHours: 24, bmsRoot);
+            testSettings.LR2RootPath = string.Empty;
+            testSettings.LR2SongDBPath = scope.SongDbPath;
+            testSettings.LR2ConfigXmlPath = config.ConfigFilePath;
+            var options = BmsLibraryOptionsSnapshot.CreateCurrent(testSettings);
+            Assert.AreEqual(string.Empty, options.LR2RootPath, "song.db と設定XMLが別の場所にあり、実効ルートを決められない入力です。");
+            var configOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(new LR2Config(config, options.LR2RootPath));
+            var library = new TestBmsLibrary(scope.DatabaseScope,
+                scope.SongDbPath,
+                configOwner,
+                null,
+                null,
+                new UnexpectedBmsLibraryDialogService(),
+                new TestUiScheduler(() => null),
+                settings: TestBmsFactory.CreateRootSettings([bmsRoot], testSettings))
+            {
+
+                BmsCharts = []
+            };
+            LibraryFileInitializationResult initializationInput = new(InvokeCaptureLr2SongDbSyncScanSurface(
+                library,
+                options,
+                [bmsRoot],
+                CreateCompleteLr2ScanSurface(
+                    [bmsRoot],
+                    [bmsRoot],
+                    [],
+                    [bmsRoot])));
+
+            await library.QueueLr2SongDbSyncAsync("test_lr2_empty_effective_root", initializationResult: initializationInput, preparedSurface: null);
+
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(scope.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), scope.SongDbPath).OpenSongDbReadOnly();
+            Assert.IsFalse(verify.Table<LR2SongDB.folder>().ToList().Any(folder => folder.path.EndsWith("favorite.lr2folder", StringComparison.OrdinalIgnoreCase)));
+            LR2SongDBExtended.lr2_song_db_sync_status status = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual("Completed", status.status);
+            Assert.AreEqual(Lr2SongDbSyncService.CompletedStage, status.stage);
+        }
+        finally
+        {
+            ResetTouchedSettings(testSettings);
+        }
+    }
+
+    /// <summary>
     /// 組込RANDOMの二段カテゴリはfolderinfoのタイトルと相対親CRCを保存し、その下の定義を正しく接続する。
     /// </summary>
     /// <remarks>実管理主体とSQLite保存を接続し、入力面の選択だけでは分からない反映と終端を確認する。</remarks>
@@ -8515,7 +8578,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             configPath,
             "<config><system><customfolder>" + customFolderMask + "</customfolder><titleflash>" + titleFlashHours + "</titleflash></system><jukebox>" + pathElements + "</jukebox></config>",
             Encoding.UTF8);
-        return new LR2Config(configPath);
+        return TestLr2ConfigFactory.Load(configPath);
     }
 
     private static string EscapeXml(string value)

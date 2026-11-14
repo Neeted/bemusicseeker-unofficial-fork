@@ -217,6 +217,7 @@ public partial class MainWindowViewModel : ViewModel,
         StartupSettingsSnapshot settings = GetStartupSettingsSnapshot();
         return startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
             settings.OperationModeLR2DB ? settings.LR2SongDBPath : applicationComposition.ApplicationPathSnapshot.StandaloneSongDbPath,
+            BmsLibraryInitializationService.GetLr2TableNormalizationRoot(settings.OperationModeLR2DB, settings.LR2RootPath),
             FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
     }
 
@@ -3074,7 +3075,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         LeapYearFolderRepairNotification notification = null;
         LeapYearFolderRepairApproval approval = await startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
-            files.InitializationSongDbPath, FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
+            files.InitializationSongDbPath, files.InitializationLr2TableNormalizationRoot, FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
         await RunLibraryInputOperationAsync(async capability =>
         {
             StartupInitializationResult result = await ReinitializeLibraryUnderAdmissionAsync(capability, approval, value => notification = value);
@@ -3491,6 +3492,7 @@ public partial class MainWindowViewModel : ViewModel,
             ScoreNotification = scoreNotification,
             BackupNotifications = Array.AsReadOnly((initializationResult.BackupNotifications ?? [])
                 .Concat(scanWarnings.Values.OrderBy(warning => warning.Kind).Select(StartupLibraryInitializationWorkflowOwner.CreateScanWarningNotification)).ToArray()),
+            // 捕捉済みの実効LR2ルートで判定し、song.db と設定XMLから推測できた環境では警告しません。
             ShowRootWarning = isNormalStartup && initializedSettings?.OperationModeLR2DB == true && string.IsNullOrWhiteSpace(initializedSettings.LR2RootPath)
         };
         if (capability == null && outcome != StartupInitializationOutcome.ShutdownRequested)
@@ -3642,6 +3644,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             leapYearRepairApproval = await startupLibraryInitializationWorkflowOwner.PrepareLeapYearFolderRepairAsync(
                 startupSettings.OperationModeLR2DB ? startupSettings.LR2SongDBPath : applicationComposition.ApplicationPathSnapshot.StandaloneSongDbPath,
+                BmsLibraryInitializationService.GetLr2TableNormalizationRoot(startupSettings.OperationModeLR2DB, startupSettings.LR2RootPath),
                 FileDbMutationDialogs, () => IsRequiredInitializationShutdownRequested);
         }
         ArgumentNullException.ThrowIfNull(leapYearRepairApproval);
@@ -3654,7 +3657,7 @@ public partial class MainWindowViewModel : ViewModel,
             StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(startupSettings, startupLr2Config);
             LibraryProfile libraryProfile = StartupLibraryConstructionOwner.CreateProfile(applicationComposition.DatabaseScope, startupSettings, startupLr2Config, applicationComposition.ApplicationPathSnapshot);
             lr2config = startupLr2Config;
-            if (startupLr2Config != null) { applicationComposition.Lr2ConfigSession.Adopt(startupLr2Config); }
+            if (startupLr2Config != null) { applicationComposition.Lr2ConfigSession.Adopt(startupLr2Config, startupSettings.LR2RootPath); }
             StartupLibraryServices libraryServices = startupLibraryConstructionOwner.CreateAndApply(
                 libraryProfile,
                 this, capability, files, tables);

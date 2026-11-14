@@ -3414,7 +3414,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     string songs = Path.Combine(root, "Songs");
                     Directory.CreateDirectory(songs);
                     values.BMSRootPath = values.BMSInstallDir = songs;
-                    var config = new LR2Config(values.LR2ConfigXmlPath);
+                    LR2Config config = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                     config.AddBMSSearchDirectories([songs]);
                     config.Save(config.ConfigFilePath);
                     File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
@@ -3507,7 +3507,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 Directory.CreateDirectory(songs);
                 values.BMSRootPath = songs;
                 values.BMSInstallDir = songs;
-                var config = new LR2Config(values.LR2ConfigXmlPath);
+                LR2Config config = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                 config.AddBMSSearchDirectories([songs]);
                 config.Save(config.ConfigFilePath);
                 File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);
@@ -6212,7 +6212,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     Directory.CreateDirectory(songs);
                     values.BMSRootPath = songs;
                     values.BMSInstallDir = songs;
-                    var config = new LR2Config(values.LR2ConfigXmlPath);
+                    LR2Config config = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
                     config.AddBMSSearchDirectories([songs]);
                     config.Save(config.ConfigFilePath);
                     File.WriteAllBytes(Path.Combine(root, "LR2body.exe"), []);

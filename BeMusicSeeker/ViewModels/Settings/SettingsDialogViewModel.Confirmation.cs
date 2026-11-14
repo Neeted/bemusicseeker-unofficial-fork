@@ -703,7 +703,7 @@ public partial class SettingsDialogViewModel
     /// <summary>LR2詳細の適用可能差分だけを確定できます。rootが空でも有効な個別パスを受理します。</summary>
     public bool CanConfirmEnvironment => HasEnvironmentChanges && IsEnvironmentSelectionEnabled
         && operationAdmission.CanEnter && customFolderOutputPort.CanBeginOutputOperation
-        && (!operationModeLR2DB || IsLR2SongDBPathValid(environmentLR2SongDBPath) && lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, out _, adoptInitial: false));
+        && (!operationModeLR2DB || IsLR2SongDBPathValid(environmentLR2SongDBPath) && lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, GetCandidateEffectiveLr2RootPath(environmentLR2ConfigXmlPath), out _, adoptInitial: false));
 
     /// <summary>無効な候補も含め、LR2詳細だけを最新確定値へ戻せます。</summary>
     public bool CanCancelEnvironment => HasEnvironmentChanges && IsEditCompletionEnabled && !environmentTransitionInProgress;
@@ -787,7 +787,7 @@ public partial class SettingsDialogViewModel
         Lr2ConfigOwner candidateOwner = null;
         if (!modeOnly)
         {
-            bool validConfig = lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, out candidateOwner, adoptInitial: false);
+            bool validConfig = lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, Lr2EffectiveRoot.Resolve(change), out candidateOwner, adoptInitial: false);
             if (change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath) || !validConfig))
             {
                 ShowSettingValidationError(Resources.Error_InvalidLR2SongDbOrConfigPath);
@@ -810,24 +810,26 @@ public partial class SettingsDialogViewModel
             : change with { OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB };
         if (change == EnvironmentSettingsChange.Capture(ApplicationSettings)) { SetOperationModeSelection(ApplicationSettings.OperationModeLR2DB); return; }
         if (!modeOnly && change.OperationModeLR2DB && (!IsLR2SongDBPathValid(change.LR2SongDBPath)
-            || !lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, out candidateOwner, adoptInitial: false))) { return; }
+            || !lr2ConfigSession.TryResolve(change.LR2ConfigXmlPath, Lr2EffectiveRoot.Resolve(change), out candidateOwner, adoptInitial: false))) { return; }
         if (!modeOnly)
         {
             try
             {
+                // 予約領域は確定後の環境の実効LR2ルートで検査し、登録も同じルートで解釈します。
+                string candidateLr2RootPath = Lr2EffectiveRoot.Resolve(change);
                 IEnumerable<string> roots = change.OperationModeLR2DB
-                    ? (candidateOwner ?? GetConfirmedLr2Owner())?.Capture().RegisteredRoots ?? []
+                    ? (candidateOwner ?? GetConfirmedLr2Owner())?.CaptureRegisteredRootsFor(candidateLr2RootPath) ?? []
                     : BmsRootRegistrationStore.CaptureStandaloneRoots(ApplicationSettings);
                 foreach (string path in roots)
                 {
-                    CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, change.LR2RootPath, Resources.LibraryDirectoryPreflightBmsRootRole);
+                    CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, candidateLr2RootPath, Resources.LibraryDirectoryPreflightBmsRootRole);
                 }
                 if (change.OperationModeLR2DB)
                 {
                     foreach (string path in new[] { ApplicationSettings.LR2CustomFolderOutputBaseDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType }
                         .Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs)))
                     {
-                        CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, change.LR2RootPath, Resources.Label_CustomFolderOutputBase, isOutputBase: true);
+                        CustomFolderOutputBaseSearchRootSyncService.ValidateOutsideBuiltinCustomFolder(path, candidateLr2RootPath, Resources.Label_CustomFolderOutputBase, isOutputBase: true);
                     }
                 }
             }
@@ -841,7 +843,10 @@ public partial class SettingsDialogViewModel
                 DiscardConflictingCandidates(conflicts);
                 onSaveStarted?.Invoke();
                 change.Commit(ApplicationSettings);
-                if (candidateOwner != null) { lr2ConfigSession.Adopt(candidateOwner); }
+                // 同じ設定XMLのまま実効LR2ルートが変わる確定（song.db だけの変更、モードだけの確定）も、採用済みの所有者へ反映します。
+                string confirmedLr2RootPath = ConfirmedEffectiveLr2RootPath;
+                if (candidateOwner != null) { lr2ConfigSession.Adopt(candidateOwner, confirmedLr2RootPath); }
+                else { lr2ConfigSession.BindCurrent(confirmedLr2RootPath); }
                 // 初回のモード・LR2 root保存も、次の初期化が捕捉する既存の確定配置へ同じ組を公開します。
                 publishOutputPlacement(CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings));
 
@@ -892,7 +897,7 @@ public partial class SettingsDialogViewModel
         environmentLR2RootPath = ApplicationSettings.LR2RootPath;
         environmentLR2SongDBPath = ApplicationSettings.LR2SongDBPath;
         environmentLR2ConfigXmlPath = ApplicationSettings.LR2ConfigXmlPath;
-        isLr2ConfigPathParsed = lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, out _);
+        isLr2ConfigPathParsed = lr2ConfigSession.TryResolve(environmentLR2ConfigXmlPath, ConfirmedEffectiveLr2RootPath, out _);
         SetLr2PathSelectionErrorWithoutNotification(Lr2PathSelectionFailure.None);
         RaisePropertyChanged(nameof(OperationModeLR2DB));
         RaisePropertyChanged(nameof(IsStandaloneOperationMode));
@@ -900,6 +905,10 @@ public partial class SettingsDialogViewModel
         RaisePropertyChanged(nameof(LR2SongDBPath));
         RaisePropertyChanged(nameof(LR2ConfigXmlPath));
         RaiseLr2PathPresentationChanged();
+        // LR2ディレクトリ欄の警告は song.db・設定XMLの候補にも依存するため、確定値へ戻した結果を欄の理由にも反映します。
+        RaisePropertyChanged(nameof(Lr2RootPathValidationMessage));
+        RaisePropertyChanged(nameof(Lr2RootPathValidationStatus));
+        RaiseFieldReasonsChanged();
         RaiseEnvironmentAvailabilityChanged();
     }
 
@@ -958,8 +967,8 @@ public partial class SettingsDialogViewModel
 
     private string ExternalPlayerValidationError => externalPlayerUsePlayeruBMplay && !IsuBMplayPathValid(externalPlayeruBMplayPath) ? Resources.Error_InvalidUBMPlayExecutablePath
             : externalPlayerUsePlayerBMIIDXView && !IsBMIIDXViewPathValid(externalPlayerBMIIDXViewPath) ? Resources.Error_InvalidBMIIDXViewPath
-            : externalPlayerUsePlayerLR2body && (!IsLR2PlayerRootPathValid(ApplicationSettings.LR2RootPath)
-                || !lr2ConfigSession.TryResolve(ApplicationSettings.LR2ConfigXmlPath, out _)
+            : externalPlayerUsePlayerLR2body && (!IsLR2PlayerRootPathValid(ConfirmedEffectiveLr2RootPath)
+                || !lr2ConfigSession.TryResolve(ApplicationSettings.LR2ConfigXmlPath, ConfirmedEffectiveLr2RootPath, out _)
                 || !System.IO.File.Exists(StartupSettingsSnapshot.CreateCurrent(ApplicationSettings).LR2bodyPath)) ? Resources.Error_InvalidLR2RootPath : null;
     /// <summary>成立した再生方式の保存が未完了であることを示します。</summary>
     public bool CanRetryExternalPlayerSettings => ExternalPlayerValidationError == null
@@ -1013,7 +1022,7 @@ public partial class SettingsDialogViewModel
             var target = new CustomFolderOutputSettingsSnapshot
             {
                 OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB,
-                LR2RootPath = ApplicationSettings.LR2RootPath,
+                LR2RootPath = ConfirmedEffectiveLr2RootPath,
                 LR2CustomFolderOutputBaseDir = section is null or "normal" ? outputLR2CustomFolderOutputBaseDir : baseline.LR2CustomFolderOutputBaseDir,
                 LR2CustomFolderOutputBaseDirRootType = section is null or "root" ? outputLR2CustomFolderOutputBaseDirRootType : baseline.LR2CustomFolderOutputBaseDirRootType,
                 LR2CustomFolderAdditionalOutputBaseDirs = section is null or "additional" ? outputLR2CustomFolderAdditionalOutputBaseDirs : baseline.LR2CustomFolderAdditionalOutputBaseDirs,
@@ -1096,7 +1105,7 @@ public partial class SettingsDialogViewModel
                                         else
                                         {
                                             IReadOnlyList<string> before = owner.Capture().RegisteredRoots;
-                                            var latest = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, before);
+                                            var latest = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, owner.Lr2RootPath, before);
                                             CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(latest,
                                                 previous.LR2CustomFolderOutputBaseDir, target.LR2CustomFolderOutputBaseDir,
                                                 previous.LR2CustomFolderAdditionalOutputBaseDirs, target.LR2CustomFolderAdditionalOutputBaseDirs, []);
@@ -1235,7 +1244,7 @@ public partial class SettingsDialogViewModel
             .Where(path => !string.IsNullOrWhiteSpace(path)).ToArray();
         // 未修正の既知旧管理exactは設定訂正の衝突根拠にせず、実XMLからは今回のremovableだけを除きます。
         string[] previousManaged = new[] { previous.LR2CustomFolderOutputBaseDir, previous.LR2CustomFolderOutputBaseDirRootType }.Concat(oldAdditional).ToArray();
-        var draft = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, published.Where(path =>
+        var draft = LR2Config.CreateRootPlanningDocument(owner.ConfigFilePath, owner.Lr2RootPath, published.Where(path =>
             !previousManaged.Any(old => CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(old, path))
             && !removable.Contains(path, StringComparer.OrdinalIgnoreCase)).ToArray());
         CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareAdditionalOutputBaseRoots(draft,

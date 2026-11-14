@@ -29,7 +29,7 @@ internal static class SettingsMediaTestFixture
         {
             Directory.CreateDirectory(path);
         }
-        var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath);
+        var config = new BeMusicSeeker.Models.LR2.LR2Config(configPath, root);
         config.AddBMSSearchDirectories(roots);
         config.Save(config.ConfigFilePath);
         return values;

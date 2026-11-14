@@ -14,6 +14,7 @@
 | 投影 | 元データから、特定の用途に必要な値を取り出した表現。 | projection、`ChartFileProjection` |
 | カタログ | 管理対象の譜面とフォルダの正本。ファイルの実在確認やリソース逆引きとは別の役割。 | catalog、`OwnedChartCollectionState` |
 | 所持譜面 | カタログ上で管理される譜面。未実行の導入対象や推定先だけでは所持としない。 | owned chart |
+| 実効LR2ルート | 実行時の処理が使うLR2ルート。保存した `LR2RootPath` が空でなければその値、空なら `song.db` と設定XMLが同じ標準配置にある場合だけ推測した値で、決められなければ空。設定へは保存しない。規則は[設定仕様](runtime/settings.md#実効lr2ルート)を正本とする。 | `Lr2EffectiveRoot`、入力スナップショットの `LR2RootPath` |
 | パッケージ | 導入・保留・移動などで扱う譜面と関連ファイルのまとまり。 | package、`ChartPackage` |
 | リコメンド | 同梱Walkureモデルと選択中のローカルスコアから、ランプを更新できそうな譜面を提示する機能。一般的な「おすすめ」と区別する。 | Recommend、リコメンド、`PlaylistRecommendedTableOwner` |
 | 保留 | 導入先未確定などの理由で、通常の所持譜面として導入していない状態。 | pending |

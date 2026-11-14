@@ -67,7 +67,7 @@ public sealed class BmsLibraryInitializationFileScanTests
             + escapedBmsDirectoryPath
             + "</path></jukebox></config>",
             Encoding.UTF8);
-        var lr2Config = new LR2Config(configPath);
+        LR2Config lr2Config = TestLr2ConfigFactory.Load(configPath);
         var lr2ConfigOwner = new BeMusicSeeker.Models.LR2.Lr2ConfigOwner(lr2Config);
         BmsLibraryOptionsSnapshot options = new()
         {

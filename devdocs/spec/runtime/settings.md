@@ -306,6 +306,40 @@ falseで省略するのは、導入先が未設定の保留パッケージを新
 - 保存された設定XMLのパスが欠落・読取不能・不正な場合も、別の設定の保存や画面の再表示を理由に、生のパスを消しません。パス文字列、解析済みの設定、表示用の状態を分けます。
 - LR2連携モードで `LR2RootPath` が空の既存設定は非推奨ですが、互換性のため、それだけでは保存を拒否しません。一般ページのLR2ディレクトリ欄へ `Warning` と理由を表示し、値を設定するよう促します。この警告は、参照操作で不正な候補を選んだ一時的な選択エラーとは別に扱い、ルートを設定した場合と単独動作モードでは表示しません。ルートから子パスを推測する代替は追加しません。
 
+#### 実効LR2ルート
+
+実行時の処理が使うLR2ルートは、[`Lr2EffectiveRoot`](../../../BeMusicSeeker/Models/LR2/Lr2EffectiveRoot.cs) が一か所で決めます。これを実効LR2ルートと呼びます。
+
+| 条件 | 実効LR2ルート |
+| --- | --- |
+| 保存した `LR2RootPath` が空でない | その値。モードや他のパスには依りません。 |
+| 保存値が空で、LR2連携モード、`song.db` が `X\LR2files\Database\song.db`、設定XMLが `X\LR2files\Config\config.xml` または `config.xmh`、両方の `X` が同じ | `X` |
+| それ以外（片方だけ標準配置、`X` の食い違い、どちらも非標準、単独動作モード） | 空 |
+
+- `X` は、完全修飾のパスを構文だけで正規化し、大文字小文字を区別せずに比較します。完全修飾でないパスは推測の対象にせず、現在ディレクトリで補いません。
+- ファイルや `LR2body.exe` などの存在は条件にせず、判定でディスクを読みません。
+- 推測した値は設定へ保存しません。LR2ディレクトリの入力欄、環境の確定・比較、状態表示の由来（[個別のパス](#個別のパス)）は保存値のまま扱います。旧設定の移入時の補完は[設定の保存](settings-persistence.md)に従い、この規則とは別です。
+- 起動・操作の入力スナップショット（`StartupSettingsSnapshot`、`BmsLibraryOptionsSnapshot`、`CustomFolderOutputSettingsSnapshot`）の `LR2RootPath` は実効LR2ルートを運びます。起動時の `song`・`folder` 表の補正（`song.db` が実効LR2ルートの標準配置にある場合だけ行います。[全folder行の取得](../integration/lr2-song-db.md#全folder行の取得)）、`jukebox` の相対登録の解決、LR2同期、組込みカスタムフォルダ、スコアDB、バックアップ、予約領域の検査、LR2本体の解決は、すべてこの値を使います。`song.db` や設定XMLのパスから個別には推測しません。
+- 設定画面の予約領域の検査、LR2本体の不備判定、履歴DBの対象のスコアDBは、対象の環境（確定設定、または確定前の候補の組）の実効LR2ルートを使います。
+
+一般ページのLR2ディレクトリ欄の警告は、編集中のモード・ルート・`song.db`・設定XMLから判定します。
+
+| 編集中の値 | 欄の表示 |
+| --- | --- |
+| 単独動作モード、またはルートが空でない | 表示しません。 |
+| LR2連携モードでルートが空、実効LR2ルートを推測できる | `Warning`。未設定のため `song.db` と設定XMLの場所から推測したパスで動作していることと、LR2ディレクトリの設定を推奨することを、推測したパスとともに伝えます。 |
+| LR2連携モードでルートが空、推測できない | `Warning`。[三つの制約](#実効lr2ルートが空の場合の制約)と、LR2ディレクトリを設定すべきことを伝えます。 |
+
+#### 実効LR2ルートが空の場合の制約
+
+実効LR2ルートが空のLR2連携は、次の三点を除いて通常どおり動作します。起動・再読込み・LR2同期は失敗させず、完了済みの同期状態 `Completed` も維持します。
+
+1. LR2のスコアDBを利用できません。
+2. LR2の組込みカスタムフォルダ（`LR2files\CustomFolder`）の場所が分からないため、`folder` 表へ同期しません。既存の組込み行を特別には扱わず、通常の同期の結果に任せます。
+3. バックアップでスコアDBのディレクトリを対象から外します。空のルートから相対パスを作らず、`song.db` など他の対象の保存は続けます。対象がスコアDBだけの場合は、対象を選んでいない場合と同じく保存しません。
+
+相対パスの `song`・`folder` 行は、行を削除せず、パスも絶対化せずに保持します（[全folder行の取得](../integration/lr2-song-db.md#全folder行の取得)）。`jukebox` の相対登録は解決しません（[LR2ルートを基準にした登録パス](../integration/lr2-song-db.md#lr2ルートを基準にした登録パス)）。
+
 #### 設定XMLの検査
 
 正本が未成立の場合と、未採用の別パスの入力検証は、`Lr2ConfigSession.TryResolve` を入口とします。
@@ -361,6 +395,11 @@ LR2連携で「有効かつ出力先が有効」の組が新たに成立した�
 ### LR2設定の所有・候補・公開
 
 `ApplicationComposition` の `Lr2ConfigSession` が採用先を保持し、`Lr2ConfigOwner` がそのXML全文の正本を一つ所有します。
+
+- 所有者は設定XMLのパスごとに一つで、相対登録の基準にする[実効LR2ルート](#実効lr2ルート)を保持します。`LR2Config` は構築時に受け取ったルートだけを使い、設定XMLの場所からは推測しません。
+- 同じ設定XMLのまま実効LR2ルートが変わる環境変更（ルートが空のまま `song.db` だけを個別指定へ変える、など）は、起動時の検査入口と、有効なプロファイルがない状態の環境確定（モードだけの確定を含む）で、同じ所有者を新しいルートへ束縛し直して反映します。ファイルは読み直さず、保存済みの全文を新しいルートで解釈して公開入力を作り直し、分類用の配置は次の接続で入れ直します。稼働中の環境変更は、プロセスの再起動で反映します。
+- 確定前の環境候補の検査は、所有者の状態を変えず、候補の実効LR2ルートで解釈した登録を使います。登録計画用の一時文書は、保存先の所有者と同じルートで作ります。
+- 環境確定での束縛し直しと、候補の実効LR2ルートによる予約領域の検査は、[`SettingDialogEnvironmentConfirmationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogEnvironmentConfirmationTests.cs) の `InitialEnvironmentCommit_RebindsAdoptedLr2ConfigOwnerToConfirmedEffectiveRoot` と `InitialEnvironmentCommit_ChecksReservedBuiltinFolderWithCandidateEffectiveRoot` が確認します。
 
 - 初回の採用後の外部のXMLの変更・破損は、参照・再表示・取消・同じパスの選択・保存前の検証へ取り込みません。次の実際の書込みは、採用した全文と、本アプリケーションで成立した変更から行います。参照・再表示だけでは再保存しません。明示確定では、今回の関連入力を改めて保存できます。新しいプロセスは、その時点のファイルを読み込みます。
 - 正本は、config・jukeboxの未知の属性・未知の子と、継続するpathの未知の属性を保持します。削除要求の対象path以外を、一覧の置換の都合で消しません。バイト単位の書式の保持は保証しません。
@@ -562,7 +601,7 @@ LR2で変更前に有効な `BMSInstallDir` が、今回の通常・追加・ROO
 
 #### 組込みの予約領域の検査時機
 
-確定したLR2ルートが分かる場合、組込みの `LR2files/CustomFolder` に関する配置条件は[出力先と事前検査](../playlist/lr2-custom-folders.md#出力先と事前検査)に従います。設定側は、次の時機に一回ずつ検査します。
+確定した環境の[実効LR2ルート](#実効lr2ルート)が分かる場合、組込みの `LR2files/CustomFolder` に関する配置条件は[出力先と事前検査](../playlist/lr2-custom-folders.md#出力先と事前検査)に従います。設定側は、次の時機に一回ずつ検査します。
 
 - 起動共通の受理。
 - 出力区分の受付後、最初の保存の前。
@@ -666,6 +705,9 @@ setterや、通常の走査・表の編集・出力・同期では、組込み�
 | 通常Close・Esc・再表示と、受理済みの入力の寿命 | 設定ViewModel・Windowと、MainWindowの表示/終了の接続 | `SettingsWindowPresentationTests.RunViewOperation_NormalCloseAndEscapePreserveTaskAcrossReopen` が、実際のClosed通知の後の未確定BMT候補の破棄、保存済みの通常項目の保持と、新しいWindowの同じ未完了Task・操作制限を確認する。`MainWindow_NormalSettingsCloseEndsModalBeforeActualFileDiffTerminates` が実MainWindowとFileDiff・LとP・終了の合流を、`BmsConfirmation_CapturesRootsAndReplacementBeforeCloseDuringPreparation` と `SectionConfirmation_PreparationReopenAdoptsOnlySavedSection` が受理済みの入力の保持を分担する。`BackupPage_RestoreSuccessClosesOnceDespiteCompletionAndExitNoticeFailures` が、必要なUI待ちのClose/Escの保留を分担する。 |
 | 非同期の実操作の単一受付、拒否前の副作用なし、独立した同期保存と終端 | `SettingsDialogViewModel.Operation`、設定Windowと各ページ | `SettingsDialogBehaviorTests`、`SettingsWindowCompiledBehaviorTests`、`SettingDialogEditCompletionTests`、`SettingDialogOperationShutdownTests` が、VMの受付、実際のRadio、実際の入口と、Shellの直接の合流を分担する。自動の音声列挙・能力照会は、既存の音声の系列が担う。 |
 | 出力への有効な導入先の取込みの拒否と再操作 | `ValidateOutputBasePreservesInstallDirectory`、局所出力確定 | `SettingDialogCustomFolderOutputBaseTests.OutputBase_ProtectsConfirmedInstallDirectory` の、通常・追加・ROOTの同一/包含する親、大小文字・末尾・BMS2、既存の不正な状態の互換性と、既存の実媒体の系列での副作用0、別の導入先を選択した後の成功を維持する。 |
+| 実効LR2ルートの規則 | [`Lr2EffectiveRoot`](../../../BeMusicSeeker/Models/LR2/Lr2EffectiveRoot.cs) | [`Lr2EffectiveRootTests`](../../../tests/BeMusicSeeker.Core.Tests/Lr2/Lr2EffectiveRootTests.cs) が、保存値の優先、両方が同じ `X` の標準配置（`config.xmh`、大文字小文字・`.` 要素・区切りの違いを含む）での推測、片方だけ・食い違い・非標準・空・単独動作・完全修飾でないパスでの非推測、ファイルの実在に依らないことを確認する。 |
+| 入力スナップショットへの実効LR2ルートの受渡し | `StartupSettingsSnapshot`、`BmsLibraryOptionsSnapshot`、`CustomFolderOutputSettingsSnapshot` の `CreateCurrent` | [`StartupSettingsSnapshotTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupSettingsSnapshotTests.cs) が、三つのスナップショットとLR2本体のパスが実効LR2ルートから決まり、保存値は空のまま変わらないこと、`song.db` だけが標準配置の環境では空になることを確認する。 |
+| LR2ディレクトリ欄の警告の切替 | `SettingsDialogViewModel.Lr2RootPathValidationMessage` | [`SettingDialogPathSelectionTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogPathSelectionTests.cs) が、推測できる場合の推測パス入りの警告、推測できない場合の制約の警告、ルート設定済み・単独動作での非表示、入力欄へ推測値を入れないこと、`song.db` の候補変更での切替と通知を確認する。辞書の整合は[全件共通検査](../development/test-authoring.md#表示リソースの検査)が担う。 |
 | LR2の初回・未採用の入力の検査 | [`Lr2ConfigSession.TryResolve`](../../../BeMusicSeeker/Models/LR2/Lr2ConfigOwner.cs) | [`LR2ConfigTests`](../../../tests/BeMusicSeeker.Core.Tests/Lr2/LR2ConfigTests.cs) が、未指定・不正なパス、不完全なXML・必須構造の欠落の拒否と元ファイルの保持、xml/xmh・欠落した登録・空のjukeboxの受理と、参照時の非変更を確認する。採用後の外部変更を採用しないことは、所有者の局所検証が分担する。 |
 | BMS候補の確認後の破棄、正本と公開入力の分離 | `SettingsDialogViewModel.Confirmation`、`Lr2ConfigOwner` | `ConflictingBmsCandidates_SwitchOnlyAfterValidAcceptedOperation` が、取消・承認・確認中のP先着と、無関係な候補の保持を、通常の入口で分担する。`Lr2OutputConfirmationDiscardsApprovedCandidatesWithoutResurrectingOldOutput`、`Lr2UserRootAdoptionDiscardsCandidatesBeforeMovingOutputAndConfirmingBms` が、候補の破棄後の旧管理登録の非復活と一般ファイルの保全を、実際の所有者で確認する。XMLの部分成功・管理表の削除は既存の `Lr2Partial*` 系列、コンパイル済みの選択画面・実Bindingは `CompiledOutputSelection_CommitsOnlySelectedPlacementAndKeepsCancelledMedia` が分担する。 |
 | 本文端と余白の一回の適用、分類・見出し・操作の固定 | `SettingsWindow.xaml`、`SettingsControls.xaml`、11の設定ページ | `SettingsWindowPresentationTests.SettingsWindow_SidebarReachesNativeClientEdgeWhilePageKeepsInnerSpacing` が左分類・本文端と内容のinsetを、`SettingsWindow_AllPagesFitActualMinimumWidthViewport` が11ページの横方向の到達性を、`AudioSettingsPage_LongDeviceTestStatusWrapsAtMinimumWindowWidthAndKeepsFullAutomationName` が採用する最小幅での長文の折返しを確認する。`SettingsControlPresentationTests.SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll` が、本文の移動中の見出し・フッターの固定と、分類の変更時の先頭復帰を分担する。 |
