@@ -1105,7 +1105,7 @@ internal sealed class PlaylistPropertyEditSession : IDisposable
 
     internal IReadOnlyList<string> OtherOutputDirectories { get; }
 
-    /// <summary>開いた時点の他の表の名前。入力時の同名の案内だけに使い、保存の可否は保存時の正本集合で判定します。</summary>
+    /// <summary>開いた時点の他の表の名前。同名の入力で出力先の案内を重ねないためだけに使い、保存の可否は保存時の正本集合で判定します。</summary>
     internal IReadOnlySet<string> OtherNames { get; }
 
     /// <summary>開いた時点の編集する表の公開済みの実効先。新規の表、LR2モードでない、未解決の追加基点ではnullです。配置が変わらない保存を、保存済みの衝突で拒否しないために使います。</summary>

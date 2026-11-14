@@ -2342,7 +2342,7 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
 
     /// <summary>新規/既存・LR2/単独で、他の表と同名になる保存を実sessionと既存のViewModel経路で拒否し、DB・正本・別項目・出力を保ちます。同じsessionで大文字小文字だけが異なる名前へ訂正して保存します。</summary>
     /// <remarks>
-    /// LR2では名前由来の出力先も相手と重なりますが、案内は同名の一件だけです。別名で出力先だけが重なる "Gamma" は出力先の案内になり、同名を配置の重なりから推定する誤りを検出します。
+    /// LR2では名前由来の出力先も相手と重なりますが、案内は保存時の同名の一件だけで、入力時には何も案内しません。別名で出力先だけが重なる "Gamma" は出力先の案内になり、同名を配置の重なりから推定する誤りを検出します。
     /// BindingとOK接続は変更せず既存WPF系列へ分担します。
     /// </remarks>
     [TestMethod]
@@ -2374,9 +2374,9 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         using PlaylistOperationNotificationOwner.OperationNotificationSession notices = scenario.Playlist.OperationNotificationOwner.BeginSession();
         using var dialog = new PlaylistPropertyDialogViewModel(scenario.Service, session, UndeclaredDialogs.Create());
         dialog.name = " Sibling ";
-        Assert.AreEqual(Resources.Error_PlaylistAlreadyExists, notices.TakeReceipt().Notifications.Single().FormatMessage(), "入力時は同名の一件だけを案内し、出力先の案内を重ねません。");
+        Assert.IsTrue(notices.TakeReceipt().IsEmpty, "同名の入力時は案内せず、LR2の出力先の案内も出しません。");
         Assert.AreEqual(PlaylistPropertyDialogOperationResult.DuplicatePlaylistName, await dialog.SaveAndApplyAsync());
-        Assert.AreEqual(Resources.Error_PlaylistAlreadyExists, notices.TakeReceipt().Notifications.Single().FormatMessage(), "保存時も同名として案内します。");
+        Assert.AreEqual(Resources.Error_PlaylistAlreadyExists, notices.TakeReceipt().Notifications.Single().FormatMessage(), "同名は保存時に一回だけ案内します。");
         AssertUnchanged("画面からの保存の拒否");
 
         if (lr2)

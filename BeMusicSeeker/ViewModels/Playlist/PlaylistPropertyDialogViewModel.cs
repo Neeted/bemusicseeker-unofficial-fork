@@ -241,12 +241,9 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
                 }
                 RaisePropertyChanged("name");
                 RaisePropertyChanged(nameof(output_dir));
-                // 同名は名前由来の出力先も重なるため、同名として一回だけ案内します。
-                if (saveService.IsDuplicateNameInput(editSession, _name))
-                {
-                    saveService.NotifyValidationError(PlaylistPropertyValidationError.DuplicatePlaylistName);
-                }
-                else if (temp_custom_folder_output_settings?.OperationModeLR2DB == true && !IsOutputDirValid())
+                // 同名は保存時に一回だけ案内します。入力時は、名前由来の出力先の重なりも同名が原因のため案内しません。
+                if (!saveService.IsDuplicateNameInput(editSession, _name)
+                    && temp_custom_folder_output_settings?.OperationModeLR2DB == true && !IsOutputDirValid())
                 {
                     saveService.NotifyValidationError(PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName);
                 }
