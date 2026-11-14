@@ -32,7 +32,8 @@
 | テストの追加・変更・削除、保証の分担 | [テスト設計](devdocs/spec/development/test-authoring.md)、[テスト配下の指針](tests/AGENTS.md) |
 | 検証の実行範囲・期限・結果判定 | [テスト検証](devdocs/spec/development/testing.md) |
 | テストの実行基盤（並列実行、資源の分離、待機、外部プロセス） | [テストの実行基盤](devdocs/spec/development/test-runtime.md) |
-| 画面を扱うテストの分離 | [画面テストの分離](devdocs/spec/development/ui-test-isolation.md) |
+| 画面を扱うテストの書き方（共有ホスト、表示入力と待機、ダイアログ窓口） | [画面テストの分離](devdocs/spec/development/ui-test-isolation.md) |
+| 画面テストの検出器と境界処理の保守、`[BMS-OBS]` の失敗の診断 | [共有ホストの観測とケース境界の検査](devdocs/spec/development/ui-test-host-observation.md) |
 | ビルド・検証・配布スクリプト | [スクリプト配下の指針](scripts/AGENTS.md) |
 
 委譲した実装の不備は、まず元の実装担当へ差し戻します。差し戻し先の選択は[不備の差し戻し](devdocs/spec/development/agent-workflow.md#不備の差し戻し)、レビューの反復が上限に達したときの再計画と `issue-resolver` への切替は[反復回数と再計画](devdocs/spec/development/agent-workflow.md#反復回数と再計画)に従います。
