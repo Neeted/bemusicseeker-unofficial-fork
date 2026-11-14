@@ -109,7 +109,8 @@ public sealed class ManagedPlaylistOutputPlacementTests
                 values.LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "Root");
                 values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(root, "Extra")]);
             });
-            var first = new BMSTable { playlist_id = 801, name = "Parent", Output_dir = edit is "name" or "draft" ? "Parent" : "Parent", is_root_folder = edit == "root" };
+            // 相手の表は別名にして明示出力名だけを "Parent" とし、同名の拒否ではなく名前由来の配置の重なりで拒否されることを確認します。
+            var first = new BMSTable { playlist_id = 801, name = "First", Output_dir = "Parent", is_root_folder = edit == "root" };
             var edited = new BMSTable
             {
                 playlist_id = edit == "draft" ? null : 802,
@@ -135,7 +136,11 @@ public sealed class ManagedPlaylistOutputPlacementTests
             }
             int notices = 0;
             edited.PropertyChanged += (_, _) => notices++;
-            Assert.IsNull((await service.TrySaveAsync(session, session.Values)).Commit);
+            (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) rejected = await service.TrySaveAsync(session, session.Values);
+            Assert.IsNull(rejected.Commit);
+            Assert.AreEqual(edit is "name" or "draft"
+                ? PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName
+                : PlaylistPropertyValidationError.InvalidOutputDirectory, rejected.ValidationError, "配置の拒否は、名前の変更によるものかどうかを区別して返します。");
             Assert.AreEqual(0, notices);
             Assert.AreEqual("Other", edited.name);
             Assert.AreEqual(edit == "base" ? "Extra" : null, edited.custom_folder_output_base_name);

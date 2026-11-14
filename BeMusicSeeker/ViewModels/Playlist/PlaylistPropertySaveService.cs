@@ -111,7 +111,10 @@ internal sealed class PlaylistPropertySaveService
                         .Where(candidate => candidate != null && candidate != table && !string.IsNullOrWhiteSpace(candidate.Output_dir))
                         .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir)
                         .ToArray(),
-                    !isNewTable && settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : null);
+                    !isNewTable && settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : null,
+                    (store.BMSTables?.Cast<BMSTable>() ?? Enumerable.Empty<BMSTable>())
+                        .Where(candidate => candidate != null && !ReferenceEquals(candidate, table) && candidate.name != null)
+                        .Select(candidate => candidate.name));
             }
         }
         finally
@@ -143,6 +146,35 @@ internal sealed class PlaylistPropertySaveService
             return false;
         }
         return true;
+    }
+
+    /// <summary>入力中の名前が、開いた時点の他の表と同名になる変更かを返します。名前を変更しない入力は、保存済みの同名があっても同名としません。</summary>
+    internal bool IsDuplicateNameInput(PlaylistPropertyEditSession session, string playlistName)
+    {
+        if (session == null)
+        {
+            throw new ArgumentNullException(nameof(session));
+        }
+        session.ThrowIfDisposed();
+        return IsNameChange(session, playlistName) && session.OtherNames.Contains(playlistName ?? string.Empty);
+    }
+
+    // 新規の表は旧名を持たないため、常に名前の変更として扱います。
+    private static bool IsNameChange(PlaylistPropertyEditSession session, string playlistName)
+        => session.IsNewTable || !string.Equals(session.OriginalValues.Name, playlistName, StringComparison.Ordinal);
+
+    // 保存の可否は、受付を保持した時点の正本集合で判定します。編集する表自身は比較しません。
+    private static bool IsDuplicateNameForSave(PlaylistPropertyEditSession session, PlaylistPropertyValues values)
+    {
+        if (!IsNameChange(session, values.Name)) { return false; }
+        session.Store.AcquireReaderLockBMSTables();
+        try
+        {
+            return session.Store.BMSTables?.Cast<BMSTable>().Any(candidate => candidate != null
+                && !ReferenceEquals(candidate, session.Table)
+                && string.Equals(candidate.name, values.Name, StringComparison.Ordinal)) == true;
+        }
+        finally { session.Store.FreeReaderLockBMSTables(); }
     }
 
     internal bool IsOutputDirectoryValid(
@@ -299,6 +331,8 @@ internal sealed class PlaylistPropertySaveService
             return (null, PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName);
         }
         if (string.IsNullOrWhiteSpace(values.Name)) { return (null, null); }
+        // 同名は、未完了出力の継続とLR2配置の検査より前に、同名として拒否します。
+        if (IsDuplicateNameForSave(session, values)) { return (null, PlaylistPropertyValidationError.DuplicatePlaylistName); }
         if (session.PendingOutput != null)
         {
             var continuation = new PlaylistPropertySaveCommit(null, session.Table, session.Settings, session.IsNewTable)
@@ -313,8 +347,8 @@ internal sealed class PlaylistPropertySaveService
             if (continuation.Exception != null) { return (continuation, null); }
             session.PendingOutput = null;
         }
-        PlaylistPropertySaveCommit commit = TrySaveCore(session, values);
-        if (commit == null) { return (null, null); }
+        (PlaylistPropertySaveCommit commit, PlaylistPropertyValidationError? saveError) = TrySaveCore(session, values);
+        if (commit == null) { return (null, saveError); }
         try
         {
             if (!commit.IsNewDraft)
@@ -356,7 +390,8 @@ internal sealed class PlaylistPropertySaveService
         finally { session.Store.FreeReaderLockBMSTables(); }
     }
 
-    private PlaylistPropertySaveCommit TrySaveCore(
+    /// <returns>確定に使う保存内容、または未保存を示すnullと理由。LR2配置による拒否だけ理由を返し、他の入力不備の理由はnullです。</returns>
+    private (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) TrySaveCore(
         PlaylistPropertyEditSession session,
         PlaylistPropertyValues values)
     {
@@ -369,7 +404,7 @@ internal sealed class PlaylistPropertySaveService
             if (!ReferenceEquals(store, GetPlaylistStore()) || (!session.IsNewTable
                 && store.BMSTables?.Cast<BMSTable>().Any(candidate => ReferenceEquals(candidate, table)) != true))
             {
-                return null;
+                return (null, null);
             }
             if (!string.Equals(table.compat_prefix, values.CompatPrefix, StringComparison.Ordinal))
             {
@@ -386,16 +421,20 @@ internal sealed class PlaylistPropertySaveService
                     throw new InvalidOperationException(
                         "Playlist properties changed after editing began. Reopen the dialog and apply the edit again.");
                 }
-                if (!IsValid(table, store, settings, values))
+                if (!IsValid(table, store, settings, values, out bool placementRejected))
                 {
-                    return null;
+                    // 配置の拒否は、名前の変更によるものか、出力名・基点などの変更によるものかを区別して返します。
+                    return (null, !placementRejected ? null
+                        : IsNameChange(session, values.Name)
+                            ? PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName
+                            : PlaylistPropertyValidationError.InvalidOutputDirectory);
                 }
                 if (!string.Equals(table.compat_prefix, values.CompatPrefix, StringComparison.Ordinal)
                     && !table.CanRewriteCompatibleFolderPrefix(
                         table.compat_prefix,
                         values.CompatPrefix))
                 {
-                    return null;
+                    return (null, null);
                 }
 
                 Uri pageUrl = NormalizeUriTextForStandardStorage(values.PageUrl);
@@ -405,7 +444,7 @@ internal sealed class PlaylistPropertySaveService
                 bool collidedBefore = !session.IsNewTable && settings.OperationModeLR2DB && store.FindCollidingOutputTables(settings).Contains(table);
                 var baseline = PlaylistPropertyBaseline.Capture(table, !session.IsNewTable && settings.OperationModeLR2DB && !collidedBefore
                     ? ResolveCustomFolderOutputDirectory(table, settings) : null, hasPreviousOutput: !session.IsNewTable && !collidedBefore);
-                return new PlaylistPropertySaveCommit(
+                return (new PlaylistPropertySaveCommit(
                     baseline,
                     table,
                     settings,
@@ -413,7 +452,7 @@ internal sealed class PlaylistPropertySaveService
                 {
                     HeaderEdit = CreateHeaderEdit(table, session.OriginalValues, values, pageUrl, headerUrl, dataUrl),
                     PrefixFolderSelectionMap = table.CreateValidatedCompatibleFolderPrefixRewriteMap(table.compat_prefix, values.CompatPrefix)
-                };
+                }, null);
             }
         }
         finally
@@ -857,7 +896,8 @@ internal sealed class PlaylistPropertySaveService
         BMSTable table,
         BMSPlaylist store,
         CustomFolderOutputSettingsSnapshot settings,
-        PlaylistPropertyValues values)
+        PlaylistPropertyValues values,
+        out bool placementRejected)
     {
         return IsValid(
             settings,
@@ -866,7 +906,8 @@ internal sealed class PlaylistPropertySaveService
                 .Where(candidate => candidate != null && candidate != table && !string.IsNullOrWhiteSpace(candidate.Output_dir))
                 .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir),
             settings.OperationModeLR2DB && store.BMSTables?.Cast<BMSTable>().Contains(table) == true
-                ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : null);
+                ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : null,
+            out placementRejected);
     }
 
     private static bool IsValidForPresentation(
@@ -877,15 +918,19 @@ internal sealed class PlaylistPropertySaveService
             session.Settings,
             values,
             session.OtherOutputDirectories,
-            session.OriginalOutputDirectory);
+            session.OriginalOutputDirectory,
+            out _);
     }
 
+    /// <param name="placementRejected">他の条件を満たし、LR2配置の検査だけで拒否した場合にtrueです。</param>
     private static bool IsValid(
         CustomFolderOutputSettingsSnapshot settings,
         PlaylistPropertyValues values,
         IEnumerable<string> otherOutputDirectories,
-        string originalOutputDirectory)
+        string originalOutputDirectory,
+        out bool placementRejected)
     {
+        placementRejected = false;
         if (string.IsNullOrWhiteSpace(values.Name)) { return false; }
         if ((values.PageUrl != null && (!IsUrlValid(values.PageUrl) || !values.PageUrl.IsAbsoluteUri))
             || !IsUrlValid(values.HeaderUrl)
@@ -900,7 +945,11 @@ internal sealed class PlaylistPropertySaveService
         }
         if (settings.OperationModeLR2DB)
         {
-            if (!IsPlacementValid(settings, values, otherOutputDirectories, originalOutputDirectory)) { return false; }
+            if (!IsPlacementValid(settings, values, otherOutputDirectories, originalOutputDirectory))
+            {
+                placementRejected = true;
+                return false;
+            }
             NormalizeFolderSettings(values);
         }
         return true;
@@ -1008,8 +1057,10 @@ internal sealed class PlaylistPropertyEditSession : IDisposable
         CustomFolderOutputSettingsSnapshot settings,
         PlaylistPropertyValues values,
         IReadOnlyList<string> otherOutputDirectories,
-        string originalOutputDirectory = null)
+        string originalOutputDirectory = null,
+        IEnumerable<string> otherNames = null)
     {
+        OtherNames = new HashSet<string>(otherNames ?? [], StringComparer.Ordinal);
         Store = store;
         Table = table;
         IsNewTable = isNewTable;
@@ -1053,6 +1104,9 @@ internal sealed class PlaylistPropertyEditSession : IDisposable
     }
 
     internal IReadOnlyList<string> OtherOutputDirectories { get; }
+
+    /// <summary>開いた時点の他の表の名前。入力時の同名の案内だけに使い、保存の可否は保存時の正本集合で判定します。</summary>
+    internal IReadOnlySet<string> OtherNames { get; }
 
     /// <summary>開いた時点の編集する表の公開済みの実効先。新規の表、LR2モードでない、未解決の追加基点ではnullです。配置が変わらない保存を、保存済みの衝突で拒否しないために使います。</summary>
     internal string OriginalOutputDirectory { get; }
@@ -1350,7 +1404,9 @@ internal enum PlaylistPropertyValidationError
     InvalidPageUri,
     InvalidHeaderUri,
     InvalidDataUri,
-    InvalidExternalSyncUris
+    InvalidExternalSyncUris,
+    /// <summary>名前を変更する保存または入力が、他の表と同名になる。</summary>
+    DuplicatePlaylistName
 }
 
 internal sealed class PlaylistPropertyFolderSelectionRemappedEventArgs : EventArgs

@@ -1193,19 +1193,32 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return [];
         }
-        if (settings?.OperationModeLR2DB != true)
-        {
-            return [.. pendingChanges];
-        }
-
+        bool operationModeLR2DB = settings?.OperationModeLR2DB == true;
+        // 名前を変える対象は、いずれかの表の現在の名前と、先に受理した対象の新しい名前を避けます。
+        // 除外した対象と、同じ操作で名前が変わる対象の旧名も残すため、名前の入替えは受理しません。
+        var reservedNames = new HashSet<string>(
+            GetPlaylistStore().BMSTables.Where(table => table?.name != null).Select(table => table.name), StringComparer.Ordinal);
         // 除外した表は旧配置に残るため、受理するごとに現在の最終集合を置き換えます。
         // 配置が変わる表だけが他の表と重なる場合に除外し、配置が変わらない表同士の保存済みの衝突は問いません。
-        var currentDirectories = GetPlaylistStore().BMSTables.Where(table => !string.IsNullOrWhiteSpace(table.Output_dir)).ToDictionary(table => table,
-            table => ManagedPlaylistOutputPlacement.Resolve(table, settings));
-        var finalDirectories = new Dictionary<BMSTable, string>(currentDirectories);
+        Dictionary<BMSTable, string> finalDirectories = operationModeLR2DB
+            ? GetPlaylistStore().BMSTables.Where(table => !string.IsNullOrWhiteSpace(table.Output_dir)).ToDictionary(table => table,
+                table => ManagedPlaylistOutputPlacement.Resolve(table, settings))
+            : [];
         var acceptedChanges = new List<PlaylistSummaryExternalPropertyInitializationChange>();
         foreach (PlaylistSummaryExternalPropertyInitializationChange change in pendingChanges)
         {
+            bool nameChanged = !string.Equals(change.OriginalName, change.DesiredName, StringComparison.Ordinal);
+            if (nameChanged && reservedNames.Contains(change.DesiredName))
+            {
+                LogPlaylistSummaryBulkWarning("playlist_summary_external_property_initialization_skipped reason=duplicate_name table=" + change.Table.name);
+                continue;
+            }
+            if (!operationModeLR2DB)
+            {
+                if (nameChanged) { reservedNames.Add(change.DesiredName); }
+                acceptedChanges.Add(change);
+                continue;
+            }
             if (string.IsNullOrWhiteSpace(change.EffectiveOutputDirAfter)) { continue; }
             string candidate = ManagedPlaylistOutputPlacement.Resolve(change.DesiredName, change.DesiredOutputDir,
                 change.Table.custom_folder_output_base_name, change.Table.is_root_folder, settings);
@@ -1219,6 +1232,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 continue;
             }
             finalDirectories[change.Table] = candidate;
+            if (nameChanged) { reservedNames.Add(change.DesiredName); }
             acceptedChanges.Add(change);
         }
         return acceptedChanges;

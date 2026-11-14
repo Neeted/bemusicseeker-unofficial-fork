@@ -241,7 +241,12 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
                 }
                 RaisePropertyChanged("name");
                 RaisePropertyChanged(nameof(output_dir));
-                if (temp_custom_folder_output_settings?.OperationModeLR2DB == true && !IsOutputDirValid())
+                // 同名は名前由来の出力先も重なるため、同名として一回だけ案内します。
+                if (saveService.IsDuplicateNameInput(editSession, _name))
+                {
+                    saveService.NotifyValidationError(PlaylistPropertyValidationError.DuplicatePlaylistName);
+                }
+                else if (temp_custom_folder_output_settings?.OperationModeLR2DB == true && !IsOutputDirValid())
                 {
                     saveService.NotifyValidationError(PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName);
                 }
@@ -710,6 +715,12 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             (commit, PlaylistPropertyValidationError? validationError) = await saveService.TrySaveAsync(editSession, values, capability);
             if (commit == null)
             {
+                if (validationError == PlaylistPropertyValidationError.DuplicatePlaylistName)
+                {
+                    // 同名の案内は操作の収集先へ積み、受付を解放した後に表示します。
+                    saveService.NotifyValidationError(PlaylistPropertyValidationError.DuplicatePlaylistName);
+                    return PlaylistPropertyDialogOperationResult.DuplicatePlaylistName;
+                }
                 return validationError == PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName
                     ? PlaylistPropertyDialogOperationResult.OutputDirectoryNameMustBeSingleName
                     : PlaylistPropertyDialogOperationResult.ValidationFailed;
@@ -814,5 +825,7 @@ internal enum PlaylistPropertyDialogOperationResult
     Completed,
     ValidationFailed,
     OutputDirectoryNameMustBeSingleName,
+    /// <summary>同名による拒否。案内はViewModelが通知済みで、画面は入力を保持して開いたままにします。</summary>
+    DuplicatePlaylistName,
     Busy
 }

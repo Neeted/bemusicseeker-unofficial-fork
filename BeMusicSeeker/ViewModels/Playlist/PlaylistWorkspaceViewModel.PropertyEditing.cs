@@ -370,10 +370,16 @@ public sealed partial class PlaylistWorkspaceViewModel
             return PlaylistSummaryPropertyEditCompletion.RequiresRefresh;
         }
 
+        // 理由を特定できる入力不備は、プロパティ画面と同じ文言で案内します。
         await ShowSummaryPropertyEditMessageAsync(
-            validationError == PropertyValidationError.OutputDirectoryNameMustBeSingleName
-                ? BeMusicSeeker.Properties.Resources.Error_OutputFolderNameMustBeSingleName
-                : BeMusicSeeker.Properties.Resources.Msg_invalid_setting,
+            validationError switch
+            {
+                PropertyValidationError.OutputDirectoryNameMustBeSingleName => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameMustBeSingleName,
+                PropertyValidationError.DuplicatePlaylistName => BeMusicSeeker.Properties.Resources.Error_PlaylistAlreadyExists,
+                PropertyValidationError.OutputDirectoryChangedByPlaylistName => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateChangePlaylist,
+                PropertyValidationError.InvalidOutputDirectory => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateCheckInput,
+                _ => BeMusicSeeker.Properties.Resources.Msg_invalid_setting
+            },
             "Playlist summary property edit validation error");
         return PlaylistSummaryPropertyEditCompletion.RequiresRefresh;
     }

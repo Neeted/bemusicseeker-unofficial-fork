@@ -23,6 +23,22 @@
 
 手動の新規作成とプロパティ保存では、LR2連携・スタンドアロンとも、空またはUnicode空白だけの表名を通常の入力検査で拒否します。外部同期表の手動編集も同じ条件です。非空白を含む表名はこの条件で拒否せず、前後の空白を新しく除去しません。拒否時はDB・正本・別項目・出力を保ち、同じ編集セッションで訂正して保存できます。外部同期とインポートのモデル読込みには、この制限を広げません。
 
+手動の新規作成と、名前を変更するプロパティ保存（プロパティ画面、概要のセル編集）では、LR2連携・スタンドアロンとも、他の表の名前と `Ordinal` で一致する表名を入力検査で拒否します。比較には保存する値を使い、大文字小文字だけが異なる名前は別の名前として受理します。拒否時の保証と訂正は空の表名と同じです。
+
+- 名前を変更しない保存は、保存済みの同名を理由に拒否しません。同名の表の一方を別の名前へ変更する保存は受理します。
+- DBの読込み、SQL復元、外部同期の再取得、内蔵表の名前の追従には、この検査を広げません。保存済みの同名の表はそのまま読み込みます。取込みでの同名の扱いは[インポート](../playlist/import.md)と[Table URL取込み](../playlist/table-url-import.md)に従います。
+- 同名の検査は、LR2連携の配置の検査より先に行います。名前由来の出力名が重なる場合も、同名が原因の拒否は同名として案内します。
+
+入力不備の案内は、拒否の理由ごとに次の文言を使い、プロパティ画面と概要のセル編集で揃えます。
+
+| 理由 | プロパティ画面 | 概要のセル編集 |
+| --- | --- | --- |
+| 同名 | 名前欄の入力時と保存時に `Error_PlaylistAlreadyExists`。入力時は、LR2連携の出力先の案内を重ねない。 | `Error_PlaylistAlreadyExists` |
+| LR2連携の配置（名前の変更による） | 名前欄の入力時に `Error_OutputFolderNameEmptyOrDuplicateChangePlaylist`、保存時に `Error_PlaylistPropertiesInvalid`。 | `Error_OutputFolderNameEmptyOrDuplicateChangePlaylist` |
+| LR2連携の配置（名前を変更しない） | 出力名欄の入力時に `Error_OutputFolderNameEmptyOrDuplicateCheckInput`、保存時に `Error_PlaylistPropertiesInvalid`。 | `Error_OutputFolderNameEmptyOrDuplicateCheckInput` |
+| パスを含む出力名 | `Error_OutputFolderNameMustBeSingleName` | `Error_OutputFolderNameMustBeSingleName` |
+| 上記以外（空の表名、接頭辞の衝突など） | `Error_PlaylistPropertiesInvalid` | `Msg_invalid_setting` |
+
 保存サービスは、新規表または出力名の生値を変更した要求だけを入力検査し、禁止入力は未完了出力の継続より前に理由付きで拒否します。既存値を変更せずに引き継ぐ別列の編集は許可します。
 
 LR2連携では、保存の事前検査を[共通配置条件](../playlist/lr2-custom-folders.md#出力先と事前検査)の一つの判定で行います。公開済みの配置と候補の配置を比べ、配置が変わる表または新規の表が、後の集合で他の表と同一・親子になる場合だけ、名前由来の出力名、明示した出力名、基点の選択、ルート型の変更、新規の編集中の値の登録を拒否します。拒否した編集はDB・正本へ適用しません。他の表同士の保存済みの衝突は問わないため、衝突を解消する保存は受理し、画面の入力の可否も保存と同じ判定です。配置が変わらない保存（配置以外の項目の保存）で、保存済みの衝突に残る表は、DBへ保存して出力を止め、止めた表を一件の警告で案内します。
@@ -122,7 +138,7 @@ BMT、外部同期、ルート型、出力種別、出力先、外部属性の�
 | 外部同期を有効にする | `EnableExternalSync` の実際の成否を用いる。URL不足などで有効化できない表はOFFのまま無通知で除外し、既にONの表は変更せず、新たに有効化した表だけを保存・出力する。全件が有効化不能でも通常の適用として終了し、入力は「変更なし」へ戻す。除外件数・表名の通知は追加しない。 |
 | 外部情報で初期化 | 指定した名前・シンボル・互換用接頭辞・出力先を、外部同期の有効状態にかかわらず取得情報から反映する。 |
 
-外部情報の取得は、上限付きの並列処理で先に行い、読めない対象は変更せず飛ばします。初期化では既存の接頭辞を保存する規則を使わず、選択された項目を外部の値から作ります。出力先がNULLなら名前から作り、Shift_JISで扱えない文字とファイル名の不正文字を除きます。接頭辞の衝突と、LR2出力先の空値・同一・包含は、対象ごとに除外します。除外した表の旧配置も残した最終集合を副作用の前に検査し、安全な表だけを更新します。
+外部情報の取得は、上限付きの並列処理で先に行い、読めない対象は変更せず飛ばします。初期化では既存の接頭辞を保存する規則を使わず、選択された項目を外部の値から作ります。出力先がNULLなら名前から作り、Shift_JISで扱えない文字とファイル名の不正文字を除きます。接頭辞の衝突と、LR2出力先の空値・同一・包含は、対象ごとに除外します。名前を変更する対象は、新しい名前が、いずれかの表の現在の名前、または同じ操作で先に受理した対象の新しい名前と `Ordinal` で一致する場合に、対象ごとに除外します。同じ操作で名前が変わる別の対象の旧名も現在の名前に含めるため、対象同士の名前の入替えは受理しません。除外は他の除外と同じく診断ログだけに残します。除外した表の旧配置も残した最終集合を副作用の前に検査し、安全な表だけを更新します。
 
 エントリの投影が変わる複数の対象は、一回のDBトランザクションで保存します。出力先が変わる場合は、移転元の不要な出力も処理し、同じ出力先の内容変更もまとめて出力します。取得・DB反映・出力・画面更新を一つの進捗範囲とし、最後にボタンを再び使用可能にします。BMTの内容に影響する操作は、有限の変更表をまとめて一回の出力Taskにし、その完了を直接待ちます。LR2専用設定だけの変更では、BMTを再生成しません。
 
@@ -158,8 +174,10 @@ BMT、外部同期、ルート型、出力種別、出力先、外部属性の�
 | 出力名の実Binding入力・訂正・取消 | `PlaylistPropertyDialog` | `MainWindowPlaylistWorkspaceWpfTests.PlaylistPropertyOutputName_InvalidBindingKeepsDraftAndAllowsCorrectionOrCancel` が未反映rawの実OK、専用通知、DB不変、訂正保存または取消を確認する。 |
 | 実効同期元と再取得条件 | `PlaylistPropertySaveService` | `PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_EffectiveSourceChangeReloadsOnlyWhenRequired` がPage追加・解除、Header変更、同一実効元と同期OFFを実sessionとSQLiteで確認する。保存後取得失敗と必要BMT・Reset基準は `BmsPlaylistCustomFolderOutputTests.PlaylistPropertyDialog_ExternalSourceFailureAdoptsSavedValuesAndCompletesRequiredOutput` が担う。 |
 | 表名の入力検査と訂正 | `PlaylistPropertySaveService` | [`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_BlankNamesRejectWithoutMutationAndAllowCorrection`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) は、実sessionの検査・保存と既存のViewModel経路で、空名の拒否、無変更、訂正後の保存を確認する。 |
+| 同名の表名の拒否と訂正、保存済みの同名の受理 | `PlaylistPropertySaveService`、[`PlaylistPropertyDialogViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertyDialogViewModel.cs) | 同クラスの `PlaylistPropertySave_DuplicateNamesRejectWithoutMutationAndAllowCorrection` は、新規・既存とLR2連携・スタンドアロンの組合せで、保存サービスと画面からの保存の拒否、DB・正本・出力の不変、入力時と保存時の同名の案内が一件であること、別名で出力先だけが重なる入力との区別、大文字小文字だけが異なる名前への訂正を確認する。`PlaylistPropertySave_StoredDuplicateNamesAcceptUnchangedNameAndRenameAway` は、保存済みの同名の表で、名前を変えない保存と別名への変更の受理、元の名前へ戻す入力を案内しないことをスタンドアロンで確認する。保存時の案内から所有画面の表示までは、既存の通知の経路が分担する。読込み・復元・再取得・内蔵表へ検査を広げないことは、検査の位置が保存サービスと一括初期化だけであることを静的に確認する。 |
+| 概要のセル編集の理由ごとの文言 | [`PlaylistWorkspaceViewModel.PropertyEditing`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.PropertyEditing.cs) | 同クラスの `PlaylistSummaryPropertyEdit_RejectionMessageFollowsReason` は、同名（LR2連携で出力先も重なる場合を含む）、名前の変更による配置、出力名の変更による配置、空の表名の各行で、文言が一件で理由に一致すること、再表示の要求、DBの不変、同名の拒否後の訂正を確認する。パスを含む出力名は `SummaryOutputName_RejectsRawBeforeEquivalentValueCheck` が担う。 |
 | LR2連携の最終配置の重なり拒否と、保存済みの衝突を問わない保存 | `PlaylistPropertySaveService` | [`ManagedPlaylistOutputPlacementTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/ManagedPlaylistOutputPlacementTests.cs) が条件の網羅（`EditPrecheck_RejectsOnlyChangedOrNewTablesOverlappingAfterSet`）を、同クラスの `PropertySave_RejectsOverlappingFinalPlacementBeforeMutation` が実編集sessionへの接続を、[`BmsPlaylistCustomFolderOutputTests.SavedCollidingOutput_ExplicitOperationsFreezeOnlyCollidingTables`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) が衝突を解消する保存の受理と、配置以外の保存の警告を確認する。 |
-| 外部情報での初期化の除外と旧配置 | `PlaylistWorkspaceViewModel` | `BmsPlaylistPersistenceLifecycleTests` の外部初期化ケースが、除外後の旧配置への再衝突と、安全な表の保存を確認する。 |
+| 外部情報での初期化の除外と旧配置 | `PlaylistWorkspaceViewModel` | `BmsPlaylistPersistenceLifecycleTests` の外部初期化ケースが、除外後の旧配置への再衝突と、安全な表の保存を確認する。同クラスの `ApplyPlaylistSummaryExternalPropertyInitializationAsync_ExcludesTargetsWhoseNewNameDuplicates` は、スタンドアロンで、未選択の表の現在の名前、先に受理した対象の新しい名前、名前の入替え、別の対象の旧名による除外と、大文字小文字だけの違い・自分の現在の名前の受理を、正本とDBで確認する。 |
 | 外部同期の切替えの確認（確定は承認後、確認中の保存と初期化は終端を待つ、表示失敗） | [`PlaylistPropertyDialogViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertyDialogViewModel.cs) | [`PlaylistWorkspaceActionWorkflowTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceActionWorkflowTests.cs) の `PlaylistPropertyDialog_PendingExternalSyncConfirmation_*` は、確認中に値を確定せず再切替えで確認を重ねないこと、保存と初期化が確認の終端を待ち受付を保持しないこと、承認・取消ごとの確定値を確認する。`PlaylistPropertyDialog_ExternalSyncConfirmationDisplayFailure_*` は、表示の失敗（失敗結果・失敗したTask・同期の例外）で例外を出さず値を変えず、Errorの通知が一件で、次の切替えが新しい確認を出すことを確認する。編集セッションの終了後の承認は値を適用しないことは、到達できる入口がテストの窓口だけのため、静的に確認する。 |
 | 保存の現行性は所属と解決キーの版で判定し、URL補完の反映を競合にしない | [`PlaylistPropertySaveService`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistPropertySaveService.cs)（`PlaylistPropertyValues`）、[`BMSTable.EntryLookupRevision`](../../../BeMusicSeeker/Models/Playlist/BMSTable.EntryCommit.cs) | [`PlaylistUrlCompletionTests.PropertySave_AfterUrlCompletionCommitSucceedsAndKeepsRuntimeUrls`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistUrlCompletionTests.cs): 編集セッションの作成後に実際の補完を反映しても、名前だけの保存が成功してDBの名前を更新し、補完した実行時のURLを保持してDBへ保存しない。`PlaylistWorkspaceActionWorkflowTests.PlaylistPropertySave_RejectsAStaleDetachedSessionWithoutOverwritingConcurrentChanges` が、所属・解決キーの変更（entries・reference）と属性競合を引き続き拒否する。 |
 | 並び順欄を編集していない保存は保存済みの明示順を変更対象にしない | `PlaylistPropertySaveService.CreateHeaderEdit` | [`PlaylistWorkspacePersistenceCommandTests.PlaylistPropertySave_NameOnlyKeepsStoredFolderOrder`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs): 手動 `[B]`・旧 `[""]`・`["", "A"]` の表で名前だけを保存し、保存済みの順序とメモリ・DBの自動判定を保つ。 |

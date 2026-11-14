@@ -275,6 +275,7 @@ internal static class PlaylistOperationNotices
             PlaylistPropertyValidationError.InvalidHeaderUri => nameof(Resources.Error_InvalidHeaderUri),
             PlaylistPropertyValidationError.InvalidDataUri => nameof(Resources.Error_InvalidDataUri),
             PlaylistPropertyValidationError.InvalidExternalSyncUris => nameof(Resources.Error_InvalidPageOrHeaderUri),
+            PlaylistPropertyValidationError.DuplicatePlaylistName => nameof(Resources.Error_PlaylistAlreadyExists),
             _ => throw new ArgumentOutOfRangeException(nameof(error), error, null)
         };
         return Error(PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(resourceName));

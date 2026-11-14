@@ -962,6 +962,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
     }
 
     /// <summary>外部初期化は明示名・旧名の単一名化後の衝突候補を表ごとに除外します。除外表の旧先との再衝突も拒否し、安全な表だけをDB・正本へ反映します。</summary>
+    /// <remarks>duplicate はAの新しい名前がBの現在の名前と同名になる除外、legacy は出力先の重なりで除外したAの名前をBが受理されること、retained は別名のBが除外したAの旧先（明示出力名）と重なる除外です。</remarks>
     [TestMethod]
     [DataRow("duplicate")]
     [DataRow("legacy")]
@@ -988,7 +989,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             if (conflict == "retained")
             {
-                File.WriteAllBytes(headerBPath, CreateUtf8BomBytes("{\"name\":\"LocalA\",\"symbol\":\"B2\",\"data_url\":\"./score.json\"}"));
+                File.WriteAllBytes(headerBPath, CreateUtf8BomBytes("{\"name\":\"Shared\",\"symbol\":\"B2\",\"data_url\":\"./score.json\"}"));
             }
             string headerCPath = Path.Combine(tempDirectory, "header-c.json");
             File.WriteAllBytes(headerCPath, CreateUtf8BomBytes("{\"name\":\"Safe\",\"symbol\":\"C2\",\"data_url\":\"./score.json\"}"));
@@ -1000,7 +1001,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             tableA.playlist_id = 9502;
             tableA.name = "LocalA";
             tableA.symbol = "A1";
-            tableA.Output_dir = "LocalA";
+            tableA.Output_dir = conflict == "retained" ? "Shared" : "LocalA";
             tableB.playlist_id = 9503;
             tableB.name = conflict == "duplicate" ? "OutputB" : "LocalB";
             tableB.symbol = "B1";
@@ -1060,7 +1061,7 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
 
             Assert.AreEqual("LocalA", tableA.name);
             Assert.AreEqual("A1", tableA.symbol);
-            Assert.AreEqual("LocalA", tableA.Output_dir);
+            Assert.AreEqual(conflict == "retained" ? "Shared" : "LocalA", tableA.Output_dir);
             Assert.AreEqual(conflict == "retained" ? "LocalB" : "OutputB", tableB.name);
             Assert.AreEqual(conflict == "retained" ? "B1" : "B2", tableB.symbol);
             Assert.AreEqual("OutputB", tableB.Output_dir);
@@ -1070,6 +1071,103 @@ public sealed class BmsPlaylistPersistenceLifecycleTests
             Assert.AreEqual("A1", reader.Table<BMSTable>().Single(table => table.playlist_id == 9502).symbol);
             Assert.AreEqual(conflict == "retained" ? "B1" : "B2", reader.Table<BMSTable>().Single(table => table.playlist_id == 9503).symbol);
             Assert.AreEqual("C2", reader.Table<BMSTable>().Single(table => table.playlist_id == 9504).symbol);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>外部初期化で名前を変える対象は、新しい名前がいずれかの表の現在の名前、または先に受理した対象の新しい名前と同名になる場合に、記号を含めて対象ごと除外します。</summary>
+    /// <remarks>
+    /// スタンドアロンで確認し、LR2の出力先の重なりによる偶然の除外を避けます。名前の入替えと別の対象の旧名の取得は除外し、大文字小文字だけの違いと自分の現在の名前は受理します。
+    /// 表示窓口は未宣言の要求を検出するため、除外で利用者への通知が増えないことも確認します。片方向の旧名を見落とす誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("unselected-current")]
+    [DataRow("earlier-accepted")]
+    [DataRow("swap")]
+    [DataRow("chain")]
+    [DataRow("case-only")]
+    [DataRow("own-name")]
+    [TestCategory("Playlist")]
+    public async Task ApplyPlaylistSummaryExternalPropertyInitializationAsync_ExcludesTargetsWhoseNewNameDuplicates(string condition)
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        testSettings.EnablePlaylistUrlCompletion = false;
+        testSettings.OperationModeLR2DB = false;
+        string tempDirectory = Path.Combine(migrationWorkspace.RootDirectory, "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            // External が null の表は選択しません。選択する表は、外部の名前 External と記号 "E<番号>" を持つヘッダーから作ります。
+            (string Local, string? External)[] definitions = condition switch
+            {
+                "unselected-current" => [("Taken", null), ("X", "Taken")],
+                "earlier-accepted" => [("A", "Same"), ("B", "Same")],
+                "swap" => [("A", "B"), ("B", "A")],
+                "chain" => [("Other", "Old"), ("Old", "Fresh")],
+                "case-only" => [("Taken", null), ("X", "taken")],
+                "own-name" => [("Same", "Same")],
+                _ => throw new AssertFailedException(condition)
+            };
+            File.WriteAllBytes(Path.Combine(tempDirectory, "score.json"), CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"External Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+            string songDbPath = CreateTempSongDbPath(databaseScope, tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var playlist = new TestBmsPlaylist(databaseScope, songDbPath, CreateDeterministicLr2PlaylistFolderSynchronizationPort(databaseScope, songDbPath, CustomFolderOutputPhysicalSurface.Empty), uiScheduler: new TestUiScheduler(() => null), settings: testSettings);
+            var tables = new List<BMSTable>();
+            for (int index = 0; index < definitions.Length; index++)
+            {
+                BMSTable table;
+                if (definitions[index].External is string externalName)
+                {
+                    string headerPath = Path.Combine(tempDirectory, "header-" + index + ".json");
+                    File.WriteAllBytes(headerPath, CreateUtf8BomBytes("{\"name\":\"" + externalName + "\",\"symbol\":\"E" + index + "\",\"data_url\":\"./score.json\"}"));
+                    table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerPath));
+                }
+                else
+                {
+                    table = new BMSTable { entries = [] };
+                }
+                table.playlist_id = 9600 + index;
+                table.name = definitions[index].Local;
+                table.symbol = "L" + index;
+                tables.Add(table);
+            }
+            playlist.BMSTables = new ObservableCollection<BMSTable>(tables);
+            playlist.CommitBMSTableHeadersToDB(playlist.BMSTables);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), settings: testSettings);
+            using PlaylistWorkspaceViewModel workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _,
+                playlistStoreProvider: () => playlist, playlistLibraryProvider: () => library, playlistWorkspaceDialogService: UndeclaredDialogs.Create());
+
+            await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+                [.. tables.Where((_, index) => definitions[index].External != null).Select(table => new PlaylistSummaryRow { TableRef = table })],
+                new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions { Name = true, Symbol = true });
+
+            string[] actual = [.. tables.Select(table => table.name + ":" + table.symbol)];
+            if (condition == "earlier-accepted")
+            {
+                // どちらの対象が先に受理されるかには依存しません。一方だけが新しい名前と記号になり、他方は名前・記号とも元のままです。
+                CollectionAssert.Contains(new[] { "Same:E0|B:L1", "A:L0|Same:E1" }, string.Join("|", actual));
+            }
+            else
+            {
+                string[] expected = condition switch
+                {
+                    "unselected-current" => ["Taken:L0", "X:L1"],
+                    "swap" => ["A:L0", "B:L1"],
+                    "chain" => ["Other:L0", "Fresh:E1"],
+                    "case-only" => ["Taken:L0", "taken:E1"],
+                    "own-name" => ["Same:E0"],
+                    _ => throw new AssertFailedException(condition)
+                };
+                CollectionAssert.AreEqual(expected, actual);
+            }
+            using LR2SongDBExtended reader = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).OpenSongDbReadOnly();
+            CollectionAssert.AreEqual(actual, reader.Table<BMSTable>().ToList().OrderBy(row => row.playlist_id).Select(row => row.name + ":" + row.symbol).ToArray(), "DBの名前と記号は正本と一致します。");
         }
         finally
         {

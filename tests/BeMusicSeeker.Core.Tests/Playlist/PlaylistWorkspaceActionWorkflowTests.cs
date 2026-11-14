@@ -2252,6 +2252,219 @@ public sealed class PlaylistWorkspaceActionWorkflowTests
         }
     }
 
+    /// <summary>表名の同名検査のケースが共有する、実DB・LR2設定・BMT出力先・表示窓口の準備です。編集する表、相手の表、明示出力名 "Gamma" を持つ第三の表を登録します。</summary>
+    private sealed class PlaylistNameScenario : IAsyncDisposable
+    {
+        private readonly TestWorkspace ownedWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        private readonly ApplicationDatabaseScope databaseScope;
+        private readonly string root;
+        private readonly string normal;
+        private readonly string bmt;
+        private readonly LR2Config config;
+        internal TestBmsPlaylist Playlist { get; }
+        internal TestBmsLibrary Library { get; }
+        internal PlaylistPropertySaveService Service { get; }
+        internal PlaylistWorkspaceViewModel Workspace { get; }
+        internal string SongDb { get; }
+        /// <summary>編集する表。新規の場合は正本集合とDBへ登録していません。LR2連携では名前由来の出力先を使います。</summary>
+        internal BMSTable Edited { get; }
+        internal BMSTable Sibling { get; }
+
+        internal PlaylistNameScenario(ApplicationDatabaseScope databaseScope, bool lr2, bool isNew,
+            string editedName = "Original", string siblingName = "Sibling", IUiDialogService? dialogs = null)
+        {
+            this.databaseScope = databaseScope;
+            try
+            {
+                root = Path.Combine(ownedWorkspace.RootDirectory, nameof(PlaylistNameScenario), Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(root);
+                SongDb = PlaylistTestFixture.CreateTempSongDbPath(databaseScope, root);
+                PlaylistPersistenceRepository.EnsureSchema(databaseScope, SongDb);
+                normal = Path.Combine(root, "normal");
+                bmt = Path.Combine(root, "bmt");
+                var output = new CustomFolderOutputSettingsSnapshot
+                { OperationModeLR2DB = lr2, LR2RootPath = root, LR2CustomFolderOutputBaseDir = normal, LR2CustomFolderOutputBaseDirRootType = Path.Combine(root, "root") };
+                config = TestLr2ConfigFactory.CreateLr2Config(root, normal);
+                var owner = new Lr2ConfigOwner(config); owner.SetPlacement(output);
+                Settings settings = TestSettingsFactory.CreateIsolatedSettings(values => { values.OperationModeLR2DB = lr2; values.EnablePlaylistUrlCompletion = false; });
+                Library = new TestBmsLibrary(databaseScope, SongDb, owner, null, null, new UnexpectedBmsLibraryDialogService(), new TestUiScheduler(() => null), () => BmsLibraryOptionsSnapshot.CreateCurrent(settings));
+                Playlist = new TestBmsPlaylist(new BmsPlaylistLibraryBindings(Library), SongDb, () => output, owner, () => new PlaylistUrlCompletionOptionsSnapshot(), () => new BeatorajaBmtOptionsSnapshot { EnableBeatorajaBmtOutput = true, BeatorajaBmtTablePath = bmt }, settings: settings, uiScheduler: new TestUiScheduler(() => null));
+                Edited = new BMSTable { playlist_id = isNew ? null : 7490, name = editedName, symbol = "Old", entries = [] };
+                Sibling = new BMSTable { playlist_id = 7491, name = siblingName, symbol = "Sibling symbol", entries = [] };
+                var third = new BMSTable { playlist_id = 7493, name = "Third", Output_dir = "Gamma", entries = [] };
+                Playlist.BMSTables = new ObservableCollection<BMSTable>(isNew ? [Sibling, third] : [Edited, Sibling, third]);
+                foreach (BMSTable current in Playlist.BMSTables) { Playlist.CommitBMSTableWithEntriesToDB(current); }
+                Service = new PlaylistPropertySaveService(() => Playlist, () => Library, () => owner, () => output);
+                Workspace = SharedPlaylistWorkspaceFixture.CreateDetailWorkspace(out _, playlistStoreProvider: () => Playlist,
+                    playlistLibraryProvider: () => Library, propertySaveService: Service, dispatchPresentation: action => action(),
+                    playlistWorkspaceDialogService: dialogs);
+                Workspace.PlaylistSyncProgressChanged += (_, _) => { };
+            }
+            catch (Exception primaryFailure)
+            {
+                try { ownedWorkspace.Dispose(); }
+                catch (Exception cleanupFailure) { throw new AggregateException(primaryFailure, cleanupFailure); }
+                throw;
+            }
+        }
+
+        /// <summary>DBの全表の名前・記号・保存した出力名、作業領域の全ファイル、LR2設定のバイト列、出力先の有無を一つの値へまとめます。拒否の前後で比べます。</summary>
+        internal string CaptureState()
+        {
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), SongDb).OpenSongDbReadOnly();
+            return string.Join("|", db.Table<BMSTable>().ToList().OrderBy(row => row.playlist_id).Select(row => row.playlist_id + ":" + row.name + ":" + row.symbol + ":" + row.output_dir))
+                + "|files=" + string.Join(",", Directory.GetFiles(root, "*", SearchOption.AllDirectories).Select(file => Path.GetRelativePath(root, file)).OrderBy(value => value, StringComparer.Ordinal))
+                + "|config=" + Convert.ToHexString(File.ReadAllBytes(config.ConfigFilePath))
+                + "|normal=" + Directory.Exists(normal) + "|bmt=" + Directory.Exists(bmt);
+        }
+
+        /// <summary>DBの全表の名前を、保存IDの順で返します。</summary>
+        internal string[] ReadNames()
+        {
+            using LR2SongDBExtended db = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), SongDb).OpenSongDbReadOnly();
+            return [.. db.Table<BMSTable>().ToList().OrderBy(row => row.playlist_id).Select(row => row.name)];
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            Workspace.CancelDetailBuilds();
+            await Workspace.WaitForDetailBuildIdleAsync();
+            await Workspace.WaitForPlaylistSummaryDataBuildIdleAsync();
+            await Workspace.WaitForPlaylistReloadCleanupIdleAsync();
+            Workspace.Dispose();
+            await Playlist.WaitForPlaylistMutationIdleAsync();
+            Playlist.RequestShutdown("playlist-name-test");
+            Library.RequestShutdown("playlist-name-test");
+            Directory.Delete(root, recursive: true);
+            ownedWorkspace.Dispose();
+        }
+    }
+
+    /// <summary>新規/既存・LR2/単独で、他の表と同名になる保存を実sessionと既存のViewModel経路で拒否し、DB・正本・別項目・出力を保ちます。同じsessionで大文字小文字だけが異なる名前へ訂正して保存します。</summary>
+    /// <remarks>
+    /// LR2では名前由来の出力先も相手と重なりますが、案内は同名の一件だけです。別名で出力先だけが重なる "Gamma" は出力先の案内になり、同名を配置の重なりから推定する誤りを検出します。
+    /// BindingとOK接続は変更せず既存WPF系列へ分担します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task PlaylistPropertySave_DuplicateNamesRejectWithoutMutationAndAllowCorrection(bool lr2, bool isNew)
+    {
+        await using var scenario = new PlaylistNameScenario(databaseScope, lr2, isNew);
+        using PlaylistPropertyEditSession session = await scenario.Service.CreateEditSessionAsync(scenario.Edited, isNew) ?? throw new AssertFailedException();
+        string before = scenario.CaptureState();
+        void AssertUnchanged(string step)
+        {
+            Assert.AreEqual(before, scenario.CaptureState(), step);
+            Assert.AreEqual("Original", scenario.Edited.name, step);
+            Assert.AreEqual("Old", scenario.Edited.symbol, step);
+            Assert.AreEqual(isNew ? 2 : 3, scenario.Playlist.BMSTables.Count, step);
+        }
+
+        PlaylistPropertyValues duplicate = session.Values.Clone();
+        duplicate.Name = "Sibling";
+        duplicate.Symbol = "Must not save";
+        (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) rejected = await scenario.Service.TrySaveAsync(session, duplicate);
+        Assert.IsNull(rejected.Commit);
+        Assert.AreEqual(PlaylistPropertyValidationError.DuplicatePlaylistName, rejected.ValidationError);
+        AssertUnchanged("保存サービスの拒否");
+
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notices = scenario.Playlist.OperationNotificationOwner.BeginSession();
+        using var dialog = new PlaylistPropertyDialogViewModel(scenario.Service, session, UndeclaredDialogs.Create());
+        dialog.name = " Sibling ";
+        Assert.AreEqual(Resources.Error_PlaylistAlreadyExists, notices.TakeReceipt().Notifications.Single().FormatMessage(), "入力時は同名の一件だけを案内し、出力先の案内を重ねません。");
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.DuplicatePlaylistName, await dialog.SaveAndApplyAsync());
+        Assert.AreEqual(Resources.Error_PlaylistAlreadyExists, notices.TakeReceipt().Notifications.Single().FormatMessage(), "保存時も同名として案内します。");
+        AssertUnchanged("画面からの保存の拒否");
+
+        if (lr2)
+        {
+            dialog.name = "Gamma";
+            Assert.AreEqual(Resources.Error_OutputFolderNameEmptyOrDuplicateChangePlaylist, notices.TakeReceipt().Notifications.Single().FormatMessage(), "別名で出力先だけが重なる入力は、同名ではなく出力先として案内します。");
+            // 大文字小文字だけが異なる名前は、名前由来の出力先がLR2の配置で相手と重なるため、先に明示出力名を与えます。
+            dialog.output_dir = "Corrected";
+            Assert.IsTrue(notices.TakeReceipt().IsEmpty);
+        }
+        dialog.name = "sibling";
+        Assert.IsTrue(notices.TakeReceipt().IsEmpty, "大文字小文字だけが異なる名前は同名として案内しません。");
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        CollectionAssert.AreEquivalent(new[] { "sibling", "Sibling", "Third" }, scenario.ReadNames());
+        Assert.AreEqual(3, scenario.Playlist.BMSTables.Count);
+        Assert.AreEqual("sibling", scenario.Playlist.BMSTables.Single(table => !ReferenceEquals(table, scenario.Sibling) && table.name != "Third").name);
+        Assert.AreEqual("Old", scenario.Playlist.BMSTables.Single(table => table.name == "sibling").symbol, "拒否した保存の記号は、訂正後の保存へ混ざりません。");
+    }
+
+    /// <summary>保存済みの同名の表は、名前を変えない保存と、一方を別名へ変える保存を受理します。元の名前へ戻す入力は同名として案内しません。</summary>
+    /// <remarks>元の名前でも同名として拒否する誤りを検出します。LR2での保存済みの配置の衝突は既存のcustom-folder系列が分担します。</remarks>
+    [TestMethod]
+    [DataRow("unchanged")]
+    [DataRow("rename-away")]
+    public async Task PlaylistPropertySave_StoredDuplicateNamesAcceptUnchangedNameAndRenameAway(string condition)
+    {
+        await using var scenario = new PlaylistNameScenario(databaseScope, lr2: false, isNew: false, editedName: "Dup", siblingName: "Dup");
+        using PlaylistPropertyEditSession session = await scenario.Service.CreateEditSessionAsync(scenario.Edited) ?? throw new AssertFailedException();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notices = scenario.Playlist.OperationNotificationOwner.BeginSession();
+        using var dialog = new PlaylistPropertyDialogViewModel(scenario.Service, session, UndeclaredDialogs.Create());
+        if (condition == "unchanged")
+        {
+            dialog.name = "Temp";
+            dialog.name = "Dup";
+            dialog.symbol = "New";
+        }
+        else
+        {
+            dialog.name = "Unique";
+        }
+        Assert.IsTrue(notices.TakeReceipt().IsEmpty, "元の名前へ戻す入力と別名への変更は、同名として案内しません。");
+        Assert.AreEqual(PlaylistPropertyDialogOperationResult.Completed, await dialog.SaveAndApplyAsync());
+        Assert.IsTrue(notices.TakeReceipt().IsEmpty);
+        CollectionAssert.AreEqual(new[] { condition == "unchanged" ? "Dup" : "Unique", "Dup", "Third" }, scenario.ReadNames());
+        Assert.AreEqual(condition == "unchanged" ? "New" : "Old", scenario.Edited.symbol);
+        Assert.AreEqual("Dup", scenario.Sibling.name);
+        Assert.AreEqual("Sibling symbol", scenario.Sibling.symbol);
+    }
+
+    /// <summary>概要のセル編集の拒否を、理由ごとの文言の一件で案内し、正本の再表示を要求してDBを保ちます。同名の拒否後は、別名の編集を続けて保存できます。</summary>
+    /// <remarks>同名と名前由来の出力先の重なりが同時に起きる行は同名、別名で出力先だけが重なる行は出力先の文言になります。パスを含む出力名は <see cref="SummaryOutputName_RejectsRawBeforeEquivalentValueCheck"/> が分担します。</remarks>
+    [TestMethod]
+    [DataRow("duplicate", false, nameof(PlaylistSummaryRow.Name), " Sibling ")]
+    [DataRow("duplicate-lr2-overlap", true, nameof(PlaylistSummaryRow.Name), "Sibling")]
+    [DataRow("placement-rename-lr2", true, nameof(PlaylistSummaryRow.Name), "Gamma")]
+    [DataRow("placement-output-lr2", true, nameof(PlaylistSummaryRow.FolderName), "Gamma")]
+    [DataRow("blank-name", false, nameof(PlaylistSummaryRow.Name), "　 ")]
+    public async Task PlaylistSummaryPropertyEdit_RejectionMessageFollowsReason(string condition, bool lr2, string propertyName, string text)
+    {
+        var dialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService();
+        await using var scenario = new PlaylistNameScenario(databaseScope, lr2, isNew: false, dialogs: dialogs);
+        string before = scenario.CaptureState();
+        var row = new PlaylistSummaryRow { TableRef = scenario.Edited };
+
+        PlaylistSummaryPropertyEditCompletion result = await scenario.Workspace.CompleteSummaryPropertyEditAsync(row, propertyName, text, true);
+
+        Assert.IsFalse(result.IsApplied);
+        Assert.IsTrue(result.RefreshRequired);
+        string expected = condition switch
+        {
+            "duplicate" or "duplicate-lr2-overlap" => Resources.Error_PlaylistAlreadyExists,
+            "placement-rename-lr2" => Resources.Error_OutputFolderNameEmptyOrDuplicateChangePlaylist,
+            "placement-output-lr2" => Resources.Error_OutputFolderNameEmptyOrDuplicateCheckInput,
+            "blank-name" => Resources.Msg_invalid_setting,
+            _ => throw new AssertFailedException(condition)
+        };
+        Assert.AreEqual(expected, dialogs.MessageRequests.Single().MessageBoxText);
+        Assert.AreEqual(before, scenario.CaptureState());
+        Assert.AreEqual("Original", scenario.Edited.name);
+        if (condition == "duplicate")
+        {
+            PlaylistSummaryPropertyEditCompletion corrected = await scenario.Workspace.CompleteSummaryPropertyEditAsync(row, propertyName, "sibling", true);
+            Assert.IsTrue(corrected.IsApplied);
+            Assert.AreEqual(1, dialogs.MessageRequests.Count, "訂正後の保存は案内を増やしません。");
+            CollectionAssert.AreEqual(new[] { "sibling", "Sibling", "Third" }, scenario.ReadNames());
+        }
+    }
+
     /// <summary>同期OFFのnull解除・相対Header/Dataと、同期ONの必須URL・絶対base・bmseeker例外を実sessionで判定し、相対Pageの拒否とPageなし同期設定の保存を新DB接続で確認します。</summary>
     /// <remarks>文字列からUriへの変換失敗とOKのBinding反映は実WPFケースへ分担し、到達根拠のない不正なtyped Uriは作りません。</remarks>
     [TestMethod]
