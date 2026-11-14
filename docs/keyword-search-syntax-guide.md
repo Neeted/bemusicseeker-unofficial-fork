@@ -110,7 +110,7 @@ Search history is shared by the main chart list, playlist detail, and Play Log. 
 | Key | Result |
 | :--- | :--- |
 | `↑` / `↓` | Select a suggestion |
-| `Enter` / `Tab` | Insert the suggestion selected with `↑` / `↓`. When no suggestion is selected, `Enter` confirms the search as typed and saves it to history, and `Tab` moves to the next control |
+| `Enter` / `Tab` | Insert the suggestion selected with `↑` / `↓`. When no suggestion is selected, `Enter` confirms the search as typed and saves it to history. `Tab` completes the first suggestion if you have typed at least one character of a field name or value; otherwise (blank input, right after `:`, and so on) it moves to the next control |
 | `Esc` | Close suggestions |
 | `Ctrl+Space` | Open suggestions again |
 | `Shift+Tab` | Move to the action buttons for the selected Favorite or history row |

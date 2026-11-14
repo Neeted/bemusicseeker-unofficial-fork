@@ -297,15 +297,21 @@ public sealed class KeywordSearchPresentationState
     /// <param name="context">The search context represented by the snapshot.</param>
     /// <param name="catalogRevision">The catalog revision represented by the snapshot.</param>
     /// <param name="sections">The visible sections in rendering order.</param>
+    /// <param name="canCompleteWithoutSelection">
+    /// 候補の前方一致に使う項目名または値の接頭辞を1文字以上入力済みで、候補を選んでいないTabが
+    /// 表示中の先頭候補を適用してよいかどうか。
+    /// </param>
     internal KeywordSearchPresentationState(
         bool isOpen,
         string text,
         int caretIndex,
         GridKeywordSearchContext context,
         long catalogRevision,
-        IReadOnlyList<KeywordSearchPresentationSection> sections)
+        IReadOnlyList<KeywordSearchPresentationSection> sections,
+        bool canCompleteWithoutSelection = false)
     {
         IsOpen = isOpen;
+        CanCompleteWithoutSelection = isOpen && canCompleteWithoutSelection;
         Text = text ?? string.Empty;
         CaretIndex = caretIndex;
         Context = context;
@@ -349,6 +355,14 @@ public sealed class KeywordSearchPresentationState
     /// Gets visible rows flattened in section order for keyboard navigation.
     /// </summary>
     public IReadOnlyList<KeywordSearchPresentationItem> VisibleItems { get; }
+
+    /// <summary>
+    /// 候補を選んでいないTabが表示中の先頭候補を適用するかどうかを取得します。
+    /// 1文字以上入力した接頭辞から作った項目名・値の候補を表示している間だけ <see langword="true"/> です。
+    /// 候補を絞り込む接頭辞と同じ値で判定するため、空欄、保存済み検索式の行、0文字の接頭辞では
+    /// 通常のフォーカス移動のままです。
+    /// </summary>
+    public bool CanCompleteWithoutSelection { get; }
 }
 
 /// <summary>
@@ -847,7 +861,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
                 text,
                 caretIndex,
                 currentContext,
-                catalogRevision);
+                catalogRevision,
+                out _);
             if (fields.Count > 0)
             {
                 emptySections.Add(new KeywordSearchPresentationSection(
@@ -862,7 +877,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             text,
             caretIndex,
             currentContext,
-            catalogRevision);
+            catalogRevision,
+            out bool hasFieldPrefix);
         if (fieldItems.Count > 0)
         {
             return OpenOrClosedPresentation(
@@ -873,14 +889,16 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
                 [new KeywordSearchPresentationSection(
                     KeywordSearchPresentationSectionKind.Fields,
                     GetSectionHeaderText(KeywordSearchPresentationSectionKind.Fields),
-                    fieldItems)]);
+                    fieldItems)],
+                hasFieldPrefix);
         }
 
         IReadOnlyList<KeywordSearchPresentationItem> valueItems = CreateValueItems(
             text,
             caretIndex,
             currentContext,
-            catalogRevision);
+            catalogRevision,
+            out bool hasValuePrefix);
         if (valueItems.Count > 0)
         {
             return OpenOrClosedPresentation(
@@ -891,7 +909,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
                 [new KeywordSearchPresentationSection(
                     KeywordSearchPresentationSectionKind.Values,
                     GetSectionHeaderText(KeywordSearchPresentationSectionKind.Values),
-                    valueItems)]);
+                    valueItems)],
+                hasValuePrefix);
         }
 
         return ClosedPresentation();
@@ -901,8 +920,10 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         string text,
         int caretIndex,
         GridKeywordSearchContext currentContext,
-        long catalogRevision)
+        long catalogRevision,
+        out bool hasPrefix)
     {
+        hasPrefix = false;
         TokenSpan span = FindCurrentToken(text, caretIndex);
         int safeCaretIndex = Math.Max(0, Math.Min(caretIndex, text.Length));
         if (span.Start > safeCaretIndex)
@@ -922,6 +943,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             return [];
         }
         string fieldPrefix = text[fieldStart..safeCaretIndex];
+        hasPrefix = fieldPrefix.Length > 0;
         int replacementEnd = fieldEnd + (syntax.FieldRange.HasValue ? 1 : 0);
         bool negated = syntax.IsNegated;
         IReadOnlyList<string> knownFields = GridKeywordSearchQuery.GetKnownFields(currentContext);
@@ -952,8 +974,10 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         string text,
         int caretIndex,
         GridKeywordSearchContext currentContext,
-        long catalogRevision)
+        long catalogRevision,
+        out bool hasPrefix)
     {
+        hasPrefix = false;
         if (currentContext == GridKeywordSearchContext.PlaylistSummary)
         {
             return [];
@@ -968,6 +992,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             return [];
         }
         string normalizedPrefix = NormalizeValuePrefix(fragment.RawPrefix);
+        hasPrefix = normalizedPrefix.Length > 0;
         List<KeywordSearchPresentationItem> items = [];
         foreach (string value in values
             .Where(value => normalizedPrefix.Length == 0
@@ -1043,7 +1068,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         int caretIndex,
         GridKeywordSearchContext currentContext,
         long catalogRevision,
-        IReadOnlyList<KeywordSearchPresentationSection> sections)
+        IReadOnlyList<KeywordSearchPresentationSection> sections,
+        bool canCompleteWithoutSelection = false)
     {
         IReadOnlyList<KeywordSearchPresentationSection> visibleSections = (sections ?? [])
             .Where(section => section != null && section.Items.Count > 0)
@@ -1054,7 +1080,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             caretIndex,
             currentContext,
             catalogRevision,
-            new ReadOnlyCollection<KeywordSearchPresentationSection>(visibleSections.ToArray()));
+            new ReadOnlyCollection<KeywordSearchPresentationSection>(visibleSections.ToArray()),
+            canCompleteWithoutSelection);
     }
 
     private KeywordSearchPresentationState ClosedPresentation()

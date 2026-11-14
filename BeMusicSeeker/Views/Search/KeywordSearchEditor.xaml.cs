@@ -440,7 +440,9 @@ public partial class KeywordSearchEditor : UserControl
     /// <param name="imeProcessedKey">IME が処理した元のキー。</param>
     /// <returns>
     /// 検索支援が入力を処理した場合は <see langword="true"/>。候補表示中の未選択のEnterは入力語のまま履歴へ確定して
-    /// 候補を閉じ <see langword="true"/>、未選択のTabは通常のフォーカス移動へ任せるため <see langword="false"/> を返します。
+    /// 候補を閉じ <see langword="true"/> を返します。修飾キーなしの未選択のTabは、項目名・値の前方一致に使う文字が1文字以上
+    /// あるときだけ先頭候補を適用して <see langword="true"/> を返し（履歴へは確定しません）、それ以外は通常のフォーカス移動へ
+    /// 任せるため <see langword="false"/> を返します。
     /// </returns>
     internal bool HandleInputKey(Key key, ModifierKeys modifiers, Key imeProcessedKey = Key.None)
     {
@@ -491,9 +493,17 @@ public partial class KeywordSearchEditor : UserControl
         if ((key is Key.Enter or Key.Tab) && AssistancePopup.IsOpen)
         {
             // 上下キーまたは Ctrl+Space で選択表示された候補だけを適用する。
-            // 未選択の Enter は入力語のまま履歴へ確定して候補を閉じ、未選択の Tab は通常のフォーカス移動へ任せる。
+            // 未選択の Enter は入力語のまま履歴へ確定して候補を閉じる。未選択の修飾キーなしの Tab は、
+            // 前方一致に使う文字が1文字以上あるときだけ先頭候補で補完し、それ以外は通常のフォーカス移動へ任せる。
             if (ApplySelectedItem())
             {
+                return true;
+            }
+            if (key == Key.Tab
+                && modifiers == ModifierKeys.None
+                && presentation is { CanCompleteWithoutSelection: true, VisibleItems.Count: > 0 })
+            {
+                ApplyItem(presentation.VisibleItems[0]);
                 return true;
             }
             if (key == Key.Enter)

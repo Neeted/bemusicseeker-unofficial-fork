@@ -235,6 +235,42 @@ public sealed class KeywordSearchPresentationTests
         Assert.AreEqual(expected.IndexOf('¦'), result.CaretIndex);
     }
 
+    /// <summary>未選択Tabで補完できるかを、候補を作る項目名・値の前方一致の文字数（カーソルを含むOR選択肢）と一致させ、1文字以上のときだけ項目名・値の先頭候補で補完できることを確認します。空欄・空白のみ・0文字では補完できないままにし、画面側の再解析や文字数判定の不一致を検出します。</summary>
+    [TestMethod]
+    [DataRow("tit", true, KeywordSearchPresentationItemKind.Field)]
+    [DataRow("-tit", true, KeywordSearchPresentationItemKind.Field)]
+    [DataRow("title:x ti", true, KeywordSearchPresentationItemKind.Field)]
+    [DataRow("ti¦tle", true, KeywordSearchPresentationItemKind.Field)]
+    [DataRow("clear:E", true, KeywordSearchPresentationItemKind.Value)]
+    [DataRow("clear:\"E", true, KeywordSearchPresentationItemKind.Value)]
+    [DataRow("clear:EC|E", true, KeywordSearchPresentationItemKind.Value)]
+    [DataRow("", false, null)]
+    [DataRow("  ", false, null)]
+    [DataRow("¦tit", false, null)]
+    [DataRow("-", false, null)]
+    [DataRow("title:x ", false, null)]
+    [DataRow("clear:", false, null)]
+    [DataRow("clear:\"", false, null)]
+    [DataRow("clear:EC|", false, null)]
+    public void KsaPresentation_UnselectedTabCompletionRequiresTypedPrefix(
+        string input, bool expectedCompletable, KeywordSearchPresentationItemKind? expectedKind)
+    {
+        PresentationSettingsStore store = new();
+        KeywordSearchSavedQueryOwner savedQueries = new(KeywordSearchSavedQueryScope.Normal, store, store);
+        KeywordSearchAssistanceOwner assistance = new(savedQueries, GridKeywordSearchContext.ChartList);
+        int caret = input.Contains('¦') ? input.IndexOf('¦') : input.Length;
+        string text = input.Replace("¦", string.Empty);
+
+        KeywordSearchPresentationState state = assistance.Focus(text, caret);
+
+        Assert.AreEqual(expectedCompletable, state.CanCompleteWithoutSelection, input);
+        if (expectedCompletable)
+        {
+            Assert.IsTrue(state.IsOpen, input);
+            Assert.AreEqual(expectedKind, state.VisibleItems[0].Kind, input);
+        }
+    }
+
     /// <summary>正規表現の値先頭・予約prefix途中・本文中で通常候補を抑止し、caret左だけから通常値と誤判定する経路を検出します。</summary>
     [TestMethod]
     [DataRow("playlist:¦re:^Alpha$")]

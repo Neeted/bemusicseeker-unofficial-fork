@@ -1828,16 +1828,18 @@ public sealed class MainWindowChartPresentationWpfTests
         });
     }
 
-    /// <summary>候補を選んでいないEnterは入力語のまま履歴へ確定して候補を閉じ、未選択のTabは処理せず文字列と保存済み候補を変えません。上下キーとCtrl+Spaceで選んだ候補は従来どおりEnter・Tabで適用します。通常検索と一覧検索の両方で確認します。</summary>
+    /// <summary>候補を選んでいないEnterは入力語のまま履歴へ確定して候補を閉じます。未選択のTabは、項目名・値の前方一致に使う文字が1文字以上あるときだけ先頭候補で補完し、空欄・0文字・Esc後は処理せず文字列と保存済み候補を変えません。上下キーとCtrl+Spaceで選んだ候補は従来どおりEnter・Tabで適用します。通常検索と一覧検索の両方で確認します。</summary>
     /// <remarks>
     /// 判定は入力欄の共通キー経路の戻り値、文字列とcaret、Popupと所有者の開閉、履歴・お気に入り、保存状態の変更回数です。
     /// 未選択Enter後に同じ文字列・caretで再計算しても閉じたままで、文字列変更かCtrl+Spaceで再び開くことも確認します。
     /// 抑制条件の網羅はCoreの <c>KsaLifecycle_SuppressionReopensOnInputContextCatalogAndForceRefreshAndBlur</c> が担い、OSの物理的なTabフォーカス移動は対象外です。
-    /// 未選択Tab後の履歴確定は、既存の離脱処理を模した <c>LostKeyboardFocus</c> で確認します。
-    /// 誤り例は、未選択のEnterで先頭候補（<c>end:</c>）を適用すること、Tabで候補を適用すること、Enter後も候補が開いたままになること、履歴確定の欠落や二重化です。
+    /// 補完したTabは履歴を確定せず（保存状態の変更が0回）、続くTabは通常のフォーカス移動へ任せ、離脱時に履歴へ一回だけ確定します。
+    /// 離脱処理は既存の <c>LostKeyboardFocus</c> を模して確認します。補完の置換範囲とcaretの網羅は既存のCoreテストが担います。
+    /// 誤り例は、未選択のEnterで先頭候補を適用すること、未選択のTabが補完しないこと、空欄・Esc後・0文字でTabが文字列を変えること、
+    /// 選択済みTabが選択を無視して先頭候補を適用すること、Enter後も候補が開いたままになること、履歴確定の欠落や二重化です。
     /// </remarks>
     [TestMethod]
-    public void SearchEditor_UnselectedEnterAndTabKeepInputWhileSelectedCandidateApplies()
+    public void SearchEditor_UnselectedEnterKeepsInputAndTabCompletesTypedPrefixWhileSelectedCandidateApplies()
     {
         WithSimpleTextBoxStyles(() =>
         {
@@ -1856,8 +1858,7 @@ public sealed class MainWindowChartPresentationWpfTests
                             KeywordSearchAssistanceOwner owner = summaryMode
                                 ? viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner
                                 : viewModel.ChartFilters.KeywordSearchAssistanceOwner;
-                            string typed = summaryMode ? "out" : "end";
-                            string insertion = summaryMode ? "output:" : "end:";
+                            string typed = summaryMode ? "f" : "t";
                             string favorite = summaryMode ? "name:fav" : "title:fav";
                             string history = summaryMode ? "name:hist" : "title:hist";
                             string label = summaryMode ? "一覧検索" : "通常検索";
@@ -1880,22 +1881,75 @@ public sealed class MainWindowChartPresentationWpfTests
                             CollectionAssert.AreEqual(historyBefore, owner.SavedQueryOwner.History.ToArray(), label);
                             Assert.AreEqual(0, stateChanges, label);
 
-                            // 入力語がある未選択のTabも文字列を変えず、離脱時に履歴へ一回だけ確定する。
+                            // 項目名の前方一致に使う文字がある未選択のTabは先頭候補で補完し、履歴は確定しない。
                             PrepareSearchEditor(chrome, owner, typed);
-                            AssertSearchInsertionOffered(chrome, insertion, label);
+                            Assert.IsTrue(chrome.SuggestionPopup.IsOpen, label);
+                            Assert.IsTrue(chrome.Editor.Presentation.VisibleItems.Count >= 2, label);
+                            string insertion = chrome.Editor.Presentation.VisibleItems[0].InsertionText;
+                            string second = chrome.Editor.Presentation.VisibleItems[1].InsertionText;
+                            Assert.AreNotEqual(insertion, second, label);
+                            stateChanges = 0;
+                            Assert.IsTrue(chrome.Editor.HandleEditorKey(chrome.TextBox, Key.Tab, ModifierKeys.None), label);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.AreEqual(insertion, chrome.TextBox.Text, label);
+                            Assert.AreEqual(insertion.Length, chrome.TextBox.CaretIndex, label);
+                            Assert.AreEqual(0, stateChanges, label);
+
+                            // 補完後は前方一致に使う文字が0文字になるため、続くTabは処理せず離脱時に履歴へ一回だけ確定する。
+                            Assert.IsFalse(chrome.Editor.HandleEditorKey(chrome.TextBox, Key.Tab, ModifierKeys.None), label);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.AreEqual(insertion, chrome.TextBox.Text, label);
+                            Assert.AreEqual(insertion.Length, chrome.TextBox.CaretIndex, label);
+                            Assert.AreEqual(0, stateChanges, label);
+                            RaiseSearchLostFocus(chrome.TextBox, chartList);
+                            chrome.Editor.ClearKeyboardFocusIfOutside(chartList);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.AreEqual(insertion, chrome.TextBox.Text, label);
+                            Assert.AreEqual(insertion, owner.SavedQueryOwner.History[0], label);
+                            Assert.AreEqual(1, stateChanges, label);
+                            Assert.IsTrue(owner.TryDeleteHistory(insertion).Succeeded, label);
+
+                            // 候補を閉じた後（Esc後）の未選択Tabは候補が出ていない扱いで、文字列を変えない。
+                            PrepareSearchEditor(chrome, owner, typed);
+                            Assert.IsTrue(chrome.Editor.HandleInputKey(Key.Escape, ModifierKeys.None), label);
+                            TestUiDispatcherHost.ProcessQueuedPresentation();
+                            Assert.IsFalse(chrome.SuggestionPopup.IsOpen, label);
                             stateChanges = 0;
                             Assert.IsFalse(chrome.Editor.HandleEditorKey(chrome.TextBox, Key.Tab, ModifierKeys.None), label);
                             TestUiDispatcherHost.ProcessQueuedPresentation();
                             Assert.AreEqual(typed, chrome.TextBox.Text, label);
                             Assert.AreEqual(typed.Length, chrome.TextBox.CaretIndex, label);
                             Assert.AreEqual(0, stateChanges, label);
+
+                            // 値の前方一致に使う文字がある未選択のTab（通常検索）は先頭の値候補で補完する。
+                            if (!summaryMode)
+                            {
+                                RaiseSearchLostFocus(chrome.TextBox, chartList);
+                                chrome.Editor.ClearKeyboardFocusIfOutside(chartList);
+                                TestUiDispatcherHost.ProcessQueuedPresentation();
+                                PrepareSearchEditor(chrome, owner, "clear:E");
+                                Assert.IsTrue(chrome.SuggestionPopup.IsOpen, label);
+                                Assert.AreEqual(
+                                    KeywordSearchPresentationItemKind.Value,
+                                    chrome.Editor.Presentation.VisibleItems[0].Kind,
+                                    label);
+                                string valueInsertion = chrome.Editor.Presentation.VisibleItems[0].InsertionText;
+                                stateChanges = 0;
+                                Assert.IsTrue(chrome.Editor.HandleEditorKey(chrome.TextBox, Key.Tab, ModifierKeys.None), label);
+                                TestUiDispatcherHost.ProcessQueuedPresentation();
+                                StringAssert.StartsWith(chrome.TextBox.Text, "clear:" + valueInsertion, label);
+                                Assert.AreEqual(0, stateChanges, label);
+                            }
+
+                            // 次の区画へ持ち越さないよう、離脱で確定された履歴を元の内容へ戻す。
                             RaiseSearchLostFocus(chrome.TextBox, chartList);
                             chrome.Editor.ClearKeyboardFocusIfOutside(chartList);
                             TestUiDispatcherHost.ProcessQueuedPresentation();
-                            Assert.AreEqual(typed, chrome.TextBox.Text, label);
-                            Assert.AreEqual(typed, owner.SavedQueryOwner.History[0], label);
-                            Assert.AreEqual(1, stateChanges, label);
-                            Assert.IsTrue(owner.TryDeleteHistory(typed).Succeeded, label);
+                            foreach (string committed in owner.SavedQueryOwner.History.Except(historyBefore).ToArray())
+                            {
+                                Assert.IsTrue(owner.TryDeleteHistory(committed).Succeeded, label);
+                            }
+                            CollectionAssert.AreEqual(historyBefore, owner.SavedQueryOwner.History.ToArray(), label);
 
                             // 候補を選んでいないEnterは入力語のまま履歴へ確定し、候補を閉じて処理済みにする。
                             PrepareSearchEditor(chrome, owner, typed);
@@ -1919,7 +1973,7 @@ public sealed class MainWindowChartPresentationWpfTests
                             Assert.IsTrue(owner.Presentation.IsOpen, "Ctrl+Spaceで再び開く。" + label);
                             Assert.IsTrue(owner.TryDeleteHistory(typed).Succeeded, label);
 
-                            // 上下キーで選んだ候補のEnter・Tabは従来どおり適用する。
+                            // 上下キーで選んだ先頭以外の候補のEnter・Tabは、選択した候補を適用する（先頭候補の補完とは区別する）。
                             foreach (Key applyKey in new[] { Key.Enter, Key.Tab })
                             {
                                 // 直前の操作で残る選択表示を持ち越さないよう、検索欄から離れてから入力し直す。
@@ -1927,11 +1981,11 @@ public sealed class MainWindowChartPresentationWpfTests
                                 chrome.Editor.ClearKeyboardFocusIfOutside(chartList);
                                 TestUiDispatcherHost.ProcessQueuedPresentation();
                                 PrepareSearchEditor(chrome, owner, typed);
-                                SelectSearchInsertion(chrome.Editor, insertion);
+                                SelectSearchInsertion(chrome.Editor, second);
                                 Assert.IsTrue(chrome.Editor.HandleEditorKey(chrome.TextBox, applyKey, ModifierKeys.None), label + applyKey);
                                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                                Assert.AreEqual(insertion, chrome.TextBox.Text, label + applyKey);
-                                Assert.AreEqual(insertion.Length, chrome.TextBox.CaretIndex, label + applyKey);
+                                Assert.AreEqual(second, chrome.TextBox.Text, label + applyKey);
+                                Assert.AreEqual(second.Length, chrome.TextBox.CaretIndex, label + applyKey);
                             }
 
                             // Ctrl+Spaceで開いて先頭が選択表示された状態のEnterは、その候補を適用する。
