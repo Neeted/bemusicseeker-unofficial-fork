@@ -1,6 +1,6 @@
 # テストmoduleの作業指針
 
-[ルート](../AGENTS.md)、[テスト設計](../devdocs/spec/development/test-authoring.md)、[検証](../devdocs/spec/development/testing.md)に従います。
+[ルート](../AGENTS.md)、[テスト設計](../devdocs/spec/development/test-authoring.md)、[検証](../devdocs/spec/development/testing.md)、[テストの実行基盤](../devdocs/spec/development/test-runtime.md)に従います。
 
 6moduleはCore、Windows、Scenarios、Desktop.E2E、Compatibility、Performanceです。共通補助はTestSupportへ集約し、機能ごとのprojectや独自process hostを増やしません。Coreへ実Windowやprocess全体の設定変更を移しません。
 
@@ -12,4 +12,4 @@
 
 反復は対象moduleの直接MTP、通常コミット・dev統合はverify、公開候補はfullを使います。選択ゼロ・skip・回収失敗を成功にしません。Desktopの実入力はFullに含め、既存session leaseの下で単一workerが所有入力と資源の回収まで担当します。
 
-UIスケジューラーの既定、ダイアログ窓口の注入、終端後の表示の表明は[画面テストの分離](../devdocs/spec/development/testing.md#画面テストの分離)の規則に従います。
+UIスケジューラーの既定、ダイアログ窓口の注入、終端後の表示の表明は[画面テストの分離](../devdocs/spec/development/ui-test-isolation.md)の規則に従います。

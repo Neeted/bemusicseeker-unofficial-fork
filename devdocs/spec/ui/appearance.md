@@ -350,4 +350,4 @@ OS標準の選択画面、利用者定義のテーマ、個別色の編集、OS�
 
 ## 関連資料
 
-[ダイアログの表示境界](dialogs.md)、[一覧表示](table-view.md)、[検索支援](keyword-search.md)、[設定と保存](../runtime/settings.md)、[表示テスト](../development/testing.md)。
+[ダイアログの表示境界](dialogs.md)、[一覧表示](table-view.md)、[検索支援](keyword-search.md)、[設定と保存](../runtime/settings.md)、[表示テスト](../development/ui-test-isolation.md)。

@@ -187,4 +187,4 @@ BMSONのTOTALの未定義と有効値は[解析互換性](parser-compatibility.m
 
 ## 関連資料
 
-[譜面ファイルの読取り](chart-file-reading.md)、[変更操作](mutations.md)、[データと索引](../core/data-and-indexes.md)、[テスト実行](../development/testing.md)を参照します。
+[譜面ファイルの読取り](chart-file-reading.md)、[変更操作](mutations.md)、[データと索引](../core/data-and-indexes.md)、[テスト実行](../development/test-runtime.md)を参照します。

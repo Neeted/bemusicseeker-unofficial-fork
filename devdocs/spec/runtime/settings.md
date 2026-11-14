@@ -742,4 +742,4 @@ setterや、通常の走査・表の編集・出力・同期では、組込み�
 
 ## 関連資料
 
-[設定の永続化](settings-persistence.md)、[起動と再読込み](startup.md)、[音声](audio.md)、[画面テスト](../development/testing.md)を参照します。
+[設定の永続化](settings-persistence.md)、[起動と再読込み](startup.md)、[音声](audio.md)、[画面テスト](../development/ui-test-isolation.md)を参照します。

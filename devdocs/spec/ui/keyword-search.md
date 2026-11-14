@@ -127,4 +127,4 @@
 
 ## 関連資料
 
-[一覧表示](table-view.md)、[外観](appearance.md)、[プレイ履歴](../playlist/play-history.md)、[WPFの検証方法](../development/testing.md)。
+[一覧表示](table-view.md)、[外観](appearance.md)、[プレイ履歴](../playlist/play-history.md)、[WPFの検証方法](../development/ui-test-isolation.md)。

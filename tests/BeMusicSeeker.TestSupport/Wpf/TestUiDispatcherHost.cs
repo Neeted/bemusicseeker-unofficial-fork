@@ -166,7 +166,7 @@ internal static class TestUiDispatcherHost
 
     /// <summary>予約済みのBindingと配置を、Loaded優先度以上の予約の消化と配置の直接の確定まで進めます。</summary>
     /// <remarks>
-    /// 契約の正本は devdocs/spec/development/testing.md の「表示入力と待機」で、手順・保証しないもの・WPFが描画を下げる仕組み・例外・確認方法をそこに書きます。
+    /// 契約の正本は devdocs/spec/development/ui-test-isolation.md の「表示入力と待機」で、手順・保証しないもの・WPFが描画を下げる仕組み・例外・確認方法をそこに書きます。
     /// 要点：(1)消化、(2)配置の確定、(3)消化を一度ずつ行い、繰り返しません。Loadedイベントの時機と描画の完了は保証しません。
     /// (2)の例外は元のまま伝わり、記録を消費しません。
     /// (2)以外で呼出し中に記録された未処理例外は、(3)の後で元の例外で失敗し、記録を消費します。2件目以降は最初の例外のDataへ添付します。

@@ -253,4 +253,4 @@ BGAの使用は、BMSのBGA・LAYERチャンネルか、BMSONの `bga_events` �
 
 ## 関連資料
 
-[詳細解析の座標索引と出力の判断](../../decisions/chart-info-position-index.md)、[譜面情報の保存](chart-info.md)、[ファイル読取り](chart-file-reading.md)、[検証データの利用条件](../../../BeMusicSeeker.Tests/TestData/README.md)、[テスト実行](../development/testing.md)を参照します。
+[詳細解析の座標索引と出力の判断](../../decisions/chart-info-position-index.md)、[譜面情報の保存](chart-info.md)、[ファイル読取り](chart-file-reading.md)、[検証データの利用条件](../../../BeMusicSeeker.Tests/TestData/README.md)、[テスト実行](../development/test-runtime.md)を参照します。

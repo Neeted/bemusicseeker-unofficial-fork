@@ -401,4 +401,4 @@ LとPは[操作の競合ポリシー](../core/operation-concurrency-policy.md)�
 
 ## 関連資料
 
-[外観](appearance.md)、[一覧の描画・操作](table-view.md)、[外部起動](external-launch.md)、[音声基盤](../runtime/audio.md)、[WPFテストの実行](../development/testing.md)。
+[外観](appearance.md)、[一覧の描画・操作](table-view.md)、[外部起動](external-launch.md)、[音声基盤](../runtime/audio.md)、[WPFテストの実行](../development/ui-test-isolation.md)。

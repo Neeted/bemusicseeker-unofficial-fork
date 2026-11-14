@@ -99,7 +99,7 @@ pwsh -NoProfile -File scripts/format-code.ps1 -Scope All -NoRestore
 - Java準備JSONなどの入力は子プロセスの環境へ継承し、実ケースで検査します。必要なツールや固定入力の取得・展開・権限設定は事前に済ませ、通常の実行の準備処理へ追加しません。
 - 一つのsuiteの成功を、全suiteや正式な `full` の成功とは扱いません。直接moduleを実行した局所的な結果は、正式suiteの共有期限内の成功と区別します。
 
-正式runnerは、Scenarios・Desktopにもテスト段階を通じて同じ期限を渡します。Compatibility・Performanceにも、単調時計の始点と期限の長さを `BMS_TEST_SUITE_DEADLINE` で子プロセスだけへ渡します。共有期限の扱いは[suiteの共有期限](../../devdocs/spec/development/testing.md#suiteの共有期限)に従います。
+正式runnerは、Scenarios・Desktopにもテスト段階を通じて同じ期限を渡します。Compatibility・Performanceにも、単調時計の始点と期限の長さを `BMS_TEST_SUITE_DEADLINE` で子プロセスだけへ渡します。共有期限の扱いは[suiteの共有期限](../../devdocs/spec/development/test-runtime.md#suiteの共有期限)に従います。
 
 ## 明示性能suite
 
@@ -194,7 +194,7 @@ Windowsは同じアセンブリを、`Windows.Shell`（MainWindow・Playlist）�
 - 各ケースは `TestWorkspace.Create(runRoot)` で独立した可変領域を作ります。DB・Window・プロセスの所有者が先に終端してからworkspaceを破棄します。証跡を残す `PreserveArtifacts()` は他の資源の回収を省略しません。
 - 専有の親領域の絶対パスは、起動時の表示と既存のsummaryの `caseRoot` に残し、runnerは親領域を再帰的に削除しません。TRX・ログ・runsettings・配布候補の目録は `artifacts` 側へ保存します。
 
-利用者セッションの排他（session lease）は、moduleごとに[テスト検証](../../devdocs/spec/development/testing.md#通常テストの分割と並列実行)の表に従って取得します。Windowsの表示言語ファイルは同じビルド出力から専有profileの `lang` へコピーして使い、実行ファイル・ネイティブ部品は共有の読取りのままです。Compatibilityも専有profile・日本語辞書を使い、実WPFホストは必要なケースで遅延生成します。module内の全Window・子プロセスを回収した後に排他を解放します。runnerと子プロセスのアプリは同じ排他を二重に取得しません。
+利用者セッションの排他（session lease）は、moduleごとに[テストの実行基盤](../../devdocs/spec/development/test-runtime.md#通常テストの分割と並列実行)の表に従って取得します。Windowsの表示言語ファイルは同じビルド出力から専有profileの `lang` へコピーして使い、実行ファイル・ネイティブ部品は共有の読取りのままです。Compatibilityも専有profile・日本語辞書を使い、実WPFホストは必要なケースで遅延生成します。module内の全Window・子プロセスを回収した後に排他を解放します。runnerと子プロセスのアプリは同じ排他を二重に取得しません。
 
 期待するExecutionIdごとの今回のTRX、プロセスの終了コード、全終端を照合し、選択結果が全件Passedの場合だけ成功します。一部または全部のskip、ゼロ件、TRXの欠落・不正、制限時間超過、回収失敗も不成功です。未選択のmoduleは「対象外」として区別します。
 
@@ -221,7 +221,7 @@ Windowsは同じアセンブリを、`Windows.Shell`（MainWindow・Playlist）�
 | `passed` | 全選択moduleと必須IDを含む最終判定。 |
 | `distributionCatalog`・`releaseArtifacts` | 公開時に同じZIPを照合するための入力。 |
 
-ケースの所要時間や並行moduleの時間の合計を、全体の経過時間と比較しません。速度の目標を定める場合の比較方法は[テスト時間の短縮](../../devdocs/spec/development/testing.md#テスト時間の短縮)に従い、制限時間の延長だけで達成とはしません。
+ケースの所要時間や並行moduleの時間の合計を、全体の経過時間と比較しません。速度の目標を定める場合の比較方法は[テスト時間の短縮](../../devdocs/spec/development/test-runtime.md#テスト時間の短縮)に従い、制限時間の延長だけで達成とはしません。
 
 全formatterは一つの段階期限を共有し、復元・ビルドはそれぞれ別の段階です。実行中の各待機で段階期限を作り直しません。正常にCoreが終了したときは、致命的な失敗用の回収期限を確定しません。致命的な失敗を検出したときに、検出時刻+10秒と段階の制限時間+10秒の早い方を一度だけ確定し、同じ段階の停止・出力保存で共有します。プロセスごとに新しい10秒は与えません。
 
