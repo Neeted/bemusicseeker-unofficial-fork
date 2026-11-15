@@ -2821,6 +2821,8 @@ public partial class SettingsDialogViewModel : ViewModel
     {
         private readonly string installedDisplayName;
 
+        private System.Windows.Media.FontFamily previewFontFamily;
+
         internal AppearanceFontOption(string key, string installedDisplayName)
         {
             Key = key;
@@ -2840,6 +2842,11 @@ public partial class SettingsDialogViewModel : ViewModel
                     : installedDisplayName;
             }
         }
+
+        /// <summary>
+        /// 選択欄で表示名を描くフォントです。フォントの読込みを表示する候補だけに限るため、最初に要求されたときに作って保持します。
+        /// </summary>
+        public System.Windows.Media.FontFamily PreviewFontFamily => previewFontFamily ??= AppFontService.CreatePreviewFontFamily(Key);
 
         internal void RefreshDisplayName()
         {

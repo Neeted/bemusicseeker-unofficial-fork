@@ -1029,6 +1029,155 @@ public sealed class SettingDialogCategoryPersistenceTests
         });
     }
 
+    /// <summary>
+    /// フォントの選択欄は、閉じた状態の選択中の候補とドロップダウンの各候補の表示名を、アプリの表示フォントではなく候補のフォントで描きます。
+    /// 記号フォント（Wingdings）と既定の候補は既定のMeiryo UI、ArialはArialで描かれ、候補の高さは同じです。
+    /// ドロップダウンは表示範囲の候補だけを実体化し、開閉とスクロールでは選択と保存値を変えません。
+    /// 候補のUIオートメーション名、表示言語の変更に伴う既定の候補の表示名の更新、表示名のキー入力による選択も維持します。
+    /// </summary>
+    /// <remarks>
+    /// 保存値をWingdingsにしてアプリ全体を記号の字形にするため、候補がアプリのフォントを継承する誤りと、すべての候補を既定で描く誤りを字形で区別できます。
+    /// 全候補を実体化する誤り、表示名での検索を失う誤りも検出します。Arial、Meiryo UI、Wingdingsのインストールを前提にします。
+    /// </remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void CompiledFontSelection_DrawsCandidatesInOwnFontAndVirtualizesDropDown()
+    {
+        const string symbolFont = "Wingdings";
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            using var fontSnapshot = AppFontResourceSnapshot.Capture();
+            CultureInfo? previousCulture = Resources.Culture;
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            string path = Path.Combine(root, "user.config");
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
+            values.AppearanceFontFamily = symbolFont;
+            values.Save();
+            var failures = new List<Exception>();
+            MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, reportSettingsApplyFailure: failures.Add);
+            SettingsWindow? window = null;
+            ComboBox? comboBox = null;
+            try
+            {
+                string arialFont = GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily("Arial"), "A");
+                string symbolGlyphFont = GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(symbolFont), "A");
+                string[] defaultFonts =
+                [
+                    GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(AppFontService.DefaultFontFamilyName), "A"),
+                    GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(AppFontService.DefaultFontFamilyName), "あ")
+                ];
+                CollectionAssert.DoesNotContain(defaultFonts, symbolGlyphFont, "Wingdingsがインストールされ、英字を自身の字形で描く環境が前提です。");
+                CollectionAssert.DoesNotContain(defaultFonts, arialFont, "ArialとMeiryo UIを区別できる環境が前提です。");
+
+                // 起動時の適用に相当する状態から始める。継承した文字は記号の字形になる。
+                AppFontService.ApplyFontFamily(values.AppearanceFontFamily);
+                window = OpenSettingsWindow(scope, owner.SettingDialog);
+                comboBox = (ComboBox)GetCategoryControl(window, "Appearance", nameof(SettingsDialogViewModel.AppearanceFontFamily)).Control;
+                IReadOnlyList<SettingsDialogViewModel.AppearanceFontOption> options = owner.SettingDialog.AppearanceFontOptions;
+                int IndexOf(string key) => Enumerable.Range(0, options.Count).Single(index => options[index].Key == key);
+                int symbolIndex = IndexOf(symbolFont), arialIndex = IndexOf("Arial");
+                Assert.AreEqual(symbolGlyphFont, GlyphFontProbe.FontUri(window.FontFamily, "A"));
+                Assert.AreSame(options[symbolIndex], comboBox.SelectedItem);
+
+                // 閉じた状態の選択中の候補。Popupを開く前は候補の部品がないため、一致する文字部品は選択の表示だけになる。
+                AssertDrawnWith(comboBox, options[symbolIndex].DisplayName, defaultFonts, "closed selection");
+
+                var popup = (Popup)comboBox.Template.FindName("PART_Popup", comboBox);
+                scope.TrackPopup(popup);
+                var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                popup.Opened += (_, _) => opened.TrySetResult();
+                comboBox.IsDropDownOpen = true;
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(opened.Task, "FontComboBox.Popup.Opened");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(comboBox.IsDropDownOpen, "ドロップダウンを開いたまま観測できることが前提です。");
+                ScrollViewer viewer = FindDescendants<ScrollViewer>(popup.Child).First();
+                Assert.IsTrue(viewer.ExtentHeight > viewer.ViewportHeight * 3d, $"候補が表示範囲の3倍を超える環境が前提です。extent={viewer.ExtentHeight}, viewport={viewer.ViewportHeight}");
+                int realized = Enumerable.Range(0, options.Count).Count(index => comboBox.ItemContainerGenerator.ContainerFromIndex(index) != null);
+                Assert.IsTrue(realized > 0 && realized < options.Count, $"realized={realized}, options={options.Count}");
+
+                ComboBoxItem Realize(int index)
+                {
+                    viewer.ScrollToVerticalOffset(index);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    viewer.UpdateLayout();
+                    return comboBox.ItemContainerGenerator.ContainerFromIndex(index) as ComboBoxItem
+                        ?? throw new AssertFailedException("スクロール先の候補が実体化されていません: " + index);
+                }
+                static string AutomationName(ComboBoxItem item) => System.Windows.Automation.Peers.UIElementAutomationPeer.CreatePeerForElement(item).GetName();
+
+                ComboBoxItem symbolItem = Realize(symbolIndex);
+                AssertDrawnWith(symbolItem, options[symbolIndex].DisplayName, defaultFonts, "symbol item");
+                Assert.AreEqual(options[symbolIndex].DisplayName, AutomationName(symbolItem));
+                double symbolItemHeight = symbolItem.ActualHeight;
+
+                // 先頭へ戻して、既定の候補とArialの候補を確認する。
+                string defaultName = options[0].DisplayName;
+                ComboBoxItem defaultItem = Realize(0);
+                AssertDrawnWith(defaultItem, defaultName, defaultFonts, "default item");
+                Assert.AreEqual(defaultName, AutomationName(defaultItem));
+                Assert.AreEqual(symbolItemHeight, defaultItem.ActualHeight, 0.5d);
+                ComboBoxItem arialItem = Realize(arialIndex);
+                AssertDrawnWith(arialItem, options[arialIndex].DisplayName, [arialFont], "Arial item");
+                Assert.AreEqual(options[arialIndex].DisplayName, AutomationName(arialItem));
+                Assert.AreEqual(symbolItemHeight, arialItem.ActualHeight, 0.5d);
+
+                // 表示言語を変えると、既定の候補の表示名だけが新しい言語の文言になる。
+                ResourceService.Current.ChangeCulture(ResourceService.Current.DisplayCulture.Name.StartsWith("ja", StringComparison.OrdinalIgnoreCase) ? "en-US" : "ja-JP");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                string localizedDefaultName = options[0].DisplayName;
+                Assert.AreNotEqual(defaultName, localizedDefaultName, "二つの表示言語で既定の候補の文言が異なることが前提です。");
+                defaultItem = Realize(0);
+                AssertDrawnWith(defaultItem, localizedDefaultName, defaultFonts, "localized default item");
+                Assert.AreEqual(localizedDefaultName, AutomationName(defaultItem));
+
+                var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                popup.Closed += (_, _) => closed.TrySetResult();
+                comboBox.IsDropDownOpen = false;
+                TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "FontComboBox.Popup.Closed");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreSame(options[symbolIndex], comboBox.SelectedItem);
+                Assert.AreEqual(symbolFont, values.AppearanceFontFamily);
+                Assert.AreEqual(symbolFont, TestSettingsFactory.OpenSettings(path).AppearanceFontFamily);
+
+                // 閉じた選択欄へ表示名を入力すると、その表示名の候補が選ばれる。
+                comboBox.RaiseEvent(new TextCompositionEventArgs(Keyboard.PrimaryDevice, new TextComposition(InputManager.Current, comboBox, options[arialIndex].DisplayName))
+                {
+                    RoutedEvent = TextCompositionManager.TextInputEvent
+                });
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreSame(options[arialIndex], comboBox.SelectedItem);
+                Assert.AreEqual("Arial", values.AppearanceFontFamily);
+                Assert.AreEqual(0, failures.Count);
+            }
+            finally
+            {
+                try
+                {
+                    if (comboBox != null)
+                    {
+                        comboBox.IsDropDownOpen = false;
+                    }
+                    ResourceService.Current.ChangeCulture(previousCulture?.Name ?? "en-US");
+                }
+                finally
+                {
+                    window?.CloseForOwnerShutdown();
+                    owner.SettingDialog.Dispose();
+                    Directory.Delete(root, recursive: true);
+                }
+            }
+        });
+    }
+
+    /// <summary>指定の表示名を持つ文字部品が一つだけあり、実際に描かれた字形が許可したフォントだけを使うことを表明します。</summary>
+    private static void AssertDrawnWith(DependencyObject root, string text, string[] allowedFonts, string label)
+    {
+        TextBlock block = FindDescendants<TextBlock>(root).Single(candidate => candidate.Text == text);
+        string[] drawn = GlyphFontProbe.FontUris(System.Windows.Media.VisualTreeHelper.GetDrawing(block)).ToArray();
+        Assert.IsTrue(drawn.Length > 0, label + ": 文字が描かれていません。");
+        CollectionAssert.IsSubsetOf(drawn, allowedFonts, label + ": " + string.Join(", ", drawn));
+    }
+
     /// <summary>通常TextBoxのEnterとSliderのドラッグ完了だけを確定時機とし、途中値・不正な別候補を保存せず同じWindowを維持します。</summary>
     [TestMethod]
     public void CompiledOrdinaryInputs_EnterAndSliderCompletionPersistOnlyTheirOwnItem()
@@ -1169,7 +1318,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                         Assert.IsFalse(string.IsNullOrEmpty(owner.SettingDialog.InstallDestinationAutoApplyMinAudioHealthWarning));
                     }
                     else { Assert.AreEqual(input.Before, before, input.Path + " initial Binding"); }
-                    Assert.AreNotEqual(input.Before, input.Expected, input.Path);
+                    Assert.AreNotEqual(input.Expected, input.Before, input.Path);
                 }
                 AssertSavedState(TestSettingsFactory.OpenSettings(config));
                 foreach ((string Category, string Path, object Before, object Expected) input in inputs)

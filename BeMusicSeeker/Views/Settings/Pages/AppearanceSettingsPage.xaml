@@ -26,12 +26,22 @@
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_font_description, Mode=OneWay}">
       <ComboBox AutomationProperties.AutomationId="SettingsFont" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_font, Mode=OneWay}" x:Name="appearanceFontComboBox" HorizontalAlignment="Stretch"
                   ItemsSource="{Binding AppearanceFontOptions}"
-                  DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                  SelectedValuePath="Key" TextSearch.TextPath="DisplayName"
                   SelectedValue="{Binding AppearanceFontFamily, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                   SelectionChanged="appearanceFontComboBoxSelectionChanged">
+        <!-- 候補はインストール済みのフォントの数だけあり、それぞれ別のフォントで描く。開いたときに全フォントを読み込まないよう、表示範囲の候補だけを実体化する。 -->
+        <ComboBox.ItemsPanel>
+          <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+        </ComboBox.ItemsPanel>
+        <!-- 表示名を候補のフォントで描く。閉じた状態の選択中の候補にも同じテンプレートが使われる。 -->
+        <ComboBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding DisplayName}" FontFamily="{Binding PreviewFontFamily}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
         <ComboBox.ItemContainerStyle>
           <Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource SettingsComboBoxItemStyle}">
-            <!-- DisplayMemberPathは候補のUIA Nameを指定しないため、同じ表示名を明示して接続する。 -->
+            <!-- ItemTemplateは候補のUIA Nameを指定しないため、同じ表示名を明示して接続する。 -->
             <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
           </Style>
         </ComboBox.ItemContainerStyle>

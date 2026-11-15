@@ -99,6 +99,53 @@ public sealed class AppFontServiceTests
     }
 
     /// <summary>
+    /// 選択欄の候補を描くフォントは、Arialでは英字がArial、Arialに字形がないかなが既定のMeiryo UIになり、
+    /// 空文字、未インストールの名前、記号フォント（Wingdings、Webdings、Symbol、Marlett）では既定のMeiryo UIだけになることを確認します。
+    /// どの候補でも一行の高さは文字サイズの1.27倍で、基線は描画に使う第一候補の大文字の高さを行の上下中央に置きます。
+    /// アプリ全体へ適用するフォントは、記号フォントでも選択されたフォントのままです。
+    /// </summary>
+    /// <remarks>
+    /// 既定への代替がない誤り、記号フォントの名前を記号の字形で描く誤り、すべての候補を既定で描く誤り、
+    /// 記号フォントの判定をアプリ全体の適用へ広げる誤りを検出します。上記の記号フォントがインストールされていることを前提にします。
+    /// </remarks>
+    [TestMethod]
+    public void CreatePreviewFontFamily_UsesCandidateFontExceptSymbolFontsWithFixedLineMetrics()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            const double size = 100d;
+            static double CapsHeight(string name) => new Typeface(new FontFamily(name), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
+            string arial = GlyphFontProbe.FontUri(new FontFamily("Arial"), "A");
+            string meiryoUiLatin = GlyphFontProbe.FontUri(new FontFamily("Meiryo UI"), "A");
+            string meiryoUiKana = GlyphFontProbe.FontUri(new FontFamily("Meiryo UI"), "あ");
+            Assert.AreNotEqual(arial, meiryoUiLatin, "ArialとMeiryo UIを区別できる環境が前提です。");
+            foreach ((string name, string expectedLatin, double capsHeight) in new[]
+            {
+                ("Arial", arial, CapsHeight("Arial")),
+                (string.Empty, meiryoUiLatin, CapsHeight("Meiryo UI")),
+                ("BeMusicSeeker No Such Font", meiryoUiLatin, CapsHeight("Meiryo UI")),
+                ("Wingdings", meiryoUiLatin, CapsHeight("Meiryo UI")),
+                ("Webdings", meiryoUiLatin, CapsHeight("Meiryo UI")),
+                ("Symbol", meiryoUiLatin, CapsHeight("Meiryo UI")),
+                ("Marlett", meiryoUiLatin, CapsHeight("Meiryo UI"))
+            })
+            {
+                FontFamily preview = AppFontService.CreatePreviewFontFamily(name);
+                Assert.AreEqual(expectedLatin, GlyphFontProbe.FontUri(preview, "A"), name);
+                Assert.AreEqual(meiryoUiKana, GlyphFontProbe.FontUri(preview, "あ"), name);
+                var text = new FormattedText("H", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                    new Typeface(preview, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), size, Brushes.Black, 1d);
+                Assert.AreEqual(1.27d * size, text.Height, 0.05d, name);
+                Assert.AreEqual((1.27d + capsHeight) / 2d * size, text.Baseline, 0.05d, name);
+            }
+
+            string wingdings = GlyphFontProbe.FontUri(new FontFamily("Wingdings"), "A");
+            Assert.AreNotEqual(meiryoUiLatin, wingdings, "Wingdingsがインストールされ、英字を自身の字形で描く環境が前提です。");
+            Assert.AreEqual(wingdings, GlyphFontProbe.FontUri(AppFontService.CreateFontFamily("Wingdings"), "A"));
+        });
+    }
+
+    /// <summary>
     /// 表示中のリリースノートのウィンドウで、フォントをArialからMeiryo UIへ適用し直すたびに、ウィンドウ、継承する文字、文書、
     /// 明示スタイルのないメニューとツールチップが同じフォントへ追随し、文書の文字サイズは変わらないことを確認します。
     /// </summary>

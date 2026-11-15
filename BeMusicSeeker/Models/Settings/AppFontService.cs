@@ -63,6 +63,28 @@ internal static class AppFontService
     }
 
     /// <summary>
+    /// フォントの選択欄で、候補の名前を描くフォントを作ります。<see cref="CreateFontFamily"/> と同じ規則で候補のフォントを使いますが、
+    /// 記号用の文字コード表を持つフォント（Wingdingsなど）は名前が記号の字形になって読めないため、既定のフォントを返します。
+    /// アプリ全体へ適用するフォントの規則は変えません。
+    /// </summary>
+    internal static FontFamily CreatePreviewFontFamily(string name)
+    {
+        string normalizedName = NormalizeFontFamilyName(name);
+        if (normalizedName.Length == 0 || IsSymbolFontFamily(normalizedName))
+        {
+            return DefaultFontFamily;
+        }
+        return CreateFontFamily(normalizedName);
+    }
+
+    /// <summary>フォントが記号用の文字コード表を持つかを返します。未インストールの名前はWPFの代替フォントで判定されます。</summary>
+    private static bool IsSymbolFontFamily(string normalizedName)
+    {
+        var typeface = new Typeface(new FontFamily(normalizedName.Replace(",", ",,", StringComparison.Ordinal)), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+        return typeface.TryGetGlyphTypeface(out GlyphTypeface glyphTypeface) && glyphTypeface.Symbol;
+    }
+
+    /// <summary>
     /// 候補のフォントを束ね、行の高さと基線を固定した合成フォントを作ります。
     /// WPFは文字をフォントが申告する行の箱で配置し、その高さと箱の中の文字の位置はフォントごとに違います。
     /// そのまま使うと、フォントによって上下中央や下寄せの文字がずれ、行の高さが小さいフォントは一覧で折り返します。
