@@ -1939,7 +1939,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             if (viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive)
             {
-                NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + (e.SelectedRows?.Count ?? 0));
+                NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + e.SelectedCount);
             }
             playbackTerminal.HandleTableSelection(e.SelectedRow);
         }

@@ -942,7 +942,7 @@ public sealed partial class CustomTableView : Grid
         bool changed = selectionModel.RestoreIndices(captured.Selected.Select(source.IndexOfSelectionIdentity),
             source.IndexOfSelectionIdentity(captured.Current), source.IndexOfSelectionIdentity(captured.Anchor));
         // 行数減少によるcoerceが先に空にした場合も、選択消失を通知する。
-        changed |= captured.Selected.Length != selectionModel.SelectedIndices.Count;
+        changed |= captured.Selected.Length != selectionModel.SelectedCount;
         UpdateSelectedIndexFromSelectionModel();
         if (changed) { RaiseSelectionChanged(); }
         RequestRedraw("selection");
@@ -1519,7 +1519,7 @@ public sealed partial class CustomTableView : Grid
             bool plainSingleClick = clickCount == 1
                 && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
             bool delaySingleSelectionUntilMouseUp = plainSingleClick
-                && selectionModel.SelectedIndices.Count > 1
+                && selectionModel.SelectedCount > 1
                 && selectionModel.IsSelected(hit.RowIndex);
             bool shouldBeginEditOnRepeatClick = clickCount == 1
                 && IsSameEditableCell(currentCellHit, hit)
@@ -2298,7 +2298,7 @@ public sealed partial class CustomTableView : Grid
     {
         IList rows = ItemsSource;
         object selectedRow = rows != null && selectionModel.CurrentIndex >= 0 && selectionModel.CurrentIndex < rows.Count ? rows[selectionModel.CurrentIndex] : null;
-        SelectionChanged?.Invoke(this, new CustomTableSelectionChangedEventArgs(selectionModel.CurrentIndex, selectedRow, GetSelectedRowsSnapshot()));
+        SelectionChanged?.Invoke(this, new CustomTableSelectionChangedEventArgs(selectionModel.CurrentIndex, selectedRow, selectionModel.SelectedCount));
     }
 
     private bool TryBeginEditCurrentCell(string replacementText)

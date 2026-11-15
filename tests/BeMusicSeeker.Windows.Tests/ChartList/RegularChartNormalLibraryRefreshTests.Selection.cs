@@ -75,7 +75,7 @@ public sealed partial class RegularChartNormalLibraryRefreshTests
                 table.HandleKeyDown(Key.Down, ModifierKeys.Shift);
                 AssertSelectedTokens(table, remaining);
                 int clearedNotifications = 0;
-                table.SelectionChanged += (_, e) => { if (e.SelectedRows.Count == 0) { clearedNotifications++; } };
+                table.SelectionChanged += (_, e) => { if (e.SelectedCount == 0) { clearedNotifications++; } };
                 fixture.Change(removeAnchor ? 2 : 1, 1);
                 DeliverSelectionChanges(fixture);
                 Assert.AreEqual(-1, table.SelectedIndex);

@@ -215,7 +215,8 @@ public sealed class CustomTableNavigationTests
                 Assert.AreEqual(expectedCurrent, args.SelectedIndex);
                 Assert.AreEqual(expectedCurrent, table.SelectedIndex);
                 Assert.AreSame(rows[expectedCurrent], args.SelectedRow);
-                CollectionAssert.AreEqual(expectedSelection, args.SelectedRows.ToArray());
+                Assert.AreEqual(expectedSelection.Length, args.SelectedCount);
+                CollectionAssert.AreEqual(expectedSelection, table.GetSelectedRowsSnapshot().ToArray());
                 AssertCurrentCell(table, expectedCurrent, expectedColumn);
             };
             try
@@ -244,6 +245,79 @@ public sealed class CustomTableNavigationTests
                 Assert.AreEqual(2, notifications);
                 CollectionAssert.AreEqual(expectedSelection, table.GetSelectedRowsSnapshot().ToArray());
                 AssertCurrentCell(table, 0, "C1");
+            }
+            finally
+            {
+                table.SelectionChanged -= onSelection;
+                table.ItemsSource = null;
+            }
+        });
+    }
+
+    /// <summary>21万行の全選択・Shift範囲・Ctrl解除でも、選択通知が主行と可視範囲の外の行へ添字アクセスせず列挙もしないことを確認し、通知のために全選択行を実体化する誤りを検出します。最後に選択行の取得が選択集合の行だけを昇順で返し、null行を除くことも確認します。</summary>
+    [TestMethod]
+    public void LargeSelection_NotifiesWithoutMaterializingRowsOutsidePrimaryAndVisibleRange()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            const int RowTotal = 210_000;
+            var rows = new CountingRowList(RowTotal);
+            CustomTableView table = CreateTable(CreateColumns(60, 60));
+            table.Height = 330d;
+            table.ItemsSource = rows;
+            table.Measure(new Size(200d, 330d));
+            table.Arrange(new Rect(0d, 0d, 200d, 330d));
+            table.UpdateLayout();
+            var notifications = new List<CustomTableSelectionChangedEventArgs>();
+            EventHandler<CustomTableSelectionChangedEventArgs> onSelection = (_, args) => notifications.Add(args);
+            table.SelectionChanged += onSelection;
+            try
+            {
+                int capacity = table.CalculateFullVisibleRowCapacity();
+                Assert.IsTrue(capacity >= 4, "範囲を絞る手順に必要な可視行数がありません。");
+
+                void Input(string step, Func<bool> input, int expectedCount, int expectedPrimary)
+                {
+                    rows.ResetAccess();
+                    int before = notifications.Count;
+                    Assert.IsTrue(input(), step);
+                    Assert.AreEqual(before + 1, notifications.Count, step);
+                    CustomTableSelectionChangedEventArgs args = notifications[^1];
+                    Assert.AreEqual(expectedCount, args.SelectedCount, step);
+                    Assert.AreEqual(expectedPrimary, args.SelectedIndex, step);
+                    Assert.AreEqual(table.SelectedIndex, args.SelectedIndex, step);
+                    Assert.AreSame(rows.Rows[expectedPrimary], args.SelectedRow, step);
+                    Assert.IsFalse(rows.EnumeratorRequested, step);
+                    int first = table.FirstVisibleRowIndex;
+                    foreach (int index in rows.Accessed)
+                    {
+                        Assert.IsTrue(index == expectedPrimary || (index >= first && index <= first + capacity),
+                            $"{step}: 主行と可視範囲の外の行 {index} へアクセスしました。");
+                    }
+                }
+
+                Input("Ctrl+A", () => table.HandleKeyDown(Key.A, ModifierKeys.Control), RowTotal, 0);
+                Input("Shift+下", () => table.HandleKeyDown(Key.Down, ModifierKeys.Shift), 2, 1);
+
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == System.Windows.Controls.Orientation.Vertical);
+                vertical.Value = vertical.Maximum;
+                Input("末尾のShift+クリック", () => PressCell(table, RowTotal - 1, 0, MouseButton.Left, ModifierKeys.Shift), RowTotal, RowTotal - 1);
+
+                int first = table.FirstVisibleRowIndex;
+                int middle = first + capacity / 2;
+                Input("Ctrl+クリック", () => PressCell(table, middle, 0, MouseButton.Left, ModifierKeys.Control), RowTotal - 1, RowTotal - 1);
+
+                // 基点は直前のCtrl+クリックの行です。可視範囲内の小さな範囲へ絞り、途中にnull行を含めます。
+                rows.Rows[first + 1] = null;
+                int selectedLast = middle;
+                Input("可視範囲への絞込み", () => PressCell(table, first, 0, MouseButton.Left, ModifierKeys.Shift), selectedLast - first + 1, first);
+
+                rows.ResetAccess();
+                IReadOnlyList<object> snapshot = table.GetSelectedRowsSnapshot();
+                object[] expected = [.. Enumerable.Range(first, selectedLast - first + 1).Where(index => index != first + 1).Select(index => rows.Rows[index]!)];
+                CollectionAssert.AreEqual(expected, snapshot.ToArray());
+                CollectionAssert.AreEqual(Enumerable.Range(first, selectedLast - first + 1).ToArray(), rows.Accessed.Order().ToArray());
+                Assert.IsFalse(rows.EnumeratorRequested);
             }
             finally
             {
@@ -674,6 +748,70 @@ public sealed class CustomTableNavigationTests
         Assert.AreEqual(rowIndex, hit.RowIndex);
         Assert.AreSame(table.VisibleColumns[columnIndex], hit.Column);
         return table.HandleCellMouseDown(hit, button, modifiers, 1, point);
+    }
+
+    // 添字アクセスを記録し、列挙・探索・複写を失敗にする行集合です。選択の処理が触れた行だけを観測するために使います。
+    private sealed class CountingRowList : System.Collections.IList
+    {
+        internal CountingRowList(int count)
+        {
+            Rows = new object?[count];
+            for (int i = 0; i < count; i++)
+            {
+                Rows[i] = new object();
+            }
+        }
+
+        // 記録しない直接参照です。表明の期待値を作るためだけに使います。
+        internal object?[] Rows { get; }
+
+        internal HashSet<int> Accessed { get; } = [];
+
+        internal bool EnumeratorRequested { get; private set; }
+
+        internal void ResetAccess() => Accessed.Clear();
+
+        public object? this[int index]
+        {
+            get
+            {
+                Accessed.Add(index);
+                return Rows[index];
+            }
+            set => throw new NotSupportedException();
+        }
+
+        public int Count => Rows.Length;
+
+        public bool IsFixedSize => true;
+
+        public bool IsReadOnly => true;
+
+        public bool IsSynchronized => false;
+
+        public object SyncRoot => this;
+
+        public System.Collections.IEnumerator GetEnumerator()
+        {
+            EnumeratorRequested = true;
+            throw new InvalidOperationException("選択の処理が行集合を列挙しました。");
+        }
+
+        public int Add(object? value) => throw new NotSupportedException();
+
+        public void Clear() => throw new NotSupportedException();
+
+        public bool Contains(object? value) => throw new NotSupportedException();
+
+        public void CopyTo(Array array, int index) => throw new NotSupportedException();
+
+        public int IndexOf(object? value) => throw new NotSupportedException();
+
+        public void Insert(int index, object? value) => throw new NotSupportedException();
+
+        public void Remove(object? value) => throw new NotSupportedException();
+
+        public void RemoveAt(int index) => throw new NotSupportedException();
     }
 
     // KeyEventArgsは非nullの入力元を要求します。描画先やHWNDは使わず、入力元以外の実表とルーティングを動かします。
