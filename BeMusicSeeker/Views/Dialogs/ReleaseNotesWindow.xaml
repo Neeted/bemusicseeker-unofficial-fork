@@ -25,7 +25,7 @@
       <FlowDocumentScrollViewer.Resources>
         <Style TargetType="{x:Type ScrollViewer}" BasedOn="{StaticResource App.Canonical.ScrollViewerStyle}" />
       </FlowDocumentScrollViewer.Resources>
-<FlowDocument FontFamily="Meiryo UI" FontSize="12" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="16">
+<FlowDocument FontFamily="{DynamicResource App.UiFontFamily}" FontSize="12" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="16">
 <FrameworkContentElement.Resources>
 <ResourceDictionary>
 <Style x:Key="{x:Type List}" TargetType="{x:Type List}" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">

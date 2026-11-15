@@ -129,7 +129,6 @@
                   Click="ApplyButtonClick">
             <Button.Content>
               <TextBlock Text="{Binding DisplayText}"
-                         FontFamily="Meiryo"
                          FontSize="12"
                          Foreground="{DynamicResource App.TextBrush}"
                          TextWrapping="NoWrap"

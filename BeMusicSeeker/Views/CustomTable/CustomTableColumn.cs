@@ -22,7 +22,7 @@ public enum CustomTableCellKind
 
 internal sealed class CustomTableTextStyle
 {
-    private static readonly FontFamily DefaultFontFamily = new("Meiryo UI");
+    private static readonly FontFamily DefaultFontFamily = AppFontService.DefaultFontFamily;
 
     private CustomTableTextStyle(string cacheKey, FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
     {
@@ -78,6 +78,26 @@ internal sealed class CustomTableTextStyle
             CacheKey + ":size=" + fontSize.ToString("0.###", CultureInfo.InvariantCulture),
             FontFamily,
             fontSize,
+            VerticalOffset,
+            UseBoldText,
+            UsesScoreFontFamily);
+    }
+
+    /// <summary>
+    /// 通常の文字のフォントを置き換えたスタイルを返します。文字の配置のキャッシュが別のフォントの結果を
+    /// 再利用しないよう、キャッシュのキーにもフォントを含めます。スコア用のフォントが指定された表示は、
+    /// <see cref="CreateTypeface"/> がスコア用のフォントを優先するため変わりません。
+    /// </summary>
+    internal CustomTableTextStyle WithFontFamily(FontFamily fontFamily)
+    {
+        if (fontFamily == null || Equals(FontFamily, fontFamily))
+        {
+            return this;
+        }
+        return new CustomTableTextStyle(
+            CacheKey + ":font=" + fontFamily.Source,
+            fontFamily,
+            FontSize,
             VerticalOffset,
             UseBoldText,
             UsesScoreFontFamily);

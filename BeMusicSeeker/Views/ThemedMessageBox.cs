@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Media;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Views;
@@ -156,7 +155,6 @@ internal static class ThemedMessageBox
             ResizeMode = ResizeMode.NoResize,
             WindowStartupLocation = owner == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
             ShowInTaskbar = false,
-            FontFamily = new FontFamily("Meiryo UI"),
         };
         if (owner != null)
         {

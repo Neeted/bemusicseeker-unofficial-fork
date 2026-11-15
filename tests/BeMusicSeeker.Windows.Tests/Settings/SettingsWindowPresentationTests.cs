@@ -3283,12 +3283,15 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実 Slider の値が main と playlist summary の実 table へ preview され、既定復元と取消で両 table が対応する設定値へ戻ることを確認します。</summary>
+    /// <summary>実 Slider の値が main と playlist summary の実 table へ preview され、既定復元と取消で両 table が対応する設定値へ戻ることを確認します。実際の選択欄でフォントを選ぶと、その項目が保存され、メイン画面・設定画面・両 table のフォントが文字サイズを変えずに追随し、閉じても保存値を保ちます。</summary>
+    /// <remarks>フォントの選択から共通の表示フォントへの接続漏れと、フォントの変更で一覧の文字サイズが変わる誤りを検出します。</remarks>
     [TestMethod]
+    [DoNotParallelize]
     public void SettingsWindow_AppearanceControlsPersistThroughMainViewSettingsAndClose()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
+            var fontSnapshot = AppFontResourceSnapshot.Capture();
             double previousFontSize = Settings.Default.CustomTableFontSize;
             double previousRowHeight = Settings.Default.CustomTableRowHeight;
             double previousHeaderHeight = Settings.Default.CustomTableHeaderHeight;
@@ -3376,8 +3379,25 @@ public sealed class SettingsWindowPresentationTests
                 Assert.AreEqual(Settings.DefaultCustomTableRowHeight, playlistSummaryTable!.RowHeight);
                 Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, playlistSummaryTable!.HeaderHeight);
 
+                var fontComboBox = (ComboBox)page.FindName("appearanceFontComboBox");
+                Assert.AreEqual(string.Empty, settings.AppearanceFontFamily);
+                Assert.AreEqual(string.Empty, ((SettingsDialogViewModel.AppearanceFontOption)fontComboBox.SelectedItem).Key);
+                fontComboBox.SelectedItem = settings.AppearanceFontOptions.Single(option => option.Key == "Arial");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Arial", settings.AppearanceFontFamily);
+                var appliedFont = (System.Windows.Media.FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
+                Assert.IsTrue(appliedFont.Source.StartsWith("Arial", StringComparison.Ordinal), appliedFont.Source);
+                Assert.AreEqual(appliedFont, mainWindow.FontFamily);
+                Assert.AreEqual(appliedFont, window.FontFamily);
+                Assert.AreEqual(appliedFont, mainTable!.TextFontFamily);
+                Assert.AreEqual(appliedFont, playlistSummaryTable!.TextFontFamily);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
+
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Arial", settings.AppearanceFontFamily);
+                Assert.AreEqual(appliedFont, mainTable!.TextFontFamily);
                 Assert.AreEqual(Settings.DefaultCustomTableFontSize, owner.ViewSettings.CustomTableFontSize);
                 Assert.AreEqual(Settings.DefaultCustomTableRowHeight, owner.ViewSettings.CustomTableRowHeight);
                 Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
@@ -3405,6 +3425,14 @@ public sealed class SettingsWindowPresentationTests
                     {
                         cleanupFailure ??= exception;
                     }
+                }
+                try
+                {
+                    fontSnapshot.Dispose();
+                }
+                catch (Exception exception)
+                {
+                    cleanupFailure ??= exception;
                 }
                 try
                 {
@@ -3628,6 +3656,7 @@ public sealed class SettingsWindowPresentationTests
                     ("navigationGeneral", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == "Language"), Resources.Language),
                     ("navigationGeneral", page => (ListBox)page.FindName("bmsSearchRootPathListBox"), Resources.Standalone_BMSDirectories),
                     ("navigationAppearance", page => (ComboBox)page.FindName("appearanceThemeComboBox"), Resources.Appearance_theme),
+                    ("navigationAppearance", page => (ComboBox)page.FindName("appearanceFontComboBox"), Resources.Appearance_font),
                     ("navigationAppearance", page => FindDescendants<Slider>(page).Single(control => control.GetBindingExpression(RangeBase.ValueProperty)?.ParentBinding.Path?.Path == "CustomTableFontSize"), Resources.Appearance_table_font_size),
                     ("navigationPlayback", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path?.Path == "LR2bodyResolution"), Resources.Player_LR2_wsize),
                     ("navigationAudio", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedIndexProperty)?.ParentBinding.Path?.Path == "PlayerDriverIndex"), Resources.Device_setting_driver),
@@ -3660,7 +3689,7 @@ public sealed class SettingsWindowPresentationTests
                 foreach ((string categoryName, string[] headings) in new[]
                 {
                     ("navigationGeneral", new[] { Resources.Language, Resources.Standalone_BMSDirectories, Resources.Lr2_play_history_schema_label }),
-                    ("navigationAppearance", new[] { Resources.Appearance_theme }),
+                    ("navigationAppearance", new[] { Resources.Appearance_theme, Resources.Appearance_font }),
                     ("navigationAudio", new[] { Resources.Device_setting_volume }),
                     ("navigationInstall", new[] { Resources.Settings_install_destination_section }),
                     ("navigationPlaylist", new[] { Resources.Playlist_table_uri, Resources.Playlist_md5_url_mapping_tsv_uri }),

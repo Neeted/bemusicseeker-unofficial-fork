@@ -119,6 +119,15 @@ public sealed partial class CustomTableView : Grid
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontSize));
 
+    /// <summary>
+    /// 通常の文字、見出し、セルの編集欄に使うフォントを識別します。未指定とnullは既定の表示フォントです。
+    /// </summary>
+    public static readonly DependencyProperty TextFontFamilyProperty = DependencyProperty.Register(
+        nameof(TextFontFamily),
+        typeof(FontFamily),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(AppFontService.DefaultFontFamily, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontFamily));
+
     public static readonly DependencyProperty SelectedIndexProperty = DependencyProperty.Register(
         nameof(SelectedIndex),
         typeof(int),
@@ -638,6 +647,13 @@ public sealed partial class CustomTableView : Grid
         set => SetValue(RowDragKindProperty, value);
     }
 
+    /// <summary>通常の文字、見出し、セルの編集欄に使うフォントです。変更すると文字の配置を作り直します。</summary>
+    public FontFamily TextFontFamily
+    {
+        get => (FontFamily)GetValue(TextFontFamilyProperty);
+        set => SetValue(TextFontFamilyProperty, value);
+    }
+
     public FontFamily ScoreFontFamily
     {
         get => (FontFamily)GetValue(ScoreFontFamilyProperty);
@@ -691,7 +707,7 @@ public sealed partial class CustomTableView : Grid
 
     internal CustomTableTextStyle ResolveTextStyle(CustomTableTextStyle textStyle)
     {
-        return (textStyle ?? CustomTableTextStyle.Normal).WithFontSize(TextFontSize);
+        return (textStyle ?? CustomTableTextStyle.Normal).WithFontFamily(TextFontFamily).WithFontSize(TextFontSize);
     }
 
     internal bool IsReorderSourceColumn(CustomTableColumn column)
@@ -791,6 +807,11 @@ public sealed partial class CustomTableView : Grid
         return baseValue is double value
             ? BeMusicSeeker.Properties.Settings.NormalizeRange(value, BeMusicSeeker.Properties.Settings.MinCustomTableFontSize, BeMusicSeeker.Properties.Settings.MaxCustomTableFontSize, BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize)
             : BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
+    }
+
+    private static object CoerceTextFontFamily(DependencyObject d, object baseValue)
+    {
+        return baseValue as FontFamily ?? AppFontService.DefaultFontFamily;
     }
 
     /// <summary>外部から実際に受理した主行変更だけで旧編集を一回確定し、同期再入後の最新主行へ現在セルと可視範囲を揃えます。</summary>
@@ -3136,7 +3157,7 @@ internal sealed class CustomTableSurface : FrameworkElement
     // 高さと見出し高はセル群の内容を変えない。行の配置・保持範囲だけを再評価する。
     private sealed record DrawingEnvironment(
         CustomTableColumnLayoutSnapshot Layout, double Width, double HorizontalOffset, double RowHeight,
-        double FontSize, FontFamily ScoreFontFamily, double PixelsPerDip,
+        double FontSize, FontFamily TextFontFamily, FontFamily ScoreFontFamily, double PixelsPerDip,
         CultureInfo Culture, CultureInfo UICulture, CustomTablePalette Palette);
 
     private int renderTextCacheHits;
@@ -3172,7 +3193,7 @@ internal sealed class CustomTableSurface : FrameworkElement
     private void UpdateDrawingEnvironment(CustomTableColumnLayoutSnapshot layout, double width)
     {
         var next = new DrawingEnvironment(layout, width, owner.HorizontalOffset, Math.Max(1d, owner.RowHeight),
-            owner.TextFontSize, owner.ScoreFontFamily, VisualTreeHelper.GetDpi(this).PixelsPerDip,
+            owner.TextFontSize, owner.TextFontFamily, owner.ScoreFontFamily, VisualTreeHelper.GetDpi(this).PixelsPerDip,
             CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture, CustomTablePalette.Current);
         // 同名でも数値書式を変更したCultureInfoへ交換できるため、参照の変更も確認する。
         bool valuesChanged = drawingEnvironment != null
@@ -3187,6 +3208,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             bool textEnvironmentChanged = drawingEnvironment == null || valuesChanged
                 || !drawingEnvironment.FontSize.Equals(next.FontSize)
+                || !Equals(drawingEnvironment.TextFontFamily, next.TextFontFamily)
                 || !Equals(drawingEnvironment.ScoreFontFamily, next.ScoreFontFamily)
                 || !drawingEnvironment.PixelsPerDip.Equals(next.PixelsPerDip);
             if (textEnvironmentChanged)
@@ -3200,9 +3222,9 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             drawingEnvironment = next;
         }
-        normalTextStyle = CustomTableTextStyle.Normal.WithFontSize(next.FontSize);
-        boldTextStyle = CustomTableTextStyle.NormalBold.WithFontSize(next.FontSize);
-        scoreTextStyle = CustomTableTextStyle.Score.WithFontSize(next.FontSize);
+        normalTextStyle = CustomTableTextStyle.Normal.WithFontFamily(next.TextFontFamily).WithFontSize(next.FontSize);
+        boldTextStyle = CustomTableTextStyle.NormalBold.WithFontFamily(next.TextFontFamily).WithFontSize(next.FontSize);
+        scoreTextStyle = CustomTableTextStyle.Score.WithFontFamily(next.TextFontFamily).WithFontSize(next.FontSize);
     }
 
     protected override void OnRender(DrawingContext drawingContext)
@@ -3478,7 +3500,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             return scoreTextStyle;
         }
         // サイズ適用済みのスタイルを渡された場合も、元の書体・縦補正を保持する。
-        return style.WithFontSize(drawingEnvironment.FontSize);
+        return style.WithFontFamily(drawingEnvironment.TextFontFamily).WithFontSize(drawingEnvironment.FontSize);
     }
 
     private void DrawCellText(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground, IReadOnlyList<CustomTableTextRunStyle> textRuns, TextAlignment alignment, CustomTableTextStyle textStyle)

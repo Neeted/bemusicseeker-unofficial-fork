@@ -34,7 +34,7 @@
 | メインの `customTableView` | `MainChartList.Rows` | `MainChartList.ColumnsSettings` |
 | プレイリスト一覧の `customTablePlaylistSummary` | `PlaylistSummaryView` | 専用の列設定 |
 
-行の高さは19、見出しは22、文字サイズは11が既定です。外観設定は両方の表へ反映します。メイン一覧のスコア表示には `SovjetBox` を使い、クリア、DJ LEVEL、難易度、判定、履歴のクリアとBEST DJは、`CustomTableTextStyle.Score`、現在の文字サイズ、縦補正 `1d` を共用します。
+行の高さは19、見出しは22、文字サイズは11が既定です。外観設定は両方の表へ反映します。通常の文字と見出しのフォントは[表示フォント](appearance.md#表示フォント)に従います。メイン一覧のスコア表示には `SovjetBox` を使い、クリア、DJ LEVEL、難易度、判定、履歴のクリアとBEST DJは、`CustomTableTextStyle.Score`、現在の文字サイズ、縦補正 `1d` を共用します。
 
 並べ替え状態は、通常一覧と履歴で共通の `MainChartList.SortParameters`（`MainChartListSortPresentation`）として公開し、表示先（通常一覧・プレイリスト詳細、履歴）ごとに設定します。プレイリスト一覧は独立した `PlaylistSummarySortParameters` を使います。
 

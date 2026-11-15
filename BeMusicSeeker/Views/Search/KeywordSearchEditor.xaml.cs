@@ -646,7 +646,6 @@ public partial class KeywordSearchEditor : UserControl
                 var header = new TextBlock
                 {
                     Text = headerText,
-                    FontFamily = new FontFamily("Meiryo"),
                     FontSize = 11,
                     FontWeight = FontWeights.Bold,
                     Margin = new Thickness(4, 2, 4, 4)

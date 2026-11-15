@@ -257,6 +257,10 @@ public class Resources
 
     public static string Appearance => ResourceManager.GetString("Appearance", resourceCulture);
 
+    public static string Appearance_font => ResourceManager.GetString("Appearance_font", resourceCulture);
+
+    public static string Appearance_font_default => ResourceManager.GetString("Appearance_font_default", resourceCulture);
+
     public static string Appearance_table => ResourceManager.GetString("Appearance_table", resourceCulture);
 
     public static string Appearance_table_font_size => ResourceManager.GetString("Appearance_table_font_size", resourceCulture);
@@ -2304,6 +2308,7 @@ public class Resources
     public static string Operation_Mode_LR2 => ResourceManager.GetString("Operation_Mode_LR2", resourceCulture);
     public static string LR2_integration => ResourceManager.GetString("LR2_integration", resourceCulture);
     public static string Settings_appearance_theme_description => ResourceManager.GetString("Settings_appearance_theme_description", resourceCulture);
+    public static string Settings_appearance_font_description => ResourceManager.GetString("Settings_appearance_font_description", resourceCulture);
     public static string Settings_appearance_table_description => ResourceManager.GetString("Settings_appearance_table_description", resourceCulture);
     public static string Settings_player_executable_path => ResourceManager.GetString("Settings_player_executable_path", resourceCulture);
     public static string Settings_player_lr2_description => ResourceManager.GetString("Settings_player_lr2_description", resourceCulture);

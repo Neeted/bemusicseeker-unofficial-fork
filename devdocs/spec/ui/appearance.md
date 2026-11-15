@@ -18,11 +18,39 @@
 
 ### テーマの保存と切替
 
-`Settings.Default.AppearanceTheme` は、`Light`、`Dark`、`Sepia`、`Frost`、`NeonViolet`、`GreenTerminal`、`AmberTerminal`、`OledBlack`、`DeepSea`、`VampireRed`、`DosBlue` のいずれかを保存します。既定値と、不明・空・nullの正規化先は `Light` です。保存前にも正規化します。明るいテーマは `Light`、`Sepia`、`Frost` で、それ以外は標準の題名部にも暗色を指定します。テーマとは別に、一覧の文字サイズ、行の高さ、見出しの高さを設定できます。
+`Settings.Default.AppearanceTheme` は、`Light`、`Dark`、`Sepia`、`Frost`、`NeonViolet`、`GreenTerminal`、`AmberTerminal`、`OledBlack`、`DeepSea`、`VampireRed`、`DosBlue` のいずれかを保存します。既定値と、不明・空・nullの正規化先は `Light` です。保存前にも正規化します。明るいテーマは `Light`、`Sepia`、`Frost` で、それ以外は標準の題名部にも暗色を指定します。テーマとは別に、[表示フォント](#表示フォント)と、一覧の文字サイズ、行の高さ、見出しの高さを設定できます。
 
 `AppThemeService` は、起動時に正規化済みのテーマ辞書をアプリのリソースへ追加します。辞書の参照は `/BeMusicSeeker;component/Themes/` の形式に統一します。切替の対象は、登録済みの11個の配色辞書だけです。既存の配色辞書を除去して指定された辞書を追加し、同じフォルダにある共通スタイルの辞書は保持します。切替後は `ThemeChanged` を通知し、`Version` を進めます。
 
 XAMLは原則として `DynamicResource` を使います。コードで描画する部分は、テーマの変更と版を使って、描画色・文字列・描画結果のキャッシュを破棄します。一覧の `CustomTablePalette` とスコアの色も、この規則に従います。
+
+### 表示フォント
+
+`Settings.Default.AppearanceFontFamily` は、通常の文字に使うフォントファミリー名を一つ保存します。空文字は既定を表し、既定のフォントは `Meiryo UI` です。保存時に前後の空白を除き、nullは空文字にします。フォントの存在は保存時に検査せず、保存値を別の名前へ書き換えません。文字サイズは、この設定では変えません。
+
+`AppFontService` は、保存値から実際に使うフォントを求め、アプリのリソース `App.UiFontFamily` を置き換えます。起動時はテーマの適用と同じ時点で、設定画面では保存の成功後に適用します。
+
+- 選択されたフォントを第一候補、既定のフォントを代替候補にします。選択されたフォントがインストールされていない場合と、選択されたフォントに字形がない文字は、既定のフォントで表示します。
+- 保存値が空の場合は、既定のフォントだけを使います。
+- 標準のメニューなど、WPFの標準スタイルがシステムのフォント（`SystemFonts` のメニュー・状態表示・メッセージ用のキー）を指定する部品にも同じフォントを渡すため、アプリのリソースで同じキーを置き換えます。ツールチップの型スタイルと共通のコンテキストメニューのスタイルは、`App.UiFontFamily` を明示して参照します。
+- 置換の対象はアプリのリソースの直下で、テーマの切替で入れ替える配色辞書には置きません。
+
+適用先は次のとおりです。表示中の画面も、フォントの変更に追随します。
+
+| 対象 | 接続 |
+| --- | --- |
+| メイン画面と、`ThemedWindow` を使うすべてのウィンドウ | ウィンドウの `FontFamily` が `App.UiFontFamily` を動的に参照し、内部の部品は継承する。通常の文字へ個別のフォントを指定しない。 |
+| 一覧の通常の文字、見出し、セルの編集欄、省略の判定 | `CustomTableView.TextFontFamily` が `App.UiFontFamily` を動的に参照する。指定がない場合は既定のフォントを使う。 |
+| リリースノートの本文 | 文書の `FontFamily` が `App.UiFontFamily` を動的に参照する。 |
+
+一覧は、フォントが変わると文字の配置のキャッシュと保持済みのセル描画を破棄して描き直します。行のデータ、並び順、選択、スクロール位置、列の設定は変えません。編集中のセルは、文字サイズの変更と同じく確定します。
+
+次の文字は、役割ごとの専用フォントを保ち、この設定の対象に含めません。
+
+- 共通アイコンの `App.IconFontFamily`、キャプションと並べ替えの `Marlett`、再生操作の `LigatureSymbols`
+- 一覧のスコア表示の `Sovjet Box`、再生時間の `Commodore 64 Rounded`
+- 譜面プロパティの等幅表示（`Consolas`）
+- OSが描画する題名部、ファイル・フォルダの選択画面、緊急ダイアログ
 
 ### 配色の定義
 
@@ -242,6 +270,15 @@ WPFの仮想化は、項目の入れ物を再利用するとき選択状態を�
 
 テーマは、`AppearanceThemeOptions` の表示名と識別子を、表示領域の幅に広がる単一の選択欄で扱い、`AppearanceTheme` の双方向の結び付けで選択します。開くたびに作る画面は、表示ツリーへ接続して現在値を受け取ります。未接続の部品へローカル値を設定して、結び付けを壊しません。選択時にテーマだけを保存して即時に適用し、閉じても保存済みの選択を保ちます。保存に失敗した場合は、元の確定値と配色を保ちます。
 
+フォントは、テーマの次の区画に置く単一の選択欄で、`AppearanceFontOptions` の表示名と保存する名前を扱い、`AppearanceFontFamily` の双方向の結び付けで選択します。
+
+- 先頭の候補は既定で、保存値は空文字です。表示名には既定のフォント名を添えます。
+- 続けて、Windowsにインストールされているフォントファミリーを、表示言語の名前（なければフォントの基本の名前）の順に並べます。保存する名前は、フォントの基本の名前です。
+- 保存済みの名前がインストール済みのフォントにない場合も、その名前を候補に残して、現在の選択として表示します。
+- 候補は、外観ページが最初に候補を要求したときに一度だけ列挙します。列挙後に表示言語を変えた場合は、既定の候補の表示名だけを更新し、フォントの表示名は列挙したときのまま保ちます。
+- 選択時にフォントだけを保存して即時に適用します。保存に失敗した場合は、元の確定値と表示中のフォントを保ち、選択欄の表示も元の候補へ戻します。
+- 候補の入替えなどで選択欄が一時的に未選択になっても、保存済みのフォントを既定へ戻しません。
+
 一覧の文字サイズと、行・見出しの高さは、スライダーのドラッグまたはキー操作の完了時に、その項目だけを保存し、`MainWindowViewSettingsStore` と実際のメインの表へ反映します。別の固定データの見本表は置きません。初期化は、三つの値を既定値として保存し、閉鎖時にも保存済みの表示を保ちます。
 
 ### 設定用の表示部品
@@ -305,7 +342,7 @@ OSや属性が非対応の場合、APIが存在しない場合、HRESULTが失�
 
 | 画面 | 契約 |
 | --- | --- |
-| リリースノート | `FlowDocumentScrollViewer`、`Meiryo UI`、文字サイズ12。本文は通常、版の見出しは太字。選択可能、ツールバーなし、縦は自動、横は無効の一つの表示範囲を持つ。既定テンプレートの内部ScrollViewerへ共通オーバーレイを適用し、文書のPagePadding 16はズームに従う。バーの位置と入力領域はズームから独立する |
+| リリースノート | `FlowDocumentScrollViewer`、[表示フォント](#表示フォント)、文字サイズ12。本文は通常、版の見出しは太字。選択可能、ツールバーなし、縦は自動、横は無効の一つの表示範囲を持つ。既定テンプレートの内部ScrollViewerへ共通オーバーレイを適用し、文書のPagePadding 16はズームに従う。バーの位置と入力領域はズームから独立する |
 | プレイリスト取込み | 候補と選択済みの二ペイン、URL入力、固定の下部操作を持つ。各一覧・入力の枠内でスクロールし、文字の拡大時も本文末尾と操作へ到達できる |
 | プレイリスト一括編集 | 正の最小幅・高さ、サイズ変更、本文の縦スクロールを持ち、見出しと終了操作を固定する |
 | プレイリストのプロパティ | サイズ変更可能。上部選択・更新日時・下部操作を固定し、選択ページだけ縦スクロールする。採用する最小寸法でも末尾の入力へ到達でき、横スクロールは使わない |
@@ -334,6 +371,7 @@ OS標準の選択画面、利用者定義のテーマ、個別色の編集、OS�
 | オーバーレイの論理スクロール再測定、リサイズ時の仮想化維持 | [`OverlayScrollBar`](../../../BeMusicSeeker/Views/OverlayScrollBar.cs)、共通ScrollViewerのPARTバー | [`DialogPresentationTests.PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) は未実体化の末尾へスクロールして選択した後、Window拡大で論理viewportが増えることを確認する。物理・論理の標準操作とItemsPresenterのconsumerは既存MainWindowContextMenuResource/SettingsControlPresentation/DialogPresentation系列へ分担し、候補の選択順・不適格時の無処理・祖先経路だけの無効化・状態なしと発火条件は静的確認する。 |
 | 表の共通バーとテーマ切替、交点 | `CustomTableView`、共通ScrollBarテンプレート | [`MainWindowChartPresentationWpfTests.CustomTableScrollBarsUseCompiledThemeAndOverlayContract`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は実テーマ切替の表・実バーへの反映と、全面寸法・交点の非重複を確認する。設定・ダイアログの実採用は既存 `SettingsControlPresentationTests` / `DialogPresentationTests` のconsumer検査へ分担する。OS入力、領域外ドラッグの実操作、配色の見え方と高DPIは実機確認と分担する。 |
 | テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowThemeContractTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Themes/NativeWindowThemeContractTests.cs) は各配色への切替で、辞書のキー整合、共通スタイルの解決、変更通知と版更新、題名部の明暗判定を確認する。 |
+| 表示フォントの保存値、解決と代替、標準部品とテーマ切替、表示中のウィンドウ・文書・一覧の追随、候補と選択時の保存・失敗 | [`AppFontService`](../../../BeMusicSeeker/Models/Settings/AppFontService.cs)、`Settings.AppearanceFontFamily`、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs)、`CustomTableView.TextFontFamily`、`SettingsDialogViewModel.AppearanceFontFamily` / `AppearanceFontOptions`、外観ページの `appearanceFontComboBox` | `MainWindowContextMenuResourceTests.AppearanceFontFamilySetting_TrimsWithoutValidatingOrRenaming` は保存値の空白除去と、存在しない名前を書き換えないことを確認する。[`AppFontChoiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Settings/AppFontChoiceTests.cs) は候補の表示名・並び・保存する名前と、未インストールの保存値を残すことを確認する。[`AppFontServiceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Themes/AppFontServiceTests.cs) は実際に描かれた字形で選択したフォントと既定の代替を確認し、システムのキー、テーマ切替後の維持、表示中のリリースノートのウィンドウ・文書・メニュー・ツールチップの追随を確認する。`CustomTablePhase6CacheTests.TextFontFamily_ChangeRedrawsHeaderCellsTrimAndEditorAndKeepsRowsSelectionAndScroll` は一覧の見出し・セルの字形、省略の判定、編集の確定と次の編集欄、行・列・選択・スクロールの不変を確認する。`SettingDialogCategoryPersistenceTests.CompiledFontSelection_SavesOnlyFontAndAppliesOrKeepsStateOnFailure` は実際の選択欄での保存・適用と、保存の失敗時に確定値・表示中のフォント・選択欄を保つことを確認する。`SettingsWindowPresentationTests.SettingsWindow_AppearanceControlsPersistThroughMainViewSettingsAndClose` はメイン画面・設定画面・二つの表への接続と文字サイズの不変を確認する。これらはArialとMeiryo UIのインストールを前提にする。起動時の適用、通常の文字への個別指定の撤去、専用フォントの維持、候補の列挙を遅らせることは静的確認で分担する。文字切れと字形の見え方は自動検証の対象に含めない。 |
 | 通常検索・プレイリスト一覧検索の控えめな通常枠、フォーカス枠、入力状態の背景と配置 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) の `KeywordSearchComposite` / `PlaylistSummaryKeywordSearchComposite`、全11配色辞書の `App.SearchBorderBrush` | `NativeWindowThemeContractTests` は全テーマのキー整合、[`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は検索操作とアイコン配置を回帰確認する。全11辞書の検索枠ブラシのキー・型・配色、両通常枠の動的参照、エディター専用のフォーカス判定、背景トリガーと寸法・余白の維持は変更時の静的差分確認で分担する。実環境での色の見え方は自動検証の対象に含めない。 |
 | 全ToolTipの表示中テーマ追随 | `CanonicalControls.xaml` の型スタイル | `NativeWindowThemeContractTests.ToolTip_VisibleContentTracksThemeWithoutExplicitStyle` はIsOpenで表示した明示StyleなしToolTipで明→暗→明の実効背景・枠・本文、文字列と折返しTextBlockの文字継承・内容保持を確認する。文字列からの自動生成、CustomTableViewの明示生成、SliderのAutoToolTipが同じ型スタイルを使う接続は静的確認で分担する。 |
 | テーマの切替、標準題名部の接続・解除と失敗、直角の外枠要求 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs)、[`NativeWindowTitleBarController`](../../../BeMusicSeeker/Views/NativeWindowTitleBar.cs) | [`NativeWindowThemeContractTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowThemeContractTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowTitleBarTests.cs) が既存のテーマ・接続・終了・失敗処理を担う。DWMの33/1要求、既存のTrySetAttribute経由での失敗処理、ThemedMessageBoxを含む適用先とMainWindowへ追加しないことは静的確認する。実OSでの外枠の見え方は自動検証済みと扱わない。 |

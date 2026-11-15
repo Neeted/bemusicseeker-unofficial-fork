@@ -1017,6 +1017,24 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>
+    /// 通常の文字に使うフォントファミリー名です。空文字は既定のフォントを表します。
+    /// フォントの存在は検査せず、前後の空白だけを除いて保存します。
+    /// </summary>
+    [UserScopedSetting]
+    [DefaultSettingValue("")]
+    public string AppearanceFontFamily
+    {
+        get
+        {
+            return AppFontService.NormalizeFontFamilyName(this["AppearanceFontFamily"] as string);
+        }
+        set
+        {
+            this["AppearanceFontFamily"] = AppFontService.NormalizeFontFamilyName(value);
+        }
+    }
+
     [UserScopedSetting]
     [DefaultSettingValue("11")]
     public double CustomTableFontSize

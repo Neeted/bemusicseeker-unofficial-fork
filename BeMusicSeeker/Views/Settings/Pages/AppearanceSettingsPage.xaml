@@ -22,6 +22,22 @@
       </ComboBox>
     </settings:SettingsSection>
 
+    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_font, Mode=OneWay}"
+                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_font_description, Mode=OneWay}">
+      <ComboBox AutomationProperties.AutomationId="SettingsFont" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_font, Mode=OneWay}" x:Name="appearanceFontComboBox" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding AppearanceFontOptions}"
+                  DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                  SelectedValue="{Binding AppearanceFontFamily, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                  SelectionChanged="appearanceFontComboBoxSelectionChanged">
+        <ComboBox.ItemContainerStyle>
+          <Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource SettingsComboBoxItemStyle}">
+            <!-- DisplayMemberPathは候補のUIA Nameを指定しないため、同じ表示名を明示して接続する。 -->
+            <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+          </Style>
+        </ComboBox.ItemContainerStyle>
+      </ComboBox>
+    </settings:SettingsSection>
+
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_table_description, Mode=OneWay}">
       <StackPanel>

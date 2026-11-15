@@ -237,6 +237,7 @@ public partial class App : System.Windows.Application
         BeMusicSeeker.Properties.Resources.Culture = initialized.Culture;
         DispatcherHelper.UIDispatcher = base.Dispatcher;
         AppThemeService.ApplyTheme(applicationSettingsLifecycle.GetCurrentAppearanceTheme());
+        AppFontService.ApplyFontFamily(BeMusicSeeker.Properties.Settings.Default.AppearanceFontFamily);
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         base.DispatcherUnhandledException += Application_DispatcherUnhandledException;
         _ = TempDirectoryPublisher.StartCleanupStaleDirectoriesAsync(

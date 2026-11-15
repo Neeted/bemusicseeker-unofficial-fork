@@ -950,6 +950,85 @@ public sealed class SettingDialogCategoryPersistenceTests
         });
     }
 
+    /// <summary>
+    /// 未インストールの保存済みフォント名は候補に残って選択中として表示され、先頭の候補は既定です。実際の選択欄でArialを選ぶとフォントだけを保存して適用します。
+    /// 保存に失敗した場合は一回だけ通知し、保存値・表示中のフォント・選択欄の表示を元のまま保ちます。
+    /// </summary>
+    /// <remarks>未インストールの保存値で選択が空になる誤り、保存の失敗後もフォントを適用する誤り、選択欄が保存されなかった値を表示し続ける誤りを検出します。ArialとMeiryo UIのインストールを前提にします。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CompiledFontSelection_SavesOnlyFontAndAppliesOrKeepsStateOnFailure(bool failSave)
+    {
+        const string uninstalled = "BeMusicSeeker No Such Font";
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            using var fontSnapshot = AppFontResourceSnapshot.Capture();
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            string path = Path.Combine(root, "user.config");
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
+            values.AppearanceFontFamily = uninstalled;
+            values.Save();
+            double rowHeight = values.CustomTableRowHeight;
+            string theme = values.AppearanceTheme;
+            var failures = new List<Exception>();
+            MainWindowViewModel owner = CreateViewModel(new SettingsEditSession(values), firstStartup: false, reportSettingsApplyFailure: failures.Add);
+            SettingsWindow? window = null;
+            try
+            {
+                // 起動時の適用に相当する状態から始める。
+                AppFontService.ApplyFontFamily(values.AppearanceFontFamily);
+                object appliedAtStart = Application.Current.Resources[AppFontService.ResourceKey];
+                window = OpenSettingsWindow(scope, owner.SettingDialog);
+                var comboBox = (ComboBox)GetCategoryControl(window, "Appearance", nameof(SettingsDialogViewModel.AppearanceFontFamily)).Control;
+                IReadOnlyList<SettingsDialogViewModel.AppearanceFontOption> options = owner.SettingDialog.AppearanceFontOptions;
+                Assert.AreSame(options, comboBox.ItemsSource);
+                Assert.AreSame(options, owner.SettingDialog.AppearanceFontOptions);
+                Assert.AreEqual(string.Empty, options[0].Key);
+                StringAssert.Contains(options[0].DisplayName, AppFontService.DefaultFontFamilyName);
+                Assert.AreEqual(uninstalled, ((SettingsDialogViewModel.AppearanceFontOption)comboBox.SelectedItem).Key);
+                SettingsDialogViewModel.AppearanceFontOption arial = options.Single(option => option.Key == "Arial");
+
+                if (failSave)
+                {
+                    using (File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    { comboBox.SelectedItem = arial; }
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(1, failures.Count);
+                    Assert.AreEqual(uninstalled, values.AppearanceFontFamily);
+                    Assert.AreEqual(uninstalled, TestSettingsFactory.OpenSettings(path).AppearanceFontFamily);
+                    Assert.AreSame(appliedAtStart, Application.Current.Resources[AppFontService.ResourceKey]);
+                    Assert.AreEqual(uninstalled, ((SettingsDialogViewModel.AppearanceFontOption)comboBox.SelectedItem).Key);
+                    return;
+                }
+
+                comboBox.SelectedItem = arial;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(0, failures.Count);
+                Settings fresh = TestSettingsFactory.OpenSettings(path);
+                Assert.AreEqual("Arial", fresh.AppearanceFontFamily);
+                Assert.AreEqual(rowHeight, fresh.CustomTableRowHeight);
+                Assert.AreEqual(theme, fresh.AppearanceTheme);
+                var applied = (System.Windows.Media.FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
+                Assert.IsTrue(applied.Source.StartsWith("Arial", StringComparison.Ordinal), applied.Source);
+                Assert.AreEqual(applied, window.FontFamily);
+                Assert.AreSame(arial, comboBox.SelectedItem);
+
+                window.CloseForOwnerShutdown();
+                window = null;
+                Assert.AreEqual("Arial", TestSettingsFactory.OpenSettings(path).AppearanceFontFamily);
+                Assert.AreSame(applied, Application.Current.Resources[AppFontService.ResourceKey]);
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                owner.SettingDialog.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
     /// <summary>通常TextBoxのEnterとSliderのドラッグ完了だけを確定時機とし、途中値・不正な別候補を保存せず同じWindowを維持します。</summary>
     [TestMethod]
     public void CompiledOrdinaryInputs_EnterAndSliderCompletionPersistOnlyTheirOwnItem()

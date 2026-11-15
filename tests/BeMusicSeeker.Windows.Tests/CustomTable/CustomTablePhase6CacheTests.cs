@@ -799,6 +799,123 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>
+    /// 表示済みの表でF2の編集中に通常の文字のフォントをMeiryo UIからArialへ変えると、編集を一回確定し、見出しとセルの字形・省略の判定・次の編集欄がArialになり、
+    /// 行・列・選択・スクロール位置は変わらないことを確認します。フォントを指定しない表とnullは既定のフォントです。
+    /// </summary>
+    /// <remarks>古いフォントの描画が残る誤り、編集を破棄する誤り、フォントの変更で選択やスクロールを戻す誤りを検出します。ArialとMeiryo UIのインストールを前提にします。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void TextFontFamily_ChangeRedrawsHeaderCellsTrimAndEditorAndKeepsRowsSelectionAndScroll()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            var arial = new FontFamily("Arial");
+            var meiryoUi = new FontFamily("Meiryo UI");
+            double fontSize = BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
+            double Measure(FontFamily family, string value) => new FormattedText(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+                new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), fontSize, Brushes.Black, 1d).WidthIncludingTrailingWhitespace;
+            // 二つのフォントで幅の差が最も大きい文字列を選び、その中間の列幅で省略の有無が入れ替わることを判定に使う。
+            string text = new[] { new string('W', 40), new string('i', 80), new string('0', 60), "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz" }
+                .MaxBy(candidate => Math.Abs(Measure(arial, candidate) - Measure(meiryoUi, candidate)))!;
+            double arialWidth = Measure(arial, text), meiryoUiWidth = Measure(meiryoUi, text);
+            Assert.IsTrue(Math.Abs(arialWidth - meiryoUiWidth) >= 12d, "二つのフォントの幅の差で省略を区別できる環境が前提です。");
+            int columnWidth = (int)Math.Round((arialWidth + meiryoUiWidth) / 2d) + 4;
+            var layout = new CustomTableColumnSettings.ColumnLayout { Width = columnWidth, Visibility = Visibility.Visible };
+            var column = new CustomTableColumn("Folder", "Folder", layout, fallbackOrder: 0, sortMemberPath: null, alignment: TextAlignment.Left,
+                textSelector: _ => text, editPropertyName: "Folder");
+            object[] rows = [.. Enumerable.Range(0, 40).Select(_ => new object())];
+            var table = new CustomTableView { Width = columnWidth + 60d, Height = 120, HeaderHeight = 20, RowHeight = 20, Columns = [column], ItemsSource = rows };
+            Assert.AreEqual(meiryoUi, table.TextFontFamily);
+            table.TextFontFamily = null!;
+            Assert.AreEqual(meiryoUi, table.TextFontFamily);
+            var ended = new List<CustomTableCellEditEndedEventArgs>();
+            table.CellEditEnded += (_, args) => ended.Add(args);
+            var window = new Window { Width = columnWidth + 120d, Height = 200, Content = table };
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                vertical.Value = 2;
+                table.SelectedIndex = 3;
+                var point = new Point(15, table.HeaderHeight + (3 - table.FirstVisibleRowIndex + 0.5) * table.RowHeight);
+                RenderExistingTable(table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                string arialUri = GlyphFontUris(DrawGlyphs(arial, text)).Single();
+                string meiryoUiUri = GlyphFontUris(DrawGlyphs(meiryoUi, text)).Single();
+                Assert.AreNotEqual(arialUri, meiryoUiUri);
+                CustomTableSurface surface = table.Children.OfType<CustomTableSurface>().Single();
+                CollectionAssert.AreEquivalent(new[] { meiryoUiUri }, GlyphFontUris(VisualTreeHelper.GetDrawing(surface)).ToArray());
+                CustomTableRowDrawing before = table.GetRowEntry(rows[3]).Drawings[3];
+                bool trimmedBefore = table.ResolveCellToolTip(table.HitTestTable(point)) != null;
+                Assert.AreEqual(meiryoUiWidth > arialWidth, trimmedBefore);
+                object columns = table.Columns;
+                double verticalOffset = vertical.Value;
+
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.AreEqual(meiryoUi, FindVisualChildren<TextBox>(table).Single().FontFamily);
+                table.TextFontFamily = arial;
+                Assert.AreEqual(1, ended.Count);
+                Assert.IsTrue(ended[0].Commit);
+                Assert.AreEqual(0, FindVisualChildren<TextBox>(table).Count());
+                RenderExistingTable(table);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                CollectionAssert.AreEquivalent(new[] { arialUri }, GlyphFontUris(VisualTreeHelper.GetDrawing(surface)).ToArray());
+                Assert.AreNotSame(before, table.GetRowEntry(rows[3]).Drawings[3]);
+                Assert.AreEqual(!trimmedBefore, table.ResolveCellToolTip(table.HitTestTable(point)) != null);
+                Assert.AreSame(rows, table.ItemsSource);
+                Assert.AreSame(columns, table.Columns);
+                Assert.AreEqual(columnWidth, layout.Width);
+                Assert.AreEqual(3, table.SelectedIndex);
+                Assert.AreEqual(verticalOffset, vertical.Value);
+                Assert.AreEqual(fontSize, table.TextFontSize);
+
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.AreEqual(arial, FindVisualChildren<TextBox>(table).Single().FontFamily);
+                Assert.IsTrue(table.HandleKeyDown(Key.Escape, ModifierKeys.None));
+            }
+            finally
+            {
+                window.Content = null; table.ItemsSource = null;
+                window.Close();
+            }
+        });
+    }
+
+    private static Drawing DrawGlyphs(FontFamily family, string text)
+    {
+        var visual = new DrawingVisual();
+        using (DrawingContext context = visual.RenderOpen())
+        {
+            context.DrawText(new FormattedText(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
+                new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), 11d, Brushes.Black, 1d), new Point());
+        }
+        return visual.Drawing;
+    }
+
+    // 同じファイルに複数の書体を持つフォントを区別するため、書体番号を含むURI全体で比較する。
+    private static IEnumerable<string> GlyphFontUris(Drawing? drawing)
+    {
+        return drawing switch
+        {
+            DrawingGroup group => group.Children.SelectMany(GlyphFontUris).Distinct(),
+            GlyphRunDrawing run => [run.GlyphRun.GlyphTypeface.FontUri.ToString()],
+            _ => []
+        };
+    }
+
+    private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (int index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            DependencyObject child = VisualTreeHelper.GetChild(root, index);
+            if (child is T match) { yield return match; }
+            foreach (T descendant in FindVisualChildren<T>(child)) { yield return descendant; }
+        }
+    }
+
     /// <summary>小さすぎる文字と行・見出し寸法は許容最小へ、NaNや無限大は既定へ補正することを確認し、保存設定の異常値で描画領域を壊す誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableView_CoercesAppearanceMetricsToSupportedRanges()

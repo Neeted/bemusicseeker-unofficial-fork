@@ -1045,6 +1045,12 @@ OK を選ぶと、今回の変換を WAVE で続行します。キャンセル�
   <data name="Appearance_theme" xml:space="preserve">
     <value>テーマ:</value>
   </data>
+  <data name="Appearance_font" xml:space="preserve">
+    <value>フォント:</value>
+  </data>
+  <data name="Appearance_font_default" xml:space="preserve">
+    <value>既定 ({0})</value>
+  </data>
   <data name="Appearance_table" xml:space="preserve">
     <value>一覧</value>
   </data>
@@ -3014,6 +3020,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Operation_Mode_LR2" xml:space="preserve"><value>LR2 連携</value></data>
   <data name="LR2_integration" xml:space="preserve"><value>LR2 連携</value></data>
   <data name="Settings_appearance_theme_description" xml:space="preserve"><value>設定画面を含むアプリケーション全体の配色を選びます。選択時に保存して反映します。</value></data>
+  <data name="Settings_appearance_font_description" xml:space="preserve"><value>一覧やメニュー、ダイアログなどの通常の文字に使うフォントを選びます。アイコンやスコア表示などの専用の文字は変わりません。選択時に保存して反映します。</value></data>
   <data name="Settings_appearance_table_description" xml:space="preserve"><value>ライブラリ一覧の文字と行の密度を調整します。</value></data>
   <data name="Settings_player_executable_path" xml:space="preserve"><value>プレイヤー実行ファイル</value></data>
   <data name="Settings_player_lr2_description" xml:space="preserve"><value>LR2 の実行ファイルで譜面を再生します。</value></data>
