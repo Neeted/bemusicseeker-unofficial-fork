@@ -161,25 +161,52 @@ public sealed class CustomTableTextLayoutCacheTests
         });
     }
 
-    /// <summary>全文の幅の前後の各整数幅で、省略の判定が真になるのは、実際に描く配置が省略されるときだけであることを確認します。</summary>
-    /// <remarks>判定と描画の一方だけが文字の測り方を変え、省略されているのに全文のツールチップが出ない、またはその逆になる誤りを検出します。</remarks>
+    /// <summary>
+    /// 表示フォントで描く文字は画素に合わせる方式（Display）、スコア用のフォントで描く文字はWPFの既定の方式（Ideal）で配置することを、全文の幅で確認します。
+    /// 全文の幅の前後の各整数幅で、省略の判定が真になるのは、実際に描く配置が省略されるときだけであることも確認します。
+    /// </summary>
+    /// <remarks>
+    /// スコア用の文字を画素に合わせる方式で配置して線が細く描かれる誤り、一覧全体が既定の方式へ戻る誤り、判定と描画の一方だけが測り方を変える誤りを検出します。
+    /// 本番の一覧と同じく、フォントとサイズを適用した派生スタイルで確かめます。
+    /// </remarks>
     [TestMethod]
-    public void WouldTrim_AgreesWithDrawnLayoutAroundFullWidth()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void GetOrCreateAndWouldTrim_UseDisplayForDisplayFontAndIdealForScoreFont(bool scoreFont)
     {
         TestUiDispatcherHost.Invoke(delegate
         {
-            const string text = "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. 0123456789";
             var culture = CultureInfo.GetCultureInfo("ja-JP");
-            CustomTableTextStyle style = CustomTableTextStyle.Normal;
-            double fullWidth = Create(new CustomTableTextLayoutCache(), out _, text: text, maxTextWidth: 4000d).WidthIncludingTrailingWhitespace;
-            double idealWidth = new FormattedText(text, culture, FlowDirection.LeftToRight, style.CreateTypeface(null!), style.FontSize, Brushes.Black, 1d).WidthIncludingTrailingWhitespace;
-            Assert.IsTrue(Math.Abs(idealWidth - fullWidth) >= 2d, "二つの測り方で幅が違う文字列であることが前提です。");
-
-            for (double width = Math.Floor(Math.Min(idealWidth, fullWidth)) - 3d; width <= Math.Ceiling(Math.Max(idealWidth, fullWidth)) + 3d; width++)
+            FontFamily? scoreFontFamily = null;
+            if (scoreFont)
             {
-                FormattedText drawn = Create(new CustomTableTextLayoutCache(), out _, text: text, maxTextWidth: width);
+                scoreFontFamily = new FontFamily(new Uri("pack://application:,,,/BeMusicSeeker;component/Assets/Fonts/"), "./#Sovjet Box");
+                // 代わりのフォントへ解決されたままでは、本番のスコア表示を再現しない。
+                StringAssert.Contains(GlyphFontProbe.FontUri(scoreFontFamily, "A").ToLowerInvariant(), "sovjetbox");
+            }
+            string text = scoreFont
+                ? string.Join(" ", Enumerable.Repeat("FULLCOMBO AAA HARD 1234", 6))
+                : "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. 0123456789";
+            CustomTableTextStyle style = (scoreFont ? CustomTableTextStyle.Score : CustomTableTextStyle.Normal)
+                .WithFontFamily(AppFontService.CreateFontFamily("Arial"))
+                .WithFontSize(12d);
+            Typeface typeface = style.CreateTypeface(scoreFontFamily!);
+            double Reference(TextFormattingMode mode) => new FormattedText(text, culture, FlowDirection.LeftToRight, typeface, style.FontSize,
+                Brushes.Black, null, mode, 1d).WidthIncludingTrailingWhitespace;
+            double expectedWidth = Reference(scoreFont ? TextFormattingMode.Ideal : TextFormattingMode.Display);
+            double otherWidth = Reference(scoreFont ? TextFormattingMode.Display : TextFormattingMode.Ideal);
+            Assert.IsTrue(Math.Abs(expectedWidth - otherWidth) >= 2d, "二つの方式で幅が違う文字列であることが前提です。");
+
+            double fullWidth = Create(new CustomTableTextLayoutCache(), out _, text: text, maxTextWidth: 4000d, textStyle: style, scoreFontFamily: scoreFontFamily!).WidthIncludingTrailingWhitespace;
+            Assert.AreEqual(expectedWidth, fullWidth, 0.01d);
+
+            for (double width = Math.Floor(Math.Min(expectedWidth, otherWidth)) - 3d; width <= Math.Ceiling(Math.Max(expectedWidth, otherWidth)) + 3d; width++)
+            {
+                // 判定は半画素の余裕を持つため、全文の幅にそれ未満だけ足りない幅は比べない。
+                if (fullWidth - width is > 0d and <= 0.5d) { continue; }
+                FormattedText drawn = Create(new CustomTableTextLayoutCache(), out _, text: text, maxTextWidth: width, textStyle: style, scoreFontFamily: scoreFontFamily!);
                 bool drawnTrimmed = drawn.WidthIncludingTrailingWhitespace < fullWidth - 0.01d;
-                Assert.AreEqual(drawnTrimmed, CustomTableTextLayoutCache.WouldTrim(text, width, style, null!, 1d, culture), width.ToString(CultureInfo.InvariantCulture));
+                Assert.AreEqual(drawnTrimmed, CustomTableTextLayoutCache.WouldTrim(text, width, style, scoreFontFamily!, 1d, culture), width.ToString(CultureInfo.InvariantCulture));
             }
         });
     }

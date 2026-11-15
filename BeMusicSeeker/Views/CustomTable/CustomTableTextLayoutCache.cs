@@ -63,7 +63,7 @@ internal sealed class CustomTableTextLayoutCache
             effectiveTextStyle.FontSize,
             effectiveForeground,
             null,
-            TextFormattingMode.Display,
+            effectiveTextStyle.TextFormattingMode,
             pixelsPerDip)
         {
             MaxTextWidth = maxTextWidth,
@@ -107,7 +107,7 @@ internal sealed class CustomTableTextLayoutCache
             effectiveTextStyle.FontSize,
             Brushes.Black,
             null,
-            TextFormattingMode.Display,
+            effectiveTextStyle.TextFormattingMode,
             pixelsPerDip)
         {
             MaxLineCount = 1

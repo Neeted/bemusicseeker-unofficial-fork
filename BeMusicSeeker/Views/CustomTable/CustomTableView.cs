@@ -2389,6 +2389,8 @@ public sealed partial class CustomTableView : Grid
             DataContext = hit.Row
         };
         ApplyCellEditorTheme(textBox);
+        // ウィンドウは描画方式を指定しないため、編集欄にはセルの文字と同じ方式を明示する。
+        TextOptions.SetTextFormattingMode(textBox, textStyle.TextFormattingMode);
         System.Windows.Automation.AutomationProperties.SetAutomationId(textBox, "CellEditor");
         System.Windows.Automation.AutomationProperties.SetName(textBox, hit.Column.Header ?? string.Empty);
         return textBox;
@@ -3538,9 +3540,14 @@ internal sealed class CustomTableSurface : FrameworkElement
         {
             renderTextCacheMisses++;
         }
-        // 小数の位置へ置いた文字は滲むため、表示倍率に応じた画素の境界へ丸める。
-        double x = Math.Round((cellRect.X + CustomTableView.CellTextHorizontalPadding) * pixelsPerDip, MidpointRounding.AwayFromZero) / pixelsPerDip;
-        double y = Math.Round((cellRect.Y + (cellRect.Height - formattedText.Height) / 2d + effectiveTextStyle.VerticalOffset) * pixelsPerDip, MidpointRounding.AwayFromZero) / pixelsPerDip;
+        double x = cellRect.X + CustomTableView.CellTextHorizontalPadding;
+        double y = cellRect.Y + (cellRect.Height - formattedText.Height) / 2d + effectiveTextStyle.VerticalOffset;
+        if (effectiveTextStyle.TextFormattingMode == TextFormattingMode.Display)
+        {
+            // 画素に合わせて描く文字は、小数の位置へ置くと滲むため、表示倍率に応じた画素の境界へ丸める。
+            x = Math.Round(x * pixelsPerDip, MidpointRounding.AwayFromZero) / pixelsPerDip;
+            y = Math.Round(y * pixelsPerDip, MidpointRounding.AwayFromZero) / pixelsPerDip;
+        }
         long drawTextStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
         drawingContext.PushClip(new RectangleGeometry(cellRect));
         drawingContext.DrawText(formattedText, new Point(x, y));

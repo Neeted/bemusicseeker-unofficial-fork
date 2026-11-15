@@ -68,6 +68,12 @@ internal sealed class CustomTableTextStyle
 
     private bool UsesScoreFontFamily { get; }
 
+    /// <summary>
+    /// 文字の配置と描画に使う方式です。表示フォントで描く文字は、小さいサイズでも滲まないよう画素に合わせます。
+    /// スコア用のフォントは、画素に合わせると線が細く描かれて見え方が変わるため、WPFの既定の方式を保ちます。
+    /// </summary>
+    internal TextFormattingMode TextFormattingMode => UsesScoreFontFamily ? TextFormattingMode.Ideal : TextFormattingMode.Display;
+
     internal CustomTableTextStyle WithFontSize(double fontSize)
     {
         if (double.IsNaN(fontSize) || double.IsInfinity(fontSize) || fontSize <= 0d || FontSize.Equals(fontSize))

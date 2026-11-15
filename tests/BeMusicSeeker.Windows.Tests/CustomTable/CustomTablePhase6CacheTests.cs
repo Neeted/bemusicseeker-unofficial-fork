@@ -856,7 +856,10 @@ public sealed class CustomTablePhase6CacheTests
                 double verticalOffset = vertical.Value;
 
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
-                Assert.AreEqual(meiryoUi, FindVisualChildren<TextBox>(table).Single().FontFamily);
+                TextBox firstEditor = FindVisualChildren<TextBox>(table).Single();
+                Assert.AreEqual(meiryoUi, firstEditor.FontFamily);
+                // ウィンドウは描画方式を指定しないため、編集欄がセルの文字と同じ方式を自分で指定する。
+                Assert.AreEqual(TextFormattingMode.Display, TextOptions.GetTextFormattingMode(firstEditor));
                 table.TextFontFamily = arial;
                 Assert.AreEqual(1, ended.Count);
                 Assert.IsTrue(ended[0].Commit);
