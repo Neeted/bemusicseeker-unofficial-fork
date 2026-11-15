@@ -5282,6 +5282,236 @@ public sealed class PlaybackPanelViewModelTests
         return player;
     }
 
+    /// <summary>二曲の一覧と代替playerで再生パネルを作り、先頭の曲を再生中にします。</summary>
+    private static async Task<(PlaybackPanelViewModel Panel, FakeBmsPlayer Player, FakePlaybackDialogService Dialogs)> StartSeekDragPanelAsync(TestWorkspace workspace)
+    {
+        string[] paths = [workspace.GetPath("first.tmp"), workspace.GetPath("second.tmp")];
+        foreach (string path in paths) { File.WriteAllBytes(path, []); }
+        var player = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(120) };
+        var dialogs = new FakePlaybackDialogService();
+        var list = new MainChartListViewModel
+        {
+            Rows = new List<object> { ChartTestValues.Empty() with { Path = paths[0] }, ChartTestValues.Empty() with { Path = paths[1] } }
+        };
+        var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(list),
+            new InMemoryPlaybackSettingsStore(), dialogs, _ => Assert.Fail("想定外の譜面警告です。"), new ChartFileOperationSynchronizer(),
+            temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
+        try
+        {
+            await panel.StartAtIndex(0);
+            Assert.IsTrue(panel.IsPlaying, "準備として先頭の曲を再生中にします。");
+        }
+        catch
+        {
+            panel.BeginShutdown();
+            await panel.CloseForShutdown();
+            throw;
+        }
+        return (panel, player, dialogs);
+    }
+
+    private static int PauseToggleCount(FakeBmsPlayer player) => player.Commands.Count(command => command == "Pause");
+
+    /// <summary>
+    /// 再生中のシークのドラッグは最初の移動で一回だけ一時停止し、終了で一回だけ再開します。明示的な一時停止からのドラッグは切り替えません。
+    /// </summary>
+    /// <remarks>
+    /// 移動ごとの切替、終了の重複による再度の切替、次のドラッグで止めない誤り、明示的な一時停止を終了で再開する誤りを検出します。
+    /// ドラッグを伴わない終了がplayerを操作しないことも確認します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task SeekDragPausesOnceAndResumesOnceOnlyWhenItStartedWhilePlaying(bool explicitlyPaused)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        (PlaybackPanelViewModel panel, FakeBmsPlayer player, FakePlaybackDialogService dialogs) = await StartSeekDragPanelAsync(workspace);
+        try
+        {
+            panel.EndSeekDrag();
+            Assert.AreEqual(0, PauseToggleCount(player), "ドラッグを伴わない終了はplayerを操作しません。");
+            Assert.IsTrue(panel.IsPlaying);
+            if (explicitlyPaused) { panel.TogglePause(); }
+            int baseline = PauseToggleCount(player);
+            for (int cycle = 0; cycle < 2; cycle++)
+            {
+                for (int move = 0; move < 3; move++)
+                {
+                    panel.BeginSeekDrag();
+                    panel.CurrentlyPlayingTime = TimeSpan.FromSeconds(10 * (move + 1));
+                    Assert.AreEqual(TimeSpan.FromSeconds(10 * (move + 1)), player.CurrentTime, "ドラッグ中も位置を反映します。");
+                    Assert.IsTrue(panel.IsPaused, "ドラッグ中は一時停止です。");
+                    Assert.AreEqual(baseline + (explicitlyPaused ? 0 : 1), PauseToggleCount(player), "移動を繰り返しても切替は一回です。");
+                }
+                for (int end = 0; end < 2; end++)
+                {
+                    panel.EndSeekDrag();
+                    Assert.AreEqual(explicitlyPaused, panel.IsPaused);
+                    Assert.AreEqual(!explicitlyPaused, panel.IsPlaying);
+                    Assert.AreEqual(baseline + (explicitlyPaused ? 0 : 2), PauseToggleCount(player), "終了が重複しても再開は一回です。");
+                }
+                baseline = PauseToggleCount(player);
+            }
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            panel.BeginShutdown();
+            await panel.CloseForShutdown();
+        }
+    }
+
+    /// <summary>
+    /// シークのドラッグ中に曲の切替・停止・同じ譜面の再開始が起きた場合と、利用者が再生・一時停止を明示的に切り替えた場合は、
+    /// 以降の移動とドラッグの終了で再生状態を切り替えません。
+    /// </summary>
+    /// <remarks>
+    /// 「ドラッグで止めた」という記録だけで終了時に切り替える誤り、一時停止中なら再開する誤り、移動のたびに再生中なら止める誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("Next")]
+    [DataRow("NextThenPause")]
+    [DataRow("Stop")]
+    [DataRow("RestartSameChart")]
+    [DataRow("RestartSameChartThenPause")]
+    [DataRow("UserResume")]
+    [DataRow("UserResumeThenPause")]
+    [DataRow("PausedThenUserResume")]
+    public async Task SeekDragEndKeepsStateAfterPlaybackTargetOrExplicitToggleChanges(string scenario)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        (PlaybackPanelViewModel panel, FakeBmsPlayer player, FakePlaybackDialogService dialogs) = await StartSeekDragPanelAsync(workspace);
+        try
+        {
+            if (scenario == "PausedThenUserResume") { panel.TogglePause(); }
+            panel.BeginSeekDrag();
+            Assert.IsTrue(panel.IsPaused);
+            switch (scenario)
+            {
+                case "Next":
+                    await panel.Next();
+                    break;
+                case "NextThenPause":
+                    await panel.Next();
+                    panel.TogglePause();
+                    break;
+                case "Stop":
+                    await panel.StopPlayback(closeProcess: true);
+                    break;
+                case "RestartSameChart":
+                    await panel.StartAtIndex(0);
+                    break;
+                case "RestartSameChartThenPause":
+                    await panel.StartAtIndex(0);
+                    panel.TogglePause();
+                    break;
+                case "UserResume":
+                case "PausedThenUserResume":
+                    panel.TogglePause();
+                    break;
+                case "UserResumeThenPause":
+                    panel.TogglePause();
+                    panel.TogglePause();
+                    break;
+                default:
+                    throw new AssertFailedException("未定義の条件です: " + scenario);
+            }
+            bool expectedPlaying = scenario is "Next" or "RestartSameChart" or "UserResume" or "PausedThenUserResume";
+            bool expectedPaused = scenario is "NextThenPause" or "RestartSameChartThenPause" or "UserResumeThenPause";
+            Assert.AreEqual(expectedPlaying, panel.IsPlaying, "準備した状態です。");
+            Assert.AreEqual(expectedPaused, panel.IsPaused, "準備した状態です。");
+            int toggles = PauseToggleCount(player);
+
+            panel.BeginSeekDrag();
+            Assert.AreEqual(toggles, PauseToggleCount(player), "同じドラッグの以降の移動では切り替えません。");
+            for (int end = 0; end < 2; end++)
+            {
+                panel.EndSeekDrag();
+                Assert.AreEqual(toggles, PauseToggleCount(player), "ドラッグの終了で切り替えません。");
+                Assert.AreEqual(expectedPlaying, panel.IsPlaying);
+                Assert.AreEqual(expectedPaused, panel.IsPaused);
+            }
+            Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+        }
+        finally
+        {
+            panel.BeginShutdown();
+            await panel.CloseForShutdown();
+        }
+    }
+
+    /// <summary>
+    /// 終了受付の後はシークのドラッグからplayerを操作せず、切替の失敗は例外を送出せずに元の例外を再生失敗として一回だけ通知します。
+    /// </summary>
+    /// <remarks>
+    /// 終了受付の判定漏れ、入力イベントの呼出し元への例外の漏れ、別の例外への置換え、重複した終了での再試行を検出します。
+    /// 失敗後の表示状態は契約に含めないため確認しません。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("AfterShutdown")]
+    [DataRow("ShutdownDuringDrag")]
+    [DataRow("BeginFails")]
+    [DataRow("EndFails")]
+    public async Task SeekDragDoesNotOperateAfterShutdownAndReportsToggleFailureOnce(string scenario)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        (PlaybackPanelViewModel panel, FakeBmsPlayer player, FakePlaybackDialogService dialogs) = await StartSeekDragPanelAsync(workspace);
+        var failure = new InvalidOperationException("pause toggle failed");
+        try
+        {
+            switch (scenario)
+            {
+                case "AfterShutdown":
+                    panel.BeginShutdown();
+                    panel.BeginSeekDrag();
+                    panel.EndSeekDrag();
+                    Assert.AreEqual(0, PauseToggleCount(player));
+                    Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+                    break;
+                case "ShutdownDuringDrag":
+                    panel.BeginSeekDrag();
+                    Assert.AreEqual(1, PauseToggleCount(player));
+                    panel.BeginShutdown();
+                    panel.EndSeekDrag();
+                    panel.EndSeekDrag();
+                    Assert.AreEqual(1, PauseToggleCount(player), "終了受付の後は再開しません。");
+                    Assert.AreEqual(0, dialogs.PlaybackFailureNotificationCount);
+                    break;
+                case "BeginFails":
+                    player.PauseToggleException = failure;
+                    panel.BeginSeekDrag();
+                    Assert.AreEqual(1, PauseToggleCount(player));
+                    Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+                    Assert.AreSame(failure, dialogs.LastPlaybackFailure);
+                    panel.BeginSeekDrag();
+                    panel.EndSeekDrag();
+                    panel.EndSeekDrag();
+                    Assert.AreEqual(1, PauseToggleCount(player), "失敗した切替を、以降の移動と終了で再試行しません。");
+                    Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+                    break;
+                case "EndFails":
+                    panel.BeginSeekDrag();
+                    player.PauseToggleException = failure;
+                    panel.EndSeekDrag();
+                    Assert.AreEqual(2, PauseToggleCount(player));
+                    Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+                    Assert.AreSame(failure, dialogs.LastPlaybackFailure);
+                    panel.EndSeekDrag();
+                    Assert.AreEqual(2, PauseToggleCount(player), "失敗した再開を、重複した終了で再試行しません。");
+                    Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+                    break;
+                default:
+                    throw new AssertFailedException("未定義の条件です: " + scenario);
+            }
+        }
+        finally
+        {
+            player.PauseToggleException = null;
+            panel.BeginShutdown();
+            await panel.CloseForShutdown();
+        }
+    }
+
     private static ChartFile CreatePlaybackTargetChart(ChartFileKind kind, string path)
     {
         return new ChartFile(kind, path, "playback-port-hash", null, "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null);

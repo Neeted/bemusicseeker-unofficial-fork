@@ -729,8 +729,8 @@ public sealed class PlaybackPanelViewModelTests
         finally { DisposeWorkspace(); }
     }
 
-    /// <summary>ボタンhover背景に対する前面描画・入力、実Trackの換算・Bindingを保ち、PLAYの連続seekと明示Pause後のclick・drag・反復mouse-upで再生状態を変えません。</summary>
-    /// <remarks>実Windowの配置・描画・hit testと双方向Bindingを確認し、座標入力は本番MouseMoveと共通の入口を使います。非同期toggleと押下mouse-leave接続の不在は静的確認、engineの状態・時計保持は既存Realtimeテストへ分担します。</remarks>
+    /// <summary>ボタンhover背景に対する前面描画・入力、実Trackの換算・Bindingを保ち、PLAY中のclickだけのseekは再生を、明示Pause後のclick・drag・各種の終了は一時停止を保ちます。</summary>
+    /// <remarks>実Windowの配置・描画・hit testと双方向Bindingを確認し、座標入力は本番MouseMoveと共通の入口を使います。PLAY中のdragによる一時停止と再開の接続は<see cref="PlaybackPanelView_SeekDragEndsReachThePanelThatStartedTheDrag"/>、切替の判断の組合せはCoreのケース、engineの状態・時計保持は既存Realtimeテストへ分担します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void PlaybackPanelView_SeekPreservesTrackBindingAndPlaybackState()
@@ -854,10 +854,15 @@ public sealed class PlaybackPanelViewModelTests
                     var rail = (Border)track.DecreaseRepeatButton.Template.FindName("RailChrome", track.DecreaseRepeatButton);
                     Assert.IsTrue(rail.ActualHeight > 0 && rail.ActualHeight < slider.ActualHeight);
                     Assert.AreEqual(((SolidColorBrush)slider.FindResource("App.AccentBrush")).Color, ((SolidColorBrush)rail.Background).Color);
-                    Assert.AreEqual(0, player.Commands.Count(command => command == "Pause"));
+                    slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                    { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
+                    Assert.IsTrue(panel.IsPlaying, "再生中のclickだけのseekは、ボタンを離した後も再生を保ちます。");
+                    Assert.AreEqual(0, player.Commands.Count(command => command == "Pause") % 2, "playerも再生中のままです。");
+                    int togglesBeforePause = player.Commands.Count(command => command == "Pause");
                     panel.TogglePause();
                     Assert.IsTrue(panel.IsPaused, "seekとは別の明示操作でPauseへ切り替えます。");
-                    Assert.AreEqual(1, player.Commands.Count(command => command == "Pause"));
+                    Assert.AreEqual(togglesBeforePause + 1, player.Commands.Count(command => command == "Pause"));
+                    int pausedToggles = togglesBeforePause + 1;
                     view.SeekFromPoint(pausedClickPosition);
                     Assert.AreEqual(60d, player.CurrentTime.TotalSeconds, 0.001, "明示Pause後のclickで位置だけを変えます。");
                     Assert.IsTrue(panel.IsPaused);
@@ -880,7 +885,24 @@ public sealed class PlaybackPanelViewModelTests
                         { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent });
                         Assert.AreEqual(120d, player.CurrentTime.TotalSeconds, 0.001);
                         Assert.IsTrue(panel.IsPaused, "mouse-upを繰り返しても明示Pauseを再開しません。");
-                        Assert.AreEqual(1, player.Commands.Count(command => command == "Pause"));
+                        Assert.AreEqual(pausedToggles, player.Commands.Count(command => command == "Pause"));
+                    }
+                    Action[] dragEnds =
+                    [
+                        () => slider.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left) { RoutedEvent = UIElement.PreviewMouseLeftButtonUpEvent }),
+                        () => slider.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseLeaveEvent }),
+                        () => track.Thumb.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.LostMouseCaptureEvent })
+                    ];
+                    foreach (Action endDrag in dragEnds)
+                    {
+                        view.SeekDragFromPoint(new Point(-100, 9));
+                        view.SeekDragFromPoint(pausedClickPosition);
+                        Assert.AreEqual(60d, slider.Value, 0.001);
+                        Assert.AreEqual(60d, player.CurrentTime.TotalSeconds, 0.001, "明示Pause後のdragは位置だけを変えます。");
+                        Assert.AreSame(binding, slider.GetBindingExpression(Slider.ValueProperty), "dragの経路でも双方向Bindingを保ちます。");
+                        endDrag();
+                        Assert.IsTrue(panel.IsPaused, "明示Pauseから始めたdragは、どの終了でも再開しません。");
+                        Assert.AreEqual(pausedToggles, player.Commands.Count(command => command == "Pause"));
                     }
                     Assert.AreEqual(1, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
                     Assert.AreSame(binding, slider.GetBindingExpression(Slider.ValueProperty));
@@ -927,6 +949,159 @@ public sealed class PlaybackPanelViewModelTests
             throw;
         }
         if (cleanupFailures.Count != 0) { throw new AggregateException("Seek fixture cleanup failed.", cleanupFailures); }
+    }
+
+    /// <summary>
+    /// PLAY中のseekのdragは最初の移動で一回だけ一時停止し、mouse-up・領域外への移動・捕捉の喪失・Unloaded・DataContextの変更のどれでも、
+    /// dragを始めた再生パネルへ終了が一回だけ届いて再開します。替わった後の再生パネルには影響しません。
+    /// </summary>
+    /// <remarks>
+    /// 終了の契機の接続漏れ、重なった終了による二重の切替、替わった後のDataContextへ終了を送って元の再生パネルを一時停止のまま残す誤り、
+    /// dragからの表示面の切替を検出します。実WindowのLoaded・Unloadedとeventの経路を使うため表示し、非並列にします。
+    /// 切替の判断の組合せはCoreのケースが担い、ボタン押下中のMouseMoveからの接続は実入力を作れないため静的確認へ分担します。
+    /// </remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlaybackPanelView_SeekDragEndsReachThePanelThatStartedTheDrag()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string path = workspace.GetPath("chart.tmp");
+            File.WriteAllBytes(path, []);
+            var panels = new List<PlaybackPanelViewModel>();
+            var starts = new List<Task>();
+            (PlaybackPanelViewModel Panel, FakeBmsPlayer Player) CreatePlayingPanel()
+            {
+                var player = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(120) };
+                var rows = new MainChartListViewModel { Rows = new List<object> { ChartTestValues.Empty() with { Path = path } } };
+                var panel = new PlaybackPanelViewModel(player, new ImmediatePlaybackUiDispatcher(), new MainChartListPlaybackQueue(rows),
+                    new InMemoryPlaybackSettingsStore(), new FakePlaybackDialogService(), _ => Assert.Fail("Unexpected invalid chart warning."),
+                    new ChartFileOperationSynchronizer(), temporaryPreviewHold: PlaybackPanelTestSupport.ShortTemporaryPreviewHold);
+                panels.Add(panel);
+                Task start = panel.StartAtIndex(0);
+                starts.Add(start);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(start, "seek-drag-start");
+                Assert.IsTrue(panel.IsPlaying);
+                return (panel, player);
+            }
+            static int Toggles(FakeBmsPlayer player) => player.Commands.Count(command => command == "Pause");
+
+            var view = new PlaybackPanelView();
+            var window = new Window
+            {
+                Width = 640d,
+                Height = 360d,
+                Content = view,
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None
+            };
+            Dispatcher previousDispatcher = Livet.DispatcherHelper.UIDispatcher;
+            try
+            {
+                // 終了受付のコマンド通知も、このケースが所有するUI Dispatcherへ配送します。
+                Livet.DispatcherHelper.UIDispatcher = Dispatcher.CurrentDispatcher;
+                (PlaybackPanelViewModel panel, FakeBmsPlayer player) = CreatePlayingPanel();
+                view.DataContext = panel;
+                windowTest.ShowAndWaitForContentRendered(window);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var slider = (Slider)view.FindName("sliderPlayer");
+                slider.ApplyTemplate();
+                window.UpdateLayout();
+                var track = (Track)slider.Template.FindName("PART_Track", slider);
+                PlayerPanelState panelState = panel.PlayerPanelState;
+
+                void DragWhilePlaying(PlaybackPanelViewModel target, FakeBmsPlayer targetPlayer)
+                {
+                    int before = Toggles(targetPlayer);
+                    view.SeekDragFromPoint(new Point(-100, 9));
+                    Assert.AreEqual(0d, targetPlayer.CurrentTime.TotalSeconds, 0.001);
+                    view.SeekDragFromPoint(new Point(slider.ActualWidth + 100, 9));
+                    Assert.AreEqual(120d, targetPlayer.CurrentTime.TotalSeconds, 0.001, "drag中も位置を反映します。");
+                    Assert.IsTrue(target.IsPaused, "PLAY中のdragは最初の移動で一時停止します。");
+                    Assert.AreEqual(before + 1, Toggles(targetPlayer), "移動を繰り返しても切替は一回です。");
+                }
+                void RaiseMouseUp() => track.Thumb.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
+                { RoutedEvent = UIElement.PreviewMouseUpEvent });
+                void RaiseMouseLeave() => slider.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.MouseLeaveEvent });
+                void RaiseLostCapture() => track.Thumb.RaiseEvent(new MouseEventArgs(Mouse.PrimaryDevice, 0) { RoutedEvent = UIElement.LostMouseCaptureEvent });
+
+                foreach ((string name, Action end, Action overlappingEnd) in new (string, Action, Action)[]
+                {
+                    ("mouse-up", RaiseMouseUp, RaiseLostCapture),
+                    ("mouse-leave", RaiseMouseLeave, RaiseMouseUp),
+                    ("lost-capture", RaiseLostCapture, RaiseMouseLeave)
+                })
+                {
+                    int before = Toggles(player);
+                    DragWhilePlaying(panel, player);
+                    end();
+                    Assert.IsTrue(panel.IsPlaying, name + " でdragが終わり、再開します。");
+                    Assert.AreEqual(before + 2, Toggles(player), name);
+                    overlappingEnd();
+                    Assert.IsTrue(panel.IsPlaying, name + " に別の終了が重なっても切り替えません。");
+                    Assert.AreEqual(before + 2, Toggles(player), name);
+                    Assert.AreEqual(panelState, panel.PlayerPanelState, "dragは表示面を切り替えません。");
+                }
+
+                int beforeUnloaded = Toggles(player);
+                DragWhilePlaying(panel, player);
+                window.Content = null;
+                window.UpdateLayout();
+                // PlaybackPanelViewのLoaded／Unloadedで購読と表示状態が切り替わるため、Backgroundまで消化する。
+                TestUiDispatcherHost.ProcessQueuedBackground();
+                Assert.IsFalse(view.IsLoaded);
+                Assert.IsTrue(panel.IsPlaying, "Unloadedでdragが終わり、再開します。");
+                Assert.AreEqual(beforeUnloaded + 2, Toggles(player));
+                window.Content = view;
+                window.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TestUiDispatcherHost.ProcessQueuedBackground();
+                Assert.IsTrue(view.IsLoaded);
+                RaiseMouseUp();
+                Assert.IsTrue(panel.IsPlaying);
+                Assert.AreEqual(beforeUnloaded + 2, Toggles(player), "付け直しと遅れた終了では切り替えません。");
+
+                (PlaybackPanelViewModel replacementPanel, FakeBmsPlayer replacementPlayer) = CreatePlayingPanel();
+                int beforeReplacement = Toggles(player);
+                DragWhilePlaying(panel, player);
+                view.DataContext = replacementPanel;
+                Assert.IsTrue(panel.IsPlaying, "DataContextの変更でdragが終わり、dragを始めた再生パネルが再開します。");
+                Assert.AreEqual(beforeReplacement + 2, Toggles(player));
+                RaiseMouseUp();
+                Assert.AreEqual(beforeReplacement + 2, Toggles(player));
+                Assert.IsTrue(replacementPanel.IsPlaying, "替わった後の再生パネルは切り替えません。");
+                Assert.AreEqual(0, Toggles(replacementPlayer));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                window.UpdateLayout();
+                DragWhilePlaying(replacementPanel, replacementPlayer);
+                RaiseMouseUp();
+                Assert.IsTrue(replacementPanel.IsPlaying);
+                Assert.AreEqual(2, Toggles(replacementPlayer));
+                Assert.AreEqual(beforeReplacement + 2, Toggles(player), "以前の再生パネルは操作しません。");
+            }
+            finally
+            {
+                try
+                {
+                    window.Content = null;
+                    view.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                    foreach (PlaybackPanelViewModel createdPanel in panels) { createdPanel.BeginShutdown(); }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        Task.WhenAll(panels.Select(createdPanel => createdPanel.CloseForShutdown()).Concat(starts)),
+                        "seek-drag-shutdown");
+                }
+                finally
+                {
+                    try { view.DisposePlayerHost(); }
+                    finally
+                    {
+                        try { window.Close(); }
+                        finally { Livet.DispatcherHelper.UIDispatcher = previousDispatcher; }
+                    }
+                }
+            }
+        });
     }
 
     private static string ArtworkSignature(ImageSource image)

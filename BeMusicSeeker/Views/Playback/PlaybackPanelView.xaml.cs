@@ -30,6 +30,8 @@ public partial class PlaybackPanelView : UserControl
     private readonly PlaybackPreviousButtonGesture previousButtonGesture = new();
     private readonly Func<Dispatcher, IPreviousButtonTimer> createPreviousButtonTimer;
     private IPreviousButtonTimer gridBMSPlayerControlsPreviousButtonClickTimer;
+    /// <summary>シークのドラッグの開始を伝えた再生パネル。ドラッグ中だけ保持します。</summary>
+    private PlaybackPanelViewModel seekDragPlaybackPanel;
     private PlaybackPanelViewModel subscribedPlaybackPanel;
     private PropertyChangedEventHandler subscribedPropertyChangedHandler;
     private EventHandler subscribedPlaybackStartingHandler;
@@ -121,6 +123,7 @@ public partial class PlaybackPanelView : UserControl
     private void PlaybackPanelUnloaded(object sender, RoutedEventArgs e)
     {
         isClosingOrClosed = true;
+        EndSeekDrag();
         CancelPreviousButtonGesture();
         ApplyPlaybackPanelVisualState(
             subscribedPlaybackPanel?.PlayerPanelState.HasFlag(PlayerPanelState.TITLE_SMALL) ?? false,
@@ -130,6 +133,8 @@ public partial class PlaybackPanelView : UserControl
 
     private void PlaybackPanelDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
+        // 終了は、替わった後のDataContextではなく、ドラッグの開始を伝えた再生パネルへ送ります。
+        EndSeekDrag();
         if (IsLoaded)
         {
             CancelPreviousButtonGesture();
@@ -870,12 +875,36 @@ public partial class PlaybackPanelView : UserControl
         {
             return;
         }
-        SeekFromPoint(e.GetPosition(sliderPlayer));
+        SeekDragFromPoint(e.GetPosition(sliderPlayer));
+    }
+
+    private void sliderPlayerSeekDragEnded(object sender, RoutedEventArgs e) => EndSeekDrag();
+
+    /// <summary>シークのドラッグによる一回の移動を反映します。同じドラッグの最初の移動で、現在の再生パネルへドラッグの開始を伝えます。</summary>
+    /// <param name="position">シークSliderを基準にしたポインター座標。</param>
+    /// <remarks>開始を伝えた再生パネルを保持し、DataContextが替わっても同じ相手へ終了を伝えられるようにします。</remarks>
+    internal void SeekDragFromPoint(Point position)
+    {
+        if (seekDragPlaybackPanel == null && DataContext is PlaybackPanelViewModel viewModel)
+        {
+            seekDragPlaybackPanel = viewModel;
+            viewModel.BeginSeekDrag();
+        }
+        SeekFromPoint(position);
+    }
+
+    /// <summary>シークのドラッグの終了を、開始を伝えた再生パネルへ一回だけ伝えます。ドラッグ中でなければ何もしません。</summary>
+    /// <remarks>ボタンの解放、領域外への移動、マウスの捕捉の喪失、Unloaded、DataContextの変更が重なって届いても、二回目以降は無視します。</remarks>
+    internal void EndSeekDrag()
+    {
+        PlaybackPanelViewModel playbackPanel = seekDragPlaybackPanel;
+        seekDragPlaybackPanel = null;
+        playbackPanel?.EndSeekDrag();
     }
 
     /// <summary>シークSlider相対の入力座標を実Trackとつまみの配置で再生時刻へ換算し、双方向Bindingを保って反映します。</summary>
     /// <param name="position">シークSliderを基準にしたポインター座標。</param>
-    /// <remarks>範囲外はSliderの上下限へ丸めます。位置だけを変更し、再生中・一時停止中の状態は維持します。</remarks>
+    /// <remarks>範囲外はSliderの上下限へ丸めます。位置だけを変更し、再生状態の切替は<see cref="SeekDragFromPoint"/>と<see cref="EndSeekDrag"/>が担います。</remarks>
     internal void SeekFromPoint(Point position)
     {
         if (sliderPlayer.Template.FindName("PART_Track", sliderPlayer) is not Track track)

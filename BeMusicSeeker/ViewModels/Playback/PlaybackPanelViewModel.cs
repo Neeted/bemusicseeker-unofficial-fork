@@ -49,6 +49,10 @@ public sealed class PlaybackPanelViewModel : ViewModel,
     private IBMSPlayer bmsPlayer;
 
     private long playbackGeneration;
+    /// <summary>シークのドラッグを受け付けている間だけ true。<see cref="sessionGate"/> で保護します。</summary>
+    private bool seekDragActive;
+    /// <summary>シークのドラッグの開始で一時停止した再生世代。終了時の再開の予約で、<see cref="sessionGate"/> で保護します。</summary>
+    private long? seekDragPausedGeneration;
 
     // 明示停止の前後だけを区別します。通常選曲の世代更新では受理済み入力を失効させません。
     private long playbackStopEpoch;
@@ -2110,7 +2114,8 @@ public sealed class PlaybackPanelViewModel : ViewModel,
         });
     }
 
-    /// <summary>一時停止を切り替える。終了受付後は player を操作しない。</summary>
+    /// <summary>利用者の明示的な操作として一時停止を切り替える。終了受付後は player を操作しない。</summary>
+    /// <remarks>シークのドラッグが予約した再開を取り消し、ドラッグの終了が明示操作の結果を上書きしないようにします。</remarks>
     internal void TogglePause()
     {
         lock (sessionGate)
@@ -2119,6 +2124,76 @@ public sealed class PlaybackPanelViewModel : ViewModel,
             {
                 return;
             }
+            seekDragPausedGeneration = null;
+            TogglePauseCore();
+        }
+    }
+
+    /// <summary>シークのドラッグの開始を受け付け、再生中なら同期的に一時停止します。</summary>
+    /// <remarks>
+    /// 連続したシークは移動ごとに音声の予約を作り直すため、再生したままでは移動の合間に短い音が出ます。
+    /// 同じドラッグの二回目以降の呼出し、終了受付後、再生中以外（明示的な一時停止・準備中・停止）では player を操作しません。
+    /// 切替の失敗は再生失敗の通知へ渡し、入力イベントの呼出し元へ送出しません。
+    /// </remarks>
+    internal void BeginSeekDrag()
+    {
+        try
+        {
+            lock (sessionGate)
+            {
+                if (shutdownStarted || seekDragActive)
+                {
+                    return;
+                }
+                seekDragActive = true;
+                if (!IsPlaying)
+                {
+                    return;
+                }
+                TogglePauseCore();
+                seekDragPausedGeneration = playbackGeneration;
+            }
+        }
+        catch (Exception exception)
+        {
+            Task.FromException(exception).ObserveFault("PlaybackPanel.SeekDrag");
+            NotifyPlaybackFailureSafely(exception);
+        }
+    }
+
+    /// <summary>シークのドラッグの終了を受け付け、開始時に一時停止した同じ再生世代が一時停止のままなら再開します。</summary>
+    /// <remarks>
+    /// 再開の予約は一回だけ消費するため、終了の通知が重複しても、切替に失敗しても、再び切り替えません。
+    /// 曲の切替・停止で再生世代が変わった場合と、利用者が明示的に切り替えた場合は、その状態を保ちます。
+    /// </remarks>
+    internal void EndSeekDrag()
+    {
+        try
+        {
+            lock (sessionGate)
+            {
+                long? pausedGeneration = seekDragPausedGeneration;
+                seekDragActive = false;
+                seekDragPausedGeneration = null;
+                if (shutdownStarted || pausedGeneration != playbackGeneration || !IsPaused)
+                {
+                    return;
+                }
+                TogglePauseCore();
+            }
+        }
+        catch (Exception exception)
+        {
+            Task.FromException(exception).ObserveFault("PlaybackPanel.SeekDrag");
+            NotifyPlaybackFailureSafely(exception);
+        }
+    }
+
+    /// <summary>表示状態と player の一時停止を切り替えます。呼出し元が終了受付前であることを確認します。</summary>
+    private void TogglePauseCore()
+    {
+        lock (sessionGate)
+        {
             if (NowPlayingChart != null)
             {
                 if (IsPlaying)

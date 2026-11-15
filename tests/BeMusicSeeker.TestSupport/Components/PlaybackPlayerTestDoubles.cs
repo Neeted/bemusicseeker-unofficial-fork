@@ -141,7 +141,17 @@ internal class FakeBmsPlayer : IBMSPlayer, IExternalWindowPlayer
 
     public void RestartPlayingBMSfile() => RecordCommand("Restart");
 
-    public void PausePlayingBMSfileToggle() => RecordCommand("Pause");
+    /// <summary>指定すると、一時停止の切替が命令を記録した後にこの例外で失敗します。</summary>
+    public Exception? PauseToggleException { get; set; }
+
+    public void PausePlayingBMSfileToggle()
+    {
+        RecordCommand("Pause");
+        if (PauseToggleException != null)
+        {
+            throw PauseToggleException;
+        }
+    }
 
     public void FastForwardPlayingBMSfileStart() => RecordCommand("FastForwardStart");
 
