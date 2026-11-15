@@ -18,15 +18,15 @@
 
 ### テーマの保存と切替
 
-`Settings.Default.AppearanceTheme` は、`Light`、`Dark`、`Sepia`、`Frost`、`NeonViolet`、`GreenTerminal`、`AmberTerminal`、`OledBlack`、`DeepSea`、`DosBlue` のいずれかを保存します。既定値と、不明・空・nullの正規化先は `Light` です。保存前にも正規化します。明るいテーマは `Light`、`Sepia`、`Frost` で、それ以外は標準の題名部にも暗色を指定します。テーマとは別に、一覧の文字サイズ、行の高さ、見出しの高さを設定できます。
+`Settings.Default.AppearanceTheme` は、`Light`、`Dark`、`Sepia`、`Frost`、`NeonViolet`、`GreenTerminal`、`AmberTerminal`、`OledBlack`、`DeepSea`、`VampireRed`、`DosBlue` のいずれかを保存します。既定値と、不明・空・nullの正規化先は `Light` です。保存前にも正規化します。明るいテーマは `Light`、`Sepia`、`Frost` で、それ以外は標準の題名部にも暗色を指定します。テーマとは別に、一覧の文字サイズ、行の高さ、見出しの高さを設定できます。
 
-`AppThemeService` は、起動時に正規化済みのテーマ辞書をアプリのリソースへ追加します。辞書の参照は `/BeMusicSeeker;component/Themes/` の形式に統一します。切替の対象は、登録済みの10個の配色辞書だけです。既存の配色辞書を除去して指定された辞書を追加し、同じフォルダにある共通スタイルの辞書は保持します。切替後は `ThemeChanged` を通知し、`Version` を進めます。
+`AppThemeService` は、起動時に正規化済みのテーマ辞書をアプリのリソースへ追加します。辞書の参照は `/BeMusicSeeker;component/Themes/` の形式に統一します。切替の対象は、登録済みの11個の配色辞書だけです。既存の配色辞書を除去して指定された辞書を追加し、同じフォルダにある共通スタイルの辞書は保持します。切替後は `ThemeChanged` を通知し、`Version` を進めます。
 
 XAMLは原則として `DynamicResource` を使います。コードで描画する部分は、テーマの変更と版を使って、描画色・文字列・描画結果のキャッシュを破棄します。一覧の `CustomTablePalette` とスコアの色も、この規則に従います。
 
 ### 配色の定義
 
-[明るいテーマ](../../../BeMusicSeeker/Themes/Light.xaml)、[暗いテーマ](../../../BeMusicSeeker/Themes/Dark.xaml)と追加の8個の配色辞書は、同じ用途のキーを持ちます。各配色の値は、その辞書を正本とします。
+[明るいテーマ](../../../BeMusicSeeker/Themes/Light.xaml)、[暗いテーマ](../../../BeMusicSeeker/Themes/Dark.xaml)と追加の9個の配色辞書は、同じ用途のキーを持ちます。各配色の値は、その辞書を正本とします。
 
 | キーの系統 | 用途 |
 | --- | --- |
@@ -223,7 +223,7 @@ WPFの仮想化は、項目の入れ物を再利用するとき選択状態を�
 
 メイン画面右上の通常検索欄とプレイリスト一覧の検索欄は、次のように示します。
 
-- 非フォーカス時の枠に、テーマ別の `App.SearchBorderBrush` を使い、入力領域を識別できる控えめな輪郭を示します。全10個の配色辞書に `SolidColorBrush` として定義し、両検索欄から `DynamicResource` で参照して、テーマ切替に追随します。
+- 非フォーカス時の枠に、テーマ別の `App.SearchBorderBrush` を使い、入力領域を識別できる控えめな輪郭を示します。全11個の配色辞書に `SolidColorBrush` として定義し、両検索欄から `DynamicResource` で参照して、テーマ切替に追随します。
 - 各検索エディター内にキーボードフォーカスがあるときだけ、枠を既存の `App.InputFocusBorderBrush` へ切り替えます。ヘルプなど周辺のボタンへのフォーカスは、この判定に含めません。
 - 高さ24 DIP、枠線1 DIPの直角の枠とし、横幅、余白、アイコンの配置、候補の表示、検索操作は保ちます。
 - 背景は、空入力のときに `App.ControlBackgroundBrush`、文字があるときに `App.ControlBackgroundActiveBrush` を使い、絞込み中であることを示します。明るいテーマは薄い桃色、暗いテーマは落ち着いた注意色とし、構文警告の `!` とは区別します。候補の操作は、検索支援の仕様に従います。
@@ -334,7 +334,7 @@ OS標準の選択画面、利用者定義のテーマ、個別色の編集、OS�
 | オーバーレイの論理スクロール再測定、リサイズ時の仮想化維持 | [`OverlayScrollBar`](../../../BeMusicSeeker/Views/OverlayScrollBar.cs)、共通ScrollViewerのPARTバー | [`DialogPresentationTests.PlayHistoryPresetDialog_UsesBoundedResizablePlaylistViewport`](../../../tests/BeMusicSeeker.Windows.Tests/Dialogs/DialogPresentationTests.cs) は未実体化の末尾へスクロールして選択した後、Window拡大で論理viewportが増えることを確認する。物理・論理の標準操作とItemsPresenterのconsumerは既存MainWindowContextMenuResource/SettingsControlPresentation/DialogPresentation系列へ分担し、候補の選択順・不適格時の無処理・祖先経路だけの無効化・状態なしと発火条件は静的確認する。 |
 | 表の共通バーとテーマ切替、交点 | `CustomTableView`、共通ScrollBarテンプレート | [`MainWindowChartPresentationWpfTests.CustomTableScrollBarsUseCompiledThemeAndOverlayContract`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は実テーマ切替の表・実バーへの反映と、全面寸法・交点の非重複を確認する。設定・ダイアログの実採用は既存 `SettingsControlPresentationTests` / `DialogPresentationTests` のconsumer検査へ分担する。OS入力、領域外ドラッグの実操作、配色の見え方と高DPIは実機確認と分担する。 |
 | テーマの切替と共通スタイルの保持 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs) | [`NativeWindowThemeContractTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowThemeContractTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Themes/NativeWindowThemeContractTests.cs) は各配色への切替で、辞書のキー整合、共通スタイルの解決、変更通知と版更新、題名部の明暗判定を確認する。 |
-| 通常検索・プレイリスト一覧検索の控えめな通常枠、フォーカス枠、入力状態の背景と配置 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) の `KeywordSearchComposite` / `PlaylistSummaryKeywordSearchComposite`、全10配色辞書の `App.SearchBorderBrush` | `NativeWindowThemeContractTests` は全テーマのキー整合、[`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は検索操作とアイコン配置を回帰確認する。全10辞書の検索枠ブラシのキー・型・配色、両通常枠の動的参照、エディター専用のフォーカス判定、背景トリガーと寸法・余白の維持は変更時の静的差分確認で分担する。実環境での色の見え方は自動検証の対象に含めない。 |
+| 通常検索・プレイリスト一覧検索の控えめな通常枠、フォーカス枠、入力状態の背景と配置 | [`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) の `KeywordSearchComposite` / `PlaylistSummaryKeywordSearchComposite`、全11配色辞書の `App.SearchBorderBrush` | `NativeWindowThemeContractTests` は全テーマのキー整合、[`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) は検索操作とアイコン配置を回帰確認する。全11辞書の検索枠ブラシのキー・型・配色、両通常枠の動的参照、エディター専用のフォーカス判定、背景トリガーと寸法・余白の維持は変更時の静的差分確認で分担する。実環境での色の見え方は自動検証の対象に含めない。 |
 | 全ToolTipの表示中テーマ追随 | `CanonicalControls.xaml` の型スタイル | `NativeWindowThemeContractTests.ToolTip_VisibleContentTracksThemeWithoutExplicitStyle` はIsOpenで表示した明示StyleなしToolTipで明→暗→明の実効背景・枠・本文、文字列と折返しTextBlockの文字継承・内容保持を確認する。文字列からの自動生成、CustomTableViewの明示生成、SliderのAutoToolTipが同じ型スタイルを使う接続は静的確認で分担する。 |
 | テーマの切替、標準題名部の接続・解除と失敗、直角の外枠要求 | [`AppThemeService`](../../../BeMusicSeeker/Models/Settings/AppThemeService.cs)、[`ThemedWindow`](../../../BeMusicSeeker/Views/ThemedWindow.cs)、[`NativeWindowTitleBarController`](../../../BeMusicSeeker/Views/NativeWindowTitleBar.cs) | [`NativeWindowThemeContractTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowThemeContractTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Themes/NativeWindowThemeContractTests.cs)、[`NativeWindowTitleBarTests`](../../../tests/BeMusicSeeker.Core.Tests/Themes/NativeWindowTitleBarTests.cs) が既存のテーマ・接続・終了・失敗処理を担う。DWMの33/1要求、既存のTrySetAttribute経由での失敗処理、ThemedMessageBoxを含む適用先とMainWindowへ追加しないことは静的確認する。実OSでの外枠の見え方は自動検証済みと扱わない。 |
 | 共通Expander見出しの背景・枠・文字・矢印と動的テーマ切替 | [`CanonicalControls.xaml`](../../../BeMusicSeeker/Themes/CanonicalControls.xaml) の `App.Canonical.ExpanderHeaderToggleStyle` / `ExpanderHeaderToggleTemplate`、[`SettingsControls.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsControls.xaml) の `SettingsExpanderStyle` | [`SettingsControlPresentationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsControlPresentationTests.cs) の `SettingsControlDictionary_OverridesOuterImplicitStylesAndMaterializesClosedRoutes` は同じ表示済みExpanderで明→暗→明の背景・1 DIPの枠と、折畳み・展開・無効時の文字・矢印の実効色、双方向開閉、内容表示と `IExpandCollapseProvider` を確認する。ホバー・フォーカスの表示と有効条件、余白は既存トリガーとテンプレートの差分確認で維持を確認する。 |

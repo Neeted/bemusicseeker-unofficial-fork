@@ -94,6 +94,7 @@
   "Appearance_theme_amber_terminal": "Terminal ambre",
   "Appearance_theme_oled_black": "Noir OLED",
   "Appearance_theme_deep_sea": "Océan profond",
+  "Appearance_theme_vampire_red": "Rouge vampire",
   "Appearance_theme_dos_blue": "Bleu DOS",
   "Details_test_notcheck_playlists": "Ne pas vérifier les mises à jour des playlists au démarrage",
   "Details_test_delete_pending_source_after_install": "Supprimer les partitions déjà possédées restant dans le paquet source après une installation normale",

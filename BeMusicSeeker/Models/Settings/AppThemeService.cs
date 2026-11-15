@@ -18,12 +18,16 @@ internal static class AppThemeService
     internal const string AmberTerminal = "AmberTerminal";
     internal const string OledBlack = "OledBlack";
     internal const string DeepSea = "DeepSea";
+
+    /// <summary>外観設定に保存するヴァンパイアレッドのテーマ識別子です。</summary>
+    internal const string VampireRed = "VampireRed";
+
     internal const string DosBlue = "DosBlue";
 
     private const string ComponentThemeDictionaryPrefix = "/BeMusicSeeker;component/Themes/";
     private static readonly IReadOnlyList<string> themes = Array.AsReadOnly(new[]
     {
-        Light, Dark, Sepia, Frost, NeonViolet, GreenTerminal, AmberTerminal, OledBlack, DeepSea, DosBlue
+        Light, Dark, Sepia, Frost, NeonViolet, GreenTerminal, AmberTerminal, OledBlack, DeepSea, VampireRed, DosBlue
     });
     private static int version;
 

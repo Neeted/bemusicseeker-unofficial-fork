@@ -287,6 +287,9 @@ public class Resources
 
     public static string Appearance_theme_deep_sea => ResourceManager.GetString("Appearance_theme_deep_sea", resourceCulture);
 
+    /// <summary>外観設定のテーマ一覧に表示するヴァンパイアレッドの名前を取得します。</summary>
+    public static string Appearance_theme_vampire_red => ResourceManager.GetString("Appearance_theme_vampire_red", resourceCulture);
+
     public static string Appearance_theme_dos_blue => ResourceManager.GetString("Appearance_theme_dos_blue", resourceCulture);
 
     public static string Artist => ResourceManager.GetString("Artist", resourceCulture);

@@ -72,6 +72,7 @@ public sealed class NativeWindowThemeContractTests
     [DataRow("AmberTerminal", "/BeMusicSeeker;component/Themes/AmberTerminal.xaml")]
     [DataRow("OledBlack", "/BeMusicSeeker;component/Themes/OledBlack.xaml")]
     [DataRow("DeepSea", "/BeMusicSeeker;component/Themes/DeepSea.xaml")]
+    [DataRow("VampireRed", "/BeMusicSeeker;component/Themes/VampireRed.xaml")]
     [DataRow("DosBlue", "/BeMusicSeeker;component/Themes/DosBlue.xaml")]
     public void ApplyTheme_PreservesSharedDictionariesForSupportedThemeUris(
         string initialTheme,

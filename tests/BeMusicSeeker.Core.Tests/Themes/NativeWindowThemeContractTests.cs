@@ -16,6 +16,7 @@ public sealed class NativeWindowThemeContractTests
     [DataRow("AmberTerminal", "AmberTerminal", true)]
     [DataRow("OledBlack", "OledBlack", true)]
     [DataRow("DeepSea", "DeepSea", true)]
+    [DataRow("VampireRed", "VampireRed", true)]
     [DataRow("DosBlue", "DosBlue", true)]
     [DataRow("greenterminal", "GreenTerminal", true)]
     [DataRow("unknown-theme", "Light", false)]

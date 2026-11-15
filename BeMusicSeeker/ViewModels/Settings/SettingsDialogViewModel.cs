@@ -2716,6 +2716,7 @@ public partial class SettingsDialogViewModel : ViewModel
                     AppThemeService.AmberTerminal => Resources.Appearance_theme_amber_terminal,
                     AppThemeService.OledBlack => Resources.Appearance_theme_oled_black,
                     AppThemeService.DeepSea => Resources.Appearance_theme_deep_sea,
+                    AppThemeService.VampireRed => Resources.Appearance_theme_vampire_red,
                     AppThemeService.DosBlue => Resources.Appearance_theme_dos_blue,
                     _ => throw new InvalidOperationException($"Unknown appearance theme: {Key}")
                 };

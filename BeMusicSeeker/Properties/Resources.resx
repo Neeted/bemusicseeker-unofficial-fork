@@ -1073,6 +1073,7 @@ OK を選ぶと、今回の変換を WAVE で続行します。キャンセル�
   <data name="Appearance_theme_amber_terminal" xml:space="preserve"><value>アンバーターミナル</value></data>
   <data name="Appearance_theme_oled_black" xml:space="preserve"><value>OLEDブラック</value></data>
   <data name="Appearance_theme_deep_sea" xml:space="preserve"><value>ディープシー</value></data>
+  <data name="Appearance_theme_vampire_red" xml:space="preserve"><value>ヴァンパイアレッド</value></data>
   <data name="Appearance_theme_dos_blue" xml:space="preserve"><value>DOSブルー</value></data>
   <data name="Details_scan_bms_files_on_startup" xml:space="preserve">
     <value>起動時にBMSファイルと構成ファイルのスキャンを行う</value>

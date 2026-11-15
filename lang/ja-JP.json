@@ -260,6 +260,7 @@
   "Appearance_theme_amber_terminal": "アンバーターミナル",
   "Appearance_theme_oled_black": "OLEDブラック",
   "Appearance_theme_deep_sea": "ディープシー",
+  "Appearance_theme_vampire_red": "ヴァンパイアレッド",
   "Appearance_theme_dos_blue": "DOSブルー",
   "Msg_failed_remove_playlist_entry": "プレイリストが外部同期モードになっているため\nエントリーを削除することができません。",
   "Record_setting_encoder_dir": "実行ファイル検索先: ",
