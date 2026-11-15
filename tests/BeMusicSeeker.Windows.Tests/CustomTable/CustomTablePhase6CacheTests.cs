@@ -810,11 +810,14 @@ public sealed class CustomTablePhase6CacheTests
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            var arial = new FontFamily("Arial");
-            var meiryoUi = new FontFamily("Meiryo UI");
+            // 本番と同じく、名前を持たない合成フォントどうしを切り替える。
+            FontFamily arial = AppFontService.CreateFontFamily("Arial");
+            FontFamily meiryoUi = AppFontService.DefaultFontFamily;
             double fontSize = BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
+            // 表と同じ描画方式と表示倍率で測る。
+            double pixelsPerDip = VisualTreeHelper.GetDpi(new Border()).PixelsPerDip;
             double Measure(FontFamily family, string value) => new FormattedText(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-                new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), fontSize, Brushes.Black, 1d).WidthIncludingTrailingWhitespace;
+                new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), fontSize, Brushes.Black, null, TextFormattingMode.Display, pixelsPerDip).WidthIncludingTrailingWhitespace;
             // 二つのフォントで幅の差が最も大きい文字列を選び、その中間の列幅で省略の有無が入れ替わることを判定に使う。
             string text = new[] { new string('W', 40), new string('i', 80), new string('0', 60), "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz" }
                 .MaxBy(candidate => Math.Abs(Measure(arial, candidate) - Measure(meiryoUi, candidate)))!;
@@ -826,9 +829,9 @@ public sealed class CustomTablePhase6CacheTests
                 textSelector: _ => text, editPropertyName: "Folder");
             object[] rows = [.. Enumerable.Range(0, 40).Select(_ => new object())];
             var table = new CustomTableView { Width = columnWidth + 60d, Height = 120, HeaderHeight = 20, RowHeight = 20, Columns = [column], ItemsSource = rows };
-            Assert.AreEqual(meiryoUi, table.TextFontFamily);
+            Assert.AreSame(meiryoUi, table.TextFontFamily);
             table.TextFontFamily = null!;
-            Assert.AreEqual(meiryoUi, table.TextFontFamily);
+            Assert.AreSame(meiryoUi, table.TextFontFamily);
             var ended = new List<CustomTableCellEditEndedEventArgs>();
             table.CellEditEnded += (_, args) => ended.Add(args);
             var window = new Window { Width = columnWidth + 120d, Height = 200, Content = table };

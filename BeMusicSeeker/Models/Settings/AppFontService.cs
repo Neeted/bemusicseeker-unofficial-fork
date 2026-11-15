@@ -29,8 +29,16 @@ internal static class AppFontService
     /// <summary>保存値が空のときに使い、選択されたフォントの代替候補にもなる既定のフォント名です。</summary>
     internal const string DefaultFontFamilyName = "Meiryo UI";
 
+    /// <summary>
+    /// 文字サイズに対する行の高さの倍率です。既定のフォントの行の高さと同じ値に固定し、
+    /// フォントを変えても部品の高さと一覧の行内の位置が変わらないようにします。
+    /// </summary>
+    internal const double LineSpacing = 1.27d;
+
+    private static FontFamily defaultFontFamily;
+
     /// <summary>既定のフォントです。リソースが未適用の表示部品も、この値を使います。</summary>
-    internal static FontFamily DefaultFontFamily { get; } = new(DefaultFontFamilyName);
+    internal static FontFamily DefaultFontFamily => defaultFontFamily ??= CreateNormalizedFontFamily(DefaultFontFamilyName);
 
     /// <summary>保存するフォント名から前後の空白を除きます。nullは既定を表す空文字にします。</summary>
     internal static string NormalizeFontFamilyName(string name)
@@ -41,6 +49,7 @@ internal static class AppFontService
     /// <summary>
     /// 保存値から実際に使うフォントを作ります。選択されたフォントを第一候補、既定のフォントを代替候補にするため、
     /// 未インストールのフォントと、選択されたフォントに字形がない文字は、既定のフォントで表示されます。
+    /// 行の高さと基線の位置は、フォントが申告する値ではなく固定値にします。
     /// </summary>
     internal static FontFamily CreateFontFamily(string name)
     {
@@ -50,7 +59,28 @@ internal static class AppFontService
             return DefaultFontFamily;
         }
         // WPFは複数候補をコンマで区切るため、名前に含まれるコンマは二重にして区切りと区別する。
-        return new FontFamily(normalizedName.Replace(",", ",,", StringComparison.Ordinal) + ", " + DefaultFontFamilyName);
+        return CreateNormalizedFontFamily(normalizedName.Replace(",", ",,", StringComparison.Ordinal) + ", " + DefaultFontFamilyName);
+    }
+
+    /// <summary>
+    /// 候補のフォントを束ね、行の高さと基線を固定した合成フォントを作ります。
+    /// WPFは文字をフォントが申告する行の箱で配置し、その高さと箱の中の文字の位置はフォントごとに違います。
+    /// そのまま使うと、フォントによって上下中央や下寄せの文字がずれ、行の高さが小さいフォントは一覧で折り返します。
+    /// 基線は、第一候補の大文字の高さが行の上下中央に来る位置にします。
+    /// </summary>
+    private static FontFamily CreateNormalizedFontFamily(string candidates)
+    {
+        // 候補の先頭が未インストールの場合は、次の候補（既定のフォント）の大文字の高さが返る。
+        double capsHeight = new Typeface(new FontFamily(candidates), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
+        if (!(capsHeight > 0d) || double.IsInfinity(capsHeight))
+        {
+            capsHeight = new Typeface(new FontFamily(DefaultFontFamilyName), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
+        }
+        var fontFamily = new FontFamily();
+        fontFamily.FamilyMaps.Add(new FontFamilyMap { Target = candidates });
+        fontFamily.LineSpacing = LineSpacing;
+        fontFamily.Baseline = (LineSpacing + capsHeight) / 2d;
+        return fontFamily;
     }
 
     /// <summary>

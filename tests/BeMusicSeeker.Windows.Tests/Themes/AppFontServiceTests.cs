@@ -30,17 +30,17 @@ public sealed class AppFontServiceTests
             using var snapshot = AppFontResourceSnapshot.Capture();
             try
             {
-                string arial = GlyphFontUri(new FontFamily("Arial"), "A");
-                string meiryoUiLatin = GlyphFontUri(new FontFamily("Meiryo UI"), "A");
-                string meiryoUiKana = GlyphFontUri(new FontFamily("Meiryo UI"), "あ");
+                string arial = GlyphFontProbe.FontUri(new FontFamily("Arial"), "A");
+                string meiryoUiLatin = GlyphFontProbe.FontUri(new FontFamily("Meiryo UI"), "A");
+                string meiryoUiKana = GlyphFontProbe.FontUri(new FontFamily("Meiryo UI"), "あ");
                 Assert.AreNotEqual(arial, meiryoUiLatin, "ArialとMeiryo UIを区別できる環境が前提です。");
 
                 ResourceDictionary[] dictionaries = [.. application.Resources.MergedDictionaries];
                 AppFontService.ApplyFontFamily("Arial");
                 CollectionAssert.AreEqual(dictionaries, application.Resources.MergedDictionaries.ToArray());
                 var selected = (FontFamily)application.Resources[AppFontService.ResourceKey];
-                Assert.AreEqual(arial, GlyphFontUri(selected, "A"));
-                Assert.AreEqual(meiryoUiKana, GlyphFontUri(selected, "あ"));
+                Assert.AreEqual(arial, GlyphFontProbe.FontUri(selected, "A"));
+                Assert.AreEqual(meiryoUiKana, GlyphFontProbe.FontUri(selected, "あ"));
                 foreach (ResourceKey key in new[] { SystemFonts.MenuFontFamilyKey, SystemFonts.StatusFontFamilyKey, SystemFonts.MessageFontFamilyKey })
                 {
                     Assert.AreSame(selected, application.Resources[key]);
@@ -55,14 +55,45 @@ public sealed class AppFontServiceTests
                 {
                     AppFontService.ApplyFontFamily(name);
                     var fallback = (FontFamily)application.Resources[AppFontService.ResourceKey];
-                    Assert.AreEqual(meiryoUiLatin, GlyphFontUri(fallback, "A"), name);
-                    Assert.AreEqual(meiryoUiKana, GlyphFontUri(fallback, "あ"), name);
+                    Assert.AreEqual(meiryoUiLatin, GlyphFontProbe.FontUri(fallback, "A"), name);
+                    Assert.AreEqual(meiryoUiKana, GlyphFontProbe.FontUri(fallback, "あ"), name);
                     Assert.AreSame(fallback, application.Resources[SystemFonts.MenuFontFamilyKey]);
                 }
             }
             finally
             {
                 AppThemeService.ApplyTheme(originalTheme);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Arial、Meiryo UI、空文字、未インストールの名前のどれから作ったフォントでも、一行の高さは文字サイズの1.27倍になり、
+    /// 基線は第一候補の大文字の高さが行の上下中央に来る位置になることを確認します。空文字と未インストールの名前は既定のMeiryo UIの大文字の高さを使います。
+    /// </summary>
+    /// <remarks>フォントが申告する行の高さや基線をそのまま使う誤りと、どのフォントにも既定のフォントの大文字の高さを使う誤りを検出します。</remarks>
+    [TestMethod]
+    public void CreateFontFamily_FixesLineHeightAndCentersCapitalHeightForEveryFont()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            const double size = 100d;
+            static double CapsHeight(string name) => new Typeface(new FontFamily(name), FontStyles.Normal, FontWeights.Normal, FontStretches.Normal).CapsHeight;
+            double arialCaps = CapsHeight("Arial"), meiryoUiCaps = CapsHeight("Meiryo UI");
+            Assert.IsTrue(Math.Abs(arialCaps - meiryoUiCaps) * size / 2d >= 0.5d, "二つのフォントの大文字の高さで基線を区別できる環境が前提です。");
+            foreach ((FontFamily family, double capsHeight, string label) in new[]
+            {
+                (AppFontService.CreateFontFamily("Arial"), arialCaps, "Arial"),
+                (AppFontService.CreateFontFamily("Meiryo UI"), meiryoUiCaps, "Meiryo UI"),
+                (AppFontService.CreateFontFamily(string.Empty), meiryoUiCaps, "empty"),
+                (AppFontService.CreateFontFamily("BeMusicSeeker No Such Font"), meiryoUiCaps, "uninstalled"),
+                (AppFontService.DefaultFontFamily, meiryoUiCaps, "default")
+            })
+            {
+                var text = new FormattedText("H", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                    new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), size, Brushes.Black, 1d);
+                Assert.AreEqual(1.27d * size, text.Height, 0.05d, label);
+                Assert.AreEqual((1.27d + capsHeight) / 2d * size, text.Baseline, 0.05d, label);
             }
         });
     }
@@ -104,7 +135,7 @@ public sealed class AppFontServiceTests
                     AppFontService.ApplyFontFamily(name);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     var expected = (FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
-                    Assert.IsTrue(expected.Source.StartsWith(name, StringComparison.Ordinal), expected.Source);
+                    Assert.AreEqual(GlyphFontProbe.FontUri(new FontFamily(name), "A"), GlyphFontProbe.FontUri(expected, "A"), name);
                     Assert.AreEqual(expected, window.FontFamily, name);
                     Assert.AreEqual(expected, document.FontFamily, name);
                     Assert.AreEqual(documentFontSize, document.FontSize, name);
@@ -133,30 +164,6 @@ public sealed class AppFontServiceTests
                 }
             }
         });
-    }
-
-    private static string GlyphFontUri(FontFamily family, string text)
-    {
-        var visual = new DrawingVisual();
-        using (DrawingContext context = visual.RenderOpen())
-        {
-            context.DrawText(
-                new FormattedText(text, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                    new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), 16d, Brushes.Black, 1d),
-                new Point());
-        }
-        // 同じファイルに複数の書体を持つフォントを区別するため、書体番号を含むURI全体で比較する。
-        return GlyphRuns(visual.Drawing).Single().GlyphTypeface.FontUri.ToString();
-    }
-
-    private static IEnumerable<GlyphRun> GlyphRuns(Drawing drawing)
-    {
-        return drawing switch
-        {
-            DrawingGroup group => group.Children.SelectMany(GlyphRuns),
-            GlyphRunDrawing run => [run.GlyphRun],
-            _ => []
-        };
     }
 
     private static IEnumerable<T> FindVisualDescendants<T>(DependencyObject root)

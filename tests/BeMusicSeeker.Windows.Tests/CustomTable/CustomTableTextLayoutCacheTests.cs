@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.Views;
 
@@ -43,6 +44,8 @@ public sealed class CustomTableTextLayoutCacheTests
             AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score.WithFontSize(12d)); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score, scoreFontFamily: new FontFamily("Arial")); return hit; });
+            // 表示フォントは名前を持たない合成フォントのため、名前がなくても別のフォントの配置を再利用しない。
+            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal.WithFontFamily(AppFontService.CreateFontFamily("Arial"))), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Normal.WithFontFamily(AppFontService.CreateFontFamily("Times New Roman"))); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, foreground: Brushes.Black), cache => { Create(cache, out bool hit, foreground: Brushes.Red); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Red)]), cache => { Create(cache, out bool hit, textRuns: [new CustomTableTextRunStyle(1, 1, Brushes.Red)]); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Red)]), cache => { Create(cache, out bool hit, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Blue)]); return hit; });
@@ -137,6 +140,47 @@ public sealed class CustomTableTextLayoutCacheTests
                 null,
                 1d,
                 CultureInfo.GetCultureInfo("ja-JP")));
+        });
+    }
+
+    /// <summary>単語の区切りを含む長い文字列を、数行分の高さがある狭い領域へ配置しても、高さは一行分のままで、幅は領域に収まり省略されることを確認します。</summary>
+    /// <remarks>行の高さに余裕があると折り返す誤りと、省略をやめて文字がはみ出す誤りを検出します。高さを大きく与えるため、フォントの行の高さには依存しません。</remarks>
+    [TestMethod]
+    public void GetOrCreate_KeepsSingleLineAndTrimsEvenWhenHeightAllowsMoreLines()
+    {
+        TestUiDispatcherHost.Invoke(delegate
+        {
+            const string text = "one two three four five six seven eight nine ten";
+            var cache = new CustomTableTextLayoutCache();
+            FormattedText single = Create(cache, out _, text: text, maxTextWidth: 2000d, maxTextHeight: 400d);
+            FormattedText narrow = Create(cache, out _, text: text, maxTextWidth: 60d, maxTextHeight: 400d);
+
+            Assert.AreEqual(single.Height, narrow.Height, 0.01d);
+            Assert.IsTrue(narrow.WidthIncludingTrailingWhitespace <= 60.5d, narrow.WidthIncludingTrailingWhitespace.ToString(CultureInfo.InvariantCulture));
+            Assert.IsTrue(narrow.WidthIncludingTrailingWhitespace < single.WidthIncludingTrailingWhitespace);
+        });
+    }
+
+    /// <summary>全文の幅の前後の各整数幅で、省略の判定が真になるのは、実際に描く配置が省略されるときだけであることを確認します。</summary>
+    /// <remarks>判定と描画の一方だけが文字の測り方を変え、省略されているのに全文のツールチップが出ない、またはその逆になる誤りを検出します。</remarks>
+    [TestMethod]
+    public void WouldTrim_AgreesWithDrawnLayoutAroundFullWidth()
+    {
+        TestUiDispatcherHost.Invoke(delegate
+        {
+            const string text = "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. 0123456789";
+            var culture = CultureInfo.GetCultureInfo("ja-JP");
+            CustomTableTextStyle style = CustomTableTextStyle.Normal;
+            double fullWidth = Create(new CustomTableTextLayoutCache(), out _, text: text, maxTextWidth: 4000d).WidthIncludingTrailingWhitespace;
+            double idealWidth = new FormattedText(text, culture, FlowDirection.LeftToRight, style.CreateTypeface(null!), style.FontSize, Brushes.Black, 1d).WidthIncludingTrailingWhitespace;
+            Assert.IsTrue(Math.Abs(idealWidth - fullWidth) >= 2d, "二つの測り方で幅が違う文字列であることが前提です。");
+
+            for (double width = Math.Floor(Math.Min(idealWidth, fullWidth)) - 3d; width <= Math.Ceiling(Math.Max(idealWidth, fullWidth)) + 3d; width++)
+            {
+                FormattedText drawn = Create(new CustomTableTextLayoutCache(), out _, text: text, maxTextWidth: width);
+                bool drawnTrimmed = drawn.WidthIncludingTrailingWhitespace < fullWidth - 0.01d;
+                Assert.AreEqual(drawnTrimmed, CustomTableTextLayoutCache.WouldTrim(text, width, style, null!, 1d, culture), width.ToString(CultureInfo.InvariantCulture));
+            }
         });
     }
 

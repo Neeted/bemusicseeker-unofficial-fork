@@ -94,8 +94,9 @@ internal sealed class CustomTableTextStyle
         {
             return this;
         }
+        // 表示フォントは名前を持たない合成フォントのため、名前がない場合はインスタンスで区別する。
         return new CustomTableTextStyle(
-            CacheKey + ":font=" + fontFamily.Source,
+            CacheKey + ":font=" + (fontFamily.Source ?? "#" + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(fontFamily).ToString(CultureInfo.InvariantCulture)),
             fontFamily,
             FontSize,
             VerticalOffset,

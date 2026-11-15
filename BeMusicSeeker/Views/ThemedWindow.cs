@@ -28,6 +28,8 @@ public class ThemedWindow : Window
         SetResourceReference(BackgroundProperty, "App.DialogBackgroundBrush");
         SetResourceReference(ForegroundProperty, "App.TextBrush");
         SetResourceReference(FontFamilyProperty, BeMusicSeeker.Models.AppFontService.ResourceKey);
+        // 小さい文字を画素に合わせて描き、内部の部品へ継承させる。
+        System.Windows.Media.TextOptions.SetTextFormattingMode(this, System.Windows.Media.TextFormattingMode.Display);
     }
 
     /// <inheritdoc />

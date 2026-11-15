@@ -3347,21 +3347,27 @@ public sealed class SettingsWindowPresentationTests
                     new[] { "CustomTableFontSize", "CustomTableRowHeight", "CustomTableHeaderHeight" },
                     sliders.Keys.ToArray());
 
-                sliders["CustomTableFontSize"].Value = 14d;
+                // 文字サイズは0.5刻みの値を丸めずに扱い、画面にはその値と px を表示する。
+                sliders["CustomTableFontSize"].Value = 14.5d;
                 sliders["CustomTableRowHeight"].Value = 31d;
                 sliders["CustomTableHeaderHeight"].Value = 37d;
                 Assert.AreEqual(savedFontSize, owner.ViewSettings.CustomTableFontSize);
+                TextBlock fontSizeText = FindDescendants<TextBlock>(page)
+                    .Single(text => BindingOperations.GetBinding(text, TextBlock.TextProperty)?.ElementName == sliders["CustomTableFontSize"].Name);
+                Assert.IsTrue(fontSizeText.Text.EndsWith("px", StringComparison.Ordinal), fontSizeText.Text);
+                Assert.AreEqual(14.5d, double.Parse(fontSizeText.Text[..^2], CultureInfo.GetCultureInfo(fontSizeText.Language.IetfLanguageTag)));
                 foreach (Slider slider in sliders.Values)
                 { slider.RaiseEvent(new System.Windows.Controls.Primitives.DragCompletedEventArgs(0, 0, false) { RoutedEvent = System.Windows.Controls.Primitives.Thumb.DragCompletedEvent, Source = slider }); }
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
-                Assert.AreEqual(14d, owner.ViewSettings.CustomTableFontSize);
+                Assert.AreEqual(14.5d, settings.CustomTableFontSize);
+                Assert.AreEqual(14.5d, owner.ViewSettings.CustomTableFontSize);
                 Assert.AreEqual(31d, owner.ViewSettings.CustomTableRowHeight);
                 Assert.AreEqual(37d, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(14d, mainTable!.TextFontSize);
+                Assert.AreEqual(14.5d, mainTable!.TextFontSize);
                 Assert.AreEqual(31d, mainTable!.RowHeight);
                 Assert.AreEqual(37d, mainTable!.HeaderHeight);
-                Assert.AreEqual(14d, playlistSummaryTable!.TextFontSize);
+                Assert.AreEqual(14.5d, playlistSummaryTable!.TextFontSize);
                 Assert.AreEqual(31d, playlistSummaryTable!.RowHeight);
                 Assert.AreEqual(37d, playlistSummaryTable!.HeaderHeight);
 
@@ -3386,7 +3392,7 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual("Arial", settings.AppearanceFontFamily);
                 var appliedFont = (System.Windows.Media.FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
-                Assert.IsTrue(appliedFont.Source.StartsWith("Arial", StringComparison.Ordinal), appliedFont.Source);
+                Assert.AreEqual(GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily("Arial"), "A"), GlyphFontProbe.FontUri(appliedFont, "A"));
                 Assert.AreEqual(appliedFont, mainWindow.FontFamily);
                 Assert.AreEqual(appliedFont, window.FontFamily);
                 Assert.AreEqual(appliedFont, mainTable!.TextFontFamily);

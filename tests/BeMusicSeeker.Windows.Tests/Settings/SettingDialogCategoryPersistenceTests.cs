@@ -1011,7 +1011,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                 Assert.AreEqual(rowHeight, fresh.CustomTableRowHeight);
                 Assert.AreEqual(theme, fresh.AppearanceTheme);
                 var applied = (System.Windows.Media.FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
-                Assert.IsTrue(applied.Source.StartsWith("Arial", StringComparison.Ordinal), applied.Source);
+                Assert.AreEqual(GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily("Arial"), "A"), GlyphFontProbe.FontUri(applied, "A"));
                 Assert.AreEqual(applied, window.FontFamily);
                 Assert.AreSame(arial, comboBox.SelectedItem);
 

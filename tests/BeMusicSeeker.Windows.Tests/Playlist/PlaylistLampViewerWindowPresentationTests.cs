@@ -1292,6 +1292,8 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                     initialRow.CountText);
                 TextBlock initialCountBlock = FindFolderCountBlock(window, initialRow);
                 double expectedInitialWidth = MeasureRenderedText(initialCountBlock, initialRow.CountText);
+                // 更新で表示から外れた部品は描画方式の継承を失うため、上限の幅も表示中に測っておく。
+                double expectedCappedWidth = MeasureRenderedText(initialCountBlock, "9999");
                 Assert.AreEqual(expectedInitialWidth, initialCountBlock.ActualWidth, 1d);
                 Assert.IsTrue(FindFolderCountColumnWidths(window, viewModel)
                     .All(width => Math.Abs(width - expectedInitialWidth) <= 1d),
@@ -1325,7 +1327,7 @@ public sealed class PlaylistLampViewerWindowPresentationTests
                 // 列の上限を超える件数でも、文字の描画幅ではなく全行が共有する配置列を比較します。
                 double refreshedWidth = FindFolderCountColumnWidths(window, viewModel).First();
                 Assert.IsTrue(refreshedWidth > expectedInitialWidth);
-                Assert.AreEqual(MeasureRenderedText(initialCountBlock, "9999"), refreshedWidth, 1d);
+                Assert.AreEqual(expectedCappedWidth, refreshedWidth, 1d);
                 Assert.IsTrue(FindFolderCountColumnWidths(window, viewModel)
                     .All(width => Math.Abs(width - refreshedWidth) <= 1d),
                     "更新後も両側と全フォルダの件数列を同じ幅に揃えます。");
@@ -2425,6 +2427,9 @@ public sealed class PlaylistLampViewerWindowPresentationTests
             typeface,
             textBlock.FontSize,
             Brushes.Black,
+            null,
+            // 実際の文字と同じ描画方式で測る。方式が違うと幅が1以上ずれる。
+            TextOptions.GetTextFormattingMode(textBlock),
             VisualTreeHelper.GetDpi(textBlock).PixelsPerDip);
         return formattedText.WidthIncludingTrailingWhitespace;
     }

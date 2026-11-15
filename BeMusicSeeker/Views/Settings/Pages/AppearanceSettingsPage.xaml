@@ -43,8 +43,8 @@
       <StackPanel>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_font_size, Mode=OneWay}">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
-            <Slider x:Name="sliderCustomTableFontSize" Minimum="8" Maximum="18" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />
-            <TextBlock Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding Value, ElementName=sliderCustomTableFontSize, StringFormat={}{0:F0} pt}" />
+            <Slider x:Name="sliderCustomTableFontSize" Minimum="8" Maximum="18" TickFrequency="0.5" SmallChange="0.5" IsSnapToTickEnabled="True" Value="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />
+            <TextBlock Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding Value, ElementName=sliderCustomTableFontSize, StringFormat={}{0:0.#} px}" />
           </Grid>
         </settings:SettingsField>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_row_height, Mode=OneWay}">

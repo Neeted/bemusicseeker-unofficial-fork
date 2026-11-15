@@ -322,6 +322,9 @@ public partial class PlaylistLampViewerWindow : ThemedWindow
             typeface,
             fontSize,
             Brushes.Black,
+            null,
+            // 実際の文字と同じ描画方式で測り、ちょうど収まる幅の文字が省略されないようにする。
+            TextOptions.GetTextFormattingMode(this),
             pixelsPerDip);
         return measuredText.WidthIncludingTrailingWhitespace;
     }
@@ -437,6 +440,8 @@ public sealed class PlaylistLampSegmentLabelConverter : IMultiValueConverter
             new Typeface(button.FontFamily, button.FontStyle, button.FontWeight, button.FontStretch),
             double.IsNaN(button.FontSize) || button.FontSize <= 0d ? 12d : button.FontSize,
             Brushes.Black,
+            null,
+            TextOptions.GetTextFormattingMode(button),
             pixelsPerDip).WidthIncludingTrailingWhitespace;
 
         // 枠線と余白も含めて収まる場合だけ表示し、狭い区間の文字切れを防ぎます。

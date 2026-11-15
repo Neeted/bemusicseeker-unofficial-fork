@@ -244,7 +244,7 @@ Change settings related to themes and display.
 
 Font selects the font used for text in lists, menus, Settings, dialogs, and more, from the fonts installed on Windows. The default is Meiryo UI. Characters that the selected font does not contain are shown in Meiryo UI. Icons and special text such as the clear lamp and DJ LEVEL in lists are not affected.
 
-The list appearance settings adjust the shared table display used by the library list, playlist detail, play log, and playlist summary. You can change the list font size, row height, and header height.
+The list appearance settings adjust the shared table display used by the library list, playlist detail, play log, and playlist summary. You can change the list font size, row height, and header height. The font size can be set in steps of 0.5.
 
 ### Playback
 

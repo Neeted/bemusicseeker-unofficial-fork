@@ -3538,8 +3538,9 @@ internal sealed class CustomTableSurface : FrameworkElement
         {
             renderTextCacheMisses++;
         }
-        double x = cellRect.X + CustomTableView.CellTextHorizontalPadding;
-        double y = cellRect.Y + Math.Max(0d, (cellRect.Height - formattedText.Height) / 2d) + effectiveTextStyle.VerticalOffset;
+        // 小数の位置へ置いた文字は滲むため、表示倍率に応じた画素の境界へ丸める。
+        double x = Math.Round((cellRect.X + CustomTableView.CellTextHorizontalPadding) * pixelsPerDip, MidpointRounding.AwayFromZero) / pixelsPerDip;
+        double y = Math.Round((cellRect.Y + (cellRect.Height - formattedText.Height) / 2d + effectiveTextStyle.VerticalOffset) * pixelsPerDip, MidpointRounding.AwayFromZero) / pixelsPerDip;
         long drawTextStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
         drawingContext.PushClip(new RectangleGeometry(cellRect));
         drawingContext.DrawText(formattedText, new Point(x, y));

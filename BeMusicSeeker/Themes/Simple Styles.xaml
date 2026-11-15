@@ -529,6 +529,7 @@
   <Style x:Key="SimpleContextMenu" TargetType="{x:Type ContextMenu}">
     <!-- 標準スタイルはシステムのフォントを指定するため、表示フォントを明示して接続する。 -->
     <Setter Property="FontFamily" Value="{DynamicResource App.UiFontFamily}" />
+    <Setter Property="TextOptions.TextFormattingMode" Value="Display" />
     <Setter Property="Background" Value="{DynamicResource App.PopupBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />

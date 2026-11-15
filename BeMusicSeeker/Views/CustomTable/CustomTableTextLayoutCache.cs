@@ -62,10 +62,14 @@ internal sealed class CustomTableTextLayoutCache
             effectiveTextStyle.CreateTypeface(scoreFontFamily),
             effectiveTextStyle.FontSize,
             effectiveForeground,
+            null,
+            TextFormattingMode.Display,
             pixelsPerDip)
         {
             MaxTextWidth = maxTextWidth,
             MaxTextHeight = maxTextHeight,
+            // 行の高さが小さいフォントでは最大の高さに二行が収まるため、行数を明示して折り返しを防ぐ。
+            MaxLineCount = 1,
             Trimming = TextTrimming.CharacterEllipsis,
             TextAlignment = alignment
         };
@@ -102,7 +106,12 @@ internal sealed class CustomTableTextLayoutCache
             effectiveTextStyle.CreateTypeface(scoreFontFamily),
             effectiveTextStyle.FontSize,
             Brushes.Black,
-            pixelsPerDip);
+            null,
+            TextFormattingMode.Display,
+            pixelsPerDip)
+        {
+            MaxLineCount = 1
+        };
         return measuredText.WidthIncludingTrailingWhitespace > maxTextWidth + 0.5d;
     }
 
