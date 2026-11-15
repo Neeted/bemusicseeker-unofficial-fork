@@ -106,6 +106,55 @@ internal static class AppFontService
     }
 
     /// <summary>
+    /// フォントが優先順に並べる候補の名前を取り出します。<see cref="CreateFontFamily"/> が組み立てた合成フォントは
+    /// 選択されたフォントと既定のフォントの順に、物理フォントは指定された名前を返します。
+    /// 一覧の描画が同じ規則でフォントを解決するため、候補の並びの規則の持ち主はこのクラスに保ちます。
+    /// </summary>
+    /// <param name="fontFamily">候補を取り出すフォント。nullは候補なしです。</param>
+    internal static IReadOnlyList<string> GetCandidateFamilyNames(FontFamily fontFamily)
+    {
+        if (fontFamily == null)
+        {
+            return [];
+        }
+        string candidates = fontFamily.FamilyMaps.Count > 0 ? fontFamily.FamilyMaps[0].Target : fontFamily.Source;
+        if (string.IsNullOrEmpty(candidates))
+        {
+            return [];
+        }
+        var names = new List<string>();
+        var current = new System.Text.StringBuilder();
+        for (int i = 0; i <= candidates.Length; i++)
+        {
+            // 名前の中のコンマは二重にして区切りと区別している。
+            if (i < candidates.Length && candidates[i] == ',' && i + 1 < candidates.Length && candidates[i + 1] == ',')
+            {
+                current.Append(',');
+                i++;
+            }
+            else if (i == candidates.Length || candidates[i] == ',')
+            {
+                string name = current.ToString().Trim();
+                int fragment = name.LastIndexOf('#');
+                if (fragment >= 0)
+                {
+                    name = name[(fragment + 1)..].Trim();
+                }
+                if (name.Length > 0)
+                {
+                    names.Add(name);
+                }
+                current.Clear();
+            }
+            else
+            {
+                current.Append(candidates[i]);
+            }
+        }
+        return names;
+    }
+
+    /// <summary>
     /// 保存値のフォントをアプリのリソースへ適用します。WPFの標準スタイルがシステムのフォントを指定する
     /// メニューやツールチップも従うよう、システムのフォントのキーも同じ値で置き換えます。
     /// </summary>

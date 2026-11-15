@@ -20,13 +20,16 @@ public enum CustomTableCellKind
     CheckBox
 }
 
+/// <summary>
+/// セルの文字の書体と、縦方向の補正です。描画は <see cref="Kind"/> と <see cref="VerticalOffset"/> を使い、
+/// セルの編集欄は同じ書体と文字サイズを <see cref="CreateTypeface"/> と <see cref="FontSize"/> から得て、描画と編集欄の見た目を揃えます。
+/// </summary>
 internal sealed class CustomTableTextStyle
 {
     private static readonly FontFamily DefaultFontFamily = AppFontService.DefaultFontFamily;
 
-    private CustomTableTextStyle(string cacheKey, FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
+    private CustomTableTextStyle(FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
     {
-        CacheKey = cacheKey;
         FontFamily = fontFamily;
         FontSize = fontSize;
         VerticalOffset = verticalOffset;
@@ -35,28 +38,23 @@ internal sealed class CustomTableTextStyle
     }
 
     internal static CustomTableTextStyle Normal { get; } = new CustomTableTextStyle(
-        "normal",
         DefaultFontFamily,
         11d,
         0d,
         false);
 
     internal static CustomTableTextStyle NormalBold { get; } = new CustomTableTextStyle(
-        "normal-bold",
         DefaultFontFamily,
         11d,
         0d,
         true);
 
     internal static CustomTableTextStyle Score { get; } = new CustomTableTextStyle(
-        "score-sovjetbox",
         DefaultFontFamily,
         11d,
         1d,
         false,
         usesScoreFontFamily: true);
-
-    internal string CacheKey { get; }
 
     private FontFamily FontFamily { get; }
 
@@ -68,8 +66,13 @@ internal sealed class CustomTableTextStyle
 
     private bool UsesScoreFontFamily { get; }
 
+    /// <summary>描画が文字のレイアウトの整形方式と保持に使う書体の種別です。</summary>
+    internal CustomTableTextKind Kind => UsesScoreFontFamily
+        ? CustomTableTextKind.Score
+        : UseBoldText ? CustomTableTextKind.Bold : CustomTableTextKind.Normal;
+
     /// <summary>
-    /// 文字の配置と描画に使う方式です。表示フォントで描く文字は、小さいサイズでも滲まないよう画素に合わせます。
+    /// セルの編集欄に使う文字の描画方式です。表示フォントで描く文字は、小さいサイズでも滲まないよう画素に合わせます。
     /// スコア用のフォントは、画素に合わせると線が細く描かれて見え方が変わるため、WPFの既定の方式を保ちます。
     /// </summary>
     internal TextFormattingMode TextFormattingMode => UsesScoreFontFamily ? TextFormattingMode.Ideal : TextFormattingMode.Display;
@@ -81,7 +84,6 @@ internal sealed class CustomTableTextStyle
             return this;
         }
         return new CustomTableTextStyle(
-            CacheKey + ":size=" + fontSize.ToString("0.###", CultureInfo.InvariantCulture),
             FontFamily,
             fontSize,
             VerticalOffset,
@@ -90,8 +92,7 @@ internal sealed class CustomTableTextStyle
     }
 
     /// <summary>
-    /// 通常の文字のフォントを置き換えたスタイルを返します。文字の配置のキャッシュが別のフォントの結果を
-    /// 再利用しないよう、キャッシュのキーにもフォントを含めます。スコア用のフォントが指定された表示は、
+    /// 通常の文字のフォントを置き換えたスタイルを返します。スコア用のフォントが指定された表示は、
     /// <see cref="CreateTypeface"/> がスコア用のフォントを優先するため変わりません。
     /// </summary>
     internal CustomTableTextStyle WithFontFamily(FontFamily fontFamily)
@@ -100,9 +101,7 @@ internal sealed class CustomTableTextStyle
         {
             return this;
         }
-        // 表示フォントは名前を持たない合成フォントのため、名前がない場合はインスタンスで区別する。
         return new CustomTableTextStyle(
-            CacheKey + ":font=" + (fontFamily.Source ?? "#" + System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(fontFamily).ToString(CultureInfo.InvariantCulture)),
             fontFamily,
             FontSize,
             VerticalOffset,
@@ -115,15 +114,6 @@ internal sealed class CustomTableTextStyle
         FontFamily fontFamily = UsesScoreFontFamily && scoreFontFamily != null ? scoreFontFamily : FontFamily;
         FontWeight fontWeight = UseBoldText ? FontWeights.Bold : FontWeights.Normal;
         return new Typeface(fontFamily, FontStyles.Normal, fontWeight, FontStretches.Normal);
-    }
-
-    internal string CreateCacheKey(FontFamily scoreFontFamily)
-    {
-        if (!UsesScoreFontFamily || scoreFontFamily == null)
-        {
-            return CacheKey;
-        }
-        return CacheKey + ":" + scoreFontFamily.Source;
     }
 }
 

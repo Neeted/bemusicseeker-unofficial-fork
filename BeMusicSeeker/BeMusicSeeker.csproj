@@ -114,6 +114,7 @@
     <PackageReference Include="ManagedBass.Enc" />
     <PackageReference Include="ManagedBass.Asio" />
     <PackageReference Include="ManagedBass.Wasapi" />
+    <PackageReference Include="Vortice.Direct2D1" />
   </ItemGroup>
 
   <ItemGroup>

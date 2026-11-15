@@ -27,7 +27,7 @@ public sealed class CustomTableViewportTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            (bool HasVertical, bool HasHorizontal, int FullVisibleRows, double ViewportWidth) result = CustomTableView.CalculateScrollBarLayout(100d, 100d, extent, rows, 20d);
+            (bool HasVertical, bool HasHorizontal, int FullVisibleRows, double ViewportWidth) result = CustomTableView.CalculateScrollBarLayout(100d, extent, rows, new CustomTableRowGeometry(rowHeight: 20d, headerHeight: 20d, surfaceHeight: 120d, pixelsPerDip: 1d));
             Assert.AreEqual(hasVertical, result.HasVertical);
             Assert.AreEqual(hasHorizontal, result.HasHorizontal);
             Assert.AreEqual(viewportWidth, result.ViewportWidth);

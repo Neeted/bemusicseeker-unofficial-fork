@@ -1905,15 +1905,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return 0;
         }
-        if (y < customTablePlaylistSummary.HeaderHeight)
+        CustomTableRowGeometry rowGeometry = customTablePlaylistSummary.RowGeometry;
+        if (y < rowGeometry.HeaderHeight)
         {
             return 0;
         }
         int firstVisibleRowIndex = customTablePlaylistSummary.FirstVisibleRowIndex;
-        int drawableRowCapacity = customTablePlaylistSummary.CalculateDrawableRowCapacity();
-        int lastVisibleRowExclusive = Math.Min(rowCount, firstVisibleRowIndex + drawableRowCapacity);
-        double rowHeight = Math.Max(1d, customTablePlaylistSummary.RowHeight);
-        int rowIndex = firstVisibleRowIndex + (int)Math.Floor((y - customTablePlaylistSummary.HeaderHeight) / rowHeight);
+        int lastVisibleRowExclusive = Math.Min(rowCount, firstVisibleRowIndex + rowGeometry.DrawableRowCapacity);
+        int slot = rowGeometry.RowSlotAt(y);
+        int rowIndex = firstVisibleRowIndex + slot;
         if (rowIndex < firstVisibleRowIndex)
         {
             return firstVisibleRowIndex;
@@ -1922,8 +1922,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return rowCount;
         }
-        double rowTop = customTablePlaylistSummary.HeaderHeight + (rowIndex - firstVisibleRowIndex) * rowHeight;
-        bool insertAfterTarget = y >= rowTop + rowHeight / 2d;
+        bool insertAfterTarget = y >= rowGeometry.RowTop(slot) + rowGeometry.RowHeight / 2d;
         return Math.Max(0, Math.Min(rowCount, rowIndex + (insertAfterTarget ? 1 : 0)));
     }
 

@@ -130,24 +130,4 @@ internal readonly struct CustomTableColumnLayoutEntry
     {
         return CustomTableColumnLayout.CreateVisibleColumnSlotRect(TableX, Width, horizontalOffset, viewportWidth, y, height);
     }
-
-    internal Rect CreateSlotRect(double horizontalOffset, double y, double height)
-    {
-        return CustomTableColumnLayout.CreateColumnSlotRect(TableX, Width, horizontalOffset, y, height);
-    }
-
-    internal Rect CreateInteriorRect(double horizontalOffset, double y, double height)
-    {
-        return CustomTableColumnLayout.CreateInteriorRect(CreateSlotRect(horizontalOffset, y, height));
-    }
-
-    internal Rect CreateVisibleInteriorRect(double horizontalOffset, double viewportWidth, double y, double height)
-    {
-        return CustomTableColumnLayout.CreateVisibleColumnInteriorRect(TableX, Width, horizontalOffset, viewportWidth, y, height);
-    }
-
-    internal double RightGridLineX(double horizontalOffset)
-    {
-        return CustomTableColumnLayout.CreateRightGridLineX(TableX, Width, horizontalOffset);
-    }
 }

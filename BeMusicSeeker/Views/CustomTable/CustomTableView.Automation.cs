@@ -44,10 +44,11 @@ public sealed partial class CustomTableView
 
     private Rect AutomationRowBounds(int index)
     {
-        double y = HeaderHeight + (index - FirstVisibleRowIndex) * RowHeight;
-        var bounds = new Rect(0d, y, Math.Max(0d, horizontalScrollBar.ViewportSize), Math.Max(0d, RowHeight));
-        bounds.Intersect(new Rect(0d, HeaderHeight, Math.Max(0d, horizontalScrollBar.ViewportSize),
-            Math.Max(0d, SurfaceHeight - HeaderHeight - (horizontalScrollBar.Visibility == Visibility.Visible ? ScrollBarThickness : 0d))));
+        CustomTableRowGeometry rowGeometry = RowGeometry;
+        double y = rowGeometry.RowTop(index - FirstVisibleRowIndex);
+        var bounds = new Rect(0d, y, Math.Max(0d, horizontalScrollBar.ViewportSize), rowGeometry.RowHeight);
+        bounds.Intersect(new Rect(0d, rowGeometry.HeaderHeight, Math.Max(0d, horizontalScrollBar.ViewportSize),
+            Math.Max(0d, SurfaceHeight - rowGeometry.HeaderHeight - (horizontalScrollBar.Visibility == Visibility.Visible ? ScrollBarThickness : 0d))));
         return bounds;
     }
 
@@ -56,11 +57,12 @@ public sealed partial class CustomTableView
         foreach (CustomTableColumnLayoutEntry entry in GetColumnLayoutSnapshot().Entries)
         {
             if (!ReferenceEquals(entry.Column, column)) { continue; }
+            CustomTableRowGeometry rowGeometry = RowGeometry;
             var bounds = new Rect(entry.ScreenX, rowIndex.HasValue
-                ? HeaderHeight + (rowIndex.Value - FirstVisibleRowIndex) * RowHeight : 0d,
-                Math.Max(0d, entry.Width), rowIndex.HasValue ? Math.Max(0d, RowHeight) : Math.Max(0d, HeaderHeight));
+                ? rowGeometry.RowTop(rowIndex.Value - FirstVisibleRowIndex) : 0d,
+                Math.Max(0d, entry.Width), rowIndex.HasValue ? rowGeometry.RowHeight : rowGeometry.HeaderHeight);
             bounds.Intersect(rowIndex.HasValue ? AutomationRowBounds(rowIndex.Value)
-                : new Rect(0d, 0d, Math.Max(0d, horizontalScrollBar.ViewportSize), Math.Max(0d, HeaderHeight)));
+                : new Rect(0d, 0d, Math.Max(0d, horizontalScrollBar.ViewportSize), rowGeometry.HeaderHeight));
             return bounds;
         }
         return Rect.Empty;

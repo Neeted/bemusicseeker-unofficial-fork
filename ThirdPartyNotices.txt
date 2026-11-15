@@ -1,6 +1,6 @@
 BeMusicSeeker Third-Party Notices
 
-Last updated: 2026-09-25
+Last updated: 2026-11-16
 Scope: Third-party files referenced by the current .NET 10 x64 projects and distributed in
        the self-contained x64 publish/package output, native/, and BeMusicSeeker/Assets/.
 
@@ -287,6 +287,32 @@ License Text: third_party/licenses/21-Walkure-MIT.txt
 Redistribution Notes: Retain the copyright notice and complete MIT license with the model and fixtures.
 
 ================================================================================
+22) Vortice.Windows (Direct2D / DirectWrite managed bindings)
+================================================================================
+Status: GREEN
+Component: Vortice.Direct2D1.dll, Vortice.DXGI.dll, Vortice.DirectX.dll, Vortice.Mathematics.dll (Vortice.Direct2D1 3.8.3, Vortice.Mathematics 2.1.0)
+Copyright: Copyright (c) Amer Koleci and Contributors
+License: MIT (NuGet license expression)
+Source: https://github.com/amerkoleci/Vortice.Windows, https://github.com/amerkoleci/Vortice.Mathematics
+License Text: third_party/licenses/22-Vortice-MIT.txt
+Redistribution Notes:
+- The packages declare the MIT expression and ship no separate license file; the text is the standard MIT license with the copyright line from the package metadata.
+- Include the copyright notice and MIT text.
+
+================================================================================
+23) SharpGen.Runtime
+================================================================================
+Status: GREEN
+Component: SharpGen.Runtime.dll, SharpGen.Runtime.COM.dll (2.4.2-beta)
+Copyright: (c) 2010-2017 Alexandre Mutel, 2017-2023 Jeremy Koritzinsky, 2023-2024 Amer Koleci
+License: MIT (NuGet license expression)
+Source: https://github.com/SharpGenTools/SharpGenTools
+License Text: third_party/licenses/23-SharpGen-Runtime-MIT.txt
+Redistribution Notes:
+- The packages declare the MIT expression and ship no separate license file; the text is the standard MIT license with the copyright line from the package metadata.
+- Include the copyright notice and MIT text.
+
+================================================================================
 Action summary for GitHub release readiness
 ================================================================================
 Blockers that must be addressed immediately (RED):
@@ -302,6 +328,7 @@ Ready for release (GREEN):
   Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
   SgmlReaderDll.dll, bms_vorbis.dll,
+  Vortice.Windows, SharpGen.Runtime,
   Fonts "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf
 
 Current release policy:

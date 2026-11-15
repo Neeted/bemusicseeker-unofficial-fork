@@ -10,7 +10,6 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -19,7 +18,6 @@ using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
-using static BeMusicSeeker.TestSupport.Components.CustomTableCacheTestFixture;
 using Resources = BeMusicSeeker.Properties.Resources;
 
 namespace BeMusicSeeker.Tests;
@@ -93,7 +91,9 @@ public sealed class CustomTablePhase6CacheTests
                     var point = new Point(15, table.HeaderHeight + (3 - table.FirstVisibleRowIndex + 0.5) * table.RowHeight);
                     RenderExistingTable(table);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    CustomTableRowDrawing japaneseDrawing = table.GetRowEntry(row).Drawings[3];
+                    // 言語の切替えは、対象セルの実際の画素で観測する。
+                    Int32Rect cellArea = CellPixelArea(table, point);
+                    SurfacePixels japanesePixels = CustomTableRenderProbe.Read(table);
                     string japaneseText = "▼ " + Resources.InstallDestination_SelectCandidate;
                     Assert.AreEqual(japaneseText, table.GetCellValue(row, column, out _).Text);
                     Assert.AreEqual(japaneseText, table.ResolveCellToolTip(table.HitTestTable(point)));
@@ -104,8 +104,8 @@ public sealed class CustomTablePhase6CacheTests
                     TestUiDispatcherHost.ProcessQueuedPresentation();
 
                     // 先に通知による実描画を確認し、getterや強制描画で接続漏れを補いません。
-                    CustomTableRowDrawing englishDrawing = table.GetRowEntry(row).Drawings[3];
-                    Assert.AreNotSame(japaneseDrawing, englishDrawing);
+                    SurfacePixels englishPixels = CustomTableRenderProbe.Read(table);
+                    Assert.IsFalse(japanesePixels.RegionEquals(cellArea, englishPixels, cellArea.X, cellArea.Y), "言語の通知だけで、対象セルが現在語の画素へ変わります。");
                     string englishText = "▼ " + Resources.InstallDestination_SelectCandidate;
                     Assert.AreNotEqual(japaneseText, englishText);
                     Assert.AreEqual(englishText, table.GetCellValue(row, column, out bool cacheHit).Text); Assert.IsTrue(cacheHit);
@@ -138,7 +138,7 @@ public sealed class CustomTablePhase6CacheTests
                     // 表のLoaded／Unloadedで購読と再描画が切り替わるため、Backgroundまで消化する。
                     TestUiDispatcherHost.ProcessQueuedBackground();
                     Assert.IsTrue(table.IsLoaded); Assert.AreSame(table, window.Content); Assert.AreSame(rows, table.ItemsSource); Assert.AreSame(row, rows[3]);
-                    Assert.IsTrue(table.GetRowEntry(row).Drawings.ContainsKey(3), "再Loaded後も最新語で実描画します。");
+                    Assert.IsTrue(CustomTableRenderProbe.Read(table).RegionEquals(cellArea, japanesePixels, cellArea.X, cellArea.Y), "再Loaded後も最新語で実描画します。");
                     Assert.AreEqual("▼ " + Resources.InstallDestination_SelectCandidate, table.GetCellValue(row, column, out cacheHit).Text); Assert.IsTrue(cacheHit);
                     Assert.AreEqual(1, completed.Count);
                 }
@@ -200,7 +200,8 @@ public sealed class CustomTablePhase6CacheTests
                     var point = new Point(15, table.HeaderHeight + (3 - table.FirstVisibleRowIndex + 0.5) * table.RowHeight);
                     RenderExistingTable(table);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    CustomTableRowDrawing japaneseDrawing = table.GetRowEntry(row).Drawings[3];
+                    Int32Rect cellArea = CellPixelArea(table, point);
+                    SurfacePixels japanesePixels = CustomTableRenderProbe.Read(table);
                     string japaneseDigest = "[1] " + Resources.WarningDigest_InstallEstimationAmbiguous;
                     string japaneseDetail = string.Format(Resources.Warning_InstallEstimationAmbiguous, @"C:\BMS\A3", @"C:\BMS\B3");
                     Assert.AreEqual(japaneseDigest, table.GetCellValue(row, column, out _).Text);
@@ -214,8 +215,8 @@ public sealed class CustomTablePhase6CacheTests
                     TestUiDispatcherHost.ProcessQueuedPresentation();
 
                     // 明示的な失効なしに、通知だけで現在語の要約・詳細・描画になります。
-                    CustomTableRowDrawing englishDrawing = table.GetRowEntry(row).Drawings[3];
-                    Assert.AreNotSame(japaneseDrawing, englishDrawing);
+                    SurfacePixels englishPixels = CustomTableRenderProbe.Read(table);
+                    Assert.IsFalse(japanesePixels.RegionEquals(cellArea, englishPixels, cellArea.X, cellArea.Y), "言語の通知だけで、対象セルが現在語の画素へ変わります。");
                     string englishDigest = "[1] " + Resources.WarningDigest_InstallEstimationAmbiguous;
                     string englishDetail = string.Format(Resources.Warning_InstallEstimationAmbiguous, @"C:\BMS\A3", @"C:\BMS\B3");
                     Assert.AreNotEqual(japaneseDigest, englishDigest);
@@ -497,20 +498,15 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
-    /// <summary>描画失効を呼ばず、現在の描画内容のまま見出し帯の画素を読みます。</summary>
+    /// <summary>描画失効を呼ばず、現在の描画内容のまま見出し帯の物理画素を読みます。</summary>
     private static byte[] RenderHeaderBandAsIs(CustomTableView table)
     {
-        // 描画失効は呼ばず、通知が残した未描画分を描画段階まで進めてから読む。
+        // 描画失効は呼ばず、通知が残した未描画分を配置の確定（UpdateLayout）で描いてから読む。
         table.UpdateLayout();
-        table.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
-        var bitmap = new RenderTargetBitmap((int)table.ActualWidth, (int)table.ActualHeight, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(table);
-        // 表は左上へ寄せて配置するため、描画結果の上端が見出し帯の上端です。
-        int height = (int)table.HeaderHeight;
-        int stride = bitmap.PixelWidth * 4;
-        byte[] pixels = new byte[stride * height];
-        bitmap.CopyPixels(new Int32Rect(0, 0, bitmap.PixelWidth, height), pixels, stride, 0);
-        return pixels;
+        SurfacePixels surface = CustomTableRenderProbe.Read(table);
+        // 表は左上へ寄せて配置するため、表示面の上端が見出し帯の上端です。
+        int height = table.RowGeometry.HeaderHeightPx;
+        return surface.Bgra.AsSpan(0, surface.Width * 4 * height).ToArray();
     }
 
     /// <summary>実見出しresizeで40→41→広幅→40を描画し、URL値・tooltip・hit/actionとカーソルが追随することを確認します。未編集中は同じ列と他列の保持値を保ち、未表示行を追加評価しません。設定通知あり/直接Columnsの両入口を使います。</summary>
@@ -544,7 +540,6 @@ public sealed class CustomTablePhase6CacheTests
                 object[] initialVisited = [.. visited];
                 int initialOtherCalls = otherCalls;
                 Assert.IsTrue(initialVisited.Length > 0 && initialVisited.Length < rows.Length);
-                CustomTableRowDrawing priorDrawing = table.GetRowEntry(rows[0]).Drawings[0];
                 foreach (int width in new[] { 41, 200, 40 })
                 {
                     double edge = url.Width;
@@ -562,8 +557,8 @@ public sealed class CustomTablePhase6CacheTests
                     Assert.AreEqual(width > 40 ? CustomTableCellKind.Text : CustomTableCellKind.DownloadIcon, value.CellKind);
                     Assert.AreEqual(width > 40 ? ((DisplayRow)rows[0]).Text : "\uE14F", value.Text);
                     Assert.AreEqual(width > 40 ? TextAlignment.Left : TextAlignment.Center, value.Alignment);
-                    CustomTableRowDrawing drawing = table.GetRowEntry(rows[0]).Drawings[0];
-                    Assert.AreNotSame(priorDrawing, drawing, "現在幅で実描画を作り直します。"); priorDrawing = drawing;
+                    // 幅40ではアイコンが中央に、41以上では左寄せの文字が描かれる。
+                    AssertUrlCellGlyph(RenderExistingTable(table), table, width);
                     var point = new Point(15, 35);
                     CustomTableHitTestResult cell = table.HitTestTable(point);
                     Assert.AreEqual(CustomTableHitKind.Cell, cell.Kind); Assert.AreSame(url, cell.Column);
@@ -677,7 +672,11 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
-    /// <summary>非表示中の無通知変更と同じ行参照を含むソース交換から復帰しても、最新の文字・警告を表示することを確認します。</summary>
+    /// <summary>
+    /// 非表示中の無通知変更と同じ行参照を含むソース交換から復帰しても、最新の文字・警告を表示することを確認します。
+    /// 非表示と読み込み解除（<c>ItemsSource=null</c>）のあとは表示面のビットマップを保持せず、再表示後の最初の描画では可視の全文字列を新しく整形します。
+    /// </summary>
+    /// <remarks>非表示の間も大きなビットマップや文字のレイアウトを持ち続ける誤り、再表示で古い描画や古いレイアウトを使う誤りを検出します。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -690,7 +689,9 @@ public sealed class CustomTablePhase6CacheTests
             try
             {
                 RenderExistingTable(view);
+                Assert.IsNotNull(view.SurfaceImage);
                 view.ApplyVisibilityChanged(false);
+                Assert.IsNull(view.SurfaceImage, "非表示の間は表示面のビットマップを保持しません。");
                 row.Text = "changed while hidden";
                 row.HasHighlightedWarning = true;
                 if (swapSource)
@@ -698,7 +699,24 @@ public sealed class CustomTablePhase6CacheTests
                     view.ItemsSource = new List<object> { row };
                 }
                 view.ApplyVisibilityChanged(true);
+                view.UpdateLayout();
+                // 見出しと行の二つの文字列は、再利用されず新しく整形される。
+                Assert.AreEqual(0, view.LastRenderStats.TextCacheHits);
+                Assert.AreEqual(2, view.LastRenderStats.TextCacheMisses);
                 AssertDisplayValue(view, row, "changed while hidden", true);
+                // 表示と非表示を繰り返しても例外がなく、そのつど最新の状態から描く。
+                for (int cycle = 0; cycle < 5; cycle++)
+                {
+                    view.ApplyVisibilityChanged(false);
+                    Assert.IsNull(view.SurfaceImage);
+                    view.ApplyVisibilityChanged(true);
+                    view.UpdateLayout();
+                    Assert.IsNotNull(view.SurfaceImage);
+                    Assert.AreEqual(2, view.LastRenderStats.TextCacheMisses);
+                }
+                view.ItemsSource = null;
+                Assert.IsNull(view.SurfaceImage, "読み込み解除のあとは表示面のビットマップを保持しません。");
+                TestUiDispatcherHost.AssertNoUnhandledExceptions("show-hide-cycle");
             }
             finally { ReleaseTable(view); }
         });
@@ -801,9 +819,9 @@ public sealed class CustomTablePhase6CacheTests
 
     /// <summary>
     /// 表示済みの表でF2の編集中に通常の文字のフォントをMeiryo UIからArialへ変えると、編集を一回確定し、見出しとセルの字形・省略の判定・次の編集欄がArialになり、
-    /// 行・列・選択・スクロール位置は変わらないことを確認します。フォントを指定しない表とnullは既定のフォントです。
+    /// 最初からArialで作った表と同じ画素になることを確認します。行・列・選択・スクロール位置は変わらず、フォントを指定しない表とnullは既定のフォントです。
     /// </summary>
-    /// <remarks>古いフォントの描画が残る誤り、編集を破棄する誤り、フォントの変更で選択やスクロールを戻す誤りを検出します。ArialとMeiryo UIのインストールを前提にします。</remarks>
+    /// <remarks>古いフォントの描画が残る誤り、編集を破棄する誤り、フォントの変更で選択やスクロールを戻す誤り、変更後と作成時で描き方が違う誤りを検出します。ArialとMeiryo UIのインストールを前提にします。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void TextFontFamily_ChangeRedrawsHeaderCellsTrimAndEditorAndKeepsRowsSelectionAndScroll()
@@ -814,42 +832,52 @@ public sealed class CustomTablePhase6CacheTests
             FontFamily arial = AppFontService.CreateFontFamily("Arial");
             FontFamily meiryoUi = AppFontService.DefaultFontFamily;
             double fontSize = BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
-            // 表と同じ描画方式と表示倍率で測る。
+            // 表と同じ方式と表示倍率で測る。
             double pixelsPerDip = VisualTreeHelper.GetDpi(new Border()).PixelsPerDip;
-            double Measure(FontFamily family, string value) => new FormattedText(value, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-                new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), fontSize, Brushes.Black, null, TextFormattingMode.Display, pixelsPerDip).WidthIncludingTrailingWhitespace;
+            double Measure(FontFamily family, string value)
+            {
+                using var cache = new CustomTableTextLayoutCache();
+                CultureInfo culture = CultureInfo.CurrentCulture, uiCulture = CultureInfo.CurrentUICulture;
+                cache.Configure(new CustomTableTextEnvironment(family, null!, fontSize, pixelsPerDip, culture, uiCulture));
+                return cache.GetOrCreate(value, CustomTableTextKind.Normal, TextAlignment.Left, 0, out _).NaturalWidth;
+            }
             // 二つのフォントで幅の差が最も大きい文字列を選び、その中間の列幅で省略の有無が入れ替わることを判定に使う。
             string text = new[] { new string('W', 40), new string('i', 80), new string('0', 60), "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz" }
                 .MaxBy(candidate => Math.Abs(Measure(arial, candidate) - Measure(meiryoUi, candidate)))!;
             double arialWidth = Measure(arial, text), meiryoUiWidth = Measure(meiryoUi, text);
-            Assert.IsTrue(Math.Abs(arialWidth - meiryoUiWidth) >= 12d, "二つのフォントの幅の差で省略を区別できる環境が前提です。");
-            int columnWidth = (int)Math.Round((arialWidth + meiryoUiWidth) / 2d) + 4;
+            Assert.IsTrue(Math.Abs(arialWidth - meiryoUiWidth) >= 12d * pixelsPerDip, "二つのフォントの幅の差で省略を区別できる環境が前提です。");
+            // 文字を描ける幅（物理画素）が二つの幅の中間になる列幅（DIP）。
+            int columnWidth = (int)Math.Round(((arialWidth + meiryoUiWidth) / 2d + 2 * CustomTablePixelGeometry.TextPadding(pixelsPerDip) + CustomTablePixelGeometry.GridLineWidth(pixelsPerDip)) / pixelsPerDip);
             var layout = new CustomTableColumnSettings.ColumnLayout { Width = columnWidth, Visibility = Visibility.Visible };
-            var column = new CustomTableColumn("Folder", "Folder", layout, fallbackOrder: 0, sortMemberPath: null, alignment: TextAlignment.Left,
-                textSelector: _ => text, editPropertyName: "Folder");
-            object[] rows = [.. Enumerable.Range(0, 40).Select(_ => new object())];
-            var table = new CustomTableView { Width = columnWidth + 60d, Height = 120, HeaderHeight = 20, RowHeight = 20, Columns = [column], ItemsSource = rows };
+            CustomTableView CreateTable(FontFamily? family)
+            {
+                var column = new CustomTableColumn("Folder", "Folder", layout, fallbackOrder: 0, sortMemberPath: null, alignment: TextAlignment.Left,
+                    textSelector: _ => text, editPropertyName: "Folder");
+                object[] tableRows = [.. Enumerable.Range(0, 40).Select(_ => new object())];
+                var created = new CustomTableView { Width = columnWidth + 60d, Height = 120, HeaderHeight = 20, RowHeight = 20, Columns = [column], ItemsSource = tableRows };
+                if (family != null) { created.TextFontFamily = family; }
+                return created;
+            }
+            CustomTableView table = CreateTable(null);
+            object[] rows = [.. table.ItemsSource.Cast<object>()];
             Assert.AreSame(meiryoUi, table.TextFontFamily);
             table.TextFontFamily = null!;
             Assert.AreSame(meiryoUi, table.TextFontFamily);
             var ended = new List<CustomTableCellEditEndedEventArgs>();
             table.CellEditEnded += (_, args) => ended.Add(args);
             var window = new Window { Width = columnWidth + 120d, Height = 200, Content = table };
+            CustomTableView? fresh = null;
+            Window? freshWindow = null;
             try
             {
                 scope.ShowAndWaitForContentRendered(window);
                 ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
                 vertical.Value = 2;
                 table.SelectedIndex = 3;
-                var point = new Point(15, table.HeaderHeight + (3 - table.FirstVisibleRowIndex + 0.5) * table.RowHeight);
+                var point = new Point(15, table.RowGeometry.HeaderHeight + (3 - table.FirstVisibleRowIndex + 0.5) * table.RowGeometry.RowHeight);
                 RenderExistingTable(table);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                string arialUri = GlyphFontUris(DrawGlyphs(arial, text)).Single();
-                string meiryoUiUri = GlyphFontUris(DrawGlyphs(meiryoUi, text)).Single();
-                Assert.AreNotEqual(arialUri, meiryoUiUri);
-                CustomTableSurface surface = table.Children.OfType<CustomTableSurface>().Single();
-                CollectionAssert.AreEquivalent(new[] { meiryoUiUri }, GlyphFontUris(VisualTreeHelper.GetDrawing(surface)).ToArray());
-                CustomTableRowDrawing before = table.GetRowEntry(rows[3]).Drawings[3];
+                SurfacePixels meiryoPixels = CustomTableRenderProbe.Read(table);
                 bool trimmedBefore = table.ResolveCellToolTip(table.HitTestTable(point)) != null;
                 Assert.AreEqual(meiryoUiWidth > arialWidth, trimmedBefore);
                 object columns = table.Columns;
@@ -866,16 +894,29 @@ public sealed class CustomTablePhase6CacheTests
                 Assert.AreEqual(0, FindVisualChildren<TextBox>(table).Count());
                 RenderExistingTable(table);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                SurfacePixels arialPixels = CustomTableRenderProbe.Read(table);
 
-                CollectionAssert.AreEquivalent(new[] { arialUri }, GlyphFontUris(VisualTreeHelper.GetDrawing(surface)).ToArray());
-                Assert.AreNotSame(before, table.GetRowEntry(rows[3]).Drawings[3]);
+                Assert.IsFalse(meiryoPixels.SameAs(arialPixels), "フォントの変更で古いフォントの描画が残ります。");
                 Assert.AreEqual(!trimmedBefore, table.ResolveCellToolTip(table.HitTestTable(point)) != null);
-                Assert.AreSame(rows, table.ItemsSource);
+                Assert.AreSame(rows[3], table.ItemsSource[3]);
                 Assert.AreSame(columns, table.Columns);
                 Assert.AreEqual(columnWidth, layout.Width);
                 Assert.AreEqual(3, table.SelectedIndex);
                 Assert.AreEqual(verticalOffset, vertical.Value);
                 Assert.AreEqual(fontSize, table.TextFontSize);
+
+                // 最初からArialで作った同じ状態の表と、同じ画素になる。
+                fresh = CreateTable(arial);
+                freshWindow = new Window { Width = columnWidth + 120d, Height = 200, Content = fresh };
+                scope.ShowAndWaitForContentRendered(freshWindow);
+                fresh.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical).Value = 2;
+                fresh.SelectedIndex = 3;
+                Assert.IsTrue(fresh.HandleKeyDown(Key.F2, ModifierKeys.None));
+                Assert.IsTrue(fresh.HandleKeyDown(Key.Escape, ModifierKeys.None));
+                RenderExistingTable(fresh);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsTrue(arialPixels.SameAs(CustomTableRenderProbe.Read(fresh)), "変更後の描画は、最初からそのフォントで作った表と同じ画素になります。");
+                Assert.AreEqual(!trimmedBefore, fresh.ResolveCellToolTip(fresh.HitTestTable(point)) != null);
 
                 Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
                 Assert.AreEqual(arial, FindVisualChildren<TextBox>(table).Single().FontFamily);
@@ -883,34 +924,12 @@ public sealed class CustomTablePhase6CacheTests
             }
             finally
             {
+                if (freshWindow != null) { freshWindow.Content = null; fresh!.ItemsSource = null; freshWindow.Close(); }
                 window.Content = null; table.ItemsSource = null;
                 window.Close();
             }
         });
     }
-
-    private static Drawing DrawGlyphs(FontFamily family, string text)
-    {
-        var visual = new DrawingVisual();
-        using (DrawingContext context = visual.RenderOpen())
-        {
-            context.DrawText(new FormattedText(text, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight,
-                new Typeface(family, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal), 11d, Brushes.Black, 1d), new Point());
-        }
-        return visual.Drawing;
-    }
-
-    // 同じファイルに複数の書体を持つフォントを区別するため、書体番号を含むURI全体で比較する。
-    private static IEnumerable<string> GlyphFontUris(Drawing? drawing)
-    {
-        return drawing switch
-        {
-            DrawingGroup group => group.Children.SelectMany(GlyphFontUris).Distinct(),
-            GlyphRunDrawing run => [run.GlyphRun.GlyphTypeface.FontUri.ToString()],
-            _ => []
-        };
-    }
-
     private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root)
         where T : DependencyObject
     {
@@ -998,74 +1017,94 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
-    /// <remarks>区間色の変換は下位ケース、選択時にも見えることは実WPF描画で分担します。</remarks>
-    /// <summary>通常・選択・現在セルの各対象セル内で赤青の文字区間を確認し、別位置の色で対象セルの欠落を見逃す誤りを検出します。</summary>
+    /// <remarks>区間色の変換は下位ケース、選択時にも見えること・行とセルの背景・文字色の優先順位は実描画の画素で分担します。</remarks>
+    /// <summary>
+    /// 行背景（選択→警告→交互色）、セル固有の背景（非選択の行だけ）とその上の現在セルの背景、文字色（現在セル→選択→通常色）、
+    /// 色付きの文字区間が選択・現在セルでも区間の色を保つことを、実際の物理画素で確認します。
+    /// </summary>
+    /// <remarks>優先順位の取り違え、選択行でセル固有の背景を描く誤り、区間の色が選択で失われる誤りを検出します。背景は内側の画素の厳密な色、文字は支配的な色で判定します。</remarks>
     [TestMethod]
     public void CustomTableView_RendersCellTextRunsAndPreservesRunsForSelection()
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            object row = new();
-            var layout = new CustomTableColumnSettings.ColumnLayout
-            {
-                Width = 210,
-                Visibility = Visibility.Visible
-            };
-            var column = new CustomTableColumn(
-                "Delta",
-                "DELTA",
-                layout,
-                fallbackOrder: 0,
-                sortMemberPath: null,
-                alignment: TextAlignment.Left,
+            object[] rows = [new StyledRow(), new StyledRow(), new StyledRow(), new StyledRow { HasHighlightedWarning = true }, new StyledRow()];
+            CustomTableColumn runs = new("Delta", "DELTA", new CustomTableColumnSettings.ColumnLayout { Width = 210, Visibility = Visibility.Visible }, 0, null, TextAlignment.Left,
                 textSelector: _ => "MMMM    MMMM",
                 foregroundSelector: _ => Brushes.Black,
-                textRunSelector: (_, _) =>
-                [
-                    new CustomTableTextRunStyle(0, 4, Brushes.Red),
-                    new CustomTableTextRunStyle(8, 4, Brushes.Blue)
-                ]);
-
-            CustomTableView table = RenderTable(row, column, selectedIndex: -1, currentCell: false, out _, out _);
+                textRunSelector: (_, _) => [new CustomTableTextRunStyle(0, 4, Brushes.Red), new CustomTableTextRunStyle(8, 4, Brushes.Blue)]);
+            CustomTableColumn plain = new("Other", "OTHER", new CustomTableColumnSettings.ColumnLayout { Width = 80, Visibility = Visibility.Visible }, 1, null, TextAlignment.Left, _ => "Other");
+            CustomTableColumn yellow = new("Yellow", "YELLOW", new CustomTableColumnSettings.ColumnLayout { Width = 60, Visibility = Visibility.Visible }, 2, null, TextAlignment.Left, _ => "C",
+                backgroundSelector: _ => Brushes.Yellow);
+            var table = new CustomTableView { Width = 350d, Height = 130d, HeaderHeight = 20d, RowHeight = 20d, Columns = [runs, plain, yellow], ItemsSource = rows };
+            CustomTableRenderProbe.SetDpi(table, 1d);
+            CustomTableRenderProbe.Arrange(table, 350d, 130d);
+            table.ApplyVisibilityChanged(true);
             try
             {
-                table.ItemsSource = new List<object> { row, row };
-                table.Columns = [column, CreateColumn("Other", 80)];
-                table.Width = 320d;
-                table.Height = 150d;
-                table.Measure(new Size(320d, 150d));
-                table.Arrange(new Rect(0d, 0d, 320d, 150d));
-
-                void AssertCellTextRuns(int rowIndex, string state)
+                Color Solid(Brush brush) => ((SolidColorBrush)brush).Color;
+                static int RowTop(int row) => 20 + row * 20;
+                // 内側の画素の位置（文字のない場所）。
+                void AssertBackground(SurfacePixels pixels, int row, int x, Color expected, string state)
+                    => Assert.AreEqual(Color.FromRgb(expected.R, expected.G, expected.B), pixels.GetColor(x, RowTop(row) + 10), state);
+                void AssertRuns(SurfacePixels pixels, int row, string state)
                 {
-                    RenderTargetBitmap bitmap = RenderExistingTable(table);
-                    var bounds = new Int32Rect(0, (int)(table.HeaderHeight + rowIndex * table.RowHeight),
-                        column.Width, (int)table.RowHeight - 1);
-                    CountDominantPixels(new CroppedBitmap(bitmap, bounds), out int redPixels, out int bluePixels);
-                    Assert.IsTrue(redPixels > 0, $"{state}の対象セルに赤の文字区間を残します。");
-                    Assert.IsTrue(bluePixels > 0, $"{state}の対象セルに青の文字区間を残します。");
+                    (int red, int blue) = pixels.CountDominant(new Int32Rect(0, RowTop(row), 200, 19));
+                    Assert.IsTrue(red > 0, state + "の対象セルに赤の文字区間を残します。");
+                    Assert.IsTrue(blue > 0, state + "の対象セルに青の文字区間を残します。");
+                }
+                void AssertTextColor(SurfacePixels pixels, int row, Color background, Brush expected, string state)
+                {
+                    Color actual = pixels.DominantInkColor(new Int32Rect(212, RowTop(row) + 2, 40, 15), background);
+                    Color want = Solid(expected);
+                    Assert.IsTrue(Math.Abs(actual.R - want.R) <= 8 && Math.Abs(actual.G - want.G) <= 8 && Math.Abs(actual.B - want.B) <= 8, state + " 文字の色 実際=" + actual + " 期待=" + want);
                 }
 
-                AssertCellTextRuns(0, "通常行0");
-                AssertCellTextRuns(1, "通常行1");
-                table.SelectedIndex = 0;
-                AssertCellTextRuns(0, "選択行0");
-                CustomTableHitTestResult hit = table.HitTestTable(new Point(10d, table.HeaderHeight + table.RowHeight * 1.5d));
-                typeof(CustomTableView).GetField("currentCellHit", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(table, hit);
-                AssertCellTextRuns(1, "現在セル行1");
-                AssertPixelColor(table, 200, (int)(table.HeaderHeight + 10d), CustomTablePalette.Current.SelectedRowBackground);
-                AssertPixelColor(table, 200, (int)(table.HeaderHeight + table.RowHeight + 10d), CustomTablePalette.Current.CurrentCellBackground);
-                table.SelectedIndex = 1;
-                typeof(CustomTableView).GetField("currentCellHit", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(table, table.HitTestTable(new Point(10d, table.HeaderHeight + 10d)));
-                AssertCellTextRuns(0, "現在セル行0");
-                AssertCellTextRuns(1, "選択行1");
-                AssertPixelColor(table, 200, (int)(table.HeaderHeight + 10d), CustomTablePalette.Current.CurrentCellBackground);
-                AssertPixelColor(table, 200, (int)(table.HeaderHeight + table.RowHeight + 10d), CustomTablePalette.Current.SelectedRowBackground);
-                // 同じ行内で現在セル列だけを移し、元セルの背景が通常へ戻ることも確認する。
-                typeof(CustomTableView).GetField("currentCellHit", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(table, table.HitTestTable(new Point(240d, table.HeaderHeight + 10d)));
-                RenderExistingTable(table);
-                AssertPixelColor(table, 200, (int)(table.HeaderHeight + 10d), CustomTablePalette.Current.RowBackground);
-                AssertPixelColor(table, 260, (int)(table.HeaderHeight + 10d), CustomTablePalette.Current.CurrentCellBackground);
+                SurfacePixels initial = RenderExistingTable(table);
+                CustomTablePalette palette = CustomTablePalette.Current;
+                AssertBackground(initial, 0, 200, Solid(palette.RowBackground), "通常の偶数行");
+                AssertBackground(initial, 1, 200, Solid(palette.AlternatingRowBackground), "通常の奇数行");
+                AssertBackground(initial, 3, 200, Solid(palette.WarningRowBackground), "警告の行は交互色より優先");
+                AssertBackground(initial, 0, 330, Colors.Yellow, "非選択の行のセル固有の背景");
+                AssertBackground(initial, 2, 330, Colors.Yellow, "非選択の行のセル固有の背景");
+                AssertRuns(initial, 0, "通常行0"); AssertRuns(initial, 1, "通常行1");
+                AssertTextColor(initial, 0, Solid(palette.RowBackground), palette.DefaultForeground, "通常");
+
+                table.SelectedIndex = 2;
+                SurfacePixels selected = RenderExistingTable(table);
+                palette = CustomTablePalette.Current;
+                AssertBackground(selected, 2, 270, Solid(palette.SelectedRowBackground), "選択行の背景は最優先");
+                AssertBackground(selected, 2, 330, Solid(palette.SelectedRowBackground), "選択行ではセル固有の背景を描かない");
+                AssertBackground(selected, 3, 200, Solid(palette.WarningRowBackground), "選択しない警告の行");
+                AssertBackground(selected, 4, 330, Colors.Yellow, "選択しない行のセル固有の背景");
+                AssertRuns(selected, 2, "選択行2");
+                AssertTextColor(selected, 2, Solid(palette.SelectedRowBackground), palette.SelectedForeground, "選択");
+
+                // 現在セルを列ごとに移し、現在セルの背景と文字色が選択より優先されることを確かめる。
+                var point = new Point(10d, RowTop(2) + 10d);
+                Assert.IsTrue(table.HandleCellMouseDown(table.HitTestTable(point), MouseButton.Left, ModifierKeys.None, 1, point));
+                SurfacePixels current = RenderExistingTable(table);
+                palette = CustomTablePalette.Current;
+                AssertBackground(current, 2, 200, Solid(palette.CurrentCellBackground), "現在セルの背景");
+                AssertBackground(current, 2, 270, Solid(palette.SelectedRowBackground), "同じ行の他のセルは選択行の背景");
+                AssertRuns(current, 2, "現在セルの行2");
+                AssertTextColor(current, 2, Solid(palette.SelectedRowBackground), palette.SelectedForeground, "現在セルでない選択行");
+
+                point = new Point(220d, RowTop(2) + 10d);
+                Assert.IsTrue(table.HandleCellMouseDown(table.HitTestTable(point), MouseButton.Left, ModifierKeys.None, 1, point));
+                SurfacePixels moved = RenderExistingTable(table);
+                palette = CustomTablePalette.Current;
+                AssertBackground(moved, 2, 200, Solid(palette.SelectedRowBackground), "元の現在セルは選択行の背景へ戻る");
+                AssertBackground(moved, 2, 270, Solid(palette.CurrentCellBackground), "移した現在セルの背景");
+                AssertRuns(moved, 2, "選択行2（現在セルが別列）");
+                AssertTextColor(moved, 2, Solid(palette.CurrentCellBackground), palette.CurrentCellForeground, "現在セル");
+
+                point = new Point(320d, RowTop(2) + 10d);
+                Assert.IsTrue(table.HandleCellMouseDown(table.HitTestTable(point), MouseButton.Left, ModifierKeys.None, 1, point));
+                SurfacePixels onYellow = RenderExistingTable(table);
+                palette = CustomTablePalette.Current;
+                AssertBackground(onYellow, 2, 330, Solid(palette.CurrentCellBackground), "セル固有の背景の列でも現在セルの背景");
+                AssertBackground(onYellow, 4, 330, Colors.Yellow, "他の行のセル固有の背景");
             }
             finally { ReleaseTable(table); }
         });
@@ -1095,15 +1134,16 @@ public sealed class CustomTablePhase6CacheTests
                 checkedSelector: row => RequireRow<bool?>(row, true));
             var table = new CustomTableView
             { Width = 240d, Height = 100d, HeaderHeight = 20d, RowHeight = 20d, Columns = [column], ItemsSource = new object?[] { first, null, last } };
+            CustomTableRenderProbe.SetDpi(table, 1d);
             try
             {
                 table.Measure(new Size(240d, 100d));
                 table.Arrange(new Rect(0d, 0d, 240d, 100d));
                 table.ApplyVisibilityChanged(true);
-                RenderTargetBitmap bitmap = RenderExistingTable(table);
-                CountDominantPixels(new CroppedBitmap(bitmap, new Int32Rect(0, 20, 180, 19)), out int firstRed, out int firstBlue);
-                CountDominantPixels(new CroppedBitmap(bitmap, new Int32Rect(0, 40, 180, 19)), out int emptyRed, out int emptyBlue);
-                CountDominantPixels(new CroppedBitmap(bitmap, new Int32Rect(0, 60, 180, 19)), out int lastRed, out int lastBlue);
+                SurfacePixels pixels = RenderExistingTable(table);
+                (int firstRed, int firstBlue) = pixels.CountDominant(new Int32Rect(0, 20, 180, 19));
+                (int emptyRed, int emptyBlue) = pixels.CountDominant(new Int32Rect(0, 40, 180, 19));
+                (int lastRed, int lastBlue) = pixels.CountDominant(new Int32Rect(0, 60, 180, 19));
                 Assert.IsTrue(firstRed > 0, "先頭行の文字を元の位置に描きます。");
                 Assert.AreEqual(0, firstBlue);
                 Assert.AreEqual(0, emptyRed);
@@ -1113,6 +1153,9 @@ public sealed class CustomTablePhase6CacheTests
                 AssertPixelColor(table, 100, 25, Brushes.Yellow);
                 AssertPixelColor(table, 100, 45, CustomTablePalette.Current.AlternatingRowBackground);
                 AssertPixelColor(table, 100, 65, Brushes.Yellow);
+                // 空のセルは文字も背景も描かず、通常の罫線だけが残る。
+                Color emptyBackground = ((SolidColorBrush)CustomTablePalette.Current.AlternatingRowBackground).Color;
+                Assert.AreEqual(0, pixels.CountNotEqual(new Int32Rect(0, 40, 179, 19), emptyBackground), "null行は空のセルです。");
 
                 CustomTableCellValue empty = table.GetCellValue(null, column, out _);
                 Assert.AreEqual(string.Empty, empty.Text);
@@ -1126,7 +1169,7 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
-    /// <summary>最下部の部分行が縦スクロールで通常行へ移っても、文字・背景・縦罫線と完全表示時の下辺が揃うことを確認します。</summary>
+    /// <summary>最下部の部分行が縦スクロールで通常行へ移っても、文字・背景・縦罫線と完全表示時の下辺が揃うことを確認します。部分行にも縦罫線を描き、完全に見えない下辺は描かないことも確認します。</summary>
     [TestMethod]
     public void CustomTableView_PartialRowBecomesFullWithoutLosingCellsOrBorders()
     {
@@ -1141,29 +1184,32 @@ public sealed class CustomTablePhase6CacheTests
                 backgroundSelector: row => ReferenceEquals(row, target) ? Brushes.Yellow : null);
             var table = new CustomTableView
             { Width = 240d, Height = 75d, HeaderHeight = 20d, RowHeight = 20d, Columns = [column], ItemsSource = rows };
+            CustomTableRenderProbe.SetDpi(table, 1d);
             try
             {
                 table.Measure(new Size(240d, 75d));
                 table.Arrange(new Rect(0d, 0d, 240d, 75d));
                 table.ApplyVisibilityChanged(true);
-                CountDominantPixels(RenderExistingTable(table), out int partialRed, out _);
-                Assert.IsTrue(partialRed > 0, "部分行にも文字が表示されます。");
+                SurfacePixels partial = RenderExistingTable(table);
+                Assert.IsTrue(partial.CountDominant(new Int32Rect(0, 60, 180, 15)).Red > 0, "部分行にも文字が表示されます。");
                 AssertPixelColor(table, 100, 65, Brushes.Yellow);
+                // 部分行にも縦罫線を描き、完全に見えない下辺は描かない。
+                AssertPixelColor(table, 179, 70, CustomTablePalette.Current.CellBorder.Brush);
+                AssertPixelColor(table, 100, 74, Brushes.Yellow);
                 ScrollBar scroll = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
                 scroll.Value = 1d;
-                CountDominantPixels(RenderExistingTable(table), out int fullRed, out _);
-                Assert.IsTrue(fullRed > 0, "通常行へ移動しても文字が残ります。");
+                SurfacePixels full = RenderExistingTable(table);
+                Assert.IsTrue(full.CountDominant(new Int32Rect(0, 40, 180, 19)).Red > 0, "通常行へ移動しても文字が残ります。");
                 AssertPixelColor(table, 100, 45, Brushes.Yellow);
-                DrawingGroup? drawing = VisualTreeHelper.GetDrawing(table.Children.OfType<CustomTableSurface>().Single());
-                Assert.IsNotNull(drawing);
-                Assert.IsTrue(ContainsLine(drawing, new Point(179.5d, 40d), new Point(179.5d, 60d), Matrix.Identity), "通常行の縦罫線を最後まで描きます。");
-                Assert.IsTrue(ContainsLine(drawing, new Point(0d, 59.5d), new Point(240d, 59.5d), Matrix.Identity), "完全表示になった行の下辺を描きます。");
+                AssertPixelColor(table, 179, 50, CustomTablePalette.Current.CellBorder.Brush);
+                AssertPixelColor(table, 100, 59, CustomTablePalette.Current.CellBorder.Brush);
             }
             finally { ReleaseTable(table); }
         });
     }
 
-    /// <summary>候補の印が長い導入先の省略後も、既定行高のセル内に描画されることを確認します。</summary>
+    /// <summary>候補の印「▼」が、長い導入先の省略後も既定行高のセルの中に描かれ、候補のないセルには描かれず、セルの外へ描画がはみ出さないことを、実際の画素で確認します。</summary>
+    /// <remarks>印だけを描いた基準の画像と、印の字形の画素が一致するかで判定するため、省略やクリップで消えた印を成功にしません。</remarks>
     [TestMethod]
     [DataRow(0, false)]
     [DataRow(0, true)]
@@ -1186,26 +1232,28 @@ public sealed class CustomTablePhase6CacheTests
                 hasDestination ? longPath : string.Empty, string.Empty, string.Empty,
                 new[] { longPath, longPath + "-other" }.Take(candidateCount).ToArray(), []);
             var row = LibraryChartRow.FromChartFile(chart);
+            var markerOnly = new CustomTableColumn("Marker", "MARKER", new CustomTableColumnSettings.ColumnLayout { Width = 250, Visibility = Visibility.Visible }, 0, null, TextAlignment.Left, _ => "▼");
 
-            CustomTableView table = RenderTable(row, column, selectedIndex: -1, currentCell: false,
-                out _, out _, width: 250, rowHeight: BeMusicSeeker.Properties.Settings.DefaultCustomTableRowHeight);
+            CustomTableView table = RenderTable(row, column, out SurfacePixels pixels, width: 250, rowHeight: BeMusicSeeker.Properties.Settings.DefaultCustomTableRowHeight);
+            CustomTableView reference = RenderTable(new object(), markerOnly, out SurfacePixels markerPixels, width: 250, rowHeight: BeMusicSeeker.Properties.Settings.DefaultCustomTableRowHeight);
             try
             {
-                CustomTableSurface surface = table.Children.OfType<CustomTableSurface>().Single();
-                DrawingGroup? drawing = VisualTreeHelper.GetDrawing(surface);
-                Assert.IsNotNull(drawing);
-                CustomTableHitTestResult hit = table.HitTestTable(new Point(10d, table.HeaderHeight + table.RowHeight / 2d));
-                Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
-                var cellBounds = Rect.Intersect(hit.CellRect, new Rect(surface.RenderSize));
-
-                // 実際に描画された字形を調べ、末尾の省略・セルのクリップで消えた印を成功にしません。
-                bool markerVisible = HasVisibleCandidateMarker(drawing, new RectangleGeometry(cellBounds), Matrix.Identity);
-                Assert.AreEqual(candidateCount > 0, markerVisible);
+                Color background = ((SolidColorBrush)CustomTablePalette.Current.RowBackground).Color;
+                int rowHeight = (int)table.RowGeometry.RowHeight;
+                int headerHeight = (int)table.RowGeometry.HeaderHeight;
+                var interior = new Int32Rect(0, headerHeight, 249, rowHeight - 1);
+                Int32Rect? markerInk = markerPixels.FindInkBounds(interior, background);
+                Assert.IsNotNull(markerInk, "基準の画像に印が描かれます。");
+                bool markerDrawn = pixels.RegionEquals(markerInk.Value, markerPixels, markerInk.Value.X, markerInk.Value.Y);
+                Assert.AreEqual(candidateCount > 0, markerDrawn);
+                // セルの外（右の罫線と下の罫線）には何も描かれない。
+                Color border = ((SolidColorBrush)CustomTablePalette.Current.CellBorder.Brush).Color;
+                for (int y = headerHeight; y < headerHeight + rowHeight; y++) { Assert.AreEqual(border, pixels.GetColor(249, y), "右の罫線 y=" + y); }
+                for (int x = 0; x < 250; x++) { Assert.AreEqual(border, pixels.GetColor(x, headerHeight + rowHeight - 1), "下の罫線 x=" + x); }
             }
-            finally { ReleaseTable(table); }
+            finally { ReleaseTable(table); ReleaseTable(reference); }
         });
     }
-
     /// <summary>幅指定なしのtooltipは元文字列、指定ありは指定幅で折り返す実TextBlockへ変換することを確認し、長い詳細の幅指定や折り返しを落とす誤りを検出します。</summary>
     [TestMethod]
     public void CustomTableView_CreatesWrappedTooltipContentWhenWidthIsSpecified()
@@ -1253,6 +1301,7 @@ public sealed class CustomTablePhase6CacheTests
     private static CustomTableView CreateDisplayTable(System.Collections.IList rows)
     {
         CustomTableView table = CreateUnarrangedDisplayTable(rows);
+        CustomTableRenderProbe.SetDpi(table, 1d);
         table.Measure(new Size(240d, 120d));
         table.Arrange(new Rect(0d, 0d, 240d, 120d));
         table.UpdateLayout();
@@ -1266,13 +1315,31 @@ public sealed class CustomTablePhase6CacheTests
         table.ItemsSource = null;
     }
 
-    private static RenderTargetBitmap RenderExistingTable(CustomTableView table)
+    /// <summary>描画を失効させ、配置の確定だけで描かれた表示面の物理画素を読みます。</summary>
+    private static SurfacePixels RenderExistingTable(CustomTableView table) => CustomTableRenderProbe.Redraw(table);
+
+    /// <summary>表示倍率を考慮して、DIPの点にあるセルの内側の物理画素の矩形を返します。</summary>
+    private static Int32Rect CellPixelArea(CustomTableView table, Point point)
     {
-        table.Children.OfType<CustomTableSurface>().Single().InvalidateVisual();
-        table.UpdateLayout();
-        var bitmap = new RenderTargetBitmap((int)table.ActualWidth, (int)table.ActualHeight, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(table);
-        return bitmap;
+        CustomTableHitTestResult hit = table.HitTestTable(point);
+        Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+        double ppd = VisualTreeHelper.GetDpi(table).PixelsPerDip;
+        return new Int32Rect((int)Math.Round(hit.CellRect.Left * ppd), (int)Math.Round(hit.CellRect.Top * ppd),
+            (int)Math.Round(hit.CellRect.Width * ppd) - 1, (int)Math.Round(hit.CellRect.Height * ppd) - 1);
+    }
+
+    /// <summary>URL列の先頭行を、幅40ではアイコンが中央に、41以上では左寄せの文字が描かれていることを画素で確かめます。</summary>
+    private static void AssertUrlCellGlyph(SurfacePixels pixels, CustomTableView table, int width)
+    {
+        double ppd = VisualTreeHelper.GetDpi(table).PixelsPerDip;
+        int rowTop = table.RowGeometry.HeaderHeightPx, rowHeight = table.RowGeometry.RowHeightPx;
+        int interiorWidth = (int)Math.Round(width * ppd) - 1;
+        Color background = CustomTablePalette.Current.RowBackground is SolidColorBrush solid ? solid.Color : default;
+        Int32Rect? ink = pixels.FindInkBounds(new Int32Rect(0, rowTop, interiorWidth, rowHeight - 1), background);
+        Assert.IsNotNull(ink, "URL列の先頭行に何かが描かれます。");
+        double centerOffset = Math.Abs(ink.Value.X + ink.Value.Width / 2d - interiorWidth / 2d);
+        if (width == 40) { Assert.IsTrue(centerOffset <= 2d * ppd, "幅40のアイコンはセルの中央に描かれます。ずれ=" + centerOffset); }
+        else { Assert.IsTrue(ink.Value.X <= 5d * ppd && ink.Value.Width > 20d * ppd, "幅41以上の文字は左寄せで描かれます。左=" + ink.Value.X + " 幅=" + ink.Value.Width); }
     }
 
     private static void AssertDisplayValue(CustomTableView table, DisplayRow row, string text, bool warning)
@@ -1283,17 +1350,18 @@ public sealed class CustomTablePhase6CacheTests
         AssertPixelColor(table, 200, 25, warning ? CustomTablePalette.Current.WarningRowBackground : CustomTablePalette.Current.RowBackground);
     }
 
+    /// <summary>描画を失効させて読み、DIPの点が指定の単色であることを物理画素で確かめます。</summary>
     private static void AssertPixelColor(CustomTableView table, int x, int y, Brush expected)
     {
-        RenderTargetBitmap bitmap = RenderExistingTable(table);
-        byte[] pixel = new byte[4];
-        bitmap.CopyPixels(new Int32Rect(x, y, 1, 1), pixel, 4, 0);
+        SurfacePixels pixels = RenderExistingTable(table);
+        double ppd = VisualTreeHelper.GetDpi(table).PixelsPerDip;
         var brush = (SolidColorBrush)expected;
-        Assert.AreEqual(brush.Color, Color.FromArgb(pixel[3], pixel[2], pixel[1], pixel[0]));
+        Assert.AreEqual(Color.FromRgb(brush.Color.R, brush.Color.G, brush.Color.B),
+            pixels.GetColor((int)Math.Round(x * ppd), (int)Math.Round(y * ppd)));
     }
 
-    private static CustomTableView RenderTable(object row, CustomTableColumn column, int selectedIndex, bool currentCell,
-        out int redPixels, out int bluePixels, int width = 240, double rowHeight = 60d)
+    /// <summary>一行だけの窓のない表を、倍率100%で配置して描き、表示面の物理画素を返します。</summary>
+    private static CustomTableView RenderTable(object row, CustomTableColumn column, out SurfacePixels pixels, int width = 240, double rowHeight = 60d)
     {
         const int height = 70;
         var table = new CustomTableView
@@ -1303,112 +1371,262 @@ public sealed class CustomTablePhase6CacheTests
             HeaderHeight = 0d,
             RowHeight = rowHeight,
             Columns = [column],
-            ItemsSource = new List<object> { row },
-            SelectedIndex = selectedIndex
+            ItemsSource = new List<object> { row }
         };
+        CustomTableRenderProbe.SetDpi(table, 1d);
         table.Measure(new Size(width, height));
         table.Arrange(new Rect(0, 0, width, height));
         table.UpdateLayout();
-        if (currentCell)
-        {
-            CustomTableHitTestResult hit = table.HitTestTable(new Point(10d, 30d));
-            typeof(CustomTableView)
-                .GetField("currentCellHit", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .SetValue(table, hit);
-        }
-
-        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(table);
-        CountDominantPixels(bitmap, out redPixels, out bluePixels);
+        pixels = CustomTableRenderProbe.Read(table);
         return table;
     }
 
-    private static bool ContainsLine(Drawing drawing, Point from, Point to, Matrix transform)
+    private sealed class ReuseRow(int id) : INotifyPropertyChanged
     {
-        if (drawing is DrawingGroup group)
-        {
-            Matrix combined = group.Transform?.Value ?? Matrix.Identity;
-            combined.Append(transform);
-            return group.Children.Any(child => ContainsLine(child, from, to, combined));
-        }
-        return drawing is GeometryDrawing geometry && geometry.Geometry is LineGeometry line
-            && transform.Transform(line.StartPoint) == from && transform.Transform(line.EndPoint) == to;
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public int Id { get; } = id;
+
+        public Brush Foreground { get; set; } = Brushes.Black;
+
+        public void RaiseChanged() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Foreground)));
     }
 
-    private static bool HasVisibleCandidateMarker(Drawing drawing, Geometry clip, Matrix transform)
+    /// <summary>列ごとに表示値の取得回数を数える、一意の文字列を持つ表を作ります。3列目（添字3）の文字列だけは、幅を狭めると省略が要る長さです。</summary>
+    private static (CustomTableView Table, int[] Fetches) CreateReuseTable(int columnCount, int rowCount, double width, double height)
     {
-        if (drawing is DrawingGroup group)
+        int[] fetches = new int[columnCount];
+        CustomTableColumn[] columns = [.. Enumerable.Range(0, columnCount).Select(index => new CustomTableColumn(
+            "C" + index, "H" + index, new CustomTableColumnSettings.ColumnLayout { Width = 90, Visibility = Visibility.Visible }, index, null, TextAlignment.Left,
+            row => { fetches[index]++; return "r" + ((ReuseRow)row).Id + "c" + index + (index == 3 ? " wide" : string.Empty); },
+            foregroundSelector: index == 0 ? row => ((ReuseRow)row).Foreground : null))];
+        object[] rows = [.. Enumerable.Range(0, rowCount).Select(id => new ReuseRow(id))];
+        var table = new CustomTableView
         {
-            Matrix childTransform = group.Transform?.Value ?? Matrix.Identity;
-            childTransform.Append(transform);
-            Geometry childClip = group.ClipGeometry == null ? clip
-                : Geometry.Combine(clip, TransformGeometry(group.ClipGeometry, childTransform), GeometryCombineMode.Intersect, null);
-            return group.Opacity > 0d && group.Children.Any(child => HasVisibleCandidateMarker(child, childClip, childTransform));
-        }
-        if (drawing is not GlyphRunDrawing glyphDrawing || glyphDrawing.ForegroundBrush.Opacity <= 0d)
+            Width = width,
+            Height = height,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            HeaderHeight = 20d,
+            RowHeight = 19d,
+            Columns = columns,
+            ItemsSource = rows
+        };
+        return (table, fetches);
+    }
+
+    /// <summary>操作を一回行い、配置の確定で描かれた一回の描画の（ミス数、ヒット数）と、列ごとの表示値の取得回数の増分を返します。</summary>
+    private static (int Misses, int Hits, int[] Fetches) ObserveRender(CustomTableView table, int[] fetches, Action operation)
+    {
+        int[] before = [.. fetches];
+        int renders = table.LastRenderStats.RenderCount;
+        operation();
+        table.UpdateLayout();
+        Assert.AreEqual(renders + 1, table.LastRenderStats.RenderCount, "操作一回につき描画は一回です。");
+        return (table.LastRenderStats.TextCacheMisses, table.LastRenderStats.TextCacheHits, [.. fetches.Select((count, index) => count - before[index])]);
+    }
+
+    /// <summary>
+    /// 可視列が同じ横スクロール、選択と現在セルの変更では文字のレイアウトを作らず値も取得せず、新しく見える列・行の分だけ作って取得することを、実表示した表で確認します。
+    /// 縦に1行と5行スクロールして戻る場合、文字列が同じで色だけ変わる行の更新（その行の値だけ取り直し、レイアウトは作らず、画素は新しい色）、
+    /// 列幅の変更（新しく省略が要るセルの分だけ作り、収まる側への変更では作らない）も確認します。
+    /// </summary>
+    /// <remarks>スクロールや選択のたびに文字を整形し直す性能上の誤り、保持範囲の行を取り直す誤り、色だけの更新で整形し直す誤り、幅の変更で全セルを整形し直す誤りを検出します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void TextLayoutsAndValues_AreReusedAcrossScrollSelectionColorChangeAndResize()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
         {
-            return false;
-        }
-        GlyphRun run = glyphDrawing.GlyphRun;
-        if (!run.GlyphTypeface.CharacterToGlyphMap.TryGetValue('▼', out ushort markerGlyph))
-        {
-            return false;
-        }
-        double advance = 0d;
-        for (int index = 0; index < run.GlyphIndices.Count; index++)
-        {
-            if (run.GlyphIndices[index] == markerGlyph)
+            (CustomTableView table, int[] fetches) = CreateReuseTable(6, 50, 300d, 134d);
+            var window = new Window { Width = 360d, Height = 260d, Content = table };
+            try
             {
-                Point offset = run.GlyphOffsets != null && index < run.GlyphOffsets.Count ? run.GlyphOffsets[index] : default;
-                var glyphTransform = new Matrix(1d, 0d, 0d, 1d, run.BaselineOrigin.X + advance + offset.X, run.BaselineOrigin.Y - offset.Y);
-                glyphTransform.Append(transform);
-                Geometry ink = TransformGeometry(run.GlyphTypeface.GetGlyphOutline(markerGlyph, run.FontRenderingEmSize, run.FontRenderingEmSize), glyphTransform);
-                double area = ink.GetArea();
-                if (area > 0d && Geometry.Combine(ink, clip, GeometryCombineMode.Exclude, null).GetArea() < 0.01d)
+                scope.ShowAndWaitForContentRendered(window);
+                ScrollBar horizontal = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Horizontal);
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                RenderExistingTable(table);
+                int drawn = table.CalculateDrawableRowCapacity();
+                Assert.IsTrue(drawn > 1 && drawn < 50);
+                int[] None() => new int[6];
+                int[] Plus(int rows, params int[] columns) { int[] delta = new int[6]; foreach (int column in columns) { delta[column] = rows; } return delta; }
+
+                // 可視列が同じ範囲の横スクロール、選択、現在セルの変更。
+                int visibleColumns = table.GetColumnLayoutSnapshot().VisibleColumnCount;
+                (int misses, int hits, int[] fetched) = ObserveRender(table, fetches, () => horizontal.Value = 10d);
+                Assert.AreEqual(visibleColumns, table.GetColumnLayoutSnapshot().VisibleColumnCount, "可視列が同じ範囲です。");
+                Assert.AreEqual(0, misses); Assert.IsTrue(hits > 0); CollectionAssert.AreEqual(None(), fetched);
+                (misses, _, fetched) = ObserveRender(table, fetches, () => table.SelectedIndex = 3);
+                Assert.AreEqual(0, misses); CollectionAssert.AreEqual(None(), fetched);
+                var point = new Point(100d, table.RowGeometry.HeaderHeight + 2.5d * table.RowGeometry.RowHeight);
+                (misses, _, fetched) = ObserveRender(table, fetches, () => Assert.IsTrue(table.HandleCellMouseDown(table.HitTestTable(point), MouseButton.Left, ModifierKeys.None, 1, point)));
+                Assert.AreEqual(0, misses); CollectionAssert.AreEqual(None(), fetched);
+
+                // 新しい列が見える横スクロール。見出しの文字列も新しく整形する。
+                (misses, _, fetched) = ObserveRender(table, fetches, () => horizontal.Value = 70d);
+                Assert.AreEqual(visibleColumns + 1, table.GetColumnLayoutSnapshot().VisibleColumnCount, "新しい列が一つ見えます。");
+                Assert.AreEqual(drawn + 1, misses, "その列の文字列と見出しの分だけ作ります。");
+                CollectionAssert.AreEqual(Plus(drawn, 4), fetched);
+                visibleColumns = table.GetColumnLayoutSnapshot().VisibleColumnCount;
+
+                // 縦に1行、5行スクロールして戻る。
+                (misses, _, fetched) = ObserveRender(table, fetches, () => vertical.Value = 1d);
+                Assert.AreEqual(visibleColumns, misses, "新しく見える行の分だけ作ります。");
+                CollectionAssert.AreEqual(Plus(1, 0, 1, 2, 3, 4), fetched);
+                (misses, _, fetched) = ObserveRender(table, fetches, () => vertical.Value = 6d);
+                Assert.AreEqual((drawn - 1) * visibleColumns, misses);
+                CollectionAssert.AreEqual(Plus(drawn - 1, 0, 1, 2, 3, 4), fetched);
+                (misses, _, fetched) = ObserveRender(table, fetches, () => vertical.Value = 1d);
+                Assert.AreEqual(0, misses, "保持範囲に残る行へ戻っても作りません。");
+                CollectionAssert.AreEqual(None(), fetched, "保持範囲に残る行の値を取り直しません。");
+
+                // 文字列は同じで色だけ変わる行の更新。画面の上端の行（行1）の値だけを取り直す。
+                horizontal.Value = 0d;
+                table.UpdateLayout();
+                var colored = (ReuseRow)table.ItemsSource[1]!;
+                int[] before = [.. fetches];
+                SurfacePixels beforeColor = CustomTableRenderProbe.Read(table);
+                colored.Foreground = Brushes.Red;
+                colored.RaiseChanged();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                table.UpdateLayout();
+                Assert.AreEqual(0, table.LastRenderStats.TextCacheMisses, "文字列が同じなら整形し直しません。");
+                CollectionAssert.AreEqual(Plus(1, 0, 1, 2, 3), fetches.Select((count, index) => count - before[index]).ToArray(), "その行の値だけを取り直します。");
+                double ppd = VisualTreeHelper.GetDpi(table).PixelsPerDip;
+                var cell = new Int32Rect(0, table.RowGeometry.HeaderHeightPx, CustomTablePixelGeometry.ToPixels(80d, ppd), table.RowGeometry.RowHeightPx - 1);
+                SurfacePixels afterColor = CustomTableRenderProbe.Read(table);
+                int blackTextRed = beforeColor.CountDominant(cell).Red;
+                Assert.IsTrue(afterColor.CountDominant(cell).Red > blackTextRed + 20, "画素は新しい色です。");
+
+                // 列幅の変更。狭めると省略が要るセルの分だけ作り、収まる側へ戻しても作らない。値は取り直さない。
+                horizontal.Value = 70d;
+                table.UpdateLayout();
+                void ResizeColumn3(int width)
                 {
-                    return true;
+                    CustomTableColumn column = table.Columns[3];
+                    int startWidth = column.Width;
+                    double edge = 90d * 3 + startWidth - table.HorizontalOffset;
+                    CustomTableHitTestResult resize = table.HitTestTable(new Point(edge, 10d));
+                    Assert.AreEqual(CustomTableHitKind.HeaderResize, resize.Kind);
+                    Assert.AreSame(column, resize.Column);
+                    table.BeginColumnResize(resize, edge);
+                    // 開始で入力を捕捉すると、現在のマウス位置の移動が同期的に処理され得るため、開始前の幅から求める。
+                    table.UpdateColumnResize(edge + width - startWidth);
+                    table.EndColumnResize();
+                    Assert.AreEqual(width, column.Width, "列幅");
                 }
+                (misses, _, fetched) = ObserveRender(table, fetches, () => ResizeColumn3(45));
+                Assert.AreEqual(drawn, misses, "新しく省略が要るセルの分だけ作ります。");
+                CollectionAssert.AreEqual(None(), fetched);
+                (misses, _, fetched) = ObserveRender(table, fetches, () => ResizeColumn3(200));
+                Assert.AreEqual(0, misses, "収まる側への変更では作りません。");
+                CollectionAssert.AreEqual(None(), fetched);
             }
-            advance += run.AdvanceWidths[index];
-        }
-        return false;
+            finally { window.Content = null; table.ItemsSource = null; window.Close(); }
+        });
     }
 
-    private static Geometry TransformGeometry(Geometry geometry, Matrix transform)
+    /// <summary>フォント・文字サイズ・表示倍率・表示文化（<c>CurrentCulture</c> と <c>CurrentUICulture</c>）のどれかが変わると、可視の全文字列を新しく整形し直すことを確認します。</summary>
+    /// <remarks>環境の変更に古いレイアウトを使い続ける誤りを検出します。文化圏は共有ホストのスレッドで変えるため、元へ戻します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void TextLayouts_AreRebuiltWhenFontSizeDpiOrCultureChange()
     {
-        Geometry result = geometry.CloneCurrentValue();
-        Matrix combined = result.Transform?.Value ?? Matrix.Identity;
-        combined.Append(transform);
-        result.Transform = new MatrixTransform(combined);
-        return result;
-    }
-
-    private static void CountDominantPixels(BitmapSource bitmap, out int redPixels, out int bluePixels)
-    {
-        int width = bitmap.PixelWidth;
-        int height = bitmap.PixelHeight;
-        byte[] pixels = new byte[width * height * 4];
-        bitmap.CopyPixels(pixels, width * 4, 0);
-        redPixels = 0;
-        bluePixels = 0;
-        for (int y = 0; y < height; y++)
+        TestUiDispatcherHost.Invoke(() =>
         {
-            for (int x = 0; x < width; x++)
+            (CustomTableView table, int[] fetches) = CreateReuseTable(6, 50, 300d, 136d);
+            CultureInfo culture = CultureInfo.CurrentCulture, uiCulture = CultureInfo.CurrentUICulture;
+            CustomTableRenderProbe.SetDpi(table, 1d);
+            CustomTableRenderProbe.Arrange(table, 300d, 136d);
+            table.ApplyVisibilityChanged(true);
+            try
             {
-                int offset = ((y * width) + x) * 4;
-                byte blue = pixels[offset];
-                byte green = pixels[offset + 1];
-                byte red = pixels[offset + 2];
-                if (red > 120 && green < 100 && blue < 100)
+                RenderExistingTable(table);
+                int lookups = table.GetColumnLayoutSnapshot().VisibleColumnCount * (table.CalculateDrawableRowCapacity() + 1);
+                void AssertRebuilt(string state, Action change)
                 {
-                    redPixels++;
+                    (int misses, int hits, _) = ObserveRender(table, fetches, change);
+                    Assert.AreEqual(0, hits, state);
+                    Assert.AreEqual(lookups, misses, state + " 可視の全文字列を新しく整形します。");
                 }
-                if (blue > 120 && green < 100 && red < 100)
-                {
-                    bluePixels++;
-                }
+                AssertRebuilt("フォント", () => table.TextFontFamily = AppFontService.CreateFontFamily("Arial"));
+                AssertRebuilt("文字サイズ", () => table.TextFontSize = table.TextFontSize + 1d);
+                AssertRebuilt("表示倍率", () => CustomTableRenderProbe.SetDpi(table, 1.25d));
+                CultureInfo other = culture.Name == "fr-FR" ? CultureInfo.GetCultureInfo("de-DE") : CultureInfo.GetCultureInfo("fr-FR");
+                AssertRebuilt("CurrentCulture", () => { CultureInfo.CurrentCulture = other; CustomTableRenderProbe.Surface(table).InvalidateVisual(); });
+                AssertRebuilt("CurrentUICulture", () => { CultureInfo.CurrentUICulture = other; CustomTableRenderProbe.Surface(table).InvalidateVisual(); });
             }
-        }
+            finally
+            {
+                CultureInfo.CurrentCulture = culture;
+                CultureInfo.CurrentUICulture = uiCulture;
+                ReleaseTable(table);
+            }
+        });
+    }
+
+    /// <summary>アプリの表示言語を変えると、可視の全文字列を新しく整形し直すことを、実表示した表で確認します。</summary>
+    /// <remarks>言語の変更に古いレイアウトを使い続ける誤りを検出します。共有ホストの言語を変えるため、元へ戻します。</remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void TextLayouts_AreRebuiltWhenTheAppLanguageChanges()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CultureInfo? previousResourcesCulture = Resources.Culture;
+            (CustomTableView table, int[] fetches) = CreateReuseTable(6, 50, 300d, 134d);
+            var window = new Window { Width = 360d, Height = 260d, Content = table };
+            try
+            {
+                ResourceService.Current.ChangeCulture("ja-JP");
+                scope.ShowAndWaitForContentRendered(window);
+                RenderExistingTable(table);
+                int lookups = table.GetColumnLayoutSnapshot().VisibleColumnCount * (table.CalculateDrawableRowCapacity() + 1);
+                (int misses, int hits, _) = ObserveRender(table, fetches, () =>
+                {
+                    ResourceService.Current.ChangeCulture("en-US");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                });
+                Assert.AreEqual(0, hits);
+                Assert.AreEqual(lookups, misses, "アプリの言語の変更で、可視の全文字列を新しく整形します。");
+            }
+            finally
+            {
+                window.Content = null; table.ItemsSource = null; window.Close();
+                ResourceService.Current.ChangeCulture(previousResourcesCulture?.Name ?? "en-US");
+                Resources.Culture = previousResourcesCulture;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+        });
+    }
+
+    /// <summary>大きな表示範囲でも、同じ状態の再描画ではレイアウトを新しく作らず、値も取得しないことを確認します。</summary>
+    /// <remarks>再描画のたびに全セルを整形し直す性能上の誤りを検出します。</remarks>
+    [TestMethod]
+    public void Redraw_OfTheSameStateReusesEveryLayoutAndValue()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            (CustomTableView table, int[] fetches) = CreateReuseTable(12, 60, 1100d, 20d + 19d * 30d);
+            CustomTableRenderProbe.SetDpi(table, 1d);
+            CustomTableRenderProbe.Arrange(table, 1100d, 20d + 19d * 30d);
+            table.ApplyVisibilityChanged(true);
+            try
+            {
+                RenderExistingTable(table);
+                int lookups = 12 * (30 + 1);
+                (int misses, int hits, int[] fetched) = ObserveRender(table, fetches, () => CustomTableRenderProbe.Surface(table).InvalidateVisual());
+                Assert.AreEqual(0, misses);
+                Assert.AreEqual(lookups, hits);
+                CollectionAssert.AreEqual(new int[12], fetched);
+            }
+            finally { ReleaseTable(table); }
+        });
+    }
+
+    private sealed class StyledRow
+    {
+        public bool HasHighlightedWarning { get; set; }
     }
 
 }

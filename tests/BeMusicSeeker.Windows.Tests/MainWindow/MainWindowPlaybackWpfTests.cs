@@ -98,9 +98,6 @@ public sealed class MainWindowPlaybackWpfTests
                     Assert.AreEqual(1, viewModel.MainChartList.SelectedIndex); Assert.AreEqual(1, table.SelectedIndex);
                     Assert.IsTrue(table.IsCurrentCell(1, memo)); Assert.AreSame(memo, table.GetCurrentCellColumn(1));
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    CustomTableRowDrawing drawing = table.GetRowEntry(b).Drawings.GetValueOrDefault(1)
-                        ?? throw new AssertFailedException("Bの実描画がありません。");
-                    Assert.AreSame(memo, drawing.CurrentColumn);
                     Assert.AreEqual("B display", table.GetCellValue(b, memo, out _).Text);
                     Assert.AreEqual(1, player.Commands.Count(command => command == "PlayStart:" + bPath));
                     Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));

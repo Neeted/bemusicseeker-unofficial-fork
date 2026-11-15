@@ -1,288 +1,235 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.Tests;
 
-
+/// <summary>文字のレイアウトの保持（キー、追い出し、前提の変更による破棄、整形方式）を単体で確かめます。描画結果は <see cref="CustomTableRenderingTests"/> が担当します。</summary>
 [TestClass]
 public sealed class CustomTableTextLayoutCacheTests
 {
-    /// <summary>同じ描画条件で文字配置を再取得すると同じ配置を再利用することを確認し、反復描画ごとに文字配置を作る性能上の誤りを検出します。</summary>
-    [TestMethod]
-    public void GetOrCreate_ReusesSameKey()
-    {
-        TestUiDispatcherHost.Invoke(delegate
-        {
-            var cache = new CustomTableTextLayoutCache();
+    private static FontFamily ScoreFont => new(new Uri("pack://application:,,,/BeMusicSeeker;component/Assets/Fonts/"), "./#Sovjet Box");
 
-            FormattedText first = Create(cache, out bool firstHit, text: "AAA");
-            FormattedText second = Create(cache, out bool secondHit, text: "AAA");
+    /// <summary>同じ文字列・書体・省略の幅で再取得すると同じレイアウトを再利用し、省略しない文字は配置が違っても再利用することを確認します。反復描画のたびにレイアウトを作る誤りと、配置をキーに含めて同じ文字列のレイアウトが増える誤りを検出します。</summary>
+    [TestMethod]
+    public void GetOrCreate_ReusesLayoutForSameKeyRegardlessOfAlignmentWhenNotTrimmed()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            using CustomTableTextLayoutCache cache = Create();
+            CustomTableTextLayout first = cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out bool firstHit);
+            CustomTableTextLayout second = cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out bool secondHit);
+            CustomTableTextLayout centered = cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Center, 0, out bool centeredHit);
+            CustomTableTextLayout right = cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Right, -5, out bool rightHit);
 
             Assert.IsFalse(firstHit);
-            Assert.IsTrue(secondHit);
+            Assert.IsTrue(secondHit && centeredHit && rightHit);
             Assert.AreSame(first, second);
+            Assert.AreSame(first, centered);
+            Assert.AreSame(first, right);
             Assert.AreEqual(1, cache.Count);
         });
     }
 
-    /// <summary>文字・領域・整列・書体・部分色・DPI・文化の各条件だけを変えると配置を再利用しないことを確認し、描画条件をキャッシュキーから落とす誤りを検出します。</summary>
+    /// <summary>文字列・書体の種別・省略に使う幅・（省略するときの）配置のどれか一つだけを変えると、レイアウトを再利用しないことを確認します。キーから条件を落として別の文字のレイアウトを描く誤りを検出します。</summary>
     [TestMethod]
-    public void GetOrCreate_KeyIncludesLayoutAndStyleInputs()
+    public void GetOrCreate_KeyIncludesTextKindTrimWidthAndAlignmentWhenTrimmed()
     {
-        TestUiDispatcherHost.Invoke(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
-            AssertKeyChangeMisses(cache => Create(cache, out _, text: "AAA"), cache => { Create(cache, out bool hit, text: "AA"); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, maxTextWidth: 80d), cache => { Create(cache, out bool hit, maxTextWidth: 81d); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, maxTextHeight: 18d), cache => { Create(cache, out bool hit, maxTextHeight: 19d); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, alignment: TextAlignment.Left), cache => { Create(cache, out bool hit, alignment: TextAlignment.Center); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.NormalBold); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score.WithFontSize(12d)); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score, scoreFontFamily: new FontFamily("Arial")); return hit; });
-            // 表示フォントは名前を持たない合成フォントのため、名前がなくても別のフォントの配置を再利用しない。
-            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal.WithFontFamily(AppFontService.CreateFontFamily("Arial"))), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Normal.WithFontFamily(AppFontService.CreateFontFamily("Times New Roman"))); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, foreground: Brushes.Black), cache => { Create(cache, out bool hit, foreground: Brushes.Red); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Red)]), cache => { Create(cache, out bool hit, textRuns: [new CustomTableTextRunStyle(1, 1, Brushes.Red)]); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Red)]), cache => { Create(cache, out bool hit, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Blue)]); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, pixelsPerDip: 1d), cache => { Create(cache, out bool hit, pixelsPerDip: 1.25d); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, culture: CultureInfo.GetCultureInfo("en-US")), cache => { Create(cache, out bool hit, culture: CultureInfo.GetCultureInfo("ja-JP")); return hit; });
+            AssertMiss(cache => cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _), cache => { cache.GetOrCreate("AA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out bool hit); return hit; });
+            AssertMiss(cache => cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _), cache => { cache.GetOrCreate("AAA", CustomTableTextKind.Bold, TextAlignment.Left, 0, out bool hit); return hit; });
+            AssertMiss(cache => cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _), cache => { cache.GetOrCreate("AAA", CustomTableTextKind.Score, TextAlignment.Left, 0, out bool hit); return hit; });
+            AssertMiss(cache => cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _), cache => { cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 30, out bool hit); return hit; });
+            AssertMiss(cache => cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 30, out _), cache => { cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 31, out bool hit); return hit; });
+            AssertMiss(cache => cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 30, out _), cache => { cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Center, 30, out bool hit); return hit; });
         });
     }
 
-    /// <summary>部分色区間を含む同一描画条件でも文字配置を一件だけ再利用することを確認し、強調付き文字の反復描画でキャッシュを使わない誤りを検出します。</summary>
+    /// <summary>容量二件のキャッシュへ三種類を入れると、再参照済みでも最古の挿入を退役して二件を保ち、追い出したレイアウトを解放することを確認します。容量超過や保持順の誤りと、解放漏れを検出します。</summary>
     [TestMethod]
-    public void GetOrCreate_ReusesSameTextRunKey()
+    public void GetOrCreate_EvictsOldestEntryAndDisposesIt()
     {
-        TestUiDispatcherHost.Invoke(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
-            var cache = new CustomTableTextLayoutCache();
-            IReadOnlyList<CustomTableTextRunStyle> textRuns = [new CustomTableTextRunStyle(0, 1, Brushes.Red)];
-
-            FormattedText first = Create(cache, out bool firstHit, textRuns: textRuns);
-            FormattedText second = Create(cache, out bool secondHit, textRuns: textRuns);
-
-            Assert.IsFalse(firstHit);
-            Assert.IsTrue(secondHit);
-            Assert.AreSame(first, second);
-            Assert.AreEqual(1, cache.Count);
-        });
-    }
-
-    /// <summary>旧値と新値を模した二つの色区間が実際の文字描画へ現れることを確認し、配置生成で部分色を無視する誤りを検出します。</summary>
-    [TestMethod]
-    public void GetOrCreate_AppliesTextRunForegrounds()
-    {
-        TestUiDispatcherHost.Invoke(delegate
-        {
-            var cache = new CustomTableTextLayoutCache();
-            FormattedText text = Create(
-                cache,
-                out _,
-                text: "MMMM    MMMM",
-                maxTextWidth: 220d,
-                maxTextHeight: 60d,
-                textRuns:
-                [
-                    new CustomTableTextRunStyle(0, 4, Brushes.Red),
-                    new CustomTableTextRunStyle(8, 4, Brushes.Blue)
-                ]);
-
-            int redPixels;
-            int bluePixels;
-            CountDominantRunPixels(text, out redPixels, out bluePixels);
-
-            Assert.IsTrue(redPixels > 0, "Expected red pixels from the old-value text run.");
-            Assert.IsTrue(bluePixels > 0, "Expected blue pixels from the new-value text run.");
-        });
-    }
-
-    /// <summary>容量二件の配置キャッシュへ三種類を入れると再参照済みでも最古の挿入を退役して二件を保つことを確認し、容量超過や保持順の誤りを検出します。</summary>
-    [TestMethod]
-    public void GetOrCreate_EvictsOldestEntryWhenCapacityIsExceeded()
-    {
-        TestUiDispatcherHost.Invoke(delegate
-        {
-            var cache = new CustomTableTextLayoutCache(maxEntryCount: 2);
-            Create(cache, out _, text: "A");
-            Create(cache, out _, text: "B");
-            Create(cache, out bool existingHit, text: "A");
-            Create(cache, out _, text: "C");
-            Create(cache, out bool evictedHit, text: "A");
+            using CustomTableTextLayoutCache cache = Create(maxEntryCount: 2);
+            CustomTableTextLayout evicted = cache.GetOrCreate("A", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _);
+            cache.GetOrCreate("B", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _);
+            cache.GetOrCreate("A", CustomTableTextKind.Normal, TextAlignment.Left, 0, out bool existingHit);
+            cache.GetOrCreate("C", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _);
+            cache.GetOrCreate("A", CustomTableTextKind.Normal, TextAlignment.Left, 0, out bool evictedHit);
 
             Assert.IsTrue(existingHit);
             Assert.IsFalse(evictedHit);
             Assert.AreEqual(2, cache.Count);
-        });
-    }
-
-    /// <summary>十分な幅の短文は省略不要、狭い幅の長文は省略必要と判定することを確認し、全文tooltipを出すための実書体計測の誤りを検出します。</summary>
-    [TestMethod]
-    public void WouldTrim_DetectsTextThatExceedsAvailableWidth()
-    {
-        TestUiDispatcherHost.Invoke(delegate
-        {
-            Assert.IsFalse(CustomTableTextLayoutCache.WouldTrim(
-                "Short",
-                200d,
-                CustomTableTextStyle.Normal,
-                null,
-                1d,
-                CultureInfo.GetCultureInfo("ja-JP")));
-            Assert.IsTrue(CustomTableTextLayoutCache.WouldTrim(
-                "Very very long title text",
-                20d,
-                CustomTableTextStyle.Normal,
-                null,
-                1d,
-                CultureInfo.GetCultureInfo("ja-JP")));
-        });
-    }
-
-    /// <summary>単語の区切りを含む長い文字列を、数行分の高さがある狭い領域へ配置しても、高さは一行分のままで、幅は領域に収まり省略されることを確認します。</summary>
-    /// <remarks>行の高さに余裕があると折り返す誤りと、省略をやめて文字がはみ出す誤りを検出します。高さを大きく与えるため、フォントの行の高さには依存しません。</remarks>
-    [TestMethod]
-    public void GetOrCreate_KeepsSingleLineAndTrimsEvenWhenHeightAllowsMoreLines()
-    {
-        TestUiDispatcherHost.Invoke(delegate
-        {
-            const string text = "one two three four five six seven eight nine ten";
-            var cache = new CustomTableTextLayoutCache();
-            FormattedText single = Create(cache, out _, text: text, maxTextWidth: 2000d, maxTextHeight: 400d);
-            FormattedText narrow = Create(cache, out _, text: text, maxTextWidth: 60d, maxTextHeight: 400d);
-
-            Assert.AreEqual(single.Height, narrow.Height, 0.01d);
-            Assert.IsTrue(narrow.WidthIncludingTrailingWhitespace <= 60.5d, narrow.WidthIncludingTrailingWhitespace.ToString(CultureInfo.InvariantCulture));
-            Assert.IsTrue(narrow.WidthIncludingTrailingWhitespace < single.WidthIncludingTrailingWhitespace);
+            Assert.AreEqual(IntPtr.Zero, evicted.Layout.NativePointer, "追い出したレイアウトは解放します。");
         });
     }
 
     /// <summary>
-    /// 表示フォントで描く文字は画素に合わせる方式（Display）、スコア用のフォントで描く文字はWPFの既定の方式（Ideal）で配置することを、全文の幅で確認します。
-    /// 全文の幅の前後の各整数幅で、省略の判定が真になるのは、実際に描く配置が省略されるときだけであることも確認します。
+    /// 上限の引き上げは下限としてだけ働き、下げないことを、上限を超えて入れたときに保持する件数で確認します。
+    /// 保持範囲を常に上回る上限にする規則が、上限を縮める誤りや引き上げが効かない誤りで崩れることを検出します。
     /// </summary>
-    /// <remarks>
-    /// スコア用の文字を画素に合わせる方式で配置して線が細く描かれる誤り、一覧全体が既定の方式へ戻る誤り、判定と描画の一方だけが測り方を変える誤りを検出します。
-    /// 本番の一覧と同じく、フォントとサイズを適用した派生スタイルで確かめます。
-    /// </remarks>
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public void GetOrCreateAndWouldTrim_UseDisplayForDisplayFontAndIdealForScoreFont(bool scoreFont)
+    public void EnsureCapacity_RaisesTheLimitButNeverLowersIt()
     {
-        TestUiDispatcherHost.Invoke(delegate
+        TestUiDispatcherHost.Invoke(() =>
         {
-            var culture = CultureInfo.GetCultureInfo("ja-JP");
-            FontFamily? scoreFontFamily = null;
-            if (scoreFont)
+            void Insert(CustomTableTextLayoutCache cache, int from, int count)
             {
-                scoreFontFamily = new FontFamily(new Uri("pack://application:,,,/BeMusicSeeker;component/Assets/Fonts/"), "./#Sovjet Box");
-                // 代わりのフォントへ解決されたままでは、本番のスコア表示を再現しない。
-                StringAssert.Contains(GlyphFontProbe.FontUri(scoreFontFamily, "A").ToLowerInvariant(), "sovjetbox");
+                for (int index = from; index < from + count; index++) { cache.GetOrCreate("T" + index, CustomTableTextKind.Normal, TextAlignment.Left, 0, out _); }
             }
-            string text = scoreFont
-                ? string.Join(" ", Enumerable.Repeat("FULLCOMBO AAA HARD 1234", 6))
-                : "The quick brown fox jumps over the lazy dog. The quick brown fox jumps over the lazy dog. 0123456789";
-            CustomTableTextStyle style = (scoreFont ? CustomTableTextStyle.Score : CustomTableTextStyle.Normal)
-                .WithFontFamily(AppFontService.CreateFontFamily("Arial"))
-                .WithFontSize(12d);
-            Typeface typeface = style.CreateTypeface(scoreFontFamily!);
-            double Reference(TextFormattingMode mode) => new FormattedText(text, culture, FlowDirection.LeftToRight, typeface, style.FontSize,
-                Brushes.Black, null, mode, 1d).WidthIncludingTrailingWhitespace;
-            double expectedWidth = Reference(scoreFont ? TextFormattingMode.Ideal : TextFormattingMode.Display);
-            double otherWidth = Reference(scoreFont ? TextFormattingMode.Display : TextFormattingMode.Ideal);
-            Assert.IsTrue(Math.Abs(expectedWidth - otherWidth) >= 2d, "二つの方式で幅が違う文字列であることが前提です。");
+            using CustomTableTextLayoutCache cache = Create(maxEntryCount: 4);
+            cache.EnsureCapacity(2);
+            Insert(cache, 0, 6);
+            Assert.AreEqual(4, cache.Count, "小さい値の指定では上限を下げません。");
 
-            double fullWidth = Create(new CustomTableTextLayoutCache(), out _, text: text, maxTextWidth: 4000d, textStyle: style, scoreFontFamily: scoreFontFamily!).WidthIncludingTrailingWhitespace;
-            Assert.AreEqual(expectedWidth, fullWidth, 0.01d);
+            cache.EnsureCapacity(100);
+            Insert(cache, 6, 100);
+            Assert.AreEqual(100, cache.Count, "引き上げた上限まで保持します。");
 
-            for (double width = Math.Floor(Math.Min(expectedWidth, otherWidth)) - 3d; width <= Math.Ceiling(Math.Max(expectedWidth, otherWidth)) + 3d; width++)
+            cache.EnsureCapacity(10);
+            Insert(cache, 106, 1);
+            Assert.AreEqual(100, cache.Count, "小さい値の指定のあとも、引き上げた上限を保ちます。");
+            // T6 だけが追い出され、T7 から T106 の100件が残る。
+            cache.GetOrCreate("T7", CustomTableTextKind.Normal, TextAlignment.Left, 0, out bool retainedHit);
+            Assert.IsTrue(retainedHit, "上限の範囲に残る文字列は追い出しません。");
+        });
+    }
+
+    /// <summary>フォント・文字サイズ・表示倍率・表示言語・文化圏のどれか一つが変わると保持したレイアウトをすべて破棄し、同じ前提なら破棄しないことを確認します。古い前提で整形したレイアウトを使い続ける誤りを検出します。</summary>
+    [TestMethod]
+    public void Configure_DiscardsEveryLayoutWhenAnyInputChanges()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CultureInfo en = CultureInfo.GetCultureInfo("en-US"), ja = CultureInfo.GetCultureInfo("ja-JP");
+            FontFamily arial = AppFontService.CreateFontFamily("Arial");
+            CustomTableTextEnvironment baseline = Environment(AppFontService.DefaultFontFamily, null, 11d, 1d, en, en);
+            CustomTableTextEnvironment[] changes =
+            [
+                Environment(arial, null, 11d, 1d, en, en),
+                Environment(AppFontService.DefaultFontFamily, null, 12d, 1d, en, en),
+                Environment(AppFontService.DefaultFontFamily, null, 11d, 1.25d, en, en),
+                Environment(AppFontService.DefaultFontFamily, null, 11d, 1d, en, ja),
+                Environment(AppFontService.DefaultFontFamily, null, 11d, 1d, ja, en),
+                Environment(AppFontService.DefaultFontFamily, ScoreFont, 11d, 1d, en, en)
+            ];
+            foreach (CustomTableTextEnvironment changed in changes)
             {
-                // 判定は半画素の余裕を持つため、全文の幅にそれ未満だけ足りない幅は比べない。
-                if (fullWidth - width is > 0d and <= 0.5d) { continue; }
-                FormattedText drawn = Create(new CustomTableTextLayoutCache(), out _, text: text, maxTextWidth: width, textStyle: style, scoreFontFamily: scoreFontFamily!);
-                bool drawnTrimmed = drawn.WidthIncludingTrailingWhitespace < fullWidth - 0.01d;
-                Assert.AreEqual(drawnTrimmed, CustomTableTextLayoutCache.WouldTrim(text, width, style, scoreFontFamily!, 1d, culture), width.ToString(CultureInfo.InvariantCulture));
+                using CustomTableTextLayoutCache cache = Create();
+                cache.Configure(baseline);
+                CustomTableTextLayout layout = cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _);
+                Assert.IsFalse(cache.Configure(Environment(AppFontService.DefaultFontFamily, null, 11d, 1d, en, en)), "同じ前提では破棄しません。");
+                Assert.AreEqual(1, cache.Count);
+                Assert.IsTrue(cache.Configure(changed));
+                Assert.AreEqual(0, cache.Count);
+                Assert.AreEqual(IntPtr.Zero, layout.Layout.NativePointer);
+                cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out bool hit);
+                Assert.IsFalse(hit);
             }
         });
     }
 
-    private static void AssertKeyChangeMisses(Action<CustomTableTextLayoutCache> seed, Func<CustomTableTextLayoutCache, bool> candidate)
+    /// <summary>通常の文字は、自然な幅が物理画素の整数になるGDI互換の方式で整形することを、100%と125%で確認します。表示倍率に合わせない小数の幅になる誤りを検出します。</summary>
+    [TestMethod]
+    [DataRow(1d)]
+    [DataRow(1.25d)]
+    public void GetOrCreate_FormatsNormalTextWithWholePixelWidths(double pixelsPerDip)
     {
-        var cache = new CustomTableTextLayoutCache();
-        seed(cache);
-        bool hit = candidate(cache);
-        Assert.IsFalse(hit);
-    }
-
-    private static FormattedText Create(
-        CustomTableTextLayoutCache cache,
-        out bool hit,
-        string text = "AAA",
-        double maxTextWidth = 80d,
-        double maxTextHeight = 18d,
-        TextAlignment alignment = TextAlignment.Left,
-        CustomTableTextStyle textStyle = null!,
-        FontFamily scoreFontFamily = null!,
-        Brush foreground = null!,
-        IReadOnlyList<CustomTableTextRunStyle> textRuns = null!,
-        double pixelsPerDip = 1d,
-        CultureInfo culture = null!)
-    {
-        return cache.GetOrCreate(
-            text,
-            maxTextWidth,
-            maxTextHeight,
-            alignment,
-            textStyle ?? CustomTableTextStyle.Normal,
-            scoreFontFamily,
-            foreground ?? Brushes.Black,
-            textRuns ?? [],
-            pixelsPerDip,
-            culture ?? CultureInfo.GetCultureInfo("ja-JP"),
-            out hit);
-    }
-
-    private static void CountDominantRunPixels(FormattedText text, out int redPixels, out int bluePixels)
-    {
-        const int width = 220;
-        const int height = 60;
-        var visual = new DrawingVisual();
-        using (DrawingContext context = visual.RenderOpen())
+        TestUiDispatcherHost.Invoke(() =>
         {
-            context.DrawRectangle(Brushes.White, null, new Rect(0, 0, width, height));
-            context.DrawText(text, new Point(4, 4));
-        }
-
-        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
-        bitmap.Render(visual);
-        byte[] pixels = new byte[width * height * 4];
-        bitmap.CopyPixels(pixels, width * 4, 0);
-
-        redPixels = 0;
-        bluePixels = 0;
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
+            using CustomTableTextLayoutCache cache = Create(pixelsPerDip: pixelsPerDip);
+            foreach (CustomTableTextKind kind in new[] { CustomTableTextKind.Normal, CustomTableTextKind.Bold })
             {
-                int offset = ((y * width) + x) * 4;
-                byte blue = pixels[offset];
-                byte green = pixels[offset + 1];
-                byte red = pixels[offset + 2];
-                if (red > 120 && green < 100 && blue < 100)
+                foreach (string text in new[] { "The quick brown fox", "0123456789", "日本語のタイトル", "AAA", "mmmm WWWW iiii" })
                 {
-                    redPixels++;
-                }
-                if (blue > 120 && green < 100 && red < 100)
-                {
-                    bluePixels++;
+                    double width = cache.GetOrCreate(text, kind, TextAlignment.Left, 0, out _).NaturalWidth;
+                    Assert.IsTrue(width > 0d);
+                    Assert.AreEqual(Math.Round(width), width, 0d, kind + ": " + text + " " + width);
                 }
             }
-        }
+        });
     }
 
+    /// <summary>スコア用の文字は通常の方式で整形し、WPFの既定の方式（Ideal）の幅に近く、画素に合わせる方式（Display）の幅へは寄らないことを確認します。スコア用の文字を画素に合わせて線が細く描かれる誤りを検出します。</summary>
+    [TestMethod]
+    public void GetOrCreate_FormatsScoreTextWithIdealWidths()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            FontFamily scoreFont = ScoreFont;
+            // 代わりのフォントへ解決されたままでは、本番のスコア表示を再現しない。
+            StringAssert.Contains(GlyphFontProbe.FontUri(scoreFont, "A").ToLowerInvariant(), "sovjetbox");
+            string text = string.Join(" ", Enumerable.Repeat("FULLCOMBO AAA HARD 1234", 6));
+            var typeface = new Typeface(scoreFont, FontStyles.Normal, FontWeights.Normal, FontStretches.Normal);
+            double Reference(TextFormattingMode mode) => new FormattedText(text, CultureInfo.GetCultureInfo("ja-JP"), FlowDirection.LeftToRight, typeface, 12d,
+                Brushes.Black, null, mode, 1d).WidthIncludingTrailingWhitespace;
+            double ideal = Reference(TextFormattingMode.Ideal), display = Reference(TextFormattingMode.Display);
+            Assert.IsTrue(Math.Abs(ideal - display) >= 2d, "二つの方式で幅が違う文字列であることが前提です。");
+
+            using CustomTableTextLayoutCache cache = Create(fontSize: 12d, score: scoreFont);
+            double width = cache.GetOrCreate(text, CustomTableTextKind.Score, TextAlignment.Left, 0, out _).NaturalWidth;
+            Assert.IsTrue(Math.Abs(width - ideal) < Math.Abs(width - display), $"Score={width} Ideal={ideal} Display={display}");
+        });
+    }
+
+    /// <summary>省略の判定が、自然な幅と使える幅の比較（超えるときだけ省略）で、境界の前後の整数幅で入れ替わることを確認します。判定の境界が一画素ずれる誤りを検出します。</summary>
+    [TestMethod]
+    public void ExceedsAvailableWidth_SwitchesAtTheNaturalWidth()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            using CustomTableTextLayoutCache cache = Create();
+            int natural = (int)cache.GetOrCreate("Very very long title text", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _).NaturalWidth;
+            Assert.IsTrue(CustomTableTextLayoutCache.ExceedsAvailableWidth(natural, natural - 1));
+            Assert.IsFalse(CustomTableTextLayoutCache.ExceedsAvailableWidth(natural, natural));
+            Assert.IsFalse(CustomTableTextLayoutCache.ExceedsAvailableWidth(natural, natural + 1));
+            Assert.IsFalse(CustomTableTextLayoutCache.ExceedsAvailableWidth(cache.GetOrCreate("Short", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _).NaturalWidth, 200));
+        });
+    }
+
+    /// <summary>単語の区切りを含む長い文字列を、省略に使う幅の狭いレイアウトにしても一行のままで、改行を含む文字列は最初の行だけを整形することを確認します。折り返して複数行になる誤りと、二行目を描く誤りを検出します。</summary>
+    [TestMethod]
+    public void GetOrCreate_KeepsSingleLineWhenTrimmedAndCutsAtLineBreak()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            const string text = "one two three four five six seven eight nine ten";
+            using CustomTableTextLayoutCache cache = Create();
+            CustomTableTextLayout single = cache.GetOrCreate(text, CustomTableTextKind.Normal, TextAlignment.Left, 0, out _);
+            CustomTableTextLayout narrow = cache.GetOrCreate(text, CustomTableTextKind.Normal, TextAlignment.Left, 60, out _);
+            Assert.AreEqual(1u, single.Layout.Metrics.LineCount);
+            Assert.AreEqual(1u, narrow.Layout.Metrics.LineCount);
+            Assert.AreEqual(single.Layout.Metrics.Height, narrow.Layout.Metrics.Height, 0.01d);
+            Assert.IsTrue(narrow.Layout.Metrics.WidthIncludingTrailingWhitespace <= 60d, narrow.Layout.Metrics.WidthIncludingTrailingWhitespace.ToString(CultureInfo.InvariantCulture));
+
+            CustomTableTextLayout broken = cache.GetOrCreate("first\r\nsecond", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _);
+            Assert.AreEqual(5, broken.TextLength);
+            Assert.AreEqual(cache.GetOrCreate("first", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _).NaturalWidth, broken.NaturalWidth, 0d);
+        });
+    }
+
+    private static void AssertMiss(Action<CustomTableTextLayoutCache> seed, Func<CustomTableTextLayoutCache, bool> candidate)
+    {
+        using CustomTableTextLayoutCache cache = Create();
+        seed(cache);
+        Assert.IsFalse(candidate(cache));
+    }
+
+    private static CustomTableTextLayoutCache Create(int maxEntryCount = CustomTableTextLayoutCache.DefaultMaxEntryCount, double fontSize = 11d, double pixelsPerDip = 1d, FontFamily? score = null)
+    {
+        var cache = new CustomTableTextLayoutCache(maxEntryCount);
+        var culture = CultureInfo.GetCultureInfo("en-US");
+        cache.Configure(Environment(AppFontService.DefaultFontFamily, score, fontSize, pixelsPerDip, culture, culture));
+        return cache;
+    }
+
+    private static CustomTableTextEnvironment Environment(FontFamily text, FontFamily? score, double fontSize, double pixelsPerDip, CultureInfo culture, CultureInfo uiCulture)
+    {
+        return new CustomTableTextEnvironment(text, score!, fontSize, pixelsPerDip, culture, uiCulture);
+    }
 }

@@ -1,6 +1,6 @@
 BeMusicSeeker サードパーティ・ノーティス
 
-最終更新: 2026-09-25
+最終更新: 2026-11-16
 適用範囲: 現行の .NET 10 x64 プロジェクトによって参照され、self-contained x64 publish/package 出力、native/、および BeMusicSeeker/Assets/ 下で配布されるサードパーティ製ファイル。
 
 ステータスの凡例:
@@ -286,6 +286,32 @@ NET10で保持するx64セット: bass_fx.dll 2.4.12.6（API 0x02040C06、SHA-25
 再配布条件: モデルとテスト入力に著作権表示と MIT ライセンス全文を添付します。
 
 ================================================================================
+22) Vortice.Windows（Direct2D / DirectWrite のマネージドバインディング）
+================================================================================
+ステータス: GREEN
+対象: Vortice.Direct2D1.dll, Vortice.DXGI.dll, Vortice.DirectX.dll, Vortice.Mathematics.dll（Vortice.Direct2D1 3.8.3、Vortice.Mathematics 2.1.0）
+著作権表示: Copyright (c) Amer Koleci and Contributors
+ライセンス: MIT（NuGet のライセンス式）
+出典: https://github.com/amerkoleci/Vortice.Windows, https://github.com/amerkoleci/Vortice.Mathematics
+ライセンス全文: third_party/licenses/22-Vortice-MIT.txt
+再配布条件:
+- パッケージは MIT の式を宣言しますが個別のライセンスファイルを含みません。本文は標準の MIT ライセンスに、パッケージのメタデータの著作権表示を付けたものです。
+- 著作権表示と MIT ライセンス全文を添付します。
+
+================================================================================
+23) SharpGen.Runtime
+================================================================================
+ステータス: GREEN
+対象: SharpGen.Runtime.dll, SharpGen.Runtime.COM.dll（2.4.2-beta）
+著作権表示: (c) 2010-2017 Alexandre Mutel, 2017-2023 Jeremy Koritzinsky, 2023-2024 Amer Koleci
+ライセンス: MIT（NuGet のライセンス式）
+出典: https://github.com/SharpGenTools/SharpGenTools
+ライセンス全文: third_party/licenses/23-SharpGen-Runtime-MIT.txt
+再配布条件:
+- パッケージは MIT の式を宣言しますが個別のライセンスファイルを含みません。本文は標準の MIT ライセンスに、パッケージのメタデータの著作権表示を付けたものです。
+- 著作権表示と MIT ライセンス全文を添付します。
+
+================================================================================
 GitHub リリース準備状況におけるアクション・サマリー
 ================================================================================
 直ちに解決しなければならないブロッカー（RED）:
@@ -301,6 +327,7 @@ GitHub リリース準備状況におけるアクション・サマリー
   Everything3_x64.dll, EverythingBridge_x64.dll,
   SevenZipExtractor.dll, SQLite-net.dll, SQLitePCLRaw, e_sqlite3.dll,
   SgmlReaderDll.dll, bms_vorbis.dll,
+  Vortice.Windows, SharpGen.Runtime,
   フォント "Ligature Symbols", "Sovjet Box", commodore-20rounded-20v1.2.ttf
 
 現行リリースの方針:

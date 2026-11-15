@@ -66,11 +66,11 @@ public sealed partial class CustomTableView : Grid
     internal const double CellTextHorizontalPadding = 2d;
     private const double ColumnResizeHitTestMargin = 4d;
     // 共通ScrollBarの固定ヒット領域と、末尾を露出するための計算を揃える。
-    private const double ScrollBarThickness = 16d;
+    internal const double ScrollBarThickness = 16d;
     // 背景を細い状態から不透明に表示する一覧用ScrollBar Styleの資源キー。
     private const string ListScrollBarStyleKey = "App.Canonical.ListScrollBarStyle";
     private const double CellEditorBorderThickness = 1d;
-    private const int RowSubscriptionOverscan = 5;
+    internal const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
     private const long RenderSlowLogThresholdMs = 100L;
     private static readonly Thickness CellEditorBorderThicknessValue = new(CellEditorBorderThickness);
@@ -617,6 +617,15 @@ public sealed partial class CustomTableView : Grid
         set => SetValue(HeaderHeightProperty, value);
     }
 
+    /// <summary>
+    /// 行と見出しの高さを表示倍率で物理画素の整数へ丸めた、縦の寸法です。描画・当たり判定・編集欄の位置・
+    /// スクロール範囲と完全表示行容量・行ドロップの位置・UI Automationの矩形が共通に使います。
+    /// <see cref="RowHeight"/>・<see cref="HeaderHeight"/> の値と保存値は変えません。
+    /// </summary>
+    internal CustomTableRowGeometry RowGeometry => new(RowHeight, HeaderHeight, surface.ActualHeight, PixelsPerDip);
+
+    private double PixelsPerDip => VisualTreeHelper.GetDpi(this).PixelsPerDip;
+
     public double TextFontSize
     {
         get => (double)GetValue(TextFontSizeProperty);
@@ -724,6 +733,11 @@ public sealed partial class CustomTableView : Grid
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.ClearPendingItemsSourceSwapColumnRedrawSuppression();
+        if (e.NewValue == null)
+        {
+            // 読み込み解除の経路でも、描画先と文字のレイアウトを解放する。次の描画で必要な分だけ作り直す。
+            view.surface?.ReleaseDrawingResources();
+        }
         view.DetachCollectionChanged(e.OldValue as INotifyCollectionChanged);
         view.AttachCollectionChanged(e.NewValue as INotifyCollectionChanged);
         view.MarkItemsApplied();
@@ -967,6 +981,18 @@ public sealed partial class CustomTableView : Grid
         ClearHeaderDragState();
         pendingRowInvalidations.Clear();
         rowCache.Clear();
+        // 再表示では、最新の状態から描画先と文字のレイアウトを作り直す。
+        surface.ReleaseDrawingResources();
+    }
+
+    /// <summary>倍率が変わると行と見出しの高さの実効値が変わるため、編集欄を確定し、スクロール範囲と可視行を更新して描き直します。</summary>
+    internal void HandleDpiChanged()
+    {
+        CommitActiveEdit();
+        CloseCellToolTip();
+        UpdateScrollBars();
+        UpdateVisibleRowSubscriptions("dpi_changed");
+        RequestRedraw("dpi_changed");
     }
 
     private void AttachColumnLayoutHandlers()
@@ -1071,7 +1097,7 @@ public sealed partial class CustomTableView : Grid
         int rowCount = RowCount;
         double extentWidth = GetColumnLayoutSnapshot().ExtentWidth;
         double width = Math.Max(0d, surface.ActualWidth);
-        (bool hasVertical, bool hasHorizontal, int fullVisibleRows, double viewportWidth) = CalculateScrollBarLayout(width, CalculateBodyHeight(), extentWidth, rowCount, RowHeight);
+        (bool hasVertical, bool hasHorizontal, int fullVisibleRows, double viewportWidth) = CalculateScrollBarLayout(width, extentWidth, rowCount, RowGeometry);
         verticalScrollBar.ViewportSize = fullVisibleRows;
         verticalScrollBar.LargeChange = Math.Max(1, fullVisibleRows);
         verticalScrollBar.Maximum = CalculateVerticalScrollMaximum(rowCount, fullVisibleRows);
@@ -1093,15 +1119,19 @@ public sealed partial class CustomTableView : Grid
 
     /// <summary>全面の実寸法から必要な軸だけを追加し、前回状態に依存しない有効表示幅と完全表示行容量を求めます。</summary>
     /// <remarks>描画寸法は減らさず、戻り値をスクロール範囲とセル露出の計算だけへ適用します。</remarks>
+    /// <param name="width">全面の実幅（DIP）。</param>
+    /// <param name="extentWidth">表示列の合計幅（DIP）。</param>
+    /// <param name="rowCount">行数。</param>
+    /// <param name="rows">物理画素の整数で持つ縦の寸法。完全表示行容量は画素の整数で求めます。</param>
     internal static (bool HasVertical, bool HasHorizontal, int FullVisibleRows, double ViewportWidth) CalculateScrollBarLayout(
-        double width, double bodyHeight, double extentWidth, int rowCount, double rowHeight)
+        double width, double extentWidth, int rowCount, CustomTableRowGeometry rows)
     {
         bool hasVertical = false;
         bool hasHorizontal = false;
         // バーなしから必要な軸だけを追加する。前回のVisibilityへ依存させない。
         while (true)
         {
-            int capacity = CalculateFullVisibleRowCapacity(bodyHeight - (hasHorizontal ? ScrollBarThickness : 0d), rowHeight);
+            int capacity = rows.FullVisibleRowCapacity(hasHorizontal);
             bool nextVertical = hasVertical || rowCount > capacity;
             bool nextHorizontal = hasHorizontal || extentWidth > Math.Max(0d, width - (nextVertical ? ScrollBarThickness : 0d)) + 0.5d;
             if (nextVertical == hasVertical && nextHorizontal == hasHorizontal)
@@ -1111,7 +1141,7 @@ public sealed partial class CustomTableView : Grid
             hasVertical = nextVertical;
             hasHorizontal = nextHorizontal;
         }
-        int fullVisibleRows = CalculateFullVisibleRowCapacity(bodyHeight - (hasHorizontal ? ScrollBarThickness : 0d), rowHeight);
+        int fullVisibleRows = rows.FullVisibleRowCapacity(hasHorizontal);
         double viewportWidth = Math.Max(0d, width - (hasVertical ? ScrollBarThickness : 0d));
         return (hasVertical, hasHorizontal, fullVisibleRows, viewportWidth);
     }
@@ -1119,22 +1149,26 @@ public sealed partial class CustomTableView : Grid
     /// <summary>横バーの手前まで完全表示できる行数を返します。極小領域でも既存の最小一行を保ちます。</summary>
     internal int CalculateFullVisibleRowCapacity()
     {
-        return CalculateFullVisibleRowCapacity(CalculateBodyHeight() - (horizontalScrollBar.Visibility == Visibility.Visible ? ScrollBarThickness : 0d), RowHeight);
+        return RowGeometry.FullVisibleRowCapacity(horizontalScrollBar.Visibility == Visibility.Visible);
     }
 
     /// <summary>バーの背後と部分表示を含む全面の描画行数を返し、可視行購読にも使います。</summary>
     internal int CalculateDrawableRowCapacity()
     {
-        return CalculateDrawableRowCapacity(CalculateBodyHeight(), RowHeight);
+        return RowGeometry.DrawableRowCapacity;
     }
 
     /// <summary>有効な本体高さを行高で切り捨て、完全表示容量を求めます。</summary>
+    /// <remarks>
+    /// 二つの長さは同じ単位で渡します。表は <see cref="CustomTableRowGeometry"/> から物理画素の整数を渡すため、商は丸め誤差を含みません。
+    /// </remarks>
     internal static int CalculateFullVisibleRowCapacity(double bodyHeight, double rowHeight)
     {
         return Math.Max(1, (int)Math.Floor(Math.Max(0d, bodyHeight) / Math.Max(1d, rowHeight)));
     }
 
     /// <summary>全面の本体高さを行高で切り上げ、部分行を含む描画容量を求めます。</summary>
+    /// <remarks>二つの長さは同じ単位で渡します。表は物理画素の整数を渡します。</remarks>
     internal static int CalculateDrawableRowCapacity(double bodyHeight, double rowHeight)
     {
         return Math.Max(1, (int)Math.Ceiling(Math.Max(0d, bodyHeight) / Math.Max(1d, rowHeight)));
@@ -1144,11 +1178,6 @@ public sealed partial class CustomTableView : Grid
     internal static int CalculateVerticalScrollMaximum(int rowCount, int fullVisibleRows)
     {
         return Math.Max(0, Math.Max(0, rowCount) - Math.Max(1, fullVisibleRows));
-    }
-
-    private double CalculateBodyHeight()
-    {
-        return Math.Max(0d, surface.ActualHeight - HeaderHeight);
     }
 
     internal CustomTableColumnLayoutSnapshot GetColumnLayoutSnapshot()
@@ -1179,16 +1208,13 @@ public sealed partial class CustomTableView : Grid
         return rowCache.GetOrCreate(row).GetValue(column, out cacheHit);
     }
 
-    /// <summary>値・警告・位置別描画が共有する行エントリを取得します。</summary>
+    /// <summary>値と警告が共有する行エントリを取得します。</summary>
     internal CustomTableRowEntry GetRowEntry(object row) => rowCache.GetOrCreate(row);
 
     /// <summary>警告を他の表示値と同じ寿命で取得します。</summary>
     internal bool HasHighlightedWarning(object row) => row != null && GetRowEntry(row).HasHighlightedWarning;
 
-    /// <summary>描画環境の変更時に値を残してセル群だけを破棄します。</summary>
-    internal void ClearRowDrawings() => rowCache.ClearDrawings();
-
-    /// <summary>表示文化やパレットの変更時に、整形済みの値・ブラシと描画を更新します。</summary>
+    /// <summary>表示文化やパレットの変更時に、整形済みの値とブラシを更新します。</summary>
     internal void InvalidateDisplayValues() => InvalidateAllCellValues();
 
     private void InvalidateAllCellValues()
@@ -1261,7 +1287,6 @@ public sealed partial class CustomTableView : Grid
                 int lastExclusive = Math.Min(rowCount, firstVisibleIndex + drawableRows + RowSubscriptionOverscan);
                 requestedCount = Math.Max(0, lastExclusive - firstIndex);
                 rowChangeTracker.ReplaceVisibleRows(ItemsSource, firstIndex, requestedCount);
-                rowCache.RetainDrawingPositions(firstIndex, requestedCount);
             }
             else
             {
@@ -1429,14 +1454,16 @@ public sealed partial class CustomTableView : Grid
         double horizontalOffset = HorizontalOffset;
         double tableX = surfacePoint.X + horizontalOffset;
         CustomTableColumnLayoutSnapshot layout = GetColumnLayoutSnapshot();
-        if (surfacePoint.Y < HeaderHeight)
+        CustomTableRowGeometry rowGeometry = RowGeometry;
+        double headerHeight = rowGeometry.HeaderHeight;
+        if (surfacePoint.Y < headerHeight)
         {
             if (layout.TryResolveResizeColumn(surfacePoint.X, ColumnResizeHitTestMargin, out CustomTableColumnLayoutEntry resizeEntry, out Rect resizeRect))
             {
                 return new CustomTableHitTestResult(CustomTableHitKind.HeaderResize, -1, null, resizeEntry.Column, resizeEntry.ColumnIndex, resizeRect);
             }
             bool hasHeaderColumn = layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry headerEntry);
-            Rect headerRect = hasHeaderColumn ? headerEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, 0d, HeaderHeight) : new Rect(0d, 0d, surface.ActualWidth, HeaderHeight);
+            Rect headerRect = hasHeaderColumn ? headerEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, 0d, headerHeight) : new Rect(0d, 0d, surface.ActualWidth, headerHeight);
             return new CustomTableHitTestResult(CustomTableHitKind.Header, -1, null, headerEntry.Column, hasHeaderColumn ? headerEntry.ColumnIndex : -1, headerRect);
         }
         bool hasColumn = layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry cellEntry);
@@ -1444,15 +1471,14 @@ public sealed partial class CustomTableView : Grid
         {
             return CreateEmptyHit();
         }
-        double rowHeight = Math.Max(1d, RowHeight);
-        int rowIndex = FirstVisibleRowIndex + (int)Math.Floor((surfacePoint.Y - HeaderHeight) / rowHeight);
+        int slot = rowGeometry.RowSlotAt(surfacePoint.Y);
+        int rowIndex = FirstVisibleRowIndex + slot;
         IList rows = ItemsSource;
         if (rows == null || rowIndex < 0 || rowIndex >= rows.Count)
         {
             return CreateEmptyHit();
         }
-        double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
-        Rect cellRect = cellEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, rowY, rowHeight);
+        Rect cellRect = cellEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, rowGeometry.RowTop(slot), rowGeometry.RowHeight);
         return new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], cellEntry.Column, cellEntry.ColumnIndex, cellRect);
     }
 
@@ -2690,9 +2716,9 @@ public sealed partial class CustomTableView : Grid
 
     private Rect CreateVisibleCellSlotRect(double columnX, double columnWidth, int rowIndex)
     {
-        double rowHeight = Math.Max(1d, RowHeight);
-        double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
-        double visibleHeight = Math.Min(rowHeight, Math.Max(0d, surface.ActualHeight - rowY));
+        CustomTableRowGeometry rowGeometry = RowGeometry;
+        double rowY = rowGeometry.RowTop(rowIndex - FirstVisibleRowIndex);
+        double visibleHeight = Math.Min(rowGeometry.RowHeight, Math.Max(0d, surface.ActualHeight - rowY));
         return CustomTableColumnLayout.CreateVisibleColumnSlotRect(
             columnX,
             columnWidth,
@@ -2704,9 +2730,9 @@ public sealed partial class CustomTableView : Grid
 
     private Rect CreateVisibleCellInteriorRect(double columnX, double columnWidth, int rowIndex)
     {
-        double rowHeight = Math.Max(1d, RowHeight);
-        double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
-        double visibleHeight = Math.Min(rowHeight, Math.Max(0d, surface.ActualHeight - rowY));
+        CustomTableRowGeometry rowGeometry = RowGeometry;
+        double rowY = rowGeometry.RowTop(rowIndex - FirstVisibleRowIndex);
+        double visibleHeight = Math.Min(rowGeometry.RowHeight, Math.Max(0d, surface.ActualHeight - rowY));
         return CustomTableColumnLayout.CreateVisibleColumnInteriorRect(
             columnX,
             columnWidth,
@@ -2852,15 +2878,13 @@ public sealed partial class CustomTableView : Grid
         {
             return null;
         }
-        double maxTextWidth = Math.Max(1d, hit.Column.Width - 4d);
-        double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        bool wouldTrim = CustomTableTextLayoutCache.WouldTrim(
-            cellValue.Text,
-            maxTextWidth,
-            ResolveTextStyle(cellValue.TextStyle),
-            ScoreFontFamily,
-            pixelsPerDip,
-            CultureInfo.CurrentUICulture);
+        IReadOnlyList<CustomTableColumnLayoutEntry> entries = GetColumnLayoutSnapshot().Entries;
+        if (hit.ColumnIndex < 0 || hit.ColumnIndex >= entries.Count)
+        {
+            return null;
+        }
+        // 描画と同じ基準（セルの内側の幅から文字余白を引いた幅と、レイアウトの自然な幅）で省略を判定する。
+        bool wouldTrim = surface.WouldTrim(cellValue.Text, ResolveTextStyle(cellValue.TextStyle), entries[hit.ColumnIndex]);
         return wouldTrim ? cellValue.Text : null;
     }
 
@@ -2895,6 +2919,15 @@ public sealed partial class CustomTableView : Grid
         return false;
     }
 
+    /// <summary>
+    /// 描画で通知した計数です。テストが描画一回分の結果を読むための観測点です。
+    /// 可視行・可視列の数と文字のレイアウトのヒット数・ミス数は直近一回の描画の値で、描画回数（<see cref="CustomTableRenderStats.RenderCount"/>）だけは表を作ってからの累計です。
+    /// </summary>
+    internal CustomTableRenderStats LastRenderStats { get; private set; }
+
+    /// <summary>表示面が現在WPFへ渡している画像です。解放後はnullです。</summary>
+    internal ImageSource SurfaceImage => surface.Image;
+
     internal void NotifySurfaceRendered(
         int visibleRowCount,
         int visibleColumnCount,
@@ -2908,6 +2941,7 @@ public sealed partial class CustomTableView : Grid
         int textCacheHits = 0,
         int textCacheMisses = 0)
     {
+        LastRenderStats = new CustomTableRenderStats(LastRenderStats.RenderCount + 1, visibleRowCount, visibleColumnCount, textCacheHits, textCacheMisses);
         int visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(visibleRowCount, visibleColumnCount);
         TryLogRenderMetrics(
             redrawReason,
@@ -3002,6 +3036,14 @@ public sealed partial class CustomTableView : Grid
     }
 }
 
+/// <summary>直近一回の描画で通知した計数です。</summary>
+/// <param name="RenderCount">通知した描画の累計回数。</param>
+/// <param name="VisibleRowCount">描いた行数。</param>
+/// <param name="VisibleColumnCount">可視列数。</param>
+/// <param name="TextCacheHits">文字のレイアウトを再利用した回数。</param>
+/// <param name="TextCacheMisses">文字のレイアウトを新しく作った回数。</param>
+internal readonly record struct CustomTableRenderStats(int RenderCount, int VisibleRowCount, int VisibleColumnCount, int TextCacheHits, int TextCacheMisses);
+
 internal static class CustomTableColumnLayout
 {
     internal const double GridLineThickness = 1d;
@@ -3087,656 +3129,5 @@ internal static class CustomTableColumnLayout
         double visibleRight = Math.Min(viewportWidth, interiorRight);
         double interiorHeight = Math.Max(0d, height - GridLineThickness);
         return new Rect(visibleLeft, y, Math.Max(0d, visibleRight - visibleLeft), interiorHeight);
-    }
-
-    internal static Rect CreateColumnSlotRect(double columnX, double columnWidth, double horizontalOffset, double y, double height)
-    {
-        return new Rect(columnX - horizontalOffset, y, Math.Max(0d, columnWidth), height);
-    }
-
-    internal static Rect CreateInteriorRect(Rect slotRect)
-    {
-        if (slotRect.IsEmpty)
-        {
-            return Rect.Empty;
-        }
-        double width = Math.Max(0d, slotRect.Width - GridLineThickness);
-        double height = Math.Max(0d, slotRect.Height - GridLineThickness);
-        return new Rect(slotRect.X, slotRect.Y, width, height);
-    }
-
-    internal static double CreateRightGridLineX(double columnX, double columnWidth, double horizontalOffset)
-    {
-        return columnX + columnWidth - horizontalOffset - GridLineThickness / 2d;
-    }
-
-    internal static double CreateBottomGridLineY(double y, double height)
-    {
-        return y + height - GridLineThickness / 2d;
-    }
-
-    internal static bool IsGridLineFullyVisible(double center, double viewportStart, double viewportEnd)
-    {
-        double halfThickness = GridLineThickness / 2d;
-        return center - halfThickness >= viewportStart
-            && center + halfThickness <= viewportEnd;
-    }
-
-    internal static int CountColumnsWithinViewport(IReadOnlyList<CustomTableColumn> columns, double horizontalOffset, double viewportWidth)
-    {
-        double currentX = 0d;
-        int count = 0;
-        if (columns != null)
-        {
-            foreach (CustomTableColumn column in columns)
-            {
-                double width = column?.Width ?? 0d;
-                if (currentX + width > horizontalOffset && currentX < horizontalOffset + viewportWidth)
-                {
-                    count++;
-                }
-                if (currentX >= horizontalOffset + viewportWidth)
-                {
-                    break;
-                }
-                currentX += width;
-            }
-        }
-        return count;
-    }
-}
-
-internal sealed class CustomTableSurface : FrameworkElement
-{
-    private readonly CustomTableView owner;
-    private readonly CustomTableTextLayoutCache textLayoutCache = new();
-    private DrawingEnvironment drawingEnvironment;
-    private CustomTableTextStyle normalTextStyle;
-    private CustomTableTextStyle boldTextStyle;
-    private CustomTableTextStyle scoreTextStyle;
-    private bool measureRenderDetails;
-
-    // 高さと見出し高はセル群の内容を変えない。行の配置・保持範囲だけを再評価する。
-    private sealed record DrawingEnvironment(
-        CustomTableColumnLayoutSnapshot Layout, double Width, double HorizontalOffset, double RowHeight,
-        double FontSize, FontFamily TextFontFamily, FontFamily ScoreFontFamily, double PixelsPerDip,
-        CultureInfo Culture, CultureInfo UICulture, CustomTablePalette Palette);
-
-    private int renderTextCacheHits;
-    private int renderTextCacheMisses;
-    private long renderRowHighlightTicks;
-    private long renderCellValueTicks;
-    private long renderTextLayoutTicks;
-    private long renderDrawTextTicks;
-
-    /// <summary>行エントリのセル描画を配置し、表全体の背景・見出し・罫線を描画します。</summary>
-    internal CustomTableSurface(CustomTableView owner)
-    {
-        this.owner = owner;
-        ClipToBounds = true;
-        SnapsToDevicePixels = true;
-    }
-
-    /// <summary>文字条件の更新を保持済みセル描画へも反映します。</summary>
-    internal void ClearTextLayoutCache()
-    {
-        textLayoutCache.Clear();
-        owner.ClearRowDrawings();
-    }
-
-    /// <summary>DPI変更後の文字とセル描画を新しい表示倍率で作り直します。</summary>
-    protected override void OnDpiChanged(DpiScale oldDpi, DpiScale newDpi)
-    {
-        base.OnDpiChanged(oldDpi, newDpi);
-        ClearTextLayoutCache();
-        InvalidateVisual();
-    }
-
-    private void UpdateDrawingEnvironment(CustomTableColumnLayoutSnapshot layout, double width)
-    {
-        var next = new DrawingEnvironment(layout, width, owner.HorizontalOffset, Math.Max(1d, owner.RowHeight),
-            owner.TextFontSize, owner.TextFontFamily, owner.ScoreFontFamily, VisualTreeHelper.GetDpi(this).PixelsPerDip,
-            CultureInfo.CurrentCulture, CultureInfo.CurrentUICulture, CustomTablePalette.Current);
-        // 同名でも数値書式を変更したCultureInfoへ交換できるため、参照の変更も確認する。
-        bool valuesChanged = drawingEnvironment != null
-            && (!ReferenceEquals(drawingEnvironment.Culture, next.Culture)
-                || !ReferenceEquals(drawingEnvironment.UICulture, next.UICulture)
-                || !ReferenceEquals(drawingEnvironment.Palette, next.Palette));
-        if (drawingEnvironment != next || valuesChanged)
-        {
-            if (valuesChanged)
-            {
-                owner.InvalidateDisplayValues();
-            }
-            bool textEnvironmentChanged = drawingEnvironment == null || valuesChanged
-                || !drawingEnvironment.FontSize.Equals(next.FontSize)
-                || !Equals(drawingEnvironment.TextFontFamily, next.TextFontFamily)
-                || !Equals(drawingEnvironment.ScoreFontFamily, next.ScoreFontFamily)
-                || !drawingEnvironment.PixelsPerDip.Equals(next.PixelsPerDip);
-            if (textEnvironmentChanged)
-            {
-                ClearTextLayoutCache();
-            }
-            else
-            {
-                // 横移動・列配置・行高は文字キー自身で区別できるため、既存FIFOを残す。
-                owner.ClearRowDrawings();
-            }
-            drawingEnvironment = next;
-        }
-        normalTextStyle = CustomTableTextStyle.Normal.WithFontFamily(next.TextFontFamily).WithFontSize(next.FontSize);
-        boldTextStyle = CustomTableTextStyle.NormalBold.WithFontFamily(next.TextFontFamily).WithFontSize(next.FontSize);
-        scoreTextStyle = CustomTableTextStyle.Score.WithFontFamily(next.TextFontFamily).WithFontSize(next.FontSize);
-    }
-
-    protected override void OnRender(DrawingContext drawingContext)
-    {
-        var renderStopwatch = Stopwatch.StartNew();
-        measureRenderDetails = Net10PerformanceLog.IsEnabled;
-        renderTextCacheHits = 0;
-        renderTextCacheMisses = 0;
-        renderRowHighlightTicks = 0L;
-        renderCellValueTicks = 0L;
-        renderTextLayoutTicks = 0L;
-        renderDrawTextTicks = 0L;
-        double width = ActualWidth;
-        double height = ActualHeight;
-        if (width <= 0d || height <= 0d)
-        {
-            owner.NotifySurfaceRendered(0, 0, 0L, -1d, owner.ConsumeRedrawReason());
-            return;
-        }
-        string redrawReason = owner.ConsumeRedrawReason();
-        CustomTableColumnLayoutSnapshot layout = owner.GetColumnLayoutSnapshot();
-        UpdateDrawingEnvironment(layout, width);
-        DrawBackground(drawingContext, width, height);
-        DrawHeader(drawingContext, layout, width, height);
-        if (owner.IsItemsSourceSwapPending)
-        {
-            renderStopwatch.Stop();
-            owner.NotifySurfaceRendered(
-                visibleRowCount: 0,
-                visibleColumnCount: layout.VisibleColumnCount,
-                renderWorkMs: renderStopwatch.ElapsedMilliseconds,
-                textCacheHitRate: -1d,
-                redrawReason: "pending_items_source_swap_skipped");
-            return;
-        }
-        int visibleRowCount = DrawRows(drawingContext, layout, width, height);
-        DrawRowDropInsertPreview(drawingContext, width, height);
-        renderStopwatch.Stop();
-        owner.NotifySurfaceRendered(
-            visibleRowCount,
-            layout.VisibleColumnCount,
-            renderStopwatch.ElapsedMilliseconds,
-            CustomTableTextLayoutCache.CalculateHitRate(renderTextCacheHits, renderTextCacheMisses),
-            redrawReason,
-            StopwatchTicksToMilliseconds(renderRowHighlightTicks),
-            StopwatchTicksToMilliseconds(renderCellValueTicks),
-            StopwatchTicksToMilliseconds(renderTextLayoutTicks),
-            StopwatchTicksToMilliseconds(renderDrawTextTicks),
-            renderTextCacheHits,
-            renderTextCacheMisses);
-    }
-
-    private static long StopwatchTicksToMilliseconds(long ticks)
-    {
-        return ticks <= 0L ? 0L : (ticks * 1000L) / Stopwatch.Frequency;
-    }
-
-    private void DrawBackground(DrawingContext drawingContext, double width, double height)
-    {
-        drawingContext.DrawRectangle(drawingEnvironment.Palette.RowBackground, null, new Rect(0d, 0d, width, height));
-    }
-
-    private void DrawHeader(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width, double height)
-    {
-        double headerHeight = owner.HeaderHeight;
-        double horizontalOffset = drawingEnvironment.HorizontalOffset;
-        CustomTablePalette palette = drawingEnvironment.Palette;
-        drawingContext.DrawRectangle(palette.HeaderBackground, null, new Rect(0d, 0d, width, headerHeight));
-        foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
-        {
-            CustomTableColumn column = entry.Column;
-            if (column != null)
-            {
-                Rect cellRect = entry.CreateInteriorRect(horizontalOffset, 0d, headerHeight);
-                if (owner.IsReorderSourceColumn(column))
-                {
-                    drawingContext.DrawRectangle(
-                        palette.ReorderSourceHeader,
-                        null,
-                        entry.CreateVisibleInteriorRect(horizontalOffset, width, 0d, headerHeight));
-                }
-                DrawCellText(drawingContext, column.Header, cellRect, palette.DefaultForeground, [], TextAlignment.Center, normalTextStyle);
-                DrawSortGlyph(drawingContext, column, cellRect);
-                double borderX = entry.RightGridLineX(horizontalOffset);
-                if (CustomTableColumnLayout.IsGridLineFullyVisible(borderX, 0d, width))
-                {
-                    drawingContext.DrawLine(palette.HeaderBorder, new Point(borderX, 0d), new Point(borderX, headerHeight));
-                }
-            }
-        }
-        // ツールバーの段数や列の有無によらず、ヘッダー自身が全幅の上枠を所有する。
-        double topGridLineY = CustomTableColumnLayout.GridLineThickness / 2d;
-        if (CustomTableColumnLayout.IsGridLineFullyVisible(topGridLineY, 0d, height))
-        {
-            drawingContext.DrawLine(palette.HeaderBorder, new Point(0d, topGridLineY), new Point(width, topGridLineY));
-        }
-        double bottomGridLineY = CustomTableColumnLayout.CreateBottomGridLineY(0d, headerHeight);
-        if (CustomTableColumnLayout.IsGridLineFullyVisible(bottomGridLineY, 0d, height))
-        {
-            drawingContext.DrawLine(palette.HeaderBorder, new Point(0d, bottomGridLineY), new Point(width, bottomGridLineY));
-        }
-        if (owner.IsColumnReorderPreviewActive)
-        {
-            double insertX = Math.Max(0d, Math.Min(width, owner.ColumnReorderPreviewInsertX));
-            drawingContext.DrawLine(palette.ColumnReorderInsert, new Point(insertX, 0d), new Point(insertX, headerHeight));
-        }
-    }
-
-    private int DrawRows(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width, double height)
-    {
-        IList rows = owner.ItemsSource;
-        int rowCount = rows?.Count ?? 0;
-        if (rowCount == 0)
-        {
-            return 0;
-        }
-        double rowHeight = Math.Max(1d, owner.RowHeight);
-        double y = owner.HeaderHeight;
-        int firstRowIndex = owner.FirstVisibleRowIndex;
-        int drawableRowCapacity = owner.CalculateDrawableRowCapacity();
-        int lastRowExclusive = Math.Min(rowCount, firstRowIndex + drawableRowCapacity);
-        int drawnRows = 0;
-        for (int rowIndex = firstRowIndex; rowIndex < lastRowExclusive && y < height; rowIndex++)
-        {
-            object row = rows[rowIndex];
-            CustomTableRowEntry rowEntry = owner.GetRowEntry(row);
-            bool selected = owner.IsRowSelected(rowIndex);
-            CustomTableColumn currentColumn = owner.GetCurrentCellColumn(rowIndex);
-            CustomTablePalette palette = drawingEnvironment.Palette;
-            long highlightStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
-            bool highlightedWarning = rowEntry.HasHighlightedWarning;
-            if (measureRenderDetails)
-            {
-                renderRowHighlightTicks += Stopwatch.GetTimestamp() - highlightStart;
-            }
-            Brush rowBackground = selected
-                ? palette.SelectedRowBackground
-                : highlightedWarning
-                    ? palette.WarningRowBackground
-                    : (rowIndex & 1) == 1
-                        ? palette.AlternatingRowBackground
-                        : palette.RowBackground;
-            var rowRect = new Rect(0d, y, width, Math.Min(rowHeight, height - y));
-            drawingContext.DrawRectangle(rowBackground, null, rowRect);
-            if (!rowEntry.Drawings.TryGetValue(rowIndex, out CustomTableRowDrawing retained)
-                || retained.Selected != selected || !ReferenceEquals(retained.CurrentColumn, currentColumn))
-            {
-                var drawing = new DrawingGroup();
-                using (DrawingContext cells = drawing.Open())
-                {
-                    DrawRowCells(cells, layout, rowEntry, selected, currentColumn, width, rowHeight);
-                }
-                retained = new CustomTableRowDrawing(drawing, selected, currentColumn);
-                rowEntry.Drawings[rowIndex] = retained;
-            }
-            // セル群は通常行高で記録する。部分行の可視範囲はSurfaceのクリップが決める。
-            drawingContext.PushTransform(new TranslateTransform(0d, y));
-            drawingContext.DrawDrawing(retained.Drawing);
-            drawingContext.Pop();
-            double bottomGridLineY = CustomTableColumnLayout.CreateBottomGridLineY(y, rowHeight);
-            if (CustomTableColumnLayout.IsGridLineFullyVisible(bottomGridLineY, 0d, height))
-            {
-                drawingContext.DrawLine(palette.CellBorder, new Point(0d, bottomGridLineY), new Point(width, bottomGridLineY));
-            }
-            y += rowHeight;
-            drawnRows++;
-        }
-        return drawnRows;
-    }
-
-    private void DrawRowDropInsertPreview(DrawingContext drawingContext, double width, double height)
-    {
-        if (!owner.IsRowDropInsertPreviewActive || width <= 0d || height <= owner.HeaderHeight)
-        {
-            return;
-        }
-        IList rows = owner.ItemsSource;
-        int rowCount = rows?.Count ?? 0;
-        int insertIndex = Math.Max(0, Math.Min(rowCount, owner.RowDropPreviewInsertIndex));
-        int firstRowIndex = owner.FirstVisibleRowIndex;
-        int visibleCapacity = owner.CalculateDrawableRowCapacity();
-        int lastVisibleExclusive = Math.Min(rowCount, firstRowIndex + visibleCapacity);
-        double rowHeight = Math.Max(1d, owner.RowHeight);
-        double y;
-        if (insertIndex <= firstRowIndex)
-        {
-            y = owner.HeaderHeight;
-        }
-        else if (insertIndex >= lastVisibleExclusive)
-        {
-            y = owner.HeaderHeight + Math.Max(0, lastVisibleExclusive - firstRowIndex) * rowHeight;
-        }
-        else
-        {
-            y = owner.HeaderHeight + (insertIndex - firstRowIndex) * rowHeight;
-        }
-        y = Math.Max(owner.HeaderHeight, Math.Min(height, y));
-        drawingContext.DrawLine(drawingEnvironment.Palette.ColumnReorderInsert, new Point(0d, y), new Point(width, y));
-    }
-
-    private void DrawRowCells(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, CustomTableRowEntry row, bool selected, CustomTableColumn currentColumn, double width, double rowHeight)
-    {
-        const double y = 0d;
-        double horizontalOffset = drawingEnvironment.HorizontalOffset;
-        CustomTablePalette palette = drawingEnvironment.Palette;
-        foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
-        {
-            CustomTableColumn column = entry.Column;
-            if (column == null)
-            {
-                continue;
-            }
-            Rect cellRect = entry.CreateInteriorRect(horizontalOffset, y, rowHeight);
-            bool currentCell = currentColumn != null && string.Equals(currentColumn.Id, column.Id, StringComparison.Ordinal);
-            long cellValueStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
-            CustomTableCellValue cellValue = row.GetValue(column, out _);
-            if (measureRenderDetails)
-            {
-                renderCellValueTicks += Stopwatch.GetTimestamp() - cellValueStart;
-            }
-            if (!selected && cellValue.Background != null)
-            {
-                drawingContext.DrawRectangle(cellValue.Background, null, entry.CreateVisibleInteriorRect(horizontalOffset, width, y, rowHeight));
-            }
-            if (currentCell)
-            {
-                drawingContext.DrawRectangle(palette.CurrentCellBackground, null, entry.CreateVisibleInteriorRect(horizontalOffset, width, y, rowHeight));
-            }
-            bool hasTextRuns = cellValue.TextRuns.Count > 0;
-            Brush foreground = hasTextRuns
-                ? cellValue.Foreground
-                : currentCell
-                    ? palette.CurrentCellForeground
-                    : selected
-                        ? palette.SelectedForeground
-                        : cellValue.Foreground;
-            if (cellValue.CellKind == CustomTableCellKind.DownloadIcon)
-            {
-                DrawDownloadIcon(drawingContext, cellValue.Text, cellRect, foreground);
-            }
-            else if (cellValue.CellKind == CustomTableCellKind.StatusIcon)
-            {
-                DrawStatusIcon(drawingContext, cellValue.Text, cellRect, foreground);
-            }
-            else if (cellValue.CellKind == CustomTableCellKind.CheckBox)
-            {
-                DrawCheckBox(drawingContext, cellValue.IsChecked, cellRect, foreground);
-            }
-            else
-            {
-                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.TextRuns, cellValue.Alignment, ResolveCellTextStyle(cellValue.TextStyle));
-            }
-            double borderX = entry.RightGridLineX(horizontalOffset);
-            if (CustomTableColumnLayout.IsGridLineFullyVisible(borderX, 0d, width))
-            {
-                drawingContext.DrawLine(palette.CellBorder, new Point(borderX, y), new Point(borderX, y + rowHeight));
-            }
-        }
-    }
-
-    private CustomTableTextStyle ResolveCellTextStyle(CustomTableTextStyle style)
-    {
-        if (ReferenceEquals(style, CustomTableTextStyle.Normal))
-        {
-            return normalTextStyle;
-        }
-        if (ReferenceEquals(style, CustomTableTextStyle.NormalBold))
-        {
-            return boldTextStyle;
-        }
-        if (ReferenceEquals(style, CustomTableTextStyle.Score))
-        {
-            return scoreTextStyle;
-        }
-        // サイズ適用済みのスタイルを渡された場合も、元の書体・縦補正を保持する。
-        return style.WithFontFamily(drawingEnvironment.TextFontFamily).WithFontSize(drawingEnvironment.FontSize);
-    }
-
-    private void DrawCellText(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground, IReadOnlyList<CustomTableTextRunStyle> textRuns, TextAlignment alignment, CustomTableTextStyle textStyle)
-    {
-        if (string.IsNullOrEmpty(text) || cellRect.Width <= 2d || cellRect.Height <= 1d)
-        {
-            return;
-        }
-        CustomTableTextStyle effectiveTextStyle = textStyle ?? normalTextStyle;
-        double pixelsPerDip = drawingEnvironment.PixelsPerDip;
-        double maxTextWidth = Math.Max(1d, cellRect.Width - CustomTableView.CellTextHorizontalPadding * 2d);
-        double maxTextHeight = Math.Max(Math.Max(1d, cellRect.Height), effectiveTextStyle.FontSize * 2d);
-        long layoutStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
-        FormattedText formattedText = textLayoutCache.GetOrCreate(
-            text,
-            maxTextWidth,
-            maxTextHeight,
-            alignment,
-            effectiveTextStyle,
-            drawingEnvironment.ScoreFontFamily,
-            foreground,
-            textRuns,
-            pixelsPerDip,
-            drawingEnvironment.UICulture,
-            out bool cacheHit);
-        if (measureRenderDetails)
-        {
-            renderTextLayoutTicks += Stopwatch.GetTimestamp() - layoutStart;
-        }
-        if (cacheHit)
-        {
-            renderTextCacheHits++;
-        }
-        else
-        {
-            renderTextCacheMisses++;
-        }
-        double x = cellRect.X + CustomTableView.CellTextHorizontalPadding;
-        double y = cellRect.Y + (cellRect.Height - formattedText.Height) / 2d + effectiveTextStyle.VerticalOffset;
-        if (effectiveTextStyle.TextFormattingMode == TextFormattingMode.Display)
-        {
-            // 画素に合わせて描く文字は、小数の位置へ置くと滲むため、表示倍率に応じた画素の境界へ丸める。
-            x = Math.Round(x * pixelsPerDip, MidpointRounding.AwayFromZero) / pixelsPerDip;
-            y = Math.Round(y * pixelsPerDip, MidpointRounding.AwayFromZero) / pixelsPerDip;
-        }
-        long drawTextStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
-        drawingContext.PushClip(new RectangleGeometry(cellRect));
-        drawingContext.DrawText(formattedText, new Point(x, y));
-        drawingContext.Pop();
-        if (measureRenderDetails)
-        {
-            renderDrawTextTicks += Stopwatch.GetTimestamp() - drawTextStart;
-        }
-    }
-
-    private static void DrawDownloadIcon(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground)
-    {
-        if (string.IsNullOrEmpty(text) || cellRect.Width <= 8d || cellRect.Height <= 8d)
-        {
-            return;
-        }
-        Brush iconBrush = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
-        double size = Math.Max(8d, Math.Min(13d, Math.Min(cellRect.Width - 6d, cellRect.Height - 4d)));
-        double centerX = cellRect.Left + cellRect.Width / 2d;
-        double top = cellRect.Top + Math.Max(1d, (cellRect.Height - size) / 2d);
-        double bottom = top + size;
-        double trayY = bottom - 2d;
-        var pen = new Pen(iconBrush, 1.7d)
-        {
-            StartLineCap = PenLineCap.Square,
-            EndLineCap = PenLineCap.Square
-        };
-        if (pen.CanFreeze)
-        {
-            pen.Freeze();
-        }
-        var arrow = new StreamGeometry();
-        using (StreamGeometryContext context = arrow.Open())
-        {
-            context.BeginFigure(new Point(centerX, top), isFilled: false, isClosed: false);
-            context.LineTo(new Point(centerX, trayY - 3d), isStroked: true, isSmoothJoin: false);
-            context.BeginFigure(new Point(centerX - 4d, trayY - 7d), isFilled: false, isClosed: false);
-            context.LineTo(new Point(centerX, trayY - 3d), isStroked: true, isSmoothJoin: false);
-            context.LineTo(new Point(centerX + 4d, trayY - 7d), isStroked: true, isSmoothJoin: false);
-            context.BeginFigure(new Point(centerX - 6d, trayY), isFilled: false, isClosed: false);
-            context.LineTo(new Point(centerX - 6d, bottom), isStroked: true, isSmoothJoin: false);
-            context.LineTo(new Point(centerX + 6d, bottom), isStroked: true, isSmoothJoin: false);
-            context.LineTo(new Point(centerX + 6d, trayY), isStroked: true, isSmoothJoin: false);
-        }
-        arrow.Freeze();
-        drawingContext.DrawGeometry(null, pen, arrow);
-    }
-
-    private static void DrawStatusIcon(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground)
-    {
-        if (string.IsNullOrEmpty(text) || cellRect.Width <= 6d || cellRect.Height <= 6d)
-        {
-            return;
-        }
-        if (!Enum.TryParse(text, out CustomTableStatusIconKind iconKind) || iconKind == CustomTableStatusIconKind.None)
-        {
-            return;
-        }
-        Brush iconBrush = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
-        double size = Math.Max(7d, Math.Min(12d, Math.Min(cellRect.Width - 4d, cellRect.Height - 4d)));
-        double left = cellRect.Left + (cellRect.Width - size) / 2d;
-        double top = cellRect.Top + (cellRect.Height - size) / 2d;
-        var iconRect = new Rect(left, top, size, size);
-        var pen = new Pen(iconBrush, 1.5d)
-        {
-            StartLineCap = PenLineCap.Round,
-            EndLineCap = PenLineCap.Round,
-            LineJoin = PenLineJoin.Round
-        };
-        if (pen.CanFreeze)
-        {
-            pen.Freeze();
-        }
-        switch (iconKind)
-        {
-            case CustomTableStatusIconKind.Forward:
-                DrawTrianglePair(drawingContext, iconBrush, iconRect, forward: true);
-                break;
-            case CustomTableStatusIconKind.Backward:
-                DrawTrianglePair(drawingContext, iconBrush, iconRect, forward: false);
-                break;
-            case CustomTableStatusIconKind.Play:
-                DrawTriangle(drawingContext, iconBrush, new Point(iconRect.Left + 2d, iconRect.Top + 1d), new Point(iconRect.Left + 2d, iconRect.Bottom - 1d), new Point(iconRect.Right - 1d, iconRect.Top + iconRect.Height / 2d));
-                break;
-            case CustomTableStatusIconKind.Loading:
-                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Left + 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
-                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Left + iconRect.Width / 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
-                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Right - 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
-                break;
-            case CustomTableStatusIconKind.Pause:
-                drawingContext.DrawRectangle(iconBrush, null, new Rect(iconRect.Left + 2d, iconRect.Top + 1d, 2d, iconRect.Height - 2d));
-                drawingContext.DrawRectangle(iconBrush, null, new Rect(iconRect.Right - 4d, iconRect.Top + 1d, 2d, iconRect.Height - 2d));
-                break;
-            case CustomTableStatusIconKind.Searching:
-                drawingContext.DrawEllipse(null, pen, new Point(iconRect.Left + iconRect.Width * 0.43d, iconRect.Top + iconRect.Height * 0.43d), iconRect.Width * 0.28d, iconRect.Height * 0.28d);
-                drawingContext.DrawLine(pen, new Point(iconRect.Left + iconRect.Width * 0.63d, iconRect.Top + iconRect.Height * 0.63d), new Point(iconRect.Right - 1d, iconRect.Bottom - 1d));
-                break;
-            case CustomTableStatusIconKind.ScoreUnsent:
-                DrawRefreshIcon(drawingContext, iconBrush, pen, iconRect);
-                break;
-        }
-    }
-
-    private void DrawCheckBox(DrawingContext drawingContext, bool? isChecked, Rect cellRect, Brush foreground)
-    {
-        if (!isChecked.HasValue || cellRect.Width <= 8d || cellRect.Height <= 8d)
-        {
-            return;
-        }
-        double size = Math.Max(8d, Math.Min(12d, Math.Min(cellRect.Width - 4d, cellRect.Height - 4d)));
-        double left = cellRect.Left + (cellRect.Width - size) / 2d;
-        double top = cellRect.Top + (cellRect.Height - size) / 2d;
-        var rect = new Rect(left, top, size, size);
-        CustomTablePalette palette = drawingEnvironment.Palette;
-        drawingContext.DrawRectangle(palette.CheckBoxBackground, palette.CheckBoxBorder, rect);
-        if (isChecked.Value)
-        {
-            Pen checkPen = foreground == null || ReferenceEquals(foreground, palette.DefaultForeground)
-                ? palette.CheckBoxCheck
-                : new Pen(foreground, 1.8d);
-            drawingContext.DrawLine(checkPen, new Point(rect.Left + 2.5d, rect.Top + size * 0.55d), new Point(rect.Left + size * 0.43d, rect.Bottom - 2.5d));
-            drawingContext.DrawLine(checkPen, new Point(rect.Left + size * 0.43d, rect.Bottom - 2.5d), new Point(rect.Right - 2d, rect.Top + 2.5d));
-        }
-    }
-
-    private static void DrawRefreshIcon(DrawingContext drawingContext, Brush brush, Pen pen, Rect rect)
-    {
-        var start = new Point(rect.Right - 2d, rect.Top + rect.Height * 0.45d);
-        var end = new Point(rect.Left + 2d, rect.Top + rect.Height * 0.58d);
-        var arc = new StreamGeometry();
-        using (StreamGeometryContext context = arc.Open())
-        {
-            context.BeginFigure(start, isFilled: false, isClosed: false);
-            context.ArcTo(end, new Size(rect.Width * 0.42d, rect.Height * 0.42d), 0d, isLargeArc: true, SweepDirection.Counterclockwise, isStroked: true, isSmoothJoin: false);
-        }
-        arc.Freeze();
-        drawingContext.DrawGeometry(null, pen, arc);
-        DrawTriangle(drawingContext, brush, new Point(end.X, end.Y), new Point(end.X + 4d, end.Y - 1d), new Point(end.X + 2d, end.Y + 3d));
-    }
-
-    private static void DrawTrianglePair(DrawingContext drawingContext, Brush brush, Rect rect, bool forward)
-    {
-        double mid = rect.Left + rect.Width / 2d;
-        if (forward)
-        {
-            DrawTriangle(drawingContext, brush, new Point(rect.Left, rect.Top + 1d), new Point(rect.Left, rect.Bottom - 1d), new Point(mid, rect.Top + rect.Height / 2d));
-            DrawTriangle(drawingContext, brush, new Point(mid - 1d, rect.Top + 1d), new Point(mid - 1d, rect.Bottom - 1d), new Point(rect.Right, rect.Top + rect.Height / 2d));
-        }
-        else
-        {
-            DrawTriangle(drawingContext, brush, new Point(rect.Right, rect.Top + 1d), new Point(rect.Right, rect.Bottom - 1d), new Point(mid, rect.Top + rect.Height / 2d));
-            DrawTriangle(drawingContext, brush, new Point(mid + 1d, rect.Top + 1d), new Point(mid + 1d, rect.Bottom - 1d), new Point(rect.Left, rect.Top + rect.Height / 2d));
-        }
-    }
-
-    private static void DrawTriangle(DrawingContext drawingContext, Brush brush, Point p1, Point p2, Point p3)
-    {
-        var geometry = new StreamGeometry();
-        using (StreamGeometryContext context = geometry.Open())
-        {
-            context.BeginFigure(p1, isFilled: true, isClosed: true);
-            context.LineTo(p2, isStroked: true, isSmoothJoin: false);
-            context.LineTo(p3, isStroked: true, isSmoothJoin: false);
-        }
-        geometry.Freeze();
-        drawingContext.DrawGeometry(brush, null, geometry);
-    }
-
-    private void DrawSortGlyph(DrawingContext drawingContext, CustomTableColumn column, Rect cellRect)
-    {
-        if (column == null || string.IsNullOrWhiteSpace(column.SortMemberPath) || !string.Equals(column.SortMemberPath, owner.SortColumnName, StringComparison.Ordinal) || !owner.SortDirection.HasValue || cellRect.Width < 8d || cellRect.Height < 8d)
-        {
-            return;
-        }
-        double centerX = cellRect.Left + cellRect.Width / 2d;
-        double top = cellRect.Top + 1d;
-        double bottom = top + 3.5d;
-        bool ascending = owner.SortDirection == ListSortDirection.Ascending;
-        Point p1 = ascending ? new Point(centerX, top) : new Point(centerX, bottom);
-        Point p2 = ascending ? new Point(centerX - 3d, bottom) : new Point(centerX - 3d, top);
-        Point p3 = ascending ? new Point(centerX + 3d, bottom) : new Point(centerX + 3d, top);
-        var geometry = new StreamGeometry();
-        using (StreamGeometryContext context = geometry.Open())
-        {
-            context.BeginFigure(p1, isFilled: true, isClosed: true);
-            context.LineTo(p2, isStroked: true, isSmoothJoin: false);
-            context.LineTo(p3, isStroked: true, isSmoothJoin: false);
-        }
-        geometry.Freeze();
-        drawingContext.DrawGeometry(drawingEnvironment.Palette.SortGlyph, null, geometry);
     }
 }

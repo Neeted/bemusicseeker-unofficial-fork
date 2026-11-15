@@ -918,28 +918,15 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("Artist", column.Id);
         Assert.AreEqual(1, columnIndex);
         Assert.AreEqual(100d, columnX);
-        Assert.AreEqual(3, CustomTableColumnLayout.CountColumnsWithinViewport(columns, horizontalOffset: 90, viewportWidth: 100));
-        Rect slotRect = CustomTableColumnLayout.CreateColumnSlotRect(0, 100, 25, 0, 20);
         Rect visibleSlotRect = CustomTableColumnLayout.CreateVisibleColumnSlotRect(0, 100, 25, 100, 0, 20);
-        Rect interiorRect = CustomTableColumnLayout.CreateInteriorRect(slotRect);
         Rect visibleInteriorRect = CustomTableColumnLayout.CreateVisibleColumnInteriorRect(0, 100, 25, 100, 0, 20);
         Rect clippedVisibleInteriorRect = CustomTableColumnLayout.CreateVisibleColumnInteriorRect(0, 150, 25, 100, 0, 20);
         Rect partiallyClippedGridLineInteriorRect = CustomTableColumnLayout.CreateVisibleColumnInteriorRect(0, 100, 0, 99.5, 0, 20);
-        Assert.AreEqual(-25d, slotRect.X);
-        Assert.AreEqual(100d, slotRect.Width);
         Assert.AreEqual(0d, visibleSlotRect.X);
         Assert.AreEqual(75d, visibleSlotRect.Width);
-        Assert.AreEqual(-25d, interiorRect.X);
-        Assert.AreEqual(99d, interiorRect.Width);
-        Assert.AreEqual(19d, interiorRect.Height);
         Assert.AreEqual(74d, visibleInteriorRect.Width);
         Assert.AreEqual(100d, clippedVisibleInteriorRect.Width);
         Assert.AreEqual(99d, partiallyClippedGridLineInteriorRect.Width);
-        Assert.AreEqual(74.5d, CustomTableColumnLayout.CreateRightGridLineX(0, 100, 25));
-        Assert.IsTrue(CustomTableColumnLayout.IsGridLineFullyVisible(74.5d, 0d, 75d));
-        Assert.IsTrue(CustomTableColumnLayout.IsGridLineFullyVisible(0.5d, 0d, 75d));
-        Assert.IsFalse(CustomTableColumnLayout.IsGridLineFullyVisible(75d, 0d, 75d));
-        Assert.IsFalse(CustomTableColumnLayout.IsGridLineFullyVisible(0d, 0d, 75d));
     }
 
     /// <summary>題名とURL列の端では幅変更を受理し、状態列の固定幅は維持することを確認します。</summary>
