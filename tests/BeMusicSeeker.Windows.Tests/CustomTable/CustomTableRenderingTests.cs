@@ -4,8 +4,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.Views;
 
@@ -646,8 +649,8 @@ public sealed class CustomTableRenderingTests
             finally { Release(table); }
         });
     }
-    /// <summary>実際に表示した表を読み込み解除すると表示面のビットマップを保持せず、解除の間の変更が再読み込み後の最初の描画へ反映されることを確認します。</summary>
-    /// <remarks>読み込み解除のあとも大きなビットマップを持ち続ける誤りと、再表示で古い描画を使う誤りを検出します。</remarks>
+    /// <summary>実際に表示した表を読み込み解除すると表示面の画像と描画先を保持せず、解除の間の変更が再読み込み後の最初の描画へ反映されることを確認します。</summary>
+    /// <remarks>読み込み解除のあとも大きな描画先や画像を持ち続ける誤りと、再表示で古い描画を使う誤りを検出します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void Unloaded_ReleasesTheSurfaceImageAndReloadDrawsTheLatestState()
@@ -671,7 +674,7 @@ public sealed class CustomTableRenderingTests
                 window.Content = null;
                 TestUiDispatcherHost.ProcessQueuedBackground();
                 Assert.IsFalse(table.IsLoaded);
-                Assert.IsNull(table.SurfaceImage, "読み込み解除のあとは表示面のビットマップを保持しません。");
+                Assert.IsNull(table.SurfaceImage, "読み込み解除のあとは表示面の画像と描画先を保持しません。");
                 table.SelectedIndex = 2;
                 window.Content = table;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -728,6 +731,168 @@ public sealed class CustomTableRenderingTests
                 AppThemeService.ApplyTheme(originalTheme);
                 window.Content = null; table.ItemsSource = null; window.Close();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+            }
+        });
+    }
+
+    /// <summary>
+    /// GPU経路の資源の生成（Direct3D 11のデバイス、Direct3D 9Exのデバイス、共有面）が失敗しても、表が例外を出さずにCPU側のビットマップで描かれ、
+    /// 100%と175%で背景・罫線・選択・見出し・文字の位置と色が契約どおりで、切替えを診断ログへ一回だけ記録することを確認します。
+    /// 再描画してもCPU経路を保ち、ログを増やしません。注入した失敗が使われた（GPU経路を試した）ときだけ、ログが一回あることを求めます。
+    /// </summary>
+    /// <remarks>
+    /// 生成の失敗で表示を失う誤り、例外を表の外へ出す誤り、CPU経路の画素が契約を外れる誤り、切替えを記録しない・繰り返し記録する誤りを検出します。
+    /// WPFがソフトウェアで描画している環境ではGPU経路を試さないため、注入は使われず、ログも出ません。
+    /// </remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    [DataRow(nameof(CustomTableDisplayFaultPoint.Direct3D11Device), 1d)]
+    [DataRow(nameof(CustomTableDisplayFaultPoint.Direct3D9Device), 1d)]
+    [DataRow(nameof(CustomTableDisplayFaultPoint.SharedSurface), 1d)]
+    [DataRow(nameof(CustomTableDisplayFaultPoint.Direct3D11Device), 1.75d)]
+    [DataRow(nameof(CustomTableDisplayFaultPoint.SharedSurface), 1.75d)]
+    public async Task GpuCreationFailure_DrawsWithTheCpuBitmapAndLogsTheSwitchOnce(string pointName, double dpi)
+    {
+        CustomTableDisplayFaultPoint point = Enum.Parse<CustomTableDisplayFaultPoint>(pointName);
+        await ApplicationLoggingTestScope.RunAsync(scope =>
+        {
+            string logPath = scope.ConfigureFileLog();
+            var faults = new CustomTableDisplayFaults();
+            faults.FailCreation(point);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                CustomTableView table = CustomTableDisplayPathTestKit.Create(dpi, beforeFirstRender: surface => surface.DisplayFaults = faults);
+                try
+                {
+                    Assert.IsInstanceOfType<WriteableBitmap>(table.SurfaceImage, "生成に失敗した表はCPU側のビットマップで描きます。");
+                    CustomTableDisplayPathTestKit.AssertContract(table, CustomTableRenderProbe.Read(table), dpi);
+                    CustomTableDisplayPathTestKit.AssertContract(table, CustomTableRenderProbe.Redraw(table), dpi);
+                    Assert.IsInstanceOfType<WriteableBitmap>(table.SurfaceImage, "再描画してもCPU経路を保ちます。");
+                }
+                finally { CustomTableDisplayPathTestKit.Release(table); }
+            });
+            TestUiDispatcherHost.AssertNoUnhandledExceptions("GPU経路の生成の失敗");
+            bool gpuAttempted = faults.RemainingCreationFailures(point) == 0;
+            string log = ApplicationLoggingTestScope.ReadFileLog(logPath);
+            Assert.AreEqual(gpuAttempted ? 1 : 0, System.Text.RegularExpressions.Regex.Count(log, "custom table display switched to the CPU path"),
+                "切替えは表ごとに一度だけ、診断ログへ記録します。");
+            return Task.CompletedTask;
+        });
+    }
+
+    /// <summary>実際の窓の描画方式（<c>HwndTarget.RenderMode</c>）をソフトウェアにすると、その窓の中の表がCPU側のビットマップで描かれ、画素が契約を満たすことを確認します。</summary>
+    /// <remarks>WPFがソフトウェアで描画している窓でGPU経路を選び、合成が遅くなる・描けない誤りを検出します。窓は所有する実Windowだけで、プロセスの描画方式は変えません。</remarks>
+    [TestMethod]
+    public void WindowInSoftwareRenderMode_DrawsWithTheCpuBitmap()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CustomTableView table = CustomTableDisplayPathTestKit.Build();
+            var window = new Window { Width = 420d, Height = 200d, Content = table };
+            window.SourceInitialized += (_, _) =>
+            {
+                if (PresentationSource.FromVisual(window) is HwndSource { CompositionTarget: { } target })
+                {
+                    target.RenderMode = RenderMode.SoftwareOnly;
+                }
+            };
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                var source = (HwndSource)PresentationSource.FromVisual(window)!;
+                Assert.AreEqual(RenderMode.SoftwareOnly, source.CompositionTarget.RenderMode, "窓の描画方式がソフトウェアになっています（前提）。");
+                // 最初の描画は窓の描画方式を設定する前に終わり得るため、資源を解放して、ソフトウェアの窓の中で生成し直させる。
+                table.ApplyVisibilityChanged(false);
+                Assert.IsNull(table.SurfaceImage);
+                table.ApplyVisibilityChanged(true);
+                table.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsInstanceOfType<WriteableBitmap>(table.SurfaceImage, "ソフトウェアで描画する窓の表はCPU経路です。");
+                CustomTableDisplayPathTestKit.AssertContract(table, CustomTableRenderProbe.Read(table), VisualTreeHelper.GetDpi(table).PixelsPerDip);
+            }
+            finally { CustomTableDisplayPathTestKit.Release(table); }
+        });
+    }
+
+    /// <summary>
+    /// 窓のない表を寸法Aで描いた後に寸法Bで配置し直すと、画像の画素寸法がBになり、右下を含む全面がBを新しく描いた表と画素まで一致し、Aの画素が残らないことを、100%と175%で確認します。
+    /// </summary>
+    /// <remarks>寸法が変わっても描画先と画像を作り直さない誤り、新しい寸法で全面を描かず古い画素が残る誤り、画像の寸法が倍率とずれる誤りを検出します。経路は製品が選んだものを使い、同じ経路どうしを比べます。</remarks>
+    [TestMethod]
+    [DataRow(1d)]
+    [DataRow(1.75d)]
+    public void Resize_RecreatesTheTargetAndDrawsTheWholeNewSurface(double dpi)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView? table = null;
+            CustomTableView? fresh = null;
+            try
+            {
+                table = CustomTableDisplayPathTestKit.Create(dpi);
+                fresh = CustomTableDisplayPathTestKit.Create(dpi, width: 360d, height: 130d);
+                SurfacePixels small = CustomTableRenderProbe.Read(table);
+                table.Width = 360d;
+                table.Height = 130d;
+                CustomTableRenderProbe.Arrange(table, 360d, 130d);
+                SurfacePixels resized = CustomTableRenderProbe.Read(table);
+                Assert.AreNotEqual(small.Width, resized.Width, "寸法が変わっています。");
+                Assert.AreEqual(Px(360d, dpi), resized.Width, "画像の幅は新しい寸法の物理画素です。");
+                Assert.AreEqual(table.RowGeometry.SurfaceHeightPx, resized.Height, "画像の高さは新しい寸法の物理画素です。");
+                Assert.IsTrue(resized.SameAs(CustomTableRenderProbe.Read(fresh)), "全面が、新しい寸法で描いた表と画素まで一致します。古い寸法の画素は残りません。");
+                Assert.AreEqual(Solid(CustomTablePalette.Current.RowBackground), resized.GetColor(resized.Width - 2, resized.Height - 2), "右下の画素も新しい寸法で描きます。");
+            }
+            finally
+            {
+                CustomTableDisplayPathTestKit.Release(fresh);
+                CustomTableDisplayPathTestKit.Release(table);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 二つの表のうち表Aを非表示にして資源を解放しても、表Bの再描画が新しい状態の正しい画素になり、表Aを再表示すると、非表示の間に変えた最新の状態で描かれることを確認します。
+    /// </summary>
+    /// <remarks>表どうしで面（描画先・ブラシ・画像）を共有し、片方の面の解放がもう片方の描画を壊す誤り、表の解放で共有のデバイスまで解放する誤りと、再表示で古い状態を描く誤りを検出します。</remarks>
+    [TestMethod]
+    public void HidingOneTable_DoesNotAffectAnotherTableAndRevealRedrawsTheLatestState()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView? first = null;
+            CustomTableView? second = null;
+            CustomTableView? expectedSecond = null;
+            CustomTableView? expectedFirst = null;
+            try
+            {
+                first = CustomTableDisplayPathTestKit.Create(1d);
+                second = CustomTableDisplayPathTestKit.Create(1d, selectedIndex: 2);
+                // 比較の対象は、解放を挟まずに同じ操作をした表です。現在セルなどの状態が、初期の選択だけの表とは異なるためです。
+                expectedSecond = CustomTableDisplayPathTestKit.Create(1d, selectedIndex: 2);
+                expectedFirst = CustomTableDisplayPathTestKit.Create(1d, selectedIndex: 1);
+                first.ApplyVisibilityChanged(false);
+                Assert.IsNull(first.SurfaceImage, "非表示にした表は画像と描画先を解放します。");
+                second.SelectedIndex = 0;
+                expectedSecond.SelectedIndex = 0;
+                SurfacePixels secondPixels = CustomTableRenderProbe.Redraw(second);
+                SurfacePixels expectedSecondPixels = CustomTableRenderProbe.Redraw(expectedSecond);
+                Assert.IsTrue(secondPixels.SameAs(expectedSecondPixels), "解放した表の影響を受けず、新しい状態を描きます。" + secondPixels.DescribeDifference(expectedSecondPixels));
+
+                first.SelectedIndex = 2;
+                expectedFirst.SelectedIndex = 2;
+                first.ApplyVisibilityChanged(true);
+                first.UpdateLayout();
+                Assert.IsNotNull(first.SurfaceImage, "再表示で描き直します。");
+                SurfacePixels firstPixels = CustomTableRenderProbe.Read(first);
+                SurfacePixels expectedFirstPixels = CustomTableRenderProbe.Redraw(expectedFirst);
+                Assert.IsTrue(firstPixels.SameAs(expectedFirstPixels), "非表示の間に変えた最新の状態で描きます。" + firstPixels.DescribeDifference(expectedFirstPixels));
+            }
+            finally
+            {
+                CustomTableDisplayPathTestKit.Release(expectedFirst);
+                CustomTableDisplayPathTestKit.Release(expectedSecond);
+                CustomTableDisplayPathTestKit.Release(second);
+                CustomTableDisplayPathTestKit.Release(first);
             }
         });
     }

@@ -674,9 +674,9 @@ public sealed class CustomTablePhase6CacheTests
 
     /// <summary>
     /// 非表示中の無通知変更と同じ行参照を含むソース交換から復帰しても、最新の文字・警告を表示することを確認します。
-    /// 非表示と読み込み解除（<c>ItemsSource=null</c>）のあとは表示面のビットマップを保持せず、再表示後の最初の描画では可視の全文字列を新しく整形します。
+    /// 非表示と読み込み解除（<c>ItemsSource=null</c>）のあとは表示面の画像と描画先を保持せず、再表示後の最初の描画では可視の全文字列を新しく整形します。
     /// </summary>
-    /// <remarks>非表示の間も大きなビットマップや文字のレイアウトを持ち続ける誤り、再表示で古い描画や古いレイアウトを使う誤りを検出します。</remarks>
+    /// <remarks>非表示の間も大きな描画先や画像（GPU経路の面）と文字のレイアウトを持ち続ける誤り、再表示で古い描画や古いレイアウトを使う誤りを検出します。</remarks>
     [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
@@ -691,7 +691,7 @@ public sealed class CustomTablePhase6CacheTests
                 RenderExistingTable(view);
                 Assert.IsNotNull(view.SurfaceImage);
                 view.ApplyVisibilityChanged(false);
-                Assert.IsNull(view.SurfaceImage, "非表示の間は表示面のビットマップを保持しません。");
+                Assert.IsNull(view.SurfaceImage, "非表示の間は表示面の画像と描画先を保持しません。");
                 row.Text = "changed while hidden";
                 row.HasHighlightedWarning = true;
                 if (swapSource)
@@ -715,7 +715,7 @@ public sealed class CustomTablePhase6CacheTests
                     Assert.AreEqual(2, view.LastRenderStats.TextCacheMisses);
                 }
                 view.ItemsSource = null;
-                Assert.IsNull(view.SurfaceImage, "読み込み解除のあとは表示面のビットマップを保持しません。");
+                Assert.IsNull(view.SurfaceImage, "読み込み解除のあとは表示面の画像と描画先を保持しません。");
                 TestUiDispatcherHost.AssertNoUnhandledExceptions("show-hide-cycle");
             }
             finally { ReleaseTable(view); }

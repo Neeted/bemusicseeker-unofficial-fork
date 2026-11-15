@@ -287,10 +287,10 @@ License Text: third_party/licenses/21-Walkure-MIT.txt
 Redistribution Notes: Retain the copyright notice and complete MIT license with the model and fixtures.
 
 ================================================================================
-22) Vortice.Windows (Direct2D / DirectWrite managed bindings)
+22) Vortice.Windows (Direct2D / DirectWrite / Direct3D managed bindings)
 ================================================================================
 Status: GREEN
-Component: Vortice.Direct2D1.dll, Vortice.DXGI.dll, Vortice.DirectX.dll, Vortice.Mathematics.dll (Vortice.Direct2D1 3.8.3, Vortice.Mathematics 2.1.0)
+Component: Vortice.Direct2D1.dll, Vortice.Direct3D11.dll, Vortice.Direct3D9.dll, Vortice.DXGI.dll, Vortice.DirectX.dll, Vortice.Mathematics.dll (Vortice.Direct2D1 3.8.3, Vortice.Direct3D11 3.8.3, Vortice.Direct3D9 3.8.3, Vortice.Mathematics 2.1.0)
 Copyright: Copyright (c) Amer Koleci and Contributors
 License: MIT (NuGet license expression)
 Source: https://github.com/amerkoleci/Vortice.Windows, https://github.com/amerkoleci/Vortice.Mathematics

@@ -107,6 +107,7 @@ public sealed class VerificationPlanTests
     [DataRow("everything-native-path-identity", 60)]
     [DataRow("audio-encoders", 60)]
     [DataRow("audio-encoder-child", 60)]
+    [DataRow("table-gpu", 60)]
     public void RegisteredCompatibilitySuiteSelectsOneReleaseModule(string suite, int timeoutSeconds)
     {
         var plan = VerificationPlan.Parse(["compatibility", "--suite", suite], 8);

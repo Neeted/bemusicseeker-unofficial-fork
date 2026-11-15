@@ -13,8 +13,9 @@ using RawRectF = Vortice.RawRectF;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// 一覧の表示面です。背景・見出し・行・挿入線の全面を、物理画素の寸法のビットマップへDirect2D/DirectWriteで描き、
-/// WPFへ一枚の画像として置きます。描画は <see cref="OnRender"/> の中で同期的に完結します。
+/// 一覧の表示面です。背景・見出し・行・挿入線の全面を、物理画素の寸法の描画先へDirect2D/DirectWriteで描き、
+/// WPFへ一枚の画像として置きます。描画先と画像は表示経路（<see cref="CustomTableDisplaySurface"/>）が持ち、GPU合成かCPU側のビットマップかを選びます。
+/// 描画は <see cref="OnRender"/> の中で同期的に完結し、描画の内容は経路によらず同じ描画先への呼出しです。
 /// 行やセルの描画結果は保持せず、保持するのは文字のレイアウトだけです。
 /// </summary>
 internal sealed partial class CustomTableSurface : FrameworkElement
@@ -57,6 +58,12 @@ internal sealed partial class CustomTableSurface : FrameworkElement
     /// <summary>表示面が現在WPFへ渡している画像です。解放後と、描く前はnullです。</summary>
     internal ImageSource Image => display?.Image;
 
+    /// <summary>
+    /// 表示経路の失敗を再現する、この表示面だけの故障注入の設定です。既定はnullで、テストだけが設定します。
+    /// 設定の内容は <see cref="CustomTableDisplayFaults"/> が定めます。
+    /// </summary>
+    internal CustomTableDisplayFaults DisplayFaults { get; set; }
+
     /// <summary>表示倍率です。</summary>
     internal double PixelsPerDip => VisualTreeHelper.GetDpi(this).PixelsPerDip;
 
@@ -66,7 +73,10 @@ internal sealed partial class CustomTableSurface : FrameworkElement
         textLayoutCache.Clear();
     }
 
-    /// <summary>表示面のビットマップ、描画先、ブラシ、文字のレイアウトを解放します。再び描くときは最新の状態から作り直します。</summary>
+    /// <summary>
+    /// 表示経路の面（描画先、画像、ブラシ）と文字のレイアウトをすべて解放します。プロセスで共有するGPUのデバイスは解放しません。再び描くときは最新の状態から作り直し、
+    /// CPU経路へ切り替えていた表も、改めてGPU経路を試します。非表示・読み込み解除・<c>ItemsSource</c> のnullで呼ばれる、解放の唯一の経路です。
+    /// </summary>
     internal void ReleaseDrawingResources()
     {
         display?.Dispose();
@@ -165,9 +175,8 @@ internal sealed partial class CustomTableSurface : FrameworkElement
         UpdateDrawingEnvironment(ppd);
         // 保持範囲（可視行と上下の余白の行）の可視列のセルと見出しは、幅なしと幅つきの二つを持ち得る。
         textLayoutCache.EnsureCapacity(2 * (rowGeometry.DrawableRowCapacity + 2 * CustomTableView.RowSubscriptionOverscan + 1) * Math.Max(1, layout.VisibleColumnCount));
-        display ??= new CustomTableDisplaySurface();
-        display.Prepare(width, height, ppd);
-        display.TrimBrushes();
+        display ??= new CustomTableDisplaySurface(() => DisplayFaults, InvalidateVisual);
+        display.BeginRequest();
         pixelsPerDip = ppd;
         widthPx = width;
         heightPx = height;
@@ -175,36 +184,12 @@ internal sealed partial class CustomTableSurface : FrameworkElement
         rowHeightPx = rowGeometry.RowHeightPx;
         headerHeightPx = rowGeometry.HeaderHeightPx;
         drawableRowCapacity = rowGeometry.DrawableRowCapacity;
-        target = display.Target;
         int visibleRowCount = 0;
         bool swapPending = owner.IsItemsSourceSwapPending;
-        bool completed = false;
-        target.BeginDraw();
-        try
+        // 描画先の作り直しやデバイスの消失からの復旧で、同じ描画要求の中で一回だけ描き直す。文字のレイアウトと行の表示値は復旧で失わない。
+        while (!TryDrawFrame(layout, width, height, ppd, swapPending, out visibleRowCount))
         {
-            DrawBackground();
-            DrawHeader(layout);
-            if (!swapPending)
-            {
-                visibleRowCount = DrawRows(layout);
-                DrawRowDropInsertPreview();
-            }
-            completed = true;
         }
-        finally
-        {
-            SharpGen.Runtime.Result endResult = target.EndDraw();
-            if (!completed || endResult.Failure)
-            {
-                // 描画の途中や終端で失敗した資源は再利用せず、次の描画で作り直す。
-                ReleaseDrawingResources();
-            }
-            if (completed)
-            {
-                endResult.CheckError();
-            }
-        }
-        display.Present();
         drawingContext.DrawImage(display.Image, new Rect(new Point(0d, 0d), display.ImageSize));
         renderStopwatch.Stop();
         if (swapPending)
@@ -229,6 +214,54 @@ internal sealed partial class CustomTableSurface : FrameworkElement
             StopwatchTicksToMilliseconds(renderDrawTextTicks),
             renderTextCacheHits,
             renderTextCacheMisses);
+    }
+
+    /// <summary>
+    /// 描画の試行を一回行います。表示経路を用意して全面を描き、終端が成功すれば画素をWPFへ反映してtrueを返します。
+    /// 描画先の作り直しの要求かデバイスの消失で終端が失敗し、表示経路が復旧の準備を終えたときはfalseを返し、呼び出し側が描き直します。
+    /// それ以外の失敗は、資源を解放して例外を再送出します。
+    /// </summary>
+    private bool TryDrawFrame(CustomTableColumnLayoutSnapshot layout, int width, int height, double ppd, bool swapPending, out int visibleRowCount)
+    {
+        visibleRowCount = 0;
+        display.Prepare(width, height, ppd, this);
+        display.TrimBrushes();
+        target = display.Target;
+        bool completed = false;
+        SharpGen.Runtime.Result endResult;
+        target.BeginDraw();
+        try
+        {
+            DrawBackground();
+            DrawHeader(layout);
+            if (!swapPending)
+            {
+                visibleRowCount = DrawRows(layout);
+                DrawRowDropInsertPreview();
+            }
+            completed = true;
+        }
+        finally
+        {
+            endResult = display.EndDraw();
+            if (!completed)
+            {
+                // 描画の途中で失敗した資源は再利用せず、次の描画で作り直す。
+                ReleaseDrawingResources();
+            }
+        }
+        if (endResult.Failure)
+        {
+            if (display.TryRecover(endResult))
+            {
+                target = null;
+                return false;
+            }
+            // 復旧できない終端の失敗は、資源を再利用せず、次の描画で作り直す。
+            ReleaseDrawingResources();
+            endResult.CheckError();
+        }
+        return display.TryPresent();
     }
 
     private static long StopwatchTicksToMilliseconds(long ticks)

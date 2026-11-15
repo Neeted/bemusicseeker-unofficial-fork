@@ -53,7 +53,7 @@ internal static class CustomTableRenderResources
     {
         DWriteFactory = DWrite.DWrite.DWriteCreateFactory<DWrite.IDWriteFactory>(DWrite.FactoryType.Shared);
         SystemFonts = DWriteFactory.GetSystemFontCollection(false);
-        D2DFactory = D2D.D2D1.D2D1CreateFactory<D2D.ID2D1Factory>(D2D.FactoryType.MultiThreaded, D2D.DebugLevel.None);
+        D2DFactory = D2D.D2D1.D2D1CreateFactory<D2D.ID2D1Factory1>(D2D.FactoryType.MultiThreaded, D2D.DebugLevel.None);
         WicFactory = new Wic.IWICImagingFactory();
         SquareCapStroke = D2DFactory.CreateStrokeStyle(new D2D.StrokeStyleProperties
         {
@@ -78,8 +78,8 @@ internal static class CustomTableRenderResources
     /// <summary>文字の整形に使うDirectWriteの共有ファクトリです。</summary>
     internal static DWrite.IDWriteFactory DWriteFactory { get; }
 
-    /// <summary>描画先と図形を作るDirect2Dのファクトリです。</summary>
-    internal static D2D.ID2D1Factory D2DFactory { get; }
+    /// <summary>描画先、デバイス、図形を作るDirect2Dのファクトリです。</summary>
+    internal static D2D.ID2D1Factory1 D2DFactory { get; }
 
     /// <summary>表示面のビットマップを作るWICのファクトリです。</summary>
     internal static Wic.IWICImagingFactory WicFactory { get; }

@@ -112,6 +112,7 @@ public sealed class VerificationRunnerTests
     [DataRow("compatibility", 8, "everything-native-path-identity")]
     [DataRow("compatibility", 8, "audio-encoders")]
     [DataRow("compatibility", 8, "audio-encoder-child")]
+    [DataRow("compatibility", 8, "table-gpu")]
     public async Task ExplicitSuiteRunsOnlySelectedModuleAndRecordsAppliedContract(string profile, int processors, string suite)
     {
         string[] inputVariables = ["BMS_TEST_CHARTSTRING_REFERENCE_JSON", "BMS_EVERYTHING_PATH_IDENTITY_FIXTURE",

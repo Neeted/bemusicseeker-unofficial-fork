@@ -1,9 +1,10 @@
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using BeMusicSeeker.Views;
 
-namespace BeMusicSeeker.Tests;
+namespace BeMusicSeeker.TestSupport.Wpf;
 
 /// <summary>表示面の画素を物理画素の単位で読む結果です。座標は表示面の左上を原点とする物理画素です。</summary>
 internal sealed class SurfacePixels(int width, int height, byte[] bgra)
@@ -103,11 +104,25 @@ internal sealed class SurfacePixels(int width, int height, byte[] bgra)
     {
         return Width == other.Width && Height == other.Height && Bgra.AsSpan().SequenceEqual(other.Bgra);
     }
+
+    /// <summary>一致しないときの診断として、寸法の違いか、最初に違う画素の位置と色を返します。一致するときは空の文字列です。</summary>
+    internal string DescribeDifference(SurfacePixels other)
+    {
+        if (Width != other.Width || Height != other.Height) { return $"寸法が違います。{Width}x{Height} と {other.Width}x{other.Height}"; }
+        for (int y = 0; y < Height; y++)
+        {
+            for (int x = 0; x < Width; x++)
+            {
+                if (GetColor(x, y) != other.GetColor(x, y)) { return $"最初に違う画素 x={x}, y={y}: {GetColor(x, y)} と {other.GetColor(x, y)}"; }
+            }
+        }
+        return string.Empty;
+    }
 }
 
 /// <summary>
-/// 一覧の表示面を物理画素で読む補助です。表示面だけを読み、描画器が自分で申告する値を使いません。
-/// 「描画を失効させてから読む」と「今の状態のまま読む」を分けます。
+/// 一覧の表示面を物理画素で読む補助です。表示面がWPFへ実際に置いた画像（描画命令の <see cref="ImageDrawing"/>）だけを読み、
+/// 描画器が自分で申告する値を使いません。「描画を失効させてから読む」と「今の状態のまま読む」を分けます。
 /// </summary>
 internal static class CustomTableRenderProbe
 {
@@ -130,17 +145,32 @@ internal static class CustomTableRenderProbe
         return Read(table);
     }
 
-    /// <summary>描画の失効も配置の確定もせず、表示面が今保持している画像の画素を読みます。</summary>
+    /// <summary>
+    /// 描画の失効も配置の確定もせず、表示面が直近の描画で <c>DrawImage</c> へ渡した画像の画素を読みます。
+    /// 配置の矩形が表示面の左上から「画素の寸法÷倍率」と一致することを表明します。
+    /// <see cref="BitmapSource"/> は <c>CopyPixels</c> で読み、<see cref="D3DImage"/> は、その画像だけを1対1で描いたビットマップを読み、全画素が不透明であることも表明します。
+    /// </summary>
     internal static SurfacePixels Read(CustomTableView table)
     {
-        if (table.SurfaceImage is not BitmapSource image)
+        CustomTableSurface surface = Surface(table);
+        ImageDrawing? drawing = FindImageDrawing(VisualTreeHelper.GetDrawing(surface));
+        if (drawing == null)
         {
-            throw new AssertFailedException("表示面が画像を保持していません。");
+            throw new AssertFailedException("表示面が画像を描画命令として保持していません。");
         }
-        int stride = image.PixelWidth * 4;
-        byte[] pixels = new byte[stride * image.PixelHeight];
-        image.CopyPixels(pixels, stride, 0);
-        return new SurfacePixels(image.PixelWidth, image.PixelHeight, pixels);
+        SurfacePixels pixels = drawing.ImageSource switch
+        {
+            BitmapSource bitmap => ReadBitmap(bitmap),
+            D3DImage d3dImage => ReadD3DImage(d3dImage),
+            _ => throw new AssertFailedException("表示面の画像の種類を読めません: " + drawing.ImageSource?.GetType().FullName)
+        };
+        double dpi = surface.PixelsPerDip;
+        Rect rect = drawing.Rect;
+        Assert.AreEqual(0d, rect.X, 1e-9, "画像は表示面の左上へ置きます。");
+        Assert.AreEqual(0d, rect.Y, 1e-9, "画像は表示面の左上へ置きます。");
+        Assert.AreEqual(pixels.Width / dpi, rect.Width, 1e-6, "画像の幅（DIP）は画素の幅÷倍率です。");
+        Assert.AreEqual(pixels.Height / dpi, rect.Height, 1e-6, "画像の高さ（DIP）は画素の高さ÷倍率です。");
+        return pixels;
     }
 
     /// <summary>表の窓のない配置を確定します。倍率を固定する場合は、配置の前に <see cref="SetDpi"/> を呼びます。</summary>
@@ -149,5 +179,53 @@ internal static class CustomTableRenderProbe
         table.Measure(new Size(width, height));
         table.Arrange(new Rect(0d, 0d, width, height));
         table.UpdateLayout();
+    }
+
+    private static ImageDrawing? FindImageDrawing(Drawing? drawing)
+    {
+        if (drawing is ImageDrawing image)
+        {
+            return image;
+        }
+        if (drawing is DrawingGroup group)
+        {
+            return group.Children.Select(FindImageDrawing).OfType<ImageDrawing>().SingleOrDefault();
+        }
+        return null;
+    }
+
+    private static SurfacePixels ReadBitmap(BitmapSource image)
+    {
+        int stride = image.PixelWidth * 4;
+        byte[] pixels = new byte[stride * image.PixelHeight];
+        image.CopyPixels(pixels, stride, 0);
+        return new SurfacePixels(image.PixelWidth, image.PixelHeight, pixels);
+    }
+
+    private static SurfacePixels ReadD3DImage(D3DImage image)
+    {
+        int width = image.PixelWidth;
+        int height = image.PixelHeight;
+        Assert.IsTrue(width > 0 && height > 0, "D3DImageが裏面を持っていません。");
+        // 画像だけを、画素と一対一の大きさで描いたビットマップへ写し、WPFが実際に合成する内容を読む。
+        var visual = new DrawingVisual();
+        RenderOptions.SetBitmapScalingMode(visual, BitmapScalingMode.NearestNeighbor);
+        RenderOptions.SetEdgeMode(visual, EdgeMode.Aliased);
+        using (DrawingContext context = visual.RenderOpen())
+        {
+            context.DrawImage(image, new Rect(0d, 0d, width, height));
+        }
+        var target = new RenderTargetBitmap(width, height, 96d, 96d, PixelFormats.Pbgra32);
+        target.Render(visual);
+        SurfacePixels pixels = ReadBitmap(target);
+        for (int offset = 3; offset < pixels.Bgra.Length; offset += 4)
+        {
+            if (pixels.Bgra[offset] != 255)
+            {
+                int pixel = offset / 4;
+                throw new AssertFailedException($"D3DImageの画素が不透明ではありません。x={pixel % width}, y={pixel / width}, alpha={pixels.Bgra[offset]}");
+            }
+        }
+        return pixels;
     }
 }

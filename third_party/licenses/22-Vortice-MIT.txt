@@ -1,4 +1,4 @@
-# Vortice.Windows (Vortice.Direct2D1, Vortice.DXGI, Vortice.DirectX) and Vortice.Mathematics
+# Vortice.Windows (Vortice.Direct2D1, Vortice.Direct3D11, Vortice.Direct3D9, Vortice.DXGI, Vortice.DirectX) and Vortice.Mathematics
 Copyright (c) Amer Koleci and Contributors
 
 ## The MIT License

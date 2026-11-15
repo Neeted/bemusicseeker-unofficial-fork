@@ -29,6 +29,7 @@ internal sealed record VerificationPlan(string Profile, string Configuration, bo
         ["everything-native-path-identity"] = TimeSpan.FromSeconds(60),
         ["audio-encoders"] = TimeSpan.FromSeconds(60),
         ["audio-encoder-child"] = TimeSpan.FromSeconds(60),
+        ["table-gpu"] = TimeSpan.FromSeconds(60),
         ["chart-info-bms"] = TimeSpan.FromSeconds(60),
         ["chart-info-bmson"] = TimeSpan.FromSeconds(60),
         ["chart-info-production"] = TimeSpan.FromSeconds(60),

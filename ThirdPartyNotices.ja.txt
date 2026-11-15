@@ -286,10 +286,10 @@ NET10で保持するx64セット: bass_fx.dll 2.4.12.6（API 0x02040C06、SHA-25
 再配布条件: モデルとテスト入力に著作権表示と MIT ライセンス全文を添付します。
 
 ================================================================================
-22) Vortice.Windows（Direct2D / DirectWrite のマネージドバインディング）
+22) Vortice.Windows（Direct2D / DirectWrite / Direct3D のマネージドバインディング）
 ================================================================================
 ステータス: GREEN
-対象: Vortice.Direct2D1.dll, Vortice.DXGI.dll, Vortice.DirectX.dll, Vortice.Mathematics.dll（Vortice.Direct2D1 3.8.3、Vortice.Mathematics 2.1.0）
+対象: Vortice.Direct2D1.dll, Vortice.Direct3D11.dll, Vortice.Direct3D9.dll, Vortice.DXGI.dll, Vortice.DirectX.dll, Vortice.Mathematics.dll（Vortice.Direct2D1 3.8.3、Vortice.Direct3D11 3.8.3、Vortice.Direct3D9 3.8.3、Vortice.Mathematics 2.1.0）
 著作権表示: Copyright (c) Amer Koleci and Contributors
 ライセンス: MIT（NuGet のライセンス式）
 出典: https://github.com/amerkoleci/Vortice.Windows, https://github.com/amerkoleci/Vortice.Mathematics

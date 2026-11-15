@@ -183,7 +183,7 @@ HTTPを使うMainWindowのfixtureは、HTTPの元のTask・全サーバーの実
 
 正式入口は登録済みのsuiteから一つを選び、Release・1workerで実行します。suiteごとの制限時間は、起動・前提検査・本体・通常の回収・実際の終了で共有し、失敗時の回収は共通の10秒を一度だけ確定します。この制限時間は固定入力全体の完了時間の保証ではなく、内側の解析器・ツールの期限でも延長しません。直接moduleの成功を正式入口の成功へ読み替えません。suiteの一覧・入力・準備・制限時間・直接実行の方法は[互換検査の案内](../../../tests/BeMusicSeeker.Compatibility.Tests/README.md)を正本とします。
 
-環境条件のsuite（DriveRoot、DirectorySymbolicLink、CrossVolume、Junction）も、実能力の不足をskipや代用の入力へ変えません。Compatibilityの全体は既存の `UiModuleLifetime` で利用者セッションの排他・専有profile・日本語辞書を準備し、実ホストは必要なケースで遅延生成します。
+環境条件のsuite（DriveRoot、DirectorySymbolicLink、CrossVolume、Junction、table-gpu）も、実能力の不足をskipや代用の入力へ変えません。table-gpu は一覧の表示面のGPU合成を実GPUで確認し、WPFの描画の階層が1以上でプロセスがソフトウェア描画でない環境を前提にして、満たさなければ失敗にします。Compatibilityの全体は既存の `UiModuleLifetime` で利用者セッションの排他・専有profile・日本語辞書を準備し、実ホストは必要なケースで遅延生成します。
 
 #### suiteの共有期限
 
