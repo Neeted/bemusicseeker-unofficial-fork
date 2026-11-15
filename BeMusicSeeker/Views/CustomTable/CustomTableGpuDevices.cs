@@ -28,12 +28,16 @@ internal static partial class CustomTableGpuDevices
     /// <summary>世代が進んだときに通知します。受け手は再描画の要求だけを行い、資源の解放や生成は次の描画の中で行います。</summary>
     internal static event Action GenerationChanged;
 
+    /// <summary>共有のDirect3D 11のデバイスです。最初の取得の前と手放した後はnullで、<see cref="Acquire"/> が返した世代の間だけ有効です。</summary>
     internal static D3D11.ID3D11Device Device11 => device11;
 
+    /// <summary>共有のDirect3D 11のコンテキストです。有効な期間は <see cref="Device11"/> と同じです。</summary>
     internal static D3D11.ID3D11DeviceContext Context11 => context11;
 
+    /// <summary>共有のDirect2Dのデバイスです。有効な期間は <see cref="Device11"/> と同じです。</summary>
     internal static D2D.ID2D1Device Device2D => device2D;
 
+    /// <summary>共有のDirect3D 9Exのデバイスです。有効な期間は <see cref="Device11"/> と同じです。</summary>
     internal static D3D9.IDirect3DDevice9Ex Device9 => device9;
 
     [LibraryImport("user32.dll")]

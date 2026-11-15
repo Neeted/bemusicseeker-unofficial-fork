@@ -4,7 +4,6 @@
 
 | 計画 | 内容 |
 | --- | --- |
-| [一覧の描画をDirect2Dへ置き換える計画](table-direct2d-rendering.md) | 一覧のスクロールと選択移動の遅延を解消する描画方式の置換、合意済みの前提、確認課題、作業の順序。 |
 | [テスト基盤の残課題](test-platform-migration.md) | 追加速度目標、環境不足で未実行の条件、テスト側の改善候補。 |
 | [既知の課題・未採用の任意改善](release-follow-up-candidates.md) | 今回着手しない改善・検討項目。共有URLのBMTと標準偏差0のT-SCOREを含む。 |
 

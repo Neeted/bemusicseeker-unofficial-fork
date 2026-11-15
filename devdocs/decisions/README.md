@@ -16,5 +16,6 @@
 | [厳密な有理数によるBMS時刻計算の採用](ribbit-exact-timing-adoption.md) | 実譜面の受理互換性・性能・最大7.2µsの時刻差を根拠とする本番採用、分数復元より入力の厳密値を選ぶ理由、局所退行の受容。 |
 | [更新プログラムへのNative AOT採用](updater-distribution-size.md) | 配布サイズと実行時の依存。 |
 | [旧更新プログラムの受入範囲](legacy-updater-acceptance.md) | 旧GUIの検査を廃止し、配布構成の移行をC#で確認する理由と退役条件。 |
+| [一覧をDirect2Dで描く理由](table-direct2d-rendering.md) | 一覧の表示面の描画方式とGPU合成、WPFの保持描画・専用ウィンドウ・簡易な字形配置を採らない理由、デバイスを共有する理由。 |
 
 [開発資料の入口](../README.md)へ戻ります。
