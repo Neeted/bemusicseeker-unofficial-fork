@@ -790,6 +790,180 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>
+    /// 実Windowの可視の表で、スクロール入力では行集合へ触れず、保持範囲（可視行と上下各5行）の更新を次の描画で一回だけ、その時点の最新の位置に対して行うことを確認します。
+    /// 描画前に位置を三回変えても途中の位置の行は読まず購読せず、上下に重なる移動では入る行だけを読んで購読し出る行だけを解除し、重ならない移動では新しい範囲を全件取得して旧い範囲を全解除します。
+    /// </summary>
+    /// <remarks>
+    /// スクロールのたびに行を集め直す誤り、途中の位置の行の取得と購読、重なる行の再購読、入力がないのに配置や消化で読む誤りを検出します。
+    /// 描画も保持範囲が持つ参照を使うため、可視行を含めて、入る行以外の添字アクセスがないことを判定します。
+    /// </remarks>
+    [TestMethod]
+    [DoNotParallelize]
+    public void RetainedRows_AreUpdatedOncePerRenderAndOnlyForEnteringRows()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            const int RowTotal = 200;
+            var rows = new ObservedRows(RowTotal);
+            CustomTableView table = CreateUnarrangedDisplayTable(rows);
+            try
+            {
+                scope.ShowAndWaitForContentRendered(new Window { Content = table, SizeToContent = SizeToContent.WidthAndHeight });
+                TestUiDispatcherHost.ProcessQueuedBackground();
+                ScrollBar bar = table.Children.OfType<ScrollBar>().Single(item => item.Orientation == Orientation.Vertical);
+                int d = table.CalculateDrawableRowCapacity();
+                Assert.IsTrue(d >= 4 && RowTotal > 3 * d, "範囲を動かす手順に必要な行数があります。");
+                AssertSubscribed(rows, 0, d + 5);
+
+                // 1. 描画をはさまずに位置を三回変えても、行集合へ触れず購読も増減しない。
+                rows.ResetAccess();
+                int[] subscribedBefore = rows.SubscribedSnapshot();
+                int renderCount = table.LastRenderStats.RenderCount;
+                bar.Value = 60; bar.Value = 120; bar.Value = 3;
+                Assert.AreEqual(3, table.FirstVisibleRowIndex);
+                Assert.AreEqual(0, rows.AccessedIndices.Count, "スクロール入力は行集合へ触れない。");
+                CollectionAssert.AreEqual(subscribedBefore, rows.SubscribedSnapshot(), "購読の増減もない。");
+                Assert.AreEqual(renderCount, table.LastRenderStats.RenderCount);
+
+                // 2. 描画は一回で、入る行 {d+5..d+7} だけを一回ずつ読み、重なる行と途中の位置の行は読まない。
+                int[] adds = rows.AddSnapshot();
+                table.UpdateLayout();
+                Assert.AreEqual(renderCount + 1, table.LastRenderStats.RenderCount);
+                AssertAccessOnlyVisibleAndEntering(rows, table, [d + 5, d + 6, d + 7]);
+                AssertSubscribed(rows, 0, d + 8);
+                AssertAddsOnlyAt(rows, adds, d + 5, d + 6, d + 7);
+
+                // 3. 下へ重なる移動。出る行は先頭の三行、入る行は末尾の五行。
+                rows.ResetAccess(); adds = rows.AddSnapshot();
+                bar.Value = 8;
+                Assert.AreEqual(0, rows.AccessedIndices.Count);
+                table.UpdateLayout();
+                AssertAccessOnlyVisibleAndEntering(rows, table, Enumerable.Range(d + 8, 5).ToArray());
+                AssertSubscribed(rows, 3, d + 13);
+                AssertAddsOnlyAt(rows, adds, Enumerable.Range(d + 8, 5).ToArray());
+
+                // 上へ重なる移動。入る行は先頭の三行、出る行は末尾の三行。
+                rows.ResetAccess(); adds = rows.AddSnapshot();
+                bar.Value = 5;
+                table.UpdateLayout();
+                AssertAccessOnlyVisibleAndEntering(rows, table, [0, 1, 2]);
+                AssertSubscribed(rows, 0, d + 10);
+                AssertAddsOnlyAt(rows, adds, 0, 1, 2);
+
+                // 重ならない移動。新しい範囲の全行を取得して購読し、旧い範囲の全行を解除する。
+                rows.ResetAccess(); adds = rows.AddSnapshot();
+                bar.Value = 100;
+                Assert.AreEqual(0, rows.AccessedIndices.Count);
+                table.UpdateLayout();
+                int[] entering = Enumerable.Range(95, d + 10).ToArray();
+                CollectionAssert.IsSubsetOf(rows.AccessedIndices.ToArray(), entering, "新しい範囲の外は読まない。");
+                foreach (int index in entering) { Assert.IsTrue(rows.AccessCount(index) >= 1, "新しい範囲の全行を取得する。位置 " + index); }
+                AssertSubscribed(rows, 95, 95 + d + 10);
+                AssertAddsOnlyAt(rows, adds, entering);
+
+                // 4. 範囲外へ動くキーのDownは、入力の処理中には主行だけを読む。
+                int capacity = table.CalculateFullVisibleRowCapacity();
+                table.SelectedIndex = table.FirstVisibleRowIndex + capacity - 1;
+                table.UpdateLayout();
+                int lastVisible = table.SelectedIndex;
+                rows.ResetAccess();
+                Assert.IsTrue(table.HandleKeyDown(Key.Down, ModifierKeys.None));
+                Assert.AreEqual(lastVisible + 1, table.SelectedIndex);
+                CollectionAssert.IsSubsetOf(rows.AccessedIndices.ToArray(), new[] { lastVisible + 1 }, "入力の処理中に読むのは主行だけ。");
+                table.UpdateLayout();
+                Assert.AreEqual(1, rows.SubscribedSnapshot()[lastVisible + 1]);
+
+                // 5. 入力がなければ、配置・Dispatcherの消化・再配置のいずれも読取り・購読・描画を起こさない。
+                rows.ResetAccess();
+                int[] stable = rows.SubscribedSnapshot();
+                int[] stableAdds = rows.AddSnapshot();
+                renderCount = table.LastRenderStats.RenderCount;
+                table.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedBackground();
+                table.UpdateLayout();
+                Assert.AreEqual(0, rows.AccessedIndices.Count);
+                CollectionAssert.AreEqual(stable, rows.SubscribedSnapshot());
+                CollectionAssert.AreEqual(stableAdds, rows.AddSnapshot());
+                Assert.AreEqual(renderCount, table.LastRenderStats.RenderCount);
+                // 同じ状態の再描画は、可視行も含めて行集合を読まない。
+                CustomTableRenderProbe.Surface(table).InvalidateVisual();
+                table.UpdateLayout();
+                Assert.AreEqual(renderCount + 1, table.LastRenderStats.RenderCount);
+                Assert.AreEqual(0, rows.AccessedIndices.Count, "同じ状態の再描画で行集合を読む。");
+
+                // 6. 可視の位置の行を別の参照へ置き換えてResetすると、描画後に全添字を取り直して新しい参照を購読し、旧い参照を解除する。
+                int first = table.FirstVisibleRowIndex;
+                int replacedIndex = first + 1;
+                ObservedRow oldRow = rows.RowAt(replacedIndex);
+                ObservedRow newRow = rows.Replace(replacedIndex);
+                int retainedFirst = Math.Max(0, first - 5), retainedEnd = Math.Min(RowTotal, first + d + 5);
+                rows.ResetAccess();
+                rows.RaiseReset();
+                table.UpdateLayout();
+                foreach (int index in Enumerable.Range(retainedFirst, retainedEnd - retainedFirst))
+                {
+                    Assert.IsTrue(rows.AccessCount(index) >= 1, "Resetでは保持範囲の全添字を取り直す。位置 " + index);
+                }
+                Assert.AreEqual(1, newRow.Subscribed);
+                Assert.AreEqual(0, oldRow.Subscribed);
+                AssertSubscribed(rows, retainedFirst, retainedEnd);
+
+                // 7. スクロールを保留したまま非表示にすると、即座に全解除して保留を破棄し、後の消化や配置では再購読しない。再表示後の描画で最新の位置の範囲を全件取得する。
+                bar.Value = 40;
+                rows.ResetAccess();
+                table.Visibility = Visibility.Collapsed;
+                Assert.AreEqual(0, rows.SubscribedSnapshot().Sum(), "非表示で全購読を同期に解除する。");
+                Assert.IsNull(table.SurfaceImage);
+                TestUiDispatcherHost.ProcessQueuedBackground();
+                table.UpdateLayout();
+                TestUiDispatcherHost.ProcessQueuedBackground();
+                Assert.AreEqual(0, rows.AccessedIndices.Count, "非表示の間の消化と配置で、行集合を読む（可視行を含む）。");
+                Assert.AreEqual(0, rows.SubscribedSnapshot().Sum(), "非表示の間は再購読しない。");
+                table.Visibility = Visibility.Visible;
+                table.UpdateLayout();
+                Assert.AreEqual(40, table.FirstVisibleRowIndex);
+                int shownFirst = 40 - 5, shownEnd = 40 + d + 5;
+                foreach (int index in Enumerable.Range(shownFirst, shownEnd - shownFirst))
+                {
+                    Assert.IsTrue(rows.AccessCount(index) >= 1, "再表示後の描画で最新の位置の範囲を全件取得する。位置 " + index);
+                }
+                AssertSubscribed(rows, shownFirst, shownEnd);
+                TestUiDispatcherHost.ProcessQueuedBackground();
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
+    private static void AssertSubscribed(ObservedRows rows, int firstIndex, int endIndex)
+    {
+        int[] snapshot = rows.SubscribedSnapshot();
+        for (int i = 0; i < snapshot.Length; i++)
+        {
+            Assert.AreEqual(i >= firstIndex && i < endIndex ? 1 : 0, snapshot[i], "位置 " + i + " の購読数（保持範囲は " + firstIndex + " から " + endIndex + " の手前）");
+        }
+    }
+
+    private static void AssertAddsOnlyAt(ObservedRows rows, int[] addsBefore, params int[] expectedIndices)
+    {
+        int[] adds = rows.AddSnapshot();
+        for (int i = 0; i < adds.Length; i++)
+        {
+            Assert.AreEqual(addsBefore[i] + (Array.IndexOf(expectedIndices, i) >= 0 ? 1 : 0), adds[i], "購読の追加は入る行だけ。位置 " + i);
+        }
+    }
+
+    // 描画も保持範囲が持つ参照を使うため、行集合から読まれるのは入る行だけで、可視行も読まれない。
+    private static void AssertAccessOnlyVisibleAndEntering(ObservedRows rows, CustomTableView table, int[] entering)
+    {
+        int[] unexpected = [.. rows.AccessedIndices.Where(index => Array.IndexOf(entering, index) < 0)];
+        Assert.AreEqual(0, unexpected.Length, "入る行の外の行（可視行を含む）を読んだ: " + string.Join(",", unexpected));
+        foreach (int index in entering)
+        {
+            Assert.AreEqual(1, rows.AccessCount(index), "入る行は一回だけ読む。位置 " + index);
+        }
+    }
+
     /// <summary>一行の通知後にその行だけ値を取り直し、他行の値と警告を保持することを実表で確認します。</summary>
     [TestMethod]
     // Dispatcher待機中も同じ描画環境を所有し、他のLoadedテストによるパレット再構築を挟まない。
@@ -1289,6 +1463,91 @@ public sealed class CustomTablePhase6CacheTests
     {
         public event PropertyChangedEventHandler? PropertyChanged;
         internal void RaiseChanged() => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Text)));
+    }
+
+    /// <summary>行の側から見た実際の購読（イベントの追加と解除）を数える行です。</summary>
+    private sealed class ObservedRow : DisplayRow, INotifyPropertyChanged
+    {
+        private PropertyChangedEventHandler? handlers;
+
+        public event PropertyChangedEventHandler? PropertyChanged
+        {
+            add { handlers += value; AddCount++; }
+            remove { handlers -= value; RemoveCount++; }
+        }
+
+        internal int AddCount { get; private set; }
+
+        internal int RemoveCount { get; private set; }
+
+        /// <summary>現在の購読の数です。</summary>
+        internal int Subscribed => AddCount - RemoveCount;
+    }
+
+    /// <summary>添字ごとの読取り回数を数え、列挙を失敗にする行集合です。購読の数は行の側から読みます。</summary>
+    private sealed class ObservedRows : System.Collections.IList, INotifyCollectionChanged
+    {
+        private readonly List<ObservedRow> rows;
+        private readonly Dictionary<int, int> accessCounts = [];
+
+        internal ObservedRows(int count) => rows = [.. Enumerable.Range(0, count).Select(_ => new ObservedRow())];
+
+        public event NotifyCollectionChangedEventHandler? CollectionChanged;
+
+        internal Dictionary<int, int>.KeyCollection AccessedIndices => accessCounts.Keys;
+
+        internal int AccessCount(int index) => accessCounts.GetValueOrDefault(index);
+
+        internal void ResetAccess() => accessCounts.Clear();
+
+        // 記録しない直接参照です。期待値を作るためだけに使います。
+        internal ObservedRow RowAt(int index) => rows[index];
+
+        internal ObservedRow Replace(int index) => rows[index] = new ObservedRow();
+
+        internal void RaiseReset() => CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+
+        internal int[] SubscribedSnapshot() => [.. rows.Select(row => row.Subscribed)];
+
+        internal int[] AddSnapshot() => [.. rows.Select(row => row.AddCount)];
+
+        public object? this[int index]
+        {
+            get
+            {
+                accessCounts[index] = accessCounts.GetValueOrDefault(index) + 1;
+                return rows[index];
+            }
+            set => throw new NotSupportedException();
+        }
+
+        public int Count => rows.Count;
+
+        public bool IsFixedSize => true;
+
+        public bool IsReadOnly => true;
+
+        public bool IsSynchronized => false;
+
+        public object SyncRoot => this;
+
+        public System.Collections.IEnumerator GetEnumerator() => throw new NotSupportedException("全行列挙は禁止です。");
+
+        public int Add(object? value) => throw new NotSupportedException();
+
+        public void Clear() => throw new NotSupportedException();
+
+        public bool Contains(object? value) => throw new NotSupportedException();
+
+        public int IndexOf(object? value) => throw new NotSupportedException();
+
+        public void Insert(int index, object? value) => throw new NotSupportedException();
+
+        public void Remove(object? value) => throw new NotSupportedException();
+
+        public void RemoveAt(int index) => throw new NotSupportedException();
+
+        public void CopyTo(Array array, int index) => throw new NotSupportedException();
     }
 
     private static CustomTableView CreateUnarrangedDisplayTable(System.Collections.IList rows)

@@ -6,6 +6,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using BeMusicSeeker.Models;
@@ -98,11 +99,19 @@ public sealed class CustomTableAutomationPeerTests
             Assert.IsTrue(scroll.VerticallyScrollable);
             Assert.IsTrue(scroll.HorizontalViewSize is > 0d and < 100d);
             Assert.IsTrue(scroll.VerticalViewSize is > 0d and < 100d);
+            // スクロール前に子のキャッシュを満たしておき、配送を待たない照会が最新の可視範囲を返すことを後で確かめる。
+            AutomationPeer rowBefore = root.GetChildren().First(child => child.GetAutomationControlType() == AutomationControlType.ListItem);
+            Assert.AreEqual("record:0", rowBefore.GetAutomationId());
+            Assert.AreEqual(1, rowBefore.GetChildren().Count);
             scroll.SetScrollPercent(100d, 100d);
             Assert.AreEqual(100d, scroll.HorizontalScrollPercent, 0.001d);
             Assert.AreEqual(100d, scroll.VerticalScrollPercent, 0.001d);
             Assert.IsTrue(table.HorizontalOffset > 0d);
             Assert.IsTrue(table.FirstVisibleRowIndex > 90);
+            string[] idsAfter = [.. root.GetChildren().Where(child => child.GetAutomationControlType() == AutomationControlType.ListItem).Select(child => child.GetAutomationId())];
+            Assert.IsFalse(idsAfter.Contains("record:0"), "配送前の照会でも、スクロール後の可視の行だけを子として返す。");
+            Assert.IsTrue(idsAfter.Contains("record:99"));
+            Assert.AreEqual(0, rowBefore.GetChildren().Count, "可視範囲を外れた行は、配送前の照会でも子を持たない。");
             AutomationPeer row = root.GetChildren().First(child => child.GetAutomationControlType() == AutomationControlType.ListItem);
             AutomationPeer cell = row.GetChildren().Single();
             Assert.AreEqual("cell:Second", cell.GetAutomationId());
@@ -319,6 +328,122 @@ public sealed class CustomTableAutomationPeerTests
         }, [.. CustomTableColumnFactory.CreateMainColumns(librarySettings).Where(column => column.Id == "Memo")]);
     }
 
+    /// <summary>UI Automationのクライアントが接続していない（窓口が作られていない）表で、移動・選択・構造・値の各操作をしても、窓口を作らず、通知の配送も予約しないことを確認します。</summary>
+    /// <remarks>操作のたびに窓口を作る誤りを検出します。窓口がなければ通知を予約しないことは、静的レビューで確認します。</remarks>
+    [TestMethod]
+    public void WithoutPeer_OperationsNeverCreateThePeerOrScheduleDelivery()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            var table = new CustomTableView { Width = 300, Height = 150, HeaderHeight = 20, RowHeight = 25, Columns = [Column("Title", 120), Column("Second", 120)], ItemsSource = new RecordingSource(100) };
+            table.Measure(new Size(300, 150));
+            table.Arrange(new Rect(0, 0, 300, 150));
+            table.UpdateLayout();
+            try
+            {
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                void AssertNoPeer(string step)
+                {
+                    table.UpdateLayout();
+                    TestUiDispatcherHost.ProcessQueuedBackground();
+                    Assert.IsNull(UIElementAutomationPeer.FromElement(table), step);
+                }
+
+                vertical.Value = 20;
+                AssertNoPeer("スクロール");
+                table.SelectedIndex = 22;
+                AssertNoPeer("選択");
+                Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+                AssertNoPeer("現在セルの移動");
+                table.Columns = [Column("Title", 200)];
+                AssertNoPeer("構造（列）");
+                table.ItemsSource = new RecordingSource(50);
+                AssertNoPeer("構造（行集合）");
+                table.RefreshDisplay();
+                AssertNoPeer("値");
+                table.HandleKeyDown(Key.F2, ModifierKeys.None);
+                table.HandleKeyDown(Key.Escape, ModifierKeys.None);
+                AssertNoPeer("編集欄の出入り");
+            }
+            finally { table.HandleKeyDown(Key.Escape, ModifierKeys.None); table.ItemsSource = null; }
+        });
+    }
+
+    /// <summary>窓口があり、クライアントが表の子だけを照会して行の子は照会していない状態で、可視行が重なって残る小さなスクロールと行の高さの変更を行っても、入力の処理中（描画と配送の前）に行集合へ添字アクセスしないことを確認します。</summary>
+    /// <remarks>スクロールや寸法の変更のたびに、照会されていない可視行の子（セル）を作って値を読む誤りを検出します。</remarks>
+    [TestMethod]
+    public void ScrollAndMetricChange_DoNotReadRowsWhoseChildrenWereNotQueried()
+    {
+        var source = new RecordingSource(100);
+        WithTable(source, (table, root) =>
+        {
+            Assert.IsTrue(root.GetChildren().Any(child => child.GetAutomationControlType() == AutomationControlType.ListItem));
+            ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+            int AccessTotal() => Enumerable.Range(0, 100).Sum(source.AccessCount);
+
+            source.ResetAccessCounts();
+            vertical.Value = 1;
+            Assert.AreEqual(0, AccessTotal(), "スクロールの処理中に行集合を読む。");
+            table.RowHeight = 24;
+            Assert.AreEqual(0, AccessTotal(), "行の高さの変更の処理中に行集合を読む。");
+            TestUiDispatcherHost.ProcessQueuedBackground();
+        });
+    }
+
+    /// <summary>
+    /// 通知を再描画の要求と結び付けず、変更の種類ごとに配送の時点で一回へまとめることを確認します。要求済みの行を画面外へ出した後も、スクロール・選択の変更・現在セルの移動の配送では
+    /// その行の値を読まず、値の変更（表示更新）の配送だけが読み、一回の画面更新の間に三回の表示更新をしても配置と描画の中では配送せず、配送後の読取りは一回分と等しくなります。
+    /// </summary>
+    /// <remarks>スクロールや選択のたびに要求済みの行の値を読む誤り、描画の要求ごとに通知処理へ進む誤り、配置と描画の中での通知、値の通知を画面更新の単位へまとめない誤りを検出します。</remarks>
+    [TestMethod]
+    public void Notifications_AreSeparatedByKindAndCoalescedPerUpdate()
+    {
+        var source = new RecordingSource(100);
+        WithTable(source, (table, root) =>
+        {
+            // 要求済みの行0のセルを取得して保持する。保持する間は窓口の要求済みの行として残る。
+            AutomationPeer row0 = root.GetChildren().Single(child => child.GetAutomationId() == "record:0");
+            AutomationPeer cell0 = row0.GetChildren().First(child => child.GetAutomationId() == "cell:Title");
+            Assert.IsNotNull(cell0);
+            TestUiDispatcherHost.ProcessQueuedBackground();
+            ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+
+            // 行0を画面外へ出す。スクロールの配送は、スクロールの割合だけを扱い、行の値を読まない。
+            source.ResetAccessCounts();
+            vertical.Value = 50;
+            TestUiDispatcherHost.ProcessQueuedBackground();
+            Assert.AreEqual(0, source.AccessCount(0), "スクロールの配送で要求済みの行の値を読む。");
+
+            // 選択の変更と現在セルの移動の配送も、行0の値を読まない。
+            table.SelectedIndex = 52;
+            TestUiDispatcherHost.ProcessQueuedBackground();
+            Assert.AreEqual(0, source.AccessCount(0), "選択の配送で要求済みの行の値を読む。");
+            Assert.IsTrue(table.HandleKeyDown(Key.Right, ModifierKeys.None));
+            TestUiDispatcherHost.ProcessQueuedBackground();
+            Assert.AreEqual(0, source.AccessCount(0), "現在セルの移動で要求済みの行の値を読む。");
+
+            // 値の変更（表示更新）の配送だけが、要求済みの行の値を読む。
+            source.ResetAccessCounts();
+            table.RefreshDisplay();
+            TestUiDispatcherHost.ProcessQueuedBackground();
+            int single = source.AccessCount(0);
+            Assert.IsTrue(single > 0, "表示更新の配送は、要求済みのセルの値を読む。");
+
+            // 一回の画面更新の間に三回の表示更新をしても、配置と描画の中では配送せず、配送は一回に畳まれる。
+            source.ResetAccessCounts();
+            table.RefreshDisplay();
+            table.RefreshDisplay();
+            table.RefreshDisplay();
+            table.UpdateLayout();
+            Assert.AreEqual(0, source.AccessCount(0), "配置と描画の中で通知を配送している。");
+            TestUiDispatcherHost.ProcessQueuedBackground();
+            Assert.AreEqual(single, source.AccessCount(0), "三回の表示更新は一回の配送へまとまる。");
+
+            GC.KeepAlive(row0);
+            GC.KeepAlive(cell0);
+        }, [Column("Title", 120), Column("Second", 120)]);
+    }
+
     private static void WithTable(RecordingSource source, Action<CustomTableView, AutomationPeer> action, CustomTableColumn[]? columns = null)
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
@@ -401,7 +526,15 @@ public sealed class CustomTableAutomationPeerTests
         public event EventHandler? SelectionUpdateCompleted;
         public event NotifyCollectionChangedEventHandler? CollectionChanged;
         public int Count => tokens.Count;
-        public object? this[int index] { get => tokens[index].Row ??= factory(tokens[index].Key); set => throw new NotSupportedException(); }
+        private readonly Dictionary<int, int> accessCounts = [];
+        /// <summary>indexerで読んだ回数を位置ごとに返します。識別だけを使う照会は数えません。</summary>
+        internal int AccessCount(int index) => accessCounts.GetValueOrDefault(index);
+        internal void ResetAccessCounts() => accessCounts.Clear();
+        public object? this[int index]
+        {
+            get { accessCounts[index] = accessCounts.GetValueOrDefault(index) + 1; return tokens[index].Row ??= factory(tokens[index].Key); }
+            set => throw new NotSupportedException();
+        }
         public bool IsFixedSize => true;
         public bool IsReadOnly => true;
         public bool IsSynchronized => false;

@@ -140,6 +140,8 @@ internal sealed partial class CustomTableSurface : FrameworkElement
 
     protected override void OnRender(DrawingContext drawingContext)
     {
+        // 保持範囲は描画の単位で、その時点の最新の位置に対して一回だけ更新する。
+        owner.CommitRetainedRows();
         var renderStopwatch = Stopwatch.StartNew();
         measureRenderDetails = Net10PerformanceLog.IsEnabled;
         renderTextCacheHits = 0;
@@ -321,7 +323,7 @@ internal sealed partial class CustomTableSurface : FrameworkElement
         int drawnRows = 0;
         for (int rowIndex = firstRowIndex; rowIndex < lastRowExclusive && y < heightPx; rowIndex++)
         {
-            object row = rows[rowIndex];
+            object row = owner.GetRowForRender(rowIndex);
             CustomTableRowEntry rowEntry = owner.GetRowEntry(row);
             bool selected = owner.IsRowSelected(rowIndex);
             CustomTableColumn currentColumn = owner.GetCurrentCellColumn(rowIndex);

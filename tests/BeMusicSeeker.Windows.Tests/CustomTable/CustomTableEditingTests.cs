@@ -384,6 +384,54 @@ public sealed class CustomTableEditingTests
         });
     }
 
+    /// <summary>F2で開いた編集中に、一刻みに満たないホイールを送ると、未確定の編集を開始時の行・列と入力で一回だけ確定し、スクロール位置は変わらないことを確認します。縦バーがない表でも同じです。</summary>
+    /// <remarks>刻み未満の通知で編集を確定しない誤り、確定を二重に行う誤り、確定した編集を別の行へ付け替える誤り、刻み未満でも位置を動かす誤りを検出します。</remarks>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void MouseWheel_SubNotchCommitsActiveEditOnceWithoutScrolling(bool hasVerticalBar)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            CustomTableColumn folder = new("Folder", "Folder",
+                new CustomTableColumnSettings.ColumnLayout { Width = 160, Visibility = Visibility.Visible },
+                fallbackOrder: 0, sortMemberPath: null, alignment: TextAlignment.Left, textSelector: _ => "value", editPropertyName: "Folder");
+            object[] rows = [.. Enumerable.Range(0, hasVerticalBar ? 100 : 1).Select(_ => new object())];
+            var table = new CustomTableView { Width = 200, Height = 100, HeaderHeight = 20, RowHeight = 20, Columns = [folder], ItemsSource = rows };
+            var ended = new List<CustomTableCellEditEndedEventArgs>();
+            EventHandler<CustomTableCellEditEndedEventArgs> onEnded = (_, args) => ended.Add(args);
+            table.CellEditEnded += onEnded;
+            try
+            {
+                scope.ShowAndWaitForContentRendered(new Window { Width = 240, Height = 160, Content = table });
+                ScrollBar vertical = table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == Orientation.Vertical);
+                Assert.AreEqual(hasVerticalBar, vertical.Visibility == Visibility.Visible);
+                if (hasVerticalBar) { vertical.Value = 10; }
+                table.SelectedIndex = 10 % rows.Length;
+                Assert.IsTrue(table.HandleKeyDown(Key.F2, ModifierKeys.None));
+                TextBox editor = EditBox(table) ?? throw new AssertFailedException("editorがありません。");
+                editor.Text = "typed";
+                double position = vertical.Value;
+
+                var wheel = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, 40)
+                { RoutedEvent = Mouse.PreviewMouseWheelEvent, Source = table };
+                table.RaiseEvent(wheel);
+
+                Assert.AreEqual(hasVerticalBar, wheel.Handled);
+                Assert.AreEqual(1, ended.Count, "刻み未満でも未確定の編集を一回確定する。");
+                Assert.IsTrue(ended[0].Commit);
+                Assert.AreEqual(table.SelectedIndex, ended[0].RowIndex, "開始時の行で確定する。");
+                Assert.AreSame(rows[table.SelectedIndex], ended[0].Row);
+                Assert.AreSame(folder, ended[0].Column);
+                Assert.AreEqual("typed", ended[0].Text);
+                Assert.AreEqual("value", ended[0].OriginalText);
+                Assert.IsNull(EditBox(table));
+                Assert.AreEqual(position, vertical.Value, "刻み未満では位置を動かさない。");
+            }
+            finally { table.CellEditEnded -= onEnded; table.ItemsSource = null; }
+        });
+    }
+
     private static TextBox? EditBox(CustomTableView table)
         => table.Children.OfType<Canvas>().SelectMany(canvas => canvas.Children.OfType<TextBox>()).SingleOrDefault();
 

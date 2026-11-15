@@ -738,6 +738,154 @@ public sealed class CustomTableNavigationTests
         });
     }
 
+    /// <summary>
+    /// ホイールの回転量を累積し、一刻み（120）でOSの設定の行数（-1は完全表示行容量）だけ動くことを確認します。
+    /// 60の一回では動かず、60を二回送った位置は別の表へ120を一回送った位置と等しく、逆向きの120で元へ戻ります。
+    /// </summary>
+    /// <remarks>通知ごとに三行動かす旧方式、回転量の無視、端数の取りこぼし、符号と向きの取り違えを検出します。OSの設定値は書き換えず、読んだ値から期待値を求めます。</remarks>
+    [TestMethod]
+    public void MouseWheel_AccumulatesDeltaAndMovesConfiguredLinesPerNotch()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView accumulated = CreateScrollableTable();
+            CustomTableView single = CreateScrollableTable();
+            try
+            {
+                ScrollBar accumulatedBar = VerticalScrollBar(accumulated);
+                ScrollBar singleBar = VerticalScrollBar(single);
+                accumulatedBar.Value = 1000d;
+                singleBar.Value = 1000d;
+                int expectedLines = ExpectedWheelLines(accumulated);
+
+                MouseWheelEventArgs half = RaiseWheel(accumulated, 60);
+                Assert.IsTrue(half.Handled);
+                Assert.AreEqual(1000d, accumulatedBar.Value, "一刻みに満たない回転量では動かない。");
+
+                RaiseWheel(accumulated, 60);
+                RaiseWheel(single, 120);
+                Assert.AreEqual(1000d - expectedLines, singleBar.Value, "正の回転量は先頭側へ設定の行数だけ動く。");
+                Assert.AreEqual(singleBar.Value, accumulatedBar.Value, "60を二回送った位置は、120を一回送った位置と等しい。");
+
+                RaiseWheel(single, -120);
+                Assert.AreEqual(1000d, singleBar.Value, "負の回転量は末尾側へ同じ行数だけ動く。");
+            }
+            finally { accumulated.ItemsSource = null; single.ItemsSource = null; }
+        });
+    }
+
+    /// <summary>描画前に三刻み分のホイールを送ると、配置を確定する前の時点で三刻み分すべてが位置へ反映済みで、イベントは処理済みになることを確認します。</summary>
+    /// <remarks>入力の途中結果を描画まで保留して捨てる誤りと、スクロールを描画の単位まで遅らせる誤りを検出します。</remarks>
+    [TestMethod]
+    public void MouseWheel_AppliesEveryNotchBeforeRender()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateScrollableTable();
+            try
+            {
+                ScrollBar bar = VerticalScrollBar(table);
+                bar.Value = 1000d;
+                int expectedLines = ExpectedWheelLines(table);
+                int renderCount = table.LastRenderStats.RenderCount;
+
+                var handled = new List<bool>();
+                for (int i = 0; i < 3; i++) { handled.Add(RaiseWheel(table, 120).Handled); }
+
+                Assert.IsTrue(handled.All(value => value));
+                Assert.AreEqual(1000d - 3 * expectedLines, bar.Value, "三刻み分が描画前に反映されている。");
+                Assert.AreEqual((int)(1000d - 3 * expectedLines), table.FirstVisibleRowIndex);
+                Assert.AreEqual(renderCount, table.LastRenderStats.RenderCount, "入力の処理は描画を待たず、描画も同期に行わない。");
+                table.UpdateLayout();
+                Assert.AreEqual(1000d - 3 * expectedLines, bar.Value, "描画で位置が変わらない。");
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
+    /// <summary>ホイールの直後、描画前の当たり判定とセル押下が最新の先頭行を使い、スクロール後の行を選ぶことを確認します。</summary>
+    /// <remarks>描画の完了を待ってから先頭行を更新する誤りや、ホイール前の位置の行を選ぶ誤りを検出します。</remarks>
+    [TestMethod]
+    public void MouseWheel_PressCellBeforeRenderUsesLatestFirstRow()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateScrollableTable();
+            try
+            {
+                VerticalScrollBar(table).Value = 1000d;
+                int expectedLines = ExpectedWheelLines(table);
+
+                RaiseWheel(table, 120);
+                int first = table.FirstVisibleRowIndex;
+                Assert.AreEqual(1000 - expectedLines, first);
+
+                Assert.IsTrue(PressCell(table, first + 1, 0, MouseButton.Left));
+                Assert.AreEqual(first + 1, table.SelectedIndex);
+                Assert.IsTrue(table.IsRowSelected(first + 1));
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
+    /// <summary>縦スクロールバーが表示されない表では、ホイールが位置を変えず、イベントを処理済みにしない（外側へ伝える）ことを確認します。</summary>
+    /// <remarks>バーがない表でホイールを飲み込んで親のスクロールを止める誤りを検出します。</remarks>
+    [TestMethod]
+    public void MouseWheel_WithoutVerticalBarKeepsPositionAndLeavesEventUnhandled()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            CustomTableView table = CreateTable(CreateColumns(60, 60));
+            try
+            {
+                ScrollBar bar = VerticalScrollBar(table);
+                Assert.AreNotEqual(Visibility.Visible, bar.Visibility);
+
+                MouseWheelEventArgs forward = RaiseWheel(table, 120);
+                MouseWheelEventArgs backward = RaiseWheel(table, -120);
+
+                Assert.IsFalse(forward.Handled);
+                Assert.IsFalse(backward.Handled);
+                Assert.AreEqual(0d, bar.Value);
+                Assert.AreEqual(0, table.FirstVisibleRowIndex);
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
+    /// <summary>OSの設定の行数です。-1（一画面ずつ）は完全表示行容量、0は動かしません。</summary>
+    private static int ExpectedWheelLines(CustomTableView table)
+    {
+        int lines = SystemParameters.WheelScrollLines;
+        return lines < 0 ? table.CalculateFullVisibleRowCapacity() : lines;
+    }
+
+    private static MouseWheelEventArgs RaiseWheel(CustomTableView table, int delta)
+    {
+        var args = new MouseWheelEventArgs(Mouse.PrimaryDevice, Environment.TickCount, delta)
+        { RoutedEvent = Mouse.PreviewMouseWheelEvent, Source = table };
+        table.RaiseEvent(args);
+        return args;
+    }
+
+    private static ScrollBar VerticalScrollBar(CustomTableView table)
+        => table.Children.OfType<ScrollBar>().Single(bar => bar.Orientation == System.Windows.Controls.Orientation.Vertical);
+
+    private static CustomTableView CreateScrollableTable(int rowCount = 2000)
+    {
+        var table = new CustomTableView
+        {
+            Width = 200d,
+            Height = 130d,
+            Columns = CreateColumns(60, 60),
+            ItemsSource = Enumerable.Range(0, rowCount).Select(_ => new object()).ToArray()
+        };
+        table.Measure(new Size(200d, 130d));
+        table.Arrange(new Rect(0d, 0d, 200d, 130d));
+        table.UpdateLayout();
+        return table;
+    }
+
     // 表の実座標からヒットを作り、物理入力状態に依存せず本番のセル押下処理へ渡します。
     private static bool PressCell(CustomTableView table, int rowIndex, int columnIndex, MouseButton button, ModifierKeys modifiers = ModifierKeys.None)
     {

@@ -170,6 +170,14 @@ public sealed partial class CustomTableView : Grid
     private readonly CustomTableRowChangeTracker rowChangeTracker;
     private readonly CustomTableRowInvalidationQueue pendingRowInvalidations = new();
     private readonly CustomTableRedrawScheduler rowPropertyChangedRedrawScheduler;
+    // 保持範囲を購読してよい状態です。表示の切替（ApplyVisibilityChanged）で決まり、非表示の間は購読を持ちません。
+    private bool isRowRetentionActive;
+    private bool isRowRetentionReleased;
+    private RetainedRowsUpdate pendingRetainedRowsUpdate;
+    private string pendingRetainedRowsReason;
+    private bool pendingRetainedRowsLogAlways;
+    // ホイールの回転量のうち、一刻みに満たない分です。表ごとに持ち、向きが変わるか範囲の端に達すると捨てます。
+    private int wheelRemainder;
     private readonly List<INotifyPropertyChanged> subscribedColumnLayouts = [];
     private readonly HashSet<string> loggedRenderReasons = [];
     private CustomTableColumnLayoutSnapshot columnLayoutSnapshot;
@@ -304,7 +312,8 @@ public sealed partial class CustomTableView : Grid
                 InvalidateColumnLayoutSnapshot();
             }
             UpdateScrollBars();
-            UpdateVisibleRowSubscriptions("surface_size_changed");
+            MarkRetainedRowsStale("surface_size_changed");
+            RefreshAutomationChildren();
             RequestRedraw("surface_size_changed");
         };
         SizeChanged += delegate (object sender, SizeChangedEventArgs e)
@@ -314,7 +323,8 @@ public sealed partial class CustomTableView : Grid
                 InvalidateColumnLayoutSnapshot();
             }
             UpdateScrollBars();
-            UpdateVisibleRowSubscriptions("size_changed");
+            MarkRetainedRowsStale("size_changed");
+            RefreshAutomationChildren();
             RequestRedraw("size_changed");
         };
         PreviewMouseLeftButtonDown += CustomTableViewPreviewMouseLeftButtonDown;
@@ -370,6 +380,7 @@ public sealed partial class CustomTableView : Grid
         }
         InvalidateColumnCellValues();
         RequestRedraw("operation_context");
+        RaiseAutomationChanged(CustomTableAutomationChange.Value);
     }
 
     private void SubscribeMainChartList(MainChartListViewModel mainChartList)
@@ -445,6 +456,7 @@ public sealed partial class CustomTableView : Grid
             if (!IsLoaded || !ReferenceEquals(sender, subscribedMainChartList)) { return; }
             InvalidateColumnCellValues();
             RequestRedraw("operation_context");
+            RaiseAutomationChanged(CustomTableAutomationChange.Value);
         });
     }
 
@@ -487,6 +499,7 @@ public sealed partial class CustomTableView : Grid
             InvalidateDisplayValues();
             surface.ClearTextLayoutCache();
             RequestRedraw("language_changed");
+            RaiseAutomationChanged(CustomTableAutomationChange.Value);
         });
     }
 
@@ -744,10 +757,9 @@ public sealed partial class CustomTableView : Grid
         view.InvalidateAllCellValues();
         view.CoerceSelectionToCurrentRows();
         view.UpdateScrollBars();
-        view.UpdateVisibleRowSubscriptions(
-            "items_source_changed",
-            logAlways: true);
+        view.MarkRetainedRowsRebuild("items_source_changed", logAlways: true);
         view.RequestRedraw("items_source_changed");
+        view.RaiseAutomationChanged(CustomTableAutomationChange.Structure);
     }
 
     private static void OnColumnsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -758,6 +770,7 @@ public sealed partial class CustomTableView : Grid
         view.InvalidateColumnLayoutSnapshot();
         view.InvalidateColumnCellValues();
         view.UpdateScrollBars();
+        view.RaiseAutomationChanged(CustomTableAutomationChange.Structure);
         if (view.suppressColumnRedrawUntilItemsSourceChanged)
         {
             return;
@@ -790,7 +803,8 @@ public sealed partial class CustomTableView : Grid
         var view = (CustomTableView)d;
         view.CommitActiveEdit();
         view.UpdateScrollBars();
-        view.UpdateVisibleRowSubscriptions("layout_metric_changed");
+        view.MarkRetainedRowsStale("layout_metric_changed");
+        view.RefreshAutomationChildren();
         view.RequestRedraw("layout_metric_changed");
     }
 
@@ -852,6 +866,7 @@ public sealed partial class CustomTableView : Grid
             }
         }
         view.RequestRedraw("selection");
+        view.RaiseAutomationChanged(CustomTableAutomationChange.Selection);
     }
 
     private static void OnSortStateChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -910,10 +925,11 @@ public sealed partial class CustomTableView : Grid
         InvalidateAllCellValues();
         if (!selectionIdentities.HasValue) { CoerceSelectionToCurrentRows(); }
         UpdateScrollBars();
-        UpdateVisibleRowSubscriptions(
+        MarkRetainedRowsRebuild(
             GetCollectionChangedSubscriptionReason(e),
             logAlways: e?.Action == NotifyCollectionChangedAction.Reset);
         RequestRedraw("items_source_changed");
+        RaiseAutomationChanged(CustomTableAutomationChange.Structure);
     }
 
     /// <summary>選択・主行・Shift基点だけを、更新前の元集合識別で短命に捕捉します。</summary>
@@ -960,15 +976,20 @@ public sealed partial class CustomTableView : Grid
         UpdateSelectedIndexFromSelectionModel();
         if (changed) { RaiseSelectionChanged(); }
         RequestRedraw("selection");
+        RaiseAutomationChanged(CustomTableAutomationChange.Selection);
     }
 
     internal void ApplyVisibilityChanged(bool isVisible)
     {
+        isRowRetentionActive = isVisible;
+        isRowRetentionReleased = !isVisible;
         if (isVisible)
         {
             MarkItemsApplied();
             UpdateScrollBars();
-            UpdateVisibleRowSubscriptions("visible_changed", logAlways: true, isVisibleOverride: true);
+            // 非表示の間は購読を持たないため、最初の描画で最新の位置の範囲を全件取得する。
+            MarkRetainedRowsRebuild("visible_changed", logAlways: true);
+            RefreshAutomationChildren();
             RequestRedraw("visible_changed");
             return;
         }
@@ -976,6 +997,8 @@ public sealed partial class CustomTableView : Grid
         CommitActiveEdit();
         CloseCellToolTip();
         rowChangeTracker.DetachAllRows();
+        // 保留中の範囲の更新は破棄する。後の配置や消化で再購読や行集合の読取りをしない。
+        pendingRetainedRowsUpdate = RetainedRowsUpdate.None;
         EndColumnResize();
         ClearDragState();
         ClearHeaderDragState();
@@ -991,7 +1014,8 @@ public sealed partial class CustomTableView : Grid
         CommitActiveEdit();
         CloseCellToolTip();
         UpdateScrollBars();
-        UpdateVisibleRowSubscriptions("dpi_changed");
+        MarkRetainedRowsStale("dpi_changed");
+        RefreshAutomationChildren();
         RequestRedraw("dpi_changed");
     }
 
@@ -1034,17 +1058,24 @@ public sealed partial class CustomTableView : Grid
     // 列インスタンスと他列の取得済み値を保ち、幅で役割が変わるURL列だけを再評価します。
     private void ApplyColumnWidthChange(ICustomTableColumnLayout layout)
     {
+        bool valuesChanged = false;
         foreach (CustomTableColumn column in VisibleColumns)
         {
             if (ReferenceEquals(column.Layout, layout) && column.HasWidthDependentContent)
             {
                 rowCache.InvalidateColumnValues(column.Id);
+                valuesChanged = true;
             }
         }
         InvalidateColumnLayoutSnapshot();
         CloseCellToolTip();
         UpdateScrollBars();
+        RefreshAutomationChildren();
         RequestRedraw("column_resize");
+        if (valuesChanged)
+        {
+            RaiseAutomationChanged(CustomTableAutomationChange.Value);
+        }
     }
 
     private void RebuildColumns()
@@ -1081,8 +1112,10 @@ public sealed partial class CustomTableView : Grid
     {
         CommitActiveEdit();
         CloseCellToolTip();
-        UpdateVisibleRowSubscriptions("vertical_scroll");
+        // 行集合へは触れない。保持範囲は次の描画で、その時点の最新の位置に対して一回だけ更新する。
+        MarkRetainedRowsStale("vertical_scroll");
         RequestRedraw("scroll_vertical");
+        RaiseAutomationChanged(CustomTableAutomationChange.Scroll);
     }
 
     private void HorizontalScrollBarValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -1090,6 +1123,7 @@ public sealed partial class CustomTableView : Grid
         CommitActiveEdit();
         CloseCellToolTip();
         RequestRedraw("scroll_horizontal");
+        RaiseAutomationChanged(CustomTableAutomationChange.Scroll);
     }
 
     private void UpdateScrollBars()
@@ -1247,13 +1281,21 @@ public sealed partial class CustomTableView : Grid
             rowCache.InvalidateRow(row);
         }
         RequestRedraw("row_property_changed");
+        RaiseAutomationChanged(CustomTableAutomationChange.Value);
     }
 
+    /// <summary>描画を要求します。UI Automationの通知とは結び付けません。通知は変更の種類ごとに <see cref="RaiseAutomationChanged"/> で明示します。</summary>
     private void RequestRedraw(string reason)
     {
         pendingRedrawReason = NormalizeRedrawReason(reason);
         surface.InvalidateVisual();
-        NotifyAutomationChanged(reason);
+    }
+
+    /// <summary>選択の変更を描画へ反映し、UI Automationの選択の通知を予約します。</summary>
+    private void RequestSelectionRedraw()
+    {
+        RequestRedraw("selection");
+        RaiseAutomationChanged(CustomTableAutomationChange.Selection);
     }
 
     internal string ConsumeRedrawReason()
@@ -1268,29 +1310,100 @@ public sealed partial class CustomTableView : Grid
         return string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
     }
 
-    private void UpdateVisibleRowSubscriptions(
-        string reason,
-        bool logAlways = false,
-        bool? isVisibleOverride = null)
+    /// <summary>
+    /// 描画が使う行参照を返します。描画の直前に確定した保持範囲が持つ参照を位置で取得し、行集合の添字アクセスをしません。
+    /// 一度も表示していない表と窓のない表は、行集合から読みます。非表示にして資源を解放した表は、行集合を読まず空のセルを描き、再表示で最新の状態から描きます。
+    /// </summary>
+    internal object GetRowForRender(int index)
     {
+        IList rows = ItemsSource;
+        if (rowChangeTracker.TryGetRow(rows, index, out object row))
+        {
+            return row;
+        }
+        // 非表示にして解放した表の描画（WPFの配置で描かれることがある）は、行集合を読まず空のセルにする。表示面は再表示で作り直す。
+        return isRowRetentionReleased && !IsVisible ? null : rows[index];
+    }
+
+    /// <summary>保持範囲の更新の要求です。</summary>
+    private enum RetainedRowsUpdate
+    {
+        /// <summary>更新を要求していません。</summary>
+        None,
+        /// <summary>範囲の位置だけが変わりました。重なる行は保ちます。</summary>
+        Move,
+        /// <summary>行集合の内容が変わった可能性があります。範囲の全位置を取り直します。</summary>
+        Rebuild
+    }
+
+    /// <summary>
+    /// 範囲の位置（スクロール・寸法・倍率）が変わったことを記録します。行集合へは触れず、保持範囲は次の描画で一回だけ更新します。
+    /// </summary>
+    private void MarkRetainedRowsStale(string reason)
+    {
+        if (pendingRetainedRowsUpdate == RetainedRowsUpdate.None)
+        {
+            pendingRetainedRowsUpdate = RetainedRowsUpdate.Move;
+        }
+        pendingRetainedRowsReason = reason;
+    }
+
+    /// <summary>
+    /// 行集合の差替え・変更通知・再表示で、範囲の全位置の取り直しを次の描画へ予約します。
+    /// 行がなくなった場合は読むものがないため、購読の解除と値の破棄を同期に行い、保留中の更新を破棄します。
+    /// </summary>
+    private void MarkRetainedRowsRebuild(string reason, bool logAlways = false)
+    {
+        if (RowCount == 0)
+        {
+            rowChangeTracker.DetachAllRows();
+            pendingRetainedRowsUpdate = RetainedRowsUpdate.None;
+            return;
+        }
+        pendingRetainedRowsUpdate = RetainedRowsUpdate.Rebuild;
+        pendingRetainedRowsReason = reason;
+        pendingRetainedRowsLogAlways |= logAlways;
+    }
+
+    /// <summary>
+    /// 保留中の保持範囲の更新を、その時点の最新の位置に対して一回だけ行います。描画（<see cref="CustomTableSurface"/> の <c>OnRender</c>）の冒頭で呼び、
+    /// 描画の時点で可視行（部分表示の行を含む）が保持範囲に入り購読済みであることを保証します。更新の要求がなければ何もしません。
+    /// 非表示の表は購読を持たないため、保留を破棄して何も読みません。
+    /// </summary>
+    internal void CommitRetainedRows()
+    {
+        RetainedRowsUpdate update = pendingRetainedRowsUpdate;
+        if (update == RetainedRowsUpdate.None)
+        {
+            return;
+        }
+        string reason = pendingRetainedRowsReason;
+        bool logAlways = pendingRetainedRowsLogAlways;
+        pendingRetainedRowsUpdate = RetainedRowsUpdate.None;
+        pendingRetainedRowsLogAlways = false;
+        if (!isRowRetentionActive && !IsVisible)
+        {
+            rowChangeTracker.DetachAllRows();
+            return;
+        }
         var stopwatch = Stopwatch.StartNew();
         int firstIndex = 0;
         int requestedCount = 0;
-        if (isVisibleOverride ?? IsVisible)
+        int rowCount = RowCount;
+        if (rowCount > 0)
         {
-            int rowCount = RowCount;
-            if (rowCount > 0)
+            int firstVisibleIndex = FirstVisibleRowIndex;
+            int drawableRows = CalculateDrawableRowCapacity();
+            firstIndex = Math.Max(0, firstVisibleIndex - RowSubscriptionOverscan);
+            int lastExclusive = Math.Min(rowCount, firstVisibleIndex + drawableRows + RowSubscriptionOverscan);
+            requestedCount = Math.Max(0, lastExclusive - firstIndex);
+            if (update == RetainedRowsUpdate.Rebuild)
             {
-                int firstVisibleIndex = FirstVisibleRowIndex;
-                int drawableRows = CalculateDrawableRowCapacity();
-                firstIndex = Math.Max(0, firstVisibleIndex - RowSubscriptionOverscan);
-                int lastExclusive = Math.Min(rowCount, firstVisibleIndex + drawableRows + RowSubscriptionOverscan);
-                requestedCount = Math.Max(0, lastExclusive - firstIndex);
-                rowChangeTracker.ReplaceVisibleRows(ItemsSource, firstIndex, requestedCount);
+                rowChangeTracker.Rebuild(ItemsSource, firstIndex, requestedCount);
             }
             else
             {
-                rowChangeTracker.DetachAllRows();
+                rowChangeTracker.Move(ItemsSource, firstIndex, requestedCount);
             }
         }
         else
@@ -1335,7 +1448,7 @@ public sealed partial class CustomTableView : Grid
         {
             UpdateSelectedIndexFromSelectionModel();
             RaiseSelectionChanged();
-            RequestRedraw("selection");
+            RequestSelectionRedraw();
         }
     }
 
@@ -1371,7 +1484,7 @@ public sealed partial class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
     }
 
     public void SetRowDropInsertPreview(int insertIndex)
@@ -1400,6 +1513,7 @@ public sealed partial class CustomTableView : Grid
         ClearPendingItemsSourceSwapColumnRedrawSuppression();
         InvalidateAllCellValues();
         RequestRedraw("refresh_display");
+        RaiseAutomationChanged(CustomTableAutomationChange.Value);
     }
 
     public void PrepareForItemsSourceSwap()
@@ -1536,7 +1650,7 @@ public sealed partial class CustomTableView : Grid
             {
                 RaiseSelectionChanged();
             }
-            RequestRedraw("selection");
+            RequestSelectionRedraw();
             RowContextMenuRequested?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
             return true;
         }
@@ -1704,17 +1818,25 @@ public sealed partial class CustomTableView : Grid
 
     private void CustomTableViewPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        // 未確定の編集は、刻み未満や縦バーなしの通知でも従来どおり確定する。
         CommitActiveEdit();
-        if (verticalScrollBar.Visibility != Visibility.Visible || e.Delta == 0)
+        if (verticalScrollBar.Visibility != Visibility.Visible)
+        {
+            wheelRemainder = 0;
+            return;
+        }
+        if (e.Delta == 0)
         {
             return;
         }
         CloseCellToolTip();
-        double direction = e.Delta > 0 ? -1d : 1d;
-        double nextValue = Math.Max(verticalScrollBar.Minimum, Math.Min(verticalScrollBar.Maximum, verticalScrollBar.Value + direction * verticalScrollBar.SmallChange));
-        if (!verticalScrollBar.Value.Equals(nextValue))
+        // OSの設定は入力のたびに読む。設定の変更を再起動なしで反映する。
+        CustomTableWheelScroll.Result scrolled = CustomTableWheelScroll.Convert(
+            e.Delta, wheelRemainder, SystemParameters.WheelScrollLines, CalculateFullVisibleRowCapacity(), verticalScrollBar.Value, verticalScrollBar.Maximum);
+        wheelRemainder = scrolled.Remainder;
+        if (!verticalScrollBar.Value.Equals(scrolled.Position))
         {
-            verticalScrollBar.Value = nextValue;
+            verticalScrollBar.Value = scrolled.Position;
         }
         e.Handled = true;
     }
@@ -1868,7 +1990,7 @@ public sealed partial class CustomTableView : Grid
             currentCellHit = currentRowIndex < 0 ? null : new CustomTableHitTestResult(
                 CustomTableHitKind.Cell, currentRowIndex, ItemsSource[currentRowIndex], currentCellHit.Column, currentCellHit.ColumnIndex, Rect.Empty);
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
         return changed;
     }
 
@@ -1888,7 +2010,7 @@ public sealed partial class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
         return changed;
     }
 
@@ -1908,7 +2030,7 @@ public sealed partial class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
         return RowCount > 0;
     }
 
@@ -1923,7 +2045,7 @@ public sealed partial class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
         return RowCount > 0;
     }
 
@@ -2377,7 +2499,7 @@ public sealed partial class CustomTableView : Grid
         textBox.TextChanged += ActiveEditorTextChanged;
         editorLayer.Children.Add(textBox);
         CellEditStarted?.Invoke(this, new CustomTableCellEditStartedEventArgs(hit, hit.Column.EditPropertyName));
-        NotifyAutomationChanged("editor_started");
+        RaiseAutomationChanged(CustomTableAutomationChange.Structure);
         UpdateEditSuggestions();
         textBox.Focus();
         if (replacementText == null)
@@ -2493,6 +2615,8 @@ public sealed partial class CustomTableView : Grid
                 rowCache.InvalidateRow(hit.Row);
                 CellEditEnded?.Invoke(this, new CustomTableCellEditEndedEventArgs(hit, hit.Column?.EditPropertyName, text, commit, originalText));
             }
+            // 編集欄が子から外れる。値の変更は行の変更通知で別に届く。
+            RaiseAutomationChanged(CustomTableAutomationChange.Structure);
             RequestRedraw("edit");
             return true;
         }
@@ -2809,6 +2933,7 @@ public sealed partial class CustomTableView : Grid
         Cursor = null;
         InvalidateColumnLayoutSnapshot();
         UpdateScrollBars();
+        RefreshAutomationChildren();
         RequestRedraw("column_resize");
     }
 

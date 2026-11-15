@@ -116,10 +116,32 @@ public sealed class VirtualPlaylistRowDesktopTests
                 Assert.AreEqual(beforeFind.RealizedRowCount, afterFind.RealizedRowCount, "画面外検索だけで行を投影しています。");
 
                 Step("after offscreen checks; before Realize " + targetId);
-                target.Patterns.VirtualizedItem.Pattern.Realize();
-                Step("after Realize; before visible wait " + targetId);
-                _ = Retry.WhileFalse(() => !target.IsOffscreen, timeout: deadline.Remaining, throwOnTimeout: true,
-                    ignoreException: false, timeoutMessage: "同じ行providerのRealizeで可視化しませんでした。");
+                // Realizeによる縦スクロールを、外部クライアントがスクロールの割合の変更通知として受信できることを確認する。購読は入力の前に登録する。
+                var scrollChanged = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var scrollFailures = new ConcurrentQueue<Exception>();
+                PropertyId verticalPercentProperty = scroll.PropertyIds.VerticalScrollPercent;
+                PropertyChangedEventHandlerBase scrollSubscription = table.RegisterPropertyChangedEvent(TreeScope.Element, (sender, property, value) =>
+                {
+                    try
+                    {
+                        if (property == verticalPercentProperty && value is double percent && percent != verticalBefore
+                            && session.Automation.Compare(sender, table))
+                        { scrollChanged.TrySetResult(true); }
+                    }
+                    catch (Exception failure) { scrollFailures.Enqueue(failure); scrollChanged.TrySetException(failure); }
+                }, verticalPercentProperty);
+                Exception? scrollPrimary = null;
+                try
+                {
+                    target.Patterns.VirtualizedItem.Pattern.Realize();
+                    Step("after Realize; before visible wait " + targetId);
+                    _ = Retry.WhileFalse(() => !target.IsOffscreen, timeout: deadline.Remaining, throwOnTimeout: true,
+                        ignoreException: false, timeoutMessage: "同じ行providerのRealizeで可視化しませんでした。");
+                    Step("after visible wait; before scroll percent notification wait " + targetId);
+                    await scrollChanged.Task.WaitAsync(deadline.Remaining);
+                }
+                catch (Exception failure) { scrollPrimary = failure; throw; }
+                finally { FinishSubscription(scrollSubscription, scrollFailures, scrollPrimary); }
                 Step("after visible wait; before ScrollIntoView " + targetId);
                 target.Patterns.ScrollItem.Pattern.ScrollIntoView();
                 Step("after ScrollIntoView; before row metadata/selection checks " + targetId);

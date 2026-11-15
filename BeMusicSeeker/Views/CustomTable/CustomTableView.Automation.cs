@@ -6,6 +6,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Automation.Provider;
 using System.Windows.Controls.Primitives;
+using System.Windows.Threading;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views;
@@ -13,17 +14,88 @@ namespace BeMusicSeeker.Views;
 public sealed partial class CustomTableView
 {
     private CustomTableAutomationPeer automationPeer;
+    private CustomTableAutomationChange pendingAutomationChanges;
+    private bool automationDeliveryScheduled;
+    private bool automationChildrenResetDeferred;
+
+    /// <summary>
+    /// アプリが明示的に発行するUI Automationの通知の種類です。再描画の要求とは結び付けず、変更の種類ごとに予約します。
+    /// テーマ・現在セルの移動・ドラッグ中の挿入線・列の並べ替えの表示・寸法だけの変更は、どの種類にも当たらず通知しません。
+    /// </summary>
+    [Flags]
+    private enum CustomTableAutomationChange
+    {
+        None = 0,
+        /// <summary>スクロール位置の変更。スクロールの割合のプロパティ変更だけを通知します。</summary>
+        Scroll = 1,
+        /// <summary>選択の変更。選択の無効化と、要求済みの行の選択状態の変更を通知します。</summary>
+        Selection = 2,
+        /// <summary>構造の変更。子要素の無効化と、失効した要求済みの行の処理を行います。</summary>
+        Structure = 4,
+        /// <summary>値の変更。要求済みのセルの値と読取り専用の変更を通知します。</summary>
+        Value = 8
+    }
 
     /// <summary>描画だけの表へ、可視範囲と明示要求の対象だけを持つUI Automation窓口を接続します。</summary>
     protected override AutomationPeer OnCreateAutomationPeer() => automationPeer ??= new CustomTableAutomationPeer(this);
 
-    private void NotifyAutomationChanged(string reason)
+    /// <summary>
+    /// UI Automationの通知を変更の種類ごとに予約します。クライアントが接続して窓口が作られている場合だけ予約し、窓口がなければ何もせず、窓口も作りません。
+    /// 配送は一回の画面更新につき多くても一回で、Dispatcherの一回の予約（Background）で行います。配置と描画の処理の中では通知しません。
+    /// 子のキャッシュは、スクロールと構造の変更の時点で通知なしに最新へ戻し、配送前の照会も最新の状態を返します。
+    /// </summary>
+    private void RaiseAutomationChanged(CustomTableAutomationChange change)
     {
-        // 並べ替え途中の一時的な不在ではなく、識別復元を終えた最終集合で失効を判断する。
-        if (automationPeer != null && !selectionIdentities.HasValue)
+        if (automationPeer == null)
         {
-            automationPeer.NotifyChanged(reason);
+            return;
         }
+        if ((change & (CustomTableAutomationChange.Scroll | CustomTableAutomationChange.Structure)) != 0 || automationChildrenResetDeferred)
+        {
+            RefreshAutomationChildren();
+        }
+        pendingAutomationChanges |= change;
+        if (automationDeliveryScheduled || Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        automationDeliveryScheduled = true;
+        Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(DeliverAutomationChanges));
+    }
+
+    /// <summary>通知を出さずに、窓口が持つ子のキャッシュだけを最新へ戻します。寸法・編集欄の出入りなどで可視の子が変わるときに使います。</summary>
+    /// <remarks>並べ替え途中の一時的な不在で要求済みの行を失効させないよう、選択の識別の復元が済むまで更新を保留します。</remarks>
+    private void RefreshAutomationChildren()
+    {
+        if (automationPeer == null)
+        {
+            return;
+        }
+        if (selectionIdentities.HasValue)
+        {
+            automationChildrenResetDeferred = true;
+            return;
+        }
+        automationChildrenResetDeferred = false;
+        automationPeer.ResetChildrenCaches();
+    }
+
+    private void DeliverAutomationChanges()
+    {
+        automationDeliveryScheduled = false;
+        CustomTableAutomationChange changes = pendingAutomationChanges;
+        pendingAutomationChanges = CustomTableAutomationChange.None;
+        if (changes == CustomTableAutomationChange.None || automationPeer == null)
+        {
+            return;
+        }
+        if (selectionIdentities.HasValue)
+        {
+            // 並べ替え途中の一時的な不在ではなく、識別復元を終えた最終集合で判断する。復元の完了が改めて予約する。
+            pendingAutomationChanges |= changes;
+            return;
+        }
+        automationPeer.Deliver(changes);
     }
 
     /// <summary>既存の編集能力を照会します。実開始イベントや編集受付の保存は行いません。</summary>
@@ -76,7 +148,7 @@ public sealed partial class CustomTableView
         UpdateSelectedIndexFromSelectionModel();
         EnsureCurrentCellForCurrentRow();
         if (changed) { RaiseSelectionChanged(); }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
     }
 
     /// <summary>論理行の識別を外部providerへ対応付けます。全行peerや実体行の事前作成はしません。</summary>
@@ -194,33 +266,73 @@ public sealed partial class CustomTableView
         /// <summary>列IDを現在の列定義へ解決します。隠れた列を別列へ補完しません。</summary>
         internal CustomTableColumn Column(string id) => Table.VisibleColumns.FirstOrDefault(column => string.Equals(column.Id, id, StringComparison.Ordinal));
 
-        /// <summary>要求済みpeerだけを照合し、死んだweak参照の識別キーを回収して実変更を通知します。</summary>
-        internal void NotifyChanged(string reason)
+        /// <summary>
+        /// 表と要求済みの行・セルが持つ子のキャッシュを、アプリの通知を出さずに最新の可視範囲・列・編集欄へ更新します。
+        /// WPFが子の増減から派生する構造の通知は許容します。取得済みのセルの値は読まず、失効した行は先に回収します。
+        /// </summary>
+        internal void ResetChildrenCaches()
+        {
+            // 失効した行は子を作れない。先に回収し、生存する行だけを更新する。
+            PruneRequests();
+            foreach (WeakReference<CustomTableRowAutomationPeer> weak in requestedRows.Values.ToArray())
+            {
+                if (weak.TryGetTarget(out CustomTableRowAutomationPeer row)) { row.ResetChildrenCaches(); }
+            }
+            ResetChildrenCache();
+        }
+
+        /// <summary>
+        /// 予約された種類の変更だけを、配送の時点の最新の状態から通知します。値以外の種類では要求済みの行の値を読みません。
+        /// 死んだweak参照の識別キーと失効した行は、構造・選択・値の配送で先に回収します。
+        /// </summary>
+        internal void Deliver(CustomTableAutomationChange changes)
         {
             if (notifying) { return; }
             notifying = true;
             try
             {
-                PruneRequests();
-                foreach (WeakReference<CustomTableRowAutomationPeer> weak in requestedRows.Values.ToArray())
+                if ((changes & (CustomTableAutomationChange.Structure | CustomTableAutomationChange.Selection | CustomTableAutomationChange.Value)) != 0)
                 {
-                    if (weak.TryGetTarget(out CustomTableRowAutomationPeer row)) { row.NotifyChanged(); }
+                    PruneRequests();
                 }
-                foreach (string columnId in headers.Keys.Where(id => Column(id) == null).ToArray()) { headers.Remove(columnId); }
-                ResetChildrenCache();
-                InvalidatePeer();
-                if (reason == "selection") { RaiseAutomationEvent(AutomationEvents.SelectionPatternOnInvalidated); }
-                double horizontal = HorizontalScrollPercent;
-                double vertical = VerticalScrollPercent;
-                if (horizontal != lastHorizontalPercent)
+                if ((changes & CustomTableAutomationChange.Structure) != 0)
                 {
-                    RaisePropertyChangedEvent(ScrollPatternIdentifiers.HorizontalScrollPercentProperty, lastHorizontalPercent, horizontal);
-                    lastHorizontalPercent = horizontal;
+                    foreach (WeakReference<CustomTableRowAutomationPeer> weak in requestedRows.Values.ToArray())
+                    {
+                        if (weak.TryGetTarget(out CustomTableRowAutomationPeer row)) { row.NotifyStructureChanged(); }
+                    }
+                    foreach (string columnId in headers.Keys.Where(id => Column(id) == null).ToArray()) { headers.Remove(columnId); }
+                    InvalidatePeer();
                 }
-                if (vertical != lastVerticalPercent)
+                if ((changes & CustomTableAutomationChange.Selection) != 0)
                 {
-                    RaisePropertyChangedEvent(ScrollPatternIdentifiers.VerticalScrollPercentProperty, lastVerticalPercent, vertical);
-                    lastVerticalPercent = vertical;
+                    RaiseAutomationEvent(AutomationEvents.SelectionPatternOnInvalidated);
+                    foreach (WeakReference<CustomTableRowAutomationPeer> weak in requestedRows.Values.ToArray())
+                    {
+                        if (weak.TryGetTarget(out CustomTableRowAutomationPeer row)) { row.NotifySelectionChanged(); }
+                    }
+                }
+                if ((changes & CustomTableAutomationChange.Value) != 0)
+                {
+                    foreach (WeakReference<CustomTableRowAutomationPeer> weak in requestedRows.Values.ToArray())
+                    {
+                        if (weak.TryGetTarget(out CustomTableRowAutomationPeer row)) { row.NotifyValueChanged(); }
+                    }
+                }
+                if ((changes & CustomTableAutomationChange.Scroll) != 0)
+                {
+                    double horizontal = HorizontalScrollPercent;
+                    double vertical = VerticalScrollPercent;
+                    if (horizontal != lastHorizontalPercent)
+                    {
+                        RaisePropertyChangedEvent(ScrollPatternIdentifiers.HorizontalScrollPercentProperty, lastHorizontalPercent, horizontal);
+                        lastHorizontalPercent = horizontal;
+                    }
+                    if (vertical != lastVerticalPercent)
+                    {
+                        RaisePropertyChangedEvent(ScrollPatternIdentifiers.VerticalScrollPercentProperty, lastVerticalPercent, vertical);
+                        lastVerticalPercent = vertical;
+                    }
                 }
             }
             finally { notifying = false; }
@@ -374,6 +486,7 @@ public sealed partial class CustomTableView
         private readonly Dictionary<string, CustomTableCellAutomationPeer> cells = new(StringComparer.Ordinal);
         private bool unavailable;
         private bool wasSelected;
+        private bool childrenQueried;
 
         /// <summary>providerの弱参照をドメイン文字列と区別して対応付ける生存識別です。</summary>
         internal object Identity => identity;
@@ -438,6 +551,8 @@ public sealed partial class CustomTableView
         protected override List<AutomationPeer> GetChildrenCore()
         {
             CheckAvailable();
+            // 行の子の照会を覚える。WPFの再列挙も含まれるが、それは照会済みの行の更新だけが起こす。
+            childrenQueried = true;
             if (Bounds.IsEmpty) { return []; }
             List<AutomationPeer> children = [];
             foreach (CustomTableColumnLayoutEntry entry in Root.Table.GetColumnLayoutSnapshot().VisibleEntries)
@@ -451,8 +566,28 @@ public sealed partial class CustomTableView
             }
             return children;
         }
-        /// <summary>実選択の変更と、要求済みセルの値・子editorの変更を公開します。</summary>
-        internal void NotifyChanged()
+        /// <summary>この行と、取得済みのセルが持つ子のキャッシュを通知なしに破棄します。</summary>
+        internal void ResetChildrenCaches()
+        {
+            // クライアントが子を照会していない行は、更新しない。子の更新はセルの生成を通じて行の値を読むため、
+            // スクロールや寸法の変更の処理で行集合を読まないよう、照会されてからだけ最新にする。
+            if (!childrenQueried) { return; }
+            // 消えた列のセルは子を作れない。先に失効させ、残るセルだけを更新する。
+            DropCellsOfRemovedColumns();
+            ResetChildrenCache();
+            foreach (CustomTableCellAutomationPeer cell in cells.Values) { cell.ResetChildrenCache(); }
+        }
+
+        private void DropCellsOfRemovedColumns()
+        {
+            foreach (string columnId in cells.Keys.ToArray())
+            {
+                if (Root.Column(columnId) == null) { cells[columnId].Invalidate(); cells.Remove(columnId); }
+            }
+        }
+
+        /// <summary>実選択の変更を公開します。一回の画面更新の間に元へ戻った選択は通知しません。行の値は読みません。</summary>
+        internal void NotifySelectionChanged()
         {
             bool selected = Root.Table.IsRowSelected(Index);
             if (selected != wasSelected)
@@ -461,12 +596,16 @@ public sealed partial class CustomTableView
                 RaiseAutomationEvent(selected ? AutomationEvents.SelectionItemPatternOnElementAddedToSelection : AutomationEvents.SelectionItemPatternOnElementRemovedFromSelection);
                 wasSelected = selected;
             }
-            foreach (string columnId in cells.Keys.ToArray())
-            {
-                if (Root.Column(columnId) == null) { cells[columnId].Invalidate(); cells.Remove(columnId); }
-                else { cells[columnId].NotifyChanged(); }
-            }
-            ResetChildrenCache();
+        }
+
+        /// <summary>消えた列のセルを失効させます。子のキャッシュは変更の時点で更新済みです。行の値は読みません。</summary>
+        internal void NotifyStructureChanged() => DropCellsOfRemovedColumns();
+
+        /// <summary>取得済みセルの表示値と読取り専用の変更を公開します。</summary>
+        internal void NotifyValueChanged()
+        {
+            DropCellsOfRemovedColumns();
+            foreach (CustomTableCellAutomationPeer cell in cells.Values.ToArray()) { cell.NotifyChanged(); }
         }
 
         bool ISelectionItemProvider.IsSelected => Root.Table.IsRowSelected(Index);
@@ -565,7 +704,7 @@ public sealed partial class CustomTableView
             table.activeEditor.Text = value;
             table.CommitActiveEdit();
         }
-        /// <summary>生成時または前回通知時からの表示値・readonlyの変化と、実editorの出入りを通知します。</summary>
+        /// <summary>生成時または前回通知時からの表示値・readonlyの変化を通知します。</summary>
         internal void NotifyChanged()
         {
             string beforeValue = lastValue;
@@ -578,7 +717,6 @@ public sealed partial class CustomTableView
             lastReadOnly = afterReadOnly;
             if (beforeReadOnly != afterReadOnly)
             { RaisePropertyChangedEvent(ValuePatternIdentifiers.IsReadOnlyProperty, beforeReadOnly, afterReadOnly); }
-            ResetChildrenCache();
         }
     }
 

@@ -100,6 +100,17 @@ ViewportSizeとセルの露出判定にも同じ有効表示幅を使います�
 | 90 | 6 | 両軸（横の最大6、縦の最大2） |
 | 101 | 5 | 両軸（横の最大17、縦の最大1） |
 
+#### ホイールの移動量
+
+縦バーが表示されているとき、ホイールの回転量を表ごとに累積し、一刻み（回転量120）につき `SystemParameters.WheelScrollLines` の行数だけ動かします。この値は入力のたびに読み、-1（一画面ずつ）なら完全表示行容量（横バーの有無を反映した値）、0なら動かしません。正の回転量は先頭側へ動かします。
+
+- 一通知が複数刻みなら「刻み数 × 行数」動かします。一刻みに満たない回転量は持ち越し、達した分だけ動かします。
+- 回転の向きが変わったときは持越しを捨てます。範囲の端を越える分は端に留め、持越しを捨てます。縦バーが表示されない間は累積しません。
+- 換算（回転量・行数・完全表示行容量・現在位置・最大値・持越しから、新しい位置と持越しを求める計算）は、状態を持たない `CustomTableWheelScroll` が行います。
+- 縦バーが表示されていて回転量が0でない通知を処理済み（`Handled=true`）にします。バーが表示されていないときと回転量が0のときは位置を変えず、処理済みにしません。
+- ホイールの各通知（一刻み未満・バーなしを含む）で、未確定の編集を開始時の行・列・入力で一回確定します。ツールチップは、バーが表示されていて回転量が0でない通知で閉じます。
+- バーの矢印ボタンとUI Automationの `SmallIncrement`・`SmallDecrement` の移動量（`SmallChange`）は、ホイールの設定に影響されず変えません。
+
 ### 保持範囲と文字のレイアウトの再利用
 
 入力の行がnullの位置は空けたまま、列の値を取得せずに空のセルと通常の行背景・罫線を描きます。
@@ -130,7 +141,7 @@ ViewportSizeとセルの露出判定にも同じ有効表示幅を使います�
 
 | 更新条件 | 値・警告 | 文字のレイアウト |
 | --- | --- | --- |
-| 縦スクロールで保持範囲に残る行 | 保つ | 保持範囲に残る文字列は再利用し、新しく見える行の文字列だけ作る |
+| 縦スクロールで保持範囲に残る行 | 保つ。保持範囲の更新は次の描画で一回だけ行い、入る行だけを読む | 保持範囲に残る文字列は再利用し、新しく見える行の文字列だけ作る |
 | 行の変更通知・編集終了 | 対象行だけを破棄する | 文字列が同じなら再利用する（色だけが変わる更新は作らない） |
 | 選択・現在セルの変更 | 保つ | 再利用する |
 | 元集合の交換・コレクションの変更・表示更新（`RefreshDisplay`）・列定義の交換や再構築 | 全行を破棄する。同じ列IDでも旧定義の値を使わない | 同じ文字列は再利用する |
@@ -140,11 +151,23 @@ ViewportSizeとセルの露出判定にも同じ有効表示幅を使います�
 | フォント・文字サイズ・スコアの書体・DPIの変更 | 保つ | 全体を破棄して作り直す |
 | `CurrentCulture`・`CurrentUICulture`・テーマの変更 | 整形済みの数値・日付・ブラシも更新する | 全体を破棄して作り直す |
 | アプリの表示言語の変更 | 現在の言語で整形済みの値を更新する。WARNING列の要約とツールチップも、警告の種類と事実から読取り時に現在の言語で作る | 全体を破棄して作り直す |
-| 非表示・読み込み解除・`ItemsSource` がnullになる | 保持行と通知待ちを破棄する | 表示面のビットマップ・描画先・ブラシとともに解放し、再表示で最新値から作る |
+| 非表示・読み込み解除・`ItemsSource` がnullになる | 保持行・通知待ち・保留中の保持範囲の更新を破棄する | 表示面のビットマップ・描画先・ブラシとともに解放し、再表示で最新値から作る |
 
 行の変更通知は通知待ちの一覧で重複を除き、Dispatcherへまとめて配送します。通常のスクロールで通知待ちを消しません。変更通知に対応しない行の書換えは監視せず、コレクションの通知・表示更新・保持範囲からの完全な離脱・非表示の時点で再取得します。
 
 差替えの待機中と空の一覧では本文を描かず、見出しだけを描き、旧い行の画素を残しません。行単位のスクロール、ツールチップ・編集・ドラッグなどの入力の契約は保ちます。横スクロールでは可視列が同じ範囲なら描き直すだけで、全列の先行描画は行いません。
+
+#### 保持範囲の更新
+
+行参照の取得と変更通知の購読の更新は、スクロール入力（バーの値、ホイール、キーによる可視化、UI Automationの `Scroll` と `Realize`）の処理の中では行いません。位置・寸法・倍率の変更は更新の要求として記録し、次の描画（配置の確定の中の `OnRender` の冒頭）で、その時点の最新の位置に対して一回だけ更新します。一回の画面更新の間に位置が何度変わっても、途中の位置の行は読まず、購読しません。描画の時点で、可視行（部分表示の行を含む）はすべて保持範囲に入り、購読済みです。
+
+- 入力の処理の中で行集合を読むのは、その入力が求める行（主行、当たり判定の行、`Realize` の対象）だけです。スクロール・選択・編集の確定・ツールチップを閉じることは、従来どおり入力の処理の中で同期に行い、順序と回数を変えません。
+- 範囲が前回と重なる場合（上下の移動、範囲の伸縮）は、入る位置だけを読んで購読し、出る行だけを解除します。重なって残る行へは触れず、解除して購読し直すこともしません。同じ行参照が複数の位置にある場合は、差分の更新でも最後の位置が離れるまで購読と値を保ち、完全に離れたら解除して値を破棄します。範囲が重ならない移動では、新しい範囲の全行を取得して購読し、旧い範囲の全行を解除します。
+- 行集合の差替えとコレクションの変更では、保持範囲の全位置を取り直します。同じ位置で別の行参照に替わっていれば、新しい参照を購読して描き、旧い参照を解除します。表示更新（`RefreshDisplay`）は保持している表示値の全破棄と再取得を要求し、購読の範囲は変えません。
+- 描画は、可視行の行参照を行集合の添字アクセスではなく、描画の直前に確定した保持範囲から位置で取得します。同じ状態の再描画と重なる移動の後の描画は、重なって残る行へ行集合の添字アクセスをしません。一度も表示していない表と窓のない表は、行集合から読みます。非表示にして資源を解放した表は、行集合を読まずに空のセルを描き、再表示で最新の状態から描きます。
+- 入力がなければ、配置の確定やDispatcherの消化を行っても、行集合の読取り・購読・描画・通知は起きません。
+- 表が非表示になったとき・読み込み解除されたとき・`ItemsSource` がnullになったときは、購読の解除と資源の解放を同期に行い、保留中の更新を破棄します。後の消化や配置で再購読も行集合の読取りもしません。再表示後の最初の描画で、最新の位置から全件を取得します。更新は常にUIスレッドで行います。
+
 #### 表示言語の変更
 
 アプリの表示言語の変更はスレッドの文化圏を変えないため、表は画面に読み込まれている間だけ、表示リソースの変更を購読します。画面から外れたら購読を解除し、UIへ反映するときにも読み込まれていることを確認します。
@@ -814,7 +837,25 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 
 - `ItemContainer` の識別による検索だけでは、選択とスクロールを変えません。検索結果の `Realize` と `ScrollIntoView` は、対象と新しい可視範囲だけを実体化し、中間の行や全行の部品を作りません。
 - `GetSelection` は画面外を含む選択集合の全体を返しますが、選択の識別から提供元を求め、行の投影は作りません。全選択の問合せで返す配列は選択件数に比例します。問合せの前の全行の提供元の生成や、恒久的な全行の索引は持ちません。
-- 表の行の子の集合は、可視行と、`ItemContainer`・`GetSelection` から明示的に要求された未実体化の代理です。返す代理を標準の親子構造へ接続し、構造の変更を通知します。要求された提供元を利用側が保持している間は、次の検索・表示範囲の更新だけでは生存している対象を失効させません。不要になった代理は、表の検索・選択取得の入口、または表示範囲・元集合の更新の時点で除きます。操作のない間のガベージコレクション直後や、WPFの低水準の探索だけによる即時の回収は保証しません。過去の要求をすべて子として蓄積せず、実際に保持されている要求の件数に応じて保持します。
+- 表の行の子の集合は、可視行と、`ItemContainer`・`GetSelection` から明示的に要求された未実体化の代理です。返す代理を標準の親子構造へ接続します。要求された提供元を利用側が保持している間は、次の検索・表示範囲の更新だけでは生存している対象を失効させません。不要になった代理は、表の検索・選択取得の入口、または表示範囲・元集合の更新の時点で除きます。操作のない間のガベージコレクション直後や、WPFの低水準の探索だけによる即時の回収は保証しません。過去の要求をすべて子として蓄積せず、実際に保持されている要求の件数に応じて保持します。
+
+#### 通知と照会
+
+再描画の要求とUI Automationの通知は結び付けません。アプリが明示的に発行する通知は、変更の種類ごとに次へ限ります。
+
+| 変更の種類 | 該当する変更 | 発行する通知 |
+| --- | --- | --- |
+| スクロール位置 | 縦横のバーの値の変更 | スクロールの割合のプロパティ変更だけ |
+| 選択 | 選択集合・主行の変更 | 選択の無効化と、要求済みの行の選択状態の変更 |
+| 構造 | 行集合の差替え、コレクションの変更、列の表示や順序の変更、セルの編集欄の開始と終了による子の出入り | 子要素の無効化と、失効した要求済みの行の処理 |
+| 値 | 行の変更通知、表示更新、表示言語の変更、`DataContext` と操作文脈の変更による読取り専用の変化、列幅の変更でURL列の値が変わる場合 | 要求済みのセルの値と読取り専用の変更 |
+
+テーマ、現在セルの移動、ドラッグ中の挿入線、列の並べ替えの表示、寸法や行の高さだけの変更は、通知しません。値以外の種類の配送では、要求済みの行の値を読まず、行集合へ添字アクセスしません。
+
+- 通知は、UI Automationのクライアントが接続して窓口（peer）が作られている場合だけ予約します。窓口がない表は、操作によって窓口を作らず、通知を予約しません。
+- 配送は、一回の画面更新につき種類ごとに多くても一回へまとめ、Dispatcherへの一回の予約（`DispatcherPriority.Background`）で行います。内容は配送の時点の最新の状態から作り、一回の画面更新の間に元へ戻った選択状態の変更は通知しません。`Measure`・`Arrange`・`OnRender`・`UpdateLayout` の中では通知を発行しません。`CompositionTarget.Rendering`、`DispatcherTimer`、Idle系の優先度は使わず、停止中に回り続ける処理も設けません。
+- 照会（子の列挙、スクロールの割合、選択状態、値、矩形）は、配送前・描画前でも照会の時点の最新の状態を返します。スクロール・寸法の変更・編集欄の出入りで可視の子が変わる場合は、通知を待たずに子のキャッシュを最新にします。窓口の接続（`FindItemByProperty`、`GetSelection`）は、返却の時点で同期に済んでいます。行の識別と失効した提供元の扱いは変えません。
+- 子のキャッシュの更新に伴ってWPFが自身で派生する通知（構造の通知など）は許容します。選択・値・構造（行の除去）・スクロールの割合の通知は、外部のクライアントが受信できることを保ちます。
 
 #### 失効した提供元
 
@@ -828,7 +869,7 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 - `SetValue` は既存の開始判定、実際の入力欄、確定の処理を一回通し、モデルへ直接代入しません。TAGなどの読取り専用の列、通常の譜面にMEMOの編集がないこと、外部同期中のプレイリスト詳細でMEMOだけを編集できる条件を保ちます。
 - `SetValue` の復帰は非同期の保存の成功を意味しません。確定値と保存の終端は別に観測します。
 
-通常の入力で開いた子の入力欄の `Value` の変更は、編集中の候補です。Enterによる確定、Escapeによる取消、候補の一覧がある場合に最初のEscapeで候補だけを閉じる動作は、[行のドラッグと編集](#行のドラッグと編集)に従います。選択・値・構造の変更はUI Automationの通知に反映しますが、通知の細かな順序や件数を操作の結果の代わりにしません。
+通常の入力で開いた子の入力欄の `Value` の変更は、編集中の候補です。Enterによる確定、Escapeによる取消、候補の一覧がある場合に最初のEscapeで候補だけを閉じる動作は、[行のドラッグと編集](#行のドラッグと編集)に従います。選択・値・構造の変更は[通知と照会](#通知と照会)の種類ごとにUI Automationの通知へ反映しますが、通知の細かな順序や件数を操作の結果の代わりにしません。
 
 #### 外部からの検証
 
@@ -845,12 +886,13 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | 元集合の識別、同 path の別対象、表・entry・履歴の区別 | `ICustomTableAutomationSource`、各 virtual view、捕捉済み `CatalogChartCollectionSnapshot` | `CustomTableAutomationIdentityTests` は実 source で scope・対象の識別、旧 snapshot の独立性、生存参照、非実体化を確認する。 |
-| 画面外検索・選択取得、placeholder の親接続、Realize、両軸スクロール、削除後の失効 | `CustomTableView.Automation.cs` | `CustomTableAutomationPeerTests` は所有 Window の標準 automation root と実 provider を使い、行集合・選択・offset・実体化数・旧 provider の拒否を確認する。内部 GC 時機や cache 個数は固定しない。 |
+| 画面外検索・選択取得、placeholder の親接続、Realize、両軸スクロール、削除後の失効 | `CustomTableView.Automation.cs` | `CustomTableAutomationPeerTests` は所有 Window の標準 automation root と実 provider を使い、行集合・選択・offset・実体化数・旧 provider の拒否を確認する。内部 GC 時機や cache 個数は固定しない。`BothAxisScroll_UpdatesOffsetsAndVisibleCellBounds` は、子のキャッシュを満たした後のスクロールで、配送前の照会が最新の可視の子を返すことを確認する。 |
+| 通知の種類ごとの分離、一回への集約、窓口がない表の無通知、照会の鮮度 | `CustomTableView.Automation.cs` の `RaiseAutomationChanged`・`CustomTableAutomationPeer.Deliver`・`ResetChildrenCaches` | `CustomTableAutomationPeerTests.WithoutPeer_OperationsNeverCreateThePeerOrScheduleDelivery` は窓のない表で移動・選択・構造・値の各操作が窓口を作らないことを、`Notifications_AreSeparatedByKindAndCoalescedPerUpdate` は、要求済みの行を画面外へ出した後も、スクロール・選択・現在セルの移動の配送がその行の値を読まず、表示更新の配送だけが読むこと、三回の表示更新が配置と描画の中で配送されず一回へまとまることを確認する。スクロールの割合・選択の無効化・構造の通知の発行、配置と描画の中から通知を発行しないこと、種類ごとの保留が一つで内容を配送時に作ること、窓口がなければ予約しないこと、窓口の接続が同期のままであることは静的レビューで確認する。 |
 | 編集可否照会、実 editor、確定・取消、読取り専用 | 同 peer と `MainChartListViewModel.CanBeginCellEdit`、既存編集イベント | 同テストの編集ケースは実 TextBox と開始・確定イベント、draft の取消、TAG・同期中 MEMO の許可を確認する。validation と保存終端の条件差は既存 Editing／Playlist 系列へ分担する。 |
 | compiled 画面の ID・Name・pattern と編集受付接続 | `MainWindow.xaml`、既存 main chart 編集端末 | `MainWindowChartPresentationWpfTests.CompiledTables_ExposeAutomationPatternsAndPureOwnerEditAvailability` は実 compiled 表から確認する。外部 client の通知受信・本番保存・再起動は別の受入境界とする。 |
 | 実検索入力、二行選択、並べ替え後の同一対象、同期 ON の MEMO 保存・再起動 | 同 compiled 表・検索欄と既存 playlist 編集端末 | Desktop の `SearchAndMemoDesktopTests` は遅延 Binding を通る keyboard 入力、外部 UIA の選択・値通知、実保存後の raw DB、同 profile の次プロセスでの読戻しを確認する。代表テーマの実変更・保存・再起動後の選択値も同ケースで確認する。 |
 | 実 FileDrop・内部行 drag、物理 folder 改名、削除確認、旧 schema 確認 | 既存 Drop・編集・削除・起動端末 | Desktop の `FileOperationsDesktopTests` は専有 STA の実 FileDrop と mouse drag、実 F2／Escape／Enter、空 playlist folder 削除の拒否・承認を通し、元入力と FS／DB を照合する。別ケースで旧 schema の実取消後の自然退出・DB 不変と、次プロセスでの承認・修復を確認する。 |
-| 画面外の標準 provider、実 editor、削除後の旧 provider、表示言語・テーマ | 同 peer と設定画面 | Desktop の `VirtualPlaylistRowDesktopTests` は非投影検索、Realize／Scroll、同期 OFF の実 F2 編集・保存、確認画面を伴わない entry 削除・旧 row／cell の失効と近傍保持を確認する。削除通知は同じ表の `TreeScope.Children` で購読し、削除前の対象行の `RuntimeId` と完全一致する `ChildRemoved` を照合する。言語・テーマの同一ウィンドウ内の更新・設定再表示と保存を担当し、色・辞書の条件差は既存 Windows 検証へ分担する。 |
+| 画面外の標準 provider、実 editor、削除後の旧 provider、表示言語・テーマ | 同 peer と設定画面 | Desktop の `VirtualPlaylistRowDesktopTests` は非投影検索、Realize／Scroll、同期 OFF の実 F2 編集・保存、確認画面を伴わない entry 削除・旧 row／cell の失効と近傍保持を確認する。削除通知は同じ表の `TreeScope.Children` で購読し、削除前の対象行の `RuntimeId` と完全一致する `ChildRemoved` を照合する。Realizeの段階では、外部クライアントが表のスクロールの割合の変更通知を受信できることも確認する。言語・テーマの同一ウィンドウ内の更新・設定再表示と保存を担当し、色・辞書の条件差は既存 Windows 検証へ分担する。 |
 
 ### ツリーのドロップとホバー
 
@@ -917,9 +959,10 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 | ENTRY LEVELの固定dot表示・確定・取消・拒否通知 | [`PlaylistDetailSourceRow`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailSourceRow.cs)、`PlaylistDetailRow`、`CustomTableView`、`PlaylistWorkspaceViewModel.DetailEditing` | [`MainWindowPlaylistWorkspaceWpfTests.EntryLevel_CurrentCultureRoundTripAndCancelKeepSavedNumber`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) はfr-FR・翻訳en-USの実MainWindow・実EntryLevel列でF2→無変更Enter、別入力→Escape、不正カンマ→実dialog sink、次の正常入力を通す。受付終端後の正本・新readonly DB・表示・draft解除と所有Windowを確認する。Float・精度・拒否条件の網羅は[保存主体の条件表](../playlist/storage-and-export.md#実装とテストの対応)へ分担する。 |
 | 遅い参照投影・表示交換・独立sortと局所仕事量 | `PlaylistWorkspaceViewModel.DetailChanges` / `DetailReferences`、`PlaylistWorkspaceViewModel.PropertyEditing`、`PlaylistSummarySortEngine`、`RegularChartListOwner.PackageViews` | `PlaylistCatalogViewChangeTests.DetailEdit_DelayedReferenceProjectionKeepsCommittedEntryValues` は参照捕捉と配送を分けて新memoを保持する。`DetailEdit_ReplacedDisplayKeepsNewTableRows` と `DetailEdit_IndependentSortDoesNotDelayCellCompletion` は新表示の保持と独立候補を待たない編集終端を確認する。`EntryEdits_UpdateLevelOrderAndMemoFilterLocally` と `RegularChartNavigationTests.InstallDestinationProjection_UpdatesOnlyDependentRows` は詳細・通常・保留の16/128行で仕事量・行実体化を確認する。`PlaylistWorkspaceActionWorkflowTests` の `SummaryCellEdit_LocallyMaintainsOrderFilterAndDerivedValues`、`SummaryCellEdit_JoinsCurrentFilterAfterSavePreparation`、`SummaryCellEdit_PreservesIndependentSortAndCurrentConditions` はsummaryの現在順序・filter加入離脱・派生値・16/128表の局所仕事量と、独立sortを待たない編集終端を確認する。`SummaryPrefixCell_DelayedEntryDeliveryPreservesIndependentRequest` は実tree購読と保存scope後のentry配送を通し、summary予約・世代/cache失効の不発、独立sort/buildの採用と一般folder変更・削除の必要更新を確認する。`SummaryPrefixCell_DeliveryUpdatesDetailSelectedDuringSave` は保存準備中に選択した詳細へのprefix差分適用とsource版・旧入力保持を確認する。共通comparerの比較規則は `LibraryChartRowSortEngineTests.PlaylistSummarySortEngine_*` が担当する。 |
 | summaryのraw公開順、UI適用Taskと構築終端、代表規模の時間 | `PlaylistWorkspaceViewModel.PlaylistSummaryBuild`、`PlaylistWorkspaceViewModel` のsummary cache・view採用 | `PlaylistWorkspaceActionWorkflowTests.SummaryCellEdit_ReplacedRowAndCurrentCacheReceiveSavedProperties` は実rawの先行/後発公開とcache不可経路で現在row・rawへの確定属性反映を確認する。`PlaylistWorkspacePersistenceCommandTests.SummaryBuild_OwnsDispatcherApplicationThroughSchedulerCompletion` は実workerからDispatcher Task、idle/停止への接続を確認する。[`PlaylistWorkspacePresentationStateTests.SummaryDataBuilds_OverlappingRequestAdoptsLatestAcceptedBuild`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) は、先発の集計がデータ世代の事前判定を通過してから表示世代を開始するまでの間に後発の集計を受理し、静止後に後発の行と自動件数を採用し、先発の行を途中でも採用しないことを確認する。採用を決めるデータ世代の判定と表示世代の開始は同じtransition lock内で一度に行う。代表規模のUI区間/全体終端の明示測定は [`PlaylistSummaryPerformanceTests`](../../../tests/BeMusicSeeker.Performance.Tests/Playlist/PlaylistSummaryPerformanceTests.cs) へ分け、通常の機能検証の成功を性能保証の代用にしない。 |
-| 保持範囲・値と警告の寿命・表示抑止 | `CustomTableRowCache`、`CustomTableRowChangeTracker` | [`CustomTablePhase6CacheTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTablePhase6CacheTests.cs)、[`CustomTablePhase6CacheTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) は範囲の重なり・最後の参照の離脱・再進入、通知対応/非対応/重複参照、Reset・ソース/同一ID列交換・非表示復帰（表示面のビットマップの解放と、再表示の最初の描画で可視の全文字列を新しく整形すること）、行通知の局所更新、選択/現在セルの区間色と行・セルの背景・文字色の優先順位、部分行の通常行化と縦罫線、候補マーカーの画素、null行の空セルと前後行の位置を、表示面の物理画素で確認する。文字のレイアウトを新しく作る回数と表示値の取得回数は、横スクロール・選択・現在セル・縦スクロール（1行、5行と戻る）・色だけの更新・列幅の変更・フォント/文字サイズ/DPI/文化圏/アプリ言語の変更・同じ状態の再描画の操作ごとに、直近一回の描画の計数（`LastRenderStats`）と列の取得関数の回数で確認する。保持範囲は実Windowの可視表で確認する。購読・通知集約は既存RowChangeTracker/Scheduler/Queue系列、編集確定はEditing系列へ分担する。旧い描画キャッシュの撤去、描画が `OnRender` の中で完結すること、差替え抑止・初回通知は静的レビューで確認する。 |
+| 保持範囲・値と警告の寿命・表示抑止 | `CustomTableRowCache`、`CustomTableRowChangeTracker` | [`CustomTablePhase6CacheTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTablePhase6CacheTests.cs)、[`CustomTablePhase6CacheTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) は範囲の重なり・最後の参照の離脱・再進入、通知対応/非対応/重複参照、Reset・ソース/同一ID列交換・非表示復帰（表示面のビットマップの解放と、再表示の最初の描画で可視の全文字列を新しく整形すること）、行通知の局所更新、選択/現在セルの区間色と行・セルの背景・文字色の優先順位、部分行の通常行化と縦罫線、候補マーカーの画素、null行の空セルと前後行の位置を、表示面の物理画素で確認する。文字のレイアウトを新しく作る回数と表示値の取得回数は、横スクロール・選択・現在セル・縦スクロール（1行、5行と戻る）・色だけの更新・列幅の変更・フォント/文字サイズ/DPI/文化圏/アプリ言語の変更・同じ状態の再描画の操作ごとに、直近一回の描画の計数（`LastRenderStats`）と列の取得関数の回数で確認する。保持範囲の更新は実Windowの可視表で、`RetainedRows_AreUpdatedOncePerRenderAndOnlyForEnteringRows` が、描画前に位置を三回変えても行集合へ触れず購読が増減しないこと、描画一回で入る行だけを読んで購読すること、上下に重なる移動と重ならない移動、範囲外へ動くキー入力が主行だけを読むこと、入力がなければ配置と消化で何も起きないこと、Resetでの全位置の取り直しと参照の入替え、非表示での同期の全解除と保留の破棄、再表示後の最新の位置の全件取得を確認する。描画も保持範囲が持つ参照を使うため、可視行を含めて入る行以外の添字アクセスがないことを判定する。条件ごとの網羅（同じ範囲、伸縮、重複参照、null、変更通知に対応しない行、全体の取り直し、別の行集合）は[CustomTableRowChangeTrackerTests（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableRowChangeTrackerTests.cs)が、行の変更通知の集約は既存のScheduler/Queue系列が分担する。編集確定はEditing系列へ分担する。旧い描画キャッシュの撤去、描画が `OnRender` の中で完結すること、差替え抑止・初回通知は静的レビューで確認する。 |
 | アプリ言語通知による表示cache更新と編集保持 | `CustomTableView.ResourceServicePropertyChanged`、Loaded / Unloaded、`InvalidateDisplayValues` | `CustomTablePhase6CacheTests.InstallDestinationLanguage_ChangeCultureRedrawsRetainedRowsAndPreservesActiveEdit` は実ColumnsSettings/factoryと保留ChartListVirtualViewを表示し、実ja→en切替後の通常Dispatcher配送だけで案内・tooltip・対象セルの画素が最新語になることを確認する。thread culture不変、表/列/行/source・幅・選択/現在セル/scroll・editor/候補/未確定pathの保持、確定0→明示Enterの旧行/instl_dst/生path一回、未訪問行の追加実体化なし、実Unloaded中の言語変更後に同じ表の再Loadedで最新語を確認する。候補条件・能力・保存は既存系列を維持し、言語の変更で文字のレイアウトを破棄することは `CustomTablePhase6CacheTests.TextLayouts_AreRebuiltWhenTheAppLanguageChanges` で確認する。重複購読の防止、解除、UI適用時の生存確認、旧tooltipを閉じる接続は静的確認する。 |
-| オーバーレイの有効寸法・両軸の誘発・許容差・再計算とクランプ | `CustomTableView.UpdateScrollBars`、容量計算 | [`CustomTableViewportTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableViewportTests.cs)、[`CustomTableViewportTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableViewportTests.cs) はfloor/ceil/最小一行と、Windowなしの実表で幅100・高さ120の数値例、算定入口でのE100.5/100.5001の境界、両軸からバーなしへの復帰、空・未配置・極小、行列・行高・寸法変更後の範囲を確認する。高さ126では横バー前の完全表示容量4と全面描画容量6を分ける。描画と購読の実接続・overscan維持は静的確認と既存RowChangeTracker系列へ分担する。 |
+| オーバーレイの有効寸法・両軸の誘発・許容差・再計算とクランプ | `CustomTableView.UpdateScrollBars`、容量計算 | [`CustomTableViewportTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableViewportTests.cs)、[`CustomTableViewportTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableViewportTests.cs) はfloor/ceil/最小一行と、Windowなしの実表で幅100・高さ120の数値例、算定入口でのE100.5/100.5001の境界、両軸からバーなしへの復帰、空・未配置・極小、行列・行高・寸法変更後の範囲を確認する。高さ126では横バー前の完全表示容量4と全面描画容量6を分ける。保持範囲の更新が描画そのものに結び付いていること、ドラッグ中に更新を止める分岐がないこと、非表示・読み込み解除・`ItemsSource` がnullでの保留の破棄、更新のスレッドの扱い、overscanの維持は静的確認と上の行の保持範囲の検証へ分担する。 |
+| ホイールの移動量（一刻みの行数、累積と持越し、向きの反転、端での破棄、一画面ずつ、バーなし） | `CustomTableView.CustomTableViewPreviewMouseWheel`、[CustomTableWheelScroll](../../../BeMusicSeeker/Views/CustomTable/CustomTableWheelScroll.cs) | [CustomTableWheelScrollTests](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableWheelScrollTests.cs) が換算を明示値で確認する（行数3・1・5・-1・0、正負の向き、複数刻み、持越し、反転での破棄、上下の端での留めと破棄、ちょうど端に届く場合）。`CustomTableNavigationTests` の `MouseWheel_*` は、窓のない表へのホイールの通知で、60の二回が120の一回と等しいこと、設定の行数だけ動くこと、描画前に三刻みが反映されること、描画前のセル押下が最新の位置を使うこと、バーなしで位置不変かつ未処理であることを、`CustomTableEditingTests.MouseWheel_SubNotchCommitsActiveEditOnceWithoutScrolling` は刻み未満の通知で未確定の編集を開始時の行・列・入力で一回確定し位置が変わらないこと（縦バーの有無の両方）を確認する。OSの設定値は書き換えない。ツールチップを閉じること、完全表示行容量を横バーの有無を反映して渡すこと、設定を入力のたびに読むこと、SmallChange を変えていないことは静的レビューで確認する。 |
 | プレイリスト概要の見出し・自動件数の言語追従 | `PlaylistWorkspaceViewModel`（`KeywordSearch` / `PropertyEditing` / 本体の概要採用）、[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml) の見出し・件数Binding | [`PlaylistWorkspacePresentationStateTests`](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) の `PlaylistSummaryLanguage_ReformatsAdoptedHeaderAndCountsWithoutRebuild`（通常・0件・絞込み後と未採用・退出後）、`PlaylistSummaryLanguage_QueuedPresentationKeepsAdoptedCountsUntilAdoption`、`PlaylistSummaryLanguage_LocalEditCountIsReformattedWithoutRebuild`、`PlaylistSummaryKeywordSearchLanguage_RefreshesOnlyAttachedPresentation`（明示 `SummaryText` の保持・Detach・再Attach）が現在語・行/世代/処理回数の不変を確認する。`MainWindowChartPresentationWpfTests.SearchLanguage_UpdatesOuterBindingsAndDetachesBothOwnersAfterClose` は実TextBlock Bindingと閉鎖後の無通知を確認する。 |
 | ツリーの空名フォルダ案内の言語追従 | `PlaylistFolderNode.DisplayName`、`playlistFolderNodeDisplayConverter`、`MainWindow.xaml` のフォルダ見出しの複合Binding | [`MainWindowPlaylistWorkspaceWpfTests.PlaylistTreeFolderLabels_LanguageRoundTripKeepsNodesAndTreeState`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が実MainWindowで空名・空白名・実`[NO SONG]`・特殊ノードの表示、同じノード/部品/コレクション、選択・展開・scroll・編集draft・Escape後の追従と保存・受付・再読込みの不在（詳細一覧 `Rows` の参照と世代の不変、DBの `playlist_entry.folder` の前後一致、refresh要求0）を確認する。 |
 | 一覧用スクロールバーの接続と見え方 | `CustomTableView` のバー生成、`ScrollBarChrome`、共通ScrollBarテンプレート | [外観仕様の対応表](appearance.md#実装とテストの対応)の一覧用スクロールバーの行に従い、[`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) が実体化した両軸の矩形・不透明・hit-test・テーマ切替を確認する。 |
