@@ -777,9 +777,11 @@ public sealed class SettingDialogEnvironmentConfirmationTests
             var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog };
             Task<bool>? original = null;
             Task? interaction = null;
+            int openRequests = 0;
+            int openRequestsAtStart = 0;
             owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
             {
-                if (request == "open") { scope.PrepareForOwnedPresentation(window); window.ShowDialog(); }
+                if (request == "open") { openRequests++; scope.PrepareForOwnedPresentation(window); window.ShowDialog(); }
                 if (request == "close") { window.CloseFromPresentation(); }
             }));
             try
@@ -795,7 +797,8 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                 Assert.IsFalse(original.GetAwaiter().GetResult(), "元要求の設定不備結果を、後続の成功で読み替えません。");
                 Assert.IsTrue(owner.HasActiveLibraryProfile, dialogs.LastMessageText + " / " + string.Join(Environment.NewLine, failures));
                 Assert.IsFalse(window.IsVisible);
-                Assert.AreEqual(SettingsWindowCloseReason.InitializationCompleted, window.CloseReason);
+                // 成功した開始は設定画面を閉じるだけで、開き直しを要求しません。
+                Assert.AreEqual(openRequestsAtStart, openRequests);
                 Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
 
                 async Task StartInsideGuidanceAsync()
@@ -816,6 +819,7 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         var start = (Button)window.FindName("buttonOK");
                         Assert.IsTrue(start.IsEnabled);
+                        openRequestsAtStart = openRequests;
                         start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         await owner.SettingDialog.SettingsOperationCompletionTask;
                     }

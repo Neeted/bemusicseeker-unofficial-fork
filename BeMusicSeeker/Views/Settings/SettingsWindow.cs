@@ -295,17 +295,12 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     }
 
     /// <summary>
-    /// 初期化完了または通常表示担当の終了要求で画面を閉じます。保存済み項目は復元しません。
+    /// 表示担当（初回開始で初期化を始める時点の閉鎖を含む）の終了要求で画面を閉じます。保存済み項目は復元しません。
     /// </summary>
     internal void CloseFromPresentation()
     {
         presentationCloseObserved = true;
-        if (closeReason == SettingsWindowCloseReason.None)
-        {
-            closeReason = GetSettingDialogViewModel().IsEditCompletionInProgress
-                ? SettingsWindowCloseReason.InitializationCompleted
-                : SettingsWindowCloseReason.Presentation;
-        }
+        if (closeReason == SettingsWindowCloseReason.None) { closeReason = SettingsWindowCloseReason.Presentation; }
         Close();
     }
 
@@ -379,7 +374,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     /// <param name="operation">受理後だけ実行する画面処理と設定core。</param>
     /// <param name="reportFailure">実入力イベントが担当する失敗通知も同じTask内で回収する場合はtrue。直接呼出しは元例外を受け取ります。</param>
     /// <param name="routeName">失敗診断へ渡す入力経路。省略時は呼出元メソッド名です。</param>
-    /// <param name="requiresPresentation">初回開始・再起動・復元・撤去の必須終端まで通常閉鎖を保留する場合はtrue。</param>
+    /// <param name="requiresPresentation">再起動・復元・撤去の必須終端まで通常閉鎖を保留する場合はtrue。</param>
     internal async Task RunViewOperationAsync(Func<Task> operation, bool reportFailure = false, [System.Runtime.CompilerServices.CallerMemberName] string routeName = null, bool requiresPresentation = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
@@ -392,29 +387,6 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
                 requiresPresentation);
         }
         catch when (reportFailure) { }
-    }
-
-    /// <summary>
-    /// 確定済み環境の初期化と必須公開を追跡し、成功した表示終了要求でのみ閉じます。
-    /// </summary>
-    /// <param name="operation">ViewModel が所有する初期化・必須公開処理。</param>
-    /// <returns>設定の反映と画面側の後片付けの完了を表すタスク。</returns>
-    internal async Task RunInitializationOperationAsync(Func<Task> operation, bool reportFailure = false)
-    {
-        ArgumentNullException.ThrowIfNull(operation);
-        closeReason = SettingsWindowCloseReason.None;
-        presentationCloseObserved = false;
-        try
-        {
-            await RunViewOperationAsync(operation, reportFailure, requiresPresentation: true);
-        }
-        finally
-        {
-            if (!presentationCloseObserved)
-            {
-                closeReason = SettingsWindowCloseReason.None;
-            }
-        }
     }
 
     /// <summary>
@@ -451,14 +423,18 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
 
     private async void buttonOKClick(object sender, RoutedEventArgs e)
     {
-        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !GetSettingDialogViewModel().CanStartEnvironment) { return; }
+        // 初期化を始める時点で画面が閉じてDataContextとOwnerが外れるため、入口のViewModelと、失敗の通知窓口・所有者は押下時点で固定します。
+        SettingsDialogViewModel settings = GetSettingDialogViewModel();
+        if (!settings.IsSettingsOperationAvailable || !settings.CanStartEnvironment) { return; }
+        Window notificationOwner = Owner ?? this;
+        IUiDialogService dialogs = dialogService;
         try
         {
-            await RunInitializationOperationAsync(() => GetSettingDialogViewModel().StartConfirmedEnvironmentCoreAsync(), reportFailure: true);
+            await settings.StartConfirmedEnvironmentAsync();
         }
         catch (Exception exception)
         {
-            await HandleSettingsRouteFailureAsync(exception, "settings apply");
+            await HandleSettingsRouteFailureAsync(exception, "settings apply", dialogs, notificationOwner);
         }
     }
 
@@ -1256,9 +1232,6 @@ internal enum SettingsWindowCloseReason
 {
     /// <summary>No close has been requested.</summary>
     None,
-
-    /// <summary>確定済み環境の初期化と必須公開が完了しました。</summary>
-    InitializationCompleted,
 
     /// <summary>利用者が保存済み値を保って閉じました。</summary>
     UserClose,

@@ -148,7 +148,7 @@ On first launch, an initial setup dialog with language selection is shown.
 
 ![Initial setup](img/初回設定.PNG)
 
-Choose a language, configure the required settings, add BMS directories, and press `Confirm BMS directories`. Then press `Start with this environment` to begin the first scan. In LR2 linked mode, set the LR2 directory on the General page first. While any setting still needs correction, `Start with this environment` is unavailable. Use the entries under `Settings that need attention` at the bottom of the Settings dialog to go to each field and correct it.
+Choose a language, configure the required settings, add BMS directories, and press `Confirm BMS directories`. Then press `Start with this environment` to begin the first scan. Once preparation is complete, the Settings dialog closes and the first scan and other initialization continue in the main window. If initialization fails, the Settings dialog opens again after you close the error message, so you can correct the cause and press `Start with this environment` to retry. In LR2 linked mode, set the LR2 directory on the General page first. While any setting still needs correction, `Start with this environment` is unavailable. Use the entries under `Settings that need attention` at the bottom of the Settings dialog to go to each field and correct it.
 
 The bottom of the Settings dialog shows a message about what to do next. While settings still need attention, it asks you to configure the items under "Settings that need attention"; once everything is ready, it asks you to press `Start with this environment`. While startup or initialization is running, `Start with this environment` and this message are hidden.
 

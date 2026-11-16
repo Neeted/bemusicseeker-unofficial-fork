@@ -74,7 +74,7 @@ internal static class SettingsRootTestFixture
                         ? _ => Task.CompletedTask
                         : _ => reloadFileDiff(viewModel),
                     initializeAcceptedLibrary: initializeOwner == null
-                        ? (capability, approval, observer, forceProjection) => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(capability, approval, observer, forceProjection)
+                        ? (capability, approval, observer, forceProjection, committed) => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(capability, approval, observer, forceProjection, committed)
                         : null),
                 viewModel.PlaylistWorkspace,
                 viewModel.PlaylistWorkspace,

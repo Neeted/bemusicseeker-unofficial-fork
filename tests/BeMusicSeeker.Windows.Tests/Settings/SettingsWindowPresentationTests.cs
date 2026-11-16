@@ -6010,11 +6010,13 @@ public sealed class SettingsWindowPresentationTests
         public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
 
         public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
-            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false, Action? initializationCommitted = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
+
+        public Task PresentInitializationFailureAsync(Exception failure) => Task.CompletedTask;
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 
@@ -6200,11 +6202,13 @@ public sealed class SettingsWindowPresentationTests
         public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
 
         public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
-            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false, Action? initializationCommitted = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
+
+        public Task PresentInitializationFailureAsync(Exception failure) => Task.CompletedTask;
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 
@@ -6254,7 +6258,7 @@ public sealed class SettingsWindowPresentationTests
         public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
 
         public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
-            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false, Action? initializationCommitted = null) => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
 
         public async Task<StartupInitializationResult> ReloadScoresOnlyAsync(LibraryFileMutationCapability capability)
         {
@@ -6264,6 +6268,8 @@ public sealed class SettingsWindowPresentationTests
         }
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
+
+        public Task PresentInitializationFailureAsync(Exception failure) => Task.CompletedTask;
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 

@@ -52,8 +52,21 @@ internal interface ISettingsDialogStatePort
     /// </summary>
     /// <returns>初期化の結果。処理失敗と終了要求を設定修復が必要な失敗へ読み替えません。</returns>
     /// <param name="forceBeatorajaBmtProjection">今回の初期化の必要BMT出力で、署名一致による生成省略を迂回するか。</param>
+    /// <param name="initializationCommitted">
+    /// 読取り専用の準備（ディレクトリと設定の検査、利用者の確認を含むスキーマの確認）がすべて終わり、最初の書込みへ入る直前に、一度だけ呼ぶ通知です。
+    /// ここより前に決まる結果（設定不備、検査の失敗、確認の取消・終了）では呼びません。呼出元は画面を閉じるなど、初期化を続ける前提の処理に使います。
+    /// 通知が例外になった場合は書込みを始めず、その例外を処理の失敗として返します。
+    /// </param>
     Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability capability,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false);
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false,
+        Action initializationCommitted = null);
+
+    /// <summary>
+    /// 呼出元が設定画面を閉じた後に、処理・必須公開の失敗を通常起動の失敗通知と同じ文面で非同期に通知します。
+    /// 呼出元のL/P解放後に呼び、利用者が通知を閉じるまで待ちます。表示の失敗は診断へ残し、呼出元へ伝えません。
+    /// </summary>
+    /// <param name="failure">初期化の元の失敗。</param>
+    Task PresentInitializationFailureAsync(Exception failure);
 
     /// <summary>初期化が必要な検証済み編集値から、保存・受付前に限定候補とYesNo判断を捕捉します。不正設定では候補DBを読みません。</summary>
     Task<LeapYearFolderRepairApproval> PrepareLibraryInitializationAsync();

@@ -151,7 +151,8 @@ public partial class SettingsDialogViewModel : ViewModel
     }
 
     /// <summary>
-    /// 受理済みの通常操作を継続したまま閉鎖できます。初回開始・再起動・復元・撤去は既存の必須終端を待ちます。
+    /// 受理済みの通常操作を継続したまま閉鎖できます。初回開始・再起動・復元・撤去の間は、通常の閉鎖と設定画面の再表示を受け付けません。
+    /// 初回開始は初期化を始める時点で画面を閉じ、再表示は操作の終端後に失敗した場合だけ行います。
     /// </summary>
     public bool IsEditCancellationEnabled => !settingsOperationRequiresPresentation && !environmentTransitionInProgress;
 

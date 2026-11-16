@@ -245,34 +245,63 @@ public partial class SettingsDialogViewModel
 
 
 
-    /// <summary>保存済みの環境で一回初期化し、必須出力・UI公開の終端で初回設定を閉じます。</summary>
-    internal Task StartConfirmedEnvironmentAsync() => RunSettingsOperationAsync(() => StartConfirmedEnvironmentCoreAsync(), requiresPresentation: true);
+    /// <summary>
+    /// 保存済みの環境で一回初期化します。初期化を始めると決まった時点（読取り専用の準備と確認が終わり、最初の書込みの直前）で設定画面を閉じ、
+    /// 以後はメイン画面で必須出力・UI公開の終端まで続けます。閉じた後に成功以外（終了の要求を除く）で終わり、有効なライブラリがなく受付も閉じていなければ、
+    /// 受理した操作と受付がすべて終わった後に、失敗の案内に続けて設定画面を開き直します。
+    /// </summary>
+    /// <remarks>画面の閉鎖後はWindowのDataContextが外れるため、画面側は呼出し時点で捕捉したこの ViewModel の入口を呼びます。</remarks>
+    internal async Task StartConfirmedEnvironmentAsync()
+    {
+        bool reopen = false;
+        await RunSettingsOperationAsync(async () => reopen = await StartConfirmedEnvironmentCoreAsync(), requiresPresentation: true);
+        if (!reopen || statePort.HasActiveLibraryProfile || operationAdmission.IsAdmissionClosed) { return; }
+        // 呼出元を、開き直した画面の閉鎖まで待たせません。
+        try { RequestOpen(deferPresentation: true); }
+        catch (Exception exception) { reportApplyFailure(exception); }
+    }
 
     /// <summary>受理済み設定操作として実行し、設定の単一受付を再取得しません。</summary>
-    internal async Task StartConfirmedEnvironmentCoreAsync()
+    /// <returns>この操作で設定画面を閉じ、結果が終了の要求でなく、開き直しの条件を呼出元が確かめる必要がある場合だけ true。</returns>
+    private async Task<bool> StartConfirmedEnvironmentCoreAsync()
     {
-        if (statePort.HasActiveLibraryProfile || !IsEnvironmentSelectionCoreEnabled) { return; }
+        if (statePort.HasActiveLibraryProfile || !IsEnvironmentSelectionCoreEnabled) { return false; }
         if (!operationAdmission.CanEnter || !customFolderOutputPort.CanBeginOutputOperation)
         {
             await ShowUiMessageAsync(Resources.Warn_LibraryOperationBusy, Resources.Warning, UiDialogIcon.Exclamation, "initial settings admission");
-            return;
+            return false;
         }
         IsEditCompletionInProgress = true;
         SetEnvironmentTransitionInProgress(true);
+        bool closed = false;
+        StartupInitializationResult initialization = null;
         try
         {
             LeapYearFolderRepairApproval approval = await statePort.PrepareLibraryInitializationAsync();
             await RunLibrarySettingsOperationAsync(async capability =>
-                await statePort.InitializeLibraryAsync(capability, approval, forceBeatorajaBmtProjection: true));
-            if (statePort.HasActiveLibraryProfile && !operationAdmission.IsAdmissionClosed) { ClosePresentation(); }
+                    initialization = await statePort.InitializeLibraryAsync(capability, approval, forceBeatorajaBmtProjection: true,
+                        initializationCommitted: () => { ClosePresentation(); closed = true; }),
+                // 閉じた後は通常起動と同じ失敗通知だけを出し、設定操作の失敗通知を重ねません。
+                failureReporter: failure =>
+                {
+                    if (closed) { return statePort.PresentInitializationFailureAsync(failure); }
+                    reportApplyFailure(failure);
+                    return Task.CompletedTask;
+                });
+            // 終了の要求は初期化の生の結果で判定します。成功のまま必須公開の途中で終了へ変わるなど結果に現れない終了は、
+            // 呼出元（StartConfirmedEnvironmentAsync）の受付の閉鎖の確認で打ち切るため、ここでは扱いません。
+            return closed && initialization?.Outcome is not (StartupInitializationOutcome.ExitRequested or StartupInitializationOutcome.ShutdownRequested);
         }
         catch (OperationCanceledException) when (operationAdmission.IsAdmissionClosed) { }
         catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } }
         finally { SetEnvironmentTransitionInProgress(false); IsEditCompletionInProgress = false; }
+        return false;
     }
 
     /// <summary>局所操作のライブラリ受付・処理・cleanup・受付外通知を同じTaskで追跡し、処理の成否にかかわらず親L/P解放後にモデル通知を実行します。</summary>
-    private async Task<bool> RunLibrarySettingsOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation, Func<Exception> primaryFailure = null, Action postAdmission = null)
+    /// <param name="failureReporter">受付外の失敗通知。省略時は設定操作の失敗通知（<c>reportApplyFailure</c>）です。</param>
+    private async Task<bool> RunLibrarySettingsOperationAsync(Func<LibraryFileMutationCapability, Task<StartupInitializationResult>> operation, Func<Exception> primaryFailure = null, Action postAdmission = null,
+        Func<Exception, Task> failureReporter = null)
     {
         if (!TryBeginBothSettingsAdmissions(out IDisposable lease, out LibraryFileMutationLease playlistLease))
         {
@@ -291,7 +320,14 @@ public partial class SettingsDialogViewModel
             return true;
         }
         catch (LibraryDirectoryPreflightException) { return false; }
-        catch (Exception exception) { if (!operationAdmission.IsAdmissionClosed) { reportApplyFailure(exception); } return false; }
+        catch (Exception exception)
+        {
+            if (!operationAdmission.IsAdmissionClosed)
+            {
+                if (failureReporter != null) { await failureReporter(exception); } else { reportApplyFailure(exception); }
+            }
+            return false;
+        }
     }
 
     /// <summary>確定rootで解決したスコア項目だけを保存し、スコア読込みと必須表示の実終端を待ちます。</summary>

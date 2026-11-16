@@ -18,7 +18,7 @@ public partial class SettingsDialogViewModel
     /// <remarks>設定入力と同じUIスレッドで呼びます。処理完了の通知だけから次の受付を先行解禁しません。</remarks>
     /// <param name="operation">同じ設定受付を取り直さず実行する処理。L/Pの実受付と最終検査はこの中で行います。</param>
     /// <param name="recoverFailure">画面入口が担当する失敗通知。指定時も元の失敗は呼出元へ返します。</param>
-    /// <param name="requiresPresentation">初回開始・再起動・復元・撤去など、既存の必須終端まで通常閉鎖を保留する操作です。</param>
+    /// <param name="requiresPresentation">初回開始（初期化を始める時点で画面を閉じ、以後の再表示を止める）・再起動・復元・撤去など、既存の必須終端まで通常閉鎖を保留する操作です。</param>
     internal Task RunSettingsOperationAsync(Func<Task> operation, Func<Exception, Task> recoverFailure = null, bool requiresPresentation = false)
     {
         ArgumentNullException.ThrowIfNull(operation);

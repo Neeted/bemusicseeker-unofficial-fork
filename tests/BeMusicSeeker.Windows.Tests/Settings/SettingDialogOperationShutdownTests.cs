@@ -44,7 +44,7 @@ public sealed class SettingDialogOperationShutdownTests
     public void CleanupWorkspace() => ownedWorkspace?.Dispose();
 
     /// <summary>実ownerは設定担当から準備中・必須UI待ち・局所BMT待ちのTaskを直接取得し、実終端前に保存・runtime終了へ進みません。</summary>
-    /// <remarks>実MainWindow・モーダル・compiled開始/BMTボタンとCloseを使用します。BMT物理媒体の整合は局所BMT系列が分担し、ここは実P内のport終端を保持します。</remarks>
+    /// <remarks>実MainWindow・モーダル・compiled開始/BMTボタンとCloseを使用します。初回開始は初期化を始める時点で設定Windowを閉じるため、required-ui行はShellのCloseの前に設定Windowが閉鎖済みで、終了後に再表示・通知・失敗がないことも確かめます。BMT物理媒体の整合は局所BMT系列が分担し、ここは実P内のport終端を保持します。</remarks>
     [TestMethod]
     [DataRow("preparation")]
     [DataRow("required-ui")]
@@ -82,6 +82,8 @@ public sealed class SettingDialogOperationShutdownTests
             Window? previousMain = Application.Current.MainWindow;
             MainWindow? main = null;
             SettingsWindow? settingsWindow = null;
+            int settingsWindowCreations = 0;
+            int messagesBeforeStart = 0;
             Task? operation = null;
             Task? interaction = null;
             var ownership = new MainWindowTestLifetime(owner, lifetime.ShutdownRequested.Task);
@@ -129,6 +131,7 @@ public sealed class SettingDialogOperationShutdownTests
                 main = ownership.CreateWindow(() => new MainWindow(owner, created =>
                 {
                     settingsWindow = created;
+                    settingsWindowCreations++;
                     scope.PrepareForOwnedPresentation(created);
                     created.ContentRendered += (_, _) => created.Dispatcher.BeginInvoke(DispatcherPriority.Loaded,
                         (Action)(() => interaction = ExerciseAsync(created)));
@@ -150,11 +153,21 @@ public sealed class SettingDialogOperationShutdownTests
                             FindDescendants<Button>(presented).Single(button => Equals(button.Tag, "confirm:bmt"))
                                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                         }
-                        else { ((Button)presented.FindName("buttonOK")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
+                        else
+                        {
+                            messagesBeforeStart = dialogs.MessageCount;
+                            ((Button)presented.FindName("buttonOK")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        }
                         operation = owner.SettingDialog.SettingsOperationCompletionTask;
                         Task arrival = boundary == "required-ui" ? ui.Entered.Task : entered.Task;
                         await TestUiDispatcherHost.AwaitNotificationAsync(arrival, operation, "accepted-settings-operation-boundary");
                         Assert.IsFalse(operation.IsCompleted);
+                        // 初回開始は初期化を始める時点で設定画面を閉じ、必須UI待ちの間に画面は残りません。
+                        if (boundary == "required-ui")
+                        {
+                            Assert.IsFalse(presented.IsVisible);
+                            Assert.IsNull(presented.DataContext);
+                        }
                         shell.Close();
                         await Task.Yield();
                         Assert.IsFalse(presented.IsVisible);
@@ -172,6 +185,13 @@ public sealed class SettingDialogOperationShutdownTests
                         await shell.CloseCompletion;
                         Assert.IsTrue(lifetime.ShutdownRequested.Task.IsCompleted);
                         Assert.IsTrue(session.SaveCount > 0);
+                        if (boundary == "required-ui")
+                        {
+                            // 終了の要求は設定画面の再表示にも通知にも読み替えません。
+                            Assert.AreEqual(1, settingsWindowCreations);
+                            Assert.AreEqual(0, failures.Count);
+                            Assert.AreEqual(messagesBeforeStart, dialogs.MessageCount);
+                        }
                     }
                     finally { release.TrySetResult(); ui.Release.TrySetResult(); }
                 }

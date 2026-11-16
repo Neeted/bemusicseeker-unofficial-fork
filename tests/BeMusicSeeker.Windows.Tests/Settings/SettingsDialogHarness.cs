@@ -133,7 +133,7 @@ internal sealed class SettingsDialogHarness : IDisposable
         public Task PresentLeapYearFolderRepairAsync(LeapYearFolderRepairNotification? notification) => Task.CompletedTask;
 
         public Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
-            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false)
+            LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false, Action? initializationCommitted = null)
         {
             InitializeCount++;
             return Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded));
@@ -152,6 +152,8 @@ internal sealed class SettingsDialogHarness : IDisposable
         }
 
         public Task PresentLibraryDirectoryWarningAsync(BeMusicSeeker.Models.BmsLibraryInternal.LibraryDirectoryPreflightException failure) => Task.CompletedTask;
+
+        public Task PresentInitializationFailureAsync(Exception failure) => Task.CompletedTask;
 
         public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication) { publication = () => { }; }
 

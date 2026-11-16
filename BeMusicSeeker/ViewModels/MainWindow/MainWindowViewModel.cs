@@ -208,8 +208,35 @@ public partial class MainWindowViewModel : ViewModel,
     private event Action<Lr2PlayHistorySchemaStatusSnapshot> lr2PlayHistorySchemaStatusChanged;
 
     Task<StartupInitializationResult> ISettingsDialogStatePort.InitializeLibraryAsync(LibraryFileMutationCapability capability,
-        LeapYearFolderRepairApproval leapYearRepairApproval, Action<LeapYearFolderRepairNotification> repairNotificationObserver, bool forceBeatorajaBmtProjection)
-        => InitializeLibraryAsync(isNormalStartup: false, capability, leapYearRepairApproval, repairNotificationObserver, forceBeatorajaBmtProjection);
+        LeapYearFolderRepairApproval leapYearRepairApproval, Action<LeapYearFolderRepairNotification> repairNotificationObserver, bool forceBeatorajaBmtProjection,
+        Action initializationCommitted)
+        => InitializeLibraryAsync(isNormalStartup: false, capability, leapYearRepairApproval, repairNotificationObserver, forceBeatorajaBmtProjection, initializationCommitted);
+
+    /// <summary>設定画面を閉じた後の処理・必須公開の失敗を、通常起動と同じ文面で非同期に1回通知します。表示の失敗は診断へ残します。</summary>
+    async Task ISettingsDialogStatePort.PresentInitializationFailureAsync(Exception failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+        try
+        {
+            if (!IsRequiredInitializationShutdownRequested)
+            {
+                UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(CreateInitializationFailureMessage(failure));
+                UiDialogRoute.ThrowIfNotShown(result, "Settings initialization failure notification");
+            }
+        }
+        catch (Exception presentationFailure) { ReportStartupLibraryInitializationFailurePresentationFailure(failure, presentationFailure); }
+        LogInitializationFailure(failure);
+    }
+
+    /// <summary>通常起動の構築失敗と、設定画面を閉じた後の初期化失敗が共有する通知の文面です（予期しないエラーの文言に元の例外を続けます）。</summary>
+    private static UiMessageRequest CreateInitializationFailureMessage(Exception failure)
+        => new(BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + failure,
+            BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+
+    /// <summary>通知と同じ失敗を、版情報つきの形式でログへ記録します。</summary>
+    private static void LogInitializationFailure(Exception failure)
+        => NLogWrapper.GetLogger(typeof(MainWindowViewModel)).Error(failure,
+            (Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty) + " - " + Environment.NewLine + failure, null);
 
     Task<LeapYearFolderRepairApproval> ISettingsDialogStatePort.PrepareLibraryInitializationAsync()
     {
@@ -3443,7 +3470,8 @@ public partial class MainWindowViewModel : ViewModel,
         || chartFileOperations.IsAdmissionClosed || applicationComposition.PlaylistOperationAdmission.IsAdmissionClosed;
 
     private async Task<StartupInitializationResult> InitializeLibraryAsync(bool isNormalStartup, LibraryFileMutationCapability capability = null,
-        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false)
+        LeapYearFolderRepairApproval leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification> repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false,
+        Action initializationCommitted = null)
     {
         StartupLibraryInitializationGateLease initializationGate =
             await startupLibraryInitializationWorkflowOwner.AcquireGateAsync();
@@ -3466,7 +3494,8 @@ public partial class MainWindowViewModel : ViewModel,
                     phase => directoryWarningPhase = phase,
                     settings => initializedSettings = settings, capability, exception => constructionFailure = exception, leapYearRepairApproval,
                     notification => { repairNotification = notification; repairNotificationObserver?.Invoke(notification); },
-                    warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification, forceBeatorajaBmtProjection);
+                    warning => scanWarnings.TryAdd(warning.Kind, warning), notification => scoreNotification = notification, forceBeatorajaBmtProjection,
+                    initializationCommitted);
                 outcome = initializationResult.Outcome;
             }
         }
@@ -3522,15 +3551,12 @@ public partial class MainWindowViewModel : ViewModel,
             {
                 if (!IsRequiredInitializationShutdownRequested)
                 {
-                    UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(new UiMessageRequest(
-                        BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + constructionFailure,
-                        BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK));
+                    UiDialogResult result = await FileDbMutationDialogs.ShowMessageAsync(CreateInitializationFailureMessage(constructionFailure));
                     UiDialogRoute.ThrowIfNotShown(result, "Startup library construction failure notification");
                 }
             }
             catch (Exception presentationFailure) { ReportStartupLibraryInitializationFailurePresentationFailure(constructionFailure, presentationFailure); }
-            NLogWrapper.GetLogger(typeof(MainWindowViewModel)).Error(constructionFailure,
-                (Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty) + " - " + Environment.NewLine + constructionFailure, null);
+            LogInitializationFailure(constructionFailure);
         }
 
         if (initializationFailure != null && constructionFailure == null)
@@ -3559,7 +3585,8 @@ public partial class MainWindowViewModel : ViewModel,
         Action<LibraryDirectoryWarningPhase> recordDirectoryWarningPhase,
         Action<StartupSettingsSnapshot> recordStartupSettings, LibraryFileMutationCapability capability,
         Action<Exception> recordLibraryConstructionFailure, LeapYearFolderRepairApproval leapYearRepairApproval,
-        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver, Action<ScoreAdoptionNotification> scoreNotificationObserver, bool forceBeatorajaBmtProjection)
+        Action<LeapYearFolderRepairNotification> repairNotificationObserver, Action<LibraryScanWarning> warningObserver, Action<ScoreAdoptionNotification> scoreNotificationObserver, bool forceBeatorajaBmtProjection,
+        Action initializationCommitted = null)
     {
         if (IsRequiredInitializationShutdownRequested) { throw new OperationCanceledException(); }
         if (capability == null && (!chartFileOperations.CanEnter || !applicationComposition.PlaylistOperationAdmission.CanEnter))
@@ -3653,6 +3680,8 @@ public partial class MainWindowViewModel : ViewModel,
         capability = requiredOperation.Capability;
         try
         {
+            // 読取り専用の準備がすべて終わった位置です。呼出元はここで画面を閉じ、通知が例外なら最初の書込みを始めず構築失敗と同じ経路で返します。
+            initializationCommitted?.Invoke();
             if (schemaApproval != null) { await startupLibraryInitializationWorkflowOwner.ApplyPreparedSchemaAsync(startupSettings, schemaApproval); }
             StartupLibraryConstructionOwner.RepairCustomFolderSearchRoots(startupSettings, startupLr2Config);
             LibraryProfile libraryProfile = StartupLibraryConstructionOwner.CreateProfile(applicationComposition.DatabaseScope, startupSettings, startupLr2Config, applicationComposition.ApplicationPathSnapshot);

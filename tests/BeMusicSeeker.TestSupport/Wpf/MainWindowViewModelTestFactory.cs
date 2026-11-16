@@ -151,7 +151,7 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 {
     private readonly MainWindowViewModel owner;
     private readonly Func<Task<StartupInitializationResult>> initializeLibrary;
-    private readonly Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, bool, Task<StartupInitializationResult>>? initializeAcceptedLibrary;
+    private readonly Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, bool, Action?, Task<StartupInitializationResult>>? initializeAcceptedLibrary;
     private readonly Func<LibraryFileMutationCapability?, Task> reloadScoresOnly;
     private readonly Func<LibraryFileMutationCapability?, Task> reloadFileDiff;
     private readonly Action? initializationFailed;
@@ -164,7 +164,7 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
         Action? initializationFailed = null,
         Func<LibraryFileMutationCapability?, Task>? reloadScoresOnly = null,
         Func<LibraryFileMutationCapability?, Task>? reloadFileDiff = null,
-        Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, bool, Task<StartupInitializationResult>>? initializeAcceptedLibrary = null)
+        Func<LibraryFileMutationCapability?, LeapYearFolderRepairApproval?, Action<LeapYearFolderRepairNotification>?, bool, Action?, Task<StartupInitializationResult>>? initializeAcceptedLibrary = null)
     {
         this.initializeAcceptedLibrary = initializeAcceptedLibrary;
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
@@ -192,10 +192,11 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
         => ((ISettingsDialogStatePort)owner).PresentLeapYearFolderRepairAsync(notification);
 
     public async Task<StartupInitializationResult> InitializeLibraryAsync(LibraryFileMutationCapability? capability = null,
-        LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false)
+        LeapYearFolderRepairApproval? leapYearRepairApproval = null, Action<LeapYearFolderRepairNotification>? repairNotificationObserver = null, bool forceBeatorajaBmtProjection = false,
+        Action? initializationCommitted = null)
     {
         StartupInitializationResult result = await (initializeAcceptedLibrary == null
-            ? initializeLibrary() : initializeAcceptedLibrary(capability, leapYearRepairApproval, repairNotificationObserver, forceBeatorajaBmtProjection));
+            ? initializeLibrary() : initializeAcceptedLibrary(capability, leapYearRepairApproval, repairNotificationObserver, forceBeatorajaBmtProjection, initializationCommitted));
         if (result.Outcome == StartupInitializationOutcome.SettingsRequired)
         {
             initializationFailed?.Invoke();
@@ -212,6 +213,9 @@ internal sealed class TestSettingsDialogStatePort : ISettingsDialogStatePort
 
     public Task PresentLibraryDirectoryWarningAsync(LibraryDirectoryPreflightException failure)
         => ((ISettingsDialogStatePort)owner).PresentLibraryDirectoryWarningAsync(failure);
+
+    public Task PresentInitializationFailureAsync(Exception failure)
+        => ((ISettingsDialogStatePort)owner).PresentInitializationFailureAsync(failure);
 
     /// <summary>受理済みの実差分継続だけ同じ生存権限を渡し、純fakeは局所依存のまま実終端を返します。</summary>
     public void ReevaluatePendingPackagesForSearchRoots(LibraryFileMutationCapability capability, out Action publication)
