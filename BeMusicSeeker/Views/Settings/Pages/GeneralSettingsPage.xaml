@@ -50,12 +50,23 @@
           <TextBlock Grid.Row="1" Grid.ColumnSpan="2" Margin="0,4,0,0" Foreground="{DynamicResource App.DisabledTextBrush}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_list_drag_drop_hint, Mode=OneWay}" TextWrapping="Wrap" />
         </Grid>
       </settings:SettingsListEditor>
-    <StackPanel Visibility="{Binding RequiresReplacementBmsInstallDir, Converter={StaticResource BooleanToVisibilityConverter}}">
-      <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_removed_install}">
+    <StackPanel Visibility="{Binding IsBmsInstallDirFieldVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+      <settings:SettingsField x:Name="removedInstallField" Visibility="{Binding IsBmsInstallDirReplacement, Converter={StaticResource BooleanToVisibilityConverter}}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_removed_install}">
         <TextBox IsReadOnly="True" Text="{Binding RemovedBmsInstallDir, Mode=OneWay}" />
       </settings:SettingsField>
-      <settings:SettingsField x:Name="replacementInstallField" IsEnabled="{Binding IsEditCompletionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_replacement_install}"
+      <settings:SettingsField x:Name="replacementInstallField" IsEnabled="{Binding IsEditCompletionEnabled}"
                               ValidationMessage="{Binding ReplacementBmsInstallDirValidationMessage}" ValidationStatus="{Binding ReplacementBmsInstallDirValidationStatus}">
+        <settings:SettingsField.Style>
+          <Style TargetType="{x:Type settings:SettingsField}" BasedOn="{StaticResource {x:Type settings:SettingsField}}">
+            <Setter Property="Header" Value="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_replacement_install, Mode=OneWay}" />
+            <Style.Triggers>
+              <DataTrigger Binding="{Binding IsNewBmsInstallDir}" Value="True">
+                <Setter Property="Header" Value="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_new_install_section, Mode=OneWay}" />
+                <Setter Property="Description" Value="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_new_install_description, Mode=OneWay}" />
+              </DataTrigger>
+            </Style.Triggers>
+          </Style>
+        </settings:SettingsField.Style>
         <ComboBox x:Name="replacementInstallComboBox" Style="{StaticResource SettingsValidatedComboBoxStyle}" ItemsSource="{Binding AvailableBMSDirectories}" SelectedItem="{Binding ReplacementBmsInstallDir}" />
       </settings:SettingsField>
     </StackPanel>

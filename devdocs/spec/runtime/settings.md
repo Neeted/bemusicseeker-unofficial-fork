@@ -100,7 +100,7 @@ BMSの差分再読込み・スコアの再読込み・BMTの失敗は、その�
 
 | セクション | 設定・表示順 |
 | --- | --- |
-| インストール先 | 確定済みの一覧から選ぶ `BMSInstallDir`、BMS一覧の編集先へ移動する操作・検証表示。 |
+| インストール先 | 確定済みの一覧から選ぶ `BMSInstallDir`、「BMSディレクトリを編集」ボタン（一般ページのBMSディレクトリ欄を表示範囲へ入れ、欄が有効ならフォーカスを移し、無効なら表示範囲へ入れるだけにする）、検証表示。 |
 | 新規フォルダの命名 | `FolderNameFormat`、`%ARTIST%` / `%TITLE%` の案内、`UseOnlyShiftJISChars`。命名書式と文字制限は自動リネームにも共通で使用する。 |
 | 取り込み・新規インストール | `EnableAutoInstall`、`KeepInstallablePackagesPending`、`RequireCompleteUsedResourcesForAutoInstall`。 |
 | 導入先の自動推定 | `AutoApplyAmbiguousInstallDestination`、`InstallDestinationAutoApplyMinAudioHealth`、`AutoInstallAfterAutomaticEstimation`。 |
@@ -454,10 +454,19 @@ beatorajaのルート、スコア、BMTは、独立した確定操作です。BM
 - 確認が不要なら、進行中の設定の実操作のTaskを置き換えず、通常の項目保存とページ移動を保ちます。BMS候補の破棄の確認が必要な場合だけ、設定担当の単一操作の所有を使います。設定の実操作中で、かつBMS候補の破棄の確認が必要な間だけ、選択欄を無効表示にし、実際の入口でも確認の前に拒否して、元の候補・確定した導入先・選択表示を保持します。候補の変化と、実操作の開始・終端の双方で可否を更新し、次の明示操作を待ちます。
 - BMS候補に追加しただけの場所は選べず、独立導入先の操作からBMS一覧を暗黙に確定しません。BMS一覧の確定に必要な明示代替の先は、同じBMS編集の中で扱います。
 
-一般ページで、現在のインストール先を候補一覧から除いた場合は、「変更後のインストール先」と、確定済みの「現在のインストール先（削除対象）」を表示します。
+一般ページの導入先の欄は、確定導入先がBMS候補に含まれるかと、確定BMS一覧に含まれる有効な値かで、次の三つに分けます。確定ボタンの表示名は「BMSディレクトリを確定」で、押せる条件は変えません。
 
-- 残存する候補に含まれる変更先を選ぶまで、必須入力の表示で確定を拒否します。選択だけでは保存せず、選択後も削除対象は確定まで表示します。
-- 候補が0件では、BMSディレクトリの追加または取消を案内し、元から無効な導入先には無効の案内を使います。
+| 状態 | 条件 | 表示 |
+| --- | --- | --- |
+| 不要 | 確定導入先がBMS候補に含まれる | 導入先の欄を出さない。 |
+| 置換 | 確定導入先は確定BMS一覧に含まれる有効な値で、BMS候補から外した | 「現在のインストール先（削除対象）」と「変更後のインストール先」を出す。 |
+| 新規 | 確定導入先が未設定、または確定BMS一覧に含まれない | BMS候補が確定BMS一覧と異なる間だけ、見出し「新規インストール先」と説明を付けた選択欄を出す。「削除対象」は出さない。BMS候補が確定BMS一覧と同じ間は欄を出さず、導入先はインストールページで選ぶ。 |
+
+- 置換では、残存する候補に含まれる変更先を選ぶまで、必須入力の表示（`Error`）で確定を拒否します。選択だけでは保存せず、選択後も削除対象は確定まで表示します。候補が0件では、BMSディレクトリの追加または取消を案内します。
+- 新規では、BMS候補に含まれる値を選ぶまで、欄の直下に「新規インストール先を選択してください。」を確定前の案内（`Warning`）として表示し、確定を拒否します。BMS候補が0件なら、同じ警告の状態でBMSディレクトリの追加または取消を案内します。
+- 新規でBMS候補がちょうど1件で、選択がBMS候補に含まれる値になっていない場合は、その1件を表示上の選択にします。保存は確定ボタンまで行いません。0件・2件以上では事前選択せず、利用者が選んだ値や事前選択した値がBMS候補に残っている間は上書きしません。置換では事前選択しません。
+- 選んだ導入先がBMS候補から外れた場合と、確定導入先がBMS候補へ戻って選び直しが不要になった場合は、置換・新規のどちらでも選択なしとして扱い、後で再び選び直しが必要になっても以前の選択を再表示しません。
+- 取消では、BMS候補と導入先の選択を確定値へ戻します。取消の可否と、他の操作による候補の破棄確認は、BMS候補が確定BMS一覧と異なるか、選び直しが必要な間にBMS候補に含まれる導入先を選んでいる場合だけ成立します。
 - 追加・削除・選択・取消・確定値の反映から、必要性と検証の表示を通知し、一般ページだけで直ちに反映します。
 
 BMS一覧の確定後は、確定候補と保存済みの導入先を揃えて通知し、生成済みのインストール設定ページでも選択を保存値へ反映します。
@@ -505,9 +514,9 @@ LR2出力の追加先の改名・削除は、対象の表の不変なヘッダ�
 
 有効な環境がない初回・修復でも、各項目は通常と同じ局所保存で確定します。ライブラリに依存する処理は、利用者が明示的に開始したときに初めて行います。
 
-- 初回・修復のLR2では、通常・ルートの出力先を一つずつ保存でき、未設定・欠落した他の区分は、その保存を妨げません。未変更で要修復の先を作り直さず、表に依存するROOT登録は初期化時に揃えます。選択した出力先と設定済みの配置の保護条件は保存時に検査し、両方の必須出力先は初期化の開始時に検査します。
+- 初回・修復のLR2では、確定済みのLR2設定を解決できる場合に限り、通常・ルートの出力先を一つずつ保存でき、未設定・欠落した他の区分は、その保存を妨げません。解決できない間は出力先の欄（参照・追加・削除・改名）を無効にし、欄の上に「先に一般ページでLR2ディレクトリを設定してください。」を表示します。この案内を操作すると、一般ページへ移りLR2環境の欄へフォーカスを移します。入口を呼ばれても、確定処理は保存より前にどの媒体も保存せずに拒否し、同じ理由を検証エラーとして一回通知して候補を確定配置へ戻します。未変更で要修復の先を作り直さず、表に依存するROOT登録は初期化時に揃えます。選択した出力先と設定済みの配置の保護条件は保存時に検査し、両方の必須出力先は初期化の開始時に検査します。
 - 環境の保存では再起動しません。「この環境で開始」が、確定済みの必須値で一回だけ初期化し、必要な全表のBMT、必須のUI・ホストへの公開を待ってから、初回の完了と設定画面の閉鎖へ進みます。設定不足、処理の失敗、終了要求は型で区別します。
-- 通常の起動の準備開始から、必須のUI・ホストへの公開の実際の終端までは、設定からの重複開始と、モード・LR2・beatorajaの組の反映を受け付けません。閲覧と無関係な通常項目の保存は可能です。開始ボタンはライブラリ操作状態と設定操作状態に従って無効にし、[不備の一覧](#不備の一覧)が空でない間も無効にします。連続クリックも同じ受付で拒否します。有効なプロファイルの成功公開で開始表示を更新します。
+- 通常の起動の準備開始から、必須のUI・ホストへの公開の実際の終端までは、設定からの重複開始と、モード・LR2・beatorajaの組の反映を受け付けません。閲覧と無関係な通常項目の保存は可能です。開始ボタンはライブラリ操作状態と設定操作状態に従って無効にし、[不備の一覧](#不備の一覧)が空でない間も無効にします。連続クリックも同じ受付で拒否します。開始ボタンとその上の案内文は、有効なライブラリがなく、通常起動の準備・必須UIの公開待ち・設定からの明示開始の処理中のいずれでもない間だけ表示します。起動が設定不備で止まって案内を出している間は処理中ではなく、元の案内のTaskが未完了でも表示します。開始が失敗して待機へ戻れば再び表示し、有効なプロファイルの成功公開で非表示にします。案内文は、不備の一覧が空でなければ「「対応が必要な設定」の項目を設定すると開始できます。」、空なら「必要な設定が揃いました。「この環境で開始」を押すとBMSの読み込みを始めます。」です。
 - 初回・設定不備の案内では、起動の抑止と受付を解放済みなら、元の案内のTaskが未完了でも、同じ設定画面から開始できます。
 
 ### 設定の不備の案内
@@ -519,18 +528,26 @@ LR2出力の追加先の改名・削除は、対象の表の不変なヘッダ�
 | 不備 | ページ | 対象の欄 |
 | --- | --- | --- |
 | LR2の `song.db`・設定XMLが無効、設定XMLを解決できない | 一般 | LR2環境 |
-| 登録済みの検索ルートの親子関係、スタンドアロンのルートなし・LR2で扱えないルート | 一般 | BMSディレクトリ |
+| 登録済みの検索ルートの親子関係、LR2で扱えないルート、確定BMS一覧が空（モードを問わず。LR2環境の行がある間を除く） | 一般 | BMSディレクトリ |
 | スコアの使用でscore.dbが無効（ルートが有効な場合だけ） | 一般 | スコアDB |
 | スコア・BMTの使用でbeatorajaのルートが無効 | 一般 | beatorajaのルート |
 | BMTの使用で表の出力先がない | 一般 | BMT出力 |
 | 外部画像の使用で画像が無効 | 外観 | 外部画像 |
 | 外部プレイヤーの使用でプレイヤーのパス・LR2本体・窓の大きさが無効 | 再生 | 各プレイヤー |
-| 通常・ROOT出力先の未設定、出力先の検査例外 | プレイリスト | 原因の出力先（通常・ROOT・追加） |
+| 通常・ROOT出力先の未設定（未設定の行だけ）、設定済みの出力先の検査例外 | プレイリスト | 原因の出力先（通常・ROOT・追加） |
 | 追加出力先の名前の重複・出力先同士の重なり | プレイリスト | 後に検査した出力先 |
-| 導入先が登録済みのBMSディレクトリにない | インストール | インストール先 |
+| 導入先が登録済みのBMSディレクトリにない（確定BMS一覧が空の間と、LR2環境の行がある間を除く） | インストール | インストール先 |
 | LR2連携でバックアップが有効なのに出力先が無効 | バックアップ | LR2バックアップの出力先 |
 
-理由の文言は従来の検査と同じ表示リソースを使います。行は作成時の表示言語で「ページ名: 理由」（ページ名はページ一覧の表示名）に固定します。並びはページ一覧の順で、同じページ内は検査順（一般では LR2環境、BMSディレクトリ、スコアDB、beatorajaのルート、BMT出力の順）です。
+行の割当てと文言の規則は次のとおりです。
+
+- LR2環境の理由は、確定済みのLR2ディレクトリが空なら「LR2ディレクトリを設定してください。」、空でなければ「LR2のsong.dbまたはconfig.xmlのパスが正しくありません」です。起動時検査が設定XMLを解決できなかった場合の行にも同じ選択を使います。
+- LR2環境の行がある間（起動時検査が設定XMLを解決できなかった場合を含み、次に一覧を作り直すまで）は、プレイリストの出力先（通常・ROOT・追加）の行とインストールの導入先の行を出さず、確定BMS一覧が空の行も出しません。LR2環境が成立すれば出します。
+- 確定BMS一覧が空なら、一般ページのBMSディレクトリ欄の行を「BMSディレクトリを追加し、新規インストール先を選んで確定してください。」の一行にし、導入先の行は出しません。
+- 確定BMS一覧が空でなく導入先が不備なら、導入先の理由は、確定導入先が空なら「新規インストール先を選択してください。」、LR2連携で確定導入先が出力先（通常・ROOT・追加）と同じかその配下なら出力先を使えない旨の従来の文言、それ以外は「新規インストール先を登録済みのBMSディレクトリから選択してください。」です。
+- 通常・ROOT出力先が未設定の場合は、その出力先の行を「通常出力先が設定されていません」「ルートフォルダ出力先が設定されていません」の一行にし、「選択されていません」の行を重ねません。設定済みの出力先の検査（文字種、検索ルートとの重なり、名前の重複、出力先同士の重なり）は、未設定の出力先を除いた残りに対して行います。
+
+その他の理由の文言は従来の検査と同じ表示リソースを使います。行は作成時の表示言語で「ページ名: 理由」（ページ名はページ一覧の表示名）に固定します。並びはページ一覧の順で、同じページ内は検査順（一般では LR2環境、BMSディレクトリ、スコアDB、beatorajaのルート、BMT出力の順）です。
 
 一覧を作り直すのは、設定画面の表示開始、この画面から確定値を変えた操作（項目の保存、局所確定、環境の変更）の終端、表示言語の変更、起動時検査（設定画面からの明示開始を含む）の終端だけです。起動時検査は作った一覧をそのまま公開します。画面外で確定値が変わっても、次の時機まで一覧を変えません。
 
@@ -544,7 +561,14 @@ LR2出力の追加先の改名・削除は、対象の表の不変なヘッダ�
 
 #### 欄の理由
 
-対象の欄の直下に、一覧の理由と、前提を満たさない有効化の候補の理由を表示します。同じ欄の従来の検証表示（LR2ルート、通常・ROOT出力先、インストール先）と同じ文言は一度だけにします。前提を満たさない候補の理由は次のとおりで、スコアとBMTの確定時の検査も同じ理由を通知します。
+対象の欄の直下に、一覧の理由と、前提を満たさない有効化の候補の理由を表示します。同じ欄の従来の検証表示（LR2ルート、通常・ROOT出力先、インストール先）と同じ文言は一度だけにし、一覧が抑止・置換した行（LR2環境の行がある間の出力先・導入先、確定BMS一覧が空の間の導入先）の理由は、その欄の従来の検証表示にも出しません。インストール先の理由は、一覧と同じ規則で選びます。
+
+BMSディレクトリ欄には次の規則を加えます。
+
+- BMS候補が確定BMS一覧と異なる間は、確定値由来の理由を表示せず、「変更は未確定です。「BMSディレクトリを確定」を押すと保存されます。」だけを `Warning` で表示します。BMS候補が確定BMS一覧と同じになれば（確定・取消を含む）、確定値由来の理由を表示します。下部の一覧は、従来どおり確定値だけから作ります。
+- LR2連携でLR2設定を解決できず、欄が無効な間は、「LR2ディレクトリを設定すると編集できます。」を表示します。解決できて設定操作の進行中だけで無効な間は表示しません。
+
+前提を満たさない候補の理由は次のとおりで、スコアとBMTの確定時の検査も同じ理由を通知します。
 
 | 候補 | 理由 |
 | --- | --- |
@@ -686,9 +710,11 @@ setterや、通常の走査・表の編集・出力・同期では、組込み�
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 不備の一覧の生成・並び・作り直しの時機、局所候補の不参照、開始ボタンの可否 | [`SettingsDialogViewModel.Deficiencies`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Deficiencies.cs) の `BuildDeficiencies`・`RefreshDeficiencies`・`RefreshStartupDeficiencies`、[`SettingsDeficiency`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDeficiency.cs)、`CanStartEnvironment` | [`SettingsDeficiencyListTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsDeficiencyListTests.cs) の `DeficiencyList_AssignsEachConfirmedFailureToContractPageFieldAndReason` が、有効な基準から1か所崩した各行（LR2のsong.db・設定XML、親子の検索ルート、スタンドアロンのルートなし、スコアDB、beatorajaのルート、画像、uBMplay、LR2本体、通常・ROOTの未設定、ROOTの文字種、追加の名前重複・重なり、導入先、LR2バックアップ、スタンドアロンのバックアップ、有効な基準）のページ・欄・理由と、空と開始可否の一致を、`DeficiencyList_OrdersByPageListThenCurrentCheckOrder` が並びを、`DeficiencyList_IgnoresLocalCandidatesAndRebuildsAfterConfirmationItemSaveReopenAndLanguageChange` が局所候補・画面外の変更での不変と、項目保存・確定の終端・表示開始・言語変更での作り直しと通知、内容が同じ作り直しで一覧を差し替えないことを確認する。`SettingDialogCategoryPersistenceTests.CompiledInitialLr2OutputPickers_SaveEachRequiredPlacementBeforeAllowingInitialization` は初回の出力先の段階保存ごとの一覧・実際の開始ボタン・案内欄を確認する。BMTの表の出力先なしは、有効なルートでは表の出力先が既定値へ解決されるため実FSで作れず、自動テストでは確認していない。 |
+| 不備の一覧の生成・並び・作り直しの時機、局所候補の不参照、開始ボタンの可否 | [`SettingsDialogViewModel.Deficiencies`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Deficiencies.cs) の `BuildDeficiencies`・`RefreshDeficiencies`・`RefreshStartupDeficiencies`、[`SettingsDeficiency`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDeficiency.cs)、`CanStartEnvironment` | [`SettingsDeficiencyListTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsDeficiencyListTests.cs) の `DeficiencyList_AssignsEachConfirmedFailureToContractPageFieldAndReason` が、有効な基準から1か所崩した各行（LR2のsong.db・設定XML、LR2ディレクトリが空のsong.db欠落、LR2環境の行による出力先・導入先の抑止、登録済みBMSディレクトリなし、親子の検索ルート、スタンドアロンのルートなし、スタンドアロンで残った出力先と同じ導入先、スコアDB、beatorajaのルート、画像、uBMplay、LR2本体、通常・ROOTの未設定と未設定を除いた文字種の検査、追加の名前重複・重なり、導入先の未設定・出力先と同じ・出力先の配下・それ以外、LR2バックアップ、スタンドアロンのバックアップ、有効な基準）のページ・欄・理由と、空と開始可否の一致を、`DeficiencyList_OrdersByPageListThenCurrentCheckOrder` が並びを、`BmsDirectoriesField_ShowsOnlyUnconfirmedGuidanceWhileCandidateDiffersAndRestoresConfirmedReason` がBMS候補が未確定の間の欄の理由・状態と一覧の不変、候補を戻す編集・取消・確定での復帰を、`BmsDirectoriesField_GuidesToLr2DirectoryOnlyWhileConfirmedLr2ConfigIsUnresolved` がLR2設定を解決できない間だけの案内を、`DeficiencyList_IgnoresLocalCandidatesAndRebuildsAfterConfirmationItemSaveReopenAndLanguageChange` が局所候補・画面外の変更での不変と、項目保存・確定の終端・表示開始・言語変更での作り直しと通知、内容が同じ作り直しで一覧を差し替えないことを確認する。`SettingDialogCategoryPersistenceTests.CompiledInitialLr2OutputPickers_SaveEachRequiredPlacementBeforeAllowingInitialization` は初回の出力先の段階保存ごとの一覧・実際の開始ボタン・案内欄を確認する。`StartupUnresolvedLr2Config_ListsLr2EnvironmentAndSuppressesDependentRowsUntilNextRefresh`（LR2ディレクトリの保存値あり・空、登録済みBMSディレクトリなし）が、設定画面ではLR2設定を解決できる確定値で起動時検査が設定XMLを解決できなかったと報告した場合のLR2環境の行と理由の選択、出力先・導入先・BMSディレクトリの追加を求める行と出力先・導入先の欄の検証表示の抑止、無関係な行の維持、次の作り直しでの復帰を確認する。起動経路で設定XMLを解決できなかった場合のLR2環境の行は、`SettingDialogEnvironmentConfirmationTests.UnconfiguredLr2ModeSave_ExplicitStartAndFreshStartupRequireSettings` が確認する。BMTの表の出力先なしは、有効なルートでは表の出力先が既定値へ解決されるため実FSで作れず、自動テストでは確認していない。 |
 | 前提を要する有効化の候補の理由、保存済みの不整合 | `SettingsDialogViewModel.Deficiencies` の欄の理由、`CanConfirmBmtSettings`、`CommitBmtSettingsCoreAsync`、`CommitScoreSettingsCoreAsync` | `SettingsDeficiencyListTests.UnmetPrerequisiteCandidates_ShowFieldReasonWithoutSavingAndClearWhenResolved`（スコアのルート・score.db、画像、BMTのルート、uBMplay、BMIIDXView）が理由・非保存・確定可否と確定時の理由の一致・解消を、`SavedUnmetPairs_AreListedWithFieldReasonAndClearAfterEitherFix` が保存済みの組の表示と、チェックを外す保存・前提の修正・表示開始時の再検査での解消を確認する。 |
-| 案内欄・ページの印・欄の理由・行の操作 | [`SettingsWindow.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.xaml)、[`SettingsWindow.ShowDeficiencyField`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsNavigationMark`・`SettingsDeficiencyTarget`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、各設定ページ | [`SettingsWindowDeficiencyGuidanceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowDeficiencyGuidanceTests.cs) の `SettingsWindow_GuidanceRowsMarksAndFieldReasonsFollowDeficiencyListInInitialAndNormalSettings`（初回・通常）が見出しと行、オートメーションから読める印、導入先と二重にしない理由、開始ボタン、最小寸法での下部操作と解消後の追従を、`SettingsWindow_GuidanceRowActivationSelectsPageScrollsTargetIntoViewAndFocusesIt` が範囲外の欄へのページ選択・表示範囲・フォーカスを確認する。`SettingsWindowPresentationTests.SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation` が欄の理由のBindingと従来の検証表示の統合を確認する。 |
+| 案内欄・ページの印・欄の理由・行の操作 | [`SettingsWindow.xaml`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.xaml)、[`SettingsWindow.ShowDeficiencyField`](../../../BeMusicSeeker/Views/Settings/SettingsWindow.cs)、[`SettingsNavigationMark`・`SettingsDeficiencyTarget`](../../../BeMusicSeeker/Views/Settings/SettingsPresentationControls.cs)、各設定ページ | [`SettingsWindowDeficiencyGuidanceTests`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowDeficiencyGuidanceTests.cs) の `SettingsWindow_GuidanceRowsMarksAndFieldReasonsFollowDeficiencyListInInitialAndNormalSettings`（初回・通常）が見出しと行、オートメーションから読める印、導入先と二重にしない理由、開始ボタンと下部の案内文（初回だけの表示と、不備の解消前後の切替）、最小寸法での下部操作と解消後の追従を、`SettingsWindow_GuidanceRowActivationSelectsPageScrollsTargetIntoViewAndFocusesIt` が範囲外の欄へのページ選択・表示範囲・フォーカスを、`SettingsWindow_Lr2ConfigResolutionGuidesBmsAndOutputEditingAndRoutesToTargetFields`（LR2設定を解決できる・できない）がBMSディレクトリ欄の無効化と案内、出力先の参照・追加・削除・改名の有効・無効と案内、案内の操作によるLR2環境の欄への移動、インストールページのボタンによるBMSディレクトリ欄への移動を確認する。`SettingsWindowPresentationTests.SettingsPages_RequiredValidationBindingsUseSharedWarningAndErrorPresentation` が欄の理由のBindingと従来の検証表示の統合を確認する。開始ボタンと案内文を表示しない処理中の状態は、`SettingDialogEnvironmentConfirmationTests.NormalStartupPreparation_RejectsEnvironmentChangesBeforeLibraryCreation`（通常起動の準備段階）、`MainWindowViewModelStartupProgressTests.StartupRequiredUi_ActualTaskOwnsCompletionBeforeOptionalWorkStarts`（必須UIの公開待ち）、`SettingDialogEditCompletionTests.InitialEnvironmentStart_CompletesRealLr2InitializationWithoutReacquiringAdmission`（明示開始の処理中と失敗後の再表示）、`SettingDialogEnvironmentConfirmationTests.SettingsGuidance_ExplicitStartSucceedsWhileOriginalModalInitializationIsPending`（案内で止まった起動が未完了でも表示）が確認する。 |
+| 新規インストール先の選択（事前選択、確定前の保存なし、取消、確定）と、導入先の欄の三状態 | [`SettingsDialogViewModel.Confirmation`](../../../BeMusicSeeker/ViewModels/Settings/SettingsDialogViewModel.Confirmation.cs) の `IsBmsInstallDirReplacement`・`IsNewBmsInstallDir`・`IsBmsInstallDirFieldVisible`・`AdoptNewInstallSelection`・`ReplacementBmsInstallDir`・`CanCancelBmsRoots`、[`GeneralSettingsPage.xaml`](../../../BeMusicSeeker/Views/Settings/Pages/GeneralSettingsPage.xaml) | [`SettingsDialogBehaviorTests.NewInstallDestination_FollowsCandidateStatePreselectsSingleCandidateAndSavesOnlyOnConfirmation`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsDialogBehaviorTests.cs)（スタンドアロン・LR2、導入先が空・一覧外）が欄の表示条件、1件の事前選択と非保存、2件同時の追加、選択の保持、削除後の事前選択、取消、確定、「不要」を、`BmsRootConfirmationUsesFinalListAndExplicitInstallReplacement` が置換で事前選択しないことと従来の拒否文言、候補から外れた選択と選び直しが不要になった選択の破棄、確定値へ戻した候補で取消の可否・候補の破棄確認が成立しないことを、[`SettingsWindowCompiledBehaviorTests.GeneralPageNewInstallDestination_ShowsGuidanceHeaderAndPreselectionAndSavesOnConfirmation`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingsWindowCompiledBehaviorTests.cs) が見出し・説明・事前選択の表示、確定前の案内の状態、確定ボタンの可否、確定後に欄が消えることを確認する。 |
+| LR2設定を解決できない間の出力先の編集無効と確定の拒否 | `SettingsDialogViewModel.Deficiencies` の `IsLr2OutputPrerequisiteMissing`・`AreOutputBasesEditable`、`SettingsDialogViewModel.Confirmation` の `CommitOutputSettingsCoreAsync`、[`PlaylistSettingsPage.xaml`](../../../BeMusicSeeker/Views/Settings/Pages/PlaylistSettingsPage.xaml) | [`SettingDialogOutputConfirmationTests.OutputConfirmation_RejectsBeforeSavingWhenConfirmedLr2ConfigCannotBeResolved`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogOutputConfirmationTests.cs)（通常・ROOT・追加）が、設定とXMLの非保存、検証エラーの一回の通知、部分保存の非通知、候補の復帰を確認する。画面の無効化と案内は `SettingsWindowDeficiencyGuidanceTests.SettingsWindow_Lr2ConfigResolutionGuidesBmsAndOutputEditingAndRoutesToTargetFields` が確認する。 |
 | LR2バックアップの有効化と出力先の組、案内の一回 | `SettingsDialogViewModel.Deficiencies` の `IsLR2BackupEnabled`・`SelectLr2BackupOutput`、`SettingsWindow.HandleLr2BackupEnabledChangedAsync`・`HandleBrowseLr2BackupPathAsync`、[`BackupSettingsPage`](../../../BeMusicSeeker/Views/Settings/Pages/BackupSettingsPage.xaml) | `SettingsWindowDeficiencyGuidanceTests.CompiledLr2BackupCheck_RequiresAcceptedOutputBeforeSavingPair`（承認・取消・閉鎖・失敗・保存済みの出力先）が選択の回数・組の保存・案内・失敗の一回の通知を、`CompiledLr2Backup_OutputBeforeCheckAndUncheckKeepPathAndRepairSavedUnmetPair` が保存済みの不整合の修復、外したときの出力先の保持、チェック前の出力先だけの保存を、`CompiledLr2BackupAutomationToggle_SavesPairOrRequiresAcceptedOutput`（保存済みの出力先・取消）がUIオートメーションの切替での組の保存・無効化・選択の回数・表示の戻りを確認する。`MainWindowViewModelStartupProgressTests` のバックアップ案内の既存ケースを維持する。対象・間隔・世代数の単独保存は既存の項目保存の系列で確認する。 |
 | 起動時検査の一覧の公開と警告の行 | [`MainWindowViewModel`](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs) の `InitializeCoreAsync`、`SettingsDeficiency.FormatStartupWarning` | `SettingsDeficiencyListTests.ExplicitStartAfterExternalChange_PublishesStartupDeficienciesToGuidance` が明示開始の後の一覧の公開・警告の行・開始ボタンを、`SettingDialogEditCompletionTests.InitializeLibrary_SettingsValidationFailureRoutesGuidanceByCaller` と `SettingDialogEnvironmentConfirmationTests.UnconfiguredLr2ModeSave_ExplicitStartAndFreshStartupRequireSettings` が警告の完全な文言と一覧を確認する。 |
 | 候補の復元、言語変更、拒否理由 | `SettingsDialogViewModel.InitializeSectionEditors`、`RaiseSectionCandidatesChanged`、理由つきの表示 | `SettingsDialogBehaviorTests.ClosingDiscardsCandidatesAndKeepsConfirmedOrdinaryItems`、`SectionConfirmation_PreparationReopenAdoptsOnlySavedSection`、`SettingsWindowPresentationTests.SettingsWindow_ManualResyncClosesAndQueuesForcedWorkflow`、`PlaylistUriValidation_*`、`SettingDialogPathSelectionTests` が、値・通知・実Binding・再処理なしを分担する。 |

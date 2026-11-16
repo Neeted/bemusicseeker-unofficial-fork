@@ -3170,12 +3170,32 @@ public class Resources
     public static string Settings_replacement_install_required => ResourceManager.GetString("Settings_replacement_install_required", resourceCulture);
     /// <summary>変更先候補がなく、検索対象の追加または削除操作の取消を求める案内を取得します。</summary>
     public static string Settings_replacement_install_empty => ResourceManager.GetString("Settings_replacement_install_empty", resourceCulture);
-    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
-    public static string Settings_use_on_start => ResourceManager.GetString("Settings_use_on_start", resourceCulture);
     /// <summary>設定画面の下部で不備の一覧を示す案内欄の見出しです。</summary>
     public static string Settings_deficiency_guidance_title => ResourceManager.GetString("Settings_deficiency_guidance_title", resourceCulture);
     /// <summary>不備のあるページ一覧の項目に付ける印の、支援技術向けの状態名です。</summary>
     public static string Settings_deficiency_page_mark => ResourceManager.GetString("Settings_deficiency_page_mark", resourceCulture);
+    /// <summary>一覧の変更の未確定を示す案内です。</summary>
+    public static string Settings_bms_candidate_unconfirmed => ResourceManager.GetString("Settings_bms_candidate_unconfirmed", resourceCulture);
+    /// <summary>LR2ディレクトリが未解決でBMSディレクトリ欄が無効な間の案内です。</summary>
+    public static string Settings_bms_editor_requires_lr2_root => ResourceManager.GetString("Settings_bms_editor_requires_lr2_root", resourceCulture);
+    /// <summary>新規インストール先の欄の見出しです。</summary>
+    public static string Settings_new_install_section => ResourceManager.GetString("Settings_new_install_section", resourceCulture);
+    /// <summary>新規インストール先の欄の説明です。</summary>
+    public static string Settings_new_install_description => ResourceManager.GetString("Settings_new_install_description", resourceCulture);
+    /// <summary>新規インストール先が未選択の理由です。</summary>
+    public static string Error_InstallDirNotSelected => ResourceManager.GetString("Error_InstallDirNotSelected", resourceCulture);
+    /// <summary>新規インストール先が登録済みのBMSディレクトリにない理由です。</summary>
+    public static string Error_InvalidBmsInstallDirNotRegistered => ResourceManager.GetString("Error_InvalidBmsInstallDirNotRegistered", resourceCulture);
+    /// <summary>LR2ディレクトリが未設定でLR2環境が使えない理由です。</summary>
+    public static string Error_Lr2RootPathNotSet => ResourceManager.GetString("Error_Lr2RootPathNotSet", resourceCulture);
+    /// <summary>BMSディレクトリが一件もない場合の理由です。</summary>
+    public static string Error_BmsDirectoryAndInstallRequired => ResourceManager.GetString("Error_BmsDirectoryAndInstallRequired", resourceCulture);
+    /// <summary>LR2設定を解決できない間の出力先の案内と、出力先確定の拒否理由です。</summary>
+    public static string Settings_output_requires_lr2_root => ResourceManager.GetString("Settings_output_requires_lr2_root", resourceCulture);
+    /// <summary>初回設定の下部で、不備が残っている間の開始の案内です。</summary>
+    public static string Settings_start_requires_settings => ResourceManager.GetString("Settings_start_requires_settings", resourceCulture);
+    /// <summary>初回設定の下部で、不備が解消された後の開始の案内です。</summary>
+    public static string Settings_start_ready => ResourceManager.GetString("Settings_start_ready", resourceCulture);
     /// <summary>選択recordだけを確定する操作名です。</summary>
     public static string Settings_confirm_record => ResourceManager.GetString("Settings_confirm_record", resourceCulture);
     /// <summary>設定画面の環境とBMS編集の操作名です。</summary>

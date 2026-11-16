@@ -230,7 +230,9 @@ public sealed class MainWindowViewModelStartupProgressTests
                 scope.ShowAndWaitForContentRendered(settingsWindow);
                 var start = (System.Windows.Controls.Button)settingsWindow.FindName("buttonOK");
                 Assert.IsTrue(settingsWindow.IsVisible);
-                Assert.AreEqual(Visibility.Visible, start.Visibility);
+                // 必須UIの公開待ちは起動・初期化の処理中のため、開始ボタンと案内文を表示しません。
+                Assert.AreEqual(Visibility.Collapsed, start.Visibility);
+                Assert.IsFalse(((System.Windows.Controls.TextBlock)settingsWindow.FindName("settingsStartGuidanceText")).IsVisible);
                 Assert.IsFalse(start.IsEnabled);
                 var captured = EnvironmentSettingsChange.Capture(fixture.Settings);
                 string confirmedBeatoraja = fixture.Settings.BeatorajaRootPath;

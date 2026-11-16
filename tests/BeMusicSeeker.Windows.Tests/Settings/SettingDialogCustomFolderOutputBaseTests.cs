@@ -376,7 +376,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.AreEqual(normal, testSettings.LR2CustomFolderOutputBaseDir);
             CollectionAssert.AreEquivalent(retainedRegistrations, TestLr2ConfigFactory.Load(config.ConfigFilePath).GetBMSSearchDirectoriesForChangeTracking().ToArray());
             testSettings.BMSInstallDir = missing;
-            Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialog.BmsInstallDirValidationMessage);
+            // この媒体ではLR2環境の行が一覧に出るため、導入先の検証表示は一覧と同じく出しません。
+            Assert.IsTrue(dialog.Deficiencies.Any(item => item.Field == SettingsDeficiencyField.Lr2Environment));
+            Assert.AreEqual(string.Empty, dialog.BmsInstallDirValidationMessage);
             testSettings.BMSInstallDir = manual;
             Assert.AreEqual(string.Empty, dialog.BmsInstallDirValidationMessage);
         }

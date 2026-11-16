@@ -887,7 +887,121 @@ public sealed class SettingsDialogBehaviorTests
         }, nameof(BmsCandidateEditing_DuringLibraryProcessingDoesNotAcquireOrSave));
     }
 
-    /// <summary>追加と解除の最終一覧を一度保存し、導入先を外す場合は明示代替を必要とします。成功後は候補を解消し、同値の明示確定でも再保存・必要再読込みを行います。明示代替なしの確定の拒否では通知がちょうど一件（導入先の選択を求める文言と見出し）出て、成功した確定では通知も確認も増えません。</summary>
+    /// <summary>
+    /// 確定導入先が未設定または確定BMS一覧にない（新規）状態で、BMS候補が確定BMS一覧と同じ間は導入先の欄を出さず、異なる間だけ出し、
+    /// 候補がちょうど1件なら保存せずに事前選択し、2件同時の追加では事前選択せず選ぶまで確定できず、選択した値は2件以上でも候補に残る間は保持し、
+    /// 選んだ候補を削除すると残った1件を事前選択し、取消で候補と選択を確定値へ戻し、確定で選んだ値を保存して欄が消えることを確認します。
+    /// 確定BMS一覧にない導入先と同じ場所を候補へ追加した場合は「不要」で欄を出さず確定できます。スタンドアロンとLR2（解決可能・登録なし）の両方で確認します。
+    /// </summary>
+    /// <remarks>事前選択の保存、2件以上での誤った事前選択・上書き、取消後の選択の残留、候補が同じ間の欄の表示、「不要」で欄を出す誤り、選ぶまでの確定可否の誤りを検出します。</remarks>
+    [TestMethod]
+    [DataRow("standalone", "empty")]
+    [DataRow("standalone", "outside")]
+    [DataRow("lr2", "outside")]
+    public void NewInstallDestination_FollowsCandidateStatePreselectsSingleCandidateAndSavesOnlyOnConfirmation(string mode, string installKind)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new TemporaryDirectory(CaseWorkspace, "new-install-destination");
+            bool lr2 = mode == "lr2";
+            string settingsPath = Path.Combine(directory.Path, "user.config");
+            string outside = Directory.CreateDirectory(Path.Combine(directory.Path, "Outside")).FullName;
+            Settings values;
+            string oldRoot = string.Empty;
+            if (lr2)
+            {
+                values = SettingsMediaTestFixture.CreateValidCustomFolderSettings(Path.Combine(directory.Path, "lr2"), [], TestSettingsFactory.OpenSettings(settingsPath));
+                var document = XDocument.Load(values.LR2ConfigXmlPath);
+                document.Root!.Element("jukebox")!.Elements("path").Remove();
+                document.Save(values.LR2ConfigXmlPath);
+            }
+            else
+            {
+                values = OpenPersistedSettings(directory.Path);
+                oldRoot = values.StandaloneBmsRootPaths;
+            }
+            values.BMSInstallDir = installKind == "empty" ? string.Empty : outside;
+            values.Save();
+            string a = Directory.CreateDirectory(Path.Combine(directory.Path, "A")).FullName;
+            string b = Directory.CreateDirectory(Path.Combine(directory.Path, "B")).FullName;
+            using var harness = SettingsDialogHarness.Create(values);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            Assert.IsTrue(dialog.RequiresReplacementBmsInstallDir);
+            Assert.IsFalse(dialog.IsBmsInstallDirReplacement, "確定BMS一覧にない導入先は削除対象にしません。");
+            Assert.IsFalse(dialog.IsBmsInstallDirFieldVisible, "候補が確定BMS一覧と同じ間は導入先の欄を出しません。");
+            byte[] before = File.ReadAllBytes(settingsPath);
+
+            if (!lr2)
+            {
+                await dialog.RemoveBmsSearchRootPathAsync(oldRoot);
+                Assert.IsTrue(dialog.IsNewBmsInstallDir);
+                Assert.IsNull(dialog.ReplacementBmsInstallDir);
+                Assert.AreEqual(Resources.Settings_replacement_install_empty, dialog.ReplacementBmsInstallDirValidationMessage, "候補が0件ならBMSディレクトリの追加または取消を案内します。");
+                Assert.AreEqual("Warning", dialog.ReplacementBmsInstallDirValidationStatus);
+                Assert.IsFalse(dialog.CanConfirmBmsRoots);
+                dialog.CancelBmsRoots();
+            }
+
+            // 候補がちょうど1件なら、保存せずに表示上だけ事前選択します。
+            if (!lr2) { await dialog.RemoveBmsSearchRootPathAsync(oldRoot); }
+            await dialog.AddBmsSearchRootPathsAsync([a]);
+            Assert.IsTrue(dialog.IsNewBmsInstallDir);
+            Assert.IsTrue(dialog.IsBmsInstallDirFieldVisible);
+            Assert.AreEqual(a, dialog.ReplacementBmsInstallDir);
+            Assert.AreEqual(string.Empty, dialog.ReplacementBmsInstallDirValidationMessage);
+            Assert.IsTrue(dialog.CanConfirmBmsRoots);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(settingsPath), "事前選択は確定ボタンまで保存しません。");
+
+            // 2件になっても、選択が候補に残る間は保持します。
+            await dialog.AddBmsSearchRootPathsAsync([b]);
+            Assert.AreEqual(a, dialog.ReplacementBmsInstallDir);
+
+            // 取消で候補と選択が確定値へ戻り、欄が消えます。
+            dialog.CancelBmsRoots();
+            Assert.IsNull(dialog.ReplacementBmsInstallDir);
+            Assert.IsFalse(dialog.IsBmsInstallDirFieldVisible);
+            CollectionAssert.AreEqual(lr2 ? Array.Empty<string>() : [oldRoot], dialog.AvailableBMSDirectories);
+
+            // 2件同時の追加では事前選択せず、選ぶまで確定できません。
+            if (!lr2) { await dialog.RemoveBmsSearchRootPathAsync(oldRoot); }
+            await dialog.AddBmsSearchRootPathsAsync([a, b]);
+            Assert.IsNull(dialog.ReplacementBmsInstallDir);
+            Assert.AreEqual(Resources.Error_InstallDirNotSelected, dialog.ReplacementBmsInstallDirValidationMessage);
+            Assert.AreEqual("Warning", dialog.ReplacementBmsInstallDirValidationStatus);
+            Assert.IsFalse(dialog.CanConfirmBmsRoots);
+            dialog.ReplacementBmsInstallDir = a;
+            Assert.IsTrue(dialog.CanConfirmBmsRoots);
+
+            // 選んだ候補を削除すると、残った1件を事前選択します。
+            await dialog.RemoveBmsSearchRootPathAsync(a);
+            Assert.AreEqual(b, dialog.ReplacementBmsInstallDir);
+            CollectionAssert.AreEqual(before, File.ReadAllBytes(settingsPath));
+
+            // 確定で選んだ値を保存し、欄が消えます。
+            await dialog.CommitBmsRootsAsync();
+            Assert.AreEqual(b, TestSettingsFactory.OpenSettings(settingsPath).BMSInstallDir);
+            Assert.IsFalse(dialog.IsBmsInstallDirFieldVisible);
+            Assert.IsNull(dialog.ReplacementBmsInstallDir);
+
+            if (installKind == "outside" && !lr2)
+            {
+                // 確定BMS一覧にない導入先と同じ場所を候補へ追加した場合は、導入先が候補に含まれるため「不要」です。
+                values.BMSInstallDir = outside;
+                dialog.CancelBmsRoots();
+                await dialog.AddBmsSearchRootPathsAsync([outside]);
+                Assert.IsFalse(dialog.RequiresReplacementBmsInstallDir);
+                Assert.IsFalse(dialog.IsBmsInstallDirFieldVisible);
+                Assert.IsTrue(dialog.CanConfirmBmsRoots);
+            }
+        }, nameof(NewInstallDestination_FollowsCandidateStatePreselectsSingleCandidateAndSavesOnlyOnConfirmation));
+    }
+
+    /// <summary>
+    /// 追加と解除の最終一覧を一度保存し、導入先を外す場合は明示代替を必要とします。成功後は候補を解消し、同値の明示確定でも再保存・必要再読込みを行います。明示代替なしの確定の拒否では通知がちょうど一件（導入先の選択を求める文言と見出し）出て、成功した確定では通知も確認も増えません。
+    /// 選んだ明示代替をBMS候補から削除すると選択なしになり、候補を確定BMS一覧へ戻した状態では取消の可否も候補の破棄確認も成立せず、再び置換にしても外れた選択は復活しません。
+    /// 外した導入先を候補へ戻して選び直しが不要になった場合も選択を捨て、もう一度外しても以前の選択を再表示しません。
+    /// </summary>
+    /// <remarks>候補に無い古い選択や、選び直しが不要になった後の選択が内部に残り、確定値と同じ状態を未確定の変更として扱う誤りや、以前の選択を再表示する誤りを検出します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void BmsRootConfirmationUsesFinalListAndExplicitInstallReplacement()
@@ -906,6 +1020,8 @@ public sealed class SettingsDialogBehaviorTests
             await harness.Dialog.CommitBmsRootsAsync();
             int initialReloads = harness.State.FileDiffReloadCount;
             byte[] confirmed = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
+            string[] confirmedRoots = harness.Dialog.AvailableBMSDirectories.ToArray();
+            Assert.IsFalse(harness.Dialog.CanCancelBmsRoots);
             harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot).GetAwaiter().GetResult();
             byte[] before = File.ReadAllBytes(Path.Combine(directory.Path, "user.config"));
             Assert.AreEqual(0, dialogs.MessageCount, "ここまでの確定と候補の編集は通知を出しません。");
@@ -916,6 +1032,11 @@ public sealed class SettingsDialogBehaviorTests
             Assert.AreEqual(1, dialogs.MessageCount);
             Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, dialogs.LastMessageText);
             Assert.AreEqual(Resources.Error, dialogs.LastMessageCaption);
+            // 置換（確定導入先が確定BMS一覧にある）では、候補が1件でも事前選択しません。
+            Assert.IsTrue(harness.Dialog.IsBmsInstallDirReplacement);
+            Assert.IsFalse(harness.Dialog.IsNewBmsInstallDir);
+            CollectionAssert.AreEqual(new[] { newRoot }, harness.Dialog.AvailableBMSDirectories);
+            Assert.IsNull(harness.Dialog.ReplacementBmsInstallDir);
             harness.Dialog.ReplacementBmsInstallDir = newRoot;
             CollectionAssert.AreEqual(confirmed, File.ReadAllBytes(Path.Combine(directory.Path, "user.config")));
             Assert.AreEqual(oldRoot, values.BMSInstallDir);
@@ -923,6 +1044,20 @@ public sealed class SettingsDialogBehaviorTests
             await harness.Dialog.RemoveBmsSearchRootPathAsync(newRoot);
             Assert.AreEqual(Resources.Settings_replacement_install_empty, harness.Dialog.ReplacementBmsInstallDirValidationMessage);
             Assert.IsFalse(harness.Dialog.CanConfirmBmsRoots);
+            // 選んだ導入先がBMS候補から外れたら選択なしとして扱い、候補に無い古い値を内部に残しません。
+            Assert.IsNull(harness.Dialog.ReplacementBmsInstallDir);
+            // 候補を確定BMS一覧と同じ並びへ戻すと、取消できる変更も候補の破棄確認もありません。
+            await harness.Dialog.AddBmsSearchRootPathsAsync(confirmedRoots);
+            CollectionAssert.AreEqual(confirmedRoots, harness.Dialog.AvailableBMSDirectories);
+            Assert.IsFalse(harness.Dialog.RequiresReplacementBmsInstallDir);
+            Assert.IsNull(harness.Dialog.ReplacementBmsInstallDir);
+            Assert.IsFalse(harness.Dialog.CanCancelBmsRoots, "BMS候補も導入先の選択も確定値と同じなら取消できる変更はありません。");
+            Assert.IsFalse(harness.Dialog.RequiresBmsInstallDirectoryConfirmation, "BMS候補も導入先の選択も確定値と同じなら破棄を確認する候補はありません。");
+            // 再び置換の状態にしても、外れた候補の選択は復活しません。
+            await harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot);
+            Assert.IsTrue(harness.Dialog.IsBmsInstallDirReplacement);
+            Assert.IsNull(harness.Dialog.ReplacementBmsInstallDir);
+            Assert.AreEqual(Resources.Settings_replacement_install_required, harness.Dialog.ReplacementBmsInstallDirValidationMessage);
             harness.Dialog.CancelBmsRoots();
             CollectionAssert.AreEquivalent(new[] { oldRoot, newRoot }, harness.Dialog.AvailableBMSDirectories.ToArray());
             Assert.IsFalse(harness.Dialog.RequiresReplacementBmsInstallDir);
@@ -930,6 +1065,15 @@ public sealed class SettingsDialogBehaviorTests
             Assert.IsFalse(harness.Dialog.RequiresReplacementBmsInstallDir);
             harness.Dialog.CancelBmsRoots();
             await harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot);
+            harness.Dialog.ReplacementBmsInstallDir = newRoot;
+            // 外した導入先を候補へ戻して選び直しが不要になったら、置換で選んだ値を捨て、もう一度外しても以前の選択を再表示しません。
+            await harness.Dialog.AddBmsSearchRootPathsAsync([oldRoot]);
+            Assert.IsFalse(harness.Dialog.RequiresReplacementBmsInstallDir);
+            Assert.IsNull(harness.Dialog.ReplacementBmsInstallDir);
+            await harness.Dialog.RemoveBmsSearchRootPathAsync(oldRoot);
+            Assert.IsTrue(harness.Dialog.IsBmsInstallDirReplacement);
+            Assert.IsNull(harness.Dialog.ReplacementBmsInstallDir, "選び直しが不要になった時点の選択を再表示しません。");
+            Assert.IsFalse(harness.Dialog.CanConfirmBmsRoots);
             harness.Dialog.ReplacementBmsInstallDir = newRoot;
             await harness.Dialog.CommitBmsRootsAsync();
             Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config"));

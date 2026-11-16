@@ -116,7 +116,7 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                             item.Category == SettingsCategory.General && item.Field == SettingsDeficiencyField.Lr2Environment));
                         Assert.AreEqual(SettingsDeficiency.FormatStartupWarning(owner.SettingDialog.Deficiencies), dialogs.LastMessageText);
                         StringAssert.Contains(dialogs.LastMessageText, string.Format(System.Globalization.CultureInfo.CurrentCulture,
-                            Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_InvalidLR2SongDbOrConfigPath));
+                            Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_Lr2RootPathNotSet));
                         Assert.AreEqual(0, factory.LibraryCallCount);
                         Assert.AreEqual(0, factory.PlaylistCallCount);
                         Assert.AreEqual(string.Empty, current.LR2RootPath);
@@ -721,6 +721,7 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                     Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
                     Assert.AreEqual(0, factory.Calls.Count);
                     SettingsDialogViewModel dialog = owner.SettingDialog;
+                    Assert.IsFalse(dialog.IsStartGuidanceVisible, "通常起動の準備段階では開始ボタンと案内文を表示しません。");
                     var captured = EnvironmentSettingsChange.Capture(values);
                     string oldBeatoraja = values.BeatorajaRootPath;
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.StartConfirmedEnvironmentAsync(), "preparation-reject-start");
@@ -806,6 +807,10 @@ public sealed class SettingDialogEnvironmentConfirmationTests
                         Assert.IsFalse(owner.IsLibraryOperationInProgress);
                         Assert.IsFalse(composition.OperationAdmission.IsActive);
                         Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                        // 元の起動が設定不備で止まって案内を出している間は処理中ではなく、開始ボタンと案内文を表示します。
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.IsTrue(((Button)window.FindName("buttonOK")).IsVisible);
+                        Assert.IsTrue(((TextBlock)window.FindName("settingsStartGuidanceText")).IsVisible);
                         await owner.SettingDialog.SelectOperationModeAsync(false);
                         Assert.IsFalse(owner.HasActiveLibraryProfile, "有効設定の自動反映だけでは走査を開始しません。");
                         TestUiDispatcherHost.ProcessQueuedPresentation();

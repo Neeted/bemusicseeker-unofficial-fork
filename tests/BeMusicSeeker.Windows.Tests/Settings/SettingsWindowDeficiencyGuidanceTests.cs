@@ -80,14 +80,14 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
                 CollectionAssert.AreEqual(new[]
                 {
                     string.Format(System.Globalization.CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.Appearance, Resources.Error_InvalidStagefilePath),
-                    string.Format(System.Globalization.CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.Install, Resources.Error_InvalidBmsInstallDir)
+                    string.Format(System.Globalization.CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.Install, Resources.Error_InvalidBmsInstallDirNotRegistered)
                 }, rows);
                 AssertMarks(window, "navigationAppearance", "navigationInstall");
 
                 // 欄の直下の理由は一度だけで、導入先の既存検証表示と二重にしません。
                 SelectPage(window, "navigationInstall");
                 SettingsField install = FindTarget<SettingsField>(window, SettingsDeficiencyField.InstallDirectory);
-                Assert.AreEqual(Resources.Error_InvalidBmsInstallDir, install.ValidationMessage);
+                Assert.AreEqual(Resources.Error_InvalidBmsInstallDirNotRegistered, install.ValidationMessage);
                 SelectPage(window, "navigationAppearance");
                 SettingsPathPicker image = FindDescendants<SettingsPathPicker>(CurrentPage(window)).Single(picker =>
                     picker.GetBindingExpression(SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.StagefilePath));
@@ -98,6 +98,10 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
                 Assert.AreEqual(initial ? Visibility.Visible : Visibility.Collapsed, start.Visibility);
                 Assert.IsFalse(start.IsEnabled);
                 Assert.AreEqual(dialog.CanStartEnvironment, start.IsEnabled);
+                // 下部の案内文は、初回だけ表示し、不備が残っている間は設定を促します。
+                var startText = (TextBlock)window.FindName("settingsStartGuidanceText");
+                Assert.AreEqual(initial, startText.IsVisible);
+                if (initial) { Assert.AreEqual(Resources.Settings_start_requires_settings, startText.Text); }
                 // 最小寸法でも案内欄が下部操作をウィンドウ外へ押し出しません。
                 var content = (FrameworkElement)window.Content;
                 Rect closeBounds = close.TransformToAncestor(content).TransformBounds(new Rect(0, 0, close.ActualWidth, close.ActualHeight));
@@ -114,7 +118,106 @@ public sealed class SettingsWindowDeficiencyGuidanceTests
                 AssertMarks(window);
                 Assert.AreEqual(string.Empty, image.ValidationMessage ?? string.Empty);
                 Assert.AreEqual(initial, start.IsEnabled);
+                // 不備が解消すると、案内文は開始の案内へ切り替わります。
+                if (initial) { Assert.AreEqual(Resources.Settings_start_ready, startText.Text); }
                 Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                harness.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>
+    /// 確定済みのLR2設定XMLを解決できない場合と解決できる場合で、一般ページのBMSディレクトリ欄の無効化と案内、プレイリストページの出力先の参照・追加・削除・改名の有効・無効と案内、
+    /// 案内の操作によるLR2環境の欄への移動、インストールページのボタンによるBMSディレクトリ欄への移動（解決できる場合だけ欄の中へフォーカス）を確認します。
+    /// </summary>
+    /// <remarks>
+    /// 解決できない状態の編集を許す誤り、案内の取り違え、解決できる場合に案内を出す誤り、移動先の取り違え、無効な欄へフォーカスを移そうとする誤りを検出します。
+    /// BMSディレクトリ欄の表示範囲の判定は、ページの選択が先頭へスクロールすることを踏まえ、欄より上の詳細を展開した先頭表示で範囲外であることを確認してから行います。
+    /// LR2環境の欄は一般ページの先頭付近にあり、ページの選択による先頭表示で常に表示範囲に入るため、フォーカスの移動だけを確認します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void SettingsWindow_Lr2ConfigResolutionGuidesBmsAndOutputEditingAndRoutesToTargetFields(bool resolved)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            Settings values = CreateValidCustomFolderSettings(Path.Combine(root, "lr2"), [], TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config")));
+            if (!resolved) { File.WriteAllText(values.LR2ConfigXmlPath, "<config><broken>"); }
+            values.Save();
+            var dialogs = new RecordingRootDialogService();
+            var harness = SettingsDialogHarness.Create(values, dialogs: dialogs);
+            SettingsWindow? window = null;
+            try
+            {
+                window = new SettingsWindow(dialogs) { DataContext = harness.Dialog, Width = 820, Height = 600 };
+                scope.ShowAndWaitForContentRendered(window);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+
+                // 一般ページ: BMSディレクトリ欄は解決できない間だけ無効で、案内を出します。
+                SelectPage(window, "navigationGeneral");
+                SettingsField bms = FindTarget<SettingsField>(window, SettingsDeficiencyField.BmsDirectories);
+                Assert.AreEqual(resolved, bms.IsEnabled);
+                if (resolved) { Assert.IsFalse((bms.ValidationMessage ?? string.Empty).Contains(Resources.Settings_bms_editor_requires_lr2_root, StringComparison.Ordinal)); }
+                else { StringAssert.Contains(bms.ValidationMessage, Resources.Settings_bms_editor_requires_lr2_root); }
+
+                // プレイリストページ: 出力先の編集操作の有効・無効と、一般ページへ案内する操作。
+                SelectPage(window, "navigationPlaylist");
+                FrameworkElement playlist = CurrentPage(window);
+                foreach (SettingsPathPicker picker in FindDescendants<SettingsPathPicker>(playlist).Where(item => item.Name is "customFolderOutputPathPicker" or "customFolderRootOutputPathPicker"))
+                {
+                    Assert.AreEqual(resolved, picker.IsEnabled);
+                    Assert.AreEqual(resolved, FindDescendants<Button>(picker).Single().IsEnabled);
+                }
+                SettingsListEditor additional = FindTarget<SettingsListEditor>(window, SettingsDeficiencyField.AdditionalOutput);
+                Assert.IsTrue(FindDescendants<Button>(additional).Any());
+                Assert.IsTrue(FindDescendants<Button>(additional).All(button => button.IsEnabled == resolved));
+                Button? prerequisite = FindDescendants<Button>(playlist).SingleOrDefault(button => AutomationProperties.GetAutomationId(button) == "SettingsOutputRequiresLr2Root");
+                Assert.AreEqual(!resolved, prerequisite is { IsVisible: true });
+
+                // インストールページのボタンは一般ページへ移り、BMSディレクトリ欄を表示範囲へ入れます。
+                // ページの選択は先頭へスクロールするため、移動直前と同じ先頭表示で欄が範囲外になるよう、欄より上の詳細を展開しておきます。
+                SelectPage(window, "navigationGeneral");
+                bms = FindTarget<SettingsField>(window, SettingsDeficiencyField.BmsDirectories);
+                FrameworkElement generalPage = CurrentPage(window);
+                double Top(FrameworkElement element) => element.TransformToAncestor(generalPage).Transform(new Point()).Y;
+                Expander[] detailsAbove = FindDescendants<Expander>(generalPage).Where(item => item.IsVisible && Top(item) < Top(bms)).ToArray();
+                Assert.IsTrue(detailsAbove.Length > 0, "BMSディレクトリ欄より上に詳細の折り畳み欄があります。");
+                foreach (Expander details in detailsAbove) { details.IsExpanded = true; }
+                ScrollViewer viewer = FindAncestor<ScrollViewer>(bms);
+                viewer.ScrollToVerticalOffset(0);
+                window.UpdateLayout();
+                Assert.IsFalse(IsInViewport(bms, viewer), "BMSディレクトリ欄が先頭表示で見えていると、表示範囲へ入れる処理を検出できません。");
+                SelectPage(window, "navigationInstall");
+                Button edit = FindDescendants<Button>(CurrentPage(window)).Single(button => AutomationProperties.GetAutomationId(button) == "SettingsEditBmsDirectories");
+                edit.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreSame(window.FindName("navigationGeneral"), ((ListBox)window.FindName("settingsNavigation")).SelectedItem);
+                bms = FindTarget<SettingsField>(window, SettingsDeficiencyField.BmsDirectories);
+                viewer = FindAncestor<ScrollViewer>(bms);
+                Assert.IsTrue(IsInViewport(bms, viewer), "BMSディレクトリ欄を表示範囲へ入れます。");
+                var focused = FocusManager.GetFocusedElement(FocusManager.GetFocusScope(bms)) as DependencyObject;
+                Assert.AreEqual(resolved, focused != null && IsDescendantOf(focused, bms), "有効な欄だけフォーカスを受けます: " + focused);
+
+                // 解決できない間は、案内の操作でLR2環境の欄へ移ります。
+                if (!resolved)
+                {
+                    SelectPage(window, "navigationPlaylist");
+                    prerequisite = FindDescendants<Button>(CurrentPage(window)).Single(button => AutomationProperties.GetAutomationId(button) == "SettingsOutputRequiresLr2Root");
+                    prerequisite.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent));
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreSame(window.FindName("navigationGeneral"), ((ListBox)window.FindName("settingsNavigation")).SelectedItem);
+                    FrameworkElement environment = FindTarget<FrameworkElement>(window, SettingsDeficiencyField.Lr2Environment);
+                    var environmentFocus = FocusManager.GetFocusedElement(FocusManager.GetFocusScope(environment)) as DependencyObject;
+                    Assert.IsNotNull(environmentFocus);
+                    Assert.IsTrue(IsDescendantOf(environmentFocus, environment), "LR2環境の欄の最初のフォーカス可能な要素へフォーカスします: " + environmentFocus);
+                }
             }
             finally
             {

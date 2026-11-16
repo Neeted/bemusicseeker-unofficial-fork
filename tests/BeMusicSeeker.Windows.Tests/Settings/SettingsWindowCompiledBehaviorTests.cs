@@ -289,6 +289,93 @@ public sealed class SettingsWindowCompiledBehaviorTests
         });
     }
 
+    /// <summary>
+    /// 初回のスタンドアロンで確定BMS一覧が空の状態から、BMS候補を1件追加するとBMSディレクトリ欄に確定前の案内が <c>Warning</c> で出て、
+    /// 新規インストール先の欄に見出し・説明が出て事前選択の値が表示され（削除対象の欄は隠れる）、2件になっても選択が残ること、
+    /// 取消の後に2件同時に追加すると選択がなく <c>Warning</c> と無効の確定ボタンになり、選ぶと確定でき、確定で保存して欄が消えることを実BAMLで確認します。
+    /// </summary>
+    /// <remarks>BAMLの接続の誤り（見出し・説明の切替漏れ、案内の状態の取り違え、候補の差し替えで選択を失う誤り、確定ボタンの可否の不一致、確定後に欄を残す誤り）を検出します。</remarks>
+    [TestMethod]
+    public void GeneralPageNewInstallDestination_ShowsGuidanceHeaderAndPreselectionAndSavesOnConfirmation()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            string root = SettingsMediaTestFixture.CreateTemporaryRoot(CaseWorkspace);
+            string settingsPath = Path.Combine(root, "user.config");
+            Settings values = SettingsMediaTestFixture.CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(settingsPath));
+            values.StandaloneBmsRootPaths = string.Empty;
+            values.BMSRootPath = string.Empty;
+            values.BMSInstallDir = string.Empty;
+            values.Save();
+            string a = Directory.CreateDirectory(Path.Combine(root, "A")).FullName;
+            string b = Directory.CreateDirectory(Path.Combine(root, "B")).FullName;
+            var dialogs = new RecordingRootDialogService();
+            var harness = SettingsDialogHarness.Create(values, dialogs: dialogs);
+            SettingsWindow? window = null;
+            try
+            {
+                SettingsDialogViewModel dialog = harness.Dialog;
+                window = new SettingsWindow(dialogs) { DataContext = dialog };
+                scope.ShowAndWaitForContentRendered(window);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                SettingsListEditor bms = FindLogicalDescendants<SettingsListEditor>(page).Single(item => SettingsDeficiencyTarget.GetField(item) == nameof(SettingsDeficiencyField.BmsDirectories));
+                var installField = (SettingsField)page.FindName("replacementInstallField");
+                var removedField = (SettingsField)page.FindName("removedInstallField");
+                var installCombo = (ComboBox)page.FindName("replacementInstallComboBox");
+                Button confirm = FindLogicalDescendants<Button>(page).Single(button => Equals(button.Tag, "confirm:bms"));
+                void Settle() { TestUiDispatcherHost.ProcessQueuedPresentation(); window.UpdateLayout(); }
+
+                Assert.AreEqual(Resources.Error_BmsDirectoryAndInstallRequired, bms.ValidationMessage);
+                Assert.AreEqual("Error", bms.ValidationStatus);
+                Assert.IsFalse(installField.IsVisible, "候補が確定BMS一覧と同じ間は導入先の欄を出しません。");
+
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AddBmsSearchRootPathsAsync([a]), "compiled-new-install-add-first");
+                Settle();
+                Assert.AreEqual(Resources.Settings_bms_candidate_unconfirmed, bms.ValidationMessage);
+                Assert.AreEqual("Warning", bms.ValidationStatus);
+                Assert.IsTrue(installField.IsVisible);
+                Assert.IsFalse(removedField.IsVisible, "新規では削除対象の欄を出しません。");
+                Assert.AreEqual(Resources.Settings_new_install_section, installField.Header);
+                Assert.AreEqual(Resources.Settings_new_install_description, installField.Description);
+                Assert.AreEqual(a, installCombo.SelectedItem, "候補が1件なら事前選択の値を表示します。");
+                Assert.AreEqual(Resources.Settings_new_install_section, AutomationProperties.GetName(installCombo));
+                Assert.AreEqual(string.Empty, TestSettingsFactory.OpenSettings(settingsPath).BMSInstallDir, "事前選択は確定まで保存しません。");
+
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AddBmsSearchRootPathsAsync([b]), "compiled-new-install-add-second");
+                Settle();
+                Assert.AreEqual(a, installCombo.SelectedItem, "選択が候補に残る間は、候補の差し替えで失いません。");
+
+                dialog.CancelBmsRoots();
+                Settle();
+                Assert.IsFalse(installField.IsVisible);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AddBmsSearchRootPathsAsync([a, b]), "compiled-new-install-add-both");
+                Settle();
+                Assert.IsTrue(installField.IsVisible);
+                Assert.IsNull(installCombo.SelectedItem, "2件同時の追加では事前選択しません。");
+                Assert.AreEqual(Resources.Error_InstallDirNotSelected, installField.ValidationMessage);
+                Assert.AreEqual("Warning", installField.ValidationStatus);
+                Assert.IsFalse(confirm.IsEnabled);
+
+                installCombo.SelectedItem = b;
+                Settle();
+                Assert.AreEqual(b, dialog.ReplacementBmsInstallDir);
+                Assert.IsTrue(confirm.IsEnabled);
+                confirm.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, confirm));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.SettingsOperationCompletionTask, "compiled-new-install-confirm");
+                Settle();
+                Assert.AreEqual(b, TestSettingsFactory.OpenSettings(settingsPath).BMSInstallDir);
+                Assert.IsFalse(installField.IsVisible);
+            }
+            finally
+            {
+                window?.CloseForOwnerShutdown();
+                harness.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
     /// <summary>新規導入の確認欄を実操作して値を変え Reset で戻し、別の導入確認値を巻き込む誤りや復元が control に届かない不備を検出します。</summary>
     [TestMethod]
     public void InstallPageNewPackageConfirmationBindsDefaultAndRestoresIndependently()

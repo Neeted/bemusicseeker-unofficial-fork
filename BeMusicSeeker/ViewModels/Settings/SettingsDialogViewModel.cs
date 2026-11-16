@@ -147,6 +147,7 @@ public partial class SettingsDialogViewModel : ViewModel
         environmentTransitionInProgress = value;
         audioDeviceTestWorkflow.SetSaving(value);
         RaisePropertyChanged(nameof(IsIndependentSectionEnabled));
+        RaisePropertyChanged(nameof(IsStartGuidanceVisible));
     }
 
     /// <summary>
@@ -581,10 +582,11 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>LR2 ディレクトリ欄の検証表示種別です。</summary>
     public string Lr2RootPathValidationStatus => string.IsNullOrWhiteSpace(Lr2RootPathValidationMessage) ? string.Empty : "Warning";
 
-    /// <summary>BMS インストール先欄の保存時検証メッセージです。</summary>
-    public string BmsInstallDirValidationMessage => IsBMSInstallDirValid()
-        ? string.Empty
-        : BeMusicSeeker.Properties.Resources.Error_InvalidBmsInstallDir;
+    /// <summary>
+    /// BMS インストール先欄の検証メッセージです。不備の一覧と同じ判定で選んだ理由を返し、
+    /// LR2環境の行がある間と確定BMS一覧が一件もない間は、一覧にも導入先の行が出ないため空です。
+    /// </summary>
+    public string BmsInstallDirValidationMessage => GetInstallDirectoryDeficiencyReason() ?? string.Empty;
 
     /// <summary>BMS インストール先欄の検証表示種別です。</summary>
     public string BmsInstallDirValidationStatus => string.IsNullOrWhiteSpace(BmsInstallDirValidationMessage) ? string.Empty : "Error";
@@ -4530,11 +4532,6 @@ public partial class SettingsDialogViewModel : ViewModel
         return ValidateCustomFolderOutputBaseDir(value, out _);
     }
 
-    private bool IsBMSInstallDirValid()
-    {
-        return IsBMSInstallDirValid(ApplicationSettings.BMSInstallDir);
-    }
-
     private bool IsBMSInstallDirValid(string value)
     {
         if (value == null)
@@ -4926,7 +4923,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string GetCustomFolderOutputDirValidationMessage()
     {
-        if (!ApplicationSettings.OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB || HasLr2EnvironmentDeficiency)
         {
             return string.Empty;
         }
@@ -5027,7 +5024,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
     private string GetCustomFolderRootOutputDirValidationMessage()
     {
-        if (!ApplicationSettings.OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB || HasLr2EnvironmentDeficiency)
         {
             return string.Empty;
         }

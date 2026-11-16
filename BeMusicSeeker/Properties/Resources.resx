@@ -2853,10 +2853,10 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>BMIIDXViewのパスが正しくありません</value>
   </data>
   <data name="Error_CustomFolderOutputPathNotSet" xml:space="preserve">
-    <value>カスタムフォルダの出力パスが設定されていません</value>
+    <value>通常出力先が設定されていません</value>
   </data>
   <data name="Error_CustomFolderRootOutputPathNotSet" xml:space="preserve">
-    <value>カスタムフォルダ(ROOT)の出力パスが設定されていません</value>
+    <value>ルートフォルダ出力先が設定されていません</value>
   </data>
   <data name="Error_TableListUrlNotSet" xml:space="preserve">
     <value>難易度表リスト取得URIが設定されていません</value>
@@ -3969,7 +3969,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Backup_destination_description" xml:space="preserve">
     <value>この機能専用のフォルダを指定してください。保存先直下の今日以前の日付形式（yyyy-MM-dd）のフォルダは、作成元や内容に関係なく、世代整理で削除されることがあります。</value>
   </data>
-  <data name="Settings_confirm_bms_roots" xml:space="preserve"><value>BMSディレクトリを変更</value></data>
+  <data name="Settings_confirm_bms_roots" xml:space="preserve"><value>BMSディレクトリを確定</value></data>
   <data name="Settings_confirm_bmt" xml:space="preserve"><value>BMT出力を変更・再更新</value></data>
   <data name="Settings_confirm_environment" xml:space="preserve"><value>環境を確定（稼働中は再起動）</value></data>
   <data name="Settings_start_environment" xml:space="preserve"><value>この環境で開始</value></data>
@@ -3978,12 +3978,22 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Settings_removed_install" xml:space="preserve"><value>現在のインストール先（削除対象）</value></data>
   <data name="Settings_replacement_install_required" xml:space="preserve"><value>削除しようとしているディレクトリは現在のインストール先です。削除を続行する場合は残っているBMSディレクトリからインストール先を選び直してください。</value></data>
   <data name="Settings_replacement_install_empty" xml:space="preserve"><value>BMSディレクトリが残っていません。BMSディレクトリを追加するか、変更を取り消してください。</value></data>
-  <data name="Settings_use_on_start" xml:space="preserve"><value>保存済みの設定は「この環境で開始」で使用します。</value></data>
   <data name="Settings_deficiency_guidance_title" xml:space="preserve"><value>対応が必要な設定</value></data>
   <data name="Settings_deficiency_page_mark" xml:space="preserve"><value>対応が必要な設定があります</value></data>
+  <data name="Settings_bms_candidate_unconfirmed" xml:space="preserve"><value>変更は未確定です。「BMSディレクトリを確定」を押すと保存されます。</value></data>
+  <data name="Settings_bms_editor_requires_lr2_root" xml:space="preserve"><value>LR2ディレクトリを設定すると編集できます。</value></data>
+  <data name="Settings_new_install_section" xml:space="preserve"><value>新規インストール先</value></data>
+  <data name="Settings_new_install_description" xml:space="preserve"><value>BMSを新しく導入するフォルダを、上の一覧から選びます。</value></data>
+  <data name="Error_InstallDirNotSelected" xml:space="preserve"><value>新規インストール先を選択してください。</value></data>
+  <data name="Error_InvalidBmsInstallDirNotRegistered" xml:space="preserve"><value>新規インストール先を登録済みのBMSディレクトリから選択してください。</value></data>
+  <data name="Error_Lr2RootPathNotSet" xml:space="preserve"><value>LR2ディレクトリを設定してください。</value></data>
+  <data name="Error_BmsDirectoryAndInstallRequired" xml:space="preserve"><value>BMSディレクトリを追加し、新規インストール先を選んで確定してください。</value></data>
+  <data name="Settings_output_requires_lr2_root" xml:space="preserve"><value>先に一般ページでLR2ディレクトリを設定してください。</value></data>
+  <data name="Settings_start_requires_settings" xml:space="preserve"><value>「対応が必要な設定」の項目を設定すると開始できます。</value></data>
+  <data name="Settings_start_ready" xml:space="preserve"><value>必要な設定が揃いました。「この環境で開始」を押すとBMSの読み込みを始めます。</value></data>
   <data name="Settings_confirm_record" xml:space="preserve"><value>この項目を確定</value></data>
   <data name="Settings_environment" xml:space="preserve"><value>環境</value></data>
-  <data name="Settings_open_bms_roots" xml:space="preserve"><value>BMS一覧を編集</value></data>
+  <data name="Settings_open_bms_roots" xml:space="preserve"><value>BMSディレクトリを編集</value></data>
   <data name="Settings_retry" xml:space="preserve"><value>再試行</value></data>
   <data name="Settings_retry_audio_save" xml:space="preserve"><value>音声設定の保存を再試行</value></data>
   <data name="Settings_audio_save_retry_description" xml:space="preserve"><value>音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。</value></data>

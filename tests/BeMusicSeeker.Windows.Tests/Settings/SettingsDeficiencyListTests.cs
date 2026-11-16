@@ -40,17 +40,24 @@ public sealed class SettingsDeficiencyListTests
     /// <summary>
     /// 有効な基準から確定値を1か所だけ崩し、一覧が契約の表どおりのページ・対象欄・現行の検査と同じ理由になることと、
     /// 一覧が空であることと開始ボタンの可否が一致することを確認します（K1・K4）。
+    /// 「valid」は空で開始可能、他の行はすべて空でなく開始不可です。
     /// </summary>
     /// <remarks>
     /// 誤ったページや欄への割当て、出力先の検査例外を原因以外の欄へ付ける誤り、重複・重なりを先に検査した側へ付ける誤り、
-    /// スタンドアロンでLR2バックアップの不備を出す誤り、設定XMLの解決失敗を一覧から落とす誤りを検出します。
+    /// スタンドアロンでLR2バックアップの不備を出す誤り、設定XMLの解決失敗を一覧から落とす誤り、
+    /// LR2環境の行がある間の出力先・導入先の行の抑止漏れと抑止し過ぎ、未設定の出力先の重複行、
+    /// BMSディレクトリが一件もない場合の行の割当てと導入先の行の重複、導入先の理由の選択誤りを検出します。
     /// </remarks>
     [TestMethod]
     [DataRow("valid")]
     [DataRow("lr2-songdb")]
     [DataRow("lr2-config")]
+    [DataRow("lr2-root-unset-songdb-missing")]
+    [DataRow("lr2-prerequisite-order")]
+    [DataRow("lr2-no-registered-root")]
     [DataRow("nested-roots")]
     [DataRow("standalone-no-root")]
+    [DataRow("standalone-install-same-as-leftover-output")]
     [DataRow("score-db")]
     [DataRow("beatoraja-root")]
     [DataRow("bmt-root")]
@@ -60,9 +67,14 @@ public sealed class SettingsDeficiencyListTests
     [DataRow("normal-unset")]
     [DataRow("root-unset")]
     [DataRow("root-sjis")]
+    [DataRow("normal-unset-root-sjis")]
     [DataRow("additional-duplicate-name")]
     [DataRow("additional-overlap")]
     [DataRow("install")]
+    [DataRow("install-empty")]
+    [DataRow("install-same-as-normal-output")]
+    [DataRow("install-under-root-output")]
+    [DataRow("install-under-additional-output")]
     [DataRow("lr2-backup")]
     [DataRow("standalone-backup")]
     public void DeficiencyList_AssignsEachConfirmedFailureToContractPageFieldAndReason(string breakCase)
@@ -70,7 +82,7 @@ public sealed class SettingsDeficiencyListTests
         RunOnUiDispatcher(() =>
         {
             using var directory = new CaseRoot(CreateTemporaryRoot(CaseWorkspace));
-            bool standalone = breakCase is "standalone-no-root" or "standalone-backup";
+            bool standalone = breakCase is "standalone-no-root" or "standalone-backup" or "standalone-install-same-as-leftover-output";
             Settings values = standalone ? CreateStandalone(directory.Path) : CreateLr2(directory.Path);
             string lr2Root = Path.Combine(directory.Path, "lr2");
             string missing = Path.Combine(directory.Path, "missing");
@@ -84,9 +96,33 @@ public sealed class SettingsDeficiencyListTests
                     break;
                 case "lr2-config":
                     File.WriteAllText(values.LR2ConfigXmlPath, "<config><broken>");
+                    // LR2環境の行がある間は、検索ルートを読めないことに由来する導入先の行を出しません。
                     expected.Add((SettingsCategory.General, SettingsDeficiencyField.Lr2Environment, Resources.Error_InvalidLR2SongDbOrConfigPath));
-                    // 登録済みの検索ルートを読めないため、導入先も現行の検査どおり不備になります。
-                    expected.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDir));
+                    break;
+                case "lr2-root-unset-songdb-missing":
+                    // 保存値が空なら、song.dbが使えない理由もLR2ディレクトリの設定を促します。
+                    values.LR2RootPath = string.Empty;
+                    values.LR2SongDBPath = Path.Combine(missing, "song.db");
+                    expected.Add((SettingsCategory.General, SettingsDeficiencyField.Lr2Environment, Resources.Error_Lr2RootPathNotSet));
+                    break;
+                case "lr2-prerequisite-order":
+                    // 前提のLR2環境の行がある間は、出力先・導入先の行を出さず、前提と無関係なページの行は出します。
+                    values.LR2SongDBPath = Path.Combine(missing, "song.db");
+                    values.LR2CustomFolderOutputBaseDir = string.Empty;
+                    values.LR2CustomFolderOutputBaseDirRootType = string.Empty;
+                    values.BMSInstallDir = missing;
+                    values.UseExternalPanelImage = true;
+                    values.StagefilePath = Path.Combine(missing, "stagefile.png");
+                    values.IsLR2BackupEnabled = true;
+                    values.LR2BackupPath = missing;
+                    expected.Add((SettingsCategory.General, SettingsDeficiencyField.Lr2Environment, Resources.Error_InvalidLR2SongDbOrConfigPath));
+                    expected.Add((SettingsCategory.Appearance, SettingsDeficiencyField.ExternalImage, Resources.Error_InvalidStagefilePath));
+                    expected.Add((SettingsCategory.Backup, SettingsDeficiencyField.Lr2BackupOutput, Resources.Error_LR2BackupPathNotSet));
+                    break;
+                case "lr2-no-registered-root":
+                    // 登録済みのBMSディレクトリがなければ、一般ページのBMSディレクトリ欄の一行にまとめ、導入先の行は出しません。
+                    RemoveAllSearchRoots(values.LR2ConfigXmlPath);
+                    expected.Add((SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_BmsDirectoryAndInstallRequired));
                     break;
                 case "nested-roots":
                     {
@@ -97,8 +133,13 @@ public sealed class SettingsDeficiencyListTests
                 case "standalone-no-root":
                     values.StandaloneBmsRootPaths = string.Empty;
                     values.BMSRootPath = string.Empty;
-                    expected.Add((SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_InvalidStandaloneBmsRootPaths));
-                    expected.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDir));
+                    expected.Add((SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_BmsDirectoryAndInstallRequired));
+                    break;
+                case "standalone-install-same-as-leftover-output":
+                    // スタンドアロンでは出力先を使わないため、残っている出力先の値と同じでも一般の理由です。
+                    values.LR2CustomFolderOutputBaseDir = missing;
+                    values.BMSInstallDir = missing;
+                    expected.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDirNotRegistered));
                     break;
                 case "score-db":
                     {
@@ -145,18 +186,23 @@ public sealed class SettingsDeficiencyListTests
                     }
                 case "normal-unset":
                     values.LR2CustomFolderOutputBaseDir = string.Empty;
+                    // 未設定の出力先は「未設定」の一行だけで示し、「選択されていません」の行を重ねません。
                     expected.Add((SettingsCategory.Playlist, SettingsDeficiencyField.NormalOutput, Resources.Error_CustomFolderOutputPathNotSet));
-                    // 出力先の検査例外も原因の通常出力先の欄へ割り当てます。
-                    expected.Add((SettingsCategory.Playlist, SettingsDeficiencyField.NormalOutput, null));
                     break;
                 case "root-unset":
                     values.LR2CustomFolderOutputBaseDirRootType = string.Empty;
                     expected.Add((SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput, Resources.Error_CustomFolderRootOutputPathNotSet));
-                    expected.Add((SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput, null));
                     break;
                 case "root-sjis":
                     // Shift_JIS で表せない文字の検査例外は、原因のROOT出力先の欄へ割り当てます。
                     values.LR2CustomFolderOutputBaseDirRootType = Directory.CreateDirectory(Path.Combine(lr2Root, "Rooté")).FullName;
+                    expected.Add((SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput, null));
+                    break;
+                case "normal-unset-root-sjis":
+                    // 未設定の出力先を除いた残りに従来の検査を行い、文字種の違反は原因のROOT出力先の欄へ割り当てます。
+                    values.LR2CustomFolderOutputBaseDir = string.Empty;
+                    values.LR2CustomFolderOutputBaseDirRootType = Directory.CreateDirectory(Path.Combine(lr2Root, "Rooté")).FullName;
+                    expected.Add((SettingsCategory.Playlist, SettingsDeficiencyField.NormalOutput, Resources.Error_CustomFolderOutputPathNotSet));
                     expected.Add((SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput, null));
                     break;
                 case "additional-duplicate-name":
@@ -178,8 +224,28 @@ public sealed class SettingsDeficiencyListTests
                     }
                 case "install":
                     values.BMSInstallDir = missing;
+                    expected.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDirNotRegistered));
+                    break;
+                case "install-empty":
+                    values.BMSInstallDir = string.Empty;
+                    expected.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InstallDirNotSelected));
+                    break;
+                case "install-same-as-normal-output":
+                    values.BMSInstallDir = values.LR2CustomFolderOutputBaseDir;
                     expected.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDir));
                     break;
+                case "install-under-root-output":
+                    values.BMSInstallDir = Directory.CreateDirectory(Path.Combine(values.LR2CustomFolderOutputBaseDirRootType, "child")).FullName;
+                    expected.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDir));
+                    break;
+                case "install-under-additional-output":
+                    {
+                        string additional = Directory.CreateDirectory(Path.Combine(directory.Path, "other", "Additional")).FullName;
+                        values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([additional]);
+                        values.BMSInstallDir = Directory.CreateDirectory(Path.Combine(additional, "child")).FullName;
+                        expected.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDir));
+                        break;
+                    }
                 case "lr2-backup":
                     values.IsLR2BackupEnabled = true;
                     values.LR2BackupPath = missing;
@@ -245,25 +311,24 @@ public sealed class SettingsDeficiencyListTests
             File.Delete(values.BeatorajaScoreDbPath);
             values.UseBeatorajaScoreDb = true;
             AddNestedSearchRoot(values.LR2ConfigXmlPath, Path.Combine(lr2Root, "Songs", "Child"));
-            values.LR2SongDBPath = Path.Combine(missing, "song.db");
             values.Save();
+            // LR2環境が成立する間は、プレイリスト（出力先）とインストール（導入先）の行がページ順どおりに並びます。
             using (var harness = SettingsDialogHarness.Create(values))
             {
                 CollectionAssert.AreEqual(new[]
                 {
-                    (SettingsCategory.General, SettingsDeficiencyField.Lr2Environment),
                     (SettingsCategory.General, SettingsDeficiencyField.BmsDirectories),
                     (SettingsCategory.General, SettingsDeficiencyField.BeatorajaScoreDb),
                     (SettingsCategory.Appearance, SettingsDeficiencyField.ExternalImage),
                     (SettingsCategory.Playback, SettingsDeficiencyField.PlayeruBMplay),
-                    (SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput),
                     (SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput),
                     (SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory),
                     (SettingsCategory.Backup, SettingsDeficiencyField.Lr2BackupOutput)
                 }, harness.Dialog.Deficiencies.Select(item => (item.Category, item.Field)).ToArray(),
                     SettingsDeficiency.FormatDiagnostic(harness.Dialog.Deficiencies));
             }
-            // ルートが無効ならスコアDBに代わりルート、続いてBMT出力の順です。
+            // LR2環境が不備なら先頭に加わり、一般ページ内はLR2環境 → BMSディレクトリ → beatorajaルートの順です（スコアDBに代わりルート）。
+            values.LR2SongDBPath = Path.Combine(missing, "song.db");
             values.BeatorajaRootPath = missing;
             values.EnableBeatorajaBmtOutput = true;
             values.Save();
@@ -626,6 +691,177 @@ public sealed class SettingsDeficiencyListTests
         });
     }
 
+    /// <summary>
+    /// 確定値由来の理由が出ているBMSディレクトリ欄（スタンドアロンの空の一覧、LR2の親子関係）でBMS候補を追加すると、欄の理由は確定前の案内だけを <c>Warning</c> で示し、
+    /// 下部の一覧は同じインスタンスのままであること、候補を戻す編集・取消・確定のそれぞれで確定値由来の理由と <c>Error</c> に戻る（確定では不備が消える）ことを確認します。
+    /// </summary>
+    /// <remarks>未確定の候補を一覧へ混ぜる誤り、未確定の間に確定値由来の理由を残す誤り、候補が確定一覧に戻った後も案内を残す誤りを検出します。</remarks>
+    [TestMethod]
+    [DataRow("standalone-empty")]
+    [DataRow("lr2-nested")]
+    public void BmsDirectoriesField_ShowsOnlyUnconfirmedGuidanceWhileCandidateDiffersAndRestoresConfirmedReason(string mode)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new CaseRoot(CreateTemporaryRoot(CaseWorkspace));
+            bool standalone = mode == "standalone-empty";
+            Settings values = standalone ? CreateStandalone(directory.Path) : CreateLr2(directory.Path);
+            string key = nameof(SettingsDeficiencyField.BmsDirectories);
+            if (standalone) { values.StandaloneBmsRootPaths = string.Empty; values.BMSRootPath = string.Empty; }
+            else { AddNestedSearchRoot(values.LR2ConfigXmlPath, Path.Combine(directory.Path, "lr2", "Songs", "Child")); }
+            values.Save();
+            string added = Directory.CreateDirectory(Path.Combine(directory.Path, "Added")).FullName;
+            using var harness = SettingsDialogHarness.Create(values);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            IReadOnlyList<SettingsDeficiency> initial = dialog.Deficiencies;
+            string confirmedReason = dialog.FieldReasons[key];
+            Assert.AreEqual("Error", dialog.FieldReasonStatuses[key]);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(confirmedReason));
+            Assert.IsTrue(initial.Any(item => item.Field == SettingsDeficiencyField.BmsDirectories));
+
+            async Task StageCandidate()
+            {
+                await dialog.AddBmsSearchRootPathsAsync([added]);
+                CollectionAssert.Contains(dialog.AvailableBMSDirectories, added);
+                Assert.AreEqual(Resources.Settings_bms_candidate_unconfirmed, dialog.FieldReasons[key]);
+                Assert.AreEqual("Warning", dialog.FieldReasonStatuses[key]);
+                Assert.AreSame(initial, dialog.Deficiencies, "下部の一覧は確定値だけから作り、BMS候補を読みません。");
+            }
+
+            await StageCandidate();
+            await dialog.RemoveBmsSearchRootPathAsync(added);
+            Assert.AreEqual(confirmedReason, dialog.FieldReasons[key], "候補を確定一覧へ戻す編集で確定値由来の理由に戻ります。");
+            Assert.AreEqual("Error", dialog.FieldReasonStatuses[key]);
+
+            await StageCandidate();
+            dialog.CancelBmsRoots();
+            Assert.AreEqual(confirmedReason, dialog.FieldReasons[key], "取消で確定値由来の理由に戻ります。");
+            Assert.AreEqual("Error", dialog.FieldReasonStatuses[key]);
+
+            if (standalone)
+            {
+                // 確定すると候補が確定一覧になり、不備が解消します。
+                await StageCandidate();
+                await dialog.CommitBmsRootsAsync();
+                Assert.AreEqual(string.Empty, dialog.FieldReasons[key]);
+                Assert.AreEqual(0, dialog.Deficiencies.Count, SettingsDeficiency.FormatDiagnostic(dialog.Deficiencies));
+            }
+        }, nameof(BmsDirectoriesField_ShowsOnlyUnconfirmedGuidanceWhileCandidateDiffersAndRestoresConfirmedReason));
+    }
+
+    /// <summary>
+    /// 確定済みのLR2設定XMLを解決できないLR2連携では欄の直下に「LR2ディレクトリを設定すると編集できます。」を出し、解決できる場合・スタンドアロン・
+    /// 解決できるが設定操作の進行中で欄が無効な場合には出さないことを確認します。
+    /// </summary>
+    /// <remarks>解決できる場合や操作中の無効化に案内を出す誤り、解決できない場合に案内を出さない誤りを検出します。</remarks>
+    [TestMethod]
+    [DataRow("lr2-unresolved", true, false)]
+    [DataRow("lr2-resolved", false, true)]
+    [DataRow("standalone", false, true)]
+    [DataRow("lr2-resolved-operation-running", false, false)]
+    public void BmsDirectoriesField_GuidesToLr2DirectoryOnlyWhileConfirmedLr2ConfigIsUnresolved(string kind, bool expectGuidance, bool expectEnabled)
+    {
+        RunOnUiDispatcher(async () =>
+        {
+            using var directory = new CaseRoot(CreateTemporaryRoot(CaseWorkspace));
+            Settings values = kind == "standalone" ? CreateStandalone(directory.Path) : CreateLr2(directory.Path);
+            if (kind == "lr2-unresolved") { File.WriteAllText(values.LR2ConfigXmlPath, "<config><broken>"); }
+            values.Save();
+            using var harness = SettingsDialogHarness.Create(values);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            string key = nameof(SettingsDeficiencyField.BmsDirectories);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task? running = kind == "lr2-resolved-operation-running" ? dialog.RunSettingsOperationAsync(() => release.Task) : null;
+            try
+            {
+                Assert.AreEqual(expectEnabled, dialog.IsBmsSearchRootEditorEnabled);
+                Assert.AreEqual(expectGuidance, dialog.FieldReasons[key].Contains(Resources.Settings_bms_editor_requires_lr2_root, StringComparison.Ordinal), dialog.FieldReasons[key]);
+            }
+            finally
+            {
+                release.TrySetResult();
+                if (running != null) { await running; }
+            }
+        }, nameof(BmsDirectoriesField_GuidesToLr2DirectoryOnlyWhileConfirmedLr2ConfigIsUnresolved));
+    }
+
+    /// <summary>
+    /// 設定画面ではLR2設定を解決できる確定値で、起動時の検査が設定XMLを解決できなかったと報告すると、次に一覧を作り直すまでLR2環境の行を出し、
+    /// 理由は保存済みのLR2ディレクトリが空なら「LR2ディレクトリを設定してください。」、空でなければ従来の文言になることを確認します。
+    /// その間は出力先・導入先の行と、BMSディレクトリを追加して確定する行を出さず、通常・ROOT出力先と導入先の欄の直下の検証表示も出さず、
+    /// 前提と無関係な外観・バックアップの行は出します。続く通常の作り直しでは、LR2環境の行が消え、抑止していた行が戻ります。
+    /// </summary>
+    /// <remarks>
+    /// 起動時の検査の失敗を一覧へ渡さない誤り、理由の選択を保存値と食い違わせる誤り、抑止の漏れ・抑止し過ぎ、
+    /// 通常の作り直しの後も起動時の検査の失敗を残す誤りを検出します。設定画面側でも解決に失敗する確定値では起動時の報告と区別できないため、解決できる確定値で組みます。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public void StartupUnresolvedLr2Config_ListsLr2EnvironmentAndSuppressesDependentRowsUntilNextRefresh(bool lr2RootEmpty, bool noRegisteredRoot)
+    {
+        RunOnUiDispatcher(() =>
+        {
+            using var directory = new CaseRoot(CreateTemporaryRoot(CaseWorkspace));
+            Settings values = CreateLr2(directory.Path);
+            string missing = Path.Combine(directory.Path, "missing");
+            if (lr2RootEmpty) { values.LR2RootPath = string.Empty; }
+            if (noRegisteredRoot) { RemoveAllSearchRoots(values.LR2ConfigXmlPath); }
+            // 抑止と復帰の差が観測できるように、出力先を未設定に、導入先を不備にし、前提と無関係なページの不備も置きます。
+            values.LR2CustomFolderOutputBaseDir = string.Empty;
+            values.LR2CustomFolderOutputBaseDirRootType = string.Empty;
+            values.BMSInstallDir = missing;
+            values.UseExternalPanelImage = true;
+            values.StagefilePath = Path.Combine(missing, "stagefile.png");
+            values.IsLR2BackupEnabled = true;
+            values.LR2BackupPath = missing;
+            values.Save();
+            using var harness = SettingsDialogHarness.Create(values);
+            SettingsDialogViewModel dialog = harness.Dialog;
+            string[] dependentFields = [nameof(SettingsDeficiencyField.NormalOutput), nameof(SettingsDeficiencyField.RootOutput), nameof(SettingsDeficiencyField.InstallDirectory)];
+
+            var normal = new List<(SettingsCategory Category, SettingsDeficiencyField Field, string Reason)>();
+            if (noRegisteredRoot) { normal.Add((SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_BmsDirectoryAndInstallRequired)); }
+            normal.Add((SettingsCategory.Appearance, SettingsDeficiencyField.ExternalImage, Resources.Error_InvalidStagefilePath));
+            normal.Add((SettingsCategory.Playlist, SettingsDeficiencyField.NormalOutput, Resources.Error_CustomFolderOutputPathNotSet));
+            normal.Add((SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput, Resources.Error_CustomFolderRootOutputPathNotSet));
+            if (!noRegisteredRoot) { normal.Add((SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDirNotRegistered)); }
+            normal.Add((SettingsCategory.Backup, SettingsDeficiencyField.Lr2BackupOutput, Resources.Error_LR2BackupPathNotSet));
+            void AssertList(IEnumerable<(SettingsCategory Category, SettingsDeficiencyField Field, string Reason)> expected, IReadOnlyList<SettingsDeficiency> actual)
+                => CollectionAssert.AreEqual(expected.ToArray(), actual.Select(item => (item.Category, item.Field, item.Reason)).ToArray(),
+                    SettingsDeficiency.FormatDiagnostic(actual));
+
+            // 前提：設定画面側では同じ確定値からLR2設定を解決でき、表示開始時の一覧にLR2環境の行はありません。
+            AssertList(normal, dialog.Deficiencies);
+            Assert.IsFalse(dialog.IsLr2OutputPrerequisiteMissing);
+
+            IReadOnlyList<SettingsDeficiency> startup = dialog.RefreshStartupDeficiencies(lr2ConfigResolved: false);
+            string lr2Reason = lr2RootEmpty ? Resources.Error_Lr2RootPathNotSet : Resources.Error_InvalidLR2SongDbOrConfigPath;
+            AssertList(
+            [
+                (SettingsCategory.General, SettingsDeficiencyField.Lr2Environment, lr2Reason),
+                (SettingsCategory.Appearance, SettingsDeficiencyField.ExternalImage, Resources.Error_InvalidStagefilePath),
+                (SettingsCategory.Backup, SettingsDeficiencyField.Lr2BackupOutput, Resources.Error_LR2BackupPathNotSet)
+            ], startup);
+            Assert.AreSame(startup, dialog.Deficiencies);
+            Assert.IsFalse(dialog.CanStartEnvironment);
+            foreach (string field in dependentFields)
+            {
+                Assert.AreEqual(string.Empty, dialog.FieldReasons[field], field);
+                Assert.AreEqual(string.Empty, dialog.FieldReasonStatuses[field], field);
+            }
+
+            // 次の通常の作り直しで、起動時の検査の失敗を手放し、確定値からの生成結果に戻ります。
+            AssertList(normal, dialog.RefreshDeficiencies());
+            Assert.AreEqual(Resources.Error_CustomFolderOutputPathNotSet, dialog.FieldReasons[nameof(SettingsDeficiencyField.NormalOutput)]);
+            Assert.AreEqual(Resources.Error_CustomFolderRootOutputPathNotSet, dialog.FieldReasons[nameof(SettingsDeficiencyField.RootOutput)]);
+            Assert.AreEqual(noRegisteredRoot ? string.Empty : Resources.Error_InvalidBmsInstallDirNotRegistered,
+                dialog.FieldReasons[nameof(SettingsDeficiencyField.InstallDirectory)]);
+            return Task.CompletedTask;
+        }, nameof(StartupUnresolvedLr2Config_ListsLr2EnvironmentAndSuppressesDependentRowsUntilNextRefresh));
+    }
+
     /// <summary>ケース専有の一時rootを、ケースの全Taskの終端後に回収します。</summary>
     private sealed record CaseRoot(string Path) : IDisposable
     {
@@ -658,6 +894,15 @@ public sealed class SettingsDeficiencyListTests
         var document = XDocument.Load(configPath);
         XElement jukebox = document.Root?.Element("jukebox") ?? throw new AssertFailedException("LR2設定XMLに jukebox がありません。");
         jukebox.Add(new XElement("path", child.TrimEnd('\\') + "\\"));
+        document.Save(configPath);
+    }
+
+    /// <summary>LR2設定XMLから検索ルートの登録をすべて除きます。</summary>
+    private static void RemoveAllSearchRoots(string configPath)
+    {
+        var document = XDocument.Load(configPath);
+        XElement jukebox = document.Root?.Element("jukebox") ?? throw new AssertFailedException("LR2設定XMLに jukebox がありません。");
+        jukebox.Elements("path").Remove();
         document.Save(configPath);
     }
 

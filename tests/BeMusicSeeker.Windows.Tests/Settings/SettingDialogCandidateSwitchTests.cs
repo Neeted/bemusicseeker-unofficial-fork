@@ -129,7 +129,7 @@ public sealed class SettingDialogCandidateSwitchTests
                     if (operation == "lr2-root")
                     {
                         Assert.AreEqual(config, values.LR2ConfigXmlPath);
-                        Assert.IsTrue(dialog.Deficiencies.Any(item => item.Field == SettingsDeficiencyField.InstallDirectory), "新環境に導入先がなくても環境保存は成立し、環境変更の終端で作り直した不備の一覧で止めます。");
+                        Assert.IsTrue(dialog.Deficiencies.Any(item => item.Field == SettingsDeficiencyField.BmsDirectories), "新環境に確定BMS一覧がなくても環境保存は成立し、環境変更の終端で作り直した不備の一覧（BMSディレクトリ欄の一行）で止めます。");
                     }
                 }
                 else

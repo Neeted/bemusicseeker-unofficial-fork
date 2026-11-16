@@ -1523,15 +1523,15 @@ public sealed class SettingDialogEditCompletionTests
             bool languageSelection = firstStartup && !fromSettings;
             Assert.AreEqual(languageSelection ? 0 : 1, dialogs.MessageCount);
             // 起動時検査の一覧はページ一覧の順で、開いた設定画面へそのまま公開します。初回の言語選択経路でも一覧は同じです。
+            // BMSディレクトリが一件もなければ、導入先の行は出さず、一般ページのBMSディレクトリ欄の一行にまとめます。
             CollectionAssert.AreEqual(
-                new[] { (SettingsCategory.General, SettingsDeficiencyField.BmsDirectories), (SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory) },
+                new[] { (SettingsCategory.General, SettingsDeficiencyField.BmsDirectories) },
                 viewModel.SettingDialog.Deficiencies.Select(item => (item.Category, item.Field)).ToArray());
             if (!languageSelection)
             {
                 Assert.AreEqual(string.Join(Environment.NewLine,
                     Resources.Msg_init_settings_check,
-                    string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_InvalidStandaloneBmsRootPaths),
-                    string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.Install, Resources.Error_InvalidBmsInstallDir)),
+                    string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_BmsDirectoryAndInstallRequired)),
                     dialogs.LastMessageText);
             }
             Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
@@ -3200,6 +3200,9 @@ public sealed class SettingDialogEditCompletionTests
                     Assert.IsTrue(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.IsFalse(start.IsEnabled);
+                    // 明示開始の必須UI待ちは処理中のため、開始ボタンと案内文を表示しません。
+                    Assert.AreEqual(Visibility.Collapsed, start.Visibility);
+                    Assert.IsFalse(((TextBlock)window.FindName("settingsStartGuidanceText")).IsVisible);
                     window.Close();
                     Assert.IsTrue(window.IsVisible);
                     Assert.IsFalse(closed);
@@ -3219,6 +3222,9 @@ public sealed class SettingDialogEditCompletionTests
                         Assert.IsTrue(window.IsVisible);
                         Assert.AreSame(viewModel.SettingDialog, window.DataContext);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
+                        // UIの失敗で待機へ戻れば、開始ボタンと案内文を再び表示します。
+                        Assert.AreEqual(Visibility.Visible, start.Visibility);
+                        Assert.IsTrue(((TextBlock)window.FindName("settingsStartGuidanceText")).IsVisible);
                         Assert.IsTrue(start.IsEnabled);
                         completionUi.Arm();
                         start.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

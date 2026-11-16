@@ -90,7 +90,31 @@ public partial class SettingsDialogViewModel
 
     private void RaiseBmsListPropertyChanged(string propertyName)
     {
-        if (!refreshingSectionEditors) { RaisePropertyChanged(propertyName); RaiseEnvironmentAvailabilityChanged(); }
+        if (refreshingSectionEditors) { return; }
+        AdoptNewInstallSelection();
+        RaisePropertyChanged(propertyName);
+        RaisePropertyChanged(nameof(ReplacementBmsInstallDir));
+        RaiseEnvironmentAvailabilityChanged();
+        RaiseFieldReasonsChanged();
+    }
+
+    /// <summary>
+    /// 導入先の選択を、BMS候補に合わせて整えます。選択がBMS候補から外れた場合と、確定導入先がBMS候補に戻って選び直しが不要になった場合は、
+    /// 置換・新規のどちらでも選択なしに戻し、古い値を取消の可否や候補の破棄確認へ残さず、後で再び選び直しが必要になっても再表示しません。
+    /// 新規の状態でBMS候補がちょうど1件で選択がその候補に含まれない場合は、その1件を表示上の選択にします（保存は確定ボタンまで行いません）。
+    /// BMS候補が確定BMS一覧に戻った場合は、役目を終えた選択を捨てます。利用者が選んだ値がBMS候補に残り選び直しが必要な間は上書きしません。
+    /// 置換の状態では事前選択しません。
+    /// </summary>
+    private void AdoptNewInstallSelection()
+    {
+        if (!RequiresReplacementBmsInstallDir
+            || replacementBmsInstallDir != null && !AvailableBMSDirectories.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase))
+        { replacementBmsInstallDir = null; }
+        if (!RequiresReplacementBmsInstallDir || !string.IsNullOrEmpty(RemovedBmsInstallDir)) { return; }
+        if (!HasBmsRootCandidateChanges) { replacementBmsInstallDir = null; return; }
+        List<string> candidates = AvailableBMSDirectories;
+        if (candidates.Count == 1 && !candidates.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase))
+        { replacementBmsInstallDir = candidates[0]; }
     }
 
     /// <summary>確定候補の差し替えで選択が解除されても、同じ導入設定ページへ確定導入先を再適用します。</summary>
@@ -465,7 +489,7 @@ public partial class SettingsDialogViewModel
     private ConflictingCandidates GetConflictingCandidates(ConflictingCandidates sections)
     {
         ConflictingCandidates result = ConflictingCandidates.None;
-        if (sections.HasFlag(ConflictingCandidates.Bms) && (!GetConfirmedBmsRoots().SequenceEqual(AvailableBMSDirectories, StringComparer.OrdinalIgnoreCase) || !string.IsNullOrEmpty(replacementBmsInstallDir))) { result |= ConflictingCandidates.Bms; }
+        if (sections.HasFlag(ConflictingCandidates.Bms) && HasBmsRootOrInstallSelectionChanges) { result |= ConflictingCandidates.Bms; }
         if (sections.HasFlag(ConflictingCandidates.Lr2Details) && (CaptureEnvironmentCandidate() with { OperationModeLR2DB = ApplicationSettings.OperationModeLR2DB }) != EnvironmentSettingsChange.Capture(ApplicationSettings)) { result |= ConflictingCandidates.Lr2Details; }
         if (sections.HasFlag(ConflictingCandidates.BeatorajaScore) && HasScoreSelectionChanges) { result |= ConflictingCandidates.BeatorajaScore; }
         if (sections.HasFlag(ConflictingCandidates.Bmt) && HasBmtSelectionChanges) { result |= ConflictingCandidates.Bmt; }
@@ -551,16 +575,32 @@ public partial class SettingsDialogViewModel
         return true;
     }
 
-    /// <summary>導入先が最終BMS一覧から外れる場合にだけ利用する明示的な代替候補です。</summary>
+    /// <summary>
+    /// 確定導入先がBMS候補に含まれず選び直しが必要な間の、導入先の選択です。置換（確定BMS一覧にある導入先を外した）では変更後のインストール先、
+    /// 新規（導入先が未設定または確定BMS一覧にない）では新規インストール先として、BMS一覧の確定で保存します。選択だけでは保存しません。
+    /// null の書込みは、選択がある間は無視して現在値を再通知します。ComboBoxの一覧の差し替えによる選択解除で利用者の選択を失わないためで、
+    /// 選択を捨てるのはBMS候補の変更に合わせた整理（<see cref="AdoptNewInstallSelection"/>）、取消、確定です。
+    /// </summary>
     public string ReplacementBmsInstallDir
     {
         get => replacementBmsInstallDir;
-        set { replacementBmsInstallDir = value; RaisePropertyChanged(); RaiseEnvironmentAvailabilityChanged(); }
+        set
+        {
+            // 一覧の差し替えで選択欄が選択を解除しても、利用者が選んだ値を失いません。
+            if (value == null && replacementBmsInstallDir != null) { RaisePropertyChanged(); return; }
+            replacementBmsInstallDir = value; RaisePropertyChanged(); RaiseEnvironmentAvailabilityChanged();
+        }
     }
 
     /// <summary>BMS一覧または代替導入先に取消可能な局所編集があるかを示します。</summary>
-    public bool CanCancelBmsRoots => IsEditCompletionEnabled && (!GetConfirmedBmsRoots().SequenceEqual(AvailableBMSDirectories, StringComparer.OrdinalIgnoreCase)
-        || !string.IsNullOrEmpty(replacementBmsInstallDir));
+    public bool CanCancelBmsRoots => IsEditCompletionEnabled && HasBmsRootOrInstallSelectionChanges;
+
+    /// <summary>
+    /// BMS候補が確定BMS一覧と異なるか、確定に使われる導入先の選択があるかを示します。取消の可否と候補の破棄確認が共有します。
+    /// 導入先の選択は、確定導入先がBMS候補から外れていて選び直しが必要な間に、BMS候補に含まれる値だけを未確定の変更として数えます。
+    /// </summary>
+    private bool HasBmsRootOrInstallSelectionChanges => HasBmsRootCandidateChanges
+        || RequiresReplacementBmsInstallDir && AvailableBMSDirectories.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>有効な今回入力を、公開値と同値でも関連媒体へ明示保存できます。</summary>
     public bool CanConfirmBmsRoots => IsEditCompletionEnabled && !statePort.IsLibraryOperationInProgress
@@ -579,7 +619,16 @@ public partial class SettingsDialogViewModel
         || bmtBeatorajaBmtHashOutputMode != ApplicationSettings.BeatorajaBmtHashOutputMode);
 
 
-    /// <summary>導入先が最終候補一覧から外れるときだけ代替選択を表示します。</summary>
+    /// <summary>確定導入先が確定BMS一覧にある有効な値で、BMS候補から外れる（置換）状態かを示します。</summary>
+    public bool IsBmsInstallDirReplacement => RequiresReplacementBmsInstallDir && !string.IsNullOrEmpty(RemovedBmsInstallDir);
+
+    /// <summary>確定導入先が未設定または確定BMS一覧にない無効な値で、BMS候補が未確定の間だけ新規インストール先の選択を示します。</summary>
+    public bool IsNewBmsInstallDir => RequiresReplacementBmsInstallDir && string.IsNullOrEmpty(RemovedBmsInstallDir) && HasBmsRootCandidateChanges;
+
+    /// <summary>一般ページに導入先の選択欄を出すかを示します。置換と新規のどちらかです。</summary>
+    public bool IsBmsInstallDirFieldVisible => IsBmsInstallDirReplacement || IsNewBmsInstallDir;
+
+    /// <summary>確定導入先がBMS候補に含まれない、つまり導入先を選び直す必要があるかを示します。</summary>
     public bool RequiresReplacementBmsInstallDir => !AvailableBMSDirectories.Contains(ApplicationSettings.BMSInstallDir, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>一覧から除く確定済み導入先です。変更先の選択だけでは保存値を置換しません。</summary>
@@ -589,12 +638,13 @@ public partial class SettingsDialogViewModel
     /// <summary>残存候補への包含で変更先を検証し、削除対象の再選択と元から無効な設定を区別します。</summary>
     public string ReplacementBmsInstallDirValidationMessage => !RequiresReplacementBmsInstallDir
         || AvailableBMSDirectories.Contains(replacementBmsInstallDir, StringComparer.OrdinalIgnoreCase) ? string.Empty
-        : string.IsNullOrEmpty(RemovedBmsInstallDir) ? Resources.Error_InvalidBmsInstallDir
         : AvailableBMSDirectories.Count == 0 ? Resources.Settings_replacement_install_empty
-        : Resources.Settings_replacement_install_required;
+        : IsBmsInstallDirReplacement ? Resources.Settings_replacement_install_required
+        : Resources.Error_InstallDirNotSelected;
 
-    /// <summary>変更先が有効な候補になるまで必須入力表示を維持します。</summary>
-    public string ReplacementBmsInstallDirValidationStatus => string.IsNullOrEmpty(ReplacementBmsInstallDirValidationMessage) ? string.Empty : "Error";
+    /// <summary>選択が有効な候補になるまで必須入力表示を維持します。置換は<c>Error</c>、新規の選択待ちは確定前の案内として<c>Warning</c>です。</summary>
+    public string ReplacementBmsInstallDirValidationStatus => string.IsNullOrEmpty(ReplacementBmsInstallDirValidationMessage) ? string.Empty
+        : IsBmsInstallDirReplacement ? "Error" : "Warning";
 
     /// <summary>実操作は編集中の環境候補ではなく保存済みのrootを使います。</summary>
     internal string ConfirmedBeatorajaRootPath => ApplicationSettings.BeatorajaRootPath;
@@ -645,7 +695,8 @@ public partial class SettingsDialogViewModel
                 DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
                 bmsRootRegistrations.SaveUserRoots(roots, install);
                 RefreshBmsRootCandidatesFromSettings();
-                ReplacementBmsInstallDir = null;
+                replacementBmsInstallDir = null;
+                RaisePropertyChanged(nameof(ReplacementBmsInstallDir));
                 if (statePort.HasActiveLibraryProfile)
                 {
                     statePort.ReevaluatePendingPackagesForSearchRoots(capability, out pendingPublication);
@@ -683,6 +734,12 @@ public partial class SettingsDialogViewModel
     /// <summary>有効なライブラリ環境がない場合は保存後の明示開始を表示します。</summary>
     public bool IsInitialEnvironment => !statePort.HasActiveLibraryProfile;
 
+    /// <summary>
+    /// 開始ボタンと案内文を表示するかを示します。有効なライブラリがなく、通常起動の準備・必須UI待ち・設定からの明示開始の処理中でない間だけ表示します。
+    /// 起動が設定不備で止まって案内を出している間は処理中ではないため、元の起動のTaskが未完了でも表示します。
+    /// </summary>
+    public bool IsStartGuidanceVisible => IsInitialEnvironment && !environmentTransitionInProgress && !statePort.IsLibraryOperationInProgress;
+
     private EnvironmentSettingsChange CaptureEnvironmentCandidate() => new(operationModeLR2DB, environmentLR2RootPath,
         environmentLR2SongDBPath, environmentLR2ConfigXmlPath);
 
@@ -712,6 +769,12 @@ public partial class SettingsDialogViewModel
     {
         RaiseConfirmedBmsSelectionChanged();
         RaisePropertyChanged(nameof(RequiresReplacementBmsInstallDir));
+        RaisePropertyChanged(nameof(IsBmsInstallDirReplacement));
+        RaisePropertyChanged(nameof(IsNewBmsInstallDir));
+        RaisePropertyChanged(nameof(IsBmsInstallDirFieldVisible));
+        RaisePropertyChanged(nameof(IsStartGuidanceVisible));
+        RaisePropertyChanged(nameof(AreOutputBasesEditable));
+        RaisePropertyChanged(nameof(ShowLr2OutputPrerequisiteGuidance));
         RaisePropertyChanged(nameof(RemovedBmsInstallDir));
         RaisePropertyChanged(nameof(ReplacementBmsInstallDirValidationMessage));
         RaisePropertyChanged(nameof(ReplacementBmsInstallDirValidationStatus));
@@ -1017,6 +1080,8 @@ public partial class SettingsDialogViewModel
         try
         {
             if (IsEditCompletionInProgress || IsAudioDeviceTestInProgress || statePort.IsLibraryOperationInProgress) { return; }
+            // 確定済みのLR2設定を解決できない間は、どの媒体も保存せず、候補を確定配置へ戻して拒否します（保存前に拒否し部分保存を作りません）。
+            if (IsLr2OutputPrerequisiteMissing) { ShowSettingValidationError(Resources.Settings_output_requires_lr2_root); return; }
             var previous = CustomFolderOutputSettingsSnapshot.CreateCurrent(ApplicationSettings);
             CustomFolderOutputSettingsSnapshot baseline = previous;
             var target = new CustomFolderOutputSettingsSnapshot

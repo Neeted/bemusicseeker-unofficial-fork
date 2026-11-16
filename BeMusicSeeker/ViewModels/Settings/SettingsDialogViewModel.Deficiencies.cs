@@ -47,24 +47,25 @@ public partial class SettingsDialogViewModel
     /// <returns>公開した一覧。</returns>
     internal IReadOnlyList<SettingsDeficiency> RefreshDeficiencies()
     {
+        // 起動時検査の失敗は、次に一覧を作り直す時機で、通常の生成結果に従う状態へ戻します。
+        startupLr2ConfigUnresolved = false;
         return PublishDeficiencies(BuildDeficiencies());
     }
 
+    /// <summary>起動時検査が設定XMLを解決できなかった事実です。次の <see cref="RefreshDeficiencies"/> まで、LR2環境の不備として一覧と欄の判定へ渡します。</summary>
+    private bool startupLr2ConfigUnresolved;
+
     /// <summary>
-    /// 起動時検査の終端で一覧を作り直して公開します。<c>PrepareDirectoriesAsync</c> が設定XMLを解決できなかった場合は、
-    /// 一覧の生成がその失敗を検出できなくても一般／LR2環境の項目を先頭に補い、警告の行と開始ボタンの可否を失敗と揃えます。
+    /// 起動時検査の終端で一覧を作り直して公開します。<c>PrepareDirectoriesAsync</c> が設定XMLを解決できなかった事実を
+    /// LR2環境の判定へ渡すため、設定画面側の解決が成功してもLR2環境の行が出て、警告の行と開始ボタンの可否が起動時検査の失敗と揃います。
+    /// 設定XMLを解決できなかったと報告されるのはLR2連携の起動だけです。
     /// </summary>
     /// <param name="lr2ConfigResolved">起動時の検査が設定XMLを解決できた場合はtrue。</param>
     /// <returns>公開した一覧。</returns>
     internal IReadOnlyList<SettingsDeficiency> RefreshStartupDeficiencies(bool lr2ConfigResolved)
     {
-        IReadOnlyList<SettingsDeficiency> current = BuildDeficiencies();
-        if (!lr2ConfigResolved && !current.Any(item => item.Field == SettingsDeficiencyField.Lr2Environment))
-        {
-            // 一般はページ一覧の先頭、LR2環境は一般の検査順の先頭のため、先頭へ補えば並びを保ちます。
-            current = [new SettingsDeficiency(SettingsCategory.General, SettingsDeficiencyField.Lr2Environment, Resources.Error_InvalidLR2SongDbOrConfigPath), .. current];
-        }
-        return PublishDeficiencies(current);
+        startupLr2ConfigUnresolved = !lr2ConfigResolved;
+        return PublishDeficiencies(BuildDeficiencies());
     }
 
     /// <summary>
@@ -123,52 +124,65 @@ public partial class SettingsDialogViewModel
         {
             // 起動時の PrepareDirectoriesAsync と同じ設定XMLの解決を検査し、表示開始時の作り直しでもこの項目を保ちます。
             bool configResolved = lr2ConfigSession.TryResolve(settings.LR2ConfigXmlPath, ConfirmedEffectiveLr2RootPath, out Lr2ConfigOwner confirmedConfig);
-            if (!IsLR2SongDBPathValid(settings.LR2SongDBPath) || !configResolved)
-            { Add(SettingsCategory.General, SettingsDeficiencyField.Lr2Environment, Resources.Error_InvalidLR2SongDbOrConfigPath); }
-            if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDir))
-            { Add(SettingsCategory.Playlist, SettingsDeficiencyField.NormalOutput, Resources.Error_CustomFolderOutputPathNotSet); }
-            if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDirRootType))
-            { Add(SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput, Resources.Error_CustomFolderRootOutputPathNotSet); }
+            bool environmentDeficient = IsLr2EnvironmentDeficient(configResolved);
+            if (environmentDeficient)
+            { Add(SettingsCategory.General, SettingsDeficiencyField.Lr2Environment, GetLr2EnvironmentReason(settings)); }
+            // 出力先と導入先はLR2環境が成立していることを前提に判断するため、LR2環境の行がある間は一覧に出しません。
+            if (!environmentDeficient)
+            {
+                if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDir))
+                { Add(SettingsCategory.Playlist, SettingsDeficiencyField.NormalOutput, Resources.Error_CustomFolderOutputPathNotSet); }
+                if (string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDirRootType))
+                { Add(SettingsCategory.Playlist, SettingsDeficiencyField.RootOutput, Resources.Error_CustomFolderRootOutputPathNotSet); }
+            }
             if (configResolved)
             {
                 IReadOnlyList<string> registeredRoots = confirmedConfig.Capture().RegisteredRoots;
                 IReadOnlyList<NestedBmsSearchRootConflict> conflicts = CollectNestedBmsSearchRootConflicts(registeredRoots);
                 if (conflicts.Count > 0)
                 { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, BuildNestedBmsSearchRootConflictMessage(conflicts)); }
+                if (!environmentDeficient && GetConfirmedBmsRoots().Count == 0)
+                { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_BmsDirectoryAndInstallRequired); }
                 // 出力先の検査例外は原因の出力先の欄へ割り当てます。重複・重なりは後に検査した側です。
+                // 未設定の出力先は未設定の行だけで示し、残りの設定済みの出力先に対して検査します。
                 SettingsDeficiencyField current = SettingsDeficiencyField.AdditionalOutput;
-                try
+                if (!environmentDeficient)
                 {
-                    var bases = new List<(string Path, string Label, bool Root, SettingsDeficiencyField Field)> {
-                        (settings.LR2CustomFolderOutputBaseDir, Resources.Label_NormalOutputBase, false, SettingsDeficiencyField.NormalOutput),
-                        (settings.LR2CustomFolderOutputBaseDirRootType, Resources.Label_RootOutputBase, true, SettingsDeficiencyField.RootOutput) };
-                    bases.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(settings.LR2CustomFolderAdditionalOutputBaseDirs)
-                        .Select(path => (path, Resources.Label_AdditionalOutputBaseFolder, false, SettingsDeficiencyField.AdditionalOutput)));
-                    var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    for (int index = 0; index < bases.Count; index++)
+                    try
                     {
-                        (string Path, string Label, bool Root, SettingsDeficiencyField Field) output = bases[index];
-                        current = output.Field;
-                        CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(output.Path, output.Label);
-                        CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(output.Path,
-                            registeredRoots, output.Label, allowRegisteredChildren: output.Root);
-                        if (!output.Root && !names.Add(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(output.Path)))
+                        var bases = new List<(string Path, string Label, bool Root, SettingsDeficiencyField Field)>();
+                        if (!string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDir))
+                        { bases.Add((settings.LR2CustomFolderOutputBaseDir, Resources.Label_NormalOutputBase, false, SettingsDeficiencyField.NormalOutput)); }
+                        if (!string.IsNullOrWhiteSpace(settings.LR2CustomFolderOutputBaseDirRootType))
+                        { bases.Add((settings.LR2CustomFolderOutputBaseDirRootType, Resources.Label_RootOutputBase, true, SettingsDeficiencyField.RootOutput)); }
+                        bases.AddRange(CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(settings.LR2CustomFolderAdditionalOutputBaseDirs)
+                            .Select(path => (path, Resources.Label_AdditionalOutputBaseFolder, false, SettingsDeficiencyField.AdditionalOutput)));
+                        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        for (int index = 0; index < bases.Count; index++)
                         {
-                            Add(SettingsCategory.Playlist, output.Field, FormatResource(Resources.Validation_OutputBaseNameDuplicateFormat,
-                                CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(output.Path)));
+                            (string Path, string Label, bool Root, SettingsDeficiencyField Field) output = bases[index];
+                            current = output.Field;
+                            CustomFolderOutputBaseSearchRootSyncService.ValidateSjisDirectoryPath(output.Path, output.Label);
+                            CustomFolderOutputBaseSearchRootSyncService.ValidateOutputBaseAgainstSearchRoots(output.Path,
+                                registeredRoots, output.Label, allowRegisteredChildren: output.Root);
+                            if (!output.Root && !names.Add(CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(output.Path)))
+                            {
+                                Add(SettingsCategory.Playlist, output.Field, FormatResource(Resources.Validation_OutputBaseNameDuplicateFormat,
+                                    CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(output.Path)));
+                            }
+                            foreach ((string Path, string Label, bool Root, SettingsDeficiencyField Field) other in bases.Take(index))
+                            { ValidateOutputBasesDoNotOverlap(output.Path, output.Label, other.Path, other.Label); }
                         }
-                        foreach ((string Path, string Label, bool Root, SettingsDeficiencyField Field) other in bases.Take(index))
-                        { ValidateOutputBasesDoNotOverlap(output.Path, output.Label, other.Path, other.Label); }
                     }
+                    catch (Exception failure) when (failure is ArgumentException or InvalidOperationException or NotSupportedException or System.IO.PathTooLongException)
+                    { Add(SettingsCategory.Playlist, current, failure.Message); }
                 }
-                catch (Exception failure) when (failure is ArgumentException or InvalidOperationException or NotSupportedException or System.IO.PathTooLongException)
-                { Add(SettingsCategory.Playlist, current, failure.Message); }
             }
         }
         else
         {
             IReadOnlyList<string> roots = NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathSettings.Deserialize(settings.StandaloneBmsRootPaths, settings.BMSRootPath));
-            if (roots.Count == 0) { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_InvalidStandaloneBmsRootPaths); }
+            if (roots.Count == 0) { Add(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories, Resources.Error_BmsDirectoryAndInstallRequired); }
             List<string> incompatible = GetLr2IncompatibleStandaloneBmsRootPaths(roots);
             if (incompatible.Count > 0)
             {
@@ -200,25 +214,101 @@ public partial class SettingsDialogViewModel
             if ((int)settings.LR2bodyResolution.X <= 0 || (int)settings.LR2bodyResolution.Y <= 0)
             { Add(SettingsCategory.Playback, SettingsDeficiencyField.PlayerLR2body, Resources.Error_InvalidLR2WindowSize); }
         }
-        if (!IsBMSInstallDirValid(settings.BMSInstallDir))
-        { Add(SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, Resources.Error_InvalidBmsInstallDir); }
+        if (GetInstallDirectoryDeficiencyReason() is string installReason)
+        { Add(SettingsCategory.Install, SettingsDeficiencyField.InstallDirectory, installReason); }
         if (settings.IsLR2BackupEnabled && settings.OperationModeLR2DB && !IsLR2BackupPathValid(settings.LR2BackupPath))
         { Add(SettingsCategory.Backup, SettingsDeficiencyField.Lr2BackupOutput, Resources.Error_LR2BackupPathNotSet); }
         // 並び替えは安定なため、同じページ内は上の検査順を保ちます。
         return items.OrderBy(item => item.Category).ToArray();
     }
 
-    /// <summary>欄の既存の検証表示・未成立の局所候補・一覧の理由を、同じ文言は一度だけ並べます。</summary>
+    /// <summary>確定済みのLR2設定XMLを解決できるかを示します。LR2連携でなければ設定XMLを使わないため意味を持ちません。</summary>
+    private bool ConfirmedLr2ConfigResolves
+        => lr2ConfigSession.TryResolve(ApplicationSettings.LR2ConfigXmlPath, ConfirmedEffectiveLr2RootPath, out _);
+
+    /// <summary>LR2環境の不備の理由です。確定済みのLR2ディレクトリが空なら設定を促し、空でなければ従来の検査の理由を返します。</summary>
+    private static string GetLr2EnvironmentReason(Settings settings)
+        => string.IsNullOrWhiteSpace(settings.LR2RootPath) ? Resources.Error_Lr2RootPathNotSet : Resources.Error_InvalidLR2SongDbOrConfigPath;
+
+    /// <summary>LR2連携で、確定済みの <c>song.db</c> と設定XMLのどちらかが使えず、LR2環境の行が一覧に出る状態かを示します。</summary>
+    private bool HasLr2EnvironmentDeficiency => ApplicationSettings.OperationModeLR2DB && IsLr2EnvironmentDeficient(ConfirmedLr2ConfigResolves);
+
+    /// <summary>LR2環境が不備かを一か所で決めます。<c>song.db</c> が無効、設定XMLを解決できない、または起動時検査が解決できなかった場合です。</summary>
+    private bool IsLr2EnvironmentDeficient(bool configResolved)
+        => startupLr2ConfigUnresolved || !IsLR2SongDBPathValid(ApplicationSettings.LR2SongDBPath) || !configResolved;
+
+    /// <summary>LR2連携で、確定済みのLR2設定を解決できず、出力先を編集・保存できない状態かを示します。</summary>
+    internal bool IsLr2OutputPrerequisiteMissing => ApplicationSettings.OperationModeLR2DB && !ConfirmedLr2ConfigResolves;
+
+    /// <summary>出力先（通常・ROOT・追加）の参照・追加・削除・改名を受け付けられるかを示します。</summary>
+    public bool AreOutputBasesEditable => IsEditCompletionEnabled && !IsLr2OutputPrerequisiteMissing;
+
+    /// <summary>出力先を編集できない間の、一般ページでLR2ディレクトリを設定する案内を表示するかを示します。</summary>
+    public bool ShowLr2OutputPrerequisiteGuidance => IsLr2OutputPrerequisiteMissing;
+
+    /// <summary>
+    /// 確定導入先が不備である場合の理由です。不備でない場合と、前提となるLR2環境の行・BMSディレクトリが一件もない行が代わりに出る場合はnullです。
+    /// 不備の一覧とインストールページの導入先の欄が、この一か所の判定を共有します。
+    /// </summary>
+    private string GetInstallDirectoryDeficiencyReason()
+    {
+        Settings settings = ApplicationSettings;
+        if (HasLr2EnvironmentDeficiency || IsBMSInstallDirValid(settings.BMSInstallDir) || HasNoConfirmedBmsDirectory()) { return null; }
+        if (string.IsNullOrWhiteSpace(settings.BMSInstallDir)) { return Resources.Error_InstallDirNotSelected; }
+        return settings.OperationModeLR2DB && IsInsideConfirmedCustomFolderOutput(settings.BMSInstallDir)
+            ? Resources.Error_InvalidBmsInstallDir : Resources.Error_InvalidBmsInstallDirNotRegistered;
+    }
+
+    /// <summary>確定BMS一覧が空かを示します。スタンドアロンは保存値から、LR2連携は確定済みの登録から判断します。</summary>
+    private bool HasNoConfirmedBmsDirectory()
+        => ApplicationSettings.OperationModeLR2DB
+            ? GetConfirmedBmsRoots().Count == 0
+            : NormalizeStandaloneBmsRootPaths(StandaloneBmsRootPathSettings.Deserialize(ApplicationSettings.StandaloneBmsRootPaths, ApplicationSettings.BMSRootPath)).Count == 0;
+
+    private bool IsInsideConfirmedCustomFolderOutput(string installDirectory)
+    {
+        Settings settings = ApplicationSettings;
+        try
+        {
+            return new[] { settings.LR2CustomFolderOutputBaseDir, settings.LR2CustomFolderOutputBaseDirRootType }
+                .Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs))
+                .Any(path => !string.IsNullOrWhiteSpace(path)
+                    && CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(installDirectory, path));
+        }
+        catch (Exception failure) when (failure is ArgumentException or NotSupportedException or System.IO.PathTooLongException) { return false; }
+    }
+
+    /// <summary>BMS候補が確定BMS一覧と異なる、つまり未確定の変更があるかを示します。</summary>
+    private bool HasBmsRootCandidateChanges
+        => !GetConfirmedBmsRoots().SequenceEqual(AvailableBMSDirectories, StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>確定済みのLR2設定を解決できないためにBMSディレクトリ欄を編集できず、その案内を出す状態かを示します。</summary>
+    private bool IsBmsDirectoryEditorBlockedByLr2 => ApplicationSettings.OperationModeLR2DB && lr2config == null;
+
+    /// <summary>
+    /// 欄の既存の検証表示・未成立の局所候補・一覧の理由を、同じ文言は一度だけ並べます。
+    /// BMSディレクトリ欄は、BMS候補が未確定の間は確定値由来の理由を出さず、未確定の案内だけを出します。
+    /// </summary>
     private string GetFieldReason(SettingsDeficiencyField field)
     {
+        if (field == SettingsDeficiencyField.BmsDirectories && HasBmsRootCandidateChanges) { return Resources.Settings_bms_candidate_unconfirmed; }
         IEnumerable<string> reasons = new[] { GetExistingFieldValidation(field).Message, GetCandidateUnmetReason(field) }
             .Concat(deficiencies.Where(item => item.Field == field).Select(item => item.Reason));
+        if (field == SettingsDeficiencyField.BmsDirectories && IsBmsDirectoryEditorBlockedByLr2)
+        { reasons = reasons.Append(Resources.Settings_bms_editor_requires_lr2_root); }
         return string.Join(Environment.NewLine, reasons.Where(reason => !string.IsNullOrWhiteSpace(reason)).Distinct(StringComparer.Ordinal));
     }
 
     private string GetFieldReasonStatus(SettingsDeficiencyField field)
-        => !string.IsNullOrEmpty(GetCandidateUnmetReason(field)) || deficiencies.Any(item => item.Field == field)
+    {
+        if (field == SettingsDeficiencyField.BmsDirectories)
+        {
+            if (HasBmsRootCandidateChanges) { return "Warning"; }
+            if (!deficiencies.Any(item => item.Field == field) && IsBmsDirectoryEditorBlockedByLr2) { return "Warning"; }
+        }
+        return !string.IsNullOrEmpty(GetCandidateUnmetReason(field)) || deficiencies.Any(item => item.Field == field)
             ? "Error" : GetExistingFieldValidation(field).Status;
+    }
 
     /// <summary>同じ欄に以前からある検証表示です。理由の二重表示を避けるため、欄の理由へ統合します。</summary>
     private (string Message, string Status) GetExistingFieldValidation(SettingsDeficiencyField field) => field switch

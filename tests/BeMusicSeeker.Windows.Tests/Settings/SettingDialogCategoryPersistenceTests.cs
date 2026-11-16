@@ -803,8 +803,8 @@ public sealed class SettingDialogCategoryPersistenceTests
                 SettingsDeficiencyField[] FieldsOf(IReadOnlyList<SettingsDeficiency> list) => list.Select(item => item.Field).ToArray();
                 if (!missingPreviousDirectories)
                 {
-                    // 未設定の理由を通常・ROOTの順に並べ、続く出力先の検査例外も原因の通常出力先の欄へ割り当てます。
-                    CollectionAssert.AreEqual(new[] { SettingsDeficiencyField.NormalOutput, SettingsDeficiencyField.RootOutput, SettingsDeficiencyField.NormalOutput }, FieldsOf(owner.SettingDialog.Deficiencies), SettingsDeficiency.FormatDiagnostic(owner.SettingDialog.Deficiencies));
+                    // 未設定の出力先は、通常・ROOTの順に「未設定」の一行ずつだけを並べます。
+                    CollectionAssert.AreEqual(new[] { SettingsDeficiencyField.NormalOutput, SettingsDeficiencyField.RootOutput }, FieldsOf(owner.SettingDialog.Deficiencies), SettingsDeficiency.FormatDiagnostic(owner.SettingDialog.Deficiencies));
                 }
                 SetCustomFolderOutput(owner.SettingDialog, otherSection, Path.Combine(root, "UnconfirmedOutput"));
                 // 他区分の局所候補は確定値ではないため、一覧を変えません。
@@ -854,7 +854,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                         if (!missingPreviousDirectories && completed == 1)
                         {
                             SettingsDeficiencyField remaining = section == "normal" ? SettingsDeficiencyField.RootOutput : SettingsDeficiencyField.NormalOutput;
-                            CollectionAssert.AreEqual(new[] { remaining, remaining },
+                            CollectionAssert.AreEqual(new[] { remaining },
                                 FieldsOf(owner.SettingDialog.Deficiencies), SettingsDeficiency.FormatDiagnostic(owner.SettingDialog.Deficiencies));
                         }
                         TestUiDispatcherHost.ProcessQueuedPresentation();

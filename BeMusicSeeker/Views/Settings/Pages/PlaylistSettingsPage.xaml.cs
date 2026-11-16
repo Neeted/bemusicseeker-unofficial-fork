@@ -30,6 +30,19 @@ public partial class PlaylistSettingsPage : UserControl
             ?? throw new InvalidOperationException("Playlist settings page is not hosted by SettingsWindow.");
     }
 
+    private async void lr2OutputPrerequisiteGuidanceClick(object sender, RoutedEventArgs e)
+    {
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.ShowLr2EnvironmentField();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "LR2 environment field navigation");
+        }
+    }
+
     private async void browseLr2CustomFolderOutputDirButtonClick(object sender, RoutedEventArgs e)
     {
         SettingsWindow settingsWindow = GetSettingsWindow();

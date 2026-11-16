@@ -48,7 +48,7 @@ public sealed class SettingDialogOutputConfirmationTests
 
     /// <summary>追加出力先の複数追加・改名・削除の設定VMケースが共有する、既存の追加出力先・実XML・保存先観測を準備して本体を実行します。</summary>
     /// <remarks>ライブラリプロファイルは非アクティブで、確認の応答は <paramref name="confirmation"/> です。追加出力先の保存要求は専用providerで観測し、終了時に元のproviderと所有領域を回収します。</remarks>
-    private void RunAdditionalOutputCase(string[] existingNames, System.Windows.MessageBoxResult confirmation, Action<AdditionalOutputCase> body)
+    private void RunAdditionalOutputCase(string[] existingNames, System.Windows.MessageBoxResult confirmation, Action<AdditionalOutputCase> body, Action<Settings>? prepareMedia = null)
     {
         string directory = CreateTemporaryRoot(CaseWorkspace);
         string settingsPath = Path.Combine(directory, "settings", "user.config");
@@ -56,6 +56,7 @@ public sealed class SettingDialogOutputConfirmationTests
         Settings values = CreateValidCustomFolderSettings(directory, existing, TestSettingsFactory.OpenSettings(settingsPath));
         values.LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories(existing);
         values.Save();
+        prepareMedia?.Invoke(values);
         System.Configuration.SettingsProperty property = values.Properties[nameof(Settings.LR2CustomFolderAdditionalOutputBaseDirs)];
         System.Configuration.SettingsProvider originalProvider = property.Provider;
         var provider = new InstallAdmissionObservingSettingsProvider(originalProvider, () => { });
@@ -106,6 +107,55 @@ public sealed class SettingDialogOutputConfirmationTests
 
         /// <summary>LR2設定XMLに登録された検索ディレクトリです。</summary>
         internal string[] XmlRoots() => [.. BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(Values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking()];
+    }
+
+    /// <summary>
+    /// 条件：確定済みのLR2設定XMLを解決できない状態で、通常・ROOT・追加の各区分の出力先を確定します。
+    /// 期待結果：どの媒体（アプリケーション設定・LR2設定XML）も保存せず、設定値と提供される設定値を変えず、XMLを新しく作りません。検証エラーを一回だけ通知し、文言は先に一般ページでLR2ディレクトリを設定する案内と同じで、見出しはエラーです。部分保存の通知は出さず、候補は確定配置へ戻ります。
+    /// 検出する誤り：アプリケーション設定だけ保存してから部分保存を通知する、通知の重複・欠落・文言の取り違え、候補を戻さない、XMLを新規作成する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("normal")]
+    [DataRow("root")]
+    [DataRow("additional")]
+    public void OutputConfirmation_RejectsBeforeSavingWhenConfirmedLr2ConfigCannotBeResolved(string section)
+    {
+        RunAdditionalOutputCase(["E1"], System.Windows.MessageBoxResult.OK, context =>
+        {
+            SettingsDialogViewModel dialog = context.Dialog;
+            string target = Directory.CreateDirectory(context.Path("Target")).FullName;
+            string normalBefore = context.Values.LR2CustomFolderOutputBaseDir;
+            string rootBefore = context.Values.LR2CustomFolderOutputBaseDirRootType;
+            string[] additionalBefore = context.Published();
+            byte[] settingsBefore = File.ReadAllBytes(context.SettingsPath);
+            byte[] xmlBefore = File.ReadAllBytes(context.Values.LR2ConfigXmlPath);
+            string[] xmlFilesBefore = Directory.GetFiles(Path.GetDirectoryName(context.Values.LR2ConfigXmlPath)!, "*", SearchOption.AllDirectories);
+            int saveCountBefore = context.Provider.SaveCount;
+
+            switch (section)
+            {
+                case "normal": dialog.LR2CustomFolderOutputDir = target; break;
+                case "root": dialog.LR2CustomFolderAsRootOutputDir = target; break;
+                default: _ = dialog.AddCustomFolderAdditionalOutputBaseDirs([target]); break;
+            }
+            int messagesBefore = context.Dialogs.MessageCount;
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.CommitOutputSettingsAsync(section), "output-confirmation-unresolved-lr2-config");
+
+            Assert.AreEqual(messagesBefore + 1, context.Dialogs.MessageCount, "検証エラーは一回だけ通知します。");
+            Assert.AreEqual(Resources.Settings_output_requires_lr2_root, context.Dialogs.LastMessageText);
+            Assert.AreEqual(Resources.Error, context.Dialogs.MessageRequests[^1].Caption);
+            Assert.AreEqual(0, context.Failures.Count, "部分保存の通知を出しません: " + string.Join(Environment.NewLine, context.Failures));
+            Assert.AreEqual(saveCountBefore, context.Provider.SaveCount);
+            CollectionAssert.AreEqual(settingsBefore, File.ReadAllBytes(context.SettingsPath));
+            CollectionAssert.AreEqual(xmlBefore, File.ReadAllBytes(context.Values.LR2ConfigXmlPath));
+            CollectionAssert.AreEquivalent(xmlFilesBefore, Directory.GetFiles(Path.GetDirectoryName(context.Values.LR2ConfigXmlPath)!, "*", SearchOption.AllDirectories));
+            Assert.AreEqual(normalBefore, context.Values.LR2CustomFolderOutputBaseDir);
+            Assert.AreEqual(rootBefore, context.Values.LR2CustomFolderOutputBaseDirRootType);
+            CollectionAssert.AreEqual(additionalBefore, context.Published());
+            Assert.AreEqual(normalBefore, dialog.LR2CustomFolderOutputDir);
+            Assert.AreEqual(rootBefore, dialog.LR2CustomFolderAsRootOutputDir);
+            CollectionAssert.AreEqual(additionalBefore, context.Candidates());
+        }, values => File.WriteAllText(values.LR2ConfigXmlPath, "<config><broken>"));
     }
 
     /// <summary>

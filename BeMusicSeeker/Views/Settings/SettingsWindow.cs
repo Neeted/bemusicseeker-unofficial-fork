@@ -806,7 +806,8 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     private async Task SelectOutputDirectoryAsync(string property, string section, bool reportFailure)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.IsEditCompletionEnabled) { return; }
+        // 確定済みのLR2設定を解決できない間は、フォルダ選択を開く前に止めます。確定処理側の拒否は保存直前の最終判定として残ります。
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.AreOutputBasesEditable) { return; }
         string previous = section == "normal" ? settings.LR2CustomFolderOutputDir : settings.LR2CustomFolderAsRootOutputDir;
         string initial = section == "normal" ? FirstNonEmpty(previous, settings.LR2RootPath)
             : FirstNonEmptyOrDirectoryOfSecond(previous, settings.LR2CustomFolderOutputDir);
@@ -823,12 +824,14 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
         }, reportFailure);
     }
 
-    /// <summary>Owns the install-directory picker route for the Install page.</summary>
-    internal void HandleAddBmsInstallDirectory()
-    {
-        settingsNavigation.SelectedIndex = 0;
+    /// <summary>
+    /// インストールページのボタンから、一般ページのBMSディレクトリ欄を表示範囲へ入れます。
+    /// 欄が有効ならフォーカスも移し、無効でフォーカスできない場合は表示範囲へ入れるだけにします。
+    /// </summary>
+    internal void ShowBmsDirectoryEditor() => ShowDeficiencyField(SettingsCategory.General, SettingsDeficiencyField.BmsDirectories);
 
-    }
+    /// <summary>プレイリストページの案内から、一般ページのLR2環境の欄を表示範囲へ入れてフォーカスを移します。</summary>
+    internal void ShowLr2EnvironmentField() => ShowDeficiencyField(SettingsCategory.General, SettingsDeficiencyField.Lr2Environment);
 
     /// <summary>
     /// LR2バックアップの有効化チェックを出力先との組で保存します。外すと無効化だけを保存し、有効な出力先がなければ続けてフォルダ選択を開きます。
@@ -889,9 +892,14 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     internal void ShowDeficiencyField(SettingsDeficiency deficiency)
     {
         ArgumentNullException.ThrowIfNull(deficiency);
-        settingsNavigation.SelectedIndex = (int)deficiency.Category;
-        UserControl page = GetOrCreateCategoryPage((int)deficiency.Category);
-        FrameworkElement target = FindDeficiencyTarget(page, deficiency.Field.ToString());
+        ShowDeficiencyField(deficiency.Category, deficiency.Field);
+    }
+
+    private void ShowDeficiencyField(SettingsCategory category, SettingsDeficiencyField field)
+    {
+        settingsNavigation.SelectedIndex = (int)category;
+        UserControl page = GetOrCreateCategoryPage((int)category);
+        FrameworkElement target = FindDeficiencyTarget(page, field.ToString());
         if (target == null) { return; }
         for (DependencyObject current = target; current != null; current = LogicalTreeHelper.GetParent(current) ?? (current is Visual ? VisualTreeHelper.GetParent(current) : null))
         {
@@ -1172,7 +1180,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     internal async Task HandleAddCustomFolderAdditionalOutputBase(bool reportFailure = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.IsEditCompletionEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.AreOutputBasesEditable) { return; }
         await RunViewOperationAsync(async () =>
         {
             UiFolderPickerResult result = await dialogService.PickFolderAsync(new UiFolderPickerRequest(
@@ -1189,7 +1197,7 @@ public partial class SettingsWindow : ThemedWindow, IComponentConnector
     internal async Task ConfirmAdditionalOutputOperationAsync(bool rename, bool reportFailure = false)
     {
         SettingsDialogViewModel settings = GetSettingDialogViewModel();
-        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.IsEditCompletionEnabled) { return; }
+        if (!GetSettingDialogViewModel().IsSettingsOperationAvailable || !settings.AreOutputBasesEditable) { return; }
         await RunViewOperationAsync(async () =>
         {
             string[] previous = settings.CustomFolderAdditionalOutputBaseDirList.ToArray();

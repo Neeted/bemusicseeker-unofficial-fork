@@ -148,7 +148,9 @@ On first launch, an initial setup dialog with language selection is shown.
 
 ![Initial setup](img/初回設定.PNG)
 
-Choose a language, configure the required settings, and confirm the BMS directories. Press `Start with this environment` to begin the first scan. While any setting still needs correction, `Start with this environment` is unavailable. Use the entries under `Settings that need attention` at the bottom of the Settings dialog to go to each field and correct it.
+Choose a language, configure the required settings, add BMS directories, and press `Confirm BMS directories`. Then press `Start with this environment` to begin the first scan. In LR2 linked mode, set the LR2 directory on the General page first. While any setting still needs correction, `Start with this environment` is unavailable. Use the entries under `Settings that need attention` at the bottom of the Settings dialog to go to each field and correct it.
+
+The bottom of the Settings dialog shows a message about what to do next. While settings still need attention, it asks you to configure the items under "Settings that need attention"; once everything is ready, it asks you to press `Start with this environment`. While startup or initialization is running, `Start with this environment` and this message are hidden.
 
 ### Operating Mode
 
@@ -181,6 +183,8 @@ Ordinary settings save when you select or check a value. Text fields save on Ent
 
 When a setting required to start using the library has a problem, `Settings that need attention` appears at the bottom of the Settings dialog and lists each problem as "Page: reason". Click an entry, or select it and press Enter or Space, to open that page and bring the field into view. Pages with problems show a `!` mark in the category list, and the reason also appears below the field.
 
+In LR2 linked mode, while the LR2 settings cannot be loaded, the LR2 directory entry is listed first. If the LR2 directory is not set, it reads `Set the LR2 directory.` The playlist output destinations, the install destination, and the entry asking you to add and confirm a BMS directory are not listed until the LR2 settings can be loaded. If no BMS directory is registered, a single entry on the General page's BMS directories field asks you to add a BMS directory, select a new install destination, and confirm.
+
 Using scores, external images, BMT output, and external players are not saved when checked until the required directory or file is available; the reason appears below the field. Select the required item or clear the check to remove the reason. Combinations saved by earlier versions that do not meet these conditions are also listed. Clear the check and save, or correct the setting so that it meets the conditions.
 
 ### General
@@ -191,7 +195,9 @@ Configure the language, operating mode, BMS directories, LR2 directory, beatoraj
 
 #### Registering BMS Directories
 
-In either mode, edit the search-root list with `Add`, drag and drop, and removal, then press `Change BMS directories`. Multiple edits apply once using the final list. When removing the current install destination, check `Current install destination (to be removed)` and select a remaining BMS directory under `New install destination` before confirming. Selection alone does not save changes. If no directories remain, add a BMS directory or use `Discard these changes` to restore the list and install destination.
+In either mode, edit the search-root list with `Add`, drag and drop, and removal, then press `Confirm BMS directories`. Until you confirm, the message "Changes are not confirmed yet." appears below the field and nothing is saved. Multiple edits apply once using the final list. In LR2 linked mode, the list cannot be edited while the LR2 settings cannot be loaded (for example, when the LR2 directory is not set); you are asked to set the LR2 directory first.
+
+While no new install destination is decided, a `New install destination` field appears only during list edits. If exactly one BMS directory is in the list, it is shown as already selected; if there are several, select one before confirming. Selection alone does not save changes. When removing the current install destination, check `Current install destination (to be removed)` and select a remaining BMS directory under `New install destination` before confirming. If no directories remain, add a BMS directory or use `Discard these changes` to restore the list and install destination.
 
 Removing a folder from search unregisters its charts and leaves the original files in place. To switch to an empty folder, select it as the new-install destination and confirm the directory list. You can then install charts there.
 
@@ -345,7 +351,7 @@ Configure the installation destination, folder naming, import, destination estim
 
 #### Installation destination
 
-Select a new-install destination from the registered BMS directories and configure new-folder naming. Custom folder output destinations are excluded from the choices. See [Install / Pending Packages](#install--pending-packages) for installation steps.
+Select a new-install destination from the registered BMS directories and configure new-folder naming. `Edit BMS directories` next to the selector takes you to the BMS directories field on the General page. Custom folder output destinations are excluded from the choices. See [Install / Pending Packages](#install--pending-packages) for installation steps.
 
 #### New folder naming
 
@@ -986,7 +992,7 @@ BeMusicSeeker outputs difficulty tables and local playlists in this format. It i
 
 #### Setup Flow
 
-1. In the `Playlist` category in the settings dialog, select the `Normal output destination` and `Root folder output destination` separately and accept any migration confirmation shown to save each selection. Add `Additional normal output destinations` if needed. If processing remains incomplete, use the retry button in that section. To change the initial state for new playlists and tables added from external URLs, also configure `Output folder defaults`.
+1. Set the LR2 directory on the General page first; while the LR2 settings cannot be loaded, the output destinations cannot be edited and a message explains why. Then, in the `Playlist` category in the settings dialog, select the `Normal output destination` and `Root folder output destination` separately and accept any migration confirmation shown to save each selection. Add `Additional normal output destinations` if needed. If processing remains incomplete, use the retry button in that section. To change the initial state for new playlists and tables added from external URLs, also configure `Output folder defaults`.
 2. From playlist `Properties`, configure `OUTPUT`, the output name, `Make root folder`, and the folder types to output.
 3. To change multiple playlists at once, use `Bulk edit...` from the playlist summary and apply `OUTPUT`, folder output types, or `Make root folder` to the selected rows.
 

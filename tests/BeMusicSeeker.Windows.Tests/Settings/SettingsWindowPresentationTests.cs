@@ -1093,7 +1093,6 @@ public sealed class SettingsWindowPresentationTests
                 dialogs.ExpectedOwner = window;
 
                 Assert.IsNotNull(window.PlaylistWorkspace.PlaylistTreeTables);
-                window.HandleAddBmsInstallDirectory();
                 window.HandleAddBmsSearchRootPathsAsync().GetAwaiter().GetResult();
                 dialogs.ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(window.HandleAddCustomFolderAdditionalOutputBase(), "additional-output-route-terminal");
@@ -4537,14 +4536,15 @@ public sealed class SettingsWindowPresentationTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            Settings values = TestSettingsFactory.CreateIsolatedSettings(settings =>
-            {
-                settings.OperationModeLR2DB = true;
-                settings.LR2RootPath = string.Empty;
-                settings.BMSInstallDir = string.Empty;
-                settings.LR2CustomFolderOutputBaseDir = string.Empty;
-                settings.LR2CustomFolderOutputBaseDirRootType = string.Empty;
-            });
+            // LR2設定を解決できる状態で、LR2ディレクトリ・導入先・二種の出力先が未設定です（解決できない間は出力先・導入先の理由を出さないため、
+            // ここではBindingだけを前提の抑止から切り離して確かめます）。
+            string directory = Path.Combine(CaseWorkspace.RootDirectory, "settings-required-validation-" + Guid.NewGuid().ToString("N"));
+            Settings values = SettingsMediaTestFixture.CreateValidCustomFolderSettings(Path.Combine(directory, "lr2"), [],
+                TestSettingsFactory.OpenSettings(Path.Combine(directory, "user.config")));
+            values.LR2RootPath = string.Empty;
+            values.BMSInstallDir = string.Empty;
+            values.LR2CustomFolderOutputBaseDir = string.Empty;
+            values.LR2CustomFolderOutputBaseDirRootType = string.Empty;
             MainWindowViewModel owner = MainWindowViewModelTestFactory.Create(values);
             SettingsDialogViewModel settings = owner.SettingDialog;
             UserControl[] pages = [new GeneralSettingsPage(), new InstallSettingsPage(), new PlaylistSettingsPage()];
@@ -4581,6 +4581,7 @@ public sealed class SettingsWindowPresentationTests
                 AssertValidationBinding(installField, SettingsField.ValidationMessageProperty, nameof(SettingsDialogViewModel.FieldReasons), SettingsDeficiencyField.InstallDirectory, settings.BmsInstallDirValidationMessage);
                 AssertValidationBinding(installField, SettingsField.ValidationStatusProperty, nameof(SettingsDialogViewModel.FieldReasonStatuses), SettingsDeficiencyField.InstallDirectory, null);
                 // 導入先の既存の検証表示と一覧の理由は同じ文言のため、欄の理由では一度だけ表示します。
+                Assert.AreEqual(Resources.Error_InstallDirNotSelected, settings.BmsInstallDirValidationMessage);
                 Assert.AreEqual(settings.BmsInstallDirValidationMessage, settings.FieldReasons[nameof(SettingsDeficiencyField.InstallDirectory)]);
                 AssertStyleIsAdopted(installField, typeof(SettingsField));
                 AssertStyleIsAdopted(installCombo, "SettingsValidatedComboBoxStyle");
@@ -4621,6 +4622,7 @@ public sealed class SettingsWindowPresentationTests
             {
                 foreach (UserControl page in pages) { page.DataContext = null; }
                 settings.Dispose();
+                if (Directory.Exists(directory)) { Directory.Delete(directory, recursive: true); }
             }
         });
     }

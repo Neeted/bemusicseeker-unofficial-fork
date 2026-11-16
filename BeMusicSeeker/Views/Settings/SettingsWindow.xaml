@@ -118,11 +118,22 @@
         </settings:SettingsStatusBanner>
         <Grid Grid.Row="5" Margin="{StaticResource App.Layout.BodyPadding}">
           <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-          <StackPanel Margin="0,0,0,8" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <TextBlock TextWrapping="Wrap" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_use_on_start}" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}" />
+          <StackPanel Margin="0,0,0,8" Visibility="{Binding IsStartGuidanceVisible, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <TextBlock x:Name="settingsStartGuidanceText" TextWrapping="Wrap" AutomationProperties.AutomationId="SettingsStartGuidance">
+              <TextBlock.Style>
+                <Style TargetType="{x:Type TextBlock}">
+                  <Setter Property="Text" Value="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_start_ready, Mode=OneWay}" />
+                  <Style.Triggers>
+                    <DataTrigger Binding="{Binding HasDeficiencies}" Value="True">
+                      <Setter Property="Text" Value="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_start_requires_settings, Mode=OneWay}" />
+                    </DataTrigger>
+                  </Style.Triggers>
+                </Style>
+              </TextBlock.Style>
+            </TextBlock>
           </StackPanel>
         <StackPanel x:Name="settingsFooter" Grid.Row="1" HorizontalAlignment="Right" Orientation="Horizontal">
-          <Button x:Name="buttonOK" Style="{StaticResource SettingsPrimaryButtonStyle}" MinWidth="112" Margin="0,0,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_start_environment, Mode=OneWay}" IsEnabled="{Binding CanStartEnvironment}" AutomationProperties.AutomationId="SettingsStartEnvironment" Visibility="{Binding IsInitialEnvironment, Converter={StaticResource BooleanToVisibilityConverter}}" Click="buttonOKClick" />
+          <Button x:Name="buttonOK" Style="{StaticResource SettingsPrimaryButtonStyle}" MinWidth="112" Margin="0,0,8,0" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_start_environment, Mode=OneWay}" IsEnabled="{Binding CanStartEnvironment}" AutomationProperties.AutomationId="SettingsStartEnvironment" Visibility="{Binding IsStartGuidanceVisible, Converter={StaticResource BooleanToVisibilityConverter}}" Click="buttonOKClick" />
           <Button x:Name="buttonCancel" Style="{StaticResource SettingsQuietButtonStyle}" MinWidth="88" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Close, Mode=OneWay}" AutomationProperties.AutomationId="SettingsClose" IsEnabled="{Binding IsEditCancellationEnabled}" Click="buttonCancelClick" />
         </StackPanel>
         </Grid>
