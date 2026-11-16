@@ -39,12 +39,6 @@ internal sealed class LibraryMutationApplyTimings
     /// <summary>package stateの適用に要した経過時間。</summary>
     internal long StatePackageApplyMs { get; set; }
 
-    /// <summary>playlist参照適用で評価したcatalog譜面数。</summary>
-    internal int PlaylistReferenceAffectedCharts { get; set; }
-
-    /// <summary>playlist参照適用で一致したcatalog譜面数。</summary>
-    internal int PlaylistReferenceMatchedCharts { get; set; }
-
     /// <summary>resource health変更区間の破棄に要した経過時間。</summary>
     internal long ResourceHealthDisposeMs { get; set; }
 

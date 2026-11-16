@@ -71,10 +71,10 @@ internal sealed class ResourceHealthIndexSnapshot
     internal int Version { get; }
 
     /// <summary>active warning対象を既存順で返すread-only viewを返します。</summary>
-    internal IReadOnlyList<ChartFile> ActiveTargets => activeTargetsView;
+    internal IReadOnlyList<LibraryChartRef> ActiveTargets => activeTargetsView;
 
     /// <summary>ignored warning対象を既存順で返すread-only viewを返します。</summary>
-    internal IReadOnlyList<ChartFile> IgnoredTargets => ignoredTargetsView;
+    internal IReadOnlyList<LibraryChartRef> IgnoredTargets => ignoredTargetsView;
 
     /// <summary>warningの有無にかかわらず保持するexact identityの対象数を返します。</summary>
     internal int TargetCount => entriesByIdentity.Count;
@@ -392,7 +392,7 @@ internal sealed class ResourceHealthIndexSnapshot
         }
     }
 
-    private sealed class ResourceHealthWarningSequenceView : IReadOnlyList<ChartFile>
+    private sealed class ResourceHealthWarningSequenceView : IReadOnlyList<LibraryChartRef>
     {
         private readonly ResourceHealthWarningSequence sequence;
 
@@ -408,9 +408,9 @@ internal sealed class ResourceHealthIndexSnapshot
 
         public int Count => sequence.Count;
 
-        public ChartFile this[int index] => sequence.EntryAt(index).Target;
+        public LibraryChartRef this[int index] => sequence.EntryAt(index).Target;
 
-        public IEnumerator<ChartFile> GetEnumerator()
+        public IEnumerator<LibraryChartRef> GetEnumerator()
         {
             Action<string> storeWorkObserver = observerProvider?.Invoke();
             foreach (ResourceHealthTargetEntry entry in sequence.Enumerate(storeWorkObserver))
@@ -433,6 +433,10 @@ internal sealed class ResourceHealthIndexSnapshot
         var key = ResourceHealthChartKey.FromChartFile(chart);
         return GetProjection(key);
     }
+
+    /// <summary>資源対象参照に対応する検査事実を取得します。表示現在値はカタログから別途捕捉します。</summary>
+    internal ResourceHealthWarningProjection GetProjection(LibraryChartRef reference)
+        => reference == null ? ResourceHealthWarningProjection.Empty : GetProjection(reference.Kind, reference.Path, reference.Md5);
 
     /// <summary>kindとexact pathでentryをlookupし、hashをcase-insensitiveに照合してprojectionを返します。</summary>
     /// <param name="kind">chart kind。</param>
@@ -465,13 +469,13 @@ internal sealed class ResourceHealthIndexSnapshot
             ResourceHealthWarningProjection projection,
             long? warningOrdinal)
         {
-            Target = target ?? throw new ArgumentNullException(nameof(target));
+            Target = LibraryChartRef.FromChartFile(target) ?? throw new ArgumentNullException(nameof(target));
             Hash = target.Md5 ?? string.Empty;
             Projection = projection;
             WarningOrdinal = warningOrdinal;
         }
 
-        internal ChartFile Target { get; }
+        internal LibraryChartRef Target { get; }
 
         internal string Hash { get; }
 

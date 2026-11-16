@@ -29,8 +29,7 @@ internal sealed class PlayHistoryRow
         string sha256,
         LibraryChartRef chartRef,
         ChartFile chart,
-        PlaylistReferenceDisplay playlistReference,
-        PlayHistoryHashKind hashKind)
+        PlaylistReferenceDisplay playlistReference)
     {
         Raw = raw ?? throw new ArgumentNullException(nameof(raw));
         BeatorajaRaw = null;
@@ -50,8 +49,6 @@ internal sealed class PlayHistoryRow
         Sha256 = sha256 ?? string.Empty;
         ResolvedChart = chart;
         ResolvedChartRef = chartRef;
-        HashKind = hashKind;
-        IsSummaryEligible = HashKind is PlayHistoryHashKind.Chart or PlayHistoryHashKind.NonstopCourse;
         Title = chart?.Title ?? string.Empty;
         Artist = chart?.Artist ?? string.Empty;
         Path = chart?.Path ?? string.Empty;
@@ -89,8 +86,7 @@ internal sealed class PlayHistoryRow
         string sha256,
         LibraryChartRef chartRef,
         ChartFile chart,
-        PlaylistReferenceDisplay playlistReference,
-        PlayHistoryHashKind hashKind)
+        PlaylistReferenceDisplay playlistReference)
     {
         BeatorajaRaw = raw ?? throw new ArgumentNullException(nameof(raw));
         Raw = null;
@@ -110,8 +106,6 @@ internal sealed class PlayHistoryRow
         Sha256 = sha256 ?? string.Empty;
         ResolvedChart = chart;
         ResolvedChartRef = chartRef;
-        HashKind = hashKind;
-        IsSummaryEligible = HashKind is PlayHistoryHashKind.Chart or PlayHistoryHashKind.NonstopCourse;
         Title = chart?.Title ?? string.Empty;
         Artist = chart?.Artist ?? string.Empty;
         Path = chart?.Path ?? string.Empty;
@@ -180,10 +174,6 @@ internal sealed class PlayHistoryRow
     public string Md5 { get; }
 
     public string Sha256 { get; }
-
-    public PlayHistoryHashKind HashKind { get; }
-
-    public bool IsSummaryEligible { get; }
 
     public string Title { get; }
 
@@ -292,11 +282,11 @@ internal sealed class PlayHistoryRow
             }
 
             string digestSha256 = safeIndex.ResolveSha256(md5, null);
-            LibraryChartRef chartRef = safeIndex.ResolveChartByMd5(md5, digestSha256);
+            ChartFile chart = safeIndex.ResolveChartByMd5(md5, digestSha256);
+            var chartRef = LibraryChartRef.FromChartFile(chart);
             string resolvedSha256 = safeIndex.ResolveSha256(md5, chartRef?.Sha256 ?? digestSha256);
-            LR2SongDBExtended.chart_info chartInfo = safeIndex.ResolveChartInfo(resolvedSha256, md5);
+            BeMusicSeeker.Models.ChartDetails chartInfo = safeIndex.ResolveChartInfo(resolvedSha256, md5);
             resolvedSha256 = safeIndex.ResolveSha256(md5, FirstNonEmpty(resolvedSha256, chartInfo?.sha256));
-            ChartFile chart = chartRef?.ToChartFileIdentity() ?? chartRef?.ToChartFile();
             PlaylistReferenceDisplay playlistReference = safeIndex.ResolvePlaylistReference(md5, resolvedSha256);
             rows.Add(new PlayHistoryRow(
                 record,
@@ -305,8 +295,7 @@ internal sealed class PlayHistoryRow
                 resolvedSha256,
                 chartRef,
                 chart,
-                playlistReference,
-                chartRef != null ? PlayHistoryHashKind.Chart : PlayHistoryHashKind.Unknown));
+                playlistReference));
         }
 
         return new PlayHistoryProjectionResult(rows, diagnostics);
@@ -331,10 +320,10 @@ internal sealed class PlayHistoryRow
                     sourceProfile.SourcePath));
             }
 
-            LibraryChartRef chartRef = safeIndex.ResolveChartByMd5(string.Empty, sha256);
-            LR2SongDBExtended.chart_info chartInfo = safeIndex.ResolveChartInfo(sha256, string.Empty);
+            ChartFile chart = safeIndex.ResolveChartByMd5(string.Empty, sha256);
+            var chartRef = LibraryChartRef.FromChartFile(chart);
+            BeMusicSeeker.Models.ChartDetails chartInfo = safeIndex.ResolveChartInfo(sha256, string.Empty);
             string resolvedMd5 = FirstNonEmpty(chartRef?.Md5, chartInfo?.md5);
-            ChartFile chart = chartRef?.ToChartFileIdentity() ?? chartRef?.ToChartFile();
             PlaylistReferenceDisplay playlistReference = safeIndex.ResolvePlaylistReference(resolvedMd5, sha256);
             rows.Add(new PlayHistoryRow(
                 record,
@@ -343,8 +332,7 @@ internal sealed class PlayHistoryRow
                 sha256,
                 chartRef,
                 chart,
-                playlistReference,
-                chartRef != null || chartInfo != null ? PlayHistoryHashKind.Chart : PlayHistoryHashKind.Unknown));
+                playlistReference));
         }
 
         return new PlayHistoryProjectionResult(rows, diagnostics);
@@ -582,7 +570,7 @@ internal sealed class PlayHistoryRow
     private static string FormatRate(double? rate)
     {
         return rate.HasValue
-            ? (rate.Value * 100d).ToString("F2", CultureInfo.CurrentCulture)
+            ? (rate.Value * 100d).ToString("F2", CultureInfo.InvariantCulture)
             : string.Empty;
     }
 

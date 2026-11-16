@@ -88,6 +88,7 @@ internal sealed class LibraryMutationSessionReceipt
     /// <param name="recoveryCandidatePaths">Executor-local paths retained for manual confirmation or recovery.</param>
     /// <param name="manualRecoveryRequired">Whether any physical mutation requires manual recovery.</param>
     /// <param name="destinationTypeConflicts">Read-only destination type conflicts observed while preparing items.</param>
+    /// <param name="hasUnrestoredExistingDestination">操作内に退避した既存宛先の未復元が残っている事実。</param>
     /// <param name="applyCounts">操作内で実際に試行した反映回数と、確定した folder DB 対象行数。</param>
     internal LibraryMutationSessionReceipt(
         IEnumerable<LibraryMutationSessionTarget> confirmedTargets,
@@ -109,8 +110,10 @@ internal sealed class LibraryMutationSessionReceipt
         IEnumerable<string> recoveryCandidatePaths = null,
         bool manualRecoveryRequired = false,
         IEnumerable<FileDbMutationDestinationTypeConflict> destinationTypeConflicts = null,
-        LibraryMutationSessionApplyCounts applyCounts = default)
+        LibraryMutationSessionApplyCounts applyCounts = default,
+        bool hasUnrestoredExistingDestination = false)
     {
+        HasUnrestoredExistingDestination = hasUnrestoredExistingDestination;
         ApplyCounts = applyCounts;
         ConfirmedTargets = FreezeTargets(confirmedTargets);
         DurableCommit = durableCommit;
@@ -196,6 +199,9 @@ internal sealed class LibraryMutationSessionReceipt
     /// <summary>Gets whether any physical mutation requires manual recovery.</summary>
     internal bool ManualRecoveryRequired { get; }
 
+    /// <summary>操作内に退避した既存宛先の未復元が残り、通常利用へ戻せないかを取得します。</summary>
+    internal bool HasUnrestoredExistingDestination { get; }
+
     /// <summary>Gets destination type conflicts observed while preparing package mutations.</summary>
     internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts { get; }
 
@@ -266,7 +272,8 @@ internal sealed class LibraryMutationSessionReceipt
             RecoveryCandidatePaths,
             ManualRecoveryRequired,
             DestinationTypeConflicts,
-            ApplyCounts);
+            ApplyCounts,
+            HasUnrestoredExistingDestination);
     }
 
     /// <summary>Gets an immutable empty session receipt.</summary>

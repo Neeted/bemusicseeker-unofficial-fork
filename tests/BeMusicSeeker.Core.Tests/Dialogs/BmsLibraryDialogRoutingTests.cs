@@ -1,0 +1,292 @@
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using MessageBoxButton = BeMusicSeeker.Models.UiDialogButton;
+using MessageBoxImage = BeMusicSeeker.Models.UiDialogIcon;
+using MessageBoxResult = BeMusicSeeker.Models.UiDialogDefaultResult;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class BmsLibraryDialogRoutingTests
+{
+    private TestWorkspace? ownedWorkspace;
+
+    /// <summary>初期化済みのケース専有媒体だけを返し、constructorでは領域を作りません。</summary>
+    private TestWorkspace CaseWorkspace => ownedWorkspace
+        ?? throw new InvalidOperationException("ケースの可変媒体はTestInitialize後に利用します。");
+
+    /// <summary>ケースのconstructorと既存field準備が成功した後に可変媒体を所有します。</summary>
+    [TestInitialize]
+    public void InitializeWorkspace() => ownedWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+    /// <summary>ケース固有の処理と既存finallyが終わった後に、開始済みの所有媒体だけを回収します。</summary>
+    [TestCleanup]
+    public void CleanupWorkspace() => ownedWorkspace?.Dispose();
+
+    /// <summary>消失フォルダのrenameで対象path付き警告を操作の収集先へ一回加え、モデルの窓口へは同期にも投函でも届けず、無通知の成功へ置換しません。</summary>
+    [TestMethod]
+    public void RenameChartFolder_AddsMissingFolderWarningToOperationNotices()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(CaseWorkspace, delegate (string songDbPath)
+        {
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+            string missingDirectoryPath = Path.Combine(CaseWorkspace.RootDirectory, "BeMusicSeeker_Missing_" + Guid.NewGuid().ToString("N"));
+
+            var notices = new LibraryOperationNotices();
+
+            library.RenameChartFolder(missingDirectoryPath, "RenamedFolder", notices);
+
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+            Assert.AreEqual(0, dialogService.Posted.Count, "モデルは投函もしません。");
+            BMSLibrary.OperationDialogMessage warning = notices.Snapshot().Single();
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, warning.Caption);
+            StringAssert.Contains(warning.MessageBoxText, missingDirectoryPath);
+        });
+    }
+
+    /// <summary>Everythingの代替走査理由を警告として待たずに投函し、理由・警告種別・既定応答を失わず、同期の表示へ戻しません。</summary>
+    [TestMethod]
+    public void QueueEverythingFallbackWarning_PostsWarningWithoutSynchronousShow()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(CaseWorkspace, delegate (string songDbPath)
+        {
+            const string fallbackReason = "empty_results_with_roots";
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+
+            Assert.IsTrue(library.QueueEverythingFallbackWarning(fallbackReason));
+
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            BMSLibrary.OperationDialogMessage posted = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, posted.Caption);
+            Assert.AreEqual(MessageBoxButton.OK, posted.Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, posted.Icon);
+            Assert.AreEqual(MessageBoxResult.OK, posted.DefaultResult);
+            StringAssert.Contains(posted.MessageBoxText, "Everything");
+            StringAssert.Contains(posted.MessageBoxText, fallbackReason);
+        });
+    }
+
+    /// <summary>不完全走査を中止した理由を警告として待たずに投函し、Everythingの失敗と取り違えた通知を出さず、同期の表示へ戻しません。</summary>
+    [TestMethod]
+    public void QueueFileScanSkippedIncompleteWarning_PostsWarningWithoutSynchronousShow()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(CaseWorkspace, delegate (string songDbPath)
+        {
+            const string failureReason = "directory_enumeration_failed:C:\\BMS";
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+
+            Assert.IsTrue(library.QueueFileScanSkippedIncompleteWarning(failureReason));
+
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            BMSLibrary.OperationDialogMessage posted = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, posted.Caption);
+            Assert.AreEqual(MessageBoxButton.OK, posted.Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, posted.Icon);
+            Assert.AreEqual(MessageBoxResult.OK, posted.DefaultResult);
+            StringAssert.Contains(posted.MessageBoxText, failureReason);
+            Assert.IsFalse(posted.MessageBoxText.Contains("Everything"));
+        });
+    }
+
+    /// <summary>既存DBがある空走査では件数・DB・Everythingと原因を警告として待たずに投函し、空の正常走査と取り違えず、同期の表示へ戻しません。</summary>
+    [TestMethod]
+    public void QueueEmptyScanWithExistingDbWarning_PostsWarningWithoutSynchronousShow()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(CaseWorkspace, delegate (string songDbPath)
+        {
+            const string failureReason = "empty_scan_with_existing_db";
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+
+            Assert.IsTrue(library.QueueEmptyScanWithExistingDbWarning(failureReason));
+
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            BMSLibrary.OperationDialogMessage posted = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, posted.Caption);
+            Assert.AreEqual(MessageBoxButton.OK, posted.Button);
+            Assert.AreEqual(MessageBoxImage.Exclamation, posted.Icon);
+            Assert.AreEqual(MessageBoxResult.OK, posted.DefaultResult);
+            StringAssert.Contains(posted.MessageBoxText, "0");
+            StringAssert.Contains(posted.MessageBoxText, "song.db");
+            StringAssert.Contains(posted.MessageBoxText, "Everything");
+            StringAssert.Contains(posted.MessageBoxText, failureReason);
+        });
+    }
+
+    /// <summary>Everything警告の重複要求を一通知へ集約し、最初の理由を後続理由で上書きしません。</summary>
+    [TestMethod]
+    public void QueueEverythingFallbackWarning_CoalescesDuplicateRequests()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(CaseWorkspace, delegate (string songDbPath)
+        {
+            const string fallbackReason = "bridge_scan_failed:4";
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+
+            Assert.IsTrue(library.QueueEverythingFallbackWarning(fallbackReason));
+            Assert.IsFalse(library.QueueEverythingFallbackWarning("second_reason"));
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+
+            BMSLibrary.OperationDialogMessage call = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
+            StringAssert.Contains(call.MessageBoxText, fallbackReason);
+            Assert.IsFalse(call.MessageBoxText.Contains("second_reason"));
+        });
+    }
+
+    /// <summary>不完全走査の重複警告を一通知へ集約し、最初の原因と走査中止の分類を保持します。</summary>
+    [TestMethod]
+    public void QueueFileScanSkippedIncompleteWarning_CoalescesDuplicateRequests()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(CaseWorkspace, delegate (string songDbPath)
+        {
+            const string failureReason = "root_not_found:C:\\BMS";
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+
+            Assert.IsTrue(library.QueueFileScanSkippedIncompleteWarning(failureReason));
+            Assert.IsFalse(library.QueueFileScanSkippedIncompleteWarning("second_reason"));
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+
+            BMSLibrary.OperationDialogMessage call = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
+            StringAssert.Contains(call.MessageBoxText, failureReason);
+            Assert.IsFalse(call.MessageBoxText.Contains("second_reason"));
+            Assert.IsFalse(call.MessageBoxText.Contains("Everything"));
+        });
+    }
+
+    /// <summary>既存DBの空走査警告は一通知へ集約し、後続原因で最初の原因やEverythingの分類を置換しません。</summary>
+    [TestMethod]
+    public void QueueEmptyScanWithExistingDbWarning_CoalescesDuplicateRequests()
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+
+        WithTemporarySongDb(CaseWorkspace, delegate (string songDbPath)
+        {
+            const string failureReason = "empty_scan_with_existing_db";
+            var dialogService = new RecordingDialogService();
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null!, null, null!, dialogService, new TestUiScheduler(() => null!));
+
+            Assert.IsTrue(library.QueueEmptyScanWithExistingDbWarning(failureReason));
+            Assert.IsFalse(library.QueueEmptyScanWithExistingDbWarning("second_reason"));
+            Assert.AreEqual(1, dialogService.Posted.Count);
+            Assert.AreEqual(0, dialogService.Calls.Count, "モデルは同期の表示を要求しません。");
+
+            BMSLibrary.OperationDialogMessage call = dialogService.Posted[0];
+            Assert.AreEqual(Properties.Resources.MessageBoxTitle_Warning, call.Caption);
+            StringAssert.Contains(call.MessageBoxText, failureReason);
+            Assert.IsFalse(call.MessageBoxText.Contains("second_reason"));
+            StringAssert.Contains(call.MessageBoxText, "Everything");
+        });
+    }
+
+    private static void WithTemporarySongDb(TestWorkspace workspace, Action<string> testAction)
+    {
+        string tempRootPath = Path.Combine(workspace.RootDirectory, "BeMusicSeeker_DialogTests_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            testAction(songDbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    private sealed class RecordingDialogService : IBmsLibraryDialogService
+    {
+        private readonly object lockObject = new();
+
+        public List<DialogCall> Calls { get; } = [];
+
+        public MessageBoxResult ResultToReturn { get; set; } = MessageBoxResult.OK;
+
+        public int CallCount
+        {
+            get
+            {
+                lock (lockObject)
+                {
+                    return Calls.Count;
+                }
+            }
+        }
+
+        public DialogCall GetCall(int index)
+        {
+            lock (lockObject)
+            {
+                return Calls[index];
+            }
+        }
+
+        public MessageBoxResult Confirm(string messageBoxText, string caption, MessageBoxButton button, MessageBoxImage icon, MessageBoxResult defaultResult = MessageBoxResult.None)
+        {
+            lock (lockObject)
+            {
+                Calls.Add(new DialogCall
+                {
+                    Message = messageBoxText,
+                    Caption = caption,
+                    Button = button,
+                    Icon = icon,
+                    DefaultResult = defaultResult
+                });
+            }
+            return ResultToReturn;
+        }
+
+        public List<BMSLibrary.OperationDialogMessage> Posted { get; } = [];
+
+        public void Post(IReadOnlyList<BMSLibrary.OperationDialogMessage> messages, Func<bool> shouldSuppress)
+        {
+            lock (lockObject)
+            {
+                Posted.AddRange(messages);
+            }
+        }
+    }
+
+    private sealed class DialogCall
+    {
+        public string Message { get; set; } = string.Empty;
+
+        public string Caption { get; set; } = string.Empty;
+
+        public MessageBoxButton Button { get; set; }
+
+        public MessageBoxImage Icon { get; set; }
+
+        public MessageBoxResult DefaultResult { get; set; }
+    }
+
+}

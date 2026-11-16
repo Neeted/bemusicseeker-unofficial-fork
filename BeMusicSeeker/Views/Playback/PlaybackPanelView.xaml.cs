@@ -1,8 +1,10 @@
 using System;
 using System.ComponentModel;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -13,6 +15,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
+using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Views;
@@ -25,7 +28,10 @@ public partial class PlaybackPanelView : UserControl
     public static readonly DependencyProperty EffectivePlayerPanelStateProperty = DependencyProperty.Register(nameof(EffectivePlayerPanelState), typeof(PlayerPanelState), typeof(PlaybackPanelView), new PropertyMetadata(PlayerPanelState.TITLE_LARGE));
     public static readonly DependencyProperty SettingsCommandProperty = DependencyProperty.Register(nameof(SettingsCommand), typeof(ICommand), typeof(PlaybackPanelView), new PropertyMetadata(null));
     private readonly PlaybackPreviousButtonGesture previousButtonGesture = new();
-    private DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
+    private readonly Func<Dispatcher, IPreviousButtonTimer> createPreviousButtonTimer;
+    private IPreviousButtonTimer gridBMSPlayerControlsPreviousButtonClickTimer;
+    /// <summary>シークのドラッグの開始を伝えた再生パネル。ドラッグ中だけ保持します。</summary>
+    private PlaybackPanelViewModel seekDragPlaybackPanel;
     private PlaybackPanelViewModel subscribedPlaybackPanel;
     private PropertyChangedEventHandler subscribedPropertyChangedHandler;
     private EventHandler subscribedPlaybackStartingHandler;
@@ -33,15 +39,44 @@ public partial class PlaybackPanelView : UserControl
     private Storyboard activePanelStateTransition;
     private bool? appliedCompactPanelState;
     private long playbackPanelSubscriptionVersion;
-    private BitmapSource _panelImage;
+    private BitmapSource externalPanelImage;
     private bool isClosingOrClosed;
 
-    public PlaybackPanelView()
+    /// <summary>同じUI Dispatcher上の500msタイマーで前曲ボタンを判定するパネルを作成します。</summary>
+    public PlaybackPanelView() : this(dispatcher => new PreviousButtonDispatcherTimer(dispatcher))
     {
+    }
+
+    /// <summary>前曲ボタンの時計だけを差し替え、接続期間ごとの停止・購読解除を検証できるパネルを作成します。</summary>
+    /// <param name="createPreviousButtonTimer">ViewのDispatcherを受け取り、停止状態の新しいタイマーを返すファクトリー。</param>
+    internal PlaybackPanelView(Func<Dispatcher, IPreviousButtonTimer> createPreviousButtonTimer)
+    {
+        this.createPreviousButtonTimer = createPreviousButtonTimer ?? throw new ArgumentNullException(nameof(createPreviousButtonTimer));
         InitializeComponent();
         DataContextChanged += PlaybackPanelDataContextChanged;
         Loaded += PlaybackPanelLoaded;
         Unloaded += PlaybackPanelUnloaded;
+    }
+
+    private void PlayerVolumeDragCompleted(object sender, DragCompletedEventArgs e) => CompletePlayerVolumeInput(sender);
+    private void PlayerVolumeMouseLeftButtonUp(object sender, MouseButtonEventArgs e) => CompletePlayerVolumeInput(sender);
+    private void PlayerVolumeLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => CompletePlayerVolumeInput(sender);
+    private void PlayerVolumeUnloaded(object sender, RoutedEventArgs e) => CompletePlayerVolumeInput(sender);
+
+    private void PlayerVolumeKeyUp(object sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown)
+        { CompletePlayerVolumeInput(sender); }
+    }
+
+    private static void CompletePlayerVolumeInput(object sender)
+    {
+        if (sender is Slider { DataContext: PlaybackPanelViewModel panel } slider)
+        {
+            slider.GetBindingExpression(Slider.ValueProperty)?.UpdateSource();
+            panel.CompleteVolumeAdjustment();
+            slider.GetBindingExpression(Slider.ValueProperty)?.UpdateTarget();
+        }
     }
 
     public event RoutedEventHandler PlaybackStarting;
@@ -60,29 +95,23 @@ public partial class PlaybackPanelView : UserControl
     }
     private PlaybackPanelViewModel PlaybackPanel => DataContext as PlaybackPanelViewModel ?? throw new InvalidOperationException("Playback panel DataContext is unavailable.");
 
-    private BitmapSource PanelImage
+    private void ApplyPanelImage()
     {
-        get
+        // DataContextの契約違反は、任意画像の不足へ変換しません。
+        PlaybackPanelViewModel playbackPanel = PlaybackPanel;
+        if (playbackPanel.UseExternalPanelImage)
         {
-            if (_panelImage != null)
+            externalPanelImage ??= ReadOptionalArtwork(playbackPanel.StagefilePath, "external_panel");
+            if (externalPanelImage != null)
             {
-                return _panelImage;
+                gridBMSPlayerImage.Source = externalPanelImage;
+                return;
             }
-
-            if (PlaybackPanel.UseExternalPanelImage)
-            {
-                try
-                {
-                    using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(PlaybackPanel.StagefilePath));
-                    return _panelImage = new WriteableBitmap(BitmapFrame.Create(stream));
-                }
-                catch { }
-            }
-            return _panelImage = new BitmapImage(new Uri("pack://application:,,,/BeMusicSeeker;component/Assets/Images/default_image.jpg"));
         }
+        gridBMSPlayerImage.SetResourceReference(Image.SourceProperty, "Playback.DefaultImage");
     }
 
-    private void ResetPanelImage() => _panelImage = null;
+    private void ResetPanelImage() => externalPanelImage = null;
 
     private void PlaybackPanelLoaded(object sender, RoutedEventArgs e)
     {
@@ -94,6 +123,7 @@ public partial class PlaybackPanelView : UserControl
     private void PlaybackPanelUnloaded(object sender, RoutedEventArgs e)
     {
         isClosingOrClosed = true;
+        EndSeekDrag();
         CancelPreviousButtonGesture();
         ApplyPlaybackPanelVisualState(
             subscribedPlaybackPanel?.PlayerPanelState.HasFlag(PlayerPanelState.TITLE_SMALL) ?? false,
@@ -103,6 +133,8 @@ public partial class PlaybackPanelView : UserControl
 
     private void PlaybackPanelDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
+        // 終了は、替わった後のDataContextではなく、ドラッグの開始を伝えた再生パネルへ送ります。
+        EndSeekDrag();
         if (IsLoaded)
         {
             CancelPreviousButtonGesture();
@@ -226,6 +258,7 @@ public partial class PlaybackPanelView : UserControl
             || e.PropertyName == nameof(PlaybackPanelViewModel.StagefilePath))
         {
             ResetPanelImage();
+            RefreshArtwork(expectedPanel.DisplayedChart);
         }
         if (e.PropertyName == nameof(PlaybackPanelViewModel.DisplayedChart))
         {
@@ -400,55 +433,107 @@ public partial class PlaybackPanelView : UserControl
         gridBMSPlayerImage.Effect as BlurEffect
         ?? throw new InvalidOperationException("Playback panel image must use a BlurEffect.");
 
-    /// <summary>BMSの既存呼出元を形式共通の表示素材へ投影します。</summary>
-    public void RefreshArtwork(BMSFile bmsFile) => RefreshArtwork(ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false));
-
-    /// <summary>選曲中・再生中の共通譜面からstagefileとbannerを表示し、前曲の素材を残しません。</summary>
+    /// <summary>現在の共通譜面だけから素材を表示し、欠落・破損時も前曲の画像を残しません。</summary>
+    /// <remarks>任意の読取り・復号・診断の失敗は再生開始へ伝えず、同曲stageまたは空表示へ進みます。</remarks>
 #nullable enable annotations
     internal void RefreshArtwork(ChartFile? bmsFile)
     {
-        if (bmsFile == null)
+        if (DataContext != null)
         {
-            ApplyEmptyArtwork(showDefaultImage: DataContext != null);
+            _ = PlaybackPanel;
+        }
+        ClearArtwork();
+        if (DataContext == null)
+        {
             return;
         }
-        WriteableBitmap stage = null;
-        try
+        if (bmsFile == null)
         {
-            string path = string.IsNullOrWhiteSpace(bmsFile.Path) || string.IsNullOrWhiteSpace(bmsFile.Stagefile) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.Path), bmsFile.Stagefile);
-            if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
-            {
-                using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(path));
-                stage = new WriteableBitmap(BitmapFrame.Create(stream));
-            }
-            gridBMSPlayerImage.Source = stage ?? PanelImage;
+            ApplyPanelImage();
+            return;
         }
-        catch { gridBMSPlayerImage.Source = PanelImage; }
-        try
+
+        BitmapSource stage = ReadChartArtwork(bmsFile, bmsFile.Stagefile, "stagefile");
+        BitmapSource banner = ReadChartArtwork(bmsFile, bmsFile.Banner, "banner");
+        if (stage != null) { gridBMSPlayerImage.Source = stage; }
+        else { ApplyPanelImage(); }
+        BitmapSource bannerImage = banner ?? stage;
+        if (bannerImage != null)
         {
-            string path = string.IsNullOrWhiteSpace(bmsFile.Path) || string.IsNullOrWhiteSpace(bmsFile.Banner) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.Path), bmsFile.Banner);
-            ImageSource banner = null;
-            if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
+            try
             {
-                using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(path));
-                banner = new WriteableBitmap(BitmapFrame.Create(stream));
+                gridBMSPlayerControlsBanner.Background = new ImageBrush(bannerImage)
+                {
+                    Stretch = banner == null ? Stretch.UniformToFill : Stretch.Fill
+                };
             }
-            banner ??= stage;
-            gridBMSPlayerControlsBanner.Background = banner == null ? null : new ImageBrush(banner) { Stretch = stage == banner ? Stretch.UniformToFill : Stretch.Fill };
-        }
-        catch
-        {
-            gridBMSPlayerControlsBanner.Background = stage == null ? null : new ImageBrush(stage) { Stretch = Stretch.UniformToFill };
+            catch (Exception ex)
+            {
+                // 同曲stageを使うbrush生成も任意です。二次失敗では背景なしを維持します。
+                ReportArtworkFailure(ex, "banner_fallback", bmsFile.Path);
+            }
         }
         gridBMSPlayerControlsBanner.BorderThickness = gridBMSPlayerControlsBanner.Background == null ? new Thickness(0) : new Thickness(1, 0, 1, 0);
     }
 #nullable restore annotations
 
-    private void ApplyEmptyArtwork(bool showDefaultImage)
+    private static BitmapSource ReadChartArtwork(ChartFile chart, string relativePath, string material)
     {
-        gridBMSPlayerImage.Source = showDefaultImage ? PanelImage : null;
+        if (string.IsNullOrWhiteSpace(chart.Path) || string.IsNullOrWhiteSpace(relativePath))
+        {
+            return null;
+        }
+        string path = relativePath;
+        try
+        {
+            path = Path.Combine(DirectoryExt.GetDirectoryNameSimple(chart.Path), relativePath);
+            return ReadOptionalArtwork(path, material);
+        }
+        catch (Exception ex)
+        {
+            ReportArtworkFailure(ex, material, path);
+            return null;
+        }
+    }
+
+    private static BitmapSource ReadOptionalArtwork(string path, string material)
+    {
+        try
+        {
+            using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(path));
+            return new WriteableBitmap(BitmapFrame.Create(stream, BitmapCreateOptions.None, BitmapCacheOption.OnLoad));
+        }
+        catch (Exception ex)
+        {
+            // 素材は再生の必須入力ではありません。元pathと復号原因を診断し、現在曲のfallbackへ進みます。
+            ReportArtworkFailure(ex, material, path);
+            return null;
+        }
+    }
+
+    private static void ReportArtworkFailure(Exception exception, string material, string path)
+    {
+        try
+        {
+            NLogWrapper.GetLogger(typeof(PlaybackPanelView)).Warn(exception, "playback_artwork failed material=" + material + " path=" + path);
+        }
+        catch (Exception)
+        {
+            // 任意診断の二次故障は素材不足や選曲・開始の結果を変えません。
+        }
+    }
+
+    private void ClearArtwork()
+    {
+        gridBMSPlayerImage.Source = null;
         gridBMSPlayerControlsBanner.Background = null;
         gridBMSPlayerControlsBanner.BorderThickness = new Thickness(0);
+    }
+
+    private void ApplyEmptyArtwork(bool showDefaultImage)
+    {
+        ClearArtwork();
+        if (showDefaultImage) { ApplyPanelImage(); }
     }
     private void ShowBmsPlayer() => RestoreVisibilityBinding(externalPlayerHost, Visibility.Visible);
     private void CollapseBmsPlayer() => RestoreVisibilityBinding(externalPlayerHost, Visibility.Collapsed);
@@ -471,6 +556,20 @@ public partial class PlaybackPanelView : UserControl
     public void EnsureSelectedSurfaceAvailable()
     {
         ApplySelectedSurface(PlaybackPanel, PlaybackPanel.PlayerPanelState);
+    }
+
+    /// <summary>入力時の接続期間を捕捉し、受付後も同じ接続が生存する場合だけ面を選択します。</summary>
+    internal Action CaptureBmsPlayerSurfaceRequest()
+    {
+        PlaybackPanelViewModel expectedPanel = PlaybackPanel;
+        long subscriptionVersion = playbackPanelSubscriptionVersion;
+        return () =>
+        {
+            if (IsCurrentPlaybackPanelSubscription(expectedPanel, subscriptionVersion, expectedPanel))
+            {
+                TrySelectBmsPlayerSurface();
+            }
+        };
     }
 
     public bool TrySelectBmsPlayerSurface() => PlaybackPanel.TrySelectPanelState(
@@ -556,7 +655,7 @@ public partial class PlaybackPanelView : UserControl
     {
         if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            viewModel.NextCommand.Execute();
+            RequestNextPlayback().ObserveFault("PlaybackPanelView.NextButton");
         }
     }
 
@@ -571,6 +670,7 @@ public partial class PlaybackPanelView : UserControl
         HandlePreviousButtonClick(e.ClickCount);
     }
 
+    /// <summary>前曲ボタンのクリック回数を受け、単クリックの遅延判定または前曲への移動を開始します。</summary>
     internal void HandlePreviousButtonClick(int clickCount)
     {
         if (DataContext is not PlaybackPanelViewModel viewModel)
@@ -606,11 +706,44 @@ public partial class PlaybackPanelView : UserControl
         {
             return;
         }
-        gridBMSPlayerControlsPreviousButtonClickTimer = new DispatcherTimer(
-            new TimeSpan(0, 0, 0, 0, 500),
-            DispatcherPriority.Background,
-            gridBMSPlayerControlsPreviousButtonSingleClicked,
-            Dispatcher);
+        gridBMSPlayerControlsPreviousButtonClickTimer = createPreviousButtonTimer(Dispatcher);
+        gridBMSPlayerControlsPreviousButtonClickTimer.Tick += gridBMSPlayerControlsPreviousButtonSingleClicked;
+    }
+
+    /// <summary>前曲ボタン専用の遅延通知。Viewが開始・停止と購読の寿命を所有します。</summary>
+    internal interface IPreviousButtonTimer
+    {
+        /// <summary>遅延の経過を通知します。停止と購読解除は別の操作です。</summary>
+        event EventHandler Tick;
+
+        /// <summary>遅延通知を開始します。</summary>
+        void Start();
+
+        /// <summary>購読を保持したまま遅延通知を停止します。</summary>
+        void Stop();
+    }
+
+    private sealed class PreviousButtonDispatcherTimer : IPreviousButtonTimer
+    {
+        private readonly DispatcherTimer timer;
+
+        /// <summary>Viewと同じDispatcherへBackground優先度の500ms通知を接続します。</summary>
+        internal PreviousButtonDispatcherTimer(Dispatcher dispatcher)
+        {
+            timer = new DispatcherTimer(DispatcherPriority.Background, dispatcher)
+            {
+                Interval = TimeSpan.FromMilliseconds(500)
+            };
+        }
+
+        public event EventHandler Tick
+        {
+            add => timer.Tick += value;
+            remove => timer.Tick -= value;
+        }
+
+        public void Start() => timer.Start();
+        public void Stop() => timer.Stop();
     }
 
     private void StopPreviousButtonTimer()
@@ -635,23 +768,34 @@ public partial class PlaybackPanelView : UserControl
     /// </summary>
     private void gridBMSPlayerControlsPlayStartButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        if (DataContext is PlaybackPanelViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel)
         {
             e.Handled = true;
-            if (viewModel.IsStoppedOrPaused)
-            {
-                TrySelectBmsPlayerSurface();
-            }
-            viewModel.StartCommand.Execute();
+            RequestPlaybackFromPlayButton().ObserveFault("PlaybackPanelView.PlayButton");
         }
     }
+
+    /// <summary>再生ボタンの要求を現在のownerへ渡し、面選択は受付後に現在のView接続へ適用します。</summary>
+    /// <returns>転送した再生要求の実終端。面要求のUI配送は別に進みます。</returns>
+    /// <param name="receipt">当該入力だけの受取先。通常入力では省略し、再生・通知・停止の所有は変えません。</param>
+    internal Task RequestPlaybackFromPlayButton(PlaybackInputReceipt receipt = null) => DataContext is PlaybackPanelViewModel viewModel
+        ? viewModel.HandlePlayButton(CaptureBmsPlayerSurfaceRequest(), receipt)
+        : Task.CompletedTask;
+
+    /// <summary>次ボタンの通常workerへ当該入力の受取先を渡します。</summary>
+    internal Task RequestNextPlayback(PlaybackInputReceipt receipt = null) => DataContext is PlaybackPanelViewModel panel
+        ? panel.HandleNextButton(receipt) : Task.CompletedTask;
+
+    /// <summary>停止ボタンの通常workerへ当該入力の受取先を渡します。</summary>
+    internal Task RequestStopPlayback(PlaybackInputReceipt receipt = null) => DataContext is PlaybackPanelViewModel panel
+        ? panel.HandleStopButton(receipt) : Task.CompletedTask;
 
     private void gridBMSPlayerControlsPlayStopButtonClicked(object sender, MouseButtonEventArgs e)
     {
         e.Handled = true;
         if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            viewModel.StopCommand.Execute();
+            RequestStopPlayback().ObserveFault("PlaybackPanelView.StopButton");
         }
     }
 
@@ -731,46 +875,47 @@ public partial class PlaybackPanelView : UserControl
         {
             return;
         }
-        var slider = (Slider)sender;
-        Point position = e.GetPosition(slider);
-        double value = slider.Maximum * Math.Max(0.0, Math.Min(1.0, (position.X - 5.0) / (slider.ActualWidth - 10.0)));
-        slider.Value = value;
-        if (DataContext is not PlaybackPanelViewModel viewModel)
-        {
-            return;
-        }
-        if (viewModel.IsPlaying)
-        {
-            viewModel.StartCommand.Execute();
-        }
+        SeekDragFromPoint(e.GetPosition(sliderPlayer));
     }
 
-    private void sliderPlayerMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private void sliderPlayerSeekDragEnded(object sender, RoutedEventArgs e) => EndSeekDrag();
+
+    /// <summary>シークのドラッグによる一回の移動を反映します。同じドラッグの最初の移動で、現在の再生パネルへドラッグの開始を伝えます。</summary>
+    /// <param name="position">シークSliderを基準にしたポインター座標。</param>
+    /// <remarks>開始を伝えた再生パネルを保持し、DataContextが替わっても同じ相手へ終了を伝えられるようにします。</remarks>
+    internal void SeekDragFromPoint(Point position)
     {
-        if (DataContext is not PlaybackPanelViewModel viewModel)
+        if (seekDragPlaybackPanel == null && DataContext is PlaybackPanelViewModel viewModel)
         {
-            return;
+            seekDragPlaybackPanel = viewModel;
+            viewModel.BeginSeekDrag();
         }
-        if (viewModel.IsPaused)
-        {
-            viewModel.StartCommand.Execute();
-        }
+        SeekFromPoint(position);
     }
 
-    private void sliderPlayerMouseLeave(object sender, MouseEventArgs e)
+    /// <summary>シークのドラッグの終了を、開始を伝えた再生パネルへ一回だけ伝えます。ドラッグ中でなければ何もしません。</summary>
+    /// <remarks>ボタンの解放、領域外への移動、マウスの捕捉の喪失、Unloaded、DataContextの変更が重なって届いても、二回目以降は無視します。</remarks>
+    internal void EndSeekDrag()
     {
-        if (e.LeftButton == MouseButtonState.Released)
+        PlaybackPanelViewModel playbackPanel = seekDragPlaybackPanel;
+        seekDragPlaybackPanel = null;
+        playbackPanel?.EndSeekDrag();
+    }
+
+    /// <summary>シークSlider相対の入力座標を実Trackとつまみの配置で再生時刻へ換算し、双方向Bindingを保って反映します。</summary>
+    /// <param name="position">シークSliderを基準にしたポインター座標。</param>
+    /// <remarks>範囲外はSliderの上下限へ丸めます。位置だけを変更し、再生状態の切替は<see cref="SeekDragFromPoint"/>と<see cref="EndSeekDrag"/>が担います。</remarks>
+    internal void SeekFromPoint(Point position)
+    {
+        if (sliderPlayer.Template.FindName("PART_Track", sliderPlayer) is not Track track)
         {
             return;
         }
-        if (DataContext is not PlaybackPanelViewModel viewModel)
-        {
-            return;
-        }
-        if (viewModel.IsPaused)
-        {
-            viewModel.StartCommand.Execute();
-        }
+        // ValueFromPointは現在値と配置済みのつまみ中心を併用するため、連続入力でも同じ値の配置へ揃えます。
+        track.UpdateLayout();
+        Point trackPosition = sliderPlayer.TranslatePoint(position, track);
+        double value = track.ValueFromPoint(trackPosition);
+        sliderPlayer.SetCurrentValue(Slider.ValueProperty, Math.Clamp(value, sliderPlayer.Minimum, sliderPlayer.Maximum));
     }
 
 

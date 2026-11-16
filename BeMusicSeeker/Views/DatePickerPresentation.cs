@@ -1,0 +1,124 @@
+using System;
+using System.Globalization;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Markup;
+
+namespace BeMusicSeeker.Views;
+
+/// <summary>標準DatePickerと再生成されるPARTの表示接続を更新し、日付・表示月・表示モードを維持します。</summary>
+/// <remarks>
+/// <para>
+/// 案内文はテンプレートの独立したTextBlockに表示し、<c>DatePicker.Text</c> への代入や内部Watermarkの反射操作を使いません。
+/// 選択済みの値から標準の <c>PART_TextBox</c> を直接整形し、同じCalendarの公開された更新経路で月・曜日・週開始を再表示します。
+/// </para>
+/// <para>
+/// この接続が必要な理由は、WPF v10.0.13 の <c>DatePicker.cs</c>・<c>DatePickerTextBox.cs</c>・<c>DateTimeHelper.cs</c>・
+/// <c>Calendar.cs</c> の挙動に依存します（https://github.com/dotnet/wpf/tree/v10.0.13/src/Microsoft.DotNet.Wpf/src/PresentationFramework/System/Windows/Controls）。
+/// Languageの変更は文字列を整形せず、Textの変更は日付を再解析すること、文化圏の解決がLanguageの値の出所も判定すること、
+/// 週開始をBindingする条件ではCalendarのLanguage変更がセルの更新を省くこと、標準のテキスト部品が再有効化時に
+/// <c>IsReadOnly</c> を変更することです。WPFを更新するときは、これらの前提を確認します。
+/// </para>
+/// </remarks>
+public static class DatePickerPresentation
+{
+    /// <summary>言語サービスから受け取る表示文化圏です。別の言語状態を保存しません。</summary>
+    public static readonly DependencyProperty CultureProperty = DependencyProperty.RegisterAttached(
+        "Culture", typeof(CultureInfo), typeof(DatePickerPresentation), new PropertyMetadata(null, CultureChanged));
+
+    /// <summary>DatePickerまたはPARTへ適用する表示文化圏を取得します。</summary>
+    /// <param name="element">共通表示を採用する日付部品。</param>
+    public static CultureInfo GetCulture(DependencyObject element) => (CultureInfo)element.GetValue(CultureProperty);
+
+    /// <summary>DatePickerとPARTへ表示文化圏を接続します。選択日・表示月・表示モードは変更しません。</summary>
+    /// <param name="element">共通表示を採用する日付部品。</param>
+    /// <param name="value">言語サービスから導出した文化圏。</param>
+    public static void SetCulture(DependencyObject element, CultureInfo value) => element.SetValue(CultureProperty, value);
+
+    private static void CultureChanged(DependencyObject element, DependencyPropertyChangedEventArgs args)
+    {
+        if (element is DatePickerTextBox editor)
+        {
+            // Loaded中の再テンプレートでも、新しいPART自身の生成完了から接続を更新する。
+            editor.Loaded -= EditorLoaded;
+            if (args.NewValue != null) { editor.Loaded += EditorLoaded; }
+            return;
+        }
+        if (element is not DatePicker picker) { return; }
+        if (args.OldValue == null) { picker.Loaded += PickerLoaded; }
+        if (args.NewValue == null) { picker.Loaded -= PickerLoaded; return; }
+        Refresh(picker);
+    }
+
+    private static void PickerLoaded(object sender, RoutedEventArgs args) => Refresh((DatePicker)sender);
+
+    private static void EditorLoaded(object sender, RoutedEventArgs args)
+    {
+        if (((DatePickerTextBox)sender).TemplatedParent is DatePicker picker) { Refresh(picker); }
+    }
+
+    private static void Refresh(DatePicker picker)
+    {
+        CultureInfo culture = GetCulture(picker);
+        if (culture == null) { return; }
+        var language = XmlLanguage.GetLanguage(culture.IetfLanguageTag);
+        CultureInfo dateCulture;
+        try { dateCulture = language.GetSpecificCulture(); }
+        catch (InvalidOperationException)
+        {
+            // 空の言語等はWPFのDynamicPropertyReaderと同じen-US解決を使う。
+            dateCulture = CultureInfo.GetCultureInfo("en-US");
+        }
+        DateTimeFormatInfo dateFormat = GetDateFormat(dateCulture);
+        // WPFのDateTimeHelperはLanguageの値だけでなく、既定値以外から設定されたかを判定する。
+        // SetCurrentValueでは既定値由来のままOS文化圏へ戻るため、この表示接続が明示値を所有する。
+        picker.SetValue(FrameworkElement.LanguageProperty, language);
+        picker.SetCurrentValue(DatePicker.FirstDayOfWeekProperty, dateFormat.FirstDayOfWeek);
+
+        // DatePicker.Textは再解析を起こすが、標準PART_TextBoxのTextChangedはTextへ無解析で転送する。
+        // 現在値から直接整形すれば、月日順が入れ替わる言語でも選択日とBindingを維持できる。
+        if (picker.Template?.FindName("PART_TextBox", picker) is DatePickerTextBox editor)
+        {
+            // DatePickerTextBox自身が再有効化でIsReadOnlyをfalseにするため、標準処理の後で戻す。
+            // 言語更新で重複登録せず、このテキスト部品だけが自分のイベント購読を所有する。
+            editor.IsEnabledChanged -= EditorIsEnabledChanged;
+            editor.IsEnabledChanged += EditorIsEnabledChanged;
+            editor.SetValue(TextBox.IsReadOnlyProperty, true);
+            editor.SetCurrentValue(TextBox.TextProperty, picker.SelectedDate?.ToString(dateFormat.ShortDatePattern, dateFormat) ?? string.Empty);
+        }
+        if (picker.Template?.FindName("PART_Popup", picker) is Popup { Child: System.Windows.Controls.Calendar calendar })
+        {
+            calendar.SetValue(FrameworkElement.LanguageProperty, language);
+            // DatePickerが週開始をBindingするため、CalendarのLanguage変更だけではセルが更新されない。
+            // 公開の標準更新経路で同じセルを更新する。日付・表示月・表示モードは操作しない。
+            calendar.OnApplyTemplate();
+        }
+    }
+
+    private static void EditorIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs args)
+        => ((DatePickerTextBox)sender).SetValue(TextBox.IsReadOnlyProperty, true);
+
+    /// <summary>WPFのDateTimeHelper.GetDateFormatと同じGregorian解決を使い、表示後の標準再解析で別の日付にならないようにします。</summary>
+    private static DateTimeFormatInfo GetDateFormat(CultureInfo culture)
+    {
+        if (culture.Calendar is GregorianCalendar) { return culture.DateTimeFormat; }
+        GregorianCalendar gregorian = null;
+        foreach (System.Globalization.Calendar calendar in culture.OptionalCalendars)
+        {
+            if (calendar is GregorianCalendar candidate)
+            {
+                gregorian ??= candidate;
+                if (candidate.CalendarType == GregorianCalendarTypes.Localized)
+                {
+                    gregorian = candidate;
+                    break;
+                }
+            }
+        }
+        // Gregorian候補がない場合のInvariantも独自の代替ではなく、使用中WPFと同じ規則。
+        var format = (DateTimeFormatInfo)(gregorian == null ? CultureInfo.InvariantCulture.DateTimeFormat : culture.DateTimeFormat).Clone();
+        format.Calendar = gregorian ?? new GregorianCalendar();
+        return format;
+    }
+}

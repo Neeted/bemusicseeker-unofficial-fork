@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
 
@@ -16,19 +18,23 @@ internal sealed partial class LibraryMutationOwner
     /// <param name="mutationCapability">The live capability issued by the owning outer mutation lease.</param>
     /// <param name="reason">Stable diagnostic reason for the operation-scoped apply.</param>
     /// <param name="postLeaseNotifications">Command-owned publication list released after the lease.</param>
+    /// <param name="notices">この操作の案内を集める入れ物。実scopeのPが取得できないBusyの案内を加えます。</param>
     /// <returns>An open session that accepts only confirmed mutation facts.</returns>
     internal LibraryMutationSession BeginLibraryMutationSession(
         LibraryFileMutationCapability mutationCapability,
         string reason,
-        ICollection<Action> postLeaseNotifications)
+        ICollection<Action> postLeaseNotifications,
+        LibraryOperationNotices notices)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
+        ArgumentNullException.ThrowIfNull(notices);
         return new LibraryMutationSession(
             this,
             mutationCapability,
             reason,
-            postLeaseNotifications);
+            postLeaseNotifications,
+            notices);
     }
 
     /// <summary>
@@ -47,15 +53,20 @@ internal sealed partial class LibraryMutationOwner
     }
 
     /// <summary>
-    /// Collects immutable mutation facts for one accepted user operation and applies them once.
+    /// 一つの受理操作の変更事実を集約して一回反映します。管理出力と交差する物理処理では局所受付も取得し、後片付け後のDisposeまで保持します。
     /// </summary>
-    internal sealed class LibraryMutationSession
+    internal sealed class LibraryMutationSession : IDisposable
     {
         private readonly LibraryMutationOwner owner;
-        private readonly LibraryFileMutationCapability mutationCapability;
+        private LibraryFileMutationCapability mutationCapability;
+        private LibraryFileMutationLease managedOutputLease;
+        private LibraryFileMutationCapability managedOutputCapability;
+        private LibraryFileMutationCapability combinedCapability;
         private readonly string reason;
         private readonly ICollection<Action> postLeaseNotifications;
+        private readonly LibraryOperationNotices notices;
         private readonly List<LibraryCatalogMutationFacts> catalogFacts = [];
+        private readonly List<LibraryInstallDestinationChange> successfulFolderChanges = [];
         private readonly List<LibraryPackageReferenceFacts> packageReferenceFacts = [];
         private readonly List<LibraryMutationSessionTarget> confirmedTargets = [];
         private readonly List<LibraryMutationSessionItemFailure> itemFailures = [];
@@ -77,6 +88,7 @@ internal sealed partial class LibraryMutationOwner
         private Exception physicalFailure;
         private Exception cleanupFailure;
         private bool manualRecoveryRequired;
+        private bool hasUnrestoredExistingDestination;
         private LibraryMutationSessionTarget failedTarget;
         private IReadOnlyList<LibraryMutationSessionTarget> unprocessedTargets = [];
         private bool committed;
@@ -87,16 +99,51 @@ internal sealed partial class LibraryMutationOwner
         /// <param name="mutationCapability">Live capability from the owning outer lease.</param>
         /// <param name="reason">Stable operation diagnostic reason.</param>
         /// <param name="postLeaseNotifications">Command-owned publication collection.</param>
+        /// <param name="notices">この操作の案内を集める入れ物。</param>
         internal LibraryMutationSession(
             LibraryMutationOwner owner,
             LibraryFileMutationCapability mutationCapability,
             string reason,
-            ICollection<Action> postLeaseNotifications)
+            ICollection<Action> postLeaseNotifications,
+            LibraryOperationNotices notices)
         {
+            this.notices = notices ?? throw new ArgumentNullException(nameof(notices));
             this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
             this.mutationCapability = mutationCapability ?? throw new ArgumentNullException(nameof(mutationCapability));
             this.reason = reason ?? string.Empty;
             this.postLeaseNotifications = postLeaseNotifications ?? throw new ArgumentNullException(nameof(postLeaseNotifications));
+        }
+
+        /// <summary>実対象が保存済み管理領域と交差する場合だけPを追加取得し、セッションの物理処理・反映・cleanup終端まで保持します。</summary>
+        /// <param name="paths">変更計画が実際に触る移動元・先とcleanup対象。</param>
+        /// <param name="recursive">指定領域全体を移動・削除するか。</param>
+        internal void ProtectManagedOutput(IEnumerable<string> paths, bool recursive)
+        {
+            if (!TryProtectManagedOutput(paths, recursive))
+            { throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_LibraryOperationBusy); }
+        }
+
+        /// <summary>実scopeのPを非待機取得します。Busyはfalseで返し、物理未処理の部分結果に集約できます。</summary>
+        internal bool TryProtectManagedOutput(IEnumerable<string> paths, bool recursive)
+        {
+            EnsureOpen();
+            if (managedOutputLease != null) { return true; }
+            if (!owner.TryEnterManagedOutputMutation(paths, recursive, notices, out LibraryFileMutationLease lease, mutationCapability))
+            { return false; }
+            if (lease == null) { return true; }
+            managedOutputLease = lease;
+            managedOutputCapability = lease.CreateMutationCapability();
+            combinedCapability = mutationCapability.WithPlaylistCapability(managedOutputCapability);
+            mutationCapability = combinedCapability;
+            return true;
+        }
+
+        /// <summary>追加取得したPと借用用権限を失効させます。外側のLは解放しません。</summary>
+        public void Dispose()
+        {
+            combinedCapability?.Dispose();
+            managedOutputCapability?.Dispose();
+            managedOutputLease?.Dispose();
         }
 
         /// <summary>
@@ -117,6 +164,7 @@ internal sealed partial class LibraryMutationOwner
                 facts.PackageReferenceFacts,
                 [new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory)],
                 facts.StorageRowPathNotificationPolicy);
+            successfulFolderChanges.Add(new LibraryInstallDestinationChange { SourceFolderPath = sourceDirectory, DestinationFolderPath = destinationDirectory });
             movedFolders.Add(new LibraryFolderPathChange
             {
                 OldFolderPath = sourceDirectory,
@@ -142,12 +190,26 @@ internal sealed partial class LibraryMutationOwner
         {
             EnsureOpen();
             ArgumentNullException.ThrowIfNull(physicalMutation);
+            // promotionに成功したcustomだけを、採番後の実宛先でcanonical transactionへ渡します。
+            LibraryFolderPathChange[] customMoves = [.. physicalMutation.ConfirmedTargets
+                .Where(target => string.Equals(System.IO.Path.GetExtension(target.SourcePath), ".lr2folder", StringComparison.OrdinalIgnoreCase)
+                    && LongPathFileSystem.FileExists(target.DestinationPath))
+                .Select(target => new LibraryFolderPathChange
+                {
+                    OldFolderPath = target.SourcePath,
+                    NewFolderPath = target.DestinationPath,
+                    IsCustomFile = true
+                })];
+            catalogMutationFacts = new LibraryCatalogMutationFacts(
+                catalogMutationFacts.ChartRemoveRequests, catalogMutationFacts.ChartPathChanges,
+                catalogMutationFacts.FolderPathChanges.Concat(customMoves));
             AppendCatalogChange(
                 catalogMutationFacts,
                 packageMutationFacts,
                 [new LibraryMutationSessionTarget(sourceDirectory, destinationDirectory)],
                 LibraryStorageRowPathNotificationPolicy.Suppressed);
             preparedPackageMutations.Add(physicalMutation);
+            successfulFolderChanges.Add(new LibraryInstallDestinationChange { SourceFolderPath = sourceDirectory, DestinationFolderPath = destinationDirectory, InvalidateCandidates = true });
             mergedFolders.Add(new LibraryFolderPathChange
             {
                 OldFolderPath = sourceDirectory,
@@ -206,6 +268,7 @@ internal sealed partial class LibraryMutationOwner
                 if (!string.IsNullOrWhiteSpace(path))
                 {
                     resourceDirectoryRemovals.Add(path);
+                    successfulFolderChanges.Add(new LibraryInstallDestinationChange { SourceFolderPath = path, InvalidateCandidates = true });
                 }
             }
         }
@@ -343,10 +406,14 @@ internal sealed partial class LibraryMutationOwner
         }
 
         /// <summary>
-        /// Applies all confirmed facts exactly once. A failure after the catalog durable point is
-        /// retained on the receipt and never causes filesystem rollback or replay.
+        /// 確定事実を一回適用し、導入の必須後処理が全て成功した場合だけ、今回の現在値を加入済み項目へ渡します。
+        /// 導入するBMSのTxtは、全成功パッケージの物理配置後に保存時点の親フォルダ直下から確定します。
+        /// DB確定後の失敗は証票に保持し、物理処理の巻戻しや再実行は行いません。公開通知は排他解放後へ延期します。
+        /// 導入先の走査・逆引き反映の例外も必須反映失敗として保持し、依存する後処理と完全成功の公開を止めます。
+        /// 成功した物理変更に必要な既存祖先は後片付け後に取得し、不完全取得でも索引全体を未公開のまま必須反映失敗にします。
+        /// 必須祖先を要しない従来の任意走査はスキップ方針を維持し、その性能診断の失敗は確定結果へ加えません。
         /// </summary>
-        /// <returns>Immutable terminal facts for the operation-scoped session.</returns>
+        /// <returns>この変更セッションの変更不能な終端事実。</returns>
         internal LibraryMutationSessionReceipt Commit()
         {
             EnsureOpen();
@@ -376,11 +443,58 @@ internal sealed partial class LibraryMutationOwner
                 return CreateReceipt(durableCommit: false, applyFailure: invalidMix);
             }
 
+            LibraryCatalogMutationFacts combinedCatalogFacts = CombineCatalogFacts(catalogFacts);
+            IReadOnlyList<ChartFile> resolvedTextCharts;
+            List<ChartFile> textChanges;
+            try
+            {
+                string[] textDirectories = [.. preparedPackageMutations.SelectMany(mutation => mutation.SuccessfulTextDirectories).Distinct(StringComparer.OrdinalIgnoreCase)];
+                List<ChartFile> textTargets;
+                lock (owner.catalogOwnedCollectionOwner.Gate)
+                {
+                    textTargets = textDirectories.Length == 0 ? [] : owner.catalogOwnedCollectionOwner.Collection.CreateSnapshotForDirectChildDirectories(textDirectories);
+                }
+                var consumedTokens = new HashSet<OwnedChartToken>(combinedCatalogFacts.ChartRemoveRequests.Select(request => request.Token)
+                    .Concat(combinedCatalogFacts.ChartPathChanges.Select(change => change.Chart?.Token)));
+                var consumedPaths = new HashSet<string>(installedPackageCharts.Select(chart => chart.Path)
+                    .Concat(combinedCatalogFacts.ChartPathChanges.SelectMany(change => new[] { change.OldPath, change.NewPath }))
+                    .Concat(combinedCatalogFacts.ChartRemoveRequests.Select(request => request.Path)), StringComparer.Ordinal);
+                textTargets.RemoveAll(chart => chart.Kind != ChartFileKind.Bms || consumedTokens.Contains(chart.Token) || consumedPaths.Contains(chart.Path));
+                ChartFile[] relocatedTextTargets = [.. combinedCatalogFacts.ChartPathChanges
+                    .Where(change => change.Chart?.Kind == ChartFileKind.Bms)
+                    .Select(change => change.Chart with { Path = change.NewPath })];
+                resolvedTextCharts = Lr2TextGroupResolver.ResolveCurrentChartFlags(
+                    installedPackageCharts.Concat(textTargets).Concat(relocatedTextTargets));
+                var relocatedTextFlags = resolvedTextCharts.Skip(installedPackageCharts.Count + textTargets.Count)
+                    .ToDictionary(chart => chart.Path, chart => chart.Txt.GetValueOrDefault(), StringComparer.Ordinal);
+                textChanges = new List<ChartFile>();
+                for (int index = 0; index < textTargets.Count; index++)
+                {
+                    ChartFile resolved = resolvedTextCharts[installedPackageCharts.Count + index];
+                    if (resolved.Txt != textTargets[index].Txt) { textChanges.Add(resolved); }
+                }
+                BmsLibraryOptionsSnapshot options = owner.lr2SynchronizationOwner.CurrentOptionsSnapshot;
+                IReadOnlyList<string> projectionExclusions = options.OperationModeLR2DB && combinedCatalogFacts.FolderPathChanges.Count > 0
+                    ? owner.catalogMutationOwner.CaptureLr2SongDbSyncAppManagedOutputScope(options, throwOnFailure: true).Directories
+                    : [];
+                combinedCatalogFacts = new LibraryCatalogMutationFacts(combinedCatalogFacts.ChartRemoveRequests,
+                    combinedCatalogFacts.ChartPathChanges, combinedCatalogFacts.FolderPathChanges, textChanges, relocatedTextFlags,
+                    projectionExclusions);
+            }
+            catch (Exception exception)
+            {
+                foreach (PackageInstallSessionPhysicalMutation mutation in preparedPackageMutations)
+                {
+                    AppendRecoveryCandidatePathsCore(mutation.RecoveryCandidatePaths);
+                }
+                return CreateReceipt(durableCommit: false, applyFailure: exception);
+            }
             var sessionNotifications = new List<Action>();
             FileDbMutationCommitResult applyResult;
             if (hasInstallChanges)
             {
-                var installedTargets = ChartStorageTargetSet.FromInstalledCharts(installedPackageCharts);
+                var installedTargets = ChartStorageTargetSet.FromInstalledCharts(
+                    resolvedTextCharts.Take(installedPackageCharts.Count));
                 applyResult = owner.CommitInstalledSessionChanges(
                     installedTargets,
                     installPathsToDelete,
@@ -388,11 +502,10 @@ internal sealed partial class LibraryMutationOwner
                     reason,
                     mutationCapability,
                     sessionNotifications.Add,
-                    ref applyCounts);
+                    ref applyCounts, textChanges);
             }
             else
             {
-                LibraryCatalogMutationFacts combinedCatalogFacts = CombineCatalogFacts(catalogFacts);
                 LibraryPackageReferenceFacts combinedPackageFacts = CombinePackageReferenceFacts(packageReferenceFacts);
                 applyResult = owner.CommitCatalogSessionChanges(
                     combinedCatalogFacts,
@@ -401,7 +514,8 @@ internal sealed partial class LibraryMutationOwner
                     mutationCapability,
                     sessionNotifications.Add,
                     ref applyCounts,
-                    storageRowPathNotificationPolicy);
+                    storageRowPathNotificationPolicy,
+                    successfulFolderChanges.ToArray());
             }
 
             if (!applyResult.DurableCommit)
@@ -437,14 +551,38 @@ internal sealed partial class LibraryMutationOwner
                 finalizationFailure = RunRequiredDurableFinalizers();
             }
 
+            var committedInstallCharts = new Dictionary<(ChartFileKind Kind, string Path), ChartFile>();
+            if (hasInstallChanges && finalizationFailure == null)
+            {
+                try
+                {
+                    lock (owner.catalogOwnedCollectionOwner.Gate)
+                    {
+                        foreach (ChartFile preparedChart in installedPackageCharts)
+                        {
+                            ChartFile current = owner.catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(
+                                LibraryChartRef.FromPath(preparedChart.Kind,
+                                    preparedChart.Path, preparedChart.Md5, preparedChart.Sha256)) ?? throw new KeyNotFoundException();
+                            committedInstallCharts[(current.Kind, current.Path)] = current;
+                        }
+                    }
+                }
+                catch (Exception exception)
+                {
+                    finalizationFailure = exception;
+                }
+            }
+
             DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation =
                 DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
             foreach (PackageInstallSessionPhysicalMutation physicalMutation in preparedPackageMutations)
             {
-                bool applyLiveState = finalizationFailure == null;
+                // 統合は短命なdetached packageを使い、現在値は確定済みの所持カタログへ適用済みです。
+                bool applyLiveState = hasInstallChanges && finalizationFailure == null;
                 FileDbMutationReceipt receipt = physicalMutation.CompleteAfterDurableCommit(
                     applyLiveState,
-                    finalizationFailure);
+                    finalizationFailure,
+                    committedInstallCharts);
                 AppendRecoveryCandidatePathsCore(receipt?.RecoveryPaths);
                 if (receipt?.CleanupFailure != null)
                 {
@@ -460,75 +598,58 @@ internal sealed partial class LibraryMutationOwner
                 }
             }
 
-            if (hasInstallChanges)
+            if (finalizationFailure == null)
             {
-                if (finalizationFailure == null && installedResourceDirectories.Count > 0)
-                {
-                    if (ChartDirectoryScanBuilder.TryBuildFromRoots(
-                        installedResourceDirectories,
-                        out ChartScanResult scan,
-                        out string scanFailureReason))
-                    {
-                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                        reverseLookupMutation = owner.AddReverseLookupDirectories(scan);
-                    }
-                    else
-                    {
-                        owner.LogInstallPerformanceWarning(
-                            reason + " resource_cache_update skipped reason=incomplete_scan detail="
-                            + (scanFailureReason ?? "unknown")
-                            + " dirs=" + installedResourceDirectories.Count);
-                    }
-                }
-            }
-            else if (finalizationFailure == null)
-            {
-                try
-                {
-                    if (movedFolders.Count > 0)
-                    {
-                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                        reverseLookupMutation = owner.UpdateMovedFolderReferences(movedFolders).MutationResult;
-                    }
-                    foreach (LibraryFolderPathChange mergedFolder in mergedFolders)
-                    {
-                        if (ChartDirectoryScanBuilder.TryBuildFromRoots(
-                            [mergedFolder.NewFolderPath],
-                            out ChartScanResult scan,
-                            out string scanFailureReason))
-                        {
-                            applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                            reverseLookupMutation = reverseLookupMutation.Combine(
-                                owner.resourceIndexOwner.ReplaceSourceDirectoryWithScan(
-                                    mergedFolder.OldFolderPath, scan).MutationResult);
-                        }
-                        else
-                        {
-                            owner.LogInstallPerformanceWarning(
-                                reason + " resource_cache_update skipped reason=incomplete_scan detail="
-                                + (scanFailureReason ?? "unknown"));
-                        }
-                    }
-                    if (resourceDirectoryRemovals.Count > 0)
-                    {
-                        applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
-                        reverseLookupMutation = reverseLookupMutation.Combine(
-                            owner.resourceIndexOwner
-                                .RemoveUnderSourceDirectories(resourceDirectoryRemovals)
-                                .MutationResult);
-                    }
-                }
-                catch (Exception exception)
-                {
-                    finalizationFailure = exception;
-                }
+                try { reverseLookupMutation = ApplyFolderResourceChanges(); }
+                catch (Exception exception) { finalizationFailure = exception; }
             }
 
             if (hasInstallChanges && finalizationFailure == null)
             {
                 finalizationFailure = RunRequiredDurableFinalizers();
+                if (finalizationFailure == null && (committedInstallCharts.Count > 0 || textChanges.Count > 0))
+                {
+                    try
+                    {
+                        // 物理完了時のpath/state反映は維持し、保守と所属登録が全て成功してから
+                        // 今回の所持項目だけを再捕捉して、加入済みentryへ計算済み値を渡します。
+                        var currentInstallCharts = new List<ChartFile>(committedInstallCharts.Count);
+                        lock (owner.catalogOwnedCollectionOwner.Gate)
+                        {
+                            foreach (ChartFile committedChart in committedInstallCharts.Values.Concat(textChanges))
+                            {
+                                ChartFile current = owner.catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(
+                                    LibraryChartRef.FromChartFile(committedChart)) ?? throw new KeyNotFoundException();
+                                currentInstallCharts.Add(current);
+                            }
+                        }
+                        sessionNotifications.Add(owner.packageLifecycleOwner.PrepareCommittedChartApplication(
+                            currentInstallCharts));
+                    }
+                    catch (Exception exception)
+                    {
+                        finalizationFailure = exception;
+                    }
+                }
             }
 
+            if (!hasInstallChanges && finalizationFailure == null && textChanges.Count > 0)
+            {
+                try
+                {
+                    var currentTextCharts = new List<ChartFile>();
+                    lock (owner.catalogOwnedCollectionOwner.Gate)
+                    {
+                        foreach (ChartFile chart in textChanges)
+                        {
+                            currentTextCharts.Add(owner.catalogOwnedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart))
+                                ?? throw new KeyNotFoundException());
+                        }
+                    }
+                    sessionNotifications.Add(owner.packageLifecycleOwner.PrepareCommittedChartApplication(currentTextCharts));
+                }
+                catch (Exception exception) { finalizationFailure = exception; }
+            }
             if (finalizationFailure == null)
             {
                 foreach (Action notification in sessionNotifications)
@@ -545,6 +666,159 @@ internal sealed partial class LibraryMutationOwner
                 finalizationFailure: ReferenceEquals(finalizationFailure, applyResult.Failure)
                     ? null
                     : finalizationFailure);
+        }
+
+        /// <summary>成功scope外の既存祖先だけを最終FSへ揃え、成功subtreeと同時に一度だけ公開します。</summary>
+        private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyFolderResourceChanges()
+        {
+            HashSet<string> changedScopes = new(StringComparer.OrdinalIgnoreCase);
+            foreach (LibraryFolderPathChange change in movedFolders.Concat(mergedFolders))
+            {
+                changedScopes.Add(Lr2FolderPath.NormalizeDirectoryPath(change.OldFolderPath));
+                changedScopes.Add(Lr2FolderPath.NormalizeDirectoryPath(change.NewFolderPath));
+            }
+            foreach (string removed in resourceDirectoryRemovals)
+            {
+                changedScopes.Add(Lr2FolderPath.NormalizeDirectoryPath(removed));
+            }
+            var chartDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (LibraryCatalogMutationFacts facts in catalogFacts)
+            {
+                foreach (string path in facts.ChartRemoveRequests.Select(request => request.Path)
+                    .Concat(facts.ChartPathChanges.SelectMany(change => new[] { change.OldPath, change.NewPath })))
+                {
+                    if (!string.IsNullOrWhiteSpace(path))
+                    {
+                        chartDirectories.Add(Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(path)));
+                    }
+                }
+            }
+            chartDirectories.Remove(null);
+            // 物理scopeの削除と譜面所有境界の消滅を区別し、後者では子Entryを保持します。
+            var consumedScopes = new HashSet<string>(resourceDirectoryRemovals
+                .Concat(movedFolders.Select(change => change.OldFolderPath))
+                .Concat(mergedFolders.Select(change => change.OldFolderPath))
+                .Select(Lr2FolderPath.NormalizeDirectoryPath), StringComparer.OrdinalIgnoreCase);
+            chartDirectories.RemoveWhere(path => IsWithinScopes(path, consumedScopes));
+            changedScopes.UnionWith(chartDirectories);
+            changedScopes.UnionWith(installedResourceDirectories.Select(Lr2FolderPath.NormalizeDirectoryPath));
+            changedScopes.Remove(null);
+            if (changedScopes.Count == 0)
+            {
+                return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            }
+
+            DirectoryResourceLookupCache previousCache = owner.resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache;
+            var requiredAncestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var visitedAncestors = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string scope in changedScopes)
+            {
+                for (string ancestor = Lr2FolderPath.SafeGetParentNormalizedDirectory(scope);
+                    !string.IsNullOrWhiteSpace(ancestor) && visitedAncestors.Add(ancestor);
+                    ancestor = Lr2FolderPath.SafeGetParentNormalizedDirectory(ancestor))
+                {
+                    // 全Entry・全譜面は読まず、成功scopeの厳密な祖先を既存snapshotへpoint lookupします。
+                    if (!IsWithinScopes(ancestor, changedScopes) && previousCache.GetEntryOrNull(ancestor) != null)
+                    {
+                        requiredAncestors.Add(ancestor);
+                    }
+                }
+            }
+
+            HashSet<string> scanRoots = DirectoryResourceLookupCache.NormalizeSourceRoots(requiredAncestors.Concat(chartDirectories));
+            ChartScanResult ancestorScan = null;
+            if (scanRoots.Count > 0 && !ChartDirectoryScanBuilder.TryBuildFromRoots(
+                scanRoots, out ancestorScan, out string failureReason, owner.rootFileEnumerator))
+            {
+                var failure = new InvalidOperationException(Resources.FileDbMutationReport_TerminalFailure);
+                failure.Data["ResourceScanFailureReason"] = failureReason;
+                throw failure;
+            }
+
+            var replacements = new Dictionary<string, ChartScanResult>(StringComparer.OrdinalIgnoreCase);
+            // 走査rootを包含縮約しても、置換が必要な下位祖先Entryは捨てません。
+            foreach (string ancestor in requiredAncestors.Concat(chartDirectories).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                replacements.Add(ancestor, ancestorScan.ChartDirectories.Contains(ancestor) ? ancestorScan : null);
+            }
+            HashSet<string> installedScopes = new(installedResourceDirectories.Select(Lr2FolderPath.NormalizeDirectoryPath), StringComparer.OrdinalIgnoreCase);
+            HashSet<string> optionalInstallRoots = DirectoryResourceLookupCache.NormalizeSourceRoots(
+                installedScopes.Where(path => !IsWithinScopes(path, scanRoots)));
+            ChartScanResult installScan = null;
+            if (optionalInstallRoots.Count > 0)
+            {
+                TryScanOptional(optionalInstallRoots, out installScan);
+            }
+            AddInstalledReplacements(ancestorScan);
+            AddInstalledReplacements(installScan);
+
+            var removedScopes = new List<string>(resourceDirectoryRemovals);
+            // 同じ成功先へ統合した旧scopeを一度だけまとめ、対象ごとの全merge再検索を避けます。
+            foreach (IGrouping<string, LibraryFolderPathChange> merges in mergedFolders.GroupBy(
+                change => Lr2FolderPath.NormalizeDirectoryPath(change.NewFolderPath), StringComparer.OrdinalIgnoreCase))
+            {
+                string destination = merges.Key;
+                ChartScanResult scan;
+                if (IsWithinScopes(destination, scanRoots))
+                {
+                    scan = ancestorScan;
+                }
+                else if (installScan != null && IsWithinScopes(destination, optionalInstallRoots))
+                {
+                    scan = installScan;
+                }
+                else if (!TryScanOptional([destination], out scan))
+                {
+                    continue;
+                }
+                // 任意scanの失敗時には従来どおり旧scopeも保持します。
+                removedScopes.AddRange(merges.Select(change => change.OldFolderPath));
+                foreach (string directory in scan.ChartDirectories)
+                {
+                    if (Lr2FolderPath.IsSameOrDescendant(directory, destination))
+                    {
+                        replacements[directory] = scan;
+                    }
+                }
+            }
+
+            void AddInstalledReplacements(ChartScanResult scan)
+            {
+                if (scan == null || installedScopes.Count == 0) { return; }
+                foreach (string directory in scan.ChartDirectories)
+                {
+                    if (IsWithinScopes(Lr2FolderPath.NormalizeDirectoryPath(directory), installedScopes))
+                    { replacements[directory] = scan; }
+                }
+            }
+
+            bool TryScanOptional(IEnumerable<string> roots, out ChartScanResult scan)
+            {
+                if (ChartDirectoryScanBuilder.TryBuildFromRoots(roots, out scan, out string optionalFailureReason)) { return true; }
+                scan = null;
+                try { owner.LogInstallPerformanceWarning(reason + " resource_cache_update skipped reason=incomplete_scan detail=" + optionalFailureReason); }
+                catch (Exception)
+                {
+                    // 従来の任意scanは、診断失敗でも必須失敗へ昇格させません。
+                }
+                return false;
+            }
+            if (movedFolders.Count == 0 && removedScopes.Count == 0 && replacements.Count == 0)
+            {
+                return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+            }
+            applyCounts = applyCounts with { ReverseLookupApplyCount = applyCounts.ReverseLookupApplyCount + 1 };
+            return owner.resourceIndexOwner.ApplyFolderChanges(movedFolders, removedScopes, replacements).Receipt.MutationResult;
+        }
+
+        /// <summary>正規化済みpathを親方向へ辿り、小さい成功scope集合への包含を確認します。</summary>
+        private static bool IsWithinScopes(string path, IReadOnlySet<string> scopes)
+        {
+            for (string current = path; !string.IsNullOrWhiteSpace(current); current = Lr2FolderPath.SafeGetParentNormalizedDirectory(current))
+            {
+                if (scopes.Contains(current)) { return true; }
+            }
+            return false;
         }
 
         private Exception RunRequiredDurableFinalizers()
@@ -570,6 +844,7 @@ internal sealed partial class LibraryMutationOwner
                 return;
             }
             AppendRecoveryCandidatePathsCore(receipt.RecoveryPaths);
+            hasUnrestoredExistingDestination |= receipt.HasUnrestoredExistingDestination;
             manualRecoveryRequired |= receipt.TerminalState == FileDbMutationTerminalState.ManualRecoveryRequired;
             foreach (FileDbMutationDestinationTypeConflict conflict in receipt.DestinationTypeConflicts ?? [])
             {
@@ -644,7 +919,8 @@ internal sealed partial class LibraryMutationOwner
                 itemFailures: itemFailures,
                 manualRecoveryRequired: manualRecoveryRequired,
                 destinationTypeConflicts: destinationTypeConflicts,
-                applyCounts: applyCounts);
+                applyCounts: applyCounts,
+                hasUnrestoredExistingDestination: hasUnrestoredExistingDestination);
             // Commit の反映範囲を一度だけ診断します。merge 等の lease 解放後 maintenance や
             // subscriber の完了時間とは別で、診断自体は既存の lease 解放後通知へ渡します。
             postLeaseNotifications.Add(() => owner.LogInstallPerformance(

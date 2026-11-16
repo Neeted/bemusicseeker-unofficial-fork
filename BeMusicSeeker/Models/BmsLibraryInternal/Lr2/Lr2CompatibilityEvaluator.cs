@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using BeMusicSeeker.Models.Utils;
 
@@ -56,15 +55,6 @@ internal readonly struct Lr2ResourcePathEvaluationContext(
     public int? ChartDirectoryCp932Bytes { get; } = chartDirectoryCp932Bytes;
 
     public bool ChartDirectoryEncodingSupported { get; } = chartDirectoryEncodingSupported;
-}
-
-internal readonly struct Lr2ResourcePathReference(
-    string rawPath,
-    string normalizedPath)
-{
-    public string RawPath { get; } = rawPath ?? string.Empty;
-
-    public string NormalizedPath { get; } = normalizedPath ?? string.Empty;
 }
 
 internal static class Lr2CompatibilityEvaluator
@@ -130,81 +120,14 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
-    internal static Lr2ResourceReferenceEvaluation EvaluateResourceReferences(
-        string chartPath,
-        ChartResourceSnapshot snapshot)
+    /// <summary>解析時のCP932走査で保守値へ集約した三事実を返します。通常資源の実採用原文からLR2原文を逆算しません。</summary>
+    internal static Lr2ResourceReferenceEvaluation EvaluateResourceReferences(ChartFile chart)
     {
-        if (snapshot == null)
-        {
-            return new Lr2ResourceReferenceEvaluation(Lr2CompatibilityWarningFlags.None, null, hasParentTraversal: false);
-        }
-
-        Lr2CompatibilityWarningFlags flags = Lr2CompatibilityWarningFlags.None;
-        int? maxRelativeBytes = null;
-        bool hasParentTraversal = false;
-        Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
-        foreach (ChartResourceSnapshot.ResourceReference reference in snapshot.ResourceReferences)
-        {
-            string rawPath = string.IsNullOrWhiteSpace(reference.RawPath)
-                ? reference.NormalizedPath
-                : reference.RawPath;
-            ApplyResourcePathEvaluation(
-                context,
-                rawPath,
-                null,
-                ref flags,
-                ref maxRelativeBytes,
-                ref hasParentTraversal);
-        }
-
-        foreach (UnsupportedChartResourceReference unsupportedReference in snapshot.UnsupportedResourceReferences ?? [])
-        {
-            ApplyUnsupportedResourceReferenceEvaluation(
-                unsupportedReference,
-                context,
-                ref flags,
-                ref maxRelativeBytes,
-                ref hasParentTraversal);
-        }
-
-        return new Lr2ResourceReferenceEvaluation(flags, maxRelativeBytes, hasParentTraversal);
-    }
-
-    internal static Lr2ResourceReferenceEvaluation EvaluateBmsResourceReferences(
-        string chartPath,
-        BMSFile file)
-    {
-        if (file == null)
-        {
-            return new Lr2ResourceReferenceEvaluation(Lr2CompatibilityWarningFlags.None, null, hasParentTraversal: false);
-        }
-
-        Lr2CompatibilityWarningFlags flags = Lr2CompatibilityWarningFlags.None;
-        int? maxRelativeBytes = null;
-        bool hasParentTraversal = false;
-        Lr2ResourcePathEvaluationContext context = CreateResourcePathEvaluationContext(chartPath);
-        foreach (Lr2ResourcePathReference reference in EnumerateBmsSupportedResourcePaths(file))
-        {
-            ApplyResourcePathEvaluation(
-                context,
-                reference.RawPath,
-                reference.NormalizedPath,
-                ref flags,
-                ref maxRelativeBytes,
-                ref hasParentTraversal);
-        }
-
-        foreach (UnsupportedChartResourceReference unsupportedReference in file.UnsupportedResourceReferences ?? [])
-        {
-            ApplyUnsupportedResourceReferenceEvaluation(
-                unsupportedReference,
-                context,
-                ref flags,
-                ref maxRelativeBytes,
-                ref hasParentTraversal);
-        }
-
-        return new Lr2ResourceReferenceEvaluation(flags, maxRelativeBytes, hasParentTraversal);
+        ResourceHealthMaintenanceSnapshot facts = chart?.ResourceHealthMaintenanceSnapshot;
+        return new Lr2ResourceReferenceEvaluation(
+            (Lr2CompatibilityWarningFlags)(facts?.Lr2WarningFlags ?? 0)
+                & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong),
+            facts?.Lr2ResourceMaxRelativeCp932Bytes, facts?.Lr2ResourceHasParentTraversal == true);
     }
 
     internal static Lr2ResourceReferenceEvaluation ReevaluateResourceReferencesForRelocatedPath(
@@ -224,66 +147,29 @@ internal static class Lr2CompatibilityEvaluator
         return new Lr2ResourceReferenceEvaluation(flags, maxRelativeCp932Bytes, hasParentTraversal: false);
     }
 
-    internal static void RefreshRelocatedMaintenanceFacts(
-        BMSFileMaintenanceInfo maintenanceInfo,
-        string chartPath,
-        Func<ChartFileSnapshot> snapshotProvider = null)
+    /// <summary>移転先の経路に依存する保守事実を更新します。親参照を含む場合は最大相対長だけでは再計算できないため、再解析まで既存の資源診断を維持します。</summary>
+    internal static ResourceHealthMaintenanceSnapshot RefreshRelocatedMaintenanceFacts(
+        ResourceHealthMaintenanceSnapshot value, string path)
     {
-        if (maintenanceInfo == null
-            || (!maintenanceInfo.lr2_warning_flags.HasValue
-                && !maintenanceInfo.lr2_resource_max_relative_cp932_bytes.HasValue
-                && !maintenanceInfo.lr2_resource_has_parent_traversal.HasValue))
+        if (value == null || (!value.Lr2WarningFlags.HasValue && !value.Lr2ResourceMaxRelativeCp932Bytes.HasValue
+            && !value.Lr2ResourceHasParentTraversal.HasValue))
         {
-            return;
+            return value;
         }
 
-        Lr2ChartPathEvaluation pathEvaluation = EvaluateChartPath(chartPath);
-        Lr2ResourceReferenceEvaluation resourceEvaluation;
-        if (maintenanceInfo.lr2_resource_has_parent_traversal == true)
+        Lr2ChartPathEvaluation pathEvaluation = EvaluateChartPath(path);
+        var previousFlags = (Lr2CompatibilityWarningFlags)(value.Lr2WarningFlags ?? 0);
+        Lr2ResourceReferenceEvaluation resourceEvaluation = value.Lr2ResourceHasParentTraversal == true
+            ? new Lr2ResourceReferenceEvaluation(previousFlags & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong), value.Lr2ResourceMaxRelativeCp932Bytes, hasParentTraversal: true)
+            : ReevaluateResourceReferencesForRelocatedPath(path, value.Lr2ResourceMaxRelativeCp932Bytes, previousFlags);
+        return value with
         {
-            var previousFlags = (Lr2CompatibilityWarningFlags)(maintenanceInfo.lr2_warning_flags ?? 0);
-            if (snapshotProvider == null
-                || !TryEvaluateRelocatedParentTraversalResourceReferences(chartPath, snapshotProvider, out resourceEvaluation))
-            {
-                resourceEvaluation = new Lr2ResourceReferenceEvaluation(
-                    previousFlags & (Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported | Lr2CompatibilityWarningFlags.ResourcePathTooLong),
-                    maintenanceInfo.lr2_resource_max_relative_cp932_bytes,
-                    hasParentTraversal: true);
-            }
-        }
-        else
-        {
-            var previousFlags = (Lr2CompatibilityWarningFlags)(maintenanceInfo.lr2_warning_flags ?? 0);
-            resourceEvaluation = ReevaluateResourceReferencesForRelocatedPath(
-                chartPath,
-                maintenanceInfo.lr2_resource_max_relative_cp932_bytes,
-                previousFlags);
-        }
-
-        maintenanceInfo.ApplyLr2CompatibilityEvaluation(pathEvaluation, resourceEvaluation);
-    }
-
-    private static bool TryEvaluateRelocatedParentTraversalResourceReferences(
-        string chartPath,
-        Func<ChartFileSnapshot> snapshotProvider,
-        out Lr2ResourceReferenceEvaluation evaluation)
-    {
-        evaluation = default;
-        try
-        {
-            ChartFileSnapshot snapshot = snapshotProvider();
-            var parsed = BMSFile.CreateBMSFileFromSnapshot(snapshot);
-            evaluation = EvaluateBmsResourceReferences(chartPath, parsed);
-            return true;
-        }
-        catch (Exception ex) when (ex is IOException
-            || ex is UnauthorizedAccessException
-            || ex is ArgumentException
-            || ex is NotSupportedException
-            || ex is PathTooLongException)
-        {
-            return false;
-        }
+            Path = path,
+            Lr2WarningFlags = (int)(pathEvaluation.WarningFlags | resourceEvaluation.WarningFlags),
+            Lr2ResourceMaxRelativeCp932Bytes = resourceEvaluation.MaxRelativeCp932Bytes,
+            Lr2ResourceHasParentTraversal = value.Lr2ResourceHasParentTraversal,
+            Origin = MaintenanceInfoOrigin.Calculated
+        };
     }
 
     internal static bool TryGetCp932ByteCount(string value, out int byteCount)
@@ -308,85 +194,8 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
-    private static IEnumerable<Lr2ResourcePathReference> EnumerateBmsSupportedResourcePaths(BMSFile file)
-    {
-        if (file == null)
-        {
-            yield break;
-        }
-
-        if ((file.ResourceReferences?.Count ?? 0) > 0)
-        {
-            foreach (ChartResourceReference reference in file.ResourceReferences)
-            {
-                string rawPath = string.IsNullOrWhiteSpace(reference.RawPath)
-                    ? reference.NormalizedPath
-                    : reference.RawPath;
-                if (!string.IsNullOrWhiteSpace(rawPath))
-                {
-                    yield return new Lr2ResourcePathReference(rawPath, reference.NormalizedPath);
-                }
-            }
-        }
-        else
-        {
-            foreach (string audioPath in file.WAVfiles ?? Enumerable.Empty<string>())
-            {
-                if (!string.IsNullOrWhiteSpace(audioPath))
-                {
-                    yield return new Lr2ResourcePathReference(audioPath, null);
-                }
-            }
-            foreach (string visualPath in file.BGAfiles ?? Enumerable.Empty<string>())
-            {
-                if (!string.IsNullOrWhiteSpace(visualPath))
-                {
-                    yield return new Lr2ResourcePathReference(visualPath, null);
-                }
-            }
-        }
-
-        if (!string.IsNullOrWhiteSpace(file.banner))
-        {
-            yield return new Lr2ResourcePathReference(file.banner, null);
-        }
-        if (!string.IsNullOrWhiteSpace(file.backbmp))
-        {
-            yield return new Lr2ResourcePathReference(file.backbmp, null);
-        }
-        if (!string.IsNullOrWhiteSpace(file.stagefile))
-        {
-            yield return new Lr2ResourcePathReference(file.stagefile, null);
-        }
-    }
-
-    private static void ApplyUnsupportedResourceReferenceEvaluation(
-        UnsupportedChartResourceReference reference,
-        Lr2ResourcePathEvaluationContext context,
-        ref Lr2CompatibilityWarningFlags flags,
-        ref int? maxRelativeBytes,
-        ref bool hasParentTraversal)
-    {
-        if (reference.Reason == ChartResourcePathNormalizationStatus.Cp932DecodeUnsupported)
-        {
-            flags |= Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;
-            return;
-        }
-        if (reference.Reason == ChartResourcePathNormalizationStatus.ParentTraversalUnsupported
-            && !string.IsNullOrWhiteSpace(reference.RawPath))
-        {
-            hasParentTraversal = true;
-            ApplyResourcePathEvaluation(
-                context,
-                reference.RawPath,
-                reference.RawPath,
-                ref flags,
-                ref maxRelativeBytes,
-                ref hasParentTraversal);
-        }
-    }
-
-    private static Lr2ResourcePathEvaluationContext CreateResourcePathEvaluationContext(string chartPath)
+    /// <summary>同じCP932走査で各原文の長さを集約するため、配置に依存する共通値を一度だけ作ります。</summary>
+    internal static Lr2ResourcePathEvaluationContext CreateResourcePathEvaluationContext(string chartPath)
     {
         try
         {
@@ -405,23 +214,28 @@ internal static class Lr2CompatibilityEvaluator
         }
     }
 
-    private static void ApplyResourcePathEvaluation(
+    /// <summary>一原文の親参照とCP932長を集約します。復号不能でも親参照は保持し、置換後文字列から長さを逆算しません。</summary>
+    internal static void ApplyResourcePathEvaluation(
         Lr2ResourcePathEvaluationContext context,
         string rawPath,
-        string normalizedPath,
         ref Lr2CompatibilityWarningFlags flags,
         ref int? maxRelativeBytes,
-        ref bool hasParentTraversal)
+        ref bool hasParentTraversal,
+        bool decodeUnsupported = false)
     {
-        hasParentTraversal |= HasParentTraversalSegment(rawPath)
-            || HasParentTraversalSegment(normalizedPath);
+        hasParentTraversal |= HasParentTraversalSegment(rawPath);
+        if (decodeUnsupported)
+        {
+            flags |= Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;
+            return;
+        }
         if (!TryGetCp932ByteCount(rawPath, out _))
         {
             flags |= Lr2CompatibilityWarningFlags.ResourcePathEncodingUnsupported;
             return;
         }
 
-        if (!TryGetResourceRelativePathCp932ByteCount(rawPath, normalizedPath, out int relativeBytes))
+        if (!TryGetResourceRelativePathCp932ByteCount(rawPath, out int relativeBytes))
         {
             return;
         }
@@ -436,12 +250,9 @@ internal static class Lr2CompatibilityEvaluator
 
     private static bool TryGetResourceRelativePathCp932ByteCount(
         string rawPath,
-        string normalizedPath,
         out int byteCount)
     {
-        string relativePath = normalizedPath;
-        if (string.IsNullOrWhiteSpace(relativePath)
-            && !TryNormalizeRelativeResourcePathForByteCount(rawPath, out relativePath))
+        if (!TryNormalizeRelativeResourcePathForByteCount(rawPath, out string relativePath))
         {
             relativePath = rawPath;
         }

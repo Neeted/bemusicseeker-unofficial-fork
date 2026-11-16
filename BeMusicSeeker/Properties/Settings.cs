@@ -2,12 +2,12 @@ using System;
 using System.CodeDom.Compiler;
 using System.Configuration;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.ViewModels;
 using Ribbit.BMS;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -20,6 +20,68 @@ namespace BeMusicSeeker.Properties;
 [SettingsProvider(typeof(PortableSettingsProvider))]
 internal sealed class Settings : ApplicationSettingsBase
 {
+    /// <summary>指定した項目だけを保存し、全保存の成功後に確定値を公開します。未確定入力はこのオブジェクトへ置きません。</summary>
+    internal void Commit(params (string Name, object Value)[] changes)
+    {
+        SettingsPropertyValueCollection selected = [];
+        foreach ((string name, object value) in changes)
+        {
+            if (!Equals(this[name], value))
+            {
+                selected.Add(new SettingsPropertyValue(Properties[name]) { PropertyValue = value });
+            }
+        }
+        if (selected.Count == 0) { return; }
+        Properties[selected.Cast<SettingsPropertyValue>().First().Name].Provider.SetPropertyValues(Context, selected);
+        Publish(selected.Cast<SettingsPropertyValue>().Select(item => (item.Name, item.PropertyValue)).ToArray());
+    }
+
+    /// <summary>二媒体の保存担当が、対象項目を確定readerへ公開せず保存します。保存済み事実の所有と公開時機は呼出元が担当します。</summary>
+    internal void Persist(params (string Name, object Value)[] changes)
+    {
+        if (changes.Length == 0) { return; }
+        SettingsPropertyValueCollection selected = [];
+        foreach ((string name, object value) in changes)
+        { selected.Add(new SettingsPropertyValue(Properties[name]) { PropertyValue = value }); }
+        Properties[changes[0].Name].Provider.SetPropertyValues(Context, selected);
+    }
+
+    /// <summary>指定したpath項目の現在の保存値だけをproviderの保存区間内で変換します。公開readerの値は保存の代用にしません。</summary>
+    internal void PersistTransformedPaths(Func<string, string, string> transform, params string[] names)
+    {
+        if (names.Length == 0) { return; }
+        SettingsPropertyCollection selected = new();
+        foreach (string name in names) { selected.Add(Properties[name]); }
+        var provider = (PortableSettingsProvider)Properties[names[0]].Provider;
+        provider.TransformPropertyValues(Context, selected, transform);
+    }
+
+    /// <summary>必要な媒体が全部保存された後、対象だけを確定readerへ公開します。媒体の再読込みは行いません。</summary>
+    internal void Publish(params (string Name, object Value)[] changes)
+    {
+        foreach ((string name, object value) in changes)
+        {
+            this[name] = value;
+            PropertyValues[name].IsDirty = false;
+        }
+    }
+
+    /// <summary>画面外で変更した項目だけを保存し、別のwrapperが保存した無関係な値を上書きしません。</summary>
+    public override void Save()
+    {
+        var saving = new System.ComponentModel.CancelEventArgs();
+        OnSettingsSaving(this, saving);
+        if (saving.Cancel) { return; }
+        SettingsPropertyValueCollection selected = [];
+        foreach (SettingsPropertyValue item in PropertyValues)
+        {
+            if (item.IsDirty) { selected.Add(item); }
+        }
+        if (selected.Count == 0) { return; }
+        Properties[selected.Cast<SettingsPropertyValue>().First().Name].Provider.SetPropertyValues(Context, selected);
+        foreach (SettingsPropertyValue item in selected) { item.IsDirty = false; }
+    }
+
     internal const double DefaultTreeViewWidth = 250d;
 
     internal const double MinTreeViewWidth = 160d;
@@ -51,6 +113,16 @@ internal sealed class Settings : ApplicationSettingsBase
     private static Settings defaultInstance = (Settings)SettingsBase.Synchronized(new Settings());
 
     public static Settings Default => defaultInstance;
+
+    /// <summary>次回起動時に準備するソートキャッシュの上限優先度です。0は準備なし、1～3は列定義の優先度を使います。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("1")]
+    public int StartupSortCachePrewarmPriority
+    {
+        get => (int)this[nameof(StartupSortCachePrewarmPriority)];
+        set => this[nameof(StartupSortCachePrewarmPriority)] = value;
+    }
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
@@ -945,6 +1017,24 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>
+    /// 通常の文字に使うフォントファミリー名です。空文字は既定のフォントを表します。
+    /// フォントの存在は検査せず、前後の空白だけを除いて保存します。
+    /// </summary>
+    [UserScopedSetting]
+    [DefaultSettingValue("")]
+    public string AppearanceFontFamily
+    {
+        get
+        {
+            return AppFontService.NormalizeFontFamilyName(this["AppearanceFontFamily"] as string);
+        }
+        set
+        {
+            this["AppearanceFontFamily"] = AppFontService.NormalizeFontFamilyName(value);
+        }
+    }
+
     [UserScopedSetting]
     [DefaultSettingValue("11")]
     public double CustomTableFontSize
@@ -1560,6 +1650,16 @@ internal sealed class Settings : ApplicationSettingsBase
         }
     }
 
+    /// <summary>取り込み後の自動推定が正常完了したとき、今回導入先を自動設定した保留を続けて導入します。既定は無効です。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("False")]
+    public bool AutoInstallAfterAutomaticEstimation
+    {
+        get => (bool)this[nameof(AutoInstallAfterAutomaticEstimation)];
+        set => this[nameof(AutoInstallAfterAutomaticEstimation)] = value;
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("0")]
@@ -1572,6 +1672,22 @@ internal sealed class Settings : ApplicationSettingsBase
         set
         {
             this["PendingInstallEstimateMaxParallelPackages"] = value;
+        }
+    }
+
+    /// <summary>自動新規導入に音声以外を含む全使用リソースの完全性を要求します。既定は無効です。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("False")]
+    public bool RequireCompleteUsedResourcesForAutoInstall
+    {
+        get
+        {
+            return (bool)this["RequireCompleteUsedResourcesForAutoInstall"];
+        }
+        set
+        {
+            this["RequireCompleteUsedResourcesForAutoInstall"] = value;
         }
     }
 
@@ -1588,6 +1704,16 @@ internal sealed class Settings : ApplicationSettingsBase
         {
             this["AutoApplyAmbiguousInstallDestination"] = value;
         }
+    }
+
+    /// <summary>導入先を自動設定するときに各譜面へ要求する最低音源充足率です。旧設定での欠如は既定と同じ99とし、保存済み範囲外値は丸めません。</summary>
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
+    [DefaultSettingValue("99")]
+    public int InstallDestinationAutoApplyMinAudioHealth
+    {
+        get => (int)this[nameof(InstallDestinationAutoApplyMinAudioHealth)];
+        set => this[nameof(InstallDestinationAutoApplyMinAudioHealth)] = value;
     }
 
     [UserScopedSetting]

@@ -35,8 +35,16 @@ public partial class RecordingSettingsPage : UserControl
         }
     }
 
-    private void browseEncoderExeDirButtonClick(object sender, RoutedEventArgs e)
+    private async void browseEncoderExeDirButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseEncoderExecutableDirectory();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseEncoderExecutableDirectory();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "encoder directory picker");
+        }
     }
 }

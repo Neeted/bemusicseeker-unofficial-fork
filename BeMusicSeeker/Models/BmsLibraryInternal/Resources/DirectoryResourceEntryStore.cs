@@ -98,6 +98,11 @@ internal sealed class DirectoryResourceEntryStore
         return false;
     }
 
+    /// <summary>物理キーで照合した項目の現在表記を返します。表記変更の判定に使い、全項目を列挙しません。</summary>
+    internal string GetStoredPathOrNull(string path)
+        => pathToOrder.TryGetValue(path, out long order) && entriesByOrder.TryGetValue(order, out StoredEntry stored)
+            ? stored.Path : null;
+
     /// <summary>
     /// live store全体をcopyせずentryを追加または置換する。既存pathは順序を維持し、新規pathは
     /// 利用可能ならcommand内で直近に削除したslotを再利用する。

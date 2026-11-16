@@ -4,14 +4,16 @@
 
 開発の起点・通常のPR先は `dev`、正式公開済みのコードと配信データは `main` です。`dev` から分岐した通常の作業ブランチは、個々のコミットを残して原則 `git merge --ff-only` で `dev` へ統合します。`dev` と `main` の間は履歴を保つマージを使います。通常作業の統合と例外、`main` への反映、緊急修正、配信データの更新は[ブランチ運用とリリース手順](devdocs/spec/development/release.md)に従います。
 
+単独開発はメインの作業ツリーで行えます。並列開発中はメインの作業ツリーを `dev` の統合専用として原則クリーンに保ち、各実装単位は作業ワークツリーの別ブランチで完結させます。全体ルートと単位責任者の分担、ワークツリーの上限と所有は[並列作業](devdocs/spec/development/agent-workflow.md#並列作業)、重い検証の調整は[複数ワークツリーの検証](devdocs/spec/development/testing.md#複数ワークツリーの検証)、統合の順序は[通常の作業ブランチの統合](devdocs/spec/development/release.md#通常の作業ブランチの統合)に従います。
+
 ## 変更の原則
 
 - 依頼された挙動と既存データの互換性を守り、設計全体を簡潔にします。差分の小ささだけを優先せず、不要になった処理・状態・互換経路は置換先へ統合して削除します。
 - 入力検査の追加・厳格化で従来受理したデータを拒否する変更は、互換性変更として扱います。規格違反だけを拒否理由にせず、実際の処理失敗・危険性・利用者への影響を示して判断します。拒否への変更が依頼や合意済み仕様から確定できなければ、利用者へ確認します。
-- 競合対策は[判断手順](devdocs/spec/core/workflow-concurrency.md#競合対策を決める手順)に従い、本番での到達と操作の許可条件を確認して決めます。仮説だけを理由に、永続状態、再試行、再実行、巻き戻し、抽象化を追加しません。失敗を隠すために意味の異なる結果へ置き換えません。
+- 競合を処理できる設計を考える前に、その競合を許す操作仕様や表示の細かな時機を保証する必要が、利用者の目的から本当にあるかを判断し、[判断手順](devdocs/spec/core/workflow-concurrency.md#競合対策を決める手順)に従います。仮説だけを理由に、永続状態、再試行、再実行、巻き戻し、抽象化を追加しません。失敗を隠すために意味の異なる結果へ置き換えません。
 - 利用者に見える挙動や保証に未確定事項があれば、[要件の確定手順](devdocs/spec/development/agent-workflow.md#要件と到達可能性)に従って質問し、回答に依存する設計・実装・テストの期待結果を確定しません。合意済み事項の再質問や、契約内の実装詳細の確認は不要です。
 - nullable 警告は、実際の null 許容契約を型へ反映して解消します。`!`、`#pragma warning disable`、`NoWarn` で警告だけを隠しません。フレームワーク注入など静的解析から見えない非 null 保証がある場合だけ、保証の根拠が分かる局所的な抑制を使います。
-- 無関係な未コミット差分を変更・破棄・整形しません。コミット、送信、タグ、署名、公開、バージョン更新は、明示指示または合意済みの手順がある場合だけ行います。
+- 無関係な未コミット差分を変更・破棄しません。標準検証・整形コマンドによる自動整形は、選択した対象範囲に適用します。依頼範囲内の通常のローカルコミットは、全体ルートと単位責任者が管理する作業ワークツリーで、必要な検証・独立レビュー後に、実装単位ごとに行います。日本語の現在形の件名・箇条書き本文と適切なプレフィックスを使います。送信、タグ、署名、公開、バージョン更新は、明示指示または合意済みの手順がある場合だけ行います。
 - 変更する公開・保護・内部 API の契約と存在理由は、日本語の XML ドキュメントに反映します。コメントは、コードだけでは分からない採用理由・互換条件・性能上の制約を説明します。
 
 ## 先に読む資料
@@ -22,15 +24,21 @@
 | --- | --- |
 | 構成・責務の分担 | [アーキテクチャ](devdocs/spec/core/architecture.md) |
 | DB、索引、キャッシュ、パッケージ処理、並列度 | [性能とデータ規模](devdocs/spec/core/performance-and-scale.md) |
-| 非同期処理、受付、世代番号、状態の受渡し | [ワークフローと並行性](devdocs/spec/core/workflow-concurrency.md) |
+| 非同期処理、受付、世代番号、状態の受渡し | [ワークフローと並行性](devdocs/spec/core/workflow-concurrency.md)、[操作の競合ポリシー](devdocs/spec/core/operation-concurrency-policy.md) |
+| 例外の停止範囲、操作結果、診断と通知 | [例外・操作結果・診断](devdocs/spec/core/exception-handling.md) |
 | 譜面・フォルダ・パッケージの変更 | [ライブラリ変更](devdocs/spec/library/mutations.md)、[ファイルとDBの整合性](devdocs/spec/library/file-db-consistency.md) |
-| 複数段階の作業、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md) |
+| 依頼の区分と適用する工程、委譲、統合、レビュー | [エージェント運用](devdocs/spec/development/agent-workflow.md)、[工程の適用範囲](devdocs/spec/development/agent-workflow.md#工程の適用範囲) |
 | リリースノート、ユーザーマニュアルなど利用者向け文書 | [利用者向け文書の編集方針](devdocs/README.md#利用者向け文書の編集方針) |
-| テストの追加・変更・削除、保証の分担 | [テスト設計](devdocs/spec/development/test-authoring.md)、[テスト配下の指針](BeMusicSeeker.Tests/AGENTS.md) |
-| 検証の実行範囲・環境・結果判定 | [テスト検証](devdocs/spec/development/testing.md) |
+| テストの追加・変更・削除、保証の分担 | [テスト設計](devdocs/spec/development/test-authoring.md)、[テスト配下の指針](tests/AGENTS.md) |
+| 検証の実行範囲・期限・結果判定 | [テスト検証](devdocs/spec/development/testing.md) |
+| テストの実行基盤（並列実行、資源の分離、待機、外部プロセス） | [テストの実行基盤](devdocs/spec/development/test-runtime.md) |
+| 画面を扱うテストの書き方（共有ホスト、表示入力と待機、ダイアログ窓口） | [画面テストの分離](devdocs/spec/development/ui-test-isolation.md) |
+| 画面テストの検出器と境界処理の保守、`[BMS-OBS]` の失敗の診断 | [共有ホストの観測とケース境界の検査](devdocs/spec/development/ui-test-host-observation.md) |
 | ビルド・検証・配布スクリプト | [スクリプト配下の指針](scripts/AGENTS.md) |
 
-委譲した実装の不備は、まず元の実装担当へ差し戻します。不備の発見だけで障害解決担当を呼ばず、[差し戻しと呼出し条件](devdocs/spec/development/agent-workflow.md#不備の差し戻し)で判断します。
+委譲した実装の不備は、まず元の実装担当へ差し戻します。差し戻し先の選択は[不備の差し戻し](devdocs/spec/development/agent-workflow.md#不備の差し戻し)、レビューの反復が上限に達したときの再計画と `issue-resolver` への切替は[反復回数と再計画](devdocs/spec/development/agent-workflow.md#反復回数と再計画)に従います。
+
+静的レビューと実行検証は独立した合格条件です。局所検証の成功と凍結ができれば全体テストの完了を待たず予備レビューを開始し、統合・完了時には最終差分へ適用できる両方の合格を要求します。軽微な修正で省略できる工程は[工程の適用範囲](devdocs/spec/development/agent-workflow.md#工程の適用範囲)に従います。開始条件、凍結、予備・最終レビューの進め方は[レビューの進行](devdocs/spec/development/agent-workflow.md#レビューの進行)に従います。
 
 ## 実装で守る境界
 
@@ -40,7 +48,7 @@
 
 処理速度を最優先とし、通常の設計では約21万譜面・約3万譜面フォルダ・800万規模のリソース逆引きキーを想定します。これは入力上限ではありません。少数の変更のために全件走査・複製を繰り返さず、処理完了までの時間を同じ条件で比較します。低メモリ・低CPU使用率や最初の表示の早さだけで、完了時間の退行を正当化しません。
 
-一回のライブラリ変更は、一つの変更セッションに成功した対象を集めて反映します。対象ごとの物理処理が逐次でも、DB・索引・通知を対象ごとに完結させません。競合する未受理要求は原則として待たずに拒否しますが、受理済みの導入予約、自動推定、設定利用などの既存の許可条件は維持します。
+一回のライブラリ変更は、一つの変更セッションに成功した対象を集めて反映します。対象ごとの物理処理が逐次でも、DB・索引・通知を対象ごとに完結させません。競合する要求の分類・受付開始と終端は[操作の競合ポリシー](devdocs/spec/core/operation-concurrency-policy.md)を正本とし、受理済み継続を新規要求の予約と区別します。
 
 ## ログと表示文言
 
@@ -48,7 +56,7 @@
 
 利用者向けの新しい文言はリソース化し、`Resources.resx`、`Resources.cs` と `lang/` の `en-US`、`fr-FR`、`ja-JP`、`ko-KR`、`zh-CN`、`zh-TW` を同じ変更で揃えます。空値や仮の文言は残しません。辞書の整合と実際の通知・表示は[表示リソースの検査](devdocs/spec/development/test-authoring.md#表示リソースの検査)で分担します。リリース履歴の例外は[リリース手順](devdocs/spec/development/release.md)に従います。
 
-表示文言かどうかは文字列の所在ではなく利用者への通知経路で判断します。モデル内の独自例外も詳細が画面へ渡るなら対象とし、例外型・対象パス・引数名・内部例外・失敗分類を保ってリソースを使います。開発診断・性能記録・内部識別子・変換用中間値・解析規則を、文字種だけを理由に表示リソースへ移しません。
+表示文言かどうかは文字列の所在ではなく利用者への通知経路で判断します。画面へ渡す操作結果やSTATUSの文言はリソース化しますが、表示のために元例外・内部例外を保持・再送出することは要求しません。開発診断・性能記録・内部識別子・変換用中間値・解析規則を、文字種だけを理由に表示リソースへ移しません。
 
 ## 文書と検証
 
@@ -58,8 +66,8 @@
 
 変更ごとに[テスト設計](devdocs/spec/development/test-authoring.md)で必要な保証と既存テストの扱いを決め、[検証仕様](devdocs/spec/development/testing.md)で実行範囲を選びます。新しいテストを作らない判断は、既存の回帰検証を省略する理由にはなりません。
 
-標準入口は PowerShell 7 の `scripts/verify-refactor.ps1` です。反復中は対象を絞った `Quick`、通常の最終統合は `Functional`、配布・更新・リリースに関わる変更は `Full` を使います。実行回数、時間制限、失敗時の扱いは検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
+標準入口は `dotnet run --project tools/BeMusicSeeker.Verify -- <profile>` です。反復中は対象moduleの局所MTP実行、通常開発のコミット・`dev` への統合は `verify`、正式リリース前の公開候補は `full` を使います。軽微な修正に当たる条件と、その場合に省略できる工程は[工程の適用範囲](devdocs/spec/development/agent-workflow.md#工程の適用範囲)に従います。作業段階による区分の選択と、変更の影響に応じた追加検証は[実行範囲の選択](devdocs/spec/development/testing.md#実行範囲の選択)、実行回数、時間制限、失敗時の扱いは同じ検証仕様に従います。Markdown・TOMLのみの変更は、構文・参照・UTF-8・LF・`git diff --check` を確認します。実行手順や設定の挙動を変える場合は、その影響に応じた検証も行います。
 
-Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `Functional` / `Full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
+Linuxでの編集・クロスビルド・既存テストの局所検証は[Linuxの構築手順](devdocs/setup-linux.md)に従います。Linuxの確認をWindowsの `verify` / `full` の成功として扱わず、未実施のWindows検証を引き継ぎます。
 
-実機確認の実施・推奨・未実施の扱いは[検証方針](devdocs/spec/development/testing.md#検証方針)に従います。エージェントは原則自動検証を使い、ユーザーの明示依頼がある場合に実機確認を行います。起動する実行ファイル・利用データの確認から、中断・終了・後片付けまでは[画面確認の手順](devdocs/spec/development/testing.md#画面確認)に従います。
+実機確認の実施・推奨・未実施の扱いは[検証方針](devdocs/spec/development/testing.md#検証方針)に従います。エージェントは原則自動検証を使い、利用者の明示依頼がある場合に実機確認を行います。起動する実行ファイル・利用データの確認から、中断・終了・後片付けまでは[画面確認の手順](devdocs/spec/development/testing.md#画面確認)に従います。

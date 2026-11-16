@@ -2,9 +2,9 @@
 
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
-using System.Threading;
+using Ribbit.Logging;
 using SQLite;
 using SQLitePCL;
 
@@ -12,6 +12,7 @@ namespace BeMusicSeeker.Models.LR2;
 
 public sealed class LR2SongDBExtended : LR2SongDB
 {
+    /// <summary>撤去時に削除するアプリ所有表を列挙します。LR2本来の表や利用者の表は対象にしません。</summary>
     internal static IReadOnlyList<string> BeMusicSeekerOwnedTableNames { get; } =
     [
         SQLiteTable<install>.GetTableName(),
@@ -28,13 +29,16 @@ public sealed class LR2SongDBExtended : LR2SongDB
         SQLiteTable<lr2_song_db_sync_status>.GetTableName(),
         SQLiteTable<ir_score>.GetTableName(),
         SQLiteTable<ir_score_refresh_metadata>.GetTableName(),
-        SQLiteTable<ir_data>.GetTableName()
+        SQLiteTable<ir_data>.GetTableName(),
+        "playlist_custom_folder_output_status"
     ];
 
+    /// <summary>LR2本来の表へ追加したアプリ所有索引を列挙します。LR2や利用者の索引は保持します。</summary>
     internal static IReadOnlyList<string> BeMusicSeekerOwnedNativeIndexNames { get; } =
     [
         "song_idx_folder",
-        "song_idx_path_nocase"
+        "song_idx_path_nocase",
+        "folder_idx_path_nocase"
     ];
 
     [Table("install")]
@@ -142,6 +146,13 @@ public sealed class LR2SongDBExtended : LR2SongDB
         private string _name;
 
         private string _symbol;
+
+        /// <summary>保存候補、またはDB確定後の正本へ名前・記号を無通知で設定します。正本はownerの同writer内で採用し、guard解放後に通知します。</summary>
+        protected void ApplyCommittedPlaylistNames(string name, string symbol)
+        {
+            _name = name;
+            _symbol = symbol;
+        }
 
         [PrimaryKey]
         [AutoIncrement]
@@ -1022,28 +1033,6 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
         public DateTime updated_at { get; set; }
 
-        [Ignore]
-        public List<string> wav_files { get; set; } = [];
-
-        [Ignore]
-        public List<string> bga_files { get; set; } = [];
-
-        [Ignore]
-        internal List<BeMusicSeeker.Models.BmsLibraryInternal.UnsupportedChartResourceReference> UnsupportedResourceReferences { get; set; } = [];
-
-        /// <summary>
-        /// この実行中に parser から resource reference を構築済みかどうか。
-        /// DB へ保存せず、file diff 直後の maintenance で再パースを避けるためだけに使います。
-        /// </summary>
-        [Ignore]
-        public bool HasFreshResourceReferences { get; set; }
-
-        /// <summary>
-        /// maintenance table から読み込んだ bmson 用の構成ファイル検査結果です。
-        /// bmson_song table には保存せず、既存 maintenance table の row を参照します。
-        /// </summary>
-        [Ignore]
-        public BeMusicSeeker.Models.BMSFileMaintenanceInfo MaintenanceInfo { get; set; }
     }
 
     [Table("ir_score")]
@@ -1212,8 +1201,6 @@ public sealed class LR2SongDBExtended : LR2SongDB
 
     public class SQLiteCommandExtended : SQLiteCommand
     {
-        private const string FinalizeExceptionDataKey = "SQLiteCommandExtended.FinalizeException";
-
         private readonly SQLiteConnection connection;
 
         internal SQLiteCommandExtended(SQLiteConnection conn)
@@ -1254,77 +1241,126 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 $"sqlite3_finalize returned result {result} ({(SQLite3.Result)result}): {message}");
         }
 
+        /// <summary>生のSQLite文を解放し、解放の失敗を実行失敗の有無に応じて扱います。</summary>
+        /// <remarks>
+        /// <c>sqlite3_finalize</c> が直前の実行失敗を返した場合も、文自体は破棄済みとして扱います。実行失敗がある場合、
+        /// 解放の二次診断はログだけに置き、<see cref="Exception.Data"/> へは追加せず元の失敗を維持します。
+        /// 解放APIの呼出し自体が例外で終わり解放を確認できない場合は、未解決の後片付けとして元の失敗とともに返します。
+        /// 実行失敗がない場合の解放エラーは、そのまま操作の失敗とします。
+        /// </remarks>
         private void FinalizeRawStatement(sqlite3_stmt statement, Exception primaryException)
         {
-            try
-            {
-                int result = raw.sqlite3_finalize(statement);
-                if (result == raw.SQLITE_OK)
-                {
-                    return;
-                }
-
-                SQLiteException finalizeException = CreateFinalizeException(result);
-                if (primaryException == null)
-                {
-                    throw finalizeException;
-                }
-                AttachFinalizeException(primaryException, finalizeException);
-            }
+            int result;
+            try { result = raw.sqlite3_finalize(statement); }
             catch (Exception cleanupException)
             {
-                if (primaryException == null)
-                {
-                    throw;
-                }
-                AttachFinalizeException(primaryException, cleanupException);
+                if (primaryException == null) { throw; }
+                // 呼出し自体が失敗して解放を確認できない場合は、残状態を診断扱いにしません。
+                throw new AggregateException(primaryException, cleanupException);
             }
+            if (result == raw.SQLITE_OK) { return; }
+            if (primaryException == null) { throw CreateFinalizeException(result); }
+
+            // finalizeの戻り値は直前のstep失敗も返します。文は破棄済みなので、
+            // 二次診断をDataへ蓄積せず、元の実行失敗をそのまま返します。
+            try { NLogWrapper.FileLogger?.Warn(CreateFinalizeException(result), "sqlite_statement_finalize_failed"); }
+            catch (Exception) { }
         }
 
-        private static void AttachFinalizeException(Exception primaryException, Exception cleanupException)
+        /// <summary>SQLiteの現在行をcallback内だけで借用します。statementや行を保持せず、必要列だけを読み取るための値です。</summary>
+        /// <remarks>型付きgetterはINTEGER/REALを直接読み、TEXTだけを固定文法で解釈します。NULLと型不適合はnull（真偽値はfalse）です。</remarks>
+        internal readonly ref struct RawRow
         {
-            try
+            private readonly sqlite3_stmt statement;
+
+            internal RawRow(sqlite3_stmt statement, int count)
             {
-                primaryException.Data[FinalizeExceptionDataKey] = cleanupException;
+                this.statement = statement;
+                Count = count;
             }
-            catch
+
+            /// <summary>準備したstatementの列数です。</summary>
+            internal int Count { get; }
+
+            /// <summary>従来の文字列APIと同じSQLiteの文字列値を取得し、NULLを保持します。</summary>
+            internal string GetString(int index) => raw.sqlite3_column_text(statement, index).utf8_to_string();
+
+            /// <summary>INTEGER又はInvariant IntegerのTEXTを読み、REALの丸めや切捨てを行いません。</summary>
+            internal long? GetInt64(int index)
             {
-                // A cleanup diagnostic must never replace the operation's primary exception.
+                int type = raw.sqlite3_column_type(statement, index);
+                if (type == raw.SQLITE_INTEGER) { return raw.sqlite3_column_int64(statement, index); }
+                return type == raw.SQLITE_TEXT
+                    && long.TryParse(GetString(index), NumberStyles.Integer, CultureInfo.InvariantCulture, out long value)
+                    ? value : null;
+            }
+
+            /// <summary>Int32範囲内の整数だけを取得し、範囲外はnullにします。</summary>
+            internal int? GetInt32(int index)
+            {
+                long? value = GetInt64(index);
+                return value is long integer && integer >= int.MinValue && integer <= int.MaxValue ? (int)integer : null;
+            }
+
+            /// <summary>REALを直接、INTEGERをdoubleとして取得し、TEXTだけをInvariantのFloatと桁区切りで解釈します。</summary>
+            internal double? GetDouble(int index)
+            {
+                int type = raw.sqlite3_column_type(statement, index);
+                if (type == raw.SQLITE_FLOAT) { return raw.sqlite3_column_double(statement, index); }
+                if (type == raw.SQLITE_INTEGER) { return (double)raw.sqlite3_column_int64(statement, index); }
+                return type == raw.SQLITE_TEXT
+                    && double.TryParse(GetString(index), NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double value)
+                    ? value : null;
+            }
+
+            /// <summary>INTEGERの非0、又はTEXTのbool字句・Invariant整数の非0だけをtrueとして読みます。</summary>
+            internal bool GetBoolean(int index)
+            {
+                int type = raw.sqlite3_column_type(statement, index);
+                if (type == raw.SQLITE_INTEGER) { return raw.sqlite3_column_int64(statement, index) != 0; }
+                if (type != raw.SQLITE_TEXT) { return false; }
+                string text = GetString(index);
+                return bool.TryParse(text, out bool boolean) ? boolean
+                    : long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out long integer) && integer != 0;
+            }
+
+            /// <summary>INTEGER又は旧TEXT列のticksを範囲内の壁時計日時として取得し、日付文字列の地域推測は行いません。</summary>
+            internal DateTime? GetDateTime(int index)
+            {
+                long? ticks = GetInt64(index);
+                return ticks is long value && value >= DateTime.MinValue.Ticks && value <= DateTime.MaxValue.Ticks
+                    ? new DateTime(value) : null;
             }
         }
 
+        /// <summary>次のstepまでの現在行だけを借用する同期callbackです。DB・UI・他主体へ再入せず、行を外へ保持しません。</summary>
+        internal delegate void RawRowAction(RawRow row);
+
+        /// <summary>全行の文字列値を取得します。NULLと元の実行例外を保持し、statementを必ず解放します。</summary>
         public List<string[]> GetRawValuesAsString()
         {
-            List<string[]> list = [];
-            sqlite3_stmt stmt = PrepareRawStatement();
-            Exception primaryException = null;
-            try
-            {
-                int count = raw.sqlite3_column_count(stmt);
-                while (StepRawStatement(stmt) == raw.SQLITE_ROW)
-                {
-                    list.Add([.. (from i in Enumerable.Range(0, count)
-                              select raw.sqlite3_column_text(stmt, i).utf8_to_string())]);
-                }
-                return list;
-            }
-            catch (Exception exception)
-            {
-                primaryException = exception;
-                throw;
-            }
-            finally
-            {
-                FinalizeRawStatement(stmt, primaryException);
-            }
+            List<string[]> rows = [];
+            ForEachRawValueAsString(rows.Add);
+            return rows;
         }
 
+        /// <summary>従来の文字列配列へ各行を複製して同期callbackへ渡します。例外と解放は型付き読取りと共用します。</summary>
         public int ForEachRawValueAsString(Action<string[]> rowAction)
         {
-            if (rowAction == null)
+            ArgumentNullException.ThrowIfNull(rowAction);
+            return ForEachRawRow(row =>
             {
-                throw new ArgumentNullException(nameof(rowAction));
-            }
+                string[] values = new string[row.Count];
+                for (int i = 0; i < values.Length; i++) { values[i] = row.GetString(i); }
+                rowAction(values);
+            });
+        }
+
+        /// <summary>毎行の配列を作らず現在行を同期callbackへ貸し、終了・失敗時ともstatementを解放します。</summary>
+        /// <remarks>行の寿命はcallback内だけです。step又はcallbackの元例外をfinalizeの戻り値で置換しません。解放自体の例外は元例外と集約します。</remarks>
+        internal int ForEachRawRow(RawRowAction rowAction)
+        {
+            ArgumentNullException.ThrowIfNull(rowAction);
             sqlite3_stmt stmt = PrepareRawStatement();
             Exception primaryException = null;
             int rowCount = 0;
@@ -1333,12 +1369,7 @@ public sealed class LR2SongDBExtended : LR2SongDB
                 int count = raw.sqlite3_column_count(stmt);
                 while (StepRawStatement(stmt) == raw.SQLITE_ROW)
                 {
-                    string[] values = new string[count];
-                    for (int i = 0; i < count; i++)
-                    {
-                        values[i] = raw.sqlite3_column_text(stmt, i).utf8_to_string();
-                    }
-                    rowAction(values);
+                    rowAction(new RawRow(stmt, count));
                     rowCount++;
                 }
             }
@@ -1355,73 +1386,22 @@ public sealed class LR2SongDBExtended : LR2SongDB
         }
     }
 
-    private static readonly object lockObject = new();
-
-    private bool doNotUnlock;
-
-    public static bool Lock(TimeSpan timespan)
-    {
-        if (Monitor.IsEntered(lockObject))
-        {
-            return true;
-        }
-        bool lockTaken = false;
-        Monitor.TryEnter(lockObject, timespan, ref lockTaken);
-        return lockTaken;
-    }
-
-    public static void Unlock()
-    {
-        if (Monitor.IsEntered(lockObject))
-        {
-            Monitor.Exit(lockObject);
-        }
-    }
-
-    internal static bool IsProcessLockEnteredByCurrentThread()
-    {
-        return Monitor.IsEntered(lockObject);
-    }
-
-    public LR2SongDBExtended(string dbPath)
-        : base(dbPath)
-    {
-        AcquireProcessLock();
-        base.BusyTimeout = new TimeSpan(0, 0, 60);
-    }
-
-    internal LR2SongDBExtended(string dbPath, SQLiteOpenFlags openFlags, bool acquireProcessLock)
-        : base(dbPath, openFlags)
+    /// <summary>ownerが取得した接続leaseとgate待機時間を受け取り、設定とパス検査はfactoryへ委ねます。</summary>
+    internal LR2SongDBExtended(string dbPath, SQLiteOpenFlags openFlags,
+        ApplicationDatabaseScope.ConnectionLease lease, long processLockWaitMs)
+        : base(dbPath, openFlags, lease)
     {
         IsReadOnlyConnection = (openFlags & SQLiteOpenFlags.ReadOnly) == SQLiteOpenFlags.ReadOnly;
-        if (acquireProcessLock)
-        {
-            AcquireProcessLock();
-        }
-        else
-        {
-            doNotUnlock = true;
-        }
-        base.BusyTimeout = new TimeSpan(0, 0, 60);
+        ProcessLockWaitMs = processLockWaitMs;
     }
 
+    /// <summary>この接続が読取り専用で開かれたかを表します。</summary>
     public bool IsReadOnlyConnection { get; }
 
-    public long ProcessLockWaitMs { get; private set; }
+    /// <summary>ownerの同種別write gateの取得に要した時間です。読取り専用接続では0です。</summary>
+    public long ProcessLockWaitMs { get; }
 
-    private void AcquireProcessLock()
-    {
-        if (Monitor.IsEntered(lockObject))
-        {
-            doNotUnlock = true;
-            return;
-        }
-        var stopwatch = Stopwatch.StartNew();
-        Monitor.Enter(lockObject);
-        stopwatch.Stop();
-        ProcessLockWaitMs = stopwatch.ElapsedMilliseconds;
-    }
-
+    /// <summary>アプリが所有する拡張表とLR2表上の追加索引だけを撤去し、LR2と利用者のデータを保持します。</summary>
     public void Uninstall()
     {
         foreach (string tableName in BeMusicSeekerOwnedTableNames)
@@ -1452,26 +1432,29 @@ public sealed class LR2SongDBExtended : LR2SongDB
         }
     }
 
-    protected override void Dispose(bool disposing)
-    {
-        if (Monitor.IsEntered(lockObject) && !doNotUnlock)
-        {
-            Monitor.Exit(lockObject);
-        }
-        base.Dispose(disposing);
-    }
-
     protected override SQLiteCommand NewCommand()
     {
         return new SQLiteCommandExtended(this);
     }
 
+    /// <summary>SQLiteの値と保存型に従ったSQLリテラルで、指定表を復元可能なINSERTへ変換します。</summary>
+    /// <typeparam name="T">バックアップ対象の保存モデル。</typeparam>
+    /// <returns>NULL、埋込みNULやバックアップ区切りに使う垂直TABを含むTEXT、数値等の値と型を保持するSQL文。</returns>
     public IEnumerable<string> Dump<T>()
     {
         SQLiteCommand sQLiteCommand = CreateCommand($"PRAGMA TABLE_INFO ('{GetMapping(typeof(T)).TableName}');");
         List<string> colNames = [.. (from r in ((SQLiteCommandExtended)sQLiteCommand).GetRawValuesAsString()
                                  select r[1])];
-        sQLiteCommand = CreateCommand($"SELECT * FROM \"{GetMapping(typeof(T)).TableName}\";");
+        // quoteが切り詰める埋込みNULと、SQLバックアップの区切りに使う垂直TABだけ全byteから同じTEXTを復元する式にする。
+        // その他はSQLite自身に引用させ、数値風TEXTや空白をカルチャ依存で再解釈しない。
+        // instr（3.7.15）・char（3.7.16）はSQLiteの互換範囲の例外: 3.6.7の関数だけでは埋込みNULを判別できず、
+        // 読取り専用の問い合わせなのでDBのスキーマには残らない。
+        sQLiteCommand = CreateCommand("SELECT " + string.Join(", ", colNames.Select(column =>
+        {
+            string name = QuoteIdentifier(column);
+            return $"CASE WHEN typeof({name}) = 'text' AND (instr({name}, char(0)) > 0 OR instr({name}, char(11)) > 0) THEN 'CAST(X''' || hex({name}) || ''' AS TEXT)' ELSE quote({name}) END";
+        }))
+            + " FROM " + QuoteIdentifier(GetMapping(typeof(T)).TableName) + ";");
         List<string[]> rawValuesAsString = ((SQLiteCommandExtended)sQLiteCommand).GetRawValuesAsString();
         if (rawValuesAsString.Count == 0)
         {
@@ -1481,10 +1464,9 @@ public sealed class LR2SongDBExtended : LR2SongDB
         {
             throw SQLiteException.New(SQLite3.Result.Abort, "Dump failed");
         }
-        static string sqlQuote(string str) => (!string.IsNullOrWhiteSpace(str)) ? ((!double.TryParse(str, out double _) || (str.Count() > 1 && str.StartsWith("0"))) ? ("'" + str.Replace("'", "''") + "'") : str) : "''";
         foreach (string[] item in rawValuesAsString)
         {
-            yield return $"INSERT OR REPLACE INTO \"{GetMapping(typeof(T)).TableName}\" " + "(" + string.Join(", ", colNames.Select(c => $"\"{c}\"")) + ") VALUES (" + string.Join(", ", item.Select(c => (c != null) ? sqlQuote(c) : "NULL")) + ");";
+            yield return $"INSERT OR REPLACE INTO \"{GetMapping(typeof(T)).TableName}\" " + "(" + string.Join(", ", colNames.Select(QuoteIdentifier)) + ") VALUES (" + string.Join(", ", item) + ");";
         }
     }
 }

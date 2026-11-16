@@ -115,7 +115,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
             && registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))];
 
-        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
+        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove.Except(removedPaths, StringComparer.OrdinalIgnoreCase).ToArray());
         return new CustomFolderOutputBaseSearchRootSyncPlan(addedCount, removedPaths);
     }
 
@@ -142,7 +142,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             && !preservedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)
             && registeredBeforeRemove.Contains(path, StringComparer.OrdinalIgnoreCase))];
 
-        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove);
+        int addedCount = AddMissingSearchRoots(config, currentPaths, registeredBeforeRemove.Except(removedPaths, StringComparer.OrdinalIgnoreCase).ToArray());
         return new CustomFolderOutputBaseSearchRootSyncPlan(addedCount, removedPaths);
     }
 
@@ -164,6 +164,25 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         int removedCount = config.RemoveBMSSearchDirectories(removablePaths) ? removablePaths.Count : 0;
         return new CustomFolderOutputBaseSearchRootSyncResult(plan.AddedCount, removedCount);
+    }
+
+    /// <summary>確定LR2rootの組込み自身・配下を判定し、出力基点では直上LR2filesも予約します。上位祖先・無関係な同名・未設定rootは予約しません。</summary>
+    internal static bool IsReservedBuiltinCustomFolderPath(string path, string lr2RootPath, bool isOutputBase)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(lr2RootPath)) { return false; }
+        string builtin = Path.Combine(lr2RootPath, "LR2files", "CustomFolder");
+        return IsSameOrChildDirectory(path, builtin) || (isOutputBase && IsSameDirectory(path, Path.Combine(lr2RootPath, "LR2files")));
+    }
+
+    /// <summary>設定受理時に出力基点は組込み自身・配下・直上LR2filesを、明示BMSrootは自身・配下だけを拒否します。</summary>
+    internal static void ValidateOutsideBuiltinCustomFolder(string path, string lr2RootPath, string pathLabel, bool isOutputBase = false)
+    {
+        if (IsReservedBuiltinCustomFolderPath(path, lr2RootPath, isOutputBase))
+        {
+            throw new ArgumentException(string.Format(CultureInfo.CurrentCulture,
+                BeMusicSeeker.Properties.Resources.Validation_Lr2BuiltinCustomFolderReservedFormat,
+                pathLabel, path, Path.Combine(lr2RootPath, "LR2files", "CustomFolder")));
+        }
     }
 
     internal static void ValidateSjisDirectoryPath(string path)
@@ -230,7 +249,7 @@ internal static class CustomFolderOutputBaseSearchRootSyncService
         }
         if (addedPaths.Count > 0)
         {
-            config.AddBMSSearchDirectories(addedPaths);
+            config.SetBMSSearchDirectories(config.GetBMSSearchDirectoriesForChangeTracking().Concat(addedPaths));
         }
         return addedPaths.Count;
     }

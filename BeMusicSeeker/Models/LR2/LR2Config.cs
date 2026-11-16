@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security;
 using System.Threading;
 using System.Xml;
 using System.Xml.Linq;
@@ -13,13 +12,10 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.LR2;
 
-public class LR2Config : XDocument
+/// <summary>初回入力と操作内のXML編集文書です。採用後の全文と実保存はLr2ConfigOwnerが所有します。</summary>
+internal sealed class LR2Config : XDocument
 {
     public const int DatabaseAutoReloadManualOnly = 0;
-
-    private static readonly object saveLock = new();
-
-    private static readonly Dictionary<string, PreviewScope> activePreviewScopes = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly ReaderWriterLockSlim rwlock = new();
 
@@ -40,22 +36,17 @@ public class LR2Config : XDocument
             if (LongPathFileSystem.FileExists(value) && (string.Equals(Path.GetFileName(value), "config.xml", StringComparison.OrdinalIgnoreCase) || string.Equals(Path.GetFileName(value), "config.xmh", StringComparison.OrdinalIgnoreCase)))
             {
                 _configPath = value;
-                string directoryName = Path.GetDirectoryName(_configPath);
-                if (string.Equals(Path.GetFileName(directoryName), "Config", StringComparison.OrdinalIgnoreCase))
-                {
-                    string directoryName2 = Path.GetDirectoryName(directoryName);
-                    if (string.Equals(Path.GetFileName(directoryName2), "LR2files", StringComparison.OrdinalIgnoreCase))
-                    {
-                        LR2RootPath = Path.GetDirectoryName(directoryName2);
-                    }
-                }
                 return;
             }
             throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2ConfigFile, value);
         }
     }
 
-    public string LR2RootPath { get; private set; }
+    /// <summary>
+    /// 相対登録を解決する基準の実効LR2ルートです。空文字はルートなしを表し、相対登録を解決しません。
+    /// 設定XMLの場所からは推測せず、構築時に受け取った値だけを使います。
+    /// </summary>
+    internal string Lr2RootPath { get; }
 
     /// <summary>
     /// このインスタンスが保存する config.xml の正規化済み path です。
@@ -66,92 +57,84 @@ public class LR2Config : XDocument
     /// 指定された設定XMLを読み込み、検索ルートを取得できる構造を確認します。
     /// </summary>
     /// <param name="configPath">config.xml または config.xmh のパスです。</param>
+    /// <param name="lr2RootPath">相対登録の基準にする実効LR2ルートです。不明な場合は空文字を明示します。</param>
     /// <exception cref="XmlException">XMLが不正、または config/jukebox 要素がありません。</exception>
-    public LR2Config(string configPath)
+    public LR2Config(string configPath, string lr2RootPath)
         : base(LoadConfigDocument(configPath))
     {
         ConfigPath = configPath;
+        Lr2RootPath = NormalizeRoot(lr2RootPath);
     }
 
-    /// <summary>
-    /// 設定の入力境界でLR2設定を読み込みます。未設定、不正なパス、読取不能、
-    /// XML不正、必要構造の欠落は無効として返し、それ以外の例外は伝播します。
-    /// </summary>
-    /// <param name="configPath">検証する設定XMLのパスです。</param>
-    /// <param name="config">成功時の設定です。失敗時は null で、空の設定には置き換えません。</param>
-    /// <returns>設定を読み込めた場合だけ true です。登録ルートの存在確認や保存は行いません。</returns>
-    internal static bool TryLoad(string configPath, out LR2Config config)
-    {
-        config = null;
-        if (string.IsNullOrWhiteSpace(configPath))
-        {
-            return false;
-        }
-
-        try
-        {
-            config = new LR2Config(configPath);
-            return true;
-        }
-        catch (Exception exception) when (exception is ArgumentException
-            or IOException
-            or UnauthorizedAccessException
-            or SecurityException
-            or NotSupportedException
-            or XmlException)
-        {
-            return false;
-        }
-    }
+    private static string NormalizeRoot(string lr2RootPath) => string.IsNullOrWhiteSpace(lr2RootPath) ? string.Empty : lr2RootPath;
 
     private static XDocument LoadConfigDocument(string configPath)
     {
         string normalizedConfigPath = LongPathFileSystem.NormalizePathForStorage(configPath);
-        lock (saveLock)
+        using FileStream stream = LongPathFileSystem.OpenRead(normalizedConfigPath);
+        var document = XDocument.Load(stream);
+        if (document.Element("config")?.Element("jukebox") == null)
         {
-            XDocument document = LoadConfigDocumentWithoutPreviewScope(normalizedConfigPath);
-            // 検索先を読めないXMLを「登録なし」と解釈して後段の削除判断へ渡さないため、
-            // 空の jukebox は許容しつつ、必須要素の欠落は読み込み時点で拒否します。
-            if (document.Element("config")?.Element("jukebox") == null)
-            {
-                throw new XmlException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2ConfigStructure);
-            }
-            if (activePreviewScopes.TryGetValue(normalizedConfigPath, out PreviewScope scope))
-            {
-                RestorePreviewFields(document, scope);
-            }
-            return document;
+            throw new XmlException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2ConfigStructure);
         }
+        return document;
     }
 
-    private static XDocument LoadConfigDocumentWithoutPreviewScope(string configPath)
+    /// <summary>採用済み全文から、ファイルを読み直さず操作用の独立した文書を作ります。</summary>
+    internal LR2Config(LR2Config source) : this(source, source.Lr2RootPath)
     {
-        using FileStream stream = LongPathFileSystem.OpenRead(configPath);
-        return XDocument.Load(stream);
     }
 
+    /// <summary>採用済み全文を、ファイルを読み直さず別の実効LR2ルートで解釈する文書として複製します。</summary>
+    internal LR2Config(LR2Config source, string lr2RootPath) : base(source)
+    {
+        _configPath = source._configPath;
+        Lr2RootPath = NormalizeRoot(lr2RootPath);
+    }
+
+    private LR2Config(string path, string lr2RootPath, XDocument document) : base(document)
+    {
+        _configPath = path;
+        Lr2RootPath = NormalizeRoot(lr2RootPath);
+    }
+
+    /// <summary>全文を共有せず、既存の登録計画サービスが操作する一時入力を作ります。読込み・保存は行いません。</summary>
+    /// <param name="path">計画の対象とする設定XMLのパスです。</param>
+    /// <param name="lr2RootPath">保存先の所有者と同じ実効LR2ルートです。異なる値を渡すと相対登録の正規化がずれ、偽の差分になります。</param>
+    /// <param name="roots">計画の初期登録です。</param>
+    internal static LR2Config CreateRootPlanningDocument(string path, string lr2RootPath, IEnumerable<string> roots)
+    {
+        LR2Config plan = new(path, lr2RootPath, new XDocument(new XElement("config", new XElement("jukebox"))));
+        plan.SetBMSSearchDirectories(roots);
+        return plan;
+    }
+
+    /// <summary>表出力の設定整数をInvariantで読み、不正・欠落時は0を返します。</summary>
     public int GetCustomFolderMask()
     {
         return GetSystemIntValue("customfolder", 0);
     }
 
+    /// <summary>表の新着表示時間をInvariantの整数で読み、不正・欠落時は24を返します。</summary>
     public int GetTitleFlashHours()
     {
         return GetSystemIntValue("titleflash", 24);
     }
 
+    /// <summary>DB再読込みモードをInvariantの整数で読み、不正・欠落時は手動専用を返します。</summary>
     public int GetDatabaseAutoReloadMode()
     {
         return GetSystemIntValue("autoreload", DatabaseAutoReloadManualOnly);
     }
 
+    /// <summary>DB自動再読込みを地域に依存しない整数0で手動専用へ揃えます。</summary>
     public bool EnsureDatabaseAutoReloadManualOnly()
     {
         using (new WriterGuard(rwlock))
         {
             XElement system = GetOrCreateSystemElement();
             XElement autoreload = system.Element("autoreload");
-            string manualOnlyValue = DatabaseAutoReloadManualOnly.ToString();
+            string manualOnlyValue = DatabaseAutoReloadManualOnly.ToString(CultureInfo.InvariantCulture);
             if (autoreload == null)
             {
                 system.Add(new XElement("autoreload", manualOnlyValue));
@@ -171,7 +154,7 @@ public class LR2Config : XDocument
         using (new ReaderGuard(rwlock))
         {
             string value = Element("config")?.Element("system")?.Element(name)?.Value;
-            return int.TryParse(value, out int parsed)
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
                 ? parsed
                 : defaultValue;
         }
@@ -201,7 +184,7 @@ public class LR2Config : XDocument
 
     /// <summary>
     /// 設定 XML の登録 root を存在確認なしで取得します。
-    /// 相対 path は LR2 root 基準へ解決し、drive root の意味を保持します。
+    /// 相対 path は LR2 root 基準で絶対化してdot・親要素を解決し、drive rootの意味を保持します。読取りではXMLを保存しません。
     /// </summary>
     public List<string> GetBMSSearchDirectoriesForChangeTracking()
     {
@@ -209,7 +192,7 @@ public class LR2Config : XDocument
         {
             IEnumerable<string> source = Element("config").Element("jukebox").Elements("path")
                 .Select(dirs => TrimConfiguredDirectorySeparators(dirs.Value));
-            if (!string.IsNullOrWhiteSpace(LR2RootPath))
+            if (!string.IsNullOrWhiteSpace(Lr2RootPath))
             {
                 source = source.Select(NormalizeBmsSearchDirectoryForChangeTracking);
             }
@@ -242,21 +225,32 @@ public class LR2Config : XDocument
         return withoutTrailingSeparators;
     }
 
+    /// <summary>完全修飾でない登録は既知のLR2 root基準で構文解決し、現在ディレクトリに依存させません。実在確認・保存はせず、不能なら従来の結合結果を保持します。</summary>
     private string NormalizeBmsSearchDirectoryForChangeTracking(string path)
     {
-        if (string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path))
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(Lr2RootPath))
         {
             return path;
         }
+        string resolved = path;
         try
         {
-            return Path.Combine(LR2RootPath, path);
+            if (!Path.IsPathFullyQualified(path))
+            {
+                if (!Path.IsPathRooted(path)) { resolved = Path.Combine(Lr2RootPath, path); }
+                resolved = Path.GetFullPath(path, Lr2RootPath);
+            }
+            return LongPathFileSystem.TrimTrailingDirectorySeparators(LongPathFileSystem.NormalizePathForStorage(resolved));
         }
-        catch
+        catch (Exception failure) when (failure is ArgumentException or NotSupportedException or PathTooLongException)
         {
-            return path;
+            return resolved;
         }
     }
+
+    /// <summary>操作要求の登録を同じLR2 root基準で絶対化しdot・親要素を解決します。存在確認・読込み・保存は行いません。</summary>
+    internal string NormalizeRequestedSearchDirectory(string path)
+        => NormalizeBmsSearchDirectoryForChangeTracking(TrimConfiguredDirectorySeparators(path));
 
     private string NormalizeBmsSearchDirectoryForMatching(string path)
     {
@@ -272,13 +266,13 @@ public class LR2Config : XDocument
         {
             source = [.. (from dirs in Element("config").Element("jukebox").Elements("path")
                       select dirs.Value.TrimEnd('\\'))];
-            list = (string.IsNullOrWhiteSpace(LR2RootPath) ? source.Where(dir => LongPathFileSystem.DirectoryExists(dir) && dir.IsSjisSchemeString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [.. (from dir in source.Select(delegate (string d)
+            list = (string.IsNullOrWhiteSpace(Lr2RootPath) ? source.Where(dir => LongPathFileSystem.DirectoryExists(dir) && dir.IsSjisSchemeString()).Distinct(StringComparer.OrdinalIgnoreCase).ToList() : [.. (from dir in source.Select(delegate (string d)
                 {
                     try
                     {
                         if (!Path.IsPathRooted(d))
                         {
-                            d = Path.Combine(LR2RootPath, d);
+                            d = Path.Combine(Lr2RootPath, d);
                             needSave = true;
                         }
                     }
@@ -309,7 +303,7 @@ public class LR2Config : XDocument
         dirs ??= [];
         dirs = [.. dirs
             .Where(d => !string.IsNullOrWhiteSpace(d))
-            .Select(d => NormalizeBmsSearchDirectoryForChangeTracking(d.TrimEnd('\\')))
+            .Select(d => NormalizeBmsSearchDirectoryForChangeTracking(TrimConfiguredDirectorySeparators(d)))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
         List<string> list = [.. dirs.Where(d => !d.IsSjisSchemeString())];
         if (list.Count() > 0)
@@ -318,11 +312,37 @@ public class LR2Config : XDocument
         }
         using (new WriterGuard(rwlock))
         {
-            RemoveBMSSearchDirectories();
-            Element("config").Element("jukebox").Add(dirs.Select(d => new XElement("path")
+            XElement jukebox = Element("config").Element("jukebox");
+            var requested = new HashSet<string>(dirs, StringComparer.OrdinalIgnoreCase);
+            var retained = new Dictionary<string, XElement>(StringComparer.OrdinalIgnoreCase);
+            foreach (XElement path in jukebox.Elements("path").ToArray())
             {
-                Value = d.TrimEnd('\\') + "\\"
-            }));
+                string normalized = NormalizeBmsSearchDirectoryForChangeTracking(TrimConfiguredDirectorySeparators(path.Value));
+                if (!requested.Contains(normalized) || !retained.TryAdd(normalized, path)) { path.Remove(); }
+            }
+            // pathの位置だけを最終一覧に揃え、未知の兄弟・属性と継続pathの付随情報を保持します。
+            XElement[] desired = dirs.Select(directory =>
+            {
+                XElement element = retained.TryGetValue(directory, out XElement path) ? new XElement(path) : new XElement("path");
+                element.Value = directory.TrimEnd('\\') + "\\";
+                return element;
+            }).ToArray();
+            XElement[] slots = jukebox.Elements("path").ToArray();
+            XElement last = null;
+            for (int index = 0; index < desired.Length; index++)
+            {
+                if (index < slots.Length)
+                {
+                    if (XNode.DeepEquals(slots[index], desired[index])) { last = slots[index]; }
+                    else { slots[index].ReplaceWith(desired[index]); last = desired[index]; }
+                }
+                else
+                {
+                    if (last == null) { jukebox.Add(desired[index]); }
+                    else { last.AddAfterSelf(desired[index]); }
+                    last = desired[index];
+                }
+            }
         }
     }
 
@@ -368,7 +388,7 @@ public class LR2Config : XDocument
         {
             if (dirs == null)
             {
-                Element("config").Element("jukebox").RemoveAll();
+                Element("config").Element("jukebox").Elements("path").Remove();
                 return false;
             }
             foreach (string dir in dirs)
@@ -384,38 +404,6 @@ public class LR2Config : XDocument
                 }
             }
             return result;
-        }
-    }
-
-    /// <summary>
-    /// 指定された BMS 検索 root を削除し、変更を config.xml へ保存します。
-    /// 保存に失敗した場合は XML の変更を元に戻します。
-    /// </summary>
-    /// <param name="dirs">削除する検索 root の列挙です。</param>
-    /// <returns>一つ以上の root を削除して保存した場合は <see langword="true"/> です。</returns>
-    internal bool RemoveBMSSearchDirectoriesAndSave(IEnumerable<string> dirs = null)
-    {
-        using (new WriterGuard(rwlock))
-        {
-            XDocument snapshot = new(this);
-            bool removed = RemoveBMSSearchDirectories(dirs);
-            if (!removed)
-            {
-                return false;
-            }
-
-            try
-            {
-                SaveAtomically();
-                return true;
-            }
-            catch
-            {
-                XDocument restored = new(snapshot);
-                RemoveNodes();
-                Add(restored.Nodes());
-                throw;
-            }
         }
     }
 
@@ -583,347 +571,4 @@ public class LR2Config : XDocument
         }
     }
 
-    /// <summary>
-    /// 現在の設定 XML を staging file へ書き込み、完了後に config.xml へ公開します。
-    /// </summary>
-    public void Save()
-    {
-        using (new WriterGuard(rwlock))
-        {
-            SaveAtomically();
-        }
-    }
-
-    private void SaveAtomically()
-    {
-        string normalizedConfigPath = ConfigFilePath;
-        lock (saveLock)
-        {
-            XDocument document = new(this);
-            if (activePreviewScopes.TryGetValue(normalizedConfigPath, out PreviewScope scope))
-            {
-                RestorePreviewFields(document, scope);
-            }
-            AtomicFileWriter.Write(
-                normalizedConfigPath,
-                stagingStream => document.Save(stagingStream, SaveOptions.None));
-            if (activePreviewScopes.TryGetValue(normalizedConfigPath, out scope))
-            {
-                scope.UpdateFromDocument(document);
-            }
-        }
-    }
-
-    /// <summary>
-    /// 試聴開始時点の保存済み LR2 設定を scope として登録します。
-    /// </summary>
-    /// <returns>試聴期間中に使う設定 scope です。</returns>
-    internal PreviewScope BeginPreview()
-    {
-        string normalizedConfigPath = ConfigFilePath;
-        lock (saveLock)
-        {
-            if (activePreviewScopes.ContainsKey(normalizedConfigPath))
-            {
-                throw new InvalidOperationException("LR2 config is already used by an active preview.");
-            }
-
-            XDocument document = LoadConfigDocumentWithoutPreviewScope(normalizedConfigPath);
-            PreviewScope scope = new(
-                normalizedConfigPath,
-                CapturePreviewField(document, "system", "windowsize_x"),
-                CapturePreviewField(document, "system", "windowsize_y"),
-                CapturePreviewField(document, "system", "screenmode"),
-                CapturePreviewField(document, "sound", "volumemaster"),
-                CapturePreviewField(document, "sound", "volumeflag"));
-            activePreviewScopes.Add(normalizedConfigPath, scope);
-            return scope;
-        }
-    }
-
-    /// <summary>
-    /// 試聴用の5項目だけを最新の config.xml へ一時公開します。
-    /// </summary>
-    /// <param name="scope">開始時に登録した試聴 scope です。</param>
-    /// <param name="windowSizeX">試聴中の横幅です。</param>
-    /// <param name="windowSizeY">試聴中の縦幅です。</param>
-    /// <param name="isWindowMode">試聴中に使う window mode です。</param>
-    /// <param name="masterVolume">試聴中に使う master volume です。</param>
-    /// <param name="isVolumeEnabled">試聴中に volume を有効にするかです。</param>
-    internal void PublishPreview(
-        PreviewScope scope,
-        int windowSizeX,
-        int windowSizeY,
-        bool isWindowMode,
-        int masterVolume,
-        bool isVolumeEnabled)
-    {
-        ValidatePreviewScope(scope);
-        lock (saveLock)
-        {
-            EnsureActivePreviewScope(scope);
-            XDocument document = LoadConfigDocumentWithoutPreviewScope(scope.ConfigPath);
-            SetPreviewField(document, "system", "windowsize_x", windowSizeX.ToString(CultureInfo.InvariantCulture));
-            SetPreviewField(document, "system", "windowsize_y", windowSizeY.ToString(CultureInfo.InvariantCulture));
-            SetPreviewField(document, "system", "screenmode", isWindowMode ? "1" : "0");
-            SetPreviewField(document, "sound", "volumemaster", masterVolume.ToString(CultureInfo.InvariantCulture));
-            SetPreviewField(document, "sound", "volumeflag", isVolumeEnabled ? "1" : "0");
-            PublishDocument(scope.ConfigPath, document);
-        }
-    }
-
-    /// <summary>
-    /// 試聴 scope が保持する保存済み5項目を最新の config.xml へ復元します。
-    /// </summary>
-    /// <param name="scope">開始時に登録した試聴 scope です。</param>
-    internal void RestorePreview(PreviewScope scope)
-    {
-        ValidatePreviewScope(scope);
-        lock (saveLock)
-        {
-            EnsureActivePreviewScope(scope);
-            XDocument document = LoadConfigDocumentWithoutPreviewScope(scope.ConfigPath);
-            RestorePreviewFields(document, scope);
-            PublishDocument(scope.ConfigPath, document);
-        }
-    }
-
-    /// <summary>
-    /// 試聴終了時に active scope の登録を解除します。
-    /// </summary>
-    /// <param name="scope">終了する試聴 scope です。</param>
-    internal void EndPreview(PreviewScope scope)
-    {
-        ValidatePreviewScope(scope);
-        lock (saveLock)
-        {
-            if (activePreviewScopes.TryGetValue(scope.ConfigPath, out PreviewScope activeScope)
-                && ReferenceEquals(activeScope, scope))
-            {
-                activePreviewScopes.Remove(scope.ConfigPath);
-            }
-            scope.IsEnded = true;
-        }
-    }
-
-    private static void PublishDocument(string configPath, XDocument document)
-    {
-        AtomicFileWriter.Write(
-            configPath,
-            stagingStream => document.Save(stagingStream, SaveOptions.None));
-    }
-
-    private void ValidatePreviewScope(PreviewScope scope)
-    {
-        if (scope == null)
-        {
-            throw new ArgumentNullException(nameof(scope));
-        }
-        if (!string.Equals(scope.ConfigPath, ConfigFilePath, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentException("試聴 scope と config.xml の path が一致しません。", nameof(scope));
-        }
-    }
-
-    private static void EnsureActivePreviewScope(PreviewScope scope)
-    {
-        if (scope.IsEnded
-            || !activePreviewScopes.TryGetValue(scope.ConfigPath, out PreviewScope activeScope)
-            || !ReferenceEquals(activeScope, scope))
-        {
-            throw new InvalidOperationException("LR2 preview scope is no longer active.");
-        }
-    }
-
-    private static PreviewField CapturePreviewField(XDocument document, string sectionName, string fieldName)
-    {
-        XElement section = document.Element("config")?.Element(sectionName);
-        XElement field = section?.Element(fieldName);
-        return new PreviewField(section != null, field?.Value, field != null);
-    }
-
-    private static void SetPreviewField(XDocument document, string sectionName, string fieldName, string value)
-    {
-        XElement config = document.Element("config")
-            ?? throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_LR2ConfigSectionMissing);
-        XElement section = config.Element(sectionName);
-        if (section == null)
-        {
-            section = new XElement(sectionName);
-            config.Add(section);
-        }
-        XElement field = section.Element(fieldName);
-        if (field == null)
-        {
-            section.Add(new XElement(fieldName, value));
-        }
-        else
-        {
-            field.SetValue(value);
-        }
-    }
-
-    private static void RestorePreviewFields(XDocument document, PreviewScope scope)
-    {
-        RestorePreviewField(document, "system", "windowsize_x", scope.WindowSizeX);
-        RestorePreviewField(document, "system", "windowsize_y", scope.WindowSizeY);
-        RestorePreviewField(document, "system", "screenmode", scope.ScreenMode);
-        RestorePreviewField(document, "sound", "volumemaster", scope.MasterVolume);
-        RestorePreviewField(document, "sound", "volumeflag", scope.VolumeEnabled);
-    }
-
-    private static void RestorePreviewField(
-        XDocument document,
-        string sectionName,
-        string fieldName,
-        PreviewField savedField)
-    {
-        XElement config = document.Element("config");
-        if (config == null)
-        {
-            return;
-        }
-
-        XElement section = config.Element(sectionName);
-        if (savedField.Exists)
-        {
-            if (section == null)
-            {
-                section = new XElement(sectionName);
-                config.Add(section);
-            }
-            XElement field = section.Element(fieldName);
-            if (field == null)
-            {
-                section.Add(new XElement(fieldName, savedField.Value));
-            }
-            else
-            {
-                field.SetValue(savedField.Value);
-            }
-            return;
-        }
-
-        section?.Element(fieldName)?.Remove();
-        if (!savedField.SectionExists
-            && section != null
-            && !section.HasAttributes
-            && !section.Nodes().Any())
-        {
-            section.Remove();
-        }
-    }
-
-    /// <summary>
-    /// 試聴中に保全する5項目と対象 config.xml の path を保持します。
-    /// </summary>
-    internal sealed class PreviewScope
-    {
-        /// <summary>
-        /// 指定した config.xml と、その時点で保存されている試聴対象項目から scope を作成します。
-        /// </summary>
-        /// <param name="configPath">正規化済み config.xml の絶対 path。</param>
-        /// <param name="windowSizeX">保存されている windowsize_x の状態。</param>
-        /// <param name="windowSizeY">保存されている windowsize_y の状態。</param>
-        /// <param name="screenMode">保存されている screenmode の状態。</param>
-        /// <param name="masterVolume">保存されている volumemaster の状態。</param>
-        /// <param name="volumeEnabled">保存されている volumeflag の状態。</param>
-        internal PreviewScope(
-            string configPath,
-            PreviewField windowSizeX,
-            PreviewField windowSizeY,
-            PreviewField screenMode,
-            PreviewField masterVolume,
-            PreviewField volumeEnabled)
-        {
-            ConfigPath = configPath;
-            WindowSizeX = windowSizeX;
-            WindowSizeY = windowSizeY;
-            ScreenMode = screenMode;
-            MasterVolume = masterVolume;
-            VolumeEnabled = volumeEnabled;
-        }
-
-        /// <summary>
-        /// この scope が対象とする正規化済み config.xml の path です。
-        /// </summary>
-        internal string ConfigPath { get; }
-
-        /// <summary>
-        /// 保存されている windowsize_x の状態です。
-        /// </summary>
-        internal PreviewField WindowSizeX { get; private set; }
-
-        /// <summary>
-        /// 保存されている windowsize_y の状態です。
-        /// </summary>
-        internal PreviewField WindowSizeY { get; private set; }
-
-        /// <summary>
-        /// 保存されている screenmode の状態です。
-        /// </summary>
-        internal PreviewField ScreenMode { get; private set; }
-
-        /// <summary>
-        /// 保存されている volumemaster の状態です。
-        /// </summary>
-        internal PreviewField MasterVolume { get; private set; }
-
-        /// <summary>
-        /// 保存されている volumeflag の状態です。
-        /// </summary>
-        internal PreviewField VolumeEnabled { get; private set; }
-
-        /// <summary>
-        /// scope が終了済みなら <see langword="true"/> です。
-        /// </summary>
-        internal bool IsEnded { get; set; }
-
-        /// <summary>
-        /// 正常に公開された保存文書から、scope が保全する5項目を更新します。
-        /// </summary>
-        /// <param name="document">公開済みの保存文書。</param>
-        internal void UpdateFromDocument(XDocument document)
-        {
-            WindowSizeX = CapturePreviewField(document, "system", "windowsize_x");
-            WindowSizeY = CapturePreviewField(document, "system", "windowsize_y");
-            ScreenMode = CapturePreviewField(document, "system", "screenmode");
-            MasterVolume = CapturePreviewField(document, "sound", "volumemaster");
-            VolumeEnabled = CapturePreviewField(document, "sound", "volumeflag");
-        }
-    }
-
-    /// <summary>
-    /// XML section と要素の存在、および保存値を表します。
-    /// </summary>
-    internal readonly struct PreviewField
-    {
-        /// <summary>
-        /// XML section と要素の状態から保全値を作成します。
-        /// </summary>
-        /// <param name="sectionExists">対象 XML section が存在する場合は <see langword="true"/>。</param>
-        /// <param name="value">対象要素の保存値。要素がない場合は <see langword="null"/>。</param>
-        /// <param name="exists">対象 XML 要素が存在する場合は <see langword="true"/>。</param>
-        internal PreviewField(bool sectionExists, string value, bool exists)
-        {
-            SectionExists = sectionExists;
-            Value = value;
-            Exists = exists;
-        }
-
-        /// <summary>
-        /// 対象 XML section が保存時点で存在したかどうかです。
-        /// </summary>
-        internal bool SectionExists { get; }
-
-        /// <summary>
-        /// 対象 XML 要素の保存値です。
-        /// </summary>
-        internal string Value { get; }
-
-        /// <summary>
-        /// 対象 XML 要素が保存時点で存在したかどうかです。
-        /// </summary>
-        internal bool Exists { get; }
-    }
 }

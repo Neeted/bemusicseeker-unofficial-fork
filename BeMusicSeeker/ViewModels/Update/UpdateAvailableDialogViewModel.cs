@@ -16,9 +16,9 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
     {
         UpdateCheckResult = updateCheckResult ?? throw new ArgumentNullException(nameof(updateCheckResult));
         this.progressHub = progressHub ?? throw new ArgumentNullException(nameof(progressHub));
+        // 配信側が update.json の並び順で推奨を決めるため、並べ替えずに先頭を初期選択します。
         Packages = new ObservableCollection<UpdatePackageOption>((UpdateCheckResult.Assets ?? [])
-            .OrderBy(GetAssetDisplayPriority)
-            .ThenBy(asset => asset?.FileName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Where(asset => asset != null)
             .Select(UpdatePackageOption.Create));
         selectedPackage = Packages.FirstOrDefault();
         progressHub.StartupProgress.PropertyChanged += StartupProgressPropertyChanged;
@@ -92,21 +92,6 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
-    private static int GetAssetDisplayPriority(UpdateAssetInfo asset)
-    {
-        if (string.Equals(asset?.Kind, "app", StringComparison.Ordinal))
-        {
-            return 0;
-        }
-
-        if (string.Equals(asset?.Kind, "app-with-metadata", StringComparison.Ordinal))
-        {
-            return 1;
-        }
-
-        return 99;
-    }
-
     internal sealed class UpdatePackageOption
     {
         private UpdatePackageOption(UpdateAssetInfo asset, string displayLabel, string description)
@@ -124,30 +109,18 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
         public string FileName => Asset?.FileName ?? string.Empty;
 
+        /// <summary>資産の中身を表す <see cref="UpdateAssetInfo.IncludesChartInfoMetadata"/> から名前と説明を選びます。</summary>
         public static UpdatePackageOption Create(UpdateAssetInfo asset)
         {
-            if (asset == null)
-            {
-                return null;
-            }
-
-            if (string.Equals(asset.Kind, "app-with-metadata", StringComparison.Ordinal))
-            {
-                return new UpdatePackageOption(
+            return asset.IncludesChartInfoMetadata
+                ? new UpdatePackageOption(
                     asset,
                     Resources.UpdateDialog_PackageWithMetadata,
-                    Resources.UpdateDialog_PackageWithMetadataDescription);
-            }
-
-            if (string.Equals(asset.Kind, "app", StringComparison.Ordinal))
-            {
-                return new UpdatePackageOption(
+                    Resources.UpdateDialog_PackageWithMetadataDescription)
+                : new UpdatePackageOption(
                     asset,
                     Resources.UpdateDialog_PackageAppOnly,
                     Resources.UpdateDialog_PackageAppOnlyDescription);
-            }
-
-            return new UpdatePackageOption(asset, asset.Label ?? asset.FileName ?? asset.Kind, string.Empty);
         }
     }
 }

@@ -1,0 +1,205 @@
+using System.Buffers.Binary;
+using System.IO;
+using BeMusicSeeker.TestSupport.Files;
+using Ribbit.Media.Audio;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+[DoNotParallelize]
+public sealed class VorbisDecoderTests
+{
+    [TestInitialize]
+    public void InitializeNativeRuntime()
+    {
+        BassAudioRuntime.Shutdown();
+        BassAudioRuntime.Initialize();
+    }
+
+    [TestCleanup]
+    public void ShutdownNativeRuntime()
+    {
+        BassAudioRuntime.Shutdown();
+    }
+
+    /// <summary>固定mono／stereo Oggをpinしたfloat参照PCMとbit単位で比較し、フレーム欠落・レート／配置変更・過大レベルのクリップを検出する。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
+    [TestMethod]
+    [DataRow("nvorbis-1test.ogg", "nvorbis-1test-reference.f32", 1, 17318L)]
+    [DataRow("nvorbis-3test.ogg", "nvorbis-3test-reference.f32", 2, 288094L)]
+    public void DecodeOgg_UsesPinnedFloatReferenceWithoutClipping(
+        string inputName,
+        string referenceName,
+        int expectedChannels,
+        long expectedFrames)
+    {
+        string inputPath = GetAudioPath(inputName);
+        DecodedAudio actual = VorbisDecoder.Decode(inputPath);
+        byte[] referenceBytes = File.ReadAllBytes(GetAudioPath(referenceName));
+        int expectedSamples = checked((int)(expectedFrames * expectedChannels));
+        Assert.AreEqual(checked(expectedSamples * sizeof(float)), referenceBytes.Length);
+        Assert.AreEqual(44100, actual.SampleRate);
+        Assert.AreEqual(expectedChannels, actual.ChannelCount);
+        Assert.AreEqual(expectedFrames, actual.FrameCount);
+
+        for (int index = 0; index < expectedSamples; index++)
+        {
+            int expectedBits = BinaryPrimitives.ReadInt32LittleEndian(referenceBytes.AsSpan(index * sizeof(float)));
+            Assert.AreEqual(expectedBits, BitConverter.SingleToInt32Bits(actual.GetSample(index)), $"sample {index}");
+        }
+
+        if (expectedChannels == 2)
+        {
+            Assert.IsTrue(Enumerable.Range(0, expectedSamples).Any(index => System.Math.Abs(actual.GetSample(index)) > 1f));
+        }
+    }
+
+    /// <summary>同形式の連結Oggの各linkを参照PCMと照合し、後半linkの欠落や境界での重複を防ぐ。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
+    [TestMethod]
+    public void DecodeOgg_ConcatenatesAValidSameFormatChain()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        byte[] input = File.ReadAllBytes(GetAudioPath("nvorbis-1test.ogg"));
+        byte[] reference = File.ReadAllBytes(GetAudioPath("nvorbis-1test-reference.f32"));
+        string chainedPath = WriteTemporaryOgg(workspace, CreateChain(input, input));
+        try
+        {
+            DecodedAudio actual = VorbisDecoder.Decode(chainedPath);
+            Assert.AreEqual(34636L, actual.FrameCount);
+            Assert.AreEqual(reference.Length * 2L, actual.PcmByteCount);
+            int samplesPerLink = reference.Length / sizeof(float);
+            for (int index = 0; index < samplesPerLink; index++)
+            {
+                int expectedBits = BinaryPrimitives.ReadInt32LittleEndian(reference.AsSpan(index * sizeof(float)));
+                Assert.AreEqual(expectedBits, BitConverter.SingleToInt32Bits(actual.GetSample(index)), $"first link sample {index}");
+                Assert.AreEqual(expectedBits, BitConverter.SingleToInt32Bits(actual.GetSample(index + samplesPerLink)), $"second link sample {index}");
+            }
+        }
+        finally
+        {
+            File.Delete(chainedPath);
+        }
+    }
+
+    /// <summary>チャンネル配置の異なる連結Oggを復号失敗として返し、単一形式に見せて音声を取り違えない。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
+    [TestMethod]
+    public void DecodeOgg_RejectsAChainedFormatChange()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        byte[] mono = File.ReadAllBytes(GetAudioPath("nvorbis-1test.ogg"));
+        byte[] stereo = File.ReadAllBytes(GetAudioPath("nvorbis-3test.ogg"));
+        string chainedPath = WriteTemporaryOgg(workspace, CreateChain(mono, stereo));
+        try
+        {
+            AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
+                () => VorbisDecoder.Decode(chainedPath));
+            Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);
+            StringAssert.Contains(failure.Message, "sample rate or channel layout");
+        }
+        finally
+        {
+            File.Delete(chainedPath);
+        }
+    }
+
+    /// <summary>符号化入力がmanaged配列上限を超える場合に確保前に復号失敗を返し、桁あふれと巨大確保を防ぐ。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
+    [TestMethod]
+    public void DecodeOgg_PreservesEncodedInputArrayLimitWithoutAllocatingTheInput()
+    {
+        AudioSourceLoadException failure = Assert.ThrowsExactly<AudioSourceLoadException>(
+            () => VorbisDecoder.ValidateEncodedLength("oversized.ogg", (long)Array.MaxLength + 1));
+
+        Assert.AreEqual(AudioSourceLoadStage.DecodeVorbis, failure.Stage);
+    }
+
+    /// <summary>実native bridgeのABI・依存版・x64 Release構成をpinに照合し、異なる配布物の混入を検出する。</summary>
+    /// <remarks>配布するnative Vorbis bridgeの接続を検査し、初期化・shutdownの共有状態を直列所有する。</remarks>
+    [TestMethod]
+    public void NativeBridge_ReportsThePinnedAbiAndBuild()
+    {
+        StringAssert.Contains(VorbisDecoder.NativeBuildInfo, "abi=1");
+        StringAssert.Contains(VorbisDecoder.NativeBuildInfo, "libogg=1.3.6");
+        StringAssert.Contains(VorbisDecoder.NativeBuildInfo, "libvorbis=1.3.7");
+        StringAssert.Contains(VorbisDecoder.NativeBuildInfo, "arch=x64;config=Release;crt=static;fp=precise");
+    }
+
+    private static string GetAudioPath(string fileName)
+        => Path.Combine(AppContext.BaseDirectory, "TestData", "audio", fileName);
+
+    private static string WriteTemporaryOgg(TestWorkspace workspace, byte[] bytes)
+    {
+        string path = Path.Combine(workspace.RootDirectory, "BeMusicSeeker-" + Guid.NewGuid().ToString("N") + ".ogg");
+        File.WriteAllBytes(path, bytes);
+        return path;
+    }
+
+    private static byte[] CreateChain(params byte[][] sources)
+    {
+        using var result = new MemoryStream();
+        for (int sourceIndex = 0; sourceIndex < sources.Length; sourceIndex++)
+        {
+            foreach (byte[] page in SplitPages(sources[sourceIndex]))
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(page.AsSpan(14), checked(0xC0100000u + (uint)sourceIndex));
+                WriteChecksum(page);
+                result.Write(page);
+            }
+        }
+        return result.ToArray();
+    }
+
+    private static List<byte[]> SplitPages(byte[] input)
+    {
+        var pages = new List<byte[]>();
+        int offset = 0;
+        while (offset < input.Length)
+        {
+            if (input.Length - offset < 27 || !input.AsSpan(offset, 4).SequenceEqual("OggS"u8))
+            {
+                throw new InvalidDataException("The Ogg fixture has an invalid page header.");
+            }
+
+            int segmentCount = input[offset + 26];
+            int headerLength = 27 + segmentCount;
+            if (input.Length - offset < headerLength)
+            {
+                throw new InvalidDataException("The Ogg fixture has a truncated segment table.");
+            }
+
+            int bodyLength = 0;
+            for (int index = 0; index < segmentCount; index++)
+            {
+                bodyLength = checked(bodyLength + input[offset + 27 + index]);
+            }
+            int pageLength = checked(headerLength + bodyLength);
+            if (input.Length - offset < pageLength)
+            {
+                throw new InvalidDataException("The Ogg fixture has a truncated page body.");
+            }
+
+            pages.Add(input.AsSpan(offset, pageLength).ToArray());
+            offset += pageLength;
+        }
+        return pages;
+    }
+
+    private static void WriteChecksum(byte[] page)
+    {
+        page.AsSpan(22, 4).Clear();
+        uint checksum = 0;
+        foreach (byte value in page)
+        {
+            checksum ^= (uint)value << 24;
+            for (int bit = 0; bit < 8; bit++)
+            {
+                checksum = (checksum & 0x80000000u) != 0
+                    ? (checksum << 1) ^ 0x04C11DB7u
+                    : checksum << 1;
+            }
+        }
+        BinaryPrimitives.WriteUInt32LittleEndian(page.AsSpan(22), checksum);
+    }
+}

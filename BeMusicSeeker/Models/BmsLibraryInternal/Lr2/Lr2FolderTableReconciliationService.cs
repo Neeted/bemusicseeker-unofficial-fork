@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Util.Extensions;
@@ -29,7 +28,7 @@ internal sealed class Lr2FolderTableProjection
         IReadOnlyDictionary<string, Lr2FolderTableProjectionSourceKind> sourceKinds)
     {
         Rows = rows ?? [];
-        SourceKinds = sourceKinds ?? new Dictionary<string, Lr2FolderTableProjectionSourceKind>(StringComparer.OrdinalIgnoreCase);
+        SourceKinds = sourceKinds ?? new Dictionary<string, Lr2FolderTableProjectionSourceKind>(StringComparer.Ordinal);
     }
 
     public IReadOnlyList<LR2SongDB.folder> Rows { get; }
@@ -191,7 +190,17 @@ internal static class Lr2FolderTableReconciliationService
             }
         }
 
-        IReadOnlyCollection<ParentTarget> parentTargets = CreateParentTargets(fileItems, request);
+        normalDirectoryPaths = [.. normalDirectoryPaths.Concat(
+            Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargetsFromDirectories(roots,
+                (request.FolderInfoFilePaths ?? []).Select(Lr2FolderPath.SafeGetDirectoryName)))
+            .Distinct(PathComparer)];
+
+        IReadOnlySet<string> parentRoots = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateRoots(
+            request.RootDirectories, request.Lr2NormalCustomFolderOutputBaseDir, request.Lr2AdditionalNormalCustomFolderOutputBaseDirs);
+        IReadOnlySet<string> parentBoundaries = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateBoundaries(
+            parentRoots, request.Lr2RootCustomFolderOutputBaseDir, [@"LR2files\CustomFolder"]);
+        string rootOutputBase = NormalizeDirectoryPath(request.Lr2RootCustomFolderOutputBaseDir);
+        IReadOnlyCollection<ParentTarget> parentTargets = CreateParentTargets(fileItems, request, parentRoots, parentBoundaries);
         var metadataTargets = new HashSet<string>(PathComparer);
         foreach (string root in roots)
         {
@@ -333,7 +342,7 @@ internal static class Lr2FolderTableReconciliationService
         processed = 0;
         foreach (ParentTarget target in parentTargets)
         {
-            if (!TryCreateParentRow(target, metadata, request, out LR2SongDB.folder row))
+            if (!TryCreateParentRow(target, metadata, request, parentRoots, rootOutputBase, out LR2SongDB.folder row))
             {
                 // LR2で表現できない親行だけを省き、他のfolder行の投影は続ける。
                 progress.Advance(++processed, parentTargets.Count);
@@ -359,12 +368,12 @@ internal static class Lr2FolderTableReconciliationService
         var sourceKinds = selected.Values.ToDictionary(
             candidate => candidate.Row.path,
             candidate => candidate.SourceKind,
-            StringComparer.OrdinalIgnoreCase);
+            StringComparer.Ordinal);
         return new Lr2FolderTableProjection(rows, sourceKinds);
     }
 
     /// <summary>
-    /// 全投影を検証し、既存行を一回取得して利用者列を引き継ぎ、一括でfolder表へ保存します。
+    /// 全投影を検証し、最新の既存行を一回取得してraw完全一致の存続行のadddateだけを保持し、一括でfolder表へ保存します。
     /// stageProgressReporterは準備から保存までの実段階を通知します。
     /// 準備件数の100%は保存成功を意味せず、通知失敗も本体の結果に影響させません。
     /// </summary>
@@ -389,10 +398,7 @@ internal static class Lr2FolderTableReconciliationService
         List<LR2SongDB.folder> existingRows = [.. songDb.Table<LR2SongDB.folder>()];
         var existingByPath = existingRows
             .Where(row => !string.IsNullOrWhiteSpace(row?.path))
-            .GroupBy(row => row.path, PathComparer)
-            .ToDictionary(group => group.Key, group => group
-                .OrderBy(row => row.path, StringComparer.Ordinal)
-                .First(), PathComparer);
+            .ToDictionary(row => row.path, StringComparer.Ordinal);
         int total = projection.Rows.Count;
         progress.Begin("folder_reconciliation", total);
         var rows = new List<LR2SongDB.folder>(total);
@@ -423,10 +429,10 @@ internal static class Lr2FolderTableReconciliationService
     private static Dictionary<string, ProjectionCandidate> SelectCandidates(
         IEnumerable<ProjectionCandidate> candidates)
     {
-        var groups = new Dictionary<string, List<ProjectionCandidate>>(PathComparer);
+        var groups = new Dictionary<string, List<ProjectionCandidate>>(StringComparer.Ordinal);
         foreach (ProjectionCandidate candidate in candidates ?? [])
         {
-            string key = NormalizeRowKey(candidate?.Row?.path);
+            string key = candidate?.Row?.path;
             if (string.IsNullOrWhiteSpace(key))
             {
                 throw new Lr2FolderTableProjectionIncompleteException(
@@ -440,7 +446,7 @@ internal static class Lr2FolderTableReconciliationService
             group.Add(candidate);
         }
 
-        var selected = new Dictionary<string, ProjectionCandidate>(PathComparer);
+        var selected = new Dictionary<string, ProjectionCandidate>(StringComparer.Ordinal);
         foreach (KeyValuePair<string, List<ProjectionCandidate>> group in groups)
         {
             int highestPriority = group.Value.Max(candidate => candidate.Priority);
@@ -465,45 +471,29 @@ internal static class Lr2FolderTableReconciliationService
 
     private static IReadOnlyCollection<ParentTarget> CreateParentTargets(
         IEnumerable<Lr2FolderFileSyncItem> items,
-        Lr2SongDbSyncRequest request)
+        Lr2SongDbSyncRequest request,
+        IReadOnlySet<string> roots,
+        IReadOnlySet<string> scopes)
     {
-        List<string> scopes = [.. Lr2SongDbSyncService.CreateLr2FolderDirectoryRowGenerationScopeDirectories(request)
-            .Select(NormalizeScopePath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))];
         var targets = new Dictionary<string, ParentTarget>(PathComparer);
-        foreach (Lr2FolderFileSyncItem item in items ?? [])
+        foreach (Lr2FolderFileSyncItem item in (items ?? []).DistinctBy(item =>
+            (Lr2FolderPhysicalParentDirectoryTargetHelper.ParentDirectory(item.DatabasePath ?? item.FilePath),
+             Lr2FolderPhysicalParentDirectoryTargetHelper.ParentDirectory(item.FilePath))))
         {
-            string databasePath = NormalizeFilePath(item?.DatabasePath ?? item?.FilePath);
-            string physicalDirectory = NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(item?.FilePath));
-            string databaseDirectory = NormalizeParentDirectoryPath(databasePath);
-            while (!string.IsNullOrWhiteSpace(databaseDirectory)
-                && !string.IsNullOrWhiteSpace(physicalDirectory)
-                && ContainsScope(databaseDirectory, scopes)
-                && !ContainsScopeRoot(databaseDirectory, scopes))
-            {
-                bool knownRelative = IsKnownRelativeDirectory(databaseDirectory);
-                if (!(knownRelative && string.Equals(
-                        NormalizeScopePath(databaseDirectory),
-                        @"LR2files\CustomFolder",
-                        StringComparison.OrdinalIgnoreCase)))
+            Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(
+                new Lr2FolderFileSourceClassificationRequest
                 {
-                    Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(
-                        new Lr2FolderFileSourceClassificationRequest
-                        {
-                            FilePath = item.FilePath,
-                            Lr2RootPath = request.Lr2RootPath,
-                            RootCustomFolderOutputBaseDir = request.Lr2RootCustomFolderOutputBaseDir,
-                            BuiltinSourceDirectories = request.Lr2BuiltinFolderSourceDirectories
-                        });
-                    targets[NormalizeScopePath(databaseDirectory)] = new ParentTarget(
-                        databaseDirectory,
-                        physicalDirectory,
-                        classification.IsBuiltinSource
-                            ? Lr2FolderTableProjectionSourceKind.BuiltinCustomFolder
-                            : Lr2FolderTableProjectionSourceKind.Lr2FolderFile);
-                }
-                databaseDirectory = NormalizeParentDirectoryPath(databaseDirectory);
-                physicalDirectory = NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(physicalDirectory));
+                    FilePath = item.FilePath,
+                    Lr2RootPath = request.Lr2RootPath,
+                    RootCustomFolderOutputBaseDir = request.Lr2RootCustomFolderOutputBaseDir,
+                    BuiltinSourceDirectories = request.Lr2BuiltinFolderSourceDirectories
+                });
+            foreach ((string DatabaseDirectory, string PhysicalDirectory) target in Lr2FolderPhysicalParentDirectoryTargetHelper.EnumerateNormalizedParents(
+                item.DatabasePath ?? item.FilePath, item.FilePath, scopes, roots))
+            {
+                targets[NormalizeScopePath(target.DatabaseDirectory)] = new ParentTarget(
+                    target.DatabaseDirectory, target.PhysicalDirectory,
+                    classification.IsBuiltinSource ? Lr2FolderTableProjectionSourceKind.BuiltinCustomFolder : Lr2FolderTableProjectionSourceKind.Lr2FolderFile);
             }
         }
         return [.. targets.Values
@@ -515,6 +505,8 @@ internal static class Lr2FolderTableReconciliationService
         ParentTarget target,
         Lr2FolderDirectoryMetadataSnapshot metadata,
         Lr2SongDbSyncRequest request,
+        IReadOnlySet<string> roots,
+        string rootOutputBase,
         out LR2SongDB.folder row)
     {
         row = null;
@@ -545,7 +537,8 @@ internal static class Lr2FolderTableReconciliationService
             return false;
         }
 
-        string parentHash = TryComputeParentHash(target.DatabaseDirectory, knownRelative);
+        string parentHash = Lr2FolderPhysicalParentDirectoryTargetHelper.ComputeNormalizedParentHash(
+            target.DatabaseDirectory, roots, rootOutputBase);
         if (string.IsNullOrWhiteSpace(parentHash))
         {
             return false;
@@ -553,105 +546,16 @@ internal static class Lr2FolderTableReconciliationService
         string title = directoryMetadata.HasFolderInfoTitle
             ? directoryMetadata.FolderInfoTitle
             : ResolveDirectoryTitle(target.DatabaseDirectory);
-        // Custom-folder output bases are LR2 roots for the folder-table
-        // hierarchy even when they are outside the configured BMS roots.  A
-        // root-output child directory is likewise the first directory under
-        // that LR2 root.  Keep this decision in the full projection so the
-        // one-shot route does not fall back to hashing the physical parent.
-        bool isRoot = !knownRelative
-            && (IsRootEquivalentDirectory(target.DatabaseDirectory, request)
-                || IsRootOutputBaseChild(target.DatabaseDirectory, request));
         row = new LR2SongDB.folder
         {
             title = title,
             path = rowPath,
             type = knownRelative ? 2 : 1,
-            parent = isRoot ? Lr2SongFolderParentNormalizer.RootParentHash : parentHash,
+            parent = parentHash,
             date = directoryMetadata.LastWriteTimeUtc.Value.ToUnixtime(),
             adddate = request.StartedAtUtc.ToUnixtime()
         };
         return true;
-    }
-
-    private static bool IsRootEquivalentDirectory(
-        string directory,
-        Lr2SongDbSyncRequest request)
-    {
-        string normalizedDirectory = NormalizeDirectoryPath(directory);
-        if (string.IsNullOrWhiteSpace(normalizedDirectory))
-        {
-            return false;
-        }
-
-        if ((request?.RootDirectories ?? [])
-            .Concat(request?.Lr2NormalCustomFolderOutputBaseDir == null
-                ? []
-                : [request.Lr2NormalCustomFolderOutputBaseDir])
-            .Concat(request?.Lr2AdditionalNormalCustomFolderOutputBaseDirs ?? [])
-            .Concat(request?.Lr2RootCustomFolderOutputBaseDir == null
-                ? []
-                : [request.Lr2RootCustomFolderOutputBaseDir])
-            .Any(candidate => string.Equals(
-                normalizedDirectory,
-                NormalizeDirectoryPath(candidate),
-                StringComparison.OrdinalIgnoreCase)))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsRootOutputBaseChild(
-        string directory,
-        Lr2SongDbSyncRequest request)
-    {
-        string rootOutputBase = NormalizeDirectoryPath(request?.Lr2RootCustomFolderOutputBaseDir);
-        if (string.IsNullOrWhiteSpace(rootOutputBase))
-        {
-            return false;
-        }
-
-        string normalizedDirectory = NormalizeDirectoryPath(directory);
-        string parentDirectory = NormalizeDirectoryPath(
-            Lr2FolderPath.SafeGetDirectoryName(normalizedDirectory));
-        return !string.IsNullOrWhiteSpace(normalizedDirectory)
-            && string.Equals(parentDirectory, rootOutputBase, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string TryComputeParentHash(string databaseDirectory, bool knownRelative)
-    {
-        try
-        {
-            string parentDirectory = Path.GetDirectoryName(
-                databaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            if (string.IsNullOrWhiteSpace(parentDirectory))
-            {
-                return null;
-            }
-            if (knownRelative
-                && string.Equals(
-                    NormalizeScopePath(parentDirectory),
-                    @"LR2files\CustomFolder",
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                return Lr2SongFolderParentNormalizer.RootParentHash;
-            }
-            return Lr2SongFolderParentNormalizer.ComputeDirectoryHash(parentDirectory);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is EncoderFallbackException)
-        {
-            return null;
-        }
-    }
-
-    private static Lr2FolderDirectoryMetadata ResolveDirectoryMetadata(
-        string directory,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries,
-        Func<string, DateTime?> resolver)
-    {
-        DateTime? timestamp = ResolveDirectoryTimestamp(directory, entries, resolver);
-        return timestamp.HasValue ? new Lr2FolderDirectoryMetadata(timestamp) : null;
     }
 
     private static DateTime? ResolveDirectoryTimestamp(
@@ -740,42 +644,6 @@ internal static class Lr2FolderTableReconciliationService
         return Lr2FolderPath.NormalizeDirectoryPath(path);
     }
 
-    private static string NormalizeFilePath(string path)
-    {
-        return Lr2FolderFileProjection.NormalizeDatabasePath(path);
-    }
-
-    private static string NormalizeRowKey(string path)
-    {
-        return NormalizeFilePath(path);
-    }
-
-    private static string NormalizeParentDirectoryPath(string databasePath)
-    {
-        if (string.IsNullOrWhiteSpace(databasePath))
-        {
-            return null;
-        }
-        try
-        {
-            string normalized = databasePath.Trim()
-                .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
-                .TrimEnd(Path.DirectorySeparatorChar);
-            string directory = Path.GetDirectoryName(normalized);
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                return null;
-            }
-            return IsKnownRelativeDirectory(directory)
-                ? NormalizeScopePath(directory)
-                : NormalizeDirectoryPath(directory);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return null;
-        }
-    }
-
     private static string NormalizeScopePath(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -796,46 +664,6 @@ internal static class Lr2FolderTableReconciliationService
         return !string.IsNullOrWhiteSpace(normalized)
             && (string.Equals(normalized, @"LR2files\CustomFolder", StringComparison.OrdinalIgnoreCase)
                 || normalized.StartsWith(@"LR2files\CustomFolder\", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool ContainsScope(string path, IEnumerable<string> scopes)
-    {
-        string normalizedPath = NormalizeScopePath(path);
-        if (string.IsNullOrWhiteSpace(normalizedPath))
-        {
-            return false;
-        }
-        foreach (string scope in scopes ?? [])
-        {
-            string normalizedScope = NormalizeScopePath(scope);
-            if (string.IsNullOrWhiteSpace(normalizedScope))
-            {
-                continue;
-            }
-            if (Path.IsPathRooted(normalizedPath) && Path.IsPathRooted(normalizedScope))
-            {
-                if (Lr2FolderPath.IsSameOrDescendantNormalized(normalizedPath, normalizedScope))
-                {
-                    return true;
-                }
-            }
-            else if (string.Equals(normalizedPath, normalizedScope, StringComparison.OrdinalIgnoreCase)
-                || normalizedPath.StartsWith(normalizedScope + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static bool ContainsScopeRoot(string path, IEnumerable<string> scopes)
-    {
-        string normalizedPath = NormalizeScopePath(path);
-        return !string.IsNullOrWhiteSpace(normalizedPath)
-            && (scopes ?? []).Any(scope => string.Equals(
-                normalizedPath,
-                NormalizeScopePath(scope),
-                StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool IsUnderAnyRoot(string path, IEnumerable<string> roots)
@@ -875,7 +703,7 @@ internal static class Lr2FolderTableReconciliationService
     {
         return expected != null
             && actual != null
-            && string.Equals(expected.path, actual.path, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(expected.path, actual.path, StringComparison.Ordinal)
             && string.Equals(expected.title, actual.title, StringComparison.Ordinal)
             && string.Equals(expected.subtitle, actual.subtitle, StringComparison.Ordinal)
             && string.Equals(expected.category, actual.category, StringComparison.Ordinal)

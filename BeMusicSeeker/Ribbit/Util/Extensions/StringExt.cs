@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
-using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.VisualBasic;
@@ -10,49 +10,6 @@ namespace Ribbit.Util.Extensions;
 
 public static class StringExt
 {
-    private static class Cache<T>
-    {
-        private delegate T TryPattern(string s, T defaultValue);
-
-        private delegate bool TryParsePattern(string s, out T value);
-
-        private static readonly TryPattern Func;
-
-        private static readonly TryParsePattern tp;
-
-        static Cache()
-        {
-            MethodInfo method = typeof(T).GetMethod("TryParse",
-            [
-                typeof(string),
-                typeof(T).MakeByRefType()
-            ]);
-            if (method == null)
-            {
-                if (typeof(T) == typeof(string))
-                {
-                    Func = (x, y) => (T)(object)x;
-                    return;
-                }
-                if (typeof(T).IsEnum)
-                {
-                    throw new NotSupportedException("Convert to enum type is not supported");
-                }
-                Func = (x, y) => y;
-            }
-            else
-            {
-                tp = (TryParsePattern)Delegate.CreateDelegate(typeof(TryParsePattern), method);
-                Func = (x, y) => tp(x, out T value) ? value : y;
-            }
-        }
-
-        internal static T TryParse(string s, T defaultValue)
-        {
-            return Func(s, defaultValue);
-        }
-    }
-
     private static readonly Encoding sjisEnc = Encoding.GetEncoding("shift_jis", new EncoderReplacementFallback(string.Empty), new DecoderReplacementFallback(string.Empty));
 
     private static readonly Regex invalidFileNameCharsRegex = new("[" + Regex.Escape(new string(Path.GetInvalidFileNameChars())) + "]", RegexOptions.Compiled);
@@ -244,13 +201,9 @@ public static class StringExt
         return stringBuilder.ToString();
     }
 
-    public static T TryParseOrDefault<T>(this string text) where T : struct
+    /// <summary>地域設定に依存しない整数として全体を解釈し、不正値・範囲外では指定された既定値を返します。</summary>
+    public static int TryParseOrDefault(this string text, int defaultValue = 0)
     {
-        return text.TryParseOrDefault(default(T));
-    }
-
-    public static T TryParseOrDefault<T>(this string text, T defaultValue) where T : struct
-    {
-        return Cache<T>.TryParse(text, defaultValue);
+        return int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out int value) ? value : defaultValue;
     }
 }

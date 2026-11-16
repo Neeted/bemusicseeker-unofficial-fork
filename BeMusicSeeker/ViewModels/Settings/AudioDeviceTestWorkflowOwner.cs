@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -860,6 +861,38 @@ internal sealed class BassAudioDeviceCapabilityRuntime : IAudioDeviceCapabilityR
         => BassAudioPlayer.QueryAudioDeviceCapabilities(request, cancellationToken);
 }
 
+/// <summary>音声テストが停止や初期化を始める前に、要求の受付と解放待ちの原因を判定します。</summary>
+internal interface IAudioDeviceTestRequestAdmission
+{
+    /// <summary>受理時は後片付け完了まで保持するleaseを返し、拒否時は解放待ちの原因がある場合だけ返します。</summary>
+    bool TryEnter(AudioDeviceTestRequest request, [NotNullWhen(true)] out IDisposable? lease,
+        out AudioInitializationException? cleanupFailure);
+}
+
+/// <summary>本番の音声テスト受付を共有BASS要求と解放待ち診断へ接続します。</summary>
+internal sealed class BassAudioDeviceTestRequestAdmission : IAudioDeviceTestRequestAdmission
+{
+    /// <inheritdoc />
+    public bool TryEnter(AudioDeviceTestRequest request, [NotNullWhen(true)] out IDisposable? lease,
+        out AudioInitializationException? cleanupFailure)
+    {
+        cleanupFailure = null;
+        if (BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission))
+        {
+            lease = admission;
+            return true;
+        }
+        lease = null;
+        if (BassAudioRuntime.OperationGate.IsCleanupQuarantined)
+        {
+            cleanupFailure = BassAudioPlayer.GetCleanupPendingFailure(
+                BassAudioMapping.ToBassDriver(request.AudioOutputRequest.Backend),
+                new BassAudioPlayer.DeviceDescriptor(request.PlayerDeviceName, request.PlayerDevice));
+        }
+        return false;
+    }
+}
+
 /// <summary>機器照会とテストの受付、解放完了を所有します。</summary>
 internal sealed partial class AudioDeviceTestWorkflowOwner : Livet.ViewModel
 {
@@ -871,20 +904,25 @@ internal sealed partial class AudioDeviceTestWorkflowOwner : Livet.ViewModel
 
     private readonly IAudioDeviceCapabilityRuntime capabilityRuntime;
 
+    private readonly IAudioDeviceTestRequestAdmission requestAdmission;
+
     private CancellationTokenSource activeQueryCancellation;
 
     private int isRunning;
 
     private int isTestRunning;
 
+    /// <summary>機器処理と要求受付を接続します。受付を省略すると共有BASSの排他と解放待ち診断を使います。</summary>
     internal AudioDeviceTestWorkflowOwner(
         IAudioDeviceTestPlaybackPort playbackPort,
         IAudioDeviceTestRuntime runtime,
-        IAudioDeviceCapabilityRuntime capabilityRuntime = null)
+        IAudioDeviceCapabilityRuntime capabilityRuntime = null,
+        IAudioDeviceTestRequestAdmission? requestAdmission = null)
     {
         this.playbackPort = playbackPort ?? throw new ArgumentNullException(nameof(playbackPort));
         this.runtime = runtime ?? throw new ArgumentNullException(nameof(runtime));
         this.capabilityRuntime = capabilityRuntime ?? new BassAudioDeviceCapabilityRuntime();
+        this.requestAdmission = requestAdmission ?? new BassAudioDeviceTestRequestAdmission();
     }
 
     /// <summary>機器照会またはテストが受付を使用中かどうかを取得します。</summary>
@@ -910,17 +948,10 @@ internal sealed partial class AudioDeviceTestWorkflowOwner : Livet.ViewModel
             return null;
         }
 
-        if (!BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission))
+        if (!requestAdmission.TryEnter(request, out IDisposable? admission,
+            out AudioInitializationException? cleanupFailure))
         {
             Volatile.Write(ref isRunning, 0);
-            if (!BassAudioRuntime.OperationGate.IsCleanupQuarantined)
-            {
-                return null;
-            }
-
-            AudioInitializationException cleanupFailure = BassAudioPlayer.GetCleanupPendingFailure(
-                BassAudioMapping.ToBassDriver(request.AudioOutputRequest.Backend),
-                new BassAudioPlayer.DeviceDescriptor(request.PlayerDeviceName, request.PlayerDevice));
             return cleanupFailure == null
                 ? null
                 : new AudioDeviceTestResult(
@@ -935,7 +966,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner : Livet.ViewModel
                     AudioDeviceTestFailureKind.Unexpected,
                     primaryFailure: cleanupFailure);
         }
-        using IDisposable requestAdmission = admission;
+        using IDisposable acceptedRequest = admission;
 
         Volatile.Write(ref isTestRunning, 1);
         try
@@ -957,7 +988,7 @@ internal sealed partial class AudioDeviceTestWorkflowOwner : Livet.ViewModel
         {
             Volatile.Write(ref isTestRunning, 0);
             Volatile.Write(ref isRunning, 0);
-            requestAdmission.Dispose();
+            acceptedRequest.Dispose();
             OperationReleased?.Invoke();
         }
     }

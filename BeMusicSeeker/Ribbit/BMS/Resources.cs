@@ -4,7 +4,6 @@ using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 using Ribbit.Cryptography;
 using Ribbit.Util.Extensions;
 
@@ -22,12 +21,11 @@ public class Resources
 
     public static readonly ReadOnlyCollection<string> VideoFileExtensions = new string[4] { ".mpg", ".wmv", ".mp4", ".mpeg" }.ToList().AsReadOnly();
 
-    private static readonly Regex FormatFilePathRegex = new("[^/]+/\\.\\./", RegexOptions.Compiled);
-
     public ImmutableHashSet<string> FilePaths => _files.Keys.ToImmutableHashSet();
 
     public ImmutableHashSet<uint> FilePathsHashSet => _files.Values.ToImmutableHashSet();
 
+    /// <summary>参照の区切り表記を揃えます。親参照は基点と結合する読込み側で解決するため保持します。</summary>
     private static string NormalizeFilePath(string filePath)
     {
         filePath = filePath?.Trim();
@@ -40,18 +38,27 @@ public class Resources
             return null;
         }
         filePath = filePath.FastReplace('\\', '/').Replace("//", "/").ReplaceFromStart("./", string.Empty);
-        filePath = FormatFilePathRegex.Replace(filePath, string.Empty);
         return filePath;
     }
 
+    /// <summary>既知拡張子はwav・ogg・mp3の順、省略名は元の実体を先に試してから同じ音声候補を返します。</summary>
     public static IEnumerable<string> NormalizeExtension(string filePath)
     {
-        if (string.IsNullOrWhiteSpace(filePath) || filePath.Length < 4)
+        if (string.IsNullOrWhiteSpace(filePath))
         {
             yield return filePath;
             yield break;
         }
         string extension = Path.GetExtension(filePath);
+        if (extension.Length == 0)
+        {
+            yield return filePath;
+            foreach (string audioFileExtension in AudioFileExtensions)
+            {
+                yield return filePath + audioFileExtension;
+            }
+            yield break;
+        }
         string filePathWoExt = filePath.Substring(0, filePath.Length - extension.Length);
         var array = new ReadOnlyCollection<string>[3] { AudioFileExtensions, ImageFileExtensions, VideoFileExtensions };
         for (int i = 0; i < array.Length; i++)
@@ -89,6 +96,7 @@ public class Resources
         return filePath;
     }
 
+    /// <summary>資源参照の表記と拡張子を共通化して登録し、基点未解決の親参照を保った参照名を返します。</summary>
     public string AddFilePath(string filePath)
     {
         filePath = GeneralizeExtension(NormalizeFilePath(filePath.ToLowerInvariant()));
@@ -100,6 +108,7 @@ public class Resources
         return null;
     }
 
+    /// <summary>登録時と同じ表記・拡張子の変換を使い、対応する資源参照を削除します。</summary>
     public bool RemoveFilePath(string filePath)
     {
         filePath = GeneralizeExtension(NormalizeFilePath(filePath.ToLowerInvariant()));

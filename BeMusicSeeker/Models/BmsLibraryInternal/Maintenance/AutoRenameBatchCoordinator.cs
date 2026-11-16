@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -20,26 +21,29 @@ internal sealed class AutoRenameBatchCoordinator
     }
 
     /// <summary>
-    /// Applies the supplied plans through one operation-scoped mutation session and returns
-    /// durable, diagnostic, and primary failure facts. Physical moves remain item-local, while
-    /// canonical apply, reverse lookup, and publication are aggregated for the confirmed set.
+    /// 確定した実移動を一つの変更セッションへ適用し、診断と永続結果を返します。
+    /// 全計画を進捗へ使い、保護範囲と物理作用には同じ実移動だけを使います。
     /// </summary>
-    /// <param name="plans">Precomputed rename plans owned by the current command.</param>
+    /// <param name="batch">停止前に一回確定した全計画と実移動。</param>
     /// <param name="mutationCapability">外側のfolder mutation leaseが保持するlive capability。</param>
     /// <param name="postLeaseNotifications">Publications released only after the outer lease exits.</param>
+    /// <param name="notices">この操作の案内を集める入れ物。実scopeのPが取得できないBusyの案内を加えます。</param>
     /// <param name="progressReporter">Optional item-level progress reporter.</param>
     /// <returns>LR2 同期を含む操作単位の session 結果と、解放後に公開する診断。</returns>
     internal AutoRenameBatchResult ApplyWithSessionReceipt(
-        IEnumerable<FolderAutoRenamePlan> plans,
+        FolderMoveBatch batch,
         LibraryFileMutationCapability mutationCapability,
         ICollection<Action> postLeaseNotifications,
+        LibraryOperationNotices notices,
         Action<int, int, string> progressReporter = null)
     {
         ArgumentNullException.ThrowIfNull(mutationCapability);
+        ArgumentNullException.ThrowIfNull(batch);
         ArgumentNullException.ThrowIfNull(postLeaseNotifications);
+        ArgumentNullException.ThrowIfNull(notices);
         long operationId = Stopwatch.GetTimestamp();
         var totalStopwatch = Stopwatch.StartNew();
-        List<FolderAutoRenamePlan> planList = [.. (plans ?? []).Where(plan => plan != null)];
+        IReadOnlyList<FolderAutoRenamePlan> planList = batch.Plans;
         int appliedPlanCount = 0;
         List<AutoRenameBatchDiagnostic> diagnostics = [];
         var metrics = new AutoRenameBatchMetrics(operationId, planList.Count);
@@ -60,10 +64,12 @@ internal sealed class AutoRenameBatchCoordinator
             diagnostics);
         var moveLoopStopwatch = Stopwatch.StartNew();
         ExceptionDispatchInfo primaryFailure = null;
-        LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
+        using LibraryMutationOwner.LibraryMutationSession session = host.BeginLibraryMutationSession(
             mutationCapability,
             "auto_rename_folders",
-            postLeaseNotifications);
+            postLeaseNotifications,
+            notices);
+        session.ProtectManagedOutput(batch.Moves.SelectMany(plan => new[] { plan.SourceDirectory, plan.DestinationDirectory }), recursive: true);
 
         if (planList.Any(IsDriveRootSourcePlan))
         {
@@ -91,9 +97,8 @@ internal sealed class AutoRenameBatchCoordinator
                 {
                     continue;
                 }
-                string newName = host.NormalizeAutoRenameFolderName(Path.GetFileName(destinationDirectory));
-                if (string.IsNullOrWhiteSpace(newName)
-                    || Path.GetPathRoot(sourceDirectory).Equals(sourceDirectory, StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(sourceDirectory, destinationDirectory, StringComparison.Ordinal)
+                    || IsDriveRootSourcePlan(plan))
                 {
                     continue;
                 }
@@ -110,14 +115,17 @@ internal sealed class AutoRenameBatchCoordinator
                         sourceDirectory: sourceDirectory));
                     continue;
                 }
-                destinationDirectory = Path.Combine(Path.GetDirectoryName(sourceDirectory), newName);
-                if (host.EntryExists(destinationDirectory))
+                if (LongPathFileSystem.HasDirectoryMoveDestinationConflict(sourceDirectory, destinationDirectory))
                 {
                     diagnostics.Add(new AutoRenameBatchDiagnostic(
                         AutoRenameBatchDiagnosticKind.DestinationAlreadyExists,
                         sourceDirectory: sourceDirectory,
                         destinationDirectory: destinationDirectory));
                     metrics.MoveFailedCount++;
+                    continue;
+                }
+                if (!batch.ContainsPhysicalMove(plan))
+                {
                     continue;
                 }
                 metrics.ActionablePlanCount++;
@@ -178,7 +186,7 @@ internal sealed class AutoRenameBatchCoordinator
                     sourceDirectory,
                     destinationDirectory,
                     exception,
-                    CreateRemainingTargets(planList, planIndex + 1));
+                    CreateRemainingTargets(planList, batch, planIndex + 1));
                 break;
             }
             finally
@@ -244,13 +252,14 @@ internal sealed class AutoRenameBatchCoordinator
 
     private static IReadOnlyList<LibraryMutationSessionTarget> CreateRemainingTargets(
         IReadOnlyList<FolderAutoRenamePlan> plans,
+        FolderMoveBatch batch,
         int startIndex)
     {
         var targets = new List<LibraryMutationSessionTarget>();
         for (int index = Math.Max(startIndex, 0); index < (plans?.Count ?? 0); index++)
         {
             FolderAutoRenamePlan plan = plans[index];
-            if (plan == null)
+            if (!batch.ContainsPhysicalMove(plan))
             {
                 continue;
             }

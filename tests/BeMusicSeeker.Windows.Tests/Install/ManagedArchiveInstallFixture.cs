@@ -1,0 +1,144 @@
+using System.Collections.ObjectModel;
+using System.IO;
+using System.IO.Compression;
+using System.Text;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+
+namespace BeMusicSeeker.Tests;
+
+/// <summary>管理ZIP回帰だけが所有する小DB・固定候補・実ファイルを準備し、実日時復元の引数から展開先を捕捉します。</summary>
+internal sealed class ManagedArchiveInstallFixture : IDisposable
+{
+    private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+    private readonly List<string> managedRoots = [];
+    private readonly Queue<Func<Task>> background = new();
+
+    internal ManagedArchiveInstallFixture(bool knownCandidate = false, bool deletePendingSource = false, bool knownInstallDestination = false)
+    {
+        var databaseScope = new ApplicationDatabaseScope();
+        Root = Path.Combine(workspace.RootDirectory, "BeMusicSeeker_ManagedArchiveTests_" + Guid.NewGuid().ToString("N"));
+        InstallRoot = Path.Combine(Root, "Library");
+        Directory.CreateDirectory(InstallRoot);
+        SongDb = Path.Combine(Root, "song.db");
+        File.WriteAllBytes(SongDb, []);
+        BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(databaseScope, SongDb, db =>
+        {
+            db.CreateTable<LR2SongDB.song>();
+            db.CreateTable<LR2SongDB.folder>();
+            db.CreateTable<LR2SongDBExtended.maintenance>();
+            db.CreateTable<LR2SongDBExtended.bmson_song>();
+        });
+        CandidateDirectory = Path.Combine(InstallRoot, "Song");
+        string[] charts = [];
+        var resources = new Dictionary<string, IEnumerable<string>>();
+        if (knownCandidate)
+        {
+            Directory.CreateDirectory(CandidateDirectory);
+            string chart = Path.Combine(CandidateDirectory, "existing.bms");
+            File.WriteAllText(chart, ChartText("Song", 1), Encoding.ASCII);
+            File.WriteAllBytes(Path.Combine(CandidateDirectory, "sound.wav"), [1]);
+            charts = [chart];
+            resources[CandidateDirectory] = ["sound.wav"];
+        }
+        InstallDestinationDirectory = Path.Combine(InstallRoot, "Target");
+        if (knownInstallDestination)
+        {
+            Directory.CreateDirectory(InstallDestinationDirectory);
+            string chart = Path.Combine(InstallDestinationDirectory, "target-existing.bms");
+            File.WriteAllText(chart, ChartText("Target", 2), Encoding.ASCII);
+            File.WriteAllBytes(Path.Combine(InstallDestinationDirectory, "sound.wav"), [2]);
+            charts = [.. charts, chart];
+            resources[InstallDestinationDirectory] = ["sound.wav"];
+        }
+        Options = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = false,
+            DeletePendingPackageSourceAfterInstall = deletePendingSource,
+            ScanBmsFilesOnStartup = true,
+            BMSInstallDir = InstallRoot,
+            FolderNameFormat = "%TITLE%",
+            KeepInstallablePackagesPending = false,
+            PendingInstallEstimateMaxParallelPackages = 1
+        };
+        Files = new ArchiveInputFileMutationService(path =>
+        {
+            string? extractedRoot = Path.GetDirectoryName(path);
+            if (extractedRoot != null && TempDirectoryPublisher.IsManagedPath(extractedRoot))
+            {
+                // 当該展開のrootまで上がり、共有sessionそのものは回収しません。
+                while (Path.GetDirectoryName(extractedRoot) is string parent
+                    && Path.GetDirectoryName(parent) is string sessionParent && TempDirectoryPublisher.IsManagedPath(sessionParent))
+                {
+                    extractedRoot = parent;
+                }
+                ExtractedRoots.Add(extractedRoot);
+            }
+        });
+        Dialogs = new FileDbReportRecordingDialogs();
+        Library = new TestBmsLibrary(databaseScope, SongDb, null, null, Files, Dialogs,
+            new TestUiScheduler(() => null), () => Options,
+            CapturedChartFileScanner.FromFixture(charts, resources, resources.Keys), settings: TestBmsFactory.CreateRootSettings([InstallRoot]))
+        {
+            BmsCharts = [],
+            BmsonCharts = [],
+
+            ChartPackagesPending = new ObservableCollection<ChartPackage>(),
+            ChartPackagesInstalled = new ObservableCollection<ChartPackage>(),
+            StartupBackgroundTaskScheduler = (_, _, _, work) => { background.Enqueue(work); return true; }
+        };
+    }
+
+    internal string Root { get; }
+    internal string InstallRoot { get; }
+    internal string SongDb { get; }
+    internal string CandidateDirectory { get; }
+    internal string InstallDestinationDirectory { get; }
+    internal BmsLibraryOptionsSnapshot Options { get; }
+    internal TestBmsLibrary Library { get; }
+    internal FileDbReportRecordingDialogs Dialogs { get; }
+    internal ArchiveInputFileMutationService Files { get; }
+    internal HashSet<string> ExtractedRoots { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>実初期化と受理済み背景更新を終え、固定候補の実索引から推定できる状態にします。</summary>
+    internal async Task InitializeAsync()
+    {
+        Library.Initialize(null, null, BMSLibrary.LibraryInitializeMode.Startup);
+        while (background.TryDequeue(out Func<Task>? work)) { await work(); }
+    }
+
+    /// <summary>全形態で同じ内容を作り、管理ZIPだけを現在の管理領域へ配置します。</summary>
+    internal string CreateInput(string kind, string name = "Song", bool resources = true, bool chart = true)
+    {
+        string source = Path.Combine(Root, name + "-source");
+        Directory.CreateDirectory(source);
+        if (chart) { File.WriteAllText(Path.Combine(source, "chart.bms"), ChartText(name, 12), Encoding.ASCII); }
+        else { File.WriteAllText(Path.Combine(source, "readme.txt"), "no chart", Encoding.ASCII); }
+        if (resources) { File.WriteAllBytes(Path.Combine(source, "sound.wav"), [1]); }
+        if (kind == "folder") { return source; }
+        string archiveRoot = Root;
+        if (kind == "managed")
+        {
+            archiveRoot = TempDirectoryPublisher.Get();
+            managedRoots.Add(archiveRoot);
+        }
+        string archive = Path.Combine(archiveRoot, name + ".zip");
+        ZipFile.CreateFromDirectory(source, archive);
+        return archive;
+    }
+
+    private static string ChartText(string title, int level) =>
+        "#PLAYER 1\r\n#TITLE " + title + "\r\n#ARTIST Test\r\n#BPM 120\r\n#PLAYLEVEL " + level
+        + "\r\n#WAV01 sound.wav\r\n#00111:01\r\n";
+
+    public void Dispose()
+    {
+        Library.RequestShutdown("managed-archive-fixture");
+        foreach (string path in ExtractedRoots) { TempDirectoryPublisher.TryDeleteManagedPath(path); }
+        foreach (string path in managedRoots) { TempDirectoryPublisher.TryDeleteManagedPath(path); }
+        workspace.Dispose();
+    }
+}

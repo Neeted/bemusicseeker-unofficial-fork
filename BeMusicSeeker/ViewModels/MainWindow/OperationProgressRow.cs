@@ -33,8 +33,6 @@ public sealed record OperationProgressRow(
     public bool CanCancel => Action is OperationProgressAction.CancelInstall
         or OperationProgressAction.CancelUrlDownload or OperationProgressAction.CancelMaintenance;
 
-    /// <summary>末尾の再試行操作を表示するかを取得します。</summary>
-    public bool CanRetry => Action == OperationProgressAction.RetryLr2;
 }
 
 /// <summary>表示行から既存の管理主体へ渡す操作を識別します。</summary>
@@ -43,6 +41,5 @@ public enum OperationProgressAction
     None,
     CancelInstall,
     CancelUrlDownload,
-    CancelMaintenance,
-    RetryLr2
+    CancelMaintenance
 }

@@ -6,6 +6,8 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Text.RegularExpressions;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Logging;
+
 namespace BeMusicSeeker.Models.LR2;
 
 public class Backup : ObservableObject
@@ -120,7 +122,9 @@ public class Backup : ObservableObject
 
     /// <summary>
     /// 選択対象を一時ディレクトリへ全てコピーしてから日付世代として公開し、古い世代を削除します。
-    /// 公開前の失敗では既存世代を保持し、公開後の削除失敗は保存成功と警告を返します。
+    /// 公開前の失敗では既存世代と主原因を保持し、公開後の削除失敗は保存成功と警告を返します。
+    /// 後片付けの存在確認・削除と任意診断の失敗では公開結果を変更しません。
+    /// ディレクトリ再解析ポイントはコピー前に拒否し、未来日付の世代は間隔・保持・削除の対象外とします。
     /// </summary>
     /// <param name="dstDir">バックアップ出力先ディレクトリ。</param>
     /// <param name="span">前回バックアップから必要な経過時間。日単位で最低 1 日とします。</param>
@@ -160,13 +164,14 @@ public class Backup : ObservableObject
                 }
             }
             var minimumInterval = TimeSpan.FromDays(Math.Max(1, span.Days));
+            DateTime today = DateTime.Today;
             generations = [.. (from directory in LongPathFileSystem.EnumerateDirectories(dstDir, "*", SearchOption.TopDirectoryOnly)
                                select Path.GetFileName(directory) into name
                                where backupFolderRegex.Match(name).Success
                                select DateTime.ParseExact(name, dateFormat, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.None) into date
+                               where date <= today
                                orderby date descending
                                select date)];
-            DateTime today = DateTime.Today;
             if (generations.Count > 0 && today - generations[0] < minimumInterval)
             {
                 return new BackupSaveResult(saved: false, warnings: []);
@@ -185,7 +190,7 @@ public class Backup : ObservableObject
                 }
                 else if (LongPathFileSystem.DirectoryExists(source))
                 {
-                    LongPathFileSystem.CopyDirectory(source, destination, overwrite: true);
+                    LongPathFileSystem.CopyDirectory(source, destination, overwrite: true, rejectDirectoryReparsePoints: true);
                 }
                 else
                 {
@@ -197,9 +202,9 @@ public class Backup : ObservableObject
         }
         catch (Exception exception)
         {
-            if (stagingDirectory != null && LongPathFileSystem.DirectoryExists(stagingDirectory))
+            if (stagingDirectory != null)
             {
-                TryDeleteBackupDirectory(stagingDirectory, warnings);
+                TryDeleteBackupDirectory(stagingDirectory, warnings, onlyIfExists: true);
             }
             return BackupSaveResult.Failure(exception, warnings);
         }
@@ -213,42 +218,88 @@ public class Backup : ObservableObject
         return new BackupSaveResult(saved: true, warnings: warnings);
     }
 
-    private static void TryDeleteBackupDirectory(string directory, List<string> warnings)
+    private static void TryDeleteBackupDirectory(string directory, List<string> warnings, bool onlyIfExists = false)
     {
         try
         {
+            // 属性取得の欠落だけを不存在とし、アクセス等の失敗は後片付けの診断へ渡します。
+            if (onlyIfExists)
+            {
+                try
+                {
+                    if ((LongPathFileSystem.GetAttributes(directory) & FileAttributes.Directory) == 0)
+                    {
+                        // 作業領域と同名のファイルへ削除対象を広げません。
+                        return;
+                    }
+                }
+                catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    return;
+                }
+            }
             LongPathFileSystem.DeleteDirectory(directory, recursive: true);
         }
-        catch
+        catch (Exception exception)
         {
             warnings.Add(string.Format(Properties.Resources.Warn_FileOrDirDeleteFailed, directory));
+            ReportFailureBestEffort(exception, onlyIfExists ? "backup_stage_cleanup" : "backup_generation_prune", directory);
         }
     }
 
-    public static bool RebuildDatabase(string songDBPath, IEnumerable<string> scoreDBPaths)
+    /// <summary>
+    /// 存在するLR2の楽曲・スコアDBを最適化します。失敗は対象パスと元原因を診断してfalseを返し、公開済みバックアップを変更しません。
+    /// </summary>
+    /// <param name="databaseScope">全プレイヤーのDB接続と排他を共有するスコープ。</param>
+    /// <param name="songDBPath">最適化する楽曲DBのパス。nullまたは欠損なら省略します。</param>
+    /// <param name="scoreDBPaths">最適化するスコアDBのパス。nullまたは欠損の対象は省略します。</param>
+    /// <returns>指定された既存DBの最適化が正常に完了した場合はtrue。処理または列挙に失敗した場合はfalse。</returns>
+    internal static bool RebuildDatabase(ApplicationDatabaseScope databaseScope, string songDBPath, IEnumerable<string> scoreDBPaths)
     {
+        ArgumentNullException.ThrowIfNull(databaseScope);
+        string databasePath = songDBPath;
         try
         {
             if (songDBPath != null && LongPathFileSystem.FileExists(songDBPath))
             {
-                using var lR2SongDBExtended = new LR2SongDBExtended(songDBPath);
+                using LR2SongDBExtended lR2SongDBExtended = databaseScope.OpenSongWrite(songDBPath);
                 lR2SongDBExtended.Execute("VACUUM;");
                 lR2SongDBExtended.Execute("REINDEX;");
             }
+            databasePath = null;
             if (scoreDBPaths != null)
             {
-                foreach (string item in scoreDBPaths.Where(f => LongPathFileSystem.FileExists(f)))
+                foreach (string item in scoreDBPaths)
                 {
-                    using var lR2ScoreDBExtended = new LR2ScoreDBExtended(item);
-                    lR2ScoreDBExtended.Execute("VACUUM;");
-                    lR2ScoreDBExtended.Execute("REINDEX;");
+                    databasePath = item;
+                    if (LongPathFileSystem.FileExists(item))
+                    {
+                        using LR2ScoreDBExtended lR2ScoreDBExtended = databaseScope.OpenScoreWrite(item);
+                        lR2ScoreDBExtended.Execute("VACUUM;");
+                        lR2ScoreDBExtended.Execute("REINDEX;");
+                    }
+                    // 次の列挙自体の失敗を、既に完了したDBの失敗として診断しません。
+                    databasePath = null;
                 }
             }
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            ReportFailureBestEffort(exception, "backup_database_optimization", databasePath);
             return false;
         }
         return true;
+    }
+
+    private static void ReportFailureBestEffort(Exception exception, string operation, string path)
+    {
+        try
+        {
+            NLogWrapper.FileLogger?.Warn(exception, $"LR2 backup failed: operation={operation}, path={path}");
+        }
+        catch
+        {
+            // 任意診断の故障を追加診断せず、保存結果と元の失敗を保持します。
+        }
     }
 }

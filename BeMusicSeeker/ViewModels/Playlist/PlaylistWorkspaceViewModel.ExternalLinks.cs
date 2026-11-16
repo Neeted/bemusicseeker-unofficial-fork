@@ -47,10 +47,26 @@ public sealed partial class PlaylistWorkspaceViewModel
         return false;
     }
 
+    /// <summary>
+    /// サマリーの行のページを外部で開けるかを返します。<see cref="OpenPlaylistSummaryUriAsync"/> が実際に開く条件と同じで、
+    /// null・相対URI・内蔵表の <c>bmseeker</c> は開かないため、押しても何も起きないメニューを有効にしないために使います。
+    /// </summary>
+    /// <param name="uri">行のページURI。</param>
+    internal static bool CanOpenPlaylistSummaryUri(Uri uri)
+    {
+        return uri != null && uri.IsAbsoluteUri && uri.Scheme != "bmseeker";
+    }
+
+    /// <summary>サマリーの行のページを外部で開けるかを返します。</summary>
+    internal bool CanOpenPlaylistSummaryRowPage(PlaylistSummaryRow row)
+    {
+        return CanOpenPlaylistSummaryUri(row?.LinkUri);
+    }
+
     /// <summary>サマリーの外部URIをブラウザーへ渡します。内蔵表URIは開きません。</summary>
     internal Task OpenPlaylistSummaryUriAsync(Uri uri)
     {
-        if (uri == null || !uri.IsAbsoluteUri || uri.Scheme == "bmseeker")
+        if (!CanOpenPlaylistSummaryUri(uri))
         {
             return Task.CompletedTask;
         }

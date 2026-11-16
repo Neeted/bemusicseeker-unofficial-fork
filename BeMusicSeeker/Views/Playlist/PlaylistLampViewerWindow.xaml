@@ -10,9 +10,9 @@
  MinWidth="820"
  MinHeight="560"
  ResizeMode="CanResize"
- ShowInTaskbar="False"
+ ShowInTaskbar="True"
  ShowActivated="False"
- WindowStartupLocation="CenterOwner"
+ WindowStartupLocation="Manual"
  Title="{Binding WindowTitle, Mode=OneWay}">
   <views:ThemedWindow.Resources>
     <ResourceDictionary>
@@ -42,14 +42,6 @@
       <SolidColorBrush x:Key="PlaylistLamp.Rank.F" Color="#005CFF" />
       <SolidColorBrush x:Key="PlaylistLamp.Rank.NP" Color="#f3f4f6" />
 
-      <Style x:Key="lampCardStyle" TargetType="{x:Type Border}">
-        <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
-        <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="5" />
-        <Setter Property="Padding" Value="12,8" />
-        <Setter Property="Margin" Value="0,0,6,8" />
-      </Style>
       <Style x:Key="lampBarButtonStyle" TargetType="{x:Type Button}">
         <Setter Property="Padding" Value="0" />
         <Setter Property="Margin" Value="0" />
@@ -87,9 +79,9 @@
         </Style.Triggers>
       </Style>
       <Style x:Key="lampDisplayModeToggleStyle" TargetType="{x:Type RadioButton}" BasedOn="{StaticResource App.Canonical.RadioButtonStyle}">
-        <Setter Property="MinHeight" Value="26" />
+        <Setter Property="MinHeight" Value="24" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-        <Setter Property="Padding" Value="12,3" />
+        <Setter Property="Padding" Value="8,2" />
         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
@@ -101,12 +93,6 @@
                 <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}" RecognizesAccessKey="True" />
               </Border>
               <ControlTemplate.Triggers>
-                <Trigger Property="Tag" Value="Left">
-                  <Setter TargetName="ModeChrome" Property="CornerRadius" Value="4,0,0,4" />
-                </Trigger>
-                <Trigger Property="Tag" Value="Right">
-                  <Setter TargetName="ModeChrome" Property="CornerRadius" Value="0,4,4,0" />
-                </Trigger>
                 <Trigger Property="IsMouseOver" Value="True">
                   <Setter Property="Background" Value="{DynamicResource App.ControlHoverBrush}" />
                 </Trigger>
@@ -138,9 +124,8 @@
       <Style x:Key="lampLegendStyle" TargetType="{x:Type Border}">
         <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="3" />
         <Setter Property="Padding" Value="4,2" />
-        <Setter Property="Margin" Value="0,0,3,3" />
+        <Setter Property="Margin" Value="0,0,4,4" />
         <Setter Property="Background" Value="{DynamicResource App.SurfaceBrush}" />
         <Style.Triggers>
           <DataTrigger Binding="{Binding PaletteKey}" Value="Clear.MAX"><Setter Property="Background" Value="{DynamicResource PlaylistLamp.Clear.MAX}" /></DataTrigger>
@@ -164,15 +149,32 @@
           <DataTrigger Binding="{Binding PaletteKey}" Value="Rank.NP"><Setter Property="Background" Value="{DynamicResource PlaylistLamp.Rank.NP}" /></DataTrigger>
         </Style.Triggers>
       </Style>
-      <DataTemplate x:Key="lampStatCardTemplate">
-        <Border Style="{StaticResource lampCardStyle}"
-                Width="{Binding CardWidth}"
-                AutomationProperties.AutomationId="PlaylistLampViewerStatCard">
+      <DataTemplate x:Key="lampStatisticTemplate">
+        <StackPanel Orientation="Horizontal" AutomationProperties.AutomationId="PlaylistLampViewerStatistic" AutomationProperties.Name="{Binding DetailText}">
+          <Border Width="1" Margin="8,2" Background="{DynamicResource App.BorderBrush}">
+            <Border.Style>
+              <Style TargetType="Border">
+                <Style.Triggers>
+                  <DataTrigger Binding="{Binding RelativeSource={RelativeSource AncestorType=ContentPresenter}, Path=(ItemsControl.AlternationIndex)}" Value="0">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                  </DataTrigger>
+                </Style.Triggers>
+              </Style>
+            </Border.Style>
+          </Border>
           <StackPanel>
-            <TextBlock Text="{Binding Label}" Foreground="{DynamicResource App.SubtleTextBrush}" FontSize="11" TextWrapping="Wrap" />
-            <TextBlock Text="{Binding Value}" Foreground="{DynamicResource App.TextBrush}" FontSize="17" FontWeight="SemiBold" Margin="0,3,0,0" TextWrapping="Wrap" />
+            <TextBlock Text="{Binding Label}" Foreground="{DynamicResource App.SubtleTextBrush}" FontSize="12" />
+            <TextBlock Text="{Binding Value}" AutomationProperties.Name="{Binding DetailText}" Foreground="{DynamicResource App.TextBrush}" FontSize="18" FontWeight="SemiBold" Margin="0,4,0,0" />
           </StackPanel>
-        </Border>
+        </StackPanel>
+      </DataTemplate>
+      <DataTemplate x:Key="lampStatisticGroupTemplate">
+        <ItemsControl ItemsSource="{Binding}" ItemTemplate="{StaticResource lampStatisticTemplate}" AlternationCount="4" Margin="0,0,24,8" AutomationProperties.AutomationId="PlaylistLampViewerStatisticGroup">
+          <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+        </ItemsControl>
+      </DataTemplate>
+      <DataTemplate x:Key="lampSupplementaryStatisticTemplate">
+        <TextBlock Text="{Binding DetailText}" Margin="0,0,24,0" FontSize="11" Foreground="{DynamicResource App.SubtleTextBrush}" AutomationProperties.AutomationId="PlaylistLampViewerSupplementaryStatistic" AutomationProperties.Name="{Binding DetailText}" />
       </DataTemplate>
       <DataTemplate x:Key="lampLegendTemplate">
         <Border Style="{StaticResource lampLegendStyle}"
@@ -184,7 +186,7 @@
                        FontWeight="SemiBold" />
             <TextBlock Text="{Binding Count}"
                        Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Border}}, Path=Background, Converter={StaticResource lampContrastForegroundConverter}}"
-                       Margin="7,0,0,0" />
+                       Margin="4,0,0,0" />
           </StackPanel>
         </Border>
       </DataTemplate>
@@ -204,13 +206,15 @@
               <Binding RelativeSource="{RelativeSource Self}" Path="ActualWidth" />
               <Binding RelativeSource="{RelativeSource Self}" />
               <Binding ElementName="lampViewerWindow" Path="DataContext.IsCountMode" />
+              <Binding ElementName="lampViewerWindow" Path="PixelsPerDip" />
+              <Binding Path="PercentageText" />
             </MultiBinding>
           </Button.Content>
         </Button>
       </DataTemplate>
       <DataTemplate x:Key="lampFolderTemplate">
         <Border BorderThickness="0"
-                Padding="0,3"
+                Padding="0,4"
                 AutomationProperties.AutomationId="PlaylistLampViewerFolderRow">
           <Grid>
             <Grid.ColumnDefinitions>
@@ -220,9 +224,9 @@
             <Grid Grid.Column="0" Margin="0,0,8,0" AutomationProperties.AutomationId="PlaylistLampViewerClearFolderHalf">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{Binding ElementName=lampViewerWindow, Path=FolderLabelColumnWidth}" />
-                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="{Binding ElementName=lampViewerWindow, Path=FolderCountColumnWidth}" />
               </Grid.ColumnDefinitions>
               <TextBlock Grid.Column="0" Text="{Binding FolderName}" Foreground="{DynamicResource App.TextBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding FolderName}" VerticalAlignment="Center" AutomationProperties.AutomationId="PlaylistLampViewerFolderLabel" />
@@ -236,9 +240,9 @@
             <Grid Grid.Column="1" Margin="8,0,0,0" AutomationProperties.AutomationId="PlaylistLampViewerRankFolderHalf">
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{Binding ElementName=lampViewerWindow, Path=FolderLabelColumnWidth}" />
-                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="6" />
+                <ColumnDefinition Width="8" />
                 <ColumnDefinition Width="{Binding ElementName=lampViewerWindow, Path=FolderCountColumnWidth}" />
               </Grid.ColumnDefinitions>
               <TextBlock Grid.Column="0" Text="{Binding FolderName}" Foreground="{DynamicResource App.TextBrush}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" ToolTip="{Binding FolderName}" VerticalAlignment="Center" AutomationProperties.AutomationId="PlaylistLampViewerFolderLabel" />
@@ -254,101 +258,99 @@
       </DataTemplate>
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
-  <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}" Padding="0">
-    <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
+  <Grid TextElement.Foreground="{DynamicResource App.TextBrush}">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" />
+    </Grid.RowDefinitions>
+    <Grid Grid.Row="0" Margin="16,16,16,8" AutomationProperties.AutomationId="PlaylistLampViewerHeader">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="*" />
+        <ColumnDefinition Width="Auto" />
+      </Grid.ColumnDefinitions>
+      <TextBlock Grid.Column="0" Text="{Binding PlaylistName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding PlaylistName}" Margin="0,0,16,0" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource App.TextBrush}" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+        <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_as_of, Mode=OneWay}" VerticalAlignment="Center" Margin="0,0,8,0" Foreground="{DynamicResource App.SubtleTextBrush}" />
+        <DatePicker Style="{StaticResource App.Canonical.DatePickerStyle}" VerticalAlignment="Center" SelectedDate="{Binding SelectedAsOfDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    DisplayDateStart="{Binding AsOfDateStart, Mode=OneWay}"
+                    DisplayDateEnd="{Binding AsOfDateEnd, Mode=OneWay}"
+                    IsEnabled="{Binding IsAsOfDateSelectionEnabled}"
+                    SelectedDateFormat="Short"
+                    IsTodayHighlighted="True"
+                    Width="132"
+                    AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_as_of, Mode=OneWay}"
+                    AutomationProperties.AutomationId="PlaylistLampViewerAsOfDatePicker">
+        </DatePicker>
+        <Button Style="{StaticResource App.Canonical.CompactButtonStyle}" VerticalAlignment="Center" Command="{Binding LatestCommand}"
+                Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_latest, Mode=OneWay}"
+                Margin="8,0,0,0"
+                AutomationProperties.AutomationId="PlaylistLampViewerLatestButton" />
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" IsEnabled="{Binding IsGraphVisible}">
+          <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" GroupName="LampDisplayMode" IsChecked="{Binding IsPercentageMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_percentage_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerPercentageMode" />
+          <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" GroupName="LampDisplayMode" IsChecked="{Binding IsCountMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_count_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerCountMode" Margin="-1,0,0,0" />
+        </StackPanel>
+      </StackPanel>
+    </Grid>
+    <StackPanel Grid.Row="1" Margin="16,0,16,12">
+      <ItemsControl ItemsSource="{Binding StatisticGroups}" ItemTemplate="{StaticResource lampStatisticGroupTemplate}" AutomationProperties.AutomationId="PlaylistLampViewerStatistics">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+      <ItemsControl ItemsSource="{Binding SupplementaryStatistics}" ItemTemplate="{StaticResource lampSupplementaryStatisticTemplate}">
+        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+      </ItemsControl>
+    </StackPanel>
+    <Grid Grid.Row="2" Margin="0" Visibility="{Binding IsGraphVisible, Converter={StaticResource lampBoolVisibility}}">
       <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
       </Grid.RowDefinitions>
-      <Grid Grid.Row="0" Margin="18,12,18,8" AutomationProperties.AutomationId="PlaylistLampViewerHeader">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="*" />
-          <ColumnDefinition Width="Auto" />
-        </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Text="{Binding PlaylistName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding PlaylistName}" Margin="0,0,12,0" FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Foreground="{DynamicResource App.TextBrush}" />
-        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-          <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_as_of, Mode=OneWay}" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource App.SubtleTextBrush}" />
-          <DatePicker VerticalAlignment="Center" SelectedDate="{Binding SelectedAsOfDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                      DisplayDateStart="{Binding AsOfDateStart, Mode=OneWay}"
-                      DisplayDateEnd="{Binding AsOfDateEnd, Mode=OneWay}"
-                      IsEnabled="{Binding IsAsOfDateSelectionEnabled}"
-                      SelectedDateFormat="Short"
-                      IsTodayHighlighted="True"
-                      Width="132"
-                      AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_as_of, Mode=OneWay}"
-                      AutomationProperties.AutomationId="PlaylistLampViewerAsOfDatePicker">
-            <DatePicker.Resources>
-              <Style TargetType="{x:Type DatePickerTextBox}">
-                <Setter Property="IsReadOnly" Value="True" />
-              </Style>
-            </DatePicker.Resources>
-          </DatePicker>
-          <Button VerticalAlignment="Center" Command="{Binding LatestCommand}"
-                  Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_latest, Mode=OneWay}"
-                  Margin="6,0,0,0"
-                  Padding="9,3"
-                  AutomationProperties.AutomationId="PlaylistLampViewerLatestButton" />
-          <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="16,0,0,0" IsEnabled="{Binding IsGraphVisible}">
-            <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" Tag="Left" GroupName="LampDisplayMode" IsChecked="{Binding IsPercentageMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_percentage_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerPercentageMode" />
-            <RadioButton Style="{StaticResource lampDisplayModeToggleStyle}" Tag="Right" GroupName="LampDisplayMode" IsChecked="{Binding IsCountMode, Mode=TwoWay}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_count_mode, Mode=OneWay}" AutomationProperties.AutomationId="PlaylistLampViewerCountMode" Margin="-1,0,0,0" />
-          </StackPanel>
+      <Grid Grid.Row="0" Margin="16,0,16,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0" Margin="0,0,8,0" AutomationProperties.AutomationId="PlaylistLampViewerClearHost">
+          <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_clear_lamp, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" />
+          <ItemsControl ItemsSource="{Binding ClearSegments}" ItemTemplate="{StaticResource lampLegendTemplate}" Margin="0,4,0,0">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          </ItemsControl>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Margin="8,0,0,0" AutomationProperties.AutomationId="PlaylistLampViewerRankHost">
+          <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_rank_lamp, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" />
+          <ItemsControl ItemsSource="{Binding RankSegments}" ItemTemplate="{StaticResource lampLegendTemplate}" Margin="0,4,0,0">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          </ItemsControl>
         </StackPanel>
       </Grid>
-      <ItemsControl Grid.Row="1" Margin="18,0,10,0" ItemsSource="{Binding StatisticsCards}" ItemTemplate="{StaticResource lampStatCardTemplate}">
-        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-      </ItemsControl>
-      <Grid Grid.Row="2" Margin="18,4,18,15" Visibility="{Binding IsGraphVisible, Converter={StaticResource lampBoolVisibility}}">
-        <Grid.RowDefinitions>
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="Auto" />
-          <RowDefinition Height="*" />
-        </Grid.RowDefinitions>
-        <Grid Grid.Row="0">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-          <StackPanel Grid.Column="0" Margin="0,0,8,0" AutomationProperties.AutomationId="PlaylistLampViewerClearHost">
-            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_clear_lamp, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" />
-            <ItemsControl ItemsSource="{Binding ClearSegments}" ItemTemplate="{StaticResource lampLegendTemplate}" Margin="0,4,0,0">
-              <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-            </ItemsControl>
-          </StackPanel>
-          <StackPanel Grid.Column="1" Margin="8,0,0,0" AutomationProperties.AutomationId="PlaylistLampViewerRankHost">
-            <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.PlaylistLampViewer_rank_lamp, Mode=OneWay}" FontSize="14" FontWeight="SemiBold" />
-            <ItemsControl ItemsSource="{Binding RankSegments}" ItemTemplate="{StaticResource lampLegendTemplate}" Margin="0,4,0,0">
-              <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel Orientation="Horizontal" /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-            </ItemsControl>
-          </StackPanel>
-        </Grid>
-        <Grid Grid.Row="1" Margin="0,4,0,8">
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-          <Border Grid.Column="0" Height="24" Margin="0,0,8,0" BorderThickness="0" Background="Transparent" AutomationProperties.AutomationId="PlaylistLampViewerClearGraphHost">
-            <ItemsControl ItemsSource="{Binding PositiveClearSegments}" ItemTemplate="{StaticResource lampBarTemplate}" ItemContainerStyle="{StaticResource lampWeightedSegmentContainerStyle}">
-              <ItemsControl.ItemsPanel><ItemsPanelTemplate><views:PlaylistLampWeightedStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-            </ItemsControl>
-          </Border>
-          <Border Grid.Column="1" Height="24" Margin="8,0,0,0" BorderThickness="0" Background="Transparent" AutomationProperties.AutomationId="PlaylistLampViewerRankGraphHost">
-            <ItemsControl ItemsSource="{Binding PositiveRankSegments}" ItemTemplate="{StaticResource lampBarTemplate}" ItemContainerStyle="{StaticResource lampWeightedSegmentContainerStyle}">
-              <ItemsControl.ItemsPanel><ItemsPanelTemplate><views:PlaylistLampWeightedStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-            </ItemsControl>
-          </Border>
-        </Grid>
-        <Border Grid.Row="2" BorderThickness="0" Margin="0" />
-        <ItemsControl Grid.Row="3" ItemsSource="{Binding FolderRows}" ItemTemplate="{StaticResource lampFolderTemplate}" VirtualizingPanel.IsVirtualizing="True">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <VirtualizingStackPanel IsItemsHost="True" />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.Template>
-            <ControlTemplate TargetType="{x:Type ItemsControl}">
-              <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="True" AutomationProperties.AutomationId="PlaylistLampViewerFolderScrollViewer">
-                <ItemsPresenter />
-              </ScrollViewer>
-            </ControlTemplate>
-          </ItemsControl.Template>
-        </ItemsControl>
+      <Grid Grid.Row="1" Margin="16,4,16,0">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+        <Border Grid.Column="0" Height="24" Margin="0,0,8,0" BorderThickness="0" Background="Transparent" AutomationProperties.AutomationId="PlaylistLampViewerClearGraphHost">
+          <ItemsControl ItemsSource="{Binding PositiveClearSegments}" ItemTemplate="{StaticResource lampBarTemplate}" ItemContainerStyle="{StaticResource lampWeightedSegmentContainerStyle}">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><views:PlaylistLampWeightedStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          </ItemsControl>
+        </Border>
+        <Border Grid.Column="1" Height="24" Margin="8,0,0,0" BorderThickness="0" Background="Transparent" AutomationProperties.AutomationId="PlaylistLampViewerRankGraphHost">
+          <ItemsControl ItemsSource="{Binding PositiveRankSegments}" ItemTemplate="{StaticResource lampBarTemplate}" ItemContainerStyle="{StaticResource lampWeightedSegmentContainerStyle}">
+            <ItemsControl.ItemsPanel><ItemsPanelTemplate><views:PlaylistLampWeightedStackPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+          </ItemsControl>
+        </Border>
       </Grid>
+      <Border Grid.Row="2" BorderThickness="0" Margin="0" />
+      <ItemsControl Grid.Row="3" ItemsSource="{Binding FolderRows}" ItemTemplate="{StaticResource lampFolderTemplate}" VirtualizingPanel.IsVirtualizing="True">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <VirtualizingStackPanel IsItemsHost="True" />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.Template>
+          <ControlTemplate TargetType="{x:Type ItemsControl}">
+            <ScrollViewer Style="{StaticResource App.Canonical.WindowBodyScrollViewerStyle}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" CanContentScroll="True" AutomationProperties.AutomationId="PlaylistLampViewerFolderScrollViewer">
+              <ItemsPresenter />
+            </ScrollViewer>
+          </ControlTemplate>
+        </ItemsControl.Template>
+      </ItemsControl>
     </Grid>
-  </Border>
+  </Grid>
+
 </views:ThemedWindow>

@@ -69,9 +69,12 @@ For very large result sets, `*SdkReadMs` is estimated from sampled SDK calls so 
 timing probe itself does not dominate the scan loop. Resize outliers are excluded
 from those samples.
 `*PathResizeCount` and `*NameResizeCount` count result buffer growth during extraction.
-Fixed scan uses a single `Everything3_GetResultFullPathNameW` call per result and
-splits directory/name natively. Source-root and grouped scan surfaces keep the older
-`GetResultPathW + GetResultNameW` read path.
+固定走査は `Everything3_GetResultFullPathNameW` の完全な結果からdirectory/nameを分割します。
+source-rootとgrouped走査は `GetResultPathW + GetResultNameW` を使い、3 getterの完全取得判断を共有します。
+通常短パスは各getter一回で取得し、切詰めの可能性がある末尾2文字分だけ容量0で
+NUL込み必要容量を照会します。必要ならquery内のbufferを拡張・再利用して再取得し、
+照会した容量との一致を確認します。取得を確認できなければquery全体を失敗とし、
+先行項目があっても部分集合を公開APIの成功結果へ変えません。
 Text files in fixed scan also use the full-path read path and request `Date Modified`
 so managed code can keep `.txt` / `folderinfo.txt` on the same metadata-bearing
 surface as chart/resource enumeration.
@@ -92,6 +95,67 @@ pwsh native/EverythingBridge/build-x64.ps1 -Configuration Release
 Output:
 
 - `native/EverythingBridge_x64.dll`
+
+## native取得の追加検証
+
+Windows / MSVC v145 / x64で実行します。手動整形と同じ固定ReleaseのVerifyを事前に準備します。初回と関連source更新後は次を実行します。
+
+```powershell
+dotnet restore tools/BeMusicSeeker.Verify/BeMusicSeeker.Verify.csproj --locked-mode --disable-build-servers -p:Platform=x64
+dotnet build tools/BeMusicSeeker.Verify/BeMusicSeeker.Verify.csproj --no-restore --disable-build-servers -c Release -p:Platform=x64
+```
+
+`test-x64.ps1` はそのexeの `native-query` commandへ引数を渡します。tool不在は非成功となり、暗黙buildや別構成の探索はしません。外CWDからもscript所在repositoryを使い、終了後に元CWDへ戻します。
+
+```powershell
+pwsh -NoProfile -File native/EverythingBridge/test-x64.ps1
+```
+
+製品C++を直接コンパイルする小さいRelease試験です。生成物とプロセス診断は
+`obj/query-tests/` に置き、通常のC#ビルド・配布には追加しません。
+固定SDK 3.0.0.9の版とSHA256を照合し、Windowsローダーで実DLLを読みます。
+外部索引を要求しないため、検索・接続・結果所有だけを代替し、3 getterには
+固定版の結果構造に対応した `tests/PinnedSdkResult.h` の不変入力を渡します。
+この非公開fixtureはbridgeの文字列取得・query・公開結果接続に限った検証用です。
+公開の結果fixture APIが得られた時、またはSDK更新時に再検討します。
+
+`tests/EverythingBridgeQueryTests.cpp` は短パスの取得回数、1024付近とサロゲート境界、
+query内buffer再利用、取得失敗の伝播、packed結果のパス・mtime・資源所有を確認します。
+getterの正常分岐は実SDK、失敗条件だけは関数ポインターで制御し、queryとpackは製品処理を使います。
+SDK結果・search state・clientの回収は全workerのjoin後に確認します。
+
+親名の条件表は公開packの六面・三逆引きを通し、音声・画像の末尾aliasと物理directory名を区別します。
+通常対照群と、別親の正しいキーが増える群についてquery hit件数、実Search回数、実getterのindex/kind/capacity、
+資源directory数、owner/prefix cache hit/miss、assigned、hash・reverseの件数、packed bytesを確認します。
+packed bytesはnative heap全体の割当量を意味しません。prefixはcache miss時だけ構築します。
+
+固定走査の譜面親とsource-rootは、絶対drive rootの `C:\` を `C:` へ縮約しません。
+通常directoryとUNC share rootは従来の末尾separatorなしを保ち、rootから子への包含と子からrootへの祖先所有を接続します。
+root/通常/UNCの公開結果、三種別の集約・自己所有・逆引き、text/mtime、source-root/groupedの代表を同じ追加試験で確認します。
+SDKのroot行は分離列 `C:` から実getterが一重separatorの `C:\root.bms` を返すことも検査します。
+
+managedの実decode接続は、同じ試験cppを専用defineでDLLにも生成して明示実行します。
+
+```powershell
+pwsh -NoProfile -File native/EverythingBridge/test-x64.ps1 -BuildPathIdentityFixture
+# PowerShell 7.4以降。固定入力は子環境にだけ指定します。
+$fixtureBase = Join-Path $PWD 'native/EverythingBridge/obj/query-tests/path-identity-fixture'
+$nativeRun = Start-Process dotnet -ArgumentList 'run --project tools/BeMusicSeeker.Verify -- compatibility --suite everything-native-path-identity' -WorkingDirectory $PWD.Path -Environment @{ BMS_EVERYTHING_PATH_IDENTITY_FIXTURE = $fixtureBase } -WindowStyle Hidden -Wait -PassThru
+if ($nativeRun.ExitCode -ne 0) { throw "native suite failed: $($nativeRun.ExitCode)" }
+```
+
+Compatibilityの [`EverythingNativePathIdentityTests`](../../tests/BeMusicSeeker.Compatibility.Tests/Scanning/EverythingNativePathIdentityTests.cs) の通常親子とdrive rootの代表二件は、実pointerから六面・三逆引き・取得済み参照の健康度・通常推定を確認します。
+root代表はCドライブの非root WorkingDirectoryを持つ専用testhostで実行し、共有current directoryを変えず、実rootにファイルを作りません。
+非rootの明示基準位置でも絶対rootへ解決されることを確認し、`C:` を現在位置で救済しません。
+`BMS_EVERYTHING_PATH_IDENTITY_FIXTURE` は絶対baseの必須入力です。未指定・DLL/SDK不足・固定SDK 3.0.0.9の版/hash不一致・初期化失敗はいずれも不成功です。実行中の探索fallbackや資産生成はしません。
+固定fixture baseは読取り専用で使い、TestWorkspaceのcase固有baseへDLLと固定SDKを複製し、`ApplicationPathSnapshot`で指定します。製品のbase/current directoryは変更しません。
+SDKのfixture保持参照と製品Shutdown用参照を分け、同期走査/worker終端・packed解放→Dispose/Shutdown→
+client/state/result回収確認→SDK保持参照解放→制御DLL解放→case directory削除の順に回収します。
+fixture生成は既存compile/testと共通180秒、cleanupは追加10秒の同じ期限を使います。正式Compatibility suiteは別枠の60秒と共通失敗回収10秒を使う初期上限で、実測完走保証ではありません。実EverythingサービスのIPC・索引更新を検査するSC-07の代替ではありません。
+通常C#ビルドへC++ compiler要件を加えず、生成物はobj内に置きます。
+
+実EverythingのIPCからDBまでの一連実行、実環境の完了時間や800万キー・全native heap/CPU/memory peakの測定はこの試験の範囲外です。
+管理側の完全性とDB保持は[長パス仕様](../../devdocs/spec/core/path-length-and-io.md#実装とテストの対応)の既存系列で分担します。
 
 ## Runtime requirements
 

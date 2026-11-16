@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -23,17 +25,25 @@ public enum PlaylistEntriesLoadState
     Failed
 }
 
-public class BMSTable : LR2SongDBExtended.playlist
+public partial class BMSTable : LR2SongDBExtended.playlist
 {
     private const string Lr2CompatibleFolderFallbackPrefix = "LEVEL ";
 
     private static readonly JsonLoadSettings PlaylistJsonLoadSettings = new();
 
-    private List<string> _Folder_order;
+    // 順序は全置換するため木構造を持たず、不変配列を構築時に一度だけinterfaceとして保持します。
+    private IReadOnlyList<string> _Folder_order = ImmutableArray<string>.Empty;
+
+    /// <summary>確定した順序と表示構成を一組で公開します。取得側は再構築せず同じ不変入力を参照します。</summary>
+    private sealed record FolderState(IReadOnlyList<string> Order, IReadOnlyList<string> Names, IReadOnlyList<PlaylistFolderNode> Nodes);
+
+    private FolderState folderState = new(ImmutableArray<string>.Empty, ImmutableArray<string>.Empty, BuildFolderNodes([]));
 
     private List<LR2SongDBExtended.playlist_course> _Courses = [];
 
-    protected List<BMSTableEntry> _entries;
+    private ImmutableList<BMSTableEntry> _entries;
+
+    private IReadOnlyList<BMSTableEntry> _entriesView;
 
     private PlaylistEntriesLoadState _PlaylistEntriesLoadState = PlaylistEntriesLoadState.Loaded;
 
@@ -49,122 +59,17 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public string LoadedRawHeaderSha256 { get; private set; }
 
-    /// <summary>
-    /// 一つの playlist mutation だけを補償するための一時スナップショットです。
-    /// </summary>
-    internal sealed class MutationSnapshot
-    {
-        /// <summary>同じ表と行を復元するため、変更前の所属・内容・更新情報を保全します。</summary>
-        internal MutationSnapshot(
-            BMSTable table,
-            IReadOnlyList<BMSTableEntry> entries,
-            IReadOnlyDictionary<BMSTableEntry, BMSTableEntry.MutationState> entryStates,
-            IReadOnlyList<string> folderOrder,
-            DateTime lastUpdate,
-            int playlistEntriesRevision)
-        {
-            Table = table;
-            Entries = entries;
-            EntryStates = entryStates;
-            FolderOrder = folderOrder;
-            LastUpdate = lastUpdate;
-            PlaylistEntriesRevision = playlistEntriesRevision;
-        }
-
-        /// <summary>この操作内スナップショットの復元先の表です。</summary>
-        internal BMSTable Table { get; }
-
-        /// <summary>変更前の行集合と行オブジェクトの参照です。</summary>
-        internal IReadOnlyList<BMSTableEntry> Entries { get; }
-
-        /// <summary>対象操作と保存時の正規化が変更し得る既存行の状態です。</summary>
-        internal IReadOnlyDictionary<BMSTableEntry, BMSTableEntry.MutationState> EntryStates { get; }
-
-        /// <summary>変更前のフォルダー表示順です。</summary>
-        internal IReadOnlyList<string> FolderOrder { get; }
-
-        /// <summary>変更前の表の更新日時です。</summary>
-        internal DateTime LastUpdate { get; }
-
-        /// <summary>変更前の行更新リビジョンです。</summary>
-        internal int PlaylistEntriesRevision { get; }
-    }
-
-    /// <summary>
-    /// 現在の table と既存 entry object の状態を operation 内補償用に取得します。
-    /// </summary>
-    /// <returns>変更前の table state。</returns>
-    internal MutationSnapshot CaptureMutationSnapshot()
-    {
-        List<BMSTableEntry> entrySnapshot = [.. (_entries ?? [])];
-        Dictionary<BMSTableEntry, BMSTableEntry.MutationState> entryStates = [];
-        foreach (BMSTableEntry entry in entrySnapshot.Where(entry => entry != null).Distinct())
-        {
-            entryStates.Add(entry, entry.CaptureMutationState());
-        }
-        return new MutationSnapshot(
-            this,
-            entrySnapshot,
-            entryStates,
-            _Folder_order == null ? null : [.. _Folder_order],
-            base.last_update,
-            PlaylistEntriesRevision);
-    }
-
-    /// <summary>
-    /// DB commit 前に失敗した operation の変更を、同じ object を保ったまま戻します。
-    /// </summary>
-    /// <param name="snapshot">この table から取得した補償用 snapshot。</param>
-    /// <param name="publishNotifications">
-    /// 復元時に property/folder cache 通知を発行するかどうか。
-    /// model lock 内の途中失敗では通知を遅らせ、DB failure 後の終端でのみ発行します。
-    /// </param>
-    internal void RestoreMutationSnapshot(MutationSnapshot snapshot, bool publishNotifications = true)
-    {
-        if (snapshot == null)
-        {
-            throw new ArgumentNullException(nameof(snapshot));
-        }
-        if (!ReferenceEquals(snapshot.Table, this))
-        {
-            throw new ArgumentException("Mutation snapshot belongs to another playlist table.", nameof(snapshot));
-        }
-
-        _entries = [.. snapshot.Entries];
-        foreach (BMSTableEntry entry in _entries.Where(entry => entry != null).Distinct())
-        {
-            if (snapshot.EntryStates.TryGetValue(entry, out BMSTableEntry.MutationState state))
-            {
-                state.Restore(entry, this);
-            }
-            else
-            {
-                entry.parent = this;
-            }
-        }
-        _Folder_order = snapshot.FolderOrder == null ? null : [.. snapshot.FolderOrder];
-        base.last_update = snapshot.LastUpdate;
-        RebuildFolderState(publishNotifications);
-        bool revisionChanged = _PlaylistEntriesRevision != snapshot.PlaylistEntriesRevision;
-        _PlaylistEntriesRevision = snapshot.PlaylistEntriesRevision;
-        if (publishNotifications)
-        {
-            RaisePropertyChanged("Folder_order");
-            if (revisionChanged)
-            {
-                RaisePropertyChanged(nameof(PlaylistEntriesRevision));
-            }
-        }
-    }
-
+    /// <summary>DB互換の明示順JSONを読み書きします。保存候補の符号化は未公開の候補順を使い、公開入力の取得とは分けます。</summary>
     public override string folder_order
     {
         get
         {
-            return new JArray(Folder_order).ToString(Formatting.Indented);
+            // DB保存候補は未公開のheaderも使うため、この保存属性だけは候補の明示順を読みます。
+            return new JArray(_Folder_order).ToString(Formatting.Indented);
         }
         set
         {
+            List<string> parsedOrder;
             try
             {
                 JArray val = ParseJson(value) as JArray ?? throw new FormatException("folder_order must be an array.");
@@ -172,27 +77,31 @@ public class BMSTable : LR2SongDBExtended.playlist
                 {
                     throw new FormatException("folder_order must contain only strings.");
                 }
-                Folder_order = [.. val.Select(token => token.Value<string>())];
+                parsedOrder = [.. val.Select(token => token.Value<string>())];
             }
-            catch
+            catch (Exception ex) when (ex is JsonException or FormatException or ArgumentNullException)
             {
+                return;
             }
+            Folder_order = parsedOrder;
         }
     }
 
-    public List<string> Folder_order
+    /// <summary>確定済みの明示フォルダ順を取得し、設定時は入力を所有して表示構成と一緒に公開します。</summary>
+    public IReadOnlyList<string> Folder_order
     {
         get
         {
-            return _Folder_order;
+            return Volatile.Read(ref folderState).Order;
         }
         set
         {
-            if (_Folder_order != value)
+            if ((_Folder_order == null) != (value == null)
+                || !(_Folder_order ?? []).SequenceEqual(value ?? [], StringComparer.Ordinal))
             {
-                _Folder_order = value;
-                RaisePropertyChanged("Folder_order");
+                _Folder_order = value == null ? null : value.ToImmutableArray();
                 RebuildFolderState();
+                RaisePropertyChanged("Folder_order");
             }
         }
     }
@@ -310,7 +219,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             uri = new Uri(value, uriKind);
             return true;
         }
-        catch (Exception ex)
+        catch (UriFormatException ex)
         {
             exception = ex;
             return false;
@@ -337,35 +246,41 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             return new Uri(rawValue, UriKind.RelativeOrAbsolute);
         }
-        catch (Exception ex)
+        catch (UriFormatException ex)
         {
             throw new InvalidOperationException("Failed to resolve playlist " + context + ". rawValue=" + rawValue, ex);
         }
     }
 
-    public List<BMSTableEntry> entries
+    /// <summary>
+    /// 確定済み行の構成を変更できない一覧です。行自体の参照と編集可能性は保持します。
+    /// 完成集合の取込み時に入力集合を一度だけ複写し、所属、正規化、フォルダ状態と読込版を揃えます。
+    /// 少数の追加・削除・改名は専用操作を使い、全件の再取込みを行いません。
+    /// </summary>
+    public IReadOnlyList<BMSTableEntry> entries
     {
         get
         {
-            return _entries;
+            return _entriesView;
         }
         internal set
         {
-            if (value == null)
-            {
-                _entries = [];
-                RebuildFolderState();
-                MarkEntriesLoadedCore();
-                return;
-            }
-            foreach (BMSTableEntry item in value)
+            List<BMSTableEntry> ownedEntries = value == null ? [] : [.. value];
+            foreach (BMSTableEntry item in ownedEntries)
             {
                 item.parent = this;
             }
-            _entries = normalizeEntries(value);
+            ReplaceEntriesCore(normalizeEntries(ownedEntries));
             RebuildFolderState();
             MarkEntriesLoadedCore();
         }
+    }
+
+    private void ReplaceEntriesCore(List<BMSTableEntry> ownedEntries)
+    {
+        _entries = ownedEntries.ToImmutableList();
+        _entriesView = _entries;
+        RebuildEntryMembership();
     }
 
     public PlaylistEntriesLoadState PlaylistEntriesLoadState
@@ -427,7 +342,7 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     internal void MarkEntriesNotLoaded()
     {
-        _entries = [];
+        ReplaceEntriesCore([]);
         EntriesLoadErrorMessage = string.Empty;
         PlaylistEntriesLoadState = PlaylistEntriesLoadState.NotLoaded;
         RebuildFolderState();
@@ -468,6 +383,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         base.last_update = GetNextLastUpdate(base.last_update);
     }
 
+    /// <summary>保存済みの出力名を単一名へ整形して取得・設定します。未指定または既定名と同じ指定は表名へ追従します。</summary>
     public string Output_dir
     {
         get
@@ -491,52 +407,27 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
+    /// <summary>表名からShift_JIS互換の単一出力名を作ります。</summary>
     internal static string CreateDefaultOutputDirectoryName(string name)
     {
         return NormalizeOutputDirectorySegment(name);
     }
 
+    /// <summary>保存済み値全体を一つの出力名へ整形します。区切りは除去し、相対要素をディレクトリ移動として解釈しません。</summary>
     internal static string NormalizeOutputDirectoryName(string value)
     {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
+        string normalized = NormalizeOutputDirectorySegment(value);
+        return string.IsNullOrWhiteSpace(normalized) ? null : normalized;
+    }
 
-        string[] segments = value.Trim()
-            .Split([Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar], StringSplitOptions.RemoveEmptyEntries);
-        if (segments.Length == 0)
-        {
-            return null;
-        }
-
-        var normalizedSegments = new List<string>(segments.Length);
-        foreach (string segment in segments)
-        {
-            string trimmedSegment = segment.Trim();
-            if (trimmedSegment == ".")
-            {
-                continue;
-            }
-            if (trimmedSegment == "..")
-            {
-                if (normalizedSegments.Count > 0)
-                {
-                    normalizedSegments.RemoveAt(normalizedSegments.Count - 1);
-                }
-                continue;
-            }
-
-            string normalizedSegment = NormalizeOutputDirectorySegment(trimmedSegment);
-            if (!string.IsNullOrWhiteSpace(normalizedSegment))
-            {
-                normalizedSegments.Add(normalizedSegment);
-            }
-        }
-
-        return normalizedSegments.Count == 0
-            ? null
-            : Path.Combine([.. normalizedSegments]);
+    /// <summary>新しい明示入力が単一名または既定名指定かを、サニタイズ前に検査します。保存済み値の読取りには適用しません。</summary>
+    internal static bool IsOutputDirectoryNameInputValid(string value)
+    {
+        string input = value?.Trim();
+        return string.IsNullOrEmpty(input)
+            || (input is not "." and not ".."
+                && input.IndexOfAny(['\\', '/']) < 0
+                && !Path.IsPathRooted(input));
     }
 
     private static string NormalizeOutputDirectorySegment(string value)
@@ -544,6 +435,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         return (value ?? string.Empty).Trim().ToSjisSchemeString().RemoveInvalidFileNameChars();
     }
 
+    /// <summary>明示値を単一名へ整形し、未指定または既定名と同じ場合は表名由来の出力名を返します。</summary>
     internal static string ResolveOutputDirectoryName(string name, string outputDir)
     {
         string defaultOutputDirectoryName = CreateDefaultOutputDirectoryName(name);
@@ -556,20 +448,15 @@ public class BMSTable : LR2SongDBExtended.playlist
         return defaultOutputDirectoryName;
     }
 
-    private List<string> _cached_folder_list;
-
-    private List<PlaylistFolderNode> _cached_folder_nodes;
-
     /// <summary>
     /// フォルダ名の並びを取得します。
-    /// UI の直接バインド元ではなく、互換処理や JSON 出力でも利用する派生値です。
+    /// 互換処理や JSON 出力が使う確定済みの不変入力であり、取得時に構築・複製しません。
     /// </summary>
-    public List<string> folder_list
+    public IReadOnlyList<string> folder_list
     {
         get
         {
-            EnsureFolderStateCache();
-            return _cached_folder_list;
+            return Volatile.Read(ref folderState).Names;
         }
         set
         {
@@ -579,14 +466,13 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     /// <summary>
     /// プレイリストツリー表示用のフォルダノード一覧を取得します。
-    /// 特殊ノードと通常フォルダの両方を含みます。
+    /// 特殊ノードと通常フォルダを含む確定済みの不変入力です。画面に渡した同じ構成を選択の出自として保持できます。
     /// </summary>
     public IReadOnlyList<PlaylistFolderNode> FolderNodes
     {
         get
         {
-            EnsureFolderStateCache();
-            return _cached_folder_nodes;
+            return Volatile.Read(ref folderState).Nodes;
         }
     }
 
@@ -595,7 +481,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     public BMSTable()
     {
         base.name = string.Empty;
-        _entries = [];
+        ReplaceEntriesCore([]);
         base.is_external_sync = false;
         base.is_root_folder = false;
         base.is_bmt_output = true;
@@ -617,48 +503,22 @@ public class BMSTable : LR2SongDBExtended.playlist
         LoadHeaderJSON(_header_json, _page_url_absolute, __header_url, _data_json);
     }
 
-    public Uri GetAbsoluteHeaderUrl()
+    /// <summary>保存されたPageを基点にHeader参照を解決します。</summary>
+    public Uri GetAbsoluteHeaderUrl() => ResolvePlaylistUri(Header_url, Page_url);
+
+    /// <summary>Header、Pageの順に基点を選びData参照を解決します。</summary>
+    public Uri GetAbsoluteDataUrl() => ResolvePlaylistUri(Data_url, GetAbsoluteHeaderUrl() ?? Page_url);
+
+    /// <summary>絶対参照を保持し、相対参照は絶対基点がある場合だけ解決します。基点なしは未解決です。</summary>
+    internal static Uri ResolvePlaylistUri(Uri value, Uri baseUri)
+        => value?.IsAbsoluteUri == true ? value : value != null && baseUri?.IsAbsoluteUri == true ? new Uri(baseUri, value) : null;
+
+    public string HeaderToJson(string outputDataUrl = null)
     {
-        if (Header_url != null)
-        {
-            if (Header_url.IsAbsoluteUri)
-            {
-                return Header_url;
-            }
-            if (Page_url != null)
-            {
-                return new Uri(Page_url, Header_url);
-            }
-        }
-        return null;
+        return CreateHeaderJson(outputDataUrl).ToString(Formatting.Indented);
     }
 
-    public Uri GetAbsoluteDataUrl()
-    {
-        if (Data_url != null)
-        {
-            if (Data_url.IsAbsoluteUri)
-            {
-                return Data_url;
-            }
-            if (GetAbsoluteHeaderUrl() != null)
-            {
-                return new Uri(GetAbsoluteHeaderUrl(), Data_url);
-            }
-            if (Page_url != null)
-            {
-                return new Uri(Page_url, Data_url);
-            }
-        }
-        return null;
-    }
-
-    public string HeaderToJson()
-    {
-        return CreateHeaderJson().ToString(Formatting.Indented);
-    }
-
-    private JObject CreateHeaderJson()
+    private JObject CreateHeaderJson(string outputDataUrl = null)
     {
         var val = new JObject();
         val["name"] = base.name;
@@ -668,7 +528,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         val["folder_sort_key"] = base.folder_sort_key.ToColumnName();
         val["folder_sort_ascending"] = base.folder_sort_ascending;
         val["entry_type"] = base.entry_type.ToStringName();
-        val["data_url"] = data_url;
+        val["data_url"] = string.IsNullOrWhiteSpace(data_url) ? outputDataUrl ?? data_url : data_url;
         if (!string.IsNullOrWhiteSpace(base.tag))
         {
             val["tag"] = base.tag;
@@ -680,10 +540,10 @@ public class BMSTable : LR2SongDBExtended.playlist
                 .Select(course => ParseJson(course.course_json)));
         }
         val["compat_prefix"] = base.compat_prefix;
-        val["last_update"] = base.last_update.ToShortDateString();
+        val["last_update"] = PlaylistJsonDate.Format(base.last_update);
         val["editor_name"] = "BeMusicSeeker";
         val["editor_version"] = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
-        val["output_date"] = DateTime.Now.ToShortDateString();
+        val["output_date"] = DateTime.Now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         return val;
     }
 
@@ -711,7 +571,21 @@ public class BMSTable : LR2SongDBExtended.playlist
         return val.ToString(Formatting.Indented);
     }
 
+    /// <summary>モデル直接読取りは固定日時文法を要求し、入力形式の失敗だけをヘッダー解析失敗へ変換します。</summary>
     public void LoadHeaderJSON(string _header_json, Uri _page_url_absolute = null, Uri __header_url = null, string _data_json = null, bool preserveLoadedCompatPrefix = false)
+        => LoadHeaderJSON(_header_json, PlaylistJsonDatePolicy.Strict, _page_url_absolute, __header_url, _data_json, preserveLoadedCompatPrefix);
+
+    /// <summary>操作元で確定した日時方針でheaderを読み、原文・未知キー・hashの計算を保持します。</summary>
+    /// <param name="_header_json">未加工のheader原文。</param>
+    /// <param name="datePolicy">ローカルJSON初回と外部再取得を区別した日時方針。</param>
+    /// <param name="_page_url_absolute">既存規則で保持するページURI。</param>
+    /// <param name="__header_url">相対参照の基準となるヘッダーURI。</param>
+    /// <param name="_data_json">同じ日時方針で同時に読む任意のdata原文。</param>
+    /// <param name="preserveLoadedCompatPrefix">既存表の互換接頭辞を維持するか。</param>
+    /// <param name="logDateWarning">既存診断窓口。省略時はFileLoggerへ通知します。</param>
+    /// <param name="dateContext">元指定・実文書URI・操作を追える一時診断文脈。</param>
+    internal void LoadHeaderJSON(string _header_json, PlaylistJsonDatePolicy datePolicy, Uri _page_url_absolute = null, Uri __header_url = null,
+        string _data_json = null, bool preserveLoadedCompatPrefix = false, Action<Exception, string> logDateWarning = null, string dateContext = null)
     {
         if (_header_json == null)
         {
@@ -720,132 +594,134 @@ public class BMSTable : LR2SongDBExtended.playlist
         _resolveDefaultCompatPrefixFolderOrderAfterDataLoad = false;
         _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = false;
         _loadedFolderOrderCompatPrefix = null;
+        JObject val;
         try
         {
-            JObject val = ParseJson(_header_json) as JObject ?? throw new FormatException("playlist header must be an object.");
-            LoadedRawHeaderSha256 = ComputeSha256Hex(_header_json);
-            base.header_sha256 = ComputeHeaderSha256Hex(_header_json);
-            LoadCourseJsonFromHeader(_header_json);
-            if (TryGetNonNullProperty(val, "name", out JToken nameToken))
-            {
-                string text = (base.org_name = nameToken.ToString());
-                base.name = text;
-            }
-            if (TryGetNonNullProperty(val, "symbol", out JToken symbolToken))
-            {
-                string text = (base.org_symbol = symbolToken.ToString());
-                base.symbol = text;
-            }
-            if (TryGetNonNullProperty(val, "tag", out JToken tagToken))
-            {
-                base.tag = tagToken.ToString();
-            }
-            if (TryGetNonNullProperty(val, "folder_sort_key", out JToken folderSortKeyToken))
-            {
-                base.folder_sort_key = CustomFolderSortTypeExt.FromColumnName(folderSortKeyToken.ToString());
-            }
-            if (val.TryGetValue("folder_sort_ascending", out JToken folderSortAscendingToken))
-            {
-                base.folder_sort_ascending = folderSortAscendingToken.Type == JTokenType.Boolean
-                    ? folderSortAscendingToken.Value<bool>()
-                    : true;
-            }
-            if (val.TryGetValue("entry_type", out JToken entryTypeToken))
-            {
-                if (entryTypeToken.Type == JTokenType.Null)
-                {
-                    throw new FormatException("entry_type must not be null.");
-                }
-                base.entry_type = EntryUnitTypeExt.FromStringName(entryTypeToken.ToString());
-            }
-            bool hasExplicitCompatPrefix = TryGetNonNullProperty(val, "compat_prefix", out JToken compatPrefixToken);
-            string explicitCompatPrefix = hasExplicitCompatPrefix ? compatPrefixToken.ToString() : null;
-            if (hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
-            {
-                base.compat_prefix = explicitCompatPrefix;
-            }
-            List<string> headerFolderOrder = null;
-            if (TryGetNonNullProperty(val, "last_update", out JToken lastUpdateToken) && !string.IsNullOrWhiteSpace(lastUpdateToken.ToString()))
-            {
-                try
-                {
-                    base.last_update = DateTime.Parse(lastUpdateToken.ToString());
-                }
-                catch
-                {
-                }
-            }
-            if (TryGetNonNullProperty(val, "folder_order", out JToken folderOrderToken))
-            {
-                try
-                {
-                    headerFolderOrder = [.. RequireStringArray(folderOrderToken)];
-                    Folder_order = headerFolderOrder;
-                    if (preserveLoadedCompatPrefix
-                        && hasExplicitCompatPrefix
-                        && !string.Equals(explicitCompatPrefix ?? string.Empty, base.compat_prefix ?? string.Empty, StringComparison.Ordinal))
-                    {
-                        _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = true;
-                        _loadedFolderOrderCompatPrefix = explicitCompatPrefix ?? string.Empty;
-                    }
-                }
-                catch
-                {
-                }
-            }
-            if (_page_url_absolute != null && _page_url_absolute.IsAbsoluteUri)
-            {
-                Page_url = _page_url_absolute;
-            }
-            if (__header_url != null)
-            {
-                Header_url = __header_url;
-            }
-            if (TryGetNonNullProperty(val, "data_url", out JToken dataUrlToken))
-            {
-                Data_url = ParsePlaylistUriOrThrow(dataUrlToken.ToString(), "data_url");
-            }
-            if (!hasExplicitCompatPrefix || !val.ContainsKey("folder_sort_key") || !val.ContainsKey("folder_sort_ascending"))
-            {
-                base.ignore_folder_output |= CustomFolderType.LevelFolder;
-                if (!hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
-                {
-                    base.compat_prefix = ResolveDefaultCompatibleFolderPrefix(base.tag, base.symbol);
-                }
-                if (val.TryGetValue("level_order", out JToken levelOrderToken))
-                {
-                    try
-                    {
-                        Folder_order = [.. RequireStringArray(levelOrderToken).Select(ConvertCompatibleLevelNameToFolderName)];
-                    }
-                    catch
-                    {
-                    }
-                }
-                else if (headerFolderOrder != null && !hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
-                {
-                    _resolveDefaultCompatPrefixFolderOrderAfterDataLoad = true;
-                }
-            }
+            val = ParseJson(_header_json) as JObject ?? throw new FormatException("playlist header must be an object.");
         }
-        catch (InvalidOperationException)
-        {
-            throw;
-        }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or FormatException)
         {
             throw new PlaylistHeaderParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistHeaderParseFailed, ex);
         }
-        if (_data_json != null)
+        LoadedRawHeaderSha256 = ComputeSha256Hex(_header_json);
+        base.header_sha256 = ComputeHeaderSha256Hex(_header_json);
+        LoadCourseJsonFromHeader(_header_json);
+        if (TryGetNonNullProperty(val, "name", out JToken nameToken))
+        {
+            string text = (base.org_name = nameToken.ToString());
+            base.name = text;
+        }
+        if (TryGetNonNullProperty(val, "symbol", out JToken symbolToken))
+        {
+            string text = (base.org_symbol = symbolToken.ToString());
+            base.symbol = text;
+        }
+        if (TryGetNonNullProperty(val, "tag", out JToken tagToken))
+        {
+            base.tag = tagToken.ToString();
+        }
+        if (TryGetNonNullProperty(val, "folder_sort_key", out JToken folderSortKeyToken))
+        {
+            base.folder_sort_key = CustomFolderSortTypeExt.FromColumnName(folderSortKeyToken.ToString());
+        }
+        if (val.TryGetValue("folder_sort_ascending", out JToken folderSortAscendingToken))
+        {
+            base.folder_sort_ascending = folderSortAscendingToken.Type == JTokenType.Boolean
+                ? folderSortAscendingToken.Value<bool>()
+                : true;
+        }
+        if (val.TryGetValue("entry_type", out JToken entryTypeToken))
+        {
+            if (entryTypeToken.Type == JTokenType.Null)
+            {
+                throw new PlaylistHeaderParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistHeaderParseFailed,
+                    new FormatException("entry_type must not be null."));
+            }
+            base.entry_type = EntryUnitTypeExt.FromStringName(entryTypeToken.ToString());
+        }
+        bool hasExplicitCompatPrefix = TryGetNonNullProperty(val, "compat_prefix", out JToken compatPrefixToken);
+        string explicitCompatPrefix = hasExplicitCompatPrefix ? compatPrefixToken.ToString() : null;
+        if (hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
+        {
+            base.compat_prefix = explicitCompatPrefix;
+        }
+        List<string> headerFolderOrder = null;
+        using var dateDiagnostics = new PlaylistJsonDate.Diagnostics("document=header table=" + JsonConvert.SerializeObject(base.name) + " " + dateContext, logDateWarning);
+        if (TryGetNonNullProperty(val, "last_update", out JToken lastUpdateToken))
         {
             try
             {
-                LoadDataJSON(_data_json);
+                DateTime? parsed = PlaylistJsonDate.Read(lastUpdateToken, "last_update", datePolicy, dateDiagnostics);
+                if (parsed.HasValue) { base.last_update = parsed.Value; }
             }
-            catch
+            catch (PlaylistJsonDateException ex)
             {
-                throw;
+                throw new PlaylistHeaderParseException(ex.Message, ex);
             }
+        }
+        if (TryGetNonNullProperty(val, "folder_order", out JToken folderOrderToken))
+        {
+            try
+            {
+                headerFolderOrder = [.. RequireStringArray(folderOrderToken)];
+            }
+            catch (FormatException)
+            {
+            }
+            if (headerFolderOrder != null)
+            {
+                Folder_order = headerFolderOrder;
+                if (preserveLoadedCompatPrefix
+                    && hasExplicitCompatPrefix
+                    && !string.Equals(explicitCompatPrefix ?? string.Empty, base.compat_prefix ?? string.Empty, StringComparison.Ordinal))
+                {
+                    _rewriteLoadedCompatPrefixFolderOrderAfterDataLoad = true;
+                    _loadedFolderOrderCompatPrefix = explicitCompatPrefix ?? string.Empty;
+                }
+            }
+        }
+        if (_page_url_absolute != null && _page_url_absolute.IsAbsoluteUri)
+        {
+            Page_url = _page_url_absolute;
+        }
+        if (__header_url != null)
+        {
+            Header_url = __header_url;
+        }
+        if (TryGetNonNullProperty(val, "data_url", out JToken dataUrlToken))
+        {
+            Data_url = ParsePlaylistUriOrThrow(dataUrlToken.ToString(), "data_url");
+        }
+        if (!hasExplicitCompatPrefix || !val.ContainsKey("folder_sort_key") || !val.ContainsKey("folder_sort_ascending"))
+        {
+            base.ignore_folder_output |= CustomFolderType.LevelFolder;
+            if (!hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
+            {
+                base.compat_prefix = ResolveDefaultCompatibleFolderPrefix(base.tag, base.symbol);
+            }
+            if (val.TryGetValue("level_order", out JToken levelOrderToken))
+            {
+                List<string> levelOrder = null;
+                try
+                {
+                    levelOrder = [.. RequireStringArray(levelOrderToken).Select(ConvertCompatibleLevelNameToFolderName)];
+                }
+                catch (FormatException)
+                {
+                }
+                if (levelOrder != null)
+                {
+                    Folder_order = levelOrder;
+                }
+            }
+            else if (headerFolderOrder != null && !hasExplicitCompatPrefix && !preserveLoadedCompatPrefix)
+            {
+                _resolveDefaultCompatPrefixFolderOrderAfterDataLoad = true;
+            }
+        }
+        if (_data_json != null)
+        {
+            LoadDataJSON(_data_json, datePolicy, logDateWarning, dateContext);
         }
         EnableExternalSync();
     }
@@ -865,27 +741,37 @@ public class BMSTable : LR2SongDBExtended.playlist
             : Lr2CompatibleFolderFallbackPrefix;
     }
 
-    public void LoadDataJSON(string _data_json)
+    /// <summary>表データを全行解析後に採用します。直接読取りは採用行の非空追加日を固定文法で検査します。</summary>
+    public void LoadDataJSON(string _data_json) => LoadDataJSON(_data_json, PlaylistJsonDatePolicy.Strict);
+
+    /// <summary>操作元の日時方針を全採用行に適用し、互換日時の不適合だけを省略します。他の解析失敗と全行採用の境界は保持します。</summary>
+    /// <param name="_data_json">hash計算にも使う未加工の原文。</param>
+    /// <param name="datePolicy">header解析前に確定した同じ日時方針。</param>
+    /// <param name="logDateWarning">文書内の全不適合値をまとめて渡す診断窓口。</param>
+    /// <param name="dateContext">元指定・実文書URI・操作の診断文脈。</param>
+    internal void LoadDataJSON(string _data_json, PlaylistJsonDatePolicy datePolicy, Action<Exception, string> logDateWarning = null, string dateContext = null)
     {
         if (_data_json == null)
         {
             throw new ArgumentNullException("_data_json");
         }
+        using var dateDiagnostics = new PlaylistJsonDate.Diagnostics("document=data table=" + JsonConvert.SerializeObject(base.name) + " " + dateContext, logDateWarning);
+        List<BMSTableEntry> parsedEntries;
         try
         {
             JArray val = ParseJson(_data_json) as JArray ?? throw new FormatException("playlist data must be an array.");
             base.data_sha256 = ComputeSha256Hex(_data_json);
-            entries = [.. val
-                .Select(token => token as JObject ?? throw new InvalidOperationException("playlist entry must be an object"))
-                .Select(json => new BMSTableEntry(json, this))
+            parsedEntries = [.. val
+                .Select((token, index) => new BMSTableEntry(token as JObject ?? throw new FormatException("playlist entry must be an object"), this, datePolicy, dateDiagnostics, index))
                 .Where(entry => PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(entry) != null)];
-            ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();
-            RewriteLoadedCompatPrefixFolderOrderAfterDataLoad();
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or FormatException or InvalidCastException or OverflowException)
         {
-            throw new PlaylistDataParseException(BeMusicSeeker.Properties.Resources.Error_PlaylistDataParseFailed, ex);
+            throw new PlaylistDataParseException(ex is PlaylistJsonDateException ? ex.Message : BeMusicSeeker.Properties.Resources.Error_PlaylistDataParseFailed, ex);
         }
+        entries = parsedEntries;
+        ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();
+        RewriteLoadedCompatPrefixFolderOrderAfterDataLoad();
     }
 
     private void ResolveDefaultCompatPrefixFolderOrderAfterDataLoad()
@@ -942,7 +828,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// <returns>特殊ノードを含まない、並び順適用後のフォルダ名一覧。</returns>
     private List<string> getSortedFolderList()
     {
-        return GetSortedFolderList(entries, Folder_order);
+        return GetSortedFolderList(activeFolderCounts.Keys.Select(key => key.Name), _Folder_order);
     }
 
     /// <summary>
@@ -992,48 +878,34 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// </summary>
     /// <param name="orderedFolderNames">表示順確定後の通常フォルダ名一覧。</param>
     /// <returns>プレイリストツリー表示用ノード一覧。</returns>
-    private List<PlaylistFolderNode> BuildFolderNodes(List<string> orderedFolderNames)
+    private static IReadOnlyList<PlaylistFolderNode> BuildFolderNodes(List<string> orderedFolderNames)
     {
         List<PlaylistFolderNode> list = [.. (from PlaylistFolderNodeSpecialKind kind in Enum.GetValues(typeof(PlaylistFolderNodeSpecialKind))
                                          where kind != PlaylistFolderNodeSpecialKind.None
                                          select PlaylistFolderNode.CreateSpecial(kind))];
         list.AddRange(orderedFolderNames.Select(folderName => PlaylistFolderNode.CreateFolder(folderName)));
-        return list;
+        return list.AsReadOnly();
     }
 
     /// <summary>
-    /// フォルダ状態に関する派生キャッシュを無効化します。
-    /// <see cref="folder_list"/> と <see cref="FolderNodes"/> は必ず同時に無効化します。
-    /// </summary>
-    private void InvalidateFolderStateCache()
-    {
-        _cached_folder_list = null;
-        _cached_folder_nodes = null;
-    }
-
-    /// <summary>
-    /// フォルダ状態キャッシュが未構築の場合に再計算します。
-    /// <see cref="_cached_folder_list"/> と <see cref="_cached_folder_nodes"/> の整合性をここで揃えます。
-    /// </summary>
-    private void EnsureFolderStateCache()
-    {
-        if (_cached_folder_list == null || _cached_folder_nodes == null)
-        {
-            List<string> sortedFolderList = getSortedFolderList();
-            _cached_folder_list = sortedFolderList;
-            _cached_folder_nodes = BuildFolderNodes(sortedFolderList);
-        }
-    }
-
-    /// <summary>
-    /// フォルダ状態の派生値を再構築し、関連プロパティ変更通知を発行します。
-    /// フォルダ構成が変わる更新経路は、このメソッドを通じて状態を同期します。
+    /// フォルダ状態を完成させて一度公開します。writer内の確定では通知を後段へ分離し、
+    /// 同じ表示順は再利用します。getterや選択受付へ構築を遅延しません。
     /// </summary>
     private void RebuildFolderState(bool publishNotifications = true)
     {
-        InvalidateFolderStateCache();
-        EnsureFolderStateCache();
-        if (publishNotifications)
+        FolderState previous = Volatile.Read(ref folderState);
+        List<string> sorted = getSortedFolderList();
+        bool namesChanged = !previous.Names.SequenceEqual(sorted, StringComparer.Ordinal);
+        IReadOnlyList<string> order = (_Folder_order == null) == (previous.Order == null)
+            && (_Folder_order ?? []).SequenceEqual(previous.Order ?? [], StringComparer.Ordinal)
+            ? previous.Order : _Folder_order;
+        if (namesChanged || !ReferenceEquals(order, previous.Order))
+        {
+            Volatile.Write(ref folderState, new FolderState(order,
+                namesChanged ? sorted.AsReadOnly() : previous.Names,
+                namesChanged ? BuildFolderNodes(sorted) : previous.Nodes));
+        }
+        if (publishNotifications && namesChanged)
         {
             RaisePropertyChanged("folder_list");
             RaisePropertyChanged("FolderNodes");
@@ -1047,14 +919,7 @@ public class BMSTable : LR2SongDBExtended.playlist
     /// <returns>現在の実フォルダ名セット。</returns>
     private HashSet<string> GetExistingFolderNameSet()
     {
-        return new HashSet<string>(from e in entries
-                                   where !e.is_removed
-                                   select e.folder, StringComparer.Ordinal);
-    }
-
-    internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
-    {
-        return RewriteCompatibleFolderPrefix(oldPrefix, newPrefix, out _);
+        return new HashSet<string>(activeFolderCounts.Keys.Select(key => key.Name), StringComparer.Ordinal);
     }
 
     internal bool CanRewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix)
@@ -1086,52 +951,6 @@ public class BMSTable : LR2SongDBExtended.playlist
         return folderMap;
     }
 
-    internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix, out IReadOnlyDictionary<string, string> rewrittenFolders)
-    {
-        CompatibleFolderPrefixRewritePlan rewritePlan = CreateCompatibleFolderPrefixRewritePlan(oldPrefix, newPrefix);
-        rewrittenFolders = rewritePlan.FolderMap;
-        return ApplyCompatibleFolderPrefixRewritePlan(rewritePlan);
-    }
-
-    internal CompatibleFolderPrefixRewritePlan CreateCompatibleFolderPrefixRewritePlan(string oldPrefix, string newPrefix)
-    {
-        IReadOnlyDictionary<string, string> folderMap = CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix);
-        var entryRewrites = new List<CompatibleFolderPrefixEntryRewrite>();
-        foreach (BMSTableEntry entry in entries ?? [])
-        {
-            if (entry != null && folderMap.TryGetValue(entry.folder ?? string.Empty, out string rewrittenFolder))
-            {
-                entryRewrites.Add(new CompatibleFolderPrefixEntryRewrite(entry, rewrittenFolder));
-            }
-        }
-        List<string> rewrittenFolderOrder = [.. (Folder_order ?? [])
-            .Select(folder => folderMap.TryGetValue(folder ?? string.Empty, out string rewrittenFolder) ? rewrittenFolder : folder)
-            .Distinct(StringComparer.Ordinal)];
-        return new CompatibleFolderPrefixRewritePlan(folderMap, entryRewrites, rewrittenFolderOrder);
-    }
-
-    internal bool ApplyCompatibleFolderPrefixRewritePlan(CompatibleFolderPrefixRewritePlan rewritePlan)
-    {
-        if (rewritePlan == null)
-        {
-            throw new ArgumentNullException(nameof(rewritePlan));
-        }
-        IReadOnlyDictionary<string, string> folderMap = rewritePlan.FolderMap;
-        if (folderMap.Count == 0)
-        {
-            return false;
-        }
-
-        foreach (CompatibleFolderPrefixEntryRewrite entryRewrite in rewritePlan.EntryRewrites)
-        {
-            entryRewrite.Entry.folder = entryRewrite.RewrittenFolder;
-        }
-        Folder_order = [.. rewritePlan.RewrittenFolderOrder];
-        RebuildFolderState();
-        TouchPlaylistEntriesRevision();
-        return true;
-    }
-
     private Dictionary<string, string> CreateCompatibleFolderPrefixRewriteMapCore(string oldPrefix, string newPrefix)
     {
         var map = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -1148,9 +967,9 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     private IEnumerable<string> EnumerateCompatibleFolderPrefixRewriteSourceFolders()
     {
-        return (entries ?? [])
-            .Select(entry => entry?.folder ?? string.Empty)
-            .Concat((Folder_order ?? []).Select(folder => folder ?? string.Empty))
+        return entriesByFolder.Keys
+            .Select(key => key.Name ?? string.Empty)
+            .Concat((_Folder_order ?? []).Select(folder => folder ?? string.Empty))
             .Distinct(StringComparer.Ordinal);
     }
 
@@ -1181,18 +1000,11 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
-    public bool EnableExternalSync()
-    {
-        if (Page_url != null && Page_url.Scheme == "bmseeker")
-        {
-            return base.is_external_sync = true;
-        }
-        if (Header_url != null && Data_url != null && ((Page_url != null && Page_url.IsAbsoluteUri) || Header_url.IsAbsoluteUri))
-        {
-            return base.is_external_sync = true;
-        }
-        return base.is_external_sync = false;
-    }
+    /// <summary>優先取得元Page、未指定時Headerが絶対URIなら、URIを補わず取得を開始できます。</summary>
+    internal static bool CanStartExternalSync(Uri page, Uri header) => (page ?? header)?.IsAbsoluteUri == true;
+
+    /// <summary>既存の取得優先順で開始可能な場合だけ外部同期を有効にします。</summary>
+    public bool EnableExternalSync() => base.is_external_sync = CanStartExternalSync(Page_url, Header_url);
 
     public bool DisableExternalSync()
     {
@@ -1201,30 +1013,10 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     public void RenameFolder(string folderNameBefore, string folderNameAfter)
     {
-        foreach (BMSTableEntry entry in entries)
-        {
-            if (entry.folder == folderNameBefore)
-            {
-                entry.folder = folderNameAfter;
-            }
-        }
-        _entries = rebuildFolder(folderNameAfter);
-        if (string.IsNullOrWhiteSpace(folderNameAfter))
-        {
-            if (entries.Any(e => string.IsNullOrWhiteSpace(e.folder) && e.md5 != "00000000000000000000000000000000") && !Folder_order.Contains(string.Empty))
-            {
-                Folder_order.Insert(0, string.Empty);
-            }
-            Folder_order = [.. Folder_order.Where(f => f != folderNameBefore)];
-        }
-        else
-        {
-            Folder_order = [.. Folder_order.Select(f => (!(f == folderNameBefore)) ? f : folderNameAfter).Distinct()];
-        }
-        TouchLastUpdate();
-        TouchPlaylistEntriesRevision();
+        EntryMutation mutation = PrepareFolderRename(folderNameBefore, folderNameAfter);
+        ApplyEntryMutation(mutation);
+        if (mutation.HasChanges) { PublishEntryCommitProperties(membershipChanged: true); }
     }
-
     public void RemoveFolder(string folderNameDelete)
     {
         RenameFolder(folderNameDelete, string.Empty);
@@ -1266,7 +1058,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         var bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
         bMSTableEntry.parent = this;
         bMSTableEntry.folder = text;
-        _entries.Add(bMSTableEntry);
+        AppendEntry(bMSTableEntry);
         TouchLastUpdate();
         RebuildFolderState();
         TouchPlaylistEntriesRevision();
@@ -1285,85 +1077,16 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             throw new ArgumentNullException(nameof(bmsEntries));
         }
-        List<BMSTableEntry> entriesToAdd = [.. bmsEntries];
-        if (entriesToAdd.Count == 0)
-        {
-            return;
-        }
-        bool shouldRebuildFolderState = !GetExistingFolderNameSet().Contains(folderName);
-        foreach (BMSTableEntry entryToAdd in entriesToAdd)
-        {
-            entryToAdd.folder = folderName;
-            entryToAdd.parent = this;
-        }
-        _entries = rebuildFolder(folderName, entries.Concat(entriesToAdd));
-        TouchLastUpdate();
-        if (shouldRebuildFolderState)
-        {
-            RebuildFolderState();
-        }
-        TouchPlaylistEntriesRevision();
+        EntryMutation mutation = PrepareEntryMutation([], [.. bmsEntries.Select(entry => (entry, folderName))]);
+        ApplyEntryMutation(mutation);
     }
 
+    /// <summary>対象参照だけを除去し、空になった非ルートフォルダのダミーを同じ局所変更で補います。</summary>
     public void RemoveBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries)
     {
-        List<string> source = [.. bmsEntries.Select(e => e.folder).Distinct()];
-        _entries = [.. entries.Except(bmsEntries)];
-        bool flag = false;
-        foreach (string item in source.Where(f => _entries.Where(e => e.folder == f).Count() == 0))
-        {
-            if (string.IsNullOrWhiteSpace(item))
-            {
-                flag = true;
-                continue;
-            }
-            var bMSTableEntry = BMSTableEntry.CreateDummyBMSTableEntry();
-            bMSTableEntry.parent = this;
-            bMSTableEntry.folder = item;
-            _entries.Add(bMSTableEntry);
-        }
-        if (flag)
-        {
-            RebuildFolderState();
-        }
-        TouchLastUpdate();
-        TouchPlaylistEntriesRevision();
+        EntryMutation mutation = PrepareEntryMutation([.. bmsEntries], []);
+        ApplyEntryMutation(mutation);
     }
-
-    private List<BMSTableEntry> rebuildFolder(string folderName, IEnumerable<BMSTableEntry> inputEntries = null)
-    {
-        inputEntries ??= entries;
-        List<BMSTableEntry> list = [.. inputEntries.Where(e => e.folder == folderName)];
-        IEnumerable<IGrouping<string, BMSTableEntry>> source = list.GroupBy(delegate (BMSTableEntry e)
-        {
-            string text = string.Empty;
-            if (!string.IsNullOrWhiteSpace(e.md5))
-            {
-                text += e.md5;
-            }
-            else if (!string.IsNullOrWhiteSpace(e.sha256))
-            {
-                text += e.sha256;
-            }
-            else if (!string.IsNullOrWhiteSpace(e.lr2_bmsid))
-            {
-                text += e.lr2_bmsid;
-            }
-            else if (!string.IsNullOrWhiteSpace(e.title))
-            {
-                text += e.title;
-            }
-            return text;
-        });
-        List<BMSTableEntry> second = [.. list.Except(source.Select(g => g.First()))];
-        List<BMSTableEntry> second2 = [];
-        if ((list.Count > 1 || folderName == string.Empty) && list.Any(e => e.md5 == "00000000000000000000000000000000"))
-        {
-            second2 = [.. list.Where(e => e.md5 == "00000000000000000000000000000000")];
-        }
-        return [.. inputEntries.Except(second).Except(second2)];
-    }
-
     private List<BMSTableEntry> normalizeEntries(List<BMSTableEntry> inputEntries)
     {
         if (inputEntries.Count == 0)
@@ -1386,7 +1109,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 value = new FolderNormalizeState();
                 dictionary[inputEntry.folder] = value;
             }
-            value.Count++;
+            if (!inputEntry.is_removed && inputEntry.md5 != BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER) { value.Count++; }
             if (!value.SeenKeys.Add(getEntryIdentityKey(inputEntry)))
             {
                 hashSet ??= [];
@@ -1398,7 +1121,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             }
         }
         addDummyRemovalTargets(dictionary, ref hashSet);
-        if (folderNormalizeState != null && folderNormalizeState.DummyEntries.Count > 0 && folderNormalizeState.Count > 1)
+        if (folderNormalizeState != null && folderNormalizeState.DummyEntries.Count > 0 && folderNormalizeState.Count > 0)
         {
             hashSet ??= [];
             foreach (BMSTableEntry dummyEntry in folderNormalizeState.DummyEntries)
@@ -1418,7 +1141,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         foreach (KeyValuePair<string, FolderNormalizeState> item in statesByFolder)
         {
             FolderNormalizeState value = item.Value;
-            if (value.DummyEntries.Count > 0 && (value.Count > 1 || item.Key == string.Empty))
+            if (value.DummyEntries.Count > 0 && (value.Count > 0 || item.Key == string.Empty))
             {
                 removalSet ??= [];
                 foreach (BMSTableEntry dummyEntry in value.DummyEntries)
@@ -1429,7 +1152,8 @@ public class BMSTable : LR2SongDBExtended.playlist
         }
     }
 
-    private static string getEntryIdentityKey(BMSTableEntry entry)
+    /// <summary>保存所属の重複判定に共用する、元entryのMD5・SHA・LR2 ID・タイトル優先のキーです。</summary>
+    internal static string getEntryIdentityKey(BMSTableEntry entry)
     {
         if (!string.IsNullOrWhiteSpace(entry.md5))
         {
@@ -1490,7 +1214,7 @@ public class BMSTable : LR2SongDBExtended.playlist
                 });
             }
         }
-        catch
+        catch (Exception ex) when (ex is JsonException or FormatException)
         {
             _Courses = [];
         }
@@ -1523,7 +1247,10 @@ public class BMSTable : LR2SongDBExtended.playlist
             throw new FormatException("JSON value must be an array of primitive values.");
         }
 
-        return array.Select(token => token.ToString());
+        // 数値は本文levelと同じ機械表記に揃え、文字列など既存primitiveの受理範囲は維持します。
+        return array.Select(token => token.Type is JTokenType.Integer or JTokenType.Float
+            ? Convert.ToString(((JValue)token).Value, System.Globalization.CultureInfo.InvariantCulture)
+            : token.ToString());
     }
 
     private static IEnumerable<JObject> EnumerateCourseObjects(JToken token)
@@ -1555,7 +1282,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             return ParseJson(json).ToString(Formatting.None);
         }
-        catch
+        catch (JsonException)
         {
             return null;
         }
@@ -1596,7 +1323,7 @@ public class BMSTable : LR2SongDBExtended.playlist
             header.Remove("compat_prefix");
             return ComputeSha256Hex(header.ToString(Formatting.None));
         }
-        catch
+        catch (Exception ex) when (ex is JsonException or FormatException)
         {
             return ComputeSha256Hex(headerJson);
         }
@@ -1609,36 +1336,4 @@ public class BMSTable : LR2SongDBExtended.playlist
             : folderName.ReplaceFromStart(sourceCompatPrefix, string.Empty);
         return (targetCompatPrefix ?? string.Empty) + compatibleLevel;
     }
-}
-
-internal sealed class CompatibleFolderPrefixRewritePlan
-{
-    internal CompatibleFolderPrefixRewritePlan(
-        IReadOnlyDictionary<string, string> folderMap,
-        IReadOnlyList<CompatibleFolderPrefixEntryRewrite> entryRewrites,
-        IReadOnlyList<string> rewrittenFolderOrder)
-    {
-        FolderMap = folderMap ?? throw new ArgumentNullException(nameof(folderMap));
-        EntryRewrites = entryRewrites ?? throw new ArgumentNullException(nameof(entryRewrites));
-        RewrittenFolderOrder = rewrittenFolderOrder ?? throw new ArgumentNullException(nameof(rewrittenFolderOrder));
-    }
-
-    internal IReadOnlyDictionary<string, string> FolderMap { get; }
-
-    internal IReadOnlyList<CompatibleFolderPrefixEntryRewrite> EntryRewrites { get; }
-
-    internal IReadOnlyList<string> RewrittenFolderOrder { get; }
-}
-
-internal sealed class CompatibleFolderPrefixEntryRewrite
-{
-    internal CompatibleFolderPrefixEntryRewrite(BMSTableEntry entry, string rewrittenFolder)
-    {
-        Entry = entry ?? throw new ArgumentNullException(nameof(entry));
-        RewrittenFolder = rewrittenFolder ?? string.Empty;
-    }
-
-    internal BMSTableEntry Entry { get; }
-
-    internal string RewrittenFolder { get; }
 }

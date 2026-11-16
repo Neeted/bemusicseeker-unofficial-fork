@@ -17,6 +17,7 @@ internal sealed class PlayHistoryPresentationState
     internal CancellationTokenSource RequestCancellation;
     internal long KeywordRevision;
     internal long DisplayTargetRevision;
+    /// <summary>現在要求の再絞込みに使う変換済み表示。未採用の候補も含みます。</summary>
     internal PlayHistoryViewState CurrentView;
     internal SortSnapshot CurrentSortSnapshot;
     internal string CurrentKeywordIdentity = string.Empty;
@@ -24,6 +25,8 @@ internal sealed class PlayHistoryPresentationState
     internal IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree = [];
     internal IReadOnlyList<PlayHistorySummaryCard> SummaryCards = [];
     internal string DiagnosticText = string.Empty;
+    /// <summary>採用済み終端の再整形に必要な小集計だけです。rawや行集合は保持しません。</summary>
+    internal PlayHistoryAdoptedSummary AdoptedSummary;
 
     internal bool IsFresh(PlayHistoryViewState state)
     {
@@ -70,6 +73,7 @@ internal sealed class PlayHistoryPresentationState
         return true;
     }
 
+    /// <summary>現在要求の行・関連表示の採用が成功したときだけ、言語再整形用の小集計を更新します。未採用候補の行は追加保持しません。</summary>
     internal bool TryCommitTerminal(
         PlayHistoryTerminalRequest request,
         PlayHistoryTerminalCommitResult result,
@@ -90,7 +94,17 @@ internal sealed class PlayHistoryPresentationState
 
         lock (SyncRoot)
         {
-            if (!IsFresh(request.ViewState))
+            if (request.ViewState == null)
+            {
+                PlayHistoryViewRequest failed = request.FailedViewRequest;
+                if (failed == null || failed.RequestId <= 0 || failed.RequestId != RequestGeneration
+                    || failed.KeywordFilterRevision != KeywordRevision
+                    || failed.DisplayTargetRevision != DisplayTargetRevision)
+                {
+                    return false;
+                }
+            }
+            else if (!IsFresh(request.ViewState))
             {
                 return false;
             }
@@ -116,6 +130,12 @@ internal sealed class PlayHistoryPresentationState
             }
 
             CurrentView = request.ViewState;
+            AdoptedSummary = request.ViewState == null
+                ? new PlayHistoryAdoptedSummary(null, default, [], true)
+                : new PlayHistoryAdoptedSummary(
+                    request.PeriodSummary ?? PlayHistoryPeriodSummary.FromRows(
+                        request.ViewState.ProjectedRows, request.ViewState.SummaryOverride),
+                    request.ViewState.Provider, request.SummaryDiagnostics ?? request.ViewState.Diagnostics, false);
             result.Applied = true;
             return true;
         }
@@ -196,65 +216,37 @@ internal sealed class PlayHistoryPresentationState
             && left.FinalizationFilter == right.FinalizationFilter;
     }
 
-    internal static string FormatGridSummaryText(
-        PlayHistoryPeriodRequest request,
-        PlayHistoryPeriodSummary summary,
-        IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
-    {
-        return FormatGridSummaryText(request, summary, diagnostics, FormatDiagnosticSummary(diagnostics));
-    }
-
-    internal static string FormatGridSummaryText(
-        PlayHistoryPeriodRequest request,
-        PlayHistoryPeriodSummary summary,
-        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
-        string diagnosticSummary)
-    {
-        summary ??= PlayHistoryPeriodSummary.FromRows(request?.Label ?? string.Empty, []);
-        int diagnosticsCount = diagnostics?.Count ?? 0;
-        string baseText = string.Format(
-            BeMusicSeeker.Properties.Resources.Play_history_summary_format,
-            request?.Label ?? string.Empty,
-            summary.RowCount,
-            summary.ScoreUpdateCount,
-            summary.ClearUpdateCount,
-            summary.NewFullComboCount,
-            FormatDuration(summary),
-            diagnosticsCount);
-        return string.IsNullOrWhiteSpace(diagnosticSummary)
-            ? baseText
-            : baseText + " / " + diagnosticSummary;
-    }
-
+    /// <summary>期間集計を既存カードへ渡し、FCカードにはFC・PERFECT・MAXへのクリア更新を対応付けます。</summary>
     internal static IReadOnlyList<PlayHistorySummaryCard> CreateSummaryCards(
         PlayHistoryPeriodSummary summary,
         PlayHistoryProvider provider,
         HashSet<string> selectedFilterKeys = null)
     {
-        summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
+        summary ??= PlayHistoryPeriodSummary.FromRows([]);
         selectedFilterKeys ??= [];
         List<PlayHistorySummaryCard> cards =
         [
             CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, FormatCount(summary.JudgeCount, summary.JudgeCountAvailable), selectedFilterKeys),
             CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, FormatCount(summary.FinalizedCount, summary.PlayCountAvailable), selectedFilterKeys),
             CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatDuration(summary), selectedFilterKeys),
-            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "score"),
-            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "bp"),
-            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "combo"),
-            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "clear"),
-            CreateSummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "assist"),
-            CreateSummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "easy"),
-            CreateSummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "normal"),
-            CreateSummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "hard")
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, filterKey: "score"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, filterKey: "bp"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, filterKey: "combo"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, filterKey: "clear"),
+            CreateSummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "assist"),
+            CreateSummaryCard("EASY", summary.EasyClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "easy"),
+            CreateSummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "normal"),
+            CreateSummaryCard("HARD", summary.HardClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "hard")
         ];
         if (provider == PlayHistoryProvider.Beatoraja)
         {
-            cards.Add(CreateSummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "exhard"));
+            cards.Add(CreateSummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "exhard"));
         }
-        cards.Add(CreateSummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "fc"));
+        cards.Add(CreateSummaryCard("FC", summary.FullComboClearUpdateCount.ToString("0", CultureInfo.InvariantCulture), selectedFilterKeys, compact: true, filterKey: "fc"));
         return cards;
     }
 
+    /// <summary>選択キーに対応する、集計カードと共通の検索条件を取得します。</summary>
     internal static IReadOnlyList<string> GetSummaryFilterTexts(HashSet<string> selectedKeys)
     {
         if (selectedKeys == null || selectedKeys.Count == 0)
@@ -325,7 +317,7 @@ internal sealed class PlayHistoryPresentationState
             new PlayHistorySummaryFilterDefinition("normal", "type:clear newclear:NC"),
             new PlayHistorySummaryFilterDefinition("hard", "type:clear newclear:HC"),
             new PlayHistorySummaryFilterDefinition("exhard", "type:clear newclear:EXH"),
-            new PlayHistorySummaryFilterDefinition("fc", "type:clear newclear:FC|PF")
+            new PlayHistorySummaryFilterDefinition("fc", "type:clear newclear:FC|PF|MAX")
         ];
     }
 
@@ -353,7 +345,7 @@ internal sealed class PlayHistoryPresentationState
     private static string FormatCount(long count, bool available)
     {
         return available
-            ? count.ToString("N0", CultureInfo.CurrentCulture)
+            ? count.ToString("0", CultureInfo.InvariantCulture)
             : "-";
     }
 
@@ -373,7 +365,13 @@ internal sealed class PlayHistoryPresentationState
 
 internal sealed class PlayHistoryTerminalRequest
 {
+    /// <summary>採用時の言語再整形に渡す、行を保持しない集計入力です。</summary>
+    internal PlayHistoryPeriodSummary PeriodSummary { get; set; }
+    /// <summary>採用時の整列診断を含む、小集計の再整形入力です。</summary>
+    internal IReadOnlyList<PlayHistoryDiagnostic> SummaryDiagnostics { get; set; }
     internal PlayHistoryViewState ViewState { get; set; }
+    /// <summary>失敗表示終端の要求IDと表示条件の版を捕捉し、同じ条件へ戻った後も古い失敗を確定しません。</summary>
+    internal PlayHistoryViewRequest FailedViewRequest { get; set; }
     internal MainChartListRowsApplyRequest MainRowsRequest { get; set; }
 
     internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
@@ -382,6 +380,10 @@ internal sealed class PlayHistoryTerminalRequest
     internal IReadOnlyList<PlayHistorySummaryCard> SummaryCards { get; set; }
     internal string DiagnosticText { get; set; }
 }
+
+/// <summary>採用成功後だけ保持する表示集計です。未採用CurrentViewからの整形を防ぎます。</summary>
+internal sealed record PlayHistoryAdoptedSummary(PlayHistoryPeriodSummary Summary, PlayHistoryProvider Provider,
+    IReadOnlyList<PlayHistoryDiagnostic> Diagnostics, bool Failed);
 
 internal sealed class PlayHistoryTerminalCommitResult
 {
@@ -499,6 +501,7 @@ internal sealed class PlayHistoryTerminalPublishException : Exception
 
 internal sealed class PlayHistoryViewState
 {
+    /// <summary>同じ期間の行を再絞込みするため、変換済み行と表示条件を捕捉します。</summary>
     internal PlayHistoryViewState(
         long requestId,
         PlayHistoryPeriodRequest periodRequest,

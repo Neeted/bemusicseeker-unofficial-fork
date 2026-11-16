@@ -14,21 +14,18 @@ internal sealed class MainWindowProgressStatusBarTerminals
 
     private readonly Action cancelMaintenanceRescan;
 
-    private readonly Action retryLr2Sync;
 
     /// <summary>
-    /// 行ごとの取消・再試行先を初期化します。
+    /// 行ごとの取消先を初期化します。
     /// </summary>
     /// <param name="cancelInstallPipeline">
     /// 導入行が所有するパッケージ導入を取り消します。
     /// </param>
     /// <param name="cancelMaintenanceRescan">保守再検査の取消先。</param>
-    /// <param name="retryLr2Sync">LR2同期の再試行先。</param>
     /// <param name="cancelPlaylistUrlDownload">URL取得の取消先。</param>
     internal MainWindowProgressStatusBarTerminals(
         Action cancelInstallPipeline,
         Action cancelMaintenanceRescan,
-        Action retryLr2Sync,
         Action cancelPlaylistUrlDownload)
     {
         this.cancelPlaylistUrlDownload = cancelPlaylistUrlDownload
@@ -37,8 +34,6 @@ internal sealed class MainWindowProgressStatusBarTerminals
             ?? throw new ArgumentNullException(nameof(cancelInstallPipeline));
         this.cancelMaintenanceRescan = cancelMaintenanceRescan
             ?? throw new ArgumentNullException(nameof(cancelMaintenanceRescan));
-        this.retryLr2Sync = retryLr2Sync
-            ?? throw new ArgumentNullException(nameof(retryLr2Sync));
     }
 
     /// <summary>
@@ -54,7 +49,6 @@ internal sealed class MainWindowProgressStatusBarTerminals
             case OperationProgressAction.CancelInstall: cancelInstallPipeline(); break;
             case OperationProgressAction.CancelUrlDownload: cancelPlaylistUrlDownload(); break;
             case OperationProgressAction.CancelMaintenance: cancelMaintenanceRescan(); break;
-            case OperationProgressAction.RetryLr2: retryLr2Sync(); break;
         }
     }
 
@@ -62,11 +56,6 @@ internal sealed class MainWindowProgressStatusBarTerminals
     /// 保守再検査を既存の管理主体で取り消します。
     /// </summary>
     internal void CancelMaintenanceRescan() => cancelMaintenanceRescan();
-
-    /// <summary>
-    /// LR2同期を既存の管理主体で再試行します。
-    /// </summary>
-    internal void RetryLr2Sync() => retryLr2Sync();
 
     /// <summary>
     /// 実際の管理主体に各行の操作を接続します。
@@ -79,8 +68,7 @@ internal sealed class MainWindowProgressStatusBarTerminals
         return CreateCore(
             viewModel.PlaylistWorkspace.CancelPlaylistUrlDownload,
             viewModel.PackageInstallWorkflow.CancelAll,
-            viewModel.MaintenanceRescanWorkflow.Cancel,
-            viewModel.Lr2SongDbSyncWorkflow.RequestStatusBarRetry);
+            viewModel.MaintenanceRescanWorkflow.Cancel);
     }
 
     /// <summary>
@@ -89,23 +77,19 @@ internal sealed class MainWindowProgressStatusBarTerminals
     /// <param name="cancelPlaylistUrlDownload">URL取得の取消先。</param>
     /// <param name="cancelPackageInstall">パッケージ導入の取消先。</param>
     /// <param name="cancelMaintenanceRescan">保守再検査の取消先。</param>
-    /// <param name="retryLr2Sync">LR2同期の再試行先。</param>
     /// <returns>各操作を一度だけ届ける行固有の操作先。</returns>
     internal static MainWindowProgressStatusBarTerminals CreateCore(
         Action cancelPlaylistUrlDownload,
         Action cancelPackageInstall,
-        Action cancelMaintenanceRescan,
-        Action retryLr2Sync)
+        Action cancelMaintenanceRescan)
     {
         ArgumentNullException.ThrowIfNull(cancelPlaylistUrlDownload);
         ArgumentNullException.ThrowIfNull(cancelPackageInstall);
         ArgumentNullException.ThrowIfNull(cancelMaintenanceRescan);
-        ArgumentNullException.ThrowIfNull(retryLr2Sync);
 
         return new MainWindowProgressStatusBarTerminals(
             cancelPackageInstall,
             cancelMaintenanceRescan,
-            retryLr2Sync,
             cancelPlaylistUrlDownload);
     }
 }

@@ -5,13 +5,14 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class SongTableLoadResult
 {
+    /// <summary>同じFull読込みで補正・確定した全folderの全列を、当該操作の走査反映へだけ渡します。UIの常駐状態へ公開しません。</summary>
+    internal Lr2FolderTableSnapshot FolderTableSnapshot { get; set; }
+
     public List<string> Pragmas { get; } = [];
 
-    public List<BMSFile> LoadedFiles { get; } = [];
+    public List<ChartFile> LoadedFiles { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> LoadedBmsonSongs { get; } = [];
-
-    public List<BMSFile> UpdatedSongs { get; } = [];
+    public List<ChartFile> LoadedBmsonSongs { get; } = [];
 
     public List<string> DeletedSongPaths { get; } = [];
 
@@ -24,13 +25,6 @@ internal sealed class SongTableLoadResult
     public bool DbWriteRequired { get; set; }
 
     public bool LeapYearDetected { get; set; }
-
-    /// <summary>
-    /// Folder timestamp observations captured during the single folder-table
-    /// normalization loop.  Consumers must revalidate only approved entries
-    /// after mutation admission.
-    /// </summary>
-    public List<LeapYearFolderRepairCandidate> LeapYearRepairCandidates { get; } = [];
 
     public int RelativePathFixedCount { get; set; }
 

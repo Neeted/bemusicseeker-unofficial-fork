@@ -1,80 +1,21 @@
-using System;
-using System.Diagnostics;
-using System.Threading;
 using SQLite;
 
 namespace BeMusicSeeker.Models.LR2;
 
 public sealed class LR2ScoreDBExtended : LR2ScoreDB
 {
-    private bool doNotUnlock;
-
-    private static readonly object lockObject = new();
-
-    public static bool Lock(TimeSpan timespan)
-    {
-        if (Monitor.IsEntered(lockObject))
-        {
-            return true;
-        }
-        bool lockTaken = false;
-        Monitor.TryEnter(lockObject, timespan, ref lockTaken);
-        return lockTaken;
-    }
-
-    public static void Unlock()
-    {
-        if (Monitor.IsEntered(lockObject))
-        {
-            Monitor.Exit(lockObject);
-        }
-    }
-
-    public LR2ScoreDBExtended(string dbPath)
-        : base(dbPath)
-    {
-        AcquireProcessLock();
-        base.BusyTimeout = new TimeSpan(0, 0, 60);
-    }
-
-    internal LR2ScoreDBExtended(string dbPath, SQLiteOpenFlags openFlags, bool acquireProcessLock)
-        : base(dbPath, openFlags)
+    /// <summary>ownerが取得した接続leaseとgate待機時間を受け取り、設定とパス検査はfactoryへ委ねます。</summary>
+    internal LR2ScoreDBExtended(string dbPath, SQLiteOpenFlags openFlags,
+        ApplicationDatabaseScope.ConnectionLease lease, long processLockWaitMs)
+        : base(dbPath, openFlags, lease)
     {
         IsReadOnlyConnection = (openFlags & SQLiteOpenFlags.ReadOnly) == SQLiteOpenFlags.ReadOnly;
-        if (acquireProcessLock)
-        {
-            AcquireProcessLock();
-        }
-        else
-        {
-            doNotUnlock = true;
-        }
-        base.BusyTimeout = new TimeSpan(0, 0, 60);
+        ProcessLockWaitMs = processLockWaitMs;
     }
 
+    /// <summary>この接続が読取り専用で開かれたかを表します。</summary>
     public bool IsReadOnlyConnection { get; }
 
-    public long ProcessLockWaitMs { get; private set; }
-
-    private void AcquireProcessLock()
-    {
-        if (Monitor.IsEntered(lockObject))
-        {
-            doNotUnlock = true;
-            return;
-        }
-        var stopwatch = Stopwatch.StartNew();
-        Monitor.Enter(lockObject);
-        stopwatch.Stop();
-        ProcessLockWaitMs = stopwatch.ElapsedMilliseconds;
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (Monitor.IsEntered(lockObject) && !doNotUnlock)
-        {
-            Monitor.Exit(lockObject);
-        }
-        base.Dispose(disposing);
-    }
+    /// <summary>ownerの同種別write gateの取得に要した時間です。読取り専用接続では0です。</summary>
+    public long ProcessLockWaitMs { get; }
 }

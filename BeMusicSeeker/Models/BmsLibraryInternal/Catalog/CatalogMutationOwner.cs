@@ -10,13 +10,11 @@ using BeMusicSeeker.Properties;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Owns canonical catalog storage-row and owned-collection mutations.
-/// Consumer cache and presentation effects remain composed by <see cref="BMSLibrary"/>.
+/// DB確定と共通の所持現在値の適用を管理します。
+/// 利用側のキャッシュ・表示への効果は <see cref="BMSLibrary"/> が解放後に接続します。
 /// </summary>
 internal sealed class CatalogMutationOwner
 {
-    private readonly CatalogStorageRowsOwner storageRowsOwner;
-
     private readonly CatalogOwnedCollectionOwner ownedCollectionOwner;
 
     private readonly BmsLibraryDbGateway dbGateway;
@@ -26,11 +24,9 @@ internal sealed class CatalogMutationOwner
     private readonly ReaderWriterLockSlimWrapper maintenanceWriteGate = new();
 
     internal CatalogMutationOwner(
-        CatalogStorageRowsOwner storageRowsOwner,
         CatalogOwnedCollectionOwner ownedCollectionOwner,
         BmsLibraryDbGateway dbGateway)
     {
-        this.storageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
         this.ownedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
         this.dbGateway = dbGateway;
         managedPlaylistOutputScopeOwner = dbGateway == null
@@ -40,21 +36,22 @@ internal sealed class CatalogMutationOwner
 
     internal event EventHandler<CatalogWriteFailureFact> CatalogWriteFailurePublished;
 
+    /// <summary>現正本の管理出力先を固定し、物理競合の判定では読取失敗を元例外で伝播します。</summary>
     internal Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
-        BmsLibraryOptionsSnapshot options)
+        BmsLibraryOptionsSnapshot options, bool throwOnFailure = false)
     {
         if (options == null)
         {
             throw new InvalidOperationException("BMS library options snapshot provider returned null.");
         }
 
-        return managedPlaylistOutputScopeOwner?.Capture(options)
+        return managedPlaylistOutputScopeOwner?.Capture(options, throwOnFailure)
             ?? new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: false);
     }
 
     /// <summary>
-    /// Applies maintenance rows and related song rows in one catalog transaction.
-    /// Maintenance evaluators submit immutable facts; they never write the database directly.
+    /// 保守値と関連する共通基本値を一つのDBトランザクションで保存します。
+    /// 評価側は不変の事実だけを渡し、DBを直接更新しません。
     /// </summary>
     internal CatalogMaintenanceWriteReceipt ApplyMaintenanceWrite(CatalogMaintenanceWriteRequest request)
     {
@@ -73,6 +70,7 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>一つのトランザクションで保守変更と同一path/hashのsongメタデータだけを確定します。保留項目だけの変更はこの保存要求へ含めません。</summary>
     internal CatalogMaintenanceWriteReceipt ApplyMaintenanceWriteUnderGuard(CatalogMaintenanceWriteRequest request)
     {
         if (request == null || !request.HasChanges)
@@ -91,21 +89,15 @@ internal sealed class CatalogMutationOwner
             {
                 BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
             }
-            if (request.BmsonSongs.Count > 0)
+            foreach (ResourceHealthMaintenanceSnapshot value in request.MaintenanceInfos)
             {
-                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                songDb.InsertOrReplace(MaintenanceStorageMapping.ToStorage(value), typeof(LR2SongDBExtended.maintenance));
             }
-            foreach (BMSFileMaintenanceInfo maintenanceInfo in request.MaintenanceInfos)
+            foreach (SongMetadataUpdate value in request.SongMetadataUpdates)
             {
-                songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
-            }
-            foreach (BMSFile song in request.Songs)
-            {
-                Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
-            }
-            foreach (LR2SongDBExtended.bmson_song bmsonSong in request.BmsonSongs)
-            {
-                songDb.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.Execute(
+                    "UPDATE song SET title = ?, subtitle = ?, artist = ?, subartist = ?, genre = ?, date = ? WHERE path = ? COLLATE BINARY AND hash = ? COLLATE NOCASE;",
+                    value.RawTitle, value.RawSubtitle, value.RawArtist, value.RawSubartist, value.RawGenre, value.Date, value.Path, value.Hash);
             }
             foreach (string path in request.StaleMaintenancePaths)
             {
@@ -115,13 +107,13 @@ internal sealed class CatalogMutationOwner
         return new CatalogMaintenanceWriteReceipt(
             applied: true,
             request.MaintenanceInfos.Count,
-            request.Songs.Count,
-            request.BmsonSongs.Count,
+            request.SongMetadataUpdates.Count,
+            0,
             deletedMaintenanceCount);
     }
 
     /// <summary>
-    /// Persists one immutable chart-info chunk in the catalog transaction boundary.
+    /// 不変の詳細情報chunkを既存のカタログ保存境界で確定します。
     /// </summary>
     internal CatalogChartInfoWriteReceipt ApplyChartInfoWrite(CatalogChartInfoWriteRequest request)
     {
@@ -147,23 +139,27 @@ internal sealed class CatalogMutationOwner
     /// <summary>
     /// Persists mode-detection song rows under the catalog write gate.
     /// </summary>
-    internal void ApplyModeChangeSongRows(IEnumerable<BMSFile> bmsFiles)
+    internal IReadOnlyList<ChartFile> ApplyModeChangeSongRows(IEnumerable<ChartFile> bmsFiles)
     {
-        List<BMSFile> files = [.. (bmsFiles ?? []).Where(file => file != null)];
+        List<ChartFile> files = [.. (bmsFiles ?? []).Where(file => file != null)];
         if (files.Count == 0)
         {
-            return;
+            return [];
         }
         if (dbGateway == null)
         {
             throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
         }
 
+        var changed = new List<ChartFile>();
         try
         {
+            using (ownedCollectionOwner.WriteGate.GetWriterGuard())
             using (maintenanceWriteGate.GetWriterGuard())
             {
-                dbGateway.UpsertSongs(files);
+                dbGateway.UpdateSongModes(files);
+                CatalogCommitReceipt commit = ownedCollectionOwner.CommitCurrentValues(files, (current, chart) => current with { Mode = chart.Mode });
+                changed.AddRange(commit.Changes.Where(change => change.After != null).Select(change => change.After));
             }
         }
         catch (Exception exception)
@@ -175,29 +171,34 @@ internal sealed class CatalogMutationOwner
                 exception));
             throw;
         }
+        return changed;
     }
 
     /// <summary>
     /// Persists playlist level writeback rows under the catalog write gate.
     /// </summary>
-    internal void ApplyPlaylistLevelRows(IEnumerable<BMSFile> bmsFiles)
+    internal IReadOnlyList<ChartFile> ApplyPlaylistLevelRows(IEnumerable<ChartFile> bmsFiles)
     {
-        List<BMSFile> files = [.. (bmsFiles ?? [])
-            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && file.level.HasValue)];
+        List<ChartFile> files = [.. (bmsFiles ?? [])
+            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.Path) && file.Level.HasValue)];
         if (files.Count == 0)
         {
-            return;
+            return [];
         }
         if (dbGateway == null)
         {
             throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
         }
 
+        var changed = new List<ChartFile>();
         try
         {
+            using (ownedCollectionOwner.WriteGate.GetWriterGuard())
             using (maintenanceWriteGate.GetWriterGuard())
             {
                 dbGateway.UpdateSongLevels(files);
+                CatalogCommitReceipt commit = ownedCollectionOwner.CommitCurrentValues(files, (current, chart) => current with { Level = chart.Level, LevelText = chart.LevelText });
+                changed.AddRange(commit.Changes.Where(change => change.After != null).Select(change => change.After));
             }
         }
         catch (Exception exception)
@@ -209,10 +210,11 @@ internal sealed class CatalogMutationOwner
                 exception));
             throw;
         }
+        return changed;
     }
 
     /// <summary>
-    /// Commits chart storage rows and chart-info facts as one catalog command.
+    /// 共通基本値と詳細情報を一つのカタログ保存コマンドで確定します。
     /// The caller supplies a snapshot request; no facade-owned database writer is needed.
     /// </summary>
     internal CatalogChartInfoStorageWriteReceipt ApplyChartInfoStorageWrite(
@@ -227,17 +229,19 @@ internal sealed class CatalogMutationOwner
             throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
         }
 
+        ChartFile[] bmsCharts = [.. request.Charts.Where(chart => chart.Kind == ChartFileKind.Bms)];
+        ChartFile[] bmsonCharts = [.. request.Charts.Where(chart => chart.Kind == ChartFileKind.Bmson)];
         Lr2ChartInfoSongProjectionWriteResult chartInfoSongProjectionResult =
             Lr2ChartInfoSongProjectionWriteResult.Empty;
         using (maintenanceWriteGate.GetWriterGuard())
         {
             dbGateway.ExecuteSongDbTransaction(songDb =>
             {
-                if (request.BmsRows.Count > 0)
+                if (bmsCharts.Length > 0)
                 {
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                     BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
-                    Lr2SongDbWriter.UpsertGeneratedSongs(songDb, request.BmsRows);
+                    Lr2SongDbWriter.UpsertGeneratedSongs(songDb, bmsCharts.Select(ChartSongStorageMapping.ToBmsRow).ToArray());
                 }
                 if (request.ChartInfoSongProjections.Count > 0)
                 {
@@ -245,12 +249,12 @@ internal sealed class CatalogMutationOwner
                         songDb,
                         request.ChartInfoSongProjections);
                 }
-                if (request.BmsonRows.Count > 0)
+                if (bmsonCharts.Length > 0)
                 {
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                    foreach (LR2SongDBExtended.bmson_song row in request.BmsonRows)
+                    foreach (ChartFile chart in bmsonCharts)
                     {
-                        songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
+                        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(chart), typeof(LR2SongDBExtended.bmson_song));
                     }
                 }
                 ApplyChartInfoWriteToTransaction(songDb, request.ChartInfo);
@@ -258,8 +262,8 @@ internal sealed class CatalogMutationOwner
         }
         return new CatalogChartInfoStorageWriteReceipt(
             applied: true,
-            request.BmsRows.Count,
-            request.BmsonRows.Count,
+            bmsCharts.Length,
+            bmsonCharts.Length,
             CreateChartInfoWriteReceipt(request.ChartInfo),
             chartInfoSongProjectionResult);
     }
@@ -315,7 +319,7 @@ internal sealed class CatalogMutationOwner
 
     internal IDisposable EnterStorageRowsWriteGuard()
     {
-        return storageRowsOwner.WriteGate.GetWriterGuard();
+        return ownedCollectionOwner.WriteGate.GetWriterGuard();
     }
 
     internal Lr2FolderFileDbSyncResult ApplyLr2FolderFileSync(Lr2FolderFileDbSyncRequest request)
@@ -347,6 +351,33 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>
+    /// 組込みの新曲フォルダの作成要否を、専用接続の限定読取りで判定します。追加譜面のsongと新曲フォルダのfolderを、主キーの完全一致だけで読みます。
+    /// </summary>
+    internal bool RequiresLr2BuiltinNewSongFolderRowCreation(Lr2BuiltinNewSongFolderCreationCondition condition)
+    {
+        using LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        return Lr2FolderFileDbSyncService.RequiresBuiltinNewSongFolderRowCreation(songDb, condition);
+    }
+
+    /// <summary>通常親の局所pruneに必要なcustom候補のexact pathを、専用接続の限定読取りで捕捉します。</summary>
+    internal IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(
+        IEnumerable<string> roots, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)
+    {
+        using LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
+            ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        return Lr2NormalFolderDbSyncService.CaptureCustomDependencyCandidates(songDb, roots, pruneScopes, pruneExactDirectories);
+    }
+
+    /// <summary>局所整理する通常行だけからfolderinfoの物理残存候補を捕捉します。</summary>
+    internal Lr2LocalFolderDependencies CaptureLr2FolderInfoDependencyDirectories(
+        IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)
+    {
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        return Lr2NormalFolderDbSyncService.CaptureFolderInfoDependencyDirectories(songDb, pruneScopes, pruneExactDirectories);
+    }
+
     internal Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request)
     {
         if (request == null)
@@ -376,6 +407,7 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>専用接続と保守writer内で生成行とcursorを確定します。終端投影と永続Completed保存はguard解放後の要求coordinatorが担います。</summary>
     internal Lr2SongDbSyncResult ApplyLr2SongDbSync(Lr2SongDbSyncRequest request)
     {
         if (request == null)
@@ -407,19 +439,20 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    /// <summary>保存済みCompletedと連携モードから全体同期の要否を判定し、旧署名を読み替えません。</summary>
     internal Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
         bool enabled,
-        string signature,
         DateTime nowUtc)
     {
         using (maintenanceWriteGate.GetWriterGuard())
         using (LR2SongDBExtended songDb = dbGateway?.OpenSongDb()
             ?? throw new InvalidOperationException("Catalog mutation owner is not configured with a song database."))
         {
-            return Lr2SongDbSyncStatusService.Evaluate(songDb, enabled, signature, nowUtc);
+            return Lr2SongDbSyncStatusService.Evaluate(songDb, enabled, nowUtc);
         }
     }
 
+    /// <summary>要求の終端状態を専用接続で保存します。完了要求は必須投影と所有token確認を済ませてから渡します。</summary>
     internal Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
         Lr2SongDbSyncStatusMutationRequest request)
     {
@@ -436,7 +469,6 @@ internal sealed class CatalogMutationOwner
             {
                 Lr2SongDbSyncStatusMutationKind.MarkIncomplete => Lr2SongDbSyncStatusService.MarkIncomplete(
                     songDb,
-                    request.Signature,
                     request.RunId,
                     request.ProcessedCursor,
                     request.TotalCount,
@@ -445,12 +477,16 @@ internal sealed class CatalogMutationOwner
                     request.NowUtc),
                 Lr2SongDbSyncStatusMutationKind.MarkFailed => Lr2SongDbSyncStatusService.MarkFailed(
                     songDb,
-                    request.Signature,
                     request.RunId,
                     request.ProcessedCursor,
                     request.TotalCount,
                     request.Stage,
                     request.Detail,
+                    request.NowUtc),
+                Lr2SongDbSyncStatusMutationKind.MarkCompleted => Lr2SongDbSyncStatusService.MarkCompleted(
+                    songDb,
+                    request.RunId,
+                    request.TotalCount,
                     request.NowUtc),
                 _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, "Unknown LR2 song DB status mutation.")
             };
@@ -479,55 +515,41 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
-    /// Captures LR2 input rows and all freshness versions under the canonical
-    /// storage-to-maintenance lock order. The returned object is immutable and
-    /// can be used without retaining either catalog owner.
+    /// 所持集合からメンテナンス情報の順に既存の排他を取り、親操作のLR2入力行とパスを捕捉します。
+    /// 戻り値は不変で、管理主体や排他を保持せず使用できます。
     /// </summary>
     internal Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot()
     {
-        using (storageRowsOwner.WriteGate.GetReaderGuard())
+        using (ownedCollectionOwner.WriteGate.GetReaderGuard())
         using (maintenanceWriteGate.GetReaderGuard())
         {
-            CatalogStorageRowsSnapshot storageSnapshot = storageRowsOwner.CaptureSnapshot();
+            CatalogChartCollectionSnapshot storageSnapshot = ownedCollectionOwner.CaptureSnapshot();
             var chartPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var chartPaths = new List<string>();
-            var songRows = new List<BMSFile>();
-            foreach (BMSFile file in storageSnapshot.BmsRows ?? [])
+            var songRows = new List<ChartFile>();
+            foreach (ChartFile file in storageSnapshot.BmsRows ?? [])
             {
-                if (file == null || string.IsNullOrWhiteSpace(file.path))
+                if (file == null || string.IsNullOrWhiteSpace(file.Path))
                 {
                     continue;
                 }
                 songRows.Add(file);
-                if (chartPathSet.Add(file.path))
+                if (chartPathSet.Add(file.Path))
                 {
-                    chartPaths.Add(file.path);
+                    chartPaths.Add(file.Path);
                 }
             }
 
-            return new Lr2SongDbSyncInputRowSnapshot(
-                chartPaths,
-                songRows,
-                ownedCollectionOwner.CollectionVersion,
-                storageSnapshot.BmsRowsVersion,
-                storageSnapshot.BmsonRowsVersion);
+            return new Lr2SongDbSyncInputRowSnapshot(chartPaths, songRows);
         }
     }
 
-    internal IReadOnlyList<BMSFile> CaptureLr2SynchronizationBmsFilesSnapshot() =>
+    internal IReadOnlyList<ChartFile> CaptureLr2SynchronizationBmsFilesSnapshot() =>
         CaptureLr2SynchronizationInputRowSnapshot().SongRows;
 
-    internal StorageRowsVersionSnapshot CaptureLr2SynchronizationStorageRowsVersionSnapshot()
-    {
-        // CaptureVersionSnapshot is serialized by the storage owner's version
-        // gate.  Do not acquire either owner lock here: LR2 sync invokes this
-        // freshness probe while holding the maintenance writer, and another
-        // maintenance route acquires storage before maintenance.
-        return storageRowsOwner.CaptureVersionSnapshot();
-    }
-
     /// <summary>
-    /// Captures and validates the relocation facts before the durable catalog transaction.
+    /// 保存トランザクション前に移転事実を検証して捕捉します。BMSのTXTは操作で確定済みの全移転先値を必須とし、ここでは再探索しません。
+    /// 指定tokenが退役済みなら失敗し、tokenなしの直接DB要求だけ入力値を使います。
     /// </summary>
     internal CatalogRelocationRequest CreateRelocationRequest(LibraryCatalogMutationFacts facts)
     {
@@ -545,39 +567,69 @@ internal sealed class CatalogMutationOwner
             {
                 continue;
             }
-            folderChanges.Add(new CatalogFolderPathReplacement(change.OldFolderPath, change.NewFolderPath));
+            folderChanges.Add(new CatalogFolderPathReplacement(change.OldFolderPath, change.NewFolderPath, change.IncludesDescendants, change.IsCustomFile));
         }
 
         var bmsChanges = new List<BmsSongPathReplacement>();
         var bmsonChanges = new List<BmsonSongPathReplacement>();
-        var folderParentHashCache = new Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache();
         foreach (LibraryChartPathChange change in facts.ChartPathChanges)
         {
-            BMSFile bmsFile = change?.GetBmsStorageOwner();
-            if (bmsFile != null)
+            ChartFile chart = change?.Chart;
+            if (chart == null)
             {
-                bmsChanges.Add(CreateBmsSongPathReplacement(
-                    bmsFile,
-                    change.NewPath,
-                    change.OldPath,
-                    folderParentHashCache));
                 continue;
             }
 
-            LR2SongDBExtended.bmson_song bmsonSong = change?.GetBmsonStorageOwner();
-            if (bmsonSong != null)
+            // 参照由来のパス変更要求にも、保存確定時点の共通基本値を引き継ぎます。
+            // 所持識別を持たない直接のDB要求は、その捕捉値を使います。
+            lock (ownedCollectionOwner.Gate)
             {
-                bmsonChanges.Add(CreateBmsonSongPathReplacement(
-                    bmsonSong,
-                    change.NewPath,
-                    change.OldPath));
+                if (chart.Token != null)
+                {
+                    chart = ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart))
+                        ?? throw new InvalidCastException(Resources.Error_OldPathMismatch);
+                }
+            }
+            ValidateChartPathChange(chart, change.NewPath, change.OldPath);
+            ResourceHealthMaintenanceSnapshot maintenance = chart.ResourceHealthMaintenanceSnapshot?.Origin == MaintenanceInfoOrigin.Placeholder
+                ? null : chart.ResourceHealthMaintenanceSnapshot;
+            if (maintenance != null)
+            {
+                maintenance = maintenance with { Path = change.NewPath, Hash = chart.Md5 };
+                if (chart.Kind == ChartFileKind.Bms)
+                {
+                    maintenance = RefreshRelocatedMaintenanceInfo(maintenance, change.NewPath);
+                }
+            }
+            IReadOnlyList<ChartWarning> warnings = chart.Kind == ChartFileKind.Bms
+                ? [.. chart.Warnings.Where(warning => warning.Kind != ChartWarningKind.Lr2PathEncodingUnsupported
+                        && warning.Kind != ChartWarningKind.Lr2PathTooLong),
+                    .. Lr2CompatibilityWarningProjection.BuildWarnings(new ResourceHealthMaintenanceSnapshot
+                    { Lr2WarningFlags = (int)Lr2CompatibilityEvaluator.EvaluateChartPath(change.NewPath).WarningFlags })]
+                : chart.Warnings;
+            ChartFile next = ChartFileProjection.WithMaintenance(chart with
+            {
+                Warnings = warnings,
+                Path = change.NewPath,
+                Folder = Path.GetFileName(Path.GetDirectoryName(change.NewPath)) ?? string.Empty,
+                Txt = chart.Kind == ChartFileKind.Bms ? facts.RelocatedTextFlags[change.NewPath] : chart.Txt
+            }, maintenance);
+            string oldPath = string.IsNullOrWhiteSpace(change.OldPath) ? chart.Path : change.OldPath;
+            if (chart.Kind == ChartFileKind.Bms)
+            {
+                bmsChanges.Add(new BmsSongPathReplacement(next, chart, oldPath, maintenance));
+            }
+            else
+            {
+                bmsonChanges.Add(new BmsonSongPathReplacement(next, chart, oldPath));
             }
         }
 
         return new CatalogRelocationRequest(
             folderChanges,
             bmsChanges,
-            bmsonChanges);
+            bmsonChanges,
+            facts.FolderProjectionExcludedDirectories);
     }
 
     /// <summary>
@@ -617,13 +669,13 @@ internal sealed class CatalogMutationOwner
         }
         CatalogRelocationRequest relocationRequest;
         CatalogStorageRowsRemovalRequest removalRequest;
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (ownedCollectionOwner.WriteGate.GetWriterGuard())
         using (maintenanceWriteGate.GetWriterGuard())
         {
             relocationRequest = CreateRelocationRequest(facts);
             removalRequest = CreateStorageRowsRemovalRequest(facts.ChartRemoveRequests);
             if (!relocationRequest.HasChanges
-                && !removalRequest.HasChanges)
+                && !removalRequest.HasChanges && facts.TextChanges.Count == 0)
             {
                 return CatalogMutationReceipt.NotApplied;
             }
@@ -632,12 +684,13 @@ internal sealed class CatalogMutationOwner
                 throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
             }
 
+            ValidateTextChanges(facts.TextChanges);
             CatalogRelocationDbReceipt dbResult;
             try
             {
                 dbResult = dbGateway.ReplaceAndRemoveLibraryMutationRows(
                     relocationRequest,
-                    removalRequest);
+                    removalRequest, facts.TextChanges);
             }
             catch (Exception ex)
             {
@@ -658,55 +711,49 @@ internal sealed class CatalogMutationOwner
             IReadOnlyList<CatalogRelocationPathFact> protectedPathFacts = CreateProtectedPathFacts(
                 relocationRequest,
                 removalRequest);
-            long liveApplyMs = ApplyRelocationLive(relocationRequest);
-            StorageRowsVersionSnapshot storageRowsVersion = storageRowsOwner.ApplyCatalogMutation(
-                relocationRequest,
-                removalRequest,
-                protectedPathFacts);
+            long liveApplyMs = 0;
+            OwnedChartCollectionVersionSnapshot storageRowsVersion = ownedCollectionOwner.CaptureVersionSnapshot();
             IReadOnlyList<CatalogRelocationPathFact> pathFacts =
             [
                 .. relocationRequest.BmsPathReplacements.Select(replacement => new CatalogRelocationPathFact(
                     ChartFileKind.Bms,
                     replacement.OldPath,
-                    replacement.Song.path,
-                    replacement.Song.hash,
-                    replacement.Song.sha256)),
+                    replacement.Song.Path,
+                    replacement.Song.Md5,
+                    replacement.Song.Sha256,
+                    replacement.Song.Token)),
                 .. relocationRequest.BmsonPathReplacements.Select(replacement => new CatalogRelocationPathFact(
                     ChartFileKind.Bmson,
                     replacement.OldPath,
-                    replacement.Song.path,
-                    replacement.Song.md5,
-                    replacement.Song.sha256))
+                    replacement.Song.Path,
+                    replacement.Song.Md5,
+                    replacement.Song.Sha256,
+                    replacement.Song.Token))
             ];
             IReadOnlyList<CatalogChartMutationFact> removedChartFacts =
                 CatalogChartMutationFact.CreateRemovalFacts(removalRequest?.RemoveRequests);
             bool ownedCollectionChanged = removedChartFacts.Count > 0
                 || pathFacts.Count > 0;
-            bool ownedCollectionApplied = ownedCollectionOwner.ApplyMutation(
-                removalRequest?.RemoveRequests,
-                facts.ChartPathChanges,
-                storageRowsVersion,
-                out bool bmsonCanonicalOrderNormalized);
-            int ownedCollectionVersion = ownedCollectionChanged
-                ? ownedCollectionOwner.IncrementVersion()
-                : ownedCollectionOwner.CollectionVersion;
+            CatalogCommitReceipt commit = ownedCollectionOwner.ApplyMutation(removalRequest?.RemoveRequests, [.. relocationRequest.BmsPathReplacements.Select(value => new LibraryChartPathChange { Chart = value.Song, OldPath = value.OldPath, NewPath = value.Song.Path })
+                    .Concat(relocationRequest.BmsonPathReplacements.Select(value => new LibraryChartPathChange { Chart = value.Song, OldPath = value.OldPath, NewPath = value.Song.Path }))], facts.TextChanges);
+            int catalogRevision = ownedCollectionOwner.CatalogRevision;
             return new CatalogMutationReceipt(
                 applied: true,
-                storageRowsVersion,
+                new OwnedChartCollectionVersionSnapshot(storageRowsVersion.CatalogRevision, catalogRevision),
                 dbResult.FolderDbMs,
                 dbResult.BmsPathDbMs,
                 dbResult.BmsonPathDbMs,
                 dbResult.BmsRemovalDbMs,
                 dbResult.BmsonRemovalDbMs,
                 liveApplyMs,
-                ownedCollectionApplied,
-                 ownedCollectionVersion,
+                commit.HasChanges,
+                 catalogRevision,
                  [],
                  pathFacts,
                  removalRequest?.RemoveRequests,
-                 bmsonCanonicalOrderNormalized,
                  dbResult.FolderDbTargetRows,
-                 dbResult.FolderDbFullScanCount);
+                 dbResult.FolderDbFullScanCount,
+                 ownedCollectionOwner.Collection.CapturePathMembershipIndex(), commit, relocationRequest.FolderPathChanges);
         }
     }
 
@@ -714,190 +761,61 @@ internal sealed class CatalogMutationOwner
         CatalogRelocationRequest relocationRequest,
         CatalogStorageRowsRemovalRequest removalRequest)
     {
-        var removedBmsOwners = new HashSet<BMSFile>(removalRequest?.RemovedBmsRows ?? []);
-        var removedBmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(
-            removalRequest?.RemovedBmsonRows ?? []);
+        var removedBmsOwners = new HashSet<OwnedChartToken>((removalRequest?.RemovedBmsRows ?? []).Select(chart => chart.Token));
+        var removedBmsonOwners = new HashSet<OwnedChartToken>((removalRequest?.RemovedBmsonRows ?? []).Select(chart => chart.Token));
         return [
             .. (relocationRequest?.BmsPathReplacements ?? [])
                 .Where(replacement => replacement?.Song != null
-                    && !removedBmsOwners.Contains(replacement.LiveOwner))
+                    && !removedBmsOwners.Contains(replacement.LiveOwner.Token))
                 .Select(replacement => new CatalogRelocationPathFact(
                     ChartFileKind.Bms,
                     replacement.OldPath,
-                    replacement.Song.path)),
+                    replacement.Song.Path)),
             .. (relocationRequest?.BmsonPathReplacements ?? [])
                 .Where(replacement => replacement?.Song != null
-                    && !removedBmsonOwners.Contains(replacement.LiveOwner))
+                    && !removedBmsonOwners.Contains(replacement.LiveOwner.Token))
                 .Select(replacement => new CatalogRelocationPathFact(
                     ChartFileKind.Bmson,
                     replacement.OldPath,
-                    replacement.Song.path))
+                    replacement.Song.Path))
         ];
     }
 
-    private static long ApplyRelocationLive(CatalogRelocationRequest request)
+    /// <summary>移転によって変わるLR2互換性だけを再評価し、未取得のメンテナンス情報は作成しません。</summary>
+    private static ResourceHealthMaintenanceSnapshot RefreshRelocatedMaintenanceInfo(ResourceHealthMaintenanceSnapshot value, string newPath)
     {
-        if (request == null || !request.HasChanges)
+        if (value.Lr2ResourceHasParentTraversal == true)
         {
-            return 0;
+            try
+            {
+                // 親参照の長さは保存した最大相対長だけでは求められません。既存の一回取得からCP932三事実だけを受け取り、通常資源から逆算しません。
+                ResourceHealthMaintenanceSnapshot facts = BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(newPath)).ResourceHealthMaintenanceSnapshot;
+                value = value with
+                {
+                    Lr2WarningFlags = facts.Lr2WarningFlags,
+                    Lr2ResourceMaxRelativeCp932Bytes = facts.Lr2ResourceMaxRelativeCp932Bytes,
+                    Lr2ResourceHasParentTraversal = facts.Lr2ResourceHasParentTraversal
+                };
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException) { }
         }
-
-        var stopwatch = Stopwatch.StartNew();
-        foreach (BmsSongPathReplacement replacement in request.BmsPathReplacements)
-        {
-            ApplyBmsFilePathInMemory(replacement);
-        }
-        foreach (BmsonSongPathReplacement replacement in request.BmsonPathReplacements)
-        {
-            ApplyBmsonSongPathInMemory(replacement);
-        }
-        stopwatch.Stop();
-        return stopwatch.ElapsedMilliseconds;
+        return Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(value, newPath);
     }
 
-    private static BmsSongPathReplacement CreateBmsSongPathReplacement(
-        BMSFile bmsFile,
-        string newPath,
-        string oldPath,
-        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache)
+    private static void ValidateChartPathChange(ChartFile chart, string newPath, string oldPath)
     {
-        ValidateBmsFilePathChange(bmsFile, newPath, oldPath);
-        BMSFile copy = bmsFile.CreateSongRowPersistenceCopy();
-        copy.path = newPath;
-        copy.SetTextGroupFlag(Lr2TextGroupResolver.ResolveFlag(newPath, bmsFile.txt.GetValueOrDefault()));
-        copy.folder = null;
-        copy.parent = null;
-        Lr2SongRowEnricher.EnrichGeneratedSong(copy, folderParentHashCache);
-        BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
-            ? bmsFile.TryGetMaintenanceInfoWithoutCreating()?.CreatePersistenceCopy(newPath, bmsFile.hash)
-            : null;
-        RefreshRelocatedBmsMaintenanceInfo(maintenanceInfo, newPath);
-        return new BmsSongPathReplacement(
-            copy,
-            bmsFile,
-            string.IsNullOrWhiteSpace(oldPath) ? bmsFile.path : oldPath,
-            maintenanceInfo);
-    }
-
-    private static BmsonSongPathReplacement CreateBmsonSongPathReplacement(
-        LR2SongDBExtended.bmson_song bmsonSong,
-        string newPath,
-        string oldPath)
-    {
-        ValidateBmsonSongPathChange(bmsonSong, newPath, oldPath);
-        LR2SongDBExtended.bmson_song copy = CreateBmsonSongPersistenceCopy(bmsonSong);
-        copy.path = newPath;
-        copy.folder = Path.GetDirectoryName(newPath) ?? string.Empty;
-        copy.MaintenanceInfo = bmsonSong.MaintenanceInfo?.CreatePersistenceCopy();
-        copy.MaintenanceInfo?.NormalizeForBmson(copy.path, copy.md5);
-        return new BmsonSongPathReplacement(
-            copy,
-            bmsonSong,
-            string.IsNullOrWhiteSpace(oldPath) ? bmsonSong.path : oldPath);
-    }
-
-    private static void ApplyBmsFilePathInMemory(BmsSongPathReplacement replacement)
-    {
-        BMSFile bmsFile = replacement.LiveOwner;
-        bmsFile.path = replacement.Song.path;
-        bmsFile.SetTextGroupFlag(replacement.Song.txt.GetValueOrDefault());
-        bmsFile.folder = replacement.Song.folder;
-        bmsFile.parent = replacement.Song.parent;
-        Lr2SongRowEnricher.EnrichGeneratedSong(bmsFile);
-        if (replacement.MaintenanceInfo != null)
-        {
-            bmsFile.SetMaintenanceInfo(
-                replacement.MaintenanceInfo.CreatePersistenceCopy(bmsFile.path, bmsFile.hash),
-                suppressPropertyChanged: true,
-                origin: MaintenanceInfoOrigin.Calculated);
-        }
-    }
-
-    private static void ApplyBmsonSongPathInMemory(BmsonSongPathReplacement replacement)
-    {
-        LR2SongDBExtended.bmson_song bmsonSong = replacement.LiveOwner;
-        bmsonSong.path = replacement.Song.path;
-        bmsonSong.folder = replacement.Song.folder;
-        bmsonSong.MaintenanceInfo = replacement.Song.MaintenanceInfo?.CreatePersistenceCopy();
-        bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
-    }
-
-    private static void RefreshRelocatedBmsMaintenanceInfo(BMSFileMaintenanceInfo maintenanceInfo, string newPath)
-    {
-        Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(
-            maintenanceInfo,
-            newPath,
-            () => ChartFileContentReader.ReadSnapshot(newPath));
-    }
-
-    private static void ValidateBmsFilePathChange(BMSFile bmsFile, string newPath, string oldPath)
-    {
-        if (bmsFile == null)
-        {
-            throw new ArgumentNullException(nameof(bmsFile));
-        }
-        if (newPath == null)
-        {
-            throw new ArgumentNullException(nameof(newPath));
-        }
+        ArgumentNullException.ThrowIfNull(chart);
+        ArgumentNullException.ThrowIfNull(newPath);
         if (!File.Exists(newPath))
         {
             throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
         }
-        if (!string.IsNullOrWhiteSpace(oldPath)
-            && !string.Equals(bmsFile.path, oldPath, StringComparison.Ordinal)
-            && !string.Equals(bmsFile.path, newPath, StringComparison.Ordinal))
+
+        if (!string.IsNullOrWhiteSpace(oldPath) && !string.Equals(chart.Path, oldPath, StringComparison.Ordinal)
+            && !string.Equals(chart.Path, newPath, StringComparison.Ordinal))
         {
             throw new InvalidCastException(Resources.Error_OldPathMismatch);
         }
-    }
-
-    private static void ValidateBmsonSongPathChange(
-        LR2SongDBExtended.bmson_song bmsonSong,
-        string newPath,
-        string oldPath)
-    {
-        if (bmsonSong == null)
-        {
-            throw new ArgumentNullException(nameof(bmsonSong));
-        }
-        if (newPath == null)
-        {
-            throw new ArgumentNullException(nameof(newPath));
-        }
-        if (!File.Exists(newPath))
-        {
-            throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
-        }
-        if (!string.IsNullOrWhiteSpace(oldPath)
-            && !string.Equals(bmsonSong.path, oldPath, StringComparison.Ordinal)
-            && !string.Equals(bmsonSong.path, newPath, StringComparison.Ordinal))
-        {
-            throw new InvalidCastException(Resources.Error_OldPathMismatch);
-        }
-    }
-
-    private static LR2SongDBExtended.bmson_song CreateBmsonSongPersistenceCopy(
-        LR2SongDBExtended.bmson_song source)
-    {
-        return new LR2SongDBExtended.bmson_song
-        {
-            path = source.path,
-            folder = source.folder,
-            title = source.title,
-            subtitle = source.subtitle,
-            artist = source.artist,
-            genre = source.genre,
-            level = source.level,
-            mode_hint = source.mode_hint,
-            md5 = source.md5,
-            sha256 = source.sha256,
-            banner = source.banner,
-            backbmp = source.backbmp,
-            stagefile = source.stagefile,
-            preview_music = source.preview_music,
-            updated_at = source.updated_at
-        };
     }
 
     /// <summary>
@@ -909,12 +827,12 @@ internal sealed class CatalogMutationOwner
     /// <param name="replaceBmsRows">BMS を置換するかどうか。</param>
     /// <param name="replaceBmsonRows">BMSON を置換するかどうか。</param>
     internal CatalogStorageRowsReplacementRequest CreateStorageRowsReplacementRequest(
-        IEnumerable<BMSFile> bmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        IEnumerable<ChartFile> bmsRows,
+        IEnumerable<ChartFile> bmsonRows,
         bool replaceBmsRows,
         bool replaceBmsonRows)
     {
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (ownedCollectionOwner.WriteGate.GetWriterGuard())
         {
             return new CatalogStorageRowsReplacementRequest(
                 bmsRows,
@@ -936,37 +854,25 @@ internal sealed class CatalogMutationOwner
             return CatalogStorageRowsReplacementReceipt.NotApplied;
         }
 
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (ownedCollectionOwner.WriteGate.GetWriterGuard())
         {
-            StorageRowsVersionSnapshot previousVersions = storageRowsOwner.CaptureVersionSnapshot();
-            if (request.ReplaceBmsRows && request.BmsRowsChanged)
-            {
-                storageRowsOwner.ReplaceBmsRows(request.BmsRows);
-            }
-            if (request.ReplaceBmsonRows && request.BmsonRowsChanged)
-            {
-                storageRowsOwner.ReplaceBmsonRows(request.BmsonRows);
-            }
+            OwnedChartCollectionVersionSnapshot previousVersions = ownedCollectionOwner.CaptureVersionSnapshot();
+            ownedCollectionOwner.ReplaceCharts(request.BmsRows, request.BmsonRows,
+                request.ReplaceBmsRows && request.BmsRowsChanged, request.ReplaceBmsonRows && request.BmsonRowsChanged);
             bool applied = request.BmsRowsChanged || request.BmsonRowsChanged;
             if (applied)
             {
                 ownedCollectionOwner.Invalidate();
             }
-            int ownedCollectionVersion = applied
-                ? ownedCollectionOwner.IncrementVersion()
-                : ownedCollectionOwner.CollectionVersion;
-            StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
+            int catalogRevision = ownedCollectionOwner.CatalogRevision;
+            OwnedChartCollectionVersionSnapshot currentVersions = ownedCollectionOwner.CaptureVersionSnapshot();
             return new CatalogStorageRowsReplacementReceipt(
                 applied,
                 request.BmsRowsChanged,
                 request.BmsonRowsChanged,
                 ownedCollectionInvalidated: applied,
-                new StorageRowsVersionSnapshot(
-                    previousVersions.BmsRowsVersion,
-                    previousVersions.BmsonRowsVersion,
-                    currentVersions.BmsRowsVersion,
-                    currentVersions.BmsonRowsVersion),
-                ownedCollectionVersion);
+                new OwnedChartCollectionVersionSnapshot(previousVersions.CatalogRevision, currentVersions.CatalogRevision),
+                catalogRevision);
         }
     }
 
@@ -978,14 +884,14 @@ internal sealed class CatalogMutationOwner
 
     internal CatalogFileScanStorageReplacementRequest CreateFileScanStorageReplacementRequest(
         bool hasDbDiff,
-        IEnumerable<BMSFile> nextBmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> nextBmsonRows,
+        IEnumerable<ChartFile> nextBmsRows,
+        IEnumerable<ChartFile> nextBmsonRows,
         IEnumerable<string> deletedBmsPaths,
         IEnumerable<string> deletedBmsonPaths,
-        IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs)
+        IEnumerable<ChartFile> addedBmsFiles,
+        IEnumerable<ChartFile> addedBmsonSongs)
     {
-        using (storageRowsOwner.WriteGate.GetReaderGuard())
+        using (ownedCollectionOwner.WriteGate.GetReaderGuard())
         {
             return CreateFileScanStorageReplacementRequestUnsafe(
                 hasDbDiff,
@@ -999,10 +905,9 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
-    /// Applies a file-scan catalog replacement and captures its committed owned
-    /// collection version for post-lease consumers.
+    /// 差分走査の共通現在値を置換し、排他解放後に使う確定済み集合版を捕捉します。
     /// </summary>
-    /// <param name="request">The immutable replacement request, or <see langword="null"/> when no replacement is applied.</param>
+    /// <param name="request">不変の置換要求。置換しない場合は <see langword="null"/>。</param>
     internal CatalogFileScanStorageReplacementReceipt ApplyFileScanStorageReplacement(
         CatalogFileScanStorageReplacementRequest request)
     {
@@ -1011,33 +916,30 @@ internal sealed class CatalogMutationOwner
             return CatalogFileScanStorageReplacementReceipt.NotApplied;
         }
 
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (ownedCollectionOwner.WriteGate.GetWriterGuard())
         {
-            StorageRowsVersionSnapshot previousVersions = storageRowsOwner.CaptureVersionSnapshot();
-            CatalogStorageRowsSnapshot storageRows = request.HasDbDiff
-                ? storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
-                    request.NextBmsRows,
-                    request.NextBmsonRows)
-                : null;
-            CatalogOwnedCollectionReplacementResult ownedReplacement = request.HasDbDiff
-                ? ownedCollectionOwner.ReplaceForFileScan(storageRows)
-                : CatalogOwnedCollectionReplacementResult.NotApplied;
+            OwnedChartCollectionVersionSnapshot previousVersions = ownedCollectionOwner.CaptureVersionSnapshot();
+            OwnedChartStorageRowFilterSummary filterSummary;
+            lock (ownedCollectionOwner.Gate)
+            {
+                if (request.HasDbDiff)
+                {
+                    ownedCollectionOwner.ReplaceChartsAndCaptureSnapshot(request.NextBmsRows, request.NextBmsonRows);
+                }
+                filterSummary = ownedCollectionOwner.Collection.FilterSummary;
+            }
             // The receipt is captured at this commit boundary; post-lease
             // publication must observe this version without advancing again.
-            int ownedCollectionVersion = request.HasDbDiff
-                ? ownedCollectionOwner.IncrementVersion()
-                : ownedCollectionOwner.CollectionVersion;
-            StorageRowsVersionSnapshot versions = new(
-                previousVersions.BmsRowsVersion,
-                previousVersions.BmsonRowsVersion,
-                storageRows?.BmsRowsVersion ?? previousVersions.BmsRowsVersion,
-                storageRows?.BmsonRowsVersion ?? previousVersions.BmsonRowsVersion);
+            int catalogRevision = ownedCollectionOwner.CatalogRevision;
+            OwnedChartCollectionVersionSnapshot versions = new(
+                previousVersions.CatalogRevision,
+                catalogRevision);
             return new CatalogFileScanStorageReplacementReceipt(
                 applied: request.HasDbDiff,
-                ownedCollectionApplied: ownedReplacement.Applied,
+                ownedCollectionApplied: request.HasDbDiff,
                 versions,
-                ownedCollectionVersion,
-                ownedReplacement.FilterSummary,
+                catalogRevision,
+                filterSummary,
                 request.AddedCharts,
                 request.RemovedCharts,
                 movedCharts: []);
@@ -1046,14 +948,14 @@ internal sealed class CatalogMutationOwner
 
     private CatalogFileScanStorageReplacementRequest CreateFileScanStorageReplacementRequestUnsafe(
         bool hasDbDiff,
-        IEnumerable<BMSFile> nextBmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> nextBmsonRows,
+        IEnumerable<ChartFile> nextBmsRows,
+        IEnumerable<ChartFile> nextBmsonRows,
         IEnumerable<string> deletedBmsPaths,
         IEnumerable<string> deletedBmsonPaths,
-        IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs)
+        IEnumerable<ChartFile> addedBmsFiles,
+        IEnumerable<ChartFile> addedBmsonSongs)
     {
-        bool removedPayloadAvailable = ownedCollectionOwner.TryCreateFileScanRemovedStorageOwnerIdentityCharts(
+        bool removedPayloadAvailable = ownedCollectionOwner.TryCaptureFileScanRemovedCharts(
             [.. deletedBmsPaths ?? []],
             [.. deletedBmsonPaths ?? []],
             [.. nextBmsRows ?? []],
@@ -1072,22 +974,22 @@ internal sealed class CatalogMutationOwner
     }
 
     internal CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequest(
-        IEnumerable<BMSFile> bmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows)
+        IEnumerable<ChartFile> bmsRows,
+        IEnumerable<ChartFile> bmsonRows)
     {
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (ownedCollectionOwner.WriteGate.GetWriterGuard())
         {
             return CreateInstalledTargetUpsertRequestUnsafe(bmsRows, bmsonRows);
         }
     }
 
     /// <summary>
-    /// installed targetをDB durable後にlive ownerとcatalogへ適用し、failure factの公開を呼出し側へ遅延します。
+    /// 導入対象をDB確定後に共通現在値へ適用し、失敗事実の公開を呼出し側へ遅延します。
     /// </summary>
-    /// <param name="targets">確定destinationとlive ownerを保持する導入target。</param>
+    /// <param name="targets">確定先とdetachedな共通値を保持する導入対象。</param>
     /// <param name="failureFact">DB書込み失敗のimmutable fact。</param>
     /// <param name="onValidationPassed">DB validation通過時に一度だけ呼ぶcallback。</param>
-    /// <param name="installPathsToDelete">同じtransactionで削除するpending install rowのpath。</param>
+    /// <param name="installPathsToDelete">同じtransactionで削除するpending install行の元の生キー。</param>
     /// <param name="installRowsToUpsert">同じtransactionでupsertするpending install row。</param>
     /// <returns>DB・storage・owned collectionの確定receipt。</returns>
     internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertWithDeferredFailurePublication(
@@ -1095,7 +997,7 @@ internal sealed class CatalogMutationOwner
         out CatalogWriteFailureFact failureFact,
         Action onValidationPassed = null,
         IEnumerable<string> installPathsToDelete = null,
-        IEnumerable<ChartPackage> installRowsToUpsert = null)
+        IEnumerable<ChartPackage> installRowsToUpsert = null, IReadOnlyList<ChartFile> textChanges = null)
     {
         if (targets == null)
         {
@@ -1106,11 +1008,11 @@ internal sealed class CatalogMutationOwner
         CatalogWriteFailureFact capturedFailureFact = null;
         try
         {
-            using (storageRowsOwner.WriteGate.GetWriterGuard())
+            using (ownedCollectionOwner.WriteGate.GetWriterGuard())
             using (maintenanceWriteGate.GetWriterGuard())
             {
                 CatalogInstalledTargetUpsertReceipt receipt = ApplyInstalledTargetUpsertUnsafe(
-                    CreateInstalledTargetUpsertRequestUnsafe(targets, installPathsToDelete, installRowsToUpsert),
+                    CreateInstalledTargetUpsertRequestUnsafe(targets, installPathsToDelete, installRowsToUpsert, textChanges),
                     onValidationPassed,
                     fact => capturedFailureFact = fact);
                 failureFact = null;
@@ -1125,7 +1027,7 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>immutable requestを適用します。</summary>
-    /// <param name="request">事前にversionとrowを固定したrequest。</param>
+    /// <param name="request">対象pathの識別・digestと保存予定値を固定した要求。</param>
     /// <param name="onValidationPassed">DB validation通過時に一度だけ呼ぶcallback。</param>
     /// <returns>DB・storage・owned collectionの確定receipt。</returns>
     internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsert(
@@ -1140,7 +1042,7 @@ internal sealed class CatalogMutationOwner
         CatalogWriteFailureFact failureFact = null;
         try
         {
-            using (storageRowsOwner.WriteGate.GetWriterGuard())
+            using (ownedCollectionOwner.WriteGate.GetWriterGuard())
             using (maintenanceWriteGate.GetWriterGuard())
             {
                 return ApplyInstalledTargetUpsertUnsafe(request, onValidationPassed, fact => failureFact = fact);
@@ -1196,29 +1098,40 @@ internal sealed class CatalogMutationOwner
     private CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequestUnsafe(
         ChartStorageTargetSet targets,
         IEnumerable<string> installPathsToDelete = null,
-        IEnumerable<ChartPackage> installRowsToUpsert = null)
+        IEnumerable<ChartPackage> installRowsToUpsert = null, IReadOnlyList<ChartFile> textChanges = null)
     {
-        StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
-        return new CatalogInstalledTargetUpsertRequest(
-            targets,
-            currentVersions.BmsRowsVersion,
-            currentVersions.BmsonRowsVersion,
-            installPathsToDelete,
-            installRowsToUpsert);
+        var beforeByPath = new Dictionary<string, LibraryChartRef>(StringComparer.Ordinal);
+        foreach (ChartFile target in targets.Charts)
+        {
+            beforeByPath[target.Path] = LibraryChartRef.FromChartFile(ownedCollectionOwner.Collection.ResolveCurrentChart(
+                LibraryChartRef.FromPath(target.Kind, target.Path, null, null)));
+        }
+        return new CatalogInstalledTargetUpsertRequest(targets, beforeByPath, installPathsToDelete, installRowsToUpsert, textChanges);
     }
 
     private CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequestUnsafe(
-        IEnumerable<BMSFile> bmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        IEnumerable<ChartFile> bmsRows,
+        IEnumerable<ChartFile> bmsonRows,
         IEnumerable<string> installPathsToDelete = null)
     {
-        StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
-        return new CatalogInstalledTargetUpsertRequest(
-            bmsRows,
-            bmsonRows,
-            currentVersions.BmsRowsVersion,
-            currentVersions.BmsonRowsVersion,
-            installPathsToDelete);
+        return CreateInstalledTargetUpsertRequestUnsafe(
+            ChartStorageTargetSet.FromCharts((bmsRows ?? []).Concat(bmsonRows ?? [])), installPathsToDelete);
+    }
+
+    /// <summary>限定捕捉したTXT対象のtoken・厳密path・hashをDB確定前に検査します。</summary>
+    private void ValidateTextChanges(IReadOnlyList<ChartFile> changes)
+    {
+        lock (ownedCollectionOwner.Gate)
+        {
+            foreach (ChartFile chart in changes ?? [])
+            {
+                ChartFile current = ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart));
+                if (chart.Kind != ChartFileKind.Bms || chart.Token == null || current?.Token != chart.Token)
+                {
+                    throw new InvalidOperationException("TXT target changed before catalog commit.");
+                }
+            }
+        }
     }
 
     private CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertUnsafe(
@@ -1226,21 +1139,28 @@ internal sealed class CatalogMutationOwner
         Action onValidationPassed = null,
         Action<CatalogWriteFailureFact> captureFailureFact = null)
     {
-        StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
-        if (currentVersions.BmsRowsVersion != request.PreviousBmsRowsVersion
-            || currentVersions.BmsonRowsVersion != request.PreviousBmsonRowsVersion)
+        foreach (ChartFile target in request.Targets.Charts)
         {
-            throw new InvalidOperationException("Catalog storage rows changed before installed target upsert.");
+            LibraryChartRef before = request.BeforeByPath[target.Path];
+            ChartFile current = ownedCollectionOwner.Collection.ResolveCurrentChart(
+                LibraryChartRef.FromPath(target.Kind, target.Path, null, null));
+            if (before?.Token != current?.Token
+                || !string.Equals(before?.Md5, current?.Md5, StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(before?.Sha256, current?.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Catalog target changed before installed target upsert.");
+            }
         }
 
+        ValidateTextChanges(request.TextChanges);
         ChartStorageTargetSet targets = request.Targets;
         bool hasInstallRowDeletion = request.InstallPathsToDelete.Count > 0;
         bool hasInstallRowUpsert = request.InstallRowsToUpsert.Count > 0;
         if (targets == null
-            || (targets.DatabaseBmsFiles.Count == 0
-                && targets.DatabaseBmsonSongs.Count == 0
+            || (targets.BmsCharts.Count == 0
+                && targets.BmsonCharts.Count == 0
                 && !hasInstallRowDeletion
-                && !hasInstallRowUpsert))
+                && !hasInstallRowUpsert && request.TextChanges.Count == 0))
         {
             return CatalogInstalledTargetUpsertReceipt.NotApplied;
         }
@@ -1249,42 +1169,34 @@ internal sealed class CatalogMutationOwner
             throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
         }
 
-        ownedCollectionOwner.ValidateStorageRowUpsert(
-            targets.DatabaseBmsFiles,
-            targets.DatabaseBmsonSongs);
+        ownedCollectionOwner.ValidateChartUpsert(targets.Charts);
         onValidationPassed?.Invoke();
 
         try
         {
             dbGateway.ExecuteSongDbTransaction(songDb =>
             {
-                if (targets.DatabaseBmsFiles.Count > 0)
+                if (targets.BmsCharts.Count > 0)
                 {
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
                     BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
-                    foreach (BMSFile bmsFile in targets.DatabaseBmsFiles)
+                    foreach (ChartFile chart in targets.BmsCharts)
                     {
-                        Lr2SongDbWriter.UpsertGeneratedSong(songDb, bmsFile);
+                        Lr2SongDbWriter.UpsertGeneratedSong(songDb, ChartSongStorageMapping.ToBmsRow(chart));
                     }
                 }
-                if (targets.DatabaseBmsonSongs.Count > 0)
+                if (targets.BmsonCharts.Count > 0)
                 {
                     BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
-                    foreach (LR2SongDBExtended.bmson_song bmsonSong in targets.DatabaseBmsonSongs)
+                    foreach (ChartFile chart in targets.BmsonCharts)
                     {
-                        songDb.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
+                        songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(chart), typeof(LR2SongDBExtended.bmson_song));
                     }
                 }
-                if (hasInstallRowDeletion)
+                BmsLibraryDbGateway.UpdateTextRows(songDb, request.TextChanges);
+                if (hasInstallRowDeletion || hasInstallRowUpsert)
                 {
-                    foreach (string installPath in request.InstallPathsToDelete)
-                    {
-                        songDb.Delete<LR2SongDBExtended.install>(installPath);
-                    }
-                }
-                if (hasInstallRowUpsert)
-                {
-                    songDb.InsertAll(request.InstallRowsToUpsert, typeof(LR2SongDBExtended.install));
+                    BmsLibraryDbGateway.ApplyInstallTableMutationWithinTransaction(songDb, request.InstallPathsToDelete, request.InstallRowsToUpsert);
                 }
             });
         }
@@ -1300,37 +1212,24 @@ internal sealed class CatalogMutationOwner
 
         // DB is durable at this boundary.  Only now can the canonical owner
         // move to the preflight destination and be published to storage views.
-        targets.ApplyInstalledOwnerPaths();
-        bool hasOwnedStorageTargets = targets.BmsFiles.Count > 0 || targets.BmsonSongs.Count > 0;
-        StorageRowsVersionSnapshot versions = hasOwnedStorageTargets
-            ? storageRowsOwner.ApplyInstalledTargets(targets)
-            : storageRowsOwner.CaptureVersionSnapshot();
+        bool hasOwnedStorageTargets = targets.Charts.Count > 0 || request.TextChanges.Count > 0;
+        OwnedChartCollectionVersionSnapshot versions = ownedCollectionOwner.CaptureVersionSnapshot();
         bool ownedCollectionApplied = false;
-        bool bmsonCanonicalOrderNormalized = false;
         if (hasOwnedStorageTargets)
         {
-            ownedCollectionApplied = ownedCollectionOwner.ApplyMutation(
-                [],
-                [],
-                targets.BmsFiles,
-                targets.BmsonSongs,
-                versions,
-                out bmsonCanonicalOrderNormalized);
+            ownedCollectionApplied = ownedCollectionOwner.ApplyCommittedChartUpsert(targets.Charts, out _, request.TextChanges);
         }
-        int ownedCollectionVersion = ownedCollectionApplied
-            ? ownedCollectionOwner.IncrementVersion()
-            : ownedCollectionOwner.CollectionVersion;
+        int catalogRevision = ownedCollectionOwner.CatalogRevision;
         return new CatalogInstalledTargetUpsertReceipt(
-            applied: targets.DatabaseBmsFiles.Count > 0
-                || targets.DatabaseBmsonSongs.Count > 0
+            applied: request.TextChanges.Count > 0 || targets.BmsCharts.Count > 0
+                || targets.BmsonCharts.Count > 0
                 || hasInstallRowDeletion
                 || hasInstallRowUpsert,
             ownedCollectionApplied,
-            versions,
-            ownedCollectionVersion,
+            new OwnedChartCollectionVersionSnapshot(versions.CatalogRevision, catalogRevision),
+            catalogRevision,
             request.AddedCharts,
-            installRowDeleted: hasInstallRowDeletion,
-            bmsonCanonicalOrderNormalized: bmsonCanonicalOrderNormalized);
+            installRowDeleted: hasInstallRowDeletion);
     }
 
     internal CatalogDigestMutationRequest CreateDigestMutationRequest(
@@ -1347,14 +1246,14 @@ internal sealed class CatalogMutationOwner
             return CatalogDigestMutationReceipt.NotApplied;
         }
 
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (ownedCollectionOwner.WriteGate.GetWriterGuard())
         {
             bool ownedCollectionApplied = ownedCollectionOwner.ApplyDigestChanges(request.DigestChanges);
             return new CatalogDigestMutationReceipt(
                 applied: request.DigestChanges.Count > 0,
                 ownedCollectionApplied,
-                storageRowsOwner.CaptureVersionSnapshot(),
-                ownedCollectionOwner.CollectionVersion,
+                ownedCollectionOwner.CaptureVersionSnapshot(),
+                ownedCollectionOwner.CatalogRevision,
                 request.DigestChanges);
         }
     }
@@ -1379,26 +1278,20 @@ internal sealed class CatalogStorageRowsRemovalRequest
     {
         List<OwnedChartRemoveRequest> requests = [.. (removeRequests ?? []).Where(request => request != null)];
         RemoveRequests = Snapshot(requests);
-        RemovedBmsRows = Snapshot(requests
-            .Select(request => request.BmsOwner)
-            .Where(file => file != null)
-            .Distinct());
+        RemovedBmsRows = Snapshot(requests.Where(request => request.Kind == ChartFileKind.Bms && request.Mode == OwnedChartRemoveMode.Item).Select(request => request.CreateChartSnapshot()));
         BmsPathCleanupKeys = CreatePathCleanupKeys(requests, ChartFileKind.Bms);
-        RemovedBmsonRows = Snapshot(requests
-            .Select(request => request.BmsonOwner)
-            .Where(song => song != null)
-            .Distinct());
+        RemovedBmsonRows = Snapshot(requests.Where(request => request.Kind == ChartFileKind.Bmson && request.Mode == OwnedChartRemoveMode.Item).Select(request => request.CreateChartSnapshot()));
         BmsonPathCleanupKeys = CreatePathCleanupKeys(requests, ChartFileKind.Bmson);
     }
 
     internal IReadOnlyList<OwnedChartRemoveRequest> RemoveRequests { get; }
 
-    internal IReadOnlyList<BMSFile> RemovedBmsRows { get; }
+    internal IReadOnlyList<ChartFile> RemovedBmsRows { get; }
 
     /// <summary>明示的に削除対象とされたBMS行の未加工exact key。</summary>
     internal IReadOnlyList<string> BmsPathCleanupKeys { get; }
 
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> RemovedBmsonRows { get; }
+    internal IReadOnlyList<ChartFile> RemovedBmsonRows { get; }
 
     /// <summary>明示的に削除対象とされたBMSON行の未加工exact key。</summary>
     internal IReadOnlyList<string> BmsonPathCleanupKeys { get; }
@@ -1426,7 +1319,7 @@ internal sealed class CatalogStorageRowsRemovalRequest
 }
 
 /// <summary>
-/// Immutable input snapshot for a selected catalog storage-row replacement.
+/// 選択した形式の共通値で所持集合を置換する、変更不能な入力です。
 /// </summary>
 internal sealed class CatalogStorageRowsReplacementRequest
 {
@@ -1438,8 +1331,8 @@ internal sealed class CatalogStorageRowsReplacementRequest
     /// <param name="bmsRowsChanged">BMS replacement を publication するかどうか。</param>
     /// <param name="bmsonRowsChanged">BMSON replacement を publication するかどうか。</param>
     internal CatalogStorageRowsReplacementRequest(
-        IEnumerable<BMSFile> bmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        IEnumerable<ChartFile> bmsRows,
+        IEnumerable<ChartFile> bmsonRows,
         bool replaceBmsRows,
         bool replaceBmsonRows,
         bool bmsRowsChanged,
@@ -1454,10 +1347,10 @@ internal sealed class CatalogStorageRowsReplacementRequest
     }
 
     /// <summary>immutable BMS replacement input。</summary>
-    internal IReadOnlyList<BMSFile> BmsRows { get; }
+    internal IReadOnlyList<ChartFile> BmsRows { get; }
 
     /// <summary>immutable BMSON replacement input。</summary>
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonRows { get; }
+    internal IReadOnlyList<ChartFile> BmsonRows { get; }
 
     /// <summary>BMS replacement が選択されたかどうか。</summary>
     internal bool ReplaceBmsRows { get; }
@@ -1478,7 +1371,7 @@ internal sealed class CatalogStorageRowsReplacementRequest
 }
 
 /// <summary>
-/// Canonical facts emitted after a catalog storage-row replacement.
+/// 共通集合の置換後に確定した版と公開対象の事実です。
 /// </summary>
 internal sealed class CatalogStorageRowsReplacementReceipt
 {
@@ -1489,15 +1382,15 @@ internal sealed class CatalogStorageRowsReplacementReceipt
             bmsonRowsChanged: false,
             ownedCollectionInvalidated: false,
             default,
-            ownedCollectionVersion: 0);
+            catalogRevision: 0);
 
     internal CatalogStorageRowsReplacementReceipt(
         bool applied,
         bool bmsRowsChanged,
         bool bmsonRowsChanged,
         bool ownedCollectionInvalidated,
-        StorageRowsVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion)
+        OwnedChartCollectionVersionSnapshot storageRowsVersion,
+        int catalogRevision)
     {
         Applied = applied;
         Kind = applied
@@ -1507,7 +1400,7 @@ internal sealed class CatalogStorageRowsReplacementReceipt
         BmsonRowsChanged = bmsonRowsChanged;
         OwnedCollectionInvalidated = ownedCollectionInvalidated;
         StorageRowsVersion = storageRowsVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
     }
 
     internal bool Applied { get; }
@@ -1520,76 +1413,49 @@ internal sealed class CatalogStorageRowsReplacementReceipt
 
     internal bool OwnedCollectionInvalidated { get; }
 
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+    internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 }
 
 /// <summary>
-/// Immutable input snapshot for an installed-target catalog upsert.
+/// 導入対象の共通現在値と保存変更を捕捉した不変要求です。
 /// </summary>
 internal sealed class CatalogInstalledTargetUpsertRequest
 {
-    /// <summary>detached storage row と同じ transaction に含める pending install row mutation を immutable に固定します。</summary>
-    /// <param name="bmsRows">upsert 対象の detached BMS row。</param>
-    /// <param name="bmsonRows">upsert 対象の detached BMSON row。</param>
-    /// <param name="previousBmsRowsVersion">request 作成時の BMS storage version。</param>
-    /// <param name="previousBmsonRowsVersion">request 作成時の BMSON storage version。</param>
-    /// <param name="installPathsToDelete">同じ transaction で削除する pending install row path。</param>
-    /// <param name="installRowsToUpsert">同じ transaction で upsert する pending install row。</param>
-    internal CatalogInstalledTargetUpsertRequest(
-        IEnumerable<BMSFile> bmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
-        int previousBmsRowsVersion,
-        int previousBmsonRowsVersion,
-        IEnumerable<string> installPathsToDelete = null,
-        IEnumerable<ChartPackage> installRowsToUpsert = null)
-    {
-        Targets = ChartStorageTargetSet.FromRows(bmsRows, bmsonRows);
-        BmsRows = Snapshot(Targets.DatabaseBmsFiles);
-        BmsonRows = Snapshot(Targets.DatabaseBmsonSongs);
-        PreviousBmsRowsVersion = previousBmsRowsVersion;
-        PreviousBmsonRowsVersion = previousBmsonRowsVersion;
-        InstallPathsToDelete = SnapshotInstallPaths(installPathsToDelete);
-        InstallRowsToUpsert = SnapshotInstallRows(installRowsToUpsert);
-        AddedCharts = CatalogChartMutationFact.CreateFacts(Targets.Charts);
-    }
-
     /// <summary>
     /// 確定destinationを持つtargetをrequestへ固定します。
     /// </summary>
-    /// <param name="targets">live ownerとDB用detached rowを保持する導入target。</param>
-    /// <param name="previousBmsRowsVersion">request作成時のBMS storage version。</param>
-    /// <param name="previousBmsonRowsVersion">request作成時のBMSON storage version。</param>
-    /// <param name="installPathsToDelete">同じtransactionで削除するpending install rowのpath。</param>
+    /// <param name="targets">確定先とdetachedな共通値を保持する導入対象。</param>
+    /// <param name="beforeByPath">要求作成時の対象完全一致pathごとの所持識別とdigest。不在はnull。</param>
+    /// <param name="installPathsToDelete">同じtransactionで削除するpending install行の元の生キー。</param>
     /// <param name="installRowsToUpsert">同じtransactionでupsertするpending install row。</param>
-    internal CatalogInstalledTargetUpsertRequest(
-        ChartStorageTargetSet targets,
-        int previousBmsRowsVersion,
-        int previousBmsonRowsVersion,
-        IEnumerable<string> installPathsToDelete = null,
-        IEnumerable<ChartPackage> installRowsToUpsert = null)
+    internal CatalogInstalledTargetUpsertRequest(ChartStorageTargetSet targets, IReadOnlyDictionary<string, LibraryChartRef> beforeByPath, IEnumerable<string> installPathsToDelete = null, IEnumerable<ChartPackage> installRowsToUpsert = null, IReadOnlyList<ChartFile> textChanges = null)
     {
-        Targets = targets ?? ChartStorageTargetSet.FromRows([], []);
-        BmsRows = Targets.DatabaseBmsFiles;
-        BmsonRows = Targets.DatabaseBmsonSongs;
-        PreviousBmsRowsVersion = previousBmsRowsVersion;
-        PreviousBmsonRowsVersion = previousBmsonRowsVersion;
+        TextChanges = Array.AsReadOnly((textChanges ?? []).ToArray());
+        Targets = targets ?? ChartStorageTargetSet.FromCharts([]);
+        BmsCharts = Targets.BmsCharts;
+        BmsonCharts = Targets.BmsonCharts;
+        BeforeByPath = new System.Collections.ObjectModel.ReadOnlyDictionary<string, LibraryChartRef>(
+            new Dictionary<string, LibraryChartRef>(beforeByPath, StringComparer.Ordinal));
+
         InstallPathsToDelete = SnapshotInstallPaths(installPathsToDelete);
         InstallRowsToUpsert = SnapshotInstallRows(installRowsToUpsert);
         AddedCharts = CatalogChartMutationFact.CreateFacts(Targets.Charts);
     }
 
-    /// <summary>live owner、detached DB row、確定destinationを束ねた内部target。</summary>
+    /// <summary>確定した共通の保存変更事実です。保存行を保持しません。</summary>
     internal ChartStorageTargetSet Targets { get; }
 
-    internal IReadOnlyList<BMSFile> BmsRows { get; }
+    /// <summary>新規追加に含めず、同tokenのまま保存するTXT実差分です。</summary>
+    internal IReadOnlyList<ChartFile> TextChanges { get; }
 
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonRows { get; }
+    internal IReadOnlyList<ChartFile> BmsCharts { get; }
 
-    internal int PreviousBmsRowsVersion { get; }
+    internal IReadOnlyList<ChartFile> BmsonCharts { get; }
 
-    internal int PreviousBmsonRowsVersion { get; }
+    /// <summary>導入対象の実入力だけを再検査する捕捉値。無関係な現在値更新は拒否条件にしません。</summary>
+    internal IReadOnlyDictionary<string, LibraryChartRef> BeforeByPath { get; }
 
     /// <summary>installed target upsert と同じ transaction で削除する pending install row path。</summary>
     internal IReadOnlyList<string> InstallPathsToDelete { get; }
@@ -1632,18 +1498,16 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
             applied: false,
             ownedCollectionApplied: false,
             default,
-            ownedCollectionVersion: 0,
-            [],
-            bmsonCanonicalOrderNormalized: false);
+            catalogRevision: 0,
+            []);
 
     internal CatalogInstalledTargetUpsertReceipt(
         bool applied,
         bool ownedCollectionApplied,
-        StorageRowsVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion,
+        OwnedChartCollectionVersionSnapshot storageRowsVersion,
+        int catalogRevision,
         IEnumerable<CatalogChartMutationFact> addedCharts,
-        bool installRowDeleted = false,
-        bool bmsonCanonicalOrderNormalized = false)
+        bool installRowDeleted = false)
     {
         Applied = applied;
         Kind = applied
@@ -1651,10 +1515,9 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
             : CatalogMutationApplyKind.NoOp;
         OwnedCollectionApplied = ownedCollectionApplied;
         StorageRowsVersion = storageRowsVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
         AddedCharts = Array.AsReadOnly([.. addedCharts ?? []]);
         InstallRowDeleted = installRowDeleted;
-        BmsonCanonicalOrderNormalized = bmsonCanonicalOrderNormalized;
     }
 
     internal bool Applied { get; }
@@ -1663,20 +1526,18 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
 
     internal bool OwnedCollectionApplied { get; }
 
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+    internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 
     internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
 
     internal bool InstallRowDeleted { get; }
 
-    /// <summary>今回のupsertで初回BMSON canonical順序正規化が発生したか。</summary>
-    internal bool BmsonCanonicalOrderNormalized { get; }
 }
 
 /// <summary>
-/// Immutable input snapshot for a catalog digest mutation.
+/// 共通譜面の旧新ハッシュを捕捉する、変更不能な入力です。
 /// </summary>
 internal sealed class CatalogDigestMutationRequest
 {
@@ -1691,7 +1552,7 @@ internal sealed class CatalogDigestMutationRequest
 }
 
 /// <summary>
-/// Canonical facts emitted after a catalog digest mutation.
+/// ハッシュ変更と共通集合の適用後に確定した事実です。
 /// </summary>
 internal sealed class CatalogDigestMutationReceipt
 {
@@ -1700,14 +1561,14 @@ internal sealed class CatalogDigestMutationReceipt
             applied: false,
             ownedCollectionApplied: false,
             default,
-            ownedCollectionVersion: 0,
+            catalogRevision: 0,
             []);
 
     internal CatalogDigestMutationReceipt(
         bool applied,
         bool ownedCollectionApplied,
-        StorageRowsVersionSnapshot storageRowsVersion,
-        int ownedCollectionVersion,
+        OwnedChartCollectionVersionSnapshot storageRowsVersion,
+        int catalogRevision,
         IEnumerable<LibraryChartDigestChange> digestChanges)
     {
         Applied = applied;
@@ -1716,7 +1577,7 @@ internal sealed class CatalogDigestMutationReceipt
             : CatalogMutationApplyKind.NoOp;
         OwnedCollectionApplied = ownedCollectionApplied;
         StorageRowsVersion = storageRowsVersion;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
         DigestChanges = Array.AsReadOnly([.. digestChanges ?? []]);
     }
 
@@ -1726,26 +1587,26 @@ internal sealed class CatalogDigestMutationReceipt
 
     internal bool OwnedCollectionApplied { get; }
 
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+    internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 
     internal IReadOnlyList<LibraryChartDigestChange> DigestChanges { get; }
 }
 
 /// <summary>
-/// Immutable input snapshot for a catalog file-scan replacement.
+/// 差分走査の所属・共通現在値・削除対象を固定した不変要求です。
 /// </summary>
 internal sealed class CatalogFileScanStorageReplacementRequest
 {
     internal CatalogFileScanStorageReplacementRequest(
         bool hasDbDiff,
-        IEnumerable<BMSFile> nextBmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> nextBmsonRows,
+        IEnumerable<ChartFile> nextBmsRows,
+        IEnumerable<ChartFile> nextBmsonRows,
         IEnumerable<string> deletedBmsPaths,
         IEnumerable<string> deletedBmsonPaths,
-        IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
+        IEnumerable<ChartFile> addedBmsFiles,
+        IEnumerable<ChartFile> addedBmsonSongs,
         bool removedPayloadAvailable,
         IEnumerable<ChartFile> removedCharts)
     {
@@ -1756,31 +1617,24 @@ internal sealed class CatalogFileScanStorageReplacementRequest
         DeletedBmsonPaths = Snapshot(deletedBmsonPaths);
         AddedBmsFiles = Snapshot(addedBmsFiles);
         AddedBmsonSongs = Snapshot(addedBmsonSongs);
-        AddedCharts = CatalogChartMutationFact.CreateFacts(
-            ChartFileProjection.FromStorageRows(
-                AddedBmsFiles,
-                AddedBmsonSongs,
-                includeWarningSnapshot: false,
-                requirePath: false,
-                includeResourceReferences: false,
-                includeScoreSnapshot: false));
+        AddedCharts = CatalogChartMutationFact.CreateFacts(AddedBmsFiles.Concat(AddedBmsonSongs));
         RemovedPayloadAvailable = removedPayloadAvailable;
         RemovedCharts = Snapshot(removedCharts);
     }
 
     internal bool HasDbDiff { get; }
 
-    internal IReadOnlyList<BMSFile> NextBmsRows { get; }
+    internal IReadOnlyList<ChartFile> NextBmsRows { get; }
 
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> NextBmsonRows { get; }
+    internal IReadOnlyList<ChartFile> NextBmsonRows { get; }
 
     internal IReadOnlyList<string> DeletedBmsPaths { get; }
 
     internal IReadOnlyList<string> DeletedBmsonPaths { get; }
 
-    internal IReadOnlyList<BMSFile> AddedBmsFiles { get; }
+    internal IReadOnlyList<ChartFile> AddedBmsFiles { get; }
 
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; }
+    internal IReadOnlyList<ChartFile> AddedBmsonSongs { get; }
 
     internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
 
@@ -1804,7 +1658,7 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
             applied: false,
             ownedCollectionApplied: false,
             default,
-            ownedCollectionVersion: 0,
+            catalogRevision: 0,
             new OwnedChartStorageRowFilterSummary(0, 0, 0, 0, 0, 0),
             [],
             [],
@@ -1813,8 +1667,8 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
     internal CatalogFileScanStorageReplacementReceipt(
         bool applied,
         bool ownedCollectionApplied,
-        StorageRowsVersionSnapshot versions,
-        int ownedCollectionVersion,
+        OwnedChartCollectionVersionSnapshot versions,
+        int catalogRevision,
         OwnedChartStorageRowFilterSummary filterSummary,
         IEnumerable<CatalogChartMutationFact> addedCharts,
         IEnumerable<ChartFile> removedCharts,
@@ -1826,7 +1680,7 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
             : CatalogMutationApplyKind.NoOp;
         OwnedCollectionApplied = ownedCollectionApplied;
         StorageRowsVersion = versions;
-        OwnedCollectionVersion = ownedCollectionVersion;
+        CatalogRevision = catalogRevision;
         FilterSummary = filterSummary;
         AddedCharts = SnapshotFacts(addedCharts);
         RemovedCharts = CreateFacts(removedCharts);
@@ -1839,12 +1693,12 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
 
     internal bool OwnedCollectionApplied { get; }
 
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+    internal OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; }
 
     /// <summary>
-    /// Gets the owned collection version committed at the file-scan apply boundary.
+    /// 差分走査の共通現在値適用時点で確定した集合版です。
     /// </summary>
-    internal int OwnedCollectionVersion { get; }
+    internal int CatalogRevision { get; }
 
     internal OwnedChartStorageRowFilterSummary FilterSummary { get; }
 
@@ -1869,13 +1723,24 @@ internal sealed class CatalogFileScanStorageReplacementReceipt
     }
 }
 
+/// <summary>永続確定した共通譜面の対象事実です。項目削除は所持token、パス整理は明示したパスを使います。</summary>
+/// <param name="kind">確定した譜面形式。</param>
+/// <param name="path">確定時に捕捉したDBパス。</param>
+/// <param name="md5">捕捉したMD5。</param>
+/// <param name="sha256">捕捉したSHA256。</param>
+/// <param name="removalMode">項目削除とパス整理の区別。削除以外の事実はnull。</param>
+/// <param name="token">厳密な項目削除で継承する所持識別。パス整理はnull。</param>
 internal sealed class CatalogChartMutationFact(
     ChartFileKind kind,
     string path,
     string md5,
     string sha256,
-    OwnedChartRemoveMode? removalMode = null)
+    OwnedChartRemoveMode? removalMode = null,
+    OwnedChartToken token = null)
 {
+    /// <summary>厳密な項目削除の所持識別です。パス整理の要求はnullです。</summary>
+    internal OwnedChartToken Token { get; } = token;
+
     internal ChartFileKind Kind { get; } = kind;
 
     internal string Path { get; } = path;
@@ -1888,7 +1753,7 @@ internal sealed class CatalogChartMutationFact(
 
     internal static CatalogChartMutationFact FromChart(ChartFile chart)
     {
-        return new CatalogChartMutationFact(chart.Kind, chart.Path, chart.Md5, chart.Sha256);
+        return new CatalogChartMutationFact(chart.Kind, chart.Path, chart.Md5, chart.Sha256, token: chart.Token);
     }
 
     internal static IReadOnlyList<CatalogChartMutationFact> CreateFacts(IEnumerable<ChartFile> charts)
@@ -1900,7 +1765,7 @@ internal sealed class CatalogChartMutationFact(
     }
 
     /// <summary>
-    /// 削除要求が破壊前に保持したkind、path、digestをcatalog mutation factへ変換します。
+    /// 削除要求が破壊前に保持したtoken、kind、path、digestをcatalog mutation factへ変換します。
     /// </summary>
     /// <param name="request">不変identity factsを保持する削除要求。</param>
     /// <returns>削除要求のmutation fact。要求がnullの場合はnull。</returns>
@@ -1916,7 +1781,8 @@ internal sealed class CatalogChartMutationFact(
             request.Path,
             request.CapturedMd5,
             request.CapturedSha256,
-            request.Mode);
+            request.Mode,
+            request.Token);
     }
 
     internal static IReadOnlyList<CatalogChartMutationFact> CreateRemovalFacts(

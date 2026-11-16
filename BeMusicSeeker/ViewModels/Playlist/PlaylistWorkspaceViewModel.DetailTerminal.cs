@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
@@ -20,12 +21,41 @@ public sealed partial class PlaylistWorkspaceViewModel
         List<PlaylistDetailSourceRow> sourceRows;
         long sourceGeneration;
         int currentViewCount;
-        lock (DetailViewState.SyncRoot)
-        {
-            sourceRows = DetailViewState.Source.Rows ?? [];
-            sourceGeneration = DetailViewState.Source.GenerationId;
-            currentViewCount = CountDetailRows(DetailViewState.View.Rows);
-        }
+        lock (DetailBuildState.SyncRoot)
+            lock (DetailViewState.SyncRoot)
+            {
+                // 明示した sort/filter の入力だけを固定します。通常の確定差分ではこの経路を呼びません。
+                sourceRows = [.. DetailViewState.Source.Rows ?? []];
+                PlaylistDetailDependencies current = EnsureDetailDependencies();
+                var dependencies = new PlaylistDetailDependencies(sourceRows, ReportDetailWork) { ReferenceInput = current.ReferenceInput };
+                dependencies.ReferenceCommits.AddRange(current.ReferenceCommits);
+                dependencies.PendingDetailMd5s.UnionWith(current.PendingDetailMd5s);
+                dependencies.PendingDetailSha256s.UnionWith(current.PendingDetailSha256s);
+                foreach (KeyValuePair<object, PlaylistPendingReferenceProjection> pair in current.PendingReferenceProjections)
+                {
+                    var projection = new PlaylistPendingReferenceProjection
+                    {
+                        Snapshot = pair.Value.Snapshot,
+                        Keys = pair.Value.Keys,
+                        ChartInfoVersion = pair.Value.ChartInfoVersion
+                    };
+                    projection.Changes.AddRange(pair.Value.Changes);
+                    dependencies.PendingReferenceProjections.Add(ReferenceEquals(pair.Key, current.DetailProjectionKey)
+                        ? dependencies.DetailProjectionKey : pair.Key, projection);
+                }
+                request.BuildRequest.InputDependencies = dependencies;
+                request.BuildRequest.CatalogCommits.AddRange(deferredCatalogCommits);
+                request.BuildRequest.EntryCommits.AddRange(deferredEntryCommits.Where(receipt => ReferenceEquals(receipt.Table, request.BuildRequest.Identity.Table)));
+                request.BuildRequest.ScoreChanges.AddRange(current.PendingScores);
+                request.BuildRequest.CatalogCommits.Sort((left, right) => left.Revision.CompareTo(right.Revision));
+                request.BuildRequest.EntryCommits.Sort((left, right) => left.Revision.CompareTo(right.Revision));
+                request.BuildRequest.ScoreChanges.Sort((left, right) => left.Version.CompareTo(right.Version));
+                request.BuildRequest.Identity = WithDetailVersions(request.BuildRequest.Identity,
+                    DetailViewState.Source.LastBuiltLibraryIndexVersion, DetailViewState.Source.LastBuiltPlaylistRevision,
+                    DetailViewState.Source.LastBuiltScoreSnapshotVersion, DetailViewState.Source.LastBuiltChartInfoIndexVersion);
+                sourceGeneration = DetailViewState.Source.GenerationId;
+                currentViewCount = CountDetailRows(DetailViewState.View.Rows);
+            }
         detailViewLog("started mode=" + request.Mode + " sourceGenerationId=" + sourceGeneration + " sourceCount=" + sourceRows.Count + " playlistSourceRowCount=" + sourceRows.Count + " playlistViewRowCount=" + currentViewCount);
         PlaylistViewApplyResult viewApply = BuildDetailView(sourceRows, request);
         detailViewLog("completed mode=" + request.Mode + " sourceGenerationId=" + sourceGeneration + " sourceCount=" + viewApply.SourceCount + " keywordCount=" + viewApply.KeywordCount + " modeCount=" + viewApply.ModeCount + " viewCount=" + viewApply.ViewCount + " sortProfile=" + viewApply.SortProfile + " playlistSourceRowCount=" + sourceRows.Count + " playlistViewRowCount=" + CountDetailRows(viewApply.FinalRows));
@@ -67,7 +97,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             request.CurrentFilterType);
     }
 
-    private static PlaylistViewApplyResult BuildDetailView(
+    private PlaylistViewApplyResult BuildDetailView(
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         PlaylistDetailPresentationRequest request)
     {
@@ -82,7 +112,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             out long keywordStageMs,
             out long modeStageMs,
             out long sortStageMs,
-            out long viewMaterializeMs);
+            out long viewMaterializeMs,
+            onlyNotOwned: request.BuildRequest.Identity.FilterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected,
+            observeWork: ReportDetailWork, identity: request.BuildRequest.Identity);
         return new PlaylistViewApplyResult(
             rows,
             sourceRows.Count,
@@ -152,7 +184,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     Rows = viewApply.FinalRows,
                     ColumnsSettings = columnSelection.ColumnsSettings,
-                    SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
                     Summary = IsPlaylistSummaryModeRequested
                     ? MainChartListSummaryUpdate.Preserve()
                     : MainChartListSummaryUpdate.NormalRows(viewApply.FinalRows),
@@ -306,41 +338,36 @@ public sealed partial class PlaylistWorkspaceViewModel
         DetailBuildState.PublishSourceClear(commit);
     }
 
+    /// <summary>source退役後の保持状況を任意診断し、診断失敗を確定済み行の結果へ加えません。</summary>
     internal void LogPlayHistorySourceClear(PlaylistSourceClearCommitResult commit)
     {
         if (commit == null)
         {
             throw new ArgumentNullException(nameof(commit));
         }
-        LogDetailWeakReferenceStatus("before_source_clear");
-        detailRetentionLog("playlist_source_replace action=clear generationId="
+        DiagnoseSourceClearBestEffort(() => LogDetailWeakReferenceStatus("before_source_clear"));
+        DiagnoseSourceClearBestEffort(() => detailRetentionLog("playlist_source_replace action=clear generationId="
             + commit.PreviousGenerationId
             + " sourceCount=0 disposedCount="
             + (commit.SourceRows?.Count ?? 0)
             + " playlistSourceRowCount=0 playlistViewRowCount="
-            + CountDetailRows(commit.ViewRows));
+            + CountDetailRows(commit.ViewRows)));
     }
 
     private void PublishSourceClear(PlaylistSourceClearCommitResult commit)
     {
-        if (commit == null)
+        if (commit == null) { throw new ArgumentNullException(nameof(commit)); }
+        try { DetailBuildState.PublishSourceClear(commit); }
+        finally { LogPlayHistorySourceClear(commit); }
+    }
+
+    private static void DiagnoseSourceClearBestEffort(Action diagnostic)
+    {
+        try { diagnostic(); }
+        catch (Exception failure)
         {
-            throw new ArgumentNullException(nameof(commit));
-        }
-        var publishExceptions = new List<Exception>();
-        TryPublish(() => DetailBuildState.PublishSourceClear(commit), publishExceptions);
-        TryPublish(() => LogDetailWeakReferenceStatus("before_source_clear"), publishExceptions);
-        TryPublish(
-            () => detailRetentionLog("playlist_source_replace action=clear generationId="
-                + commit.PreviousGenerationId
-                + " sourceCount=0 disposedCount="
-                + (commit.SourceRows?.Count ?? 0)
-                + " playlistSourceRowCount=0 playlistViewRowCount="
-                + CountDetailRows(commit.ViewRows)),
-            publishExceptions);
-        if (publishExceptions.Count > 0)
-        {
-            throw new AggregateException(publishExceptions);
+            try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(failure, "playlist_source_clear_diagnostic_failed"); }
+            catch { /* 診断失敗は確定済み行の所有やsource公開結果を変更しない。 */ }
         }
     }
 
@@ -371,6 +398,18 @@ public sealed partial class PlaylistWorkspaceViewModel
             + " playlistViewRowCount=" + (viewAlive ? CountDetailRows(viewRows) : 0));
     }
 
+    /// <summary>構築済みの詳細候補を確定入力へ追随させ、UIで一回だけ採用・公開します。</summary>
+    /// <remarks>
+    /// <para>
+    /// ワーカーは build→view のロック順で候補の追随を終え、同じ区間で既存の <c>DataChanged.Task</c> を捕捉します。
+    /// UI側は同じロック順で、取消・要求版・signalの不変と正本の必要版だけを純粋に再確認し、採用、Rows・列・主添字の公開、
+    /// 実Bindingへの選択復元を既存のUI schedulerの一処理で完結させます。
+    /// </para>
+    /// <para>
+    /// 再確認で新しいsignalを検出した場合は、同じ候補をワーカーへ戻して追随させます。未配送の版を待つ場合も、
+    /// 準備時に捕捉したsignalを待つため、採用より先に配送された変更でも起床を失いません。
+    /// </para>
+    /// </remarks>
     internal PlaylistDetailTerminalCommitResult ApplyDetailTerminal(
         PlaylistDetailTerminalRequest request)
     {
@@ -383,6 +422,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             throw new ArgumentException("Source rows are required when replacing the playlist source.", nameof(request));
         }
         var result = new PlaylistDetailTerminalCommitResult();
+        System.Threading.Tasks.Task preparedDataChanged = null;
+        bool followUpOnWorker = false;
         bool CommitDetailPresentation(Action commitRows)
         {
             bool committed;
@@ -392,6 +433,17 @@ public sealed partial class PlaylistWorkspaceViewModel
                     || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion)
                 {
                     return false;
+                }
+                lock (DetailViewState.SyncRoot)
+                {
+                    long requiredReferences = detailDataSource?.ReferenceRevision ?? 0;
+                    if (!ReferenceEquals(preparedDataChanged, request.BuildRequest.DataChanged.Task)
+                        || detailDataSource != null && !HasRequiredDetailCandidateVersions(request.BuildRequest, requiredReferences))
+                    {
+                        request.BuildRequest.WaitingForData = true;
+                        followUpOnWorker = true;
+                        return false;
+                    }
                 }
                 DetailViewState.CommitTerminal(
                     request,
@@ -405,10 +457,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                             playlistSummaryActive: false);
                         result.AppliedColumnMode = request.ColumnSelection.AppliedMode;
                     });
+                deferredEntryCommits.RemoveAll(receipt => !ReferenceEquals(receipt.Table, DetailViewState.Source.CurrentTable)
+                    || receipt.Revision <= DetailViewState.Source.LastBuiltPlaylistRevision);
                 committed = true;
             }
             if (committed)
             {
+                PublishDetailChanges();
                 detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
                 detailMainChartList.CommitCompletion(new MainChartListCompletion(
                     request.BuildRequest.MainViewBuildRequestId,
@@ -428,21 +483,71 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
         }
 
-        MainChartListPresentationApplyResult applied;
-        try
+        MainChartListPresentationApplyResult applied = default;
+        int requestedScoreDelivery = -1;
+        long requestedReferenceDelivery = -1;
+        while (true)
         {
-            applied = detailMainChartList.ApplyPresentation(
-                request.MainRowsRequest,
-                CommitDetailPresentation,
-                PublishDetailPresentation);
-        }
-        catch (MainChartListPresentationPublishException ex)
-        {
-            result.MainRowsApply = ex.RowsApply;
-            throw new PlaylistDetailTerminalPublishException(
-                ex.InnerException ?? ex,
-                ownershipTransferred: true,
-                result);
+            bool prepared;
+            lock (DetailBuildState.SyncRoot)
+            {
+                if (request.CancellationToken.IsCancellationRequested
+                    || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion) { break; }
+                lock (DetailViewState.SyncRoot)
+                {
+                    prepared = detailDataSource == null || TryPrepareDetailCandidate(request.BuildRequest,
+                        request.SourceRows, request.ViewRows as PlaylistDetailVirtualView, request.CancellationToken);
+                    // 準備と同じlock内で旧signalを捕捉し、配送がUI採用に先行しても待機の起床を失いません。
+                    preparedDataChanged = request.BuildRequest.DataChanged.Task;
+                }
+            }
+            applied = default;
+            followUpOnWorker = false;
+            if (prepared)
+            {
+                try
+                {
+                    // UIは既存版/signalの純粋再検査と、一回の採用・公開・選択復元だけを担当します。
+                    playlistRestoreUiApplyScheduler(() => applied = detailMainChartList.ApplyPresentation(
+                        request.MainRowsRequest,
+                        CommitDetailPresentation,
+                        PublishDetailPresentation)).GetAwaiter().GetResult();
+                }
+                catch (MainChartListPresentationPublishException ex)
+                {
+                    result.MainRowsApply = ex.RowsApply;
+                    throw new PlaylistDetailTerminalPublishException(
+                        ex.InnerException ?? ex, ownershipTransferred: true, result);
+                }
+            }
+            if (followUpOnWorker) { continue; }
+            if (applied.WasApplied || !request.BuildRequest.WaitingForData
+                || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion) { break; }
+            int scorePosition = request.BuildRequest.Identity.ScoreSnapshotVersion;
+            if (requestedScoreDelivery > scorePosition)
+            {
+                throw new InvalidOperationException("Playlist score delivery completed without covering the required position.");
+            }
+            int requiredScorePosition = detailDataSource.ScoreSnapshotVersion;
+            long referencePosition = request.BuildRequest.InputDependencies?.ReferenceInput?.Revision ?? 0;
+            long requiredReferencePosition = request.BuildRequest.InputDependencies?.PendingReferenceProjections.Values
+                .Select(value => value.Snapshot?.Revision ?? 0).DefaultIfEmpty().Max() ?? 0;
+            requiredReferencePosition = Math.Max(requiredReferencePosition, request.BuildRequest.RequiredReferenceRevision);
+            if (requestedReferenceDelivery > referencePosition)
+            { throw new InvalidOperationException("Playlist reference delivery completed without covering the required position."); }
+            if (requiredScorePosition > scorePosition || requiredReferencePosition > referencePosition)
+            {
+                if (detailDataSource is not PlaylistDetailDataSource attached || libraryChangeDelivery == null)
+                { throw new InvalidOperationException("Playlist library change delivery is not connected."); }
+                requestedScoreDelivery = requiredScorePosition;
+                requestedReferenceDelivery = requiredReferencePosition;
+                // build workerだけが待機します。UI/modelの排他を保持せず、共有drain自体は取消しません。
+                libraryChangeDelivery(attached.Library, request.CancellationToken)
+                    .WaitAsync(request.CancellationToken).GetAwaiter().GetResult();
+                continue;
+            }
+            // 本番では build worker 上です。UI とモデルの排他を解放して、確定結果の配送だけを待ちます。
+            preparedDataChanged.Wait(request.CancellationToken);
         }
         if (!applied.WasApplied)
         {

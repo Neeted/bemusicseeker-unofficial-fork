@@ -15,12 +15,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private readonly Func<BMSLibrary> getPlaylistLibrary;
 
-    internal event EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> MutationRejected;
-
-    internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;
-
-    internal event EventHandler PlaylistReferenceSortInvalidationRequested;
-
     private bool TryEnterPlaylistMutationAdmission(
         BMSPlaylist playlistStore,
         out IDisposable lease)
@@ -38,32 +32,24 @@ public sealed partial class PlaylistWorkspaceViewModel
         return false;
     }
 
-    private async Task<IDisposable> WaitForPlaylistMutationAdmissionAsync(BMSPlaylist playlistStore)
-    {
-        if (playlistStore != null)
-        {
-            return await playlistStore.WaitForPlaylistMutationAsync().ConfigureAwait(false);
-        }
-        throw new InvalidOperationException("Playlist persistence is not available.");
-    }
-
+    /// <summary>Pを非待機で取得します。取得できない場合の拒否の通知は、呼出し元が操作の収集先へ積みます。</summary>
     private IDisposable TryBeginPlaylistMutationForOwner(
         BMSPlaylist playlistStore,
         PlaylistWorkspaceMutationKind kind)
     {
-        if (TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable lease))
-        {
-            return lease;
-        }
-        RaiseMutationRejected(kind, isBusy: true, isStale: false);
-        return null;
+        return TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable lease) ? lease : null;
     }
 
     private bool TryBeginPlaylistMutation(
         BMSPlaylist playlistStore,
         PlaylistWorkspaceMutationKind kind,
-        out IDisposable lease)
+        out IDisposable lease, LibraryFileMutationCapability capability = null)
     {
+        if (capability != null)
+        {
+            lease = playlistStore.AcquirePlaylistMutationLease(kind.ToString(), capability: capability);
+            return true;
+        }
         if (TryEnterPlaylistMutationAdmission(playlistStore, out lease))
         {
             return true;
@@ -72,14 +58,77 @@ public sealed partial class PlaylistWorkspaceViewModel
         return false;
     }
 
+    /// <summary>
+    /// 操作を実行しなかった理由を通知します。操作の収集先があれば積み、その操作が受付を解放した後に表示します。
+    /// 収集先がなければ、呼出し元が戻った後に待たずに表示を依頼します。
+    /// </summary>
     private void RaiseMutationRejected(
         PlaylistWorkspaceMutationKind kind,
         bool isBusy,
         bool isStale)
     {
-        MutationRejected?.Invoke(
-            this,
-            new PlaylistWorkspaceMutationRejectedEventArgs(kind, isBusy, isStale));
+        if (isBusy && !CanAnnouncePlaylistBusy()) { return; }
+        NotifyOperation(PlaylistOperationNotices.Rejection(kind, isBusy, isStale), "playlist mutation rejection notification");
+    }
+
+    /// <summary>
+    /// 利用者の明示要求が受付（P）の競合で受け付けられなかったことを、明示要求の競合の案内として一回通知します。
+    /// 副作用の有無は呼出し元が保証します。終了の要求中・受付の閉鎖・ライブラリの未接続では案内しません。
+    /// </summary>
+    private void NotifyPlaylistBusyRejection(string routeName)
+    {
+        if (!CanAnnouncePlaylistBusy()) { return; }
+        NotifyOperation(PlaylistOperationNotices.Busy(), routeName);
+    }
+
+    private bool CanAnnouncePlaylistBusy()
+    {
+        try { return getPlaylistStore()?.CanAnnouncePlaylistMutationBusy == true; }
+        catch (Exception exception)
+        {
+            TryLogPlaylistDropSecondaryFailure(exception, "playlist_busy_announcement_store_failed");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 明示要求の受付（P）を非待機で取得します。競合（使用中、再読込み・初期化の実行中）なら副作用なしで<see cref="PlaylistOperationNotices.Busy"/>を一回通知し、nullを返します。
+    /// 受理済みの継続（<paramref name="capability"/>あり）は同じ権限を借用し、案内しません。
+    /// </summary>
+    private LibraryFileMutationLease TryAcquirePlaylistMutationLeaseOrNotify(
+        BMSPlaylist store, string operation, string routeName, LibraryFileMutationCapability capability = null)
+    {
+        if (capability != null) { return store.AcquirePlaylistMutationLease(operation, capability: capability); }
+        if (TryEnterPlaylistMutationAdmission(store, out IDisposable lease)) { return (LibraryFileMutationLease)lease; }
+        NotifyPlaylistBusyRejection(routeName);
+        return null;
+    }
+
+    /// <summary>
+    /// 確認を先に出す入口が、確認の前に受付（P）の可否を検査します。競合する見込みなら副作用なしで案内し、trueを返します（確認は出しません）。
+    /// 予約ではないため、確認の間に別の操作が受付を取得でき、確認後の実取得で競合した場合は取得側が再び一回案内します。
+    /// </summary>
+    internal bool RejectIfPlaylistBusyBeforeConfirmation(string routeName)
+    {
+        BMSPlaylist store;
+        try { store = getPlaylistStore(); }
+        catch (Exception exception)
+        {
+            TryLogPlaylistDropSecondaryFailure(exception, "playlist_busy_precheck_store_failed route=" + routeName);
+            return false;
+        }
+        if (store?.IsPlaylistMutationBusyForExplicitRequest != true) { return false; }
+        NotifyOperation(PlaylistOperationNotices.Busy(), routeName);
+        return true;
+    }
+
+    /// <summary>通知を現在の操作の収集先へ積みます。収集先がなければ待たずに表示を依頼します。通知の失敗は診断だけに残します。</summary>
+    private void NotifyOperation(PlaylistOperationNotificationOwner.OperationNotification notification, string routeName)
+    {
+        BMSPlaylist store = null;
+        try { store = getPlaylistStore(); }
+        catch (Exception exception) { TryLogPlaylistDropSecondaryFailure(exception, "playlist_operation_notification_store_failed route=" + routeName); }
+        PlaylistOperationNotices.Notify(store, noticePresenter, notification, routeName);
     }
 
     private bool TryResolvePlaylistTableForMutation(
@@ -107,22 +156,54 @@ public sealed partial class PlaylistWorkspaceViewModel
         return GetPlaylistStore().CreateBMSTable();
     }
 
+    private async Task ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind kind, Func<LibraryFileMutationCapability, Task> execute)
+    {
+        BMSPlaylist store = GetPlaylistStore();
+        // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。内側の操作の通知は、この収集先へ引き継がれます。
+        await RunWithOperationNoticesAsync(store, "playlist mutation notification (" + kind + ")", async () =>
+        {
+            if (!TryBeginPlaylistMutation(store, kind, out IDisposable admission)) { return; }
+            using IDisposable accepted = admission;
+            using LibraryFileMutationCapability capability = store.CreatePlaylistMutationCapability(admission);
+            await RunWithSavedHeaderPresentationAsync(() => Task.Run(() => execute(capability))).ConfigureAwait(false);
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>手動改名の新しい空白入力だけを空文字へ揃え、同じ確定名を保存と選択の対応付けへ渡します。</summary>
+    /// <param name="table">改名する現在の表。</param>
+    /// <param name="folder">原値を持つ通常フォルダ。保存済みの空白名も原値で識別します。</param>
+    /// <param name="newName">編集原文。nullは取消で、原文一致・正規化後一致では変更しません。</param>
+    /// <returns>保存・必要出力・表示と受付解放までのTask。変更がなければ完了済みです。</returns>
     internal Task RenameFolderAsync(BMSTable table, PlaylistFolderNode folder, string newName)
     {
-        return Task.Run(() => RenameFolder(table, folder, newName));
+        if (folder?.IsEditable != true || newName == null
+            || string.Equals(folder.FolderName, newName, StringComparison.Ordinal)
+            || !CanMutate(table, PlaylistWorkspaceMutationKind.RenameFolder)) { return Task.CompletedTask; }
+        // 旧空白名の無変更確定を移行へ変えないよう、原文一致を先に判定します。
+        string committedName = string.IsNullOrWhiteSpace(newName) ? string.Empty : newName;
+        if (string.Equals(folder.FolderName, committedName, StringComparison.Ordinal)) { return Task.CompletedTask; }
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.RenameFolder, capability => RenameFolder(table, folder, committedName, capability));
     }
 
     internal Task CreateFolderAsync(BMSTable table)
     {
-        return Task.Run(() => CreateFolder(table));
+        if (!CanMutate(table, PlaylistWorkspaceMutationKind.CreateFolder)) { return Task.CompletedTask; }
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.CreateFolder, capability => CreateFolder(table, capability));
     }
 
+    /// <summary>内部行を指定所属へ追加します。nullだけを表rootとして分類し、空文字・空白名を持つ実ノードは存在する通常所属として保存します。</summary>
+    /// <param name="rows">追加・移動・コピーする内部行。</param>
+    /// <param name="table">現在の追加先プレイリスト。</param>
+    /// <param name="targetFolder">通常所属ノード。nullの場合だけ表rootです。</param>
+    /// <returns>保存・必要出力・通知と受付解放までのTask。</returns>
     internal Task AddRowsToFolderAsync(
         IEnumerable<object> rows,
         BMSTable table,
         PlaylistFolderNode targetFolder = null)
     {
-        return Task.Run(() => AddRowsToFolder(rows, table, targetFolder));
+        ArgumentNullException.ThrowIfNull(rows);
+        if (!CanMutate(table, PlaylistWorkspaceMutationKind.AddEntries) || targetFolder?.IsSpecial == true) { return Task.CompletedTask; }
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.AddEntries, capability => AddRowsToFolder(rows, table, targetFolder, capability));
     }
 
     internal Task DeleteSelectedEntriesAsync(IEnumerable<object> selectedRows)
@@ -141,10 +222,12 @@ public sealed partial class PlaylistWorkspaceViewModel
             return Task.CompletedTask;
         }
 
-        return Task.Run(() => DeleteEntries(entries));
+        if (!entries.GroupBy(entry => entry.parent).Where(group => group.Key != null)
+            .Where(group => CanMutate(group.Key, PlaylistWorkspaceMutationKind.RemoveEntries)).Any()) { return Task.CompletedTask; }
+        return ExecutePlaylistMutationAsync(PlaylistWorkspaceMutationKind.RemoveEntries, capability => DeleteEntries(entries, capability));
     }
 
-    private void RenameFolder(BMSTable table, PlaylistFolderNode folder, string newName)
+    private async Task RenameFolder(BMSTable table, PlaylistFolderNode folder, string newName, LibraryFileMutationCapability outerCapability)
     {
         if (folder?.IsEditable != true
             || !CanMutate(table, PlaylistWorkspaceMutationKind.RenameFolder))
@@ -156,7 +239,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (!TryBeginPlaylistMutation(
                 playlistStore,
                 PlaylistWorkspaceMutationKind.RenameFolder,
-                out IDisposable admission))
+                out IDisposable admission, outerCapability))
         {
             return;
         }
@@ -179,15 +262,16 @@ public sealed partial class PlaylistWorkspaceViewModel
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.RenameFolder, isBusy: false, isStale: true);
                 return;
             }
-            RenameFolderAdmitted(playlistStore, activeTable, oldName, newName);
+            using LibraryFileMutationCapability capability = playlistStore.CreatePlaylistMutationCapability(admission);
+            await RenameFolderAdmitted(playlistStore, activeTable, oldName, newName, capability).ConfigureAwait(false);
         }
     }
 
-    private void RenameFolderAdmitted(
+    private async Task RenameFolderAdmitted(
         BMSPlaylist playlistStore,
         BMSTable activeTable,
         string oldName,
-        string newName)
+        string newName, LibraryFileMutationCapability capability)
     {
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
         try
@@ -195,10 +279,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (!CanMutate(activeTable, PlaylistWorkspaceMutationKind.RenameFolder)
                 || !playlistStore.ContainsBMSTable(activeTable)
                 || !playlistStore.ContainsPlaylistFolderForMutation(activeTable, oldName)
-                || !playlistStore.RenameFolderBMSTable(activeTable, oldName, newName))
+                || !playlistStore.RenameFolderBMSTable(activeTable, oldName, newName, capability: capability))
             {
                 return;
             }
+            await playlistStore.BmtOutput.ExportTablesAsync([activeTable], "playlist_rename_folder", capability).ConfigureAwait(false);
             RemapCurrentPlaylistDetailFolderSelection(
                 activeTable,
                 new Dictionary<string, string>(StringComparer.Ordinal)
@@ -236,7 +321,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private void CreateFolder(BMSTable table)
+    private async Task CreateFolder(BMSTable table, LibraryFileMutationCapability outerCapability)
     {
         if (!CanMutate(table, PlaylistWorkspaceMutationKind.CreateFolder))
         {
@@ -246,7 +331,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (!TryBeginPlaylistMutation(
                 playlistStore,
                 PlaylistWorkspaceMutationKind.CreateFolder,
-                out IDisposable admission))
+                out IDisposable admission, outerCapability))
         {
             return;
         }
@@ -269,9 +354,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     return;
                 }
-                string createdFolder = playlistStore.CreateNewFolderBMSTable(activeTable);
+                using LibraryFileMutationCapability capability = playlistStore.CreatePlaylistMutationCapability(admission);
+                string createdFolder = playlistStore.CreateNewFolderBMSTable(activeTable, capability: capability);
                 if (createdFolder != null)
                 {
+                    await playlistStore.BmtOutput.ExportTablesAsync([activeTable], "playlist_create_folder", capability).ConfigureAwait(false);
                     PublishEntriesChanged(activeTable);
                 }
             }
@@ -319,10 +406,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         return new PlaylistFolderContextMenuAvailability(canEdit, canEdit);
     }
 
-    private void AddRowsToFolder(
+    private async Task AddRowsToFolder(
         IEnumerable<object> rows,
         BMSTable table,
-        PlaylistFolderNode targetFolder = null)
+        PlaylistFolderNode targetFolder, LibraryFileMutationCapability outerCapability)
     {
         if (rows == null)
         {
@@ -347,11 +434,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (!TryBeginPlaylistMutation(
                 playlistStore,
                 PlaylistWorkspaceMutationKind.AddEntries,
-                out IDisposable admission))
+                out IDisposable admission, outerCapability))
         {
             return;
         }
         using IDisposable admissionScope = admission;
+        using LibraryFileMutationCapability capability = playlistStore.CreatePlaylistMutationCapability(admission);
         if (!TryResolvePlaylistTableForMutation(
                 playlistStore,
                 table,
@@ -361,7 +449,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        bool isRootFolderDrop = string.IsNullOrWhiteSpace(folderName);
+        bool isRootFolderDrop = targetFolder == null;
         if (!isRootFolderDrop
             && !playlistStore.ContainsPlaylistFolderForMutation(activeTable, folderName))
         {
@@ -373,7 +461,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         List<BMSTableEntry> entriesToRemove = [];
         List<BMSTableEntry> entriesToAdd = [];
         List<PlaylistDropFolderMutation> folderMutations = [];
-        List<ChartFile> resolvedCharts = [];
         PlaylistDropMutationResult mutationResult = null;
         ExceptionDispatchInfo primaryFailure = null;
         try
@@ -397,7 +484,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     List<BMSTableEntry> entriesAlreadyInFolder = [.. entriesFromTarget
                         .Where(entry => string.Equals(entry.folder ?? string.Empty, folderName, StringComparison.Ordinal))];
                     if (activeTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
-                        && string.IsNullOrWhiteSpace(folderName))
+                        && isRootFolderDrop)
                     {
                         entriesToRemove.AddRange(entriesFromTarget);
                     }
@@ -413,33 +500,19 @@ public sealed partial class PlaylistWorkspaceViewModel
                     }
                 }
 
-                resolvedCharts = [.. sourceRows
-                    .Select(ResolveDropChart)
-                    .Where(chart => chart != null)];
                 if (activeTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder
-                    && string.IsNullOrWhiteSpace(folderName))
+                    && isRootFolderDrop)
                 {
                     entriesToAdd.AddRange(sourceRows
                         .Where(ShouldPreserveEntryForRootFolderDrop)
-                        .Select(row => GridRowResolver.GetPlaylistEntry(row)?.Duplicate())
+                        .Select(row => CreateDropEntry(row, null, library))
                         .Where(entry => entry != null));
                     folderMutations.AddRange(BuildRootFolderDropMutations(sourceRows, activeTable, library));
                 }
                 else
                 {
                     entriesToAdd.AddRange(sourceRows
-                        .Select(row =>
-                        {
-                            BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
-                            ChartFile chart = ResolveDropChart(row);
-                            return entry != null
-                                ? entry.Duplicate()
-                                : chart != null
-                                    ? BMSTableEntry.CreateForPlaylistDrop(
-                                        chart,
-                                        library.GetPlaylistOrgMd5sForChart(chart))
-                                    : null;
-                        })
+                        .Select(row => CreateDropEntry(row, ResolveDropChart(row), library))
                         .Where(entry => entry != null));
                 }
             }
@@ -457,29 +530,23 @@ public sealed partial class PlaylistWorkspaceViewModel
                 folderName,
                 entriesToRemove,
                 entriesToAdd,
-                folderMutations);
+                folderMutations, capability);
             if (mutationResult.Applied && mutationResult.Durable)
             {
                 primaryFailure = mutationResult.PrimaryException;
                 try
                 {
-                    library.AddReferenceBMSTablesToCharts(activeTable, resolvedCharts);
+                    await playlistStore.BmtOutput.ExportTablesAsync(mutationResult.ChangedTables,
+                    "playlist_drop", capability).ConfigureAwait(false);
                 }
-                catch (Exception exception)
-                {
-                    TryLogPlaylistDropSecondaryFailure(
-                        exception,
-                        "playlist_drop_post_lease_reference_update_failed");
-                }
+                catch (Exception outputFailure) { primaryFailure ??= ExceptionDispatchInfo.Capture(outputFailure); }
                 try
                 {
                     PublishEntriesChanged(activeTable);
                 }
                 catch (Exception exception)
                 {
-                    TryLogPlaylistDropSecondaryFailure(
-                        exception,
-                        "playlist_drop_post_lease_ui_invalidation_failed");
+                    primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
                 }
             }
         }
@@ -506,7 +573,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private void DeleteEntries(IEnumerable<BMSTableEntry> entries)
+    private async Task DeleteEntries(IEnumerable<BMSTableEntry> entries, LibraryFileMutationCapability outerCapability)
     {
         if (entries == null)
         {
@@ -538,11 +605,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (!TryBeginPlaylistMutation(
                 playlistStore,
                 PlaylistWorkspaceMutationKind.RemoveEntries,
-                out IDisposable admission))
+                out IDisposable admission, outerCapability))
         {
             return;
         }
         using IDisposable admissionScope = admission;
+        using LibraryFileMutationCapability capability = playlistStore.CreatePlaylistMutationCapability(admission);
         Dictionary<BMSTable, List<BMSTableEntry>> entriesByTable = [];
         foreach (BMSTableEntry requestedEntry in requestedEntries)
         {
@@ -572,83 +640,32 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        BMSLibrary library = GetPlaylistLibrary();
-        ExceptionDispatchInfo primaryFailure = null;
-        foreach (KeyValuePair<BMSTable, List<BMSTableEntry>> group in entriesByTable)
+        List<Exception> failures = [];
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession =
+            playlistStore.OperationNotificationOwner.BeginSession();
+        try
         {
-            using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession =
-                playlistStore.OperationNotificationOwner.BeginSession();
-            BMSTable activeTable = null;
-            List<BMSTableEntry> activeEntries = null;
-            try
+            PlaylistDropMutationResult result = playlistStore.RemovePlaylistEntriesBatch(entriesByTable, capability);
+            if (result.PrimaryException != null) { failures.Add(result.PrimaryException.SourceException); }
+            if (result.Durable)
             {
-                activeTable = playlistStore.ResolveActivePlaylistTableForMutation(group.Key);
-                if (activeTable == null)
+                try { await playlistStore.BmtOutput.ExportTablesAsync(result.ChangedTables, "playlist_remove_entries", capability).ConfigureAwait(false); }
+                catch (Exception failure) { failures.Add(failure); }
+                foreach (BMSTable table in result.ChangedTables)
                 {
-                    RaiseMutationRejected(PlaylistWorkspaceMutationKind.RemoveEntries, isBusy: false, isStale: true);
-                    continue;
+                    try { PublishEntriesChanged(table); }
+                    catch (Exception failure) { failures.Add(failure); }
                 }
-                activeEntries = [.. group.Value
-                    .Select(entry => playlistStore.TryResolveActivePlaylistEntry(
-                        entry,
-                        out BMSTable resolvedTable,
-                        out BMSTableEntry resolvedEntry)
-                        && ReferenceEquals(resolvedTable, activeTable)
-                            ? resolvedEntry
-                            : null)
-                    .Where(entry => entry != null)
-                    .Distinct()];
-                if (activeEntries.Count == 0)
-                {
-                    RaiseMutationRejected(PlaylistWorkspaceMutationKind.RemoveEntries, isBusy: false, isStale: true);
-                    continue;
-                }
-                if (!CanMutate(activeTable, PlaylistWorkspaceMutationKind.RemoveEntries)
-                    || !playlistStore.ContainsBMSTable(activeTable)
-                    || !playlistStore.RemoveEntriesBMSTable(activeEntries, activeTable))
-                {
-                    continue;
-                }
-                library.RemoveReferenceBMSTables(activeTable, activeEntries);
-                PublishEntriesChanged(activeTable);
-            }
-            catch (PlaylistMutationPostCommitException exception)
-            {
-                if (activeTable != null && activeEntries != null)
-                {
-                    try
-                    {
-                        library.RemoveReferenceBMSTables(activeTable, activeEntries);
-                    }
-                    catch (Exception secondaryException)
-                    {
-                        TryLogPlaylistDropSecondaryFailure(
-                            secondaryException,
-                            "playlist_delete_post_commit_reference_update_failed");
-                    }
-                    try
-                    {
-                        PublishEntriesChanged(activeTable);
-                    }
-                    catch (Exception secondaryException)
-                    {
-                        TryLogPlaylistDropSecondaryFailure(
-                            secondaryException,
-                            "playlist_delete_post_commit_ui_invalidation_failed");
-                    }
-                }
-                primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
-            }
-            catch (Exception exception)
-            {
-                primaryFailure ??= ExceptionDispatchInfo.Capture(exception);
-            }
-            finally
-            {
-                PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist delete entries notification");
             }
         }
-        primaryFailure?.Throw();
+        catch (Exception failure) { failures.Add(failure); }
+        finally
+        {
+            try { PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist delete entries notification"); }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        if (failures.Count == 1) { ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
+        if (failures.Count > 1) { throw new AggregateException(failures).Flatten(); }
     }
 
     internal static bool AreDropCandidateRows(IEnumerable<object> rows)
@@ -681,6 +698,20 @@ public sealed partial class PlaylistWorkspaceViewModel
             : null;
     }
 
+    /// <summary>詳細行は追加日時を含む現在の永続編集値を複製し、譜面・履歴行は所持譜面から新しい追加候補を作ります。表示補完URLは永続化しません。</summary>
+    private static BMSTableEntry CreateDropEntry(object row, ChartFile chart, BMSLibrary library, IEnumerable<string> orgMd5s = null)
+    {
+        BMSTableEntry entry = GridRowResolver.GetPlaylistEntry(row);
+        if (entry != null)
+        {
+            BMSTableEntry duplicate = entry.Duplicate();
+            duplicate.adddate = entry.adddate;
+            return duplicate;
+        }
+        return chart != null ? BMSTableEntry.CreateForPlaylistDrop(chart, orgMd5s ?? library.GetPlaylistOrgMd5sForChart(chart)) : null;
+    }
+
+    /// <summary>分類用譜面と入力行の対応を保持し、元の編集値を持つ候補をフォルダ単位で計画します。</summary>
     private IReadOnlyCollection<PlaylistDropFolderMutation> BuildRootFolderDropMutations(
         IReadOnlyCollection<object> sourceRows,
         BMSTable table,
@@ -703,14 +734,14 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             folderEntries.Add(entry);
         }
-        List<ChartFile> charts = [.. sourceRows
+        IEnumerable<(object Row, ChartFile Chart)> chartRows = sourceRows
             .Where(row => !ShouldPreserveEntryForRootFolderDrop(row))
-            .Select(ResolveDropChart)
-            .Where(chart => chart != null)];
-        foreach (IGrouping<string, ChartFile> directoryCharts in charts
-            .GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase)
-            .ToList())
+            .Select(row => (Row: row, Chart: ResolveDropChart(row)))
+            .Where(item => item.Chart != null);
+        foreach (IGrouping<string, (object Row, ChartFile Chart)> directoryRows in chartRows
+            .GroupBy(item => DirectoryExt.GetDirectoryNameSimple(item.Chart.Path), StringComparer.OrdinalIgnoreCase))
         {
+            IEnumerable<ChartFile> directoryCharts = directoryRows.Select(item => item.Chart);
             List<string> orgMd5s = library.GetPlaylistFolderOrgMd5sForCharts(directoryCharts);
             List<string> orderedWorkingFolders = BMSTable.GetSortedFolderList(
                 workingEntriesByFolder.Keys,
@@ -734,8 +765,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                     orderedWorkingFolders);
                 targetFolder = newFolderName;
             }
-            List<BMSTableEntry> plannedEntries = [.. directoryCharts.Select(chart =>
-                BMSTableEntry.CreateForPlaylistDrop(chart, orgMd5s))];
+            List<BMSTableEntry> plannedEntries = [.. directoryRows.Select(item =>
+                CreateDropEntry(item.Row, item.Chart, library, orgMd5s))];
             if (!workingEntriesByFolder.TryGetValue(targetFolder, out List<BMSTableEntry> plannedFolderEntries))
             {
                 plannedFolderEntries = [];
@@ -801,42 +832,128 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        BMSPlaylist store = GetPlaylistStore();
+        await RunWithOperationNoticesAsync(GetPlaylistStore(), routeName, operation).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// 操作を、通知の収集先の内側で実行します。操作が受付（P）を取得し解放した後に、集めた通知をまとめて表示するよう依頼します。
+    /// 戻る Task は、終了の判定と最初の組の依頼までで完了し、表示の完了は待ちません。収集先を持てない（ストアがない）場合は、操作だけを実行します。
+    /// </summary>
+    /// <param name="warnStoppedOutputs">この操作が、出力を止めた表（出力先が他の表と重なる表）を警告として案内する明示操作か。明示の再読込み・表の属性の明示保存・外部登録・SQL復元が指定します。</param>
+    private async Task RunWithOperationNoticesAsync(BMSPlaylist store, string routeName, Func<Task> operation, bool warnStoppedOutputs = false)
+    {
+        if (store == null)
+        {
+            await operation().ConfigureAwait(false);
+            return;
+        }
         using PlaylistOperationNotificationOwner.OperationNotificationSession session = store.OperationNotificationOwner.BeginSession();
+        if (warnStoppedOutputs) { session.WarnStoppedOutputs(); }
         try
         {
             await operation().ConfigureAwait(false);
         }
         finally
         {
-            PublishPlaylistOperationNotificationReceipt(session, routeName);
+            await PublishPlaylistOperationNotificationReceiptAsync(session, routeName).ConfigureAwait(false);
         }
     }
 
-    /// <summary>バックグラウンド BMT 処理の確定した失敗を、元の操作 session と独立して提示します。</summary>
-    internal void ReportBmtOutputFailures(IReadOnlyList<BmtTableExportService.FileOperationFailure> failures)
+    /// <summary><see cref="RunWithOperationNoticesAsync(BMSPlaylist, string, Func{Task})"/> の、結果を返す操作の版です。</summary>
+    private async Task<T> RunWithOperationNoticesAsync<T>(BMSPlaylist store, string routeName, Func<Task<T>> operation, bool warnStoppedOutputs = false)
     {
-        var receipt = PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create(
-            failures.Select(failure => new PlaylistOperationNotificationOwner.OperationNotification(
-                string.Format(Resources.Beatoraja_bmt_output_failure_format, failure.Path, failure.Cause),
-                Resources.MessageBoxTitle_Warning,
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning)));
-        RaiseRequiredEvent(
-            PlaylistOperationNotificationPresentationRequested,
-            new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, "beatoraja BMT output failure"),
-            nameof(PlaylistOperationNotificationPresentationRequested));
+        if (store == null)
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        using PlaylistOperationNotificationOwner.OperationNotificationSession session = store.OperationNotificationOwner.BeginSession();
+        if (warnStoppedOutputs) { session.WarnStoppedOutputs(); }
+        try
+        {
+            return await operation().ConfigureAwait(false);
+        }
+        finally
+        {
+            await PublishPlaylistOperationNotificationReceiptAsync(session, routeName).ConfigureAwait(false);
+        }
     }
 
+    /// <summary>
+    /// BMT 出力の確定した失敗を知らせます。BMT 出力は受付（P）の内側で走るため、現在の操作の収集先があれば同じ操作の通知として積み、
+    /// 最も外側の操作が受付を解放した後に表示を依頼します。収集先がなければ、受付が解放されて空いた後に、UI の文脈の外から依頼します。
+    /// どちらも表示の完了は待ちません。
+    /// </summary>
+    internal void ReportBmtOutputFailures(IReadOnlyList<BmtTableExportService.FileOperationFailure> failures)
+    {
+        BMSPlaylist store = getPlaylistStore();
+        List<PlaylistOperationNotificationOwner.OperationNotification> unassigned = [];
+        foreach (BmtTableExportService.FileOperationFailure failure in failures)
+        {
+            var notification = new PlaylistOperationNotificationOwner.OperationNotification(
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(
+                    nameof(Resources.Beatoraja_bmt_output_failure_format), failure.Path, failure.Cause),
+                nameof(Resources.MessageBoxTitle_Warning),
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
+                isBmtOutputFailure: true);
+            if (store?.OperationNotificationOwner.TryAddToCurrentSession(notification) != true)
+            {
+                unassigned.Add(notification);
+            }
+        }
+        if (unassigned.Count == 0)
+        {
+            return;
+        }
+        var receipt =
+            PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create(unassigned);
+        Task idle = store?.WaitForPlaylistMutationIdleAsync() ?? Task.CompletedTask;
+        Task.Run(async () =>
+        {
+            try { await idle.ConfigureAwait(false); }
+            catch (Exception) { /* 待機の失敗は、通知の依頼を妨げません。 */ }
+            noticePresenter.Request(receipt, "beatoraja BMT output failure");
+        }).ObserveFault("beatoraja BMT output failure");
+    }
+
+    /// <summary>
+    /// 操作の収集先が集めた通知を、外側の操作の収集先へ引き継ぎます。最も外側の収集先の場合だけ、待たずに表示を依頼します。
+    /// 受付を保持したまま表示を依頼しないよう、最も外側の収集先は受付の外側で作ります。
+    /// </summary>
     private void PublishPlaylistOperationNotificationReceipt(
         PlaylistOperationNotificationOwner.OperationNotificationSession session,
         string routeName)
     {
-        RaiseRequiredEvent(
-            PlaylistOperationNotificationPresentationRequested,
-            new PlaylistOperationNotificationPresentationRequestedEventArgs(session.TakeReceipt(), routeName),
-            nameof(PlaylistOperationNotificationPresentationRequested));
+        if (session.TryForwardToParent())
+        {
+            return;
+        }
+        PublishPlaylistOperationNotificationReceipt(session.TakeReceipt(), routeName);
     }
 
+    private void PublishPlaylistOperationNotificationReceipt(
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
+        string routeName)
+    {
+        noticePresenter.RequestInBackground(receipt, routeName);
+    }
+
+    /// <summary>
+    /// 操作の収集先が集めた通知を、外側の操作の収集先があれば引き継ぎ、最も外側であれば表示を依頼します。
+    /// 戻る Task は、終了の判定と最初の組の依頼までで完了し、表示の完了は待ちません。
+    /// </summary>
+    private Task PublishPlaylistOperationNotificationReceiptAsync(
+        PlaylistOperationNotificationOwner.OperationNotificationSession session,
+        string routeName)
+    {
+        return session.TryForwardToParent()
+            ? Task.CompletedTask
+            : noticePresenter.BeginRequest(session.TakeReceipt(), routeName);
+    }
+
+    /// <summary>
+    /// ドロップの通知を引き継ぎます。取消のときは通知を捨てます。主な失敗があり、BMT 出力の失敗を除いて警告もエラーもないときは、
+    /// 失敗の通知を補い、集めた他の通知（BMT 出力の警告を含む）と同じ操作の通知として扱います。
+    /// </summary>
     private void PublishPlaylistDropOperationNotificationReceipt(
         PlaylistOperationNotificationOwner.OperationNotificationSession session,
         ExceptionDispatchInfo primaryFailure)
@@ -850,28 +967,28 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
 
-            PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
-            if (primaryException != null
-                && !receipt.Notifications.Any(notification =>
-                    notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
-                        or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error))
+            if (primaryException != null)
             {
-                session.Add(
-                    new PlaylistOperationNotificationOwner.OperationNotification(
-                        Resources.Msg_error_unexpected
-                            + Environment.NewLine
-                            + primaryException.Message,
-                        Resources.Error,
-                        PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
-                receipt = session.TakeReceipt();
+                PlaylistOperationNotificationOwner.OperationNotificationReceipt collected = session.TakeReceipt();
+                foreach (PlaylistOperationNotificationOwner.OperationNotification notification in collected.Notifications)
+                {
+                    session.Add(notification);
+                }
+                if (!collected.Notifications.Any(notification =>
+                    !notification.IsBmtOutputFailure && !notification.IsStoppedOutputsWarning
+                    && notification.Severity is PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning
+                        or PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error))
+                {
+                    session.Add(
+                        new PlaylistOperationNotificationOwner.OperationNotification(
+                            PlaylistOperationNotificationOwner.OperationNotificationText.FromResourceWithDetail(
+                                nameof(Resources.Msg_error_unexpected), primaryException.Message, detailSeparatorLineBreaks: 1),
+                            nameof(Resources.Error),
+                            PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
+                }
             }
 
-            RaiseRequiredEvent(
-                PlaylistOperationNotificationPresentationRequested,
-                new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                    receipt,
-                    "playlist drop custom folder output notification"),
-                nameof(PlaylistOperationNotificationPresentationRequested));
+            PublishPlaylistOperationNotificationReceipt(session, "playlist drop custom folder output notification");
         }
         catch (Exception exception)
         {
@@ -881,69 +998,71 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true)
+    private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true, Action<long> beforeSummaryRefresh = null)
     {
-        bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(table, "playlist_updated");
+        // entry の値・所属は正規 receipt が既存 source と構築要求へ配送します。
+        // ここでは folder rename 等で実選択が変わり、まだその選択の要求がない場合だけ再表示します。
+        bool detailSelectionChanged = RequiresDetailSelectionRefresh(table);
         try
         {
-            if (detailContentChanged
+            if (detailSelectionChanged
                 && IsPlaylistDetailViewActive
                 && !IsPlaylistSummaryMode)
             {
                 RequestPlaylistDetailReloadRefresh();
             }
-            RequestPlaylistReferenceSortInvalidation();
         }
         finally
         {
             if (refreshSummaryIfVisible)
             {
                 RequestPlaylistSummaryDataRefresh(
-                    "playlist_entries_updated");
+                    "playlist_entries_updated", beforeRefreshRequested: beforeSummaryRefresh);
             }
         }
     }
 
-    internal void RequestPlaylistReferenceSortInvalidation()
+    private bool RequiresDetailSelectionRefresh(BMSTable table)
     {
-        PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
+        lock (playlistDetailSelectionSyncRoot)
+        {
+            PlaylistDetailSelection selection = playlistDetailSelection;
+            if (selection == null || !ReferenceEquals(selection.Table, table)) { return false; }
+            bool Matches(PlaylistRequestIdentity identity) => ReferenceEquals(identity.Table, selection.Table)
+                && identity.SelectionScope == selection.Scope && identity.FolderName == selection.FolderName
+                && identity.FilterType == selection.Filter;
+            lock (DetailBuildState.SyncRoot)
+            {
+                lock (DetailViewState.SyncRoot)
+                {
+                    PlaylistDetailSourceSnapshotState source = DetailViewState.Source;
+                    if (ReferenceEquals(source.CurrentTable, selection.Table) && source.CurrentSelectionScope == selection.Scope
+                        && source.CurrentFolderName == selection.FolderName && source.CurrentFilterType == selection.Filter)
+                    { return false; }
+                }
+                return !(DetailBuildState.CurrentBuildRequest is PlaylistBuildRequest current && Matches(current.Identity))
+                    && !(DetailBuildState.PendingRequest is PlaylistBuildRequest pending && Matches(pending.Identity));
+            }
+        }
     }
 }
 
 /// <summary>編集が未実行となった場合に、画面へ通知する操作の種類です。</summary>
 internal enum PlaylistWorkspaceMutationKind
 {
+    /// <summary>プロパティとサマリーセルの保存です。</summary>
+    PropertySave,
+    Restore,
+    /// <summary>BMTの保存順とURL反映です。</summary>
+    SummarySort,
     RenameFolder,
     RemoveFolder,
+    RemoveTable,
     CreateFolder,
     AddEntries,
     RemoveEntries,
     /// <summary>手動のプレイリスト再取得です。</summary>
     Reload
-}
-
-/// <summary>編集を実行しなかった理由を、画面の通知へ渡します。</summary>
-internal sealed class PlaylistWorkspaceMutationRejectedEventArgs : EventArgs
-{
-    /// <summary>操作種別と、競合または対象消失による未実行の理由を保持します。</summary>
-    internal PlaylistWorkspaceMutationRejectedEventArgs(
-        PlaylistWorkspaceMutationKind kind,
-        bool isBusy = false,
-        bool isStale = false)
-    {
-        Kind = kind;
-        IsBusy = isBusy;
-        IsStale = isStale;
-    }
-
-    /// <summary>実行しなかった操作の種類です。</summary>
-    internal PlaylistWorkspaceMutationKind Kind { get; }
-
-    /// <summary>先行操作との競合により、待機せず未実行となったかを示します。</summary>
-    internal bool IsBusy { get; }
-
-    /// <summary>現在の対象を一意に解決できず、未実行となったかを示します。</summary>
-    internal bool IsStale { get; }
 }
 
 internal sealed class PlaylistFolderContextMenuAvailability
@@ -957,19 +1076,4 @@ internal sealed class PlaylistFolderContextMenuAvailability
     internal bool CanDelete { get; }
 
     internal bool CanRename { get; }
-}
-
-internal sealed class PlaylistOperationNotificationPresentationRequestedEventArgs : EventArgs
-{
-    internal PlaylistOperationNotificationPresentationRequestedEventArgs(
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
-        string routeName)
-    {
-        Receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
-        RouteName = routeName;
-    }
-
-    internal PlaylistOperationNotificationOwner.OperationNotificationReceipt Receipt { get; }
-
-    internal string RouteName { get; }
 }

@@ -425,6 +425,10 @@ internal sealed class ManagedBassBfxCompressorParameters : ManagedBassCustomEffe
 }
 
 /// <summary>Managed representation of the legacy BFX pitch-shift block.</summary>
+/// <remarks>
+/// BASS_FX のピッチシフト引数ブロックとABIを合わせるため、<see cref="FFTSize"/> と <see cref="Oversampling"/> は32ビット整数とし、
+/// 5項目・20バイトの連続配置を維持します。項目の追加・型の変更・並べ替えはネイティブ側の読取り範囲を壊すため行いません。
+/// </remarks>
 [StructLayout(LayoutKind.Sequential)]
 internal sealed class ManagedBassBfxPitchShiftParameters : ManagedBassCustomEffectParameters
 {
@@ -645,6 +649,12 @@ internal sealed class ManagedBassBfxVolumeEnvelopeParameters : ManagedBassCustom
         }
     }
 
+    /// <summary>ネイティブから取得した音量包絡を検証し、全節点をマネージド配列へ複写します。</summary>
+    /// <remarks>
+    /// 節点数・ポインター・必要なバイト範囲を検証してから、全節点を直ちにマネージド配列へ複写します。既存の配列長で切り詰めず、
+    /// 負の節点数、過大な節点数、節点数が0でないのにポインターがnullの組を成功にしません。固定メモリの所有者は呼出し境界の
+    /// <see cref="NativeEffectParameterLease"/> だけとします。
+    /// </remarks>
     private void CopyBackFromNative(NativeParameters nativeParameters)
     {
         int nodeCount = nativeParameters.NodeCount;

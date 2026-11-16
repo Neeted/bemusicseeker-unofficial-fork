@@ -1,7 +1,16 @@
+using System.Collections.Generic;
+
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class MaintenanceWorkflowResult
 {
+    /// <summary>保存が必要な値の確定後に反映する現在値です。保存同値でDB書込みを要しない警告投影だけの変更も含みます。</summary>
+    internal List<ChartFile> ChangedCharts { get; } = [];
+
+    /// <summary>この操作で明示された選択保留の成功評価です。保存同値でも配置の再評価へ渡し、必要なDB保存に失敗した場合は公開しません。</summary>
+    internal List<ChartFile> EvaluatedPendingCharts { get; } = [];
+
+    /// <summary>保存値または警告投影に更新があるかを表します。DB書込みの有無とは別に、保存同値の警告表示変更も含みます。</summary>
     public bool HasUpdates { get; set; }
 
     public int CheckedFileCount { get; set; }
@@ -56,7 +65,8 @@ internal sealed class MaintenanceWorkflowResult
 
     public int MaintenanceInfoUnchangedCount { get; set; }
 
-    public int SongUpsertCount { get; set; }
+    /// <summary>生メタデータと譜面更新時刻だけの既存song更新を要求した件数です。</summary>
+    public int SongMetadataUpdateCount { get; set; }
 
     public int ReloadedSongCount { get; set; }
 
@@ -94,6 +104,12 @@ internal sealed class MaintenanceWorkflowResult
     public bool Canceled { get; set; }
 
     public long TotalMs { get; set; }
+
+    /// <summary>
+    /// 読取りに失敗した対象の事実です。読取りスレッドは窓口へ触れず、ここへ件数と標本を集め、
+    /// 表示は受付の解放後に結果の受取り側が行います。
+    /// </summary>
+    internal MaintenanceReadFailureCollector ReadFailures { get; set; } = new();
 }
 
 /// <summary>
@@ -103,6 +119,8 @@ internal sealed class MaintenanceWorkflowResultFacts
 {
     private MaintenanceWorkflowResultFacts(MaintenanceWorkflowResult source)
     {
+        ChangedCharts = System.Array.AsReadOnly([.. source?.ChangedCharts ?? []]);
+        EvaluatedPendingCharts = System.Array.AsReadOnly([.. source?.EvaluatedPendingCharts ?? []]);
         HasUpdates = source?.HasUpdates == true;
         CheckedFileCount = source?.CheckedFileCount ?? 0;
         BmsResourceTargetCount = source?.BmsResourceTargetCount ?? 0;
@@ -130,7 +148,7 @@ internal sealed class MaintenanceWorkflowResultFacts
         BmsonResourceReferenceReusedCount = source?.BmsonResourceReferenceReusedCount ?? 0;
         MaintenanceInfoUpsertCount = source?.MaintenanceInfoUpsertCount ?? 0;
         MaintenanceInfoUnchangedCount = source?.MaintenanceInfoUnchangedCount ?? 0;
-        SongUpsertCount = source?.SongUpsertCount ?? 0;
+        SongMetadataUpdateCount = source?.SongMetadataUpdateCount ?? 0;
         ReloadedSongCount = source?.ReloadedSongCount ?? 0;
         ZeroNoteChangedCount = source?.ZeroNoteChangedCount ?? 0;
         ReadMs = source?.ReadMs ?? 0L;
@@ -145,8 +163,10 @@ internal sealed class MaintenanceWorkflowResultFacts
         WarningChangedCount = source?.WarningChangedCount ?? 0;
         Canceled = source?.Canceled == true;
         TotalMs = source?.TotalMs ?? 0L;
+        ReadFailures = source?.ReadFailures ?? new MaintenanceReadFailureCollector();
     }
 
+    /// <summary>保存値または警告投影に更新があるかを保持します。保存同値の警告表示変更も含み、DB書込みの有無は表しません。</summary>
     internal bool HasUpdates { get; }
     internal int CheckedFileCount { get; }
     internal int BmsResourceTargetCount { get; }
@@ -174,7 +194,7 @@ internal sealed class MaintenanceWorkflowResultFacts
     internal int BmsonResourceReferenceReusedCount { get; }
     internal int MaintenanceInfoUpsertCount { get; }
     internal int MaintenanceInfoUnchangedCount { get; }
-    internal int SongUpsertCount { get; }
+    internal int SongMetadataUpdateCount { get; }
     internal int ReloadedSongCount { get; }
     internal int ZeroNoteChangedCount { get; }
     internal long ReadMs { get; }
@@ -193,6 +213,15 @@ internal sealed class MaintenanceWorkflowResultFacts
     internal bool Canceled { get; }
     internal long TotalMs { get; }
 
+    /// <summary>読取りに失敗した対象の事実です。保守の終了後は追加されません。</summary>
+    internal MaintenanceReadFailureCollector ReadFailures { get; }
+
+    /// <summary>保存が必要な値の確定後に反映する共通現在値を、不変の対象集合として保持します。DB書込みを要しない保存同値の警告投影変更も含みます。</summary>
+    internal IReadOnlyList<ChartFile> ChangedCharts { get; }
+
+    /// <summary>必要な保存を終えた選択保留の全成功評価です。DB書込みや所持版更新の要否には使いません。</summary>
+    internal IReadOnlyList<ChartFile> EvaluatedPendingCharts { get; }
+
     internal static MaintenanceWorkflowResultFacts From(MaintenanceWorkflowResult source)
     {
         return new MaintenanceWorkflowResultFacts(source);
@@ -200,7 +229,7 @@ internal sealed class MaintenanceWorkflowResultFacts
 
     internal MaintenanceWorkflowResult ToMutable()
     {
-        return new MaintenanceWorkflowResult
+        var result = new MaintenanceWorkflowResult
         {
             HasUpdates = HasUpdates,
             CheckedFileCount = CheckedFileCount,
@@ -229,7 +258,7 @@ internal sealed class MaintenanceWorkflowResultFacts
             BmsonResourceReferenceReusedCount = BmsonResourceReferenceReusedCount,
             MaintenanceInfoUpsertCount = MaintenanceInfoUpsertCount,
             MaintenanceInfoUnchangedCount = MaintenanceInfoUnchangedCount,
-            SongUpsertCount = SongUpsertCount,
+            SongMetadataUpdateCount = SongMetadataUpdateCount,
             ReloadedSongCount = ReloadedSongCount,
             ZeroNoteChangedCount = ZeroNoteChangedCount,
             ReadMs = ReadMs,
@@ -243,7 +272,11 @@ internal sealed class MaintenanceWorkflowResultFacts
             WarningReapplyTargets = WarningReapplyTargets,
             WarningChangedCount = WarningChangedCount,
             Canceled = Canceled,
-            TotalMs = TotalMs
+            TotalMs = TotalMs,
+            ReadFailures = ReadFailures
         };
+        result.ChangedCharts.AddRange(ChangedCharts);
+        result.EvaluatedPendingCharts.AddRange(EvaluatedPendingCharts);
+        return result;
     }
 }

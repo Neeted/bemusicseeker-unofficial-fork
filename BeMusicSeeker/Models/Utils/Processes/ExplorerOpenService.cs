@@ -42,6 +42,13 @@ internal interface IExplorerShell
     bool TryOpenDirectoryWithExplorer(string directoryPath, out string failureReason);
 }
 
+/// <summary>長いパスを含むファイルの選択表示とフォルダのオープンをExplorerへ依頼します。</summary>
+/// <remarks>
+/// 通常形と拡張長形の候補は <c>SHParseDisplayName</c> で事前に解決し、副作用を伴うオープンAPIは
+/// 一回の操作につき解決できた一つの候補だけに呼びます。失敗コードを返してもウィンドウが開く場合があり、
+/// 候補ごとの再試行で重複して開かないためです。ファイルは選択表示し、解決できなければ親フォルダを開きます。
+/// 選択表示に <c>explorer.exe /select</c> を主経路として使いません。
+/// </remarks>
 internal static class ExplorerOpenService
 {
     public static ExplorerOpenResult OpenFileAndSelect(string filePath)

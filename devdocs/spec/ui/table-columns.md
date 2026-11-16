@@ -12,17 +12,33 @@
 
 ### 列設定の選択と保存
 
-列設定は `ICustomTableColumnLayout` の `Width`、`DisplayIndex`、`Visibility` で表します。列は可視のものを `DisplayIndex`、同値なら `FallbackOrder` の順で作ります。幅変更と可視列の並べ替えは設定オブジェクトへ反映し、設定保存時に永続化します。
+メイン一覧とプレイリスト一覧の列初期化は、所有する確認入口が明示的なOKを得た場合だけ、設定を置換します。否定、閉鎖、確認の表示失敗では初期化しません。表示失敗は、所有イベントで一度案内します。任意の失敗通知が失敗しても、初期化を実行したことにはしません。
 
-通常・フォルダ表示は `STANDARD`、LR2互換性警告は `UNREGISTERED`、プレイリスト詳細と未所持表示は `PLAYLIST`、ゼロノートは `ZERO_NOTE`、解析失敗は `CHART_INFO_PARSE_ERROR`、リソース不足・全件確認・新規導入済みは `FULLSCAN`、重複は `DUPLICATE`、文字化けと修正済みは `ENCODING`、導入保留は `INSTALL`、履歴は `PLAY_HISTORY` を使います。プレイリスト一覧は独立した `PlaylistSummaryColumnSettings` を使います。
+列設定は、`ICustomTableColumnLayout` の `Width`、`DisplayIndex`、`Visibility` で表します。列は、可視のものを `DisplayIndex` の順に、同値なら `FallbackOrder` の順で作ります。幅の変更と可視列の並べ替えは、設定オブジェクトへ反映し、設定の保存時に永続化します。
 
-並べ替えや検索条件の変更は表示先の変更ではありません。現在のツリー選択へ解決してから設定を選び、同じ表示先の設定が適用済みなら再適用しません。プレイリスト一覧の設定は独立して互換性を補完します。
+表示先ごとに使う列設定は次のとおりです。
 
-既定値は設定オブジェクトがないときだけ作成します。利用者が保存した幅・順序・表示状態を既定値で上書きしません。廃止された `dataGridColumnsSettings` を現行設定へ読み替えません。既知の廃止キー `*ColumnsSettings` と `BmsonColumnSettingsMigrationVersion` は従来版の設定コピーと保存時に除去しますが、未知の設定を一括削除しません。
+| 表示先 | 設定 |
+| --- | --- |
+| 通常・フォルダ表示 | `STANDARD` |
+| LR2互換性警告 | `UNREGISTERED` |
+| プレイリスト詳細、未所持表示 | `PLAYLIST` |
+| ゼロノート | `ZERO_NOTE` |
+| 解析失敗 | `CHART_INFO_PARSE_ERROR` |
+| リソース不足、全件確認、新規導入済み | `FULLSCAN` |
+| 重複 | `DUPLICATE` |
+| 文字化け、修正済み | `ENCODING` |
+| 導入保留 | `INSTALL` |
+| 履歴 | `PLAY_HISTORY` |
+| プレイリスト一覧 | 独立した `PlaylistSummaryColumnSettings` |
+
+並べ替えや検索条件の変更は、表示先の変更ではありません。現在のツリー選択へ解決してから設定を選び、同じ表示先の設定が適用済みなら再適用しません。プレイリスト一覧の設定は、独立して互換性を補完します。
+
+既定値は、設定オブジェクトがないときだけ作成します。利用者が保存した幅・順序・表示状態を、既定値で上書きしません。廃止された `dataGridColumnsSettings` は、現行の設定へ読み替えません。既知の廃止キー `*ColumnsSettings` と `BmsonColumnSettingsMigrationVersion` は、旧版から引き継いだ設定のコピーと保存時に除去しますが、未知の設定を一括して削除しません。
 
 ### 初期表示
 
-以下は、新しい設定オブジェクトを作成したときの初期可視列です。幅は `CustomTableColumnSettings` または `PlaylistSummaryColumnSettings` の既定値です。ユーザーが列幅、表示順、表示/非表示を変更した後は、保存済み設定が優先されます。
+次は、新しい設定オブジェクトを作成したときの初期の可視列です。幅は、`CustomTableColumnSettings` または `PlaylistSummaryColumnSettings` の既定値です。利用者が列幅、表示順、表示/非表示を変更した後は、保存済みの設定が優先されます。
 
 #### 通常ライブラリ
 
@@ -65,7 +81,7 @@
 
 `UNREGISTERED`
 
-LR2互換性警告画面は LR2連携モード・単独動作モード の両方で表示します。通常ライブラリよりも警告内容の確認を優先するため、`Warning` を初期表示に含めます。
+LR2互換性警告の画面は、LR2連携モードと単独動作モードの両方で表示します。通常のライブラリより警告内容の確認を優先するため、`Warning` を初期表示に含めます。
 
 | 順序 | 列の識別子 | 見出し | 幅 |
 | ---: | --- | --- | ---: |
@@ -114,8 +130,6 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | 26 | `ChartPeakDensity` | `PEAK` | 40 |
 | 27 | `ChartEndDensity` | `END` | 40 |
 | 28 | `PlaylistSymbols` | `PLAYLIST` | 70 |
-
-プレイリスト詳細では `EntryLevel`、`Url1`、`Url2`、`Comment`、`Memo` など、プレイリスト編集に関係する列がヘッダー右クリックメニューから表示できます。
 
 #### ゼロノート
 
@@ -175,7 +189,9 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | 14 | `Path` | `PATH` | 250 |
 | 15 | `Hash` | `MD5 HASH` | 240 |
 
-`InstallDstTitle` / `InstallDstArtist` のヘッダー文字列はリソース `Header_InstallDstTitle` / `Header_InstallDstArtist` に定義されています。
+`InstallDstTitle` / `InstallDstArtist` は、導入先フォルダを代表するタイトル・アーティストの組です。実在する最頻ペアの整理済み表記を表示し、有効ペアがなければ両列とも空欄にします。集計と表示の契約は[導入先推定](../library/install-estimation.md#比較用の基本情報と導入先の代表ペア)に従います。
+
+ヘッダーの文字列は、リソース `Header_InstallDstTitle` / `Header_InstallDstArtist` に定義されています。
 
 #### インストール保留
 
@@ -242,13 +258,13 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 
 `FolderName` (`FOLDER NAME`, 160)、`Header` (`HEADER`, 70)、`Data` (`DATA`, 70) は初期非表示で保持します。`FolderName` は `Name` の直後、`Header` / `Data` は `Link` の直後の表示順を持ちます。`Status` のヘッダーは `Resources.Playlist_summary_status_header` に定義されています。
 
-`FolderName` はプレイリストの保存値 `output_dir` が未設定の場合でも、プロパティダイアログと同じくプレイリスト名由来の実効フォルダ名を表示します。この場合は、メイン一覧の未定義メタデータと同じ `UndefinedCellBackground` をセル背景に使う。
+`FolderName` は、プレイリストの保存値 `output_dir` が未設定の場合でも、プロパティ画面と同じく、プレイリスト名に由来する実効のフォルダ名を表示します。この場合は、メイン一覧の未定義メタデータと同じ `UndefinedCellBackground` を、セルの背景に使います。
 
 #### プレイログ
 
 `PLAY_HISTORY`
 
-プレイログ一覧は通常の譜面一覧と同じ `customTableView` を使うが、行型は `PlayHistoryRow` であり、プレイ時点・更新内容・プレイ時スコアを確認するための列を初期表示します。既定の `BEST RATE` 表示は単位 `%` を付けず、`66.67 -> 83.33` のように数値だけで表示します。
+プレイログ一覧は、通常の譜面一覧と同じ `CustomTableView` を使いますが、行の型は `PlayHistoryRow` です。プレイ時点、更新内容、プレイ時のスコアを確認するための列を、初期表示します。既定の `BEST RATE` は、単位 `%` を付けず、`66.67 -> 83.33` のように数値だけで表示します。
 
 | 順序 | 列の識別子 | 見出し | 幅 |
 | ---: | --- | --- | ---: |
@@ -267,17 +283,17 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | 13 | `PlayHistoryPlayExscore` | `PLAY EXSCORE` | 100 |
 | 14 | `PlayHistoryJudges` | `JUDGES` | 180 |
 
-`ARTIST`, `SHA256`, `RAW HASH`, `FINALIZED` などは、ヘッダーの右クリックメニューから表示できる補助列として保持します。`PROVIDER` / `SOURCE` 系は内部判定用の列設定として保持しますが、利用者向けの通常メニューには出しません。
+`ARTIST`、`MD5 HASH`、`SHA256`、`RAW HASH`、`FINALIZED` などは、ヘッダーの右クリックメニューから表示できる補助列として保持します。MD5は既存の `Hash` のレイアウトを使い、履歴の `Md5` の値を、表示・並べ替え・通常のコピーへ渡します。SHA256と取得元の生ハッシュは、別の列として維持します。既存設定の幅・位置・可視性は変えず、未設定の表示位置だけを補完します。`PROVIDER` / `SOURCE` 系は、内部判定用の列設定として保持しますが、利用者向けの通常のメニューには出しません。
 
 ### 初期非表示の列
 
-全てのメイン一覧の設定は共通の列設定群を持ちます。主な初期非表示列は `EntryLevel`（80）、`Tag`（50）、`Memo`（200）、`Sha256`（480）、`Ranking`（95）、`RankingLastupdate`（95）、`Score`（40）、`Combo`（40）、`TScore`（40）、`ScoreDifficulty`（40）です。括弧内は幅です。
+すべてのメイン一覧の設定は、共通の列設定群を持ちます。主な初期非表示の列は、`EntryLevel`（80）、`Tag`（50）、`Memo`（200）、`Sha256`（480）、`Ranking`（95）、`RankingLastupdate`（95）、`Score`（40）、`Combo`（40）、`TScore`（40）、`ScoreDifficulty`（40）です。括弧内は幅です。
 
-`EntryLevel`、`Url1`、`Url2`、`Comment`、`Memo` 等のプレイリスト編集用の列は、プレイリスト詳細に限って列選択メニューへ表示します。通常ライブラリに編集機能だけを露出させません。
+`EntryLevel`、`Url1`、`Url2`、`Comment`、`Memo` など、プレイリストの編集に関係する列は、プレイリスト詳細に限って、ヘッダーの右クリックメニュー（列選択メニュー）へ表示します。通常のライブラリには、編集機能だけを露出させません。
 
 ### 幅の制約
 
-`CustomTableColumn` の既定制約は `MinWidth=40`, `MaxWidth=unbounded`, `CanResize=true`, `CanReorder=true` です。以下の列だけ個別指定があります。
+`CustomTableColumn` の既定の制約は、`MinWidth=40`、`MaxWidth=unbounded`、`CanResize=true`、`CanReorder=true` です。次の列だけ、個別に指定します。
 
 #### メイン一覧
 
@@ -285,8 +301,8 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | --- | --- | ---: | ---: | --- | --- | --- |
 | Status | `♬` | 18 | 18 | false | false | 固定アイコン列 |
 | Mode | `KEYS` | 50 | 50 | false | true | 幅固定 |
-| Url1 | `URL1` | 40 | 40 | false | true | 取得用アイコン列 |
-| Url2 | `URL2` | 40 | 40 | false | true | 取得用アイコン列 |
+| Url1 | `URL1` | 40 | unbounded | true | true | 40 DIPは取得アイコン、広幅は元URLの通常セル |
+| Url2 | `URL2` | 40 | unbounded | true | true | 40 DIPは取得アイコン、広幅は元URLの通常セル |
 | Hash | `MD5 HASH` | 40 | 240 | true | true | 最大幅のみ制限 |
 | Sha256 | `SHA256 HASH` | 40 | 480 | true | true | 最大幅のみ制限 |
 | WavHealth | `WAV` | 40 | 50 | true | true | リソース健全性 |
@@ -294,11 +310,13 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | MovieHealth | `MOVIE` | 40 | 50 | true | true | リソース健全性 |
 | CharcterEncoding | `ENCODING` | 40 | 130 | true | true | 文字コード表示 |
 
-上記以外のメイン一覧列は既定制約を使います。`Ranking` も既定制約であり、初期幅は 95 だが `MinWidth=40`, `MaxWidth=unbounded` でリサイズ可能です。`Rate` と `ChartDuration` は初期幅を 60 にしているが、個別の最小幅 / 最大幅は指定していません。
+上記以外のメイン一覧の列は、既定の制約を使います。`Ranking` も既定の制約で、初期幅は95ですが、`MinWidth=40`、`MaxWidth=unbounded` でリサイズできます。`Rate` と `ChartDuration` は初期幅を60にしますが、個別の最小幅と最大幅は指定しません。
+
+URL1/URL2の役割は、保存済みの `Width` だけから復元し、別の表示モードは保存しません。幅を40 DIPへ戻すと、取得アイコンへ戻ります。広い幅では、元のURLを左寄せで表示し、通常のテキストと同じ、省略時のツールチップと再クリックによる編集を使います。クリック・F2・文字入力・空のURL・権限と、幅の変更中の編集の終端は、[一覧の編集仕様](table-view.md#行のドラッグと編集)に従います。設定の読戻し後の既定値の補完で、利用者のURL列の幅を上書きしません。
 
 #### プレイリスト一覧
 
-プレイリストサマリー列はすべて既定制約 (`MinWidth=40`, `MaxWidth=unbounded`, `CanResize=true`, `CanReorder=true`) を使います。
+プレイリストサマリーの列は、すべて既定の制約（`MinWidth=40`、`MaxWidth=unbounded`、`CanResize=true`、`CanReorder=true`）を使います。
 
 ### ツールチップ
 
@@ -315,7 +333,19 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 | プレイリスト一覧の `Status` | `StatusDetail` |
 | 履歴の `FOLDER` | `PlaylistNames`。他の履歴テキスト列は省略時に全文を表示 |
 
-意味付きの説明がないメイン一覧の通常テキスト列は原則として省略時に全文を表示します。ただし `Status`、`Mode`、`Clear`、`Rank`、`Rate`、`ChartDifficulty`、`ChartJudge`、`WavHealth`、`BgaHealth`、`MovieHealth` は対象外です。プレイリスト一覧では `PlaylistId`、`OutputBase`、`CompatPrefix`、`Symbol`、`IsExternalSync`、`IsRootFolder`、`BmtSort`、`IsBmtOutput` を対象外とします。
+意味付きの説明がない通常のテキスト列は、原則として、省略時に全文を表示します。ただし、メイン一覧の `Status`、`Mode`、`Clear`、`Rank`、`Rate`、`ChartDifficulty`、`ChartJudge`、`WavHealth`、`BgaHealth`、`MovieHealth` は対象外です。プレイリスト一覧では、`PlaylistId`、`OutputBase`、`CompatPrefix`、`Symbol`、`IsExternalSync`、`IsRootFolder`、`BmtSort`、`IsBmtOutput` を対象外とします。
+
+### リソース健全性の3列
+
+保留の各健康度列は[設定先・先頭候補・入力元の優先順位](../library/warnings.md#リソース状態の評価)で評価し、設定先・候補では同梱を加算します。通常所持・新規導入済みは実配置の評価です。
+
+`WAV`・`BGA`・`MOVIE` は、各カテゴリの照合可能な使用キーと名前付き非照合の個別件数を合成した存在数／要求数を百分率で表示します。未使用定義の欠損を分母へ加えず、同一ファイルへの複数ID参照は一件です。不足が一件でもあれば100%と表示しません。要求0件は対象外の `-`、未検査・未解決で数値を求められない場合も `-` とします。内部の検査済み判定は表示値から決めません。
+
+不足警告の詳細は `WARNING` のツールチップで確認します。列の表示やツールチップのために譜面の再読取りや広域走査を開始しません。計数・保存は[リソース健全性](../core/data-and-indexes.md#リソース健全性)、警告の投影・更新は[警告仕様](../library/warnings.md#リソース状態の評価)に従います。
+
+### 導入先候補の表示
+
+候補を持つ `InstallDst` のセルは、候補を選べる印「▼」を表示します。導入先が未設定なら翻訳済みの「候補を選択…」を、設定済みなら現在のパスを添えます。印の位置は固定せず、通常の列幅で長いパスが省略されても、印をセル内に残します。候補がないセルは、パスだけを表示します。装飾は描画用の文字列だけに付け、編集の初期値、セルのコピー、TSV、候補項目、モデルの導入先、ソートキーには混ぜません。編集の開始と候補のサジェストは、既存のものを利用します。
 
 ### 列定義と変更時の整合
 
@@ -327,16 +357,16 @@ LR2互換性警告画面は LR2連携モード・単独動作モード の両方
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 既定順序、幅、表示範囲と保存値の保持 | [`CustomTableColumnSettings`](../../../BeMusicSeeker/ViewModels/ChartList/CustomTableColumnSettings.cs)、[`PlaylistSummaryColumnSettings`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistSummaryColumnSettings.cs) | [`CustomTableColumnSettingsTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnSettingsTests.cs) |
-| 列の定義、意味付きの説明、表示と編集の値 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) |
-| 導入先候補0・1・2件と設定先有無、表示装飾と生パスの分離 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の `InstallDst` | [`CustomTableColumnFactoryTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths`: 6通りの表示、編集初期値、セルコピー・TSVの生パス、モデルの導入先、候補項目を確認する。 |
-| 候補の印と長い導入先の省略表示 | `CustomTableColumnFactory`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の `InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`: 幅250px・既定行高で実列を描画し、候補0・1・2件と設定先有無について、長いパスが省略されても候補の印の字形がセルのクリップ内に残ることを確認する。 |
-| 省略判定と描画の書体・文字列の一致 | [`CustomTableTextLayoutCache`](../../../BeMusicSeeker/Views/CustomTable/CustomTableTextLayoutCache.cs) | [`CustomTableTextLayoutCacheTests`](../../../BeMusicSeeker.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) |
+| 保存済み列設定の保持と欠損補完 | [`CustomTableColumnSettings`](../../../BeMusicSeeker/Models/Settings/CustomTableColumnSettings.cs)、[`PlaylistSummaryColumnSettings`](../../../BeMusicSeeker/Models/Settings/PlaylistSummaryColumnSettings.cs)、[`ICustomTableColumnLayout`](../../../BeMusicSeeker/Models/Settings/ICustomTableColumnLayout.cs) | [`CustomTableColumnSettingsTests`](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableColumnSettingsTests.cs) は保存済みの選択・幅等を保持し、欠損した設定だけを補うことと非表示列を含む表示位置の一意性を確認する。`SavedColumnSettingsFromPreviousVersion_AreReadWithoutRevertingUserChoices` と `SavedColumnSettingsFromPreviousVersion_AreSavedAgainWithSameElementAndEnumNames` が、列設定の型を `BeMusicSeeker.ViewModels` に置いていた版が保存した実XMLの固定入力から全表示先とプレイリスト一覧の利用者の値を読み、同じ要素名・列挙名で保存し直すことを確認し、`ColumnLayouts_NotifyWidthDisplayIndexAndVisibilityChangesSynchronously` が両方の `ColumnLayout` の幅・表示位置・表示状態の同期の通知を確認する。既定値の全一覧・全順序は固定しない。 |
+| 列の定義、意味付きの説明、表示と編集の値 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) | [`CustomTableColumnFactoryTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableColumnFactoryTests.cs)、[`CustomTableColumnFactoryTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableColumnFactoryTests.cs) |
+| WAV・BGA・MOVIEの未判定／対象外表示と数値の百分率表示 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の各列の文字列取得 | [`CustomTableColumnFactoryTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableColumnFactoryTests.cs)、[`CustomTableColumnFactoryTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableColumnFactoryTests.cs) で実際の列formatterへnullと数値を渡し、3列の `-` と百分率を確認する。計数・検査済み判定は保守テストへ分担する。 |
+| URL列の可変幅と保存後の役割復元 | `CustomTableColumnFactory`、`CustomTableColumn`、`CustomTableColumnSettings` | `CustomTableColumnFactoryTests.CreateMainColumns_UsesCurrentWidthForUrlDisplayAndRawEditing` は両URL列の可変幅と元URL、`CustomTableColumnLayout_ResizeHitPrefersResizableColumnBoundary` はURLのresize受理と状態列の固定を確認する。`CustomTableColumnSettingsTests.UrlWidths_SaveAndReloadThroughProviderRestoreColumnRoles` は専用パスの実Settings providerへ異なる幅を保存し、新wrapperの読戻し・既定補完後の実factoryから幅と役割を復元する。入力・描画・局所cacheの保証は[一覧](table-view.md#実装とテストの対応)へ分担する。 |
+| 導入先候補0・1・2件と設定先有無、表示装飾と生パスの分離 | [`CustomTableColumnFactory`](../../../BeMusicSeeker/Views/CustomTable/CustomTableColumn.cs) の `InstallDst` | [`CustomTableColumnFactoryTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableColumnFactoryTests.cs)、[`CustomTableColumnFactoryTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableColumnFactoryTests.cs) の `InstallDestinationCell_DecoratesCandidatesWithoutChangingEditPaths`: 6通りの表示、編集初期値、セルコピー・TSVの生パス、モデルの導入先、候補項目を確認する。 |
+| 候補の印と長い導入先の省略表示 | `CustomTableColumnFactory`、`CustomTableSurface` | [`CustomTablePhase6CacheTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTablePhase6CacheTests.cs)、[`CustomTablePhase6CacheTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の `InstallDestinationCell_RendersCandidateMarkerInsideNarrowCell`: 幅250px・既定行高で実列を描画し、候補0・1・2件と設定先有無について、長いパスが省略されても候補の印の字形がセルのクリップ内に残ることを確認する。 |
+| 省略判定と描画の書体・文字列の一致 | [`CustomTableTextLayoutCache`](../../../BeMusicSeeker/Views/CustomTable/CustomTableTextLayoutCache.cs) | [`CustomTableTextLayoutCacheTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs)、[`CustomTableTextLayoutCacheTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableTextLayoutCacheTests.cs) |
+| 主一覧・サマリーの初期化確認と所有イベント終端 | [`MainWindowColumnResetTerminal`](../../../BeMusicSeeker/Views/MainWindow/MainWindowFeatureTerminals.cs)、[`MainWindow`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs) の `MainColumnResetClickConfirmsThroughInjectedDialogAndResetsOnlyOnExplicitOk` が、主一覧の確認が構成の共通の窓口へ1件届くこと、明示的なOKのときだけ初期化すること、取消・表示の失敗では初期化しないこと、失敗の案内が所有する入口から1回だけ出ることを確認する。サマリーの初期化確認と、呼出し前の失敗の所有`catch`は静的配線点検に分担する。`await`の失敗の所有`catch`は、同テストの表示失敗の行が確認する。 |
+| 履歴MD5列の既存設定互換・表示切替 | `CustomTableColumnSettings.Hash`、`CustomTableColumnFactory`、履歴列メニュー | `CustomTableColumnSettingsTests.PlayHistoryHashLayouts_SaveAndReloadWithoutChangingExistingChoices` はMD5/SHA/RAW/Titleの専用provider保存・新wrapper読戻し・補完後の実列、`EnsurePlayHistoryColumnDefaults_CompletesMissingLayoutsWithoutOverwritingExistingChoices` は旧設定のHash位置未設定だけを補うことを確認する。実列メニューとhash値・通常コピーの分担は[履歴の対応表](../playlist/play-history.md#実装とテストの対応)へ集約する。 |
 
 ## 関連資料
 
-[一覧表示](table-view.md)、[外観](appearance.md)、[設定](../runtime/settings.md)を参照します。
-
-### 導入先候補の表示
-
-候補を持つ `InstallDst` セルは、候補を選べる印「▼」を表示し、導入先未設定ならローカライズ済みの「候補を選択…」、設定済みなら現在のパスを添えます。印の位置は固定せず、通常の列幅で長いパスが省略されても印をセル内に残します。候補がないセルは従来のパス表示を維持します。装飾は描画用の文字列だけに付け、編集初期値・セルコピー・TSV・候補項目・モデルの導入先・ソートキーへ混ぜません。既存の編集開始と候補サジェストを利用します。
+[一覧表示](table-view.md)、[外観](appearance.md)、[設定](../runtime/settings.md)。

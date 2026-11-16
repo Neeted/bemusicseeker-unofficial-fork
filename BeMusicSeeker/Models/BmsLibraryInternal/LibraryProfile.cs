@@ -4,11 +4,12 @@ using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>一回の構築入力を保持し、LR2の正本は構成寿命の所有者を共有します。</summary>
 internal sealed class LibraryProfile(
     bool operationModeLR2DB,
     string songDbPath,
     IReadOnlyList<string> searchRoots,
-    Func<LR2Config> lr2ConfigProvider,
+    Lr2ConfigOwner lr2ConfigOwner,
     string lr2ScoreDbPath,
     bool canWriteLr2Config,
     bool canOutputLr2Folders,
@@ -22,7 +23,8 @@ internal sealed class LibraryProfile(
 
     public IReadOnlyList<string> SearchRoots { get; } = searchRoots ?? [];
 
-    public Func<LR2Config> Lr2ConfigProvider { get; } = lr2ConfigProvider;
+    /// <summary>設定・Library・Playlist・プレイヤーへ共用する全文所有者です。単独動作でLR2非利用ならnullです。</summary>
+    public Lr2ConfigOwner Lr2ConfigOwner { get; } = lr2ConfigOwner;
 
     public string Lr2ScoreDbPath { get; } = lr2ScoreDbPath;
 

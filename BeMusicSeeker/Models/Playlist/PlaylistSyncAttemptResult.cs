@@ -58,6 +58,20 @@ internal sealed class PlaylistSyncAttemptResult
         };
     }
 
+    /// <summary>取得境界で診断済みの失敗を、STATUS用の分類へ変換します。STATUSの表示状態に元例外を保持しません。</summary>
+    internal static PlaylistSyncAttemptResult CreateReportedExternalFailure(BMSTable sourceTable, Uri pageUri, Exception exception)
+    {
+        return new PlaylistSyncAttemptResult
+        {
+            SourceTable = sourceTable,
+            ResultTable = sourceTable,
+            PageUri = pageUri,
+            Succeeded = false,
+            Updated = false,
+            FailureKind = ClassifyFailureKind(exception)
+        };
+    }
+
     private static PlaylistSyncStatusKind ClassifyFailureKind(Exception exception)
     {
         if (exception is PlaylistHeaderUriNotFoundException)
@@ -83,7 +97,8 @@ internal sealed class PlaylistSyncAttemptResult
                 return PlaylistSyncStatusKind.DataParseError;
             }
         }
-        if (exception is InvalidOperationException invalidOperationException && !string.IsNullOrWhiteSpace(invalidOperationException.Message) && invalidOperationException.Message.StartsWith("Failed to resolve playlist data_url", StringComparison.Ordinal))
+        if (exception is UriFormatException
+            || exception is InvalidOperationException invalidOperationException && !string.IsNullOrWhiteSpace(invalidOperationException.Message) && invalidOperationException.Message.StartsWith("Failed to resolve playlist data_url", StringComparison.Ordinal))
         {
             return PlaylistSyncStatusKind.InvalidDataUrl;
         }
@@ -96,11 +111,8 @@ internal sealed class PlaylistSyncAttemptResult
                 _ => PlaylistSyncStatusKind.HttpError,
             };
         }
-        if (exception is TaskCanceledException || exception?.InnerException is TaskCanceledException || exception?.InnerException is SocketException)
-        {
-            return PlaylistSyncStatusKind.NetworkError;
-        }
-        if (exception is HttpRequestException httpRequestException && httpRequestException.InnerException is SocketException)
+        if (exception is HttpRequestException or OperationCanceledException
+            || exception?.InnerException is TaskCanceledException or SocketException)
         {
             return PlaylistSyncStatusKind.NetworkError;
         }
@@ -110,6 +122,11 @@ internal sealed class PlaylistSyncAttemptResult
     private static bool TryGetHttpStatusCode(Exception exception, out int statusCode)
     {
         statusCode = 0;
+        if (exception is HttpRequestException { StatusCode: { } responseStatus })
+        {
+            statusCode = (int)responseStatus;
+            return true;
+        }
         string text = exception?.Message;
         if (string.IsNullOrWhiteSpace(text))
         {

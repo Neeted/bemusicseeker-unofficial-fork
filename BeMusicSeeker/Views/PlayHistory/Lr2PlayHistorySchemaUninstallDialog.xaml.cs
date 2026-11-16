@@ -12,11 +12,12 @@ public partial class Lr2PlayHistorySchemaUninstallDialog : ThemedWindow
     /// <summary>
     /// ダイアログを初期化します。
     /// </summary>
+    /// <param name="candidateDiscardNotice">同じ承認で破棄する未確定設定の案内。候補がなければ省略します。</param>
     /// <param name="scoreDbPath">操作対象として表示する player score DB path。</param>
-    public Lr2PlayHistorySchemaUninstallDialog(string scoreDbPath)
+    public Lr2PlayHistorySchemaUninstallDialog(string scoreDbPath, string candidateDiscardNotice = null)
     {
         InitializeComponent();
-        DataContext = new ViewModel(scoreDbPath);
+        DataContext = new ViewModel(scoreDbPath, candidateDiscardNotice);
     }
 
     /// <summary>
@@ -32,8 +33,10 @@ public partial class Lr2PlayHistorySchemaUninstallDialog : ThemedWindow
         DialogResult = true;
     }
 
-    private sealed class ViewModel(string scoreDbPath)
+    private sealed class ViewModel(string scoreDbPath, string candidateDiscardNotice)
     {
+        public string CandidateDiscardNotice { get; } = candidateDiscardNotice ?? string.Empty;
+
         public string ScoreDbPath { get; } = scoreDbPath ?? string.Empty;
     }
 }

@@ -221,13 +221,13 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <param name="logOverride">build 完了後に呼び出すログ callback。</param>
     /// <returns>今回 build を行った場合は true。</returns>
     internal bool EnsureInstalledPrimaryHashLookupBuilt(
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         out long buildMs,
         out int bmsCount,
         out int bmsonCount,
         Action<string> logOverride = null)
     {
-        EnsureCurrent(storageRowsOwner);
+
         lock (lockInstalledPrimaryHashLookup)
         {
             if (installedPrimaryHashLookupInitialized)
@@ -264,10 +264,10 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <param name="storageRowsOwner">owned collection の canonical source。</param>
     /// <param name="logOverride">build 完了後に呼び出すログ callback。</param>
     internal void EnsureInstalledChartLookupIndexBuilt(
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         Action<string> logOverride = null)
     {
-        EnsureCurrent(storageRowsOwner);
+
         lock (lockInstalledChartLookupIndex)
         {
             if (installedChartLookupIndexInitialized)
@@ -309,7 +309,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <returns>snapshot と対応する generation。</returns>
     internal (InstalledChartLookupIndexSnapshot Snapshot, long Generation)
         CreateInstalledChartLookupVersionedSnapshot(
-            CatalogStorageRowsOwner storageRowsOwner,
+            CatalogOwnedCollectionOwner storageRowsOwner,
             Action<string> logOverride = null)
     {
         EnsureInstalledChartLookupIndexBuilt(storageRowsOwner, logOverride);
@@ -328,7 +328,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <returns>同じ primary hash の installed chart がある場合は true。</returns>
     internal bool ContainsInstalledChart(
         ChartFile chart,
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         Action<string> logOverride = null)
     {
         string lookupKey = ChartLookupKey.GetPrimaryHash(chart);
@@ -356,7 +356,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <param name="logOverride">必要な build のログ callback。</param>
     /// <returns>既知 directory の immutable view。</returns>
     internal IReadOnlyCollection<string> CreateInstalledChartKnownDirectorySnapshot(
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         Action<string> logOverride = null)
     {
         EnsureInstalledChartLookupIndexBuilt(storageRowsOwner, logOverride);
@@ -375,7 +375,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <returns>distinct directory の順序付き一覧。</returns>
     internal List<string> GetDistinctInstalledDirectoriesByPrimaryHash(
         string lookupHash,
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         Action<string> logOverride = null)
     {
         if (string.IsNullOrWhiteSpace(lookupHash))
@@ -401,7 +401,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     internal List<string> GetInstalledDirectChildPathsByPrimaryHashes(
         IEnumerable<string> primaryHashes,
         string destinationDirectory,
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         Action<string> logOverride = null)
     {
         var hashes = new HashSet<string>(
@@ -441,7 +441,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <returns>対象 chart 自身を除いた候補 path。</returns>
     internal IReadOnlyList<string> GetDuplicateInstallRepairPaths(
         ChartFile chart,
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         Action<string> logOverride = null)
     {
         string lookupHash = ChartLookupKey.GetPrimaryHash(chart);
@@ -471,7 +471,7 @@ internal sealed partial class CatalogOwnedCollectionOwner
     /// <returns>除外を反映した primary hash lookup。</returns>
     internal IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingCharts(
         IEnumerable<ChartFile> excluded,
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         string reason = null,
         long operationId = 0L,
         Action<string> logOverride = null)

@@ -1,0 +1,11 @@
+{
+  "solution": {
+    "path": "../BeMusicSeeker.sln",
+    "projects": [
+      "tests/BeMusicSeeker.Core.Tests/BeMusicSeeker.Core.Tests.csproj",
+      "tests/BeMusicSeeker.Windows.Tests/BeMusicSeeker.Windows.Tests.csproj",
+      "tests/BeMusicSeeker.Scenarios.Tests/BeMusicSeeker.Scenarios.Tests.csproj",
+      "tests/BeMusicSeeker.Desktop.E2E.Tests/BeMusicSeeker.Desktop.E2E.Tests.csproj"
+    ]
+  }
+}

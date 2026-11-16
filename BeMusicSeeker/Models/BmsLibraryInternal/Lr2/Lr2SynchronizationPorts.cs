@@ -21,36 +21,45 @@ internal interface ILr2SynchronizationDataPort
 
     EverythingNative EverythingNative { get; }
 
-    int OwnedChartCollectionVersion { get; }
-
-    IReadOnlyList<BMSFile> CaptureBmsFilesSnapshot();
+    IReadOnlyList<ChartFile> CaptureBmsFilesSnapshot();
 
     Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot();
 
-    StorageRowsVersionSnapshot CaptureStorageRowsVersionSnapshot();
-
-    ChartInfoOwnerVersionSnapshot CaptureChartInfoOwnerVersionSnapshot();
-
     TimeSpan CurrentChartInfoParseTimeout { get; }
 
-    Lr2SearchRootSnapshot CaptureBmsDirectories();
+    /// <summary>一操作で捕捉済みの登録と配置を使い、存在確認と管理領域除外を行います。</summary>
+    Lr2SearchRootSnapshot CaptureBmsDirectories(BmsLibraryOptionsSnapshot options = null);
 
-    LR2Config CreateCurrentLr2ConfigOrNull();
+    /// <summary>XMLを共有せず、構成寿命の所有者から公開済みの読取り値を捕捉します。</summary>
+    Lr2ConfigSnapshot CaptureLr2Config();
 
     Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
-        BmsLibraryOptionsSnapshot options);
+        BmsLibraryOptionsSnapshot options, bool throwOnFailure = false);
 
     Lr2FolderExistingRowsSnapshot CaptureLr2FolderExistingRows(Lr2SongDbSyncRequest request);
 
+    /// <summary>連携モードと保存済みCompletedから、既存状態を変更せず同期要否を判定します。</summary>
     Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
         bool enabled,
-        string signature,
         DateTime nowUtc);
 
     Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
         Lr2SongDbSyncStatusMutationRequest request);
 
     Lr2FolderFileDbSyncResult ApplyLr2FolderFileSync(Lr2FolderFileDbSyncRequest request);
+
+    /// <summary>
+    /// 組込みの新曲フォルダのファイルを読む前に、追加譜面の期間と、新曲フォルダの相対キー・旧版の絶対キーの完全一致の既存行だけから、作成が必要かをDBで判定します。
+    /// </summary>
+    bool RequiresLr2BuiltinNewSongFolderRowCreation(Lr2BuiltinNewSongFolderCreationCondition condition);
+
+    /// <summary>通常親のprune依存を調べるため、限定範囲のcustom exact pathを捕捉します。</summary>
+    IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(
+        IEnumerable<string> roots, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories);
+
+    /// <summary>局所整理する通常行のfolderinfo残存候補を捕捉します。</summary>
+    Lr2LocalFolderDependencies CaptureLr2FolderInfoDependencyDirectories(
+        IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories);
 
     Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request);
 
@@ -80,8 +89,8 @@ internal sealed class Lr2SearchRootSnapshot
         int configuredCustomOutputRootCount,
         IReadOnlyList<string> requestedRoots = null)
     {
-        Roots = roots ?? [];
-        RequestedRoots = requestedRoots ?? Roots;
+        Roots = Array.AsReadOnly((roots ?? []).ToArray());
+        RequestedRoots = Array.AsReadOnly((requestedRoots ?? Roots).ToArray());
         RequestedRootCount = requestedRootCount;
         ExistingRootCount = existingRootCount;
         ExcludedCustomOutputRootCount = excludedCustomOutputRootCount;
@@ -102,17 +111,19 @@ internal sealed class Lr2SearchRootSnapshot
     internal int ConfiguredCustomOutputRootCount { get; }
 }
 
+/// <summary>LR2要求の実終端で保存する状態です。MarkCompletedは必須投影と所有token確認の成功後だけに使います。</summary>
 internal enum Lr2SongDbSyncStatusMutationKind
 {
     MarkIncomplete,
-    MarkFailed
+    MarkFailed,
+    MarkCompleted
 }
 
 internal sealed class Lr2SongDbSyncStatusMutationRequest
 {
+    /// <summary>受理済みrunの終端状態と進捗を保存窓口へ渡します。進捗の継承はrun IDで照合します。</summary>
     internal Lr2SongDbSyncStatusMutationRequest(
         Lr2SongDbSyncStatusMutationKind kind,
-        string signature,
         string runId,
         int? processedCursor,
         int? totalCount,
@@ -121,7 +132,6 @@ internal sealed class Lr2SongDbSyncStatusMutationRequest
         DateTime nowUtc)
     {
         Kind = kind;
-        Signature = signature;
         RunId = runId;
         ProcessedCursor = processedCursor;
         TotalCount = totalCount;
@@ -131,8 +141,6 @@ internal sealed class Lr2SongDbSyncStatusMutationRequest
     }
 
     internal Lr2SongDbSyncStatusMutationKind Kind { get; }
-
-    internal string Signature { get; }
 
     internal string RunId { get; }
 
@@ -148,20 +156,13 @@ internal sealed class Lr2SongDbSyncStatusMutationRequest
 }
 
 /// <summary>
-/// Exposes lifecycle, scheduling and the scoped dialog boundary needed by LR2 work.
+/// Exposes lifecycle and scheduling needed by LR2 work. LR2 work never shows dialogs.
 /// </summary>
 internal interface ILr2SynchronizationRuntimePort
 {
     bool IsShutdownRequested { get; }
 
     Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; }
-
-    UiDialogDefaultResult ShowOperationDialog(
-        string messageBoxText,
-        string caption,
-        UiDialogButton button,
-        UiDialogIcon icon,
-        UiDialogDefaultResult defaultResult);
 
     bool TrySkipForShutdown(string operation, string reason);
 
@@ -175,22 +176,20 @@ internal interface ILr2SynchronizationProjectionPort
 {
     void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason);
 
-    Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex();
-
-    Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot();
+    Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot();
 
     HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason);
 
-    void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows);
+    void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows);
 
-    int ApplyLr2SongDbSyncCompatibilityProjection(
-        IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
+    /// <summary>実commit済みsongのLevel/LevelTextと任意の互換性事実だけを、同tokenの現在値と共通配送へ反映します。</summary>
+    int ApplyLr2SongDbSyncCurrentProjection(
+        IReadOnlyList<Lr2SongDbSyncCurrentFact> currentFacts,
         string reason,
-        IReadOnlyDictionary<string, BMSFile> bmsByPath,
         bool logSummary,
         bool dispatchPresentation);
 
-    void DispatchWarningPresentationChanged(string reason);
+    void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null);
 }
 
 /// <summary>
@@ -200,21 +199,19 @@ internal interface ILr2SynchronizationProjectionPort
 /// </summary>
 internal interface ILr2ChartInfoCapability
 {
-    ChartInfoOwnerVersionSnapshot CaptureOwnerVersionSnapshot();
-
     TimeSpan CurrentParseTimeout { get; }
 
     void EnsureHydratedForLr2(string reason);
 
-    Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2ResolverSnapshot();
+    Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2ResolverSnapshot();
 
-    Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentParseFailureMap(
+    Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> LoadCurrentParseFailureMap(
         BmsLibraryDbGateway dbGateway,
         TimeSpan parseTimeout);
 
-    void UpsertIndex(IReadOnlyList<LR2SongDBExtended.chart_info> rows);
+    void UpsertIndex(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows);
 
-    void PublishWarningPresentationChanged(string reason);
+    void PublishWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null);
 }
 
 internal sealed class Lr2ChartInfoCapability : ILr2ChartInfoCapability
@@ -227,27 +224,24 @@ internal sealed class Lr2ChartInfoCapability : ILr2ChartInfoCapability
             owner ?? throw new ArgumentNullException(nameof(owner)));
     }
 
-    public ChartInfoOwnerVersionSnapshot CaptureOwnerVersionSnapshot() =>
-        GetOwner().CaptureOwnerVersionSnapshot();
-
     public TimeSpan CurrentParseTimeout => GetOwner().BuildService.CurrentParseTimeout;
 
     public void EnsureHydratedForLr2(string reason) =>
         GetOwner().EnsureHydratedForLr2(reason);
 
-    public Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2ResolverSnapshot() =>
+    public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2ResolverSnapshot() =>
         GetOwner().CreateLr2ResolverSnapshot();
 
-    public Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentParseFailureMap(
+    public Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> LoadCurrentParseFailureMap(
         BmsLibraryDbGateway dbGateway,
         TimeSpan parseTimeout) =>
         GetOwner().LoadCurrentParseFailureMap(dbGateway, parseTimeout);
 
-    public void UpsertIndex(IReadOnlyList<LR2SongDBExtended.chart_info> rows) =>
+    public void UpsertIndex(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows) =>
         GetOwner().UpsertIndex(rows, "lr2_song_db_sync_inline_chart_info", dispatchPresentation: false);
 
-    public void PublishWarningPresentationChanged(string reason) =>
-        GetOwner().PublishWarningPresentationChanged(reason);
+    public void PublishWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null) =>
+        GetOwner().PublishWarningPresentationChanged(reason, md5s: md5s);
 
     private CatalogChartInfoOwner GetOwner()
     {
@@ -259,92 +253,32 @@ internal sealed class Lr2ChartInfoCapability : ILr2ChartInfoCapability
     }
 }
 
-internal sealed class Lr2ConfigSnapshotProvider
-{
-    private readonly Func<LR2Config> provider;
-
-    internal Lr2ConfigSnapshotProvider(Func<LR2Config> provider)
-    {
-        this.provider = provider ?? throw new ArgumentNullException(nameof(provider));
-    }
-
-    internal LR2Config GetOrNull()
-    {
-        return TryGet(out LR2Config config) ? config : null;
-    }
-
-    internal bool TryGet(out LR2Config config)
-    {
-        config = null;
-        try
-        {
-            config = provider();
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// 更新入口用に設定を取得します。テストや standalone composition の
-    /// 明示 SearchTargets を壊さないため、未接続なら null を返します。
-    /// </summary>
-    internal LR2Config GetConfiguredOrNull()
-    {
-        return provider();
-    }
-}
-
+/// <summary>共有XML所有者の公開入力または独立構成の確定一覧から、操作ごとの走査対象を作ります。</summary>
 internal sealed class Lr2SearchRootSnapshotOwner
 {
-    private readonly Lr2ConfigSnapshotProvider configProvider;
+    private readonly Lr2ConfigOwner configOwner;
     private readonly Func<BmsLibraryOptionsSnapshot> optionsProvider;
 
+    /// <summary>採用済みXMLの読込みを繰り返さず、同じ所有者と設定捕捉元を接続します。</summary>
     internal Lr2SearchRootSnapshotOwner(
-        Lr2ConfigSnapshotProvider configProvider,
+        Lr2ConfigOwner configOwner,
         Func<BmsLibraryOptionsSnapshot> optionsProvider)
     {
-        this.configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+        this.configOwner = configOwner;
         this.optionsProvider = optionsProvider ?? throw new ArgumentNullException(nameof(optionsProvider));
     }
 
-    internal List<string> SearchTargets { get; set; } = [];
-
-    internal Lr2SearchRootSnapshot Capture()
+    /// <summary>走査の登録と出力配置を一度捕捉し、ファイルの現在の利用可能性だけを検査します。</summary>
+    internal Lr2SearchRootSnapshot Capture(BmsLibraryOptionsSnapshot options = null)
     {
-        BmsLibraryOptionsSnapshot options = optionsProvider()
+        options ??= optionsProvider()
             ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
-        if (options?.OperationModeLR2DB == true)
-        {
-            try
-            {
-                bool configRead = configProvider.TryGet(out LR2Config config);
-                if (!configRead)
-                {
-                    // The previous facade route cleared the in-memory roots when LR2
-                    // configuration could not be read.  Keep that failure contract
-                    // explicit instead of retaining stale search targets.
-                    SearchTargets = [];
-                }
-                else if (config != null)
-                {
-                    SearchTargets = config.GetBMSSearchDirectories() ?? [];
-                }
-            }
-            catch
-            {
-                // Configuration extraction is part of the same read boundary;
-                // malformed values have the established empty-root contract.
-                SearchTargets = [];
-            }
-        }
-        IEnumerable<string> requestedRoots = SearchTargets ?? [];
+        Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() ?? throw new InvalidOperationException("LR2 root registration owner is unavailable.") : null;
+        IEnumerable<string> requestedRoots = captured?.CapturePhysicalRoots() ?? options.StandaloneBmsRootPaths;
+        options = WithCapturedPlacement(options, captured);
         HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
-        List<string> existingRoots = [.. requestedRoots
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Where(LongPathFileSystem.DirectoryExists)];
+        List<string> existingRoots = captured != null ? [.. captured.CaptureExistingSearchRoots()]
+            : [.. requestedRoots.Where(path => !string.IsNullOrWhiteSpace(path)).Where(LongPathFileSystem.DirectoryExists)];
         List<string> roots = [.. existingRoots
             .Where(path => !IsExcludedCustomOutputSearchRoot(path, excludedRoots))];
         return new Lr2SearchRootSnapshot(
@@ -360,24 +294,16 @@ internal sealed class Lr2SearchRootSnapshotOwner
     /// 更新操作用に存在確認前の設定 root を capture します。
     /// <see cref="Lr2SearchRootSnapshot.Roots"/> は scanner の既存の
     /// managed output 除外を維持し、<see cref="Lr2SearchRootSnapshot.RequestedRoots"/>
-    /// は preflight 用に全登録値を保持します。
+    /// は preflight 用に、物理的な検査の対象にできる全登録値を保持します（解決できなかった相対登録は含めません）。
     /// </summary>
     internal Lr2SearchRootSnapshot CaptureForUpdate(BmsLibraryOptionsSnapshot options)
     {
         options ??= optionsProvider()
             ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
-        if (options.OperationModeLR2DB == true)
-        {
-            LR2Config config = configProvider.GetConfiguredOrNull();
-            if (config != null)
-            {
-                SearchTargets = config.GetBMSSearchDirectoriesForChangeTracking() ?? [];
-            }
-        }
-
-        List<string> requestedRoots = [.. (SearchTargets ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path.Trim())];
+        Lr2ConfigSnapshot captured = options.OperationModeLR2DB ? options.Lr2Input ?? configOwner?.Capture() ?? throw new InvalidOperationException("LR2 root registration owner is unavailable.") : null;
+        options = WithCapturedPlacement(options, captured);
+        List<string> requestedRoots = [.. (captured?.CapturePhysicalRoots() ?? options.StandaloneBmsRootPaths)
+            .Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => path.Trim())];
         HashSet<string> excludedRoots = CreateExcludedCustomOutputRoots(options);
         List<string> scanRoots = [.. requestedRoots
             .Where(path => !IsExcludedCustomOutputSearchRoot(path, excludedRoots))];
@@ -388,6 +314,12 @@ internal sealed class Lr2SearchRootSnapshotOwner
             excludedCustomOutputRootCount: requestedRoots.Count - scanRoots.Count,
             configuredCustomOutputRootCount: excludedRoots.Count,
             requestedRoots: requestedRoots);
+    }
+
+    private static BmsLibraryOptionsSnapshot WithCapturedPlacement(BmsLibraryOptionsSnapshot options, Lr2ConfigSnapshot captured)
+    {
+        if (captured?.Placement == null) { return options; }
+        return options.WithLr2Placement(captured.Placement);
     }
 
     private static HashSet<string> CreateExcludedCustomOutputRoots(BmsLibraryOptionsSnapshot options)
@@ -501,7 +433,7 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
     private readonly EverythingNative everythingNative;
     private readonly Func<BmsLibraryOptionsSnapshot> currentOptionsSnapshot;
     private readonly Lr2SearchRootSnapshotOwner searchRootSnapshotOwner;
-    private readonly Lr2ConfigSnapshotProvider configProvider;
+    private readonly Lr2ConfigOwner configOwner;
 
     internal Lr2SynchronizationDataPort(
         BmsLibraryDbGateway dbGateway,
@@ -511,7 +443,7 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
         EverythingNative everythingNative,
         Func<BmsLibraryOptionsSnapshot> currentOptionsSnapshot,
         Lr2SearchRootSnapshotOwner searchRootSnapshotOwner,
-        Lr2ConfigSnapshotProvider configProvider)
+        Lr2ConfigOwner configOwner)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.catalogMutationOwner = catalogMutationOwner ?? throw new ArgumentNullException(nameof(catalogMutationOwner));
@@ -520,7 +452,7 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
         this.everythingNative = everythingNative ?? throw new ArgumentNullException(nameof(everythingNative));
         this.currentOptionsSnapshot = currentOptionsSnapshot ?? throw new ArgumentNullException(nameof(currentOptionsSnapshot));
         this.searchRootSnapshotOwner = searchRootSnapshotOwner ?? throw new ArgumentNullException(nameof(searchRootSnapshotOwner));
-        this.configProvider = configProvider ?? throw new ArgumentNullException(nameof(configProvider));
+        this.configOwner = configOwner;
     }
 
     public BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => currentOptionsSnapshot()
@@ -528,38 +460,31 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 
     public EverythingNative EverythingNative => everythingNative;
 
-    public int OwnedChartCollectionVersion => catalogOwnedCollectionOwner.CollectionVersion;
-
-    public IReadOnlyList<BMSFile> CaptureBmsFilesSnapshot() =>
+    public IReadOnlyList<ChartFile> CaptureBmsFilesSnapshot() =>
         catalogMutationOwner.CaptureLr2SynchronizationBmsFilesSnapshot();
 
     public Lr2SongDbSyncInputRowSnapshot CaptureLr2SynchronizationInputRowSnapshot() =>
         catalogMutationOwner.CaptureLr2SynchronizationInputRowSnapshot();
 
-    public StorageRowsVersionSnapshot CaptureStorageRowsVersionSnapshot() =>
-        catalogMutationOwner.CaptureLr2SynchronizationStorageRowsVersionSnapshot();
-
-    public ChartInfoOwnerVersionSnapshot CaptureChartInfoOwnerVersionSnapshot() =>
-        chartInfoCapability.CaptureOwnerVersionSnapshot();
-
     public TimeSpan CurrentChartInfoParseTimeout => chartInfoCapability.CurrentParseTimeout;
 
-    public Lr2SearchRootSnapshot CaptureBmsDirectories() => searchRootSnapshotOwner.Capture();
+    /// <inheritdoc />
+    public Lr2SearchRootSnapshot CaptureBmsDirectories(BmsLibraryOptionsSnapshot options = null) => searchRootSnapshotOwner.Capture(options);
 
-    public LR2Config CreateCurrentLr2ConfigOrNull() => configProvider.GetOrNull();
+    /// <inheritdoc />
+    public Lr2ConfigSnapshot CaptureLr2Config() => configOwner?.Capture();
 
     public Lr2SongDbSyncAppManagedOutputScope CaptureLr2SongDbSyncAppManagedOutputScope(
-        BmsLibraryOptionsSnapshot options) =>
-        catalogMutationOwner.CaptureLr2SongDbSyncAppManagedOutputScope(options);
+        BmsLibraryOptionsSnapshot options, bool throwOnFailure = false) =>
+        catalogMutationOwner.CaptureLr2SongDbSyncAppManagedOutputScope(options, throwOnFailure);
 
     public Lr2FolderExistingRowsSnapshot CaptureLr2FolderExistingRows(Lr2SongDbSyncRequest request) =>
         catalogMutationOwner.CaptureLr2FolderExistingRows(request);
 
     public Lr2SongDbSyncStatusSnapshot EvaluateLr2SongDbSyncStatus(
         bool enabled,
-        string signature,
         DateTime nowUtc) =>
-        catalogMutationOwner.EvaluateLr2SongDbSyncStatus(enabled, signature, nowUtc);
+        catalogMutationOwner.EvaluateLr2SongDbSyncStatus(enabled, nowUtc);
 
     public Lr2SongDbSyncStatusSnapshot ApplyLr2SongDbSyncStatusMutation(
         Lr2SongDbSyncStatusMutationRequest request) =>
@@ -567,6 +492,20 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 
     public Lr2FolderFileDbSyncResult ApplyLr2FolderFileSync(Lr2FolderFileDbSyncRequest request) =>
         catalogMutationOwner.ApplyLr2FolderFileSync(request);
+
+    /// <summary>DB読取りを所有する窓口へ、組込みの新曲フォルダの作成要否の判定を委譲します。</summary>
+    public bool RequiresLr2BuiltinNewSongFolderRowCreation(Lr2BuiltinNewSongFolderCreationCondition condition) =>
+        catalogMutationOwner.RequiresLr2BuiltinNewSongFolderRowCreation(condition);
+
+    /// <summary>DB読取りを所有する窓口へ、通常親のcustom依存候補捕捉を委譲します。</summary>
+    public IReadOnlyList<string> CaptureLr2NormalFolderCustomDependencyCandidates(
+        IEnumerable<string> roots, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories) =>
+        catalogMutationOwner.CaptureLr2NormalFolderCustomDependencyCandidates(roots, pruneScopes, pruneExactDirectories);
+
+    /// <summary>局所整理する通常行のfolderinfo残存候補を捕捉します。</summary>
+    public Lr2LocalFolderDependencies CaptureLr2FolderInfoDependencyDirectories(
+        IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories) =>
+        catalogMutationOwner.CaptureLr2FolderInfoDependencyDirectories(pruneScopes, pruneExactDirectories);
 
     public Lr2NormalFolderDbSyncResult ApplyLr2NormalFolderSync(Lr2NormalFolderDbSyncRequest request) =>
         catalogMutationOwner.ApplyLr2NormalFolderSync(request);
@@ -579,28 +518,16 @@ internal sealed class Lr2SynchronizationDataPort : ILr2SynchronizationDataPort
 internal sealed class Lr2SynchronizationRuntimePort : ILr2SynchronizationRuntimePort
 {
     private readonly Lr2SynchronizationRuntimeState state;
-    private readonly IBmsLibraryDialogService dialogService;
 
-    internal Lr2SynchronizationRuntimePort(
-        Lr2SynchronizationRuntimeState state,
-        IBmsLibraryDialogService dialogService)
+    internal Lr2SynchronizationRuntimePort(Lr2SynchronizationRuntimeState state)
     {
         this.state = state ?? throw new ArgumentNullException(nameof(state));
-        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
     }
 
     public bool IsShutdownRequested => state.IsShutdownRequested;
 
     public Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler =>
         state.StartupBackgroundTaskScheduler;
-
-    public UiDialogDefaultResult ShowOperationDialog(
-        string messageBoxText,
-        string caption,
-        UiDialogButton button,
-        UiDialogIcon icon,
-        UiDialogDefaultResult defaultResult) =>
-        dialogService.Show(messageBoxText, caption, button, icon, defaultResult);
 
     public bool TrySkipForShutdown(string operation, string reason) => state.TrySkipForShutdown(operation, reason);
 
@@ -610,13 +537,13 @@ internal sealed class Lr2SynchronizationRuntimePort : ILr2SynchronizationRuntime
 
 internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProjectionPort
 {
-    private readonly CatalogStorageRowsOwner storageRowsOwner;
+    private readonly CatalogOwnedCollectionOwner storageRowsOwner;
     private readonly ILr2ChartInfoCapability chartInfoCapability;
     private readonly BmsLibraryDbGateway dbGateway;
     private readonly Action<string> log;
 
     internal Lr2SynchronizationProjectionPort(
-        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner storageRowsOwner,
         ILr2ChartInfoCapability chartInfoCapability,
         BmsLibraryDbGateway dbGateway,
         Action<string> log)
@@ -630,16 +557,7 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
     public void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) =>
         chartInfoCapability.EnsureHydratedForLr2(reason);
 
-    public Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex()
-    {
-        CatalogStorageRowsSnapshot snapshot = storageRowsOwner.CaptureSnapshot();
-        return (snapshot.BmsRows ?? [])
-            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-            .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-    }
-
-    public Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
+    public Func<ChartFile, BeMusicSeeker.Models.ChartDetails> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
         chartInfoCapability.CreateLr2ResolverSnapshot();
 
     public HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason)
@@ -647,7 +565,7 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> failures =
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> failures =
                 chartInfoCapability.LoadCurrentParseFailureMap(dbGateway, chartInfoCapability.CurrentParseTimeout);
             stopwatch.Stop();
             var result = new HashSet<string>(
@@ -670,76 +588,58 @@ internal sealed class Lr2SynchronizationProjectionPort : ILr2SynchronizationProj
         }
     }
 
-    public void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows) =>
+    public void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<BeMusicSeeker.Models.ChartDetails> rows) =>
         chartInfoCapability.UpsertIndex(rows);
 
-    public int ApplyLr2SongDbSyncCompatibilityProjection(
-        IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
+    /// <summary>DBとmaintenance writerの解放後、確定chunkの同tokenへlevelと互換性列だけを一括反映します。利用者列や別対象の現在値を上書きしません。</summary>
+    public int ApplyLr2SongDbSyncCurrentProjection(
+        IReadOnlyList<Lr2SongDbSyncCurrentFact> currentFacts,
         string reason,
-        IReadOnlyDictionary<string, BMSFile> bmsByPath,
         bool logSummary,
         bool dispatchPresentation)
     {
-        List<BMSFileMaintenanceInfo> infoList = [.. (maintenanceInfos ?? [])
-            .Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
-        if (infoList.Count == 0)
+        var factsByToken = new Dictionary<OwnedChartToken, Lr2SongDbSyncCurrentFact>();
+        foreach (Lr2SongDbSyncCurrentFact fact in currentFacts ?? [])
         {
-            if (logSummary)
-            {
-                log("lr2_song_db_sync_compatibility_projection skipped"
-                    + " reason=" + (reason ?? "unknown")
-                    + " input=0 applied=0");
-            }
-            return 0;
+            if (fact.Chart?.Token != null) { factsByToken[fact.Chart.Token] = fact; }
         }
-
-        int applied = 0;
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
-        {
-            CatalogStorageRowsSnapshot snapshot = storageRowsOwner.CaptureSnapshot();
-            bmsByPath ??= (snapshot.BmsRows ?? [])
-                .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path))
-                .GroupBy(file => file.path, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-            foreach (BMSFileMaintenanceInfo sourceInfo in infoList)
+        CatalogCommitReceipt receipt = storageRowsOwner.CommitCurrentValues(
+            factsByToken.Values.Select(fact => fact.Chart), (current, value) =>
             {
-                if (!bmsByPath.TryGetValue(sourceInfo.path, out BMSFile file)
-                    || file == null
-                    || (!string.IsNullOrWhiteSpace(sourceInfo.hash)
-                        && !string.Equals(sourceInfo.hash, file.hash, StringComparison.OrdinalIgnoreCase)))
+                Lr2SongDbSyncCurrentFact fact = factsByToken[value.Token];
+                ChartFile next = fact.HasLevel ? current with { Level = value.Level, LevelText = value.LevelText } : current;
+                ResourceHealthMaintenanceSnapshot source = fact.CompatibilityInfo;
+                if (source == null || !string.Equals(source.Path, current.Path, StringComparison.Ordinal)
+                    || (!string.IsNullOrWhiteSpace(source.Hash) && !string.Equals(source.Hash, current.Md5, StringComparison.OrdinalIgnoreCase)))
                 {
-                    continue;
+                    return next;
                 }
-
-                BMSFileMaintenanceInfo targetInfo = file.TryGetMaintenanceInfoWithoutCreating();
-                if (targetInfo == null || !file.HasMaintenanceInfoHash(file.hash))
+                ResourceHealthMaintenanceSnapshot maintenance = current.ResourceHealthMaintenanceSnapshot
+                    ?? new ResourceHealthMaintenanceSnapshot { Path = current.Path, Hash = current.Md5 };
+                ResourceHealthMaintenanceSnapshot updated = maintenance with
                 {
-                    targetInfo = new BMSFileMaintenanceInfo(file);
-                }
-                if (targetInfo.HasSameLr2CompatibilityFacts(sourceInfo))
-                {
-                    continue;
-                }
-                targetInfo.ApplyLr2CompatibilityFactsFrom(sourceInfo);
-                file.SetMaintenanceInfo(targetInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.Calculated);
-                applied++;
-            }
-        }
-
+                    Lr2WarningFlags = source.Lr2WarningFlags,
+                    Lr2ResourceMaxRelativeCp932Bytes = source.Lr2ResourceMaxRelativeCp932Bytes,
+                    Lr2ResourceHasParentTraversal = source.Lr2ResourceHasParentTraversal,
+                    Origin = MaintenanceInfoOrigin.Calculated
+                };
+                return ChartFileProjection.WithMaintenance(next, updated);
+            });
+        int applied = receipt.Changes.Count;
         if (logSummary)
         {
-            log("lr2_song_db_sync_compatibility_projection applied"
-                + " reason=" + (reason ?? "unknown")
-                + " input=" + infoList.Count
-                + " applied=" + applied);
+            log("lr2_song_db_sync_current_projection applied"
+                + " reason=" + (reason ?? "unknown") + " input=" + factsByToken.Count + " applied=" + applied);
         }
-        if (dispatchPresentation && applied > 0)
+        if (dispatchPresentation && applied > 0 && factsByToken.Values.Any(fact => fact.CompatibilityInfo != null))
         {
-            chartInfoCapability.PublishWarningPresentationChanged("lr2_song_db_sync_compatibility_projection");
+            chartInfoCapability.PublishWarningPresentationChanged("lr2_song_db_sync_current_projection",
+                [.. factsByToken.Values.Where(fact => fact.CompatibilityInfo != null).Select(fact => fact.CompatibilityInfo.Hash)
+                    .Where(hash => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase)]);
         }
         return applied;
     }
 
-    public void DispatchWarningPresentationChanged(string reason) =>
-        chartInfoCapability.PublishWarningPresentationChanged(reason);
+    public void DispatchWarningPresentationChanged(string reason, IReadOnlyList<string> md5s = null) =>
+        chartInfoCapability.PublishWarningPresentationChanged(reason, md5s);
 }

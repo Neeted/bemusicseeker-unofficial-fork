@@ -195,25 +195,8 @@ public sealed class LibraryFolderTreeViewModel : ViewModel, ISettingsDialogSearc
     internal bool HasOwnedChartUnderRealPath(string directoryPath)
         => library?.HasOwnedChartUnderRealPath(directoryPath) == true;
 
-    internal void ApplySearchTargets(IReadOnlyList<string> searchTargets)
-    {
-        if (library == null)
-        {
-            return;
-        }
-        library.SearchTargets = [.. (searchTargets ?? [])];
-    }
-
-    bool ISettingsDialogSearchRootRuntimePort.IsLibraryAttached => IsLibraryAttached;
-
     bool ISettingsDialogSearchRootRuntimePort.HasOwnedChartUnderRealPath(string directoryPath)
         => HasOwnedChartUnderRealPath(directoryPath);
-
-    void ISettingsDialogSearchRootRuntimePort.ApplySearchTargets(IReadOnlyList<string> searchTargets)
-        => ApplySearchTargets(searchTargets);
-
-    void ISettingsDialogSearchRootRuntimePort.InvalidateLibraryFolderCache()
-        => InvalidateLibraryFolderCache();
 
     /// <summary>
     /// Schedules one background cache preparation and one UI-thread apply.

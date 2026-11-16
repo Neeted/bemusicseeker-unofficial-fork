@@ -14,6 +14,17 @@ internal enum StartupUpdateWorkflowOutcome
     Closing
 }
 
+/// <summary>起動時更新確認が開始前か、実行中か、終端済みかを表します。</summary>
+internal enum StartupUpdateWorkflowState
+{
+    /// <summary>まだ開始していません。閉鎖要求で開始しないまま終わる場合も含みます。</summary>
+    NotStarted,
+    /// <summary>開始済みで、終端の受領を確定していません。</summary>
+    Running,
+    /// <summary>終端の受領を確定済みです。</summary>
+    Terminal
+}
+
 internal sealed class StartupUpdateWorkflowCompletionReceipt
 {
     internal StartupUpdateWorkflowCompletionReceipt(
@@ -108,6 +119,8 @@ internal sealed class StartupUpdateWorkflowOwner
 
     private bool terminalPending;
 
+    private StartupUpdateWorkflowCompletionReceipt terminalReceipt;
+
     private TaskCompletionSource<bool> shutdownPreparationPortCompletion = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     internal StartupUpdateWorkflowOwner(
@@ -136,7 +149,8 @@ internal sealed class StartupUpdateWorkflowOwner
 
     internal event Action<StartupUpdatePresentationRequest> PresentationRequested;
 
-    internal event Action<Exception> FailurePresentationRequested;
+    /// <summary>更新の失敗の表示を要求します。受け手は表示の完了で終わる Task を返し、既読化は表示が成功した後にだけ行います。</summary>
+    internal event Func<Exception, Task> FailurePresentationRequested;
 
     internal event Action ApplicationShutdownRequested;
 
@@ -174,6 +188,27 @@ internal sealed class StartupUpdateWorkflowOwner
     }
 
     internal bool IsIdle => !IsActive;
+
+    /// <summary>
+    /// 更新確認の開始状態と、終端していればその実receiptを同じlock下で一貫して返します。
+    /// </summary>
+    /// <remarks>
+    /// 受領はlock下で確定してから終端通知を発行するため、<see cref="TerminalPublished"/>の購読時機に依存せず、
+    /// 購読より先に終端した更新確認も後から観測できます。検証起動の制御経路が、開始前の状態を
+    /// 終端種別で補わずに失敗として扱うために使います。終端した受領は後続の呼出しでも変わりません。
+    /// </remarks>
+    /// <param name="receipt">状態が<see cref="StartupUpdateWorkflowState.Terminal"/>のときだけ非nullの実receiptです。</param>
+    /// <returns>現在の開始状態です。</returns>
+    internal StartupUpdateWorkflowState CaptureState(out StartupUpdateWorkflowCompletionReceipt receipt)
+    {
+        lock (syncRoot)
+        {
+            receipt = terminalReceipt;
+            return terminalReceipt != null
+                ? StartupUpdateWorkflowState.Terminal
+                : started ? StartupUpdateWorkflowState.Running : StartupUpdateWorkflowState.NotStarted;
+        }
+    }
 
     internal bool IsShutdownPreparationStarted
     {
@@ -491,29 +526,36 @@ internal sealed class StartupUpdateWorkflowOwner
         return await preparation.ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// 失敗の表示を UI へ依頼します。表示の要求は UI へ渡した処理の中で最初の await より前に行い、
+    /// 表示の完了は待たずに、終端の公開と終了の要求の順を保ちます。
+    /// </summary>
     private void RequestFailurePresentation(Exception exception)
     {
-        DispatchToUi(() =>
+        DispatchToUi(() => _ = PresentFailureAsync(exception));
+    }
+
+    /// <summary>表示が成功した後にだけ、永続した失敗の記録を既読にします。表示の失敗は診断へ残し、既読にしません。戻り値の Task は失敗しません。</summary>
+    private async Task PresentFailureAsync(Exception exception)
+    {
+        Func<Exception, Task> presenter = FailurePresentationRequested;
+        if (presenter == null)
         {
-            Action<Exception> presenter = FailurePresentationRequested;
-            if (presenter == null)
+            return;
+        }
+        try
+        {
+            await (presenter(exception) ?? throw new InvalidOperationException("Startup update failure presentation returned no task."));
+            if (exception is UpdateFailureReceiptException receipt
+                && receipt.ShouldAcknowledgeAfterPresentation)
             {
-                return;
+                receipt.Acknowledge();
             }
-            try
-            {
-                presenter(exception);
-                if (exception is UpdateFailureReceiptException receipt
-                    && receipt.ShouldAcknowledgeAfterPresentation)
-                {
-                    receipt.Acknowledge();
-                }
-            }
-            catch (Exception notificationException)
-            {
-                LogWarningSafely(notificationException, "startup_update failure presentation failed");
-            }
-        });
+        }
+        catch (Exception notificationException)
+        {
+            LogWarningSafely(notificationException, "startup_update failure presentation failed");
+        }
     }
 
     private void RequestApplicationShutdown()
@@ -547,6 +589,7 @@ internal sealed class StartupUpdateWorkflowOwner
         Exception exception = null,
         bool shutdownPrepared = false)
     {
+        StartupUpdateWorkflowCompletionReceipt receipt;
         lock (syncRoot)
         {
             if (!active || !ReferenceEquals(activeRun, run))
@@ -555,10 +598,12 @@ internal sealed class StartupUpdateWorkflowOwner
             }
             active = false;
             activeRun = null;
+            // 終端通知より先に、観測用の保持値を同じlock下で確定します。
+            receipt = new StartupUpdateWorkflowCompletionReceipt(run.Generation, outcome, exception, shutdownPrepared);
+            terminalReceipt = receipt;
         }
         idleCompletion.TrySetResult(true);
 
-        var receipt = new StartupUpdateWorkflowCompletionReceipt(run.Generation, outcome, exception, shutdownPrepared);
         if (!DispatchToUi(() =>
         {
             try

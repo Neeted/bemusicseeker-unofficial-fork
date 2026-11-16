@@ -39,8 +39,17 @@ internal sealed class AppSchemaPreflightResult(bool needsPlaylistEntrySha256Repa
     public bool RequiresWarning => WarnRequired;
 }
 
+/// <summary>構成が所有する読取り専用接続で、起動時のアプリ所有schemaを検査します。</summary>
 internal sealed class AppSchemaPreflightService
 {
+    private readonly ApplicationDatabaseScope databaseScope;
+
+    /// <summary>接続とその寿命を所有するスコープを受け取ります。</summary>
+    internal AppSchemaPreflightService(ApplicationDatabaseScope databaseScope)
+    {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+    }
+
     public AppSchemaPreflightResult Inspect(string songDbPath)
     {
         if (songDbPath == null)
@@ -51,7 +60,7 @@ internal sealed class AppSchemaPreflightService
         {
             throw new ArgumentException(songDbPath, nameof(songDbPath));
         }
-        using var db = new SQLiteConnection(songDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, storeDateTimeAsTicks: true);
+        using SQLiteConnectionEx db = databaseScope.OpenReadOnly(songDbPath);
         return Inspect(db);
     }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -15,6 +16,19 @@ internal sealed class Lr2NormalFolderDbSyncRequest
 
     public IReadOnlyCollection<string> DirectoryPaths { get; set; } = [];
 
+    /// <summary>
+    /// trueのとき、<see cref="DirectoryPaths"/>を通常行の生成と日時取り直しの完全な対象集合として扱います。
+    /// 登録rootや<see cref="RequiredCustomParentDirectories"/>の祖先を暗黙に加えず、変更と無関係な登録rootの行を生成・更新しません。
+    /// 局所mutationだけが指定し、全体同期・差分読込み・初期化の既定動作（全登録rootを含める）は変えません。
+    /// </summary>
+    public bool DirectoryPathsAreComplete { get; set; }
+
+    /// <summary>所有者が今回の物理残存を確定したcustomの親。DB行だけを残存根拠にしません。</summary>
+    public IReadOnlyCollection<string> RequiredCustomParentDirectories { get; set; } = [];
+
+    /// <summary>成功した物理範囲内で消失を確認した管理外customのraw完全一致キーです。</summary>
+    public IReadOnlyCollection<string> RemovedCustomPaths { get; set; } = [];
+
     public IReadOnlyCollection<string> FolderInfoFilePaths { get; set; } = [];
 
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> FolderInfoFileEntries { get; set; } =
@@ -22,7 +36,14 @@ internal sealed class Lr2NormalFolderDbSyncRequest
 
     public IReadOnlyCollection<string> PruneScopeDirectories { get; set; } = [];
 
+    /// <summary>今回の確定表一覧と配置が所有する表ディレクトリです。通常行の生成は保ち、内部行の削除だけを管理出力側へ委ねます。</summary>
+    public IReadOnlyCollection<string> PruneExcludedDirectories { get; set; } = [];
+
+    /// <summary>局所mutationで子孫を含めず整理する物理directoryです。保存済みrawキーは混ぜません。</summary>
     public IReadOnlyCollection<string> PruneExactDirectories { get; set; } = [];
+
+    /// <summary>全登録走査で取得済みの全folder面です。局所mutationは指定せず、対象限定のDB読取りを使います。</summary>
+    public Lr2FolderTableSnapshot FolderTableSnapshot { get; set; }
 
     public Func<string, DateTime?> DirectoryLastWriteTimeUtcResolver { get; set; }
 
@@ -94,6 +115,11 @@ internal sealed class Lr2NormalFolderDbSyncResult(
     public bool HasChanges => UpsertedCount > 0 || DeletedCount > 0;
 }
 
+/// <summary>局所整理範囲のfolderinfo確認先と、対象外の通常階層が引き続き必要とする祖先です。</summary>
+internal sealed record Lr2LocalFolderDependencies(
+    IReadOnlyList<string> FolderInfoCandidateDirectories,
+    IReadOnlyList<string> RetainedAncestorDirectories);
+
 internal static class Lr2NormalFolderDbSyncService
 {
     internal static Lr2NormalFolderDbSyncResult Sync(
@@ -111,10 +137,21 @@ internal static class Lr2NormalFolderDbSyncService
         var stepStopwatch = Stopwatch.StartNew();
 
         List<string> rootDirectories = NormalizeRootDirectories(request.RootDirectories);
-        IReadOnlyCollection<string> directoryMetadataTargets = ResolveDirectoryMetadataTargets(
-            rootDirectories,
-            request.DirectoryPaths,
-            request.ChartPaths);
+        IReadOnlyCollection<string> directoryMetadataTargets;
+        if (request.DirectoryPathsAreComplete)
+        {
+            directoryMetadataTargets = ResolveCompleteDirectoryMetadataTargets(rootDirectories, request.DirectoryPaths);
+        }
+        else
+        {
+            directoryMetadataTargets = ResolveDirectoryMetadataTargets(
+                rootDirectories,
+                request.DirectoryPaths,
+                request.ChartPaths);
+            directoryMetadataTargets = [.. directoryMetadataTargets.Concat(
+                CreateDirectoryMetadataTargetsFromDirectories(rootDirectories, request.RequiredCustomParentDirectories))
+                .Distinct(StringComparer.Ordinal)];
+        }
         long targetBuildMs = RestartElapsed(stepStopwatch);
         Lr2FolderDirectoryMetadataSnapshot metadataSnapshot = Lr2FolderDirectoryMetadataBuilder.Build(new Lr2FolderDirectoryMetadataBuildRequest
         {
@@ -125,7 +162,7 @@ internal static class Lr2NormalFolderDbSyncService
             FolderInfoLinesReader = request.FolderInfoLinesReader
         });
         long metadataBuildMs = RestartElapsed(stepStopwatch);
-        List<LR2SongDB.folder> existingRows = ReadExistingRows(
+        IReadOnlyCollection<LR2SongDB.folder> existingRows = request.FolderTableSnapshot?.Rows ?? ReadExistingRows(
             songDb,
             request,
             rootDirectories,
@@ -137,7 +174,8 @@ internal static class Lr2NormalFolderDbSyncService
             DirectoryPaths = directoryMetadataTargets,
             ExistingRows = existingRows,
             DirectoryMetadataResolver = metadataSnapshot.Resolve,
-            GeneratedAtUtc = request.GeneratedAtUtc
+            GeneratedAtUtc = request.GeneratedAtUtc,
+            IncludeRootDirectories = !request.DirectoryPathsAreComplete
         });
         long rowGenerateMs = RestartElapsed(stepStopwatch);
         bool hasExplicitPrune = request.PruneScopeDirectories?.Count > 0 || request.PruneExactDirectories?.Count > 0;
@@ -154,11 +192,17 @@ internal static class Lr2NormalFolderDbSyncService
             existingRows,
             rootDirectories,
             pruneScopeDirectories,
-            pruneExactDirectories);
+            pruneExactDirectories,
+            request.PruneExcludedDirectories);
         bool canPrune = request.AllowPrune;
         if (!canPrune && plan.DeletePaths.Count > 0)
         {
             plan = new Lr2FolderGenerationSyncPlan(plan.UpsertRows, []);
+        }
+        if (request.RemovedCustomPaths.Count > 0)
+        {
+            plan = new Lr2FolderGenerationSyncPlan(plan.UpsertRows,
+                [.. plan.DeletePaths.Concat(request.RemovedCustomPaths).Distinct(StringComparer.Ordinal)]);
         }
         long planMs = RestartElapsed(stepStopwatch);
         Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ApplySyncPlan(
@@ -189,13 +233,56 @@ internal static class Lr2NormalFolderDbSyncService
             stopwatch.ElapsedMilliseconds);
     }
 
+    /// <summary>全登録走査の取得面から、登録root内のcustom依存候補を一度だけ抽出します。物理残存は呼出元の走査面で確認します。</summary>
+    internal static IReadOnlyList<string> CaptureCustomDependencyCandidates(
+        Lr2FolderTableSnapshot snapshot, IEnumerable<string> rootDirectories)
+    {
+        List<string> roots = NormalizeRootDirectories(rootDirectories);
+        return [.. snapshot.Rows.Where(row => Path.IsPathFullyQualified(row.path)
+                && string.Equals(Path.GetExtension(row.path), ".lr2folder", StringComparison.OrdinalIgnoreCase)
+                && roots.Any(root => Lr2FolderPath.IsSameOrDescendant(row.path, root)))
+            .Select(row => row.path)];
+    }
+
+    /// <summary>prune subtreeと削除候補祖先の子階層だけからcustom候補を取得します。旧exact削除キー自体は変更しません。</summary>
+    internal static IReadOnlyList<string> CaptureCustomDependencyCandidates(
+        LR2SongDBExtended songDb, IEnumerable<string> roots,
+        IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)
+    {
+        var prefixes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string directory in (pruneScopes ?? []).Concat(pruneExactDirectories ?? []))
+        {
+            string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
+            if (!string.IsNullOrWhiteSpace(normalized)
+                && (roots ?? []).Any(root => Lr2FolderPath.IsSameOrDescendant(normalized, root)))
+            {
+                prefixes.Add(Lr2FolderPath.ToFolderPath(normalized));
+            }
+        }
+        return Lr2FolderExistingRowLookup.QueryCustomFolderDependencyPaths(songDb, prefixes);
+    }
+
+    /// <summary>局所整理する通常行の物理directoryを限定取得し、folderinfoの残存確認へ渡します。</summary>
+    internal static Lr2LocalFolderDependencies CaptureFolderInfoDependencyDirectories(
+        LR2SongDBExtended songDb, IEnumerable<string> pruneScopes, IEnumerable<string> pruneExactDirectories)
+    {
+        return new Lr2LocalFolderDependencies([.. Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb,
+                (pruneScopes ?? []).Select(Lr2FolderPath.ToFolderPath))
+            .Where(row => row.type == 1 && row.path.Length > 0 && Lr2FolderPath.IsDirectorySeparator(row.path[^1]))
+            .Select(row => Lr2FolderPath.NormalizeDirectoryPath(row.path))
+            .Concat(pruneExactDirectories ?? [])
+            .Concat(pruneScopes ?? [])
+            .Distinct(StringComparer.Ordinal)],
+            Lr2FolderExistingRowLookup.QueryAncestorsWithRetainedNormalChildren(songDb, pruneExactDirectories ?? [], pruneScopes ?? []));
+    }
+
     internal static IReadOnlyCollection<string> CreateDirectoryMetadataTargets(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> chartPaths)
     {
         List<string> roots = NormalizeRootDirectories(rootDirectories);
         List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (string root in roots)
         {
             result.Add(root);
@@ -234,7 +321,8 @@ internal static class Lr2NormalFolderDbSyncService
             pathsAlreadyNormalized: false);
     }
 
-    internal static IReadOnlyCollection<string> CreateDirectoryMetadataTargetsFromNormalizedDirectories(
+    /// <summary>走査済みdirectoryから登録rootと祖先を一度確定し、同操作の走査結果と同期scopeで共有する一覧を返します。</summary>
+    internal static IReadOnlyList<string> CreateDirectoryMetadataTargetsFromNormalizedDirectories(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> chartDirectories)
     {
@@ -244,17 +332,39 @@ internal static class Lr2NormalFolderDbSyncService
             pathsAlreadyNormalized: true);
     }
 
-    private static IReadOnlyCollection<string> CreateDirectoryMetadataTargetsFromDirectoriesCore(
+    /// <summary>
+    /// 指定directoryから、それを含む登録rootまでの祖先だけを返します。変更と無関係な登録rootは加えません。
+    /// 局所mutationが通常行を書き換える範囲を、変更の根拠となるdirectoryから限定して作るために使います。
+    /// </summary>
+    /// <param name="rootDirectories">包含rootの判定に使う登録root。</param>
+    /// <param name="directories">起点directory。登録rootの外は無視します。</param>
+    /// <returns>起点と祖先（包含rootを含む）の重複なし一覧。</returns>
+    internal static IReadOnlyList<string> CreateAncestorDirectoryTargetsWithinRoots(
+        IEnumerable<string> rootDirectories,
+        IEnumerable<string> directories)
+    {
+        return CreateDirectoryMetadataTargetsFromDirectoriesCore(
+            rootDirectories,
+            directories,
+            pathsAlreadyNormalized: false,
+            includeAllRoots: false);
+    }
+
+    private static IReadOnlyList<string> CreateDirectoryMetadataTargetsFromDirectoriesCore(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> chartDirectories,
-        bool pathsAlreadyNormalized)
+        bool pathsAlreadyNormalized,
+        bool includeAllRoots = true)
     {
         List<string> roots = NormalizeRootDirectories(rootDirectories);
         List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string root in roots)
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        if (includeAllRoots)
         {
-            result.Add(root);
+            foreach (string root in roots)
+            {
+                result.Add(root);
+            }
         }
 
         foreach (string chartDirectory in chartDirectories ?? [])
@@ -276,6 +386,25 @@ internal static class Lr2NormalFolderDbSyncService
             foreach (string directory in EnumerateDirectoriesFromRoot(root, normalized))
             {
                 result.Add(directory);
+            }
+        }
+
+        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
+    private static IReadOnlyCollection<string> ResolveCompleteDirectoryMetadataTargets(
+        IReadOnlyCollection<string> rootDirectories,
+        IEnumerable<string> directoryPaths)
+    {
+        List<string> rootsForMatching = [.. (rootDirectories ?? []).OrderByDescending(root => root.Length)];
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string directoryPath in directoryPaths ?? [])
+        {
+            string normalized = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
+            if (!string.IsNullOrWhiteSpace(normalized)
+                && !string.IsNullOrWhiteSpace(FindContainingRoot(normalized, rootsForMatching)))
+            {
+                result.Add(normalized);
             }
         }
 
@@ -304,7 +433,7 @@ internal static class Lr2NormalFolderDbSyncService
 
         List<string> roots = NormalizeRootDirectories(rootDirectories);
         List<string> rootsForMatching = [.. roots.OrderByDescending(root => root.Length)];
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (string root in roots)
         {
             result.Add(root);
@@ -343,8 +472,7 @@ internal static class Lr2NormalFolderDbSyncService
         IReadOnlyCollection<string> normalizedPruneScopeDirectories = NormalizePruneScopeDirectories(request.PruneScopeDirectories, rootDirectories);
         foreach (LR2SongDB.folder row in QueryExistingRowsByExactPaths(
             songDb,
-            FilterExactPathsOutsidePruneScopes(
-                CreateExistingRowExactPathScope(directoryMetadataTargets, request.PruneExactDirectories),
+            CreateExistingRowExactPathScope(directoryMetadataTargets, request.PruneExactDirectories,
                 normalizedPruneScopeDirectories)))
         {
             AddExistingRow(rowsByPath, row);
@@ -362,18 +490,23 @@ internal static class Lr2NormalFolderDbSyncService
 
     private static IReadOnlyCollection<string> CreateExistingRowExactPathScope(
         IEnumerable<string> directoryMetadataTargets,
-        IEnumerable<string> pruneExactDirectories)
+        IEnumerable<string> pruneExactDirectories,
+        IReadOnlyCollection<string> pruneScopeDirectories)
     {
         var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (string directory in directoryMetadataTargets ?? [])
         {
             AddFolderPath(result, directory);
         }
+        if (pruneScopeDirectories.Count > 0)
+        {
+            result = new HashSet<string>(FilterExactPathsOutsidePruneScopes(result, pruneScopeDirectories), StringComparer.Ordinal);
+        }
         foreach (string directory in pruneExactDirectories ?? [])
         {
             AddFolderPath(result, directory);
         }
-        return result;
+        return [.. result];
     }
 
     private static IReadOnlyCollection<string> FilterExactPathsOutsidePruneScopes(
@@ -390,7 +523,8 @@ internal static class Lr2NormalFolderDbSyncService
             return [.. exactPaths];
         }
 
-        return [.. exactPaths.Where(path => !pruneScopeDirectories.Any(scope => Lr2FolderPath.IsSameOrDescendant(path, scope)))];
+        return [.. exactPaths.Where(path => !Lr2FolderPath.IsDirectorySeparator(path[path.Length - 1])
+            || !pruneScopeDirectories.Any(scope => Lr2FolderPath.IsSameOrDescendant(path, scope)))];
     }
 
     private static void AddFolderPath(ISet<string> result, string directory)

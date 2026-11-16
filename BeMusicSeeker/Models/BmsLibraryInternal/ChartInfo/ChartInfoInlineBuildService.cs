@@ -1,17 +1,16 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>短命な入力snapshotから詳細の保存候補を集約し、ファイル差分と導入で同じ評価契約を使います。</summary>
 internal sealed class ChartInfoInlineBuildService(
     ChartInfoBuildService chartInfoBuildService,
     int parserDegree,
     int? batchSizeOverride = null,
-    IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> currentRowsBySha256 = null)
+    IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> currentRowsBySha256 = null)
 {
     // Shared inline chart_info builder for file diff and package install.
     // It consumes short-lived ChartFileSnapshot bytes and never keeps them in long-lived models.
@@ -23,14 +22,15 @@ internal sealed class ChartInfoInlineBuildService(
 
     private readonly int batchSize = Math.Max(1, batchSizeOverride ?? DefaultBatchSize);
 
-    private readonly IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> preloadedCurrentRowsBySha256 = currentRowsBySha256;
+    private readonly IReadOnlyDictionary<string, BeMusicSeeker.Models.ChartDetails> preloadedCurrentRowsBySha256 = currentRowsBySha256;
 
     public int BatchSize => batchSize;
 
+    /// <summary>読取り済みsnapshotを評価し、正常詳細と既知入力失敗だけを保存候補へ集約します。DB確定と必須公開は呼出元が担います。</summary>
     public ChartInfoInlineBuildResult BuildForSnapshots(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<InlineChartSnapshotTarget> charts,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
+        IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures,
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null)
     {
@@ -46,7 +46,7 @@ internal sealed class ChartInfoInlineBuildService(
     private ChartInfoInlineBuildResult BuildForSnapshots(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<InlineChartSnapshotTarget> charts,
-        IDictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures,
+        IDictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures,
         IDictionary<string, ChartInfoBuildService.ChartInfoSnapshotBuildResult> evaluatedResults,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn)
@@ -55,7 +55,7 @@ internal sealed class ChartInfoInlineBuildService(
         List<InlineChartSnapshotGroup> groups = GroupTargets(charts);
         foreach (List<InlineChartSnapshotGroup> batch in CreateBatches(groups, batchSize))
         {
-            Dictionary<string, LR2SongDBExtended.chart_info> currentRows = LoadCurrentRows(
+            Dictionary<string, BeMusicSeeker.Models.ChartDetails> currentRows = LoadCurrentRows(
                 dbGateway,
                 batch
                     .Where(group => !evaluatedResults.ContainsKey(group.Identity))
@@ -74,7 +74,7 @@ internal sealed class ChartInfoInlineBuildService(
                 InlineChartSnapshotTarget target = group.Representative;
                 string sha256 = target.Snapshot.Sha256;
                 string md5 = target.Snapshot.Md5;
-                currentRows.TryGetValue(sha256, out LR2SongDBExtended.chart_info currentRow);
+                currentRows.TryGetValue(sha256, out BeMusicSeeker.Models.ChartDetails currentRow);
                 ChartInfoBuildService.ChartInfoSnapshotBuildResult inlineResult = chartInfoBuildService.EvaluateSnapshot(
                     target.Snapshot,
                     ChartInfoBuildTargetMapper.Create(target.Chart),
@@ -113,6 +113,7 @@ internal sealed class ChartInfoInlineBuildService(
         return result;
     }
 
+    /// <summary>配置済み譜面を読み、通常の独立入力取得失敗は今回だけ除外して正常対象の保存候補を作ります。捕捉したメモリ不足は即時終了します。</summary>
     public ChartInfoInlineBuildResult BuildForExistingCharts(
         BmsLibraryDbGateway dbGateway,
         IEnumerable<ChartFile> charts,
@@ -127,26 +128,31 @@ internal sealed class ChartInfoInlineBuildService(
             List<InlineChartSnapshotTarget> snapshots = [];
             foreach (ChartFile target in batch)
             {
+                ChartFileSnapshot snapshot;
                 try
                 {
-                    ChartFileSnapshot snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
-                    if (ChartStorageOwnerMutator.HasSingleStorageOwner(target))
-                    {
-                        snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
-                    }
+                    snapshot = ChartFileContentReader.ReadSnapshot(target.Path);
                 }
-                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                catch (OutOfMemoryException ex)
+                {
+                    Environment.FailFast("配置済み譜面の詳細入力取得中にメモリが不足しました。", ex);
+                    throw;
+                }
+                catch (Exception ex)
                 {
                     total.ReadFailedCount++;
-                    logInstallPerformanceWarn?.Invoke("chart_info_inline read_failed path=" + QuoteLogValue(target.Path) + " exception=" + ex.GetType().Name + " message=" + QuoteLogValue(ex.Message));
+                    ChartInfoBuildService.ReportDiagnosticBestEffort(logInstallPerformanceWarn,
+                        () => "chart_info_inline read_failed path=" + QuoteLogValue(target.Path) + " exception=" + ex.GetType().Name + " message=" + QuoteLogValue(ex.Message));
+                    continue;
                 }
+                snapshots.Add(InlineChartSnapshotTarget.FromChart(target, snapshot));
             }
-            Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> currentFailures = dbGateway?.LoadCurrentChartInfoParseFailuresByMd5(
+            Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> currentFailures = dbGateway?.LoadCurrentChartInfoParseFailuresByMd5(
                 snapshots
                     .Where(snapshot => snapshot?.Snapshot != null)
                     .Select(snapshot => snapshot.Snapshot.Md5),
                 chartInfoBuildService.CurrentParseTimeout)
-                ?? new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
+                ?? new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase);
             ChartInfoInlineBuildResult batchResult = BuildForSnapshots(
                 dbGateway,
                 snapshots,
@@ -228,7 +234,7 @@ internal sealed class ChartInfoInlineBuildService(
         total.ParseMs += source.ParseMs;
     }
 
-    private Dictionary<string, LR2SongDBExtended.chart_info> LoadCurrentRows(BmsLibraryDbGateway dbGateway, IEnumerable<ChartFileSnapshot> snapshots)
+    private Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadCurrentRows(BmsLibraryDbGateway dbGateway, IEnumerable<ChartFileSnapshot> snapshots)
     {
         var sha256s = new HashSet<string>(
             (snapshots ?? [])
@@ -237,14 +243,14 @@ internal sealed class ChartInfoInlineBuildService(
             StringComparer.OrdinalIgnoreCase);
         if (sha256s.Count == 0)
         {
-            return new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            return new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
         }
         if (preloadedCurrentRowsBySha256 != null)
         {
-            var rows = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            var rows = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
             foreach (string sha256 in sha256s)
             {
-                if (preloadedCurrentRowsBySha256.TryGetValue(sha256, out LR2SongDBExtended.chart_info row)
+                if (preloadedCurrentRowsBySha256.TryGetValue(sha256, out BeMusicSeeker.Models.ChartDetails row)
                     && row != null)
                 {
                     rows[sha256] = row;
@@ -253,7 +259,7 @@ internal sealed class ChartInfoInlineBuildService(
             return rows;
         }
         return dbGateway == null
-            ? new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
+            ? new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase)
             : dbGateway.LoadChartInfosBySha256(sha256s);
     }
 
@@ -335,22 +341,6 @@ internal sealed class InlineChartSnapshotTarget
     public ChartFile Chart { get; }
 
     public ChartFileSnapshot Snapshot { get; }
-
-    public static InlineChartSnapshotTarget FromBmsFile(BMSFile file, ChartFileSnapshot snapshot)
-    {
-        return FromChart(ChartFileProjection.FromBmsFile(
-            file,
-            includeWarningSnapshot: false,
-            includeResourceReferences: false), snapshot);
-    }
-
-    public static InlineChartSnapshotTarget FromBmsonSong(LR2SongDBExtended.bmson_song song, ChartFileSnapshot snapshot)
-    {
-        return FromChart(ChartFileProjection.FromBmsonSong(
-            song,
-            includeWarningSnapshot: false,
-            includeResourceReferences: false), snapshot);
-    }
 
     public static InlineChartSnapshotTarget FromChart(ChartFile chart, ChartFileSnapshot snapshot)
     {

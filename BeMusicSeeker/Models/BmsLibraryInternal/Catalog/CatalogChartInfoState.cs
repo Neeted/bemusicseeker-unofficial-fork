@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class ChartInfoBackfillRequest
@@ -9,10 +11,14 @@ internal sealed class ChartInfoBackfillRequest
 
     public string Reason { get; }
 
-    public static ChartInfoBackfillRequest Full(string reason)
-    {
-        return new ChartInfoBackfillRequest(reason);
-    }
+    /// <summary>明示全体要求かを返します。局所要求は必要なtoken参照だけを保持します。</summary>
+    internal bool IsFull { get; private init; }
+    /// <summary>局所要求の対象参照です。処理時に同tokenの現在値を再検証します。</summary>
+    internal IReadOnlyList<LibraryChartRef> Charts { get; private init; } = [];
+    public static ChartInfoBackfillRequest Full(string reason) => new(reason) { IsFull = true };
+    /// <summary>実変更した解析入力だけを補完要求へ固定します。</summary>
+    internal static ChartInfoBackfillRequest Targets(string reason, IReadOnlyList<LibraryChartRef> charts)
+        => new(reason) { Charts = charts };
 }
 internal sealed class ChartInfoHydrationResult
 {
@@ -73,11 +79,9 @@ internal sealed class ChartInfoHydrationResult
 
 internal sealed class ChartInfoHydrationAllCurrentSnapshot
 {
-    public int OwnedCollectionVersion { get; set; }
+    public int CatalogRevision { get; set; }
 
-    public int BmsRowsVersion { get; set; }
 
-    public int BmsonRowsVersion { get; set; }
 
     public int OwnerCount { get; set; }
 
@@ -90,21 +94,6 @@ internal sealed class ChartInfoHydrationAllCurrentSnapshot
     public long ParseTimeoutMs { get; set; }
 }
 
-internal sealed class ChartInfoOwnerVersionSnapshot
-{
-    public int OwnedCollectionVersion { get; set; }
-
-    public int BmsRowsVersion { get; set; }
-
-    public int BmsonRowsVersion { get; set; }
-
-    public int BmsOwnerCount { get; set; }
-
-    public int BmsonOwnerCount { get; set; }
-
-    public int OwnerCount => BmsOwnerCount + BmsonOwnerCount;
-}
-
 internal sealed class ChartInfoIndexUpdateResult
 {
     public int InputRows { get; set; }
@@ -114,6 +103,15 @@ internal sealed class ChartInfoIndexUpdateResult
     public int ByMd5Count { get; set; }
 
     public int Version { get; set; }
+
+    /// <summary>確定した基本値を同じ所持識別へ適用した対象です。</summary>
+    internal IReadOnlyList<BeMusicSeeker.Models.ChartFile> ChangedCharts { get; set; } = [];
+
+    /// <summary>確定した詳細値が変わったMD5です。</summary>
+    internal IReadOnlyList<string> ChangedMd5s { get; set; } = [];
+
+    /// <summary>確定した詳細値が変わったSHA-256です。</summary>
+    internal IReadOnlyList<string> ChangedSha256s { get; set; } = [];
 
     public bool HydrationChanged { get; set; }
 }
@@ -126,8 +124,7 @@ internal enum CatalogChartInfoOwnerEventKind
 }
 
 /// <summary>
-/// Immutable presentation facts emitted by the chart-info owner. Composition
-/// decides how catalog-wide projections and UI notifications consume them.
+/// 詳細所有者から出力する不変の通知事実です。変更ハッシュ・共通値を既存の表示通知へ接続します。
 /// </summary>
 internal sealed class CatalogChartInfoOwnerEvent
 {
@@ -135,12 +132,14 @@ internal sealed class CatalogChartInfoOwnerEvent
         CatalogChartInfoOwnerEventKind kind,
         string reason,
         string checkpointStage,
-        string checkpointStatus)
+        string checkpointStatus,
+        int indexVersion = 0, IReadOnlyList<string> changedMd5s = null, IReadOnlyList<string> changedSha256s = null, IReadOnlyList<BeMusicSeeker.Models.ChartFile> changedCharts = null)
     {
         Kind = kind;
         Reason = reason ?? string.Empty;
         CheckpointStage = checkpointStage ?? string.Empty;
         CheckpointStatus = checkpointStatus ?? string.Empty;
+        IndexVersion = indexVersion; ChangedMd5s = changedMd5s ?? []; ChangedSha256s = changedSha256s ?? []; ChangedCharts = changedCharts ?? [];
     }
 
     internal CatalogChartInfoOwnerEventKind Kind { get; }
@@ -151,13 +150,19 @@ internal sealed class CatalogChartInfoOwnerEvent
 
     internal string CheckpointStatus { get; }
 
-    internal static CatalogChartInfoOwnerEvent Warning(string reason)
+    /// <summary>詳細索引の確定版と変更キーです。集合識別には使用しません。</summary>
+    internal int IndexVersion { get; }
+    internal IReadOnlyList<BeMusicSeeker.Models.ChartFile> ChangedCharts { get; }
+    internal IReadOnlyList<string> ChangedMd5s { get; }
+    internal IReadOnlyList<string> ChangedSha256s { get; }
+
+    internal static CatalogChartInfoOwnerEvent Warning(string reason, IReadOnlyList<BeMusicSeeker.Models.ChartFile> charts = null, IReadOnlyList<string> md5s = null)
     {
         return new(
             CatalogChartInfoOwnerEventKind.WarningPresentationChanged,
             reason,
             null,
-            null);
+            null, changedMd5s: md5s, changedCharts: charts);
     }
 
     internal static CatalogChartInfoOwnerEvent Checkpoint(string stage, string status)
@@ -169,12 +174,12 @@ internal sealed class CatalogChartInfoOwnerEvent
             status);
     }
 
-    internal static CatalogChartInfoOwnerEvent IndexChanged(string reason)
+    internal static CatalogChartInfoOwnerEvent IndexChanged(string reason, ChartInfoIndexUpdateResult result)
     {
         return new(
             CatalogChartInfoOwnerEventKind.IndexChanged,
             reason,
             null,
-            null);
+            null, result.Version, result.ChangedMd5s, result.ChangedSha256s, result.ChangedCharts);
     }
 }

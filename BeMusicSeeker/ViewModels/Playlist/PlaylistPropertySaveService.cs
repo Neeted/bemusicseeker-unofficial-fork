@@ -15,15 +15,9 @@ internal sealed class PlaylistPropertySaveService
 
     private readonly Func<BMSLibrary> getLibrary;
 
-    private readonly Func<LR2Config> getLr2Config;
+    private readonly Func<Lr2ConfigOwner> getLr2Config;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> getSettings;
-
-    internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> ValidationError;
-
-    internal event EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> ExternalSyncConfirmationRequested;
-
-    internal event EventHandler InvalidOutputDirectoryRequested;
 
     internal event EventHandler PlaylistPropertySyncStarted;
 
@@ -35,7 +29,6 @@ internal sealed class PlaylistPropertySaveService
 
     internal event EventHandler<PlaylistPropertyFolderSelectionRemappedEventArgs> PlaylistPropertyFolderSelectionRemapped;
 
-    internal event EventHandler PlaylistPropertyReferenceSortInvalidationRequested;
 
     internal event EventHandler<PlaylistSyncResultReportedEventArgs> PlaylistPropertySyncResultReported;
 
@@ -45,12 +38,19 @@ internal sealed class PlaylistPropertySaveService
 
     internal event EventHandler<PlaylistPropertyEntriesChangedEventArgs> PlaylistPropertyEntriesChanged;
 
-    internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;
+    /// <summary>所属を変えない表示属性の保存後、catalogと検索候補の依存だけを更新します。</summary>
+    internal event EventHandler PlaylistPropertyCatalogChanged;
+
+    /// <summary>
+    /// 保存の通知を表示するよう依頼する表示役です。保存の操作が受付（P）を解放した後に、まとめて依頼します。
+    /// 作業領域が接続します。未接続のまま通知が生じた場合は、通知を表示せず診断へ残します。
+    /// </summary>
+    internal PlaylistOperationNoticePresenter NoticePresenter { get; set; }
 
     internal PlaylistPropertySaveService(
         Func<BMSPlaylist> playlistStore,
         Func<BMSLibrary> library,
-        Func<LR2Config> lr2Config,
+        Func<Lr2ConfigOwner> lr2Config,
         Func<CustomFolderOutputSettingsSnapshot> settings)
     {
         getPlaylistStore = playlistStore ?? throw new ArgumentNullException(nameof(playlistStore));
@@ -68,9 +68,7 @@ internal sealed class PlaylistPropertySaveService
 
     private PlaylistPropertyEditSession CreateEditSessionCore(
         BMSTable table,
-        bool isNewTable,
-        CustomFolderOutputSettingsSnapshot settingsOverride = null,
-        PlaylistPropertyBaseline baselineOverride = null)
+        bool isNewTable)
     {
         if (table == null)
         {
@@ -80,23 +78,22 @@ internal sealed class PlaylistPropertySaveService
         store.AcquireReaderLockBMSTables();
         try
         {
-            if (store.BMSTables?.Cast<BMSTable>().Any(candidate => ReferenceEquals(candidate, table)) != true)
+            if (!isNewTable && store.BMSTables?.Cast<BMSTable>().Any(candidate => ReferenceEquals(candidate, table)) != true)
             {
                 return null;
             }
             store.EnsurePlaylistEntriesLoaded(
                 table,
                 "PlaylistPropertySaveService.CreateEditSession");
-            CustomFolderOutputSettingsSnapshot settings = settingsOverride ?? getSettings()
+            CustomFolderOutputSettingsSnapshot settings = getSettings()
                 ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
             using (table.ReaderWriterLock.GetReaderGuard())
             {
-                string outputDirectoryPath = null;
-                if (baselineOverride == null && settings.OperationModeLR2DB)
+                if (settings.OperationModeLR2DB)
                 {
                     try
                     {
-                        outputDirectoryPath = ResolveCustomFolderOutputDirectory(table, settings);
+                        ResolveCustomFolderOutputDirectory(table, settings);
                     }
                     catch (ArgumentNullException)
                     {
@@ -109,12 +106,15 @@ internal sealed class PlaylistPropertySaveService
                     table,
                     isNewTable,
                     settings,
-                    baselineOverride ?? PlaylistPropertyBaseline.Capture(table, outputDirectoryPath),
                     PlaylistPropertyValues.Capture(table),
                     (store.BMSTables?.Cast<BMSTable>() ?? Enumerable.Empty<BMSTable>())
-                        .Where(candidate => candidate != null && candidate != table)
-                        .Select(candidate => candidate.Output_dir)
-                        .ToArray());
+                        .Where(candidate => candidate != null && candidate != table && !string.IsNullOrWhiteSpace(candidate.Output_dir))
+                        .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir)
+                        .ToArray(),
+                    !isNewTable && settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : null,
+                    (store.BMSTables?.Cast<BMSTable>() ?? Enumerable.Empty<BMSTable>())
+                        .Where(candidate => candidate != null && !ReferenceEquals(candidate, table) && candidate.name != null)
+                        .Select(candidate => candidate.name));
             }
         }
         finally
@@ -129,48 +129,7 @@ internal sealed class PlaylistPropertySaveService
             && GetPlaylistStore().BMSTables?.Cast<BMSTable>().Any(candidate => ReferenceEquals(candidate, table)) == true;
     }
 
-    internal Task<bool> IsRetryTargetCurrentAsync(
-        PlaylistPropertyEditSession session,
-        PlaylistPropertySaveCommit commit)
-    {
-        if (session == null)
-        {
-            throw new ArgumentNullException(nameof(session));
-        }
-        if (commit == null)
-        {
-            throw new ArgumentNullException(nameof(commit));
-        }
-        session.ThrowIfDisposed();
-        return Task.Run(() =>
-        {
-            if (!ReferenceEquals(session.Table, commit.Table))
-            {
-                return false;
-            }
-            BMSPlaylist store = session.Store;
-            store.AcquireReaderLockBMSTables();
-            try
-            {
-                if (store.BMSTables?.Cast<BMSTable>().Any(
-                    candidate => ReferenceEquals(candidate, commit.Table)) != true)
-                {
-                    return false;
-                }
-                using (commit.Table.ReaderWriterLock.GetReaderGuard())
-                {
-                    return PlaylistPropertyValues.ContentEquals(
-                        session.OriginalValues,
-                        PlaylistPropertyValues.Capture(commit.Table));
-                }
-            }
-            finally
-            {
-                store.FreeReaderLockBMSTables();
-            }
-        });
-    }
-
+    /// <summary>手動編集する表名の必須条件、表示用の配置・URL条件と、新規または変更した出力名の生入力条件を検査します。</summary>
     internal bool IsValid(PlaylistPropertyEditSession session, PlaylistPropertyValues values)
     {
         if (session == null)
@@ -182,51 +141,133 @@ internal sealed class PlaylistPropertySaveService
             throw new ArgumentNullException(nameof(values));
         }
         session.ThrowIfDisposed();
-        if (!IsValidForPresentation(session, values))
+        if (!IsOutputDirectoryInputValid(session, values) || !IsValidForPresentation(session, values))
         {
             return false;
         }
         return true;
     }
 
-    internal bool IsOutputDirectoryValid(
-        PlaylistPropertyEditSession session,
-        string playlistName,
-        string storedOutputDirectory)
+    /// <summary>入力中の名前が、開いた時点の他の表と同名になる変更かを返します。名前を変更しない入力は、保存済みの同名があっても同名としません。</summary>
+    internal bool IsDuplicateNameInput(PlaylistPropertyEditSession session, string playlistName)
     {
         if (session == null)
         {
             throw new ArgumentNullException(nameof(session));
         }
         session.ThrowIfDisposed();
-        string effectiveName = BMSTable.ResolveOutputDirectoryName(playlistName, storedOutputDirectory);
-        return !string.IsNullOrWhiteSpace(effectiveName)
-            && !session.OtherOutputDirectories.Contains(
-                effectiveName,
-                StringComparer.OrdinalIgnoreCase);
+        return IsNameChange(session, playlistName) && session.OtherNames.Contains(playlistName ?? string.Empty);
     }
 
+    // 新規の表は旧名を持たないため、常に名前の変更として扱います。
+    private static bool IsNameChange(PlaylistPropertyEditSession session, string playlistName)
+        => session.IsNewTable || !string.Equals(session.OriginalValues.Name, playlistName, StringComparison.Ordinal);
+
+    // 保存の可否は、受付を保持した時点の正本集合で判定します。編集する表自身は比較しません。
+    private static bool IsDuplicateNameForSave(PlaylistPropertyEditSession session, PlaylistPropertyValues values)
+    {
+        if (!IsNameChange(session, values.Name)) { return false; }
+        session.Store.AcquireReaderLockBMSTables();
+        try
+        {
+            return session.Store.BMSTables?.Cast<BMSTable>().Any(candidate => candidate != null
+                && !ReferenceEquals(candidate, session.Table)
+                && string.Equals(candidate.name, values.Name, StringComparison.Ordinal)) == true;
+        }
+        finally { session.Store.FreeReaderLockBMSTables(); }
+    }
+
+    internal bool IsOutputDirectoryValid(
+        PlaylistPropertyEditSession session,
+        string playlistName,
+        string storedOutputDirectory,
+        string baseName,
+        bool isRoot)
+    {
+        if (session == null)
+        {
+            throw new ArgumentNullException(nameof(session));
+        }
+        session.ThrowIfDisposed();
+        if (!session.Settings.OperationModeLR2DB) { return true; }
+        return IsPlacementValid(session.Settings, new PlaylistPropertyValues
+        {
+            Name = playlistName,
+            OutputDirectory = storedOutputDirectory,
+            CustomFolderOutputBaseName = baseName,
+            IsRootFolder = isRoot
+        }, session.OtherOutputDirectories, session.OriginalOutputDirectory);
+    }
+
+    /// <summary>入力不備を任意通知します。受付を持たない入力時の通知で、表示は待たずに依頼します。通知失敗を入力の承認や保存成功へ置き換えません。</summary>
     internal void NotifyValidationError(PlaylistPropertyValidationError error)
     {
-        EventHandler<PlaylistPropertyValidationErrorEventArgs> handler = ValidationError
-            ?? throw new InvalidOperationException("Playlist property validation presentation is not configured.");
-        handler(this, new PlaylistPropertyValidationErrorEventArgs(error));
+        NotifyBestEffort(() => PlaylistOperationNotices.Notify(
+            getPlaylistStore(), NoticePresenter, PlaylistOperationNotices.ValidationError(error),
+            "playlist property validation notification"));
     }
 
-    internal bool ConfirmExternalSyncChange(bool enable)
+    /// <summary>
+    /// 保存の要求が受付（P）の競合で受け付けられなかったことを、明示要求の競合の案内として一回通知します。操作の収集先があればそこへ積みます。
+    /// 副作用の有無は呼出し元が保証します。終了の要求中・受付の閉鎖では案内しません。通知失敗を保存結果へ置き換えません。
+    /// </summary>
+    internal void NotifyPlaylistBusyRejection(PlaylistPropertyEditSession session)
     {
-        EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> handler = ExternalSyncConfirmationRequested
-            ?? throw new InvalidOperationException("Playlist property external-sync confirmation is not configured.");
-        var request = new PlaylistPropertyExternalSyncConfirmationRequestedEventArgs(enable);
-        handler(this, request);
-        return request.Confirmed;
+        BMSPlaylist store = session?.Store;
+        if (store?.CanAnnouncePlaylistMutationBusy != true) { return; }
+        NotifyBestEffort(() => PlaylistOperationNotices.Notify(
+            store, NoticePresenter, PlaylistOperationNotices.Busy(),
+            "playlist property save busy notification"));
     }
 
+    /// <summary>出力先が不正なことを通知します。操作の収集先があればそこへ積み、その操作が受付を解放した後に表示します。</summary>
     private void RaiseInvalidOutputDirectoryRequested()
     {
-        EventHandler handler = InvalidOutputDirectoryRequested
-            ?? throw new InvalidOperationException("Playlist property output-directory presentation is not configured.");
-        handler(this, EventArgs.Empty);
+        NotifyBestEffort(() => PlaylistOperationNotices.Notify(
+            getPlaylistStore(), NoticePresenter, PlaylistOperationNotices.InvalidOutputDirectory(),
+            "playlist property invalid output directory notification"));
+    }
+
+    /// <summary>
+    /// 操作が集めた通知を、外側の操作の収集先へ引き継ぎます。最も外側の収集先の場合だけ、受付を解放した後に表示を依頼します。
+    /// 同期の呼出し元は、依頼の完了を待たずに戻ります。
+    /// </summary>
+    private void PublishNotifications(
+        PlaylistOperationNotificationOwner.OperationNotificationSession notifications,
+        string routeName)
+    {
+        if (notifications.TryForwardToParent())
+        {
+            return;
+        }
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = notifications.TakeReceipt();
+        if (NoticePresenter == null)
+        {
+            PlaylistOperationNotices.LogPresenterNotConnected(routeName, receipt.Notifications.Count);
+            return;
+        }
+        NoticePresenter.RequestInBackground(receipt, routeName);
+    }
+
+    /// <summary>
+    /// 受付を解放した後に、最も外側の収集先の通知を依頼します。外側の収集先があれば引き継ぐだけです。
+    /// 戻る Task は、終了の判定と最初の組の依頼までで完了し、表示の完了は待ちません。
+    /// </summary>
+    internal Task PublishNotificationsAfterReleaseAsync(
+        PlaylistOperationNotificationOwner.OperationNotificationSession notifications,
+        string routeName)
+    {
+        if (notifications.TryForwardToParent())
+        {
+            return Task.CompletedTask;
+        }
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = notifications.TakeReceipt();
+        if (NoticePresenter == null)
+        {
+            PlaylistOperationNotices.LogPresenterNotConnected(routeName, receipt.Notifications.Count);
+            return Task.CompletedTask;
+        }
+        return NoticePresenter.BeginRequest(receipt, routeName);
     }
 
     private void RaiseRequiredEvent(EventHandler handler, EventArgs args, string contractName)
@@ -243,9 +284,12 @@ internal sealed class PlaylistPropertySaveService
         (handler ?? throw new InvalidOperationException(contractName + " is not configured."))(this, args);
     }
 
-    internal Task<PlaylistPropertySaveCommit> TrySaveAsync(
+    /// <summary>局所受付後に現参照・最新保存値と新しい出力名を検査し、未完了出力を先に終えてから属性保存と必要出力を行います。入力不備は確定結果なしで理由を返します。</summary>
+    /// <param name="capability">外側が公開・必須通知・cleanup実終端まで保持する生存局所権限。nullは新規非待機受付です。</param>
+    /// <returns>確定結果と後続失敗、または未保存を示すnullと特定できる入力不備の理由。汎用の入力不備は理由もnullです。</returns>
+    internal Task<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)> TrySaveAsync(
         PlaylistPropertyEditSession session,
-        PlaylistPropertyValues values)
+        PlaylistPropertyValues values, LibraryFileMutationCapability capability = null)
     {
         if (session == null)
         {
@@ -256,21 +300,111 @@ internal sealed class PlaylistPropertySaveService
             throw new ArgumentNullException(nameof(values));
         }
         session.ThrowIfDisposed();
-        return Task.Run(() => TrySaveCore(session, values));
+        return Task.Run<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)>(async () =>
+        {
+            // 通知の収集先は受付より外側に置き、受付を解放した後に依頼します。外側の収集先があれば引き継ぐだけです。
+            using PlaylistOperationNotificationOwner.OperationNotificationSession operationNotifications =
+                session.Store.OperationNotificationOwner.BeginSession();
+            // 表の属性の明示保存は、出力を止めた表（出力先が他の表と重なる表）を一件の警告で案内します。
+            operationNotifications.WarnStoppedOutputs();
+            try
+            {
+                return await TrySaveAdmittedAsync(session, values, capability).ConfigureAwait(false);
+            }
+            finally
+            {
+                await PublishNotificationsAfterReleaseAsync(operationNotifications, "playlist property save notification").ConfigureAwait(false);
+            }
+        });
     }
 
-    private PlaylistPropertySaveCommit TrySaveCore(
+    private async Task<(PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError)> TrySaveAdmittedAsync(
+        PlaylistPropertyEditSession session,
+        PlaylistPropertyValues values,
+        LibraryFileMutationCapability capability)
+    {
+        using LibraryFileMutationLease accepted = session.Store.AcquirePlaylistMutationLease("playlist_property_save", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
+        ValidateCurrentSession(session);
+        if (!IsOutputDirectoryInputValid(session, values))
+        {
+            return (null, PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName);
+        }
+        if (string.IsNullOrWhiteSpace(values.Name)) { return (null, null); }
+        // 同名は、未完了出力の継続とLR2配置の検査より前に、同名として拒否します。
+        if (IsDuplicateNameForSave(session, values)) { return (null, PlaylistPropertyValidationError.DuplicatePlaylistName); }
+        if (session.PendingOutput != null)
+        {
+            var continuation = new PlaylistPropertySaveCommit(null, session.Table, session.Settings, session.IsNewTable)
+            {
+                SavedValues = session.OriginalValues,
+                PendingOutput = session.PendingOutput
+            };
+            List<Exception> continuationFailures = [];
+            CompleteReferencePublication(continuation.PendingOutput, continuationFailures);
+            await CompletePendingOutputsAsync(session.Store, continuation, authority, continuationFailures).ConfigureAwait(false);
+            continuation.Exception = CombineFailures(continuationFailures.Distinct());
+            if (continuation.Exception != null) { return (continuation, null); }
+            session.PendingOutput = null;
+        }
+        (PlaylistPropertySaveCommit commit, PlaylistPropertyValidationError? saveError) = TrySaveCore(session, values);
+        if (commit == null) { return (null, saveError); }
+        try
+        {
+            if (!commit.IsNewDraft)
+            {
+                try { session.Store.CommitPlaylistHeaderEdits(new Dictionary<BMSTable, PlaylistHeaderEdit> { [commit.Table] = commit.HeaderEdit }, authority); }
+                catch (PlaylistMutationPostCommitException failure) { commit.Exception = failure.InnerException ?? failure; }
+                commit.SavedValues = PlaylistPropertyValues.Capture(commit.Table);
+            }
+            await ApplyPostSaveUpdatesAsync(commit, authority).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            commit.Exception = failure;
+        }
+        // baselineは初回の属性適用だけに使う。明示継続へ古い保存全体を持ち越さない。
+        commit.Baseline = null;
+        commit.RequestedValuesSaved = commit.SavedValues != null;
+        return (commit, null);
+    }
+
+    // 別列編集による旧値の継承は拒否せず、新規入力だけを未完了出力の継続より前に検査します。
+    private static bool IsOutputDirectoryInputValid(PlaylistPropertyEditSession session, PlaylistPropertyValues values)
+        => (!session.IsNewTable && string.Equals(session.OriginalValues.OutputDirectory, values.OutputDirectory, StringComparison.Ordinal))
+            || BMSTable.IsOutputDirectoryNameInputValid(values.OutputDirectory);
+
+    private void ValidateCurrentSession(PlaylistPropertyEditSession session)
+    {
+        session.Store.AcquireReaderLockBMSTables();
+        try
+        {
+            using IDisposable tableRead = session.Table.ReaderWriterLock.GetReaderGuard();
+            if (!ReferenceEquals(session.Store, GetPlaylistStore())
+                || (!session.IsNewTable && !session.Store.ContainsBMSTable(session.Table))
+                || !PlaylistPropertyValues.ContentEquals(session.OriginalValues, PlaylistPropertyValues.Capture(session.Table)))
+            {
+                throw new InvalidOperationException("Playlist properties changed after editing began. Reopen the dialog and apply the edit again.");
+            }
+        }
+        finally { session.Store.FreeReaderLockBMSTables(); }
+    }
+
+    /// <returns>確定に使う保存内容、または未保存を示すnullと理由。LR2配置による拒否だけ理由を返し、他の入力不備の理由はnullです。</returns>
+    private (PlaylistPropertySaveCommit Commit, PlaylistPropertyValidationError? ValidationError) TrySaveCore(
         PlaylistPropertyEditSession session,
         PlaylistPropertyValues values)
     {
         BMSTable table = session.Table;
         BMSPlaylist store = session.Store;
+        CustomFolderOutputSettingsSnapshot settings = store.GetCustomFolderOutputSettings();
         store.AcquireWriterLockBMSTables();
         try
         {
-            if (store.BMSTables?.Cast<BMSTable>().Any(candidate => ReferenceEquals(candidate, table)) != true)
+            if (!ReferenceEquals(store, GetPlaylistStore()) || (!session.IsNewTable
+                && store.BMSTables?.Cast<BMSTable>().Any(candidate => ReferenceEquals(candidate, table)) != true))
             {
-                return null;
+                return (null, null);
             }
             if (!string.Equals(table.compat_prefix, values.CompatPrefix, StringComparison.Ordinal))
             {
@@ -287,44 +421,38 @@ internal sealed class PlaylistPropertySaveService
                     throw new InvalidOperationException(
                         "Playlist properties changed after editing began. Reopen the dialog and apply the edit again.");
                 }
-                if (!IsValid(table, store, session.Settings, values))
+                if (!IsValid(table, store, settings, values, out bool placementRejected))
                 {
-                    return null;
+                    // 配置の拒否は、名前の変更によるものか、出力名・基点などの変更によるものかを区別して返します。
+                    return (null, !placementRejected ? null
+                        : IsNameChange(session, values.Name)
+                            ? PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName
+                            : PlaylistPropertyValidationError.InvalidOutputDirectory);
                 }
                 if (!string.Equals(table.compat_prefix, values.CompatPrefix, StringComparison.Ordinal)
                     && !table.CanRewriteCompatibleFolderPrefix(
                         table.compat_prefix,
                         values.CompatPrefix))
                 {
-                    return null;
+                    return (null, null);
                 }
 
                 Uri pageUrl = NormalizeUriTextForStandardStorage(values.PageUrl);
                 Uri headerUrl = NormalizeUriTextForStandardStorage(values.HeaderUrl);
                 Uri dataUrl = NormalizeUriTextForStandardStorage(values.DataUrl);
-                var originalValues = PlaylistPropertyValues.Capture(table);
-                try
-                {
-                    ApplyPropertyValues(table, values, pageUrl, headerUrl, dataUrl);
-                }
-                catch (Exception applicationFailure)
-                {
-                    try
-                    {
-                        RestorePropertyValues(table, originalValues);
-                    }
-                    catch (Exception rollbackFailure)
-                    {
-                        throw new AggregateException(applicationFailure, rollbackFailure).Flatten();
-                    }
-                    ExceptionDispatchInfo.Capture(applicationFailure).Throw();
-                    throw new InvalidOperationException("Playlist property application failure propagation unexpectedly returned.");
-                }
-                return new PlaylistPropertySaveCommit(
-                    session.Baseline,
+                // 操作前に衝突していた表の旧配置は未知（null）として捕捉し、共有している可能性のある旧先を移行・整理に渡しません。
+                bool collidedBefore = !session.IsNewTable && settings.OperationModeLR2DB && store.FindCollidingOutputTables(settings).Contains(table);
+                var baseline = PlaylistPropertyBaseline.Capture(table, !session.IsNewTable && settings.OperationModeLR2DB && !collidedBefore
+                    ? ResolveCustomFolderOutputDirectory(table, settings) : null, hasPreviousOutput: !session.IsNewTable && !collidedBefore);
+                return (new PlaylistPropertySaveCommit(
+                    baseline,
                     table,
-                    session.Settings,
-                    values);
+                    settings,
+                    session.IsNewTable)
+                {
+                    HeaderEdit = CreateHeaderEdit(table, session.OriginalValues, values, pageUrl, headerUrl, dataUrl),
+                    PrefixFolderSelectionMap = table.CreateValidatedCompatibleFolderPrefixRewriteMap(table.compat_prefix, values.CompatPrefix)
+                }, null);
             }
         }
         finally
@@ -333,89 +461,51 @@ internal sealed class PlaylistPropertySaveService
         }
     }
 
-    private static void ApplyPropertyValues(
-        BMSTable table,
-        PlaylistPropertyValues values,
-        Uri pageUrl,
-        Uri headerUrl,
-        Uri dataUrl)
+    private static PlaylistHeaderEdit CreateHeaderEdit(BMSTable table, PlaylistPropertyValues original, PlaylistPropertyValues values,
+        Uri pageUrl, Uri headerUrl, Uri dataUrl)
     {
-        List<string> folderOrder = values.IsAutoFolderSort
-            ? []
-            : [.. values.FolderOrder ?? []];
-        if (!(table.Folder_order ?? []).SequenceEqual(folderOrder, StringComparer.Ordinal))
+        PlaylistHeaderFields fields = PlaylistHeaderFields.None;
+        void Changed(bool changed, PlaylistHeaderFields field) { if (changed) { fields |= field; } }
+        string[] order = values.IsAutoFolderSort ? [] : [.. values.FolderOrder ?? []];
+        // 並び順欄を編集していない保存（名前だけの保存、概要のセル編集など）は、保存済みの明示順を書き換えない。
+        // 手動順の表の表示順や、旧版が保存した空文字だけの明示順を、別項目の保存で固定・正規化しないための判定です。
+        bool folderOrderEdited = values.IsAutoFolderSort != original.IsAutoFolderSort
+            || (!values.IsAutoFolderSort && !(values.FolderOrder ?? []).SequenceEqual(original.FolderOrder ?? [], StringComparer.Ordinal));
+        Changed(folderOrderEdited && !(table.Folder_order ?? []).SequenceEqual(order, StringComparer.Ordinal), PlaylistHeaderFields.FolderOrder);
+        Changed(table.folder_sort_key != values.FolderSortKey, PlaylistHeaderFields.FolderSortKey);
+        Changed(table.folder_sort_ascending != values.FolderSortAscending, PlaylistHeaderFields.FolderSortAscending);
+        Changed(table.ignore_folder_output != values.IgnoreFolderOutput, PlaylistHeaderFields.IgnoreFolderOutput);
+        Changed(table.entry_type != values.EntryType, PlaylistHeaderFields.EntryType);
+        Changed(table.name != values.Name, PlaylistHeaderFields.Name);
+        Changed(table.symbol != values.Symbol, PlaylistHeaderFields.Symbol);
+        Changed(!HasSameUri(table.Page_url, pageUrl), PlaylistHeaderFields.PageUrl);
+        Changed(!HasSameUri(table.Header_url, headerUrl), PlaylistHeaderFields.HeaderUrl);
+        Changed(!HasSameUri(table.Data_url, dataUrl), PlaylistHeaderFields.DataUrl);
+        Changed(table.is_external_sync != values.IsExternalSync, PlaylistHeaderFields.IsExternalSync);
+        Changed(table.output_dir != values.OutputDirectory, PlaylistHeaderFields.OutputDirectory);
+        Changed(!string.Equals(table.custom_folder_output_base_name, values.CustomFolderOutputBaseName, StringComparison.OrdinalIgnoreCase), PlaylistHeaderFields.CustomFolderOutputBaseName);
+        Changed(table.is_root_folder != values.IsRootFolder, PlaylistHeaderFields.IsRootFolder);
+        Changed(table.compat_prefix != values.CompatPrefix, PlaylistHeaderFields.CompatPrefix);
+        return new PlaylistHeaderEdit
         {
-            table.Folder_order = folderOrder;
-        }
-        table.folder_sort_key = values.FolderSortKey;
-        table.folder_sort_ascending = values.FolderSortAscending;
-        table.ignore_folder_output = values.IgnoreFolderOutput;
-        table.entry_type = values.EntryType;
-        table.name = values.Name;
-        table.symbol = values.Symbol;
-        table.Page_url = pageUrl;
-        table.Header_url = headerUrl;
-        table.Data_url = dataUrl;
-        if (values.IsExternalSync)
-        {
-            table.EnableExternalSync();
-        }
-        else
-        {
-            table.DisableExternalSync();
-        }
-        table.Output_dir = values.OutputDirectory;
-        table.custom_folder_output_base_name = values.CustomFolderOutputBaseName;
-        table.is_root_folder = values.IsRootFolder;
-        table.compat_prefix = values.CompatPrefix;
+            Fields = fields,
+            FolderOrder = [.. order],
+            FolderSortKey = values.FolderSortKey,
+            FolderSortAscending = values.FolderSortAscending,
+            IgnoreFolderOutput = values.IgnoreFolderOutput,
+            EntryType = values.EntryType,
+            Name = values.Name,
+            Symbol = values.Symbol,
+            PageUrl = pageUrl,
+            HeaderUrl = headerUrl,
+            DataUrl = dataUrl,
+            IsExternalSync = values.IsExternalSync,
+            OutputDirectory = values.OutputDirectory,
+            CustomFolderOutputBaseName = values.CustomFolderOutputBaseName,
+            IsRootFolder = values.IsRootFolder,
+            CompatPrefix = values.CompatPrefix
+        };
     }
-
-    private static void RestorePropertyValues(BMSTable table, PlaylistPropertyValues values)
-    {
-        var failures = new List<Exception>();
-        void Restore(Action restore)
-        {
-            try
-            {
-                restore();
-            }
-            catch (Exception ex)
-            {
-                failures.Add(ex);
-            }
-        }
-
-        Restore(() => table.Folder_order = [.. values.PersistedFolderOrder ?? []]);
-        Restore(() => table.folder_sort_key = values.FolderSortKey);
-        Restore(() => table.folder_sort_ascending = values.FolderSortAscending);
-        Restore(() => table.ignore_folder_output = values.IgnoreFolderOutput);
-        Restore(() => table.entry_type = values.EntryType);
-        Restore(() => table.name = values.Name);
-        Restore(() => table.symbol = values.Symbol);
-        Restore(() => table.Page_url = values.PageUrl);
-        Restore(() => table.Header_url = values.HeaderUrl);
-        Restore(() => table.Data_url = values.DataUrl);
-        Restore(() =>
-        {
-            if (values.IsExternalSync)
-            {
-                table.EnableExternalSync();
-            }
-            else
-            {
-                table.DisableExternalSync();
-            }
-        });
-        Restore(() => table.Output_dir = values.OutputDirectory);
-        Restore(() => table.custom_folder_output_base_name = values.CustomFolderOutputBaseName);
-        Restore(() => table.is_root_folder = values.IsRootFolder);
-        Restore(() => table.compat_prefix = values.CompatPrefix);
-        if (failures.Count > 0)
-        {
-            throw new AggregateException(failures).Flatten();
-        }
-    }
-
     internal async Task<PlaylistPropertyValues> ResetAsync(PlaylistPropertyEditSession session)
     {
         if (session == null)
@@ -423,51 +513,34 @@ internal sealed class PlaylistPropertySaveService
             throw new ArgumentNullException(nameof(session));
         }
         session.ThrowIfDisposed();
-        if (session.IsNewTable)
-        {
-            await Task.Run(() => session.Store.RemoveBMSTable(session.Table));
-        }
+        await Task.CompletedTask.ConfigureAwait(false);
         return session.Values;
     }
 
-    internal Task<PlaylistPropertyEditSession> ReconcileFailedSaveAsync(
-        PlaylistPropertyEditSession session,
-        PlaylistPropertySaveCommit commit)
-    {
-        if (session == null)
-        {
-            throw new ArgumentNullException(nameof(session));
-        }
-        if (commit == null)
-        {
-            throw new ArgumentNullException(nameof(commit));
-        }
-        session.ThrowIfDisposed();
-        return Task.Run(() =>
-        {
-            BMSTable activeTable = commit.Table
-                ?? throw new InvalidOperationException("Failed playlist save has no active reconciliation target.");
-            session.Store.CommitBMSTableWithEntriesToDB(activeTable);
-            return CreateEditSessionCore(
-                activeTable,
-                session.IsNewTable,
-                session.Settings,
-                session.Baseline)
-                ?? throw new InvalidOperationException("Failed playlist save target is no longer active.");
-        });
-    }
-
-    internal async Task ApplyPostSaveUpdatesAsync(PlaylistPropertySaveCommit commit)
+    /// <summary>受付時に捕捉した設定で保存済み事実に必要な出力・公開・通知を同じ局所権限で終えます。元失敗は確定を戻さず返します。</summary>
+    /// <param name="capability">保存から継続する生存局所権限。外側が実終端まで保持します。</param>
+    private async Task ApplyPostSaveUpdatesAsync(PlaylistPropertySaveCommit commit, LibraryFileMutationCapability capability = null)
     {
         if (commit == null)
         {
             throw new ArgumentNullException(nameof(commit));
         }
         BMSPlaylist store = GetPlaylistStore();
+        using LibraryFileMutationLease accepted = store.AcquirePlaylistMutationLease("playlist_property_followup", capability: capability);
+        using LibraryFileMutationCapability authority = accepted.CreateMutationCapability();
         PlaylistPropertyBaseline baseline = commit.Baseline;
         CustomFolderOutputSettingsSnapshot settings = commit.Settings;
         BMSTable table = commit.Table;
+        if (commit.IsNewDraft)
+        {
+            Exception registration = await store.RegisterDraftAsync(table, commit.HeaderEdit, authority).ConfigureAwait(false);
+            commit.IsNewDraft = false;
+            commit.SavedValues = PlaylistPropertyValues.Capture(table);
+            if (registration != null) { commit.Exception = registration; }
+        }
         using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = store.OperationNotificationOwner.BeginSession();
+        List<Exception> failures = [];
+        if (commit.Exception != null) { failures.Add(commit.Exception); }
         bool prefixChanged = !string.Equals(baseline.CompatPrefix, table.compat_prefix, StringComparison.Ordinal);
         bool outputDirectoryChanged = !string.Equals(
             BMSTable.NormalizeOutputDirectoryName(baseline.OutputDirectory),
@@ -481,48 +554,31 @@ internal sealed class PlaylistPropertySaveService
             CustomFolderOutputBaseRegistry.NormalizeBaseName(table.custom_folder_output_base_name),
             StringComparison.OrdinalIgnoreCase);
         bool externalResyncApplied = false;
-        bool entryFolderProjectionChanged = commit.PrefixRewriteChanged;
-        IReadOnlyDictionary<string, string> prefixFolderSelectionMap =
-            commit.PrefixRewritePlan?.FolderMap;
-        if (prefixChanged)
-        {
-            if (!commit.PrefixRewriteCompleted && commit.PrefixRewritePlan == null)
-            {
-                store.EnsurePlaylistEntriesLoaded(table, "PlaylistPropertySaveService.CreateCompatibleFolderPrefixRewriteMap");
-                using (table.ReaderWriterLock.GetReaderGuard())
-                {
-                    commit.PrefixRewritePlan = table.CreateCompatibleFolderPrefixRewritePlan(
-                        baseline.CompatPrefix,
-                        table.compat_prefix);
-                }
-                prefixFolderSelectionMap = commit.PrefixRewritePlan.FolderMap;
-            }
-        }
+        bool entryFolderProjectionChanged = commit.PrefixFolderSelectionMap?.Count > 0;
+        IReadOnlyDictionary<string, string> prefixFolderSelectionMap = commit.PrefixFolderSelectionMap;
 
-        bool shouldReloadExternalPlaylist = (!baseline.IsExternalSync && table.is_external_sync)
-            || (table.is_external_sync
-                && table.Page_url != null
-                && baseline.PageUrl != null
-                && table.Page_url.ToString() != baseline.PageUrl.ToString());
-        if (shouldReloadExternalPlaylist || commit.ExternalReloadCompleted)
+        bool shouldReloadExternalPlaylist = table.is_external_sync
+            && (!baseline.IsExternalSync
+                || !HasSameUri(baseline.PageUrl ?? baseline.HeaderUrl, table.Page_url ?? table.Header_url)
+                || (baseline.HeaderUrl != null && table.Header_url == null)
+                || (baseline.DataUrl != null && table.Data_url == null));
+        if (shouldReloadExternalPlaylist)
         {
-            Uri uri = commit.ExternalReloadCompleted
-                ? commit.ExternalReloadUri
-                : table.Page_url ?? table.Header_url;
+            Uri uri = table.Page_url ?? table.Header_url;
             if (uri != null && uri.IsAbsoluteUri)
             {
-                BMSTable sourceTable = commit.ExternalReloadCompleted
-                    ? commit.ExternalReloadSourceTable
-                    : table;
+                BMSTable sourceTable = table;
+                PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt referenceReceipt = null;
+                bool externalLastUpdateChanged = false;
                 bool externalReloadFailed = false;
                 Exception syncWorkflowFailure = null;
                 try
                 {
-                    RaiseRequiredEvent(
+                    NotifyBestEffort(() => RaiseRequiredEvent(
                         PlaylistPropertySyncStarted,
                         EventArgs.Empty,
-                        "Playlist property sync-start presentation");
-                    RaiseRequiredEvent(
+                        "Playlist property sync-start presentation"));
+                    NotifyBestEffort(() => RaiseRequiredEvent(
                         PlaylistPropertySyncProgressChanged,
                         new PlaylistSyncProgressChangedEventArgs(new PlaylistSyncProgressSnapshot
                         {
@@ -532,237 +588,74 @@ internal sealed class PlaylistPropertySaveService
                             CurrentTableName = table.name,
                             CurrentUri = uri
                         }),
-                        "Playlist property sync-progress presentation");
-                    if (!commit.ExternalReloadCompleted)
+                        "Playlist property sync-progress presentation"));
+                    try
                     {
-                        try
+                        store.EnsurePlaylistEntriesLoaded(table, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
+                        PlaylistExternalSyncOwner.PlaylistReloadOperationResult reload = await store.ExternalSyncOwner.ReloadAndApplySingleTableAsync(table, uri,
+                            "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync", capability: authority, callerOwnsDerivedOutputs: true).ConfigureAwait(false);
+                        PlaylistExternalSyncOwner.PlaylistReloadTargetResult target = reload.Single();
+                        if (target.UpdateReceipt != null)
                         {
-                            DateTime lastUpdate = table.last_update;
-                            List<BMSTableEntry> oldEntries;
-                            store.EnsurePlaylistEntriesLoaded(table, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
-                            using (table.ReaderWriterLock.GetReaderGuard())
-                            {
-                                oldEntries = [.. table.entries];
-                            }
-                            table = await store.ExternalSyncOwner.ReloadAndApplySingleTableAsync(table, uri, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
+                            referenceReceipt = target.UpdateReceipt;
+                            table = target.ResultTable;
                             commit.Table = table;
-                            commit.ExternalReloadSourceTable = sourceTable;
-                            commit.ExternalReloadOldEntries = oldEntries;
-                            commit.ExternalReloadUri = uri;
-                            commit.ExternalReloadLastUpdateChanged = table.last_update != lastUpdate;
-                            commit.ExternalReloadCompleted = true;
+                            if (target.StatePersisted) { commit.SavedValues = PlaylistPropertyValues.Capture(table); }
+                            externalLastUpdateChanged = target.Updated;
+                            externalResyncApplied = true;
                         }
-                        catch (Exception ex)
+                        externalReloadFailed = target.UpdateReceipt == null;
+                        // 一般同期では処理済み取得失敗を再送出しないが、単表保存は保存済み同期未完了として返す。
+                        Exception syncFailure = target.IsHandledExternalLoadFailure
+                            ? CombineFailures([target.Exception, reload.Exception])
+                            : reload.Exception;
+                        if (syncFailure != null)
                         {
-                            externalReloadFailed = true;
-                            RaiseRequiredEvent(
-                                PlaylistPropertyExternalSyncFailed,
-                                new PlaylistPropertyExternalSyncFailedEventArgs(sourceTable, uri, ex),
-                                "Playlist property sync-failure presentation");
+                            failures.Add(syncFailure);
+                            commit.ExternalSyncFailure = new PlaylistPropertyExternalSyncFailedEventArgs(table, uri, syncFailure);
                         }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        table = commit.Table;
+                        externalReloadFailed = true;
+                        failures.Add(ex);
+                        commit.ExternalSyncFailure = new PlaylistPropertyExternalSyncFailedEventArgs(sourceTable, uri, ex);
                     }
                     if (!externalReloadFailed)
                     {
                         externalResyncApplied = true;
                         displayProjectionChanged = false;
-                        if (!commit.ExternalReferenceReplacementCompleted)
+                        commit.PendingOutput = new PlaylistPropertyPendingOutput
                         {
-                            GetLibrary().ReplaceReferenceBMSTable(
-                                commit.ExternalReloadSourceTable,
-                                table,
-                                commit.ExternalReloadOldEntries);
-                            commit.ExternalReferenceReplacementCompleted = true;
-                        }
-                        RaiseRequiredEvent(
-                            PlaylistPropertyReferenceTableReplaced,
-                            new PlaylistReferenceTableReplacedEventArgs(
-                                commit.ExternalReloadSourceTable,
-                                table),
-                            "Playlist property reference-table replacement");
-                        RaiseRequiredEvent(
-                            PlaylistPropertyFolderSelectionRemapped,
-                            new PlaylistPropertyFolderSelectionRemappedEventArgs(table, prefixFolderSelectionMap),
-                            "Playlist property folder-selection remap");
-                        RaiseRequiredEvent(
-                            PlaylistPropertyReferenceSortInvalidationRequested,
-                            EventArgs.Empty,
-                            "Playlist property reference-sort invalidation");
-                        RaiseRequiredEvent(
+                            ReferenceReceipt = referenceReceipt,
+                            NeedsReferencePresentation = true
+                        };
+                        NotifyBestEffort(() => RaiseRequiredEvent(
                             PlaylistPropertySyncResultReported,
                             new PlaylistSyncResultReportedEventArgs(PlaylistSyncAttemptResult.CreateSuccess(
-                                commit.ExternalReloadSourceTable,
+                                sourceTable,
                                 table,
                                 uri,
-                                commit.ExternalReloadLastUpdateChanged)),
-                            "Playlist property sync-result presentation");
+                                externalLastUpdateChanged)),
+                            "Playlist property sync-result presentation"));
                     }
                 }
                 catch (Exception ex)
                 {
                     syncWorkflowFailure = ex;
                 }
-                CompletePlaylistPropertySyncPresentation(
-                    table,
-                    uri,
-                    notificationSession,
-                    syncWorkflowFailure);
-                RaiseRequiredEvent(
+                if (syncWorkflowFailure != null) { failures.Add(syncWorkflowFailure); }
+                CompletePlaylistPropertySyncPresentation(table, uri, notificationSession);
+                CapturePresentationFailure(() => RaiseRequiredEvent(
                     PlaylistPropertySummaryDataRefreshRequested,
                     new PlaylistSummaryDataRefreshRequestedEventArgs(
                         "playlist_property_resync"),
-                    "Playlist property summary refresh");
+                    "Playlist property summary refresh"), failures);
             }
         }
 
-        if (prefixChanged && !externalResyncApplied)
-        {
-            IReadOnlyDictionary<string, string> rewrittenFolders = prefixFolderSelectionMap;
-            if (!commit.PrefixRewriteCompleted)
-            {
-                store.EnsurePlaylistEntriesLoaded(table, "PlaylistPropertySaveService.RewriteCompatibleFolderPrefix");
-                using (table.ReaderWriterLock.GetWriterGuard())
-                {
-                    entryFolderProjectionChanged = table.ApplyCompatibleFolderPrefixRewritePlan(
-                        commit.PrefixRewritePlan);
-                }
-                commit.PrefixRewriteCompleted = true;
-                commit.PrefixRewriteChanged = entryFolderProjectionChanged;
-            }
-            if (entryFolderProjectionChanged)
-            {
-                RaiseRequiredEvent(
-                    PlaylistPropertyFolderSelectionRemapped,
-                    new PlaylistPropertyFolderSelectionRemappedEventArgs(table, rewrittenFolders),
-                    "Playlist property folder-selection remap");
-                displayProjectionChanged = true;
-            }
-        }
-
-        if (displayProjectionChanged)
-        {
-            GetLibrary().RefreshReferenceDisplayForTable(table);
-            RaiseRequiredEvent(
-                PlaylistPropertyReferenceSortInvalidationRequested,
-                EventArgs.Empty,
-                "Playlist property reference-sort invalidation");
-            if (entryFolderProjectionChanged)
-            {
-                RaiseRequiredEvent(
-                    PlaylistPropertyEntriesChanged,
-                    new PlaylistPropertyEntriesChangedEventArgs(table),
-                    "Playlist property entries-changed publication");
-            }
-            else
-            {
-                RaiseRequiredEvent(
-                    PlaylistPropertySummaryDataRefreshRequested,
-                    new PlaylistSummaryDataRefreshRequestedEventArgs(
-                        "playlist_property_changed"),
-                    "Playlist property summary refresh");
-            }
-        }
-        else if (externalResyncApplied)
-        {
-            RaiseRequiredEvent(
-                PlaylistPropertyEntriesChanged,
-                new PlaylistPropertyEntriesChangedEventArgs(table),
-                "Playlist property entries-changed publication");
-        }
-
-        if (entryFolderProjectionChanged)
-        {
-            store.CommitBMSTableWithEntriesToDB(table);
-        }
-        else
-        {
-            store.CommitBMSTableHeaderToDB(table);
-        }
-
-        if (settings.OperationModeLR2DB)
-        {
-            string customFolderOutputDirectory;
-            try
-            {
-                customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(table, settings);
-            }
-            catch (ArgumentNullException)
-            {
-                RaiseInvalidOutputDirectoryRequested();
-                throw;
-            }
-            bool outputBaseDirectoryBeforeResolved = baseline.IsRootFolder;
-            string outputBaseDirectoryBefore = baseline.IsRootFolder
-                ? settings.LR2CustomFolderOutputBaseDirRootType
-                : null;
-            if (!baseline.IsRootFolder)
-            {
-                outputBaseDirectoryBeforeResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
-                    baseline.CustomFolderOutputBaseName,
-                    settings.LR2CustomFolderOutputBaseDir,
-                    settings.LR2CustomFolderAdditionalOutputBaseDirs,
-                    out outputBaseDirectoryBefore);
-            }
-            try
-            {
-                store.MigrateCustomFolderOutputDirectoryWithSettings(
-                    table,
-                    baseline.OutputDirectoryPath,
-                    customFolderOutputDirectory,
-                    wasRootFolderBefore: baseline.IsRootFolder,
-                    rootOutputBaseDirBefore: null,
-                    outputBaseDirBefore: outputBaseDirectoryBeforeResolved ? outputBaseDirectoryBefore : null,
-                    inferOutputBaseDirBeforeWhenMissing: outputBaseDirectoryBeforeResolved,
-                    settings: settings);
-            }
-            finally
-            {
-                RaiseRequiredEvent(
-                    PlaylistOperationNotificationPresentationRequested,
-                    new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                        notificationSession.TakeReceipt(),
-                        "playlist property custom folder notification"),
-                    "Playlist property notification flushing");
-            }
-            LR2Config config = getLr2Config()
-                ?? throw new InvalidOperationException("LR2 configuration is not available.");
-            List<string> searchDirectories = config.GetBMSSearchDirectoriesForChangeTracking();
-            if (!baseline.IsRootFolder && table.is_root_folder)
-            {
-                config.SetBMSSearchDirectories(searchDirectories
-                    .Union([customFolderOutputDirectory])
-                    .Distinct(StringComparer.OrdinalIgnoreCase));
-                config.Save();
-            }
-            else if (baseline.IsRootFolder && !table.is_root_folder)
-            {
-                config.SetBMSSearchDirectories(searchDirectories
-                    .Except([baseline.OutputDirectoryPath], StringComparer.OrdinalIgnoreCase));
-                config.Save();
-            }
-            else if (baseline.IsRootFolder
-                && table.is_root_folder
-                && !customFolderOutputDirectory.Equals(baseline.OutputDirectoryPath, StringComparison.OrdinalIgnoreCase))
-            {
-                config.SetBMSSearchDirectories(searchDirectories
-                    .Except([baseline.OutputDirectoryPath], StringComparer.OrdinalIgnoreCase)
-                    .Union([customFolderOutputDirectory])
-                    .Distinct(StringComparer.OrdinalIgnoreCase));
-                config.Save();
-            }
-        }
-
-        if (outputBaseNameChanged || outputDirectoryChanged)
-        {
-            RaiseRequiredEvent(
-                PlaylistPropertySummaryDataRefreshRequested,
-                new PlaylistSummaryDataRefreshRequestedEventArgs(
-                    "playlist_property_output_changed"),
-                "Playlist property summary refresh");
-        }
+        commit.SavedValues = PlaylistPropertyValues.Capture(table);
+        PreparePendingOutputs(commit);
         bool bmtProjectionChanged = displayProjectionChanged
             || prefixChanged
             || outputDirectoryChanged
@@ -772,57 +665,206 @@ internal sealed class PlaylistPropertySaveService
             || !HasSameUri(baseline.PageUrl, table.Page_url)
             || !HasSameUri(baseline.HeaderUrl, table.Header_url)
             || !HasSameStringSequence(baseline.FolderOrder, table.Folder_order);
-        if (bmtProjectionChanged)
+        commit.PendingOutput.NeedsBmtExport = bmtProjectionChanged;
+        // 参照を必要とする選択・項目通知より先に採用し、公開失敗はこの保存で再試行しない。
+        CompleteReferencePublication(commit.PendingOutput, failures);
+        if (externalResyncApplied)
         {
-            store.BmtOutput.QueueBeatorajaBmtExportForTable(table, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
+            CapturePresentationFailure(() => RaiseRequiredEvent(
+                PlaylistPropertyFolderSelectionRemapped,
+                new PlaylistPropertyFolderSelectionRemappedEventArgs(table, prefixFolderSelectionMap),
+                "Playlist property folder-selection remap"), failures);
         }
+
+        if (prefixChanged && !externalResyncApplied)
+        {
+            IReadOnlyDictionary<string, string> rewrittenFolders = prefixFolderSelectionMap;
+            if (entryFolderProjectionChanged)
+            {
+                CapturePresentationFailure(() => RaiseRequiredEvent(
+                    PlaylistPropertyFolderSelectionRemapped,
+                    new PlaylistPropertyFolderSelectionRemappedEventArgs(table, rewrittenFolders),
+                    "Playlist property folder-selection remap"), failures);
+                displayProjectionChanged = true;
+            }
+        }
+
+        if (displayProjectionChanged && !entryFolderProjectionChanged && !externalResyncApplied)
+        {
+            CapturePresentationFailure(() => RaiseRequiredEvent(PlaylistPropertyCatalogChanged, EventArgs.Empty,
+                "Playlist property catalog publication"), failures);
+        }
+        if (entryFolderProjectionChanged || externalResyncApplied)
+        {
+            var presentation = new PlaylistPropertyEntriesChangedEventArgs(table, refreshSummaryIfVisible: externalResyncApplied);
+            CapturePresentationFailure(() => RaiseRequiredEvent(
+                PlaylistPropertyEntriesChanged, presentation,
+                "Playlist property entries-changed publication"), failures);
+            commit.SavedPresentation = presentation.Completion;
+        }
+        await CompletePendingOutputsAsync(store, commit, authority, failures, notificationSession).ConfigureAwait(false);
+        if (failures.Count == 1) { ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
+        if (failures.Count > 1) { throw new AggregateException(failures).Flatten(); }
+    }
+
+    private void PreparePendingOutputs(PlaylistPropertySaveCommit commit)
+    {
+        PlaylistPropertyPendingOutput pending = commit.PendingOutput ??= new PlaylistPropertyPendingOutput();
+        PlaylistPropertyBaseline baseline = commit.Baseline;
+        CustomFolderOutputSettingsSnapshot settings = commit.Settings;
+        if (!settings.OperationModeLR2DB) { return; }
+        pending.Settings = settings;
+        pending.HasPreviousOutput = baseline.HasPreviousOutput && !string.IsNullOrWhiteSpace(baseline.OutputDirectoryPath);
+        pending.OldOutputDirectory = baseline.OutputDirectoryPath;
+        pending.NewOutputDirectory = ResolveCustomFolderOutputDirectory(commit.Table, settings);
+        pending.WasRootFolder = baseline.IsRootFolder;
+        pending.IsRootFolder = commit.Table.is_root_folder;
+        pending.OldOutputBaseResolved = baseline.IsRootFolder;
+        pending.OldOutputBase = baseline.IsRootFolder ? settings.LR2CustomFolderOutputBaseDirRootType : null;
+        if (!baseline.IsRootFolder)
+        {
+            pending.OldOutputBaseResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
+                baseline.CustomFolderOutputBaseName, settings.LR2CustomFolderOutputBaseDir,
+                settings.LR2CustomFolderAdditionalOutputBaseDirs, out string oldBase);
+            pending.OldOutputBase = oldBase;
+        }
+        pending.NeedsLr2Output = true;
+        pending.NeedsSearchPathSave = baseline.IsRootFolder != pending.IsRootFolder
+            || (pending.IsRootFolder && !string.Equals(pending.OldOutputDirectory, pending.NewOutputDirectory, StringComparison.OrdinalIgnoreCase));
+        // 保存後も他の表と出力先が重なる表は凍結し、ROOT登録の追加と除去を行いません。
+        if (pending.NeedsSearchPathSave && commit.Table != null && GetPlaylistStore().FindCollidingOutputTables(settings).Contains(commit.Table))
+        {
+            pending.NeedsSearchPathSave = false;
+        }
+    }
+
+    private void CompleteReferencePublication(PlaylistPropertyPendingOutput pending, ICollection<Exception> failures)
+    {
+        PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt receipt = pending.ReferenceReceipt;
+        if (receipt == null) { return; }
+        if (pending.NeedsReferencePresentation)
+        {
+            try
+            {
+                RaiseRequiredEvent(PlaylistPropertyReferenceTableReplaced,
+                    new PlaylistReferenceTableReplacedEventArgs(receipt.OldTable, receipt.NewTable), "Playlist property reference-table replacement");
+                pending.NeedsReferencePresentation = false;
+            }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        if (!pending.NeedsReferencePresentation) { pending.ReferenceReceipt = null; }
+    }
+
+    private async Task CompletePendingOutputsAsync(BMSPlaylist store, PlaylistPropertySaveCommit commit,
+        LibraryFileMutationCapability authority, ICollection<Exception> failures,
+        PlaylistOperationNotificationOwner.OperationNotificationSession existingNotifications = null)
+    {
+        PlaylistPropertyPendingOutput pending = commit.PendingOutput;
+        if (pending == null) { return; }
+        using PlaylistOperationNotificationOwner.OperationNotificationSession ownedNotifications = existingNotifications == null ? store.OperationNotificationOwner.BeginSession() : null;
+        PlaylistOperationNotificationOwner.OperationNotificationSession notifications = existingNotifications ?? ownedNotifications;
+        if (pending.NeedsLr2Output)
+        {
+            try
+            {
+                PlaylistCustomFolderOutputMaintenanceOwner.CustomFolderBatchOutputResult migration = pending.HasPreviousOutput && !string.IsNullOrWhiteSpace(pending.NewOutputDirectory)
+                    ? store.MigrateCustomFolderOutputDirectoryWithSettings(commit.Table,
+                    pending.OldOutputDirectory, pending.NewOutputDirectory, pending.WasRootFolder,
+                    pending.WasRootFolder ? pending.OldOutputBase : null,
+                    pending.OldOutputBaseResolved ? pending.OldOutputBase : null,
+                    pending.OldOutputBaseResolved, pending.Settings, authority)
+                    : store.ReOutputCustomFolderWithSettings(commit.Table, pending.Settings, authority);
+                if (migration.PrimaryException != null) { failures.Add(migration.PrimaryException); }
+                else if (!migration.Succeeded)
+                {
+                    failures.Add(new System.IO.IOException(migration.Warning?.Format()
+                        ?? BeMusicSeeker.Properties.Resources.Msg_error_unexpected));
+                }
+                else { pending.NeedsLr2Output = false; }
+            }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        if (!pending.NeedsLr2Output && pending.NeedsSearchPathSave)
+        {
+            try
+            {
+                Lr2ConfigOwner owner = getLr2Config() ?? throw new InvalidOperationException("LR2 configuration is not available.");
+                owner.SaveRoots(new Lr2RootChange(pending.HasPreviousOutput && pending.WasRootFolder ? [pending.OldOutputDirectory] : [],
+                    pending.IsRootFolder ? [pending.NewOutputDirectory] : []));
+                pending.NeedsSearchPathSave = false;
+            }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        if (!pending.NeedsLr2Output && !pending.NeedsSearchPathSave)
+        {
+            pending.Settings = null;
+            pending.OldOutputDirectory = null;
+            pending.NewOutputDirectory = null;
+            pending.OldOutputBase = null;
+        }
+        if (pending.NeedsBmtExport)
+        {
+            try
+            {
+                await store.BmtOutput.ExportTablesAsync([commit.Table], "playlist_property_save", authority).ConfigureAwait(false);
+                pending.NeedsBmtExport = false;
+            }
+            catch (Exception failure) { failures.Add(failure); }
+        }
+        NotifyBestEffort(() => PublishNotifications(notifications, "playlist property custom folder notification"));
+        if (!pending.HasPendingWork) { commit.PendingOutput = null; }
+    }
+
+    /// <summary>
+    /// 確定参照と保存値の採用後に任意の失敗通知を試み、今回の実処理失敗だけを呼出元へ返します。
+    /// 外部同期の失敗の通知は、保存の操作の収集先へ積み、操作が受付を解放した後に表示します。
+    /// </summary>
+    internal void PublishSaveFailure(PlaylistPropertySaveCommit commit)
+    {
+        if (commit.ExternalSyncFailure != null)
+        {
+            NotifyBestEffort(() => RaiseRequiredEvent(PlaylistPropertyExternalSyncFailed,
+                commit.ExternalSyncFailure, "Playlist property sync-failure presentation"));
+            NotifyBestEffort(() => PlaylistOperationNotices.Notify(
+                getPlaylistStore(), NoticePresenter, PlaylistOperationNotices.ExternalSyncFailure(commit.ExternalSyncFailure.Exception),
+                "playlist property external sync failure notification"));
+        }
+        if (commit.Exception != null) { ExceptionDispatchInfo.Capture(commit.Exception).Throw(); }
+    }
+
+    private static Exception CombineFailures(IEnumerable<Exception> failures)
+    {
+        Exception[] actual = [.. failures.Where(failure => failure != null)];
+        return actual.Length switch { 0 => null, 1 => actual[0], _ => new AggregateException(actual).Flatten() };
     }
 
     private void CompletePlaylistPropertySyncPresentation(
         BMSTable table,
         Uri uri,
-        PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession,
-        Exception workflowFailure)
+        PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession)
     {
-        var failures = new List<Exception>();
-        if (workflowFailure != null)
+        NotifyBestEffort(() => RaiseRequiredEvent(
+            PlaylistPropertySyncProgressChanged,
+            new PlaylistSyncProgressChangedEventArgs(new PlaylistSyncProgressSnapshot
+            {
+                IsActive = true,
+                TotalTableCount = 1,
+                CompletedTableCount = 1,
+                CurrentTableName = table.name,
+                CurrentUri = uri
+            }), "Playlist property sync-progress presentation"));
+        NotifyBestEffort(() => RaiseRequiredEvent(PlaylistPropertySyncFinished,
+            EventArgs.Empty, "Playlist property sync-finish presentation"));
+        NotifyBestEffort(() => PublishNotifications(notificationSession, "playlist property external sync notification"));
+    }
+
+    private static void NotifyBestEffort(Action notification)
+    {
+        try { notification(); }
+        catch (Exception failure)
         {
-            failures.Add(workflowFailure);
-        }
-        CapturePresentationFailure(
-            () => RaiseRequiredEvent(
-                PlaylistPropertySyncProgressChanged,
-                new PlaylistSyncProgressChangedEventArgs(new PlaylistSyncProgressSnapshot
-                {
-                    IsActive = true,
-                    TotalTableCount = 1,
-                    CompletedTableCount = 1,
-                    CurrentTableName = table.name,
-                    CurrentUri = uri
-                }),
-                "Playlist property sync-progress presentation"),
-            failures);
-        CapturePresentationFailure(
-            () => RaiseRequiredEvent(
-                PlaylistPropertySyncFinished,
-                EventArgs.Empty,
-                "Playlist property sync-finish presentation"),
-            failures);
-        CapturePresentationFailure(
-            () => RaiseRequiredEvent(
-                PlaylistOperationNotificationPresentationRequested,
-                new PlaylistOperationNotificationPresentationRequestedEventArgs(
-                    notificationSession.TakeReceipt(),
-                    "playlist property external sync notification"),
-                "Playlist property notification flushing"),
-            failures);
-        if (failures.Count == 1)
-        {
-            ExceptionDispatchInfo.Capture(failures[0]).Throw();
-        }
-        if (failures.Count > 1)
-        {
-            throw new AggregateException(failures).Flatten();
+            try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(failure, "playlist_property_notification_failed"); }
+            catch { /* 診断失敗で保存結果を変えず、再通知もしない。 */ }
         }
     }
 
@@ -854,14 +896,18 @@ internal sealed class PlaylistPropertySaveService
         BMSTable table,
         BMSPlaylist store,
         CustomFolderOutputSettingsSnapshot settings,
-        PlaylistPropertyValues values)
+        PlaylistPropertyValues values,
+        out bool placementRejected)
     {
         return IsValid(
             settings,
             values,
             (store.BMSTables?.Cast<BMSTable>() ?? Enumerable.Empty<BMSTable>())
-                .Where(candidate => candidate != null && candidate != table)
-                .Select(candidate => candidate.Output_dir));
+                .Where(candidate => candidate != null && candidate != table && !string.IsNullOrWhiteSpace(candidate.Output_dir))
+                .Select(candidate => settings.OperationModeLR2DB ? ManagedPlaylistOutputPlacement.Resolve(candidate, settings) : candidate.Output_dir),
+            settings.OperationModeLR2DB && store.BMSTables?.Cast<BMSTable>().Contains(table) == true
+                ? ManagedPlaylistOutputPlacement.Resolve(table, settings) : null,
+            out placementRejected);
     }
 
     private static bool IsValidForPresentation(
@@ -871,14 +917,21 @@ internal sealed class PlaylistPropertySaveService
         return IsValid(
             session.Settings,
             values,
-            session.OtherOutputDirectories);
+            session.OtherOutputDirectories,
+            session.OriginalOutputDirectory,
+            out _);
     }
 
+    /// <param name="placementRejected">他の条件を満たし、LR2配置の検査だけで拒否した場合にtrueです。</param>
     private static bool IsValid(
         CustomFolderOutputSettingsSnapshot settings,
         PlaylistPropertyValues values,
-        IEnumerable<string> otherOutputDirectories)
+        IEnumerable<string> otherOutputDirectories,
+        string originalOutputDirectory,
+        out bool placementRejected)
     {
+        placementRejected = false;
+        if (string.IsNullOrWhiteSpace(values.Name)) { return false; }
         if ((values.PageUrl != null && (!IsUrlValid(values.PageUrl) || !values.PageUrl.IsAbsoluteUri))
             || !IsUrlValid(values.HeaderUrl)
             || !IsUrlValid(values.DataUrl))
@@ -886,27 +939,38 @@ internal sealed class PlaylistPropertySaveService
             return false;
         }
         if (values.IsExternalSync
-            && !(values.PageUrl?.Scheme == "bmseeker"
-                || (values.HeaderUrl != null
-                    && values.DataUrl != null
-                    && ((values.PageUrl?.IsAbsoluteUri == true) || values.HeaderUrl.IsAbsoluteUri))))
+            && !BMSTable.CanStartExternalSync(values.PageUrl, values.HeaderUrl))
         {
             return false;
         }
         if (settings.OperationModeLR2DB)
         {
-            string effectiveOutputDirectory = BMSTable.ResolveOutputDirectoryName(
-                values.Name,
-                values.OutputDirectory);
-            if (string.IsNullOrWhiteSpace(effectiveOutputDirectory)
-                || (otherOutputDirectories ?? Enumerable.Empty<string>())
-                    .Contains(effectiveOutputDirectory, StringComparer.OrdinalIgnoreCase))
+            if (!IsPlacementValid(settings, values, otherOutputDirectories, originalOutputDirectory))
             {
+                placementRejected = true;
                 return false;
             }
             NormalizeFolderSettings(values);
         }
         return true;
+    }
+
+    /// <summary>
+    /// 保存と画面の可否で共通の配置の事前検査です。編集する表の公開済みの配置（新規はなし）と候補の配置を比べ、
+    /// 配置が変わる、または新規の表が他の表と同一・親子になる場合だけ拒否します。他の表同士の既存の衝突は問いません。
+    /// </summary>
+    private static bool IsPlacementValid(CustomFolderOutputSettingsSnapshot settings, PlaylistPropertyValues values,
+        IEnumerable<string> otherOutputDirectories, string originalOutputDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(BMSTable.ResolveOutputDirectoryName(values.Name, values.OutputDirectory))) { return false; }
+        string candidate = ManagedPlaylistOutputPlacement.Resolve(values.Name, values.OutputDirectory,
+            values.CustomFolderOutputBaseName, values.IsRootFolder, settings);
+        const string editedKey = "edited";
+        List<ManagedPlaylistOutputPlacement.Placement> others = [.. (otherOutputDirectories ?? []).Select(
+            (directory, index) => new ManagedPlaylistOutputPlacement.Placement(index, directory))];
+        return !ManagedPlaylistOutputPlacement.IsEditRejected(
+            string.IsNullOrWhiteSpace(originalOutputDirectory) ? others : [.. others, new(editedKey, originalOutputDirectory)],
+            [.. others, new(editedKey, candidate)]);
     }
 
     private static void NormalizeFolderSettings(PlaylistPropertyValues values)
@@ -985,40 +1049,67 @@ internal sealed class PlaylistPropertyEditSession : IDisposable
 {
     private bool disposed;
 
+    /// <summary>開いた時点の正本と属性を固定し、後続保存結果だけで競合基準を更新する編集寿命を作ります。</summary>
     internal PlaylistPropertyEditSession(
         BMSPlaylist store,
         BMSTable table,
         bool isNewTable,
         CustomFolderOutputSettingsSnapshot settings,
-        PlaylistPropertyBaseline baseline,
         PlaylistPropertyValues values,
-        IReadOnlyList<string> otherOutputDirectories)
+        IReadOnlyList<string> otherOutputDirectories,
+        string originalOutputDirectory = null,
+        IEnumerable<string> otherNames = null)
     {
+        OtherNames = new HashSet<string>(otherNames ?? [], StringComparer.Ordinal);
         Store = store;
         Table = table;
         IsNewTable = isNewTable;
         Settings = settings;
-        Baseline = baseline;
         OriginalValues = values;
         Values = values.Clone();
         OtherOutputDirectories = otherOutputDirectories ?? [];
+        OriginalOutputDirectory = originalOutputDirectory;
     }
 
     internal BMSPlaylist Store { get; }
 
-    internal BMSTable Table { get; }
+    /// <summary>最後にDB確定した保存結果が示す、競合判定対象の現行参照です。</summary>
+    internal BMSTable Table { get; private set; }
 
-    internal bool IsNewTable { get; }
+    /// <summary>作成経路で始まったdraftがまだ実登録されていない場合だけtrueです。</summary>
+    internal bool IsNewTable { get; private set; }
 
     internal CustomFolderOutputSettingsSnapshot Settings { get; }
 
-    internal PlaylistPropertyBaseline Baseline { get; }
+    /// <summary>DB確定結果から画面へ渡す編集用コピーです。</summary>
+    internal PlaylistPropertyValues Values { get; private set; }
 
-    internal PlaylistPropertyValues Values { get; }
+    /// <summary>最新のDB確定保存値と項目revisionを持つ競合基準です。</summary>
+    internal PlaylistPropertyValues OriginalValues { get; private set; }
 
-    internal PlaylistPropertyValues OriginalValues { get; }
+    /// <summary>編集セッション内で一つだけ保持する、既にDB確定した変更の未完了出力です。</summary>
+    internal PlaylistPropertyPendingOutput PendingOutput { get; set; }
+
+    /// <summary>DB確定の証拠を持つ保存結果だけから競合基準と参照を進めます。</summary>
+    internal void Adopt(PlaylistPropertySaveCommit commit)
+    {
+        if (commit.SavedValues != null)
+        {
+            Table = commit.Table;
+            IsNewTable = commit.IsNewDraft;
+            OriginalValues = commit.SavedValues;
+            Values = commit.SavedValues.Clone();
+        }
+        PendingOutput = commit.PendingOutput;
+    }
 
     internal IReadOnlyList<string> OtherOutputDirectories { get; }
+
+    /// <summary>開いた時点の他の表の名前。同名の入力で出力先の案内を重ねないためだけに使い、保存の可否は保存時の正本集合で判定します。</summary>
+    internal IReadOnlySet<string> OtherNames { get; }
+
+    /// <summary>開いた時点の編集する表の公開済みの実効先。新規の表、LR2モードでない、未解決の追加基点ではnullです。配置が変わらない保存を、保存済みの衝突で拒否しないために使います。</summary>
+    internal string OriginalOutputDirectory { get; }
 
     internal void ThrowIfDisposed()
     {
@@ -1034,6 +1125,7 @@ internal sealed class PlaylistPropertyEditSession : IDisposable
         {
             return;
         }
+        PendingOutput = null;
         disposed = true;
     }
 }
@@ -1044,7 +1136,17 @@ internal sealed class PlaylistPropertyValues
 
     internal IReadOnlyList<string> PersistedFolderOrder { get; set; }
 
+    /// <summary>
+    /// 捕捉時の項目版（<see cref="BMSTable.PlaylistEntriesRevision"/>）です。現行性の比較には使いません。
+    /// 自分の保存結果の差分が編集開始時の表へそのまま適用されたかを、結果の元の版と照合するためだけに使います。
+    /// </summary>
     internal int EntriesRevision { get; set; }
+
+    /// <summary>
+    /// 捕捉時の所属と解決キーの版（<see cref="BMSTable.EntryLookupRevision"/>）です。現行性の比較に使います。
+    /// URLの補完など所属・解決キーを変えない項目値の更新は進めないため、利用者操作でない反映を編集の競合とみなしません。
+    /// </summary>
+    internal int EntryLookupRevision { get; set; }
 
     internal bool IsAutoFolderSort { get; set; }
 
@@ -1083,7 +1185,8 @@ internal sealed class PlaylistPropertyValues
             FolderOrder = [.. table.folder_list],
             PersistedFolderOrder = [.. table.Folder_order ?? []],
             EntriesRevision = table.PlaylistEntriesRevision,
-            IsAutoFolderSort = table.Folder_order == null || !table.Folder_order.Any(),
+            EntryLookupRevision = table.EntryLookupRevision,
+            IsAutoFolderSort = BMSTable.IsAutoFolderOrder(table.Folder_order),
             FolderSortKey = table.folder_sort_key,
             FolderSortAscending = table.folder_sort_ascending,
             IgnoreFolderOutput = table.ignore_folder_output,
@@ -1119,7 +1222,7 @@ internal sealed class PlaylistPropertyValues
             && (left.PersistedFolderOrder ?? []).SequenceEqual(
                 right.PersistedFolderOrder ?? [],
                 StringComparer.Ordinal)
-            && left.EntriesRevision == right.EntriesRevision
+            && left.EntryLookupRevision == right.EntryLookupRevision
             && left.IsAutoFolderSort == right.IsAutoFolderSort
             && left.FolderSortKey == right.FolderSortKey
             && left.FolderSortAscending == right.FolderSortAscending
@@ -1144,6 +1247,7 @@ internal sealed class PlaylistPropertyValues
             FolderOrder = [.. FolderOrder ?? []],
             PersistedFolderOrder = [.. PersistedFolderOrder ?? []],
             EntriesRevision = EntriesRevision,
+            EntryLookupRevision = EntryLookupRevision,
             IsAutoFolderSort = IsAutoFolderSort,
             FolderSortKey = FolderSortKey,
             FolderSortAscending = FolderSortAscending,
@@ -1165,6 +1269,10 @@ internal sealed class PlaylistPropertyValues
 
 internal sealed class PlaylistPropertyBaseline
 {
+    /// <summary>登録前に捕捉した既存表の事実です。新規draftの初回出力には旧先整理を適用しません。</summary>
+    internal bool HasPreviousOutput { get; private set; }
+
+    /// <summary>既存表の旧出力先です。未登録draftではnullとし、空名由来の共通基点を旧配置として扱いません。</summary>
     internal string OutputDirectoryPath { get; private set; }
 
     internal string OutputDirectory { get; private set; }
@@ -1185,12 +1293,16 @@ internal sealed class PlaylistPropertyBaseline
 
     internal Uri HeaderUrl { get; private set; }
 
+    internal Uri DataUrl { get; private set; }
+
     internal IReadOnlyList<string> FolderOrder { get; private set; }
 
-    internal static PlaylistPropertyBaseline Capture(BMSTable table, string outputDirectoryPath)
+    /// <summary>属性保存前の旧値と、登録前の作成経路から確定した旧配置の有無を捕捉します。</summary>
+    internal static PlaylistPropertyBaseline Capture(BMSTable table, string outputDirectoryPath, bool hasPreviousOutput)
     {
         return new PlaylistPropertyBaseline
         {
+            HasPreviousOutput = hasPreviousOutput,
             OutputDirectoryPath = outputDirectoryPath,
             OutputDirectory = table.output_dir,
             IsRootFolder = table.is_root_folder,
@@ -1201,82 +1313,100 @@ internal sealed class PlaylistPropertyBaseline
             Symbol = table.symbol,
             PageUrl = table.Page_url,
             HeaderUrl = table.Header_url,
+            DataUrl = table.Data_url,
             FolderOrder = [.. table.Folder_order ?? []]
         };
     }
 }
 
+/// <summary>保存から必要出力までの確定参照、最新保存値、未完了と元失敗を一方向に返します。</summary>
 internal sealed class PlaylistPropertySaveCommit
 {
-    internal PlaylistPropertySaveCommit(
-        PlaylistPropertyBaseline baseline,
-        BMSTable table,
-        CustomFolderOutputSettingsSnapshot settings,
-        PlaylistPropertyValues appliedValues)
+    /// <summary>初回の保存文脈を作ります。DB確定後の採用情報は実処理が設定し、結果返却時に旧baselineを解放します。</summary>
+    internal PlaylistPropertySaveCommit(PlaylistPropertyBaseline baseline, BMSTable table,
+        CustomFolderOutputSettingsSnapshot settings, bool isNewDraft = false)
     {
+        IsNewDraft = isNewDraft;
         Baseline = baseline;
         Table = table;
         Settings = settings;
-        AppliedValues = appliedValues ?? throw new ArgumentNullException(nameof(appliedValues));
     }
 
-    internal PlaylistPropertyBaseline Baseline { get; }
-
+    /// <summary>
+    /// この保存が開始した一覧の集計の終端Taskです。終端は、その集計の採用、取消、または後発の独立した要求に取って代わられた古い要求として採用されずに終わることです。
+    /// 後発の要求に取って代わられた場合の表示は後発の要求が所有し、保存は後発の要求の適用を待ちません。いずれも失敗ではなく、自分の構築の失敗は保存の結果に含まれます。別要求のidle待機へ広げません。
+    /// </summary>
+    internal Task SavedPresentation { get; set; } = Task.CompletedTask;
+    /// <summary>実登録前の作成経路。登録確定後はfalseに進め、集合不在から新規へ戻しません。</summary>
+    internal bool IsNewDraft { get; set; }
+    /// <summary>初回属性保存だけの旧値。結果を返す前に解放し、継続には使いません。</summary>
+    internal PlaylistPropertyBaseline Baseline { get; set; }
+    /// <summary>実際に採用された保存対象。置換後失敗でも呼出元へ返します。</summary>
     internal BMSTable Table { get; set; }
-
+    /// <summary>この保存で捕捉した適用済み出力配置。</summary>
     internal CustomFolderOutputSettingsSnapshot Settings { get; }
-
-    internal PlaylistPropertyValues AppliedValues { get; set; }
-
-    internal bool PrefixRewriteCompleted { get; set; }
-
-    internal bool PrefixRewriteChanged { get; set; }
-
-    internal CompatibleFolderPrefixRewritePlan PrefixRewritePlan { get; set; }
-
-    internal bool ExternalReloadCompleted { get; set; }
-
-    internal BMSTable ExternalReloadSourceTable { get; set; }
-
-    internal IReadOnlyList<BMSTableEntry> ExternalReloadOldEntries { get; set; }
-
-    internal Uri ExternalReloadUri { get; set; }
-
-    internal bool ExternalReloadLastUpdateChanged { get; set; }
-
-    internal bool ExternalReferenceReplacementCompleted { get; set; }
+    /// <summary>実DB確定後の競合基準。属性適用だけでは設定しません。</summary>
+    internal PlaylistPropertyValues SavedValues { get; set; }
+    /// <summary>この要求が所有する未保存header属性です。entry候補は保存writer内で作ります。</summary>
+    internal PlaylistHeaderEdit HeaderEdit { get; set; }
+    /// <summary>確定したprefix変更に対応する選択名の写像です。全体詳細の値はentry receiptで配送します。</summary>
+    internal IReadOnlyDictionary<string, string> PrefixFolderSelectionMap { get; set; }
+    /// <summary>次の明示保存で属性適用より先に終える一つの未完了出力。</summary>
+    internal PlaylistPropertyPendingOutput PendingOutput { get; set; }
+    /// <summary>この保存または継続の元失敗。確定した値を取り消す意味を持ちません。</summary>
+    internal Exception Exception { get; set; }
+    /// <summary>確定結果の採用後に既存の取得失敗通知へ渡す入力。</summary>
+    internal PlaylistPropertyExternalSyncFailedEventArgs ExternalSyncFailure { get; set; }
+    /// <summary>今回入力した属性のDB保存まで進んだか。未完了出力だけで停止したときはfalseです。</summary>
+    internal bool RequestedValuesSaved { get; set; }
 }
 
+/// <summary>一つの確定済み変更に残った出力だけを保持します。成功済み部分と公開済みsnapshotは解放します。</summary>
+internal sealed class PlaylistPropertyPendingOutput
+{
+    /// <summary>未完了のLR2初回出力または移行で使う捕捉済み配置。LR2完了後は解放します。</summary>
+    internal CustomFolderOutputSettingsSnapshot Settings { get; set; }
+    /// <summary>登録前に旧配置が存在した表だけtrueです。初回出力を移行の旧先整理へ渡しません。</summary>
+    internal bool HasPreviousOutput { get; set; }
+    /// <summary>旧先の捕捉済み絶対パス。現在値から推測し直しません。</summary>
+    internal string OldOutputDirectory { get; set; }
+    /// <summary>DB確定済み変更に対応する新先の絶対パス。</summary>
+    internal string NewOutputDirectory { get; set; }
+    /// <summary>旧出力の管理範囲を限定する捕捉済み基点。</summary>
+    internal string OldOutputBase { get; set; }
+    /// <summary>旧通常先またはルート基点を捕捉できたか。</summary>
+    internal bool OldOutputBaseResolved { get; set; }
+    /// <summary>旧先でのルート型。</summary>
+    internal bool WasRootFolder { get; set; }
+    /// <summary>確定済み新先でのルート型。</summary>
+    internal bool IsRootFolder { get; set; }
+    /// <summary>ファイル・LR2行・状態と、既存配置がある場合の旧先整理が未完了か。</summary>
+    internal bool NeedsLr2Output { get; set; }
+    /// <summary>検索パスのディスク保存が未完了か。</summary>
+    internal bool NeedsSearchPathSave { get; set; }
+    /// <summary>必要BMT出力のTaskが未成功か。</summary>
+    internal bool NeedsBmtExport { get; set; }
+    /// <summary>未完了の参照公開に必要な旧新事実。公開成功後はsnapshotごと解放します。</summary>
+    internal PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt ReferenceReceipt { get; set; }
+    /// <summary>ライブラリ参照索引の公開が未完了か。</summary>
+    /// <summary>現行画面参照の公開が未完了か。</summary>
+    internal bool NeedsReferencePresentation { get; set; }
+    /// <summary>次の保存が先に処理する必要出力または置換公開が残るか。</summary>
+    internal bool HasPendingWork => NeedsLr2Output || NeedsSearchPathSave || NeedsBmtExport || ReferenceReceipt != null;
+}
+
+/// <summary>プロパティの入力不備を、保存結果または入力時の通知へ渡す理由です。</summary>
 internal enum PlaylistPropertyValidationError
 {
     OutputDirectoryChangedByPlaylistName,
     InvalidOutputDirectory,
+    OutputDirectoryNameMustBeSingleName,
     InvalidPageUri,
     InvalidHeaderUri,
     InvalidDataUri,
-    InvalidExternalSyncUris
-}
-
-internal sealed class PlaylistPropertyValidationErrorEventArgs : EventArgs
-{
-    internal PlaylistPropertyValidationErrorEventArgs(PlaylistPropertyValidationError error)
-    {
-        Error = error;
-    }
-
-    internal PlaylistPropertyValidationError Error { get; }
-}
-
-internal sealed class PlaylistPropertyExternalSyncConfirmationRequestedEventArgs : EventArgs
-{
-    internal PlaylistPropertyExternalSyncConfirmationRequestedEventArgs(bool enable)
-    {
-        Enable = enable;
-    }
-
-    internal bool Enable { get; }
-
-    internal bool Confirmed { get; set; }
+    InvalidExternalSyncUris,
+    /// <summary>名前を変更する保存または入力が、他の表と同名になる。</summary>
+    DuplicatePlaylistName
 }
 
 internal sealed class PlaylistPropertyFolderSelectionRemappedEventArgs : EventArgs
@@ -1319,6 +1449,12 @@ internal sealed class PlaylistPropertyEntriesChangedEventArgs : EventArgs
         Table = table ?? throw new ArgumentNullException(nameof(table));
         RefreshSummaryIfVisible = refreshSummaryIfVisible;
     }
+
+    /// <summary>
+    /// 購読workspaceがこの通知から開始した一覧の集計の終端Taskを返します。終端は、その集計の採用、取消、または後発の独立した要求に取って代わられた古い要求として採用されずに終わることです。
+    /// 後発の要求に取って代わられた場合の表示は後発の要求が所有し、この通知は後発の要求の適用を待ちません。
+    /// </summary>
+    internal Task Completion { get; set; } = Task.CompletedTask;
 
     internal BMSTable Table { get; }
 

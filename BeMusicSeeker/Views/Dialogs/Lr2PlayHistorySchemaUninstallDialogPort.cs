@@ -18,13 +18,14 @@ internal sealed class Lr2PlayHistorySchemaUninstallDialogPort : ILr2PlayHistoryS
         this.dialogs = dialogs;
     }
 
+    /// <inheritdoc/>
     public async Task<UiInteractionResult<Lr2PlayHistorySchemaUninstallMode>> ShowAsync(
         string scoreDbPath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, string candidateDiscardNotice = null)
     {
         UiWindowDialogResult<Lr2PlayHistorySchemaUninstallMode> result = await dialogs.ShowWindowAsync(
             new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>(
-                () => new Lr2PlayHistorySchemaUninstallDialog(scoreDbPath),
+                () => new Lr2PlayHistorySchemaUninstallDialog(scoreDbPath, candidateDiscardNotice),
                 dialog => dialog.SelectedMode),
             cancellationToken);
         return UiDialogInteractionAdapter.FromWindowResult(result);

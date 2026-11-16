@@ -450,27 +450,14 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         DisposeAudioSourcesAfterUse();
     }
 
-    /// <summary>音声使用終了後に譜面資源を解放し、全sourceのnative解放を確認します。</summary>
+    /// <summary>音声使用終了後に全sourceのnative解放を確認し、解放失敗は元のstackで呼出元へ返します。</summary>
     /// <remarks>
     /// 呼出し前に再生または変換が終了し、sourceを参照する処理がないことが必要です。
     /// sourceをすべて解放試行し、native解放を確認できない場合はsessionが所有を維持したまま失敗します。
     /// </remarks>
     internal void DisposeAudioSourcesAfterUse()
     {
-        Exception? disposalFailure = null;
-        try
-        {
-            base.Dispose(disposing: true);
-        }
-        catch (Exception exception)
-        {
-            disposalFailure = exception;
-        }
-
-        if (disposalFailure != null)
-        {
-            throw disposalFailure;
-        }
+        base.Dispose(disposing: true);
 
         audioResourcesByIndex = Array.AsReadOnly(Array.Empty<BmsAudioResource?>());
         audioSchedule = null;

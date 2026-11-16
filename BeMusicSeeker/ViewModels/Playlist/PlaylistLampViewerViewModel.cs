@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Threading;
@@ -8,7 +9,6 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using Livet;
 using Livet.Commands;
@@ -135,7 +135,9 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
 
     private readonly ObservableCollection<PlaylistLampViewerFolderRowViewModel> folderRows = [];
 
-    private readonly ObservableCollection<PlaylistLampViewerStatCardViewModel> statisticsCards = [];
+    private readonly ObservableCollection<IReadOnlyList<PlaylistLampViewerStatistic>> statisticGroups = [];
+
+    private readonly ObservableCollection<PlaylistLampViewerStatistic> supplementaryStatistics = [];
 
     private readonly TaskCompletionSource<PlaylistLampAggregationResult> firstPresentable =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -179,7 +181,8 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         result = session.Current;
         selectedAsOfDate = result?.Query?.SelectedLocalDate;
         session.ResultChanged += SessionResultChanged;
-        ApplyResult(result);
+        ResourceService.Current.PropertyChanged += ResourceServicePropertyChanged;
+        ApplyResult(session.Generation, result);
     }
 
     /// <summary>Stable playlist identity.</summary>
@@ -206,8 +209,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             }
             selectedAsOfDate = normalized;
             RaisePropertyChanged(nameof(SelectedAsOfDate));
-            session.UpdateSelectedAsOfDateAsync(normalized)
-                .ObserveFault("PlaylistLampViewerViewModel.SelectedAsOfDate");
+            _ = session.UpdateSelectedAsOfDateAsync(normalized);
         }
     }
 
@@ -266,11 +268,12 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     /// <summary>Current aggregation state. The state is consumed by owner lifecycle, not shown as routine status text.</summary>
     public PlaylistLampViewerState State => result?.State ?? PlaylistLampViewerState.Loading;
 
-    /// <summary>Localized score-source value for the source statistic card.</summary>
+    /// <summary>補助行へ表示する情報源と利用可否の文字列です。</summary>
     public string ScoreSourceText
     {
         get
         {
+            if (IsFailure) { return Unavailable; }
             PlaylistLampScoreSnapshot snapshot = result?.ScoreSnapshot;
             string source = snapshot?.LampSource switch
             {
@@ -290,7 +293,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
     }
 
-    /// <summary>Whether score-dependent graph and card values are available.</summary>
+    /// <summary>スコアに依存するグラフと統計値を利用できるかを示します。</summary>
     public bool IsScoreDataAvailable => result?.ScoreDataAvailable == true;
 
     /// <summary>Whether the current ready result is score-degraded.</summary>
@@ -329,12 +332,11 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     /// <summary>Current normal-folder rows in source order.</summary>
     public ObservableCollection<PlaylistLampViewerFolderRowViewModel> FolderRows => folderRows;
 
-    /// <summary>
-    /// Current statistics in their visual and semantic order. Score-dependent cards are
-    /// omitted when the score source is unavailable or failed, while the legacy local
-    /// playlist last update remains the final card in either state.
-    /// </summary>
-    public ObservableCollection<PlaylistLampViewerStatCardViewModel> StatisticsCards => statisticsCards;
+    /// <summary>所持、プレイ、スコアの順に並ぶ統計群です。スコア利用不可時は所持群だけを残します。</summary>
+    public ObservableCollection<IReadOnlyList<PlaylistLampViewerStatistic>> StatisticGroups => statisticGroups;
+
+    /// <summary>情報源とローカル壁時計のプレイリスト最終更新を表示する補助項目です。</summary>
+    public ObservableCollection<PlaylistLampViewerStatistic> SupplementaryStatistics => supplementaryStatistics;
 
     /// <summary>Currently selected folder segment in this window.</summary>
     public PlaylistLampViewerSegmentViewModel SelectedSegment => selectedSegment;
@@ -343,8 +345,8 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
     internal PlaylistLampAggregationResult CurrentResult => result;
 
     /// <summary>
-    /// Raised on the viewer dispatcher when a deleted or failed terminal result arrives.
-    /// The owner uses this to close one child window without changing other windows.
+    /// 対象表の削除が現在世代で受理されたとき、ビューアDispatcherで通知します。
+    /// 所有者は対象窓だけを閉じ、他の窓を維持します。
     /// </summary>
     internal event EventHandler<PlaylistLampAggregationResultChangedEventArgs> TerminalResultChanged;
 
@@ -398,7 +400,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
     }
 
-    /// <summary>Releases the session event subscription and session lifetime exactly once.</summary>
+    /// <summary>表示の購読を一度解除し、sessionの新受付を停止します。実終端はDisposeAsyncで待ちます。</summary>
     public new void Dispose()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0)
@@ -406,10 +408,25 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             return;
         }
         session.ResultChanged -= SessionResultChanged;
+        ResourceService.Current.PropertyChanged -= ResourceServicePropertyChanged;
         firstPresentable.TrySetCanceled();
         TerminalResultChanged = null;
         session.Dispose();
     }
+
+    /// <summary>
+    /// 表示と受付を停止し、sessionが所有する全refresh・取消後片付けの実終端を待ちます。
+    /// このprojectionは別の仕事台帳を持ちません。
+    /// </summary>
+    /// <returns>sessionの必須回収結果。</returns>
+    internal ValueTask DisposeAsync()
+    {
+        Dispose();
+        return session.DisposeAsync();
+    }
+
+    /// <summary>正本集合から対象表が消えたことを既存セッションへ通知します。</summary>
+    internal void SessionDeleted() => session.NotifyDeleted();
 
     private void SessionResultChanged(object sender, PlaylistLampAggregationResultChangedEventArgs e)
     {
@@ -417,7 +434,7 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         {
             return;
         }
-        void apply() => ApplyResult(e.Result);
+        void apply() => ApplyResult(e.Generation, e.Result);
         if (dispatcher.CheckAccess())
         {
             apply();
@@ -437,15 +454,16 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         }
     }
 
-    private void ApplyResult(PlaylistLampAggregationResult next)
+    private void ApplyResult(long generation, PlaylistLampAggregationResult next)
     {
-        if (next == null || Volatile.Read(ref disposed) != 0)
+        if (next == null || Volatile.Read(ref disposed) != 0 || session.IsDisposed
+            || generation != session.Generation || !ReferenceEquals(next, session.Current))
         {
             return;
         }
         if (!dispatcher.CheckAccess())
         {
-            SessionResultChanged(this, new PlaylistLampAggregationResultChangedEventArgs(0L, next));
+            SessionResultChanged(this, new PlaylistLampAggregationResultChangedEventArgs(generation, next));
             return;
         }
         result = next;
@@ -458,7 +476,6 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
         clearSegments.Clear();
         rankSegments.Clear();
         folderRows.Clear();
-        statisticsCards.Clear();
 
         if (next.State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty
             && next.ScoreDataAvailable)
@@ -473,26 +490,22 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
             }
             foreach (PlaylistLampFolderRow row in next.FolderRows ?? [])
             {
-                if (string.Equals(row.FolderName, "[NO SONG]", StringComparison.Ordinal))
-                {
-                    continue;
-                }
                 folderRows.Add(new PlaylistLampViewerFolderRowViewModel(row, PlaylistId, this));
             }
         }
 
         maximumFolderCount = folderRows.Select(row => row.Count).DefaultIfEmpty(0).Max();
-        AddStatisticsCards(next);
+        RefreshStatistics();
         if (next.State is not PlaylistLampViewerState.Loading)
         {
             firstPresentable.TrySetResult(next);
         }
         RaisePropertyChanged(string.Empty);
-        if (next.State is PlaylistLampViewerState.Deleted or PlaylistLampViewerState.Failed)
+        if (next.State == PlaylistLampViewerState.Deleted)
         {
             TerminalResultChanged?.Invoke(
                 this,
-                new PlaylistLampAggregationResultChangedEventArgs(0L, next));
+                new PlaylistLampAggregationResultChangedEventArgs(generation, next));
         }
     }
 
@@ -504,55 +517,71 @@ internal sealed class PlaylistLampViewerViewModel : ViewModel, IDisposable
                     and not PlaylistLampClearCategory.EXHARD));
     }
 
-    private void AddStatisticsCards(PlaylistLampAggregationResult next)
+    private void ResourceServicePropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        PlaylistLampStatistics statistics = next.Statistics;
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_total, FormatCount(statistics?.TotalCount)));
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_owned, FormatCount(statistics?.OwnedCount)));
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_missing, FormatCount(statistics?.MissingCount)));
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_ownership_rate, FormatPercentage(statistics?.OwnershipPercentage)));
-        statisticsCards.Add(Card(Resources.PlaylistLampViewer_score_source, ScoreSourceText));
-        if (next.ScoreDataAvailable
-            && (next.State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty))
+        if (e.PropertyName != nameof(ResourceService.Resources) || Volatile.Read(ref disposed) != 0)
         {
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_played, FormatCount(statistics?.PlayedCount)));
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_no_play, FormatCount(statistics?.UnplayedCount)));
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_play_rate, FormatPercentage(statistics?.PlayPercentage)));
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_average_ex_rate, FormatPercentage(statistics?.AverageExRatePercentage)));
-            statisticsCards.Add(Card(Resources.PlaylistLampViewer_clear_rate, FormatPercentage(statistics?.ClearPercentage)));
+            return;
         }
-        statisticsCards.Add(Card(
-            Resources.PlaylistLampViewer_playlist_last_update,
-            FormatTimestamp(statistics?.PlaylistLastUpdated),
-            isWide: true));
+        // 言語変更は表示だけを更新し、結果適用やグラフの再構築を起こしません。
+        RefreshStatistics();
+        foreach (PlaylistLampViewerSegmentViewModel segment in EnumerateSegments())
+        {
+            segment.RefreshLanguage();
+        }
+        RaisePropertyChanged(nameof(WindowTitle));
+        RaisePropertyChanged(nameof(ScoreSourceText));
     }
 
-    private static PlaylistLampViewerStatCardViewModel Card(
-        string label,
-        string value,
-        bool isWide = false)
+    private void RefreshStatistics()
     {
-        return new PlaylistLampViewerStatCardViewModel(label, value, isWide);
+        statisticGroups.Clear();
+        supplementaryStatistics.Clear();
+        PlaylistLampStatistics statistics = State == PlaylistLampViewerState.Failed ? null : result?.Statistics;
+        statisticGroups.Add(new PlaylistLampViewerStatistic[]
+        {
+            new(Resources.PlaylistLampViewer_total, FormatCount(statistics?.TotalCount)),
+            new(Resources.PlaylistLampViewer_owned, FormatCount(statistics?.OwnedCount)),
+            new(Resources.PlaylistLampViewer_missing, FormatCount(statistics?.MissingCount)),
+            new(Resources.PlaylistLampViewer_ownership_rate, FormatPercentage(statistics?.OwnershipPercentage))
+        });
+        if (IsScoreDataAvailable && (State is PlaylistLampViewerState.Ready or PlaylistLampViewerState.Empty))
+        {
+            statisticGroups.Add(new PlaylistLampViewerStatistic[]
+            {
+                new(Resources.PlaylistLampViewer_played, FormatCount(statistics?.PlayedCount)),
+                new(Resources.PlaylistLampViewer_no_play, FormatCount(statistics?.UnplayedCount)),
+                new(Resources.PlaylistLampViewer_play_rate, FormatPercentage(statistics?.PlayPercentage))
+            });
+            statisticGroups.Add(new PlaylistLampViewerStatistic[]
+            {
+                new(Resources.PlaylistLampViewer_average_ex_rate, FormatPercentage(statistics?.AverageExRatePercentage)),
+                new(Resources.PlaylistLampViewer_clear_rate, FormatPercentage(statistics?.ClearPercentage))
+            });
+        }
+        supplementaryStatistics.Add(new(Resources.PlaylistLampViewer_score_source, ScoreSourceText));
+        // プレイリストの最終更新は playlist.last_update だけを表示し、スコアの情報源の更新時刻で代替しません。
+        supplementaryStatistics.Add(new(Resources.PlaylistLampViewer_playlist_last_update, FormatTimestamp(statistics?.PlaylistLastUpdated)));
     }
 
     private static string FormatCount(int? value)
     {
         return value.HasValue
-            ? value.Value.ToString("N0", CultureInfo.CurrentCulture)
+            ? value.Value.ToString("0", CultureInfo.InvariantCulture)
             : Unavailable;
     }
 
     private static string FormatPercentage(double? value)
     {
         return value.HasValue
-            ? PlaylistLampViewerPercentageFormatter.Format(value.Value, CultureInfo.CurrentCulture)
+            ? PlaylistLampViewerPercentageFormatter.Format(value.Value)
             : Unavailable;
     }
 
     private static string FormatTimestamp(DateTime? value)
     {
         return value.HasValue
-            ? value.Value.ToString("g", CultureInfo.CurrentCulture)
+            ? value.Value.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)
             : Unavailable;
     }
 
@@ -605,7 +634,6 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
         this.segment = segment ?? throw new ArgumentNullException(nameof(segment));
         this.playlistId = playlistId ?? string.Empty;
         this.owner = owner ?? throw new ArgumentNullException(nameof(owner));
-        Label = PlaylistLampViewerLabels.GetLabel(segment);
         CategoryKey = segment.ClearCategory?.ToString() ?? segment.RankCategory?.ToString() ?? string.Empty;
         PaletteKey = segment.ClearCategory is not null
             ? "Clear." + CategoryKey
@@ -615,8 +643,8 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
     /// <summary>Semantic segment kind.</summary>
     public PlaylistLampSegmentKind Kind => segment.Kind;
 
-    /// <summary>Semantic category label.</summary>
-    public string Label { get; }
+    /// <summary>同じ集計カテゴリを現在の表示言語で表すラベルです。</summary>
+    public string Label => PlaylistLampViewerLabels.GetLabel(segment);
 
     /// <summary>Non-localized category identity for styling.</summary>
     public string CategoryKey { get; }
@@ -648,21 +676,21 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
     /// <summary>Whether this segment should be materialized as a positive bar control.</summary>
     public Visibility BarVisibility => HasPositiveWidth ? Visibility.Visible : Visibility.Collapsed;
 
-    /// <summary>Localized adaptive percentage text for this segment.</summary>
+    /// <summary>小さい正値を保ち、小数点を固定した翻訳済みの割合表示です。</summary>
     public string PercentageText => Percentage.HasValue
-        ? PlaylistLampViewerPercentageFormatter.Format(Percentage.Value, CultureInfo.CurrentCulture)
+        ? PlaylistLampViewerPercentageFormatter.Format(Percentage.Value)
         : Resources.PlaylistLampViewer_unavailable;
 
-    /// <summary>Localized count and percentage tooltip/accessibility text.</summary>
+    /// <summary>件数と割合を固定書式で埋め込む翻訳済みのツールチップ・読み上げ文です。</summary>
     public string DetailText => Percentage.HasValue
         ? string.Format(
-            CultureInfo.CurrentCulture,
+            CultureInfo.InvariantCulture,
             Resources.PlaylistLampViewer_segment_detail_adaptive_format,
             Label,
             Count,
             PercentageText)
         : string.Format(
-            CultureInfo.CurrentCulture,
+            CultureInfo.InvariantCulture,
             Resources.PlaylistLampViewer_segment_unavailable_detail_format,
             Label,
             Count,
@@ -675,6 +703,16 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
     public string SelectionStatus => IsSelected
         ? Resources.PlaylistLampViewer_selected
         : Resources.PlaylistLampViewer_not_selected;
+
+    /// <summary>所有者の言語変更を同じ区間の表示へ通知し、集計値と選択を維持します。</summary>
+    internal void RefreshLanguage()
+    {
+        RaisePropertyChanged(nameof(Label));
+        RaisePropertyChanged(nameof(PercentageText));
+        RaisePropertyChanged(nameof(DetailText));
+        RaisePropertyChanged(nameof(AutomationName));
+        RaisePropertyChanged(nameof(SelectionStatus));
+    }
 
     /// <summary>Whether this segment is selected in the current viewer window.</summary>
     public bool IsSelected
@@ -717,21 +755,18 @@ internal sealed class PlaylistLampViewerSegmentViewModel : ViewModel
 }
 
 /// <summary>
-/// Formats viewer percentages without turning a small positive value into a displayed
-/// zero. The regular percentage format remains the source for ordinary values, while
-/// values below its two-decimal positive threshold use a localized lower-bound phrase.
+/// 小数点と小数2桁の精度を固定し、小さい正の割合は翻訳済みの下限表現で表示します。
+/// 元の割合を丸めて保存せず、通常値と同じ数値書式を使います。
 /// </summary>
 internal static class PlaylistLampViewerPercentageFormatter
 {
     private const double MinimumTwoDecimalPositivePercentage = 0.005d;
 
-    /// <summary>Formats a percentage for a viewer label, preserving positive semantics.</summary>
-    /// <param name="percentage">Percentage value in percentage points.</param>
-    /// <param name="culture">Culture used for numeric formatting.</param>
-    /// <returns>A localized percentage that cannot misrepresent a small positive value as zero.</returns>
-    internal static string Format(double percentage, CultureInfo culture)
+    /// <summary>小数点と精度を固定し、小さい正値をゼロに見せずに翻訳済みの割合を整形します。</summary>
+    /// <param name="percentage">百分率の数値。</param>
+    /// <returns>固定小数点の割合、最小表示値未満の文言、または利用不可表示。</returns>
+    internal static string Format(double percentage)
     {
-        ArgumentNullException.ThrowIfNull(culture);
         if (!double.IsFinite(percentage) || percentage < 0d)
         {
             return Resources.PlaylistLampViewer_unavailable;
@@ -740,17 +775,17 @@ internal static class PlaylistLampViewerPercentageFormatter
         if (percentage > 0d && percentage < MinimumTwoDecimalPositivePercentage)
         {
             string minimumPositive = string.Format(
-                culture,
+                CultureInfo.InvariantCulture,
                 Resources.PlaylistLampViewer_percentage_format,
                 MinimumTwoDecimalPositivePercentage * 2d);
             return string.Format(
-                culture,
+                CultureInfo.InvariantCulture,
                 Resources.PlaylistLampViewer_percentage_less_than_format,
                 minimumPositive);
         }
 
         return string.Format(
-            culture,
+            CultureInfo.InvariantCulture,
             Resources.PlaylistLampViewer_percentage_format,
             percentage);
     }
@@ -812,39 +847,34 @@ internal sealed class PlaylistLampViewerFolderRowViewModel : ViewModel
     public IEnumerable<PlaylistLampViewerSegmentViewModel> PositiveRankSegments
         => RankSegments.Where(segment => segment.HasPositiveWidth);
 
-    /// <summary>Localized numeric folder chart count using the current culture's N0 format.</summary>
-    public string CountText => Count.ToString("N0", CultureInfo.CurrentCulture);
+    /// <summary>地域に依存せず桁区切りなしで表示するフォルダの譜面件数です。</summary>
+    public string CountText => Count.ToString("0", CultureInfo.InvariantCulture);
 }
 
-/// <summary>One visible statistic card in the lamp viewer.</summary>
-internal sealed class PlaylistLampViewerStatCardViewModel
+/// <summary>統計と補助行で共用する、翻訳済みのラベルと書式済みの値です。</summary>
+internal sealed class PlaylistLampViewerStatistic
 {
-    private const double RegularCardWidth = 100d;
-
-    private const double WideCardWidth = 180d;
-
-    /// <summary>Creates a statistic card.</summary>
-    /// <param name="label">Localized card label.</param>
-    /// <param name="value">Localized card value.</param>
-    /// <param name="isWide">Whether the card has the wider last-update layout role.</param>
-    internal PlaylistLampViewerStatCardViewModel(string label, string value, bool isWide = false)
+    /// <summary>内容幅で表示する一つの項目を生成します。</summary>
+    /// <param name="label">翻訳済みラベル。</param>
+    /// <param name="value">数値・日時の固定書式で整形した値。</param>
+    internal PlaylistLampViewerStatistic(string label, string value)
     {
         Label = label ?? string.Empty;
         Value = value ?? string.Empty;
-        IsWideLayout = isWide;
     }
 
-    /// <summary>Localized label.</summary>
+    /// <summary>翻訳済みラベルです。</summary>
     public string Label { get; }
 
-    /// <summary>Localized value.</summary>
+    /// <summary>書式済みの値です。</summary>
     public string Value { get; }
 
-    /// <summary>Whether this card uses the wider semantic layout role.</summary>
-    public bool IsWideLayout { get; }
-
-    /// <summary>Width assigned to this card's rendered layout role.</summary>
-    public double CardWidth => IsWideLayout ? WideCardWidth : RegularCardWidth;
+    /// <summary>翻訳書式でラベルと値を連結した、補助行の表示と各項目の読み上げに使う全文です。</summary>
+    public string DetailText => string.Format(
+        CultureInfo.CurrentCulture,
+        Resources.PlaylistLampViewer_statistic_detail_format,
+        Label,
+        Value);
 }
 
 /// <summary>Localized labels for semantic lamp categories.</summary>

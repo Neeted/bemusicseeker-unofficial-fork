@@ -4,15 +4,13 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Owns catalog maintenance evaluation and maintenance-table hydration.
-/// Database writes are submitted as immutable facts to <see cref="CatalogMutationOwner"/>;
-/// resource-health changes are returned as a mutation request for the catalog composition.
+/// 保守評価とDBメンテナンス情報の読込みを所有します。不変の変更事実を
+/// <see cref="CatalogMutationOwner"/>へ渡し、永続確定後の共通現在値と健全性の反映を接続します。
 /// </summary>
 internal sealed class CatalogMaintenanceOwner
 {
@@ -40,15 +38,15 @@ internal sealed class CatalogMaintenanceOwner
 
     private readonly Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider;
 
-    private readonly Func<OwnedChartStorageOwnerView> ownerViewProvider;
+    private readonly CatalogOwnedCollectionOwner ownedCollectionOwner;
+
+    private readonly Func<OwnedChartCollectionView> ownerViewProvider;
 
     private readonly Func<string, ResourceMaintenanceTargetSet> fullTargetProvider;
 
     private readonly Func<IDisposable> enterStorageRowsWriteGuard;
 
     private readonly LibraryResourceIndexOwner resourceIndexOwner;
-
-    private readonly IBmsLibraryDialogService dialogService;
 
     private readonly Func<bool> isShutdownRequested;
 
@@ -66,6 +64,8 @@ internal sealed class CatalogMaintenanceOwner
 
     private readonly Action hydrationStateChanged;
 
+    private readonly ChartFileOperationSynchronizer operationAdmission;
+
     private readonly object hydrationStateLock = new();
 
     private int hydrationRequestedVersion;
@@ -74,18 +74,20 @@ internal sealed class CatalogMaintenanceOwner
 
     private int hydrationCompletedVersion;
 
+    /// <summary>推定入力の必須背景更新を、構成が共有する論理受付へ接続します。</summary>
+    /// <param name="operationAdmission">先行操作の実終端を非同期で待つ共有受付。</param>
     internal CatalogMaintenanceOwner(
         BmsLibraryInitializationService initializationService,
         BmsLibraryMaintenanceService maintenanceService,
         CatalogMutationOwner catalogMutationOwner,
         BmsLibraryDbGateway dbGateway,
         ResourceHealthIndexOwner resourceHealthOwner,
+        CatalogOwnedCollectionOwner ownedCollectionOwner,
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
-        Func<OwnedChartStorageOwnerView> ownerViewProvider,
+        Func<OwnedChartCollectionView> ownerViewProvider,
         Func<string, ResourceMaintenanceTargetSet> fullTargetProvider,
         Func<IDisposable> enterStorageRowsWriteGuard,
         LibraryResourceIndexOwner resourceIndexOwner,
-        IBmsLibraryDialogService dialogService,
         Func<bool> isShutdownRequested,
         Func<string, string, bool> trySkipForShutdown,
         Func<Func<string, string, string, Func<Task>, bool>> startupBackgroundTaskSchedulerProvider,
@@ -93,19 +95,20 @@ internal sealed class CatalogMaintenanceOwner
         Func<Exception, string> displayedExceptionMessageProvider,
         Func<CatalogMaintenanceHydrationReceipt, long> publishHydration,
         Action<string> logPerformance,
-        Action hydrationStateChanged)
+        Action hydrationStateChanged,
+        ChartFileOperationSynchronizer operationAdmission = null)
     {
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.maintenanceService = maintenanceService ?? throw new ArgumentNullException(nameof(maintenanceService));
         this.catalogMutationOwner = catalogMutationOwner ?? throw new ArgumentNullException(nameof(catalogMutationOwner));
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.resourceHealthOwner = resourceHealthOwner ?? throw new ArgumentNullException(nameof(resourceHealthOwner));
+        this.ownedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
         this.optionsSnapshotProvider = optionsSnapshotProvider ?? throw new ArgumentNullException(nameof(optionsSnapshotProvider));
         this.ownerViewProvider = ownerViewProvider ?? throw new ArgumentNullException(nameof(ownerViewProvider));
         this.fullTargetProvider = fullTargetProvider ?? throw new ArgumentNullException(nameof(fullTargetProvider));
         this.enterStorageRowsWriteGuard = enterStorageRowsWriteGuard ?? throw new ArgumentNullException(nameof(enterStorageRowsWriteGuard));
         this.resourceIndexOwner = resourceIndexOwner ?? throw new ArgumentNullException(nameof(resourceIndexOwner));
-        this.dialogService = dialogService;
         this.isShutdownRequested = isShutdownRequested ?? throw new ArgumentNullException(nameof(isShutdownRequested));
         this.trySkipForShutdown = trySkipForShutdown ?? throw new ArgumentNullException(nameof(trySkipForShutdown));
         this.startupBackgroundTaskSchedulerProvider = startupBackgroundTaskSchedulerProvider;
@@ -114,6 +117,7 @@ internal sealed class CatalogMaintenanceOwner
         this.publishHydration = publishHydration ?? throw new ArgumentNullException(nameof(publishHydration));
         this.logPerformance = logPerformance ?? throw new ArgumentNullException(nameof(logPerformance));
         this.hydrationStateChanged = hydrationStateChanged;
+        this.operationAdmission = operationAdmission ?? new ChartFileOperationSynchronizer();
     }
 
     internal bool HydrationRunning
@@ -162,6 +166,8 @@ internal sealed class CatalogMaintenanceOwner
         }
     }
 
+    /// <summary>保守結果を現在値へ確定し、更新がなければ既存の健全性索引を完了後の入力版へ接続します。明示した選択保留は資源だけを再調査し、成功結果を保存差分と独立して返します。保留の評価結果は項目の寿命内だけで使い、songと保守行を読み書きしません。読取りに失敗した対象は窓口へ出さず結果へ集めます。</summary>
+    /// <param name="readFailures">読込み失敗の収集先。呼出元が保守の例外経路でも失敗を回収する場合に渡し、省略時は結果が保持します。</param>
     internal CatalogMaintenanceOperationReceipt ApplyMaintenance(
         ResourceMaintenanceTargetSet targetSet,
         bool forceUpdate,
@@ -169,10 +175,11 @@ internal sealed class CatalogMaintenanceOwner
         CancellationToken cancellationToken,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
         string reason,
-        IBmsLibraryDialogService dialogServiceOverride = null,
         Action<string> logPerformanceOverride = null,
         Action<CatalogWriteFailureFact> captureFailureFact = null,
-        Action<Action> postCommitEffectsObserver = null)
+        Action<Action> postCommitEffectsObserver = null,
+        IReadOnlySet<string> selectedPendingPaths = null,
+        MaintenanceReadFailureCollector readFailures = null)
     {
         List<ChartFile> targetCharts = [.. (targetSet.Charts ?? [])
             .Where(chart => chart != null)];
@@ -181,6 +188,19 @@ internal sealed class CatalogMaintenanceOwner
             return CatalogMaintenanceOperationReceipt.NotApplied;
         }
 
+        // 導入準備時の未所持値から呼ばれた場合も、DB確定後の同じ現在項目を計算入力にします。
+        lock (ownedCollectionOwner.Gate)
+        {
+            targetCharts = [.. targetCharts.Select(chart =>
+                chart.Token == null && selectedPendingPaths?.Contains(chart.Path) == true ? chart
+                    : ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart))
+                        ?? (chart.Token == null ? chart : null)).Where(chart => chart != null)];
+        }
+        if (targetCharts.Count == 0)
+        {
+            return CatalogMaintenanceOperationReceipt.NotApplied;
+        }
+        bool onlySelectedPendingTargets = targetCharts.All(chart => chart.Token == null && selectedPendingPaths?.Contains(chart.Path) == true);
         string mutationReason = string.IsNullOrWhiteSpace(reason) ? "maintenance" : reason;
         MaintenanceWorkflowResult workflowResult;
         int baseInputVersion;
@@ -189,6 +209,7 @@ internal sealed class CatalogMaintenanceOwner
         ResourceMaintenanceTargetSet currentTargetSet = targetSet;
         Action postCommitEffects = null;
         bool durableCommitBoundaryReached = false;
+        bool basicValuesChanged = false;
         CatalogWriteFailureFact failureFact = null;
         try
         {
@@ -203,7 +224,6 @@ internal sealed class CatalogMaintenanceOwner
                         targetCharts,
                         forceUpdate,
                         catalogMutationOwner.ApplyMaintenanceWriteUnderGuard,
-                        dialogServiceOverride ?? dialogService,
                         new ResourceHealthLookupContext(resourceIndexOwner.CaptureSnapshot().DirectoryLookupCache),
                         logPerformanceOverride ?? logPerformance,
                         progressReporter,
@@ -212,10 +232,12 @@ internal sealed class CatalogMaintenanceOwner
                         effects =>
                         {
                             postCommitEffects = effects;
-                        });
+                        }, selectedPendingPaths, readFailures);
                     if (workflowResult?.HasUpdates == true)
                     {
-                        targetCharts = RefreshTargetsFromCurrentStorageOwners(targetCharts);
+                        basicValuesChanged = ApplyCommittedCurrentValues(workflowResult.ChangedCharts);
+                        targetCharts = RefreshCurrentTargets(targetCharts.Where(chart =>
+                            chart.Token != null || selectedPendingPaths?.Contains(chart.Path) != true));
                         currentTargetSet = targetSet.WithCharts(targetCharts);
                     }
                 }
@@ -232,6 +254,11 @@ internal sealed class CatalogMaintenanceOwner
                     inputMutation.Dispose();
                 }
                 targetInputVersion = inputMutation.TargetInputVersion;
+                if (workflowResult?.HasUpdates == false || onlySelectedPendingTargets)
+                {
+                    // 入力保護だけでも版が進むため、同値または所持を変えない選択保留だけの更新では現在索引を次の版へ接続します。
+                    resourceHealthOwner.RebaseAfterInputMutation(inputMutation, new ResourceHealthIndexCurrentVersion(targetInputVersion));
+                }
             }
         }
         catch
@@ -268,154 +295,133 @@ internal sealed class CatalogMaintenanceOwner
         return new CatalogMaintenanceOperationReceipt(
             workflowResult ?? new MaintenanceWorkflowResult(),
             mutation,
-            mutationReason);
+            mutationReason,
+            basicValuesChanged);
     }
 
-    internal CatalogMaintenanceOperationReceipt ApplyWarningIgnore(
-        IEnumerable<ChartFile> charts,
-        bool unset,
-        string reason)
+    /// <summary>警告除外の共通値をDB確定後に同じ所持項目へ適用します。</summary>
+    internal CatalogMaintenanceOperationReceipt ApplyWarningIgnore(IEnumerable<ChartFile> charts, bool unset, string reason)
     {
-        List<ChartFile> targets = [.. (charts ?? []).Where(chart => chart != null)];
+        List<ChartFile> targets;
+        lock (ownedCollectionOwner.Gate)
+        {
+            targets = [.. (charts ?? []).Select(chart => ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart)))
+                .Where(chart => chart != null)];
+        }
         if (targets.Count == 0)
         {
             return CatalogMaintenanceOperationReceipt.NotApplied;
         }
 
-        Dictionary<BMSFileMaintenanceInfo, bool> previousWarningFlags = [];
-        Dictionary<LR2SongDBExtended.bmson_song, BMSFileMaintenanceInfo> previousBmsonMaintenance = [];
-        foreach (ChartFile target in targets)
-        {
-            BMSFile bmsFile = target.GetBmsStorageOwner();
-            BMSFileMaintenanceInfo bmsInfo = bmsFile?.TryGetMaintenanceInfoWithoutCreating();
-            if (bmsInfo != null)
-            {
-                previousWarningFlags[bmsInfo] = bmsInfo.is_files_warning_ignored;
-            }
-            LR2SongDBExtended.bmson_song bmsonSong = target.GetBmsonStorageOwner();
-            if (bmsonSong != null)
-            {
-                previousBmsonMaintenance[bmsonSong] = bmsonSong.MaintenanceInfo;
-                if (bmsonSong.MaintenanceInfo != null)
-                {
-                    previousWarningFlags[bmsonSong.MaintenanceInfo] = bmsonSong.MaintenanceInfo.is_files_warning_ignored;
-                }
-            }
-        }
-
         using (catalogMutationOwner.EnterMaintenanceWriteGuard())
         {
             ResourceHealthIndexOwner.ResourceHealthInputMutation inputMutation = resourceHealthOwner.BeginInputMutation();
+            List<ChartFile> values;
             try
             {
-                List<BMSFileMaintenanceInfo> changes = maintenanceService.SetChartResourceWarningsIgnored(targets, unset);
-                CatalogMaintenanceWriteReceipt writeReceipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(new CatalogMaintenanceWriteRequest(changes));
-                if (changes.Count > 0 && !writeReceipt.Applied)
+                values = maintenanceService.SetChartResourceWarningsIgnored(targets, unset);
+                CatalogMaintenanceWriteReceipt receipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(new(
+                    values.Select(chart => chart.ResourceHealthMaintenanceSnapshot), currentValues: values));
+                if (values.Count > 0 && !receipt.Applied)
                 {
                     throw new InvalidOperationException("Maintenance warning changes were not persisted.");
                 }
-            }
-            catch
-            {
-                foreach (KeyValuePair<BMSFileMaintenanceInfo, bool> previous in previousWarningFlags)
-                {
-                    previous.Key.is_files_warning_ignored = previous.Value;
-                }
-                foreach (KeyValuePair<LR2SongDBExtended.bmson_song, BMSFileMaintenanceInfo> previous in previousBmsonMaintenance)
-                {
-                    previous.Key.MaintenanceInfo = previous.Value;
-                }
-                resourceHealthOwner.ForceInvalidate(reason ?? "resource_health_ignore_failed");
-                throw;
-            }
-            finally
-            {
-                inputMutation.Dispose();
-            }
 
+                ApplyCommittedCurrentValues(values);
+            }
+            catch { resourceHealthOwner.ForceInvalidate(reason ?? "resource_health_ignore_failed"); throw; }
+            finally { inputMutation.Dispose(); }
             var mutation = new ResourceHealthIndexMutation();
-            mutation.UpdatedTargets.AddRange(targets);
+            mutation.UpdatedTargets.AddRange(values);
             mutation.DeltaBaseResourceHealthInputVersion = inputMutation.BaseInputVersion;
             mutation.DeltaTargetResourceHealthInputVersion = inputMutation.TargetInputVersion;
             mutation.InvalidateIfDeltaFails = true;
-            return new CatalogMaintenanceOperationReceipt(
-                new MaintenanceWorkflowResult(),
-                mutation,
-                reason ?? "resource_health_ignore");
+            return new(new MaintenanceWorkflowResult(), mutation, reason ?? "resource_health_ignore");
         }
     }
 
-    internal void ApplyEncoding(IEnumerable<BMSFile> bmsFiles, string encoding)
+    /// <summary>所持の現行値と明示した保留項目から文字コード変更を準備し、所持分のDB成功後に現在値の反映を許可します。保留だけならDB保存を要求せず、その項目の寿命内に保持します。</summary>
+    internal MaintenanceEncodingUpdateResult ApplyEncoding(IEnumerable<ChartFile> charts, string encoding,
+        IReadOnlyList<PackageChartEntry> pendingEntries = null)
     {
-        BMSFile[] fileSnapshot = [.. (bmsFiles ?? []).Where(file => file != null)];
-        IReadOnlyList<BMSFile.MaintenanceMutationSnapshot> mutationSnapshots = [.. fileSnapshot
-            .Select(BMSFile.MaintenanceMutationSnapshot.Capture)
-            .Where(snapshot => snapshot != null)];
-        IReadOnlyList<BMSFile.MaintenanceMutationSnapshot> preparedSnapshots = [];
-        CatalogWriteFailureFact failureFact = null;
+        MaintenanceEncodingUpdateResult result;
+        bool durable = false;
         try
         {
             using (catalogMutationOwner.EnterMaintenanceWriteGuard())
             {
-                try
+                List<ChartFile> targets;
+                lock (ownedCollectionOwner.Gate)
                 {
-                    MaintenanceEncodingUpdateResult updateResult;
-                    CatalogMaintenanceWriteRequest writeRequest;
-                    using (BMSFile.SuppressPropertyChangedScope())
-                    using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
-                    {
-                        updateResult = maintenanceService.ApplyEncodingForCatalogOwner(fileSnapshot, encoding);
-                    }
-                    preparedSnapshots = [.. fileSnapshot
-                        .Select(BMSFile.MaintenanceMutationSnapshot.Capture)
-                        .Where(snapshot => snapshot != null)];
-                    writeRequest = new CatalogMaintenanceWriteRequest(
-                        updateResult.MaintenanceInfosToUpsert,
-                        updateResult.SongsToUpsert);
-                    foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
-                    {
-                        snapshot.Restore();
-                    }
-                    if (updateResult.SongsToUpsert.Count == 0 && updateResult.MaintenanceInfosToUpsert.Count == 0)
-                    {
-                        return;
-                    }
-                    CatalogMaintenanceWriteReceipt writeReceipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(writeRequest);
-                    if ((updateResult.SongsToUpsert.Count > 0 || updateResult.MaintenanceInfosToUpsert.Count > 0)
-                        && !writeReceipt.Applied)
-                    {
-                        throw new InvalidOperationException("Encoding changes were not persisted.");
-                    }
+                    targets = [.. (charts ?? []).Where(chart => chart?.Token != null)
+                        .Select(chart => ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart)))
+                        .Where(chart => chart != null)];
                 }
-                catch (Exception ex)
+                targets.AddRange((pendingEntries ?? []).Select(entry => entry.Chart).Where(chart => chart.Token == null));
+                result = maintenanceService.ApplyEncoding(targets, encoding);
+                var ownedKeys = targets.Where(chart => chart.Token != null).Select(chart => (chart.Path, chart.Md5)).ToHashSet();
+                result.SongMetadataUpdates.RemoveAll(value => !ownedKeys.Contains((value.Path, value.Hash)));
+                if (result.ChangedCharts.Count == 0)
                 {
-                    foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
-                    {
-                        snapshot.Restore();
-                    }
-                    resourceHealthOwner.ForceInvalidate("lr2_song_db_encoding_upsert_failed");
-                    failureFact = CreateMaintenanceWriteFailureFact(ex, "lr2_song_db_encoding_upsert_failed");
-                    throw;
+                    return result;
+                }
+
+                using ResourceHealthIndexOwner.ResourceHealthInputMutation inputMutation = result.SongMetadataUpdates.Count > 0 || result.MaintenanceInfosToUpsert.Any(value => ownedKeys.Contains((value.Path, value.Hash)))
+                    ? resourceHealthOwner.BeginInputMutation() : null;
+                var writeRequest = new CatalogMaintenanceWriteRequest(
+                    result.MaintenanceInfosToUpsert.Where(value => ownedKeys.Contains((value.Path, value.Hash))),
+                    result.SongMetadataUpdates, currentValues: result.ChangedCharts);
+                if (writeRequest.HasChanges && !catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(writeRequest).Applied)
+                {
+                    throw new InvalidOperationException("Encoding changes were not persisted.");
+                }
+
+                durable = true;
+                ApplyCommittedCurrentValues(result.ChangedCharts.Where(chart => chart.Token != null));
+                if (inputMutation != null)
+                {
+                    result.ResourceHealthMutation.UpdatedTargets.AddRange(result.ChangedCharts.Where(chart => chart.Token != null));
+                    result.ResourceHealthMutation.DeltaBaseResourceHealthInputVersion = inputMutation.BaseInputVersion;
+                    result.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion = inputMutation.TargetInputVersion;
+                    result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
                 }
             }
         }
-        catch
+        catch (Exception exception)
         {
-            PublishCatalogWriteFailureFactBestEffort(failureFact);
+            if (!durable)
+            {
+                resourceHealthOwner.ForceInvalidate("lr2_song_db_encoding_upsert_failed");
+                PublishCatalogWriteFailureFactBestEffort(CreateMaintenanceWriteFailureFact(exception, "lr2_song_db_encoding_upsert_failed"));
+            }
             throw;
         }
+        return result;
+    }
 
-        // The catalog write has committed.  Do not include live-state apply or
-        // notification callbacks in the rollback region: their failures cannot
-        // undo the durable write, and they must not be classified as write errors.
-        foreach (BMSFile.MaintenanceMutationSnapshot snapshot in preparedSnapshots)
-        {
-            snapshot.ApplyPreparedState();
-        }
-        foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
-        {
-            snapshot.NotifyCommittedChanges();
-        }
+    /// <summary>保守が変更する値だけを現在値へ採用し、実変更batchを一回確定します。</summary>
+    private bool ApplyCommittedCurrentValues(IEnumerable<ChartFile> values)
+    {
+        CatalogCommitReceipt receipt = ownedCollectionOwner.CommitCurrentValues(values, (current, value) =>
+            ChartFileProjection.WithMaintenance(current, value.ResourceHealthMaintenanceSnapshot) with
+            {
+                Title = value.Title,
+                Subtitle = value.Subtitle,
+                Artist = value.Artist,
+                RawTitle = value.RawTitle,
+                RawSubtitle = value.RawSubtitle,
+                RawArtist = value.RawArtist,
+                Subartist = value.Subartist,
+                Genre = value.Genre,
+                Date = value.Date,
+                LastWriteTimeUtc = value.LastWriteTimeUtc,
+                Stagefile = value.Stagefile,
+                Banner = value.Banner,
+                Backbmp = value.Backbmp,
+                PreviewMusic = value.PreviewMusic,
+                Resources = null
+            });
+        return receipt.Changes.Any(change => !BmsLibraryMaintenanceService.HasSameDecodedMetadataText(change.Before, change.After));
     }
 
     private void PublishCatalogWriteFailureFactBestEffort(CatalogWriteFailureFact failureFact)
@@ -464,10 +470,10 @@ internal sealed class CatalogMaintenanceOwner
             return;
         }
 
-        Func<Task> work = () =>
+        Func<Task> work = async () =>
         {
+            using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
             ProcessHydrationRequests(reportDirect: false);
-            return Task.CompletedTask;
         };
         Func<string, string, string, Func<Task>, bool> startupBackgroundTaskScheduler = startupBackgroundTaskSchedulerProvider?.Invoke();
         if (startupBackgroundTaskScheduler != null)
@@ -485,7 +491,11 @@ internal sealed class CatalogMaintenanceOwner
             return;
         }
         reportStartupBackgroundTask?.Invoke("maintenance_hydration", "queued", 0L, false, reason ?? string.Empty);
-        Task.Run(() => ProcessHydrationRequests(reportDirect: true)).ObserveFault("ProcessDeferredMaintenanceHydrationRequests");
+        Task.Run(async () =>
+        {
+            using IDisposable lease = await operationAdmission.EnterAcceptedBackgroundAsync().ConfigureAwait(false);
+            ProcessHydrationRequests(reportDirect: true);
+        }).ObserveFault("ProcessDeferredMaintenanceHydrationRequests");
     }
 
     internal void CompleteHydrationForShutdown()
@@ -586,7 +596,7 @@ internal sealed class CatalogMaintenanceOwner
         ResourceMaintenanceTargetSet fullTargetSet;
         using (enterStorageRowsWriteGuard())
         {
-            OwnedChartStorageOwnerView ownerView = ownerViewProvider();
+            OwnedChartCollectionView ownerView = ownerViewProvider();
             var attachStopwatch = Stopwatch.StartNew();
             using (resourceHealthOwner.BeginInputMutation())
             {
@@ -676,85 +686,90 @@ internal sealed class CatalogMaintenanceOwner
             + " elapsedMs=" + elapsedMs);
     }
 
-    private static List<ChartFile> RefreshTargetsFromCurrentStorageOwners(IEnumerable<ChartFile> charts)
+    private List<ChartFile> RefreshCurrentTargets(IEnumerable<ChartFile> charts)
     {
-        return [.. (charts ?? [])
-            .Select(chart => ChartFileProjection.FromStorageOwner(
-                chart,
-                includeWarningSnapshot: false,
-                includeResourceReferences: true,
-                includeScoreSnapshot: false))
-            .Where(chart => chart != null)];
+        lock (ownedCollectionOwner.Gate)
+        {
+            return [.. (charts ?? []).Select(chart => ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(chart)))
+                .Where(chart => chart != null)];
+        }
     }
 
-    private static void AttachMaintenanceSnapshots(OwnedChartStorageOwnerView ownerView, MaintenanceTableHydrationResult result)
+    private void AttachMaintenanceSnapshots(OwnedChartCollectionView ownerView, MaintenanceTableHydrationResult result)
     {
         if (ownerView == null || result == null)
         {
             return;
         }
-        foreach (BMSFile item in ownerView.BmsFiles)
+        ownedCollectionOwner.Commit(state =>
         {
-            if (item == null)
+            foreach (ChartFile captured in ownerView.BmsCharts.Concat(ownerView.BmsonCharts))
             {
-                continue;
-            }
-            BMSFileMaintenanceInfo nextInfo = null;
-            if (!string.IsNullOrWhiteSpace(item.path)
-                && result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
-                && (item.HasMaintenanceInfoHash(value.hash) || string.Equals(value.hash, item.hash, StringComparison.OrdinalIgnoreCase)))
-            {
-                nextInfo = value;
-                result.AppliedBmsCount++;
-                item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.DbHydrated);
-                result.ValidSnapshotCount++;
-            }
-            else
-            {
-                result.DefaultBmsCount++;
-                if (item.HasValidMaintenanceInfoSnapshot)
+                ChartFile current = ownedCollectionOwner.Collection.ResolveCurrentChart(LibraryChartRef.FromChartFile(captured));
+                if (current == null || !ReferenceEquals(current.Token, captured.Token))
                 {
+                    continue;
+                }
+                ResourceHealthMaintenanceSnapshot maintenance = current.ResourceHealthMaintenanceSnapshot;
+                bool matched = result.MaintenanceMap.TryGetValue(current.Path, out ResourceHealthMaintenanceSnapshot stored)
+                    && (string.Equals(stored.Hash, current.Md5, StringComparison.OrdinalIgnoreCase)
+                        || (current.Kind == ChartFileKind.Bms && string.Equals(stored.Hash, maintenance?.Hash, StringComparison.OrdinalIgnoreCase)));
+                if (matched)
+                {
+                    if (current.Kind == ChartFileKind.Bmson)
+                    {
+                        stored = stored with
+                        {
+                            Path = current.Path,
+                            Hash = current.Md5,
+                            Encoding = "utf-8",
+                            Lr2WarningFlags = null,
+                            Lr2ResourceMaxRelativeCp932Bytes = null,
+                            Lr2ResourceHasParentTraversal = null
+                        };
+                        result.AppliedBmsonCount++;
+                    }
+                    else
+                    {
+                        result.AppliedBmsCount++;
+                    }
+                    maintenance = stored with { Origin = MaintenanceInfoOrigin.DbHydrated };
                     result.ValidSnapshotCount++;
                 }
                 else
                 {
-                    nextInfo = item.TryGetMaintenanceInfoWithoutCreating() ?? new BMSFileMaintenanceInfo(item);
-                    item.SetMaintenanceInfo(nextInfo, suppressPropertyChanged: true, MaintenanceInfoOrigin.Placeholder);
-                    result.PlaceholderCount++;
+                    if (current.Kind == ChartFileKind.Bms)
+                    {
+                        result.DefaultBmsCount++;
+                    }
+                    else
+                    {
+                        result.DefaultBmsonCount++;
+                    }
+                    if (maintenance?.Origin is MaintenanceInfoOrigin.DbHydrated or MaintenanceInfoOrigin.Calculated)
+                    {
+                        result.ValidSnapshotCount++;
+                    }
+                    else
+                    {
+                        maintenance ??= new ResourceHealthMaintenanceSnapshot
+                        {
+                            Path = current.Path,
+                            Hash = current.Md5,
+                            Origin = MaintenanceInfoOrigin.Placeholder,
+                            StagefileDefined = string.IsNullOrWhiteSpace(current.Stagefile) ? null : true,
+                            BannerDefined = string.IsNullOrWhiteSpace(current.Banner) ? null : true,
+                            BackbmpDefined = string.IsNullOrWhiteSpace(current.Backbmp) ? null : true
+                        };
+                        result.PlaceholderCount++;
+                    }
                 }
+                state.ApplyCurrentChartValue(ChartFileProjection.WithMaintenance(current, maintenance));
             }
-        }
-        foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)
-        {
-            if (item == null)
-            {
-                continue;
-            }
-            if (!string.IsNullOrWhiteSpace(item.path)
-                && result.MaintenanceMap.TryGetValue(item.path, out BMSFileMaintenanceInfo value)
-                && string.Equals(value.hash, item.md5, StringComparison.OrdinalIgnoreCase))
-            {
-                value.NormalizeForBmson(item.path, item.md5);
-                item.MaintenanceInfo = value;
-                result.AppliedBmsonCount++;
-                result.ValidSnapshotCount++;
-            }
-            else
-            {
-                result.DefaultBmsonCount++;
-                if (item.MaintenanceInfo != null)
-                {
-                    result.ValidSnapshotCount++;
-                }
-                else
-                {
-                    result.PlaceholderCount++;
-                }
-            }
-        }
+        });
     }
 
-    private static void CaptureOwnerPathAndStaleMaintenancePaths(OwnedChartStorageOwnerView ownerView, MaintenanceTableHydrationResult result)
+    private static void CaptureOwnerPathAndStaleMaintenancePaths(OwnedChartCollectionView ownerView, MaintenanceTableHydrationResult result)
     {
         if (ownerView == null || result == null)
         {
@@ -777,14 +792,21 @@ internal sealed class CatalogMaintenanceOperationReceipt
     internal static CatalogMaintenanceOperationReceipt NotApplied { get; } =
         new(new MaintenanceWorkflowResult(), new ResourceHealthIndexMutation(), "maintenance");
 
+    /// <summary>確定済み保守値と索引更新、適用時に判定した基本変更を通知までの短命な結果へ固定します。</summary>
+    /// <param name="workflowResult">DB確定後の保守結果と共通現在値。</param>
+    /// <param name="resourceHealthMutation">既存の健全性索引へ渡す対象差分。</param>
+    /// <param name="reason">既存通知と診断の理由。</param>
+    /// <param name="basicValuesChanged">基本メタデータの実変更により集合版を既に一回進めたか。</param>
     internal CatalogMaintenanceOperationReceipt(
         MaintenanceWorkflowResult workflowResult,
         ResourceHealthIndexMutation resourceHealthMutation,
-        string reason)
+        string reason,
+        bool basicValuesChanged = false)
     {
         WorkflowResult = MaintenanceWorkflowResultFacts.From(workflowResult);
         ResourceHealthMutation = (resourceHealthMutation ?? new ResourceHealthIndexMutation()).ToFacts();
         Reason = reason ?? "maintenance";
+        BasicValuesChanged = basicValuesChanged;
     }
 
     internal MaintenanceWorkflowResultFacts WorkflowResult { get; }
@@ -792,6 +814,9 @@ internal sealed class CatalogMaintenanceOperationReceipt
     internal ResourceHealthIndexMutationFacts ResourceHealthMutation { get; }
 
     internal string Reason { get; }
+
+    /// <summary>DB確定値の適用時に基本メタデータが実際に変わり、集合版を既に一回進めたことを示します。</summary>
+    internal bool BasicValuesChanged { get; }
 
 }
 
@@ -817,7 +842,7 @@ internal sealed class MaintenanceTableHydrationResult
 {
     internal List<string> Pragmas { get; } = [];
 
-    internal Dictionary<string, BMSFileMaintenanceInfo> MaintenanceMap { get; } = new(StringComparer.OrdinalIgnoreCase);
+    internal Dictionary<string, ResourceHealthMaintenanceSnapshot> MaintenanceMap { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     internal long MaintenanceTableCount { get; set; }
     internal long MaintenanceTableLoadMs { get; set; }

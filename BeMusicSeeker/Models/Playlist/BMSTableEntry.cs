@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -19,7 +21,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         Sha256Only
     }
 
-    protected BMSFile _bmsfile;
 
     private static readonly object bulkLoadParseSuppressionLock = new();
 
@@ -44,8 +45,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
     public const string DUMMY_MD5_FOR_EMPTY_FOLDER = "00000000000000000000000000000000";
 
     private static readonly Regex numParseRegex = new("([+-]?\\d+(?:\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
-
-    private static readonly Regex dateparseRegex = new("((?:\\d{4}|\\d{2})[^\\d]\\d{2}[^\\d]\\d{2})(?:[^\\d].*(\\d{2}[^\\d]\\d{2}[^\\d]\\d{2,3}))?", RegexOptions.Compiled);
 
     private static bool IsBulkLoadParseSuppressed
     {
@@ -89,23 +88,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     public BMSTable parent { get; set; }
 
-    public BMSFile bmsfile
-    {
-        get
-        {
-            return _bmsfile;
-        }
-        set
-        {
-            if (value == null || md5 == value.hash)
-            {
-                _bmsfile = value;
-                return;
-            }
-            throw new ArgumentException();
-        }
-    }
-
+    /// <summary>所属表があればその現在の採番値を返し、保存行だけの場合は読込み済みの所属IDを返します。</summary>
     public override int? playlist_id
     {
         get
@@ -126,18 +109,10 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
     {
         get
         {
-            if (bmsfile == null)
-            {
-                return _md5;
-            }
-            return bmsfile.hash;
+            return _md5;
         }
         set
         {
-            if (bmsfile != null)
-            {
-                throw new InvalidOperationException("bmsfile が null ではないため md5 を変更することが出来ません。");
-            }
             if (string.IsNullOrWhiteSpace(value))
             {
                 _md5 = null;
@@ -185,11 +160,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
     {
         get
         {
-            if (bmsfile == null)
-            {
-                return _title;
-            }
-            return bmsfile.Title;
+            return _title;
         }
         set
         {
@@ -201,11 +172,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
     {
         get
         {
-            if (bmsfile == null)
-            {
-                return _artist;
-            }
-            return bmsfile.Artist;
+            return _artist;
         }
         set
         {
@@ -242,6 +209,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存対象の URL1 です。明示設定時は null による解除を含め、この欄のランタイム補完を解除します。</summary>
     public Uri Url
     {
         get
@@ -286,6 +254,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存対象の URL2 です。明示設定時は null による解除を含め、この欄のランタイム補完を解除します。</summary>
     public Uri Url_diff
     {
         get
@@ -301,6 +270,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存生値を必要時に解決し、親MD5を既存のJSON配列文字列で返します。親なしは空文字です。</summary>
     public override string org_md5
     {
         get
@@ -325,10 +295,12 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
     }
 
+    /// <summary>保存生値を最初の読取りで解決した親MD5列です。既存の正規化と入力順を保持します。</summary>
     public List<string> Org_md5
     {
         get
         {
+            ensureDeferredOrgMd5Parsed();
             return _orgMd5 ??= [];
         }
         set
@@ -386,44 +358,12 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return entry;
     }
 
-    public BMSTableEntry(BMSFile bmsFile)
-        : this()
-    {
-        if (bmsFile == null)
-        {
-            throw new ArgumentNullException("bmsFile");
-        }
-        md5 = bmsFile.hash;
-        sha256 = bmsFile.sha256;
-        bmsfile = bmsFile;
-        base.level = bmsFile.level;
-    }
-
     internal BMSTableEntry(ChartFile chart)
         : this()
     {
         if (chart == null)
         {
             throw new ArgumentNullException(nameof(chart));
-        }
-        if (chart.Kind == ChartFileKind.Bmson)
-        {
-            md5 = chart.Md5;
-            sha256 = chart.Sha256;
-            title = chart.Title;
-            artist = chart.Artist;
-            base.level = chart.Level;
-            base.folder = chart.Folder ?? string.Empty;
-            return;
-        }
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        if (bmsFile != null)
-        {
-            md5 = bmsFile.hash;
-            sha256 = bmsFile.sha256;
-            bmsfile = bmsFile;
-            base.level = bmsFile.level;
-            return;
         }
         md5 = chart.Md5;
         sha256 = chart.Sha256;
@@ -440,7 +380,18 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return entry;
     }
 
+    /// <summary>直接読取りの採用行は追加日を固定文法で全体解析し、不適合なら拒否します。</summary>
     public BMSTableEntry(JObject dataJson, BMSTable parentTable = null)
+        : this(dataJson, parentTable, PlaylistJsonDatePolicy.Strict, null, -1) { }
+
+    /// <summary>同じ文書の日時方針と診断集約先で行を読みます。不採用行の追加日は検査しません。</summary>
+    /// <param name="dataJson">元文書の行DOM。日時キーを変更しません。</param>
+    /// <param name="parentTable">相対参照とfolder変換の基準表。</param>
+    /// <param name="datePolicy">操作元で確定した日時方針。</param>
+    /// <param name="dateDiagnostics">文書全体の不適合値の集約先。</param>
+    /// <param name="rowIndex">元data配列のindex。</param>
+    internal BMSTableEntry(JObject dataJson, BMSTable parentTable, PlaylistJsonDatePolicy datePolicy,
+        PlaylistJsonDate.Diagnostics dateDiagnostics, int rowIndex)
         : this()
     {
         if (dataJson == null)
@@ -462,7 +413,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             {
                 md5 = md5Token.ToString();
             }
-            catch
+            catch (FormatException)
             {
             }
         }
@@ -472,7 +423,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             {
                 sha256 = sha256Token.ToString();
             }
-            catch
+            catch (FormatException)
             {
             }
         }
@@ -486,11 +437,13 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             };
             if (TryGetNonNullProperty(dataJson, "folder", out JToken folderToken))
             {
-                base.folder = folderToken.ToString();
+                base.folder = folderToken.Type is JTokenType.Integer or JTokenType.Float
+                    ? Convert.ToString(((JValue)folderToken).Value, CultureInfo.InvariantCulture)
+                    : folderToken.ToString();
             }
             else if (TryGetNonNullProperty(dataJson, "level", out JToken compatibleLevelToken))
             {
-                string compatibleLevel = compatibleLevelToken.ToString();
+                string compatibleLevel = compatibleLevelToken.Type is JTokenType.Integer or JTokenType.Float ? Convert.ToString(((JValue)compatibleLevelToken).Value, CultureInfo.InvariantCulture) : compatibleLevelToken.ToString();
                 base.folder = parent != null
                     ? parent.ConvertCompatibleLevelNameToFolderName(compatibleLevel)
                     : compatibleLevel;
@@ -498,11 +451,13 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         }
         else if (TryGetNonNullProperty(dataJson, "level", out JToken levelToken))
         {
-            string levelText = levelToken.ToString();
+            string levelText = levelToken.Type is JTokenType.Integer or JTokenType.Float ? Convert.ToString(((JValue)levelToken).Value, CultureInfo.InvariantCulture) : levelToken.ToString();
             MatchCollection matchCollection = numParseRegex.Matches(levelText);
-            if (matchCollection.Count == 1)
+            if (levelToken.Type is JTokenType.Integer or JTokenType.Float || matchCollection.Count == 1)
             {
-                base.level = double.TryParse(matchCollection[0].ToString(), out double result) ? result : null;
+                base.level = levelToken.Type is JTokenType.Integer or JTokenType.Float
+                    ? levelToken.Value<double>()
+                    : double.TryParse(matchCollection[0].ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out double result) ? result : null;
             }
             base.folder = parent != null
                 ? parent.ConvertCompatibleLevelNameToFolderName(levelText)
@@ -536,22 +491,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             base.name_diff = nameDiffToken.ToString();
         }
-        if (TryGetNonNullProperty(dataJson, "adddate", out JToken addDateToken) && !string.IsNullOrWhiteSpace(addDateToken.ToString()))
-        {
-            try
-            {
-                string text = addDateToken.ToString();
-                Match match = dateparseRegex.Match(text);
-                if (match.Success)
-                {
-                    text = match.Groups[1].ToString() + (match.Groups.Count == 1 ? "" : " " + match.Groups[2].ToString());
-                }
-                base.adddate = DateTime.Parse(text);
-            }
-            catch
-            {
-            }
-        }
         try
         {
             if (TryGetNonNullProperty(dataJson, "org_md5s", out JToken orgMd5sToken))
@@ -567,7 +506,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 Org_md5.Add(orgMd5Token.ToString());
             }
         }
-        catch
+        catch (FormatException)
         {
         }
         if (md5 != null)
@@ -594,6 +533,14 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             base.lr2_bmsid = null;
         }
+        if (TryGetNonNullProperty(dataJson, "adddate", out JToken addDateToken)
+            && PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(this) != null)
+        {
+            string identity = !string.IsNullOrWhiteSpace(md5) ? md5 : !string.IsNullOrWhiteSpace(sha256) ? sha256
+                : !string.IsNullOrWhiteSpace(base.lr2_bmsid) ? base.lr2_bmsid : title;
+            DateTime? parsed = PlaylistJsonDate.Read(addDateToken, "adddate", datePolicy, dateDiagnostics, rowIndex, identity);
+            if (parsed.HasValue) { base.adddate = parsed.Value; }
+        }
     }
 
     public BMSTableEntry Duplicate()
@@ -615,60 +562,86 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return snapshot;
     }
 
-    /// <summary>
-    /// プレイリスト mutation の一時補償に使う、この entry の状態を取得します。
-    /// </summary>
-    /// <returns>同じ entry object へ状態を戻せる不変スナップショット。</returns>
-    internal MutationState CaptureMutationState()
+    /// <summary>現在の entry の表示・解決値を不変値へ捕捉します。所属表の reader または writer 内で呼びます。</summary>
+    internal PlaylistEntryValue CaptureValue() => new(md5, sha256, level, title, artist,
+        folder, lr2_bmsid, Url, Url_diff, EffectiveUrl, EffectiveUrlDiff, name_diff,
+        comment, memo, adddate, is_removed, org_md5);
+
+    /// <summary>URL 編集の空白だけの入力を未設定へ、それ以外を絶対 URI へ変換し、画面受付と保存候補で同じ検査を使います。</summary>
+    /// <param name="text">利用者の URL 入力。</param>
+    /// <param name="uri">受理した絶対 URI。空白だけの入力では null。</param>
+    /// <returns>未設定または有効な絶対 URI として受理できる場合は true。</returns>
+    internal static bool TryParseEditedUrl(string text, out Uri uri)
     {
-        return new MutationState(this);
+        uri = null;
+        return string.IsNullOrWhiteSpace(text) || Uri.TryCreate(text, UriKind.Absolute, out uri);
     }
 
-    /// <summary>
-    /// operation 内の補償用 entry 状態です。保存境界を越えて保持しません。
-    /// </summary>
-    internal sealed class MutationState
+    /// <summary>ENTRY編集の数値全体を地域非依存で検査します。外部表の装飾level抽出とは文法を分けます。</summary>
+    /// <param name="text">確定するセル全文。空白だけなら未設定にします。</param>
+    /// <param name="value">受理した有限値または未設定のnull。</param>
+    /// <returns>Invariant Float全体または空白として受理できる場合はtrue。</returns>
+    internal static bool TryParseEditedLevel(string text, out double? value)
     {
-        private readonly BMSTableEntry snapshot;
+        value = null;
+        if (string.IsNullOrWhiteSpace(text)) { return true; }
+        if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double number) || !double.IsFinite(number)) { return false; }
+        value = number;
+        return true;
+    }
 
-        /// <summary>行の参照を維持して復元できるよう、操作前の値を保全します。</summary>
-        internal MutationState(BMSTableEntry source)
+    /// <summary>空白のLevelはnull、非空のLevelは固定dotの有限数値全体として保存候補へ適用します。URLの空白は解除します。</summary>
+    /// <exception cref="FormatException">LevelがInvariant Float全体または有限値に適合しません。</exception>
+    /// <exception cref="UriFormatException">非空URLが絶対URIとして無効です。</exception>
+    internal void ApplyEditDraft(string propertyName, string text)
+    {
+        switch (propertyName)
         {
-            snapshot = (BMSTableEntry)source.MemberwiseClone();
-            snapshot.parent = null;
-            snapshot._orgMd5 = source._orgMd5 == null ? null : [.. source._orgMd5];
-        }
-
-        /// <summary>
-        /// 同一 entry object へ、補償開始時点の値を戻します。
-        /// </summary>
-        /// <param name="target">復元対象の entry。</param>
-        /// <param name="parent">復元後に設定する親 table。</param>
-        internal void Restore(BMSTableEntry target, BMSTable parent)
-        {
-            // Local playlist edits only change folder/parent membership.  The
-            // remaining assignments cover the fields that
-            // NormalizeForPlaylistPersistence can materialize before a later
-            // database write fails.  Detail-cell fields (for example comment,
-            // memo, or adddate) are intentionally left untouched because this
-            // operation does not own those edits.
-            target._bmsfile = snapshot._bmsfile;
-            target._md5 = snapshot._md5;
-            target.level = snapshot.level;
-            target._title = snapshot._title;
-            target._artist = snapshot._artist;
-            target.folder = snapshot.folder;
-            target.deferredOrgMd5Raw = snapshot.deferredOrgMd5Raw;
-            target._orgMd5 = snapshot._orgMd5 == null ? null : [.. snapshot._orgMd5];
-            target.parent = parent;
+            case "Level":
+            case nameof(level):
+                if (!TryParseEditedLevel(text, out double? number))
+                {
+                    throw new FormatException(BeMusicSeeker.Properties.Resources.Error_PlaylistEntryLevelFormat);
+                }
+                level = number;
+                break;
+            case nameof(Url):
+            case nameof(Url_diff):
+                if (!TryParseEditedUrl(text, out Uri uri))
+                {
+                    throw new UriFormatException("Playlist edit requires an absolute URI.");
+                }
+                if (propertyName == nameof(Url)) { Url = uri; } else { Url_diff = uri; }
+                break;
+            case nameof(comment): comment = text; break;
+            case nameof(memo): memo = text; break;
+            default: throw new ArgumentOutOfRangeException(nameof(propertyName));
         }
     }
 
-    internal void ApplyPlaylistEditableStateFrom(BMSTableEntry source)
+    /// <summary>同じ writer 内で DB 確定した候補の、保存操作が所有する値だけを現行 entry へ適用します。</summary>
+    internal void ApplyCommittedEdit(BMSTableEntry candidate)
     {
-        ApplyPlaylistEditableStateFrom(source, null);
+        level = candidate.level;
+        comment = candidate.comment;
+        memo = candidate.memo;
+        _md5 = candidate._md5;
+        _sha256 = candidate._sha256;
+        playlistHashIdentityKind = candidate.playlistHashIdentityKind;
+        deferredOrgMd5Raw = candidate.deferredOrgMd5Raw;
+        _orgMd5 = candidate._orgMd5;
+        deferredUrlRaw = candidate.deferredUrlRaw;
+        deferredUrlDiffRaw = candidate.deferredUrlDiffRaw;
+        _url = candidate._url;
+        _urlDiff = candidate._urlDiff;
+        runtimeUrlCompletion = candidate.runtimeUrlCompletion;
+        runtimeUrlDiffCompletion = candidate.runtimeUrlDiffCompletion;
     }
 
+    /// <summary>詳細編集の保存前失敗で、同じ項目の編集列だけを編集前値へ戻します。</summary>
+    /// <param name="source">編集前に捕捉した元項目の値。</param>
+    /// <param name="propertyName">詳細編集が受理した列名。</param>
+    /// <exception cref="ArgumentOutOfRangeException">詳細編集が扱う列以外を渡した場合。</exception>
     internal void ApplyPlaylistEditableStateFrom(BMSTableEntry source, string propertyName)
     {
         if (source == null)
@@ -694,15 +667,11 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 memo = source.memo;
                 break;
             default:
-                level = source.level;
-                Url = source.Url;
-                Url_diff = source.Url_diff;
-                comment = source.comment;
-                memo = source.memo;
-                break;
+                throw new ArgumentOutOfRangeException(nameof(propertyName));
         }
     }
 
+    /// <summary>保存対象の項目をJSONへ変換し、追加日は地域・offsetを付けず7桁小数秒で壁時計のtickを保持します。</summary>
     public JObject ToJsonObject()
     {
         NormalizeForPlaylistPersistence();
@@ -723,7 +692,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             ["org_md5s"] = new JArray(Org_md5),
             ["org_md5"] = Org_md5.Count == 0 ? string.Empty : Org_md5[0],
             ["comment"] = base.comment ?? string.Empty,
-            ["adddate"] = base.adddate.ToShortDateString()
+            ["adddate"] = PlaylistJsonDate.Format(base.adddate)
         };
         return val;
     }
@@ -754,9 +723,8 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
 
     internal void MarkAsBmsonPlaylistIdentity(string preferredSha256 = null)
     {
-        materializeCurrentDisplayValues();
         playlistHashIdentityKind = PlaylistHashIdentityKind.Sha256Only;
-        _bmsfile = null;
+
         md5 = null;
         if (!string.IsNullOrWhiteSpace(preferredSha256))
         {
@@ -770,10 +738,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         {
             return;
         }
-        if (_bmsfile == null)
-        {
-            md5 = chart.Md5;
-        }
+        md5 = chart.Md5;
         if (!string.IsNullOrWhiteSpace(chart.Sha256))
         {
             sha256 = chart.Sha256;
@@ -788,8 +753,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         switch (playlistHashIdentityKind)
         {
             case PlaylistHashIdentityKind.Sha256Only:
-                materializeCurrentDisplayValues();
-                _bmsfile = null;
+
                 md5 = null;
                 break;
         }
@@ -844,21 +808,22 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
                 }
             }
         }
-        catch
+        catch (UriFormatException)
         {
         }
     }
 
+    /// <summary>既存の親列を優先して保存生値を遅延解決します。公開getterへ再入せず同じ正規化を適用します。</summary>
     private void ensureDeferredOrgMd5Parsed()
     {
         if (string.IsNullOrWhiteSpace(deferredOrgMd5Raw))
         {
             return;
         }
-        Org_md5 = Org_md5;
-        if (Org_md5.Count == 0)
+        _orgMd5 = normalizeOrgMd5Collection(_orgMd5);
+        if (_orgMd5.Count == 0)
         {
-            Org_md5 = parseOrgMd5(deferredOrgMd5Raw);
+            _orgMd5 = normalizeOrgMd5Collection(parseOrgMd5(deferredOrgMd5Raw));
         }
         deferredOrgMd5Raw = null;
     }
@@ -878,7 +843,7 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
             }
             return [.. array.Select(e => e.ToString())];
         }
-        catch
+        catch (JsonException)
         {
             return [];
         }
@@ -889,24 +854,6 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return [.. (values ?? [])
             .Where(value => !string.IsNullOrWhiteSpace(value) && !string.Equals(value.Trim(), "null", StringComparison.OrdinalIgnoreCase))
             .Select(value => value.Trim())];
-    }
-
-    private void materializeCurrentDisplayValues()
-    {
-        if (_bmsfile == null)
-        {
-            return;
-        }
-        title = title;
-        artist = artist;
-        if (!base.level.HasValue)
-        {
-            base.level = _bmsfile.level;
-        }
-        if (string.IsNullOrWhiteSpace(base.folder))
-        {
-            base.folder = _bmsfile.folder ?? string.Empty;
-        }
     }
 
     public string ToJson()

@@ -1,20 +1,9 @@
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class Lr2SongDbSyncPreparedSurfaceSelection(
-    Lr2SongDbSyncPreparedDataSurface pendingSurface,
-    Lr2SongDbSyncPreparedDataSurface activeSurface,
-    int appliedScanGeneration,
-    bool alreadyAppliedToScanSurface)
+/// <summary>同じ操作で生成・検証した完全な面を最終入力へ直接渡します。</summary>
+internal sealed class Lr2SongDbSyncPreparedSurfaceSelection(Lr2SongDbSyncPreparedDataSurface surface)
 {
-    public Lr2SongDbSyncPreparedDataSurface PendingSurface { get; } = pendingSurface;
-
-    public Lr2SongDbSyncPreparedDataSurface ActiveSurface { get; } = activeSurface;
-
-    public int AppliedScanGeneration { get; } = appliedScanGeneration;
-
-    public bool AlreadyAppliedToScanSurface { get; } = alreadyAppliedToScanSurface;
-
-    public bool HasActivePreparedSurface => ActiveSurface?.HasPreparedDataSurface == true;
-
-    public bool HasActiveLr2FolderSurface => ActiveSurface?.HasLr2FolderSurface == true;
+    public Lr2SongDbSyncPreparedDataSurface Surface { get; } = surface;
+    public bool HasPreparedSurface => Surface?.HasPreparedDataSurface == true;
+    public bool HasLr2FolderSurface => Surface?.HasLr2FolderSurface == true;
 }

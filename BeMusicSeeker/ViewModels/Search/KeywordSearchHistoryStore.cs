@@ -17,7 +17,7 @@ internal static class KeywordSearchHistoryStore
     internal const int MaxHistoryCount = 20;
 
     /// <summary>
-    /// 設定文字列から検索履歴を復元します。
+    /// 設定文字列から検索履歴を復元し、保存式の共通比較で重複を除いて先頭20件を返します。
     /// </summary>
     /// <param name="serializedHistory">Base64 行形式の履歴文字列。</param>
     /// <returns>復元した履歴一覧。</returns>
@@ -34,7 +34,7 @@ internal static class KeywordSearchHistoryStore
             {
                 string entry = Encoding.UTF8.GetString(Convert.FromBase64String(line.Trim()));
                 string normalizedEntry = NormalizeEntryForIdentity(entry);
-                if (!string.IsNullOrEmpty(normalizedEntry) && !history.Contains(normalizedEntry, StringComparer.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(normalizedEntry) && !history.Contains(normalizedEntry, KeywordSearchSavedQueryComparer.Instance))
                 {
                     history.Add(normalizedEntry);
                 }
@@ -50,7 +50,7 @@ internal static class KeywordSearchHistoryStore
     }
 
     /// <summary>
-    /// 検索履歴を設定文字列へ変換します。
+    /// 保存式の共通比較で重複を除き、先頭20件の検索履歴を設定文字列へ変換します。
     /// </summary>
     /// <param name="history">保存する履歴一覧。</param>
     /// <returns>Base64 行形式の履歴文字列。</returns>
@@ -63,7 +63,7 @@ internal static class KeywordSearchHistoryStore
     }
 
     /// <summary>
-    /// 検索履歴へ新しい検索文字列を追加します。
+    /// 検索履歴へ新しい表記の検索式を先頭追加し、保存式の共通比較で一致する旧履歴を除きます。
     /// </summary>
     /// <param name="history">現在の履歴一覧。</param>
     /// <param name="entry">追加する検索文字列。</param>
@@ -78,7 +78,7 @@ internal static class KeywordSearchHistoryStore
         List<string> entries =
         [
             normalizedEntry,
-            .. NormalizeEntries(history).Where(current => !string.Equals(current, normalizedEntry, StringComparison.OrdinalIgnoreCase)),
+            .. NormalizeEntries(history).Where(current => !KeywordSearchSavedQueryComparer.Instance.Equals(current, normalizedEntry)),
         ];
         return [.. entries.Take(MaxHistoryCount)];
     }
@@ -89,7 +89,7 @@ internal static class KeywordSearchHistoryStore
         foreach (string entry in history ?? [])
         {
             string normalizedEntry = NormalizeEntryForIdentity(entry);
-            if (!string.IsNullOrEmpty(normalizedEntry) && !entries.Contains(normalizedEntry, StringComparer.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(normalizedEntry) && !entries.Contains(normalizedEntry, KeywordSearchSavedQueryComparer.Instance))
             {
                 entries.Add(normalizedEntry);
             }
@@ -102,7 +102,8 @@ internal static class KeywordSearchHistoryStore
     }
 
     /// <summary>
-    /// Normalizes a saved query for case-insensitive identity and legacy line compatibility.
+    /// 保存式のCR・LFを一文字ずつ空白へ置換して前後空白を除き、旧保存形式との互換性を保ちます。
+    /// 大小文字・内部空白・引用・式の順序は変換せず、同一性は共通の比較規則へ委ねます。
     /// </summary>
     internal static string NormalizeEntryForIdentity(string entry)
     {

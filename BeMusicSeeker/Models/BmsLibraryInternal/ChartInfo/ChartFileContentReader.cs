@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using BeMusicSeeker.Models.Utils;
@@ -52,6 +53,13 @@ internal static class ChartFileContentReader
             lastWriteTimeUtc,
             ComputeHash(bytes, MD5.Create()),
             ComputeHash(bytes, SHA256.Create()));
+    }
+
+    /// <summary>解析を必要としないファイルのSHA-256を、全内容を常駐させずに計算します。</summary>
+    internal static string ComputeSha256(string path)
+    {
+        using FileStream stream = LongPathFileSystem.OpenRead(path);
+        return Convert.ToHexStringLower(SHA256.HashData(stream));
     }
 
     private static string ComputeHash(byte[] bytes, HashAlgorithm algorithm)

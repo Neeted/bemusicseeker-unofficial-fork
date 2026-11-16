@@ -20,8 +20,6 @@ internal sealed class Lr2SongDbSyncStatusSnapshot
 
     public Lr2SongDbSyncStatusKind? StoredStatus { get; set; }
 
-    public string Signature { get; set; }
-
     public string RunId { get; set; }
 
     public int? ProcessedCursor { get; set; }
@@ -48,7 +46,6 @@ internal sealed class Lr2SongDbSyncStatusSnapshot
         {
             Status = Status,
             StoredStatus = StoredStatus,
-            Signature = Signature,
             RunId = RunId,
             ProcessedCursor = ProcessedCursor,
             TotalCount = TotalCount,
@@ -66,10 +63,10 @@ internal static class Lr2SongDbSyncStatusService
 {
     internal const string DefaultStatusName = "default";
 
+    /// <summary>連携無効なら不要、保存済みCompletedなら完了、それ以外なら先頭からの同期が必要と判定します。既存行は変更しません。</summary>
     internal static Lr2SongDbSyncStatusSnapshot Evaluate(
         LR2SongDBExtended songDb,
         bool enabled,
-        string signature,
         DateTime nowUtc)
     {
         if (songDb == null)
@@ -84,7 +81,6 @@ internal static class Lr2SongDbSyncStatusService
                 Lr2SongDbSyncStatusKind.NotNeeded,
                 storedStatus: null,
                 row: LoadRow(songDb),
-                signature,
                 nowUtc);
         }
 
@@ -95,44 +91,30 @@ internal static class Lr2SongDbSyncStatusService
                 Lr2SongDbSyncStatusKind.Needed,
                 storedStatus: null,
                 row: null,
-                signature,
                 nowUtc);
         }
 
         Lr2SongDbSyncStatusKind storedStatus = ParseStatus(row.status);
-        if (!string.Equals(row.signature ?? string.Empty, signature ?? string.Empty, StringComparison.Ordinal))
-        {
-            return CreateSnapshot(
-                Lr2SongDbSyncStatusKind.Needed,
-                storedStatus,
-                row,
-                signature,
-                nowUtc);
-        }
-
         if (storedStatus == Lr2SongDbSyncStatusKind.Completed)
         {
             return CreateSnapshot(
                 Lr2SongDbSyncStatusKind.Completed,
                 storedStatus,
                 row,
-                signature,
                 nowUtc);
         }
 
-        // A durable cursor is retained for progress reporting and backwards
-        // compatibility only.  It is never an input to the next run.
+        // 保存カーソルは進捗と互換性のためだけに保持し、次の実行開始位置へ渡しません。
         return CreateSnapshot(
             Lr2SongDbSyncStatusKind.Needed,
             storedStatus,
             row,
-            signature,
             nowUtc);
     }
 
+    /// <summary>新しいrunの先頭位置を保存します。未使用の旧署名列は空にします。</summary>
     internal static Lr2SongDbSyncStatusSnapshot MarkRunning(
         LR2SongDBExtended songDb,
-        string signature,
         string runId,
         int? totalCount,
         string stage,
@@ -142,10 +124,8 @@ internal static class Lr2SongDbSyncStatusService
         return Upsert(
             songDb,
             Lr2SongDbSyncStatusKind.Running,
-            signature,
             runId,
-            // The optional argument remains source-compatible with older
-            // callers, but a new run always starts at the first input item.
+            // 旧呼出しの位置指定にかかわらず、新しい実行は先頭から開始します。
             processedCursor: 0,
             totalCount,
             stage,
@@ -154,9 +134,9 @@ internal static class Lr2SongDbSyncStatusService
             nowUtc);
     }
 
+    /// <summary>同じrunの確定済み処理位置を保存します。</summary>
     internal static Lr2SongDbSyncStatusSnapshot UpdateCursor(
         LR2SongDBExtended songDb,
-        string signature,
         string runId,
         int processedCursor,
         int? totalCount,
@@ -166,7 +146,6 @@ internal static class Lr2SongDbSyncStatusService
         return Upsert(
             songDb,
             Lr2SongDbSyncStatusKind.Running,
-            signature,
             runId,
             Math.Max(0, processedCursor),
             totalCount,
@@ -176,9 +155,9 @@ internal static class Lr2SongDbSyncStatusService
             nowUtc);
     }
 
+    /// <summary>必須反映の完了後にrunの完了状態を保存します。</summary>
     internal static Lr2SongDbSyncStatusSnapshot MarkCompleted(
         LR2SongDBExtended songDb,
-        string signature,
         string runId,
         int? totalCount,
         DateTime nowUtc)
@@ -186,7 +165,6 @@ internal static class Lr2SongDbSyncStatusService
         return Upsert(
             songDb,
             Lr2SongDbSyncStatusKind.Completed,
-            signature,
             runId,
             totalCount,
             totalCount,
@@ -196,9 +174,9 @@ internal static class Lr2SongDbSyncStatusService
             nowUtc);
     }
 
+    /// <summary>失敗を保存し、位置が未指定なら同じrun IDの保存済み進捗だけを引き継ぎます。</summary>
     internal static Lr2SongDbSyncStatusSnapshot MarkFailed(
         LR2SongDBExtended songDb,
-        string signature,
         string runId,
         int? processedCursor,
         int? totalCount,
@@ -214,18 +192,17 @@ internal static class Lr2SongDbSyncStatusService
         BmsLibraryDbGateway.EnsureLr2SongDbSyncStatusSchema(songDb);
         LR2SongDBExtended.lr2_song_db_sync_status existing = LoadRow(songDb);
         if (existing != null
-            && string.Equals(existing.signature ?? string.Empty, signature ?? string.Empty, StringComparison.Ordinal)
             && string.Equals(existing.run_id ?? string.Empty, runId ?? string.Empty, StringComparison.Ordinal))
         {
             processedCursor ??= existing.processed_cursor;
             totalCount ??= existing.total_count;
         }
-        return Upsert(songDb, Lr2SongDbSyncStatusKind.Failed, signature, runId, processedCursor, totalCount, stage, error, completedAt: null, nowUtc);
+        return Upsert(songDb, Lr2SongDbSyncStatusKind.Failed, runId, processedCursor, totalCount, stage, error, completedAt: null, nowUtc);
     }
 
+    /// <summary>終了中断などの未完了と確定済み進捗を保存します。</summary>
     internal static Lr2SongDbSyncStatusSnapshot MarkIncomplete(
         LR2SongDBExtended songDb,
-        string signature,
         string runId,
         int? processedCursor,
         int? totalCount,
@@ -233,13 +210,12 @@ internal static class Lr2SongDbSyncStatusService
         string detail,
         DateTime nowUtc)
     {
-        return Upsert(songDb, Lr2SongDbSyncStatusKind.Incomplete, signature, runId, processedCursor, totalCount, stage, detail, completedAt: null, nowUtc);
+        return Upsert(songDb, Lr2SongDbSyncStatusKind.Incomplete, runId, processedCursor, totalCount, stage, detail, completedAt: null, nowUtc);
     }
 
     private static Lr2SongDbSyncStatusSnapshot Upsert(
         LR2SongDBExtended songDb,
         Lr2SongDbSyncStatusKind status,
-        string signature,
         string runId,
         int? processedCursor,
         int? totalCount,
@@ -258,7 +234,7 @@ internal static class Lr2SongDbSyncStatusService
         {
             name = DefaultStatusName,
             status = FormatStatus(status),
-            signature = signature ?? string.Empty,
+            signature = string.Empty,
             run_id = runId ?? string.Empty,
             processed_cursor = processedCursor,
             total_count = totalCount,
@@ -268,7 +244,7 @@ internal static class Lr2SongDbSyncStatusService
             completed_at = completedAt.HasValue ? NormalizeUtc(completedAt.Value) : null
         };
         songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.lr2_song_db_sync_status));
-        return CreateSnapshot(status, status, row, signature, nowUtc);
+        return CreateSnapshot(status, status, row, nowUtc);
     }
 
     private static LR2SongDBExtended.lr2_song_db_sync_status LoadRow(LR2SongDBExtended songDb)
@@ -280,14 +256,12 @@ internal static class Lr2SongDbSyncStatusService
         Lr2SongDbSyncStatusKind status,
         Lr2SongDbSyncStatusKind? storedStatus,
         LR2SongDBExtended.lr2_song_db_sync_status row,
-        string signature,
         DateTime nowUtc)
     {
         return new Lr2SongDbSyncStatusSnapshot
         {
             Status = status,
             StoredStatus = storedStatus,
-            Signature = signature ?? row?.signature ?? string.Empty,
             RunId = row?.run_id ?? string.Empty,
             ProcessedCursor = row?.processed_cursor,
             TotalCount = row?.total_count,

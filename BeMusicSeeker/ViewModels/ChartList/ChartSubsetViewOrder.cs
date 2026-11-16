@@ -1,0 +1,212 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+
+namespace BeMusicSeeker.ViewModels;
+
+/// <summary>専用subsetの捕捉添字・hash依存を保ち、scoreの実対象だけを検索・順序へ反映します。</summary>
+/// <remarks>
+/// 不変条件として、<see cref="entries"/>は常に捕捉キー（列キー、題名、元の添字）の順に並びます。<see cref="IndexOf"/>と<see cref="Refresh"/>は、
+/// 捕捉キーによる二分探索の結果をその行の現在位置とみなすため、この順序が崩れると別の行を除去して対象を重複させます。
+/// 渡された順序は、並行する書込みや古い値で作った順序キャッシュの再利用により、捕捉キーの順と食い違うことがあります。
+/// そのため構築時に、キーを捕捉するループの中で直前の行と比較して整列済みかを保ち（木の添字アクセスを避ける）、崩れていたときだけ捕捉キーで並べ直して不変条件を確立します。
+/// 通常は直前の行との比較n-1回の追加で済み、O(n log n)の並べ直しは食い違いのときだけ発生します。値の読取り回数は増やしません。
+/// <see cref="IndexOf"/>・<see cref="Refresh"/>で不一致を例外にすると表示だけの不整合でUIの未処理例外になるため、不一致は並べ直しで解消します。
+/// </remarks>
+internal sealed class ChartSubsetViewOrder
+{
+    private readonly IReadOnlyList<ChartListSourceRow> source;
+    private readonly ChartListOrder order;
+    private readonly Func<ChartListSourceRow, bool> matches;
+    private readonly Action<string, int> observe;
+    private ImmutableList<Entry> entries;
+    private readonly Dictionary<int, Entry> byIndex = [];
+    private readonly Dictionary<object, int> byIdentity = [];
+    private readonly Dictionary<string, HashSet<int>> byMd5 = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, HashSet<int>> bySha256 = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<OwnedChartToken, HashSet<int>> byToken = [];
+    private readonly Dictionary<string, int> folders = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>必要な初回全評価の結果を採用し、表示filter前の元集合を一回だけ依存登録します。</summary>
+    internal ChartSubsetViewOrder(IReadOnlyList<ChartListSourceRow> source, ChartListOrder order,
+        Func<ChartListSourceRow, bool> matches, Action<string, int> observe)
+    {
+        this.source = source;
+        this.order = order;
+        this.matches = matches ?? (_ => true);
+        this.observe = observe;
+        ImmutableList<Entry>.Builder initial = ImmutableList.CreateBuilder<Entry>();
+        Entry previous = null;
+        bool sorted = true;
+        foreach (int index in order.Indexes)
+        {
+            Entry entry = Capture(index);
+            sorted &= previous == null || Compare(previous, entry) <= 0;
+            previous = entry;
+            initial.Add(entry);
+            byIndex.Add(index, entry);
+            AddFolder(entry.Folder);
+        }
+        observe?.Invoke("order_buffer", initial.Count);
+        if (!sorted) { initial.Sort(Compare); }
+        entries = initial.ToImmutable();
+        for (int i = 0; i < source.Count; i++)
+        {
+            byIdentity.TryAdd(source[i].SelectionIdentity, i);
+            observe?.Invoke("hash_dependency_visit", 1);
+            AddKey(byMd5, source[i].ReferenceMd5, i);
+            AddKey(bySha256, source[i].ReferenceSha256, i);
+            if ((source[i].PackageEntry != null || source[i].UsesCatalogCurrentValues) && source[i].Token is OwnedChartToken token)
+            {
+                if (!byToken.TryGetValue(token, out HashSet<int> indexes)) { byToken.Add(token, indexes = []); }
+                indexes.Add(i);
+            }
+        }
+    }
+
+    /// <summary>現在のfilterを通過した件数です。</summary>
+    internal int Count => entries.Count;
+    /// <summary>表示所属と同時に局所加減算したfolder数です。</summary>
+    internal int DistinctFolderCount => folders.Count;
+    /// <summary>表示位置に対応する捕捉元集合の添字を返します。</summary>
+    internal int SourceIndexAt(int index) => entries[index].SourceIndex;
+    /// <summary>元集合の添字から現在位置を取得し、未訪問行を実体化しません。</summary>
+    internal int IndexOf(int sourceIndex) => byIndex.TryGetValue(sourceIndex, out Entry entry) ? FindInsertion(entry) : -1;
+
+    /// <summary>初回依存登録と同時に作った逆引きから選択識別の現在位置を返し、復元時の全件走査を避けます。</summary>
+    internal int IndexOfIdentity(object identity) => identity != null && byIdentity.TryGetValue(identity, out int index) ? IndexOf(index) : -1;
+
+    /// <summary>scoreの変更hashから非表示行を含む実依存添字を取得します。</summary>
+    internal HashSet<int> GetIndexes(ScoreSnapshotChange change)
+        => GetKeyIndexes(change.Md5Keys, change.Sha256Keys);
+
+    /// <summary>譜面詳細などの独立変更キーから、非表示行を含む実依存添字だけを取得します。</summary>
+    internal HashSet<int> GetKeyIndexes(IEnumerable<string> md5Keys, IEnumerable<string> sha256Keys)
+    {
+        HashSet<int> result = [];
+        CaptureIndexes(byMd5, md5Keys, result);
+        CaptureIndexes(bySha256, sha256Keys, result);
+        return result;
+    }
+
+    /// <summary>参照の変更keyに依存する、非表示を含む元集合の添字を返します。</summary>
+    internal HashSet<int> GetReferenceIndexes(IEnumerable<PlaylistEntryLookupKey> keys)
+    {
+        HashSet<int> result = [];
+        foreach (PlaylistEntryLookupKey key in keys)
+        { CaptureIndexes(key.Kind == PlaylistEntryLookupKeyKind.Md5 ? byMd5 : bySha256, [key.Hash], result); }
+        return result;
+    }
+
+    /// <summary>既存hash依存に含まれるkeyかを、元集合を走査せず判定します。</summary>
+    internal bool ContainsReferenceKey(PlaylistEntryLookupKey key)
+        => (key.Kind == PlaylistEntryLookupKeyKind.Md5 ? byMd5 : bySha256).ContainsKey(key.Hash);
+
+    /// <summary>依存登録を変更する前に、packageまたは現在値を交換する重複入力の実対象添字だけを取得します。</summary>
+    internal IReadOnlySet<int> GetCatalogIndexes(OwnedChartToken token) => byToken.TryGetValue(token, out HashSet<int> indexes) ? indexes : ImmutableHashSet<int>.Empty;
+
+    /// <summary>現在値に依存する実対象tokenを取得し、path移転後も保持中のfolder情報を局所的に更新します。</summary>
+    internal HashSet<int> GetIndexes(IReadOnlyList<CatalogCommitReceipt> commits)
+    {
+        HashSet<int> result = [];
+        foreach (CatalogCommitReceipt commit in commits)
+        {
+            foreach (CatalogChartChange change in commit.Changes)
+            {
+                if (!byToken.TryGetValue(change.Token, out HashSet<int> indexes)) { continue; }
+                result.UnionWith(indexes);
+                if (StringComparer.OrdinalIgnoreCase.Equals(change.Before?.Md5, change.After?.Md5)
+                    && StringComparer.OrdinalIgnoreCase.Equals(change.Before?.Sha256, change.After?.Sha256)) { continue; }
+                foreach (int index in indexes)
+                {
+                    RemoveKey(byMd5, change.Before?.Md5, index);
+                    RemoveKey(bySha256, change.Before?.Sha256, index);
+                    AddKey(byMd5, change.After?.Md5, index);
+                    AddKey(bySha256, change.After?.Sha256, index);
+                }
+            }
+        }
+        return result;
+    }
+
+    /// <summary>対象行だけの適否と比較キーを再取得し、不変木の変更経路だけを置換します。</summary>
+    internal bool Refresh(HashSet<int> indexes)
+    {
+        bool changed = false;
+        foreach (int index in indexes)
+        {
+            int before = IndexOf(index);
+            Entry next = matches(source[index]) ? Capture(index) : null;
+            if (before >= 0 && next != null && entries[before].Folder == next.Folder && Compare(entries[before], next) == 0) { continue; }
+            if (before >= 0)
+            {
+                RemoveFolder(entries[before].Folder);
+                entries = entries.RemoveAt(before);
+                byIndex.Remove(index);
+            }
+            int after = -1;
+            if (next != null)
+            {
+                after = FindInsertion(next);
+                entries = entries.Insert(after, next);
+                byIndex.Add(index, next);
+                AddFolder(next.Folder);
+            }
+            changed |= before != after;
+        }
+        return changed;
+    }
+
+    private Entry Capture(int index)
+    {
+        observe?.Invoke("order_key", 1);
+        return new(index, ChartListOrder.CaptureKey(source[index], order.ColumnName), source[index].Folder);
+    }
+    private int Compare(Entry left, Entry right)
+    {
+        observe?.Invoke("order_compare", 1);
+        int result = ChartListOrder.CompareKeys(left.Key, right.Key, order.Direction);
+        return result != 0 ? result : left.SourceIndex.CompareTo(right.SourceIndex);
+    }
+    private int FindInsertion(Entry entry)
+    {
+        int low = 0, high = entries.Count;
+        while (low < high)
+        {
+            observe?.Invoke("order_access", 1);
+            int middle = low + (high - low) / 2;
+            if (Compare(entries[middle], entry) < 0) { low = middle + 1; } else { high = middle; }
+        }
+        return low;
+    }
+    private void AddFolder(string folder)
+    {
+        if (!string.IsNullOrWhiteSpace(folder)) { folders[folder] = folders.GetValueOrDefault(folder) + 1; }
+    }
+    private void RemoveFolder(string folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder) || !folders.TryGetValue(folder, out int count)) { return; }
+        if (count == 1) { folders.Remove(folder); } else { folders[folder] = count - 1; }
+    }
+    private static void AddKey(Dictionary<string, HashSet<int>> target, string key, int index)
+    {
+        if (string.IsNullOrWhiteSpace(key)) { return; }
+        if (!target.TryGetValue(key, out HashSet<int> indexes)) { target.Add(key, indexes = []); }
+        indexes.Add(index);
+    }
+    private static void RemoveKey(Dictionary<string, HashSet<int>> target, string key, int index)
+    {
+        if (!string.IsNullOrWhiteSpace(key) && target.TryGetValue(key, out HashSet<int> indexes)
+            && indexes.Remove(index) && indexes.Count == 0) { target.Remove(key); }
+    }
+    private static void CaptureIndexes(Dictionary<string, HashSet<int>> source, IEnumerable<string> keys, HashSet<int> result)
+    {
+        foreach (string key in keys)
+        {
+            if (!string.IsNullOrWhiteSpace(key) && source.TryGetValue(key, out HashSet<int> indexes)) { result.UnionWith(indexes); }
+        }
+    }
+    private sealed record Entry(int SourceIndex, ChartListCapturedSortKey Key, string Folder);
+}

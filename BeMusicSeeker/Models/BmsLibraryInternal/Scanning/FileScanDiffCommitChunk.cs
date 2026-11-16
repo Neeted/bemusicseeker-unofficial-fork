@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -11,21 +10,21 @@ internal sealed class FileScanDiffCommitChunk
 
     public List<string> Lr2SongDbSyncEligibleBmsPaths { get; } = [];
 
-    public List<BMSFile> AddedBmsFiles { get; } = [];
+    public List<ChartFile> AddedBmsFiles { get; } = [];
 
     public List<BmsDateOnlyUpdate> UpdatedBmsDates { get; } = [];
 
     public List<string> DeletedBmsonPaths { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> UpsertBmsonSongs { get; } = [];
+    public List<ChartFile> UpsertBmsonSongs { get; } = [];
 
-    public List<BMSFileMaintenanceInfo> MaintenanceInfoRows { get; } = [];
+    public List<ResourceHealthMaintenanceSnapshot> MaintenanceInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> ChartInfoRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartDetails> ChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> AppliedChartInfoRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartDetails> AppliedChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartParseFailure> ParseFailureRows { get; } = [];
 
     public List<string> ParseFailureDeleteMd5s { get; } = [];
 
@@ -49,7 +48,7 @@ internal sealed class FileScanDiffCommitChunk
         MutationCount++;
     }
 
-    public void AddAddedBmsFile(BMSFile file)
+    public void AddAddedBmsFile(ChartFile file)
     {
         if (file == null)
         {
@@ -94,7 +93,7 @@ internal sealed class FileScanDiffCommitChunk
         MutationCount++;
     }
 
-    public void AddUpsertBmsonSong(LR2SongDBExtended.bmson_song song)
+    public void AddUpsertBmsonSong(ChartFile song)
     {
         if (song == null)
         {
@@ -104,9 +103,9 @@ internal sealed class FileScanDiffCommitChunk
         MutationCount++;
     }
 
-    public void AddMaintenanceInfoRow(BMSFileMaintenanceInfo row, bool countMutation = false)
+    public void AddMaintenanceInfoRow(ResourceHealthMaintenanceSnapshot row, bool countMutation = false)
     {
-        if (row == null || string.IsNullOrWhiteSpace(row.path))
+        if (row == null || string.IsNullOrWhiteSpace(row.Path))
         {
             return;
         }
@@ -117,7 +116,7 @@ internal sealed class FileScanDiffCommitChunk
         }
     }
 
-    public void AddChartInfoRow(LR2SongDBExtended.chart_info row, bool countMutation = true)
+    public void AddChartInfoRow(BeMusicSeeker.Models.ChartDetails row, bool countMutation = true)
     {
         if (row == null)
         {
@@ -130,7 +129,7 @@ internal sealed class FileScanDiffCommitChunk
         }
     }
 
-    public void AddAppliedChartInfoRow(LR2SongDBExtended.chart_info row)
+    public void AddAppliedChartInfoRow(BeMusicSeeker.Models.ChartDetails row)
     {
         if (row == null)
         {
@@ -139,7 +138,7 @@ internal sealed class FileScanDiffCommitChunk
         AppliedChartInfoRows.Add(row);
     }
 
-    public void AddParseFailureRow(LR2SongDBExtended.chart_info_parse_failure row, bool countMutation = true)
+    public void AddParseFailureRow(BeMusicSeeker.Models.ChartParseFailure row, bool countMutation = true)
     {
         if (row == null)
         {

@@ -1,5 +1,6 @@
+#nullable enable
 using System;
-using System.Linq;
+using BeMusicSeeker.Runtime;
 
 namespace BeMusicSeeker.Models.Utils;
 
@@ -10,50 +11,28 @@ public enum NormalLogLevel
     Error
 }
 
+/// <summary>Programが並行処理の開始前に適用したログ条件を、既存の診断入口へ公開します。</summary>
 public static class CommandLineSwitches
 {
-    private static readonly string[] args = Environment.GetCommandLineArgs();
+    private static ApplicationLoggingOptions loggingOptions = ApplicationLoggingOptions.Default;
 
-    private static readonly (NormalLogLevel Level, string InvalidValue) parsedLogLevelResult = ParseLogLevel();
+    /// <summary>起動境界で確定した通常ログ水準を取得します。未適用時はInfoです。</summary>
+    public static NormalLogLevel LogLevel => loggingOptions.Level;
 
-    private static readonly string parsedUpdateManifestUrl = ParseStringSwitch("--update-manifest-url=");
+    /// <summary>Infoの通常診断と性能ログを出力する指定かを取得します。</summary>
+    public static bool IsInfoLoggingEnabled => loggingOptions.Level == NormalLogLevel.Info;
 
-    public static NormalLogLevel LogLevel => parsedLogLevelResult.Level;
+    /// <summary>空白以外の不正値があり、従来の警告対象となるかを取得します。</summary>
+    public static bool HasInvalidLogLevelValue => !string.IsNullOrWhiteSpace(loggingOptions.InvalidValue);
 
-    public static bool IsInfoLoggingEnabled => parsedLogLevelResult.Level == NormalLogLevel.Info;
+    /// <summary>不正なログ指定の元文字列を取得します。未指定・有効値では空文字列です。</summary>
+    public static string InvalidLogLevelValue => loggingOptions.InvalidValue;
 
-    public static bool HasInvalidLogLevelValue => !string.IsNullOrWhiteSpace(parsedLogLevelResult.InvalidValue);
-
-    public static string InvalidLogLevelValue => parsedLogLevelResult.InvalidValue ?? string.Empty;
-
-    public static string UpdateManifestUrl => parsedUpdateManifestUrl ?? string.Empty;
-
-    private static (NormalLogLevel Level, string InvalidValue) ParseLogLevel()
+    /// <summary>Programが実行条件の捕捉後、App生成と並行処理の開始前に一度だけログ条件を適用します。</summary>
+    /// <param name="options">解析済みで変更不能のログ条件。</param>
+    internal static void Configure(ApplicationLoggingOptions options)
     {
-        string[] source = [.. args.Where(x => x.StartsWith("--log-level=", StringComparison.OrdinalIgnoreCase))];
-        if (source.Length == 0)
-        {
-            return (NormalLogLevel.Info, null);
-        }
-        string text = source[source.Length - 1].Substring("--log-level=".Length);
-        if (string.Equals(text, "info", StringComparison.OrdinalIgnoreCase))
-        {
-            return (NormalLogLevel.Info, null);
-        }
-        if (string.Equals(text, "error", StringComparison.OrdinalIgnoreCase))
-        {
-            return (NormalLogLevel.Error, null);
-        }
-        if (string.Equals(text, "warn", StringComparison.OrdinalIgnoreCase) || string.Equals(text, "warning", StringComparison.OrdinalIgnoreCase))
-        {
-            return (NormalLogLevel.Warn, null);
-        }
-        return (NormalLogLevel.Warn, text);
-    }
-
-    private static string ParseStringSwitch(string prefix)
-    {
-        string[] source = [.. args.Where(x => x.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))];
-        return source.Length == 0 ? null : source[source.Length - 1].Substring(prefix.Length);
+        ArgumentNullException.ThrowIfNull(options);
+        loggingOptions = options;
     }
 }

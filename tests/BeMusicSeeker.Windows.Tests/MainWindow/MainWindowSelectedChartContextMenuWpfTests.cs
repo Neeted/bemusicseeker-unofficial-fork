@@ -1,0 +1,1885 @@
+using System.ComponentModel;
+using System.IO;
+using System.Reflection;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
+using Ribbit.Logging;
+
+namespace BeMusicSeeker.Tests;
+
+
+/// <remarks>行能力の条件網羅はPlaylistViewPipelineTestsへ分担し、この境界はcompiledメニューの実イベント配送・右クリックと選択の区別・実ファイル存在・受付時刻を検査します。関連文書のasync void入口の非適用分岐だけは既存のconsumer Taskを直接回収します。</remarks>
+[TestClass]
+[TestCategory("Windows.Shell")]
+// 実MainWindowはApplication.ResourcesのVMとcompiledメニューを共有するため、所有Windowの解放まで並列化しません。
+[DoNotParallelize]
+public sealed class MainWindowSelectedChartContextMenuWpfTests
+{
+    /// <summary>実Bindingの副選択移動と同じ元集合の行差替え後もcompiled削除・移動へ元の二譜面だけを渡し、明示Reset・別区分・別元集合では旧添字の選択を解除します。</summary>
+    [TestMethod]
+    public void ChartReorderAndRowsReplacement_CompiledMutationRequestsKeepSelectedCharts()
+    {
+        SelectedChartDeleteRequest? deleted = null;
+        SelectedChartMoveRequest? moved = null;
+        var mutation = new MainWindowSelectedChartMutationTerminal(
+            request => { deleted = request; return Task.FromResult(SelectedChartMutationResult.Completed); },
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            request => { moved = request; return Task.FromResult(SelectedChartMutationResult.Completed); },
+            _ => Task.FromResult(SelectedChartMutationResult.Completed));
+        RegularChartListOwnerTestSupport.WithTemporarySongDb(path =>
+        {
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                TestSettingsFactory.CreateIsolatedSettings(),
+                (scope, viewModel, window) =>
+                {
+                    using var fixture = new RegularScoreDeliveryTestFixture(path);
+                    Assert.IsTrue(fixture.Build());
+                    ChartFile[] charts = fixture.Library.CaptureNormalLibraryChartSnapshot().BmsRows.ToArray();
+                    foreach (ChartFile chart in charts) { File.WriteAllText(chart.Path, "#TITLE selection\n"); }
+                    window.Width = 1000d;
+                    window.Height = 700d;
+                    MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+                    void ApplyRows(MainChartListSelectionPolicy policy = MainChartListSelectionPolicy.Preserve)
+                        => viewModel.MainChartList.ApplyRows(new()
+                        {
+                            Rows = fixture.View,
+                            ColumnsSettings = columns,
+                            SelectionPolicy = policy,
+                            Summary = MainChartListSummaryUpdate.NormalCounts(3, 1),
+                            Stopwatch = System.Diagnostics.Stopwatch.StartNew(),
+                            OperationContextMode = MainViewUpdateMode.FolderFilterSelected
+                        });
+                    ApplyRows();
+                    Assert.AreSame(fixture.View, table.ItemsSource, "compiled ItemsSource Bindingで同じ仮想一覧を表示します。");
+                    table.SelectedIndex = 1;
+                    table.HandleKeyDown(System.Windows.Input.Key.Up, System.Windows.Input.ModifierKeys.Shift);
+                    fixture.Change(2, 40);
+                    Task delivery = fixture.Owner.DeliverPendingLibraryChangesAsync(fixture.Library, CancellationToken.None);
+                    Task<ScheduledScoreOperation> next = fixture.Scheduler.NextAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(next, "compiled selection callback");
+                    ScheduledScoreOperation operation = next.GetAwaiter().GetResult();
+                    operation.Run();
+                    operation.Complete();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(delivery, "compiled selection completion");
+                    Assert.AreEqual(0, table.SelectedIndex);
+                    CollectionAssert.AreEqual(new[] { charts[0].Token, charts[2].Token },
+                        table.GetSelectedRowsSnapshot().Cast<LibraryChartRow>().Select(row => row.Chart.Token).ToArray());
+
+                    // 専用一覧の詳細依存更新などに必要な再構築と同じ、選択維持policyの差替えを通します。
+                    Assert.IsTrue(fixture.Build());
+                    ApplyRows();
+                    Assert.AreEqual(0, viewModel.MainChartList.SelectedIndex);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = table;
+                    MenuItem delete = FindMenuItem(menu, "tableContextMenuItemDeleteFile").Items.OfType<MenuItem>().ElementAt(1);
+                    Assert.IsTrue(RaiseMenuClick(delete).Handled);
+                    Assert.IsNotNull(deleted);
+                    CollectionAssert.AreEqual(new[] { charts[0].Token, charts[2].Token }, deleted.SelectedTargets.Select(target => target.Chart.Token).ToArray());
+                    MenuItem moveGroup = FindMenuItem(menu, "tableContextMenuItemMoveFile");
+                    var moveItem = new MenuItem { DataContext = @"C:\selection-destination", Style = moveGroup.ItemContainerStyle };
+                    Assert.IsTrue(RaiseMenuClick(moveItem).Handled);
+                    Assert.IsNotNull(moved);
+                    CollectionAssert.AreEqual(new[] { charts[0].Token, charts[2].Token }, moved.Targets.Select(target => target.Chart.Token).ToArray());
+                    table.HandleKeyDown(System.Windows.Input.Key.Down, System.Windows.Input.ModifierKeys.Shift);
+                    CollectionAssert.AreEqual(new[] { charts[1].Token, charts[2].Token },
+                        table.GetSelectedRowsSnapshot().Cast<LibraryChartRow>().Select(row => row.Chart.Token).ToArray());
+
+                    Assert.IsTrue(fixture.Build());
+                    ApplyRows(MainChartListSelectionPolicy.Reset);
+                    Assert.AreEqual(-1, table.SelectedIndex);
+                    Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count);
+
+                    void SelectFirstTwoRows()
+                    {
+                        table.SelectedIndex = 1;
+                        table.HandleKeyDown(System.Windows.Input.Key.Up, System.Windows.Input.ModifierKeys.Shift);
+                        Assert.AreEqual(2, table.GetSelectedRowsSnapshot().Count);
+                        Assert.AreEqual(0, table.SelectedIndex);
+                    }
+                    void AssertSelectionCleared()
+                    {
+                        Assert.AreEqual(0, table.GetSelectedRowsSnapshot().Count, "別元集合の同じ添字を新しい選択として採用しません。");
+                        Assert.AreEqual(-1, table.SelectedIndex);
+                        Assert.AreEqual(-1, viewModel.MainChartList.SelectedIndex);
+                    }
+                    SelectFirstTwoRows();
+                    Assert.IsTrue(fixture.Build(subset: true));
+                    ApplyRows();
+                    AssertSelectionCleared();
+
+                    void BuildSubsetContext(string context)
+                    {
+                        Assert.IsTrue(fixture.Owner.TryApplyVirtualChartSubset(new()
+                        {
+                            Library = fixture.Library,
+                            SourceCharts = charts,
+                            SourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked,
+                            SubsetName = "selection_context",
+                            SelectionContext = context,
+                            TreeMode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                            ModeFilter = ChartModeFilter.All,
+                            SortColumnName = nameof(LibraryChartRow.Title),
+                            SortDirection = ListSortDirection.Ascending,
+                            ColumnSelection = new(columns, false, 0, MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                                Visibility.Collapsed, new PlaylistSummaryColumnSettings()),
+                            Mode = MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                            Stopwatch = System.Diagnostics.Stopwatch.StartNew()
+                        }).WasCommitted);
+                    }
+                    BuildSubsetContext("group A");
+                    ApplyRows();
+                    SelectFirstTwoRows();
+                    BuildSubsetContext("group B");
+                    ApplyRows();
+                    AssertSelectionCleared();
+                    // Reset後の復元を誤って有効化しない保証も、専用一覧側のBindingで確認します。
+                    SelectFirstTwoRows();
+                    BuildSubsetContext("group B");
+                    ApplyRows(MainChartListSelectionPolicy.Reset);
+                    AssertSelectionCleared();
+                },
+                selectedChartContextMenuTerminals: CreateTerminals(mutation: mutation));
+        });
+    }
+
+    /// <summary>選択がないと右クリック行のBMS操作を表示し、bmson選択があると右クリックBMS行で選択を置き換えずBMS専用操作を隠します。</summary>
+    [TestMethod]
+    public void CompiledTableContextMenuState_UsesRowFallbackAndPreservesSelectedBmson()
+    {
+        MainWindowSelectedChartContextMenuTerminals terminals = CreateTerminals();
+        LibraryChartRow bmsRow = CreateChartRow(ChartFileKind.Bms, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", @"C:\wave6e-state\row.bms");
+        LibraryChartRow bmsonRow = CreateChartRow(ChartFileKind.Bmson, "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB", @"C:\wave6e-state\row.bmson");
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { bmsRow, bmsonRow };
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                FrameworkElement placementTarget = new() { DataContext = bmsRow };
+                menu.PlacementTarget = placementTarget;
+
+                table.SelectRowsByPredicate(_ => false);
+                OpenContextMenu(menu);
+
+                MenuItem fixEncoding = FindMenuItem(menu, "tableContextMenuItemFixEncoding");
+                Assert.AreEqual(Visibility.Visible, fixEncoding.Visibility);
+                Assert.AreEqual(Visibility.Visible, FindMenuItem(menu, "tableContextMenuItemFullScanCheck").Visibility);
+                Assert.AreEqual(Visibility.Visible, FindMenuItem(menu, "tableContextMenuItemRegisterScore").Visibility, "選択がなければ右クリックしたBMS行1件で開く。");
+
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, bmsonRow));
+                OpenContextMenu(menu);
+
+                Assert.AreEqual(Visibility.Collapsed, fixEncoding.Visibility);
+                Assert.AreEqual(Visibility.Collapsed, FindMenuItem(menu, "tableContextMenuItemRegisterScore").Visibility);
+            },
+            selectedChartContextMenuTerminals: terminals);
+    }
+
+    /// <summary>compiled音声変換Clickはbmsonと混在選択を行順・同じ譜面で配送し、保留行と実ファイル欠損では表示または実行を抑止します。</summary>
+    [TestMethod]
+    public void CompiledAudioConversionMenu_AllowsBmsonAndMixedOrderButRejectsPendingAndMissingFiles()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(migrationWorkspace.RootDirectory, nameof(MainWindowSelectedChartContextMenuWpfTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            string bmsonPath = Path.Combine(root, "first.bmson");
+            string bmsPath = Path.Combine(root, "second.bms");
+            File.WriteAllText(bmsonPath, "{\"info\":{\"title\":\"First\",\"init_bpm\":120},\"sound_channels\":[]}");
+            File.WriteAllText(bmsPath, "#TITLE Second\n#BPM 120\n");
+            LibraryChartRow bmsonRow = CreateChartRow(ChartFileKind.Bmson, new string('b', 32), bmsonPath);
+            LibraryChartRow bmsRow = CreateChartRow(ChartFileKind.Bms, new string('c', 32), bmsPath);
+            var pendingBmsonRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(bmsonRow.Chart));
+            var pendingBmsRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(bmsRow.Chart));
+            LibraryChartRow missingRow = CreateChartRow(ChartFileKind.Bmson, new string('d', 32), Path.Combine(root, "missing.bmson"));
+            var calls = new List<SelectedChartAudioConversionRequest>();
+            MainWindowSelectedChartAudioConversionTerminal audio = new(
+                (request, _) =>
+                {
+                    calls.Add(request);
+                    return Task.FromResult(SelectedChartAudioConversionResult.Empty);
+                });
+
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                TestSettingsFactory.CreateIsolatedSettings(),
+                (viewModel, window) =>
+                {
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    MenuItem convert = FindMenuItem(menu, "tableContextMenuItemConvertToAudioFile");
+                    Separator convertSeparator = menu.Items.OfType<Separator>()
+                        .Single(item => item.Name == "tableContextMenuSeparatorForConvert");
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    table.ItemsSource = new List<object> { bmsonRow, bmsRow };
+                    table.SelectRowsByPredicate(row => ReferenceEquals(row, bmsonRow));
+                    menu.PlacementTarget = new FrameworkElement { DataContext = bmsonRow };
+
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Visible, convert.Visibility);
+                    Assert.IsTrue(convert.IsEnabled);
+                    Assert.AreEqual(Visibility.Visible, convertSeparator.Visibility);
+                    Assert.IsTrue(convertSeparator.IsEnabled);
+                    foreach (string name in new[]
+                    {
+                        "tableContextMenuItemFixEncoding",
+                        "tableContextMenuItemRegisterScore",
+                        "tableContextMenuItemRenameInvalidExt"
+                    })
+                    {
+                        MenuItem bmsOnly = FindMenuItem(menu, name);
+                        Assert.AreEqual(Visibility.Collapsed, bmsOnly.Visibility, name);
+                        Assert.IsFalse(bmsOnly.IsEnabled, name);
+                    }
+                    Assert.IsTrue(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(1, calls.Count);
+                    Assert.AreEqual(1, calls[0].Targets.Count);
+                    Assert.AreSame(bmsonRow.Chart, calls[0].Targets[0].Chart);
+                    Assert.AreSame(bmsonRow.Chart.Token, calls[0].Targets[0].Chart.Token);
+
+                    table.SelectRowsByPredicate(_ => true);
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Visible, convert.Visibility);
+                    Assert.IsTrue(convert.IsEnabled);
+                    Assert.IsTrue(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+                    CollectionAssert.AreEqual(new[] { bmsonRow.Chart, bmsRow.Chart }, calls[1].Targets.Select(target => target.Chart).ToArray());
+
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                    table.ItemsSource = new List<object> { pendingBmsonRow, pendingBmsRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = pendingBmsonRow };
+                    OpenContextMenu(menu);
+
+                    Assert.AreEqual(Visibility.Collapsed, convert.Visibility);
+                    Assert.IsFalse(convert.IsEnabled);
+                    Assert.AreEqual(Visibility.Collapsed, convertSeparator.Visibility);
+                    Assert.IsFalse(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    table.ItemsSource = new List<object> { missingRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = missingRow };
+                    OpenContextMenu(menu);
+
+                    Assert.IsFalse(convert.IsEnabled);
+                    Assert.IsFalse(convertSeparator.IsEnabled);
+                    Assert.IsFalse(RaiseMenuClick(convert).Handled);
+                    Assert.AreEqual(2, calls.Count);
+                },
+                selectedChartContextMenuTerminals: CreateTerminals(audio: audio));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>compiled変更・文字コード・資源検査・除外切替・音声変換のClickを対応端末へ対象譜面とscopeを保って配送し、受付後の未完了TaskにもHandledを設定します。</summary>
+    [TestMethod]
+    public void CompiledChartContextMenuRoutesMutationAndResourceTerminalsWithExactTargets()
+    {
+        TaskCompletionSource<SelectedChartMutationResult> renameCompletion = NewCompletion<SelectedChartMutationResult>();
+        TaskCompletionSource<SelectedChartMutationResult> deleteCompletion = NewCompletion<SelectedChartMutationResult>();
+        TaskCompletionSource<SelectedChartMutationResult> encodingCompletion = NewCompletion<SelectedChartMutationResult>();
+        Task encodingTerminal = Task.CompletedTask;
+        TaskCompletionSource<SelectedChartResourceHealthWorkflowResult> rescanCompletion = NewCompletion<SelectedChartResourceHealthWorkflowResult>();
+        TaskCompletionSource<SelectedChartAudioConversionResult> audioCompletion = NewCompletion<SelectedChartAudioConversionResult>();
+        SelectedInvalidExtensionRenameRequest? renameRequest = null;
+        SelectedChartDeleteRequest? deleteRequest = null;
+        SelectedChartEncodingRequest? encodingRequest = null;
+        ChartResourceHealthRequest? rescanRequest = null;
+        ChartResourceHealthRequest? ignoredRequest = null;
+        ChartResourceHealthRequest? unignoredRequest = null;
+        SelectedChartAudioConversionRequest? audioRequest = null;
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC", typeof(MainWindow).Assembly.Location);
+
+        MainWindowSelectedChartMutationTerminal mutation = new(
+            request =>
+            {
+                deleteRequest = request;
+                return deleteCompletion.Task;
+            },
+            request =>
+            {
+                renameRequest = request;
+                return renameCompletion.Task;
+            },
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            request =>
+            {
+                encodingRequest = request;
+                return encodingCompletion.Task;
+            });
+        MainWindowSelectedChartResourceHealthTerminal resourceHealth = new(
+            request =>
+            {
+                rescanRequest = request;
+                return rescanCompletion.Task;
+            },
+            (request, unset) =>
+            {
+                if (unset)
+                {
+                    unignoredRequest = request;
+                }
+                else
+                {
+                    ignoredRequest = request;
+                }
+                return SelectedChartResourceHealthWorkflowResult.Completed;
+            });
+        MainWindowSelectedChartAudioConversionTerminal audio = new(
+            (request, _) =>
+            {
+                audioRequest = request;
+                return audioCompletion.Task;
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                try
+                {
+
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new List<object> { row };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+
+                    MenuItem rename = FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt");
+                    RoutedEventArgs renameArgs = RaiseMenuClick(rename);
+                    Assert.IsTrue(renameArgs.Handled);
+                    Assert.IsFalse(renameCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, renameRequest!.Targets.Count);
+                    Assert.AreSame(row.Chart, renameRequest!.Targets[0].Chart);
+                    Assert.IsFalse(renameRequest!.IsPendingSelected);
+                    renameCompletion.SetResult(SelectedChartMutationResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(renameCompletion.Task, "selected-chart-terminal-delegate");
+
+                    MenuItem deleteGroup = FindMenuItem(menu, "tableContextMenuItemDeleteFile");
+                    RoutedEventArgs deleteArgs = RaiseMenuClick((MenuItem)deleteGroup.Items[1]);
+                    Assert.IsTrue(deleteArgs.Handled);
+                    Assert.IsFalse(deleteCompletion.Task.IsCompleted);
+                    Assert.AreEqual(MainViewOperationSection.Library, deleteRequest!.Section);
+                    Assert.AreEqual(1, deleteRequest!.SelectedTargets.Count);
+                    Assert.AreSame(row.Chart, deleteRequest!.SelectedTargets[0].Chart);
+                    Assert.AreSame(row.Chart, deleteRequest!.ContextTarget.Chart);
+                    deleteCompletion.SetResult(SelectedChartMutationResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(deleteCompletion.Task, "selected-chart-terminal-delegate");
+
+                    MenuItem encoding = FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First();
+                    RoutedEventArgs? encodingArgs = null;
+                    encodingTerminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => encodingArgs = RaiseMenuClick(encoding));
+                    Assert.IsFalse(encodingTerminal.IsCompleted);
+                    Assert.AreEqual("shift_jis", encodingRequest!.Encoding);
+                    Assert.AreEqual(1, encodingRequest!.Charts.Count);
+                    Assert.AreSame(row.Chart.Token, encodingRequest!.Charts[0].Token);
+                    encodingCompletion.SetResult(SelectedChartMutationResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(encodingTerminal, "encoding event terminal");
+                    Assert.IsTrue(encodingArgs!.Handled);
+
+                    MenuItem rescan = FindMenuItem(menu, "tableContextMenuItemFullScanCheck").Items
+                        .OfType<MenuItem>()
+                        .First(item => item.Name.Length == 0);
+                    RoutedEventArgs rescanArgs = RaiseMenuClick(rescan);
+                    Assert.IsTrue(rescanArgs.Handled);
+                    Assert.IsFalse(rescanCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, rescanRequest!.Charts.Count);
+                    Assert.AreSame(row.Chart, rescanRequest!.Charts[0]);
+                    rescanCompletion.SetResult(SelectedChartResourceHealthWorkflowResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(rescanCompletion.Task, "selected-chart-terminal-delegate");
+
+                    RoutedEventArgs ignoreArgs = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemIgnoreFileScanCheck"));
+                    Assert.IsTrue(ignoreArgs.Handled);
+                    Assert.AreEqual(1, ignoredRequest!.Charts.Count);
+                    Assert.AreSame(row.Chart, ignoredRequest!.Charts[0]);
+
+                    RoutedEventArgs unignoreArgs = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemNotIgnoreFileScanCheck"));
+                    Assert.IsTrue(unignoreArgs.Handled);
+                    Assert.AreEqual(1, unignoredRequest!.Charts.Count);
+                    Assert.AreSame(row.Chart, unignoredRequest!.Charts[0]);
+
+                    RoutedEventArgs audioArgs = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemConvertToAudioFile"));
+                    Assert.IsTrue(audioArgs.Handled);
+                    Assert.IsFalse(audioCompletion.Task.IsCompleted);
+                    Assert.AreEqual(1, audioRequest!.Targets.Count);
+                    Assert.AreSame(row.Chart, audioRequest!.Targets[0].Chart);
+                    audioCompletion.SetResult(SelectedChartAudioConversionResult.Empty);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(audioCompletion.Task, "selected-chart-terminal-delegate");
+                }
+                finally
+                {
+                    renameCompletion.TrySetResult(SelectedChartMutationResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(renameCompletion.Task, "compiled-finally-delegate");
+                    deleteCompletion.TrySetResult(SelectedChartMutationResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(deleteCompletion.Task, "compiled-finally-delegate");
+                    encodingCompletion.TrySetResult(SelectedChartMutationResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(encodingTerminal, "encoding finally terminal");
+                    rescanCompletion.TrySetResult(SelectedChartResourceHealthWorkflowResult.Completed);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(rescanCompletion.Task, "compiled-finally-delegate");
+                    audioCompletion.TrySetResult(SelectedChartAudioConversionResult.Empty);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(audioCompletion.Task, "compiled-finally-delegate");
+                }
+
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(
+                mutation: mutation,
+                resourceHealth: resourceHealth,
+                audio: audio));
+    }
+
+    /// <summary>解析失敗のcompiled削除ClickはMD5を正規化して渡し、受付成立時点でHandledを設定して処理結果の完了を待たず受付を確定します。処理結果が失敗の場合は、MainWindowの操作失敗の通知をプレイリストの窓口へ、予期しない失敗の本文・Error見出し・Handアイコン・MainWindowのOwnerで一度だけ渡します。</summary>
+    [TestMethod]
+    public void CompiledParseFailureContextMenuNormalizesRequestAndHandlesOnlyAfterAcceptance()
+    {
+        Task<ChartInfoParseFailureRemovalAcceptance> acceptance = Task.FromResult(new ChartInfoParseFailureRemovalAcceptance(accepted: true));
+        TaskCompletionSource<ChartInfoParseFailureRemovalResult> completion = NewCompletion<ChartInfoParseFailureRemovalResult>();
+        ChartInfoParseFailureRemovalRequest? request = null;
+        var playlistDialogs = new RecordingRootDialogService();
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD", @"C:\wave6e-parse\chart.bms");
+        MainWindowChartInfoParseFailureRemovalTerminal parseTerminal = new(
+            capturedRequest =>
+            {
+                request = capturedRequest;
+                return new ChartInfoParseFailureRemovalOperation(acceptance, completion.Task);
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                try
+                {
+
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new List<object> { row };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.ChartInfoParseErrorFilterSelected);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                    RoutedEventArgs args = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemRemoveChartInfoParseFailure"));
+
+                    Assert.IsTrue(args.Handled);
+                    CollectionAssert.AreEqual(
+                        new[] { "dddddddddddddddddddddddddddddddd" },
+                        request!.Md5s.ToArray());
+                    Assert.IsFalse(completion.Task.IsCompleted);
+
+                    completion.SetResult(ChartInfoParseFailureRemovalResult.Failed(
+                        new InvalidOperationException("parse failure"),
+                        accepted: true));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "parse-failure-terminal-delegate");
+                    TestUiDispatcherHost.ProcessQueuedBackground();
+
+                    Assert.AreEqual(1, playlistDialogs.MessageRequests.Count);
+                    Assert.AreEqual(0, playlistDialogs.ConfirmationCount);
+                    UiMessageRequest notification = playlistDialogs.MessageRequests[0];
+                    Assert.AreEqual(Resources.Msg_error_unexpected, notification.MessageBoxText);
+                    Assert.AreEqual(Resources.Error, notification.Caption);
+                    Assert.AreEqual(MessageBoxImage.Hand, notification.Icon);
+                    Assert.AreSame(window, notification.Owner);
+                }
+                finally
+                {
+                    completion.TrySetResult(ChartInfoParseFailureRemovalResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "parse-failure-finally-delegate");
+                }
+
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(chartInfoParseFailureRemoval: parseTerminal),
+            playlistWorkspaceDialogService: playlistDialogs);
+    }
+
+    /// <summary>解析失敗削除の受付拒否と受付未完了ではClickをHandledへ変更せず、処理Taskの存在だけで受付成功へ転換しません。</summary>
+    [TestMethod]
+    public void CompiledParseFailureContextMenuRejectsWithoutHandling()
+    {
+        Task<ChartInfoParseFailureRemovalAcceptance> acceptance = Task.FromResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false));
+        TaskCompletionSource<ChartInfoParseFailureRemovalResult> completion = NewCompletion<ChartInfoParseFailureRemovalResult>();
+        TaskCompletionSource<ChartInfoParseFailureRemovalAcceptance> pendingAcceptance = NewCompletion<ChartInfoParseFailureRemovalAcceptance>();
+        bool holdAcceptance = false;
+        int beginCount = 0;
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", @"C:\wave6e-parse-reject\chart.bms");
+        MainWindowChartInfoParseFailureRemovalTerminal parseTerminal = new(
+            _ =>
+            {
+                beginCount++;
+                return new ChartInfoParseFailureRemovalOperation(holdAcceptance ? pendingAcceptance.Task : acceptance, completion.Task);
+            });
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                try
+                {
+
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new List<object> { row };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.ChartInfoParseErrorFilterSelected);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                    RoutedEventArgs args = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemRemoveChartInfoParseFailure"));
+
+                    Assert.IsFalse(args.Handled);
+                    Assert.IsFalse(completion.Task.IsCompleted);
+
+                    completion.SetResult(ChartInfoParseFailureRemovalResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "parse-failure-terminal-delegate");
+                    holdAcceptance = true;
+                    RoutedEventArgs pendingArgs = RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemRemoveChartInfoParseFailure"));
+                    Assert.AreEqual(2, beginCount);
+                    Assert.IsFalse(pendingAcceptance.Task.IsCompleted);
+                    Assert.IsFalse(pendingArgs.Handled, "受付gateを保持中はcompiled handlerもHandledを変更しません。");
+                }
+                finally
+                {
+                    pendingAcceptance.TrySetResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false));
+                    completion.TrySetResult(ChartInfoParseFailureRemovalResult.Rejected);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(pendingAcceptance.Task, "parse-failure-finally-acceptance");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "parse-failure-finally-delegate");
+                }
+
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(chartInfoParseFailureRemoval: parseTerminal));
+    }
+
+    /// <summary>所持・保留・未所持のcompiledメニューは手動順位取得を含まず、閲覧項目の表示・非表示に応じても表示直下の区切りを連続・末尾へ残しません。</summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void CompiledChartContextMenus_HaveNoManualRankingAndRedundantVisibleSeparators(bool showViewer)
+    {
+        MainWindowScoreViewerTerminal scoreViewer = new(
+            (_, _) => throw new AssertFailedException("メニュー表示の確認では譜面ビューアを起動しません。"));
+        // 譜面ビューアの項目は共通判定で決まるため、表示する場合はBMS、表示しない場合はBMSONの行で作る。
+        LibraryChartRow owned = CreateChartRow(showViewer ? ChartFileKind.Bms : ChartFileKind.Bmson, "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF", @"C:\context-menu\chart.bms");
+        var pending = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(owned.Chart));
+        PlaylistDetailRow missing = showViewer
+            ? CreateMissingPlaylistRow("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE")
+            : CreatePlaylistRow("EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE", ChartFileKind.Bmson, null);
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                foreach ((object? row, MainViewUpdateMode mode, string? resource, bool viewerVisible) in new (object, MainViewUpdateMode, string, bool)[]
+                {
+                    (owned, MainViewUpdateMode.FolderFilterSelected, "tableContextMenu", showViewer),
+                    (pending, MainViewUpdateMode.PendingInstallFolderSelected, "tableContextMenu", showViewer),
+                    (missing, MainViewUpdateMode.PlaylistNotOwnedFilterSelected, "tableContextMenuPlaylistMissing", showViewer),
+                    (missing, MainViewUpdateMode.PlaylistNotOwnedFilterSelected, "tableContextMenu", false)
+                })
+                {
+                    table.ItemsSource = new List<object> { row };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(mode);
+                    var menu = (ContextMenu)window.FindResource(resource);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                    OpenContextMenu(menu);
+
+                    Assert.IsFalse(menu.Items.OfType<MenuItem>().Any(item => item.Name == "tableContextMenuItemUpdateRankingData"));
+                    Assert.AreEqual(viewerVisible ? Visibility.Visible : Visibility.Collapsed,
+                        FindMenuItem(menu, "tableContextMenuItemRegisterScore").Visibility, resource);
+                    Control[] visibleItems = menu.Items.OfType<Control>().Where(item => item.Visibility == Visibility.Visible).ToArray();
+                    Assert.IsTrue(visibleItems.Length > 0);
+                    Assert.IsFalse(visibleItems[^1] is Separator, resource);
+                    for (int index = 1; index < visibleItems.Length; index++)
+                    {
+                        Assert.IsFalse(visibleItems[index - 1] is Separator && visibleItems[index] is Separator, resource);
+                    }
+                }
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
+    }
+
+    /// <summary>
+    /// 通常譜面と未所持詳細のcompiled閲覧Clickが、それぞれ選択行1件の判定（開く・MD5・パス）を端末へ渡してHandledを設定し、
+    /// 通常側では未完了Task中にもHandledが成立することを確認します。判定は本番の実装で、実行部分だけを記録用に差し替えています。
+    /// </summary>
+    [TestMethod]
+    public void CompiledScoreViewerContextMenusDelegateNormalAndMissingSelectionWithHandledTiming()
+    {
+        TaskCompletionSource<ScoreViewerRegistrationResult> completion = NewCompletion<ScoreViewerRegistrationResult>();
+        TaskCompletionSource<object?> called = NewCompletion<object?>();
+        var calls = new List<ScoreViewerMenuDecision>();
+        MainWindowScoreViewerTerminal scoreViewer = new(
+            (decision, _) =>
+            {
+                calls.Add(decision);
+                called.TrySetResult(null);
+                return completion.Task;
+            });
+        LibraryChartRow normalRow = CreateChartRow(ChartFileKind.Bms, "11111111111111111111111111111111", @"C:\wave6e-score\chart.bms");
+        PlaylistDetailRow missingRow = CreateMissingPlaylistRow("22222222222222222222222222222222");
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                try
+                {
+
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    var normalMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                    table.ItemsSource = new List<object> { normalRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    normalMenu.PlacementTarget = new FrameworkElement { DataContext = normalRow };
+                    OpenContextMenu(normalMenu);
+
+                    MenuItem normalRegister = FindMenuItem(normalMenu, "tableContextMenuItemRegisterScore");
+                    Assert.AreEqual(Resources.Open_chart_viewer, normalRegister.Header);
+                    Assert.AreEqual(Visibility.Visible, normalRegister.Visibility);
+                    Assert.IsTrue(normalRegister.IsEnabled);
+                    RoutedEventArgs normalArgs = RaiseMenuClick(normalRegister);
+                    Assert.IsTrue(normalArgs.Handled);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(called.Task, "selected-chart-terminal-called");
+                    Assert.IsFalse(completion.Task.IsCompleted);
+                    Assert.AreEqual(1, calls.Count);
+                    Assert.AreEqual(ScoreViewerMenuMode.Open, calls[0].Mode);
+                    Assert.AreEqual(normalRow.Chart.Md5, calls[0].Targets.Single().Hash);
+                    Assert.AreEqual(normalRow.Chart.Path, calls[0].Targets.Single().Path);
+                    completion.SetResult(null!);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "selected-chart-terminal-delegate");
+
+                    called = NewCompletion<object?>();
+                    table.ItemsSource = new List<object> { missingRow };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
+                    var missingMenu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+                    missingMenu.PlacementTarget = new FrameworkElement { DataContext = missingRow };
+                    OpenContextMenu(missingMenu);
+
+                    MenuItem missingRegister = FindMenuItem(missingMenu, "tableContextMenuItemRegisterScore");
+                    Assert.AreEqual(Visibility.Visible, missingRegister.Visibility);
+                    Assert.IsTrue(missingRegister.IsEnabled);
+                    RoutedEventArgs missingArgs = RaiseMenuClick(missingRegister);
+                    Assert.IsTrue(missingArgs.Handled);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(called.Task, "selected-chart-terminal-called-missing");
+                    Assert.AreEqual(2, calls.Count);
+                    Assert.AreEqual(ScoreViewerMenuMode.Open, calls[1].Mode);
+                    Assert.AreEqual(missingRow.Chart.Md5, calls[1].Targets.Single().Hash);
+                }
+                finally
+                {
+                    completion.TrySetResult(null!);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(completion.Task, "compiled-finally-delegate");
+                }
+
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
+    }
+
+    /// <summary>
+    /// 通常の譜面一覧と未所持のプレイリスト項目の実メニューが、本番の共通判定に従って見出し・表示・可否を決め、クリックで判定した対象を端末へ渡すことを確認します。
+    /// 代表は、1件ファイルなしは「譜面ビューアで開く」で有効、2件所持は「譜面ビューアに登録する」で有効（登録対象は所持の2件）、2件ファイルなしは非表示、
+    /// 未所持と所持の混在は登録で所持の1件だけを渡すことです。さらにメニューを開いた後で選択を1件へ変えてからクリックすると、
+    /// 表示時の判定を使い回さず、その時点の選択から判定し直した開く操作を渡します。
+    /// 件数だけで見出しを決める誤り、ファイルのない対象を登録対象へ渡す誤り、表示時の判定をクリックへ使い回す誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void ScoreViewerMenu_FollowsTheSharedDecisionAndRedecidesOnClick()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string ownedPathA = Path.Combine(workspace.RootDirectory, "owned-a.bms");
+        string ownedPathB = Path.Combine(workspace.RootDirectory, "owned-b.bms");
+        File.WriteAllText(ownedPathA, "#TITLE owned a");
+        File.WriteAllText(ownedPathB, "#TITLE owned b");
+        string missingPath = Path.Combine(workspace.RootDirectory, "missing.bms");
+        var clicked = new List<ScoreViewerMenuDecision>();
+        TaskCompletionSource<object?> reached = NewCompletion<object?>();
+        MainWindowScoreViewerTerminal scoreViewer = new((decision, _) =>
+        {
+            clicked.Add(decision);
+            reached.TrySetResult(null);
+            return Task.FromResult<ScoreViewerRegistrationResult>(null!);
+        });
+        LibraryChartRow normalOwnedA = CreateChartRow(ChartFileKind.Bms, new string('a', 32), ownedPathA);
+        LibraryChartRow normalOwnedB = CreateChartRow(ChartFileKind.Bms, new string('b', 32), ownedPathB);
+        LibraryChartRow normalMissingA = CreateChartRow(ChartFileKind.Bms, new string('c', 32), missingPath);
+        LibraryChartRow normalMissingB = CreateChartRow(ChartFileKind.Bms, new string('d', 32), missingPath);
+        PlaylistDetailRow missingA = CreateMissingPlaylistRow(new string('e', 32));
+        PlaylistDetailRow missingB = CreateMissingPlaylistRow(new string('f', 32));
+        PlaylistDetailRow playlistOwned = CreatePlaylistRow(new string('1', 32), ChartFileKind.Bms, ownedPathA);
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                void Check(
+                    string name,
+                    string menuResource,
+                    MainViewUpdateMode mode,
+                    object[] rows,
+                    object[] selected,
+                    string? expectedHeader,
+                    string[] expectedTargetHashes)
+                {
+                    table.ItemsSource = new List<object>(rows);
+                    table.SelectRowsByPredicate(row => selected.Any(candidate => ReferenceEquals(candidate, row)));
+                    viewModel.MainChartList.SetOperationContext(mode);
+                    var menu = (ContextMenu)window.FindResource(menuResource);
+                    menu.PlacementTarget = new FrameworkElement { DataContext = selected[0] };
+                    OpenContextMenu(menu);
+                    MenuItem item = FindMenuItem(menu, "tableContextMenuItemRegisterScore");
+                    bool visible = expectedHeader != null;
+                    Assert.AreEqual(visible ? Visibility.Visible : Visibility.Collapsed, item.Visibility, name + "：表示");
+                    Assert.AreEqual(visible, item.IsEnabled, name + "：可否（表示するときは常に有効）");
+                    if (!visible)
+                    {
+                        return;
+                    }
+                    Assert.AreEqual(expectedHeader, item.Header, name + "：見出し");
+                    clicked.Clear();
+                    reached = NewCompletion<object?>();
+                    Assert.IsTrue(RaiseMenuClick(item).Handled);
+                    AwaitClicked(name);
+                    ScoreViewerMenuDecision decision = clicked.Single();
+                    Assert.AreEqual(
+                        expectedHeader == Resources.Register_chart_with_viewer ? ScoreViewerMenuMode.Register : ScoreViewerMenuMode.Open,
+                        decision.Mode,
+                        name + "：クリックで渡す判定");
+                    CollectionAssert.AreEqual(expectedTargetHashes, decision.Targets.Select(target => target.Hash).ToArray(), name + "：クリックで渡す対象");
+                }
+
+                void AwaitClicked(string name)
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reached.Task, "score-viewer-click-" + name);
+                    Assert.AreEqual(1, clicked.Count, name + "：クリックが端末へ1回渡る。");
+                }
+
+                const string normal = "tableContextMenu";
+                const string notOwned = "tableContextMenuPlaylistMissing";
+                MainViewUpdateMode library = MainViewUpdateMode.FolderFilterSelected;
+                MainViewUpdateMode playlistNotOwned = MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
+                object[] normalRows = [normalOwnedA, normalOwnedB, normalMissingA, normalMissingB];
+                object[] notOwnedRows = [missingA, missingB, playlistOwned];
+                Check("通常・1件ファイルなし", normal, library, normalRows, [normalMissingA], Resources.Open_chart_viewer, [new string('c', 32)]);
+                Check("通常・2件所持", normal, library, normalRows, [normalOwnedA, normalOwnedB], Resources.Register_chart_with_viewer, [new string('a', 32), new string('b', 32)]);
+                Check("通常・2件ファイルなし", normal, library, normalRows, [normalMissingA, normalMissingB], null, []);
+                Check("通常・所持とファイルなしの混在", normal, library, normalRows, [normalMissingA, normalOwnedA], Resources.Register_chart_with_viewer, [new string('a', 32)]);
+                Check("未所持・1件ファイルなし", notOwned, playlistNotOwned, notOwnedRows, [missingA], Resources.Open_chart_viewer, [new string('e', 32)]);
+                Check("未所持・2件ファイルなし", notOwned, playlistNotOwned, notOwnedRows, [missingA, missingB], null, []);
+                Check("未所持・未所持と所持の混在", notOwned, playlistNotOwned, notOwnedRows, [missingA, playlistOwned], Resources.Register_chart_with_viewer, [new string('1', 32)]);
+
+                // 表示後に選択を1件へ変えてからクリックすると、その時点の選択から判定し直す。
+                table.ItemsSource = new List<object>(normalRows);
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, normalOwnedA) || ReferenceEquals(row, normalOwnedB));
+                viewModel.MainChartList.SetOperationContext(library);
+                var staleMenu = (ContextMenu)window.FindResource(normal);
+                staleMenu.PlacementTarget = new FrameworkElement { DataContext = normalOwnedA };
+                OpenContextMenu(staleMenu);
+                MenuItem staleItem = FindMenuItem(staleMenu, "tableContextMenuItemRegisterScore");
+                Assert.AreEqual(Resources.Register_chart_with_viewer, staleItem.Header, "前提: 表示時は2件所持の登録。");
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, normalMissingA));
+                clicked.Clear();
+                reached = NewCompletion<object?>();
+                Assert.IsTrue(RaiseMenuClick(staleItem).Handled);
+                AwaitClicked("選択変更後のクリック");
+                Assert.AreEqual(ScoreViewerMenuMode.Open, clicked.Single().Mode, "選択が1件へ変わったので開く操作へ判定し直す。");
+                CollectionAssert.AreEqual(new[] { new string('c', 32) }, clicked.Single().Targets.Select(target => target.Hash).ToArray());
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(scoreViewer: scoreViewer));
+    }
+
+    /// <summary>
+    /// 利用者由来の文字列を見出しにするメニュー項目（カスタム右クリック操作・関連文書のファイル名・移動先）が、名前の「_」（先頭・途中・連続・末尾）を
+    /// アクセスキーとして扱わず、描画された文字列としてそのまま表示することを確認します。
+    /// 先頭の「_」が消える・連続が一つになるなど、操作名や宛先の表示が実際と食い違う誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void UserDerivedMenuHeaders_ShowUnderscoresLiterally()
+    {
+        string[] names = ["_lead", "mid_dle", "a__b", "trail_", "__"];
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(
+            [.. names.Select((name, index) => new RightClickWebActionDefinition("web" + index, name, "https://example.test/" + index + "/{sha256}", true, ExternalChartKind.All))], []));
+        var owner = new SelectedChartExternalActionWorkflowOwner(_ => false, ExternalShellGatewayPolicy.Current, settingsProvider: () => settings);
+        var external = new MainWindowSelectedChartExternalActionsTerminal(owner.CanExecute, owner.Execute,
+            _ => false, (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable), _ => { },
+            owner.CreateResolutionInput, owner.ResolveConfiguredActions, owner.ExecuteConfiguredAction);
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('f', 32), @"C:\Owned\chart.bms");
+
+        MenuHeaderRenderProbe.WithApplicationStyles(() => MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (scope, viewModel, window) =>
+        {
+            var table = (CustomTableView)window.FindName("customTableView");
+            table.ItemsSource = new List<object> { row };
+            table.SelectRowsByPredicate(_ => true);
+            viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+            var menu = (ContextMenu)window.FindResource("tableContextMenu");
+            menu.PlacementTarget = new FrameworkElement { DataContext = row };
+            OpenContextMenu(menu);
+
+            // カスタム右クリック操作：名前と実行対象のTagは元のまま、表示だけが文字列どおりになる。
+            MenuItem[] actions = [.. EnumerateMenuItems(menu).Where(item => item.Name.StartsWith("configuredWebAction_", StringComparison.Ordinal))];
+            CollectionAssert.AreEqual(names, actions.Select(item => (string)item.Header).ToArray(), "見出しの値は操作名のまま。");
+            AssertRendered("カスタム操作", scope, window, [.. actions.Select(item => new MenuItem { Header = item.Header, HeaderTemplate = item.HeaderTemplate })], names);
+
+            // 関連文書：見出しはファイル名。
+            MenuItem documents = FindMenuItem(menu, "tableContextMenuItemOpenDocument");
+            documents.ItemsSource = names.Select(name => @"C:\docs\" + name + ".txt").ToArray();
+            AssertRendered("関連文書", scope, window,
+                [.. names.Select((_, index) => MenuHeaderRenderProbe.GenerateContainer(documents, index))],
+                [.. names.Select(name => name + ".txt")]);
+
+            // 移動先：見出しは移動先のフォルダ。クリック時に使う値（DataContext）は元の文字列のまま。
+            MenuItem move = FindMenuItem(menu, "tableContextMenuItemMoveFile");
+            string[] destinations = [.. names.Select(name => @"C:\songs\" + name)];
+            move.ItemsSource = destinations;
+            MenuItem[] moveItems = [.. destinations.Select((_, index) => MenuHeaderRenderProbe.GenerateContainer(move, index))];
+            CollectionAssert.AreEqual(destinations, moveItems.Select(item => (string)item.DataContext).ToArray(), "クリック時に使う値は元の文字列のまま。");
+            AssertRendered("移動先", scope, window, moveItems, destinations);
+        }, selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external)));
+    }
+
+    /// <summary>
+    /// 既定のメニュー項目スタイルは「_」をアクセスキーとして扱い続けることを確認します。
+    /// 利用者由来の文字列だけを文字どおりに表示するための変更が、固定の見出し（「_Q」のようなアクセスキー指定）まで変える誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void DefaultMenuItemStyle_KeepsAccessKey()
+    {
+        MenuHeaderRenderProbe.WithApplicationStyles(() => MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (scope, _, window) =>
+        {
+            Assert.AreEqual((char?)'Q', MenuHeaderRenderProbe.FindAccessKey(scope, window, new MenuItem { Header = "_Q" }),
+                "既定のスタイルでは文字列の見出しの最初の「_」はアクセスキーとして扱われる。");
+            Assert.IsNull(MenuHeaderRenderProbe.FindAccessKey(scope, window, new MenuItem { Header = "_Q", HeaderTemplate = LiteralMenuHeader.Template }),
+                "文字どおりに表示する見出しはアクセスキーを持たない。");
+        }));
+    }
+
+    private static void AssertRendered(string label, TestWindowPresentationScope scope, Window window, IReadOnlyList<MenuItem> items, IReadOnlyList<string> expected)
+    {
+        CollectionAssert.AreEqual(expected.ToArray(), MenuHeaderRenderProbe.RenderHeaderTexts(scope, window, items).ToArray(), label + "：描画された文字列は「_」を含めて元のまま。");
+    }
+
+    private static PlaylistDetailRow CreatePlaylistRow(string md5, ChartFileKind kind, string? path)
+    {
+        var entry = BMSTableEntry.CreateHydratedPlaylistEntry(
+            playlistId: 1,
+            md5Value: md5,
+            sha256Value: new string('b', 64),
+            levelValue: null,
+            titleValue: "Playlist chart",
+            artistValue: "Artist",
+            folderValue: string.Empty,
+            lr2BmsIdValue: string.Empty,
+            urlValue: string.Empty,
+            urlDiffValue: string.Empty,
+            nameDiffValue: string.Empty,
+            orgMd5Value: string.Empty,
+            addDateValue: null,
+            commentValue: string.Empty,
+            memoValue: string.Empty,
+            isRemovedValue: false);
+        ChartFile chart = new(
+            kind,
+            path: path!,
+            md5,
+            new string('b', 64),
+            "Playlist chart",
+            "Playlist chart",
+            "Artist",
+            string.Empty,
+            "Charts",
+            string.Empty,
+            "7",
+            7,
+            1,
+            null,
+            null,
+            null);
+        return new PlaylistDetailSourceRow(entry, chart).CreateViewRow();
+    }
+
+    /// <summary>外部操作端末が全操作を不可としたメニューでは区切り線も隠し、操作のない空groupだけを表示しません。</summary>
+    [TestMethod]
+    public void CompiledTableContextMenuHidesExternalSeparatorWithoutVisibleExternalActions()
+    {
+        LibraryChartRow row = CreateChartRow(
+            ChartFileKind.Bms,
+            "33333333333333333333333333333333",
+            @"C:\wave6e-external-separator\chart.bms");
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+
+                OpenContextMenu(menu);
+
+                Separator separator = menu.Items
+                    .OfType<Separator>()
+                    .Single(item => item.Name == "tableContextMenuSeparatorExternalActions");
+                Assert.AreEqual(Visibility.Collapsed, separator.Visibility);
+            },
+            selectedChartContextMenuTerminals: CreateTerminals());
+    }
+
+    /// <summary>実未所持行のメニューは三形式を表示し、所持化では実形式へ絞ります。クリックは選択差替えに追従せず元行と最新の有効設定を使います。</summary>
+    [TestMethod]
+    public void MissingPlaylistWebMenuRechecksSettingsAndKeepsOriginalTarget()
+    {
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings();
+        RightClickWebActionDefinition[] definitions = new[] { ExternalChartKind.BmsOnly, ExternalChartKind.BmsonOnly, ExternalChartKind.All }
+            .Select((kind, index) => new RightClickWebActionDefinition("web" + index, "Web " + index, "https://example.test/" + index + "/{sha256}", true, kind)).ToArray();
+        settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(definitions, []));
+        var owner = new SelectedChartExternalActionWorkflowOwner(_ => false, ExternalShellGatewayPolicy.Current, settingsProvider: () => settings);
+        var calls = new List<RightClickActionResolutionInput>();
+        var external = new MainWindowSelectedChartExternalActionsTerminal(owner.CanExecute, owner.Execute,
+            _ => false, (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable), _ => { },
+            owner.CreateResolutionInput, owner.ResolveConfiguredActions,
+            (input, _, id) =>
+            {
+                if (!owner.ResolveConfiguredActions(input).WebActions.Any(action => action.Id == id))
+                { return owner.ExecuteConfiguredAction(input, ConfiguredExternalActionKind.Web, id); }
+                calls.Add(input);
+                return ExternalConfiguredActionResult.Success;
+            });
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(settings, (viewModel, window) =>
+        {
+            var table = (CustomTableView)window.FindName("customTableView");
+            PlaylistDetailRow missing = CreateMissingPlaylistRow(new string('d', 32));
+            LibraryChartRow other = CreateChartRow(ChartFileKind.Bms, new string('e', 32), @"C:\Other\chart.bms");
+            table.ItemsSource = new List<object> { missing, other };
+            table.SelectRowsByPredicate(row => ReferenceEquals(row, missing));
+            viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
+            var menu = (ContextMenu)window.FindResource("tableContextMenuPlaylistMissing");
+            menu.PlacementTarget = new FrameworkElement { DataContext = missing };
+            OpenContextMenu(menu);
+            CollectionAssert.AreEqual(new[] { "configuredWebAction_web0", "configuredWebAction_web1", "configuredWebAction_web2" },
+                EnumerateMenuItems(menu).Where(item => item.Name.StartsWith("configuredWebAction_", StringComparison.Ordinal)).Select(item => item.Name).ToArray());
+            table.SelectRowsByPredicate(row => ReferenceEquals(row, other));
+            foreach (string id in new[] { "web0", "web1", "web2" })
+            { Assert.IsTrue(RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_" + id)).Handled); }
+            Assert.AreEqual(3, calls.Count);
+            Assert.IsTrue(calls.All(input => input.Md5 == new string('d', 32) && input.Sha256 == new string('b', 64) && input.ChartKind == null && input.LocalFilePath == null));
+            settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(
+                [new RightClickWebActionDefinition("web0", "Disabled", "https://example.test/{sha256}", false, ExternalChartKind.BmsOnly)], []));
+            Assert.IsTrue(RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_web0")).Handled);
+            Assert.IsTrue(RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_web1")).Handled);
+            Assert.AreEqual(3, calls.Count);
+            settings.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(new RightClickActionSettings(definitions, []));
+            foreach (ChartFileKind kind in new[] { ChartFileKind.Bms, ChartFileKind.Bmson })
+            {
+                LibraryChartRow owned = CreateChartRow(kind, new string('d', 32), @"C:\Owned\chart.bms");
+                table.ItemsSource = new List<object> { owned };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var ownedMenu = (ContextMenu)window.FindResource("tableContextMenu");
+                ownedMenu.PlacementTarget = new FrameworkElement { DataContext = owned };
+                OpenContextMenu(ownedMenu);
+                CollectionAssert.AreEqual(new[] { kind == ChartFileKind.Bms ? "configuredWebAction_web0" : "configuredWebAction_web1", "configuredWebAction_web2" },
+                    EnumerateMenuItems(ownedMenu).Where(item => item.Name.StartsWith("configuredWebAction_", StringComparison.Ordinal)).Select(item => item.Name).ToArray());
+            }
+            table.ItemsSource = new List<object> { missing };
+            table.SelectRowsByPredicate(_ => true);
+            viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PlaylistNotOwnedFilterSelected);
+            menu.PlacementTarget = new FrameworkElement { DataContext = missing };
+            OpenContextMenu(menu);
+            Assert.AreEqual(3, EnumerateMenuItems(menu).Count(item => item.Name.StartsWith("configuredWebAction_", StringComparison.Ordinal)));
+        }, selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
+    }
+
+    /// <summary>BMS・bmson保留の複数選択でも設定プログラムClickは右クリック行を使い、メニューを開いた後の導入path変更を捕捉して現pathを一回起動します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CompiledPendingProgramMenuLaunchesCurrentRightClickedChartWithMultipleSelection(bool bmson)
+    {
+        ChartFileKind kind = bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
+        string extension = kind == ChartFileKind.Bmson ? ".bmson" : ".bms";
+        string chartPath = @"C:\Pending\right clicked" + extension;
+        string updatedPath = @"C:\Pending\current chart" + extension;
+        string otherPath = @"C:\Pending\first selected" + extension;
+        Settings settings = TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.RightClickActionsJson = RightClickActionSettingsSerializer.Serialize(
+                new RightClickActionSettings([], [new RightClickProgramActionDefinition(
+                    "player", "Player", @"C:\Tools\player.exe", "--chart \"{filePath}\"", enabled: true)]));
+            });
+        var requests = new List<ExternalProgramLaunchRequest>();
+        SelectedChartExternalActionWorkflowOwner owner = new(
+            path => path == chartPath || path == updatedPath || path == otherPath,
+            ExternalShellGatewayPolicy.Current,
+            settingsProvider: () => settings,
+            externalProgramLaunchGateway: new CapturingProgramLaunchGateway(requests));
+        MainWindowSelectedChartExternalActionsTerminal external = new(
+            owner.CanExecute,
+            owner.Execute,
+            _ => false,
+            (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable),
+            owner.OpenRelatedDocument,
+            owner.CreateResolutionInput,
+            owner.ResolveConfiguredActions,
+            owner.ExecuteConfiguredAction);
+        var row = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(
+            CreateChartRow(kind, new string('c', 32), chartPath).Chart));
+        var otherRow = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(
+            CreateChartRow(kind, new string('d', 32), otherPath).Chart));
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            settings,
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { otherRow, row };
+                table.SelectRowsByPredicate(_ => true);
+                CollectionAssert.AreEqual(new object[] { otherRow, row }, table.GetSelectedRowsSnapshot().ToArray());
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.PendingInstallFolderSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                OpenContextMenu(menu);
+
+                MenuItem parent = FindMenuItem(menu, "tableContextMenuItemOpenProgramActions");
+                Assert.AreEqual(Visibility.Visible, parent.Visibility);
+                Assert.IsTrue(parent.IsEnabled);
+                Assert.AreEqual(Resources.RightClick_open_with_program, parent.Header);
+                MenuItem child = FindMenuItem(parent, "configuredProgramAction_player");
+                Assert.AreEqual(Visibility.Visible, child.Visibility);
+                Assert.IsTrue(child.IsEnabled);
+                Assert.AreEqual("Player", child.Header);
+                Assert.AreEqual(0, requests.Count);
+
+                row.PackageEntry.ApplyCurrentChart(ChartFileProjection.WithPath(row.PackageEntry.Chart, updatedPath));
+                Assert.IsTrue(RaiseMenuClick(child).Handled);
+
+                Assert.AreEqual(1, requests.Count);
+                Assert.AreEqual("player", requests[0].ActionId);
+                Assert.AreEqual(updatedPath, requests[0].ChartFilePath);
+                CollectionAssert.AreEqual(new[] { "--chart", updatedPath }, requests[0].Arguments.ToArray());
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
+    }
+
+    /// <summary>compiledローカル・設定web・設定program操作へ対象譜面と利用者順を配送し、表示後に可否が変わると古い可否で実行しません。</summary>
+    [TestMethod]
+    public void CompiledSelectedChartExternalActionsUseEligibilityAndExactRowTargets()
+    {
+        var localActionCalls = new List<(ChartOperationTarget Target, SelectedChartExternalActionKind Action)>();
+        var configuredCalls = new List<(string Md5, ConfiguredExternalActionKind Kind, string Id)>();
+        var createdTargets = new List<ChartOperationTarget>();
+        bool eligible = true;
+        string md5 = "33333333333333333333333333333333";
+        string chartPath = @"C:\wave6e-external\chart.bms";
+        string[] configuredIds = ["first-web", "second-web", "third-web"];
+        RightClickActionResolution configuredResolution = new(
+            configuredIds.Select(id => new ResolvedRightClickWebAction(
+                new RightClickWebActionDefinition(
+                    id,
+                    id,
+                    "https://example.test/" + id + "/{md5}",
+                    enabled: true,
+                    ExternalChartKind.BmsOnly),
+                "https://example.test/" + id + "/" + md5)),
+            [new ResolvedRightClickProgramAction(
+                new RightClickProgramActionDefinition(
+                    "program",
+                    "Player",
+                    @"C:\Tools\player.exe",
+                    "{filePath}",
+                    enabled: true),
+                [chartPath])]);
+        MainWindowSelectedChartExternalActionsTerminal external = new(
+            (_, action) => eligible
+                && (action is SelectedChartExternalActionKind.OpenExplorer or SelectedChartExternalActionKind.OpenFile),
+            (target, action) => localActionCalls.Add((target, action)),
+            _ => false,
+            (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable),
+            _ => { },
+            createResolutionInput: target =>
+            {
+                createdTargets.Add(target);
+                return new RightClickActionResolutionInput(
+                    target.Chart.Md5,
+                    null,
+                    target.Chart.Path,
+                    ExternalChartKind.BmsOnly);
+            },
+            resolveConfiguredActions: _ => configuredResolution,
+            executeConfiguredAction: (input, actionKind, actionId) =>
+            {
+                if (!eligible)
+                {
+                    return ExternalConfiguredActionResult.Failure(
+                        ExternalConfiguredActionFailureKind.ActionUnavailable,
+                        Resources.RightClick_external_action_unavailable);
+                }
+                configuredCalls.Add((input.Md5, actionKind, actionId));
+                return ExternalConfiguredActionResult.Success;
+            });
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, md5, chartPath);
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                OpenContextMenu(menu);
+
+                Separator externalActionsSeparator = menu.Items
+                    .OfType<Separator>()
+                    .Single(item => item.Name == "tableContextMenuSeparatorExternalActions");
+                Assert.AreEqual(Visibility.Visible, externalActionsSeparator.Visibility);
+
+                (string, SelectedChartExternalActionKind)[] expected = new[]
+                {
+                    ("tableContextMenuItemOpenExplorer", SelectedChartExternalActionKind.OpenExplorer),
+                    ("tableContextMenuItemOpenBMSFile", SelectedChartExternalActionKind.OpenFile)
+                };
+                foreach ((string name, SelectedChartExternalActionKind action) in expected)
+                {
+                    RoutedEventArgs args = RaiseMenuClick(FindMenuItem(menu, name));
+                    Assert.IsTrue(args.Handled);
+                }
+
+                Assert.AreEqual(expected.Length, localActionCalls.Count);
+                for (int index = 0; index < expected.Length; index++)
+                {
+                    Assert.AreSame(row.Chart, localActionCalls[index].Target.Chart);
+                    Assert.AreEqual(expected[index].Item2, localActionCalls[index].Action);
+                }
+
+                foreach (string id in configuredIds)
+                {
+                    RoutedEventArgs args = RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_" + id.Replace("-", "_", StringComparison.Ordinal)));
+                    Assert.IsTrue(args.Handled);
+                }
+                MenuItem programParent = FindMenuItem(menu, "tableContextMenuItemOpenProgramActions");
+                Assert.AreEqual(Resources.RightClick_open_with_program, programParent.Header);
+                RoutedEventArgs programArgs = RaiseMenuClick(FindMenuItem(programParent, "configuredProgramAction_program"));
+                Assert.IsTrue(programArgs.Handled);
+
+                Assert.AreEqual(configuredIds.Length + 1, configuredCalls.Count);
+                CollectionAssert.AreEqual(
+                    configuredIds,
+                    configuredCalls.Where(call => call.Kind == ConfiguredExternalActionKind.Web).Select(call => call.Id).ToArray());
+                Assert.IsTrue(configuredCalls.All(call => call.Md5 == md5));
+                Assert.AreEqual(ConfiguredExternalActionKind.Program, configuredCalls[^1].Kind);
+                Assert.AreEqual("program", configuredCalls[^1].Id);
+                Assert.IsTrue(createdTargets.All(target => ReferenceEquals(target.Chart, row.Chart)));
+
+                eligible = false;
+                int callCountBeforeRejected = configuredCalls.Count;
+                RoutedEventArgs rejectedArgs = RaiseMenuClick(FindMenuItem(menu, "configuredWebAction_first_web"));
+                Assert.IsTrue(rejectedArgs.Handled);
+                Assert.AreEqual(callCountBeforeRejected, configuredCalls.Count);
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
+    }
+
+    /// <summary>関連文書の再照会は旧tokenを取消して最新結果だけを生成Clickへ接続し、取消・利用不可・失敗の終端では古い文書へ差し替えません。</summary>
+    [TestMethod]
+    public void CompiledRelatedDocumentMenuSuppressesStaleResultsAndOpensGeneratedPath()
+    {
+        var queryCompletions = new List<TaskCompletionSource<RelatedDocumentQueryReceipt>>();
+        var queryTargets = new List<ChartOperationTarget>();
+        var queryTokens = new List<CancellationToken>();
+        var openedPaths = new List<string>();
+        MainWindowSelectedChartExternalActionsTerminal external = new(
+            (_, _) => false,
+            (_, _) => { },
+            _ => true,
+            (target, token) =>
+            {
+                queryTargets.Add(target);
+                queryTokens.Add(token);
+                TaskCompletionSource<RelatedDocumentQueryReceipt> completion = NewCompletion<RelatedDocumentQueryReceipt>();
+                queryCompletions.Add(completion);
+                return completion.Task;
+            },
+            path => openedPaths.Add(path),
+            _ => null,
+            _ => new RightClickActionResolution([], []),
+            (_, _, _) => ExternalConfiguredActionResult.Failure(
+                ExternalConfiguredActionFailureKind.ActionUnavailable,
+                string.Empty));
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, "44444444444444444444444444444444", @"C:\wave6e-related\chart.bms");
+
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                try
+                {
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new List<object> { row };
+                    table.SelectRowsByPredicate(_ => true);
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+
+                    OpenContextMenu(menu);
+                    Assert.AreEqual(1, queryCompletions.Count);
+                    OpenContextMenu(menu);
+                    Assert.AreEqual(2, queryCompletions.Count);
+                    Assert.IsTrue(queryTokens[0].IsCancellationRequested);
+
+                    queryCompletions[0].SetResult(RelatedDocumentQueryReceipt.Available(["stale.txt"]));
+                    MenuItem document = FindMenuItem(menu, "tableContextMenuItemOpenDocument");
+                    Assert.IsNull(document.ItemsSource);
+                    Assert.IsFalse(document.IsEnabled);
+
+                    var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var enabled = DependencyPropertyDescriptor.FromProperty(UIElement.IsEnabledProperty, typeof(MenuItem));
+                    EventHandler enabledChanged = (_, _) => { if (document.IsEnabled) { applied.TrySetResult(); } };
+                    enabled.AddValueChanged(document, enabledChanged);
+                    try
+                    {
+                        queryCompletions[1].SetResult(RelatedDocumentQueryReceipt.Available(["current.txt"]));
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(applied.Task, "compiled-related-document-applied");
+                    }
+                    finally { enabled.RemoveValueChanged(document, enabledChanged); }
+                    Assert.AreEqual(Visibility.Visible, document.Visibility);
+                    Assert.IsTrue(document.IsEnabled);
+                    Assert.AreEqual("current.txt", document.Items.Cast<object>().Single());
+
+                    document.ApplyTemplate();
+                    document.Measure(new Size(400d, 200d));
+                    document.Arrange(new Rect(0d, 0d, 400d, 200d));
+                    document.UpdateLayout();
+                    var generated = document.ItemContainerGenerator.ContainerFromIndex(0) as MenuItem;
+                    if (generated == null)
+                    {
+                        IItemContainerGenerator generator = document.ItemContainerGenerator;
+                        using (generator.StartAt(
+                            generator.GeneratorPositionFromIndex(0),
+                            GeneratorDirection.Forward,
+                            allowStartAtRealizedItem: true))
+                        {
+                            DependencyObject candidate = generator.GenerateNext(out bool newlyRealized);
+                            if (newlyRealized)
+                            {
+                                generator.PrepareItemContainer(candidate);
+                            }
+                        }
+                        generated = document.ItemContainerGenerator.ContainerFromIndex(0) as MenuItem;
+                    }
+                    Assert.IsNotNull(
+                        generated,
+                        $"The related-document item must be generated by the compiled ItemsSource route (items={document.Items.Count}, status={document.ItemContainerGenerator.Status}, style={document.ItemContainerStyle != null}, parent={document.Parent?.GetType().Name ?? "none"}).");
+                    RoutedEventArgs generatedArgs = RaiseMenuClick(generated!);
+                    Assert.IsTrue(generatedArgs.Handled);
+                    CollectionAssert.AreEqual(new[] { "current.txt" }, openedPaths);
+
+                    // 非適用分類は本番consumerの実Taskへ分担。compiled入口のprovider/対象/tokenは上で確認する。
+                    MethodInfo consumer = typeof(MainWindow).GetMethod("PopulateRelatedDocumentsMenuAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                        ?? throw new AssertFailedException("The related-document consumer was not found.");
+                    foreach ((RelatedDocumentQueryReceipt receipt, bool cancelled) in new[]
+                    {
+                        (RelatedDocumentQueryReceipt.Available(["stale.txt"]), true), // 取消tokenでは成功結果も適用しません。
+                        (RelatedDocumentQueryReceipt.Unavailable, false), // 利用不可は文書menuを隠します。
+                        (RelatedDocumentQueryReceipt.Failed, false), // 取得失敗も文書menuを隠します。
+                        (RelatedDocumentQueryReceipt.Canceled, false) // 取消結果は既存表示を変更しません。
+                    })
+                    {
+                        string[] baseline = ["baseline.txt"];
+                        document.ItemsSource = baseline;
+                        document.IsEnabled = false;
+                        document.Visibility = Visibility.Visible;
+                        var task = (Task)(consumer.Invoke(window, [external, document, queryTargets[1], new CancellationToken(cancelled)])
+                            ?? throw new AssertFailedException("The consumer did not return its Task."));
+                        TaskCompletionSource<RelatedDocumentQueryReceipt> result = queryCompletions[^1];
+                        try
+                        {
+                            result.SetResult(receipt);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(task, "related-document-nonapply-consumer");
+                            Assert.AreSame(baseline, document.ItemsSource);
+                            Assert.IsFalse(document.IsEnabled);
+                            Assert.AreEqual(!cancelled && (receipt.Status is RelatedDocumentQueryStatus.Unavailable or RelatedDocumentQueryStatus.Failed)
+                                ? Visibility.Collapsed : Visibility.Visible, document.Visibility);
+                        }
+                        finally
+                        {
+                            result.TrySetResult(RelatedDocumentQueryReceipt.Canceled);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(task, "related-document-finally-consumer");
+                        }
+                    }
+                }
+                finally
+                {
+                    foreach (TaskCompletionSource<RelatedDocumentQueryReceipt> query in queryCompletions)
+                    {
+                        query.TrySetResult(RelatedDocumentQueryReceipt.Canceled);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(query.Task, "related-document-finally-provider");
+                    }
+                }
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(selectedChartExternalActions: external));
+    }
+
+    /// <summary>改名・文字コード修正の実メニューから同期例外・待機後の失敗・型付き失敗を受け、正確な選択パスと一回の一般通知・イベント終端を保ちます。</summary>
+    [TestMethod]
+    [DataRow(0)] // renameのTask取得前に同期throw。
+    [DataRow(1)] // renameの実Taskがgate後にfault。
+    [DataRow(2)] // encodingの非同期結果が型付き失敗。
+    [DataRow(3)] // 所有要求がないOCEも失敗として一度通知。
+    public void CompiledSelectedMutationFailuresReachOneOwningNotice(int failureKind)
+    {
+        Exception failure = failureKind == 3
+            ? new OperationCanceledException("unowned cancellation marker")
+            : new IOException("selected mutation terminal marker");
+        TaskCompletionSource<SelectedChartMutationResult> releaseOperation = NewCompletion<SelectedChartMutationResult>();
+        TaskCompletionSource<bool> noticeStarted = NewCompletion<bool>();
+        TaskCompletionSource<UiDialogResult> releaseNotice = NewCompletion<UiDialogResult>();
+        var paths = new List<string>();
+        var dialogs = new FileDbReportRecordingDialogs
+        {
+            MessageHandler = _ =>
+            {
+                noticeStarted.TrySetResult(true);
+                return releaseNotice.Task;
+            }
+        };
+        var mutation = new MainWindowSelectedChartMutationTerminal(
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            request =>
+            {
+                paths.AddRange(request.Targets.Select(target => target.Chart.Path));
+                if (failureKind == 0) { throw failure; }
+                return releaseOperation.Task;
+            },
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            request =>
+            {
+                paths.AddRange(request.Charts.Select(chart => chart.Path));
+                return Task.FromResult(SelectedChartMutationResult.Failed(failure));
+            });
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), @"C:\selected-terminal\chart.bms");
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                MenuItem item = failureKind >= 2
+                    ? FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First()
+                    : FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt");
+                Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                try
+                {
+                    CollectionAssert.AreEqual(new[] { row.Chart.Path }, paths);
+                    if (failureKind == 1)
+                    {
+                        Assert.IsFalse(terminal.IsCompleted);
+                        Assert.AreEqual(0, dialogs.Messages.Count);
+                        releaseOperation.TrySetException(failure);
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        TestUiDispatcherHost.AwaitNotificationAsync(noticeStarted.Task, terminal, "selected mutation notice"),
+                        "selected mutation notice-or-terminal");
+                    Assert.AreEqual(1, dialogs.Messages.Count);
+                    Assert.AreEqual(Resources.Msg_error_unexpected, dialogs.Messages[0].MessageBoxText);
+                    Assert.AreEqual(MessageBoxImage.Hand, dialogs.Messages[0].Icon);
+                    Assert.AreSame(window, dialogs.Messages[0].Owner);
+                    Assert.IsFalse(terminal.IsCompleted);
+                    releaseNotice.TrySetException(new IOException("optional notice fault"));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected mutation event terminal");
+                    CollectionAssert.AreEqual(new[] { row.Chart.Path }, paths);
+                    Assert.AreEqual(1, dialogs.Messages.Count);
+                }
+                finally
+                {
+                    releaseOperation.TrySetResult(SelectedChartMutationResult.Completed);
+                    releaseNotice.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected mutation finally terminal");
+                }
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(mutation: mutation),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    /// <summary>
+    /// compiledメニューの削除・改名・文字コード修正を実の選択譜面変更ownerへ接続し、テストがLを保持した状態で操作したとき、
+    /// ownerと画面の通知先に共有した記録用ダイアログへ受付使用中の警告（本文・題名・Exclamation・OK・画面所有）だけが一度届き、汎用エラーを重ねないことを確認します。
+    /// 結果は成功・失敗と区別した使用中で、確認ダイアログを出さず、拒否後にLが解放済みであることも確認します。移動は親フォルダ一覧の束縛が必要なためownerテストへ分担します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("delete")]
+    [DataRow("rename")]
+    [DataRow("encoding")]
+    public void CompiledSelectedMutationBusyShowsOneOwningWarning(string entry)
+    {
+        var dialogs = new FileDbReportRecordingDialogs();
+        var admission = new ChartFileOperationSynchronizer();
+        var owner = new SelectedChartMutationWorkflowOwner(() => UninitializedBmsLibrary.Create(), admission, new ChartMutationActivityOwner(),
+            new NoOpChartMutationPlaybackPort(), dialogs, new PlaybackPanelTestSupport.UnusedPendingDeletionDialog());
+        var results = new List<Task<SelectedChartMutationResult>>();
+        Task<SelectedChartMutationResult> Record(Task<SelectedChartMutationResult> operation) { results.Add(operation); return operation; }
+        var mutation = new MainWindowSelectedChartMutationTerminal(
+            request => Record(owner.DeleteAsync(request)),
+            request => Record(owner.RenameInvalidExtensionsAsync(request)),
+            request => Record(owner.MoveAsync(request)),
+            request => Record(owner.ApplyEncodingAsync(request)));
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('d', 32), @"C:\selected-busy\chart.bms");
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                MenuItem item = entry switch
+                {
+                    "delete" => (MenuItem)FindMenuItem(menu, "tableContextMenuItemDeleteFile").Items[1],
+                    "rename" => FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt"),
+                    _ => FindMenuItem(menu, "tableContextMenuItemFixEncoding").Items.OfType<MenuItem>().First()
+                };
+                Assert.IsTrue(admission.TryEnter(out IDisposable held));
+                using (held)
+                {
+                    Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected busy event terminal");
+                    Task<SelectedChartMutationResult> operation = results.Single();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "selected busy owner result");
+                    SelectedChartMutationResult result = operation.Result;
+                    Assert.IsFalse(result.Succeeded);
+                    Assert.IsTrue(result.Busy, "使用中は成功・取消・失敗と区別します。");
+                    Assert.IsNull(result.Failure, "使用中を汎用の失敗にしません。");
+                    UiMessageRequest warning = dialogs.Messages.Single();
+                    Assert.AreEqual(Resources.Warn_LibraryOperationBusy, warning.MessageBoxText);
+                    Assert.AreEqual(Resources.Warning, warning.Caption);
+                    Assert.AreEqual(MessageBoxImage.Exclamation, warning.Icon);
+                    Assert.AreEqual(MessageBoxButton.OK, warning.Button);
+                    Assert.AreEqual(0, dialogs.Messages.Count(message => message.MessageBoxText == Resources.Msg_error_unexpected));
+                }
+                Assert.IsTrue(admission.TryEnter(out IDisposable next), "拒否はLを保持し続けません。");
+                next.Dispose();
+                Assert.AreEqual(1, dialogs.Messages.Count, "解放だけでは再警告しません。");
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(mutation: mutation),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    /// <summary>物理・DB反映・確定後反映・後片付けの四種のreceiptを実reportへ一度渡し、compiled rename入口が汎用通知を重ねないことを確認します。確定factsと実解放は下位ownerテストが分担します。</summary>
+    [TestMethod]
+    [DataRow(0)]
+    [DataRow(1)]
+    [DataRow(2)]
+    [DataRow(3)]
+    public void CompiledSelectedRenameKeepsOneHandledReceiptNotice(int failureStage)
+    {
+        var failure = new IOException("receipt stage " + failureStage);
+        var receipt = new LibraryMutationSessionReceipt(
+            [new LibraryMutationSessionTarget(@"C:\receipt\chart.bms", @"C:\receipt\chart.bmx")],
+            durableCommit: failureStage >= 2,
+            physicalFailure: failureStage == 0 ? failure : null,
+            applyFailure: failureStage == 1 ? failure : null,
+            finalizationFailure: failureStage == 2 ? failure : null,
+            cleanupFailure: failureStage == 3 ? failure : null);
+        var result = SelectedChartMutationResult.FromReceipt(receipt);
+        var dialogs = new FileDbReportRecordingDialogs();
+        async Task<SelectedChartMutationResult> ReportReceiptAsync(SelectedInvalidExtensionRenameRequest request)
+        {
+            await FileDbMutationReport.ShowAsync(dialogs, Resources.Rename_invalid_ext, receipt, result.Failure);
+            return result;
+        }
+        var mutation = new MainWindowSelectedChartMutationTerminal(
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            ReportReceiptAsync,
+            _ => Task.FromResult(SelectedChartMutationResult.Completed),
+            _ => Task.FromResult(SelectedChartMutationResult.Completed));
+        LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('b', 32), @"C:\receipt\chart.bms");
+        MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+            TestSettingsFactory.CreateIsolatedSettings(),
+            (viewModel, window) =>
+            {
+                var table = (CustomTableView)window.FindName("customTableView");
+                table.ItemsSource = new List<object> { row };
+                table.SelectRowsByPredicate(_ => true);
+                viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(
+                    () => RaiseMenuClick(FindMenuItem(menu, "tableContextMenuItemRenameInvalidExt")));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "selected receipt event terminal");
+                Assert.AreEqual(1, dialogs.Messages.Count);
+                StringAssert.Contains(dialogs.Messages[0].MessageBoxText, failure.Message);
+                Assert.AreEqual(failureStage >= 2, result.HasDurableCommit);
+                Assert.AreEqual(failureStage == 3, result.CompletedWithCleanupFailure);
+            },
+            selectedChartContextMenuTerminals: CreateTerminals(mutation: mutation),
+            playlistWorkspaceDialogService: dialogs);
+    }
+
+    /// <summary>compiledメニューから同じAを二度、個別Close後にBを独立表示します。メニュー表示では読まず、読取中もメイン操作を許可し、選択変更と元ファイル削除で既結果を差し替えません。対象条件表はVMへ分担します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ChartPropertiesMenu_OpensFreshIndependentWindowsAndKeepsCapturedResults(bool pending)
+    {
+        var ownedWorkspace = TestWorkspace.Create(Path.GetTempPath());
+        string path = ownedWorkspace.GetPath("input.tmp");
+        File.WriteAllBytes(path, []);
+        string otherPath = ownedWorkspace.GetPath("other.tmp");
+        File.WriteAllBytes(otherPath, []);
+        using var release = new ManualResetEventSlim();
+        var windows = new List<ChartPropertiesWindow>();
+        TaskCompletionSource<bool>[] entered = new[] { NewCompletion<bool>(), NewCompletion<bool>(), NewCompletion<bool>() };
+        int calls = 0;
+        try
+        {
+            LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), path);
+            LibraryChartRow second = CreateChartRow(ChartFileKind.Bms, new string('b', 32), otherPath);
+            if (pending)
+            {
+                var firstEntry = PackageChartEntry.FromChart(row.Chart);
+                firstEntry.ApplyInstallDestinationMetadata(@"C:\PendingDestination", "", "");
+                row = LibraryChartRow.FromPackageChartEntry(firstEntry);
+                second = LibraryChartRow.FromPackageChartEntry(PackageChartEntry.FromChart(second.Chart));
+            }
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                TestSettingsFactory.CreateIsolatedSettings(),
+                (scope, viewModel, window) =>
+                {
+                    MainWindowViewHostTests.ShowMainWindow(scope, window);
+                    try
+                    {
+                        var table = (CustomTableView)window.FindName("customTableView");
+                        table.ItemsSource = new List<object> { row, second };
+                        viewModel.MainChartList.SetOperationContext(pending ? MainViewUpdateMode.PendingInstallFolderSelected : MainViewUpdateMode.FolderFilterSelected);
+                        var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                        var placement = new FrameworkElement { DataContext = row };
+                        menu.PlacementTarget = placement;
+                        table.SelectRowsByPredicate(_ => false);
+                        OpenContextMenu(menu);
+                        MenuItem item = FindMenuItem(menu, "tableContextMenuItemChartProperties");
+                        Assert.IsTrue(item.IsEnabled);
+                        Assert.AreEqual(0, calls);
+                        for (int i = 0; i < 2; i++)
+                        {
+                            Task terminal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item));
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "chart-properties-menu");
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                                entered[i].Task, window.ChartPropertiesWindows.ReadCompletion, "chart-properties-reader"), "chart-properties-reader");
+                        }
+                        Assert.AreEqual(2, windows.Count);
+                        Assert.IsTrue(windows.All(w => w.IsVisible && w.Owner == null));
+                        Assert.IsTrue(window.IsEnabled, "独立窓の読取り中もメインを操作できます。");
+                        string closedTitle = ((ChartPropertiesViewModel)windows[0].DataContext).Title;
+                        windows[0].Close();
+                        Assert.IsTrue(windows[1].IsVisible);
+                        placement.DataContext = second;
+                        table.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, second));
+                        OpenContextMenu(menu);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item)), "chart-properties-menu-b");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                            entered[2].Task, window.ChartPropertiesWindows.ReadCompletion, "chart-properties-reader-b"), "chart-properties-reader-b");
+                        release.Set();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.ChartPropertiesWindows.ReadCompletion, "chart-properties-all-results");
+                        TestUiDispatcherHost.ProcessQueuedPresentation();
+                        Assert.AreEqual(path, ((ChartPropertiesViewModel)windows[1].DataContext).Path);
+                        Assert.AreEqual(path, ((ChartPropertiesViewModel)windows[1].DataContext).Title);
+                        Assert.AreEqual(otherPath, ((ChartPropertiesViewModel)windows[2].DataContext).Title);
+                        Assert.AreEqual(closedTitle, ((ChartPropertiesViewModel)windows[0].DataContext).Title);
+                        File.Delete(path);
+                        table.SelectRowsByPredicate(candidate => ReferenceEquals(candidate, row));
+                        OpenContextMenu(menu);
+                        Assert.IsFalse(item.IsEnabled);
+                        Assert.AreEqual(path, ((ChartPropertiesViewModel)windows[1].DataContext).Title);
+                        Assert.AreEqual(3, calls);
+                    }
+                    finally
+                    {
+                        release.Set();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(window.ChartPropertiesWindows.CompleteShutdownAsync(), "chart-properties-menu-finally");
+                    }
+                },
+                chartPropertiesManagerFactory: (scope, owner) => new ChartPropertiesWindowManager(owner,
+                    (chart, placement) =>
+                    {
+                        int index = windows.Count;
+                        if (pending && index < 2)
+                        {
+                            Assert.IsNotNull(placement);
+                            Assert.AreEqual(ChartResourcePlacementBasis.Destination, placement.Basis);
+                            Assert.AreEqual(@"C:\PendingDestination", placement.Directory);
+                        }
+                        else if (!pending) { Assert.IsNull(placement); }
+                        var model = new ChartPropertiesViewModel(chart, () =>
+                        {
+                            Interlocked.Increment(ref calls);
+                            entered[index].TrySetResult(true);
+                            release.Wait();
+                            return new ChartResourceDiagnostics(chart.Path, "Artist", [], [], []);
+                        }, placement);
+                        var child = new ChartPropertiesWindow(model);
+                        windows.Add(child);
+                        return child;
+                    }, child =>
+                    {
+                        Assert.IsTrue(child.ShowInTaskbar, "scope介入前の本番設定を観測します。");
+                        scope.PrepareForOwnedPresentation(child);
+                    }));
+        }
+        finally
+        {
+            release.Set();
+        }
+        ownedWorkspace.Dispose();
+    }
+
+    /// <summary>実Show内部の失敗をCloseで回収し、compiledイベントが終了前はshellへ一度通知し、Show中にメイン終了が再入した後は遅い通知を抑止して終端します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void ChartPropertiesMenu_ShowFailureClosesWindowAndHonorsShutdownNotificationBoundary(bool closeDuringShow)
+    {
+        var ownedWorkspace = TestWorkspace.Create(Path.GetTempPath());
+        string path = ownedWorkspace.GetPath("input.tmp");
+        File.WriteAllBytes(path, []);
+        var messages = new FileDbReportRecordingDialogs();
+        ChartPropertiesShowFaultWindow? child = null;
+        MainWindow? shell = null;
+        int calls = 0;
+        DirectoryInfo logDirectory = Directory.CreateDirectory(ownedWorkspace.GetPath("chart-properties-show-failure"));
+        LoggingConfiguration? previousConfiguration = LogManager.Configuration;
+        var capture = new MemoryTarget { Layout = "${message}|${exception:format=tostring}" };
+        try
+        {
+            LogManager.Configuration = new LoggingConfiguration();
+            NLogWrapper.ConfigureApplicationFileLogging(Path.Combine(logDirectory.FullName, "log"), LogLevel.Info, enableInstallPerformanceLogging: false);
+            var configuration = new LoggingConfiguration();
+            configuration.AddRule(LogLevel.Warn, LogLevel.Fatal, capture);
+            LogManager.Configuration = configuration;
+            LibraryChartRow row = CreateChartRow(ChartFileKind.Bms, new string('a', 32), path);
+            MainWindowPackageMaintenanceTestHarness.RunConstructorOnly(
+                TestSettingsFactory.CreateIsolatedSettings(),
+                (scope, viewModel, window) =>
+                {
+                    shell = window;
+                    MainWindowViewHostTests.ShowMainWindow(scope, window);
+                    var table = (CustomTableView)window.FindName("customTableView");
+                    table.ItemsSource = new[] { row };
+                    viewModel.MainChartList.SetOperationContext(MainViewUpdateMode.FolderFilterSelected);
+                    var menu = (ContextMenu)window.FindResource("tableContextMenu");
+                    menu.PlacementTarget = new FrameworkElement { DataContext = row };
+                    OpenContextMenu(menu);
+                    MenuItem item = FindMenuItem(menu, "tableContextMenuItemChartProperties");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        MainWindowEventCompletion.CaptureAsyncEventCompletion(() => RaiseMenuClick(item)), "chart-properties-show-failure");
+                    Assert.IsNotNull(child);
+                    Assert.IsTrue(child.ThemeCloseCompleted);
+                    Assert.IsFalse(child.IsVisible);
+                    Assert.AreEqual(0, calls);
+                    Assert.AreEqual(closeDuringShow ? 0 : 1, messages.Messages.Count);
+                    string[] failures = capture.Logs.Where(log => log.Contains(path, StringComparison.Ordinal)).ToArray();
+                    Assert.AreEqual(1, failures.Length);
+                    StringAssert.Contains(failures[0], "chart properties real Show failure");
+                    StringAssert.Contains(failures[0], nameof(InvalidOperationException));
+                },
+                playlistWorkspaceDialogService: messages,
+                chartPropertiesManagerFactory: (scope, owner) => new ChartPropertiesWindowManager(owner,
+                    (chart, placement) =>
+                    {
+                        child = new ChartPropertiesShowFaultWindow(new ChartPropertiesViewModel(chart, () =>
+                    {
+                        Interlocked.Increment(ref calls);
+                        return new ChartResourceDiagnostics("", "", [], [], []);
+                    }), () => { if (closeDuringShow) { shell?.Close(); } });
+                        return child;
+                    }, scope.PrepareForOwnedPresentation));
+        }
+        finally
+        {
+            LogManager.Flush();
+            LogManager.Configuration = previousConfiguration;
+        }
+        ownedWorkspace.Dispose();
+    }
+
+    private static MainWindowSelectedChartContextMenuTerminals CreateTerminals(
+        MainWindowSelectedChartMutationTerminal? mutation = null,
+        MainWindowSelectedChartResourceHealthTerminal? resourceHealth = null,
+        MainWindowSelectedChartAudioConversionTerminal? audio = null,
+        MainWindowChartInfoParseFailureRemovalTerminal? chartInfoParseFailureRemoval = null,
+        MainWindowScoreViewerTerminal? scoreViewer = null,
+        MainWindowSelectedChartExternalActionsTerminal? selectedChartExternalActions = null)
+    {
+        return new MainWindowSelectedChartContextMenuTerminals(
+            mutation ?? new MainWindowSelectedChartMutationTerminal(
+                _ => Task.FromResult(SelectedChartMutationResult.Completed),
+                _ => Task.FromResult(SelectedChartMutationResult.Completed),
+                _ => Task.FromResult(SelectedChartMutationResult.Completed),
+                _ => Task.FromResult(SelectedChartMutationResult.Completed)),
+            resourceHealth ?? new MainWindowSelectedChartResourceHealthTerminal(
+                _ => Task.FromResult(SelectedChartResourceHealthWorkflowResult.Completed),
+                (_, _) => SelectedChartResourceHealthWorkflowResult.Completed),
+            audio ?? new MainWindowSelectedChartAudioConversionTerminal(
+                (_, _) => Task.FromResult(SelectedChartAudioConversionResult.Empty)),
+            chartInfoParseFailureRemoval ?? new MainWindowChartInfoParseFailureRemovalTerminal(
+                _ => new ChartInfoParseFailureRemovalOperation(
+                    Task.FromResult(new ChartInfoParseFailureRemovalAcceptance(accepted: false)),
+                    Task.FromResult(ChartInfoParseFailureRemovalResult.NotStarted))),
+            scoreViewer ?? new MainWindowScoreViewerTerminal(
+                (_, _) => Task.FromResult<ScoreViewerRegistrationResult>(null!)),
+            selectedChartExternalActions ?? new MainWindowSelectedChartExternalActionsTerminal(
+                (_, _) => false,
+                (_, _) => { },
+                _ => false,
+                (_, _) => Task.FromResult(RelatedDocumentQueryReceipt.Unavailable),
+                _ => { },
+                _ => null,
+                _ => new RightClickActionResolution([], []),
+                (_, _, _) => ExternalConfiguredActionResult.Failure(
+                    ExternalConfiguredActionFailureKind.ActionUnavailable,
+                    string.Empty)));
+    }
+
+    private sealed class CapturingProgramLaunchGateway(List<ExternalProgramLaunchRequest> requests) : IExternalProgramLaunchGateway
+    {
+        public ExternalProgramLaunchResult Launch(ExternalProgramLaunchRequest request)
+        {
+            requests.Add(request);
+            return ExternalProgramLaunchResult.Success;
+        }
+    }
+
+    private static TaskCompletionSource<T> NewCompletion<T>()
+        => new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static void OpenContextMenu(ContextMenu menu)
+    {
+        menu.RaiseEvent(new RoutedEventArgs(ContextMenu.OpenedEvent, menu));
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+    }
+
+    private static RoutedEventArgs RaiseMenuClick(MenuItem item)
+    {
+        var args = new RoutedEventArgs(MenuItem.ClickEvent, item);
+        item.RaiseEvent(args);
+        return args;
+    }
+
+    private static MenuItem FindMenuItem(ItemsControl root, string name)
+    {
+        MenuItem? item = EnumerateMenuItems(root).FirstOrDefault(candidate => candidate.Name == name);
+        if (item != null)
+        {
+            return item;
+        }
+        string availableNames = string.Join(", ", EnumerateMenuItems(root).Select(candidate => candidate.Name ?? "<null>"));
+        throw new AssertFailedException($"Menu item '{name}' was not found. Menu items: {availableNames}");
+    }
+
+    private static IEnumerable<MenuItem> EnumerateMenuItems(ItemsControl root)
+    {
+        foreach (MenuItem item in root.Items.OfType<MenuItem>())
+        {
+            yield return item;
+            foreach (MenuItem nested in EnumerateMenuItems(item))
+            {
+                yield return nested;
+            }
+        }
+    }
+
+    private static LibraryChartRow CreateChartRow(ChartFileKind kind, string md5, string path)
+    {
+        ChartFile chart = new(
+            kind,
+            path,
+            md5,
+            new string('a', 64),
+            "Context chart",
+            "Context chart",
+            "Artist",
+            string.Empty,
+            "Charts",
+            string.Empty,
+            "7",
+            7,
+            1,
+            null)
+        { Token = new OwnedChartToken() };
+        return LibraryChartRow.FromChartFile(chart);
+    }
+
+    private static PlaylistDetailRow CreateMissingPlaylistRow(string md5)
+    {
+        var entry = BMSTableEntry.CreateHydratedPlaylistEntry(
+            playlistId: 1,
+            md5Value: md5,
+            sha256Value: new string('b', 64),
+            levelValue: null,
+            titleValue: "Missing chart",
+            artistValue: "Artist",
+            folderValue: string.Empty,
+            lr2BmsIdValue: string.Empty,
+            urlValue: string.Empty,
+            urlDiffValue: string.Empty,
+            nameDiffValue: string.Empty,
+            orgMd5Value: string.Empty,
+            addDateValue: null,
+            commentValue: string.Empty,
+            memoValue: string.Empty,
+            isRemovedValue: false);
+        ChartFile chart = new(
+            ChartFileKind.Bms,
+            path: null,
+            md5,
+            new string('b', 64),
+            "Missing chart",
+            "Missing chart",
+            "Artist",
+            string.Empty,
+            "Charts",
+            string.Empty,
+            "7",
+            7,
+            1,
+            null,
+            null,
+            null);
+        return new PlaylistDetailSourceRow(entry, chart).CreateViewRow();
+    }
+
+}

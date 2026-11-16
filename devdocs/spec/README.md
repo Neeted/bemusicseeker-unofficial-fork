@@ -4,7 +4,7 @@
 
 ## 領域別の入口
 
-最初に[用語集](glossary.md)と[アーキテクチャ](core/architecture.md)を読み、変更対象の領域へ進みます。
+最初に[用語集](glossary.md)、[アーキテクチャ](core/architecture.md)、[操作の競合ポリシー](core/operation-concurrency-policy.md)を読み、変更対象の領域へ進みます。
 
 | 領域 | 内容 |
 | --- | --- |

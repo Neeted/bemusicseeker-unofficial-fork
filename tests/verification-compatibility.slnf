@@ -1,0 +1,8 @@
+{
+  "solution": {
+    "path": "../BeMusicSeeker.sln",
+    "projects": [
+      "tests/BeMusicSeeker.Compatibility.Tests/BeMusicSeeker.Compatibility.Tests.csproj"
+    ]
+  }
+}

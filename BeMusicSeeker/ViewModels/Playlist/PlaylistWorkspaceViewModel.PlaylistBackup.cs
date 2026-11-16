@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
@@ -11,6 +10,7 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    /// <summary>バックアップの実書込みと後片付けを待ち、失敗は元原因・保存先を診断して一回の結果通知へ渡します。任意通知の失敗を保存結果へ加えません。</summary>
     internal Task BackupPlaylistAsync(string fileName)
     {
         BMSPlaylist tables = getPlaylistStore();
@@ -18,22 +18,17 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             if (PlaylistTreeTables == null || PlaylistTreeTables.Count() == 0)
             {
-                PublishBackupNotification(
-                    BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup,
-                    BeMusicSeeker.Properties.Resources.Warning,
-                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning);
+                return PublishBackupNotification(new PlaylistOperationNotificationOwner.OperationNotification(
+                    PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup)),
+                    nameof(BeMusicSeeker.Properties.Resources.Warning),
+                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning));
             }
-            else
-            {
-                PublishBackupNotification(
-                    BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup
-                        + Environment.NewLine
-                        + Environment.NewLine
-                        + "Playlist persistence is not available.",
-                    BeMusicSeeker.Properties.Resources.Failure,
-                    PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error);
-            }
-            return Task.CompletedTask;
+            TryLogBackupRestoreFailure(new InvalidOperationException("Playlist persistence is not available."),
+                "playlist backup path=" + fileName);
+            return PublishBackupNotification(new PlaylistOperationNotificationOwner.OperationNotification(
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup)),
+                nameof(BeMusicSeeker.Properties.Resources.Failure),
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error));
         }
 
         return BackupPlaylistAsync(tables, fileName);
@@ -42,27 +37,19 @@ public sealed partial class PlaylistWorkspaceViewModel
     private async Task BackupPlaylistAsync(BMSPlaylist tables, string fileName)
     {
         using PlaylistOperationNotificationOwner.OperationNotificationSession session = tables.OperationNotificationOwner.BeginSession();
-        ExceptionDispatchInfo failure = null;
         try
         {
             await Task.Run(() => BackupPlaylist(tables, fileName)).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            failure = ExceptionDispatchInfo.Capture(ex);
+            TryLogBackupRestoreFailure(ex, "playlist backup path=" + fileName);
+            tables.OperationNotificationOwner.QueueError(
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResourceWithDetail(
+                    nameof(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup), ex.Message, detailSeparatorLineBreaks: 2),
+                nameof(BeMusicSeeker.Properties.Resources.Failure));
         }
-        finally
-        {
-            try
-            {
-                PublishPlaylistOperationNotificationReceipt(session, "playlist backup notification");
-            }
-            catch (Exception ex)
-            {
-                failure ??= ExceptionDispatchInfo.Capture(ex);
-            }
-        }
-        failure?.Throw();
+        await PublishBackupRestoreNotificationBestEffortAsync(session, "playlist backup notification").ConfigureAwait(false);
     }
 
     private void BackupPlaylist(BMSPlaylist tables, string fileName)
@@ -74,56 +61,53 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (PlaylistTreeTables.Count() == 0)
         {
             tables.OperationNotificationOwner.QueueWarning(
-                BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup,
-                BeMusicSeeker.Properties.Resources.Warning);
+                PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup)),
+                nameof(BeMusicSeeker.Properties.Resources.Warning));
             return;
         }
 
+        string playlistDump = tables.GetPlaylistDump();
+        AtomicFileWriter.Write(fileName, stagingStream =>
+        {
+            byte[] bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(playlistDump);
+            stagingStream.Write(bytes, 0, bytes.Length);
+        });
+        tables.OperationNotificationOwner.QueueInformation(
+            PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup)),
+            nameof(BeMusicSeeker.Properties.Resources.Success));
+    }
+
+    private Task PublishBackupNotification(PlaylistOperationNotificationOwner.OperationNotification notification)
+    {
+        // storeがない経路では操作sessionがないため、確定した通知からreceiptを直接作ります。
+        var receipt = PlaylistOperationNotificationOwner.OperationNotificationReceipt.Create([notification]);
+        return noticePresenter.BeginRequest(receipt, "playlist backup notification");
+    }
+
+    /// <summary>操作の収集先の通知を、操作の受付を持たない終端で依頼します。依頼の失敗は診断だけに残します。</summary>
+    private async Task PublishBackupRestoreNotificationBestEffortAsync(
+        PlaylistOperationNotificationOwner.OperationNotificationSession session,
+        string routeName)
+    {
         try
         {
-            string playlistDump = tables.GetPlaylistDump();
-            AtomicFileWriter.Write(fileName, stagingStream =>
-            {
-                byte[] bytes = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false).GetBytes(playlistDump);
-                stagingStream.Write(bytes, 0, bytes.Length);
-            });
-            tables.OperationNotificationOwner.QueueInformation(
-                BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
-                BeMusicSeeker.Properties.Resources.Success);
+            await PublishPlaylistOperationNotificationReceiptAsync(session, routeName).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            tables.OperationNotificationOwner.QueueError(
-                BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup
-                    + Environment.NewLine
-                    + Environment.NewLine
-                    + ex.Message,
-                BeMusicSeeker.Properties.Resources.Failure);
-            throw;
+            TryLogBackupRestoreFailure(exception, routeName);
         }
     }
 
-    private void PublishBackupNotification(
-        string message,
-        string caption,
-        PlaylistOperationNotificationOwner.OperationNotificationSeverity severity)
+    private static void TryLogBackupRestoreFailure(Exception exception, string routeName)
     {
-        PlaylistOperationNotificationOwner owner = new();
-        using PlaylistOperationNotificationOwner.OperationNotificationSession session = owner.BeginSession();
-        switch (severity)
+        try
         {
-            case PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information:
-                owner.QueueInformation(message, caption);
-                break;
-            case PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning:
-                owner.QueueWarning(message, caption);
-                break;
-            case PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error:
-                owner.QueueError(message, caption);
-                break;
-            default:
-                throw new ArgumentOutOfRangeException(nameof(severity), severity, null);
+            Ribbit.Logging.NLogWrapper.FileLogger?.Error(exception, routeName + " failed");
         }
-        PublishPlaylistOperationNotificationReceipt(session, "playlist backup notification");
+        catch
+        {
+            // 診断先自身の失敗は、確定した結果へ戻さずこの境界で終えます。
+        }
     }
 }

@@ -1,302 +1,168 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    /// <summary>指定フォルダ、または全通常フォルダのentry値・版と必要候補を捕捉し、初回入力を作ります。</summary>
     internal PlaylistSourceBuildResult BuildDetailSourceRows(
-        BMSTable table,
-        PlaylistDetailSelectionScope selectionScope,
-        string folderName,
-        bool onlyNotOwned,
-        PlaylistLibraryIndexSnapshot libraryIndexSnapshot,
-        CancellationToken cancellationToken,
-        ref string cancellationStage)
+        BMSTable table, string folderName,
+        CancellationToken cancellationToken, ref string cancellationStage)
     {
         IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
             ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
         var stopwatch = Stopwatch.StartNew();
-        int scoreUpdateTargetCount = 0;
-        long entryResolveMs = 0L;
-        long scoreProbeMs = 0L;
-        var scoreProbeMetrics = new PlaylistScoreProbeMetrics();
-        if (table == null)
-        {
-            return new PlaylistSourceBuildResult([], scoreUpdateTargetCount, entryResolveMs, scoreProbeMs, 0L, scoreProbeMetrics);
-        }
-
+        if (table == null) { return new([], 0, 0, 0, 0, new()); }
         dataSource.EnsureEntriesLoaded(table, "BuildDetailSourceRows");
         cancellationToken.ThrowIfCancellationRequested();
-        PlaylistLibraryResolveIndexSnapshot libraryResolveIndex = libraryIndexSnapshot?.ResolveIndex
-            ?? PlaylistLibraryResolveIndexSnapshot.Empty;
-        BMSLibrary.ScoreSnapshot scoreSnapshot = dataSource.GetScoreSnapshot();
-        IReadOnlyDictionary<string, BMSScore> scoresByHash = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Lr2
-            ? scoreSnapshot.ScoresByHash
-            : new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-        IReadOnlyDictionary<string, BMSScore> scoresBySha256 = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Beatoraja
-            ? scoreSnapshot.ScoresBySha256
-            : new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-
-        cancellationStage = "hash_index";
-        cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, LibraryChartRef resolvedChart)> resolvedEntries = [];
+        PlaylistEntryReadSnapshot entries = table.CaptureEntriesReadSnapshot();
+        List<PlaylistEntryChange> selected = [];
+        foreach (PlaylistEntryChange entry in entries.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsDetailEntryInScope(entry.After, folderName)) { selected.Add(entry); }
+        }
         cancellationStage = "entry_resolve";
-        bool includeAllNormalFolders = selectionScope == PlaylistDetailSelectionScope.OverallNormalFolders;
-        foreach (BMSTableEntry entry in SnapshotPlaylistEntriesExceptDummy(table))
+        CatalogReadSnapshot catalog = dataSource.CapturePlaylistReadSnapshot(selected.Select(entry => LookupKey(entry.After)), cancellationToken);
+        var references = new ChartListReferenceInput((dataSource as PlaylistDetailDataSource)?.Library);
+        references.CaptureInitial(selected.SelectMany(entry =>
+        {
+            ChartFile current = catalog.Resolve(LookupKey(entry.After));
+            ChartDetails detail = current == null ? dataSource.ResolveChartInfo(entry.After.Sha256, entry.After.Md5) : null;
+            return ReferenceKeys(entry.After, current, detail?.sha256);
+        }), cancellationToken);
+        BMSLibrary.ScoreSnapshot scores = dataSource.GetScoreSnapshot();
+        int scoreBaseline = scores?.Version ?? dataSource.ScoreSnapshotVersion;
+        var rows = new List<PlaylistDetailSourceRow>(selected.Count);
+        foreach (PlaylistEntryChange entry in selected)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (entry.is_removed
-                || (folderName != null && entry.folder != folderName)
-                || (includeAllNormalFolders
-                    && string.Equals(entry.folder, "[NO SONG]", StringComparison.Ordinal)))
-            {
-                continue;
-            }
-            LibraryChartRef resolvedChart = libraryResolveIndex.ResolveChartForPlaylistEntry(entry);
-            bool isOwned = !string.IsNullOrWhiteSpace(resolvedChart?.Path);
-            if (onlyNotOwned && isOwned)
-            {
-                continue;
-            }
-            resolvedEntries.Add((entry, resolvedChart));
+            PlaylistEntryLookupKey key = LookupKey(entry.After);
+            ChartFile chart = catalog.Resolve(key);
+            catalog.ResolvedCandidates.TryGetValue(key, out LibraryChartRef reference);
+            rows.Add(CreateDetailProjection(dataSource, entry.Entry, entry.After, chart, entry.AfterOrder ?? 0, scores, reference, references));
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        List<(BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo)> preparedEntries = new(resolvedEntries.Count);
-        var resolvedChartSnapshotCache = new Dictionary<LibraryChartRef, ChartFile>();
-        var chartInfoLookupStopwatch = Stopwatch.StartNew();
-        int missingChartInfoResolveTargets = 0;
-        int chartInfoResolvedCount = 0;
-        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef) in resolvedEntries)
+        return new(rows, rows.Count, stopwatch.ElapsedMilliseconds, 0, 0, new() { TargetCount = rows.Count })
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            ChartFile resolvedChart = ResolveChartSnapshot(resolvedChartRef, resolvedChartSnapshotCache);
-            LR2SongDBExtended.chart_info entryChartInfo = null;
-            if (resolvedChart == null)
-            {
-                missingChartInfoResolveTargets++;
-                entryChartInfo = dataSource.ResolveChartInfo(entry.sha256, entry.md5);
-                if (entryChartInfo != null)
-                {
-                    chartInfoResolvedCount++;
-                }
-            }
-            preparedEntries.Add((entry, resolvedChartRef, resolvedChart, entryChartInfo));
-        }
-        chartInfoLookupStopwatch.Stop();
-        detailViewLog("playlist_chart_info_index_resolve entries=" + resolvedEntries.Count
-            + " targets=" + missingChartInfoResolveTargets
-            + " found=" + chartInfoResolvedCount
-            + " version=" + dataSource.ChartInfoIndexVersion
-            + " elapsedMs=" + chartInfoLookupStopwatch.ElapsedMilliseconds);
-        entryResolveMs = stopwatch.ElapsedMilliseconds;
-
-        cancellationToken.ThrowIfCancellationRequested();
-        cancellationStage = "score_probe";
-        var scoreProbeStopwatch = Stopwatch.StartNew();
-        List<(BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BMSScore scoreSnapshot)> scoredEntries = new(preparedEntries.Count);
-        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            BMSScore scoreSnapshotForRow = PlaylistEntryScoreSnapshotResolver.Resolve(
-                entry,
-                resolvedChart,
-                entryChartInfo,
-                scoreSnapshot,
-                scoresByHash,
-                scoresBySha256);
-            scoreUpdateTargetCount++;
-            if (scoreSnapshotForRow != null)
-            {
-                scoreProbeMetrics.MatchedScoreCount++;
-            }
-            scoredEntries.Add((entry, resolvedChartRef, resolvedChart, entryChartInfo, scoreSnapshotForRow));
-        }
-        scoreProbeStopwatch.Stop();
-        scoreProbeMetrics.TargetCount = scoreUpdateTargetCount;
-        scoreProbeMetrics.TotalMs = scoreProbeStopwatch.ElapsedMilliseconds;
-        scoreProbeMs = scoreProbeStopwatch.ElapsedMilliseconds;
-
-        var playlistRows = new List<PlaylistDetailSourceRow>(scoredEntries.Count);
-        cancellationStage = "source_row_materialize";
-        foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BMSScore scoreSnapshotForRow) in scoredEntries)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            playlistRows.Add(dataSource.CreateSourceRow(
-                entry,
-                resolvedChart,
-                scoreSnapshotForRow,
-                entryChartInfo,
-                resolvedChartRef));
-        }
-        long sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
-        return new PlaylistSourceBuildResult(
-            playlistRows,
-            scoreUpdateTargetCount,
-            entryResolveMs,
-            scoreProbeMs,
-            sourceMaterializeMs,
-            scoreProbeMetrics);
+            ReferenceInput = references,
+            CatalogRevision = catalog.CatalogRevision,
+            PlaylistRevision = entries.Revision,
+            ScoreSnapshotVersion = scoreBaseline,
+            ChartInfoIndexVersion = dataSource.ChartInfoIndexVersion
+        };
     }
 
-    internal bool TryPatchDetailSourceChartInfo(
-        PlaylistBuildRequest request,
-        CancellationToken cancellationToken,
-        out int sourceCount,
-        out int dependencyCount,
-        out int patchedCount,
-        out long elapsedMs)
+    private PlaylistDetailSourceRow CreateDetailProjection(IPlaylistDetailDataSource dataSource, BMSTableEntry entry,
+        PlaylistEntryValue value, ChartFile current, long order, BMSLibrary.ScoreSnapshot scores, LibraryChartRef reference = null,
+        ChartListReferenceInput referenceInput = null)
     {
-        IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
-            ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
-        sourceCount = 0;
-        dependencyCount = 0;
-        patchedCount = 0;
-        var stopwatch = Stopwatch.StartNew();
-        List<PlaylistDetailSourceRow> sourceRows;
-        lock (DetailViewState.SyncRoot)
-        {
-            sourceRows = DetailViewState.Source.Rows;
-        }
-        if (sourceRows == null)
-        {
-            elapsedMs = stopwatch.ElapsedMilliseconds;
-            return false;
-        }
+        DetailWorkObserver?.Invoke("playlist_source_projection");
+        BeMusicSeeker.Models.ChartDetails detail = current == null ? dataSource.ResolveChartInfo(value.Sha256, value.Md5) : null;
+        BMSScore score = PlaylistEntryScoreSnapshotResolver.Resolve(value, current, detail, scores,
+            scores?.ScoresByHash, scores?.ScoresBySha256, (dataSource as PlaylistDetailDataSource)?.Library.ScoreSnapshotWorkObserver);
+        if (score != null) { (dataSource as PlaylistDetailDataSource)?.Library.ScoreSnapshotWorkObserver?.Invoke("score_projection_value_copied"); }
+        return dataSource.CreateSourceRow(entry, current, score, detail, reference ?? LibraryChartRef.FromChartFile(current), value, order, referenceInput);
+    }
 
-        sourceCount = sourceRows.Count;
-        BMSLibrary.ScoreSnapshot scoreSnapshot = dataSource.GetScoreSnapshot();
-        IReadOnlyDictionary<string, BMSScore> scoresByHash = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Lr2
-            ? scoreSnapshot.ScoresByHash
-            : new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-        IReadOnlyDictionary<string, BMSScore> scoresBySha256 = scoreSnapshot?.ActiveScoreSource == ActiveScoreSource.Beatoraja
-            ? scoreSnapshot.ScoresBySha256
-            : new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-        var resolvedChartInfos = new LR2SongDBExtended.chart_info[sourceRows.Count];
-        var resolvedScores = new BMSScore[sourceRows.Count];
-        bool[] chartInfoPatchCandidates = new bool[sourceRows.Count];
-        for (int index = 0; index < sourceRows.Count; index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            PlaylistDetailSourceRow row = sourceRows[index];
-            if (row == null || !row.HasEntryChartInfoDependency)
-            {
-                continue;
-            }
-            dependencyCount++;
-            LR2SongDBExtended.chart_info resolved = dataSource.ResolveChartInfo(row.sha256, row.hash);
-            if (AreSameChartInfoIdentity(row.EntryChartInfo, resolved))
-            {
-                continue;
-            }
-            resolvedChartInfos[index] = resolved;
-            resolvedScores[index] = PlaylistEntryScoreSnapshotResolver.Resolve(
-                row.Entry,
-                null,
-                resolved,
-                scoreSnapshot,
-                scoresByHash,
-                scoresBySha256);
-            chartInfoPatchCandidates[index] = true;
-        }
+    private static IEnumerable<PlaylistEntryLookupKey> ReferenceKeys(PlaylistEntryValue value, ChartFile current, string detailSha = null)
+    {
+        foreach (string hash in new[] { current?.Md5, value?.Md5 })
+        { if (!string.IsNullOrWhiteSpace(hash)) { yield return new(PlaylistEntryLookupKeyKind.Md5, hash); } }
+        string effectiveSha = !string.IsNullOrWhiteSpace(current?.Sha256) ? current.Sha256
+            : !string.IsNullOrWhiteSpace(value?.Sha256) ? value.Sha256 : detailSha;
+        foreach (string hash in new[] { effectiveSha, value?.Sha256 })
+        { if (!string.IsNullOrWhiteSpace(hash)) { yield return new(PlaylistEntryLookupKeyKind.Sha256, hash); } }
+    }
 
+    private static PlaylistEntryLookupKey LookupKey(PlaylistEntryValue value)
+        => value == null || value.IsRemoved ? default : !string.IsNullOrWhiteSpace(value.Md5)
+            ? new(PlaylistEntryLookupKeyKind.Md5, value.Md5)
+            : new(PlaylistEntryLookupKeyKind.Sha256, value.Sha256);
+
+    private static bool IsDetailEntryInScope(PlaylistEntryValue value, string folder)
+        => value != null && !value.IsRemoved && value.Md5 != "00000000000000000000000000000000"
+            && (folder == null || value.Folder == folder);
+
+    /// <summary>未所持詳細の重い読取りをworkerで準備し、現役sourceへの登録済み投影をUIの一処理で消費します。</summary>
+    internal bool TryPatchDetailSourceChartInfo(PlaylistBuildRequest request, CancellationToken cancellationToken,
+        out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)
+    {
+        var watch = Stopwatch.StartNew();
+        PlaylistDetailDependencies preparedDependencies;
+        List<PlaylistDetailSourceRow> preparedRows;
+        int chartInfoVersion = request.Identity.ChartInfoIndexVersion;
         lock (DetailBuildState.SyncRoot)
         {
-            if (request.RequestVersion != DetailBuildState.RequestVersion)
-            {
-                elapsedMs = stopwatch.ElapsedMilliseconds;
-                return false;
-            }
             lock (DetailViewState.SyncRoot)
             {
-                if (!ReferenceEquals(DetailViewState.Source.Rows, sourceRows))
+                preparedDependencies = EnsureDetailDependencies();
+                preparedRows = preparedDependencies.Rows;
+                sourceCount = preparedRows.Count;
+                dependencyCount = patchedCount = 0;
+                if (request.RequestVersion != DetailBuildState.RequestVersion) { elapsedMs = watch.ElapsedMilliseconds; return false; }
+                cancellationToken.ThrowIfCancellationRequested();
+                if (preparedDependencies.PendingReferenceProjections.Count > 0) { elapsedMs = watch.ElapsedMilliseconds; return false; }
+                BMSLibrary.ScoreSnapshot scores = detailDataSource.GetScoreSnapshot();
+                var projection = new PlaylistPendingReferenceProjection { ChartInfoVersion = chartInfoVersion };
+                // 明示再要求の未所持詳細は既存の依存集合だけを評価し、参照snapshotの準備もworkerに残します。
+                foreach (PlaylistDetailSourceRow row in preparedDependencies.EntryChartInfoRows())
                 {
-                    elapsedMs = stopwatch.ElapsedMilliseconds;
-                    return false;
-                }
-                var patchedRows = new List<PlaylistDetailSourceRow>(sourceRows);
-                for (int index = 0; index < sourceRows.Count; index++)
-                {
-                    if (!chartInfoPatchCandidates[index])
-                    {
-                        continue;
-                    }
-                    PlaylistDetailSourceRow currentRow = sourceRows[index];
-                    LR2SongDBExtended.chart_info resolved = resolvedChartInfos[index];
-                    if (currentRow == null
-                        || !currentRow.HasEntryChartInfoDependency
-                        || AreSameChartInfoIdentity(currentRow.EntryChartInfo, resolved))
-                    {
-                        continue;
-                    }
-                    patchedRows[index] = currentRow.WithEntryChartInfoAndScore(resolved, resolvedScores[index]);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    dependencyCount++;
+                    BeMusicSeeker.Models.ChartDetails info = detailDataSource.ResolveChartInfo(row.sha256, row.hash);
+                    if (AreSameChartInfoIdentity(row.EntryChartInfo, info)) { continue; }
+                    PlaylistDetailSourceRow next = row.WithEntryChartInfoAndScore(info, ResolveDetailScore(row, info, scores));
+                    projection.Changes.Add((row, next));
                     patchedCount++;
                 }
-                DetailViewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRows);
-                DetailViewState.Source.PreviousGenerationId = DetailViewState.Source.GenerationId;
-                DetailViewState.Source.Rows = patchedRows;
-                DetailViewState.Source.LastBuiltChartInfoIndexVersion = request.Identity.ChartInfoIndexVersion;
-                DetailViewState.Source.CurrentIdentity = request.Identity.SourceIdentity;
-                DetailViewState.Source.GenerationId++;
+                PrepareReferenceProjection(preparedDependencies, projection);
+                cancellationToken.ThrowIfCancellationRequested();
+                preparedDependencies.PendingReferenceProjections.Add(preparedDependencies.DetailProjectionKey, projection);
             }
         }
-        stopwatch.Stop();
-        elapsedMs = stopwatch.ElapsedMilliseconds;
-        return true;
+        bool applied = false;
+        // 登録後の投影はsourceが所有します。要求の取消でUI配送を捨てず、現役sourceなら既存consumerへ渡します。
+        playlistRestoreUiApplyScheduler(() => applied = PreserveDetailSelection(() =>
+        {
+            bool ready, currentRequest;
+            lock (DetailBuildState.SyncRoot)
+            {
+                lock (DetailViewState.SyncRoot)
+                {
+                    PlaylistDetailSourceSnapshotState state = DetailViewState.Source;
+                    if (!ReferenceEquals(state.Dependencies, preparedDependencies) || !ReferenceEquals(state.Rows, preparedRows)
+                        || !state.CurrentIdentity.HasValue) { return false; }
+                    ready = state.LastBuiltChartInfoIndexVersion >= chartInfoVersion
+                        || ResumePendingDetailProjection(preparedDependencies, DetailViewState.View.Rows as PlaylistDetailVirtualView,
+                            DetailViewState.View.CurrentIdentity);
+                    if (ready) { UpdateDetailIdentities(); }
+                    currentRequest = request.RequestVersion == DetailBuildState.RequestVersion && !cancellationToken.IsCancellationRequested;
+                }
+            }
+            PublishDetailChanges();
+            return ready && currentRequest;
+        })).GetAwaiter().GetResult();
+        elapsedMs = watch.ElapsedMilliseconds;
+        cancellationToken.ThrowIfCancellationRequested();
+        return applied;
     }
 
-    private static ChartFile ResolveChartSnapshot(
-        LibraryChartRef chartRef,
-        IDictionary<LibraryChartRef, ChartFile> cache)
+    private BMSScore ResolveDetailScore(PlaylistDetailSourceRow row, BeMusicSeeker.Models.ChartDetails info, BMSLibrary.ScoreSnapshot scores)
     {
-        if (chartRef == null)
-        {
-            return null;
-        }
-        if (cache != null && cache.TryGetValue(chartRef, out ChartFile cachedChart))
-        {
-            return cachedChart;
-        }
-        ChartFile chart = chartRef.ToChartFileIdentity();
-        if (cache != null)
-        {
-            cache[chartRef] = chart;
-        }
-        return chart;
+        return PlaylistEntryScoreSnapshotResolver.Resolve(row.EntryValue, row.OwnedCurrent, info ?? row.EntryChartInfo, scores,
+            scores?.ScoresByHash, scores?.ScoresBySha256,
+            (detailDataSource as PlaylistDetailDataSource)?.Library.ScoreSnapshotWorkObserver);
     }
 
-    private static bool AreSameChartInfoIdentity(
-        LR2SongDBExtended.chart_info existing,
-        LR2SongDBExtended.chart_info incoming)
-    {
-        if (ReferenceEquals(existing, incoming))
-        {
-            return true;
-        }
-        if (existing == null || incoming == null)
-        {
-            return false;
-        }
-        if (string.IsNullOrWhiteSpace(existing.sha256) || string.IsNullOrWhiteSpace(incoming.sha256))
-        {
-            return false;
-        }
-        if (existing.parser_version <= 0 || incoming.parser_version <= 0)
-        {
-            return false;
-        }
-        if (existing.updated_at == default || incoming.updated_at == default)
-        {
-            return false;
-        }
-        return string.Equals(existing.sha256, incoming.sha256, StringComparison.OrdinalIgnoreCase)
-            && existing.parser_version == incoming.parser_version
-            && existing.updated_at == incoming.updated_at;
-    }
+    private static bool AreSameChartInfoIdentity(BeMusicSeeker.Models.ChartDetails left, BeMusicSeeker.Models.ChartDetails right)
+        => ReferenceEquals(left, right) || left != null && right != null && !string.IsNullOrWhiteSpace(left.sha256)
+            && left.parser_version > 0 && right.parser_version > 0
+            && StringComparer.OrdinalIgnoreCase.Equals(left.sha256, right.sha256)
+            && left.parser_version == right.parser_version && left.updated_at == right.updated_at;
 }

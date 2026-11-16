@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using BeMusicSeeker.Models.LR2;
@@ -67,35 +66,37 @@ internal sealed class PlaylistLampHistoricalScoreChange
 }
 
 /// <summary>
-/// Reads the active score provider's history and produces the immutable score snapshot used by
-/// the playlist lamp aggregation. This owner never opens the inactive provider and never writes
-/// or repairs a database.
+/// 通常成績と同じ取得組の履歴を使い、ランプ集計の過去成績を復元します。DBへ接続しません。
 /// </summary>
 internal sealed class PlaylistLampHistoricalScoreSnapshotReader
 {
     /// <summary>
-    /// Reads the active provider history with no display-row limit and applies the requested date.
+    /// 取得済みの全履歴から指定時刻帯の日付境界で過去スコアを復元します。
     /// </summary>
-    /// <param name="sourceContext">Active provider and already-resolved source paths.</param>
-    /// <param name="currentScoreSnapshot">Current immutable score snapshot.</param>
-    /// <param name="selectedLocalDate">Selected local date, or null for Latest.</param>
-    /// <param name="cancellationToken">Cancellation token for the read.</param>
-    /// <returns>Immutable historical projection result.</returns>
+    /// <param name="sourceContext">使用中の情報源と解決済みの取得元パス。</param>
+    /// <param name="currentScoreSnapshot">現在の変更不能なスコア。</param>
+    /// <param name="selectedLocalDate">基準日のローカル日付。nullは最新。</param>
+    /// <param name="cancellationToken">読取りの取消トークン。</param>
+    /// <param name="timeZone">今日・履歴行の日付・翌日境界へ共通に使う時刻帯。省略時はこの要求のローカル時刻帯。</param>
+    /// <returns>変更不能な過去スコアの復元結果。</returns>
     internal PlaylistLampHistoricalScoreSnapshotResult Read(
         PlaylistLampHistoricalScoreSourceContext sourceContext,
         PlaylistLampScoreSnapshot currentScoreSnapshot,
         DateTime? selectedLocalDate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        TimeZoneInfo timeZone = null)
     {
         ArgumentNullException.ThrowIfNull(currentScoreSnapshot);
         cancellationToken.ThrowIfCancellationRequested();
-        var today = DateTime.SpecifyKind(DateTime.Today, DateTimeKind.Unspecified);
+        timeZone ??= TimeZoneInfo.Local;
+        DateTime today = TimeZoneInfo.ConvertTime(DateTimeOffset.Now, timeZone).Date;
 
         if (sourceContext == null)
         {
             return CreateUnavailable(currentScoreSnapshot, selectedLocalDate, today, "Historical score source is not configured.");
         }
-        if (sourceContext.ActiveScoreSource != currentScoreSnapshot.Source)
+        if (sourceContext.ActiveScoreSource != currentScoreSnapshot.Source
+            || sourceContext.SourceGeneration != currentScoreSnapshot.SourceGeneration)
         {
             return CreateUnavailable(currentScoreSnapshot, selectedLocalDate, today, "Historical score source changed while reading.");
         }
@@ -104,7 +105,7 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
             return CreateUnavailable(currentScoreSnapshot, selectedLocalDate, today, currentScoreSnapshot.FailureMessage);
         }
 
-        ReadChangesResult readResult = ReadChanges(sourceContext, currentScoreSnapshot, cancellationToken);
+        ReadChangesResult readResult = ReadChanges(sourceContext, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
         if (!readResult.IsAvailable)
         {
@@ -120,35 +121,21 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
             sourceContext.ActiveScoreSource,
             selectedLocalDate,
             readResult.Changes,
-            today);
+            today,
+            timeZone);
     }
 
     private static ReadChangesResult ReadChanges(
         PlaylistLampHistoricalScoreSourceContext sourceContext,
-        PlaylistLampScoreSnapshot currentScoreSnapshot,
         CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(sourceContext.ScoreDbPath)
-            || !File.Exists(sourceContext.ScoreDbPath))
-        {
-            return ReadChangesResult.Unavailable("Historical score database does not exist.");
-        }
-
         try
         {
             if (sourceContext.ActiveScoreSource == ActiveScoreSource.Lr2)
             {
-                Lr2PlayHistoryReadResult result = new Lr2PlayHistoryReader().Read(
-                    new Lr2PlayHistoryReadRequest
-                    {
-                        ScoreDbPath = sourceContext.ScoreDbPath,
-                        IsLr2LinkedProfile = sourceContext.IsLr2LinkedProfile,
-                        FinalizationFilter = Lr2PlayHistoryFinalizationFilter.All,
-                        DisableLimit = true,
-                        AllowRepairableIndexRead = true,
-                        RequireCompleteHistoryTriggers = true
-                    },
-                    cancellationToken);
+                Lr2PlayHistoryReadResult captured = sourceContext.PlayHistorySnapshot?.Lr2;
+                if (captured == null) { return ReadChangesResult.Unavailable(string.Empty); }
+                Lr2PlayHistoryReadResult result = Lr2PlayHistoryReader.ForPurpose(captured, true, true);
                 if (result.HasErrors)
                 {
                     return ReadChangesResult.Unavailable(DescribeDiagnostics(result.Diagnostics));
@@ -173,32 +160,19 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
 
             if (sourceContext.ActiveScoreSource == ActiveScoreSource.Beatoraja)
             {
-                string scoreLogPath = Path.Combine(
-                    Path.GetDirectoryName(sourceContext.ScoreDbPath) ?? string.Empty,
-                    "scorelog.db");
-                if (!File.Exists(scoreLogPath))
+                BeatorajaPlayHistoryReadResult result = sourceContext.PlayHistorySnapshot?.Beatoraja;
+                if (result == null) { return ReadChangesResult.Unavailable(string.Empty); }
+                if (result.SchemaStatus != Lr2PlayHistorySchemaStatus.Installed || result.HasErrors)
                 {
-                    return ReadChangesResult.Unavailable("beatoraja scorelog.db does not exist.");
-                }
-                BeatorajaPlayHistoryReadResult result = new BeatorajaPlayHistoryReader().Read(
-                    new BeatorajaPlayHistoryReadRequest
-                    {
-                        ScoreDbPath = sourceContext.ScoreDbPath,
-                        ScoreLogDbPath = scoreLogPath,
-                        ScoresBySha256 = BuildBmsScoreMap(currentScoreSnapshot),
-                        FinalizationFilter = Lr2PlayHistoryFinalizationFilter.FinalizedOnly,
-                        DisableLimit = true
-                    },
-                    cancellationToken);
-                if (result.HasErrors)
-                {
-                    return ReadChangesResult.Unavailable(DescribeDiagnostics(result.Diagnostics));
+                    // scorelog欠落はWarningでも読取不能です。playerだけの警告を失敗理由へ取り違えません。
+                    return ReadChangesResult.Unavailable(DescribeDiagnostics(result.Diagnostics
+                        .Where(diagnostic => string.Equals(diagnostic.SourcePath, result.SourceProfile.SourcePath, StringComparison.OrdinalIgnoreCase)).ToArray()));
                 }
                 var changes = new List<PlaylistLampHistoricalScoreChange>(result.Rows.Count);
                 foreach (BeatorajaPlayHistoryRecord row in result.Rows)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
-                    int? totalNotes = ResolveNotes(sourceContext, row?.sha256, currentScoreSnapshot);
+                    int? totalNotes = row?.notes > 0 ? row.notes : null;
                     changes.Add(new PlaylistLampHistoricalScoreChange(
                         ActiveScoreSource.Beatoraja,
                         row?.sha256,
@@ -221,44 +195,9 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
         }
         catch (Exception exception)
         {
+            PlayHistoryReadDiagnostics.Report(exception, sourceContext.ActiveScoreSource.ToString(), "historical_score_changes", sourceContext.PlayHistorySnapshot?.ScoreDbPath);
             return ReadChangesResult.Unavailable(exception.Message);
         }
-    }
-
-    private static IReadOnlyDictionary<string, BMSScore> BuildBmsScoreMap(PlaylistLampScoreSnapshot snapshot)
-    {
-        var result = new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase);
-        foreach (KeyValuePair<string, PlaylistLampScore> pair in snapshot.ScoresBySha256)
-        {
-            if (string.IsNullOrWhiteSpace(pair.Key) || pair.Value == null)
-            {
-                continue;
-            }
-            result[pair.Key] = new BMSScore
-            {
-                hash = pair.Key,
-                totalnotes = pair.Value.TotalNotes
-            };
-        }
-        return result;
-    }
-
-    private static int? ResolveNotes(
-        PlaylistLampHistoricalScoreSourceContext sourceContext,
-        string sha256,
-        PlaylistLampScoreSnapshot currentScoreSnapshot)
-    {
-        if (!string.IsNullOrWhiteSpace(sha256)
-            && sourceContext.BeatorajaNotesBySha256.TryGetValue(sha256, out int notes)
-            && notes > 0)
-        {
-            return notes;
-        }
-        return !string.IsNullOrWhiteSpace(sha256)
-            && currentScoreSnapshot.ScoresBySha256.TryGetValue(sha256, out PlaylistLampScore score)
-            && score?.TotalNotes > 0
-                ? score.TotalNotes
-                : null;
     }
 
     private static PlaylistLampHistoricalScoreSnapshotResult CreateUnavailable(
@@ -334,30 +273,33 @@ internal sealed class PlaylistLampHistoricalScoreSnapshotReader
 internal static class PlaylistLampHistoricalScoreSnapshotBuilder
 {
     /// <summary>
-    /// Builds Latest or a historical score projection from provider history changes.
+    /// 指定時刻帯の翌日境界以降の履歴を時刻・同時刻の行IDの降順で巻き戻し、最新または過去スコアを構築します。
     /// </summary>
-    /// <param name="currentScoreSnapshot">Current immutable score snapshot.</param>
-    /// <param name="activeSource">The exact active provider.</param>
-    /// <param name="selectedLocalDate">Selected local date, or null for Latest.</param>
-    /// <param name="changes">Provider history rows in any order.</param>
-    /// <param name="todayLocalDate">Testable local today override.</param>
-    /// <returns>Immutable historical result.</returns>
+    /// <param name="currentScoreSnapshot">現在の変更不能なスコア。</param>
+    /// <param name="activeSource">使用中の情報源。</param>
+    /// <param name="selectedLocalDate">基準日のローカル日付。nullは最新。</param>
+    /// <param name="changes">情報源の履歴行。順序は問いません。</param>
+    /// <param name="todayLocalDate">今日の日付の明示値。省略時は指定時刻帯の今日。</param>
+    /// <param name="timeZone">履歴行の日付と翌日境界へ共通に使う時刻帯。省略時はローカル時刻帯。</param>
+    /// <returns>変更不能な過去スコアの復元結果。</returns>
     internal static PlaylistLampHistoricalScoreSnapshotResult Build(
         PlaylistLampScoreSnapshot currentScoreSnapshot,
         ActiveScoreSource activeSource,
         DateTime? selectedLocalDate,
         IEnumerable<PlaylistLampHistoricalScoreChange> changes,
-        DateTime? todayLocalDate = null)
+        DateTime? todayLocalDate = null,
+        TimeZoneInfo timeZone = null)
     {
         ArgumentNullException.ThrowIfNull(currentScoreSnapshot);
-        var today = DateTime.SpecifyKind((todayLocalDate ?? DateTime.Today).Date, DateTimeKind.Unspecified);
+        timeZone ??= TimeZoneInfo.Local;
+        var today = DateTime.SpecifyKind((todayLocalDate ?? TimeZoneInfo.ConvertTime(DateTimeOffset.Now, timeZone).Date).Date, DateTimeKind.Unspecified);
         var rows = (changes ?? [])
             .Where(row => row != null && row.Source == activeSource)
             .ToList();
         DateTime? earliest = null;
         foreach (PlaylistLampHistoricalScoreChange row in rows)
         {
-            if (!TryToLocalDate(row.PlayedAtUnixSeconds, out DateTime localDate))
+            if (!TryToLocalDate(row.PlayedAtUnixSeconds, timeZone, out DateTime localDate))
             {
                 return CreateUnavailable(
                     currentScoreSnapshot,
@@ -393,7 +335,7 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
                 "Selected historical date is outside the available range.");
         }
 
-        long cutoffUnixSeconds = ToUnixSecondsAtLocalMidnight(selected.AddDays(1));
+        long cutoffUnixSeconds = LocalDateBoundary.ToUnixSeconds(selected.AddDays(1), timeZone);
         var futureRows = rows
             .Where(row => row.PlayedAtUnixSeconds >= cutoffUnixSeconds)
             .OrderByDescending(row => row.PlayedAtUnixSeconds)
@@ -530,12 +472,12 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
         return value is 0 or 1 or 2 or 3 or 4 or 5 or 21;
     }
 
-    private static bool TryToLocalDate(long unixSeconds, out DateTime localDate)
+    private static bool TryToLocalDate(long unixSeconds, TimeZoneInfo timeZone, out DateTime localDate)
     {
         try
         {
             localDate = DateTime.SpecifyKind(
-                DateTimeOffset.FromUnixTimeSeconds(unixSeconds).ToLocalTime().Date,
+                TimeZoneInfo.ConvertTime(DateTimeOffset.FromUnixTimeSeconds(unixSeconds), timeZone).Date,
                 DateTimeKind.Unspecified);
             return true;
         }
@@ -544,13 +486,6 @@ internal static class PlaylistLampHistoricalScoreSnapshotBuilder
             localDate = default;
             return false;
         }
-    }
-
-    private static long ToUnixSecondsAtLocalMidnight(DateTime localDate)
-    {
-        var unspecified = DateTime.SpecifyKind(localDate.Date, DateTimeKind.Unspecified);
-        DateTime utc = TimeZoneInfo.ConvertTimeToUtc(unspecified, TimeZoneInfo.Local);
-        return new DateTimeOffset(utc).ToUnixTimeSeconds();
     }
 
     private static PlaylistLampScoreSnapshot CreateFailedScoreSnapshot(

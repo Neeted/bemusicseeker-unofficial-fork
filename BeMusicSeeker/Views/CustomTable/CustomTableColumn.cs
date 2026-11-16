@@ -20,13 +20,16 @@ public enum CustomTableCellKind
     CheckBox
 }
 
+/// <summary>
+/// セルの文字の書体と、縦方向の補正です。描画は <see cref="Kind"/> と <see cref="VerticalOffset"/> を使い、
+/// セルの編集欄は同じ書体と文字サイズを <see cref="CreateTypeface"/> と <see cref="FontSize"/> から得て、描画と編集欄の見た目を揃えます。
+/// </summary>
 internal sealed class CustomTableTextStyle
 {
-    private static readonly FontFamily DefaultFontFamily = new("Meiryo UI");
+    private static readonly FontFamily DefaultFontFamily = AppFontService.DefaultFontFamily;
 
-    private CustomTableTextStyle(string cacheKey, FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
+    private CustomTableTextStyle(FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
     {
-        CacheKey = cacheKey;
         FontFamily = fontFamily;
         FontSize = fontSize;
         VerticalOffset = verticalOffset;
@@ -35,28 +38,23 @@ internal sealed class CustomTableTextStyle
     }
 
     internal static CustomTableTextStyle Normal { get; } = new CustomTableTextStyle(
-        "normal",
         DefaultFontFamily,
         11d,
         0d,
         false);
 
     internal static CustomTableTextStyle NormalBold { get; } = new CustomTableTextStyle(
-        "normal-bold",
         DefaultFontFamily,
         11d,
         0d,
         true);
 
     internal static CustomTableTextStyle Score { get; } = new CustomTableTextStyle(
-        "score-sovjetbox",
         DefaultFontFamily,
         11d,
         1d,
         false,
         usesScoreFontFamily: true);
-
-    internal string CacheKey { get; }
 
     private FontFamily FontFamily { get; }
 
@@ -68,6 +66,17 @@ internal sealed class CustomTableTextStyle
 
     private bool UsesScoreFontFamily { get; }
 
+    /// <summary>描画が文字のレイアウトの整形方式と保持に使う書体の種別です。</summary>
+    internal CustomTableTextKind Kind => UsesScoreFontFamily
+        ? CustomTableTextKind.Score
+        : UseBoldText ? CustomTableTextKind.Bold : CustomTableTextKind.Normal;
+
+    /// <summary>
+    /// セルの編集欄に使う文字の描画方式です。表示フォントで描く文字は、小さいサイズでも滲まないよう画素に合わせます。
+    /// スコア用のフォントは、画素に合わせると線が細く描かれて見え方が変わるため、WPFの既定の方式を保ちます。
+    /// </summary>
+    internal TextFormattingMode TextFormattingMode => UsesScoreFontFamily ? TextFormattingMode.Ideal : TextFormattingMode.Display;
+
     internal CustomTableTextStyle WithFontSize(double fontSize)
     {
         if (double.IsNaN(fontSize) || double.IsInfinity(fontSize) || fontSize <= 0d || FontSize.Equals(fontSize))
@@ -75,9 +84,26 @@ internal sealed class CustomTableTextStyle
             return this;
         }
         return new CustomTableTextStyle(
-            CacheKey + ":size=" + fontSize.ToString("0.###", CultureInfo.InvariantCulture),
             FontFamily,
             fontSize,
+            VerticalOffset,
+            UseBoldText,
+            UsesScoreFontFamily);
+    }
+
+    /// <summary>
+    /// 通常の文字のフォントを置き換えたスタイルを返します。スコア用のフォントが指定された表示は、
+    /// <see cref="CreateTypeface"/> がスコア用のフォントを優先するため変わりません。
+    /// </summary>
+    internal CustomTableTextStyle WithFontFamily(FontFamily fontFamily)
+    {
+        if (fontFamily == null || Equals(FontFamily, fontFamily))
+        {
+            return this;
+        }
+        return new CustomTableTextStyle(
+            fontFamily,
+            FontSize,
             VerticalOffset,
             UseBoldText,
             UsesScoreFontFamily);
@@ -88,15 +114,6 @@ internal sealed class CustomTableTextStyle
         FontFamily fontFamily = UsesScoreFontFamily && scoreFontFamily != null ? scoreFontFamily : FontFamily;
         FontWeight fontWeight = UseBoldText ? FontWeights.Bold : FontWeights.Normal;
         return new Typeface(fontFamily, FontStyles.Normal, fontWeight, FontStretches.Normal);
-    }
-
-    internal string CreateCacheKey(FontFamily scoreFontFamily)
-    {
-        if (!UsesScoreFontFamily || scoreFontFamily == null)
-        {
-            return CacheKey;
-        }
-        return CacheKey + ":" + scoreFontFamily.Source;
     }
 }
 
@@ -114,6 +131,15 @@ internal enum CustomTableStatusIconKind
 
 public sealed class CustomTableColumn
 {
+    private readonly CustomTableCellKind configuredCellKind;
+    private readonly TextAlignment configuredAlignment;
+    private readonly bool configuredEditOnRepeatClick;
+    private readonly string configuredHeader;
+    private readonly Func<string> headerSelector;
+
+    /// <summary>列定義を作ります。</summary>
+    /// <param name="header">固定の見出し文字列。<paramref name="headerSelector"/> がある場合は使用しません。null も許容します。</param>
+    /// <param name="headerSelector">見出しを呼出しごとに現在の表示言語の資源値から返す関数。指定時は <paramref name="header"/> より優先し、null なら固定見出しを使います。</param>
     internal CustomTableColumn(
         string id,
         string header,
@@ -141,14 +167,16 @@ public sealed class CustomTableColumn
         Func<object, string> editTextSelector = null,
         Func<object, IEnumerable<string>> editSuggestionsSelector = null,
         double? tooltipTextWidth = null,
-        bool autoTrimTooltip = true)
+        bool autoTrimTooltip = true,
+        Func<string> headerSelector = null)
     {
         Id = id;
-        Header = header;
+        configuredHeader = header;
+        this.headerSelector = headerSelector;
         Layout = layout;
         FallbackOrder = fallbackOrder;
         SortMemberPath = sortMemberPath;
-        Alignment = alignment;
+        configuredAlignment = alignment;
         TextSelector = textSelector;
         ForegroundSelector = foregroundSelector;
         BackgroundSelector = backgroundSelector;
@@ -161,10 +189,10 @@ public sealed class CustomTableColumn
         MaxWidth = maxWidth.HasValue ? Math.Max(MinWidth, maxWidth.Value) : int.MaxValue;
         CanResize = canResize;
         CanReorder = canReorder;
-        CellKind = cellKind;
+        configuredCellKind = cellKind;
         EditPropertyName = editPropertyName;
         EditTextWrapping = editTextWrapping;
-        EditOnRepeatClick = editOnRepeatClick;
+        configuredEditOnRepeatClick = editOnRepeatClick;
         EditOverlayWidth = editOverlayWidth;
         EditTextSelector = editTextSelector;
         EditSuggestionsSelector = editSuggestionsSelector;
@@ -174,7 +202,11 @@ public sealed class CustomTableColumn
 
     public string Id { get; }
 
-    public string Header { get; }
+    /// <summary>
+    /// 列見出しです。翻訳対象の見出しは <c>headerSelector</c> を呼ぶたびに現在の表示言語の資源値を返し、
+    /// 追加辞書を含む言語変更を、列や行を作り直さずに描画・UIA名へ反映します。固定見出しは構築時の文字列です。
+    /// </summary>
+    public string Header => headerSelector?.Invoke() ?? configuredHeader;
 
     public ICustomTableColumnLayout Layout { get; }
 
@@ -182,7 +214,8 @@ public sealed class CustomTableColumn
 
     public string SortMemberPath { get; }
 
-    public TextAlignment Alignment { get; }
+    /// <summary>広げたURL列は元URLを左寄せにし、その他は列定義の配置を使います。</summary>
+    public TextAlignment Alignment => UsesWideDownloadCell ? TextAlignment.Left : configuredAlignment;
 
     public bool UseBoldText { get; }
 
@@ -198,13 +231,15 @@ public sealed class CustomTableColumn
 
     public bool UseIconText => CellKind != CustomTableCellKind.Text;
 
-    public CustomTableCellKind CellKind { get; }
+    /// <summary>取得用URL列は現在幅40 DIPでボタン、それより広い幅で通常テキストとして扱います。</summary>
+    public CustomTableCellKind CellKind => UsesWideDownloadCell ? CustomTableCellKind.Text : configuredCellKind;
 
     public string EditPropertyName { get; }
 
     public bool EditTextWrapping { get; }
 
-    public bool EditOnRepeatClick { get; }
+    /// <summary>広げたURL列は通常セルと同じ再クリック編集を使います。編集の許可判定は別途維持します。</summary>
+    public bool EditOnRepeatClick => UsesWideDownloadCell || configuredEditOnRepeatClick;
 
     public int? EditOverlayWidth { get; }
 
@@ -217,6 +252,11 @@ public sealed class CustomTableColumn
     public int Width => ClampWidth(Layout?.Width ?? 50);
 
     public bool IsVisible => Layout == null || Layout.Visibility == Visibility.Visible;
+
+    /// <summary>現在幅によって表示値も変わる列だけを、列幅通知から局所失効させます。</summary>
+    internal bool HasWidthDependentContent => configuredCellKind == CustomTableCellKind.DownloadIcon;
+
+    private bool UsesWideDownloadCell => HasWidthDependentContent && Width > 40;
 
     internal Func<object, string> TextSelector { get; }
 
@@ -234,20 +274,24 @@ public sealed class CustomTableColumn
 
     internal Func<object, IEnumerable<string>> EditSuggestionsSelector { get; }
 
+    /// <summary>40 DIPの取得表示と広幅の元URL表示を、同じ列の現在幅から選びます。</summary>
     internal string GetText(object row)
     {
-        return TextSelector == null ? string.Empty : TextSelector(row) ?? string.Empty;
+        return UsesWideDownloadCell ? GetEditText(row) : TextSelector?.Invoke(row) ?? string.Empty;
     }
 
+    /// <summary>取得表示では専用tooltipを保ち、広幅URLでは通常テキストの省略判定へ委ねます。</summary>
     internal string GetTooltip(object row)
     {
+        if (UsesWideDownloadCell) { return null; }
         string tooltip = TooltipSelector == null ? null : TooltipSelector(row);
         return string.IsNullOrWhiteSpace(tooltip) ? null : tooltip;
     }
 
+    /// <summary>表示幅に依存しない元の編集値を返し、URLの編集・コピーに取得用表示を混ぜません。</summary>
     internal string GetEditText(object row)
     {
-        return EditTextSelector == null ? GetText(row) : EditTextSelector(row) ?? string.Empty;
+        return EditTextSelector == null ? TextSelector?.Invoke(row) ?? string.Empty : EditTextSelector(row) ?? string.Empty;
     }
 
     internal Brush GetForeground(object row)
@@ -328,7 +372,10 @@ internal static class CustomTableColumnFactory
     private const double WrappedTooltipTextWidth = 420d;
     private static Brush UndefinedCellBackgroundBrush => CustomTablePalette.Current.UndefinedCellBackground;
 
-    internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(CustomTableColumnSettings settings)
+    /// <summary>表示列を作成します。導入先の候補案内は現在の編集文脈を副作用なしで判定する述語が許可した行だけへ表示します。</summary>
+    /// <param name="settings">表示順・可視性と列幅の正本。</param>
+    /// <param name="canEditInstallDestination">現在文脈の編集能力。未指定なら案内を出さず生pathだけを表示します。受付を行うprobeは渡しません。</param>
+    internal static IReadOnlyList<CustomTableColumn> CreateMainColumns(CustomTableColumnSettings settings, Func<object, bool> canEditInstallDestination = null)
     {
         if (settings == null)
         {
@@ -336,7 +383,7 @@ internal static class CustomTableColumnFactory
         }
         CustomTableColumn[] columns = settings.Kind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY
             ? CreateAllPlayHistoryColumns(settings)
-            : CreateAllMainColumns(settings);
+            : CreateAllMainColumns(settings, canEditInstallDestination);
         return [.. columns
             .Where(column => column.IsVisible)
             .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
@@ -389,7 +436,7 @@ internal static class CustomTableColumnFactory
         }
     }
 
-    private static CustomTableColumn[] CreateAllMainColumns(CustomTableColumnSettings settings)
+    private static CustomTableColumn[] CreateAllMainColumns(CustomTableColumnSettings settings, Func<object, bool> canEditInstallDestination = null)
     {
         return
         [
@@ -400,8 +447,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Genre", "GENRE", settings.Genre, 4, "genre", TextAlignment.Left, row => GetString(row, "genre")),
             new CustomTableColumn("Mode", "KEYS", settings.Mode, 5, "mode", TextAlignment.Right, row => FormatSuffix(GetValue(row, "mode"), "KEYS", "?KEYS"), minWidth: 50, maxWidth: 50, canResize: false, autoTrimTooltip: false),
             new CustomTableColumn("Tag", "TAG", settings.Tag, 6, "tag", TextAlignment.Left, row => GetString(row, "tag")),
-            new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrl(row)?.ToString()),
-            new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, maxWidth: 40, canResize: false, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url_diff), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrlDiff(row)?.ToString()),
+            new CustomTableColumn("Url1", "URL1", settings.Url1, 7, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlToolTipText)), minWidth: 40, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrl(row)?.ToString()),
+            new CustomTableColumn("Url2", "URL2", settings.Url2, 8, null, TextAlignment.Center, row => ConvertLigatureSymbolText(GetString(row, nameof(PlaylistDetailRow.UrlDiffDownloadIconText))), tooltipSelector: row => GetString(row, nameof(PlaylistDetailRow.UrlDiffToolTipText)), minWidth: 40, cellKind: CustomTableCellKind.DownloadIcon, editPropertyName: nameof(PlaylistDetailRow.Url_diff), editOnRepeatClick: false, editOverlayWidth: 250, editTextSelector: row => GridRowResolver.GetUrlDiff(row)?.ToString()),
             new CustomTableColumn("Warning", "WARNING", settings.Warning, 9, nameof(LibraryChartRow.WarningDigestText), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.WarningDigestText)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.WarningTooltipText))),
             new CustomTableColumn("Comment", "COMMENT", settings.Comment, 10, null, TextAlignment.Left, row => GetString(row, "comment"), tooltipSelector: row => GetString(row, "comment"), editPropertyName: "comment", editTextWrapping: true, tooltipTextWidth: WrappedTooltipTextWidth),
             new CustomTableColumn("Memo", "MEMO", settings.Memo, 11, null, TextAlignment.Left, row => GetString(row, "memo"), tooltipSelector: row => GetString(row, "memo"), editPropertyName: "memo", editTextWrapping: true, tooltipTextWidth: WrappedTooltipTextWidth),
@@ -409,12 +456,12 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Sha256", "SHA256 HASH", settings.Sha256, 13, "sha256", TextAlignment.Center, row => GetString(row, "sha256"), maxWidth: 480),
             new CustomTableColumn("Folder", "FOLDER", settings.Folder, 14, "Folder", TextAlignment.Left, row => GetString(row, "Folder"), editPropertyName: "Folder"),
             new CustomTableColumn("Path", "PATH", settings.Path, 15, "path", TextAlignment.Left, row => GetString(row, "path")),
-            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, GetInstallDestinationText, editPropertyName: "instl_dst", editTextSelector: row => GetString(row, "instl_dst"), editSuggestionsSelector: GetInstallDestinationSuggestions),
-            new CustomTableColumn("InstallDstTitle", Resources.Header_InstallDstTitle, settings.InstallDstTitle, 17, "InstallDestinationTitle", TextAlignment.Left, row => GetString(row, "InstallDestinationTitle")),
-            new CustomTableColumn("InstallDstArtist", Resources.Header_InstallDstArtist, settings.InstallDstArtist, 18, "InstallDestinationArtist", TextAlignment.Left, row => GetString(row, "InstallDestinationArtist")),
-            new CustomTableColumn("WavHealth", "WAV", settings.WavHealth, 19, "WAVHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "WAVHealth"), "%", string.Empty), maxWidth: 50, autoTrimTooltip: false),
-            new CustomTableColumn("BgaHealth", "BGA", settings.BgaHealth, 20, "BGAHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "BGAHealth"), "%", string.Empty), maxWidth: 50, autoTrimTooltip: false),
-            new CustomTableColumn("MovieHealth", "MOVIE", settings.MovieHealth, 21, "MovieHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "MovieHealth"), "%", string.Empty), maxWidth: 50, autoTrimTooltip: false),
+            new CustomTableColumn("InstallDst", "INSTL DST", settings.InstallDst, 16, "instl_dst", TextAlignment.Left, row => GetInstallDestinationText(row, canEditInstallDestination?.Invoke(row) == true), editPropertyName: "instl_dst", editTextSelector: row => GetString(row, "instl_dst"), editSuggestionsSelector: GetInstallDestinationSuggestions),
+            new CustomTableColumn("InstallDstTitle", null, settings.InstallDstTitle, 17, "InstallDestinationTitle", TextAlignment.Left, row => GetString(row, "InstallDestinationTitle"), headerSelector: () => Resources.Header_InstallDstTitle),
+            new CustomTableColumn("InstallDstArtist", null, settings.InstallDstArtist, 18, "InstallDestinationArtist", TextAlignment.Left, row => GetString(row, "InstallDestinationArtist"), headerSelector: () => Resources.Header_InstallDstArtist),
+            new CustomTableColumn("WavHealth", "WAV", settings.WavHealth, 19, "WAVHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "WAVHealth"), "%", "-"), maxWidth: 50, autoTrimTooltip: false),
+            new CustomTableColumn("BgaHealth", "BGA", settings.BgaHealth, 20, "BGAHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "BGAHealth"), "%", "-"), maxWidth: 50, autoTrimTooltip: false),
+            new CustomTableColumn("MovieHealth", "MOVIE", settings.MovieHealth, 21, "MovieHealth", TextAlignment.Right, row => FormatSuffix(GetValue(row, "MovieHealth"), "%", "-"), maxWidth: 50, autoTrimTooltip: false),
             new CustomTableColumn("CharcterEncoding", "ENCODING", settings.CharcterEncoding, 22, "encoding", TextAlignment.Left, row => GetString(row, "encoding"), maxWidth: 130),
             new CustomTableColumn("PlaylistSymbols", "PLAYLIST", settings.PlaylistSymbols, 23, nameof(LibraryChartRow.RefTablesSymbols), TextAlignment.Left, row => GetString(row, nameof(LibraryChartRow.RefTablesSymbols)), tooltipSelector: row => GetString(row, nameof(LibraryChartRow.RefTablesNames))),
             new CustomTableColumn("Level", "LEVEL", settings.Level, 24, nameof(LibraryChartRow.ChartLevelSortKey), TextAlignment.Right, row => GetString(row, nameof(LibraryChartRow.ChartLevelText)), backgroundSelector: row => GetUndefinedCellBackground(row, nameof(LibraryChartRow.ChartLevelUndefined))),
@@ -467,7 +514,8 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("OpHistory", "OP HISTORY", settings.PlayHistoryOpHistory, 12, "OpHistory", TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.OpHistory))),
             new CustomTableColumn("PlayExscore", "PLAY EXSCORE", settings.PlayHistoryPlayExscore, 13, "PlayExscore", TextAlignment.Right, row => GetString(row, nameof(PlayHistoryRow.PlayExscore))),
             new CustomTableColumn("Judges", "JUDGES", settings.PlayHistoryJudges, 14, "JudgeTotal", TextAlignment.Left, row => GetString(row, nameof(PlayHistoryRow.Judges))),
-            new CustomTableColumn("Sha256", "SHA256", settings.Sha256, 15, nameof(PlayHistoryRow.Sha256), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Sha256)), maxWidth: 480),
+            new CustomTableColumn("Hash", "MD5 HASH", settings.Hash, 20, nameof(PlayHistoryRow.Md5), TextAlignment.Center, row => (row as PlayHistoryRow)?.Md5, maxWidth: 240),
+            new CustomTableColumn("Sha256", "SHA256", settings.Sha256, 15, nameof(PlayHistoryRow.Sha256), TextAlignment.Center, row => (row as PlayHistoryRow)?.Sha256, maxWidth: 480),
             new CustomTableColumn("RawHash", "RAW HASH", settings.PlayHistoryRawHash, 18, nameof(PlayHistoryRow.RawHash), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.RawHash)), maxWidth: 240),
             new CustomTableColumn("Finalized", "FINALIZED", settings.PlayHistoryFinalized, 19, nameof(PlayHistoryRow.Finalized), TextAlignment.Center, row => GetString(row, nameof(PlayHistoryRow.Finalized)))
         ];
@@ -491,11 +539,11 @@ internal static class CustomTableColumnFactory
             new CustomTableColumn("Link", "LINK", settings.Link, 11, null, TextAlignment.Center, row => GetPlaylistSummaryLinkText(row), tooltipSelector: GetPlaylistSummaryLinkTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryLinkTooltip),
             new CustomTableColumn("Header", "HEADER", settings.Header, 12, nameof(PlaylistSummaryRow.HeaderUriText), TextAlignment.Center, row => GetPlaylistSummaryHeaderText(row), tooltipSelector: GetPlaylistSummaryHeaderTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryHeaderTooltip),
             new CustomTableColumn("Data", "DATA", settings.Data, 13, nameof(PlaylistSummaryRow.DataUriText), TextAlignment.Center, row => GetPlaylistSummaryDataText(row), tooltipSelector: GetPlaylistSummaryDataTooltip, cellKind: CustomTableCellKind.ActionText, editTextSelector: GetPlaylistSummaryDataTooltip),
-            new CustomTableColumn("IsExternalSync", "SYNC", settings.IsExternalSync, 14, nameof(PlaylistSummaryRow.IsExternalSync), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsExternalSync)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
-            new CustomTableColumn("Status", Resources.Playlist_summary_status_header, settings.Status, 15, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail))),
-            new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 16, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
+            new CustomTableColumn("IsExternalSync", "SYNC", settings.IsExternalSync, 14, nameof(PlaylistSummaryRow.IsExternalSync), TextAlignment.Center, row => string.Empty, editTextSelector: row => GetString(row, nameof(PlaylistSummaryRow.IsExternalSync)), checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsExternalSync)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
+            new CustomTableColumn("Status", null, settings.Status, 15, nameof(PlaylistSummaryRow.StatusSortOrder), TextAlignment.Center, row => GetString(row, nameof(PlaylistSummaryRow.Status)), tooltipSelector: row => GetString(row, nameof(PlaylistSummaryRow.StatusDetail)), headerSelector: () => Resources.Playlist_summary_status_header),
+            new CustomTableColumn("IsRootFolder", "ROOT", settings.IsRootFolder, 16, nameof(PlaylistSummaryRow.IsRootFolder), TextAlignment.Center, row => string.Empty, editTextSelector: row => GetString(row, nameof(PlaylistSummaryRow.IsRootFolder)), checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsRootFolder)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false),
             new CustomTableColumn("BmtSort", "BMT SORT", settings.BmtSort, 17, nameof(PlaylistSummaryRow.BmtSort), TextAlignment.Right, row => GetString(row, nameof(PlaylistSummaryRow.BmtSort)), autoTrimTooltip: false),
-            new CustomTableColumn("IsBmtOutput", "BMT OUTPUT", settings.IsBmtOutput, 18, nameof(PlaylistSummaryRow.IsBmtOutput), TextAlignment.Center, row => string.Empty, checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsBmtOutput)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)
+            new CustomTableColumn("IsBmtOutput", "BMT OUTPUT", settings.IsBmtOutput, 18, nameof(PlaylistSummaryRow.IsBmtOutput), TextAlignment.Center, row => string.Empty, editTextSelector: row => GetString(row, nameof(PlaylistSummaryRow.IsBmtOutput)), checkedSelector: row => GetNullableBool(row, nameof(PlaylistSummaryRow.IsBmtOutput)), cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false)
         ];
     }
 
@@ -524,10 +572,10 @@ internal static class CustomTableColumnFactory
         };
     }
 
-    private static string GetInstallDestinationText(object row)
+    private static string GetInstallDestinationText(object row, bool canEdit)
     {
         string destination = GetString(row, "instl_dst");
-        if (!GetInstallDestinationSuggestions(row).Any(candidate => !string.IsNullOrWhiteSpace(candidate)))
+        if (!canEdit || !GetInstallDestinationSuggestions(row).Any(candidate => !string.IsNullOrWhiteSpace(candidate)))
         {
             return destination;
         }
@@ -846,10 +894,10 @@ internal static class CustomTableColumnFactory
         return value switch
         {
             null => string.Empty,
-            double d => d.ToString(CultureInfo.CurrentCulture),
-            float f => f.ToString(CultureInfo.CurrentCulture),
-            decimal m => m.ToString(CultureInfo.CurrentCulture),
-            IFormattable formattable => formattable.ToString(null, CultureInfo.CurrentCulture),
+            double d => d.ToString(CultureInfo.InvariantCulture),
+            float f => f.ToString(CultureInfo.InvariantCulture),
+            decimal m => m.ToString(CultureInfo.InvariantCulture),
+            IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture),
             _ => value.ToString()
         };
     }
@@ -863,24 +911,24 @@ internal static class CustomTableColumnFactory
     {
         if (value is DateTime dateTime)
         {
-            return dateTime.ToShortDateString();
+            return dateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
         }
         return string.Empty;
     }
 
     private static string FormatFixedTwo(object value)
     {
-        return value is IFormattable formattable ? formattable.ToString("F2", CultureInfo.CurrentCulture) : string.Empty;
+        return value is IFormattable formattable ? formattable.ToString("F2", CultureInfo.InvariantCulture) : string.Empty;
     }
 
     private static string FormatDateTime(object value)
     {
-        return value is DateTime dateTime ? dateTime.ToString("yyyy/MM/dd HH:mm:ss", CultureInfo.CurrentCulture) : string.Empty;
+        return value is DateTime dateTime ? DateTimeDisplayFormatter.FormatTimestamp(dateTime) : string.Empty;
     }
 
     private static string FormatPercentOne(object value)
     {
-        return value is IFormattable formattable ? formattable.ToString("F1", CultureInfo.CurrentCulture) + "%" : string.Empty;
+        return value is IFormattable formattable ? formattable.ToString("F1", CultureInfo.InvariantCulture) + "%" : string.Empty;
     }
 
     private static string FormatPercentTwo(object value)
@@ -891,8 +939,8 @@ internal static class CustomTableColumnFactory
         }
         if (value is IConvertible convertible)
         {
-            double ratio = convertible.ToDouble(CultureInfo.CurrentCulture);
-            return (ratio * 100.0).ToString("F2", CultureInfo.CurrentCulture) + "%";
+            double ratio = convertible.ToDouble(CultureInfo.InvariantCulture);
+            return (ratio * 100.0).ToString("F2", CultureInfo.InvariantCulture) + "%";
         }
         return string.Empty;
     }

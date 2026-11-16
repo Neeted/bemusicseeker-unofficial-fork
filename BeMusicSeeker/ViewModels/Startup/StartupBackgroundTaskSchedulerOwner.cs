@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -46,11 +47,25 @@ internal sealed class StartupBackgroundTaskReservation
 }
 
 /// <summary>
-/// Owns startup background work scheduling, accounting, and shutdown drain policy.
+/// 起動の背景処理を受付・実行し、実処理の結果と終端を計上します。任意の診断失敗は受付・実行・終了待機を変更しません。
 /// </summary>
 internal sealed class StartupBackgroundTaskSchedulerOwner
 {
     private readonly AsyncLocal<StartupBackgroundTaskProgressSnapshot> progressContext = new();
+
+    private readonly AsyncLocal<OperationProgressRequest> admissionContext = new();
+    private long additionalOperationToken;
+    private long additionalRevision;
+    private int additionalTotal;
+    private int additionalTerminated;
+    private int additionalOutstanding;
+    private bool warmupRegistered;
+    private bool warmupTerminated;
+
+    private sealed class AdmissionScope(Action restore) : IDisposable
+    {
+        public void Dispose() => restore();
+    }
 
     private const int ReservationStateQueued = 1;
     private const int ReservationStateRunning = 2;
@@ -87,6 +102,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         internal Func<Task> Work;
 
         internal Action<string> Discard;
+
+        internal bool AdditionalTracked;
     }
 
     private sealed class Metric
@@ -156,6 +173,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private int runningRequiredCount;
 
+    // 全体終端のrequired分類と、起動後の排他開始が待つ必須入力を分けます。
+    private int runningRequiredIdleBarrierCount;
+
     private int runningPostInitializationCount;
 
     private int runningPostInitializationIdleOnlyCount;
@@ -170,6 +190,17 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private long idleRevision;
 
+    // 全体idleの間は完了済み、busyへ遷移した後の取得には未完了の新しいTaskを返します。継続は排他の外の別スレッドで実行します。
+    private TaskCompletionSource idleSignal = CreateIdleSignal(completed: true);
+
+    /// <summary>背景処理の受付と終了待機を構成します。診断と進捗購読先の例外を実処理の成否へ加えません。</summary>
+    /// <param name="isShutdownRequested">所有側の終了要求を確認します。</param>
+    /// <param name="logInfo">任意の受付・実行診断。例外は局所で処理します。</param>
+    /// <param name="logWarning">実処理・表示通知の失敗の任意診断。例外は結果を変更しません。</param>
+    /// <param name="logShutdown">終了待機の任意診断。</param>
+    /// <param name="formatTextForLog">終了理由を診断用に整形します。失敗時も終了処理を継続します。</param>
+    /// <param name="schedulerIdleChanged">終端計上後にlock外で通知する購読先。</param>
+    /// <param name="progressSynchronization">進捗識別と受付状態を同期する既存の共有境界。</param>
     internal StartupBackgroundTaskSchedulerOwner(
         Func<bool> isShutdownRequested,
         Action<string> logInfo,
@@ -188,8 +219,106 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         this.progressSynchronization = progressSynchronization ?? throw new ArgumentNullException(nameof(progressSynchronization));
     }
 
-    /// <summary>要求の実行開始・終端を、捕捉した世代と分類付きで通知します。</summary>
+    /// <summary>要求の実行開始・終端を捕捉した世代と分類付きで通知します。購読先の失敗は局所診断し、他の購読先と処理を継続します。</summary>
     internal event Action<StartupBackgroundTaskProgressSnapshot> ProgressChanged;
+
+    /// <summary>起動由来の受付・実終端をlock外で通知します。購読失敗は実仕事を変更しません。</summary>
+    internal event Action<StartupAdditionalProgressSnapshot> AdditionalProgressChanged;
+
+    /// <summary>同期的な一括受付に起動識別を付け、終了時に呼出し元の文脈へ戻します。awaitを跨いで保持しません。</summary>
+    internal IDisposable BeginAdmissionScope(long operationToken, long expectedGeneration)
+    {
+        OperationProgressRequest previous = admissionContext.Value;
+        admissionContext.Value = new(expectedGeneration, operationToken, string.Empty, 0);
+        return new AdmissionScope(() => admissionContext.Value = previous);
+    }
+
+    /// <summary>現起動の追加仕事集計を開始します。旧要求の識別を付け直しません。</summary>
+    internal void BeginAdditionalProgress(long operationToken, long expectedGeneration)
+    {
+        lock (syncRoot)
+        {
+            if (generation != expectedGeneration) { return; }
+            additionalOperationToken = operationToken;
+            foreach (Request request in queue) { EnrollAdditionalUnsafe(request); }
+        }
+        PublishAdditionalProgress();
+    }
+
+    /// <summary>warmupの一連を予約前に一件登録します。予約拒否も既存の完了通知で収束させます。</summary>
+    internal void RegisterAdditionalWarmup(long operationToken, long expectedGeneration)
+    {
+        lock (syncRoot)
+        {
+            if (generation != expectedGeneration || additionalOperationToken != operationToken || warmupRegistered) { return; }
+            warmupRegistered = true;
+            additionalTotal++;
+        }
+        PublishAdditionalProgress();
+    }
+
+    /// <summary>既存warmup ownerの一度だけの終端を現起動の段階へ反映します。</summary>
+    internal void CompleteAdditionalWarmup(long operationToken, long expectedGeneration)
+    {
+        lock (syncRoot)
+        {
+            if (generation != expectedGeneration || additionalOperationToken != operationToken || !warmupRegistered || warmupTerminated) { return; }
+            warmupTerminated = true;
+            additionalTerminated++;
+        }
+        PublishAdditionalProgress();
+        TryStartWorkers();
+    }
+
+    /// <summary>診断回数を使わず、受付と実終端から現起動の集計を取得します。</summary>
+    internal StartupAdditionalProgressSnapshot CaptureAdditionalProgressSnapshot()
+    {
+        lock (syncRoot)
+        {
+            return new(additionalOperationToken, generation, ++additionalRevision, additionalTotal, additionalTerminated,
+                started && postInitializationSchedulingComplete && requiredInitializationSchedulingComplete
+                && additionalOutstanding == 0 && additionalTotal == additionalTerminated);
+        }
+    }
+
+    private bool IsAdditionalRequest(OperationProgressRequest request) => request != null
+        && additionalOperationToken != 0 && request.OperationToken == additionalOperationToken && request.Generation == generation;
+
+    private void EnrollAdditionalUnsafe(Request request, bool countStage = true)
+    {
+        if (request.AdditionalTracked || !request.IsPostInitialization || !IsAdditionalRequest(request.ProgressRequest)) { return; }
+        request.AdditionalTracked = true;
+        additionalOutstanding++;
+        if (countStage && request.Name != StartupPostInitializationWarmupOwner.SchedulerTaskName) { additionalTotal++; }
+    }
+
+    private bool TransferAdditionalUnsafe(Request previous, OperationProgressRequest replacement)
+    {
+        if (!previous.AdditionalTracked || !IsAdditionalRequest(previous.ProgressRequest) || !IsAdditionalRequest(replacement)) { return false; }
+        previous.AdditionalTracked = false;
+        additionalOutstanding--;
+        return true;
+    }
+
+    private void TerminateAdditionalUnsafe(Request request)
+    {
+        if (!request.AdditionalTracked || !IsAdditionalRequest(request.ProgressRequest)) { return; }
+        request.AdditionalTracked = false;
+        additionalOutstanding--;
+        if (request.Name != StartupPostInitializationWarmupOwner.SchedulerTaskName) { additionalTerminated++; }
+    }
+
+    private void PublishAdditionalProgress()
+    {
+        StartupAdditionalProgressSnapshot snapshot = CaptureAdditionalProgressSnapshot();
+        Action<StartupAdditionalProgressSnapshot> handlers = AdditionalProgressChanged;
+        if (handlers == null) { return; }
+        foreach (Action<StartupAdditionalProgressSnapshot> handler in handlers.GetInvocationList())
+        {
+            try { handler(snapshot); }
+            catch (Exception exception) { LogExceptionDiagnostic(exception, "startup additional progress notification failed"); }
+        }
+    }
 
     /// <summary>要求受付側の既存世代を捕捉し、要求ごとの実行境界を通知する窓口を返します。</summary>
     /// <param name="name">要求を識別する処理名。</param>
@@ -198,6 +327,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     internal Action<int, bool> CaptureExecutionProgressReporter(string name)
     {
         StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
+        OperationProgressRequest admission = admissionContext.Value;
+        if (admission != null)
+        {
+            context = new(name, admission.Generation, 0, IsPostInitializationTask(name), false, admission);
+        }
         return (requestVersion, running) =>
         {
             if (context != null)
@@ -215,7 +349,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     internal OperationProgressRequest CaptureProgressRequest(string source, long requestVersion)
     {
         StartupBackgroundTaskProgressSnapshot context = progressContext.Value;
-        return new(context?.Generation ?? CurrentGeneration, context?.Request?.OperationToken ?? 0, source, requestVersion);
+        OperationProgressRequest admission = admissionContext.Value;
+        return new(admission?.Generation ?? context?.Generation ?? CurrentGeneration,
+            admission?.OperationToken ?? context?.Request?.OperationToken ?? 0, source, requestVersion);
     }
 
     /// <summary>捕捉済みの機能要求の実行境界を、その要求のまま表示先へ通知します。</summary>
@@ -234,8 +370,8 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static bool UsesExecutionProgressReporter(string name) =>
         name is "score_hydration_deferred" or "ranking_refresh_deferred"
-            or "chart_info_hydration" or "chart_info_backfill" or "chart_info_backfill_after_hydration"
-            or "maintenance_hydration" or "installable_maintenance" or "playlist_entries_hydration"
+            or "chart_info_hydration" or "chart_info_backfill"
+            or "maintenance_hydration" or "installable_maintenance"
             or "external_playlist_sync" or "playlist_ref_apply"
             or "playlist_custom_folder_output_repair" or "beatoraja_bmt_export_all";
 
@@ -261,8 +397,16 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
         foreach (Action<StartupBackgroundTaskProgressSnapshot> handler in handlers.GetInvocationList())
         {
-            try { handler(status); }
-            catch { /* 表示通知の失敗は受理済みの仕事の結果や収束を変えません。 */ }
+            try
+            {
+                handler(status);
+            }
+            catch (Exception exception)
+            {
+                string message = "startup_background_task progress notification failed name=" + status.Name;
+                LogExceptionDiagnostic(exception, message);
+                WriteDiagnostic(logWarning, message + " message=" + exception.Message);
+            }
         }
     }
 
@@ -289,6 +433,29 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 {
                     return IsRequiredWorkIdleUnsafe();
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// 受理済みの未開始・実行中の全要求が、実終端・破棄・開始前取消の計上を終えた時点で完了するTaskを返します。
+    /// </summary>
+    /// <returns>
+    /// 呼出し時点で全体idleなら完了済みのTask。busyなら、次に<see cref="IsFullyIdle"/>が真になる排他区間の終わりで完了するTask。
+    /// 完了後に新しい要求を受理すると、以後に取得するTaskは未完了になり、既に返したTaskは完了のままです。
+    /// </returns>
+    /// <remarks>
+    /// Taskは要求の失敗・取消例外・破棄後片付けの例外・購読先の例外で失敗も取消もしません。
+    /// 継続はスケジューラーの排他の中で実行せず、完了させたスレッドや表示通知の有無にも依存しません。
+    /// 終了処理とテストの終端待ちのための観測点です。記録の判定はコールバックと <see cref="IsFullyIdle"/> で行い、機能の完了判定や表示の寿命には使いません。
+    /// </remarks>
+    internal Task WaitForFullyIdleAsync()
+    {
+        lock (progressSynchronization)
+        {
+            lock (syncRoot)
+            {
+                return idleSignal.Task;
             }
         }
     }
@@ -376,13 +543,13 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     }
 
     /// <summary>
-    /// Atomically issues a named reservation only when the generation is current and the
-    /// owner attempt sequence is newer than every accepted attempt for that name in the generation.
+    /// 現世代で同名の受理済み試行より新しい所有側順序に限り、予約を原子的に発行します。
+    /// 任意の診断失敗は発行済み予約を失効させません。
     /// </summary>
-    /// <param name="name">The request name to reserve.</param>
-    /// <param name="expectedGeneration">The scheduler generation captured by the owner.</param>
-    /// <param name="ownerSequence">The owner's globally monotonic reservation attempt sequence.</param>
-    /// <returns>The reservation, or <see langword="null"/> when shutdown, generation, or sequence ordering rejects it.</returns>
+    /// <param name="name">予約する処理名。</param>
+    /// <param name="expectedGeneration">所有側が捕捉したscheduler世代。</param>
+    /// <param name="ownerSequence">所有側の単調増加する予約試行順序。</param>
+    /// <returns>発行した予約。終了要求・世代・試行順序で拒否した場合は<see langword="null"/>。</returns>
     internal StartupBackgroundTaskReservation Reserve(
         string name,
         long expectedGeneration,
@@ -391,7 +558,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         string normalizedName = string.IsNullOrWhiteSpace(name) ? "unknown" : name;
         if (isShutdownRequested())
         {
-            logInfo("startup_background_task reservation_rejected name=" + normalizedName + " detail=shutdown_requested");
+            WriteDiagnostic(logInfo, "startup_background_task reservation_rejected name=" + normalizedName + " detail=shutdown_requested");
             return null;
         }
 
@@ -430,18 +597,25 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
         if (skippedAfterLock)
         {
-            logInfo("startup_background_task reservation_rejected name=" + normalizedName
+            WriteDiagnostic(logInfo, "startup_background_task reservation_rejected name=" + normalizedName
                 + " detail=" + rejectionDetail);
             return null;
         }
 
-        logInfo("startup_background_task reservation name=" + reservation.Name
+        WriteDiagnostic(logInfo, "startup_background_task reservation name=" + reservation.Name
             + " reservationId=" + reservation.ReservationId
             + " generation=" + reservation.ExpectedGeneration
             + " ownerSequence=" + reservation.OwnerSequence);
         return reservation;
     }
 
+    /// <summary>名前付き要求を既存のqueueへ受け付けます。診断の失敗で受理済み要求を取り消しません。</summary>
+    /// <param name="name">処理を識別する名前。</param>
+    /// <param name="reason">受付の理由。</param>
+    /// <param name="dependency">終端を待つ処理名のカンマ区切り一覧。</param>
+    /// <param name="work">実終端まで待つ処理。外へ出た取消例外も失敗として計上します。</param>
+    /// <param name="discard">受理済み要求を開始前に破棄した場合の後片付け。</param>
+    /// <returns>要求を受理した場合はtrue。</returns>
     internal bool Queue(
         string name,
         string reason,
@@ -457,7 +631,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         string normalizedReason = string.IsNullOrWhiteSpace(reason) ? "unspecified" : reason;
         if (isShutdownRequested())
         {
-            logInfo("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested");
+            WriteDiagnostic(logInfo, "startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested");
             return false;
         }
         string normalizedDependency = string.IsNullOrWhiteSpace(dependency) ? null : dependency;
@@ -469,6 +643,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         string replacedLog = null;
         string queuedLog = null;
         Request discardedReplacedRequest = null;
+        bool transferAdditionalStage = false;
         lock (progressSynchronization)
         {
             lock (syncRoot)
@@ -488,6 +663,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     {
                         if (existing.Reservation != null)
                         {
+                            transferAdditionalStage = TransferAdditionalUnsafe(existing, CaptureProgressRequest("scheduler:" + normalizedName, requestVersion));
                             queue.Remove(existing);
                             existing.ReservationState = ReservationStateTerminal;
                             RecordDiscardedUnsafe(existing, "replaced_by_general_queue");
@@ -502,7 +678,12 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             existing.IsPostInitialization = isPostInitialization;
                             existing.Priority = priority;
                             existing.Version = requestVersion;
-                            existing.ProgressRequest = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion);
+                            existing.Generation = generation;
+                            OperationProgressRequest nextProgress = CaptureProgressRequest("scheduler:" + normalizedName, requestVersion);
+                            bool retainStage = existing.AdditionalTracked && IsAdditionalRequest(nextProgress) && IsAdditionalRequest(existing.ProgressRequest);
+                            if (!retainStage) { TerminateAdditionalUnsafe(existing); }
+                            existing.ProgressRequest = nextProgress;
+                            if (!retainStage) { EnrollAdditionalUnsafe(existing); }
                             existing.Work = work;
                             existing.Discard = discard;
                             replacedLog = "startup_background_task skipped name=" + normalizedName + " version=" + requestVersion + " generation=" + existing.Generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " coalesceKey=" + normalizedName + " replaced=true";
@@ -511,7 +692,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     currentReservationByName.Remove(normalizedName);
                     if (existing == null)
                     {
-                        queue.Add(new Request
+                        var added = new Request
                         {
                             Name = normalizedName,
                             Reason = normalizedReason,
@@ -527,27 +708,31 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             ReservationState = 0,
                             Work = work,
                             Discard = discard
-                        });
+                        };
+                        EnrollAdditionalUnsafe(added, !transferAdditionalStage);
+                        queue.Add(added);
                     }
                     queuedLog = "startup_background_task queue name=" + normalizedName + " version=" + requestVersion + " generation=" + generation + " reason=" + normalizedReason + " kind=" + FormatRequestKind(isPostInitialization) + " dependency=" + (normalizedDependency ?? "(none)") + " lane=" + normalizedLane + " priority=" + priority;
                     shouldStartWorker = started;
                 }
+                UpdateIdleSignalUnsafe();
             }
         }
         if (skippedAfterLock)
         {
-            logInfo("startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested_after_lock");
+            WriteDiagnostic(logInfo, "startup_background_task skipped name=" + normalizedName + " reason=" + normalizedReason + " detail=shutdown_requested_after_lock");
             return false;
         }
         if (replacedLog != null)
         {
-            logInfo(replacedLog);
+            WriteDiagnostic(logInfo, replacedLog);
         }
         if (discardedReplacedRequest != null)
         {
             InvokeDiscard(discardedReplacedRequest, "replaced_by_general_queue");
         }
-        logInfo(queuedLog);
+        WriteDiagnostic(logInfo, queuedLog);
+        PublishAdditionalProgress();
         if (shouldStartWorker)
         {
             TryStartWorkers();
@@ -556,16 +741,15 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     }
 
     /// <summary>
-    /// Submits one reserved named request after validating its identity and generation.
-    /// A reserved submit may coalesce only the request currently represented by the same name;
-    /// a stale reservation cannot replace a newer request.
+    /// 予約識別と世代を確認し、予約要求を一回受け付けます。同名の現要求だけを置き換え、
+    /// 古い予約で新しい要求を置き換えません。診断の失敗は受理済み処理を停止しません。
     /// </summary>
-    /// <param name="reservation">The immutable reservation issued by <see cref="Reserve"/>.</param>
-    /// <param name="reason">The request reason used for metrics and diagnostics.</param>
-    /// <param name="dependency">Optional comma-separated scheduler dependencies.</param>
-    /// <param name="work">The asynchronous work to run.</param>
-    /// <param name="discard">The callback for an accepted request removed before running.</param>
-    /// <returns><see langword="true"/> when the reserved request was accepted.</returns>
+    /// <param name="reservation"><see cref="Reserve"/>が発行した変更不能な予約。</param>
+    /// <param name="reason">集計と診断に使う受付理由。</param>
+    /// <param name="dependency">任意の依存処理名のカンマ区切り一覧。</param>
+    /// <param name="work">実終端まで待つ処理。外へ出た取消例外も失敗として計上します。</param>
+    /// <param name="discard">受理済み要求を開始前に破棄した場合の後片付け。</param>
+    /// <returns>予約要求を受理した場合は<see langword="true"/>。</returns>
     internal bool QueueReserved(
         StartupBackgroundTaskReservation reservation,
         string reason,
@@ -582,7 +766,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         string normalizedReason = string.IsNullOrWhiteSpace(reason) ? "unspecified" : reason;
         if (isShutdownRequested())
         {
-            logInfo("startup_background_task reserved_submit_rejected name=" + normalizedName
+            WriteDiagnostic(logInfo, "startup_background_task reserved_submit_rejected name=" + normalizedName
                 + " reservationId=" + reservation.ReservationId
                 + " reason=" + normalizedReason
                 + " detail=shutdown_requested");
@@ -599,6 +783,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         Request discardedReplacedRequest = null;
         string replacedLog = null;
         string queuedLog = null;
+        bool transferAdditionalStage = false;
         lock (progressSynchronization)
         {
             lock (syncRoot)
@@ -633,6 +818,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         latestRequestVersionByName[normalizedName] = requestVersion;
                         if (existing != null)
                         {
+                            transferAdditionalStage = TransferAdditionalUnsafe(existing, CaptureProgressRequest("scheduler:" + normalizedName, requestVersion));
                             queue.Remove(existing);
                             existing.ReservationState = ReservationStateTerminal;
                             RecordDiscardedUnsafe(existing, "replaced_by_reserved_queue");
@@ -644,7 +830,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                                 + " replaced=true";
                             existing = null;
                         }
-                        queue.Add(new Request
+                        var added = new Request
                         {
                             Name = normalizedName,
                             Reason = normalizedReason,
@@ -660,7 +846,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                             ReservationState = ReservationStateQueued,
                             Work = work,
                             Discard = discard
-                        });
+                        };
+                        EnrollAdditionalUnsafe(added, !transferAdditionalStage);
+                        queue.Add(added);
                         queuedLog = "startup_background_task reserved_submit name=" + normalizedName
                             + " reservationId=" + reservation.ReservationId
                             + " version=" + requestVersion
@@ -673,11 +861,12 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         shouldStartWorker = started;
                     }
                 }
+                UpdateIdleSignalUnsafe();
             }
         }
         if (rejectedAfterLock)
         {
-            logInfo("startup_background_task reserved_submit_rejected name=" + normalizedName
+            WriteDiagnostic(logInfo, "startup_background_task reserved_submit_rejected name=" + normalizedName
                 + " reservationId=" + reservation.ReservationId
                 + " reason=" + normalizedReason
                 + " detail=" + rejectionDetail);
@@ -689,9 +878,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
         if (replacedLog != null)
         {
-            logInfo(replacedLog);
+            WriteDiagnostic(logInfo, replacedLog);
         }
-        logInfo(queuedLog);
+        WriteDiagnostic(logInfo, queuedLog);
+        PublishAdditionalProgress();
         if (shouldStartWorker)
         {
             TryStartWorkers();
@@ -699,12 +889,12 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         return true;
     }
 
-    /// <summary>Submits a reserved request without a dependency.</summary>
-    /// <param name="reservation">The immutable scheduler reservation.</param>
-    /// <param name="reason">The request reason.</param>
-    /// <param name="work">The asynchronous work to run.</param>
-    /// <param name="discard">The callback for a queued request discarded before running.</param>
-    /// <returns><see langword="true"/> when the reserved request was accepted.</returns>
+    /// <summary>依存処理のない予約要求を受け付けます。任意診断の失敗は受理を取り消しません。</summary>
+    /// <param name="reservation">schedulerが発行した変更不能な予約。</param>
+    /// <param name="reason">受付の理由。</param>
+    /// <param name="work">実終端まで待つ処理。外へ出た取消例外も失敗として計上します。</param>
+    /// <param name="discard">受付済み要求を開始前に破棄した場合の後片付け。</param>
+    /// <returns>予約要求を受理した場合は<see langword="true"/>。</returns>
     internal bool QueueReserved(
         StartupBackgroundTaskReservation reservation,
         string reason,
@@ -714,6 +904,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         return QueueReserved(reservation, reason, null, work, discard);
     }
 
+    /// <summary>既存queueの実行を開始します。開始診断が失敗しても受理済み処理を実行します。</summary>
     internal void Start()
     {
         bool shouldStartWorker;
@@ -728,9 +919,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 started = true;
                 idleRevision++;
                 shouldStartWorker = queue.Count > 0;
+                UpdateIdleSignalUnsafe();
             }
         }
-        logInfo("startup_background_task scheduler_start");
+        WriteDiagnostic(logInfo, "startup_background_task scheduler_start");
+        PublishAdditionalProgress();
         if (shouldStartWorker)
         {
             TryStartWorkers();
@@ -741,7 +934,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
     }
 
-    /// <summary>既存のスケジュールを再設定し、以後の子Taskへ表示世代を捕捉します。</summary>
+    /// <summary>新規dispatchを選択し、以後の要求へ表示識別を捕捉します。旧仕事の要求と進捗識別は終端まで維持します。</summary>
     internal void Reset(bool startImmediately, long operationToken = 0L)
     {
         bool shouldStartWorker;
@@ -753,18 +946,14 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 postInitializationSchedulingComplete = false;
                 requiredInitializationSchedulingComplete = false;
                 generation++;
+                additionalOperationToken = 0;
+                additionalTotal = additionalTerminated = additionalOutstanding = 0;
+                warmupRegistered = warmupTerminated = false;
                 // 同期の操作開始入口から流すため、後で旧子Taskへ現在世代を付け直しません。
                 progressContext.Value = new StartupBackgroundTaskProgressSnapshot(string.Empty, generation, 0, false, false,
                     new(generation, operationToken, string.Empty, 0));
                 latestReservationSequenceByName.Clear();
                 idleRevision++;
-                for (int i = 0; i < queue.Count; i++)
-                {
-                    Request request = queue[i];
-                    request.Generation = generation;
-                    request.Version = ++version;
-                    latestRequestVersionByName[request.Name] = request.Version;
-                }
                 foreach (string staleReservationName in currentReservationByName
                     .Where(pair => !queue.Any(request => ReferenceEquals(request.Reservation, pair.Value)))
                     .Select(pair => pair.Key)
@@ -775,10 +964,13 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 metrics.Clear();
                 foreach (Request request in queue)
                 {
+                    // 集計所属だけを閉じ、旧受付の進捗識別と実仕事は維持します。
+                    request.AdditionalTracked = false;
                     RecordQueuedUnsafe(request.Name, request.Reason, request.Dependency, request.Lane);
                 }
                 started = startImmediately;
                 shouldStartWorker = started && queue.Count > 0;
+                UpdateIdleSignalUnsafe();
             }
         }
         if (shouldStartWorker)
@@ -788,15 +980,14 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     }
 
     /// <summary>
-    /// Cancels the exact queued request represented by a scheduler reservation.
-    /// Running work is not interrupted and must be cancelled by its feature owner.
+    /// 予約識別が一致する未開始要求だけを破棄し、任意診断の失敗でも後片付けと終端通知を行います。
+    /// 実行中の処理は中断せず、取消は機能所有者が扱います。
     /// </summary>
-    /// <param name="reservation">The reservation that owns the queued request.</param>
-    /// <param name="reason">The cancellation reason passed to the discard boundary.</param>
+    /// <param name="reservation">未開始要求を所有する予約。</param>
+    /// <param name="reason">破棄の後片付けへ渡す理由。</param>
     /// <returns>
-    /// <see langword="true"/> when the exact queued request was removed; otherwise
-    /// <see langword="false"/>. A matching pre-submit reservation is invalidated
-    /// even when no queued request exists, while a running or newer reservation is untouched.
+    /// 一致する未開始要求を削除した場合は<see langword="true"/>、それ以外は<see langword="false"/>。
+    /// 未提出の一致する予約は要求がなくても失効させ、実行中または新しい予約は変更しません。
     /// </returns>
     internal bool CancelQueued(StartupBackgroundTaskReservation reservation, string reason)
     {
@@ -831,21 +1022,15 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 }
                 RecordDiscardedUnsafe(cancelled, normalizedReason);
                 idleRevision++;
+                UpdateIdleSignalUnsafe();
             }
         }
 
-        try
-        {
-            logInfo("startup_background_task cancelled name=" + cancelled.Name
-                + " reservationId=" + reservation.ReservationId
-                + " version=" + cancelled.Version
-                + " reason=" + cancelled.Reason
-                + " cancelReason=" + normalizedReason);
-        }
-        catch
-        {
-            // Diagnostic failure must not skip the exact discard or scheduler progress.
-        }
+        WriteDiagnostic(logInfo, "startup_background_task cancelled name=" + cancelled.Name
+            + " reservationId=" + reservation.ReservationId
+            + " version=" + cancelled.Version
+            + " reason=" + cancelled.Reason
+            + " cancelReason=" + normalizedReason);
         InvokeDiscard(cancelled, normalizedReason);
         try
         {
@@ -869,6 +1054,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 notifyIdle = started && IsFullyIdleUnsafe();
             }
         }
+        PublishAdditionalProgress();
         if (notifyIdle)
         {
             NotifyIdleChanged();
@@ -894,10 +1080,16 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 requiredInitializationSchedulingComplete = true;
             }
         }
+        PublishAdditionalProgress();
         TryStartWorkers();
         return true;
     }
 
+    /// <summary>
+    /// 新規受付を閉じ、任意の未開始要求を破棄し、受理済み必須処理を実終端へ進めます。
+    /// </summary>
+    /// <param name="reason">終了要求の診断理由。</param>
+    /// <remarks>登録完了通知は終了後に待たず、実処理の並列枠と先行必須処理の終端順は維持します。診断の失敗で破棄の後片付けや必須処理の終端待機を省きません。</remarks>
     internal void RequestShutdown(string reason)
     {
         bool shouldStartWorker;
@@ -939,9 +1131,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 idleRevision++;
                 shouldStartWorker = drainQueuedCount > 0;
                 activeRunningCount = runningCount;
+                UpdateIdleSignalUnsafe();
             }
         }
-        logShutdown("startup_background_task drain_queued reason=" + formatTextForLog(reason)
+        WriteDiagnostic(logShutdown, "startup_background_task drain_queued reason=" + FormatTextForDiagnostic(reason)
             + " queued=" + originalQueuedCount
             + " drainQueued=" + drainQueuedCount
             + " discarded=" + discardedCount
@@ -950,18 +1143,11 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         {
             foreach (Request request in discardedRequests)
             {
-                logInfo("startup_background_task discarded name=" + request.Name
+                WriteDiagnostic(logInfo, "startup_background_task discarded name=" + request.Name
                     + " version=" + request.Version
                     + " reason=" + request.Reason
-                    + " shutdownReason=" + formatTextForLog(reason));
-                try
-                {
-                    InvokeDiscard(request, reason);
-                }
-                catch (Exception exception)
-                {
-                    logWarning("startup_background_task discard cleanup failed name=" + request.Name + " message=" + exception.Message);
-                }
+                    + " shutdownReason=" + FormatTextForDiagnostic(reason));
+                InvokeDiscard(request, reason);
             }
         }
         if (shouldStartWorker)
@@ -1107,11 +1293,13 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                     else
                     {
                         runningRequiredCount++;
+                        if (RequiresPostInitializationIdleBarrier(request)) { runningRequiredIdleBarrierCount++; }
                     }
                     runningCountByLane.TryGetValue(request.Lane, out int runningInLane);
                     runningCountByLane[request.Lane] = runningInLane + 1;
                     laneRunningCount = runningInLane + 1;
                     totalRunningCount = runningCount;
+                    UpdateIdleSignalUnsafe();
                 }
             }
             StartWorker(request, laneRunningCount, totalRunningCount);
@@ -1154,6 +1342,16 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private bool CanStartRequestUnsafe(Request request)
     {
+        // GCは所属する起動後workerとwarmup予約の実終端を待ちます。
+        // 名前依存では未登録仕事や派生要求を正しく扱えません。
+        if (request.Name == "post_initialize_gc"
+            && ((IsAdditionalRequest(request.ProgressRequest) ? additionalOutstanding > 1
+                : runningPostInitializationCount > 0
+                    || queue.Any(candidate => candidate != request && candidate.IsPostInitialization && candidate.Name != "post_initialize_gc"))
+                || (warmupRegistered && !warmupTerminated)))
+        {
+            return false;
+        }
         if (runningCount >= GetTotalConcurrency()
             || !CanStartInLaneUnsafe(request.Lane))
         {
@@ -1161,7 +1359,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
         if (!request.IsPostInitialization)
         {
-            if (runningPostInitializationIdleOnlyCount > 0)
+            if (runningPostInitializationIdleOnlyCount > 0 && RequiresPostInitializationIdleBarrier(request))
             {
                 return false;
             }
@@ -1172,10 +1370,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             return false;
         }
         if (IsPostInitializationIdleOnly(request.Name)
-            && (!postInitializationSchedulingComplete
-                || !requiredInitializationSchedulingComplete
-                || runningRequiredCount > 0
-                || queue.Any(candidate => !candidate.IsPostInitialization)))
+            && ((!shutdownRequested
+                    && (!postInitializationSchedulingComplete || !requiredInitializationSchedulingComplete))
+                || runningRequiredIdleBarrierCount > 0
+                || queue.Any(RequiresPostInitializationIdleBarrier)))
         {
             return false;
         }
@@ -1186,25 +1384,43 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     {
         Task.Run(async delegate
         {
-            progressContext.Value = new(request.Name, request.ProgressRequest.Generation, request.Version, request.IsPostInitialization, true, request.ProgressRequest);
-            var stopwatch = Stopwatch.StartNew();
-            logInfo("startup_background_task start name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
-            RecordStarted(request);
-            PublishProgress(request, true);
             try
             {
-                await request.Work().ConfigureAwait(false);
+                admissionContext.Value = null;
+                progressContext.Value = new(request.Name, request.ProgressRequest.Generation, request.Version, request.IsPostInitialization, true, request.ProgressRequest);
+                var stopwatch = Stopwatch.StartNew();
+                RecordStarted(request);
+                WriteDiagnostic(logInfo, "startup_background_task start name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " dependency=" + (request.Dependency ?? "(none)") + " lane=" + request.Lane + " laneRunning=" + laneRunningCount + " totalRunning=" + totalRunningCount);
+                PublishProgress(request, true);
+                bool failed = false;
+                string detail = "reason=" + request.Reason;
+                try
+                {
+                    await request.Work().ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    // workにscheduler所有の取消tokenはありません。外へ出た取消例外も実処理失敗です。
+                    failed = true;
+                    detail = exception.Message;
+                    LogExceptionDiagnostic(exception, "startup_background_task failed name=" + request.Name
+                        + " version=" + request.Version
+                        + " generation=" + request.Generation
+                        + " reason=" + request.Reason
+                        + " lane=" + request.Lane);
+                }
                 stopwatch.Stop();
-                logInfo("startup_background_task done name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                RecordCompleted(request, "done", stopwatch.ElapsedMilliseconds, failed: false, detail: "reason=" + request.Reason);
-                StartupMemoryPressureService.LogCheckpoint(logInfo, "startup_background_task", request.Name + "_done");
-            }
-            catch (Exception exception)
-            {
-                stopwatch.Stop();
-                logWarning("startup_background_task failed name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + exception.Message);
-                RecordCompleted(request, "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: exception.Message);
-                StartupMemoryPressureService.LogCheckpoint(logInfo, "startup_background_task", request.Name + "_failed");
+                string status = failed ? "failed" : "done";
+                RecordCompleted(request, status, stopwatch.ElapsedMilliseconds, failed, detail);
+                if (failed)
+                {
+                    WriteDiagnostic(logWarning, "startup_background_task failed name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + detail);
+                }
+                else
+                {
+                    WriteDiagnostic(logInfo, "startup_background_task done name=" + request.Name + " version=" + request.Version + " generation=" + request.Generation + " reason=" + request.Reason + " kind=" + FormatRequestKind(request.IsPostInitialization) + " lane=" + request.Lane + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+                }
+                LogMemoryCheckpoint(request.Name + "_" + status);
             }
             finally
             {
@@ -1213,6 +1429,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                 {
                     lock (syncRoot)
                     {
+                        TerminateAdditionalUnsafe(request);
                         if (request.Reservation != null)
                         {
                             request.ReservationState = ReservationStateTerminal;
@@ -1234,6 +1451,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                         else
                         {
                             runningRequiredCount = Math.Max(0, runningRequiredCount - 1);
+                            if (RequiresPostInitializationIdleBarrier(request))
+                            {
+                                runningRequiredIdleBarrierCount = Math.Max(0, runningRequiredIdleBarrierCount - 1);
+                            }
                         }
                         idleRevision++;
                         if (!string.IsNullOrWhiteSpace(request.Lane)
@@ -1249,10 +1470,18 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
                                 runningCountByLane[request.Lane] = runningInLane;
                             }
                         }
+                        // 計数の減算とレーン計数の更新を終えた同じ排他区間で、全体idleの合図を確定します。
+                        UpdateIdleSignalUnsafe();
                     }
                 }
-                TryStartWorkers();
-                NotifyIdleChanged();
+                try
+                {
+                    TryStartWorkers();
+                }
+                finally
+                {
+                    NotifyIdleChanged();
+                }
             }
         }).ObserveFault("StartupBackgroundTaskScheduler");
     }
@@ -1308,6 +1537,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private void RecordDiscardedUnsafe(Request request, string reason)
     {
+        TerminateAdditionalUnsafe(request);
         if (request.Reservation != null)
         {
             request.ReservationState = ReservationStateTerminal;
@@ -1344,17 +1574,9 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
         catch (Exception exception)
         {
-            try
-            {
-                logWarning("startup_background_task discard cleanup failed name="
-                    + request.Name
-                    + " message="
-                    + exception.Message);
-            }
-            catch
-            {
-                // Diagnostic failure must not escape the discard boundary.
-            }
+            string message = "startup_background_task discard cleanup failed name=" + request.Name;
+            LogExceptionDiagnostic(exception, message);
+            WriteDiagnostic(logWarning, message + " message=" + exception.Message);
         }
     }
 
@@ -1392,6 +1614,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private void NotifyIdleChanged()
     {
+        PublishAdditionalProgress();
         try
         {
             long notificationGeneration;
@@ -1408,21 +1631,63 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
         }
         catch (Exception exception)
         {
-            try
-            {
-                logWarning("startup_background_task idle notification failed message=" + exception.Message);
-            }
-            catch
-            {
-                // Diagnostic failure must not escape idle accounting.
-            }
+            const string message = "startup_background_task idle notification failed";
+            LogExceptionDiagnostic(exception, message);
+            WriteDiagnostic(logWarning, message + " message=" + exception.Message);
+        }
+    }
+
+    private static void LogExceptionDiagnostic(Exception exception, string message)
+    {
+        try
+        {
+            NLogWrapper.FileLogger?.Warn(exception, message);
+        }
+        catch
+        {
+            // 元例外の任意診断が失敗しても、結果と終端処理を継続します。
+        }
+    }
+
+    private static void WriteDiagnostic(Action<string> log, string message)
+    {
+        try
+        {
+            log(message);
+        }
+        catch
+        {
+            // 任意の診断を再試行せず、受付済み処理の結果と終端計上を維持します。
+        }
+    }
+
+    private string FormatTextForDiagnostic(string value)
+    {
+        try
+        {
+            return formatTextForLog(value);
+        }
+        catch
+        {
+            return "(unavailable)";
+        }
+    }
+
+    private void LogMemoryCheckpoint(string point)
+    {
+        try
+        {
+            StartupMemoryPressureService.LogCheckpoint(logInfo, "startup_background_task", point);
+        }
+        catch
+        {
+            // メモリ計測と出力の失敗は実処理の成否を変更しません。
         }
     }
 
     private static bool IsRequiredForShutdown(string name)
     {
         return string.Equals(name, "score_hydration_deferred", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase);
@@ -1431,9 +1696,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
     /// <summary>既存の後続処理分類を、表示の所属判定でも共用します。</summary>
     internal static bool IsPostInitializationTask(string name)
     {
-        return string.Equals(name, "lr2_song_db_sync_enrollment", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "external_table_catalog", StringComparison.OrdinalIgnoreCase)
+        return string.Equals(name, "external_table_catalog", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_virtual_order_prewarm", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_url_completion", StringComparison.OrdinalIgnoreCase)
@@ -1441,10 +1704,19 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             || string.Equals(name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "library_folder_tree_refresh", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "playlist_custom_folder_output_repair", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(name, "chart_info_backfill", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "maintenance_hydration", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "installable_maintenance", StringComparison.OrdinalIgnoreCase)
             || string.Equals(name, "post_initialize_gc", StringComparison.OrdinalIgnoreCase)
             || name.StartsWith("beatoraja_bmt_", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool RequiresPostInitializationIdleBarrier(Request request)
+    {
+        // 順位は独立した通信・保存・公開であり、起動入力や索引準備の終端ではありません。
+        // 正本への確定は既存Lの受理済み継続で直列化し、scheduler全体の終端追跡には残します。
+        return !request.IsPostInitialization
+            && !string.Equals(request.Name, "ranking_refresh_deferred", StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool IsPostInitializationIdleOnly(string name)
@@ -1461,11 +1733,7 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static int GetPriority(string name)
     {
-        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase))
-        {
-            return 10;
-        }
-
+        if (name == "external_table_catalog") { return 0; }
         if (string.Equals(name, "playlist_library_index_prewarm", StringComparison.OrdinalIgnoreCase))
         {
             return 15;
@@ -1516,11 +1784,6 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
             return 70;
         }
 
-        if (string.Equals(name, "lr2_song_db_sync", StringComparison.OrdinalIgnoreCase))
-        {
-            return 90;
-        }
-
         return 100;
     }
 
@@ -1534,8 +1797,10 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static string GetBaseLane(string name)
     {
-        if (string.Equals(name, "playlist_entries_hydration", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
+        if (name == "external_table_catalog") { return "catalog_http"; }
+        if (name == "playlist_library_index_prewarm") { return "playlist_index"; }
+        if (name == "playlist_virtual_order_prewarm") { return "chart_list_index"; }
+        if (string.Equals(name, "chart_info_hydration", StringComparison.OrdinalIgnoreCase))
         {
             return "read_hydration";
         }
@@ -1573,11 +1838,34 @@ internal sealed class StartupBackgroundTaskSchedulerOwner
 
     private static int GetTotalConcurrency() => 4;
 
-    private static int GetPostInitializationConcurrency() => 1;
+    private static int GetPostInitializationConcurrency() => 3;
 
     private bool IsRequiredWorkIdleUnsafe()
     {
         return runningRequiredCount == 0 && !queue.Any(request => !request.IsPostInitialization);
+    }
+
+    private static TaskCompletionSource CreateIdleSignal(bool completed)
+    {
+        var source = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (completed)
+        {
+            source.TrySetResult();
+        }
+        return source;
+    }
+
+    /// <summary>queueと実行数を変えた排他区間の終わりで呼び、全体idleの合図を現在の状態へ合わせます。</summary>
+    private void UpdateIdleSignalUnsafe()
+    {
+        if (IsFullyIdleUnsafe())
+        {
+            idleSignal.TrySetResult();
+        }
+        else if (idleSignal.Task.IsCompleted)
+        {
+            idleSignal = CreateIdleSignal(completed: false);
+        }
     }
 
     private bool IsFullyIdleUnsafe()

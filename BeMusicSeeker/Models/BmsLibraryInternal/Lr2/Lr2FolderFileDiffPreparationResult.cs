@@ -17,8 +17,12 @@ internal sealed class Lr2FolderFileDiffPreparationResult(
     long extraTextRootsMs,
     long textMetadataMs,
     long totalElapsedMs,
-    SongTableFileCheckResult fileCheckResult = null)
+    SongTableFileCheckResult fileCheckResult = null,
+    LibraryFileInitializationResult synchronizationInput = null)
 {
+    /// <summary>呼出元へ直接渡す今回の確定入力です。</summary>
+    internal LibraryFileInitializationResult SynchronizationInput { get; } = synchronizationInput ?? new();
+
     public Lr2SongDbSyncRequest Request { get; } = request;
 
     /// <summary>
@@ -55,11 +59,10 @@ internal sealed class Lr2FolderFileDiffPreparationResult(
     public long TotalElapsedMs { get; } = totalElapsedMs;
 
     /// <summary>
-    /// Creates a copy that carries the completed file-scan result alongside
-    /// the prepared LR2 request.
+    /// 確定したファイル走査結果と直接引渡しの入力を、今回のLR2差分準備と共に返します。
     /// </summary>
     internal Lr2FolderFileDiffPreparationResult WithFileCheckResult(
-        SongTableFileCheckResult result)
+        SongTableFileCheckResult result, LibraryFileInitializationResult synchronizationInput = null)
     {
         return new Lr2FolderFileDiffPreparationResult(
             Request,
@@ -76,15 +79,14 @@ internal sealed class Lr2FolderFileDiffPreparationResult(
             ExtraTextRootsMs,
             TextMetadataMs,
             TotalElapsedMs,
-            result);
+            result, synchronizationInput ?? SynchronizationInput);
     }
 
     /// <summary>
-    /// Creates a scan result when LR2 preparation was not requested or could
-    /// not produce a request.
+    /// LR2差分準備が不要でも、今回のファイル確定と後段入力を失わず返します。
     /// </summary>
     internal static Lr2FolderFileDiffPreparationResult FromFileCheckResult(
-        SongTableFileCheckResult result)
+        SongTableFileCheckResult result, LibraryFileInitializationResult synchronizationInput = null)
     {
         return new Lr2FolderFileDiffPreparationResult(
             request: null,
@@ -101,6 +103,7 @@ internal sealed class Lr2FolderFileDiffPreparationResult(
             extraTextRootsMs: 0L,
             textMetadataMs: 0L,
             totalElapsedMs: 0L,
-            fileCheckResult: result);
+            fileCheckResult: result,
+            synchronizationInput: synchronizationInput);
     }
 }

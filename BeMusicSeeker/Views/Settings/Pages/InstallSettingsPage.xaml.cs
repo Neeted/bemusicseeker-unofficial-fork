@@ -17,10 +17,24 @@ public partial class InstallSettingsPage : UserControl
         InitializeComponent();
     }
 
-    private void addBmsInstallDirButtonClick(object sender, RoutedEventArgs e)
+    private async void installDirectorySelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (sender is not ComboBox { SelectedItem: string path } || Window.GetWindow(this) is not SettingsWindow window) { return; }
+        try { await window.HandleSelectBmsInstallDirectoryAsync(path, reportFailure: true); }
+        catch (Exception failure) { await window.HandleSettingsRouteFailureAsync(failure, "BMS install directory selection"); }
+    }
+
+    private async void editBmsDirectoriesButtonClick(object sender, RoutedEventArgs e)
     {
         SettingsWindow settingsWindow = Window.GetWindow(this) as SettingsWindow
             ?? throw new InvalidOperationException("Install settings page is not hosted by SettingsWindow.");
-        settingsWindow.HandleAddBmsInstallDirectory();
+        try
+        {
+            settingsWindow.ShowBmsDirectoryEditor();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "BMS directory editor navigation");
+        }
     }
 }

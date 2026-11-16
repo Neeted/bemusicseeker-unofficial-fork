@@ -94,7 +94,6 @@ internal static class Lr2FolderFileDiscoveryService
             roots,
             groups,
             everythingNative,
-            retryEmptyEverythingResultWithFastEnumerator: true,
             rootFileEnumerator: rootFileEnumerator);
         if (!result.Success)
         {

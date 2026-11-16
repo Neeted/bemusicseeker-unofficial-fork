@@ -1,35 +1,44 @@
 using System;
 using System.Collections.Generic;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
+
+/// <summary>一回の完全走査を正本へ反映した範囲です。不完全走査は非反映のままです。</summary>
+internal enum FileScanApplicationOutcome
+{
+    NotApplied,
+    AppliedWithProtectedRows,
+    Applied
+}
 
 internal sealed class SongTableFileCheckResult
 {
     public List<string> Pragmas { get; } = [];
 
-    public List<BMSFile> AddedFiles { get; } = [];
+    public List<ChartFile> UpdatedCharts { get; } = [];
+
+    public List<ChartFile> AddedFiles { get; } = [];
 
     public HashSet<string> NewlyInsertedBmsPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public HashSet<string> CommittedLr2SongDbSyncBmsPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
+    public List<ChartFile> AddedBmsonSongs { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> InlineChartInfoRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartDetails> InlineChartInfoRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info> InlineChartInfoAppliedRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartDetails> InlineChartInfoAppliedRows { get; } = [];
 
-    public List<LR2SongDBExtended.chart_info_parse_failure> InlineChartInfoParseFailureRows { get; } = [];
+    public List<BeMusicSeeker.Models.ChartParseFailure> InlineChartInfoParseFailureRows { get; } = [];
 
     public List<string> InlineChartInfoParseFailureDeleteMd5s { get; } = [];
 
     public List<ChartFileScanFailure> FileScanFailures { get; } = [];
 
-    public List<BMSFile> NextFiles { get; } = [];
+    public List<ChartFile> NextFiles { get; } = [];
 
-    public List<LR2SongDBExtended.bmson_song> NextBmsonSongs { get; } = [];
+    public List<ChartFile> NextBmsonSongs { get; } = [];
 
     public List<string> DeletedPaths { get; } = [];
 
@@ -49,6 +58,12 @@ internal sealed class SongTableFileCheckResult
     public bool ScanFallbackUsed { get; set; }
 
     public string ScanFallbackReason { get; set; } = string.Empty;
+
+    /// <summary>非反映、範囲内保護付き解除、完全反映を区別します。</summary>
+    internal FileScanApplicationOutcome ApplicationOutcome { get; set; }
+
+    /// <summary>0件保護した最終実検索範囲。空の場合は保護付き解除ではありません。</summary>
+    internal IReadOnlyList<string> ProtectedSearchRoots { get; set; } = [];
 
     public bool EmptyScanWithExistingDbSkipped { get; set; }
 
@@ -406,6 +421,11 @@ internal sealed class SongTableFileCheckResult
     }
 }
 
+/// <summary>走査中の譜面ファイル一件の失敗を、パス・譜面の種類・段階・例外の型名・メッセージで保持します。</summary>
+/// <remarks>
+/// 段階は読取り（<c>read</c>）と解析（<c>parse</c>）を区別します。失敗は走査結果へ集約してログへ記録し、
+/// 大量の譜面で操作が止まらないよう、ファイルごとの確認画面は出しません。
+/// </remarks>
 internal sealed class ChartFileScanFailure(string path, string chartKind, string stage, string exceptionType, string message)
 {
     public string Path { get; } = path ?? string.Empty;

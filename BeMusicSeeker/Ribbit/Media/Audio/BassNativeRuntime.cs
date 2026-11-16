@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using BeMusicSeeker.Models;
 using ManagedBass;
 using ManagedBass.Asio;
 using ManagedBass.Enc;
@@ -52,11 +53,12 @@ internal static class BassNativeRuntime
         }
     }
 
+    /// <summary>確定済みの読取り素材から、配布nativeライブラリの配置を解決します。</summary>
     private static string NativeDirectory
     {
         get
         {
-            return Path.Combine(AppContext.BaseDirectory, "libs", "x64");
+            return Path.Combine(ApplicationPathPolicy.Current.AssetsDirectory, "libs", "x64");
         }
     }
 

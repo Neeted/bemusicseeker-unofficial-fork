@@ -28,6 +28,9 @@ internal sealed class PendingInstallBatchPlan
     /// </summary>
     public IInstalledChartLookupIndex IndependentOwnershipLookup { get; set; }
 
+    /// <summary>既存の保留列挙で捕捉した全保留の元入力です。選択・実行結果に応じて作り直しません。</summary>
+    public IReadOnlyList<PendingInstallInputReference> InputReferences { get; set; } = [];
+
     /// <summary>保留照合、入力順 dedup、DST 適格性確認に要した時間です。</summary>
     public long FilterMs { get; set; }
 

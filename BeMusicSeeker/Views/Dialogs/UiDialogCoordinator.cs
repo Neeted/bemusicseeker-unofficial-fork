@@ -507,6 +507,11 @@ internal sealed class UiDialogCoordinator : IUiDialogService
     /// <param name="request">save-file picker 表示要求。</param>
     /// <returns>表示前の save-file dialog。</returns>
     /// <exception cref="ArgumentNullException">request が null の場合。</exception>
+    /// <remarks>
+    /// 形式指定・既定名・既定拡張子・拡張子補完の有無は要求の値をそのまま渡し、<see cref="UiFilePickerUtilities"/> による
+    /// 形式指定の整形、既定拡張子の推定、初期フォルダの解決は行いません。呼出し元が完全な形式指定と既定拡張子を渡します。
+    /// 形式指定の整形と既定拡張子の推定は、開くダイアログの <see cref="CreateOpenFileDialog"/> だけが行います。
+    /// </remarks>
     internal static SaveFileDialog CreateSaveFileDialog(UiSaveFilePickerRequest request)
     {
         if (request == null)

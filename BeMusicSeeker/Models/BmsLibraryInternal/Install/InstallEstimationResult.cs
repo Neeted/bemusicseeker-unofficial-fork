@@ -22,9 +22,11 @@ internal enum InstallEstimationLowConfidenceKind
     ReinstallNotImproved
 }
 
+/// <summary>最終評価の根拠です。ハッシュ候補にも共通の音源完全性条件を適用します。</summary>
 internal enum InstallEstimationFinalEvaluationMode
 {
-    RelativeStrict
+    RelativeStrict,
+    InstalledChartHash
 }
 
 /// <summary>
@@ -37,9 +39,13 @@ internal sealed class InstallEstimationCandidate
 
     public bool IsSourceCandidate { get; set; }
 
+    /// <summary>Strongの検証前に、選択経路固有の候補要件を満たした場合に真です。</summary>
     public bool IsViableDestination { get; set; }
 
     public int AudioHealth { get; set; }
+
+    /// <summary>充足率の分母となるユニークな要求音源数です。</summary>
+    public int AudioRequired { get; set; }
 
     public int AudioMatched { get; set; }
 
@@ -47,11 +53,17 @@ internal sealed class InstallEstimationCandidate
 
     public int VisualHealth { get; set; }
 
+    /// <summary>充足率の分母となるユニークな要求画像数です。</summary>
+    public int VisualRequired { get; set; }
+
     public int VisualMatched { get; set; }
 
     public int VisualExactMatched { get; set; }
 
     public int MovieHealth { get; set; }
+
+    /// <summary>充足率の分母となるユニークな要求動画数です。</summary>
+    public int MovieRequired { get; set; }
 
     public int MovieMatched { get; set; }
 
@@ -59,76 +71,36 @@ internal sealed class InstallEstimationCandidate
 
     public int OptionalImageHealth { get; set; }
 
+    /// <summary>充足率の分母となるユニークな要求任意画像数です。</summary>
+    public int OptionalImageRequired { get; set; }
+
     public int OptionalImageMatched { get; set; }
 
     public int OptionalImageExactMatched { get; set; }
 
-    public int AudioFileCount { get; set; }
-
-    public int AudioPrecision { get; set; }
+    /// <summary>カテゴリ別の候補側キー件数の合計です。音源だけの件数ではありません。</summary>
+    public int CandidateResourceCount { get; set; }
 
     public int AudioJaccard { get; set; }
 
-    public int VisualPrecision { get; set; }
-
     public int VisualJaccard { get; set; }
-
-    public int MoviePrecision { get; set; }
 
     public int MovieJaccard { get; set; }
 
-    public int OptionalImagePrecision { get; set; }
-
     public int OptionalImageJaccard { get; set; }
 
-    public string RepresentativeTitle { get; set; } = string.Empty;
+    /// <summary>対象群との共通照合で決まった関連性です。音源状態とは独立しています。</summary>
+    public InstallEstimationMetadataRelation MetadataRelation { get; set; }
 
-    public string RepresentativeArtist { get; set; } = string.Empty;
+    /// <summary>分類の根拠となった候補側実在ペアの、小文字化前の主題です。</summary>
+    public string DisplayTitle { get; set; } = string.Empty;
+
+    /// <summary>表示主題と同じ入力レコードに由来する作者です。</summary>
+    public string DisplayArtist { get; set; } = string.Empty;
 
     public string ToSummary()
-    {
-        return string.Format(
-            "dir={0} source={1} viable={2} audio={3}/{4} exact={5} visual={6}/{7} exact={8} movie={9}/{10} exact={11} optional={12}/{13} exact={14} audioCount={15} audioPrecision={16} audioJaccard={17} visualPrecision={18} visualJaccard={19} moviePrecision={20} movieJaccard={21} optionalPrecision={22} optionalJaccard={23} title={24} artist={25}",
-            DirectoryPath ?? string.Empty,
-            IsSourceCandidate ? 1 : 0,
-            IsViableDestination ? 1 : 0,
-            AudioMatched,
-            AudioHealth,
-            AudioExactMatched,
-            VisualMatched,
-            VisualHealth,
-            VisualExactMatched,
-            MovieMatched,
-            MovieHealth,
-            MovieExactMatched,
-            OptionalImageMatched,
-            OptionalImageHealth,
-            OptionalImageExactMatched,
-            AudioFileCount,
-            AudioPrecision,
-            AudioJaccard,
-            VisualPrecision,
-            VisualJaccard,
-            MoviePrecision,
-            MovieJaccard,
-            OptionalImagePrecision,
-            OptionalImageJaccard,
-            RepresentativeTitle ?? string.Empty,
-            RepresentativeArtist ?? string.Empty);
-    }
-}
+        => $"dir={DirectoryPath} viable={IsViableDestination} audio={AudioMatched}/{AudioRequired} H={AudioHealth} M={AudioExactMatched} J={AudioJaccard} visual={VisualMatched}/{VisualRequired} H={VisualHealth} M={VisualExactMatched} J={VisualJaccard} movie={MovieMatched}/{MovieRequired} H={MovieHealth} M={MovieExactMatched} J={MovieJaccard} optional={OptionalImageMatched}/{OptionalImageRequired} H={OptionalImageHealth} M={OptionalImageExactMatched} J={OptionalImageJaccard} candidateResources={CandidateResourceCount} relation={MetadataRelation} title={DisplayTitle} artist={DisplayArtist}";
 
-/// <summary>
-/// 推定候補ディレクトリの代表譜面 metadata です。
-/// Pending 画面の確認列へ流すため、ディスク I/O なしでメモリ上のライブラリから解決します。
-/// </summary>
-internal sealed class InstallDestinationRepresentativeMetadata
-{
-    public static InstallDestinationRepresentativeMetadata Empty { get; } = new InstallDestinationRepresentativeMetadata();
-
-    public string Title { get; set; } = string.Empty;
-
-    public string Artist { get; set; } = string.Empty;
 }
 
 /// <summary>
@@ -137,6 +109,9 @@ internal sealed class InstallDestinationRepresentativeMetadata
 /// </summary>
 internal sealed class InstallEstimationResult
 {
+    /// <summary>一操作で一回評価した入力元の観測数・確認状態・Related規則です。永続化しません。</summary>
+    internal InstallEstimationSourceAudio SourceAudio { get; set; }
+
     public bool Success => !string.IsNullOrWhiteSpace(DestinationDirectory);
 
     public string DestinationDirectory { get; set; }
@@ -145,6 +120,39 @@ internal sealed class InstallEstimationResult
 
     public bool ShouldAutoApplyDestination { get; set; }
 
+    /// <summary>選択された有効候補への音源完全性です。TITLE/ARTISTの結果とは独立しています。</summary>
+    internal InstallAudioCompleteness AudioCompleteness { get; set; }
+
+    /// <summary>音源状態とは独立した、各対象譜面への設定閾値の判定結果です。</summary>
+    internal bool AudioAutoApplyAllowed { get; set; }
+    /// <summary>設定値不正・閾値未達・確認不能など、音源による許可判断の診断理由です。</summary>
+    internal string AudioAutoApplyReason { get; set; } = string.Empty;
+    /// <summary>表示上限外も含む競合Strongのパスです。表示順位2位と一致するとは限りません。</summary>
+    internal string AmbiguousCandidateDirectory { get; set; }
+
+    /// <summary>評価に使った一操作の候補方針です。永続化しません。</summary>
+    internal InstallEstimationCandidatePolicy CandidatePolicy { get; set; }
+    /// <summary>要求キーの逆引きで訪問したフォルダ登録数です。候補制限範囲外の訪問も含めます。</summary>
+    internal long ReverseLookupVisits { get; set; }
+    /// <summary>非関連除外前の全リソース有効候補の分類件数です。</summary>
+    internal string MetadataClassificationSummary { get; set; } = string.Empty;
+    /// <summary>全候補のプロフィール解決と分類が終端するまでの時間です。</summary>
+    internal long MetadataEvaluationMs { get; set; }
+    /// <summary>分類器が実際に評価したペア数です。早期Strong確定後の未照合ペアは数えません。</summary>
+    internal int MetadataPairComparisonCount { get; set; }
+    /// <summary>各譜面へ適用した、捕捉済みの設定閾値です。範囲外値も診断のため保持します。</summary>
+    internal int AudioAutoApplyThreshold { get; set; }
+
+    /// <summary>評価で使った候補索引を複製せず共有します。未取得のnullもそのまま反映へ渡し、最新索引で補いません。</summary>
+    internal DirectoryResourceLookupCache PendingDirectoryLookupCache { get; set; }
+
+    /// <summary>同じ推定操作で捕捉した同梱索引です。反映時の健康度評価で入力元を再列挙しません。</summary>
+    internal DirectoryResourceLookupCache.Entry PendingBundledResources { get; set; }
+
+    /// <summary>同梱の不存在を確定できる完全な列挙結果かを、観測済み索引とともに渡します。</summary>
+    internal bool PendingBundledResourcesComplete { get; set; } = true;
+
+    /// <summary>資源充足またはハッシュの単独最多・一意条件を満たす候補の有無です。自動適用にはStrongも必要です。</summary>
     public bool HasViableDestination { get; set; }
 
     public string ConfidenceReason { get; set; }
@@ -219,12 +227,6 @@ internal sealed class InstallEstimationResult
 
     public long EvaluationMs { get; set; }
 
-    public long CandidateViewBuildMs { get; set; }
-
-    public long CandidateMatchMs { get; set; }
-
-    public int CandidateViewBuildCount { get; set; }
-
     public long AncestorShadowEvaluationMs { get; set; }
 
     public string ResourceSummary { get; set; }
@@ -232,10 +234,6 @@ internal sealed class InstallEstimationResult
     public string SelectedCandidateSummary { get; set; }
 
     public string TopCandidateSummary { get; set; }
-
-    public string MetadataFrontierSummary { get; set; }
-
-    public string MetadataTieBreakSummary { get; set; }
 
     public string MetadataValidationSummary { get; set; }
 

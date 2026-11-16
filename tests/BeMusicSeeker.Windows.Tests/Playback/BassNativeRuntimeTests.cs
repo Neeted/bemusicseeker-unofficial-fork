@@ -1,0 +1,1930 @@
+using System.IO;
+using System.Reflection;
+using System.Reflection.PortableExecutable;
+using System.Runtime.ExceptionServices;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using ManagedBass;
+using ManagedBass.Enc;
+using ManagedBass.Mix;
+using NLog;
+using NLog.Config;
+using NLog.Targets;
+using Ribbit.Logging;
+using Ribbit.Media;
+using Ribbit.Media.Audio;
+using BassAudioRuntime = Ribbit.Media.Audio.BassAudioRuntime;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+[DoNotParallelize]
+public sealed class BassNativeRuntimeTests
+{
+    [TestInitialize]
+    public void ResetNativeRuntime()
+    {
+        BassAudioRuntime.Shutdown();
+    }
+
+    /// <summary>配布する全native DLLのhash・x64 PE・実ロード版をpinに照合し、別版・別architectureの混入とABI不一致を検出する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void NativeFamily_LoadsFixedX64AssetsAndMatchesAbiSet()
+    {
+        string[] expectedNames =
+        {
+            "bass.dll",
+            "bassasio.dll",
+            "basswasapi.dll",
+            "bassmix.dll",
+            "bass_fx.dll",
+            "bassenc.dll",
+            "bms_vorbis.dll"
+        };
+        string[] expectedHashes =
+        {
+            "FEBB2CF1882D554C3A958280777DA0B69F07DE6E262DF271DE11C56E4A54AFD4",
+            "73BF79C8ECCD63DEA8EB3E3E9B5FFE6F9406DEB9BBCCCC7557CA54F5013B4B96",
+            "6F0869C11431E01F759FBE1CD6080299C833C519EB8AB1FEAE12106907B1FBD1",
+            "3A1777CD14C0FC6E2D6F879CE9B66CB60CD1C6607F344D70D2434164526063AB",
+            "A6E1847EEF52D882B4137AF514D834C2E220DACEB417C821D1E502FB7A34C84A",
+            "9D8EE8D750DEF93E927E62E35D02A4CC8457C509CFA561C47AED3381691F51F8",
+            "403287F5E79580C4987F5018AF7FFE5B180F63819B10D09EA744AF5465D360C9"
+        };
+
+        string nativeDirectory = Path.Combine(ApplicationPathPolicy.Current.AssetsDirectory, "libs", "x64");
+        for (int index = 0; index < expectedNames.Length; index++)
+        {
+            string path = Path.Combine(nativeDirectory, expectedNames[index]);
+            Assert.IsTrue(File.Exists(path), path);
+            Assert.AreEqual(expectedHashes[index], Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+            using FileStream stream = File.OpenRead(path);
+            using var peReader = new PEReader(stream);
+            Assert.AreEqual(Machine.Amd64, peReader.PEHeaders.CoffHeader.Machine, path);
+        }
+
+        BassAudioRuntime.Initialize();
+        try
+        {
+            Assert.AreEqual(0x02041203u, BassVersionPacking.Pack(ManagedBass.Bass.Version));
+            Assert.AreEqual(0x01040300u, BassVersionPacking.Pack(ManagedBass.Asio.BassAsio.Version));
+            Assert.AreEqual(0x02040401u, BassVersionPacking.Pack(ManagedBass.Wasapi.BassWasapi.Version));
+            Assert.AreEqual(0x02040D00u, BassVersionPacking.Pack(ManagedBass.Mix.BassMix.Version));
+            Assert.AreEqual(0x02040C06u, BassVersionPacking.Pack(ManagedBass.Fx.BassFx.Version));
+            Assert.AreEqual(0x02041100u, BassVersionPacking.Pack(ManagedBass.Enc.BassEnc.Version));
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
+        }
+
+    }
+
+    /// <summary>runtime初期化後に実coreの解放と再初期化を行い、解放後もnative接続を利用できることを確認する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioRuntime_InitializesAndDeactivatesNativeRuntime()
+    {
+        BassAudioRuntime.Initialize();
+        bool bassInitialized = false;
+        try
+        {
+            bassInitialized = Bass.Init(
+                0,
+                44100,
+                DeviceInitFlags.NoSpeakerAssignment,
+                IntPtr.Zero,
+                IntPtr.Zero);
+            Assert.IsTrue(bassInitialized, Bass.LastError.ToString());
+            BassAudioRuntime.FreeDevice();
+            bassInitialized = false;
+            Assert.AreEqual(0x02041203u, BassVersionPacking.Pack(ManagedBass.Bass.Version));
+            bassInitialized = Bass.Init(
+                0,
+                44100,
+                DeviceInitFlags.NoSpeakerAssignment,
+                IntPtr.Zero,
+                IntPtr.Zero);
+            Assert.IsTrue(bassInitialized, Bass.LastError.ToString());
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
+        }
+
+    }
+
+    /// <summary>core Free成功ではlast-errorを読まず、無関係な古いnative番号で成功を失敗へ変えない。</summary>
+    [TestMethod]
+    public void FreeCoreDevice_SuccessDoesNotReadLastError()
+    {
+        var events = new List<string>();
+
+        BassAudioRuntime.FreeCoreDevice(
+            () =>
+            {
+                events.Add("free");
+                return true;
+            },
+            () =>
+            {
+                events.Add("error");
+                return ManagedBass.Errors.Handle;
+            },
+            () => events.Add("already-free"));
+
+        CollectionAssert.AreEqual(new[] { "free" }, events);
+    }
+
+    /// <summary>core Freeのfalse直後のInit番号を捕捉し、既解放として冪等成功を通知する。</summary>
+    [TestMethod]
+    public void FreeCoreDevice_CapturesInitAfterFalseAndTreatsItAsIdempotent()
+    {
+        var events = new List<string>();
+
+        BassAudioRuntime.FreeCoreDevice(
+            () =>
+            {
+                events.Add("free");
+                return false;
+            },
+            () =>
+            {
+                events.Add("error");
+                return ManagedBass.Errors.Init;
+            },
+            () => events.Add("already-free"));
+
+        CollectionAssert.AreEqual(new[] { "free", "error", "already-free" }, events);
+    }
+
+    /// <summary>core FreeのInit以外の失敗を従来BASS診断名で返し、既解放として隠さない。</summary>
+    [TestMethod]
+    public void FreeCoreDevice_ReportsNonInitErrorWithLegacyDiagnosticSpelling()
+    {
+        var events = new List<string>();
+
+        Exception exception = Assert.ThrowsExactly<Exception>(() => BassAudioRuntime.FreeCoreDevice(
+            () =>
+            {
+                events.Add("free");
+                return false;
+            },
+            () =>
+            {
+                events.Add("error");
+                return ManagedBass.Errors.Handle;
+            },
+            () => events.Add("already-free")));
+
+        StringAssert.Contains(exception.Message, "BASS_ERROR_HANDLE");
+        CollectionAssert.AreEqual(new[] { "free", "error" }, events);
+    }
+
+    /// <summary>core Freeとlast-error読取りがともに例外でもFreeの元失敗を保持し、診断例外で置換しない。</summary>
+    [TestMethod]
+    public void FreeCoreDevice_PreservesReleaseExceptionWhenErrorReadFails()
+    {
+        var events = new List<string>();
+        var expected = new InvalidOperationException("free failed");
+
+        Exception actual = Assert.ThrowsExactly<InvalidOperationException>(() => BassAudioRuntime.FreeCoreDevice(
+            () =>
+            {
+                events.Add("free");
+                throw expected;
+            },
+            () =>
+            {
+                events.Add("error");
+                throw new InvalidOperationException("error read failed");
+            },
+            () => events.Add("already-free")));
+
+        Assert.AreSame(expected, actual);
+        CollectionAssert.AreEqual(new[] { "free", "error" }, events);
+    }
+
+    /// <summary>初期化とshutdownの反復でnative所有の活性・非活性を切り替え、操作lease中はpinしたABIを利用できる。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioRuntime_InitializeReusesNativeOwnershipAcrossCycles()
+    {
+        for (int cycle = 0; cycle < 2; cycle++)
+        {
+            BassAudioRuntime.Initialize();
+            try
+            {
+                Assert.IsTrue(BassNativeRuntime.IsLoaded);
+                using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
+                Assert.IsTrue(BassNativeRuntime.IsLoaded);
+                Assert.AreEqual(0x02041203u, BassVersionPacking.Pack(ManagedBass.Bass.Version));
+            }
+            finally
+            {
+                BassAudioRuntime.Shutdown();
+            }
+
+            Assert.IsFalse(BassNativeRuntime.IsLoaded);
+        }
+    }
+
+    /// <summary>callback共有lease保持中の反復Initializeは不要な排他待ちをせず、別callbackで有限・非無音の実PCMをpullできる。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioRuntime_RepeatedInitializeCoexistsWithHeldCallbackAndIndependentPcmPull()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
+        using var releaseCallback = new ManualResetEventSlim();
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? heldCallback = null;
+        Task? initialization = null;
+        ExceptionDispatchInfo? failure = null;
+        void CaptureCleanup(Action cleanup)
+        {
+            try
+            {
+                cleanup();
+            }
+            catch (Exception exception)
+            {
+                failure ??= ExceptionDispatchInfo.Capture(exception);
+            }
+        }
+
+        try
+        {
+            BassAudioRuntime.Initialize();
+            Assert.IsTrue(Bass.Init(0, 44100, DeviceInitFlags.Default, IntPtr.Zero, IntPtr.Zero),
+                Bass.LastError.ToString());
+            int sourceHandle = Bass.CreateStream(wavePath, 0L, 0L,
+                BassFlags.Float | BassFlags.Prescan | BassFlags.Decode);
+            Assert.AreNotEqual(0, sourceHandle, Bass.LastError.ToString());
+            var session = new BassAudioSession(BassAudioPlayer.DeviceDriver.ASIO)
+            {
+                OutputProcessor = new AudioOutputProcessor(44100, 1d),
+                CallbackPcmRenderer = new AudioPcmRenderer(sourceHandle, 44100, 1)
+            };
+            session.TrackOutputHandle(sourceHandle);
+
+            heldCallback = Task.Factory.StartNew(
+                () =>
+                {
+                    try
+                    {
+                        Assert.IsTrue(BassAudioRuntime.TryEnterAudioCallbackOperation(
+                            out BassAudioOperationLease operation));
+                        using (operation)
+                        {
+                            callbackEntered.SetResult();
+                            releaseCallback.Wait();
+                        }
+                    }
+                    catch (Exception exception)
+                    {
+                        callbackEntered.TrySetException(exception);
+                        throw;
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            callbackEntered.Task.GetAwaiter().GetResult();
+
+            initialization = Task.Factory.StartNew(
+                () =>
+                {
+                    for (int repetition = 0; repetition < 3; repetition++)
+                    {
+                        BassAudioRuntime.Initialize();
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+
+            // 保持中の共有leaseが冗長な排他初期化を待たせる誤実装だけを、callback保持中の停止検出で検出します。
+            ConcurrencyProbe.AssertCompletesWhileHeld(
+                initialization,
+                "初期化済みruntimeの確認は進行中のcallbackの解放を待ちません。",
+                heldCallback);
+            float[]? pcm = Task.Factory.StartNew(
+                () =>
+                {
+                    if (!BassAudioRuntime.TryEnterAudioCallbackOperation(out BassAudioOperationLease operation))
+                    {
+                        return null;
+                    }
+                    using (operation)
+                    {
+                        const int sampleCount = 128;
+                        IntPtr buffer = Marshal.AllocHGlobal(sampleCount * sizeof(float));
+                        try
+                        {
+                            Assert.AreEqual(sampleCount * sizeof(float),
+                                BassAudioPlayer.ReadPublishedCallbackOutput(session, buffer, sampleCount * sizeof(float)));
+                            session.ThrowPendingOutputFailure();
+                            float[] samples = new float[sampleCount];
+                            Marshal.Copy(buffer, samples, 0, samples.Length);
+                            return samples;
+                        }
+                        finally
+                        {
+                            Marshal.FreeHGlobal(buffer);
+                        }
+                    }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).GetAwaiter().GetResult();
+
+            Assert.IsNotNull(pcm, "独立したcallbackの受付を維持します。");
+            Assert.IsTrue(pcm.All(float.IsFinite));
+            Assert.IsTrue(pcm.Any(sample => sample != 0f), "実native PCMを継続して読み取ります。");
+            Assert.IsTrue(Bass.ChannelGetPosition(sourceHandle, PositionFlags.Bytes) > 0);
+        }
+        catch (Exception exception)
+        {
+            failure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            releaseCallback.Set();
+            CaptureCleanup(() => heldCallback?.GetAwaiter().GetResult());
+            CaptureCleanup(() => initialization?.GetAwaiter().GetResult());
+            CaptureCleanup(BassAudioRuntime.Shutdown);
+            CaptureCleanup(() => File.Delete(wavePath));
+        }
+
+        failure?.Throw();
+    }
+
+    /// <summary>runtime初期化済みでも独立音声要求の再入は拒否し、受理済み要求内の継続と終端後の次要求は許す。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioRuntime_InitializedRuntimeRejectsIndependentRequestButAllowsAcceptedReentry()
+    {
+        BassAudioRuntime.Initialize();
+        try
+        {
+            Assert.IsTrue(BassAudioRuntime.TryEnterAudioRequest(out IDisposable admission));
+            using (admission)
+            {
+                Task independentRequest;
+                // 受理済み要求のAsyncLocalを継承させず、別要求として直接Initializeを呼びます。
+                using (ExecutionContext.SuppressFlow())
+                {
+                    independentRequest = Task.Factory.StartNew(
+                        () => Assert.ThrowsExactly<InvalidOperationException>(BassAudioRuntime.Initialize),
+                        CancellationToken.None,
+                        TaskCreationOptions.LongRunning,
+                        TaskScheduler.Default);
+                }
+                independentRequest.GetAwaiter().GetResult();
+                BassAudioRuntime.Initialize();
+            }
+
+            BassAudioRuntime.Initialize();
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    /// <summary>ManagedBassの既知DLL名と大文字・拡張子aliasを同じ活性generation handleへ解決し、別ロードを作らない。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void ManagedBassResolver_MapsKnownNamesToCurrentGenerationHandles()
+    {
+        BassAudioRuntime.Initialize();
+        try
+        {
+            (string BareName, string ExtensionName, string CanonicalName)[] knownNames =
+            {
+                ("bass", "BASS.DLL", "bass.dll"),
+                ("BassAsio", "BASSASIO.DLL", "bassasio.dll"),
+                ("basswasapi", "BASSWASAPI.DLL", "basswasapi.dll"),
+                ("bassmix", "BASSMIX.DLL", "bassmix.dll"),
+                ("bass_fx", "BASS_FX.DLL", "bass_fx.dll"),
+                ("bassenc", "BASSENC.DLL", "bassenc.dll")
+            };
+
+            foreach ((string bareName, string extensionName, string canonicalName) in knownNames)
+            {
+                IntPtr bareHandle = ManagedBassNativeLibraryResolver.ResolveForTesting(bareName);
+                Assert.AreNotEqual(IntPtr.Zero, bareHandle, bareName);
+                Assert.AreEqual(
+                    bareHandle,
+                    ManagedBassNativeLibraryResolver.ResolveForTesting(extensionName),
+                    extensionName);
+                Assert.AreEqual(
+                    bareHandle,
+                    BassNativeRuntime.ResolveLoadedLibrary(canonicalName),
+                    canonicalName);
+            }
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    /// <summary>未知名・別絶対path・未採用addonはresolverで奪わず既定probeへ渡す。</summary>
+    [TestMethod]
+    public void ManagedBassResolver_LeavesUnknownNamesToDefaultProbing()
+    {
+        Assert.AreEqual(IntPtr.Zero, ManagedBassNativeLibraryResolver.ResolveForTesting("not-a-bass-library"));
+        Assert.AreEqual(IntPtr.Zero, ManagedBassNativeLibraryResolver.ResolveForTesting("C:\\other\\bass.dll"));
+        Assert.AreEqual(IntPtr.Zero, ManagedBassNativeLibraryResolver.ResolveForTesting("bassenc_lame"));
+    }
+
+    /// <summary>runtime非活性後の既知名解決はDllNotFoundで拒否し、論理shutdown後のhandleを新呼出しへ渡さない。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void ManagedBassResolver_RejectsKnownNameAfterRuntimeDeactivation()
+    {
+        BassAudioRuntime.Initialize();
+        BassAudioRuntime.Shutdown();
+
+        Assert.ThrowsExactly<DllNotFoundException>(
+            () => ManagedBassNativeLibraryResolver.ResolveForTesting("bass"));
+    }
+
+    /// <summary>論理restart後もpinしたManagedBass generation handleを再利用し、別generationへの切替で既存接続を壊さない。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassNativeRuntime_ReusesPinnedManagedBassGenerationAcrossLogicalRestart()
+    {
+        BassAudioRuntime.Initialize();
+        IntPtr[] firstGenerationHandles =
+        [
+            BassNativeRuntime.ResolveLoadedLibrary("bass.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bassasio.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("basswasapi.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bassmix.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bass_fx.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bassenc.dll"),
+            BassNativeRuntime.ResolveLoadedLibrary("bms_vorbis.dll")
+        ];
+        BassAudioRuntime.Shutdown();
+        Assert.IsFalse(BassNativeRuntime.IsLoaded);
+
+        BassAudioRuntime.Initialize();
+        try
+        {
+            CollectionAssert.AreEqual(
+                firstGenerationHandles,
+                new[]
+                {
+                    BassNativeRuntime.ResolveLoadedLibrary("bass.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bassasio.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("basswasapi.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bassmix.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bass_fx.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bassenc.dll"),
+                    BassNativeRuntime.ResolveLoadedLibrary("bms_vorbis.dll")
+                });
+            Assert.AreEqual(0x02041100u, BassVersionPacking.Pack(ManagedBass.Enc.BassEnc.Version));
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    /// <summary>native family読込み途中の欠落は取得済みhandleを逆順に回収し、不完全ロードを活性として公開しない。</summary>
+    [TestMethod]
+    public void BassNativeRuntime_LoadFailureRollsBackCurrentHandlesInReverseOrder()
+    {
+        var loadedHandles = new List<IntPtr>();
+        var freedHandles = new List<IntPtr>();
+        int loadCount = 0;
+
+        Assert.ThrowsExactly<DllNotFoundException>(() => BassNativeRuntime.LoadForTesting(
+            _ =>
+            {
+                loadCount++;
+                if (loadCount == 4)
+                {
+                    return IntPtr.Zero;
+                }
+
+                IntPtr handle = new(loadCount);
+                loadedHandles.Add(handle);
+                return handle;
+            },
+            handle => freedHandles.Add(handle)));
+
+        CollectionAssert.AreEqual(loadedHandles.AsEnumerable().Reverse().ToArray(), freedHandles);
+        Assert.IsFalse(BassNativeRuntime.IsLoaded);
+    }
+
+    /// <summary>native版不一致は部品名と期待／実raw版を診断に残し、どのABIが違うかを失わない。</summary>
+    [TestMethod]
+    public void BassNativeRuntime_VersionMismatchPreservesComponentAndPackedValues()
+    {
+        InvalidOperationException exception = Assert.ThrowsExactly<InvalidOperationException>(() =>
+            BassNativeRuntime.ValidateVersionForTesting(
+                "bassmix.dll",
+                new Version(2, 4, 12, 1),
+                0x02040C00u));
+
+        StringAssert.Contains(exception.Message, "bassmix.dll");
+        StringAssert.Contains(exception.Message, "Expected 0x02040C00");
+        StringAssert.Contains(exception.Message, "loaded 0x02040C01");
+    }
+
+    /// <summary>外部native版の4byte形式を独立raw値と相互変換し、省略revisionの扱いとbyte範囲超過を明示する。</summary>
+    [TestMethod]
+    public void BassVersionPackingRoundTripsSupportedNativeVersionShape()
+    {
+        var expectedVersions = new Dictionary<uint, Version>
+        {
+            [0x02041203] = new(2, 4, 18, 3),
+            [0x02040C00] = new(2, 4, 12, 0),
+            [0x02040D00] = new(2, 4, 13, 0),
+            [0x02041100] = new(2, 4, 17, 0),
+            [0x02040401] = new(2, 4, 4, 1),
+            [0x02040C06] = new(2, 4, 12, 6),
+            [0x01040300] = new(1, 4, 3, 0)
+        };
+
+        foreach ((uint packed, Version expected) in expectedVersions)
+        {
+            Assert.AreEqual(expected, BassVersionPacking.Unpack(packed));
+            Assert.AreEqual(packed, BassVersionPacking.Pack(expected));
+        }
+
+        Assert.AreEqual(
+            new Version(2, 4, 18, 0),
+            BassVersionPacking.Unpack(BassVersionPacking.Pack(new Version(2, 4, 18))));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(
+            () => BassVersionPacking.Pack(new Version(2, 4, 256, 0)));
+    }
+
+    /// <summary>writerの開始前Stopを拒否し、録音停止状態を維持する。</summary>
+    [TestMethod]
+    public void AudioWriterRejectsStopBeforeStart()
+    {
+        try
+        {
+            BassAudioRuntime.Initialize();
+
+            Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
+            Assert.ThrowsExactly<InvalidOperationException>(BassAudioWriter.StopRecording);
+            Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
+        }
+        finally
+        {
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    /// <summary>各encoder入口に指定品質・出力形・衝突suffixを渡し、実Wave開始・PCM書込み・停止でファイルを保存する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void AudioWriterStartsAndStopsWavRecordingWithoutPhysicalDevice()
+    {
+        var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        bool workspaceCleanupAttempted = false;
+        void CleanupWorkspace()
+        {
+            if (workspaceCleanupAttempted) { return; }
+            workspaceCleanupAttempted = true;
+            workspace.Dispose();
+        }
+        try
+        {
+            string directoryPath = workspace.RootDirectory;
+            string outputWithoutExtension = Path.Combine(directoryPath, "recording");
+            string lameWithoutExtension = Path.Combine(directoryPath, "lame");
+            string neroWithoutExtension = Path.Combine(directoryPath, "nero");
+            string opusWithoutExtension = Path.Combine(directoryPath, "opus");
+            string flacWithoutExtension = Path.Combine(directoryPath, "flac");
+            string oggWithoutExtension = Path.Combine(directoryPath, "ogg");
+            string previousEncoderDirectory = BassAudioWriter.EncoderDirectory;
+            SampleRate previousFrequency = BassAudioPlayer.Frequency;
+            SampleFormat previousFormat = BassAudioPlayer.Format;
+            BassAudioSession? ownedSession = null;
+            FieldInfo? encoderField = null;
+            ExceptionDispatchInfo? failure = null;
+            void CaptureCleanup(Action cleanup)
+            {
+                try
+                {
+                    cleanup();
+                }
+                catch (Exception exception)
+                {
+                    failure ??= ExceptionDispatchInfo.Capture(exception);
+                }
+            }
+
+            AudioEncoderSession GetCurrentEncoder()
+            {
+                Assert.IsNotNull(encoderField);
+                var currentEncoder = encoderField!.GetValue(null) as AudioEncoderSession;
+                Assert.IsNotNull(currentEncoder);
+                return currentEncoder;
+            }
+
+            void AssertCreatedEncoder(string expectedOutputFile)
+            {
+                AudioEncoderSession currentEncoder = GetCurrentEncoder();
+                Assert.AreEqual(expectedOutputFile, currentEncoder.OutputFile);
+                Assert.AreEqual(0, currentEncoder.EncoderHandle);
+                Assert.AreEqual(AudioEncoderSessionState.Created, currentEncoder.State);
+            }
+
+            try
+            {
+                Directory.CreateDirectory(directoryPath);
+                encoderField = typeof(BassAudioWriter).GetField(
+                    "encoder",
+                    BindingFlags.NonPublic | BindingFlags.Static);
+                Assert.IsNotNull(encoderField);
+
+                foreach (EncoderType encoderType in new[]
+                {
+                EncoderType.MP3_LAME,
+                EncoderType.AAC_NERO,
+                EncoderType.OPUS,
+                EncoderType.FLAC,
+                EncoderType.OGG_VORBIS
+            })
+                {
+                    File.WriteAllText(
+                        Path.Combine(directoryPath, encoderType.GetEncoderFileName()),
+                        string.Empty);
+                }
+
+                foreach (string outputFile in new[]
+                {
+                lameWithoutExtension + ".mp3",
+                neroWithoutExtension + ".m4a",
+                opusWithoutExtension + ".opus",
+                flacWithoutExtension + ".flac",
+                oggWithoutExtension + ".ogg",
+                outputWithoutExtension + ".wav"
+            })
+                {
+                    File.WriteAllText(outputFile, string.Empty);
+                }
+
+                BassAudioWriter.EncoderDirectory = directoryPath;
+                BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
+                BassAudioPlayer.Format = SampleFormat.SAMPLE_INT_16BIT;
+                BassAudioRuntime.Initialize();
+                BassAudioWriter.InitializeOwnedSession(out ownedSession);
+
+                ChannelInfo sourceInfo = Bass.ChannelGetInfo(ownedSession.MixerHandle);
+                Assert.AreEqual(SampleFormat.SAMPLE_INT_16BIT, BassAudioPlayer.Format);
+                Assert.AreEqual(48000, sourceInfo.Frequency);
+                Assert.AreEqual(2, sourceInfo.Channels);
+                Assert.IsTrue(sourceInfo.Flags.HasFlag(BassFlags.Float));
+                Assert.AreEqual(SampleRate.SAMPLE_RATE_48000Hz, ownedSession.NegotiationResult.ActualRate);
+                Assert.AreEqual(2, ownedSession.NegotiationResult.ActualChannels);
+                Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, ownedSession.NegotiationResult.EngineFormat);
+                Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, ownedSession.NegotiationResult.EndpointFormat);
+
+                string lameOutputFile = lameWithoutExtension + " (2).mp3";
+                BassAudioWriter.CreateEncoderLAME(lameWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(lameOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, lameOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -s 48 ");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitwidth 32");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -V 4 ");
+                Assert.AreEqual(
+                    EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo32Bit | EncodeFlags.Dither,
+                    BassAudioWriter.EncoderFlags);
+
+                string neroOutputFile = neroWithoutExtension + " (2).m4a";
+                BassAudioWriter.CreateEncoderNeroAAC(neroWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(neroOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, neroOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -q 0.6 ");
+                Assert.AreEqual(EncodeFlags.Unicode, BassAudioWriter.EncoderFlags);
+
+                string opusOutputFile = opusWithoutExtension + " (2).opus";
+                BassAudioWriter.CreateEncoderOPUS(opusWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(opusOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, opusOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--ignorelength");
+                Assert.IsFalse(BassAudioWriter.EncoderCommandLine.Contains("--raw", StringComparison.Ordinal));
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bitrate 156 ");
+                Assert.AreEqual(
+                    EncodeFlags.Unicode,
+                    BassAudioWriter.EncoderFlags);
+
+                string flacOutputFile = flacWithoutExtension + " (2).flac";
+                BassAudioWriter.CreateEncoderFLAC(flacWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(flacOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, flacOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--sample-rate=48000");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--channels=2");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--bps=24");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "--replay-gain -6 ");
+                Assert.AreEqual(
+                    EncodeFlags.Unicode | EncodeFlags.NoHeader | EncodeFlags.ConvertFloatTo24Bit,
+                    BassAudioWriter.EncoderFlags);
+
+                string oggOutputFile = oggWithoutExtension + " (2).ogg";
+                BassAudioWriter.CreateEncoderOGG(oggWithoutExtension, quality: 0.6f);
+                AssertCreatedEncoder(oggOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, oggOutputFile);
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-F 3");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-C 2");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, "-R 48000");
+                StringAssert.Contains(BassAudioWriter.EncoderCommandLine, " -q 6.0 ");
+                Assert.IsFalse(BassAudioWriter.EncoderCommandLine.Contains(" -B ", StringComparison.Ordinal));
+                Assert.AreEqual(EncodeFlags.Unicode | EncodeFlags.NoHeader, BassAudioWriter.EncoderFlags);
+
+                string outputPath = outputWithoutExtension + " (2).wav";
+                BassAudioWriter.CreateEncoderWAV(outputWithoutExtension);
+                AssertCreatedEncoder(outputPath);
+                Assert.AreEqual(outputPath, BassAudioWriter.EncoderCommandLine);
+                Assert.AreEqual(
+                    EncodeFlags.PCM | EncodeFlags.ConvertFloatTo16BitInt | EncodeFlags.Dither,
+                    BassAudioWriter.EncoderFlags);
+
+                BassAudioWriter.StartRecording();
+                Assert.AreEqual(PlayState.Playing, BassAudioWriter.RecordState);
+                AudioPcmRenderer renderer = BassAudioWriter.CreatePcmRenderer();
+                float[] pcm = new float[renderer.SampleRate / 20 * renderer.ChannelCount];
+                renderer.ReadFramesExactly(pcm, 0, renderer.SampleRate / 20);
+                BassAudioWriter.WritePcm(pcm);
+
+                BassAudioWriter.StopRecording();
+                Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
+
+                Assert.IsTrue(File.Exists(outputPath));
+                Assert.IsTrue(new FileInfo(outputPath).Length >= 44);
+            }
+            catch (Exception exception)
+            {
+                failure = ExceptionDispatchInfo.Capture(exception);
+            }
+            finally
+            {
+                bool encoderReleased = false;
+                CaptureCleanup(() =>
+                {
+                    encoderReleased = BassAudioWriter.TryReleaseEncoder();
+                    if (!encoderReleased)
+                    {
+                        throw new InvalidOperationException("The writer encoder owner did not release.");
+                    }
+                });
+
+                bool sessionReleased = ownedSession == null;
+                if (encoderReleased)
+                {
+                    CaptureCleanup(() =>
+                    {
+                        sessionReleased = BassAudioPlayer.Free(ownedSession);
+                        if (!sessionReleased)
+                        {
+                            throw new InvalidOperationException("The writer audio session did not release.");
+                        }
+                    });
+                }
+
+                if (encoderReleased && sessionReleased)
+                {
+                    CaptureCleanup(BassAudioRuntime.Shutdown);
+                }
+
+                CaptureCleanup(() =>
+                {
+                    BassAudioWriter.EncoderDirectory = previousEncoderDirectory;
+                    BassAudioPlayer.Frequency = previousFrequency;
+                    BassAudioPlayer.Format = previousFormat;
+                });
+                CaptureCleanup(() =>
+                {
+                    if (Directory.Exists(directoryPath))
+                    {
+                        CleanupWorkspace();
+                    }
+                });
+            }
+
+            failure?.Throw();
+        }
+        finally
+        {
+            CleanupWorkspace();
+        }
+    }
+
+    /// <summary>runtime shutdown要求はnative非活性化前に新root受付を閉じ、受理済み操作の終端までgenerationを保つ。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioRuntime_ShutdownClosesAdmissionBeforeDeactivatingNativeGeneration()
+    {
+        BassAudioRuntime.Initialize();
+        BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
+        int operationThreadId = Environment.CurrentManagedThreadId;
+        Task? shutdown = null;
+        Task<bool>? newRootAdmission = null;
+        ExceptionDispatchInfo? failure = null;
+        void CaptureCleanupFailure(Exception exception)
+        {
+            if (failure == null) { failure = ExceptionDispatchInfo.Capture(exception); }
+            else { Console.Error.WriteLine("音声shutdown検査の後片付け失敗: " + exception); }
+        }
+        void CaptureCleanup(Action cleanup)
+        {
+            try { cleanup(); }
+            catch (Exception exception) { CaptureCleanupFailure(exception); }
+        }
+
+        try
+        {
+            shutdown = Task.Run(BassAudioRuntime.Shutdown);
+            Assert.IsTrue(BassAudioRuntime.WaitForAudioShutdownRequest(TimeSpan.FromSeconds(5)));
+            // 同期待機によるTaskのinline実行を避け、保持中operationのネストではない新rootを作る。
+            newRootAdmission = Task.Factory.StartNew(
+                () =>
+                {
+                    Assert.AreNotEqual(operationThreadId, Environment.CurrentManagedThreadId);
+                    if (!BassAudioRuntime.TryEnterAudioOperation(out BassAudioOperationLease lease))
+                    {
+                        return false;
+                    }
+
+                    try { return true; }
+                    finally { lease.Dispose(); }
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            Assert.IsFalse(newRootAdmission.GetAwaiter().GetResult());
+            Assert.IsFalse(shutdown.IsCompleted);
+            Assert.IsTrue(BassNativeRuntime.IsLoaded);
+        }
+        catch (Exception exception)
+        {
+            failure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            try { operation.Dispose(); }
+            catch (Exception exception) { CaptureCleanupFailure(exception); }
+            CaptureCleanup(() => newRootAdmission?.GetAwaiter().GetResult());
+            CaptureCleanup(() => shutdown?.GetAwaiter().GetResult());
+            if (shutdown == null) { CaptureCleanup(BassAudioRuntime.Shutdown); }
+        }
+
+        failure?.Throw();
+        Assert.IsFalse(BassNativeRuntime.IsLoaded);
+    }
+
+    /// <summary>runtime初期化はnative読込みを版検証より先に実行し、未ロードABIを照会しない。</summary>
+    [TestMethod]
+    public void BassAudioRuntime_InitializationCoreOrdersNativeLoadBeforeVersionValidation()
+    {
+        var events = new System.Collections.Generic.List<string>();
+
+        BassAudioRuntime.InitializeRuntimeCore(
+            () => events.Add("LoadNative"),
+            () => events.Add("ValidateVersions"));
+
+        CollectionAssert.AreEqual(
+            new[] { "LoadNative", "ValidateVersions" },
+            events);
+    }
+
+    /// <summary>native読込み失敗では後続の版検証を始めず、初期化を失敗として終える。</summary>
+    [TestMethod]
+    public void BassAudioRuntime_InitializationCoreStopsAfterNativeLoadFailure()
+    {
+        var events = new System.Collections.Generic.List<string>();
+
+        Assert.ThrowsExactly<InvalidOperationException>(() => BassAudioRuntime.InitializeRuntimeCore(
+            () =>
+            {
+                events.Add("LoadNative");
+                throw new InvalidOperationException("load failed");
+            },
+            () => events.Add("ValidateVersions")));
+
+        CollectionAssert.AreEqual(new[] { "LoadNative" }, events);
+    }
+
+    /// <summary>実native sourceをpauseで接続後resumeしてmixerをpullし、正の進行・有限・非無音PCMを確認する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void NativeRuntime_NoSoundDecodeMixerPullProducesNonZeroPcm()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
+        int sourceHandle = 0;
+        int mixerHandle = 0;
+        BassMixerSourceController? sourceController = null;
+        bool coreInitialized = false;
+        string stage = "not started";
+        Exception? primaryException = null;
+        Exception? cleanupException = null;
+        try
+        {
+            stage = "BassAudioRuntime.Initialize";
+            BassAudioRuntime.Initialize();
+
+            stage = "Bass.Init";
+            Assert.IsTrue(
+                Bass.Init(0, 44100, DeviceInitFlags.Default, IntPtr.Zero, IntPtr.Zero),
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+            coreInitialized = true;
+
+            stage = "Bass.CreateStream";
+            sourceHandle = Bass.CreateStream(
+                wavePath,
+                0L,
+                0L,
+                BassFlags.Float | BassFlags.Prescan | BassFlags.Decode);
+            Assert.AreNotEqual(
+                0,
+                sourceHandle,
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+
+            stage = "BassMix.CreateMixerStream";
+            mixerHandle = BassMix.CreateMixerStream(
+                44100,
+                1,
+                BassFlags.Float | BassFlags.Decode);
+            Assert.AreNotEqual(
+                0,
+                mixerHandle,
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+
+            stage = "BassMix.ChannelGetMixer before attach";
+            Assert.AreEqual(
+                0,
+                BassMix.ChannelGetMixer(sourceHandle),
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+            Assert.AreEqual(Errors.Handle, Bass.LastError);
+
+            sourceController = new BassMixerSourceController(new BassMixerSourceNativeBoundary());
+            stage = "BassMix.ChannelAdd paused";
+            BassMixerSourceAttachment attachment = sourceController.EnsureAttachedPaused(
+                mixerHandle,
+                sourceHandle,
+                wavePath);
+            Assert.IsTrue(attachment.NewlyAttached);
+            Assert.AreEqual(
+                mixerHandle,
+                BassMix.ChannelGetMixer(sourceHandle),
+                NativeSmokeDiagnostic(stage, sourceHandle, mixerHandle, 0, 0, 0, 0));
+
+            stage = "BassMix.ChannelFlags resume";
+            sourceController.Resume(mixerHandle, sourceHandle, wavePath);
+
+            long sourcePositionBefore = Bass.ChannelGetPosition(sourceHandle, PositionFlags.Bytes);
+            const int requestedBytes = 4096 * sizeof(float);
+            byte[] buffer = new byte[requestedBytes];
+            stage = "Bass.ChannelGetData";
+            int returnedBytes = Bass.ChannelGetData(mixerHandle, buffer, requestedBytes);
+            long sourcePositionAfter = Bass.ChannelGetPosition(sourceHandle, PositionFlags.Bytes);
+            Assert.IsTrue(
+                returnedBytes > 0,
+                NativeSmokeDiagnostic(
+                    stage,
+                    sourceHandle,
+                    mixerHandle,
+                    requestedBytes,
+                    returnedBytes,
+                    sourcePositionBefore,
+                    sourcePositionAfter));
+            Assert.IsTrue(
+                sourcePositionAfter > sourcePositionBefore,
+                NativeSmokeDiagnostic(
+                    stage,
+                    sourceHandle,
+                    mixerHandle,
+                    requestedBytes,
+                    returnedBytes,
+                    sourcePositionBefore,
+                    sourcePositionAfter));
+
+            int finiteSamples = 0;
+            int nonZeroSamples = 0;
+            double energy = 0d;
+            int sampleCount = returnedBytes / sizeof(float);
+            for (int index = 0; index < sampleCount; index++)
+            {
+                float sample = BitConverter.ToSingle(buffer, index * sizeof(float));
+                Assert.IsTrue(
+                    float.IsFinite(sample),
+                    NativeSmokeDiagnostic(
+                        stage,
+                        sourceHandle,
+                        mixerHandle,
+                        requestedBytes,
+                        returnedBytes,
+                        sourcePositionBefore,
+                        sourcePositionAfter));
+                finiteSamples++;
+                if (sample != 0f)
+                {
+                    nonZeroSamples++;
+                }
+                energy += sample * sample;
+            }
+
+            Assert.AreEqual(sampleCount, finiteSamples);
+            Assert.IsTrue(nonZeroSamples > 0);
+            Assert.IsTrue(energy > 0d);
+        }
+        catch (Exception exception)
+        {
+            primaryException = exception;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                if (sourceController != null && sourceHandle != 0 && mixerHandle != 0)
+                {
+                    sourceController.RemoveFromExpectedMixer(mixerHandle, sourceHandle, wavePath);
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                if (mixerHandle != 0 && !Bass.StreamFree(mixerHandle))
+                {
+                    cleanupException = new InvalidOperationException(
+                        "BASS mixer cleanup failed: " + Bass.LastError);
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                if (sourceHandle != 0 && !Bass.StreamFree(sourceHandle))
+                {
+                    cleanupException ??= new InvalidOperationException(
+                        "BASS source cleanup failed: " + Bass.LastError);
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                if (coreInitialized
+                    && !Bass.Free()
+                    && Bass.LastError != Errors.Init)
+                {
+                    cleanupException ??= new InvalidOperationException(
+                        "BASS core cleanup failed: " + Bass.LastError);
+                }
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                BassAudioRuntime.Shutdown();
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            try
+            {
+                File.Delete(wavePath);
+            }
+            catch (Exception exception)
+            {
+                cleanupException ??= exception;
+            }
+
+            if (primaryException == null && cleanupException != null)
+            {
+                throw cleanupException;
+            }
+        }
+    }
+
+    private static string CreateNativeSmokeWaveFile(TestWorkspace workspace)
+    {
+        const int sampleRate = 44100;
+        const int channelCount = 1;
+        const int sampleCount = sampleRate / 4;
+        const short bitsPerSample = 16;
+        int dataLength = sampleCount * channelCount * sizeof(short);
+        byte[] wave = new byte[44 + dataLength];
+        using (var stream = new MemoryStream(wave))
+        using (var writer = new BinaryWriter(stream, Encoding.ASCII, leaveOpen: true))
+        {
+            writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+            writer.Write(36 + dataLength);
+            writer.Write(Encoding.ASCII.GetBytes("WAVE"));
+            writer.Write(Encoding.ASCII.GetBytes("fmt "));
+            writer.Write(16);
+            writer.Write((short)1);
+            writer.Write((short)channelCount);
+            writer.Write(sampleRate);
+            writer.Write(sampleRate * channelCount * (bitsPerSample / 8));
+            writer.Write((short)(channelCount * (bitsPerSample / 8)));
+            writer.Write(bitsPerSample);
+            writer.Write(Encoding.ASCII.GetBytes("data"));
+            writer.Write(dataLength);
+            for (int index = 0; index < sampleCount; index++)
+            {
+                double phase = (2d * Math.PI * 440d * index) / sampleRate;
+                writer.Write((short)Math.Round(Math.Sin(phase) * short.MaxValue * 0.5d));
+            }
+        }
+
+        string path = Path.Combine(
+            workspace.RootDirectory,
+            "BeMusicSeeker.BassNativeSmoke." + Guid.NewGuid().ToString("N") + ".wav");
+        File.WriteAllBytes(path, wave);
+        return path;
+    }
+
+    /// <summary>memory Wave playerを所有mixerへ接続し、実pullで有限・非無音PCMを出力する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioPlayer_MemoryWavPlayPullsNonZeroPcmThroughOwningMixer()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
+        try
+        {
+            AssertBassAudioPlayerPlayProducesNonZeroPcm(wavePath);
+        }
+        finally
+        {
+            File.Delete(wavePath);
+        }
+    }
+
+    /// <summary>オフラインmixerを指定再生並列数と独立な一threadに固定し、捕捉したSRC品質を実sourceへ適用・読戻しする。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassNullDeviceInitializesMixerThreadsAndAppliesCapturedSourceQuality()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
+        Settings playbackSettings = TestSettingsFactory.CreateIsolatedSettings(values =>
+            {
+                values.PlayerResamplingQuality = 2;
+                values.PlayerMixerThreadCount = 4;
+            });
+        PlayerSettingsSnapshot playbackSnapshot = new SettingsPlayerSettingsGateway(() => playbackSettings).CaptureSnapshot();
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            Assert.AreEqual(4, playbackSnapshot.AudioOutputRequest.PlayerMixerThreadCount);
+            BassAudioWriter.InitializeOwnedSession(out session, playbackSnapshot.SampleRateConversionQuality);
+
+            Assert.AreEqual(2, session.SampleRateConversionQuality);
+            Assert.IsTrue(Bass.ChannelGetAttribute(
+                session.MixerHandle,
+                (ChannelAttribute)0x15001,
+                out float mixerThreadCount));
+            Assert.AreEqual(1f, mixerThreadCount);
+
+            player = new BassAudioPlayer(wavePath);
+            player.Play(PlayWith.PAUSE);
+            BassAudioOwnedStream source = session.GetPlayerStreams().Single();
+            Assert.IsTrue(Bass.ChannelGetAttribute(
+                source.Handle,
+                ChannelAttribute.SampleRateConversion,
+                out float sourceQuality));
+            Assert.AreEqual(2f, sourceQuality);
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                BassAudioRuntime.Shutdown();
+                File.Delete(wavePath);
+            }
+        }
+    }
+
+    /// <summary>強制GC後もmemory-file callbackの所有を保ち、play・seek・pullを続けて二重Dispose後にvoiceとnative handleを解放する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioPlayer_MemoryFileProceduresSurviveForcedFullGc()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
+        int initialVoices = BassAudioPlayer.CurrentVoices;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session);
+
+            player = new BassAudioPlayer(wavePath);
+            ForceFullCollection();
+
+            player.Play();
+            BassAudioOwnedStream source = session.GetPlayerStreams().Single();
+            int sourceHandle = source.Handle;
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+
+            byte[] buffer = new byte[4096 * sizeof(float)];
+            int returnedBytes = Bass.ChannelGetData(
+                session.MixerHandle,
+                buffer,
+                buffer.Length);
+            Assert.IsTrue(returnedBytes > 0, Bass.LastError.ToString());
+
+            player.CurrentTime = TimeSpan.FromMilliseconds(50);
+            Assert.IsTrue(player.CurrentTime > TimeSpan.Zero);
+            returnedBytes = Bass.ChannelGetData(
+                session.MixerHandle,
+                buffer,
+                buffer.Length);
+            Assert.IsTrue(returnedBytes > 0, Bass.LastError.ToString());
+
+            player.Dispose();
+            player.Dispose();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            Assert.AreEqual(0, session.GetPlayerStreams().Count);
+            Assert.AreEqual(
+                -1L,
+                ManagedBass.Bass.ChannelGetPosition(
+                    sourceHandle,
+                    ManagedBass.PositionFlags.Bytes));
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                BassAudioRuntime.Shutdown();
+                File.Delete(wavePath);
+            }
+        }
+    }
+
+    /// <summary>memory Ogg playerをVorbis復号から所有mixerへ接続し、実pullで有限・非無音PCMを出力する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioPlayer_MemoryOggPlayPullsNonZeroPcmThroughOwningMixer()
+    {
+        string oggPath = Path.Combine(
+            AppContext.BaseDirectory,
+            "TestData",
+            "audio",
+            "nvorbis-1test.ogg");
+        Assert.IsTrue(File.Exists(oggPath), oggPath);
+        AssertBassAudioPlayerPlayProducesNonZeroPcm(oggPath);
+    }
+
+    /// <summary>所属確認済みの接続競合でvoiceを一回だけ数え、重複pause・stop・再play・Disposeの寿命を維持する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioPlayer_VerifiedMembershipRaceCountsVoiceAndLifecycleIsIdempotent()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
+        int initialVoices = BassAudioPlayer.CurrentVoices;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session);
+
+            var native = new PlayerMixerSourceNativeBoundary(
+                () => session.MixerHandle,
+                initiallyAttached: true);
+            player = new BassAudioPlayer(wavePath, AudioSourceLoader.Load(wavePath), native);
+
+            player.Play();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+            player.Pause();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+            player.Pause();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+
+            player.Stop();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            player.Stop();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+
+            player.Play();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+            player.Dispose();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                BassAudioRuntime.Shutdown();
+                File.Delete(wavePath);
+            }
+        }
+    }
+
+    /// <summary>実自然終端後に同じsourceを再playでき、旧終端cleanupで再発音のvoiceを消さずStopで所属を解除する。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void BassAudioPlayer_NaturalEndCanBeReenteredWithoutStaleCleanup()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string wavePath = CreateNativeSmokeWaveFile(workspace);
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
+        int initialVoices = BassAudioPlayer.CurrentVoices;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session);
+
+            player = new BassAudioPlayer(wavePath);
+            player.Play();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+
+            byte[] drainBuffer = new byte[1024 * 1024];
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                int returnedBytes = Bass.ChannelGetData(
+                    session.MixerHandle,
+                    drainBuffer,
+                    drainBuffer.Length);
+                if (returnedBytes <= 0 || returnedBytes < drainBuffer.Length)
+                {
+                    break;
+                }
+            }
+
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            BassAudioOwnedStream endedSource = session.GetPlayerStreams().Single();
+            Assert.AreEqual(session.MixerHandle, BassMix.ChannelGetMixer(endedSource.Handle));
+            Assert.AreEqual(PlayState.Stopped, player.PlayState);
+            player.Play();
+            Assert.AreEqual(initialVoices + 1, BassAudioPlayer.CurrentVoices);
+            player.Stop();
+            Assert.AreEqual(initialVoices, BassAudioPlayer.CurrentVoices);
+            Assert.AreEqual(0, BassMix.ChannelGetMixer(endedSource.Handle));
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                BassAudioRuntime.Shutdown();
+                File.Delete(wavePath);
+            }
+        }
+    }
+
+    /// <summary>発音世代を更新した後の旧callbackと古いpending終端を拒否し、現世代の終端だけを公開する。</summary>
+    [TestMethod]
+    public void BassAudioPlayer_NaturalEndGenerationRejectsStaleCallback()
+    {
+        Assert.AreNotEqual(7, BassAudioPlayer.GetNextPlaybackGeneration(7));
+        Assert.IsTrue(BassAudioPlayer.IsCurrentPlaybackGeneration(7, 7));
+        Assert.IsFalse(BassAudioPlayer.IsCurrentPlaybackGeneration(8, 7));
+        Assert.IsFalse(BassAudioPlayer.ShouldPublishPendingEndCleanup(8, 8, 7));
+        Assert.IsTrue(BassAudioPlayer.ShouldPublishPendingEndCleanup(8, 7, 8));
+        Assert.IsFalse(BassAudioPlayer.ShouldPublishPendingEndCleanup(8, 9, 8));
+    }
+
+    private static void AssertBassAudioPlayerPlayProducesNonZeroPcm(string path)
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        SampleRate originalFrequency = BassAudioPlayer.Frequency;
+        SampleFormat originalFormat = BassAudioPlayer.Format;
+        BassAudioSession? session = null;
+        BassAudioPlayer? player = null;
+        try
+        {
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.IsDeviceMuted = false;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out session);
+
+            player = new BassAudioPlayer(path);
+            player.Play();
+
+            BassAudioOwnedStream source = session.GetPlayerStreams().Single();
+            Assert.AreEqual(
+                session.MixerHandle,
+                BassMix.ChannelGetMixer(source.Handle),
+                Bass.LastError.ToString());
+
+            byte[] buffer = new byte[4096 * sizeof(float)];
+            int returnedBytes = Bass.ChannelGetData(session.MixerHandle, buffer, buffer.Length);
+            Assert.IsTrue(returnedBytes > 0, Bass.LastError.ToString());
+
+            int finiteSamples = 0;
+            int nonZeroSamples = 0;
+            double energy = 0d;
+            for (int index = 0; index + sizeof(float) <= returnedBytes; index += sizeof(float))
+            {
+                float sample = BitConverter.ToSingle(buffer, index);
+                Assert.IsTrue(float.IsFinite(sample));
+                finiteSamples++;
+                if (sample != 0f)
+                {
+                    nonZeroSamples++;
+                }
+                energy += sample * sample;
+            }
+
+            Assert.IsTrue(finiteSamples > 0);
+            Assert.IsTrue(nonZeroSamples > 0);
+            Assert.IsTrue(energy > 0d);
+            player.Stop();
+        }
+        finally
+        {
+            try
+            {
+                player?.Dispose();
+            }
+            finally
+            {
+                BassAudioPlayer.Free(session);
+                BassAudioRuntime.Shutdown();
+                BassAudioPlayer.Frequency = originalFrequency;
+                BassAudioPlayer.Format = originalFormat;
+                RestoreManagedAudioState(originalVolume, originalMute);
+            }
+        }
+    }
+
+    private sealed class PlayerMixerSourceNativeBoundary : IBassMixerSourceNativeBoundary
+    {
+        private readonly Func<int> expectedMixer;
+        private bool attached;
+
+        internal PlayerMixerSourceNativeBoundary(Func<int> expectedMixer, bool initiallyAttached)
+        {
+            this.expectedMixer = expectedMixer;
+            attached = initiallyAttached;
+        }
+
+        public int GetMixer(int sourceHandle) => attached ? expectedMixer() : 0;
+
+        public bool AddChannel(int mixerHandle, int sourceHandle, ManagedBass.BassFlags flags)
+        {
+            attached = true;
+            return true;
+        }
+
+        public ManagedBass.BassFlags SetMixerChannelFlags(
+            int sourceHandle,
+            ManagedBass.BassFlags flags,
+            ManagedBass.BassFlags mask)
+            => ManagedBass.BassFlags.Default;
+
+        public BassMixerChannelInfo GetChannelInfo(int channelHandle)
+        {
+            ChannelInfo info = Bass.ChannelGetInfo(channelHandle);
+            return new BassMixerChannelInfo(info.Frequency, info.Channels, info.Flags);
+        }
+
+        public bool SetSampleRateConversion(int sourceHandle, float quality)
+            => Bass.ChannelSetAttribute(sourceHandle, ChannelAttribute.SampleRateConversion, quality);
+
+        public bool GetSampleRateConversion(int sourceHandle, out float quality)
+            => Bass.ChannelGetAttribute(sourceHandle, ChannelAttribute.SampleRateConversion, out quality);
+
+        public bool SetMatrix(int sourceHandle, float[,] matrix) => true;
+
+        public bool RemoveChannel(int sourceHandle)
+        {
+            attached = false;
+            return true;
+        }
+
+        public bool FreeStream(int sourceHandle) => Bass.StreamFree(sourceHandle);
+
+        public bool SetPosition(int sourceHandle, long position, ManagedBass.PositionFlags mode) => true;
+
+        public ManagedBass.Errors GetError() => ManagedBass.Errors.Handle;
+    }
+
+    private static string NativeSmokeDiagnostic(
+        string stage,
+        int sourceHandle,
+        int mixerHandle,
+        int requestedBytes,
+        int returnedBytes,
+        long sourcePositionBefore,
+        long sourcePositionAfter)
+    {
+        return "BASS native smoke test failed. stage=" + stage
+            + " sourceHandle=" + sourceHandle
+            + " mixerHandle=" + mixerHandle
+            + " nativeErrorSource=BASS"
+            + " nativeErrorCode=" + Bass.LastError
+            + " requestedBytes=" + requestedBytes
+            + " returnedBytes=" + returnedBytes
+            + " sourcePositionBefore=" + sourcePositionBefore
+            + " sourcePositionAfter=" + sourcePositionAfter;
+    }
+
+    /// <summary>runtime開始前の音量・mute変更をmanaged状態へ保持し、それだけでnativeをロードしない。</summary>
+    [TestMethod]
+    public void PreRuntimeVolumeAndMuteChanges_UpdateManagedStateWithoutLoadingNativeRuntime()
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        try
+        {
+            BassAudioRuntime.Shutdown();
+            int loadCountBefore = BassNativeRuntime.LoadInvocationCount;
+
+            BassAudioPlayer.IsDeviceMuted = false;
+            BassAudioPlayer.DeviceVolume = 0.73f;
+            BassAudioPlayer.IsDeviceMuted = true;
+
+            Assert.AreEqual(0.73f, BassAudioPlayer.DeviceVolume);
+            Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
+            Assert.AreEqual(loadCountBefore, BassNativeRuntime.LoadInvocationCount);
+        }
+        finally
+        {
+            RestoreManagedAudioState(originalVolume, originalMute);
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    /// <summary>mute中に利用者が変えた音量をunmute後も保持し、mute前の値へ戻さない。</summary>
+    [TestMethod]
+    public void MutedVolumeChange_IsRestoredWhenDeviceIsUnmutedBeforeRuntimeInitialization()
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        try
+        {
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.IsDeviceMuted = false;
+            BassAudioPlayer.DeviceVolume = 0.31f;
+            BassAudioPlayer.IsDeviceMuted = true;
+            BassAudioPlayer.DeviceVolume = 0.82f;
+
+            BassAudioPlayer.IsDeviceMuted = false;
+
+            Assert.AreEqual(0.82f, BassAudioPlayer.DeviceVolume);
+            Assert.IsFalse(BassAudioPlayer.IsDeviceMuted);
+        }
+        finally
+        {
+            RestoreManagedAudioState(originalVolume, originalMute);
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    /// <summary>runtime shutdown後の音量・mute変更を受付失敗として露出せず、利用者の値を維持する。</summary>
+    [TestMethod]
+    public void VolumeAndMuteChangesAfterRuntimeShutdown_DoNotExposeAdmissionFailure()
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        try
+        {
+            BassAudioRuntime.Initialize();
+            BassAudioRuntime.Shutdown();
+
+            BassAudioPlayer.DeviceVolume = 0.62f;
+            BassAudioPlayer.IsDeviceMuted = true;
+            BassAudioPlayer.IsDeviceMuted = false;
+
+            Assert.AreEqual(0.62f, BassAudioPlayer.DeviceVolume);
+        }
+        finally
+        {
+            RestoreManagedAudioState(originalVolume, originalMute);
+            BassAudioRuntime.Shutdown();
+        }
+    }
+
+    /// <summary>可聴方式ではmuteをgainゼロへ反映し、オフラインNullDeviceでは音量・muteに依存しないunityを使う。</summary>
+    [TestMethod]
+    public void EffectiveDeviceVolumeForBackend_UsesUnityForNullDeviceAndMuteForAudibleBackends()
+    {
+        const float deviceVolume = 0.37f;
+
+        Assert.AreEqual(
+            deviceVolume,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                deviceVolume,
+                isMuted: false));
+        Assert.AreEqual(
+            0f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED,
+                deviceVolume,
+                isMuted: true));
+        Assert.AreEqual(
+            0f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+                deviceVolume,
+                isMuted: true));
+        Assert.AreEqual(
+            0f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.ASIO,
+                deviceVolume,
+                isMuted: true));
+        Assert.AreEqual(
+            1f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                deviceVolume,
+                isMuted: false));
+        Assert.AreEqual(
+            1f,
+            BassAudioPlayer.GetEffectiveDeviceVolumeForBackend(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                deviceVolume,
+                isMuted: true));
+    }
+
+    /// <summary>可聴方式の代替順はASIO→排他→共有だけに限定し、NullDeviceと旧DirectSoundを可聴fallbackへ混入しない。</summary>
+    [TestMethod]
+    public void AudibleInitializationOrder_UsesOnlySupportedBackendFallbacks()
+    {
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                BassAudioPlayer.DeviceDriver.ASIO,
+                BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED
+            },
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.ASIO).ToArray());
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE,
+                BassAudioPlayer.DeviceDriver.WASAPI_SHARED
+            },
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.WASAPI_EXCLUSIVE).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { BassAudioPlayer.DeviceDriver.WASAPI_SHARED },
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.WASAPI_SHARED).ToArray());
+        CollectionAssert.AreEqual(
+            new[] { BassAudioPlayer.DeviceDriver.NULL_DEVICE },
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.NULL_DEVICE).ToArray());
+        Assert.AreEqual(
+            0,
+            BassAudioPlayer.GetInitializationOrder(BassAudioPlayer.DeviceDriver.DIRECT_SOUND).Count);
+    }
+
+    /// <summary>実NullDevice mixerのgainは音量・mute変更後もunityを維持し、managed設定とsource既定gainを変更しない。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void NullDevice_MixerRemainsUnityWhenDeviceVolumeAndMuteChange()
+    {
+        float originalVolume = BassAudioPlayer.DeviceVolume;
+        bool originalMute = BassAudioPlayer.IsDeviceMuted;
+        float originalDefaultVolume = BassAudioPlayer.DefaultVolume;
+        SampleRate originalFrequency = BassAudioPlayer.Frequency;
+        SampleFormat originalFormat = BassAudioPlayer.Format;
+        BassAudioSession? ownedSession = null;
+        try
+        {
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.IsDeviceMuted = true;
+            BassAudioPlayer.DeviceVolume = 0.25f;
+
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out ownedSession);
+
+            Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
+            Assert.AreEqual(0.25f, BassAudioPlayer.DeviceVolume);
+            Assert.AreEqual(originalDefaultVolume, BassAudioPlayer.DefaultVolume);
+            Assert.AreEqual(1f, ReadChannelVolume(ownedSession.MixerHandle), 0.0001f);
+
+            BassAudioPlayer.DeviceVolume = 0.73f;
+            Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
+            Assert.AreEqual(1f, ReadChannelVolume(ownedSession.MixerHandle), 0.0001f);
+
+            BassAudioPlayer.IsDeviceMuted = false;
+            Assert.AreEqual(1f, ReadChannelVolume(ownedSession.MixerHandle), 0.0001f);
+
+            BassAudioPlayer.IsDeviceMuted = true;
+            Assert.IsTrue(BassAudioPlayer.IsDeviceMuted);
+            Assert.AreEqual(1f, ReadChannelVolume(ownedSession.MixerHandle), 0.0001f);
+        }
+        finally
+        {
+            try
+            {
+                BassAudioPlayer.Free(ownedSession);
+                BassAudioRuntime.Shutdown();
+            }
+            finally
+            {
+                BassAudioPlayer.Frequency = originalFrequency;
+                BassAudioPlayer.Format = originalFormat;
+                BassAudioPlayer.DefaultVolume = originalDefaultVolume;
+                RestoreManagedAudioState(originalVolume, originalMute);
+            }
+        }
+    }
+
+    private static void ForceFullCollection()
+    {
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
+    }
+
+    private static void RestoreManagedAudioState(float volume, bool muted)
+    {
+        BassAudioPlayer.IsDeviceMuted = false;
+        BassAudioPlayer.DeviceVolume = volume;
+        BassAudioPlayer.IsDeviceMuted = muted;
+    }
+
+    private static float ReadChannelVolume(int channelHandle)
+    {
+        Assert.IsTrue(
+            Bass.ChannelGetAttribute(channelHandle, ChannelAttribute.Volume, out float volume),
+            BassNativeErrorFormatter.Format(Bass.LastError));
+        return volume;
+    }
+
+    /// <summary>現session中のscope付き／通常再初期化を拒否して所有を維持し、実成功logにfallbackなしとruntime版診断を残す。</summary>
+    /// <remarks>配布nativeのロード・接続または実NULL_DEVICEの寿命を検査し、runtime・player・writerの共有native状態を直列所有する。</remarks>
+    [TestMethod]
+    public void InitializeOwned_ActiveSessionRejectsScopedAndUnscopedReentry()
+    {
+        BassAudioSession? ownedSession = null;
+        _ = NLogWrapper.GetLogger("AudioSession");
+        LoggingConfiguration? originalLoggingConfiguration = LogManager.Configuration;
+        var audioSessionTarget = new MemoryTarget { Layout = "${message}" };
+        var testLoggingConfiguration = new LoggingConfiguration();
+        testLoggingConfiguration.AddRule(LogLevel.Info, LogLevel.Fatal, audioSessionTarget, "AudioSession");
+        LogManager.Configuration = testLoggingConfiguration;
+        try
+        {
+            BassAudioPlayer.Frequency = SampleRate.AUTO;
+            BassAudioPlayer.Format = SampleFormat.AUTO;
+            BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out ownedSession);
+
+            BassAudioBackendResult negotiated = ownedSession.NegotiationResult;
+            Assert.IsNotNull(negotiated);
+            Assert.AreEqual(BassAudioPlayer.DeviceDriver.NULL_DEVICE, negotiated.Request.Backend);
+            Assert.AreEqual(SampleRate.AUTO, negotiated.Request.Rate);
+            Assert.AreEqual(SampleFormat.AUTO, negotiated.Request.Format);
+            Assert.AreEqual(SampleRate.SAMPLE_RATE_44100Hz, negotiated.ActualRate);
+            Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, negotiated.EngineFormat);
+            Assert.AreEqual(SampleFormat.SAMPLE_FLOAT_32BIT, negotiated.EndpointFormat);
+            Assert.AreEqual(2, negotiated.ActualChannels);
+            Assert.AreEqual(0d, negotiated.LatencyMilliseconds);
+            Assert.AreEqual(ownedSession.MixerHandle, negotiated.MixerHandle);
+            Assert.IsTrue(negotiated.MixerHandle != 0);
+            Assert.IsTrue(string.IsNullOrWhiteSpace(negotiated.FallbackReason));
+
+            LogManager.Flush();
+            string productionSuccessLog = audioSessionTarget.Logs.Single(
+                log => log.Contains("Audio initialization attempt succeeded.", StringComparison.Ordinal));
+            StringAssert.Contains(productionSuccessLog, "fallbackOccurred=False");
+            StringAssert.Contains(productionSuccessLog, "fallbackDestination=none");
+            StringAssert.Contains(productionSuccessLog, "fallbackReason=none");
+            StringAssert.Contains(productionSuccessLog, "os=");
+            StringAssert.Contains(productionSuccessLog, "bassVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassWasapiVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassAsioVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassMixVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassFxVersion=0x");
+            StringAssert.Contains(productionSuccessLog, "bassEncVersion=0x");
+
+            string exactSuccess = BassAudioPlayer.BuildInitializationSuccessDiagnostics(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                ownedSession,
+                SampleRate.AUTO,
+                SampleFormat.AUTO,
+                0f,
+                requestedEventMode: false,
+                "versions");
+            StringAssert.Contains(exactSuccess, "fallbackOccurred=False");
+            StringAssert.Contains(exactSuccess, "fallbackDestination=none");
+            StringAssert.Contains(exactSuccess, "fallbackReason=none");
+
+            string versions = BassAudioPlayer.BuildRuntimeVersionDiagnostics(
+                "test-os",
+                1,
+                2,
+                3,
+                4,
+                5,
+                6);
+            StringAssert.Contains(versions, "os=test-os");
+            StringAssert.Contains(versions, "bassVersion=0x00000001");
+            StringAssert.Contains(versions, "bassWasapiVersion=0x00000002");
+            StringAssert.Contains(versions, "bassAsioVersion=0x00000003");
+            StringAssert.Contains(versions, "bassMixVersion=0x00000004");
+            StringAssert.Contains(versions, "bassFxVersion=0x00000005");
+            StringAssert.Contains(versions, "bassEncVersion=0x00000006");
+
+            Assert.ThrowsExactly<AudioInitializationException>(() => BassAudioPlayer.InitializeOwned(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE,
+                default,
+                0f,
+                out _));
+            Assert.AreSame(ownedSession, BassAudioPlayer.ActiveSession);
+
+            Assert.ThrowsExactly<AudioInitializationException>(() => BassAudioPlayer.Initialize(
+                BassAudioPlayer.DeviceDriver.NULL_DEVICE));
+            Assert.AreSame(ownedSession, BassAudioPlayer.ActiveSession);
+        }
+        finally
+        {
+            try
+            {
+                BassAudioPlayer.Free(ownedSession);
+                BassAudioRuntime.Shutdown();
+                LogManager.Flush();
+            }
+            finally
+            {
+                LogManager.Configuration = originalLoggingConfiguration;
+            }
+        }
+    }
+}

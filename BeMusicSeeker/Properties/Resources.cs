@@ -43,6 +43,125 @@ public class Resources
         }
     }
 
+    /// <summary>日付未選択時の案内です。</summary>
+    public static string DatePicker_choose_date => ResourceManager.GetString("DatePicker_choose_date", resourceCulture);
+
+    /// <summary>日付のカレンダーを開く操作の説明です。</summary>
+    public static string DatePicker_open_calendar => ResourceManager.GetString("DatePicker_open_calendar", resourceCulture);
+
+    /// <summary>カレンダーを前の期間へ送る操作の説明です。</summary>
+    public static string DatePicker_previous_period => ResourceManager.GetString("DatePicker_previous_period", resourceCulture);
+
+    /// <summary>カレンダーを次の期間へ送る操作の説明です。</summary>
+    public static string DatePicker_next_period => ResourceManager.GetString("DatePicker_next_period", resourceCulture);
+
+    /// <summary>カレンダーの月・年表示を切り替える操作の説明です。</summary>
+    public static string DatePicker_change_period => ResourceManager.GetString("DatePicker_change_period", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_destination_section => ResourceManager.GetString("Settings_install_destination_section", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_import_section => ResourceManager.GetString("Settings_install_import_section", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_estimation_section => ResourceManager.GetString("Settings_install_estimation_section", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_file_handling_section => ResourceManager.GetString("Settings_install_file_handling_section", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Settings_install_file_handling_description => ResourceManager.GetString("Settings_install_file_handling_description", resourceCulture);
+
+    /// <summary>インストール設定のセクション見出しです。</summary>
+    public static string Settings_install_confirmation_section => ResourceManager.GetString("Settings_install_confirmation_section", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_test_download_and_install_description => ResourceManager.GetString("Details_test_download_and_install_description", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_test_smart_component_overwrite_description => ResourceManager.GetString("Details_test_smart_component_overwrite_description", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_test_keep_smart_overwrite_protected_by_rename_description => ResourceManager.GetString("Details_test_keep_smart_overwrite_protected_by_rename_description", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_test_delete_pending_source_after_install_description => ResourceManager.GetString("Details_test_delete_pending_source_after_install_description", resourceCulture);
+
+    /// <summary>インストール設定の説明文です。</summary>
+    public static string Details_show_diag_new_install_description => ResourceManager.GetString("Details_show_diag_new_install_description", resourceCulture);
+
+    /// <summary>保留譜面の操作バーに表示する推定の短縮名です。</summary>
+    public static string Pending_install_estimate => ResourceManager.GetString("Pending_install_estimate", resourceCulture);
+
+    /// <summary>保留譜面の操作バーに表示するクリアの短縮名です。</summary>
+    public static string Pending_install_clear => ResourceManager.GetString("Pending_install_clear", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_label => ResourceManager.GetString("Startup_sort_cache_label", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_description => ResourceManager.GetString("Startup_sort_cache_description", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_none => ResourceManager.GetString("Startup_sort_cache_none", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_basic => ResourceManager.GetString("Startup_sort_cache_basic", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_standard => ResourceManager.GetString("Startup_sort_cache_standard", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_all => ResourceManager.GetString("Startup_sort_cache_all", resourceCulture);
+
+    /// <summary>起動時のソートキャッシュ準備範囲の表示文言です。</summary>
+    public static string Startup_sort_cache_invalid => ResourceManager.GetString("Startup_sort_cache_invalid", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUnusedDefinitions => ResourceManager.GetString("ChartPropertiesUnusedDefinitions", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUndefinedReferences => ResourceManager.GetString("ChartPropertiesUndefinedReferences", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUnusedDescription => ResourceManager.GetString("ChartPropertiesUnusedDescription", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUndefinedDescription => ResourceManager.GetString("ChartPropertiesUndefinedDescription", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesBmsonUnusedDescription => ResourceManager.GetString("ChartPropertiesBmsonUnusedDescription", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesBmsonUndefinedDescription => ResourceManager.GetString("ChartPropertiesBmsonUndefinedDescription", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartProperties => ResourceManager.GetString("ChartProperties", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesPath => ResourceManager.GetString("ChartPropertiesPath", resourceCulture);
+
+    /// <summary>通常参照の問題と正常状態を含む任意画像全定義をまとめる欄名です。</summary>
+    public static string ChartPropertiesIssues => ResourceManager.GetString("ChartPropertiesIssues", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesFailed => ResourceManager.GetString("ChartPropertiesFailed", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesMissing => ResourceManager.GetString("ChartPropertiesMissing", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesInvalidPath => ResourceManager.GetString("ChartPropertiesInvalidPath", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesUnsupported => ResourceManager.GetString("ChartPropertiesUnsupported", resourceCulture);
+
+    /// <summary>譜面プロパティの表示文言です。</summary>
+    public static string ChartPropertiesCp932Unsupported => ResourceManager.GetString("ChartPropertiesCp932Unsupported", resourceCulture);
+
+    public static string Msg_warn_preview_temporary_files_remain => ResourceManager.GetString("Msg_warn_preview_temporary_files_remain", resourceCulture);
+
     public static string Lr2_song_db_sync_stage_queued => ResourceManager.GetString("Lr2_song_db_sync_stage_queued", resourceCulture);
 
     public static string Lr2_song_db_sync_stage_chart_info_saving => ResourceManager.GetString("Lr2_song_db_sync_stage_chart_info_saving", resourceCulture);
@@ -127,7 +246,6 @@ public class Resources
 
     public static string Add_ignore => ResourceManager.GetString("Add_ignore", resourceCulture);
 
-    public static string Add_root_folder => ResourceManager.GetString("Add_root_folder", resourceCulture);
 
     public static string AddDate => ResourceManager.GetString("AddDate", resourceCulture);
 
@@ -138,6 +256,10 @@ public class Resources
     public static string Advanced_features => ResourceManager.GetString("Advanced_features", resourceCulture);
 
     public static string Appearance => ResourceManager.GetString("Appearance", resourceCulture);
+
+    public static string Appearance_font => ResourceManager.GetString("Appearance_font", resourceCulture);
+
+    public static string Appearance_font_default => ResourceManager.GetString("Appearance_font_default", resourceCulture);
 
     public static string Appearance_table => ResourceManager.GetString("Appearance_table", resourceCulture);
 
@@ -154,6 +276,25 @@ public class Resources
     public static string Appearance_theme_dark => ResourceManager.GetString("Appearance_theme_dark", resourceCulture);
 
     public static string Appearance_theme_light => ResourceManager.GetString("Appearance_theme_light", resourceCulture);
+
+    public static string Appearance_theme_sepia => ResourceManager.GetString("Appearance_theme_sepia", resourceCulture);
+
+    public static string Appearance_theme_frost => ResourceManager.GetString("Appearance_theme_frost", resourceCulture);
+
+    public static string Appearance_theme_neon_violet => ResourceManager.GetString("Appearance_theme_neon_violet", resourceCulture);
+
+    public static string Appearance_theme_green_terminal => ResourceManager.GetString("Appearance_theme_green_terminal", resourceCulture);
+
+    public static string Appearance_theme_amber_terminal => ResourceManager.GetString("Appearance_theme_amber_terminal", resourceCulture);
+
+    public static string Appearance_theme_oled_black => ResourceManager.GetString("Appearance_theme_oled_black", resourceCulture);
+
+    public static string Appearance_theme_deep_sea => ResourceManager.GetString("Appearance_theme_deep_sea", resourceCulture);
+
+    /// <summary>外観設定のテーマ一覧に表示するヴァンパイアレッドの名前を取得します。</summary>
+    public static string Appearance_theme_vampire_red => ResourceManager.GetString("Appearance_theme_vampire_red", resourceCulture);
+
+    public static string Appearance_theme_dos_blue => ResourceManager.GetString("Appearance_theme_dos_blue", resourceCulture);
 
     public static string Artist => ResourceManager.GetString("Artist", resourceCulture);
 
@@ -185,9 +326,17 @@ public class Resources
 
     public static string Cancel => ResourceManager.GetString("Cancel", resourceCulture);
 
+    /// <summary>確認ダイアログで了承を表すボタン文言です。</summary>
+    public static string DialogButtonOk => ResourceManager.GetString(nameof(DialogButtonOk), resourceCulture);
+
+    /// <summary>確認ダイアログで肯定を表すボタン文言です。</summary>
+    public static string DialogButtonYes => ResourceManager.GetString(nameof(DialogButtonYes), resourceCulture);
+
+    /// <summary>確認ダイアログで否定を表すボタン文言です。</summary>
+    public static string DialogButtonNo => ResourceManager.GetString(nameof(DialogButtonNo), resourceCulture);
+
     public static string Close => ResourceManager.GetString("Close", resourceCulture);
 
-    public static string Cancel_root_folder => ResourceManager.GetString("Cancel_root_folder", resourceCulture);
 
     public static string Change_stage_file => ResourceManager.GetString("Change_stage_file", resourceCulture);
 
@@ -237,9 +386,30 @@ public class Resources
 
     public static string Details_test_download_and_install => ResourceManager.GetString("Details_test_download_and_install", resourceCulture);
 
+    /// <summary>新規判定の保留用途と手動のインストール先推定を説明します。</summary>
+    public static string Details_test_keep_installable_pending_description => ResourceManager.GetString("Details_test_keep_installable_pending_description", resourceCulture);
+
     public static string Details_test_keep_installable_pending => ResourceManager.GetString("Details_test_keep_installable_pending", resourceCulture);
 
+    /// <summary>同率候補の自動確定と、既所持譜面を手掛かりにした絞込みを説明します。</summary>
+    public static string Details_auto_apply_ambiguous_install_destination_description => ResourceManager.GetString("Details_auto_apply_ambiguous_install_destination_description", resourceCulture);
+
     public static string Details_auto_apply_ambiguous_install_destination => ResourceManager.GetString("Details_auto_apply_ambiguous_install_destination", resourceCulture);
+
+    /// <summary>取り込み後の自動推定で確定した保留を導入する設定名です。</summary>
+    public static string Details_auto_install_after_automatic_estimation => ResourceManager.GetString("Details_auto_install_after_automatic_estimation", resourceCulture);
+
+    /// <summary>自動導入の対象、確認省略、上書きと元削除の設定を説明します。</summary>
+    public static string Details_auto_install_after_automatic_estimation_description => ResourceManager.GetString("Details_auto_install_after_automatic_estimation_description", resourceCulture);
+
+    /// <summary>後段の自動導入候補のうち、競合・取消で未開始となった件数を表示します。</summary>
+    public static string PackageInstallReport_Unprocessed => ResourceManager.GetString("PackageInstallReport_Unprocessed", resourceCulture);
+
+    /// <summary>既存の整合条件により必要なLR2同期を実行できなかったことを表示します。</summary>
+    public static string PackageInstallReport_SynchronizationIncomplete => ResourceManager.GetString("PackageInstallReport_SynchronizationIncomplete", resourceCulture);
+
+    /// <summary>取り込み用一時入力の回収失敗を、削除できなかった対象パスとともに表示します。</summary>
+    public static string PackageInstallReport_InputCleanupFailure => ResourceManager.GetString("PackageInstallReport_InputCleanupFailure", resourceCulture);
 
     public static string Details_estimate_offline_score_ranking => ResourceManager.GetString("Details_estimate_offline_score_ranking", resourceCulture);
 
@@ -328,6 +498,10 @@ public class Resources
 
     public static string AudioConversionOmittedSourcesRemainingFormat => ResourceManager.GetString("AudioConversionOmittedSourcesRemainingFormat", resourceCulture);
 
+    public static string AudioConversionEncoderUnavailableConfirmFormat => ResourceManager.GetString("AudioConversionEncoderUnavailableConfirmFormat", resourceCulture);
+
+    public static string AudioConversionOutputFormatFormat => ResourceManager.GetString("AudioConversionOutputFormatFormat", resourceCulture);
+
     public static string Diff_URL => ResourceManager.GetString("Diff_URL", resourceCulture);
 
     public static string Directory => ResourceManager.GetString("Directory", resourceCulture);
@@ -356,9 +530,24 @@ public class Resources
 
     public static string Error_RestartApplicationFailed => ResourceManager.GetString("Error_RestartApplicationFailed", resourceCulture);
 
+    public static string Estimate_install_loc_keep_unrelated => ResourceManager.GetString("Estimate_install_loc_keep_unrelated", resourceCulture);
+
+    public static string Details_install_destination_min_audio_health => ResourceManager.GetString("Details_install_destination_min_audio_health", resourceCulture);
+
+    public static string Details_install_destination_min_audio_health_description => ResourceManager.GetString("Details_install_destination_min_audio_health_description", resourceCulture);
+
+    public static string Details_install_destination_min_audio_health_invalid => ResourceManager.GetString("Details_install_destination_min_audio_health_invalid", resourceCulture);
+
+    public static string Warning_InstallEstimationUnrelated => ResourceManager.GetString("Warning_InstallEstimationUnrelated", resourceCulture);
+
+    public static string Warning_InstallEstimationMetadataUnavailable => ResourceManager.GetString("Warning_InstallEstimationMetadataUnavailable", resourceCulture);
+
+    public static string WarningDigest_InstallEstimationUnrelated => ResourceManager.GetString("WarningDigest_InstallEstimationUnrelated", resourceCulture);
+
+    public static string WarningDigest_InstallEstimationMetadataUnavailable => ResourceManager.GetString("WarningDigest_InstallEstimationMetadataUnavailable", resourceCulture);
+
     public static string Estimate_install_loc => ResourceManager.GetString("Estimate_install_loc", resourceCulture);
 
-    public static string Estimate_merge_loc => ResourceManager.GetString("Estimate_merge_loc", resourceCulture);
 
     public static string Estimate_reinstall_loc => ResourceManager.GetString("Estimate_reinstall_loc", resourceCulture);
 
@@ -452,14 +641,12 @@ public class Resources
 
     public static string Drop_install_queue_extracting_sub_label_format => ResourceManager.GetString("Drop_install_queue_extracting_sub_label_format", resourceCulture);
 
-    public static string Pending_estimate_queue_label_format => ResourceManager.GetString("Pending_estimate_queue_label_format", resourceCulture);
+    public static string Install_estimation_label_format => ResourceManager.GetString("Install_estimation_label_format", resourceCulture);
 
     public static string Playlist_url_download_progress_label_format => ResourceManager.GetString("Playlist_url_download_progress_label_format", resourceCulture);
 
 
     public static string Playlist_external_package_lookup_progress_label_format => ResourceManager.GetString("Playlist_external_package_lookup_progress_label_format", resourceCulture);
-
-    public static string Pending_estimate_queue_startup_display_name => ResourceManager.GetString("Pending_estimate_queue_startup_display_name", resourceCulture);
 
     public static string Playlist_sync_progress_label_format => ResourceManager.GetString("Playlist_sync_progress_label_format", resourceCulture);
 
@@ -557,9 +744,10 @@ public class Resources
 
     public static string Lr2_song_db_sync_data_resync => ResourceManager.GetString("Lr2_song_db_sync_data_resync", resourceCulture);
 
-    /// <summary>LR2 song.db の手動再同期が通常は不要であることと、修復用途の実行条件を示す常設説明を取得します。</summary>
+    /// <summary>LR2のフォルダ表示を修復する手動再同期の用途を示す常設説明を取得します。</summary>
     public static string Lr2_song_db_sync_data_resync_description => ResourceManager.GetString("Lr2_song_db_sync_data_resync_description", resourceCulture);
 
+    /// <summary>生成情報の全件再作成と譜面由来レベルへの復元を説明する確認文を取得します。</summary>
     public static string Msg_confirm_lr2_song_db_sync_data_resync => ResourceManager.GetString("Msg_confirm_lr2_song_db_sync_data_resync", resourceCulture);
 
     public static string Lr2_play_history_schema_label => ResourceManager.GetString("Lr2_play_history_schema_label", resourceCulture);
@@ -638,9 +826,11 @@ public class Resources
 
     public static string Play_history_period_archive => ResourceManager.GetString("Play_history_period_archive", resourceCulture);
 
+    /// <summary>履歴の取得失敗を、正常な0件の集計と区別する案内。</summary>
+    public static string Play_history_read_failed => ResourceManager.GetString("Play_history_read_failed", resourceCulture);
+
     public static string Play_history_period_diagnostics => ResourceManager.GetString("Play_history_period_diagnostics", resourceCulture);
 
-    public static string Play_history_summary_format => ResourceManager.GetString("Play_history_summary_format", resourceCulture);
 
     public static string Play_history_summary_judge_count => ResourceManager.GetString("Play_history_summary_judge_count", resourceCulture);
 
@@ -680,12 +870,6 @@ public class Resources
 
     public static string Error_PlayHistoryFolderPresetNoPlaylist => ResourceManager.GetString("Error_PlayHistoryFolderPresetNoPlaylist", resourceCulture);
 
-    public static string Play_history_copy_md5 => ResourceManager.GetString("Play_history_copy_md5", resourceCulture);
-
-    public static string Play_history_copy_sha256 => ResourceManager.GetString("Play_history_copy_sha256", resourceCulture);
-
-    public static string Play_history_copy_raw_hash => ResourceManager.GetString("Play_history_copy_raw_hash", resourceCulture);
-
     public static string Play_history_add_date_range_to_search => ResourceManager.GetString("Play_history_add_date_range_to_search", resourceCulture);
 
     public static string Msg_confirm_lr2_play_history_schema_install_or_repair => ResourceManager.GetString("Msg_confirm_lr2_play_history_schema_install_or_repair", resourceCulture);
@@ -720,12 +904,6 @@ public class Resources
 
     public static string Library => ResourceManager.GetString("Library", resourceCulture);
 
-    public static string Load_from_insane_estimation_table => ResourceManager.GetString("Load_from_insane_estimation_table", resourceCulture);
-
-    public static string Load_from_table_list => ResourceManager.GetString("Load_from_table_list", resourceCulture);
-
-    public static string Load_PlaylistURI => ResourceManager.GetString("Load_PlaylistURI", resourceCulture);
-
     public static string Load_Url => ResourceManager.GetString("Load_Url", resourceCulture);
 
     public static string Maintenance => ResourceManager.GetString("Maintenance", resourceCulture);
@@ -755,12 +933,6 @@ public class Resources
     public static string Msg_conversion_completed => ResourceManager.GetString("Msg_conversion_completed", resourceCulture);
 
     public static string Msg_conversion_stopped => ResourceManager.GetString("Msg_conversion_stopped", resourceCulture);
-
-    public static string Msg_download_completed => ResourceManager.GetString("Msg_download_completed", resourceCulture);
-
-    public static string Msg_download_ranking_cache => ResourceManager.GetString("Msg_download_ranking_cache", resourceCulture);
-
-    public static string Msg_error_cache_download => ResourceManager.GetString("Msg_error_cache_download", resourceCulture);
 
     public static string Msg_error_preview => ResourceManager.GetString("Msg_error_preview", resourceCulture);
 
@@ -808,7 +980,6 @@ public class Resources
 
     public static string Msg_init_settings_check => ResourceManager.GetString("Msg_init_settings_check", resourceCulture);
 
-    public static string Msg_initsetting_completed => ResourceManager.GetString("Msg_initsetting_completed", resourceCulture);
 
     public static string Msg_invalid_setting => ResourceManager.GetString("Msg_invalid_setting", resourceCulture);
 
@@ -824,7 +995,6 @@ public class Resources
     /// </summary>
     public static string Msg_manual_installation_delete_source => ResourceManager.GetString("Msg_manual_installation_delete_source", resourceCulture);
 
-    public static string Msg_estimate_merge_confirm => ResourceManager.GetString("Msg_estimate_merge_confirm", resourceCulture);
 
     public static string Msg_merge_bms_destination => ResourceManager.GetString("Msg_merge_bms_destination", resourceCulture);
 
@@ -835,6 +1005,10 @@ public class Resources
     public static string Msg_open_install_destination_not_found => ResourceManager.GetString("Msg_open_install_destination_not_found", resourceCulture);
 
     public static string Msg_merge_bms_folder => ResourceManager.GetString("Msg_merge_bms_folder", resourceCulture);
+
+    public static string Msg_merge_bms_nested_folders => ResourceManager.GetString("Msg_merge_bms_nested_folders", resourceCulture);
+
+    public static string Msg_merge_bms_nested_folders_unknown => ResourceManager.GetString("Msg_merge_bms_nested_folders_unknown", resourceCulture);
 
     public static string Msg_merge_bms_target => ResourceManager.GetString("Msg_merge_bms_target", resourceCulture);
 
@@ -852,8 +1026,6 @@ public class Resources
 
     public static string Msg_override_level_warning => ResourceManager.GetString("Msg_override_level_warning", resourceCulture);
 
-    public static string Msg_ranking_cache_notfound => ResourceManager.GetString("Msg_ranking_cache_notfound", resourceCulture);
-
     public static string Msg_register_chart => ResourceManager.GetString("Msg_register_chart", resourceCulture);
 
     public static string Msg_remove_chart_info_parse_failure_record => ResourceManager.GetString("Msg_remove_chart_info_parse_failure_record", resourceCulture);
@@ -866,6 +1038,8 @@ public class Resources
 
     public static string Msg_rename_to_invalid => ResourceManager.GetString("Msg_rename_to_invalid", resourceCulture);
 
+    public static string Msg_score_viewer_no_new_registration => ResourceManager.GetString("Msg_score_viewer_no_new_registration", resourceCulture);
+
     public static string Msg_show_chart => ResourceManager.GetString("Msg_show_chart", resourceCulture);
 
     public static string Msg_success_playlist_backup => ResourceManager.GetString("Msg_success_playlist_backup", resourceCulture);
@@ -877,8 +1051,6 @@ public class Resources
     public static string Msg_success_uninstall => ResourceManager.GetString("Msg_success_uninstall", resourceCulture);
 
     public static string Msg_unregister_root_folder => ResourceManager.GetString("Msg_unregister_root_folder", resourceCulture);
-
-    public static string Msg_warn_cache_download => ResourceManager.GetString("Msg_warn_cache_download", resourceCulture);
 
     public static string Msg_warn_play_temp_install => ResourceManager.GetString("Msg_warn_play_temp_install", resourceCulture);
 
@@ -1175,7 +1347,6 @@ public class Resources
 
     public static string Save_data_file => ResourceManager.GetString("Save_data_file", resourceCulture);
 
-    public static string Save_and_close => ResourceManager.GetString("Save_and_close", resourceCulture);
 
     public static string Save_header_file => ResourceManager.GetString("Save_header_file", resourceCulture);
 
@@ -1288,8 +1459,6 @@ public class Resources
     public static string Update_history_v0353_1 => ResourceManager.GetString("Update_history_v0353_1", resourceCulture);
     public static string Update_history_v1000_1 => ResourceManager.GetString("Update_history_v1000_1", resourceCulture);
 
-    public static string Update_ranking_data => ResourceManager.GetString("Update_ranking_data", resourceCulture);
-
     public static string Use_LR2_DB => ResourceManager.GetString("Use_LR2_DB", resourceCulture);
 
     public static string Beatoraja_integration => ResourceManager.GetString("Beatoraja_integration", resourceCulture);
@@ -1305,6 +1474,8 @@ public class Resources
     public static string Warning => ResourceManager.GetString("Warning", resourceCulture);
 
     public static string Warning_LR2RootPathNotSet => ResourceManager.GetString("Warning_LR2RootPathNotSet", resourceCulture);
+
+    public static string Warning_LR2RootPathInferredFormat => ResourceManager.GetString("Warning_LR2RootPathInferredFormat", resourceCulture);
 
     public static string Weekly => ResourceManager.GetString("Weekly", resourceCulture);
 
@@ -1395,10 +1566,6 @@ public class Resources
     public static string MessageBoxTitle_Confirm => ResourceManager.GetString("MessageBoxTitle_Confirm", resourceCulture);
 
 
-    public static string Error_NotMd5Hash => ResourceManager.GetString("Error_NotMd5Hash", resourceCulture);
-
-
-    public static string Error_InvalidJsonObject => ResourceManager.GetString("Error_InvalidJsonObject", resourceCulture);
 
 
     public static string Error_LR2ScoreDBNotConnected => ResourceManager.GetString("Error_LR2ScoreDBNotConnected", resourceCulture);
@@ -1412,6 +1579,12 @@ public class Resources
 
     public static string Warning_SingleBmsonFile => ResourceManager.GetString("Warning_SingleBmsonFile", resourceCulture);
 
+
+    /// <summary>資源を持つ親子譜面フォルダの導入禁止を案内します。</summary>
+    public static string Warning_ResourceBearingNestedCharts => ResourceManager.GetString("Warning_ResourceBearingNestedCharts", resourceCulture);
+
+    /// <summary>資源を持つ入れ子の重要警告要約です。</summary>
+    public static string WarningDigest_ResourceBearingNestedCharts => ResourceManager.GetString("WarningDigest_ResourceBearingNestedCharts", resourceCulture);
 
     public static string Warning_NestedChartFileInPackage => ResourceManager.GetString("Warning_NestedChartFileInPackage", resourceCulture);
 
@@ -1491,9 +1664,11 @@ public class Resources
     public static string Warning_InstallEstimationAmbiguous => ResourceManager.GetString("Warning_InstallEstimationAmbiguous", resourceCulture);
 
 
+    /// <summary>TITLE / ARTISTの不一致または比較材料不足で自動確定しない旨を示します。</summary>
     public static string Warning_InstallEstimationMetadataMismatchPrefix => ResourceManager.GetString("Warning_InstallEstimationMetadataMismatchPrefix", resourceCulture);
 
 
+    /// <summary>基本情報の一致を十分に確認できない理由と、先頭候補パスの書式を返します。</summary>
     public static string Warning_InstallEstimationMetadataMismatch => ResourceManager.GetString("Warning_InstallEstimationMetadataMismatch", resourceCulture);
 
 
@@ -1569,8 +1744,6 @@ public class Resources
     public static string Error_LR2ScoreDBNotFound => ResourceManager.GetString("Error_LR2ScoreDBNotFound", resourceCulture);
 
 
-    public static string Error_IRCacheDirNotFound => ResourceManager.GetString("Error_IRCacheDirNotFound", resourceCulture);
-
 
     public static string Error_PathTooLong => ResourceManager.GetString("Error_PathTooLong", resourceCulture);
 
@@ -1595,6 +1768,16 @@ public class Resources
 
     public static string Error_BmsLoadFailedSkip => ResourceManager.GetString("Error_BmsLoadFailedSkip", resourceCulture);
 
+
+    /// <summary>同じ見出し・重要度の通知を一つにまとめるときの件数の行です。{0}は件数です。</summary>
+    public static string Notice_GroupedCount => ResourceManager.GetString("Notice_GroupedCount", resourceCulture);
+
+
+    /// <summary>全使用リソースを必須にする詳細設定の表示名です。</summary>
+    public static string Details_require_complete_used_resources_for_auto_install => ResourceManager.GetString("Details_require_complete_used_resources_for_auto_install", resourceCulture);
+
+    /// <summary>設定ON/OFFの自動新規導入条件と、不足を確認した後の手動導入を説明します。</summary>
+    public static string Details_require_complete_used_resources_for_auto_install_description => ResourceManager.GetString("Details_require_complete_used_resources_for_auto_install_description", resourceCulture);
 
     public static string Warning_WavFilesNotFound => ResourceManager.GetString("Warning_WavFilesNotFound", resourceCulture);
 
@@ -1644,7 +1827,6 @@ public class Resources
     public static string Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue => ResourceManager.GetString("Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue", resourceCulture);
 
 
-    public static string Warn_DropInstallBlockedByPlaylistUrlDownload => ResourceManager.GetString("Warn_DropInstallBlockedByPlaylistUrlDownload", resourceCulture);
 
 
     public static string Warn_DropInstallUnsupportedFormat => ResourceManager.GetString("Warn_DropInstallUnsupportedFormat", resourceCulture);
@@ -1680,8 +1862,6 @@ public class Resources
     public static string Warn_PendingPackageNotFound => ResourceManager.GetString("Warn_PendingPackageNotFound", resourceCulture);
 
 
-    public static string Warn_PlaylistMutationBusy => ResourceManager.GetString("Warn_PlaylistMutationBusy", resourceCulture);
-
 
     public static string Warn_PlaylistMutationStale => ResourceManager.GetString("Warn_PlaylistMutationStale", resourceCulture);
 
@@ -1708,6 +1888,9 @@ public class Resources
 
 
     public static string Warn_CannotRenameRootFolder => ResourceManager.GetString("Warn_CannotRenameRootFolder", resourceCulture);
+
+    /// <summary>利用者登録BMSルート本体を含む移動元scopeを移動できない理由です。</summary>
+    public static string Warn_CannotMoveRegisteredBmsRoot => ResourceManager.GetString("Warn_CannotMoveRegisteredBmsRoot", resourceCulture);
 
 
     public static string Warn_RenameFolderNotExists => ResourceManager.GetString("Warn_RenameFolderNotExists", resourceCulture);
@@ -1813,6 +1996,12 @@ public class Resources
 
 
 
+    /// <summary>未登録の追加出力先を参照する表と元の保存先名を案内します。</summary>
+    public static string Warn_UnregisteredCustomFolderOutputBase => ResourceManager.GetString("Warn_UnregisteredCustomFolderOutputBase", resourceCulture);
+
+    /// <summary>新しい出力の確定後に整理できなかった旧出力先と原因を表示します。</summary>
+    public static string Warn_CustomFolderCleanupFailed => ResourceManager.GetString("Warn_CustomFolderCleanupFailed", resourceCulture);
+
     public static string Warn_CustomFolderOutputFailed => ResourceManager.GetString("Warn_CustomFolderOutputFailed", resourceCulture);
 
 
@@ -1825,6 +2014,7 @@ public class Resources
     public static string Playlist_import_result_title => ResourceManager.GetString("Playlist_import_result_title", resourceCulture);
 
 
+    /// <summary>成功・同URL除外・同名除外・失敗の件数を、この順に表示する書式です。</summary>
     public static string Playlist_import_result_summary_format => ResourceManager.GetString("Playlist_import_result_summary_format", resourceCulture);
 
 
@@ -1843,9 +2033,7 @@ public class Resources
 
     public static string Beatoraja_table_url_import_failed_with_bmt_restore_format => ResourceManager.GetString("Beatoraja_table_url_import_failed_with_bmt_restore_format", resourceCulture);
 
-    public static string Playlist_uri_input_no_valid_uri => ResourceManager.GetString("Playlist_uri_input_no_valid_uri", resourceCulture);
-
-
+    /// <summary>選択へ追加しなかった不正URI行を案内する書式です。</summary>
     public static string Playlist_uri_input_invalid_lines_format => ResourceManager.GetString("Playlist_uri_input_invalid_lines_format", resourceCulture);
 
 
@@ -1993,6 +2181,9 @@ public class Resources
 
     public static string Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied => ResourceManager.GetString("Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied", resourceCulture);
 
+    /// <summary>出力名へパスを入力した場合の訂正理由を取得します。</summary>
+    public static string Error_OutputFolderNameMustBeSingleName => ResourceManager.GetString("Error_OutputFolderNameMustBeSingleName", resourceCulture);
+
     public static string Error_OutputFolderNameEmptyOrDuplicateCheckInput => ResourceManager.GetString("Error_OutputFolderNameEmptyOrDuplicateCheckInput", resourceCulture);
 
     public static string Statusbar_progress_phase_playlist_loading => ResourceManager.GetString("Statusbar_progress_phase_playlist_loading", resourceCulture);
@@ -2024,6 +2215,12 @@ public class Resources
     public static string UpdateDialog_UpdateButton => ResourceManager.GetString("UpdateDialog_UpdateButton", resourceCulture);
 
     public static string UpdateDialog_ReleasePageButton => ResourceManager.GetString("UpdateDialog_ReleasePageButton", resourceCulture);
+
+    /// <summary>更新のダウンロードまたは起動の失敗を知らせる本文の書式を取得します。{0} は例外のメッセージです。</summary>
+    public static string UpdateDialog_FailedMessage_Format => ResourceManager.GetString("UpdateDialog_FailedMessage_Format", resourceCulture);
+
+    /// <summary>更新失敗の通知の見出しを取得します。</summary>
+    public static string UpdateDialog_FailedTitle => ResourceManager.GetString("UpdateDialog_FailedTitle", resourceCulture);
 
     public static string AudioDeviceDefault => ResourceManager.GetString("AudioDeviceDefault", resourceCulture);
 
@@ -2111,8 +2308,7 @@ public class Resources
     public static string Operation_Mode_LR2 => ResourceManager.GetString("Operation_Mode_LR2", resourceCulture);
     public static string LR2_integration => ResourceManager.GetString("LR2_integration", resourceCulture);
     public static string Settings_appearance_theme_description => ResourceManager.GetString("Settings_appearance_theme_description", resourceCulture);
-    public static string Settings_appearance_theme_light_description => ResourceManager.GetString("Settings_appearance_theme_light_description", resourceCulture);
-    public static string Settings_appearance_theme_dark_description => ResourceManager.GetString("Settings_appearance_theme_dark_description", resourceCulture);
+    public static string Settings_appearance_font_description => ResourceManager.GetString("Settings_appearance_font_description", resourceCulture);
     public static string Settings_appearance_table_description => ResourceManager.GetString("Settings_appearance_table_description", resourceCulture);
     public static string Settings_player_executable_path => ResourceManager.GetString("Settings_player_executable_path", resourceCulture);
     public static string Settings_player_lr2_description => ResourceManager.GetString("Settings_player_lr2_description", resourceCulture);
@@ -2282,6 +2478,9 @@ public class Resources
     /// <summary>Localized unselected-state label.</summary>
     public static string PlaylistLampViewer_not_selected => ResourceManager.GetString("PlaylistLampViewer_not_selected", resourceCulture);
 
+    /// <summary>ランプ統計の補助表示と読み上げでラベル・値を連結する翻訳書式です。</summary>
+    public static string PlaylistLampViewer_statistic_detail_format => ResourceManager.GetString("PlaylistLampViewer_statistic_detail_format", resourceCulture);
+
     /// <summary>Localized segment detail format.</summary>
     public static string PlaylistLampViewer_segment_detail_format => ResourceManager.GetString("PlaylistLampViewer_segment_detail_format", resourceCulture);
 
@@ -2291,7 +2490,7 @@ public class Resources
     /// <summary>Localized segment detail format for unavailable percentages.</summary>
     public static string PlaylistLampViewer_segment_unavailable_detail_format => ResourceManager.GetString("PlaylistLampViewer_segment_unavailable_detail_format", resourceCulture);
 
-    /// <summary>Localized percentage format.</summary>
+    /// <summary>小数点を固定して使う、小数2桁・桁区切りなしの翻訳済み割合書式です。</summary>
     public static string PlaylistLampViewer_percentage_format => ResourceManager.GetString("PlaylistLampViewer_percentage_format", resourceCulture);
 
     /// <summary>Localized lower-bound format for a positive percentage below display precision.</summary>
@@ -2553,15 +2752,6 @@ public class Resources
     /// <summary>読み取り I/O 失敗の原因名です。</summary>
     public static string LibraryDirectoryPreflightCauseIo => ResourceManager.GetString("LibraryDirectoryPreflightCauseIo", resourceCulture);
 
-    /// <summary>出力先書込み失敗の原因名です。</summary>
-    public static string LibraryDirectoryPreflightCauseWrite => ResourceManager.GetString("LibraryDirectoryPreflightCauseWrite", resourceCulture);
-
-    /// <summary>probe 後片付け失敗の原因名です。</summary>
-    public static string LibraryDirectoryPreflightCauseCleanup => ResourceManager.GetString("LibraryDirectoryPreflightCauseCleanup", resourceCulture);
-
-    /// <summary>probe 後片付けにも失敗した場合の補足です。</summary>
-    public static string LibraryDirectoryPreflightCleanupFailure => ResourceManager.GetString("LibraryDirectoryPreflightCleanupFailure", resourceCulture);
-
     /// <summary>BMS 検索フォルダーを復旧する案内です。</summary>
     public static string LibraryDirectoryPreflightBmsGuidance => ResourceManager.GetString("LibraryDirectoryPreflightBmsGuidance", resourceCulture);
 
@@ -2625,6 +2815,12 @@ public class Resources
     /// <summary>ルートディレクトリの名前は変更できません。</summary>
     public static string Error_CannotRenameRootDirectory => ResourceManager.GetString("Error_CannotRenameRootDirectory", resourceCulture);
 
+    /// <summary>ENTRY LEVELの固定数値入力形式を案内します。</summary>
+    public static string Error_PlaylistEntryLevelFormat => ResourceManager.GetString("Error_PlaylistEntryLevelFormat", resourceCulture);
+
+    /// <summary>採用日時の欄名、固定形式と元データ訂正後の再実行を案内します。</summary>
+    public static string Error_PlaylistJsonDateFormat => ResourceManager.GetString("Error_PlaylistJsonDateFormat", resourceCulture);
+
     /// <summary>ヘッダーの解析に失敗しました。</summary>
     public static string Error_PlaylistHeaderParseFailed => ResourceManager.GetString("Error_PlaylistHeaderParseFailed", resourceCulture);
 
@@ -2679,7 +2875,10 @@ public class Resources
     /// <summary>プレイリストをバックアップから復元します。</summary>
     public static string Confirm_RestorePlaylistBackup => ResourceManager.GetString("Confirm_RestorePlaylistBackup", resourceCulture);
 
-    /// <summary>BeMusicSeekerのデータをLR2データベースから削除します。</summary>
+    /// <summary>外部表の実本文量が上限を超えたことを通知します。</summary>
+    public static string Error_ExternalPlaylistBodySizeLimitExceeded => ResourceManager.GetString("Error_ExternalPlaylistBodySizeLimitExceeded", resourceCulture);
+
+    /// <summary>管理データ撤去後は成否にかかわらず終了することを確認します。</summary>
     public static string Confirm_UninstallApplicationData => ResourceManager.GetString("Confirm_UninstallApplicationData", resourceCulture);
 
     /// <summary>アプリケーションを終了します。</summary>
@@ -2728,6 +2927,9 @@ public class Resources
     public static string Insane_estimation_table_fc => ResourceManager.GetString("Insane_estimation_table_fc", resourceCulture);
 
     public static string Label_CustomFolderOutputBase => ResourceManager.GetString("Label_CustomFolderOutputBase", resourceCulture);
+
+    /// <summary>現在の導入先を出力へ取り込む変更を拒否し、別の確定ルートへの変更を案内します。</summary>
+    public static string Validation_OutputBaseContainsInstallDirectoryFormat => ResourceManager.GetString("Validation_OutputBaseContainsInstallDirectoryFormat", resourceCulture);
 
     public static string Validation_OutputBasesOverlapFormat => ResourceManager.GetString("Validation_OutputBasesOverlapFormat", resourceCulture);
 
@@ -2782,7 +2984,7 @@ public class Resources
     /// <summary>選択プレイリストの再同期の進捗行を識別する文言を取得します。</summary>
     public static string Statusbar_progress_task_playlist_manual_reload => ResourceManager.GetString("Statusbar_progress_task_playlist_manual_reload", resourceCulture);
 
-    /// <summary>外部表一覧の読込みの進捗行を識別する文言を取得します。</summary>
+    /// <summary>難易度表リストの取得の進捗行を識別する文言を取得します。</summary>
     public static string Statusbar_progress_task_external_table_catalog => ResourceManager.GetString("Statusbar_progress_task_external_table_catalog", resourceCulture);
 
     /// <summary>プレイリスト索引の準備の進捗行を識別する文言を取得します。</summary>
@@ -2826,4 +3028,293 @@ public class Resources
 
     /// <summary>サマリーから実行するプレイリスト外部プロパティ初期化の進捗名です。</summary>
     public static string Statusbar_progress_task_playlist_external_property_initialization => ResourceManager.GetString("Statusbar_progress_task_playlist_external_property_initialization", resourceCulture);
+
+    /// <summary>準備済み譜面対象の所持識別・形式・配置が一致せず、変更を実行しなかった原因を示します。</summary>
+    public static string Error_PreparedChartTargetMismatch => ResourceManager.GetString("Error_PreparedChartTargetMismatch", resourceCulture);
+    public static string WarningDigest_InstallEstimationAudioMissing => ResourceManager.GetString("WarningDigest_InstallEstimationAudioMissing", resourceCulture);
+
+    public static string WarningDigest_InstallEstimationAudioUnverifiable => ResourceManager.GetString("WarningDigest_InstallEstimationAudioUnverifiable", resourceCulture);
+
+    public static string Warning_InstallEstimationAudioMissing => ResourceManager.GetString("Warning_InstallEstimationAudioMissing", resourceCulture);
+
+    public static string Warning_InstallEstimationAudioUnverifiable => ResourceManager.GetString("Warning_InstallEstimationAudioUnverifiable", resourceCulture);
+
+    public static string ChartPropertiesVerificationBasis => ResourceManager.GetString("ChartPropertiesVerificationBasis", resourceCulture);
+
+    public static string ChartPropertiesVerificationPath => ResourceManager.GetString("ChartPropertiesVerificationPath", resourceCulture);
+
+    public static string ChartPropertiesConfiguredDestination => ResourceManager.GetString("ChartPropertiesConfiguredDestination", resourceCulture);
+
+    public static string ChartPropertiesFirstCandidate => ResourceManager.GetString("ChartPropertiesFirstCandidate", resourceCulture);
+
+    public static string ChartPropertiesCurrentPlacement => ResourceManager.GetString("ChartPropertiesCurrentPlacement", resourceCulture);
+
+    public static string ChartPropertiesUnverifiable => ResourceManager.GetString("ChartPropertiesUnverifiable", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_title => ResourceManager.GetString("Playlist_import_title", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_external => ResourceManager.GetString("Playlist_import_external", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_builtin => ResourceManager.GetString("Playlist_import_builtin", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_url_file => ResourceManager.GetString("Playlist_import_url_file", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_search => ResourceManager.GetString("Playlist_import_search", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_hide_urls => ResourceManager.GetString("Playlist_import_hide_urls", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_hide_names => ResourceManager.GetString("Playlist_import_hide_names", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_select_matching => ResourceManager.GetString("Playlist_import_select_matching", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_selected => ResourceManager.GetString("Playlist_import_selected", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_remove => ResourceManager.GetString("Playlist_import_remove", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_clear => ResourceManager.GetString("Playlist_import_clear", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_add => ResourceManager.GetString("Playlist_import_add", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_start => ResourceManager.GetString("Playlist_import_start", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_counts_format => ResourceManager.GetString("Playlist_import_counts_format", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_catalog_not_started => ResourceManager.GetString("Playlist_import_catalog_not_started", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_catalog_loading => ResourceManager.GetString("Playlist_import_catalog_loading", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_catalog_failed => ResourceManager.GetString("Playlist_import_catalog_failed", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_catalog_empty => ResourceManager.GetString("Playlist_import_catalog_empty", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_input_empty => ResourceManager.GetString("Playlist_import_input_empty", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_busy => ResourceManager.GetString("Playlist_import_busy", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_not_ready => ResourceManager.GetString("Playlist_import_not_ready", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_shutting_down => ResourceManager.GetString("Playlist_import_shutting_down", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_no_targets_format => ResourceManager.GetString("Playlist_import_no_targets_format", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_registered_url => ResourceManager.GetString("Playlist_import_registered_url", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_same_name => ResourceManager.GetString("Playlist_import_same_name", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_estimation_group => ResourceManager.GetString("Playlist_import_estimation_group", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_recommendation_group => ResourceManager.GetString("Playlist_import_recommendation_group", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_input_description => ResourceManager.GetString("Playlist_import_input_description", resourceCulture);
+
+    /// <summary>プレイリストインポート画面の表示文言です。</summary>
+    public static string Playlist_import_result_skipped_url_header => ResourceManager.GetString("Playlist_import_result_skipped_url_header", resourceCulture);
+    /// <summary>音声デバイス一覧の取得中に表示する状態文を取得します。</summary>
+    public static string AudioDeviceListLoading => ResourceManager.GetString("AudioDeviceListLoading", resourceCulture);
+
+    /// <summary>音声デバイス一覧の更新失敗時に表示する状態文を取得します。</summary>
+    public static string AudioDeviceListRefreshFailed => ResourceManager.GetString("AudioDeviceListRefreshFailed", resourceCulture);
+
+    /// <summary>LR2バックアップの保存後に最適化を完了できなかった場合の警告を取得します。</summary>
+    public static string Warn_LR2BackupOptimizationIncomplete => ResourceManager.GetString("Warn_LR2BackupOptimizationIncomplete", resourceCulture);
+
+    /// <summary>コピーを拒否したフォルダリンクのパスを示す書式を取得します。</summary>
+    public static string Error_DirectoryLinkCopyNotAllowedFormat => ResourceManager.GetString("Error_DirectoryLinkCopyNotAllowedFormat", resourceCulture);
+
+    /// <summary>専用バックアップ保存先と世代整理の削除範囲の説明を取得します。</summary>
+    public static string Backup_destination_description => ResourceManager.GetString("Backup_destination_description", resourceCulture);
+
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_confirm_bms_roots => ResourceManager.GetString("Settings_confirm_bms_roots", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_confirm_bmt => ResourceManager.GetString("Settings_confirm_bmt", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_confirm_environment => ResourceManager.GetString("Settings_confirm_environment", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_start_environment => ResourceManager.GetString("Settings_start_environment", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_cancel_changes => ResourceManager.GetString("Settings_cancel_changes", resourceCulture);
+    /// <summary>設定の局所操作に使う表示文言を取得します。</summary>
+    public static string Settings_replacement_install => ResourceManager.GetString("Settings_replacement_install", resourceCulture);
+    /// <summary>BMS検索対象から削除する現在のインストール先の見出しを取得します。</summary>
+    public static string Settings_removed_install => ResourceManager.GetString("Settings_removed_install", resourceCulture);
+    /// <summary>現在のインストール先を削除するときに、残った候補から変更先を選ぶ案内を取得します。</summary>
+    public static string Settings_replacement_install_required => ResourceManager.GetString("Settings_replacement_install_required", resourceCulture);
+    /// <summary>変更先候補がなく、検索対象の追加または削除操作の取消を求める案内を取得します。</summary>
+    public static string Settings_replacement_install_empty => ResourceManager.GetString("Settings_replacement_install_empty", resourceCulture);
+    /// <summary>設定画面の下部で不備の一覧を示す案内欄の見出しです。</summary>
+    public static string Settings_deficiency_guidance_title => ResourceManager.GetString("Settings_deficiency_guidance_title", resourceCulture);
+    /// <summary>不備のあるページ一覧の項目に付ける印の、支援技術向けの状態名です。</summary>
+    public static string Settings_deficiency_page_mark => ResourceManager.GetString("Settings_deficiency_page_mark", resourceCulture);
+    /// <summary>一覧の変更の未確定を示す案内です。</summary>
+    public static string Settings_bms_candidate_unconfirmed => ResourceManager.GetString("Settings_bms_candidate_unconfirmed", resourceCulture);
+    /// <summary>LR2ディレクトリが未解決でBMSディレクトリ欄が無効な間の案内です。</summary>
+    public static string Settings_bms_editor_requires_lr2_root => ResourceManager.GetString("Settings_bms_editor_requires_lr2_root", resourceCulture);
+    /// <summary>新規インストール先の欄の見出しです。</summary>
+    public static string Settings_new_install_section => ResourceManager.GetString("Settings_new_install_section", resourceCulture);
+    /// <summary>新規インストール先の欄の説明です。</summary>
+    public static string Settings_new_install_description => ResourceManager.GetString("Settings_new_install_description", resourceCulture);
+    /// <summary>新規インストール先が未選択の理由です。</summary>
+    public static string Error_InstallDirNotSelected => ResourceManager.GetString("Error_InstallDirNotSelected", resourceCulture);
+    /// <summary>新規インストール先が登録済みのBMSディレクトリにない理由です。</summary>
+    public static string Error_InvalidBmsInstallDirNotRegistered => ResourceManager.GetString("Error_InvalidBmsInstallDirNotRegistered", resourceCulture);
+    /// <summary>LR2ディレクトリが未設定でLR2環境が使えない理由です。</summary>
+    public static string Error_Lr2RootPathNotSet => ResourceManager.GetString("Error_Lr2RootPathNotSet", resourceCulture);
+    /// <summary>BMSディレクトリが一件もない場合の理由です。</summary>
+    public static string Error_BmsDirectoryAndInstallRequired => ResourceManager.GetString("Error_BmsDirectoryAndInstallRequired", resourceCulture);
+    /// <summary>LR2設定を解決できない間の出力先の案内と、出力先確定の拒否理由です。</summary>
+    public static string Settings_output_requires_lr2_root => ResourceManager.GetString("Settings_output_requires_lr2_root", resourceCulture);
+    /// <summary>初回設定の下部で、不備が残っている間の開始の案内です。</summary>
+    public static string Settings_start_requires_settings => ResourceManager.GetString("Settings_start_requires_settings", resourceCulture);
+    /// <summary>初回設定の下部で、不備が解消された後の開始の案内です。</summary>
+    public static string Settings_start_ready => ResourceManager.GetString("Settings_start_ready", resourceCulture);
+    /// <summary>選択recordだけを確定する操作名です。</summary>
+    public static string Settings_confirm_record => ResourceManager.GetString("Settings_confirm_record", resourceCulture);
+    /// <summary>設定画面の環境とBMS編集の操作名です。</summary>
+    public static string Settings_environment => ResourceManager.GetString("Settings_environment", resourceCulture);
+    /// <summary>設定画面の環境とBMS編集の操作名です。</summary>
+    public static string Settings_open_bms_roots => ResourceManager.GetString("Settings_open_bms_roots", resourceCulture);
+    /// <summary>未完了の設定保存・処理を明示的に再試行する文言です。</summary>
+    public static string Settings_retry => ResourceManager.GetString(nameof(Settings_retry), resourceCulture);
+    /// <summary>音声設定の保存を再試行</summary>
+    public static string Settings_retry_audio_save => ResourceManager.GetString(nameof(Settings_retry_audio_save), resourceCulture);
+    /// <summary>音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。</summary>
+    public static string Settings_audio_save_retry_description => ResourceManager.GetString(nameof(Settings_audio_save_retry_description), resourceCulture);
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_title => ResourceManager.GetString("Playlist_json_export_title", resourceCulture);
+
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_paths_required => ResourceManager.GetString("Playlist_json_export_paths_required", resourceCulture);
+
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_paths_same => ResourceManager.GetString("Playlist_json_export_paths_same", resourceCulture);
+
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_path_invalid => ResourceManager.GetString("Playlist_json_export_path_invalid", resourceCulture);
+
+    /// <summary>JSON出力の保存先と結果の表示文言です。</summary>
+    public static string Playlist_json_export_partial_failure => ResourceManager.GetString("Playlist_json_export_partial_failure", resourceCulture);
+
+    /// <summary>管理表の同一・包含出力を拒否する案内です。</summary>
+    public static string Error_ManagedPlaylistOutputOverlap => ResourceManager.GetString(nameof(Error_ManagedPlaylistOutputOverlap), resourceCulture);
+    /// <summary>出力先が他の表と重なる表を出力対象外にしたことを案内する導入文です。表名と出力先の一覧が続きます。</summary>
+    public static string Warn_PlaylistOutputOverlapStopped => ResourceManager.GetString(nameof(Warn_PlaylistOutputOverlapStopped), resourceCulture);
+    /// <summary>競合する未確定編集を破棄して別操作へ切り替える確認です。</summary>
+    public static string Settings_confirm_discard_conflicting_candidates => ResourceManager.GetString(nameof(Settings_confirm_discard_conflicting_candidates), resourceCulture);
+    /// <summary>未確定編集の破棄確認に示すLR2詳細パスの範囲名です。</summary>
+    public static string Settings_lr2_detailed_paths => ResourceManager.GetString(nameof(Settings_lr2_detailed_paths), resourceCulture);
+    /// <summary>終了時の未確定候補の破棄を既存確認へ併記する案内です。</summary>
+    public static string Settings_candidates_discarded_on_exit => ResourceManager.GetString(nameof(Settings_candidates_discarded_on_exit), resourceCulture);
+    /// <summary>BMT設定の保存後にURL切替が失敗し、旧URL残存の可能性と失敗後の追加整理を行わなかったことを伝えます。</summary>
+    public static string Settings_bmt_url_switch_failed => ResourceManager.GetString(nameof(Settings_bmt_url_switch_failed), resourceCulture);
+    /// <summary>設定採用後のBMT部分失敗を、URL残存と物理ファイル残存で区別する案内です。</summary>
+    public static string Settings_bmt_files_remain => ResourceManager.GetString(nameof(Settings_bmt_files_remain), resourceCulture);
+    public static string Confirm_DeleteRegisteredBmsRoots => ResourceManager.GetString("Confirm_DeleteRegisteredBmsRoots", resourceCulture);
+    public static string Warn_CannotDeleteProtectedBmsRoot => ResourceManager.GetString("Warn_CannotDeleteProtectedBmsRoot", resourceCulture);
+    public static string LibraryChartRemovalReport_RegistrationFailed => ResourceManager.GetString("LibraryChartRemovalReport_RegistrationFailed", resourceCulture);
+
+    /// <summary>表再取得の処理済み件数の書式を取得します。</summary>
+    public static string Playlist_reload_processed_label_format => ResourceManager.GetString("Playlist_reload_processed_label_format", resourceCulture);
+
+    /// <summary>直近に試行を終了した表の補足書式を取得します。</summary>
+    public static string Playlist_reload_last_processed_label_format => ResourceManager.GetString("Playlist_reload_last_processed_label_format", resourceCulture);
+    /// <summary>保留復元失敗の選択画面に使う題名です。</summary>
+    public static string PendingRestoreTitle => ResourceManager.GetString("PendingRestoreTitle", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う案内です。</summary>
+    public static string PendingRestoreMessage => ResourceManager.GetString("PendingRestoreMessage", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う全登録消去とファイル保持の説明です。</summary>
+    public static string PendingRestoreResetWarning => ResourceManager.GetString("PendingRestoreResetWarning", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う再試行ボタンです。</summary>
+    public static string PendingRestoreRetry => ResourceManager.GetString("PendingRestoreRetry", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う一覧初期化ボタンです。</summary>
+    public static string PendingRestoreReset => ResourceManager.GetString("PendingRestoreReset", resourceCulture);
+
+    /// <summary>保留復元失敗の選択画面に使う終了ボタンです。</summary>
+    public static string PendingRestoreExit => ResourceManager.GetString("PendingRestoreExit", resourceCulture);
+
+    /// <summary>保留パッケージの不完全な列挙と対象pathを示す書式です。</summary>
+    public static string Error_PendingDiscoveryIncompleteFormat => ResourceManager.GetString("Error_PendingDiscoveryIncompleteFormat", resourceCulture);
+
+    /// <summary>読み取れない保留譜面のpathを示す書式です。</summary>
+    public static string Error_PendingChartUnreadableFormat => ResourceManager.GetString("Error_PendingChartUnreadableFormat", resourceCulture);
+
+    /// <summary>保留譜面の列挙失敗をpathと既存診断理由付きで示す書式です。</summary>
+    public static string Error_PendingChartEnumerationFailedFormat => ResourceManager.GetString("Error_PendingChartEnumerationFailedFormat", resourceCulture);
+
+    /// <summary>元原因を保持する保留復元の未確定失敗を示す文言です。</summary>
+    public static string Error_PendingRestoreUncommitted => ResourceManager.GetString("Error_PendingRestoreUncommitted", resourceCulture);
+
+    /// <summary>保留復元確認の表示失敗を、既存の表示状態付きで示す書式です。</summary>
+    public static string Error_PendingRestoreDialogFailedFormat => ResourceManager.GetString("Error_PendingRestoreDialogFailedFormat", resourceCulture);
+
+    /// <summary>保留復元確認から不明な選択が返った場合の説明です。</summary>
+    public static string Error_PendingRestoreChoiceUnknown => ResourceManager.GetString("Error_PendingRestoreChoiceUnknown", resourceCulture);
+
+
+
+
+    /// <summary>リソース定義の問題の理由を表示します。</summary>
+    public static string ChartPropertiesExcludedEmpty => ResourceManager.GetString("ChartPropertiesExcludedEmpty", resourceCulture);
+
+    /// <summary>リソース定義の問題の理由を表示します。</summary>
+    public static string ChartPropertiesExcludedFileName => ResourceManager.GetString("ChartPropertiesExcludedFileName", resourceCulture);
+
+    /// <summary>リソース定義の問題の理由を表示します。</summary>
+    public static string ChartPropertiesExcludedKind => ResourceManager.GetString("ChartPropertiesExcludedKind", resourceCulture);
+
+    /// <summary>リソース定義の問題の理由を表示します。</summary>
+    public static string ChartPropertiesExcludedSyntax => ResourceManager.GetString("ChartPropertiesExcludedSyntax", resourceCulture);
+
+
+
+    /// <summary>採用本文とは別のCP932問題原文と、その通常解釈との併記を明示します。</summary>
+    public static string ChartPropertiesCp932AlternativeInterpretation => ResourceManager.GetString("ChartPropertiesCp932AlternativeInterpretation", resourceCulture);
+    /// <summary>設定受理時に組込み予約領域へのBMS登録・出力基点を拒否する理由の書式です。{0}は用途、{1}は指定先、{2}は組込みフォルダで、設定訂正を案内します。</summary>
+    public static string Validation_Lr2BuiltinCustomFolderReservedFormat => ResourceManager.GetString("Validation_Lr2BuiltinCustomFolderReservedFormat", resourceCulture);
+    /// <summary>消失した明示導入先の再選択を案内します。</summary>
+    public static string Error_InstallDestinationMissing => ResourceManager.GetString("Error_InstallDestinationMissing", resourceCulture);
+    /// <summary>同じアプリでDB接続の終了失敗が発生し、正常終了を確認できないことを通知します。</summary>
+    public static string DatabaseConnectionCloseFailed => ResourceManager.GetString("DatabaseConnectionCloseFailed", resourceCulture);
+    /// <summary>追加出力先の追加で拒否したフォルダの一覧に付ける見出しです。</summary>
+    public static string Error_AdditionalOutputBaseRejectedHeading => ResourceManager.GetString("Error_AdditionalOutputBaseRejectedHeading", resourceCulture);
+    /// <summary>右クリック設定の「既定値へ戻す」を保存する前の確認文です。</summary>
+    public static string Confirm_RightClickRestoreDefaults => ResourceManager.GetString("Confirm_RightClickRestoreDefaults", resourceCulture);
+    /// <summary>右クリック項目の削除を保存する前の確認の書式です。{0}は項目名です。</summary>
+    public static string Confirm_RightClickDeleteActionFormat => ResourceManager.GetString("Confirm_RightClickDeleteActionFormat", resourceCulture);
+    /// <summary>名前が空白だけの右クリック項目の削除を保存する前の確認文です。</summary>
+    public static string Confirm_RightClickDeleteActionUnnamed => ResourceManager.GetString("Confirm_RightClickDeleteActionUnnamed", resourceCulture);
+    /// <summary>プレイログ FOLDER 表示プリセットの削除を保存する前の確認の書式です。{0}はプリセット名です。</summary>
+    public static string Confirm_RemovePlayHistoryFolderDisplayPresetFormat => ResourceManager.GetString("Confirm_RemovePlayHistoryFolderDisplayPresetFormat", resourceCulture);
 }

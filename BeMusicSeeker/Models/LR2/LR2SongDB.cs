@@ -38,6 +38,10 @@ public class LR2SongDB : SQLiteConnectionEx
 
         protected int? _karinotes;
 
+        /// <summary>DB書込み境界で別表へ渡すSHA-256です。song表の保存列ではなく、共通値から行を作った一回の処理だけで使用します。</summary>
+        [Ignore]
+        internal string sha256 { get; set; }
+
         public virtual string hash
         {
             get
@@ -151,6 +155,10 @@ public class LR2SongDB : SQLiteConnectionEx
                 }
             }
         }
+
+        /// <summary>保存されたタグのnullを、表示用の空文字へ変換せずDB境界へ渡します。</summary>
+        [Ignore]
+        internal string StoredTag => _tag;
 
         [PrimaryKey]
         public virtual string path
@@ -360,33 +368,18 @@ public class LR2SongDB : SQLiteConnectionEx
             if (File.Exists(value) && string.Equals(Path.GetFileName(value), "song.db", StringComparison.OrdinalIgnoreCase))
             {
                 _dbPath = value;
-                string directoryName = Path.GetDirectoryName(_dbPath);
-                if (string.Equals(Path.GetFileName(directoryName), "Database", StringComparison.OrdinalIgnoreCase))
-                {
-                    string directoryName2 = Path.GetDirectoryName(directoryName);
-                    if (string.Equals(Path.GetFileName(directoryName2), "LR2files", StringComparison.OrdinalIgnoreCase))
-                    {
-                        LR2RootPath = Path.GetDirectoryName(directoryName2);
-                    }
-                }
                 return;
             }
-            Close();
             throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_InvalidLR2SongDbFile, value);
         }
     }
 
-    public string LR2RootPath { get; private set; }
-
-    public LR2SongDB(string dbPath)
-        : base(dbPath)
+    /// <summary>ownerのfactoryから必須leaseとopen flagsを受け取り、native接続だけを生成します。</summary>
+    internal LR2SongDB(string dbPath, SQLiteOpenFlags openFlags, ApplicationDatabaseScope.ConnectionLease lease)
+        : base(dbPath, openFlags, lease)
     {
-        DBPath = dbPath;
     }
 
-    internal LR2SongDB(string dbPath, SQLiteOpenFlags openFlags)
-        : base(dbPath, openFlags)
-    {
-        DBPath = dbPath;
-    }
+    /// <summary>factoryが接続参照を保持してから既存のパス受理条件を検査し、失敗時も接続を回収可能にします。</summary>
+    internal void InitializePath(string dbPath) => DBPath = dbPath;
 }

@@ -39,8 +39,13 @@
   <resheader name="writer">
     <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </resheader>
+  <data name="Msg_warn_preview_temporary_files_remain" xml:space="preserve">
+    <value>試聴用の一時ファイルが残りました。
+保存先: {0}
+詳細はログを確認してください。</value>
+  </data>
   <data name="Open_Url" xml:space="preserve">
-    <value>本体URLを開く</value>
+    <value>本体URLをブラウザで開く</value>
   </data>
   <data name="Import_Selected_Url" xml:space="preserve">
     <value>選択中の本体URLを取り込む</value>
@@ -82,13 +87,13 @@
     <value>起動時にLR2IRランキングキャッシュを更新する</value>
   </data>
   <data name="Details_test_delete_pending_source_after_install" xml:space="preserve">
-    <value>通常インストール時、既所持譜面が残っていても元パッケージを削除する</value>
+    <value>通常インストール後、元パッケージに残る既所持譜面を削除する</value>
   </data>
   <data name="Details_test_smart_component_overwrite" xml:space="preserve">
-    <value>差分インストール時に更新日時とサイズを比較して同梱ファイルの上書きを最適化する</value>
+    <value>スマート上書きを有効にする</value>
   </data>
   <data name="Details_test_keep_smart_overwrite_protected_by_rename" xml:space="preserve">
-    <value>スマート上書き時、*.bmx/*.pmx/*.txt は上書きせず自動採番で保持する</value>
+    <value>スマート上書き時、同名の .bmx/.pmx/.txt を連番名で保持する</value>
   </data>
   <data name="Msg_confirm_disable_startup_file_scan" xml:space="preserve">
     <value>起動時に BMS ファイルと構成ファイルの変更を確認しなくなります。
@@ -140,18 +145,8 @@ RANKING/RANK UPDATE/T-SCORE/ΔMAXの表示を更新できますが、
 プレビューが不完全となる場合があります。</value>
   </data>
   <data name="Msg_init_settings" xml:space="preserve">
-    <value>初回起動時は、「設定」画面で言語と動作モードを選び、必要な項目を入力してください。
-
-スタンドアローン（LR2 と連携しない）:
-一般: BMS ディレクトリ
-インストール: 新規インストール先
-
-LR2 連携:
-一般: LR2 ディレクトリ
-プレイリスト: カスタムフォルダ出力先
-インストール: 新規インストール先
-
-必須項目を入力して「保存して閉じる」を押すまで、BMSファイルのスキャンは開始できません。</value>
+    <value>初回起動時は設定画面で言語と動作モードを選び、環境・BMSディレクトリ・新規インストール先をそれぞれ確定してください。LR2連携ではカスタムフォルダ出力先も確定します。
+保存済みの必須項目を確認して「この環境で開始」を押すと、初期化とスキャンを開始します。</value>
   </data>
   <data name="InitialSetupLanguageDialogTitle" xml:space="preserve">
     <value>初回設定を始めます</value>
@@ -161,11 +156,6 @@ LR2 連携:
   </data>
   <data name="Export" xml:space="preserve">
     <value>エクスポート</value>
-  </data>
-  <data name="Msg_initsetting_completed" xml:space="preserve">
-    <value>設定を保存しました。
-これからBMSファイルの初回スキャンを開始します。
-初回は全ファイルを確認するため、ライブラリ規模によって時間がかかる場合があります。</value>
   </data>
   <data name="Tooltip_rewind" xml:space="preserve">
     <value>巻き戻し</value>
@@ -251,9 +241,6 @@ LR2 連携:
   <data name="Save_header_file" xml:space="preserve">
     <value>ヘッダーファイルを保存</value>
   </data>
-  <data name="Load_from_insane_estimation_table" xml:space="preserve">
-    <value>内蔵の難度推定表・リコメンドから読み込む</value>
-  </data>
   <data name="Backup" xml:space="preserve">
     <value>バックアップ</value>
   </data>
@@ -277,9 +264,6 @@ LR2 連携:
 ファイルへのアクセスが可能か確認してください。
 手動でファイル削除をお願いします。
 この問題が一時的でない場合、開発者へ報告頂けると改善される場合があります。</value>
-  </data>
-  <data name="Msg_download_completed" xml:space="preserve">
-    <value>ダウンロードが完了しました</value>
   </data>
   <data name="Import" xml:space="preserve">
     <value>インポート</value>
@@ -439,10 +423,6 @@ title:re:^alpha
     <value>再インストール先が不明か未調査です
 「再インストール先を推定」機能を先に実行してください</value>
   </data>
-  <data name="Msg_download_ranking_cache" xml:space="preserve">
-    <value>LR2ランキングデータをキャッシュサーバからダウンロードします
-続行しますか？</value>
-  </data>
   <data name="Msg_clear_pendings" xml:space="preserve">
     <value>下記パッケージをインストール保留から削除します。
 よろしいですか？</value>
@@ -470,15 +450,17 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Msg_merge_bms_destination" xml:space="preserve">
     <value>マージ先（上書きされる場合があります）</value>
   </data>
+  <data name="Msg_merge_bms_nested_folders" xml:space="preserve">
+    <value>マージ元の配下にあるフォルダ {0} 件も、相対的な配置を保ったままマージ先へ移動します。</value>
+  </data>
+  <data name="Msg_merge_bms_nested_folders_unknown" xml:space="preserve">
+    <value>マージ元の配下にフォルダがある場合は、それらも相対的な配置を保ったままマージ先へ移動します。</value>
+  </data>
   <data name="Weekly" xml:space="preserve">
     <value>7日ごと</value>
   </data>
   <data name="Player_Name_Internal" xml:space="preserve">
     <value>内蔵プレイヤー (音声のみ)</value>
-  </data>
-  <data name="Msg_error_cache_download" xml:space="preserve">
-    <value>LR2ランキングデータキャッシュの取得中にエラーが発生しました。
-この問題が一時的でない場合、開発者へ報告頂けると改善される場合があります。</value>
   </data>
   <data name="Target" xml:space="preserve">
     <value>対象</value>
@@ -505,7 +487,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
 続行しますか？</value>
   </data>
   <data name="Maintenance_rescan_progress_label_format" xml:space="preserve">
-    <value>保守情報の再検査 {0}/{1}</value>
+    <value>メンテナンス情報の再検査 {0}/{1}</value>
   </data>
   <data name="Maintenance_rescan_complete" xml:space="preserve">
     <value>再スキャン完了</value>
@@ -537,10 +519,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Reinitialize_library" xml:space="preserve">
     <value>初期化再実行</value>
   </data>
-  <data name="Msg_warn_cache_download" xml:space="preserve">
-    <value>スコアDBと接続されていないかプレイヤーがLR2IRに登録されていないため
-ランキングデータの閲覧機能がオフになっています。</value>
-  </data>
   <data name="Change_stage_file" xml:space="preserve">
     <value>既定のパネル画像を変更する</value>
   </data>
@@ -566,10 +544,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Msg_failed_load_playlist" xml:space="preserve">
     <value>プレイリスト読み込みに失敗しました。</value>
   </data>
-  <data name="Warn_PlaylistMutationBusy" xml:space="preserve">
-    <value>別のプレイリスト処理が実行中のため、操作を開始できません。
-処理の完了後に再実行してください。</value>
-  </data>
   <data name="Warn_PlaylistMutationStale" xml:space="preserve">
     <value>表示中のプレイリスト対象が更新されたか、既に削除されています。
 現在の対象を選択してから再実行してください。</value>
@@ -583,9 +557,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Override_level" xml:space="preserve">
     <value>レベルを上書き</value>
-  </data>
-  <data name="Update_ranking_data" xml:space="preserve">
-    <value>ランキングデータの更新</value>
   </data>
   <data name="Msg_warn_playlist_backup" xml:space="preserve">
     <value>プレイリストが存在しないためバックアップの必要がありません。</value>
@@ -615,7 +586,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>保存に失敗しました。</value>
   </data>
   <data name="Backup_desc" xml:space="preserve">
-    <value>※上記条件で起動時にバックアップが取得されます</value>
+    <value>設定したスケジュールに従って、起動時にバックアップを保存します。</value>
   </data>
   <data name="Msg_register_chart" xml:space="preserve">
     <value>選択中の複数の譜面を譜面ビューアに登録します
@@ -635,10 +606,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Record_setting_replacepattern" xml:space="preserve">
     <value>使用できる置換記号</value>
-  </data>
-  <data name="Msg_ranking_cache_notfound" xml:space="preserve">
-    <value>対象のデータは既にキャッシュより新しいか
-データが見つかりませんでした</value>
   </data>
   <data name="Clear_estimation" xml:space="preserve">
     <value>インストール先をクリア</value>
@@ -716,13 +683,13 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>ウィンドウ位置を保存</value>
   </data>
   <data name="Details_show_diag_diff_install" xml:space="preserve">
-    <value>差分インストールの確認メッセージを表示する</value>
+    <value>差分インストール時に確認メッセージを表示する</value>
   </data>
   <data name="Details_show_diag_duplicate_file_check" xml:space="preserve">
     <value>重複ファイルチェックのマージ/整理時に確認メッセージを表示する</value>
   </data>
   <data name="Details_test_download_and_install" xml:space="preserve">
-    <value>ダウンロード実行後に自動的にインストールを試みる</value>
+    <value>URL1/URL2列のクリックで自動ダウンロード・インストールを試みる</value>
   </data>
   <data name="Full_scan_check" xml:space="preserve">
     <value>構成ファイルフルスキャン</value>
@@ -828,7 +795,7 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>記号: </value>
   </data>
   <data name="Install_new_folder" xml:space="preserve">
-    <value>フォルダの新規作成</value>
+    <value>新規フォルダの命名</value>
   </data>
   <data name="Backup_lr2backup_saveto" xml:space="preserve">
     <value>保存先: </value>
@@ -841,6 +808,9 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   </data>
   <data name="Msg_success_register_chart" xml:space="preserve">
     <value>譜面の登録に成功しました</value>
+  </data>
+  <data name="Msg_score_viewer_no_new_registration" xml:space="preserve">
+    <value>譜面ビューアに新しく登録する譜面はありません。選択した譜面は登録済みか、譜面ファイルが見つかりません。</value>
   </data>
   <data name="Fix_installed_loc" xml:space="preserve">
     <value>インストール先を修正</value>
@@ -901,9 +871,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
   <data name="Install_to_estimation" xml:space="preserve">
     <value>推定先にインストール</value>
   </data>
-  <data name="Load_PlaylistURI" xml:space="preserve">
-    <value>読み込むURI</value>
-  </data>
   <data name="PlaylistProp_folder_type" xml:space="preserve">
     <value>出力フォルダ</value>
   </data>
@@ -917,9 +884,6 @@ LR2をプレイヤーとして使用すると再生できない場合があり�
     <value>このルートフォルダに含まれる全BMSフォルダの
 自動リネームを行います
 続行するとこの操作は取り消しできません</value>
-  </data>
-  <data name="Cancel_root_folder" xml:space="preserve">
-    <value>ルートフォルダの登録解除</value>
   </data>
   <data name="AddDate" xml:space="preserve">
     <value>追加日時</value>
@@ -995,9 +959,6 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   <data name="Create_new" xml:space="preserve">
     <value>新規作成</value>
   </data>
-  <data name="Add_root_folder" xml:space="preserve">
-    <value>ルートフォルダを追加</value>
-  </data>
   <data name="PlaylistProp_output_dst" xml:space="preserve">
     <value>出力先</value>
   </data>
@@ -1033,6 +994,14 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="AudioConversionOmittedSourcesRemainingFormat" xml:space="preserve">
     <value>音源を省略した譜面は合計{0}件です。残り{1}件の詳細はログを参照してください。</value>
+  </data>
+  <data name="AudioConversionEncoderUnavailableConfirmFormat" xml:space="preserve">
+    <value>保存形式 {0} のエンコーダ（{1}）が見つかりません。
+OK を選ぶと、今回の変換を WAVE で続行します。キャンセルを選ぶと変換を中止します。
+設定の保存形式は変更されません。</value>
+  </data>
+  <data name="AudioConversionOutputFormatFormat" xml:space="preserve">
+    <value>出力形式: {0}</value>
   </data>
   <data name="Playlist_output_root" xml:space="preserve">
     <value>ルートフォルダ出力先: </value>
@@ -1076,6 +1045,12 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Appearance_theme" xml:space="preserve">
     <value>テーマ:</value>
   </data>
+  <data name="Appearance_font" xml:space="preserve">
+    <value>フォント:</value>
+  </data>
+  <data name="Appearance_font_default" xml:space="preserve">
+    <value>既定 ({0})</value>
+  </data>
   <data name="Appearance_table" xml:space="preserve">
     <value>一覧</value>
   </data>
@@ -1097,6 +1072,15 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Appearance_theme_light" xml:space="preserve">
     <value>ライト</value>
   </data>
+  <data name="Appearance_theme_sepia" xml:space="preserve"><value>セピア</value></data>
+  <data name="Appearance_theme_frost" xml:space="preserve"><value>フロスト</value></data>
+  <data name="Appearance_theme_neon_violet" xml:space="preserve"><value>ネオン・バイオレット</value></data>
+  <data name="Appearance_theme_green_terminal" xml:space="preserve"><value>グリーンターミナル</value></data>
+  <data name="Appearance_theme_amber_terminal" xml:space="preserve"><value>アンバーターミナル</value></data>
+  <data name="Appearance_theme_oled_black" xml:space="preserve"><value>OLEDブラック</value></data>
+  <data name="Appearance_theme_deep_sea" xml:space="preserve"><value>ディープシー</value></data>
+  <data name="Appearance_theme_vampire_red" xml:space="preserve"><value>ヴァンパイアレッド</value></data>
+  <data name="Appearance_theme_dos_blue" xml:space="preserve"><value>DOSブルー</value></data>
   <data name="Details_scan_bms_files_on_startup" xml:space="preserve">
     <value>起動時にBMSファイルと構成ファイルのスキャンを行う</value>
   </data>
@@ -1169,9 +1153,9 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>BMSインストール先を登録済みのBMSディレクトリから選択してください。カスタムフォルダ出力先はインストール先として使用できません。</value>
   </data>
   <data name="Confirm_RestartForOperationModeChange" xml:space="preserve">
-    <value>LR2連携モードの切り替えを反映するため、アプリケーションを再起動します。
-動作モードのみ保存し、他の未保存の設定変更は保存されません。
-よろしいですか?</value>
+    <value>環境設定を保存してアプリケーションを再起動します。
+環境に必要なBMT処理と結果通知の後に終了します。
+続行しますか？</value>
   </data>
   <data name="Error_RestartApplicationFailed" xml:space="preserve">
     <value>設定は保存されましたが、アプリケーションの自動再起動に失敗しました。
@@ -1267,7 +1251,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>MD5-URLマッピングTSV取得URIが正しくありません。</value>
   </data>
   <data name="Open_Url_diff" xml:space="preserve">
-    <value>差分URLを開く</value>
+    <value>差分URLをブラウザで開く</value>
   </data>
   <data name="Find_external_package_from_playlist_md5" xml:space="preserve">
     <value>外部APIから入手先を探す</value>
@@ -1291,7 +1275,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>既所持譜面のみのパッケージをリソースのみ上書きする</value>
   </data>
   <data name="Install_new_folder_desc" xml:space="preserve">
-    <value>※設定はリネーム機能でも使用されます</value>
+    <value>フォルダ名の書式と文字制限は、フォルダの自動リネームにも使用します。</value>
   </data>
   <data name="PlaylistProp_pageuri" xml:space="preserve">
     <value>ページURI: </value>
@@ -1386,29 +1370,23 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Cancel" xml:space="preserve">
     <value>キャンセル</value>
   </data>
-  <data name="Save_and_close" xml:space="preserve">
-    <value>保存して閉じる</value>
-  </data>
   <data name="Close" xml:space="preserve">
     <value>閉じる</value>
   </data>
   <data name="Drop_install_queue_label_format" xml:space="preserve">
-    <value>パッケージ・フォルダの導入 {0}/{1}件 (待機 {2} バッチ)</value>
+    <value>パッケージ・フォルダの導入 {0}/{1}件</value>
   </data>
   <data name="Drop_install_queue_extracting_sub_label_format" xml:space="preserve">
     <value>解凍中: {0}/{1} {2}</value>
   </data>
-  <data name="Pending_estimate_queue_label_format" xml:space="preserve">
-    <value>保留パッケージの導入先推定 {0}/{1}件 (待機 {2} バッチ)</value>
+  <data name="Install_estimation_label_format" xml:space="preserve">
+    <value>保留パッケージの導入先推定 {0}/{1}件</value>
   </data>
   <data name="Playlist_url_download_progress_label_format" xml:space="preserve">
     <value>プレイリストURLからの取得 {0}/{1}件</value>
   </data>
   <data name="Playlist_external_package_lookup_progress_label_format" xml:space="preserve">
     <value>外部サービスでパッケージの入手先を検索 {0}/{1}件</value>
-  </data>
-  <data name="Pending_estimate_queue_startup_display_name" xml:space="preserve">
-    <value>起動時の保留</value>
   </data>
   <data name="Playlist_sync_progress_label_format" xml:space="preserve">
     <value>プレイリストの同期 {0}/{1}</value>
@@ -1495,7 +1473,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>全再初期化</value>
   </data>
   <data name="Statusbar_progress_phase_library_db_load" xml:space="preserve">
-    <value>目録DBの読込み</value>
+    <value>カタログDB読込み</value>
   </data>
   <data name="Statusbar_progress_phase_file_enumeration" xml:space="preserve">
     <value>譜面・リソースの探索</value>
@@ -1510,10 +1488,10 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>プレイリスト参照の反映</value>
   </data>
   <data name="Statusbar_progress_phase_maintenance" xml:space="preserve">
-    <value>保守情報の読込み</value>
+    <value>メンテナンス情報の読込み</value>
   </data>
   <data name="Statusbar_progress_phase_installable_maintenance" xml:space="preserve">
-    <value>導入可能譜面の保守情報更新</value>
+    <value>導入可能譜面のメンテナンス情報更新</value>
   </data>
   <data name="Statusbar_progress_phase_score_hydration" xml:space="preserve">
     <value>スコアの読込み・反映</value>
@@ -1555,13 +1533,10 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>LR2 song.db データを再同期</value>
   </data>
   <data name="Lr2_song_db_sync_data_resync_description" xml:space="preserve">
-    <value>通常は実行する必要はありません。LR2 song.db の初回同期と、本アプリによる通常の更新は自動で行われます。本アプリ以外のツールで song / folder 情報が変更され、LR2 用の生成データに不整合があると考えられる場合に実行してください。</value>
+    <value>LR2の選曲画面でフォルダを辿れない、カスタムフォルダを開けない場合に、song.dbのフォルダ・譜面情報を作り直します。</value>
   </data>
   <data name="Msg_confirm_lr2_song_db_sync_data_resync" xml:space="preserve">
-    <value>現在の所持譜面とプレイリストから LR2 の song / folder 派生データを再同期します。
-メンテナンスの再スキャンや chart_info の全譜面補完は行いません。
-
-続行しますか?</value>
+    <value>folder / songテーブルの生成情報を全件作り直します。レベルは譜面由来の値に戻ります。再同期しますか？</value>
   </data>
   <data name="Lr2_play_history_schema_label" xml:space="preserve">
     <value>LR2 プレイログ</value>
@@ -1680,9 +1655,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Play_history_period_diagnostics" xml:space="preserve">
     <value>未確定 / 診断</value>
   </data>
-  <data name="Play_history_summary_format" xml:space="preserve">
-    <value>{0}: {1} 件 / スコア更新 {2} / クリア更新 {3} / FC {4} / PLAYTIME {5} / 診断 {6}</value>
-  </data>
   <data name="Play_history_summary_judge_count" xml:space="preserve">
     <value>判定数</value>
   </data>
@@ -1739,15 +1711,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="Error_PlayHistoryFolderPresetNoPlaylist" xml:space="preserve">
     <value>プレイログ FOLDER 表示プリセットにはプレイリストを 1 つ以上選択してください: {0}</value>
-  </data>
-  <data name="Play_history_copy_md5" xml:space="preserve">
-    <value>MD5 をコピー</value>
-  </data>
-  <data name="Play_history_copy_sha256" xml:space="preserve">
-    <value>SHA256 をコピー</value>
-  </data>
-  <data name="Play_history_copy_raw_hash" xml:space="preserve">
-    <value>RAW HASH をコピー</value>
   </data>
   <data name="Play_history_add_date_range_to_search" xml:space="preserve">
     <value>検索に期間を追加</value>
@@ -1853,9 +1816,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Install_foldername" xml:space="preserve">
     <value>フォルダ名書式: </value>
   </data>
-  <data name="Load_from_table_list" xml:space="preserve">
-    <value>難易度表リストから読み込む</value>
-  </data>
   <data name="Rename_folder_auto" xml:space="preserve">
     <value>フォルダの自動リネーム</value>
   </data>
@@ -1876,7 +1836,10 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>警告</value>
   </data>
   <data name="Warning_LR2RootPathNotSet" xml:space="preserve">
-    <value>LR2ディレクトリが設定されていません。LR2のスコアDBの場所を解決できないため、LR2のスコアDBを利用できません。LR2バックアップやLR2標準カスタムフォルダの検出で予期しない動作になる可能性があります。設定画面でLR2ディレクトリを設定してください。</value>
+    <value>LR2ディレクトリが設定されておらず、song.db と設定XMLの場所からも特定できません。このため、LR2のスコアDBを利用できず、LR2標準カスタムフォルダをLR2の楽曲DBへ同期せず、LR2バックアップでスコアDBを保存しません。設定画面でLR2ディレクトリを設定してください。</value>
+  </data>
+  <data name="Warning_LR2RootPathInferredFormat" xml:space="preserve">
+    <value>LR2ディレクトリが設定されていないため、song.db と設定XMLの場所から「{0}」と推測して動作しています。LR2ディレクトリを設定することを推奨します。</value>
   </data>
   <data name="Record_setting_encoder_tooltip" xml:space="preserve">
     <value>エンコーダの実行ファイルが保存されているディレクトリを指定してください</value>
@@ -1936,19 +1899,11 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>インストール先フォルダが見つかりません。
 {0}</value>
   </data>
-  <data name="Estimate_merge_loc" xml:space="preserve">
-    <value>マージ先を推定</value>
-  </data>
-  <data name="Msg_estimate_merge_confirm" xml:space="preserve">
-    <value>元フォルダの同梱リソースを使わず、既存リソースだけで成立するマージ先を再推定します。
-既存の推定先は上書きされます。
-続行しますか？</value>
-  </data>
   <data name="Details_test_keep_installable_pending" xml:space="preserve">
     <value>新規判定でも自動インストールせず保留に追加する</value>
   </data>
   <data name="Details_auto_apply_ambiguous_install_destination" xml:space="preserve">
-    <value>複数候補が残っても、第1候補のタイトル・アーティストの一致度が高い場合は、その候補をインストール先に設定する</value>
+    <value>複数候補が残っても、タイトル・アーティストが強く一致する第1候補を自動設定する</value>
   </data>
   <data name="Success" xml:space="preserve">
     <value>成功</value>
@@ -2079,12 +2034,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="MessageBoxTitle_Confirm" xml:space="preserve">
     <value>確認</value>
   </data>
-  <data name="Error_NotMd5Hash" xml:space="preserve">
-    <value>md5 hashではありません</value>
-  </data>
-  <data name="Error_InvalidJsonObject" xml:space="preserve">
-    <value>無効なJSONオブジェクトです</value>
-  </data>
   <data name="Error_LR2ScoreDBNotConnected" xml:space="preserve">
     <value>LR2スコアDBと接続されていません。</value>
   </data>
@@ -2096,6 +2045,12 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   </data>
   <data name="Warning_SingleBmsonFile" xml:space="preserve">
     <value>BMSONファイル単体です</value>
+  </data>
+  <data name="Warning_ResourceBearingNestedCharts" xml:space="preserve">
+    <value>親と子の譜面フォルダがそれぞれ定義済みの音声・BGA・動画を持つため、このパッケージは導入できません。入力の配置を修正した後、再初期化してください。</value>
+  </data>
+  <data name="WarningDigest_ResourceBearingNestedCharts" xml:space="preserve">
+    <value>資源付き入れ子（導入不可）</value>
   </data>
   <data name="Warning_NestedChartFileInPackage" xml:space="preserve">
     <value>パッケージ内のサブフォルダに有効な譜面ファイルがあります。必要に応じて移動するか、無効な拡張子に変更してください。</value>
@@ -2128,7 +2083,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>推定先複数</value>
   </data>
   <data name="WarningDigest_InstallEstimationMetadataMismatch" xml:space="preserve">
-    <value>TITLE/ARTIST不一致</value>
+    <value>TITLE/ARTIST未確認</value>
   </data>
   <data name="WarningDigest_InstallEstimationReinstallNotImproved" xml:space="preserve">
     <value>再インストール改善なし</value>
@@ -2140,7 +2095,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>インストール先複数</value>
   </data>
   <data name="WarningDigest_UnsupportedResourcePath" xml:space="preserve">
-    <value>リソースパス非対応</value>
+    <value>親参照（自動確定なし）</value>
   </data>
   <data name="WarningDigest_InstalledDestinationResolveFailed" xml:space="preserve">
     <value>インストール先不明</value>
@@ -2178,10 +2133,10 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
 第2候補: {1}</value>
   </data>
   <data name="Warning_InstallEstimationMetadataMismatchPrefix" xml:space="preserve">
-    <value>TITLE / ARTIST の一致度が低いため自動確定していません。</value>
+    <value>TITLE / ARTIST の一致を十分に確認できないため自動確定していません。</value>
   </data>
   <data name="Warning_InstallEstimationMetadataMismatch" xml:space="preserve">
-    <value>TITLE / ARTIST の一致度が低いため自動確定していません。
+    <value>TITLE / ARTIST の一致を十分に確認できないため自動確定していません。
 候補: {0}</value>
   </data>
   <data name="Warning_InstallEstimationReinstallNotImprovedPrefix" xml:space="preserve">
@@ -2205,7 +2160,7 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
     <value>既所持譜面からインストール先を特定できません。ライブラリの状態を確認してください。</value>
   </data>
   <data name="Warning_UnsupportedResourcePath" xml:space="preserve">
-    <value>親ディレクトリを参照するリソースパスはインストール先推定に対応していません。該当するリソース記述を確認してください。</value>
+    <value>採用リソースに親ディレクトリ参照があるため、導入先の自動確定と自動導入を行いません。候補の選択・手入力による明示導入は可能です。</value>
   </data>
   <data name="Warning_SourceSurfaceScanLimitExceeded" xml:space="preserve">
     <value>1つの推定対象フォルダ内で、インストール先推定のための周辺リソース探索が {0} 件を超えたため、自動推定を中止しました。パッケージ単位のフォルダへ移動するか、手動でインストール先を指定してください。</value>
@@ -2265,9 +2220,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Error_LR2ScoreDBNotFound" xml:space="preserve">
     <value>LR2スコアDBが見つかりませんでした。パス: {0}</value>
   </data>
-  <data name="Error_IRCacheDirNotFound" xml:space="preserve">
-    <value>{0}が見つかりませんでした</value>
-  </data>
   <data name="Error_PathTooLong" xml:space="preserve">
     <value>パスが長過ぎます: {0}</value>
   </data>
@@ -2314,14 +2266,17 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
 
 {1}</value>
   </data>
+  <data name="Notice_GroupedCount" xml:space="preserve">
+    <value>{0} 件：</value>
+  </data>
   <data name="Warning_WavFilesNotFound" xml:space="preserve">
-    <value>[{0,2}%] WAVファイルが見つかりませんでした。({1}/{2})</value>
+    <value>[{0,2}%] WAV使用ファイルの存在数 / 要求数: {1}/{2}</value>
   </data>
   <data name="Warning_BgaFilesNotFound" xml:space="preserve">
-    <value>[{0,2}%] BGAファイルが見つかりませんでした。({1}/{2})</value>
+    <value>[{0,2}%] BGA使用ファイルの存在数 / 要求数: {1}/{2}</value>
   </data>
   <data name="Warning_MovieFilesNotFound" xml:space="preserve">
-    <value>[{0,2}%] MOVIEファイルが見つかりませんでした。({1}/{2})</value>
+    <value>[{0,2}%] MOVIE使用ファイルの存在数 / 要求数: {1}/{2}</value>
   </data>
   <data name="Warning_StagefileNotFound" xml:space="preserve">
     <value>[ 0%] STAGEFILEが見つかりませんでした。(1/1)</value>
@@ -2390,10 +2345,6 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue" xml:space="preserve">
     <value>インストール処理が実行中のため、URL 取り込みを開始できません。
 インストール処理の完了後、またはキャンセル後に再実行してください。</value>
-  </data>
-  <data name="Warn_DropInstallBlockedByPlaylistUrlDownload" xml:space="preserve">
-    <value>URL 取り込みが実行中のため、ドラッグ＆ドロップインストールを開始できません。
-URL 取り込みの完了後に再実行してください。</value>
   </data>
   <data name="Warn_DropInstallUnsupportedFormat" xml:space="preserve">
     <value>ドロップされたデータはファイルまたはフォルダとして受け取れませんでした。</value>
@@ -2511,6 +2462,10 @@ URL 取り込みの完了後に再実行してください。</value>
 
 対象: {0}
 {1}</value>
+  </data>
+  <data name="Warn_CannotMoveRegisteredBmsRoot" xml:space="preserve">
+    <value>登録BMSルート本体を含むフォルダは移動できません。
+対象: {0}</value>
   </data>
   <data name="Warn_CannotRenameRootFolder" xml:space="preserve">
     <value>ルートフォルダをリネームすることはできません
@@ -2684,8 +2639,9 @@ Everything を使用している場合は、楽曲フォルダが Everything 1.5
   </data>
   <data name="Playlist_import_result_summary_format" xml:space="preserve">
     <value>インポート: {0} 件
-同名スキップ: {1} 件
-失敗: {2} 件</value>
+同URLスキップ: {1} 件
+同名スキップ: {2} 件
+失敗: {3} 件</value>
   </data>
   <data name="Playlist_import_result_skipped_header" xml:space="preserve">
     <value>同名のためスキップ:</value>
@@ -2712,13 +2668,8 @@ Everything を使用している場合は、楽曲フォルダが Everything 1.5
   <data name="Beatoraja_table_url_import_failed_with_bmt_restore_format" xml:space="preserve">
     <value>外部読み込みと .bmt 復元に失敗しました: {0}</value>
   </data>
-  <data name="Playlist_uri_input_no_valid_uri" xml:space="preserve">
-    <value>入力された値が正しくありません。
-絶対URIであることを確認してください。</value>
-  </data>
   <data name="Playlist_uri_input_invalid_lines_format" xml:space="preserve">
-    <value>一部のURIを読み込めませんでした。
-絶対URIであることを確認してください。
+    <value>次の行は選択に追加していません。絶対URIへ修正してください。
 {0}</value>
   </data>
   <data name="Error_OutputDirNameEmpty" xml:space="preserve">
@@ -2902,10 +2853,10 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>BMIIDXViewのパスが正しくありません</value>
   </data>
   <data name="Error_CustomFolderOutputPathNotSet" xml:space="preserve">
-    <value>カスタムフォルダの出力パスが設定されていません</value>
+    <value>通常出力先が設定されていません</value>
   </data>
   <data name="Error_CustomFolderRootOutputPathNotSet" xml:space="preserve">
-    <value>カスタムフォルダ(ROOT)の出力パスが設定されていません</value>
+    <value>ルートフォルダ出力先が設定されていません</value>
   </data>
   <data name="Error_TableListUrlNotSet" xml:space="preserve">
     <value>難易度表リスト取得URIが設定されていません</value>
@@ -2938,8 +2889,11 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
     <value>同期モードを解除するとリモートの変更が反映されなくなります。
 よろしいですか？</value>
   </data>
+  <data name="Error_OutputFolderNameMustBeSingleName" xml:space="preserve">
+    <value>出力フォルダ名には、パスを含まない1つのフォルダ名を入力してください。</value>
+  </data>
   <data name="Error_OutputFolderNameEmptyOrDuplicateCheckInput" xml:space="preserve">
-    <value>出力先フォルダ名が空もしくは重複しています。
+    <value>出力先フォルダ名が空か、別の管理プレイリストの出力先と同一または親子になっています。
 入力した値を確認してください。</value>
   </data>
   <data name="Statusbar_progress_phase_playlist_loading" xml:space="preserve">
@@ -2987,6 +2941,13 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   </data>
   <data name="UpdateDialog_ReleasePageButton" xml:space="preserve">
     <value>Releaseページ</value>
+  </data>
+  <data name="UpdateDialog_FailedMessage_Format" xml:space="preserve">
+    <value>アップデートのダウンロードまたは開始に失敗しました。
+{0}</value>
+  </data>
+  <data name="UpdateDialog_FailedTitle" xml:space="preserve">
+    <value>アップデートに失敗しました</value>
   </data>
   <data name="AudioDeviceDefault" xml:space="preserve">
     <value>（既定のデバイス）</value>
@@ -3058,9 +3019,8 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Operation_Mode_Standalone" xml:space="preserve"><value>スタンドアローン</value></data>
   <data name="Operation_Mode_LR2" xml:space="preserve"><value>LR2 連携</value></data>
   <data name="LR2_integration" xml:space="preserve"><value>LR2 連携</value></data>
-  <data name="Settings_appearance_theme_description" xml:space="preserve"><value>設定画面を含むアプリ全体の配色を選択します。変更はすぐにプレビューされます。</value></data>
-  <data name="Settings_appearance_theme_light_description" xml:space="preserve"><value>明るい背景で表示します。</value></data>
-  <data name="Settings_appearance_theme_dark_description" xml:space="preserve"><value>暗い背景で表示します。</value></data>
+  <data name="Settings_appearance_theme_description" xml:space="preserve"><value>設定画面を含むアプリケーション全体の配色を選びます。選択時に保存して反映します。</value></data>
+  <data name="Settings_appearance_font_description" xml:space="preserve"><value>一覧やメニュー、ダイアログなどの通常の文字に使うフォントを選びます。アイコンやスコア表示などの専用の文字は変わりません。選択時に保存して反映します。</value></data>
   <data name="Settings_appearance_table_description" xml:space="preserve"><value>ライブラリ一覧の文字と行の密度を調整します。</value></data>
   <data name="Settings_player_executable_path" xml:space="preserve"><value>プレイヤー実行ファイル</value></data>
   <data name="Settings_player_lr2_description" xml:space="preserve"><value>LR2 の実行ファイルで譜面を再生します。</value></data>
@@ -3086,7 +3046,7 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="Enable" xml:space="preserve"><value>有効</value></data>
   <data name="Install_shift_jis_description" xml:space="preserve"><value>フォルダ名をShift_JISで表現できる文字に置き換え、互換性を優先します。</value></data>
   <data name="Settings_danger_zone" xml:space="preserve"><value>危険な操作</value></data>
-  <data name="Settings_danger_zone_description" xml:space="preserve"><value>次の操作は保存していない設定とは別に即時実行され、データを削除する場合があります。</value></data>
+  <data name="Settings_danger_zone_description" xml:space="preserve"><value>次の操作は設定の確定とは別に実行し、データを削除する場合があります。</value></data>
   <data name="Settings_uninstall_application_data" xml:space="preserve"><value>BeMusicSeeker 関連データを削除...</value></data>
   <data name="About_application_icon" xml:space="preserve"><value>BeMusicSeeker アプリケーションアイコン</value></data>
   <data name="About_application_name" xml:space="preserve"><value>BeMusicSeeker Unofficial Fork</value></data>
@@ -3162,10 +3122,11 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="PlaylistLampViewer_unavailable" xml:space="preserve"><value>利用不可</value></data>
   <data name="PlaylistLampViewer_selected" xml:space="preserve"><value>選択中</value></data>
   <data name="PlaylistLampViewer_not_selected" xml:space="preserve"><value>未選択</value></data>
+  <data name="PlaylistLampViewer_statistic_detail_format" xml:space="preserve"><value>{0}: {1}</value></data>
   <data name="PlaylistLampViewer_segment_detail_format" xml:space="preserve"><value>{0}: {1} ({2})</value></data>
   <data name="PlaylistLampViewer_segment_detail_adaptive_format" xml:space="preserve"><value>{0}: {1} ({2})</value></data>
   <data name="PlaylistLampViewer_segment_unavailable_detail_format" xml:space="preserve"><value>{0}: {1}（{2}）</value></data>
-  <data name="PlaylistLampViewer_percentage_format" xml:space="preserve"><value>{0:N2}%</value></data>
+  <data name="PlaylistLampViewer_percentage_format" xml:space="preserve"><value>{0:F2}%</value></data>
   <data name="PlaylistLampViewer_percentage_less_than_format" xml:space="preserve"><value>{0}未満</value></data>
   <data name="PlaylistLampViewer_source_lr2" xml:space="preserve"><value>LR2</value></data>
   <data name="PlaylistLampViewer_source_beatoraja" xml:space="preserve"><value>beatoraja</value></data>
@@ -3279,11 +3240,8 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
   <data name="LibraryDirectoryPreflightCauseAccessDenied" xml:space="preserve"><value>フォルダを読み取る権限がありません。</value></data>
   <data name="LibraryDirectoryPreflightCauseNotDirectory" xml:space="preserve"><value>指定先がフォルダではありません。</value></data>
   <data name="LibraryDirectoryPreflightCauseInvalidPath" xml:space="preserve"><value>パスの形式が不正です。</value></data>
-  <data name="LibraryDirectoryPreflightCauseInvalidConfiguration" xml:space="preserve"><value>追加出力先の設定形式が不正です。</value></data>
+  <data name="LibraryDirectoryPreflightCauseInvalidConfiguration" xml:space="preserve"><value>ライブラリのディレクトリ設定が不正です。</value></data>
   <data name="LibraryDirectoryPreflightCauseIo" xml:space="preserve"><value>フォルダを読み取れません。</value></data>
-  <data name="LibraryDirectoryPreflightCauseWrite" xml:space="preserve"><value>出力先へ一時確認ファイルを書き込めません。</value></data>
-  <data name="LibraryDirectoryPreflightCauseCleanup" xml:space="preserve"><value>一時確認ファイルを削除できません。</value></data>
-  <data name="LibraryDirectoryPreflightCleanupFailure" xml:space="preserve"><value>一時確認ファイルの後片付けにも失敗しました。</value></data>
   <data name="LibraryDirectoryPreflightBmsGuidance" xml:space="preserve"><value>フォルダを再接続するか、「設定 &gt; 一般 &gt; BMS ディレクトリ」を修正してから再試行してください。</value></data>
   <data name="LibraryDirectoryPreflightLr2Guidance" xml:space="preserve"><value>フォルダを再接続するか、設定のプレイリスト出力先を修正してから再試行してください。</value></data>
   <data name="Error_InvalidLR2ConfigFile" xml:space="preserve">
@@ -3404,10 +3362,14 @@ uBMplayが正常に動作するか確認してください。</value>
 
 続行しますか？</value>
   </data>
+  <data name="Error_ExternalPlaylistBodySizeLimitExceeded" xml:space="preserve">
+    <value>外部表の本文が上限の {0} バイトを超えています。</value>
+  </data>
   <data name="Confirm_UninstallApplicationData" xml:space="preserve">
     <value>BeMusicSeeker 関連データを LR2 データベースから削除します。
 続行した場合、この操作を取り消すことはできません。
 必要に応じて事前にバックアップを取得してください。
+処理中の作業を停止してから削除し、成功・失敗にかかわらずアプリを終了します。
 
 続行しますか？</value>
   </data>
@@ -3465,6 +3427,9 @@ uBMplayが正常に動作するか確認してください。</value>
   <data name="Label_CustomFolderOutputBase" xml:space="preserve">
     <value>カスタムフォルダ出力先</value>
   </data>
+  <data name="Validation_OutputBaseContainsInstallDirectoryFormat" xml:space="preserve">
+    <value>現在のインストール先「{0}」を出力先に含めることはできません。先に別の確定済みBMSディレクトリへインストール先を変更してから、出力先を選び直してください。</value>
+  </data>
   <data name="Validation_OutputBasesOverlapFormat" xml:space="preserve">
     <value>{0}と{1}には、同じフォルダや親子関係のフォルダを指定できません。</value>
   </data>
@@ -3505,7 +3470,7 @@ uBMplayが正常に動作するか確認してください。</value>
     <value>候補を選択…</value>
   </data>
   <data name="Details_show_diag_new_install" xml:space="preserve">
-    <value>新規としてインストールの確認メッセージを表示する</value>
+    <value>保留から新規としてインストールする際に確認メッセージを表示する</value>
   </data>
   <data name="Confirm_NewPackageInstall" xml:space="preserve">
     <value>このパッケージは自動では新規インストールされず、保留されています。
@@ -3544,7 +3509,7 @@ uBMplayが正常に動作するか確認してください。</value>
     <value>選択プレイリストの再同期</value>
   </data>
   <data name="Statusbar_progress_task_external_table_catalog" xml:space="preserve">
-    <value>外部表一覧の読込み</value>
+    <value>難易度表リストの取得</value>
   </data>
   <data name="Statusbar_progress_task_playlist_index" xml:space="preserve">
     <value>プレイリスト索引の準備</value>
@@ -3708,4 +3673,476 @@ uBMplayが正常に動作するか確認してください。</value>
   <data name="Lr2_song_db_sync_stage_song_encoding_saving" xml:space="preserve">
     <value>文字コード情報の保存</value>
   </data>
+  <data name="Error_PreparedChartTargetMismatch" xml:space="preserve">
+    <value>準備済みの譜面対象が現在の所持項目・形式・配置と一致しません。変更は実行していません。</value>
+  </data>
+  <data name="Play_history_read_failed" xml:space="preserve">
+    <value>履歴の取得に失敗しました。</value>
+  </data>
+  <data name="Details_require_complete_used_resources_for_auto_install" xml:space="preserve">
+    <value>自動新規インストールにすべての使用リソースを要求する</value>
+  </data>
+  <data name="Details_require_complete_used_resources_for_auto_install_description" xml:space="preserve">
+    <value>OFF：使用音源がそろえば、画像・動画などが不足していても自動新規導入の対象にします。
+ON：すべての使用リソースを要求し、不足時は保留にします。非音声だけの不足では、新たな候補の自動探索を省略します。
+不足を確認して問題なければ、保留から「新規としてインストール」を実行できます。</value>
+  </data>
+  <data name="ChartProperties" xml:space="preserve">
+    <value>譜面プロパティ</value>
+  </data>
+  <data name="ChartPropertiesPath" xml:space="preserve">
+    <value>譜面パス</value>
+  </data>
+  <data name="ChartPropertiesIssues" xml:space="preserve">
+    <value>リソースの問題</value>
+  </data>
+  <data name="ChartPropertiesFailed" xml:space="preserve">
+    <value>譜面の読取りまたは解析に失敗しました。再確認するには閉じて開き直してください。</value>
+  </data>
+  <data name="ChartPropertiesMissing" xml:space="preserve">
+    <value>不足</value>
+  </data>
+  <data name="ChartPropertiesInvalidPath" xml:space="preserve">
+    <value>不正なパス</value>
+  </data>
+  <data name="ChartPropertiesUnsupported" xml:space="preserve">
+    <value>親参照</value>
+  </data>
+  <data name="ChartPropertiesCp932Unsupported" xml:space="preserve">
+    <value>LR2互換性診断：CP932で復号できません。実採用文字コードの充足結果とは独立しています</value>
+  </data>
+  <data name="ChartPropertiesUnusedDefinitions" xml:space="preserve">
+    <value>未使用リソース定義</value>
+  </data>
+  <data name="ChartPropertiesUndefinedReferences" xml:space="preserve">
+    <value>未定義参照番号</value>
+  </data>
+  <data name="ChartPropertiesUnusedDescription" xml:space="preserve">
+    <value>定義はあるものの、この譜面の発音・表示用の参照に使われていない #WAV・#BMP を表示します。別の定義番号や譜面が同じファイルを使う場合があります。 この譜面の要求数には含めません。</value>
+  </data>
+  <data name="ChartPropertiesUndefinedDescription" xml:space="preserve">
+    <value>譜面から参照されているものの、対応する #WAV・#BMP 定義が存在しない定義番号を表示します。無音ノーツなどが該当します。</value>
+  </data>
+  <data name="ChartPropertiesBmsonUnusedDescription" xml:space="preserve">
+    <value>この譜面の発音・表示に使われていない音声チャンネルと bga_header の定義を表示します。別のチャンネルや譜面が同じファイルを使う場合があります。 この譜面の要求数には含めません。</value>
+  </data>
+  <data name="ChartPropertiesBmsonUndefinedDescription" xml:space="preserve">
+    <value>BGAイベントから参照されているものの、対応する bga_header 定義が存在しない定義番号を表示します。</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationAudioMissing" xml:space="preserve">
+    <value>導入後音源不足</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationAudioUnverifiable" xml:space="preserve">
+    <value>導入後音源未確認</value>
+  </data>
+  <data name="Warning_InstallEstimationAudioMissing" xml:space="preserve">
+    <value>設定した音源充足率を満たさないため、導入先の自動設定を見送りました。候補: {0}</value>
+  </data>
+  <data name="Warning_InstallEstimationAudioUnverifiable" xml:space="preserve">
+    <value>推定対象の導入後の音源完全性を確認できないため、自動設定を見送りました。候補: {0}</value>
+  </data>
+  <data name="ChartPropertiesVerificationBasis" xml:space="preserve">
+    <value>確認基準</value>
+  </data>
+  <data name="ChartPropertiesVerificationPath" xml:space="preserve">
+    <value>確認先</value>
+  </data>
+  <data name="ChartPropertiesConfiguredDestination" xml:space="preserve">
+    <value>設定先</value>
+  </data>
+  <data name="ChartPropertiesFirstCandidate" xml:space="preserve">
+    <value>先頭候補</value>
+  </data>
+  <data name="ChartPropertiesCurrentPlacement" xml:space="preserve">
+    <value>現在の配置</value>
+  </data>
+  <data name="ChartPropertiesUnverifiable" xml:space="preserve">
+    <value>照合入力を取得できず確認不能</value>
+  </data>
+  <data name="Details_test_keep_installable_pending_description" xml:space="preserve">
+    <value>新規と判定したパッケージも自動導入せず、保留で確認します。
+例：譜面ハッシュが変わった既所持作品の導入先確認。
+例：難易度表パッケージなどを別フォルダに分けたくない場合。
+この設定で保留にした新規対象は自動推定しません。必要に応じて手動で推定してください。</value>
+  </data>
+  <data name="Details_auto_apply_ambiguous_install_destination_description" xml:space="preserve">
+    <value>候補が同率で複数残る場合に、自動確定条件を満たす第1候補を設定します。OFFでは候補を確認して選択します。候補が一意に決まる場合は、この設定に関係なく自動設定します。</value>
+  </data>
+  <data name="Estimate_install_loc_keep_unrelated" xml:space="preserve">
+    <value>インストール先を推定（無関係候補を残す）</value>
+  </data>
+  <data name="Details_install_destination_min_audio_health" xml:space="preserve">
+    <value>導入先の自動設定に必要な最低音源充足率</value>
+  </data>
+  <data name="Details_install_destination_min_audio_health_description" xml:space="preserve">
+    <value>候補先と同梱分を合わせた各譜面の音源充足率が、指定値以上であることを自動設定の条件にします。欠損警告は残ります。新規インストールの許可条件とは別です。</value>
+  </data>
+  <data name="Details_install_destination_min_audio_health_invalid" xml:space="preserve">
+    <value>保存値 {0}% は範囲外です。導入先は自動設定されません。90～100%から選び直してください。</value>
+  </data>
+  <data name="Warning_InstallEstimationUnrelated" xml:space="preserve">
+    <value>候補 {0} は作品との関連性が確認できません。自動設定は行いません。</value>
+  </data>
+  <data name="Warning_InstallEstimationMetadataUnavailable" xml:space="preserve">
+    <value>候補 {0} との比較に使うTITLE/ARTISTが取得できないため、自動設定は行いません。</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationUnrelated" xml:space="preserve">
+    <value>作品との関連性なし</value>
+  </data>
+  <data name="WarningDigest_InstallEstimationMetadataUnavailable" xml:space="preserve">
+    <value>作品情報の比較不能</value>
+  </data>
+  <data name="Playlist_import_title" xml:space="preserve">
+    <value>プレイリストをインポート</value>
+  </data>
+  <data name="Playlist_import_external" xml:space="preserve">
+    <value>難易度表リスト</value>
+  </data>
+  <data name="Playlist_import_builtin" xml:space="preserve">
+    <value>内蔵表</value>
+  </data>
+  <data name="Playlist_import_url_file" xml:space="preserve">
+    <value>URL・ファイル</value>
+  </data>
+  <data name="Playlist_import_search" xml:space="preserve">
+    <value>表名・記号・分類・URLを検索</value>
+  </data>
+  <data name="Playlist_import_hide_urls" xml:space="preserve">
+    <value>同URLの登録済みを非表示</value>
+  </data>
+  <data name="Playlist_import_hide_names" xml:space="preserve">
+    <value>同名候補を非表示</value>
+  </data>
+  <data name="Playlist_import_select_matching" xml:space="preserve">
+    <value>すべて</value>
+  </data>
+  <data name="Playlist_import_selected" xml:space="preserve">
+    <value>選択済みプレイリスト</value>
+  </data>
+  <data name="Playlist_import_remove" xml:space="preserve">
+    <value>解除</value>
+  </data>
+  <data name="Playlist_import_clear" xml:space="preserve">
+    <value>すべて解除</value>
+  </data>
+  <data name="Playlist_import_add" xml:space="preserve">
+    <value>選択に追加</value>
+  </data>
+  <data name="Playlist_import_start" xml:space="preserve">
+    <value>インポート</value>
+  </data>
+  <data name="Playlist_import_counts_format" xml:space="preserve">
+    <value>選択: {0} 件 · 実行候補: {1} 件 · 同URL: {2} 件</value>
+  </data>
+  <data name="Playlist_import_catalog_not_started" xml:space="preserve">
+    <value>難易度表リストは準備中です。</value>
+  </data>
+  <data name="Playlist_import_catalog_loading" xml:space="preserve">
+    <value>難易度表リストを取得中です…</value>
+  </data>
+  <data name="Playlist_import_catalog_failed" xml:space="preserve">
+    <value>難易度表リストを取得できませんでした。</value>
+  </data>
+  <data name="Playlist_import_catalog_empty" xml:space="preserve">
+    <value>難易度表リストは空です。</value>
+  </data>
+  <data name="Playlist_import_input_empty" xml:space="preserve">
+    <value>絶対URIを1行に一つ入力してください。</value>
+  </data>
+  <data name="Playlist_import_busy" xml:space="preserve">
+    <value>別の操作を実行中です。終了後にもう一度インポートしてください。</value>
+  </data>
+  <data name="Playlist_import_not_ready" xml:space="preserve">
+    <value>プレイリストの準備が完了していません。準備後にもう一度インポートしてください。</value>
+  </data>
+  <data name="Playlist_import_shutting_down" xml:space="preserve">
+    <value>アプリケーションを終了中のため開始できません。</value>
+  </data>
+  <data name="Playlist_import_no_targets_format" xml:space="preserve">
+    <value>実行対象がありません。同URLの登録済み除外: {0} 件。</value>
+  </data>
+  <data name="Playlist_import_registered_url" xml:space="preserve">
+    <value>同URL</value>
+  </data>
+  <data name="Playlist_import_same_name" xml:space="preserve">
+    <value>同名候補</value>
+  </data>
+  <data name="Playlist_import_estimation_group" xml:space="preserve">
+    <value>難度推定表</value>
+  </data>
+  <data name="Playlist_import_recommendation_group" xml:space="preserve">
+    <value>リコメンド</value>
+  </data>
+  <data name="Playlist_import_input_description" xml:space="preserve">
+    <value>絶対URLまたはファイルパスを1行に一つ入力してください。有効な行を選択に追加します。</value>
+  </data>
+  <data name="Playlist_import_result_skipped_url_header" xml:space="preserve">
+    <value>同URLでスキップ:</value>
+  </data>
+  <data name="AudioDeviceListLoading" xml:space="preserve">
+    <value>音声デバイス一覧を取得しています。設定の編集・保存・取消は引き続き行えます。</value>
+  </data>
+  <data name="AudioDeviceListRefreshFailed" xml:space="preserve">
+    <value>音声デバイス一覧を更新できませんでした。保持している候補と現在の選択を表示しています。</value>
+  </data>
+  <data name="Details_auto_install_after_automatic_estimation" xml:space="preserve">
+    <value>取り込み後の自動推定で導入先が確定したら、自動インストールする</value>
+  </data>
+  <data name="Details_auto_install_after_automatic_estimation_description" xml:space="preserve">
+    <value>保留追加後の自動推定で、今回の導入先が確定した対象を確認なしで導入します。手動推定は対象外です。上書きと元パッケージの削除は他の設定に従います。</value>
+  </data>
+  <data name="PackageInstallReport_Unprocessed" xml:space="preserve">
+    <value>自動インストール未実行: {0} 件</value>
+  </data>
+  <data name="PackageInstallReport_SynchronizationIncomplete" xml:space="preserve">
+    <value>LR2との同期が完了していません。</value>
+  </data>
+  <data name="PackageInstallReport_InputCleanupFailure" xml:space="preserve">
+    <value>取り込み用一時入力の回収に失敗: {0}</value>
+  </data>
+  <data name="Startup_sort_cache_label" xml:space="preserve">
+    <value>起動時のソートキャッシュ準備範囲</value>
+  </data>
+  <data name="Startup_sort_cache_description" xml:space="preserve">
+    <value>事前生成しない列も、選択したときは通常どおりソートできます。変更は次回起動時から適用されます。</value>
+  </data>
+  <data name="Startup_sort_cache_none" xml:space="preserve">
+    <value>準備しない</value>
+  </data>
+  <data name="Startup_sort_cache_basic" xml:space="preserve">
+    <value>基本のみ（既定）</value>
+  </data>
+  <data name="Startup_sort_cache_standard" xml:space="preserve">
+    <value>標準</value>
+  </data>
+  <data name="Startup_sort_cache_all" xml:space="preserve">
+    <value>すべて</value>
+  </data>
+  <data name="Startup_sort_cache_invalid" xml:space="preserve">
+    <value>保存された値（{0}）は無効です。準備範囲を選択すると設定を保存できます。</value>
+  </data>
+  <data name="Pending_install_estimate" xml:space="preserve">
+    <value>推定</value>
+  </data>
+  <data name="Pending_install_clear" xml:space="preserve">
+    <value>クリア</value>
+  </data>
+  <data name="Settings_install_destination_section" xml:space="preserve">
+    <value>インストール先</value>
+  </data>
+  <data name="Settings_install_import_section" xml:space="preserve">
+    <value>取り込み・新規インストール</value>
+  </data>
+  <data name="Settings_install_estimation_section" xml:space="preserve">
+    <value>導入先の自動推定</value>
+  </data>
+  <data name="Settings_install_file_handling_section" xml:space="preserve">
+    <value>上書き・元パッケージの整理</value>
+  </data>
+  <data name="Settings_install_file_handling_description" xml:space="preserve">
+    <value>インストールではファイルの移動・上書き・削除が発生する場合があります。元の配布物を残す場合は、操作前にコピーしてください。</value>
+  </data>
+  <data name="Settings_install_confirmation_section" xml:space="preserve">
+    <value>確認メッセージ</value>
+  </data>
+  <data name="Details_test_download_and_install_description" xml:space="preserve">
+    <value>単一行のURL1/URL2セルをクリックしたとき、ブラウザーで開く代わりに自動取得・導入を試みます。起動時のBMSファイルスキャンも有効にしてください。複数行のURL取り込みには影響しません。</value>
+  </data>
+  <data name="Details_test_smart_component_overwrite_description" xml:space="preserve">
+    <value>差分導入・既所持パッケージのリソース上書き・重複フォルダマージで、同名ファイルのサイズと更新日時を比較して残す側を決めます。OFFでは導入元の同名ファイルで上書きします。</value>
+  </data>
+  <data name="Details_test_keep_smart_overwrite_protected_by_rename_description" xml:space="preserve">
+    <value>スマート上書きがONのときだけ適用します。同名の対象ファイルは上書きせず、必要に応じて連番付きの名前で導入します。同内容の重複は増やしません。</value>
+  </data>
+  <data name="Details_test_delete_pending_source_after_install_description" xml:space="preserve">
+    <value>導入後に残った既所持譜面と空の元フォルダを整理します。未所持や判定できない残存物は削除しません。OFFでも移動した元ファイルは残りません。</value>
+  </data>
+  <data name="Details_show_diag_new_install_description" xml:space="preserve">
+    <value>インストール先が未設定の保留パッケージを新規として導入する際の確認です。インストール先が設定済みの場合は、OFFでも確認を省略できません。</value>
+  </data>
+  <data name="Warn_LR2BackupOptimizationIncomplete" xml:space="preserve">
+    <value>LR2のバックアップは保存されましたが、データベースの最適化を完了できませんでした。</value>
+  </data>
+  <data name="Error_DirectoryLinkCopyNotAllowedFormat" xml:space="preserve">
+    <value>フォルダへのリンク（ジャンクションなど）はコピーできません: {0}</value>
+  </data>
+  <data name="Backup_destination_description" xml:space="preserve">
+    <value>この機能専用のフォルダを指定してください。保存先直下の今日以前の日付形式（yyyy-MM-dd）のフォルダは、作成元や内容に関係なく、世代整理で削除されることがあります。</value>
+  </data>
+  <data name="Settings_confirm_bms_roots" xml:space="preserve"><value>BMSディレクトリを確定</value></data>
+  <data name="Settings_confirm_bmt" xml:space="preserve"><value>BMT出力を変更・再更新</value></data>
+  <data name="Settings_confirm_environment" xml:space="preserve"><value>環境を確定（稼働中は再起動）</value></data>
+  <data name="Settings_start_environment" xml:space="preserve"><value>この環境で開始</value></data>
+  <data name="Settings_cancel_changes" xml:space="preserve"><value>この変更を取り消す</value></data>
+  <data name="Settings_replacement_install" xml:space="preserve"><value>変更後のインストール先</value></data>
+  <data name="Settings_removed_install" xml:space="preserve"><value>現在のインストール先（削除対象）</value></data>
+  <data name="Settings_replacement_install_required" xml:space="preserve"><value>削除しようとしているディレクトリは現在のインストール先です。削除を続行する場合は残っているBMSディレクトリからインストール先を選び直してください。</value></data>
+  <data name="Settings_replacement_install_empty" xml:space="preserve"><value>BMSディレクトリが残っていません。BMSディレクトリを追加するか、変更を取り消してください。</value></data>
+  <data name="Settings_deficiency_guidance_title" xml:space="preserve"><value>対応が必要な設定</value></data>
+  <data name="Settings_deficiency_page_mark" xml:space="preserve"><value>対応が必要な設定があります</value></data>
+  <data name="Settings_bms_candidate_unconfirmed" xml:space="preserve"><value>変更は未確定です。「BMSディレクトリを確定」を押すと保存されます。</value></data>
+  <data name="Settings_bms_editor_requires_lr2_root" xml:space="preserve"><value>LR2ディレクトリを設定すると編集できます。</value></data>
+  <data name="Settings_new_install_section" xml:space="preserve"><value>新規インストール先</value></data>
+  <data name="Settings_new_install_description" xml:space="preserve"><value>BMSを新しく導入するフォルダを、上の一覧から選びます。</value></data>
+  <data name="Error_InstallDirNotSelected" xml:space="preserve"><value>新規インストール先を選択してください。</value></data>
+  <data name="Error_InvalidBmsInstallDirNotRegistered" xml:space="preserve"><value>新規インストール先を登録済みのBMSディレクトリから選択してください。</value></data>
+  <data name="Error_Lr2RootPathNotSet" xml:space="preserve"><value>LR2ディレクトリを設定してください。</value></data>
+  <data name="Error_BmsDirectoryAndInstallRequired" xml:space="preserve"><value>BMSディレクトリを追加し、新規インストール先を選んで確定してください。</value></data>
+  <data name="Settings_output_requires_lr2_root" xml:space="preserve"><value>先に一般ページでLR2ディレクトリを設定してください。</value></data>
+  <data name="Settings_start_requires_settings" xml:space="preserve"><value>「対応が必要な設定」の項目を設定すると開始できます。</value></data>
+  <data name="Settings_start_ready" xml:space="preserve"><value>必要な設定が揃いました。「この環境で開始」を押すとBMSの読み込みを始めます。</value></data>
+  <data name="Settings_confirm_record" xml:space="preserve"><value>この項目を確定</value></data>
+  <data name="Settings_environment" xml:space="preserve"><value>環境</value></data>
+  <data name="Settings_open_bms_roots" xml:space="preserve"><value>BMSディレクトリを編集</value></data>
+  <data name="Settings_retry" xml:space="preserve"><value>再試行</value></data>
+  <data name="Settings_retry_audio_save" xml:space="preserve"><value>音声設定の保存を再試行</value></data>
+  <data name="Settings_audio_save_retry_description" xml:space="preserve"><value>音声設定を保存できませんでした。現在の再生は続行します。再試行して次回再生の設定を保存してください。</value></data>
+  <data name="DatePicker_choose_date" xml:space="preserve"><value>日付を選択</value></data>
+  <data name="DatePicker_open_calendar" xml:space="preserve"><value>カレンダーを開く</value></data>
+  <data name="DatePicker_previous_period" xml:space="preserve"><value>前の期間</value></data>
+  <data name="DatePicker_next_period" xml:space="preserve"><value>次の期間</value></data>
+  <data name="DatePicker_change_period" xml:space="preserve"><value>月・年の表示を切り替える</value></data>
+  <data name="Playlist_json_export_title" xml:space="preserve">
+    <value>プレイリストのJSON出力</value>
+  </data>
+  <data name="Playlist_json_export_paths_required" xml:space="preserve">
+    <value>ヘッダーとデータの両方の保存先を指定してください。</value>
+  </data>
+  <data name="Playlist_json_export_paths_same" xml:space="preserve">
+    <value>ヘッダーとデータには異なる保存先を指定してください。</value>
+  </data>
+  <data name="Playlist_json_export_path_invalid" xml:space="preserve">
+    <value>有効なファイルパスを指定してください。</value>
+  </data>
+  <data name="Playlist_json_export_partial_failure" xml:space="preserve">
+    <value>ヘッダーは保存しましたが、データの保存に失敗しました。既存のデータは保持しています。保存先を確認して再度出力してください。</value>
+  </data>
+  <data name="Error_ManagedPlaylistOutputOverlap" xml:space="preserve">
+    <value>管理プレイリストの出力先が同一または親子になっています。重ならない出力先を指定してください。</value>
+  </data>
+  <data name="Warn_PlaylistOutputOverlapStopped" xml:space="preserve">
+    <value>出力先が他の表と重なるため、次の表のLR2フォルダを出力していません。出力名を変更してください。</value>
+  </data>
+  <data name="Settings_confirm_discard_conflicting_candidates" xml:space="preserve">
+    <value>{0} の未確定編集を取り消して進めますか？ 保存済みの設定と未完了の処理は保持します。</value>
+  </data>
+  <data name="Settings_lr2_detailed_paths" xml:space="preserve">
+    <value>LR2の詳細パス</value>
+  </data>
+  <data name="Settings_candidates_discarded_on_exit" xml:space="preserve">
+    <value>終了時に未確定の設定候補は破棄され、次回起動へ引き継がれません。</value>
+  </data>
+  <data name="Warn_UnregisteredCustomFolderOutputBase" xml:space="preserve">
+    <value>表「{0}」の追加出力先「{1}」が登録されていないため、LR2出力を停止しました。表のプロパティで保存先を選び直してください。</value>
+  </data>
+  <data name="Warn_CustomFolderCleanupFailed" xml:space="preserve">
+    <value>新しい出力先への反映は完了しましたが、旧出力先のファイルまたはLR2管理行を整理できませんでした。
+旧出力先: {0}
+原因: {1}</value>
+  </data>
+  <data name="Settings_bmt_url_switch_failed" xml:space="preserve"><value>新しいBMT設定は保存しましたが、管理URLを切り替えられませんでした。旧管理URLが有効なまま残っている可能性があります。この失敗後、旧出力先のファイルの追加整理は行っていません。</value></data>
+  <data name="Settings_bmt_files_remain" xml:space="preserve"><value>新しいBMT設定と管理URLを反映しましたが、一部の旧管理ファイルを削除できず残っています。</value></data>
+  <data name="Confirm_DeleteRegisteredBmsRoots" xml:space="preserve">
+    <value>フォルダー全体を削除し、次のBMSルートの登録を解除しますか？
+フォルダー: {0}
+登録を解除するBMSルート:
+{1}</value>
+  </data>
+  <data name="Warn_CannotDeleteProtectedBmsRoot" xml:space="preserve">
+    <value>最後のBMSルートまたは現在のインストール先を含むため、フォルダー全体を削除できません。先に設定で別のルートまたはインストール先を確定してください。
+対象: {0}</value>
+  </data>
+  <data name="LibraryChartRemovalReport_RegistrationFailed" xml:space="preserve">
+    <value>ファイルは削除されましたが、BMSルート登録の保存または反映に失敗しました。</value>
+  </data>
+  <data name="Error_PlaylistEntryLevelFormat" xml:space="preserve">
+    <value>ENTRY LEVELは小数点をピリオドにした有限数値全体で入力してください（例: -1.5、1e2）。空欄で値を解除できます。</value>
+  </data>
+  <data name="Error_PlaylistJsonDateFormat" xml:space="preserve">
+    <value>{0}の日時が不正です。yyyy-MM-dd、yyyy-MM-ddTHH:mm:ss（小数秒1～7桁、Z/±HH:mmは省略可）、またはyyyy/M/d（H:m:sと±HH:mmは省略可）で元データを訂正し、再実行してください。</value>
+  </data>
+  <data name="Playlist_reload_processed_label_format" xml:space="preserve">
+    <value>{0} {1}/{2}件処理済み</value>
+  </data>
+  <data name="Playlist_reload_last_processed_label_format" xml:space="preserve">
+    <value>直近の処理終了：{0}</value>
+  </data>
+  <data name="DialogButtonOk" xml:space="preserve">
+    <value>OK</value>
+  </data>
+  <data name="DialogButtonYes" xml:space="preserve">
+    <value>はい</value>
+  </data>
+  <data name="DialogButtonNo" xml:space="preserve">
+    <value>いいえ</value>
+  </data>
+  <data name="PendingRestoreTitle" xml:space="preserve">
+    <value>保留パッケージの復元に失敗しました</value>
+  </data>
+  <data name="PendingRestoreMessage" xml:space="preserve">
+    <value>保留パッケージを復元できませんでした。再試行するか、保留一覧を初期化して続行するか、終了してください。</value>
+  </data>
+  <data name="PendingRestoreResetWarning" xml:space="preserve">
+    <value>「保留一覧を初期化して続行」は、すべての保留登録を消去します。この操作で元のファイルや導入済みの楽曲は削除しません。</value>
+  </data>
+  <data name="PendingRestoreRetry" xml:space="preserve">
+    <value>再試行</value>
+  </data>
+  <data name="PendingRestoreReset" xml:space="preserve">
+    <value>保留一覧を初期化して続行</value>
+  </data>
+  <data name="PendingRestoreExit" xml:space="preserve">
+    <value>終了</value>
+  </data>
+  <data name="Error_PendingDiscoveryIncompleteFormat" xml:space="preserve">
+    <value>保留パッケージの列挙が完了しませんでした: {0}</value>
+  </data>
+  <data name="Error_PendingChartUnreadableFormat" xml:space="preserve">
+    <value>保留譜面を読み取れませんでした: {0}</value>
+  </data>
+  <data name="Error_PendingChartEnumerationFailedFormat" xml:space="preserve">
+    <value>保留譜面の列挙に失敗しました: {0} {1} {2}</value>
+  </data>
+  <data name="Error_PendingRestoreUncommitted" xml:space="preserve">
+    <value>保留パッケージの復元を確定できませんでした。</value>
+  </data>
+  <data name="Error_PendingRestoreDialogFailedFormat" xml:space="preserve">
+    <value>保留パッケージの復元確認に失敗しました: {0}</value>
+  </data>
+  <data name="Error_PendingRestoreChoiceUnknown" xml:space="preserve">
+    <value>保留パッケージの復元確認で不明な選択が返されました。</value>
+  </data>
+  <data name="ChartPropertiesExcludedEmpty" xml:space="preserve">
+    <value>空の指定</value>
+  </data>
+  <data name="ChartPropertiesExcludedFileName" xml:space="preserve">
+    <value>ファイル名本体なし</value>
+  </data>
+  <data name="ChartPropertiesExcludedKind" xml:space="preserve">
+    <value>画像・動画の種別不明</value>
+  </data>
+  <data name="ChartPropertiesExcludedSyntax" xml:space="preserve">
+    <value>不正構文</value>
+  </data>
+  <data name="ChartPropertiesCp932AlternativeInterpretation" xml:space="preserve">
+    <value>CP932で解釈した場合の問題 (通常の解釈と併記される場合があります)</value>
+  </data>
+  <data name="Validation_Lr2BuiltinCustomFolderReservedFormat" xml:space="preserve"><value>{0}には、LR2組込みカスタムフォルダの予約領域を指定できません。
+指定先: {1}
+組込みフォルダ: {2}</value></data>
+  <data name="Error_InstallDestinationMissing" xml:space="preserve"><value>導入先フォルダーが見つかりません。INSTL DSTを選び直してください。</value></data>
+  <data name="DatabaseConnectionCloseFailed" xml:space="preserve"><value>データベース接続の終了処理でエラーが発生しました。</value></data>
+  <data name="Error_AdditionalOutputBaseRejectedHeading" xml:space="preserve"><value>次のフォルダは追加出力先に追加しませんでした。</value></data>
+  <data name="Confirm_RightClickRestoreDefaults" xml:space="preserve"><value>右クリック設定のWeb項目とプログラム項目を既定値に置き換えて保存します。登録済みの項目と未確定の入力は失われます。
+
+続行しますか？</value></data>
+  <data name="Confirm_RightClickDeleteActionFormat" xml:space="preserve"><value>右クリック項目「{0}」を削除して保存します。
+
+続行しますか？</value></data>
+  <data name="Confirm_RightClickDeleteActionUnnamed" xml:space="preserve"><value>選択中の右クリック項目を削除して保存します。
+
+続行しますか？</value></data>
+  <data name="Confirm_RemovePlayHistoryFolderDisplayPresetFormat" xml:space="preserve"><value>プレイログ FOLDER 表示プリセット「{0}」を削除して保存します。
+
+続行しますか？</value></data>
 </root>

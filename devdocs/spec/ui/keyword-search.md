@@ -14,11 +14,25 @@
 
 通常の譜面一覧、プレイリスト詳細、プレイ履歴は一つの保存範囲を共有します。プレイリスト一覧は独立した保存範囲を使います。候補は表示先の検索条件に適合するものだけを表示し、現在の画面では使えない保存済みの検索式を削除しません。
 
-`KeywordSearchAssistanceOwner` は入力文字列、カーソル位置、表示先、変更不能な候補集合とその版、候補を閉じた条件を保持します。入力支援の計算は同期的に行い、キー入力ごとにDBを読むことや外部のロック取得をしません。通常の検索結果の更新に使う500ミリ秒の遅延は、候補の更新には適用しません。
+プレイリスト詳細の検索要求は、検索式の前後空白だけを除き、式の大小文字を保持して比較します。正規表現の `\d` / `\D`、`\s` / `\S`、`\w` / `\W` は別要求として扱い、初回表示と確定差分による局所更新で同じ意味の式を使います。通常語の大小文字無視、引用、否定、OR、無効式の診断は共通の検索処理が担当します。
 
-`KeywordSearchSavedQueryOwner` は保存用の接続先を明示的に受け取ります。保存先の設定値の更新に成功した後で、メモリ上の順序、候補、変更通知を更新します。設定値の更新が失敗した場合は、全て従前の状態を保ちます。操作ごとに `Settings.Save` を呼びません。
+`KeywordSearchAssistanceOwner` は、入力文字列、カーソル位置、表示先、変更不能な候補集合とその版、候補を閉じた条件を保持します。入力支援の計算は同期的に行い、キー入力のたびにDBを読んだり外部のロックを取得したりしません。通常の検索結果の更新に使う500ミリ秒の遅延は、候補の更新には適用しません。
 
-`KeywordSearchEditor` は候補の表示、候補間の選択、区画ごとの仮想スクロール、IME、フォーカス、行内操作を担当します。画面の親は二つの検索欄を構成しますが、ポップアップの `IsOpen` をViewModelへ双方向で結び付けません。
+`KeywordSearchSavedQueryOwner` は、保存用の接続先を明示的に受け取ります。保存先の設定値の更新に成功した後で、メモリ上の順序、候補、変更通知を更新します。設定値の更新が失敗した場合は、すべて従前の状態を保ちます。操作のたびに `Settings.Save` を呼びません。
+
+`KeywordSearchEditor` は、候補の表示、候補間の選択、区画ごとの仮想スクロール、IME、フォーカス、行内操作を担当します。画面の親は二つの検索欄を構成しますが、ポップアップの `IsOpen` をViewModelへ双方向には結び付けません。
+
+### 正規表現の表示候補
+
+通常一覧、プレイリスト詳細、プレイリスト一覧、プレイ履歴の正規表現は、対象項目から列挙された検索候補値へ適用します。フィールド指定のない検索も同じ規則です。表示上の空文字とnullは空欄として評価し、`^$` は空欄、`.*` は空欄を含むすべての候補、`.+` は空白文字を含む一文字以上の候補に一致します。有効な否定条件はその一致を反転します。
+
+対象項目自体がない場合と、参照先のプレイリスト名など複数値の項目に候補がない場合は、空文字の候補を追加しません。未対応項目は否定でも不一致です。通常の部分一致、空の検索語、数値の`defined` / `undefined`、無効な正規表現とタイムアウトの扱いは変えません。
+
+正規表現の条件（`re:...`、`field:re:...`、否定形）は、`|` で選択肢へ分割せず、本体全体を一つの正規表現として評価します。正規表現かどうかと本体の範囲は、検索式の解析・保存式の比較・候補の構造判定が共有する構文識別で決め、通常値のOR（`title:alpha|beta`）とORの途中の `re:`（`title:abc|re:x` は通常値）は変えません。本体の引用は、既存の引用解除を本体全体へ一回だけ適用します。空白を含む式は `title:re:"^a b|c$"` のように本体全体を引用し、`re:"a"|"b"` のように選択肢ごとの引用は特別扱いしません。本体全体が無効な正規表現なら、条件は無効で不一致（否定でも全行不一致）となり、無効な正規表現の診断を本体全体の文字列で一件だけ出します。`title:re:a|` のように空の選択肢を含む式は、正規表現の意味どおりの一つの式として扱います。空の本体（`title:re:`、`re:""`）の扱いは変えません。プレイ履歴の `date:re:` も同じ規則に従います。
+
+プレイ履歴の`date:re:`の候補、日付・日時・範囲、`year` / `month`、フィールド指定のない日付候補は、[プレイ履歴の検索と整列](../playlist/play-history.md#検索と整列)に従います。
+
+通常一覧とプレイリスト詳細の `RATE` は表示では百分率、検索では0～1の数値です。数値条件 `rate:>=0.8` は80%以上に一致し、正規表現 `rate:re:^0[.]8$` は80%の小数表記に一致します。正規表現の候補は、現在の文化圏によらない小数点の数値文字列です。プレイ履歴のRATE検索は未対応です。
 
 ### 候補の内容
 
@@ -37,7 +51,7 @@
 
 | 検索項目 | 挿入する値 |
 | --- | --- |
-| 通常一覧のクリア状態 | `nosong NP F AE LAE EC NC HC EXH FC PF MAX`。`defined` / `undefined` は出さない |
+| 通常一覧のクリア状況 | `nosong NP F AE LAE EC NC HC EXH FC PF MAX`。`defined` / `undefined` は出さない |
 | 履歴の `clear` / `oldclear` / `newclear` | 上記と `defined undefined` |
 | `rank` / `djlevel` / `dj` | `F E D C B A AA AAA MAX defined undefined` |
 | 難易度 | `beginner normal hyper another insane defined undefined` |
@@ -50,29 +64,37 @@
 | 履歴の月 | `1` ～ `12` |
 | 履歴の `type` / `kind` | `score bp clear combo play` |
 
-`playlist` / `ref` / `table` の値は、変更不能なプレイリスト候補集合から得ます。大小文字を区別せず前方一致で絞り、重複を除いて並べます。必要な引用符とエスケープを挿入します。解析側の別名 `undef` / `null` が使えても、候補からの挿入は `undefined` に統一します。未所持は `nosong` を挿入します。
+`playlist` / `ref` / `table` の値は、変更不能なプレイリスト候補集合から得ます。大小文字を区別せず前方一致で絞り、重複を除いて並べます。必要な引用符とエスケープを挿入します。`re:` で始まる名前も大小文字を問わず引用し、正規表現の指定ではなく名前全体を通常の検索値として適用します。解析側の別名 `undef` / `null` が使えても、候補からの挿入は `undefined` に統一します。未所持は `nosong` を挿入します。
 
 ### 候補の適用と古い候補の拒否
 
-検索項目の適用は、現在入力中の項目名だけを `field:` の形へ置換します。先頭の否定記号と前後の文字列を残し、末尾の空白は追加しません。
+検索項目の適用は、カーソルを含む項目名全体と既存のコロン一つを `field:` の形へ置換します。項目名の先頭・途中・コロン直前、コロン未入力でも、先頭の否定記号・値・前後の条件を残し、末尾の空白は追加しません。
 
-値の適用は現在入力中の値だけを置換します。引用符、エスケープ、後続の検索式を維持し、直後の区切りを一つのASCII空白へ整えて、その後ろへカーソルを移します。履歴・お気に入りの適用は検索欄全体を置換し、その検索式を履歴へ保存します。
+値の適用は引用の有無によらず現在の値全体を置換します。ORではカーソルを含む選択肢全体だけを置換し、他の選択肢と前後の条件を維持します。引用開始直前も同じ範囲を使い、必要な引用符とエスケープを挿入します。後ろにOR選択肢が続く場合は空白を足さず、置換値末尾へカーソルを移します。通常値または最後のOR選択肢では、直後の区切りを一つのASCII空白へ整えて、その後ろへカーソルを移します。`playlist:aXYZ` の `a` 直後で `Alpha` を選ぶと `XYZ` は残さず、`clear:EXH` の `E` 直後で `EC` を選ぶと値全体を `EC` にします。
+
+構造の判断には検索式の解析・保存式と共通のトークン全体の走査を使い、カーソル左側は候補の前方一致に使います。正規表現の値は先頭や `re:` の途中でも通常候補を出しません。正規表現を持つ項目名の補完と、引用された通常値 `"re:mix"` の補完は利用できます。履歴・お気に入りの適用は検索欄全体を置換し、その検索式を履歴へ保存します。
 
 候補は、文字列、カーソル位置、表示先、候補集合の版、置換範囲に対応します。適用時にいずれかが異なる場合は適用を拒否して再計算します。古い置換範囲を新しい文字列へ使いません。
+
+選択を維持する行本人の識別は、適用可否に使う入力状態の識別と分けます。お気に入り・履歴は種別と保存式本文、項目・値は種別と挿入内容で照合します。同じ行が残る再表示では選択を維持し、選択行が消えた場合は未選択にします。同値再計算や言語変更の後も、行内操作の対象は行本人の識別で表示中の行へ解決します。保存IDや保存形式は追加しません。
 
 ### 閉じる操作とフォーカス
 
 フォーカスを失うか、ウィンドウが非アクティブになると候補を閉じます。Escで閉じた場合は、同じ文字列・位置・表示先・候補集合の版に限り再表示を抑制します。いずれかが変われば抑制を解除し、Ctrl+Spaceでは明示的に再計算して開きます。
 
-上下キーは区画をまたいで候補を選び、入力欄にキーボードフォーカスを残します。EnterまたはTabで選択中の候補、選択がなければ最初の候補を適用します。IMEの変換確定に使ったEnterは候補の適用に使いません。
+上下キーは区画をまたいで候補を選び、先頭・末尾で折り返し、入力欄にキーボードフォーカスを残します。選択は各区画のListBoxへ投影し、画面外から生成・再利用される行の強調もEnterの適用対象と一致させます。上下キーまたはCtrl+Spaceで選択表示された候補だけを、EnterまたはTabで適用します。候補を選んでいないEnterは候補を適用せず、入力欄の文字列のまま履歴へ確定し、Escと同じ条件で候補を閉じて処理済みにします。候補を選んでいないTab（修飾キーなし）は、表示中の候補が項目名または値で、その前方一致に使う文字（値は引用符を除いた正規化後の接頭辞。カーソルを含むOR選択肢）を1文字以上入力しているときだけ、表示中の先頭の候補を選択した候補と同じ置換範囲・カーソル位置・古い候補の拒否で適用して処理済みにし、フォーカスは入力欄に残します。この判定は候補を作る側が持つ接頭辞の文字数と一致させ、画面側で文字列を再解析しません。補完したTabでは履歴を確定しません。空欄・空白のみ（お気に入り・履歴・全項目の表示）、前方一致に使う文字が0文字（`clear:` の直後、`title:x ` の後ろ、`clear:"` の直後など）、候補が出ていないとき（Esc・未選択Enterで閉じた後を含む）は検索部品では処理せず、文字列を変えずに通常のフォーカス移動へ任せ、離脱時の履歴確定を一回行います。→キーは通常のカーソル移動のままです。Tabの方向はその入力時の修飾キーで判断します。IMEの変換確定に使ったEnterは候補の適用に使いません。
 
-ウィンドウ内で入力欄とそのポップアップ以外をクリックすると、ポップアップが既に閉じていてもキーボードフォーカスを解除します。履歴保存を伴う通常の離脱処理は `LostKeyboardFocus` に集約します。
+ウィンドウ内で入力欄とそのポップアップ以外をクリックすると、ポップアップが既に閉じていてもキーボードフォーカスを解除します。入力欄・所有Popup・その行内ボタンの内部移動では候補を保ちます。行内ボタンから一覧や別の検索欄へ移る場合も、元の検索部品だけが履歴確定とBlurを一回行います。入力欄とPopupの `LostKeyboardFocus`、外側クリックは同じ離脱処理へ接続します。
+
+同値の表示通知では候補の行を再生成しません。言語・テーマなど表示だけの変更では候補・選択・区画のスクロール位置を維持し、再利用した行内ボタンのツールチップとアクセシビリティ名も現行言語へ更新します。管理主体と候補集合の版は現在値へ更新します。ウィンドウの非アクティブ化・管理主体の交換・`Unloaded` は表示とフォーカスの終端として扱い、古い候補、保留中のフォーカス移動と行内ボタンの論理フォーカスを失効させ、履歴の確定は追加しません。履歴の確定を伴う通常のフォーカスの離脱とは区別します。`Unloaded` を機能の管理主体の最終終了とはせず、再び読み込まれたときに購読を戻します。
+
+通常検索（譜面一覧・プレイリスト詳細・プレイ履歴）とプレイリスト一覧の外側の警告ツールチップ・開いているヘルプも、同じ入力・文脈のまま言語変更へ追従します。各機能の管理主体が既存の警告の整形とヘルプの通知を行い、検索の再実行・サマリー再取得・入力や文脈の再代入は行いません。入力文字列・カーソル位置・候補集合の版・候補選択・履歴・お気に入り・保存値を維持します。`MainWindow` の既存の表示接続・切離しで両方の管理主体のリソースの購読を接続・解除し、重複購読を防ぎます。切離し・閉鎖後は表示通知を送らず、再接続時は現在の資源へ同期します。
 
 検索欄のクリア操作は、入力イベントの受付時に対応する検索文字列を同期的に空にし、フォーカスを維持・復帰させ、空入力の候補を直ちに表示します。タイマーで後から戻さず、二つの検索欄を相互に操作しません。検索結果側の遅延は変えません。
 
 ### 履歴とお気に入りの保存
 
-お気に入りの件数に上限はなく、最後に追加したものを先頭に置きます。履歴は正規化後の文字列を大小文字を区別せず重複排除し、新しい順に20件まで保存します。保存形式は一行ごとのBase64で、不正な行を許容する既存の読込み規則を維持します。削除は現在の保存範囲で一致する正規化済みの検索式だけを対象にします。
+お気に入りの件数に上限はなく、最後に追加したものを先頭に置きます。履歴は新しい順に20件まで保存します。履歴・お気に入りの追加、削除、復元と表示上の重複抑制には同じ保存式の比較規則を使います。保存前の整形はCRとLFをそれぞれ一文字の空白へ置換し、前後の空白を除く処理だけとします。通常部分は `OrdinalIgnoreCase`、構文上の正規表現本体は `Ordinal` で比較し、`re:` や項目名の大小文字は区別しません。正規表現が不正でも本体の原文を区別します。内部の空白・タブ、引用・エスケープ、式の順序、項目の別名、意味的に同値な正規表現を新たに正規化しません。引用された `re:`、ORの途中にある `re:`、Windowsドライブ名は検索パーサーと同じ構文識別に従います。保存形式は一行ごとのBase64で、不正な行を許容する既存の読込み規則を維持します。削除は現在の保存範囲で一致する正規化済みの検索式だけを対象にします。
 
 お気に入りの行には削除、履歴の行にはお気に入りへの追加と削除のボタンを持たせます。これらの操作は検索式を適用せず、検索条件も変えません。マウス操作で入力欄から不要にフォーカスを奪いません。
 
@@ -86,17 +108,23 @@
 
 行にマウスを重ねたときは、行内ボタンも含めた一行として強調します。アイコンの意味と読みやすさは明暗両テーマで維持します。保存済み検索式の本文に付けるツールチップは現在の検索式全文、適用操作のアクセシビリティ名は現在の表示文字列です。行の再利用後も古い内容を残しません。検索項目・値には検索式全文のツールチップを付けず、各ボタン固有の名前・説明を優先します。
 
-利用者向けの文字列はリソースと各言語の辞書に定義し、日本語・英語の操作説明も同じ挙動を説明します。色の正確な値、固定座標、実装上の描画オブジェクトではなく、操作と表示の意味を検証します。
-
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 表示先ごとの候補、入力と適用、古い候補の拒否 | [`KeywordSearchAssistanceOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchAssistance.cs) | [`KeywordSearchPresentationTests`](../../../BeMusicSeeker.Tests/Search/KeywordSearchPresentationTests.cs)、[`GridKeywordSearchQueryTests`](../../../BeMusicSeeker.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`](../../../BeMusicSeeker.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`PlaylistWorkspacePresentationStateTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) |
-| 保存の成功順序、失敗時の不変性、履歴とお気に入り | [`KeywordSearchSavedQueryOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchSavedQuery.cs) | [`KeywordSearchSavedQueryStoreTests`](../../../BeMusicSeeker.Tests/Search/KeywordSearchSavedQueryStoreTests.cs)、[`ApplicationCompositionTests`](../../../BeMusicSeeker.Tests/MainWindow/ApplicationCompositionTests.cs) |
-| 明示入力のIME判定、区画のスクロール、行内ボタン、行の再利用 | [`KeywordSearchEditor`](../../../BeMusicSeeker/Views/Search/KeywordSearchEditor.xaml.cs) | [`MainWindowChartPresentationWpfTests`](../../../BeMusicSeeker.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)で明示入力と実WPFの接続・配置を自動検証する。OSの実フォーカス・IME・キー操作は[ユーザーに推奨する実機確認](../development/testing.md#ユーザーに推奨する実機確認)へ分ける。 |
-| 表示文字列の言語間整合 | 表示リソースと各言語の辞書 | [`LocalizationResourceParityTests`](../../../BeMusicSeeker.Tests/Localization/LocalizationResourceParityTests.cs) |
+| 表示先ごとの候補、入力と適用、古い候補の拒否 | [`KeywordSearchAssistanceOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchAssistance.cs) | [`KeywordSearchPresentationTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Search/KeywordSearchPresentationTests.cs) / [`KeywordSearchPresentationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Search/KeywordSearchPresentationTests.cs)、[`GridKeywordSearchQueryTests`](../../../tests/BeMusicSeeker.Core.Tests/Search/GridKeywordSearchQueryTests.cs)、[`ChartListFilterViewModelTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`ChartListFilterViewModelTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/ChartListFilterViewModelTests.cs)、[`PlaylistWorkspacePresentationStateTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) / [`PlaylistWorkspacePresentationStateTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) |
+| 値全体とOR選択肢の置換、特殊文字の引用・エスケープ・前後句・caret | 同上 | `GridKeywordSearchQueryTests.KeywordSearchAssistance_ReservedPrefixCandidatesRemainLiteralThroughParser` が実候補の適用結果をparserへ渡し、通常名としての一致と予約prefixを除いた名前への不一致、後続条件と保持したOR選択肢を確認する。`KeywordSearchAssistance_CompletionSurvivesSavedQueryRoundTripAndReediting` は補完から実検索・保存・空入力・再適用・再編集まで原文と結果集合を確認する。 |
+| 正規表現の意味を保持した詳細要求、初回と局所更新の一致 | [`PlaylistRequestFactory`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistRequestFactory.cs)、[`PlaylistDetailVirtualView`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistDetailVirtualView.cs) | `GridKeywordSearchQueryTests.MatchesChartList_RegexCharacterClassCasePreservesMeaning` は通常一覧の表示行とsource行で単一バックスラッシュの6式を評価する。`PlaylistViewPipelineTests.PlaylistRegexRequest_CharacterClassSwitchBuildsDistinctInitialViews` は実factoryから要求合流と初回表示を確認し、実DBへのMEMO保存・譜面TITLE確定後の集合は `PlaylistCatalogViewChangeTests.TitleRegex_EntryMemoCommitsPreserveMembershipAndMetadataChangesReevaluate` が分担する。 |
+| RATEの数値・正規表現検索 | [`GridKeywordSearchQuery`](../../../BeMusicSeeker/ViewModels/Search/GridKeywordSearchQuery.cs) | `GridKeywordSearchQueryTests.RateSearch_NumericAndRegexUseInvariantFractionAcrossRowSources` が、通常一覧の二入口と表詳細をen-US/de-DEで確認する。表示の百分率は `CustomTableColumnFactoryTests` と履歴表示テストが分担する。 |
+| 空欄と候補不存在の正規表現、表示日時、BP投影 | [`GridKeywordSearchQuery`](../../../BeMusicSeeker/ViewModels/Search/GridKeywordSearchQuery.cs)、[`DateTimeDisplayFormatter`](../../../BeMusicSeeker/ViewModels/DateTimeDisplayFormatter.cs)、`CustomTableColumnFactory` | `GridKeywordSearchQueryTests.MatchesRegex_DisplayBlankCandidatesAreEvaluated` と `MatchesRegex_BlankCandidateDiffersFromAbsentCandidates` が各入口の空欄・空白・非空と0候補を区別する。`MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp` はLR2/beatorajaの実投影とDATE列の秒表示、旧日付候補を確認する。`MatchesScore_MinBpProjectionPreservesMissingAndRecordedValues` は共通投影のBP欠損・0・正数から3入口の検索を確認し、取得元の欠損変換はスコア取得側へ分担する。`PlaylistCatalogViewChangeTests.MemoBlankRegex_InitialAndCommittedUpdatesUseSamePredicate` は実MEMO保存による同じ一覧への離脱・再加入とDB確定を確認する。 |
+| 保存の成功順序、失敗時の不変性、履歴とお気に入り | [`KeywordSearchSavedQueryOwner`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchSavedQuery.cs) | [`KeywordSearchSavedQueryStoreTests`](../../../tests/BeMusicSeeker.Core.Tests/Search/KeywordSearchSavedQueryStoreTests.cs)、[`ApplicationCompositionTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/ApplicationCompositionTests.cs) / [`ApplicationCompositionTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/ApplicationCompositionTests.cs) |
+| 保存式の文法に沿う同一性、regex原文、旧Base64形式と上限 | [`GridKeywordSearchSyntax`](../../../BeMusicSeeker/ViewModels/Search/GridKeywordSearchSyntax.cs)、[`KeywordSearchSavedQueryComparer`](../../../BeMusicSeeker/ViewModels/Search/KeywordSearchSavedQueryComparer.cs)、履歴・お気に入りstore | `KeywordSearchSavedQueryStoreTests.KsaHistory_AddEntryUsesSyntaxIdentityAndPreservesOtherOrder` が構文条件と順序、`KsaStores_LegacyRowsPreserveRegexIdentityAndLineNormalization` が独立Base64行の復元と両serializer出力、`KsaFavorites_RegexIdentitySurvivesPinUnpinDeleteAndReconstructionInBothScopes` が両保存範囲のpin・解除・削除・再構築を確認する。`KeywordSearchPresentationTests.KsaSavedRowApply_ReplacesWholeQueryAndCommitsHistory` は原文適用と反対文字クラス履歴の保持を分担する。比較が検索条件全体の解析・Regex生成を呼ばないことは静的レビューで確認する。 |
+| 正規表現本体の縦線、無効式の診断 | [`GridKeywordSearchQuery`](../../../BeMusicSeeker/ViewModels/Search/GridKeywordSearchQuery.cs) | `GridKeywordSearchQueryTests.MatchesRegex_PipeInsideBodyIsOneExpression` が本体全体の一式評価と引用・否定・通常ORの不変を、`GetDiagnostics_InvalidRegexBodyInvalidatesWholeConditionWithOneDiagnostic` が無効式の全行不一致と診断一件（値は本体全体）を、`MatchesPlayHistoryRow_DateRegexIncludesDisplayedTimestamp` が履歴DATEを確認する。 |
+| 現在modifier・IME判定、仮想化後の選択・強調・適用、区画横断と折返し、言語変更での行再利用 | [`KeywordSearchEditor`](../../../BeMusicSeeker/Views/Search/KeywordSearchEditor.xaml.cs) | [`MainWindowChartPresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowChartPresentationWpfTests.cs)の `SearchEditor_LargeFavoritesVirtualizeOffViewportRows` は言語往復後も同じ行内ボタンの説明を更新して選択・入力・各scrollを保持することを含む。`SearchEditor_NavigationAndImeKeepInputLifecycleOwnedByEditor`、`SearchEditor_ActiveImeCompositionRoutedEventsDoNotApplyOrCommitHistory` と共に共通入力境界と実WPFの接続・生成を確認する。`SearchEditor_UnselectedEnterKeepsInputAndTabCompletesTypedPrefixWhileSelectedCandidateApplies` は両検索欄の未選択Enter、未選択Tab（1文字以上の項目名・値での先頭候補の補完、空欄・0文字・Esc後の不変、補完時の履歴非確定と離脱時の一回確定）、選択済み候補（先頭以外）の適用を確認する。補完可否の文字数判定は `KeywordSearchPresentationTests.KsaPresentation_UnselectedTabCompletionRequiresTypedPrefix`（Core）が候補を作る側の接頭辞と一致させて確認する。 |
+| 保存行本人の選択維持、所有Popupからの離脱、保留focusの寿命 | 同上 | `SearchEditor_SavedRowSelectionSurvivesActionRoundTripAndClearsOnRemoval` はCtrl+Spaceの同値再計算後も選択した保存行のボタンへ移動できること、`SearchEditor_LargeFavoritesVirtualizeOffViewportRows` は言語往復後のボタン往復と同候補適用を含む。`SearchEditor_OwnedPopupFocusTransitionsEndOnlyTheDepartedEditor`、`SearchEditor_PendingActionFocusIsInvalidatedAtEachLifetimeBoundary` と共に実部品の入力・focusイベント接続と保存状態・閉鎖通知を確認する。古い入力の拒否と同値通知・Blur冪等は `KeywordSearchPresentationTests.KsaRevisionCandidate_*` / `KsaLifecycle_*` が分担する。OSの物理フォーカス・IME・キー操作は[利用者に推奨する実機確認](../development/testing.md#利用者に推奨する実機確認)へ分ける。 |
+| 外側の警告・ヘルプの言語更新と購読寿命 | [`ChartListFilterViewModel`](../../../BeMusicSeeker/ViewModels/ChartList/ChartListFilterViewModel.cs)、[`PlaylistWorkspaceViewModel.KeywordSearch`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.KeywordSearch.cs)、MainWindowの表示接続・切離し | `ChartListFilterViewModelTests.KeywordSearchLanguage_RefreshesOnlyAttachedPresentation` が通常・詳細・履歴の各文脈と警告あり／なし、`PlaylistWorkspacePresentationStateTests.PlaylistSummaryKeywordSearchLanguage_RefreshesOnlyAttachedPresentation` が表示中サマリーの行・世代保持を確認する。両ownerで二重接続・切離し中の無通知・再接続同期と、検索／再取得なし・入力支援／保存値保持を分担する。`MainWindowChartPresentationWpfTests.SearchLanguage_UpdatesOuterBindingsAndDetachesBothOwnersAfterClose` が両入口の実Tooltip・開いたhelp本文へのBinding、入力・caret・候補選択保持、実Close完了後の両ownerの通知停止を確認する。 |
+| 表示文字列の言語間整合 | 表示リソースと各言語の辞書 | [`LocalizationResourceParityTests`](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs) |
 
 ## 関連資料
 
-[一覧表示](table-view.md)、[外観](appearance.md)、[プレイ履歴](../playlist/play-history.md)、[WPFの検証方法](../development/testing.md)を参照します。
+[一覧表示](table-view.md)、[外観](appearance.md)、[プレイ履歴](../playlist/play-history.md)、[WPFの検証方法](../development/ui-test-isolation.md)。

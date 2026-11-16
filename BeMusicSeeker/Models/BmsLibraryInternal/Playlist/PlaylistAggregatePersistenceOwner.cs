@@ -7,7 +7,6 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -79,6 +78,9 @@ internal sealed class PlaylistAggregatePersistenceOwner
         /// <summary>表示名または取得元名の差です。ヘッダー保存を必要としますが、更新日時は進めません。</summary>
         public bool NamesChanged { get; internal set; }
 
+        /// <summary>解決済みdata参照の差です。ヘッダーと状態の保存を必要としますが、更新日時やentry保存の根拠にはしません。</summary>
+        public bool EffectiveDataUriChanged { get; internal set; }
+
         public bool EntryFingerprintChanged { get; internal set; }
 
         public bool HeaderKnownChanged { get; internal set; }
@@ -93,8 +95,11 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
         public bool UpdatesLastUpdate => HeaderKnownChanged || DataKnownChanged;
 
-        /// <summary>名称差、ハッシュ差または初期化によって、ヘッダーとコースを保存する必要があるかを返します。</summary>
-        public bool NeedsHeaderPersistence => NamesChanged || HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
+        /// <summary>名称・解決済みdata参照・ハッシュの差または初期化によって、ヘッダーとコースを保存する必要があるかを返します。</summary>
+        /// <summary>取得が保存済みの空欄URIを補完した場合だけheaderを保存します。</summary>
+        public bool SourceUriCompleted { get; internal set; }
+
+        public bool NeedsHeaderPersistence => SourceUriCompleted || NamesChanged || EffectiveDataUriChanged || HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
 
         public bool NeedsEntryPersistence => EntryFingerprintChanged || DataKnownChanged || DataHashInitialized;
 
@@ -153,9 +158,13 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private readonly PlaylistPersistenceRepository repository;
 
+    private readonly IPlaylistEntryMutationWorkObserver entryMutationWorkObserver;
+
     private readonly ReaderWriterLockSlimWrapper activeCollectionLock;
 
     private readonly IUiScheduler uiScheduler;
+
+    private readonly Action<PlaylistEntryCommitReceipt> registerReloadHeader;
 
     private readonly object synchronization = new();
 
@@ -165,13 +174,11 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private readonly Dictionary<int, BMSTable> activeTablesByPlaylistId = [];
 
-    private readonly HashSet<BMSTable> reloadApplyReservations = [];
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<BMSTable, object> reloadRetiredTables = new();
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<BMSTable, object> removedTables = new();
 
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<BMSTable, object> knownActiveTables = new();
 
     private IEnumerable<BMSTable> observedActiveCollection;
 
@@ -203,9 +210,12 @@ internal sealed class PlaylistAggregatePersistenceOwner
     internal PlaylistAggregatePersistenceOwner(
         PlaylistPersistenceRepository repository,
         ReaderWriterLockSlimWrapper activeCollectionLock,
-        IUiScheduler uiScheduler)
+        IUiScheduler uiScheduler,
+        IPlaylistEntryMutationWorkObserver entryMutationWorkObserver = null, Action<PlaylistEntryCommitReceipt> registerReloadHeader = null)
     {
+        this.registerReloadHeader = registerReloadHeader;
         this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
+        this.entryMutationWorkObserver = entryMutationWorkObserver;
         this.activeCollectionLock = activeCollectionLock ?? throw new ArgumentNullException(nameof(activeCollectionLock));
         this.uiScheduler = uiScheduler ?? throw new ArgumentNullException(nameof(uiScheduler));
     }
@@ -294,7 +304,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
             if (hydrationPublishActive
                 || registrationActive
                 || collectionTransition != CollectionTransitionPurpose.None
-                || reloadApplyReservations.Count > 0
                 || activeCollectionGeneration != generation)
             {
                 collectionPublicationGuard.Dispose();
@@ -318,9 +327,11 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
+    /// <summary>登録名と並び順を準備し、既存表と全候補のLR2配置をモデル・DBの変更前に検査します。</summary>
     internal IReadOnlyList<PlaylistRegistrationPreparation> PrepareExternalRegistration(
         IEnumerable<BMSTable> tables,
-        bool renameDuplicateName)
+        bool renameDuplicateName,
+        CustomFolderOutputSettingsSnapshot settings)
     {
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
         if (tableList.Count == 0)
@@ -349,6 +360,20 @@ internal sealed class PlaylistAggregatePersistenceOwner
                         nextBmtSort++,
                         duplicateName && !renameDuplicateName));
                     reservedNames.Add(preparedName);
+                }
+                // 重複名・空出力名の既存エラーは呼出元で通知し、配置検査は有効な候補集合へ適用します。
+                if (settings.OperationModeLR2DB && preparations.All(preparation => !preparation.DuplicateName)
+                    && tableList.All(table => !string.IsNullOrWhiteSpace(table.Output_dir)))
+                {
+                    // 既存の表の配置は変わらないため、新規の候補が既存の表または候補同士と重なる場合だけ拒否します。
+                    // 既存の表同士の保存済みの衝突は、外部登録の可否に影響しません。
+                    List<ManagedPlaylistOutputPlacement.Placement> existing = [.. activeTableOrder
+                        .Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
+                        .Select(table => new ManagedPlaylistOutputPlacement.Placement(table, ManagedPlaylistOutputPlacement.Resolve(table, settings)))];
+                    ManagedPlaylistOutputPlacement.ValidateEdit(existing,
+                        [.. existing, .. tableList.Select((table, index) => new ManagedPlaylistOutputPlacement.Placement(table,
+                            ManagedPlaylistOutputPlacement.Resolve(preparations[index].Name, table.output_dir,
+                                table.custom_folder_output_base_name, table.is_root_folder, settings)))]);
                 }
                 return preparations.AsReadOnly();
             }
@@ -400,7 +425,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         lock (synchronization)
         {
             if (registrationActive || collectionTransition != CollectionTransitionPurpose.None
-                || hydrationPublishActive || reloadCollectionApplyActive || reloadApplyReservations.Count > 0)
+                || hydrationPublishActive || reloadCollectionApplyActive)
             {
                 return false;
             }
@@ -493,38 +518,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             return activeTables.Contains(table);
         }
-    }
-
-    internal BMSTable ResolveOwningTableForEntry(BMSTableEntry entry)
-    {
-        bool parentRetiredOrRemoved = false;
-        if (entry?.parent != null)
-        {
-            lock (synchronization)
-            {
-                parentRetiredOrRemoved = IsParentUnavailableUnsafe(entry.parent);
-                if (!parentRetiredOrRemoved && activeTables.Contains(entry.parent))
-                {
-                    return entry.parent;
-                }
-            }
-        }
-        if (entry?.playlist_id == null)
-        {
-            return parentRetiredOrRemoved ? null : entry?.parent;
-        }
-        lock (synchronization)
-        {
-            if (activeTablesByPlaylistId.TryGetValue(entry.playlist_id.Value, out BMSTable activeTable))
-            {
-                return activeTable;
-            }
-            if (entry.parent != null && !parentRetiredOrRemoved && !IsParentUnavailableUnsafe(entry.parent))
-            {
-                return entry.parent;
-            }
-        }
-        return null;
     }
 
     internal void CommitTablesWithEntries(
@@ -651,34 +644,69 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    internal void ReplaceHeaders(
-        IEnumerable<BMSTable> tables,
-        bool allowReloadReservation = false,
-        bool requireCurrentTarget = true)
+    /// <summary>有限表のheaderを一括DB確定し、同じ保護区間から不変receiptを登録します。配送は呼出元のguard解放後です。</summary>
+    internal void ReplaceHeaders(IEnumerable<BMSTable> tables, bool allowReloadReservation = false,
+        bool requireCurrentTarget = true, Action<PlaylistEntryCommitReceipt> register = null)
     {
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
-        if (tableList.Count == 0)
+        if (tableList.Count == 0) { return; }
+        using (activeCollectionLock.GetReaderGuard())
         {
-            return;
-        }
-        lock (synchronization)
-        {
-            EnsureWriteAllowedUnsafe(tableList, allowReloadReservation, requireCurrentTarget);
-            Dictionary<BMSTable, int?> previousPlaylistIds = CapturePlaylistIds(tableList);
+            List<IDisposable> guards = [];
             try
             {
-                repository.ReplaceHeaders(tableList);
-                foreach (BMSTable table in tableList)
+                foreach (BMSTable table in tableList.OrderBy(table => table.playlist_id)) { guards.Add(table.ReaderWriterLock.GetReaderGuard()); }
+                lock (synchronization)
                 {
-                    RefreshActiveIdentityUnsafe(table);
+                    EnsureWriteAllowedUnsafe(tableList, allowReloadReservation, requireCurrentTarget);
+                    Dictionary<BMSTable, int?> previousPlaylistIds = CapturePlaylistIds(tableList);
+                    try
+                    {
+                        repository.ReplaceHeaders(tableList);
+                        foreach (BMSTable table in tableList)
+                        {
+                            RefreshActiveIdentityUnsafe(table);
+                            register?.Invoke(new(table, table.PlaylistEntriesRevision, table.PlaylistEntriesRevision, [], Header: PlaylistHeaderValue.Capture(table)));
+                        }
+                        persistenceGeneration++;
+                    }
+                    catch { RestorePlaylistIdsUnsafe(previousPlaylistIds); throw; }
                 }
-                persistenceGeneration++;
             }
-            catch
+            finally { for (int index = guards.Count - 1; index >= 0; index--) { guards[index].Dispose(); } }
+        }
+    }
+
+    /// <summary>追加先名だけの変更を不変入力から準備し、同じ既存IDへ一括保存後、正本と表示receiptを同時確定します。</summary>
+    internal void ReplaceOutputBaseNames(IReadOnlyList<(BMSTable Table, string Name)> updates, Action<PlaylistEntryCommitReceipt> register = null)
+    {
+        if (updates.Count == 0) { return; }
+        using (activeCollectionLock.GetReaderGuard())
+        {
+            List<IDisposable> guards = [];
+            try
             {
-                RestorePlaylistIdsUnsafe(previousPlaylistIds);
-                throw;
+                foreach (BMSTable table in updates.Select(update => update.Table).OrderBy(table => table.playlist_id)) { guards.Add(table.ReaderWriterLock.GetWriterGuard()); }
+                lock (synchronization)
+                {
+                    EnsureWriteAllowedUnsafe(updates.Select(update => update.Table).ToList(), false, true);
+                    var headers = new List<BMSTable>();
+                    foreach ((BMSTable table, string name) in updates)
+                    {
+                        BMSTable header = table.CreatePersistenceHeaderSnapshot(table.last_update);
+                        header.custom_folder_output_base_name = name;
+                        headers.Add(header);
+                    }
+                    repository.ReplaceHeaders(headers);
+                    foreach ((BMSTable table, string name) in updates)
+                    {
+                        table.custom_folder_output_base_name = name;
+                        register?.Invoke(new(table, table.PlaylistEntriesRevision, table.PlaylistEntriesRevision, [], Header: PlaylistHeaderValue.Capture(table)));
+                    }
+                    persistenceGeneration++;
+                }
             }
+            finally { for (int index = guards.Count - 1; index >= 0; index--) { guards[index].Dispose(); } }
         }
     }
 
@@ -694,48 +722,16 @@ internal sealed class PlaylistAggregatePersistenceOwner
         ReplaceHeaders([table], allowReloadReservation, requireCurrentTarget);
     }
 
-    private bool TryPersistReloadedTable(
-        BMSTable oldTable,
-        BMSTable newTable,
-        int sourceEntriesRevision,
-        DateTime sourceLastUpdate,
-        string sourceStateFingerprint,
-        bool needsEntryPersistence,
-        bool needsHeaderPersistence,
-        out bool staleSnapshot)
+    private PlaylistHeaderValue PersistReloadedTable(BMSTable newTable, bool needsEntryPersistence, bool needsHeaderPersistence)
     {
         lock (synchronization)
         {
-            staleSnapshot = false;
-            if (!reloadApplyReservations.Contains(oldTable))
-            {
-                return false;
-            }
-            if (oldTable.PlaylistEntriesRevision != sourceEntriesRevision
-                || oldTable.last_update != sourceLastUpdate
-                || !string.Equals(
-                    CreateReloadSourceFingerprint(oldTable),
-                    sourceStateFingerprint,
-                    StringComparison.Ordinal))
-            {
-                staleSnapshot = true;
-                return false;
-            }
-            if (IsRetiredOrRemovedUnsafe(oldTable))
-            {
-                return false;
-            }
+            EnsureNotRestoringUnsafe();
             Dictionary<BMSTable, int?> previousPlaylistIds = CapturePlaylistIds([newTable]);
             try
             {
-                if (needsEntryPersistence)
-                {
-                    repository.ReplaceTablesWithEntries([newTable]);
-                }
-                else if (needsHeaderPersistence)
-                {
-                    repository.ReplaceHeader(newTable);
-                }
+                if (needsEntryPersistence) { repository.ReplaceTablesWithEntries([newTable]); }
+                else if (needsHeaderPersistence) { repository.ReplaceHeader(newTable); }
             }
             catch
             {
@@ -744,7 +740,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             }
             RefreshActiveIdentityUnsafe(newTable);
             persistenceGeneration++;
-            return true;
+            return needsHeaderPersistence || needsEntryPersistence ? PlaylistHeaderValue.Capture(newTable) : null;
         }
     }
 
@@ -753,126 +749,39 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return repository.LoadPersistedPlaylistEntries(playlistId, activeOnly: true);
     }
 
-    /// <summary>
-    /// 永続化済みの外部 reload snapshot を active table へ適用します。
-    /// </summary>
-    /// <param name="oldTable">reload 前の active table。</param>
-    /// <param name="newTable">取得・merge 済みの replacement table。</param>
-    /// <param name="persistenceDecision">永続化と collection replacement の判定。</param>
-    /// <param name="sourceEntriesRevision">snapshot 取得時の entry revision。</param>
-    /// <param name="sourceLastUpdate">snapshot 取得時の last-update 値。</param>
-    /// <param name="sourceStateFingerprint">snapshot 取得時の source fingerprint。</param>
-    /// <param name="requireCurrentTargetForApply">active target でなくなった場合に失敗にするか。</param>
-    /// <returns>snapshot が適用され、active collection が replacement を受け入れた場合は <see langword="true"/>。</returns>
-    internal async Task<bool> TryApplyReloadedTableAsync(
-        BMSTable oldTable,
-        BMSTable newTable,
-        PlaylistReloadPersistenceDecision persistenceDecision,
-        int sourceEntriesRevision,
-        DateTime sourceLastUpdate,
-        string sourceStateFingerprint,
-        bool requireCurrentTargetForApply)
+    /// <summary>Pを保持する外部更新の確定入力を保存し、UI上の正本参照の置換まで待ちます。短いDB/model保護をawaitへ持ち越しません。</summary>
+    /// <param name="oldTable">受付時に確認された元の生存対象。</param>
+    /// <param name="newTable">同じ操作が取得・統合した確定入力。</param>
+    /// <param name="persistenceDecision">保存と参照置換の必要範囲。</param>
+    /// <param name="requireCurrentTargetForApply">既存正本への要求か。</param>
+    /// <returns>実際の正本採用と置換後の通知失敗を区別した結果。置換前失敗は例外です。</returns>
+    internal async Task<(bool Applied, Exception PublicationFailure)> TryApplyReloadedTableAsync(BMSTable oldTable, BMSTable newTable,
+        PlaylistReloadPersistenceDecision persistenceDecision, bool requireCurrentTargetForApply)
     {
-        if (!TryReserveReload(
-            oldTable,
-            requireCurrentTargetForApply,
-            out bool targetWasActiveAtReservation,
-            out bool alreadyReserved))
+        if (requireCurrentTargetForApply && (!IsActive(oldTable) || IsRetiredOrRemoved(oldTable))) { return (false, null); }
+        PlaylistHeaderValue savedHeader;
+        using (oldTable.ReaderWriterLock.GetReaderGuard())
         {
-            if (alreadyReserved)
-            {
-                throw new PlaylistReloadApplyException(
-                    "Another playlist reload is already applying for this target.");
-            }
-            return false;
+            savedHeader = PersistReloadedTable(newTable, persistenceDecision?.NeedsEntryPersistence == true,
+                persistenceDecision?.NeedsHeaderPersistence == true);
         }
-
+        if (persistenceDecision?.NeedsStatePersistence != true) { return (true, null); }
         try
         {
-            using (oldTable.ReaderWriterLock.GetReaderGuard())
-            {
-                if (requireCurrentTargetForApply
-                    && (!targetWasActiveAtReservation
-                        || IsRetiredOrRemoved(oldTable)))
-                {
-                    return false;
-                }
-                bool persisted = TryPersistReloadedTable(
-                    oldTable,
-                    newTable,
-                    sourceEntriesRevision,
-                    sourceLastUpdate,
-                    sourceStateFingerprint,
-                    persistenceDecision?.NeedsEntryPersistence == true,
-                    persistenceDecision?.NeedsHeaderPersistence == true,
-                    out bool staleSnapshot);
-                if (staleSnapshot)
-                {
-                    throw new PlaylistReloadApplyException(
-                        "Playlist reload result was based on a stale local playlist snapshot.");
-                }
-                if (!persisted)
-                {
-                    return false;
-                }
-            }
-
-            if (persistenceDecision?.NeedsStatePersistence == true)
-            {
-                bool replacementApplied;
-                try
-                {
-                    bool replacementBlocked = requireCurrentTargetForApply
-                        && IsRetiredOrRemoved(oldTable);
-                    if (replacementBlocked)
-                    {
-                        replacementApplied = false;
-                    }
-                    else
-                    {
-                        // Retire the old object before crossing the dispatcher boundary.
-                        // Entry commits then resolve to the replacement (or fail closed if
-                        // the replacement is removed) during the small UI-queue window.
-                        MarkReloadRetired(oldTable);
-                        replacementApplied = await ReplaceActiveTableInCollectionAsync(oldTable, newTable).ConfigureAwait(false);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (IsActive(oldTable))
-                    {
-                        RemoveReloadRetired(oldTable);
-                    }
-                    ReconcileUnappliedReload(oldTable, newTable);
-                    throw new PlaylistReloadApplyException(
-                        "Playlist table replacement failed.",
-                        ex);
-                }
-                if (!replacementApplied)
-                {
-                    if (IsActive(oldTable))
-                    {
-                        RemoveReloadRetired(oldTable);
-                    }
-                    ReconcileUnappliedReload(oldTable, newTable);
-                    if (requireCurrentTargetForApply)
-                    {
-                        throw new PlaylistReloadApplyException();
-                    }
-                    return false;
-                }
-            }
-            else if (requireCurrentTargetForApply && !IsActive(oldTable))
-            {
-                ReconcileUnappliedReload(oldTable, newTable);
-                return false;
-            }
-            return true;
+            MarkReloadRetired(oldTable);
+            if (await ReplaceActiveTableInCollectionAsync(oldTable, newTable, savedHeader).ConfigureAwait(false)) { return (true, null); }
         }
-        finally
+        catch (Exception failure)
         {
-            ReleaseReload(oldTable);
+            // ObservableCollectionは代入後に購読通知が失敗し得る。実採用済みの参照を巻き戻さない。
+            if (IsActive(newTable)) { return (true, failure); }
+            if (IsActive(oldTable)) { RemoveReloadRetired(oldTable); }
+            ReconcileUnappliedReload(oldTable, newTable);
+            throw new PlaylistReloadApplyException("Playlist table replacement failed.", failure);
         }
+        if (IsActive(oldTable)) { RemoveReloadRetired(oldTable); }
+        ReconcileUnappliedReload(oldTable, newTable);
+        throw new PlaylistReloadApplyException();
     }
 
     private void ReconcileUnappliedReload(BMSTable oldTable, BMSTable newTable)
@@ -919,7 +828,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    private async Task<bool> ReplaceActiveTableInCollectionAsync(BMSTable oldTable, BMSTable newTable)
+    private async Task<bool> ReplaceActiveTableInCollectionAsync(BMSTable oldTable, BMSTable newTable, PlaylistHeaderValue savedHeader)
     {
         ObservableCollection<BMSTable> tables = activeTableCollection;
         if (tables == null)
@@ -943,6 +852,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
                     if (index < tables.Count && ReferenceEquals(tables[index], newTable))
                     {
                         ReplaceActive(oldTable, newTable);
+                        if (savedHeader != null)
+                        { registerReloadHeader?.Invoke(new(newTable, newTable.PlaylistEntriesRevision, newTable.PlaylistEntriesRevision, [], Header: savedHeader)); }
                     }
                 }
             }
@@ -994,69 +905,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return replaced;
     }
 
-    internal static string CreateReloadSourceFingerprint(BMSTable table)
-    {
-        var builder = new StringBuilder();
-        void Append(object value)
-        {
-            string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
-            builder.Append(text.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(text).Append('|');
-        }
-
-        Append(table?.playlist_id);
-        Append(table?.name);
-        Append(table?.symbol);
-        Append(table?.folder_sort_key);
-        Append(table?.folder_sort_ascending);
-        Append(table?.entry_type);
-        Append(table?.Page_url?.OriginalString);
-        Append(table?.Header_url?.OriginalString);
-        Append(table?.Data_url?.OriginalString);
-        Append(table?.tag);
-        Append(table?.header_sha256);
-        Append(table?.data_sha256);
-        Append(table?.compat_prefix);
-        Append(table?.last_update.Ticks);
-        Append(table?.org_name);
-        Append(table?.org_symbol);
-        Append(table?.ignore_folder_output);
-        Append(table?.is_external_sync);
-        Append(table?.Output_dir);
-        Append(table?.custom_folder_output_base_name);
-        Append(table?.is_root_folder);
-        Append(table?.bmt_sort);
-        Append(table?.is_bmt_output);
-        foreach (string folder in table?.Folder_order ?? [])
-        {
-            Append(folder);
-        }
-        foreach (LR2SongDBExtended.playlist_course course in table?.Courses ?? [])
-        {
-            Append(course?.course_order);
-            Append(course?.course_json);
-        }
-        foreach (BMSTableEntry entry in table?.entries ?? [])
-        {
-            Append(entry?.playlist_id);
-            Append(entry?.md5);
-            Append(entry?.sha256);
-            Append(entry?.level);
-            Append(entry?.title);
-            Append(entry?.artist);
-            Append(entry?.folder);
-            Append(entry?.lr2_bmsid);
-            Append(entry?.url);
-            Append(entry?.url_diff);
-            Append(entry?.name_diff);
-            Append(entry?.comment);
-            Append(entry?.memo);
-            Append(entry?.is_removed);
-            Append(entry?.adddate.Ticks);
-            Append(string.Join("\u001e", entry?.Org_md5 ?? []));
-        }
-        return builder.ToString();
-    }
-
     internal void DeleteUnpublishedTables(
         IEnumerable<BMSTable> tables,
         IReadOnlyDictionary<BMSTable, int?> originalPlaylistIds = null)
@@ -1071,7 +919,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
             foreach (BMSTable table in tableList)
             {
                 if (activeTables.Contains(table)
-                    || reloadApplyReservations.Contains(table)
                     || reloadRetiredTables.TryGetValue(table, out _)
                     || (table.playlist_id.HasValue
                         && activeTablesByPlaylistId.TryGetValue(table.playlist_id.Value, out BMSTable activeTable)
@@ -1124,147 +971,112 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    internal BMSTable CommitEntry(
-        BMSTableEntry entry,
-        string editedPropertyName,
-        Func<IDisposable> acquireCollectionReadGuard = null)
+    /// <summary>一属性 draft を現在値から準備し、DB 確定後に同じ entry・header・版・差分を揃えます。</summary>
+    /// <param name="entry">生存する表の同じ entry 参照。</param>
+    /// <param name="propertyName">Level、Url、Url_diff、comment、memo のいずれか。</param>
+    /// <param name="text">未保存の入力値。</param>
+    /// <param name="chart">ローカル表の hash 補完に使う捕捉済み所持譜面。外部同期表では使いません。</param>
+    /// <param name="register">同じ writer 内で確定結果を配送キューへ登録する処理。外部 callback を呼びません。</param>
+    /// <param name="acquireCollectionReadGuard">現行表の生存を保存区間だけ保護する依存。</param>
+    internal PlaylistEntryCommitReceipt CommitEntry(BMSTableEntry entry, string propertyName, string text,
+        ChartFile chart, Action<PlaylistEntryCommitReceipt> register,
+        Func<IDisposable> acquireCollectionReadGuard)
     {
         EnsureNotRestoring();
-        if (!entry.playlist_id.HasValue)
+        using (acquireCollectionReadGuard())
         {
-            return null;
-        }
-        bool hasParentReference = entry.parent != null;
-        BMSTableEntry persistedEntry = entry;
-        bool persisted = false;
-        BMSTable owningTable;
-        using (acquireCollectionReadGuard?.Invoke())
-        {
-            owningTable = ResolveOwningTableForEntry(entry);
-        }
-        bool hadOwningTable = owningTable != null;
-        for (int attempt = 0; attempt < 600 && !persisted; attempt++)
-        {
-            bool retryAfterReload = false;
-            using (acquireCollectionReadGuard?.Invoke())
+            BMSTable table = entry?.parent;
+            if (table == null || !entry.playlist_id.HasValue || !IsActive(table))
             {
-                if (attempt > 0 && hadOwningTable)
+                throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale);
+            }
+            using (table.ReaderWriterLock.GetWriterGuard())
+            {
+                lock (synchronization)
                 {
-                    owningTable = ResolveOwningTableForEntry(entry);
-                }
-                if (owningTable != null)
-                {
-                    using (owningTable.ReaderWriterLock.GetWriterGuard())
+                    EnsureWriteAllowedUnsafe([table], allowReloadReservation: false, requireCurrentTarget: true);
+                    if (entry.is_removed || !table.ContainsEntry(entry))
                     {
-                        lock (synchronization)
-                        {
-                            if (reloadApplyReservations.Contains(owningTable)
-                                || IsRetiredOrRemovedUnsafe(owningTable))
-                            {
-                                retryAfterReload = true;
-                            }
-                            if (!retryAfterReload)
-                            {
-                                EnsureWriteAllowedUnsafe([owningTable], allowReloadReservation: false, requireCurrentTarget: false);
-                                if (owningTable.entries.Contains(entry))
-                                {
-                                    if (entry.is_removed)
-                                    {
-                                        throw new InvalidOperationException("Playlist entry is no longer active in the playlist.");
-                                    }
-                                    persistedEntry = entry;
-                                }
-                                else if (activeTables.Contains(owningTable))
-                                {
-                                    persistedEntry = FindCurrentPlaylistEntryForCommit(owningTable, entry)
-                                        ?? throw new InvalidOperationException("Playlist entry is no longer present in the active playlist.");
-                                    persistedEntry.ApplyPlaylistEditableStateFrom(entry, editedPropertyName);
-                                }
-                                else
-                                {
-                                    persistedEntry = entry;
-                                }
-                                if (!owningTable.is_external_sync)
-                                {
-                                    persistedEntry.MaterializeEffectiveUrlsIntoPersistedValues();
-                                }
-                                persistedEntry.NormalizeForPlaylistPersistence();
-                                owningTable.last_update = BMSTable.GetNextLastUpdate(owningTable.last_update);
-                                repository.ReplaceEntry(persistedEntry, owningTable);
-                                persistenceGeneration++;
-                                persisted = true;
-                            }
-                        }
+                        throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale);
                     }
-                }
-                else if (hadOwningTable)
-                {
-                    retryAfterReload = true;
-                }
-                else
-                {
-                    lock (synchronization)
+                    if (table.is_external_sync && propertyName != nameof(BMSTableEntry.memo))
                     {
-                        EnsureNotRestoringUnsafe();
-                        if (hasParentReference)
-                        {
-                            throw new InvalidOperationException("Playlist entry owner is no longer active in the playlist collection.");
-                        }
-                        if (!repository.HasPlaylistHeader(entry.playlist_id.Value))
-                        {
-                            throw new InvalidOperationException("Playlist persistence target is no longer present in the database.");
-                        }
-                        entry.MaterializeEffectiveUrlsIntoPersistedValues();
-                        entry.NormalizeForPlaylistPersistence();
-                        repository.ReplaceEntry(entry, null);
-                        persistenceGeneration++;
-                        persisted = true;
+                        throw new InvalidOperationException("External playlist entries only accept memo edits.");
                     }
+                    PlaylistEntryValue before = entry.CaptureValue();
+                    entryMutationWorkObserver?.OnEntryReferenceRead();
+                    BMSTableEntry candidate = entry.CreatePlaylistReloadSnapshot();
+                    entryMutationWorkObserver?.OnCandidateCaptured();
+                    candidate.parent = table;
+                    candidate.ApplyEditDraft(propertyName, text);
+                    if (!table.is_external_sync)
+                    {
+                        if (chart != null) { candidate.ApplyPlaylistHashesFromChart(chart); }
+                        candidate.MaterializeEffectiveUrlsIntoPersistedValues();
+                    }
+                    candidate.NormalizeForPlaylistPersistence();
+                    PlaylistEntryValue after = candidate.CaptureValue();
+                    if (before == after) { return new(table, table.PlaylistEntriesRevision, table.PlaylistEntriesRevision, []); }
+                    DateTime lastUpdate = BMSTable.GetNextLastUpdate(table.last_update);
+                    repository.ReplaceEntry(candidate, table.CreatePersistenceHeaderSnapshot(lastUpdate), entry);
+                    table.ApplyEntryCandidate(entry, candidate);
+                    table.last_update = lastUpdate;
+                    PlaylistEntryCommitReceipt receipt = table.CommitEntryValues([table.CaptureEntryChange(entry, before)])
+                        with
+                    { Header = PlaylistHeaderValue.Capture(table) };
+                    persistenceGeneration++;
+                    register(receipt);
+                    return receipt;
                 }
             }
-            if (retryAfterReload)
-            {
-                Thread.Sleep(10);
-                continue;
-            }
         }
-        if (!persisted)
-        {
-            throw new InvalidOperationException("Playlist persistence target changed while the entry was being saved.");
-        }
-        return owningTable;
     }
 
-    private bool TryReserveReload(BMSTable oldTable, bool requireCurrentTarget, out bool targetWasActiveAtReservation, out bool alreadyReserved)
+    /// <summary>有限の追加削除候補を複数表で準備し、一つの DB transaction 後に値・所属・版・差分を採用します。</summary>
+    /// <param name="prepare">対象表と、同じ writer 内で局所候補を準備する処理。</param>
+    /// <param name="register">writer 内の配送登録。UI や外部 callback は起動しません。</param>
+    /// <param name="persist">false は未保存ローカル操作です。通常の正規入口は true を渡します。</param>
+    /// <param name="requireCurrentTarget">新規draftの初回登録だけfalseとし、DB後に元draftを確定してから正本集合へ公開します。</param>
+    internal IReadOnlyList<PlaylistEntryCommitReceipt> CommitEntryMutations(
+        IReadOnlyDictionary<BMSTable, Func<IPlaylistEntryMutationWorkObserver, BMSTable.EntryMutation>> prepare,
+        Action<PlaylistEntryCommitReceipt> register, bool persist = true, bool requireCurrentTarget = true)
     {
-        while (true)
+        List<BMSTable> tables = [.. prepare.Keys.OrderBy(table => table.playlist_id ?? int.MaxValue)
+            .ThenBy(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode)];
+        using (activeCollectionLock.GetReaderGuard())
         {
-            lock (synchronization)
+            List<IDisposable> guards = [];
+            try
             {
-                if (hydrationPublishActive)
+                foreach (BMSTable table in tables) { guards.Add(table.ReaderWriterLock.GetWriterGuard()); }
+                lock (synchronization)
                 {
-                    Monitor.Wait(synchronization, 50);
-                    continue;
+                    EnsureWriteAllowedUnsafe(tables, allowReloadReservation: false, requireCurrentTarget: requireCurrentTarget);
+                    List<BMSTable.EntryMutation> mutations = [];
+                    foreach (BMSTable table in tables)
+                    {
+                        BMSTable.EntryMutation mutation = prepare[table](entryMutationWorkObserver);
+                        if (mutation.HasChanges) { mutations.Add(mutation); }
+                    }
+                    if (mutations.Count == 0) { return []; }
+                    if (persist) { repository.CommitEntryMutations(mutations); }
+                    List<PlaylistEntryCommitReceipt> receipts = [];
+                    foreach (BMSTable.EntryMutation mutation in mutations)
+                    {
+                        int? previousId = mutation.Table.playlist_id;
+                        PlaylistEntryCommitReceipt receipt = mutation.Table.ApplyEntryMutation(mutation);
+                        if (persist && requireCurrentTarget) { receipt = receipt with { Header = PlaylistHeaderValue.Capture(mutation.Table) }; }
+                        if (previousId != mutation.Table.playlist_id) { RefreshActiveIdentityUnsafe(mutation.Table); }
+                        register(receipt);
+                        receipts.Add(receipt);
+                    }
+                    if (persist) { persistenceGeneration++; }
+                    return receipts;
                 }
-                if (collectionTransition != CollectionTransitionPurpose.None || reloadCollectionApplyActive)
-                {
-                    targetWasActiveAtReservation = false;
-                    alreadyReserved = false;
-                    return false;
-                }
-                targetWasActiveAtReservation = !requireCurrentTarget || activeTables.Contains(oldTable);
-                alreadyReserved = false;
-                if (requireCurrentTarget
-                    && (!targetWasActiveAtReservation || IsRetiredOrRemovedUnsafe(oldTable)))
-                {
-                    return false;
-                }
-                if (!reloadApplyReservations.Add(oldTable))
-                {
-                    alreadyReserved = true;
-                    return false;
-                }
-                return true;
+            }
+            finally
+            {
+                for (int index = guards.Count - 1; index >= 0; index--) { guards[index].Dispose(); }
             }
         }
     }
@@ -1293,14 +1105,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
         }
     }
 
-    private void ReleaseReload(BMSTable table)
-    {
-        lock (synchronization)
-        {
-            reloadApplyReservations.Remove(table);
-        }
-    }
-
     private void EnsureWriteAllowedUnsafe(IEnumerable<BMSTable> tables, bool allowReloadReservation, bool requireCurrentTarget)
     {
         EnsureNotRestoringUnsafe();
@@ -1310,7 +1114,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             throw new InvalidOperationException("Playlist hydration receipt publication is in progress.");
         }
         if (!allowReloadReservation
-            && tableList.Any(table => reloadApplyReservations.Contains(table) || IsRetiredOrRemovedUnsafe(table)))
+            && tableList.Any(table => IsRetiredOrRemovedUnsafe(table)))
         {
             throw new InvalidOperationException("Playlist reload is applying a newer playlist snapshot.");
         }
@@ -1325,7 +1129,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         EnsureNotRestoringUnsafe();
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
         if (hydrationPublishActive
-            || tableList.Any(table => reloadApplyReservations.Contains(table) || reloadRetiredTables.TryGetValue(table, out _)))
+            || tableList.Any(table => reloadRetiredTables.TryGetValue(table, out _)))
         {
             throw new InvalidOperationException("Playlist reload is applying a newer playlist snapshot.");
         }
@@ -1342,14 +1146,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 throw new InvalidOperationException("Playlist persistence target was replaced while it was being removed.");
             }
         }
-    }
-
-    private bool IsParentUnavailableUnsafe(BMSTable table)
-    {
-        return reloadApplyReservations.Contains(table)
-            || reloadRetiredTables.TryGetValue(table, out _)
-            || removedTables.TryGetValue(table, out _)
-            || knownActiveTables.TryGetValue(table, out _);
     }
 
     private bool IsRetiredOrRemovedUnsafe(BMSTable table)
@@ -1375,7 +1171,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             activeTablesByPlaylistId[table.playlist_id.Value] = table;
         }
-        knownActiveTables.GetValue(table, _ => new object());
     }
 
     private void RefreshActiveIdentityUnsafe(BMSTable table)
@@ -1529,22 +1324,6 @@ internal sealed class PlaylistAggregatePersistenceOwner
         activeTableOrder.AddRange(orderedTables);
     }
 
-    private static BMSTableEntry FindCurrentPlaylistEntryForCommit(BMSTable table, BMSTableEntry source)
-    {
-        if (table?.entries == null || source == null)
-        {
-            return null;
-        }
-        if (table.entries.Any(candidate => ReferenceEquals(candidate, source) && !candidate.is_removed))
-        {
-            return source;
-        }
-        List<BMSTableEntry> matches = [.. table.entries.Where(candidate =>
-            candidate != null
-            && !candidate.is_removed
-            && PlaylistEntryIdentityMatches(candidate, source))];
-        return matches.Count == 1 ? matches[0] : null;
-    }
 
     private static bool PlaylistEntryIdentityMatches(BMSTableEntry candidate, BMSTableEntry source)
     {
@@ -1583,7 +1362,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out _, out _, out persistenceDecision, logLastUpdateDecision);
     }
 
-    /// <summary>取得結果へ既存設定・所属・メモを統合し、名称差のヘッダー保存と既知ハッシュ差の更新日時を別々に判定します。</summary>
+    /// <summary>取得結果へ既存設定・所属・メモを統合し、名称・解決済みdata参照のヘッダー保存と既知ハッシュ差の更新日時を別々に判定します。</summary>
     internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, out bool hasStateToPersist, out PlaylistReloadPersistenceDecision persistenceDecision, bool logLastUpdateDecision = false)
     {
         if (oldTable == null)
@@ -1605,6 +1384,10 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             NamesChanged = !string.Equals(oldTable.name, newTable.name, StringComparison.Ordinal)
                 || !string.Equals(oldTable.org_name, newTable.org_name, StringComparison.Ordinal),
+            EffectiveDataUriChanged = !Uri.Equals(oldTable.GetAbsoluteDataUrl(), newTable.GetAbsoluteDataUrl()),
+            SourceUriCompleted = (oldTable.Header_url == null && newTable.Header_url != null)
+                || (oldTable.Data_url == null && newTable.Data_url != null)
+                || (oldTable.Page_url == null && newTable.Page_url != null),
             EntryFingerprintChanged = playlistContentDiffResult.HasChanges,
             HeaderKnownChanged = hashChangeResult.HeaderKnownChanged,
             HeaderHashInitialized = hashChangeResult.HeaderHashInitialized,
@@ -2035,8 +1818,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             throw new ArgumentNullException("newTable");
         }
-        List<string> oldFolderList = oldTable.folder_list;
-        List<string> newFolderList = newTable.folder_list;
+        IReadOnlyList<string> oldFolderList = oldTable.folder_list;
+        IReadOnlyList<string> newFolderList = newTable.folder_list;
         return newTable.entries.Count != matchedOldEntryCount || matchedOldEntryCount != oldTable.entries.Where(entry => !entry.is_removed).Count() || oldFolderList.Except(newFolderList).Any() || newFolderList.Except(oldFolderList).Any();
     }
 

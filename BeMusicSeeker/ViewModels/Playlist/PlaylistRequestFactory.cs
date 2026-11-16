@@ -4,30 +4,16 @@ using BeMusicSeeker.Models;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Builds normalized playlist request identities and source invalidation reasons outside the shell ViewModel.
+/// 保存済み所属キーを保持する詳細要求の識別と、元集合の失効理由を構築します。
 /// </summary>
 internal static class PlaylistRequestFactory
 {
     /// <summary>
-    /// Normalizes a playlist folder name for request identity comparison while preserving the null root-playlist marker.
+    /// 検索式の意味を保持したまま、要求比較に不要な前後空白を除きます。
     /// </summary>
-    /// <param name="folderName">Folder name from the selected playlist tree node.</param>
-    /// <returns>Trimmed folder name, or <see langword="null"/> when the request targets the playlist root.</returns>
-    internal static string NormalizeFolderName(string folderName)
-    {
-        if (folderName == null)
-        {
-            return null;
-        }
-
-        return folderName.Trim();
-    }
-
-    /// <summary>
-    /// Normalizes a playlist keyword filter for request identity comparison.
-    /// </summary>
-    /// <param name="keywordFilter">Keyword filter text from the main search box.</param>
-    /// <returns>Upper-invariant trimmed keyword text, or an empty string for blank input.</returns>
+    /// <param name="keywordFilter">検索欄から捕捉した式。</param>
+    /// <returns>大小文字を保持した検索式。空白だけの入力は空文字列。</returns>
+    /// <remarks>正規表現の \d と \D などを区別するため、通常語の大小文字無視は検索側に任せます。</remarks>
     internal static string NormalizeKeywordFilter(string keywordFilter)
     {
         if (string.IsNullOrWhiteSpace(keywordFilter))
@@ -35,7 +21,7 @@ internal static class PlaylistRequestFactory
             return string.Empty;
         }
 
-        return keywordFilter.Trim().ToUpperInvariant();
+        return keywordFilter.Trim();
     }
 
     /// <summary>
@@ -59,21 +45,21 @@ internal static class PlaylistRequestFactory
     }
 
     /// <summary>
-    /// Creates the normalized identity used to coalesce and reuse playlist build requests.
+    /// 保存済み所属キーを保ち、詳細要求の合流とsource再利用に使う条件・必要な確定位置を構築します。
     /// </summary>
-    /// <param name="table">Playlist table selected by the current tree node.</param>
-    /// <param name="selectionScope">Semantic source scope represented by the selection.</param>
-    /// <param name="folderName">Playlist folder name selected by the current tree node.</param>
-    /// <param name="filterType">Playlist filter type selected by the current tree node.</param>
-    /// <param name="keywordFilter">Keyword filter text.</param>
-    /// <param name="modeFilter">BMS mode filter.</param>
-    /// <param name="sortParameters">Current sort parameters.</param>
-    /// <param name="libraryIndexVersion">Library resolve-index version used by the source build.</param>
-    /// <param name="playlistRevision">Playlist revision used by the source build.</param>
-    /// <param name="scoreSnapshotVersion">Score snapshot version used by the source build.</param>
-    /// <param name="chartInfoIndexVersion">Chart-info index version used by the source build.</param>
-    /// <param name="hasResolvedSelection">Whether the selected playlist source was resolved.</param>
-    /// <returns>Normalized playlist request identity.</returns>
+    /// <param name="table">選択した表。</param>
+    /// <param name="selectionScope">元集合の選択範囲。</param>
+    /// <param name="folderName">前後空白も所属キーに含む実folder名。rootのnullと空文字・空白名を区別します。</param>
+    /// <param name="filterType">詳細filter種別。</param>
+    /// <param name="keywordFilter">検索条件。</param>
+    /// <param name="modeFilter">譜面mode条件。</param>
+    /// <param name="sortParameters">表示順条件。</param>
+    /// <param name="libraryIndexVersion">必要なカタログ確定版。</param>
+    /// <param name="playlistRevision">必要な表entry確定版。</param>
+    /// <param name="scoreSnapshotVersion">要求では必要なscore確定位置、採用済み入力では元集合全体の反映済み位置。</param>
+    /// <param name="chartInfoIndexVersion">必要な詳細解析版。</param>
+    /// <param name="hasResolvedSelection">解決済み選択の有無。</param>
+    /// <returns>正規化した詳細要求の識別。</returns>
     internal static PlaylistRequestIdentity CreateIdentity(
         BMSTable table,
         PlaylistDetailSelectionScope selectionScope,
@@ -91,7 +77,7 @@ internal static class PlaylistRequestFactory
         return new PlaylistRequestIdentity(
             table,
             selectionScope,
-            NormalizeFolderName(folderName),
+            folderName,
             filterType,
             NormalizeKeywordFilter(keywordFilter),
             modeFilter,

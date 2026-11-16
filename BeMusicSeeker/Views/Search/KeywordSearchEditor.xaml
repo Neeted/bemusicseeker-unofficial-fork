@@ -6,7 +6,6 @@
              x:Name="editor"
              Focusable="False"
              PreviewKeyDown="EditorPreviewKeyDown"
-             PreviewKeyUp="EditorPreviewKeyUp"
              SnapsToDevicePixels="True"
              UseLayoutRounding="True">
   <UserControl.Resources>
@@ -60,7 +59,6 @@
               <Border x:Name="FocusCue"
                       BorderBrush="Transparent"
                       BorderThickness="2"
-                      CornerRadius="2"
                       IsHitTestVisible="False" />
             </Grid>
             <ControlTemplate.Triggers>
@@ -131,7 +129,6 @@
                   Click="ApplyButtonClick">
             <Button.Content>
               <TextBlock Text="{Binding DisplayText}"
-                         FontFamily="Meiryo"
                          FontSize="12"
                          Foreground="{DynamicResource App.TextBrush}"
                          TextWrapping="NoWrap"
@@ -149,7 +146,7 @@
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
-                  Loaded="RemoveFavoriteButtonLoaded"
+                  Loaded="ActionButtonLoaded"
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="RemoveFavoriteButtonClick">
             <Button.Style>
@@ -174,7 +171,7 @@
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
-                  Loaded="AddFavoriteButtonLoaded"
+                  Loaded="ActionButtonLoaded"
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="AddFavoriteButtonClick">
             <Button.Style>
@@ -199,7 +196,7 @@
                   FontSize="14"
                   Focusable="True"
                   IsTabStop="True"
-                  Loaded="DeleteHistoryButtonLoaded"
+                  Loaded="ActionButtonLoaded"
                   PreviewMouseLeftButtonDown="ActionButtonPreviewMouseLeftButtonDown"
                   Click="DeleteHistoryButtonClick">
             <Button.Style>
@@ -219,6 +216,7 @@
   </UserControl.Resources>
   <Grid x:Name="editorSurface" Width="390" Height="22" Background="Transparent">
     <TextBox x:Name="InputTextBox"
+             AutomationProperties.AutomationId="KeywordSearchInput"
              Width="390"
              BorderThickness="0"
            Style="{DynamicResource searchKeywordTextBoxStyle}"
@@ -226,8 +224,7 @@
              TextChanged="InputTextBoxTextChanged"
              SelectionChanged="InputTextBoxSelectionChanged"
              GotKeyboardFocus="InputTextBoxGotKeyboardFocus"
-             LostKeyboardFocus="InputTextBoxLostKeyboardFocus"
-             PreviewKeyDown="InputTextBoxPreviewKeyDown" />
+             />
     <Popup x:Name="AssistancePopup"
            Placement="Bottom"
            PlacementTarget="{Binding ElementName=editorSurface}"
@@ -235,10 +232,10 @@
            StaysOpen="True"
            AllowsTransparency="True">
       <Border BorderBrush="{DynamicResource App.BorderBrush}"
+              PreviewKeyDown="EditorPreviewKeyDown"
               BorderThickness="1"
-              CornerRadius="4"
               Background="{DynamicResource App.PopupBackgroundBrush}"
-              Padding="4"
+              Padding="0"
               Width="{Binding ActualWidth, ElementName=editorSurface}"
               HorizontalAlignment="Left">
       <StackPanel x:Name="SectionsHost" />

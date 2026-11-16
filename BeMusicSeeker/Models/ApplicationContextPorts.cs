@@ -13,19 +13,25 @@ internal sealed class OperationModeRestartRequest
     /// <summary>
     /// 動作モードと、同じ終端保存境界で保持する履歴表示 target identity を指定します。
     /// </summary>
-    /// <param name="operationMode">再起動後に選択する動作モード。</param>
+    /// <param name="environment">保存し後継へ渡す環境の最小組。</param>
     /// <param name="historyIdentity">再起動後に選択する履歴表示 target identity。</param>
-    internal OperationModeRestartRequest(bool operationMode, string historyIdentity)
+    /// <param name="beforeSave">先着受付成功後、保存直前に関係する未確定候補を破棄する処理。</param>
+    internal OperationModeRestartRequest(EnvironmentSettingsChange environment, string historyIdentity, Action beforeSave = null)
     {
-        OperationMode = operationMode;
         HistoryIdentity = historyIdentity;
+        Environment = environment ?? throw new ArgumentNullException(nameof(environment));
+        BeforeSave = beforeSave;
     }
-
-    /// <summary>再起動後に選択する動作モードを取得します。</summary>
-    internal bool OperationMode { get; }
 
     /// <summary>保存する履歴表示対象の識別子を取得します。</summary>
     internal string HistoryIdentity { get; }
+
+    /// <summary>確定する環境の最小組です。</summary>
+    internal EnvironmentSettingsChange Environment { get; }
+
+    /// <summary>受付拒否時には呼ばず、保存を開始する採用点で一回だけ呼ぶ候補破棄処理です。</summary>
+    internal Action BeforeSave { get; }
+
 }
 
 /// <summary>
@@ -320,10 +326,17 @@ internal interface IApplicationLifetimePort
 
     void RequestShutdown();
 
+    /// <summary>アプリ全体が所有する一時ディレクトリを回収し、終了・再起動前に実完了を待ちます。</summary>
+    /// <param name="logWarning">削除できないパスと例外を報告する処理。</param>
+    Task CompleteTemporaryDirectoriesAsync(Action<string, Exception> logWarning);
+
     /// <summary>
     /// 終端の後処理後に後継プロセスを起動します。最終的な application shutdown は呼び出し側が担当します。
     /// </summary>
     Task RestartApplicationAsync();
+
+    /// <summary>既存宛先の復元不能を診断し、通常Close・設定保存・一時領域削除・再起動を経ず最終終了します。</summary>
+    void ExitForUnrestoredDestination(Exception failure);
 }
 
 /// <summary>

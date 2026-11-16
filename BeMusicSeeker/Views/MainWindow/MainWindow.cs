@@ -3,9 +3,11 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -25,6 +27,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Update;
 using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Runtime;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using NLog;
@@ -40,6 +43,80 @@ namespace BeMusicSeeker.Views;
 /// </summary>
 public partial class MainWindow : Window, IComponentConnector, IStyleConnector, ISettingDialogPresentationPort
 {
+    /// <summary>フォルダ構成の置換中に発生する親選択を分離する、ツリー専用の表示入力です。</summary>
+    public static readonly DependencyProperty PlaylistFolderNodesProperty = DependencyProperty.RegisterAttached(
+        "PlaylistFolderNodes", typeof(IEnumerable), typeof(MainWindow),
+        new PropertyMetadata(null, OnPlaylistFolderNodesChanged));
+
+    /// <summary>ツリーへ渡すフォルダ構成を取得します。</summary>
+    public static IEnumerable GetPlaylistFolderNodes(DependencyObject target) => (IEnumerable)target.GetValue(PlaylistFolderNodesProperty);
+
+    /// <summary>ツリーへ渡すフォルダ構成を設定します。選択の正本はworkspaceが保持します。</summary>
+    public static void SetPlaylistFolderNodes(DependencyObject target, IEnumerable value) => target.SetValue(PlaylistFolderNodesProperty, value);
+
+    private static void OnPlaylistFolderNodesChanged(DependencyObject target, DependencyPropertyChangedEventArgs args)
+    {
+        if (target is not TreeViewItem item) { return; }
+        if (Window.GetWindow(item) is MainWindow window)
+        {
+            window.ReplacePlaylistFolderNodes(item, (IEnumerable)args.NewValue);
+        }
+        else { item.ItemsSource = (IEnumerable)args.NewValue; }
+    }
+
+    private bool replacingPlaylistFolderNodes;
+
+#nullable enable
+    // 同じUI要求のtimerと監視解除だけを保持し、退役後は対象部品をWindowから参照しません。
+    private DispatcherTimer? pendingPlaylistFolderRenameTimer;
+    private Action? pendingPlaylistFolderRenameCleanup;
+#nullable restore
+
+    private void ReplacePlaylistFolderNodes(TreeViewItem item, IEnumerable nodes)
+    {
+        replacingPlaylistFolderNodes = true;
+        try { item.ItemsSource = nodes; }
+        finally { replacingPlaylistFolderNodes = false; }
+        if (item.DataContext is BMSTable table) { QueuePlaylistFolderSelectionSynchronization(table); }
+    }
+
+    private void PlaylistDetailFolderSelectionRemapped(object sender, EventArgs args)
+    {
+        if (DataContext is MainWindowViewModel viewModel)
+        {
+            QueuePlaylistFolderSelectionSynchronization(viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection()?.Table);
+        }
+    }
+
+    private void QueuePlaylistFolderSelectionSynchronization(BMSTable table)
+    {
+        if (DataContext is not MainWindowViewModel viewModel) { return; }
+        PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+        PlaylistDetailSelection selection = workspace.CapturePlaylistDetailSelection(out long revision);
+        if (selection?.Table != table || table == null) { return; }
+        Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
+        {
+            // コンテナ生成待ちの間に選ばれた別項目を、古い表示復元で巻き戻しません。
+            if (terminalShutdownStarted != 0 || !workspace.IsCurrentPlaylistDetailSelection(selection, revision)) { return; }
+            TreeViewItem tableItem = TryGetPlaylistTreeViewItem(table, out _, out _);
+            if (tableItem == null) { return; }
+            TreeViewItem targetItem = tableItem;
+            if (selection.Scope == PlaylistDetailSelectionScope.Folder)
+            {
+                PlaylistFolderNode node = table.FolderNodes.FirstOrDefault(candidate => selection.FolderName != null
+                    ? !candidate.IsSpecial && candidate.FolderName == selection.FolderName
+                    : candidate.SpecialKind == PlaylistFolderNodeSpecialKind.NotOwned);
+                if (node == null) { return; } // 改名の対応確定通知が届いた時に、新しい選択名で同期します。
+                tableItem.IsExpanded = true;
+                targetItem = TryGetChildTreeViewItemByDataContext(tableItem, node, "playlist_folder_update");
+            }
+            if (targetItem == null || !workspace.IsCurrentPlaylistDetailSelection(selection, revision)) { return; }
+            replacingPlaylistFolderNodes = true;
+            try { targetItem.IsSelected = true; }
+            finally { replacingPlaylistFolderNodes = false; }
+        }));
+    }
+
     public static readonly DependencyProperty PlaybackOverlayVisibilityProperty = DependencyProperty.Register(
         nameof(PlaybackOverlayVisibility),
         typeof(Visibility),
@@ -52,9 +129,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private static readonly MethodInfo playlistTreeBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
 
-    private int _duplicateMaintenanceSelectionVersion;
 
     private FrameworkElement activeOverlayDialog;
+
+    private PlaylistImportDialog activePlaylistImportDialog;
+
+    private Task playlistImportDialogCleanupTask = Task.CompletedTask;
 
     private PlaylistPropertyDialog activePlaylistPropertyDialog;
 
@@ -66,14 +146,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private int terminalShutdownStarted;
 
+    private Task terminalShutdownCompletion = Task.CompletedTask;
+
+    private Task closeCompletion = Task.CompletedTask;
+
+    /// <summary>
+    /// 開始済みのClose要求が準備・Dispatcher受信・終端処理まで完了する実Taskです。
+    /// 開始前は完了済みTaskであり、取得自体はCloseを開始しません。開始後の失敗・取消も伝えます。
+    /// </summary>
+    internal Task CloseCompletion => closeCompletion;
+
     private bool terminalWindowCloseAuthorized;
 
     private SettingsWindow settingsWindow;
 
-    private TaskCompletionSource<object> settingsPresentationClosed;
-
 #nullable enable
     private readonly Action<SettingsWindow>? settingsWindowCreated;
+    private readonly Func<IntPtr> readPlaybackForegroundWindow;
+    private readonly Action<IInputElement> requestPlaybackKeyboardFocus;
 #nullable restore
 
     private readonly MainWindowLibraryReloadMenuTerminal libraryReloadMenuTerminal;
@@ -88,7 +178,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly MainWindowColumnResetTerminal columnResetTerminal;
 
-    private readonly MainWindowRootFolderUnregisterTerminal rootFolderUnregisterTerminal;
 
     private readonly MainWindowFolderAutoRenameTerminal folderAutoRenameTerminal;
 
@@ -118,9 +207,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private readonly PlaylistLampViewerWindowManager playlistLampViewerWindowManager;
 
+    private readonly ChartPropertiesWindowManager chartPropertiesWindowManager;
+
     private readonly MainWindowForegroundTerminal mainWindowForegroundTerminal;
 
     private readonly MainWindowProgressStatusBarTerminals progressStatusBarTerminals;
+
+    private readonly IUiDialogService dialogService;
 
     private readonly IUiDialogService playlistWorkspaceDialogService;
 
@@ -140,6 +233,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     /// <summary>Gets the owner-scoped manager for modeless playlist lamp viewers.</summary>
     internal PlaylistLampViewerWindowManager PlaylistLampViewerWindows => playlistLampViewerWindowManager;
+
+    /// <summary>明示シナリオで実UIと同じ重複一覧navigationの終端を観測するため、既存Taskとその採用結果をそのまま返します。</summary>
+    internal Task<bool> NavigateScenarioDuplicatesAsync()
+        => maintenanceTreeTerminal.NavigateAsync(MainViewUpdateMode.DuplicateFilterSelected);
+
+
+    /// <summary>このメイン画面から開く独立プロパティ窓と実読取りの所有者です。</summary>
+    internal ChartPropertiesWindowManager ChartPropertiesWindows => chartPropertiesWindowManager;
 
     private static void ThrowIfPickerFailed(UiDialogStatus status, Exception exception, string routeName)
     {
@@ -175,29 +276,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Exception);
     }
 
-    private async Task NotifyMainWindowOperationFailureAsync(Exception exception, string routeName)
+    private async Task NotifyMainWindowOperationFailureAsync(Exception exception, string routeName, string message = null)
     {
-        if (exception is OperationCanceledException)
-        {
-            return;
-        }
-        Task.FromException(exception).ObserveFault(routeName);
+        TryLogMainWindowFailure(exception, routeName);
         try
         {
             UiDialogResult notification = await playlistWorkspaceDialogService.ShowMessageAsync(
                 new UiMessageRequest(
-                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected
-                        + Environment.NewLine
-                        + exception.Message,
+                    message ?? BeMusicSeeker.Properties.Resources.Msg_error_unexpected,
                     BeMusicSeeker.Properties.Resources.Error,
                     MessageBoxButton.OK,
                     MessageBoxImage.Hand,
                     MessageBoxResult.OK,
                     owner: this));
-            if (notification == null
-                || notification.Status is not UiDialogStatus.Accepted
-                    and not UiDialogStatus.CancelledByUser
-                    and not UiDialogStatus.ClosedByUser)
+            if (notification is not { IsShown: true })
             {
                 Exception notificationFailure = notification?.Exception
                     ?? new InvalidOperationException(
@@ -205,13 +297,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                         + " failure notification was not shown ("
                         + (notification?.Status.ToString() ?? "no result")
                         + ").");
-                Task.FromException(notificationFailure).ObserveFault(routeName + " failure notification");
+                TryLogMainWindowFailure(notificationFailure, routeName + " failure notification");
             }
         }
         catch (Exception notificationException)
         {
-            Task.FromException(notificationException).ObserveFault(routeName + " failure notification");
+            TryLogMainWindowFailure(notificationException, routeName + " failure notification");
         }
+    }
+
+    private static void TryLogMainWindowFailure(Exception exception, string routeName)
+    {
+        try { NLogWrapper.FileLogger?.Warn(exception, routeName); }
+        catch { /* 診断先の失敗を元の操作結果や別の通知へ合成しません。 */ }
     }
 
     internal void ShowOverlayDialog(FrameworkElement dialog)
@@ -228,10 +326,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         activeOverlayDialog = dialog;
-        if (HidesPlaybackSurface(dialog))
-        {
-            PlaybackOverlayVisibility = Visibility.Visible;
-        }
         dialog.Visibility = Visibility.Visible;
         dialog.Focus();
     }
@@ -247,50 +341,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (ReferenceEquals(activeOverlayDialog, dialog))
         {
             activeOverlayDialog = null;
-            if (HidesPlaybackSurface(dialog))
-            {
-                PlaybackOverlayVisibility = Visibility.Collapsed;
-            }
-        }
-    }
-
-    private bool HidesPlaybackSurface(FrameworkElement dialog)
-    {
-        return ReferenceEquals(dialog, loadPlaylistURIDialog);
-    }
-
-    private async void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is not MainWindowViewModel { SettingDialog: { } settingDialogViewModel } viewModel)
-        {
-            return;
-        }
-
-        UiFolderPickerResult result = await new UiDialogCoordinator()
-            .PickFolderAsync(new UiFolderPickerRequest(
-                selectedPath: viewModel.LibraryFolderTree.BMSParentFolderList?.FirstOrDefault(),
-                multiselect: false,
-                owner: this));
-        ThrowIfPickerFailed(result.Status, result.Error, "Main window add root folder picker");
-        if (result.Status == UiDialogStatus.Accepted)
-        {
-            try
-            {
-                await settingDialogViewModel.AddBmsSearchRootPathFromMainWindowPicker(result.FolderPath)
-                    .LoggingAndPropagate("addRootFolderMenuItemClick");
-            }
-            catch (LibraryDirectoryPreflightException)
-            {
-                // MainWindowViewModel が cleanup 後に warning を表示するため、
-                // shell terminal では同じ失敗を再通知しない。
-            }
-            catch (Exception exception)
-            {
-                UiDialogResult notification = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
-                    SettingsFailureMessage.Format(exception), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand,
-                    MessageBoxResult.OK, owner: this));
-                UiDialogRoute.ThrowIfNotShown(notification, "Settings persistence failure notification");
-            }
         }
     }
 
@@ -324,6 +374,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private bool startupInitialSelectionApplied;
 
+    /// <summary>起動時の初期選択の反映中だけ真になり、選択に伴う一覧の再要求を省きます。</summary>
+    private bool startupInitialSelectionInProgress;
+
     private PropertyChangedEventHandler _startupInitialSelectionReadyHandler;
 
     private StartupProgressWorkflowOwner _startupInitialSelectionReadyOwner;
@@ -349,18 +402,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="settingsWindowCreated">
     /// 設定ウィンドウの既存構成後、ダイアログ coordinator へ返す直前に呼び出す任意の処理。
     /// </param>
-    /// <param name="playlistWorkspaceDialogService">
-    /// playlist Property/Bulk modal routes が使う coordinator。未指定時は既定の production coordinator を使用します。
-    /// </param>
     /// <param name="mainWindowForegroundTerminal">
     /// playlist lamp navigation 成功後の shell restore/activation/focus terminal。未指定時は WPF shell に接続します。
     /// </param>
+    /// <param name="chartPropertiesManagerFactory">独立プロパティ窓の生成・表示前準備を接続する任意の構成処理。</param>
+    /// <param name="readPlaybackForegroundWindow">再生開始時の前面HWND取得。未指定時は実OSから取得します。自Windowとの照合はシェルが行います。</param>
+    /// <param name="requestPlaybackKeyboardFocus">再生開始時のキーボードフォーカス要求。未指定時はWPFへ要求します。復帰先の選択はシェルが行います。</param>
 #nullable enable
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
-        IUiDialogService? playlistWorkspaceDialogService = null,
-        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null)
+        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
+        Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
+        Func<IntPtr>? readPlaybackForegroundWindow = null,
+        Action<IInputElement>? requestPlaybackKeyboardFocus = null)
         : this(
             viewModel,
             settingsWindowCreated,
@@ -383,10 +438,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             null,
             null,
             null,
-            null,
-            null,
-            playlistWorkspaceDialogService,
-            mainWindowForegroundTerminal)
+            mainWindowForegroundTerminal,
+            chartPropertiesManagerFactory,
+            readPlaybackForegroundWindow,
+            requestPlaybackKeyboardFocus)
     {
     }
 
@@ -400,8 +455,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="maintenanceTreeTerminal">maintenance tree selection terminal。</param>
     /// <param name="installTreeTerminal">install tree selection terminal。</param>
     /// <param name="zeroNoteRecheckTerminal">zero-note recheck terminal。</param>
-    /// <param name="columnResetTerminal">column reset terminal。</param>
-    /// <param name="rootFolderUnregisterTerminal">library search-root removal terminal。</param>
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
@@ -409,9 +462,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowRegularLibraryTreeTerminal? regularLibraryTreeTerminal,
         MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal,
         MainWindowInstallTreeTerminal? installTreeTerminal,
-        MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal,
-        MainWindowColumnResetTerminal? columnResetTerminal,
-        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal)
+        MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal)
         : this(
             viewModel,
             settingsWindowCreated,
@@ -420,8 +471,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             maintenanceTreeTerminal,
             installTreeTerminal,
             zeroNoteRecheckTerminal,
-            columnResetTerminal,
-            rootFolderUnregisterTerminal,
             null,
             null,
             null,
@@ -448,8 +497,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="maintenanceTreeTerminal">maintenance tree selection terminal。</param>
     /// <param name="installTreeTerminal">install tree selection terminal。</param>
     /// <param name="zeroNoteRecheckTerminal">zero-note recheck terminal。</param>
-    /// <param name="columnResetTerminal">column reset terminal。</param>
-    /// <param name="rootFolderUnregisterTerminal">library search-root removal terminal。</param>
     /// <param name="folderAutoRenameTerminal">chart and folder auto-rename terminal。</param>
     /// <param name="duplicateMaintenanceTerminal">duplicate-folder maintenance terminal。</param>
     /// <param name="maintenanceRescanTerminal">full resource-health rescan terminal。</param>
@@ -464,8 +511,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="playbackTerminal">main-table playback selection and activation terminal。</param>
     /// <param name="playlistWorkspaceTerminals">playlist workspace mutation terminals。</param>
     /// <param name="progressStatusBarTerminals">compiled status-bar action terminals。</param>
-    /// <param name="playlistWorkspaceDialogService">playlist Property/Bulk modal route の coordinator。未指定時は既定 coordinator を使用します。</param>
     /// <param name="mainWindowForegroundTerminal">successful playlist lamp navigation 後の shell focus terminal。</param>
+    /// <param name="chartPropertiesManagerFactory">独立プロパティ窓の生成・表示前準備を接続する任意の構成処理。</param>
+    /// <param name="readPlaybackForegroundWindow">再生開始時の前面HWND取得。未指定時は実OSから取得します。自Windowとの照合はシェルが行います。</param>
+    /// <param name="requestPlaybackKeyboardFocus">再生開始時のキーボードフォーカス要求。未指定時はWPFへ要求します。復帰先の選択はシェルが行います。</param>
     internal MainWindow(
         MainWindowViewModel viewModel,
         Action<SettingsWindow>? settingsWindowCreated,
@@ -474,8 +523,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowMaintenanceTreeTerminal? maintenanceTreeTerminal,
         MainWindowInstallTreeTerminal? installTreeTerminal,
         MainWindowZeroNoteRecheckTerminal? zeroNoteRecheckTerminal,
-        MainWindowColumnResetTerminal? columnResetTerminal,
-        MainWindowRootFolderUnregisterTerminal? rootFolderUnregisterTerminal,
         MainWindowFolderAutoRenameTerminal? folderAutoRenameTerminal,
         MainWindowDuplicateMaintenanceTerminal? duplicateMaintenanceTerminal,
         MainWindowMaintenanceRescanTerminal? maintenanceRescanTerminal,
@@ -490,21 +537,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MainWindowPlaylistWorkspaceTerminals? playlistWorkspaceTerminals = null,
         MainWindowProgressStatusBarTerminals? progressStatusBarTerminals = null,
         MainWindowPendingPackageMutationViewTerminal? pendingPackageMutationViewTerminal = null,
-        IUiDialogService? playlistWorkspaceDialogService = null,
-        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null)
+        MainWindowForegroundTerminal? mainWindowForegroundTerminal = null,
+        Func<Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
+        Func<IntPtr>? readPlaybackForegroundWindow = null,
+        Action<IInputElement>? requestPlaybackKeyboardFocus = null)
     {
         if (viewModel == null)
         {
             throw new ArgumentNullException(nameof(viewModel));
         }
         this.settingsWindowCreated = settingsWindowCreated;
+        this.readPlaybackForegroundWindow = readPlaybackForegroundWindow ?? Win32API.GetForegroundWindow;
+        this.requestPlaybackKeyboardFocus = requestPlaybackKeyboardFocus ?? (element => Keyboard.Focus(element));
         this.libraryReloadMenuTerminal = libraryReloadMenuTerminal ?? MainWindowLibraryReloadMenuTerminal.Create(viewModel);
         this.regularLibraryTreeTerminal = regularLibraryTreeTerminal ?? MainWindowRegularLibraryTreeTerminal.Create(viewModel);
         this.maintenanceTreeTerminal = maintenanceTreeTerminal ?? MainWindowMaintenanceTreeTerminal.Create(viewModel);
         this.installTreeTerminal = installTreeTerminal ?? MainWindowInstallTreeTerminal.Create(viewModel);
         this.zeroNoteRecheckTerminal = zeroNoteRecheckTerminal ?? MainWindowZeroNoteRecheckTerminal.Create(viewModel);
-        this.columnResetTerminal = columnResetTerminal ?? MainWindowColumnResetTerminal.Create(viewModel);
-        this.rootFolderUnregisterTerminal = rootFolderUnregisterTerminal ?? MainWindowRootFolderUnregisterTerminal.Create(viewModel);
+        columnResetTerminal = MainWindowColumnResetTerminal.Create(viewModel);
         this.folderAutoRenameTerminal = folderAutoRenameTerminal ?? MainWindowFolderAutoRenameTerminal.Create(viewModel);
         this.duplicateMaintenanceTerminal = duplicateMaintenanceTerminal ?? MainWindowDuplicateMaintenanceTerminal.Create(viewModel);
         this.maintenanceRescanTerminal = maintenanceRescanTerminal ?? MainWindowMaintenanceRescanTerminal.Create(viewModel);
@@ -529,17 +579,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 () => newlyInstalledTreeViewItem.IsExpanded = true);
         this.progressStatusBarTerminals = progressStatusBarTerminals
             ?? MainWindowProgressStatusBarTerminals.Create(viewModel);
-        this.playlistWorkspaceDialogService = playlistWorkspaceDialogService
-            ?? new UiDialogCoordinator();
+        dialogService = viewModel.DialogService;
+        playlistWorkspaceDialogService = viewModel.PlaylistWorkspaceDialogService;
         this.mainWindowForegroundTerminal = mainWindowForegroundTerminal
             ?? MainWindowForegroundTerminal.Create(this);
         playlistLampViewerWindowManager = new(
             this,
             viewModel.PlaylistWorkspace,
-            this.playlistWorkspaceDialogService,
+            playlistWorkspaceDialogService,
             historicalSourceContextFactory: viewModel.ResolvePlaylistLampHistoricalScoreSourceContext);
+        chartPropertiesWindowManager = chartPropertiesManagerFactory?.Invoke(this) ?? new ChartPropertiesWindowManager(this);
         DataContext = viewModel;
         InitializeComponent();
+        customTableView.ConfigureDialogs(dialogService);
+        customTablePlaylistSummary.ConfigureDialogs(dialogService);
         KeywordSearchEditor.Configure(viewModel.ChartFilters.KeywordSearchAssistanceOwner);
         PlaylistSummaryKeywordSearchEditor.Configure(
             viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner);
@@ -547,7 +600,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
         Deactivated += MainWindow_Deactivated;
-        viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
+        viewModel.PlaylistWorkspace.DetailFolderSelectionRemapped += PlaylistDetailFolderSelectionRemapped;
         SubscribeViewModelUiInteractions(viewModel);
         Closed += MainWindow_Closed;
         ContentRendered += MainWindow_ContentRendered;
@@ -601,14 +654,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return (base.DataContext as MainWindowViewModel)?.ShellShutdownWorkflow.IsClosingOrClosed == true;
     }
 
-    private bool IsPlaylistUrlDownloadRunning
-    {
-        get
-        {
-            return (base.DataContext as MainWindowViewModel)?.PlaylistWorkspace.IsPlaylistUrlDownloadRunning == true;
-        }
-    }
-
     private void SubscribeViewModelUiInteractions(MainWindowViewModel viewModel)
     {
         if (viewModel == null || ReferenceEquals(subscribedViewModel, viewModel))
@@ -617,28 +662,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
-        viewModel.PropertyChanged += MainWindowViewModel_PropertyChanged;
+        viewModel.PlayHistory.AttachLanguagePresentation();
+        viewModel.MainChartList.AttachLanguagePresentation();
+        viewModel.ProgressHub?.AttachLanguagePresentation();
+        viewModel.ChartFilters.AttachKeywordSearchPresentation();
+        viewModel.PlaylistWorkspace.AttachPlaylistSummaryKeywordSearchPresentation();
+        viewModel.RequiredStartupUiApplying += ApplyRequiredStartupPlayerHost;
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Subscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
-        viewModel.PlaylistWorkspace.PlaylistPropertyValidationError += MainWindow_PlaylistPropertyValidationError;
-        viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
-        viewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
-        viewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += MainWindow_PlaylistPropertyExternalSyncFailed;
-        viewModel.PlaylistWorkspace.MutationRejected += MainWindow_PlaylistWorkspaceMutationRejected;
-        viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested += MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;
-        viewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
-        viewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
-        viewModel.PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
-        viewModel.PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
-        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
-        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
-        viewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         viewModel.PlaylistWorkspace.PlaylistLampNavigationRequested += MainWindow_PlaylistLampNavigationRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         viewModel.StartupUpdateWorkflow.ApplicationShutdownRequested += MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
         viewModel.ShellShutdownWorkflow.OperationModeRestartRequested += MainWindowViewModel_OperationModeRestartRequested;
+        viewModel.ShellShutdownWorkflow.InitializationExitRequested += MainWindowViewModel_InitializationExitRequested;
         viewModel.ElevatedProcessWarningWorkflow.PresentationRequested += MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
     }
 
@@ -648,29 +686,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        subscribedViewModel.PropertyChanged -= MainWindowViewModel_PropertyChanged;
+        subscribedViewModel.ChartFilters.DetachKeywordSearchPresentation();
+        subscribedViewModel.PlayHistory.DetachLanguagePresentation();
+        subscribedViewModel.MainChartList.DetachLanguagePresentation();
+        subscribedViewModel.ProgressHub?.DetachLanguagePresentation();
+        subscribedViewModel.PlaylistWorkspace.DetachPlaylistSummaryKeywordSearchPresentation();
+        subscribedViewModel.RequiredStartupUiApplying -= ApplyRequiredStartupPlayerHost;
         subscribedViewModel.SettingDialog.DetachPresentationPort(this);
         playlistWorkspaceTerminals.UrlInstallTreeExpansionEventSource
             .Unsubscribe(MainWindow_PlaylistUrlInstallTreeExpansionRequested);
-        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyValidationError -= MainWindow_PlaylistPropertyValidationError;
-        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested -= MainWindow_PlaylistPropertyExternalSyncConfirmationRequested;
-        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested -= MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested;
-        subscribedViewModel.PlaylistWorkspace.PlaylistPropertyExternalSyncFailed -= MainWindow_PlaylistPropertyExternalSyncFailed;
-        subscribedViewModel.PlaylistWorkspace.MutationRejected -= MainWindow_PlaylistWorkspaceMutationRejected;
-        subscribedViewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.InvalidOutputDirectoryRequested -= MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested;
-        subscribedViewModel.PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested -= MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
-        subscribedViewModel.PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested -= MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
-        subscribedViewModel.PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady -= MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
-        subscribedViewModel.PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed -= MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
-        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
-        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
-        subscribedViewModel.PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady -= MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         subscribedViewModel.PlaylistWorkspace.PlaylistLampNavigationRequested -= MainWindow_PlaylistLampNavigationRequested;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ApplicationShutdownRequested -= MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
         subscribedViewModel.ShellShutdownWorkflow.OperationModeRestartRequested -= MainWindowViewModel_OperationModeRestartRequested;
+        subscribedViewModel.ShellShutdownWorkflow.InitializationExitRequested -= MainWindowViewModel_InitializationExitRequested;
         subscribedViewModel.ElevatedProcessWarningWorkflow.PresentationRequested -= MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
         subscribedViewModel = null;
     }
@@ -680,338 +711,32 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         RefreshCustomTableViewDisplayAsync();
     }
 
-    private void MainWindowViewModel_PropertyChanged(object sender, PropertyChangedEventArgs e)
+    private void ApplyRequiredStartupPlayerHost()
     {
-        if (e?.PropertyName != nameof(MainWindowViewModel.IsInitializationCompleted)
-            || sender is not MainWindowViewModel viewModel
-            || !viewModel.IsInitializationCompleted)
+        if (IsShellClosingOrClosed() || subscribedViewModel == null)
         {
             return;
         }
-
-        Action attachPlaybackPanel = delegate
+        Dispatcher.VerifyAccess();
+        IntPtr playerHostHandle = playbackPanelView.PlayerHostHandle;
+        if (playerHostHandle == IntPtr.Zero)
         {
-            if (IsShellClosingOrClosed()
-                || !ReferenceEquals(subscribedViewModel, viewModel)
-                || !viewModel.IsInitializationCompleted)
-            {
-                return;
-            }
-            IntPtr playerHostHandle = playbackPanelView.PlayerHostHandle;
-            if (playerHostHandle == IntPtr.Zero)
-            {
-                throw new InvalidOperationException("The external player host has not been created.");
-            }
-            viewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playerHostHandle));
-            playbackPanelView.EnsureSelectedSurfaceAvailable();
-        };
-        if (Dispatcher.CheckAccess())
-        {
-            attachPlaybackPanel();
+            throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Msg_error_unexpected);
         }
-        else
-        {
-            Dispatcher.BeginInvoke(attachPlaybackPanel);
-        }
-    }
-
-    private void MainWindow_PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(
-        object sender,
-        ExternalPlaylistImportQueueSummaryReadyEventArgs request)
-    {
-        ShowExternalPlaylistImportQueueSummary(request?.Summary);
-    }
-
-    private void MainWindow_PlaylistWorkspaceMutationRejected(
-        object sender,
-        PlaylistWorkspaceMutationRejectedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        string message = request.IsBusy
-            ? BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationBusy
-            : request.IsStale
-                ? BeMusicSeeker.Properties.Resources.Warn_PlaylistMutationStale
-                : request.Kind switch
-                {
-                    PlaylistWorkspaceMutationKind.RenameFolder => BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder,
-                    PlaylistWorkspaceMutationKind.RemoveFolder => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder,
-                    PlaylistWorkspaceMutationKind.CreateFolder => BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder,
-                    PlaylistWorkspaceMutationKind.AddEntries => BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry,
-                    PlaylistWorkspaceMutationKind.RemoveEntries => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry,
-                    PlaylistWorkspaceMutationKind.Reload => BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist,
-                    _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
-                };
-        ShowPlaylistWorkspaceUiMessage(
-            message,
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxImage.Hand,
-            "playlist mutation rejection notification");
-    }
-
-    /// <summary>
-    /// playlist workspace の同期通知を、workspace と同じ owner-scoped dialog service で表示します。
-    /// </summary>
-    /// <param name="messageBoxText">表示する本文。</param>
-    /// <param name="caption">dialog title。</param>
-    /// <param name="icon">表示する icon。</param>
-    /// <param name="routeName">失敗時に識別する route 名。</param>
-    private void ShowPlaylistWorkspaceUiMessage(
-        string messageBoxText,
-        string caption,
-        MessageBoxImage icon,
-        string routeName)
-    {
-        UiDialogResult result = playlistWorkspaceDialogService
-            .ShowMessageAsync(new UiMessageRequest(
-                messageBoxText,
-                caption,
-                MessageBoxButton.OK,
-                icon,
-                MessageBoxResult.OK,
-                owner: this))
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfUiDialogNotShown(result, routeName);
-    }
-
-    private void MainWindow_PlaylistRemovalWorkflowInvalidOutputDirectoryRequested(
-        object sender,
-        PlaylistRemovalInvalidOutputDirectoryEventArgs request)
-    {
-        ShowUiMessage(
-            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
-            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
-            MessageBoxImage.Exclamation,
-            request.RouteName);
-    }
-
-    private void MainWindow_PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested(
-        object sender,
-        PlaylistSummaryBulkInvalidOutputDirectoryEventArgs request)
-    {
-        ShowUiMessage(
-            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
-            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
-            MessageBoxImage.Exclamation,
-            request.RouteName);
-    }
-
-    private void MainWindow_PlaylistWorkspacePlaylistOperationNotificationPresentationRequested(
-        object sender,
-        PlaylistOperationNotificationPresentationRequestedEventArgs request)
-    {
-        PresentPlaylistOperationNotifications(request?.Receipt, request?.RouteName);
-    }
-
-    private void MainWindow_PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed(
-        object sender,
-        ExternalPlaylistImportSummaryRefreshFailedEventArgs request)
-    {
-        if (request?.Exception == null)
-        {
-            return;
-        }
-        ShowUiMessage(
-            BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + request.Exception.Message,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxImage.Exclamation,
-            "external playlist import summary refresh failure notification");
-    }
-
-    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested(
-        object sender,
-        BeatorajaTableUrlImportConfirmationRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        request.Confirmed = ShowUiConfirmation(
-            BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxImage.Question,
-            MessageBoxButton.OKCancel,
-            "beatoraja Table URL import confirmation");
-    }
-
-    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested(
-        object sender,
-        BeatorajaTableUrlImportNotificationRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        MessageBoxImage icon = request.Kind switch
-        {
-            BeatorajaTableUrlImportNotificationKind.Information => MessageBoxImage.Information,
-            BeatorajaTableUrlImportNotificationKind.Warning => MessageBoxImage.Exclamation,
-            BeatorajaTableUrlImportNotificationKind.Error => MessageBoxImage.Hand,
-            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
-        };
-        ShowUiMessage(request.Message, request.Caption, icon, request.RouteName);
-    }
-
-    private void MainWindow_PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady(
-        object sender,
-        BeatorajaTableUrlImportSummaryReadyEventArgs request)
-    {
-        ShowBeatorajaTableUrlImportSummary(request?.Summary);
-    }
-
-    private static bool ShowUiConfirmation(
-        string messageBoxText,
-        string caption,
-        MessageBoxImage icon,
-        MessageBoxButton button,
-        string routeName)
-    {
-        UiDialogResult result = new UiDialogCoordinator()
-            .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon))
-            .GetAwaiter()
-            .GetResult();
-        if (result == null)
-        {
-            throw new InvalidOperationException(routeName + " failed: no result");
-        }
-        return result.Status switch
-        {
-            UiDialogStatus.Accepted => true,
-            UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser => false,
-            UiDialogStatus.ClosedByUser => result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes,
-            _ => throw new InvalidOperationException(routeName + " failed: " + result.Status, result.Exception)
-        };
-    }
-
-    private static void ShowUiMessage(
-        string messageBoxText,
-        string caption,
-        MessageBoxImage icon,
-        string routeName)
-    {
-        UiDialogResult result = new UiDialogCoordinator()
-            .ShowMessageAsync(new UiMessageRequest(messageBoxText, caption, MessageBoxButton.OK, icon, MessageBoxResult.OK))
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfUiDialogNotShown(result, routeName);
-    }
-
-    private void ShowBeatorajaTableUrlImportSummary(BeatorajaTableUrlImportSummary summary)
-    {
-        if (summary == null)
-        {
-            return;
-        }
-        var message = new StringBuilder();
-        message.AppendFormat(
-            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_summary_format,
-            summary.ExistingCount,
-            summary.ImportedCount,
-            summary.RestoredFromBmtCount,
-            summary.FailedCount,
-            summary.WarningCount);
-        AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_warning_header, summary.WarningOutcomes);
-        AppendBeatorajaTableUrlImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_failed_header, summary.FailedOutcomes);
-        ShowUiMessage(
-            message.ToString(),
-            BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_result_title,
-            summary.FailedCount > 0 || summary.WarningCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
-            "beatoraja Table URL import summary");
-    }
-
-    private static void AppendBeatorajaTableUrlImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<BeatorajaTableUrlImportOutcome> outcomes)
-    {
-        const int maxSamples = 5;
-        if (message == null || outcomes == null || outcomes.Count == 0)
-        {
-            return;
-        }
-        message.AppendLine();
-        message.AppendLine();
-        message.AppendLine(header);
-        foreach (BeatorajaTableUrlImportOutcome outcome in outcomes.Take(maxSamples))
-        {
-            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? outcome.RawUrl ?? string.Empty);
-            message.AppendLine(outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message)
-                ? "- " + nameOrUri + " (" + outcome.Exception.Message + ")"
-                : "- " + nameOrUri);
-        }
-        if (outcomes.Count > maxSamples)
-        {
-            message.AppendLine("- ...");
-        }
-    }
-
-    private void ShowExternalPlaylistImportQueueSummary(ExternalPlaylistImportQueueSummary summary)
-    {
-        if (summary == null || !summary.HasNotifiableItems)
-        {
-            return;
-        }
-        var message = new StringBuilder();
-        message.AppendFormat(
-            BeMusicSeeker.Properties.Resources.Playlist_import_result_summary_format,
-            summary.ImportedCount,
-            summary.SkippedDuplicateNameCount,
-            summary.FailedCount);
-        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_skipped_header, summary.SkippedDuplicateNameOutcomes);
-        AppendImportOutcomeSamples(message, BeMusicSeeker.Properties.Resources.Playlist_import_result_failed_header, summary.FailedOutcomes);
-        ShowUiMessage(
-            message.ToString(),
-            BeMusicSeeker.Properties.Resources.Playlist_import_result_title,
-            summary.FailedCount > 0 ? MessageBoxImage.Exclamation : MessageBoxImage.Information,
-            "external playlist import summary");
-    }
-
-    private static void AppendImportOutcomeSamples(StringBuilder message, string header, IReadOnlyList<ExternalPlaylistImportOutcome> outcomes)
-    {
-        const int maxSamples = 5;
-        if (message == null || outcomes == null || outcomes.Count == 0)
-        {
-            return;
-        }
-        message.AppendLine();
-        message.AppendLine();
-        message.AppendLine(header);
-        foreach (ExternalPlaylistImportOutcome outcome in outcomes.Take(maxSamples))
-        {
-            string nameOrUri = !string.IsNullOrWhiteSpace(outcome.TableName) ? outcome.TableName : (outcome.Uri?.ToString() ?? string.Empty);
-            message.AppendLine(outcome.Kind == ExternalPlaylistImportOutcomeKind.Failed && outcome.Exception != null && !string.IsNullOrWhiteSpace(outcome.Exception.Message)
-                ? "- " + nameOrUri + " (" + outcome.Exception.Message + ")"
-                : "- " + nameOrUri);
-        }
-        if (outcomes.Count > maxSamples)
-        {
-            message.AppendLine("- ...");
-        }
-    }
-
-    /// <summary>プレイリスト操作の通知を既存の注入済み表示窓口へ渡し、表示失敗を呼出元へ伝えます。</summary>
-    private void PresentPlaylistOperationNotifications(
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
-        string routeName)
-    {
-        if (receipt == null)
-        {
-            return;
-        }
-        foreach (PlaylistOperationNotificationOwner.OperationNotification notification in receipt.Notifications)
-        {
-            MessageBoxImage icon = notification.Severity switch
-            {
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
-                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
-                _ => MessageBoxImage.None,
-            };
-            ShowPlaylistWorkspaceUiMessage(notification.Message, notification.Caption, icon, routeName);
-        }
+        subscribedViewModel.PlaybackPanel.AttachWindowHost(new Win32ExternalPlayerWindowHost(playerHostHandle));
+        playbackPanelView.EnsureSelectedSurfaceAvailable();
     }
 
     private void MainWindowViewModel_ElevatedProcessWarningPresentationRequested(ElevatedProcessWarningPresentationRequest request)
+    {
+        _ = PresentElevatedProcessWarningAsync(request);
+    }
+
+    /// <summary>
+    /// 昇格の警告を窓口で表示し、要求の Complete か Fail のどちらか一方へ必ず 1 回だけ結果を返します。
+    /// 戻り値の Task は失敗させません。
+    /// </summary>
+    private async Task PresentElevatedProcessWarningAsync(ElevatedProcessWarningPresentationRequest request)
     {
         if (request == null)
         {
@@ -1024,13 +749,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 request.Complete(false);
                 return;
             }
-            UiDialogRoute.ShowMessageBox(
-                this,
+            string caption = BeMusicSeeker.Properties.Resources.Warning;
+            UiDialogResult notification = await dialogService.ShowMessageAsync(new UiMessageRequest(
                 BeMusicSeeker.Properties.Resources.Warn_ElevatedProcessDragDropLimited,
-                BeMusicSeeker.Properties.Resources.Warning,
+                caption,
                 MessageBoxButton.OK,
                 MessageBoxImage.Exclamation,
-                MessageBoxResult.OK);
+                MessageBoxResult.OK,
+                owner: this));
+            UiDialogRoute.ThrowIfNotShown(notification, caption);
             request.Complete(true);
         }
         catch (Exception exception)
@@ -1059,9 +786,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             }
             MainWindowViewModel viewModel = base.DataContext as MainWindowViewModel
                 ?? throw new InvalidOperationException("MainWindowViewModel is required to present the update dialog.");
-            UiWindowDialogResult<UpdateAssetInfo> dialogResult = await new UiDialogCoordinator()
+            UiWindowDialogResult<UpdateAssetInfo> dialogResult = await dialogService
                 .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
-                    () => new UpdateAvailableDialog(request.Result, viewModel.ProgressHub, viewModel.ExternalShellGateway),
+                    () => new UpdateAvailableDialog(request.Result, viewModel.ProgressHub, viewModel.ExternalShellGateway, dialogService),
                     dialog => dialog.SelectedAsset,
                     this));
             ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");
@@ -1073,7 +800,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void MainWindowViewModel_StartupUpdateFailurePresentationRequested(Exception exception)
+    /// <summary>
+    /// 更新の失敗を共通の窓口で表示します。表示の要求は最初の await より前に窓口へ渡し、完了を Task で返します。
+    /// 表示できなかった場合は Task が失敗し、所有者は失敗の記録を既読にしません。
+    /// </summary>
+    private Task MainWindowViewModel_StartupUpdateFailurePresentationRequested(Exception exception)
     {
         var viewModel = base.DataContext as MainWindowViewModel;
         bool updateShutdownPreparationFailed = viewModel?.ShellShutdownWorkflow.ConsumeUpdatePreparationFailure() == true;
@@ -1086,13 +817,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 receipt.DeferAcknowledge();
             }
-            return;
+            return Task.CompletedTask;
         }
-        UiDialogRoute.ShowMessageBox(
-            "Failed to download or start the update.\n" + (exception?.Message ?? string.Empty),
-            "Update Failed",
-            MessageBoxButton.OK,
-            MessageBoxImage.Error);
+        return ShowStartupUpdateFailureAsync(exception);
+    }
+
+    private async Task ShowStartupUpdateFailureAsync(Exception exception)
+    {
+        // owner は指定せず、窓口の解決に任せます。表示時の文化圏で本文と見出しを整形します。
+        UiDialogResult result = await dialogService.ShowMessageAsync(
+            new UiMessageRequest(
+                string.Format(
+                    CultureInfo.CurrentCulture,
+                    BeMusicSeeker.Properties.Resources.UpdateDialog_FailedMessage_Format,
+                    exception?.Message ?? string.Empty),
+                BeMusicSeeker.Properties.Resources.UpdateDialog_FailedTitle,
+                MessageBoxButton.OK,
+                MessageBoxImage.Error,
+                MessageBoxResult.None));
+        ThrowIfUiDialogNotShown(result, "startup update failure notification");
     }
 
     internal static bool ShouldDeferStartupUpdateFailurePresentation(
@@ -1111,8 +854,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        _ = base.Dispatcher.InvokeAsync((Action)ApplyTerminalShutdown).Task;
+        closeCompletion = CompleteTerminalShutdownOnDispatcherAsync();
+        closeCompletion.ObserveFault("MainWindow.StartupUpdateTerminalShutdown");
     }
+
+    /// <summary>初期化側は受付を解放済みであり、通常Closeの取消・準備・実終端は既存のWindow寿命へ渡します。</summary>
+    private void MainWindowViewModel_InitializationExitRequested() => Close();
 
     private void MainWindowViewModel_OperationModeRestartRequested()
     {
@@ -1130,13 +877,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     void ISettingDialogPresentationPort.OpenSettingsDialog(bool deferPresentation)
     {
+        long requestedTimestamp = Stopwatch.GetTimestamp();
         // 失敗後の再表示では、前の保存処理を次のモーダル画面の終了待ちにしない。
         RunOnUiThread(() =>
         {
-            if (!IsShellClosingOrClosed())
+            if (!IsShellClosingOrClosed() && (DataContext as MainWindowViewModel)?.SettingDialog.IsEditCancellationEnabled == true)
             {
-                ShowSettingsWindow();
+                return ShowSettingsWindowAsync(requestedTimestamp);
             }
+            return Task.CompletedTask;
         }, deferExecution: deferPresentation);
     }
 
@@ -1150,27 +899,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         RunOnUiThread(() => settingsWindow?.CloseFromPresentation());
     }
 
-    Task ISettingDialogPresentationPort.CloseSettingsDialogAsync()
-    {
-        if (!Dispatcher.CheckAccess())
-        {
-            return Dispatcher.InvokeAsync(CloseSettingsWindowAsync).Task.Unwrap();
-        }
-        return CloseSettingsWindowAsync();
-    }
-
-    private Task CloseSettingsWindowAsync()
-    {
-        if (settingsWindow == null)
-        {
-            throw new InvalidOperationException("No settings presentation is active.");
-        }
-        TaskCompletionSource<object> closed = settingsPresentationClosed ??=
-            new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
-        settingsWindow.CloseFromPresentation();
-        return closed.Task;
-    }
-
     void ISettingDialogPresentationPort.RefreshAppearanceSelection()
     {
         RunOnUiThread(() =>
@@ -1182,7 +910,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         });
     }
 
-    private void ShowSettingsWindow()
+    /// <summary>
+    /// 設定画面を表示し、表示の終端まで待ってから後片付けをします。UI スレッドを同期で止めません。
+    /// 失敗は返す Task の失敗にし、呼出し元の <see cref="RunOnUiThread(Func{Task}, bool)"/> が Dispatcher の未処理例外へ出します。
+    /// </summary>
+    private async Task ShowSettingsWindowAsync(long requestedTimestamp)
     {
         if (settingsWindow != null)
         {
@@ -1203,46 +935,32 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
 
         Visibility previousPlaybackOverlayVisibility = PlaybackOverlayVisibility;
-        Exception presentationFailure = null;
         PlaybackOverlayVisibility = Visibility.Visible;
         try
         {
-            UiWindowDialogResult<SettingsWindowCloseReason> result = new UiDialogCoordinator()
+            UiWindowDialogResult<SettingsWindowCloseReason> result = await ((MainWindowViewModel)DataContext).SettingsDialogService
                 .ShowWindowAsync(new UiWindowDialogRequest<SettingsWindow, SettingsWindowCloseReason>(
-                    () => settingsWindow = CreateSettingsWindowForPresentation(),
+                    () =>
+                    {
+                        settingsWindow = CreateSettingsWindowForPresentation();
+                        settingsWindow.SetPresentationRequestedTimestamp(requestedTimestamp);
+                        return settingsWindow;
+                    },
                     window => window.CloseReason,
-                    this))
-                .GetAwaiter()
-                .GetResult();
+                    this));
             ThrowIfWindowDialogFailed(result.Status, result.Error, "Settings window");
-        }
-        catch (Exception exception)
-        {
-            presentationFailure = exception;
-            throw;
         }
         finally
         {
-            TaskCompletionSource<object> closed = settingsPresentationClosed;
             settingsWindow = null;
-            settingsPresentationClosed = null;
             PlaybackOverlayVisibility = previousPlaybackOverlayVisibility;
-            // Closed だけでは ShowDialog のモーダル範囲が残るため、シェルの後片付け後に受け渡す。
-            if (presentationFailure == null)
-            {
-                closed?.TrySetResult(null);
-            }
-            else
-            {
-                closed?.TrySetException(presentationFailure);
-            }
         }
     }
 
     /// <summary>
-    /// Constructs one settings presentation bound to the shell-owned child composition.
+    /// shell所有の設定sessionと同じdialog窓口を実設定画面へ接続します。
     /// </summary>
-    /// <returns>An unshown settings window ready for the window-dialog coordinator.</returns>
+    /// <returns>通常の所有者付き表示へ渡す未表示の設定画面。</returns>
     internal SettingsWindow CreateSettingsWindowForPresentation()
     {
         if (base.DataContext is not MainWindowViewModel viewModel)
@@ -1250,14 +968,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             throw new InvalidOperationException("Main window view model is unavailable.");
         }
 
-        SettingsWindow createdWindow = new(CompleteSettingsWindowApplicationExit)
+        SettingsWindow createdWindow = new(viewModel.SettingsDialogService, CompleteSettingsWindowApplicationExit)
         {
             DataContext = viewModel.SettingDialog,
             PlaybackPanel = viewModel.PlaybackPanel,
             PlaylistWorkspace = viewModel.PlaylistWorkspace
         };
+        createdWindow.RequestApplicationDataUninstall = async (uninstall, songDbPath) =>
+        {
+            bool accepted = await viewModel.ShellShutdownWorkflow.RequestApplicationDataUninstallAsync(uninstall, songDbPath);
+            if (accepted) { CompleteSettingsWindowApplicationExit(createdWindow); }
+            return accepted;
+        };
         settingsWindowCreated?.Invoke(createdWindow);
         return createdWindow;
+    }
+
+    private void CloseSettingsForOwnerShutdown()
+    {
+        if (settingsWindow == null) { return; }
+        settingsWindow.CloseForOwnerShutdown();
     }
 
     private void CompleteSettingsWindowApplicationExit(SettingsWindow source)
@@ -1296,6 +1026,91 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
         {
+        }
+    }
+
+    /// <summary>
+    /// 非同期の UI 操作を UI スレッドで開始し、完了を待ちません。操作の失敗は、呼出し元へ同期で例外を出さず、
+    /// 同じ Dispatcher の未処理例外へ一度だけ出します（ログだけへ格下げしません）。
+    /// </summary>
+    private void RunOnUiThread(Func<Task> action, bool deferExecution = false)
+    {
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+        if (!deferExecution && Dispatcher.CheckAccess())
+        {
+            StartUiOperationObservingFailure(action);
+            return;
+        }
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        try
+        {
+            // 再表示は旧画面の await 継続より後へ回し、画面側の後処理も先に完了させる。
+            Dispatcher.BeginInvoke(
+                deferExecution ? DispatcherPriority.Background : DispatcherPriority.Normal,
+                (Action)(() => StartUiOperationObservingFailure(action)));
+        }
+        catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+        }
+    }
+
+    private void StartUiOperationObservingFailure(Func<Task> action)
+    {
+        Task operation;
+        try
+        {
+            operation = action();
+        }
+        catch (Exception failure)
+        {
+            operation = Task.FromException(failure);
+        }
+        // 完了済みの Task は同期で観測し、失敗の再送出を次の Dispatcher 操作へ確実に積みます。
+        operation.ContinueWith(
+            static (completed, state) => ((MainWindow)state).RethrowUiOperationFailureOnDispatcher(completed),
+            this,
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private void RethrowUiOperationFailureOnDispatcher(Task completed)
+    {
+        // 取消も失敗として扱い、成功以外をすべて Dispatcher の未処理例外へ出します。
+        if (!completed.IsFaulted && !completed.IsCanceled)
+        {
+            return;
+        }
+        Exception failure = completed.IsCanceled
+            ? new TaskCanceledException(completed)
+            : completed.Exception.InnerExceptions.Count == 1
+                ? completed.Exception.InnerException
+                : completed.Exception;
+        // Dispatcher の終了の開始後は BeginInvoke が Aborted になるだけで失敗が消えるため、先に確かめて診断へ残します。
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            TryLogMainWindowFailure(failure, "MainWindow UI operation failed after dispatcher shutdown");
+            return;
+        }
+        try
+        {
+            DispatcherOperation posted = Dispatcher.BeginInvoke(
+                DispatcherPriority.Normal,
+                (Action)(() => System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw()));
+            if (posted.Status == DispatcherOperationStatus.Aborted)
+            {
+                TryLogMainWindowFailure(failure, "MainWindow UI operation failed after dispatcher shutdown");
+            }
+        }
+        catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            TryLogMainWindowFailure(failure, "MainWindow UI operation failed after dispatcher shutdown");
         }
     }
 
@@ -1341,8 +1156,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     }
 
     /// <summary>
-    /// アプリケーション起動時に、設定 (StartupSelectInstallPending) に基づいて
-    /// プレイリストツリーの「インストール待ち（保留）」ノードを自動的に展開・選択します。
+    /// アプリケーション起動時に、ViewModel が初期一覧のモードを決めたときと同じ捕捉済みの設定値で初期選択を行います。
+    /// 真ならインストールの保留、偽ならライブラリのルートを選びます。設定の変更は次回起動の初期選択にだけ使い、
+    /// 実行中のツリー選択は動かしません。
     /// </summary>
     private void ApplyStartupInitialSelectionRequest()
     {
@@ -1351,24 +1167,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         startupInitialSelectionApplied = true;
-        if (DataContext is not MainWindowViewModel viewModel
-            || !viewModel.ViewSettings.StartupSelectInstallPending)
+        if (DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        if (treeViewItemInstallPending != null && treeViewItemInstallPending.IsSelected)
-        {
-            return;
-        }
+        bool selectInstallPending = viewModel.StartupInitialSelectionIsInstallPending;
         if (viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked)
         {
-            QueueStartupInitialSelectionUntilOperable(viewModel.ProgressHub.StartupProgress);
+            QueueStartupInitialSelectionUntilOperable(viewModel.ProgressHub.StartupProgress, selectInstallPending);
             return;
         }
-        ApplyStartupInitialSelectionNow();
+        ApplyStartupInitialSelectionNow(selectInstallPending);
     }
 
-    private void QueueStartupInitialSelectionUntilOperable(StartupProgressWorkflowOwner startupProgress)
+    private void QueueStartupInitialSelectionUntilOperable(StartupProgressWorkflowOwner startupProgress, bool selectInstallPending)
     {
         if (_startupInitialSelectionReadyHandler != null)
         {
@@ -1386,27 +1198,48 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             startupProgress.PropertyChanged -= _startupInitialSelectionReadyHandler;
             _startupInitialSelectionReadyHandler = null;
             _startupInitialSelectionReadyOwner = null;
-            ApplyStartupInitialSelectionNow();
+            ApplyStartupInitialSelectionNow(selectInstallPending);
         };
         startupProgress.PropertyChanged += _startupInitialSelectionReadyHandler;
     }
 
-    private void ApplyStartupInitialSelectionNow()
+    /// <summary>
+    /// 初期一覧は構築時に同じ設定値のモードで作られているため、選択の反映では一覧の再要求をしません。
+    /// 解除から実行までの間に利用者が選んだ場合は、その選択を優先して何も選びません。
+    /// </summary>
+    private void ApplyStartupInitialSelectionNow(bool selectInstallPending)
     {
         Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)delegate
         {
-            if (IsShellClosingOrClosed())
+            if (IsShellClosingOrClosed()
+                || treeView.SelectedItem != null
+                || treeViewPlaylist.SelectedItem != null)
             {
                 return;
             }
-            if (treeViewItemInstall != null)
+            startupInitialSelectionInProgress = true;
+            try
             {
-                treeViewItemInstall.IsExpanded = true;
+                if (selectInstallPending)
+                {
+                    if (treeViewItemInstall != null)
+                    {
+                        treeViewItemInstall.IsExpanded = true;
+                    }
+                    if (treeViewItemInstallPending != null)
+                    {
+                        treeViewItemInstallPending.IsExpanded = true;
+                        treeViewItemInstallPending.IsSelected = true;
+                    }
+                }
+                else if (treeViewItemLibraryRoot != null)
+                {
+                    treeViewItemLibraryRoot.IsSelected = true;
+                }
             }
-            if (treeViewItemInstallPending != null)
+            finally
             {
-                treeViewItemInstallPending.IsExpanded = true;
-                treeViewItemInstallPending.IsSelected = true;
+                startupInitialSelectionInProgress = false;
             }
         });
     }
@@ -1438,13 +1271,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// メインウィンドウに対してファイルやフォルダーがドラッグ＆ドロップされた際の完了処理イベント。
     /// ドロップされたパス一覧を取得し、譜面ファイルのインストール処理を開始します。
     /// </summary>
-    private void Window_Drop(object sender, DragEventArgs e)
+    private async void Window_Drop(object sender, DragEventArgs e)
     {
         e.Handled = true;
         var viewModel = base.DataContext as MainWindowViewModel;
         DroppedInstallDropDecision decision = DroppedInstallDropTerminal.Evaluate(
             e.Data,
-            IsPlaylistUrlDownloadRunning,
             viewModel == null
                 ? null
                 : paths => viewModel.PackageInstallWorkflow.AcquireAndTryEnqueueDroppedPaths(paths));
@@ -1467,17 +1299,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
         switch (decision.WarningKind)
         {
-            case DroppedInstallDropWarningKind.PlaylistDownloadBlocked:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallBlockedByPlaylistUrlDownload);
-                break;
             case DroppedInstallDropWarningKind.UnsupportedFormat:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallUnsupportedFormat);
+                await ShowDropInstallWarningAsync(BeMusicSeeker.Properties.Resources.Warn_DropInstallUnsupportedFormat);
                 break;
             case DroppedInstallDropWarningKind.IngressFailed:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_DropInstallIngressFailed);
+                await ShowDropInstallWarningAsync(BeMusicSeeker.Properties.Resources.Warn_DropInstallIngressFailed);
                 break;
             case DroppedInstallDropWarningKind.QueueUnavailable:
-                ShowDropInstallWarning(BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable);
+                await ShowDropInstallWarningAsync(BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable);
                 break;
         }
 
@@ -1487,15 +1316,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void ShowDropInstallWarning(string message)
+    /// <summary>
+    /// ドロップの警告を窓口で表示します。任意の通知なので、表示の失敗はログに残すだけにし、
+    /// async void のハンドラーから例外を出しません。Effects と Handled は呼び出し前に確定済みです。
+    /// </summary>
+    private async Task ShowDropInstallWarningAsync(string message)
     {
-        UiDialogRoute.ShowMessageBox(
-            this,
-            message,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
+        await ShowOptionalNotificationAsync(
+            new UiMessageRequest(
+                message,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK,
+                owner: this),
+            "drop_ingress warning notification");
+    }
+
+    /// <summary>
+    /// 共通の窓口で任意の通知を表示します。表示できなかった場合や例外は、成功とも元の操作の失敗とも読み替えず、ログに残すだけにします。
+    /// </summary>
+    private async Task ShowOptionalNotificationAsync(UiMessageRequest request, string routeName)
+    {
+        try
+        {
+            UiDialogResult notification = await dialogService.ShowMessageAsync(request);
+            if (notification is not { IsShown: true })
+            {
+                TryLogMainWindowFailure(
+                    notification?.Exception
+                        ?? new InvalidOperationException(
+                            routeName + " was not shown (" + (notification?.Status.ToString() ?? "no result") + ")."),
+                    routeName);
+            }
+        }
+        catch (Exception exception)
+        {
+            TryLogMainWindowFailure(exception, routeName);
+        }
     }
 
     private static void LogUnsupportedDropFormats(IDataObject data)
@@ -1518,11 +1376,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private void Window_DragOver(object sender, DragEventArgs e)
     {
-        if (IsPlaylistUrlDownloadRunning)
-        {
-            e.Effects = DragDropEffects.None;
-        }
-        else if (e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true))
+        if (e.Data.GetDataPresent(DataFormats.FileDrop, autoConvert: true))
         {
             e.Effects = DragDropEffects.Copy;
         }
@@ -1576,10 +1430,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            Win32API.WINDOWPLACEMENT lpwndpl = Win32WindowPlacementAdapter.ToNative(viewModel.ViewSettings.WindowPlacement);
+            Win32API.WINDOWPLACEMENT lpwndpl = Win32WindowPlacementAdapter.ToNative(
+                MainWindowViewSettingsPolicy.ResolveRestorePlacement(viewModel.ViewSettings.WindowPlacement));
             lpwndpl.Length = Marshal.SizeOf(typeof(Win32API.WINDOWPLACEMENT));
-            lpwndpl.Flags = 0;
-            lpwndpl.ShowCmd = ((lpwndpl.ShowCmd == Win32API.ShowWindowCommands.ShowMinimized) ? Win32API.ShowWindowCommands.Normal : lpwndpl.ShowCmd);
             Win32API.SetWindowPlacement(new WindowInteropHelper(this).Handle, ref lpwndpl);
         }
         catch
@@ -1590,17 +1443,36 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private async Task CompleteCloseAfterShellRequestAsync(Task<ShellShutdownWorkflowCompletionReceipt> closeRequest)
     {
         await closeRequest.ConfigureAwait(true);
-        await base.Dispatcher.InvokeAsync((Action)ApplyTerminalShutdown).Task.ConfigureAwait(true);
+        await CompleteTerminalShutdownOnDispatcherAsync().ConfigureAwait(true);
     }
 
-    private void ApplyTerminalShutdown()
+    private async Task CompleteTerminalShutdownOnDispatcherAsync()
+    {
+        await base.Dispatcher.InvokeAsync(ApplyTerminalShutdown).Task.Unwrap().ConfigureAwait(true);
+    }
+
+    private Task ApplyTerminalShutdown()
     {
         if (Interlocked.CompareExchange(ref terminalShutdownStarted, 1, 0) != 0)
         {
-            return;
+            return terminalShutdownCompletion;
         }
 
-        ApplyTerminalShutdownAsync().ObserveFault("MainWindow.ApplyTerminalShutdown");
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        terminalShutdownCompletion = completion.Task;
+        _ = ApplyTerminalShutdownAndPublishAsync(completion);
+        return completion.Task;
+    }
+
+    private async Task ApplyTerminalShutdownAndPublishAsync(TaskCompletionSource completion)
+    {
+        try
+        {
+            await ApplyTerminalShutdownAsync().ConfigureAwait(true);
+            completion.TrySetResult();
+        }
+        catch (OperationCanceledException exception) { completion.TrySetCanceled(exception.CancellationToken); }
+        catch (Exception exception) { completion.TrySetException(exception); }
     }
 
     private async Task ApplyTerminalShutdownAsync()
@@ -1608,22 +1480,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         var viewModel = base.DataContext as MainWindowViewModel;
         PlaylistPropertyDialog propertyDialog = activePlaylistPropertyDialog;
         PlaylistSummaryBulkEditDialog bulkEditDialog = activePlaylistSummaryBulkEditDialog;
-        Task settingsAudioTestTask = viewModel?.SettingDialog.AudioDeviceTestCompletionTask ?? Task.CompletedTask;
         Task propertyOperationTask = propertyDialog?.WaitForOperationCompletionAsync() ?? Task.CompletedTask;
+        Task settingsOperationTask = viewModel?.SettingDialog.SettingsOperationCompletionTask ?? Task.CompletedTask;
         Task bulkApplyTask = bulkEditDialog?.WaitForApplyCompletionAsync() ?? Task.CompletedTask;
         Task propertyCleanupTask = playlistPropertyDialogCleanupTask ?? Task.CompletedTask;
         Task bulkCleanupTask = playlistSummaryBulkEditDialogCleanupTask ?? Task.CompletedTask;
 
         propertyDialog?.CloseForOwnerShutdown();
         bulkEditDialog?.CloseForOwnerShutdown();
-        settingsWindow?.CloseForOwnerShutdown();
-        playlistLampViewerWindowManager.CloseAll();
+        CloseSettingsForOwnerShutdown();
+        activePlaylistImportDialog?.Close();
+        // 表示を先に失効させ、一覧完了後や照会finallyから後続照会が開始されない状態で捕捉する。
+        viewModel?.SettingDialog.SetPresentationActive(false);
+        Task settingsAudioTask = viewModel?.SettingDialog.AudioSettingsCompletionTask ?? Task.CompletedTask;
+        Task lampCleanupTask = playlistLampViewerWindowManager.DisposeAsync().AsTask();
+        Task chartPropertiesReadTask = chartPropertiesWindowManager.CompleteShutdownAsync();
 
         // The dialog owns its operation and session lifetime.  Keep the owner alive until
         // the operation, forced close, DataContext detach, and workspace cleanup have all
         // reached their terminal signals.
-        await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTestTask).ConfigureAwait(true);
-        await Task.WhenAll(propertyCleanupTask, bulkCleanupTask).ConfigureAwait(true);
+        await Task.WhenAll(propertyOperationTask, bulkApplyTask, settingsAudioTask, settingsOperationTask,
+            lampCleanupTask, propertyCleanupTask, bulkCleanupTask, chartPropertiesReadTask,
+            playlistImportDialogCleanupTask).ConfigureAwait(true);
 
         CaptureWindowStateForClosing();
         if (viewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow)
@@ -1641,9 +1519,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     private void MainWindow_Closed(object sender, EventArgs e)
     {
         playbackPanelView.DisposePlayerHost();
+        activePlaylistImportDialog?.Close();
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
         playlistLampViewerWindowManager.Dispose();
+        chartPropertiesWindowManager.BeginShutdown();
         CaptureWindowStateForClosing();
         UnsubscribeViewModelUiInteractions();
     }
@@ -1656,18 +1536,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <param name="e">キャンセル可能なイベントデータ。</param>
     protected override void OnClosing(CancelEventArgs e)
     {
+        CancelPendingPlaylistFolderRename();
         var closingViewModel = base.DataContext as MainWindowViewModel;
         if (closingViewModel?.ShellShutdownWorkflow is { } shellShutdownWorkflow
             && !terminalWindowCloseAuthorized)
         {
             e.Cancel = true;
             bool closeRequestStarted = shellShutdownWorkflow.TryBeginWindowCloseRequest(out Task<ShellShutdownWorkflowCompletionReceipt> closeRequest);
-            settingsWindow?.CloseForOwnerShutdown();
+            chartPropertiesWindowManager.BeginShutdown();
+            // Pの実終端待ちより前に所有dialogへcloseを伝えます。applyは捨てず、
+            // 後段で実Task・DataContext回収までjoinするため終了待ちとの循環を作りません。
+            activePlaylistPropertyDialog?.CloseForOwnerShutdown();
+            activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
+            CloseSettingsForOwnerShutdown();
+            activePlaylistImportDialog?.Close();
             CancelRelatedDocumentRequest();
             CloseContextMenuIfOpen(_lastOpenedContextMenu);
             if (closeRequestStarted)
             {
-                _ = CompleteCloseAfterShellRequestAsync(closeRequest);
+                closeCompletion = CompleteCloseAfterShellRequestAsync(closeRequest);
+                closeCompletion.ObserveFault("MainWindow.CompleteCloseAfterShellRequest");
             }
             return;
         }
@@ -1680,14 +1568,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         if (viewModel != null)
         {
-            viewModel.PlaylistWorkspace.PlaylistSummarySelectionRestoreRequested -= MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
+            viewModel.PlaylistWorkspace.DetailFolderSelectionRemapped -= PlaylistDetailFolderSelectionRemapped;
         }
         CancelRelatedDocumentRequest();
         CloseContextMenuIfOpen(_lastOpenedContextMenu);
         activePlaylistPropertyDialog?.CloseForOwnerShutdown();
         activePlaylistSummaryBulkEditDialog?.CloseForOwnerShutdown();
-        settingsWindow?.CloseForOwnerShutdown();
+        CloseSettingsForOwnerShutdown();
+        activePlaylistImportDialog?.Close();
         playlistLampViewerWindowManager.CloseAll();
+        chartPropertiesWindowManager.BeginShutdown();
         base.OnClosing(e);
         CaptureWindowStateForClosing();
     }
@@ -1952,109 +1842,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         customTablePlaylistSummary?.ClearRowDropInsertPreview();
     }
 
-    private void MainWindow_PlaylistPropertyValidationError(
-        object sender,
-        PlaylistPropertyValidationErrorEventArgs request)
-    {
-        string message = request.Error switch
-        {
-            PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateChangePlaylist,
-            PlaylistPropertyValidationError.InvalidOutputDirectory => BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateCheckInput,
-            PlaylistPropertyValidationError.InvalidPageUri => BeMusicSeeker.Properties.Resources.Error_InvalidPageUriAbsoluteRequired,
-            PlaylistPropertyValidationError.InvalidHeaderUri => BeMusicSeeker.Properties.Resources.Error_InvalidHeaderUri,
-            PlaylistPropertyValidationError.InvalidDataUri => BeMusicSeeker.Properties.Resources.Error_InvalidDataUri,
-            PlaylistPropertyValidationError.InvalidExternalSyncUris => BeMusicSeeker.Properties.Resources.Error_InvalidPageOrHeaderUri,
-            _ => throw new ArgumentOutOfRangeException(nameof(request.Error), request.Error, null)
-        };
-        UiDialogRoute.ShowMessageBox(
-            this,
-            message,
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
-    }
-
-    /// <summary>同期設定変更の既存確認を注入済み窓口へ渡し、表示不能を例外にして肯定結果だけを受理します。</summary>
-    private void MainWindow_PlaylistPropertyExternalSyncConfirmationRequested(
-        object sender,
-        PlaylistPropertyExternalSyncConfirmationRequestedEventArgs request)
-    {
-        UiDialogResult result = playlistWorkspaceDialogService.ConfirmAsync(new UiConfirmationRequest(
-            request.Enable
-                ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
-                : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.None,
-            owner: this)).GetAwaiter().GetResult();
-        UiDialogRoute.ThrowIfNotShown(result, "playlist property external sync confirmation");
-        request.Confirmed = result.MessageBoxResult is MessageBoxResult.OK or MessageBoxResult.Yes;
-    }
-
-    private void MainWindow_PlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
-    {
-        UiDialogRoute.ShowMessageBox(
-            this,
-            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
-            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
-
-    private void MainWindow_PlaylistPropertyExternalSyncFailed(
-        object sender,
-        PlaylistPropertyExternalSyncFailedEventArgs request)
-    {
-        string message = BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist;
-        if (request?.Exception != null && !string.IsNullOrWhiteSpace(request.Exception.Message))
-        {
-            message += Environment.NewLine + request.Exception.Message;
-        }
-        UiDialogRoute.ShowMessageBox(
-            this,
-            message,
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
-    }
-
-    private void MainWindowViewModel_PlaylistSummarySelectionRestoreRequested(PlaylistSummarySelectionRestoreRequest request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        if (!Dispatcher.CheckAccess())
-        {
-            Dispatcher.BeginInvoke(
-                new Action(() => ApplyPlaylistSummarySelectionRestoreToView(request)),
-                DispatcherPriority.Background);
-            return;
-        }
-        ApplyPlaylistSummarySelectionRestoreToView(request);
-    }
-
-    private void ApplyPlaylistSummarySelectionRestoreToView(PlaylistSummarySelectionRestoreRequest request)
-    {
-        if (customTablePlaylistSummary == null || request == null)
-        {
-            return;
-        }
-        HashSet<int> playlistIdSet = new(request.PlaylistIds);
-        int? currentPlaylistId = request.CurrentPlaylistId;
-        customTablePlaylistSummary.SelectRowsByPredicate(
-            row => row is PlaylistSummaryRow playlistSummaryRow
-                && playlistSummaryRow.PlaylistId.HasValue
-                && playlistIdSet.Contains(playlistSummaryRow.PlaylistId.Value),
-            row => currentPlaylistId.HasValue
-                && row is PlaylistSummaryRow playlistSummaryRow
-                && playlistSummaryRow.PlaylistId == currentPlaylistId);
-    }
-
     private bool IsPlaylistSummaryBmtSortDropAllowed(DragEventArgs e, out List<PlaylistSummaryRow> draggedRows, out PlaylistSummaryRow primaryDraggedRow, out int visibleInsertIndex)
     {
         draggedRows = [];
@@ -2118,15 +1905,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return 0;
         }
-        if (y < customTablePlaylistSummary.HeaderHeight)
+        CustomTableRowGeometry rowGeometry = customTablePlaylistSummary.RowGeometry;
+        if (y < rowGeometry.HeaderHeight)
         {
             return 0;
         }
         int firstVisibleRowIndex = customTablePlaylistSummary.FirstVisibleRowIndex;
-        int drawableRowCapacity = customTablePlaylistSummary.CalculateDrawableRowCapacity();
-        int lastVisibleRowExclusive = Math.Min(rowCount, firstVisibleRowIndex + drawableRowCapacity);
-        double rowHeight = Math.Max(1d, customTablePlaylistSummary.RowHeight);
-        int rowIndex = firstVisibleRowIndex + (int)Math.Floor((y - customTablePlaylistSummary.HeaderHeight) / rowHeight);
+        int lastVisibleRowExclusive = Math.Min(rowCount, firstVisibleRowIndex + rowGeometry.DrawableRowCapacity);
+        int slot = rowGeometry.RowSlotAt(y);
+        int rowIndex = firstVisibleRowIndex + slot;
         if (rowIndex < firstVisibleRowIndex)
         {
             return firstVisibleRowIndex;
@@ -2135,8 +1922,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return rowCount;
         }
-        double rowTop = customTablePlaylistSummary.HeaderHeight + (rowIndex - firstVisibleRowIndex) * rowHeight;
-        bool insertAfterTarget = y >= rowTop + rowHeight / 2d;
+        bool insertAfterTarget = y >= rowGeometry.RowTop(slot) + rowGeometry.RowHeight / 2d;
         return Math.Max(0, Math.Min(rowCount, rowIndex + (insertAfterTarget ? 1 : 0)));
     }
 
@@ -2152,7 +1938,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             if (viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive)
             {
-                NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + (e.SelectedRows?.Count ?? 0));
+                NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + e.SelectedCount);
             }
             playbackTerminal.HandleTableSelection(e.SelectedRow);
         }
@@ -2228,21 +2014,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private void customTableView_RowActivated(object sender, CustomTableRowRequestedEventArgs e)
+    private void customTableView_RowActivated(object sender, CustomTableRowRequestedEventArgs e) =>
+        RequestPlaybackFromTable(e.RowIndex, e.Row).ObserveFault("MainWindow.ActivatePlaybackRow");
+
+    /// <summary>構成済み表の行をそのまま再生ownerへ渡し、受付後の面要求を現在のView接続へ向けます。</summary>
+    /// <returns>転送した再生要求の実終端。面要求のUI配送は別に進みます。</returns>
+    /// <param name="receipt">当該入力だけの受取先。通常入力では省略し、再生・通知・停止の所有は変えません。</param>
+    internal Task RequestPlaybackFromTable(int rowIndex, object row, PlaybackInputReceipt receipt = null)
     {
-        if (ShouldBlockStartupUiInteraction("custom_table_row_activate"))
+        if (ShouldBlockStartupUiInteraction("custom_table_row_activate")
+            || base.DataContext is not MainWindowViewModel)
         {
-            return;
+            return Task.CompletedTask;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        if (playbackTerminal.HandleTableRowActivation(e.RowIndex, e.Row))
-        {
-            playbackPanelView.TrySelectBmsPlayerSurface();
-        }
+        return playbackTerminal.HandleTableRowActivation(rowIndex, row,
+            playbackPanelView.CaptureBmsPlayerSurfaceRequest(), receipt);
     }
+
+    /// <summary>構成済み再生面の通常開始入力を転送します。</summary>
+    internal Task RequestStartPlayback(PlaybackInputReceipt receipt) => playbackPanelView.RequestPlaybackFromPlayButton(receipt);
+
+    /// <summary>構成済み再生面の通常次入力を転送します。</summary>
+    internal Task RequestNextPlayback(PlaybackInputReceipt receipt) => playbackPanelView.RequestNextPlayback(receipt);
+
+    /// <summary>構成済み再生面の通常停止入力を転送します。</summary>
+    internal Task RequestStopPlayback(PlaybackInputReceipt receipt) => playbackPanelView.RequestStopPlayback(receipt);
 
     private void customTablePlaylistSummary_RowActivated(object sender, CustomTableRowRequestedEventArgs e)
     {
@@ -2292,6 +2088,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         CloseContextMenuIfOpen(contextMenu);
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            // 内蔵表など、外部で開けるページがない行では「ページを開く」を無効にし、押しても何も起きない項目にしない。
+            foreach (MenuItem item in contextMenu.Items.OfType<MenuItem>())
+            {
+                if (item.Name == "playlistSummaryContextMenuOpenPage")
+                {
+                    item.IsEnabled = viewModel.PlaylistWorkspace.CanOpenPlaylistSummaryRowPage(e.Row as PlaylistSummaryRow);
+                }
+            }
+        }
         contextMenu.Tag = new CustomTableContextMenuContext(e.Row, e.RowIndex);
         contextMenu.PlacementTarget = customTablePlaylistSummary;
         contextMenu.Placement = e.OpenAtMousePosition ? PlacementMode.MousePoint : PlacementMode.Bottom;
@@ -2470,7 +2277,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void customTableView_CellEditEnded(object sender, CustomTableCellEditEndedEventArgs e)
     {
-        mainChartCellEditTerminal.Complete(e.Row, e.EditPropertyName, e.Text, e.Commit);
+        mainChartCellEditTerminal.Complete(e.Row, e.EditPropertyName, e.Text, e.Commit, e.OriginalText);
     }
 
     private void RefreshCustomTableViewDisplayAsync()
@@ -2489,32 +2296,45 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         customTableView.RefreshDisplay();
     }
-    private void tableInitializeColumnSetting(object sender, RoutedEventArgs e)
+    private async void tableInitializeColumnSetting(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockStartupUiInteraction("column_setting_initialize"))
+        try
         {
-            e.Handled = true;
-            return;
+            if (ShouldBlockStartupUiInteraction("column_setting_initialize"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is MainWindowViewModel)
+            {
+                e.Handled = true;
+                await columnResetTerminal.ResetAsync(Window.GetWindow(this));
+            }
         }
-        if (base.DataContext is MainWindowViewModel)
+        catch (Exception exception)
         {
-            e.Handled = true;
-            columnResetTerminal.Reset(Window.GetWindow(this));
+            await NotifyMainWindowOperationFailureAsync(exception, "tableInitializeColumnSetting");
         }
     }
 
     private async void playlistSummaryInitializeColumnSetting(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockStartupUiInteraction("playlist_summary_column_setting_initialize"))
+        try
         {
-            e.Handled = true;
-            return;
+            if (ShouldBlockStartupUiInteraction("playlist_summary_column_setting_initialize"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is MainWindowViewModel mainWindowViewModel)
+            {
+                e.Handled = true;
+                await mainWindowViewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefaultAsync();
+            }
         }
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel)
+        catch (Exception exception)
         {
-            e.Handled = true;
-            await mainWindowViewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefaultAsync()
-                .LoggingAndPropagate("playlistSummaryInitializeColumnSetting");
+            await NotifyMainWindowOperationFailureAsync(exception, "playlistSummaryInitializeColumnSetting");
         }
     }
 
@@ -2789,6 +2609,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             Name = name ?? string.Empty,
             Header = header ?? string.Empty,
+            HeaderTemplate = LiteralMenuHeader.Template,
             Tag = new ConfiguredExternalActionMenuTag(kind, actionId)
         };
     }
@@ -2863,7 +2684,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return builder.ToString();
     }
 
-    private void configuredExternalActionMenuItemClick(object sender, RoutedEventArgs e)
+    private async void configuredExternalActionMenuItemClick(object sender, RoutedEventArgs e)
     {
         if (sender is not MenuItem { Tag: ConfiguredExternalActionMenuTag tag }
             || !TryGetContextMenuRow(e.Source, out object row)
@@ -2872,6 +2693,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
 
+        // 生成した項目は、現在の行や設定が古くなっていても、このクリックの経路を所有します。
+        // 失敗は端末が下で通知します。親へ伝わると旧来のハンドラーを呼びうるため、最初の await や例外より前に確定します。
+        e.Handled = true;
         RightClickActionResolutionInput input = null;
         if (row is PlayHistoryRow)
         {
@@ -2891,8 +2715,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         if (input == null)
         {
-            e.Handled = true;
-            ShowConfiguredExternalActionFailure(
+            await ShowConfiguredExternalActionFailureAsync(
                 ExternalConfiguredActionResult.Failure(
                     ExternalConfiguredActionFailureKind.ActionUnavailable,
                     BeMusicSeeker.Properties.Resources.RightClick_external_action_unavailable));
@@ -2902,13 +2725,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         ExternalConfiguredActionResult result = selectedChartContextMenuTerminals
             .SelectedChartExternalActions
             .ExecuteConfiguredAction(input, tag.Kind, tag.ActionId);
-        // A generated item owns the routed click even when the current row or
-        // settings became stale.  The terminal reports the failure below;
-        // allowing the event to bubble would risk invoking a legacy handler.
-        e.Handled = true;
         if (!result.Succeeded)
         {
-            ShowConfiguredExternalActionFailure(result);
+            await ShowConfiguredExternalActionFailureAsync(result);
         }
     }
 
@@ -2926,7 +2745,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         };
     }
 
-    private void ShowConfiguredExternalActionFailure(ExternalConfiguredActionResult result)
+    private async Task ShowConfiguredExternalActionFailureAsync(ExternalConfiguredActionResult result)
     {
         string detail = string.IsNullOrWhiteSpace(result.Diagnostic)
             ? result.FailureKind.ToString()
@@ -2938,13 +2757,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        UiDialogRoute.ShowMessageBox(
-            this,
-            GetConfiguredExternalActionFailureMessage(result),
-            BeMusicSeeker.Properties.Resources.Error,
-            MessageBoxButton.OK,
-            MessageBoxImage.Hand,
-            MessageBoxResult.OK);
+        await ShowOptionalNotificationAsync(
+            new UiMessageRequest(
+                GetConfiguredExternalActionFailureMessage(result),
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK,
+                owner: this),
+            "configured_external_action failure notification");
     }
 
     private bool TryGetPlayHistoryContextMenuAction(
@@ -3126,6 +2947,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         TreeViewItem treeViewItem = FindAncestor<TreeViewItem>(source);
+        if (treeViewItem != null && ShouldBlockStartupUiInteraction("tree_left_click"))
+        {
+            // 抑止中の左クリックは選択自体を起こさず、見出しの表示と一覧の対象を食い違わせない。
+            e.Handled = true;
+            return;
+        }
         if (treeViewItem == null || !treeViewItem.IsSelected)
         {
             return;
@@ -3256,26 +3083,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return PackageCatalogSelectionPlan.None;
         }
+        var trackedPackage = currentItem as ChartPackage;
         int count = rootTreeViewItem.Items.Count;
         if (count == 0)
         {
-            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem);
+            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem, trackedPackage);
         }
         int currentIndex = rootTreeViewItem.Items.IndexOf(currentItem);
         if (currentIndex == 0 && count == 1)
         {
-            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem);
+            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem, trackedPackage);
         }
         if (currentIndex == -1)
         {
             NLogWrapper.FileLogger?.Info(logScope + " selection_fallback reason=current_not_found root=" + rootTreeViewItem.Header);
-            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem);
+            return PackageCatalogSelectionPlan.SelectRoot(rootTreeViewItem, trackedPackage);
         }
         int targetIndex = ((count - 1 == currentIndex) ? (currentIndex - 1) : (currentIndex + 1));
         return PackageCatalogSelectionPlan.SelectTarget(
             rootTreeViewItem,
             rootTreeViewItem.Items[targetIndex],
-            logScope);
+            logScope,
+            trackedPackage);
     }
 
     private void SelectNextSiblingOrRoot(TreeViewItem rootTreeViewItem, object currentItem, string logScope)
@@ -3288,30 +3117,82 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         private readonly TreeViewItem rootTreeViewItem;
         private readonly object targetDataContext;
         private readonly string logScope;
+        private readonly ChartPackage trackedPackage;
+        private readonly string trackedPackagePath;
 
         private PackageCatalogSelectionPlan(
             TreeViewItem rootTreeViewItem,
             object targetDataContext,
-            string logScope)
+            string logScope,
+            ChartPackage trackedPackage)
         {
             this.rootTreeViewItem = rootTreeViewItem;
             this.targetDataContext = targetDataContext;
             this.logScope = logScope;
+            this.trackedPackage = trackedPackage;
+            // 導入で実体の path が移動先へ変わる場合と、再読込みで別の実体に置き換わる場合を区別するため、操作前の path を控える。
+            trackedPackagePath = trackedPackage?.path;
         }
 
-        internal static PackageCatalogSelectionPlan None { get; } = new(null, null, string.Empty);
+        internal static PackageCatalogSelectionPlan None { get; } = new(null, null, string.Empty, null);
 
-        internal static PackageCatalogSelectionPlan SelectRoot(TreeViewItem rootTreeViewItem)
+        internal static PackageCatalogSelectionPlan SelectRoot(TreeViewItem rootTreeViewItem, ChartPackage trackedPackage)
         {
-            return new PackageCatalogSelectionPlan(rootTreeViewItem, null, string.Empty);
+            return new PackageCatalogSelectionPlan(rootTreeViewItem, null, string.Empty, trackedPackage);
         }
 
         internal static PackageCatalogSelectionPlan SelectTarget(
             TreeViewItem rootTreeViewItem,
             object targetDataContext,
-            string logScope)
+            string logScope,
+            ChartPackage trackedPackage)
         {
-            return new PackageCatalogSelectionPlan(rootTreeViewItem, targetDataContext, logScope);
+            return new PackageCatalogSelectionPlan(rootTreeViewItem, targetDataContext, logScope, trackedPackage);
+        }
+
+        /// <summary>
+        /// 操作前に選択していたパッケージが、操作後の区画に残っていないかを返します。
+        /// 同じ実体か、再読込みで置き換わった同じ path の実体が残っていれば外れていないとみなします。
+        /// 選択中のパッケージがない計画（区画のルートの選択など）は外れていないものとして扱います。
+        /// </summary>
+        internal bool HasTrackedPackageLeftSection()
+        {
+            if (rootTreeViewItem == null || trackedPackage == null)
+            {
+                return false;
+            }
+            foreach (object item in rootTreeViewItem.Items)
+            {
+                if (ReferenceEquals(item, trackedPackage))
+                {
+                    return false;
+                }
+                if (trackedPackagePath != null
+                    && item is ChartPackage candidate
+                    && string.Equals(candidate.path, trackedPackagePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 選択中のパッケージが区画から外れた場合だけ、前後の兄弟またはルートへ選択を移します。
+        /// 外れなかった場合はツリー選択も一覧の選択も変えません。
+        /// </summary>
+        /// <param name="owner">選択を反映する画面。</param>
+        /// <param name="onLeftSection">選択を移す前に、外れた場合だけ実行する処理。</param>
+        /// <returns>選択を移した場合は <see langword="true"/>。</returns>
+        internal bool ApplyWhenTrackedPackageLeft(MainWindow owner, Action onLeftSection = null)
+        {
+            if (!HasTrackedPackageLeftSection())
+            {
+                return false;
+            }
+            onLeftSection?.Invoke();
+            Apply(owner);
+            return true;
         }
 
         internal void Apply(MainWindow owner)
@@ -3330,9 +3211,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private bool TrySelectChildTreeViewItemByDataContext(TreeViewItem rootTreeViewItem, object targetDataContext, string logScope)
     {
+        TreeViewItem item = TryGetChildTreeViewItemByDataContext(rootTreeViewItem, targetDataContext, logScope);
+        if (item == null) { return false; }
+        SelectTreeViewItemWithFocus(item);
+        return true;
+    }
+
+    private TreeViewItem TryGetChildTreeViewItemByDataContext(TreeViewItem rootTreeViewItem, object targetDataContext, string logScope)
+    {
         if (rootTreeViewItem == null || targetDataContext == null)
         {
-            return false;
+            return null;
         }
         var treeViewItem = rootTreeViewItem.ItemContainerGenerator
             .ContainerFromItem(targetDataContext) as TreeViewItem;
@@ -3354,10 +3243,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (treeViewItem == null)
         {
             NLogWrapper.FileLogger?.Info(logScope + " selection_fallback reason=container_not_realized root=" + rootTreeViewItem.Header + " target=" + targetDataContext);
-            return false;
+            return null;
         }
-        SelectTreeViewItemWithFocus(treeViewItem);
-        return true;
+        return treeViewItem;
     }
 
     private static bool TryRealizeVirtualizedTreeItem(TreeViewItem rootTreeViewItem, int targetIndex)
@@ -3428,10 +3316,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         BMSTable bmsTable = null;
+        IReadOnlyList<PlaylistFolderNode> folderNodes = null;
         PlaylistFolderNode selectedFolderNode = null;
         if (selectedItem.DataContext is BMSTable bMSTable2)
         {
             bmsTable = bMSTable2;
+            folderNodes = selectedItem.ItemsSource as IReadOnlyList<PlaylistFolderNode>;
         }
         else
         {
@@ -3446,10 +3336,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 ancestor = FindAncestor<TreeViewItem>(VisualTreeHelper.GetParent(ancestor));
             }
             bmsTable = ancestor?.DataContext as BMSTable;
+            folderNodes = ancestor?.ItemsSource as IReadOnlyList<PlaylistFolderNode>;
         }
         if (bmsTable != null)
         {
-            viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
+            viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode, folderNodes);
         }
     }
 
@@ -3473,6 +3364,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     {
         if (e.Key == Key.F2 && sender is TreeViewItem treeViewItem && treeViewItem.Template.FindName("PART_Header", treeViewItem) is ContentPresenter templatedParent && treeViewItem.HeaderTemplate.FindName("etbPlaylistTableFolder", templatedParent) is EditableTextBlock editableTextBlock)
         {
+            CancelPendingPlaylistFolderRename();
             if (TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) && !folderNode.IsEditable)
             {
                 return;
@@ -3482,13 +3374,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
     }
 
-    private async void playlistTableFolderClicked(object sender, MouseButtonEventArgs e)
+    /// <summary>選択済み見出しの再クリックから、一件だけの取消可能な遅延編集開始を所有します。</summary>
+    /// <remarks>
+    /// 要求は見出しの PreviewMouseDown で作ります。Preview と bubble のイベント引数は別の参照のため、開始クリックの終端は
+    /// 引き継がれる入力属性と対象ツリー内の配送経路で照合します。要求の退役（現在参照の除去、DispatcherTimer の停止、
+    /// Tick と監視の解除）は、編集開始より先に終えます。
+    /// </remarks>
+    private void playlistTableFolderClicked(object sender, MouseButtonEventArgs e)
     {
         if (!(e.ChangedButton == MouseButton.Left) || !(sender is EditableTextBlock { TemplatedParent: ContentPresenter contentPresenter } editableTextBlock))
         {
             return;
         }
-        if (contentPresenter.TemplatedParent is not TreeViewItem ownerTreeViewItem || !ownerTreeViewItem.IsSelected)
+        if (contentPresenter.TemplatedParent is not TreeViewItem ownerTreeViewItem || !ownerTreeViewItem.IsSelected
+            || !editableTextBlock.IsEditable || editableTextBlock.IsInEditMode)
         {
             return;
         }
@@ -3499,25 +3398,114 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
         object originalEditableDataContext = editableTextBlock.DataContext;
         object originalHeaderDataContext = contentPresenter.DataContext;
-        await Task.Delay(1000);
+        CancelPendingPlaylistFolderRename();
+        var timer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher) { Interval = TimeSpan.FromSeconds(1) };
+        // Previewで購読してからbubbleのrouteを作らせ、開始click自身のfocusだけをその終端まで許します。
+        // 時間やDispatcher配送順から「元のclick」を推測しません。
+        MouseButtonEventArgs initialMouseDown = e;
+        pendingPlaylistFolderRenameTimer = timer;
+        pendingPlaylistFolderRenameCleanup = Cleanup;
+        timer.Tick += Tick;
+        AddHandler(Mouse.PreviewMouseDownEvent, new MouseButtonEventHandler(CancelForMouseDown), true);
+        AddHandler(Mouse.MouseDownEvent, new MouseButtonEventHandler(CompleteInitialMouseDown), true);
+        AddHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(CancelForKey), true);
+        AddHandler(TextCompositionManager.PreviewTextInputStartEvent, new TextCompositionEventHandler(CancelForText), true);
+        AddHandler(TextCompositionManager.PreviewTextInputEvent, new TextCompositionEventHandler(CancelForText), true);
+        AddHandler(Mouse.PreviewMouseWheelEvent, new MouseWheelEventHandler(CancelForWheel), true);
+        AddHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(CancelForFocus), true);
+        AddHandler(Keyboard.LostKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(CancelForFocus), true);
+        AddHandler(EditableTextBlock.EditModeChangedEvent, new RoutedEventHandler(CancelForEdit), true);
+        editableTextBlock.DataContextChanged += CancelForContext;
+        contentPresenter.DataContextChanged += CancelForContext;
+        editableTextBlock.Unloaded += CancelForTarget;
+        contentPresenter.Unloaded += CancelForTarget;
+        ownerTreeViewItem.Unselected += CancelForTarget;
+        Deactivated += CancelForWindow;
+        timer.Start();
 
-        // NOTE:
-        // Recycling有効時は待機中にコンテナ再利用が起きるため、編集開始前に同一対象か再検証する。
-        // 再利用済みなら誤った行の編集開始を避けるため何もしない。
-        if (!ReferenceEquals(editableTextBlock.DataContext, originalEditableDataContext) || !ReferenceEquals(contentPresenter.DataContext, originalHeaderDataContext) || !ownerTreeViewItem.IsSelected)
+        void Tick(object timerSender, EventArgs args)
         {
-            return;
+            if (!ReferenceEquals(pendingPlaylistFolderRenameTimer, timer)) { return; }
+            bool canBegin = ReferenceEquals(editableTextBlock.DataContext, originalEditableDataContext)
+                && ReferenceEquals(contentPresenter.DataContext, originalHeaderDataContext)
+                && ReferenceEquals(editableTextBlock.TemplatedParent, contentPresenter)
+                && ReferenceEquals(contentPresenter.TemplatedParent, ownerTreeViewItem)
+                && ReferenceEquals(Window.GetWindow(editableTextBlock), this)
+                && editableTextBlock.IsLoaded && contentPresenter.IsLoaded && ownerTreeViewItem.IsSelected
+                && editableTextBlock.IsEditable && !editableTextBlock.IsInEditMode
+                && (!TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode currentFolder) || currentFolder.IsEditable);
+            CancelThisRequest();
+            if (canBegin) { editableTextBlock.IsInEditMode = true; }
         }
-        if (TryGetPlaylistFolderNode(editableTextBlock.DataContext, out folderNode) && !folderNode.IsEditable)
+
+        void CancelThisRequest()
         {
-            return;
+            // 解除前に構築されたEventRouteから旧handlerが届いても、後発要求を退役させません。
+            if (ReferenceEquals(pendingPlaylistFolderRenameTimer, timer)) { CancelPendingPlaylistFolderRename(); }
         }
-        editableTextBlock.IsInEditMode = true;
+        void CancelForMouseDown(object eventSender, MouseButtonEventArgs args) => CancelThisRequest();
+        void CompleteInitialMouseDown(object eventSender, MouseButtonEventArgs args)
+        {
+            // WPFはPreviewから別のargsを作り、この入力属性を引き継いでMouseDownを配送します。
+            // 後発Previewは既に要求を取り消すため、恒久的な入力IDや時刻の猶予判定は不要です。
+            if (initialMouseDown != null
+                && ReferenceEquals(args.MouseDevice, initialMouseDown.MouseDevice)
+                && args.Timestamp == initialMouseDown.Timestamp && args.ChangedButton == initialMouseDown.ChangedButton
+                && ReferenceEquals(args.StylusDevice, initialMouseDown.StylusDevice) && args.ClickCount == initialMouseDown.ClickCount
+                && ReferenceEquals(FindAncestor<TreeViewItem>(args.OriginalSource as DependencyObject), ownerTreeViewItem))
+            {
+                initialMouseDown = null;
+            }
+        }
+        void CancelForKey(object eventSender, KeyEventArgs args) => CancelThisRequest();
+        void CancelForText(object eventSender, TextCompositionEventArgs args) => CancelThisRequest();
+        void CancelForWheel(object eventSender, MouseWheelEventArgs args) => CancelThisRequest();
+        void CancelForFocus(object eventSender, KeyboardFocusChangedEventArgs args)
+        {
+            if (initialMouseDown != null && args.NewFocus is DependencyObject destination
+                && (ReferenceEquals(destination, ownerTreeViewItem) || ownerTreeViewItem.IsAncestorOf(destination))) { return; }
+            CancelThisRequest();
+        }
+        void CancelForContext(object eventSender, DependencyPropertyChangedEventArgs args) => CancelThisRequest();
+        void CancelForTarget(object eventSender, RoutedEventArgs args) => CancelThisRequest();
+        void CancelForEdit(object eventSender, RoutedEventArgs args) => CancelThisRequest();
+        void CancelForWindow(object eventSender, EventArgs args) => CancelThisRequest();
+        void Cleanup()
+        {
+            timer.Stop();
+            timer.Tick -= Tick;
+            RemoveHandler(Mouse.PreviewMouseDownEvent, new MouseButtonEventHandler(CancelForMouseDown));
+            RemoveHandler(Mouse.MouseDownEvent, new MouseButtonEventHandler(CompleteInitialMouseDown));
+            RemoveHandler(Keyboard.PreviewKeyDownEvent, new KeyEventHandler(CancelForKey));
+            RemoveHandler(TextCompositionManager.PreviewTextInputStartEvent, new TextCompositionEventHandler(CancelForText));
+            RemoveHandler(TextCompositionManager.PreviewTextInputEvent, new TextCompositionEventHandler(CancelForText));
+            RemoveHandler(Mouse.PreviewMouseWheelEvent, new MouseWheelEventHandler(CancelForWheel));
+            RemoveHandler(Keyboard.GotKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(CancelForFocus));
+            RemoveHandler(Keyboard.LostKeyboardFocusEvent, new KeyboardFocusChangedEventHandler(CancelForFocus));
+            RemoveHandler(EditableTextBlock.EditModeChangedEvent, new RoutedEventHandler(CancelForEdit));
+            editableTextBlock.DataContextChanged -= CancelForContext;
+            contentPresenter.DataContextChanged -= CancelForContext;
+            editableTextBlock.Unloaded -= CancelForTarget;
+            contentPresenter.Unloaded -= CancelForTarget;
+            ownerTreeViewItem.Unselected -= CancelForTarget;
+            Deactivated -= CancelForWindow;
+        }
+    }
+
+    /// <summary>未開始の改名要求を同期的に退役させ、タイマーとその要求だけの監視を解除します。</summary>
+    private void CancelPendingPlaylistFolderRename()
+    {
+        pendingPlaylistFolderRenameTimer = null;
+        Action cleanup = pendingPlaylistFolderRenameCleanup;
+        pendingPlaylistFolderRenameCleanup = null;
+        cleanup?.Invoke();
     }
 
     private async void playlistTableFolderNameChanged(object sender, RoutedEventArgs e)
     {
-        if (sender is not EditableTextBlock editableTextBlock || !editableTextBlock.IsTextChanged())
+        CancelPendingPlaylistFolderRename();
+        if (sender is not EditableTextBlock editableTextBlock
+            || e is not EditableTextBlockEditModeChangedEventArgs { CommittedText: string nameAfter })
         {
             return;
         }
@@ -3544,7 +3532,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 return;
             }
-            string nameAfter = editableTextBlock.Text;
             try
             {
                 await viewModel.PlaylistWorkspace
@@ -3562,7 +3549,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void playlistTableSelected(object sender, RoutedEventArgs e)
     {
-        if (suppressPlaylistLampTreeSelection)
+        if (suppressPlaylistLampTreeSelection || replacingPlaylistFolderNodes)
         {
             e.Handled = true;
             return;
@@ -3591,11 +3578,56 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             selectedFolderNode = folderNode;
         }
         e.Handled = true;
-        viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
+        viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode,
+            treeViewItem.ItemsSource as IReadOnlyList<PlaylistFolderNode>);
+    }
+
+    /// <summary>
+    /// 起動中の抑止では、フォーカス移動に伴う選択の変更を起こす選択移動キーを処理済みにします。
+    /// 展開キー（加算・減算・乗算、展開・折りたたみに当たる左右）と名前編集中の入力は妨げません。
+    /// </summary>
+    private void treeViewPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source
+            && (FindAncestor<TextBoxBase>(source) != null || FindAncestor<EditableTextBlock>(source) is { IsInEditMode: true }))
+        {
+            return;
+        }
+        TreeViewItem focusedItem = FindAncestor<TreeViewItem>(e.OriginalSource as DependencyObject);
+        bool movesSelection = e.Key switch
+        {
+            Key.Up or Key.Down or Key.Home or Key.End or Key.PageUp or Key.PageDown => true,
+            Key.Left => focusedItem == null || !focusedItem.IsExpanded,
+            Key.Right => focusedItem == null || !focusedItem.HasItems || focusedItem.IsExpanded,
+            _ => false,
+        };
+        if (movesSelection && ShouldBlockStartupUiInteraction("tree_selection_key"))
+        {
+            e.Handled = true;
+        }
+    }
+
+    /// <summary>起動中の抑止では、先頭文字検索による選択の移動を起こす文字入力を処理済みにします。名前編集中の入力は妨げません。</summary>
+    private void treeViewPreviewTextInput(object sender, TextCompositionEventArgs e)
+    {
+        if (e.OriginalSource is DependencyObject source
+            && (FindAncestor<TextBoxBase>(source) != null || FindAncestor<EditableTextBlock>(source) is { IsInEditMode: true }))
+        {
+            return;
+        }
+        if (ShouldBlockStartupUiInteraction("tree_text_search"))
+        {
+            e.Handled = true;
+        }
     }
 
     private void treeViewItemOnRightClick(object sender, MouseButtonEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_right_click"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (e.OriginalSource is TextBlock reference)
         {
             DependencyObject parent = VisualTreeHelper.GetParent(reference);
@@ -3612,6 +3644,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void mouseRightButtonDown(object sender, RoutedEventArgs e)
     {
+        if (ShouldBlockStartupUiInteraction("tree_item_right_click"))
+        {
+            e.Handled = true;
+            return;
+        }
         if (sender is TreeViewItem treeViewItem)
         {
             treeViewItem.IsSelected = true;
@@ -3681,6 +3718,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private void rootFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (startupInitialSelectionInProgress)
+        {
+            return;
+        }
         if (ShouldBlockStartupUiInteraction("tree_root_folder_select"))
         {
             e.Handled = true;
@@ -3964,14 +4005,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>Opens a fresh local lamp viewer for the single summary row.</summary>
     private async void playlistSummaryContextMenuOpenLampViewerClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel
-            || resolvePlaylistSummaryRowFromSender(sender) is not PlaylistSummaryRow row)
+        try
         {
-            return;
+            if (base.DataContext is not MainWindowViewModel
+                || resolvePlaylistSummaryRowFromSender(sender) is not PlaylistSummaryRow row)
+            {
+                return;
+            }
+            e.Handled = true;
+            await playlistLampViewerWindowManager.TryOpenAsync(row);
         }
-        e.Handled = true;
-        await playlistLampViewerWindowManager.TryOpenAsync(row)
-            .LoggingAndPropagate("playlistSummaryContextMenuOpenLampViewerClick");
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "playlistSummaryContextMenuOpenLampViewerClick");
+        }
     }
 
     private async void playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick(object sender, RoutedEventArgs e)
@@ -4038,40 +4085,55 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void playlistSummaryContextMenuOpenBulkEditClick(object sender, RoutedEventArgs e)
     {
-        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
-        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = [.. getSelectedPlaylistSummaryRows(playlistSummaryRow).Where(row => row?.TableRef != null)];
-        if (selectedPlaylistSummaryRows.Count == 0)
+        try
         {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel)
-        {
-            PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel dialog =
-                mainWindowViewModel.PlaylistWorkspace.OpenSummaryBulkEditDialog(selectedPlaylistSummaryRows);
-            if (dialog == null)
+            PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+            List<PlaylistSummaryRow> selectedPlaylistSummaryRows = [.. getSelectedPlaylistSummaryRows(playlistSummaryRow)];
+            if (selectedPlaylistSummaryRows.Count == 0)
             {
                 return;
             }
-            await ShowPlaylistSummaryBulkEditDialogAsync(dialog);
+            if (base.DataContext is MainWindowViewModel mainWindowViewModel)
+            {
+                PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel dialog =
+                    mainWindowViewModel.PlaylistWorkspace.OpenSummaryBulkEditDialog(selectedPlaylistSummaryRows);
+                if (dialog == null)
+                {
+                    return;
+                }
+                await ShowPlaylistSummaryBulkEditDialogAsync(dialog);
+            }
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "playlistSummaryContextMenuOpenBulkEditClick");
         }
     }
 
     private async void playlistSummaryContextMenuOpenPropertyClick(object sender, RoutedEventArgs e)
     {
-        PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
-        if (playlistSummaryRow?.TableRef == null)
+        try
         {
-            return;
+            PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
+            if (playlistSummaryRow?.TableRef == null)
+            {
+                return;
+            }
+            if (base.DataContext is MainWindowViewModel mainWindowViewModel)
+            {
+                await OpenPlaylistPropertyDialogAsync(
+                    mainWindowViewModel,
+                    playlistSummaryRow.TableRef);
+            }
         }
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel)
+        catch (Exception exception)
         {
-            await OpenPlaylistPropertyDialogAsync(
-                mainWindowViewModel,
-                playlistSummaryRow.TableRef);
+            await NotifyMainWindowOperationFailureAsync(exception, "playlistSummaryContextMenuOpenPropertyClick");
         }
     }
 
-    private async Task OpenPlaylistPropertyDialogAsync(
+    /// <summary>通常メニューと同じ実プロパティ表示・保存・閉鎖の終端まで待ちます。</summary>
+    internal async Task OpenPlaylistPropertyDialogAsync(
         MainWindowViewModel viewModel,
         BMSTable table)
     {
@@ -4100,7 +4162,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 .ShowWindowAsync(new UiWindowDialogRequest<PlaylistPropertyDialog, object>(
                     () =>
                     {
-                        window = new PlaylistPropertyDialog(dialog);
+                        window = new PlaylistPropertyDialog(dialog, playlistWorkspaceDialogService);
                         activePlaylistPropertyDialog = window;
                         return window;
                     },
@@ -4206,7 +4268,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 .ShowWindowAsync(new UiWindowDialogRequest<PlaylistSummaryBulkEditDialog, object>(
                     () =>
                     {
-                        window = new PlaylistSummaryBulkEditDialog(dialog);
+                        window = new PlaylistSummaryBulkEditDialog(dialog, playlistWorkspaceDialogService);
                         activePlaylistSummaryBulkEditDialog = window;
                         return window;
                     },
@@ -4431,9 +4493,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             try
             {
-                await maintenanceTreeTerminal
-                    .NavigateAsync(MainViewUpdateMode.DuplicateFilterSelected);
-                treeRoot.IsExpanded = true;
+                Task<bool> navigation = maintenanceTreeTerminal.NavigateAsync(MainViewUpdateMode.DuplicateFilterSelected);
+                RegularChartNavigationRequest selection = viewModel.RegularChartList.CaptureNavigation();
+                await navigation;
+                if (treeRoot.IsSelected && viewModel.RegularChartList.IsCurrentNavigation(selection)
+                    && viewModel.MaintenanceTree.DuplicateChartGroups != null)
+                { treeRoot.IsExpanded = true; }
             }
             catch (OperationCanceledException)
             {
@@ -4659,6 +4724,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void pendingInstallFolderSelect(object sender, RoutedEventArgs e)
     {
+        if (startupInitialSelectionInProgress)
+        {
+            e.Handled = true;
+            return;
+        }
         if (ShouldBlockStartupUiInteraction("tree_pending_install_select"))
         {
             e.Handled = true;
@@ -4706,7 +4776,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>
     /// プレイリストツリーの「ルート（プレイリスト一覧）」に対するコンテキストメニューが開かれた際の処理。
     /// 現在の書き込みロック状態やバックグラウンド処理状況（IsWriteLockHeld等）に応じ、
-    /// 新規作成やURL読み込みなどの各種メニュー項目の有効/無効 (IsEnabled) を動的に制御します。
+    /// 新規作成項目の有効/無効 (IsEnabled) を動的に制御します。
     /// </summary>
     private void treeViewPlaylistRootContextMenuOpend(object sender, RoutedEventArgs e)
     {
@@ -4714,67 +4784,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        PlaylistRootContextMenuAvailability availability =
-            mainWindowViewModel.PlaylistWorkspace.CapturePlaylistRootContextMenuAvailability();
-        MenuItem menuItem = null;
-        MenuItem menuItem2 = null;
-        MenuItem menuItem3 = null;
-        MenuItem menuItem4 = null;
-        foreach (Control item in (IEnumerable)contextMenu.Items)
+        foreach (MenuItem item in contextMenu.Items.OfType<MenuItem>())
         {
-            string name = item.Name;
-            if (name == "treeViewPlaylistRootContextMenuItemCreateNewPlaylist")
+            if (item.Name == "treeViewPlaylistRootContextMenuItemCreateNewPlaylist")
             {
-                menuItem = item as MenuItem;
+                item.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanCreatePlaylist;
             }
-            if (item is not MenuItem)
-            {
-                continue;
-            }
-            foreach (Control item2 in (IEnumerable)((MenuItem)item).Items)
-            {
-                switch (item2.Name)
-                {
-                    case "treeViewPlaylistRootContextMenuItemLoadPlaylistURL":
-                        menuItem2 = item2 as MenuItem;
-                        break;
-                    case "treeViewPlaylistRootContextMenuItemLoadPlaylistCollection":
-                        menuItem3 = item2 as MenuItem;
-                        break;
-                    case "treeViewPlaylistRootContextMenuItemLoadWalkureTable":
-                        menuItem4 = item2 as MenuItem;
-                        break;
-                }
-            }
-        }
-        if (menuItem != null)
-        {
-            menuItem.IsEnabled = availability.CanCreatePlaylist;
-        }
-        if (menuItem2 != null)
-        {
-            menuItem2.IsEnabled = availability.CanLoadPlaylistUri;
-        }
-        if (menuItem3 != null)
-        {
-            menuItem3.IsEnabled = availability.CanLoadPlaylistCollection;
-        }
-        if (menuItem4 != null)
-        {
-            menuItem4.IsEnabled = availability.CanLoadBuiltInTables;
         }
     }
 
     private async void treeViewPlaylistRootContextMenuItemReloadClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel || sender is not MenuItem)
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem)
         {
             return;
         }
         e.Handled = true;
-        await playlistWorkspaceTerminals.TablesReload
-            .ReloadAsync()
-            .LoggingAndPropagate("treeViewPlaylistRootContextMenuItemReloadClick");
+        try
+        {
+            await playlistWorkspaceTerminals.TablesReload.ReloadAsync();
+        }
+        catch (LibraryDirectoryPreflightException)
+        {
+            // 管理主体が後片付け後に専用警告を表示済みです。
+        }
+        catch (OperationCanceledException) when (viewModel.ShellShutdownWorkflow.IsShutdownRequested)
+        {
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistRootContextMenuItemReloadClick");
+        }
     }
 
     /// <summary>
@@ -4783,80 +4823,66 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private async void treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem)
+        if (base.DataContext is not MainWindowViewModel || sender is not MenuItem)
         {
             return;
         }
-        PlaylistPropertyDialogViewModel dialog;
-        try
-        {
-            dialog = await viewModel.PlaylistWorkspace
-                .CreatePlaylistPropertyDialogAsync();
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
+        try { await CreatePlaylistWithPropertiesAsync(); }
+        catch (OperationCanceledException) { }
         catch (Exception exception)
         {
             await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
+        }
+    }
+
+    /// <summary>通常の新規作成操作を共有し、draftの準備から実画面の終端・workspaceの後片付けまで待ちます。</summary>
+    internal async Task CreatePlaylistWithPropertiesAsync()
+    {
+        if (DataContext is not MainWindowViewModel viewModel)
+        { throw new InvalidOperationException("Main window view model is unavailable."); }
+        PlaylistPropertyDialogViewModel dialog = await viewModel.PlaylistWorkspace.CreatePlaylistPropertyDialogAsync();
+        if (dialog != null) { await ShowPlaylistPropertyDialogAsync(viewModel, dialog); }
+    }
+
+    private async void PlaylistImportClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        try { await ShowPlaylistImportDialogAsync(); }
+        catch (Exception exception) { await NotifyMainWindowOperationFailureAsync(exception, "Playlist import dialog"); }
+    }
+
+    private async Task ShowPlaylistImportDialogAsync()
+    {
+        if (activePlaylistImportDialog != null || IsShellClosingOrClosed()
+            || DataContext is not MainWindowViewModel viewModel)
+        {
             return;
         }
-        if (dialog != null)
-        {
-            try
-            {
-                await ShowPlaylistPropertyDialogAsync(viewModel, dialog);
-            }
-            catch (OperationCanceledException)
-            {
-            }
-            catch (Exception exception)
-            {
-                await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
-            }
-        }
-    }
 
-    /// <summary>
-    /// プレイリストルートのコンテキストメニュー「URLからプレイリストを読み込む」がクリックされた際の処理。
-    /// カスタムURL入力用のダイアログ (loadPlaylistURIDialog) を画面に表示します。
-    /// </summary>
-    private void treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel
-            && viewModel.PlaylistWorkspace != null
-            && viewModel.PlaylistWorkspace.CapturePlaylistRootContextMenuAvailability().CanLoadPlaylistUri)
+        PlaylistImportDialogViewModel session = viewModel.PlaylistWorkspace.CreatePlaylistImportDialogSession();
+        var cleanup = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        playlistImportDialogCleanupTask = cleanup.Task;
+        Visibility previousOverlay = PlaybackOverlayVisibility;
+        PlaybackOverlayVisibility = Visibility.Visible;
+        try
         {
-            ShowOverlayDialog(loadPlaylistURIDialog);
+            UiWindowDialogResult<object> result = await playlistWorkspaceDialogService.ShowWindowAsync(
+                new UiWindowDialogRequest<PlaylistImportDialog, object>(
+                    () => activePlaylistImportDialog = new PlaylistImportDialog(session, playlistWorkspaceDialogService),
+                    _ => null, this));
+            ThrowIfWindowDialogFailed(result.Status, result.Error, "Playlist import dialog");
         }
-    }
-
-    /// <summary>
-    /// プレイリストルートのコンテキストメニュー「プレイリストコレクションを読み込む」がクリックされた際の処理。
-    /// 指定されたコレクションURLをもとに、ViewModelへプレイリスト群の非同期登録を要求します。
-    /// </summary>
-    private void treeViewPlaylistRootContextMenuItemLoadPlaylistCollectionClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuItem menuItem)
+        finally
         {
-            e.Handled = true;
-            playlistWorkspaceTerminals.CollectionImport
-                .TryEnqueueExternalPlaylistCollectionImport(menuItem.DataContext as BMSTableSimple);
-        }
-    }
+            if (activePlaylistImportDialog != null)
+            {
+                activePlaylistImportDialog.DataContext = null;
+            }
 
-    /// <summary>
-    /// プレイリストルートのコンテキストメニュー「内蔵の難度推定表・リコメンドから読み込む」に関するメニュー項目（各難易度表単位）のアクション。
-    /// MenuItem の Tag に格納された URI を既存の取込みキューへ受理します。
-    /// </summary>
-    private void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is MenuItem menuItem)
-        {
-            e.Handled = true;
-            playlistWorkspaceTerminals.CollectionImport
-                .TryEnqueueBuiltInExternalPlaylistImport((string)menuItem.Tag);
+            activePlaylistImportDialog = null;
+            session.Dispose();
+            PlaybackOverlayVisibility = previousOverlay;
+            cleanup.TrySetResult();
         }
     }
 
@@ -4983,14 +5009,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistTableContextMenuItemReloadClick");
             return;
         }
-        RestorePlaylistTableSelectionAfterReload(selectionTarget);
+        RestorePlaylistTableSelectionAfterReload(viewModel, selectionTarget);
     }
 
-    private void RestorePlaylistTableSelectionAfterReload(BMSTable selectionTarget)
+    /// <summary>
+    /// 表単体の再読込みの完了時に、選択が対象の表のまま、または置換で失われて他が選ばれていない場合だけ表を選び直します。
+    /// 取得中に利用者が他の項目（プレイリスト側・ライブラリ側）を選んだ場合と、表の配下のフォルダの選択が残っている場合は動かしません。
+    /// </summary>
+    private void RestorePlaylistTableSelectionAfterReload(MainWindowViewModel viewModel, BMSTable selectionTarget)
     {
         if (selectionTarget == null)
         {
-            NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=target_not_found");
+            // 受付の拒否（他の操作中・対象の失効）と、受理後に同じ正本が残っていない場合は、どちらも null で区別できない。
+            NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=rejected_or_target_missing");
+            return;
+        }
+        if (!IsPlaylistTableSelectionReloadRestorable(viewModel, selectionTarget))
+        {
+            NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=selection_changed table=" + selectionTarget.name);
             return;
         }
         bool restored = TrySelectPlaylistTreeItem(selectionTarget, out bool usedVirtualizationFallback, out bool realizeByIndexAvailable);
@@ -5000,6 +5036,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             return;
         }
         NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload restored=true table=" + selectionTarget.name + " expanded=true usedVirtualizationFallback=" + usedVirtualizationFallback);
+    }
+
+    /// <summary>
+    /// 完了時の選択が対象の表のまま（同じ正本の解決結果を含む）か、どちらのツリーにも選択がない場合だけ真を返します。
+    /// 二つのツリーは排他選択のため、一方に選択があれば他方は無選択です。
+    /// </summary>
+    private bool IsPlaylistTableSelectionReloadRestorable(MainWindowViewModel viewModel, BMSTable selectionTarget)
+    {
+        if (treeView.SelectedItem == null && treeViewPlaylist.SelectedItem == null)
+        {
+            return true;
+        }
+        return treeViewPlaylist.SelectedItem is BMSTable selectedTable
+            && (ReferenceEquals(selectedTable, selectionTarget)
+                || ReferenceEquals(viewModel.PlaylistWorkspace.ResolveActivePlaylistTable(selectedTable), selectionTarget));
     }
 
     /// <summary>
@@ -5020,14 +5071,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// <summary>Opens a fresh local lamp viewer for the playlist-tree table.</summary>
     private async void treeViewPlaylistTableContextMenuItemOpenLampViewerClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel
-            || ResolvePlaylistTableFromMenuItem(sender) is not BMSTable table)
+        try
         {
-            return;
+            if (base.DataContext is not MainWindowViewModel
+                || ResolvePlaylistTableFromMenuItem(sender) is not BMSTable table)
+            {
+                return;
+            }
+            e.Handled = true;
+            await playlistLampViewerWindowManager.TryOpenAsync(table);
         }
-        e.Handled = true;
-        await playlistLampViewerWindowManager.TryOpenAsync(table)
-            .LoggingAndPropagate("treeViewPlaylistTableContextMenuItemOpenLampViewerClick");
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistTableContextMenuItemOpenLampViewerClick");
+        }
     }
 
     /// <summary>
@@ -5164,10 +5221,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private async void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel
-            && sender is MenuItem { DataContext: BMSTable table })
+        try
         {
-            await OpenPlaylistPropertyDialogAsync(mainWindowViewModel, table);
+            if (base.DataContext is MainWindowViewModel mainWindowViewModel
+                && sender is MenuItem { DataContext: BMSTable table })
+            {
+                await OpenPlaylistPropertyDialogAsync(mainWindowViewModel, table);
+            }
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick");
         }
     }
 
@@ -5315,8 +5379,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         try
         {
-            await viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow
-                .RemoveFolderAsync(bmsTable, folderNode);
+            var input = ScenarioUiOperationInput.Capture(viewModel, "playlist-folder-delete", [], bmsTable, folderNode);
+            Task operation = viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.RemoveFolderAsync(bmsTable, folderNode);
+            viewModel.PublishScenarioOperation(input, operation);
+            await operation;
         }
         catch (OperationCanceledException)
         {
@@ -5333,6 +5399,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private void treeViewPlaylistTableFolderContextMenuItemChangeFolderNameClick(object sender, RoutedEventArgs e)
     {
+        CancelPendingPlaylistFolderRename();
         EditableTextBlock editableTextBlock = _getETBFromContextMenuClickEvent(sender);
         if (editableTextBlock != null && (!TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) || folderNode.IsEditable))
         {
@@ -5357,163 +5424,136 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void treeViewLibraryFolderContextMenuItemReloadClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel && sender is MenuItem)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem)
         {
             try
             {
-                await libraryReloadMenuTerminal.ReloadFileDiffAsync()
-                    .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReloadClick");
+                await libraryReloadMenuTerminal.ReloadFileDiffAsync();
             }
             catch (LibraryDirectoryPreflightException)
             {
-                // owner が cleanup 後に localized warning を表示済み。
+                // 管理主体が後片付け後に専用警告を表示済みです。
+            }
+            catch (OperationCanceledException) when (viewModel.ShellShutdownWorkflow.IsShutdownRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                await NotifyMainWindowOperationFailureAsync(exception, "treeViewLibraryFolderContextMenuItemReloadClick");
             }
         }
     }
 
     private async void treeViewLibraryFolderContextMenuItemReinitializeClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel && sender is MenuItem)
+        if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem)
         {
             try
             {
-                await libraryReloadMenuTerminal.ReinitializeLibraryAsync()
-                    .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReinitializeClick");
+                await libraryReloadMenuTerminal.ReinitializeLibraryAsync();
             }
             catch (LibraryDirectoryPreflightException)
             {
-                // owner が cleanup 後に localized warning を表示済み。
+                // 管理主体が後片付け後に専用警告を表示済みです。
+            }
+            catch (OperationCanceledException) when (viewModel.ShellShutdownWorkflow.IsShutdownRequested)
+            {
+            }
+            catch (Exception exception)
+            {
+                await NotifyMainWindowOperationFailureAsync(exception, "treeViewLibraryFolderContextMenuItemReinitializeClick");
             }
         }
     }
 
     /// <summary>
-    /// BMS検索フォルダコンテキストメニュー「BMS検索フォルダから除外」実行時の処理。
-    /// ユーザー確認ダイアログ表示後、アプリケーション設定のBMSルートフォルダー一覧から該当のパスを除外して保存します。
+    /// 選択した検索フォルダ配下の一括自動リネーム要求を機能担当へ渡します。
+    /// 競合時は要求を開始せず、確認・対象検査・実処理の受付と寿命は自動リネーム担当に委ねます。
     /// </summary>
-    private async void treeViewLibraryFolderContextMenuItemUnregisterRootFolder(object sender, RoutedEventArgs e)
+    private async void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
-        {
-            return;
-        }
-        string path = placementTarget.Header.ToString();
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
         try
         {
-            await rootFolderUnregisterTerminal.UnregisterAsync(path)
-                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
-        }
-        catch (LibraryDirectoryPreflightException)
-        {
-            // MainWindowViewModel が cleanup 後に warning を表示するため、
-            // shell terminal では汎用 persistence failure を重ねない。
+            if (ShouldBlockChartPackageMutationInteraction("tree_library_auto_rename_all"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
+            {
+                return;
+            }
+            string path = placementTarget.Header.ToString();
+            e.Handled = true;
+            if (base.DataContext is MainWindowViewModel viewModel)
+            {
+                await folderAutoRenameTerminal
+                    .StartAllAsync(path);
+            }
         }
         catch (Exception exception)
         {
-            UiDialogResult notification = await new UiDialogCoordinator().ShowMessageAsync(new UiMessageRequest(
-                SettingsFailureMessage.Format(exception), BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand,
-                MessageBoxResult.OK, owner: this));
-            UiDialogRoute.ThrowIfNotShown(notification, "Settings persistence failure notification");
-        }
-    }
-
-    private async void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick(object sender, RoutedEventArgs e)
-    {
-        if (ShouldBlockChartPackageMutationInteraction("tree_library_auto_rename_all"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
-        {
-            return;
-        }
-        string path = placementTarget.Header.ToString();
-        e.Handled = true;
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await folderAutoRenameTerminal
-                .StartAllAsync(path)
-                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
         }
     }
 
     private async void treeViewInstalledContextMenuClearAllClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_installed_clear_all"))
+        try
         {
-            e.Handled = true;
-            return;
+            if (ShouldBlockChartPackageMutationInteraction("tree_installed_clear_all"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            await ObservePackageCatalogMutationAsync(
+                packageCatalogTerminal.ClearAllAsync(PackageCatalogSection.Installed),
+                "treeViewInstalledContextMenuClearAllClick");
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstalledContextMenuClearAllClick");
         }
-        await ObservePackageCatalogMutationAsync(
-            packageCatalogTerminal.ClearAllAsync(PackageCatalogSection.Installed),
-            "treeViewInstalledContextMenuClearAllClick");
     }
 
     private async void treeViewInstallPendingContextMenuClearAllClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_pending_clear_all"))
+        try
         {
-            e.Handled = true;
-            return;
+            if (ShouldBlockChartPackageMutationInteraction("tree_pending_clear_all"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            await ObservePackageCatalogMutationAsync(
+                packageCatalogTerminal.ClearAllAsync(PackageCatalogSection.Pending),
+                "treeViewInstallPendingContextMenuClearAllClick");
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPendingContextMenuClearAllClick");
         }
-        await ObservePackageCatalogMutationAsync(
-            packageCatalogTerminal.ClearAllAsync(PackageCatalogSection.Pending),
-            "treeViewInstallPendingContextMenuClearAllClick");
     }
 
-    private static async Task<PackageCatalogMutationResult> ObservePackageCatalogMutationAsync(
+    private async Task<PackageCatalogMutationResult> ObservePackageCatalogMutationAsync(
         Task<PackageCatalogMutationResult> operation,
-        string routeName)
+        string routeName,
+        bool reportFailure = true)
     {
-        PackageCatalogMutationResult result;
-        try
+        PackageCatalogMutationResult result = await operation;
+        if (reportFailure && result.Failure != null)
         {
-            result = await operation;
+            await NotifyMainWindowOperationFailureAsync(result.Failure, routeName);
         }
-        catch (Exception exception)
-        {
-            Task.FromException(exception).ObserveFault(routeName);
-            throw;
-        }
-        if (result.Failure == null)
-        {
-            return result;
-        }
-
-        Task.FromException(result.Failure).ObserveFault(routeName);
         return result;
-    }
-
-    private static async Task<PendingPackageMutationResult> ObservePendingPackageMutationAsync(
-        Task<PendingPackageMutationResult> operation,
-        string routeName)
-    {
-        if (operation == null)
-        {
-            throw new ArgumentNullException(nameof(operation));
-        }
-        try
-        {
-            return await operation;
-        }
-        catch (Exception exception)
-        {
-            await Task.FromException(exception).LoggingAndPropagate(routeName);
-            throw;
-        }
     }
 
     private async Task ApplyPackageCatalogMutationViewAsync(
@@ -5524,75 +5564,105 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         PackageCatalogSection section,
         MainViewUpdateMode emptySectionMode,
         string routeName,
-        Action prepareView = null)
+        Action onLeftSection = null)
     {
-        if (result == null || !result.ShouldApplyView)
+        if (result == null)
         {
             return;
         }
-        bool sectionRootWasSelected = sectionRoot?.IsSelected == true;
-        prepareView?.Invoke();
-        selectionPlan?.Apply(this);
-        if (result.EmptySection == section
-            && sectionRootWasSelected
-            && sectionRoot?.IsSelected == true
-            && sectionRoot.Items.Count == 0)
+        try
         {
-            await viewModel.RegularChartList
-                .NavigateInstallAsync(emptySectionMode)
-                .LoggingAndPropagate(routeName);
+            if (result.ShouldApplyView)
+            {
+                bool sectionRootWasSelected = sectionRoot?.IsSelected == true;
+                selectionPlan?.ApplyWhenTrackedPackageLeft(this, onLeftSection);
+                if (result.EmptySection == section
+                    && sectionRootWasSelected
+                    && sectionRoot?.IsSelected == true
+                    && sectionRoot.Items.Count == 0)
+                {
+                    await viewModel.RegularChartList.NavigateInstallAsync(emptySectionMode);
+                }
+            }
+        }
+        catch (Exception viewFailure)
+        {
+            if (result.Failure != null) { throw new AggregateException(result.Failure, viewFailure); }
+            throw;
+        }
+        if (result.Failure != null)
+        {
+            await NotifyMainWindowOperationFailureAsync(result.Failure, routeName);
         }
     }
 
     private async void treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_pending_delete_installed_only"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("tree_pending_delete_installed_only"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
             e.Handled = true;
-            return;
+            await pendingBulkMaintenanceTerminal
+                .DeleteInstalledOnlySourcesAsync();
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
         }
-        e.Handled = true;
-        await pendingBulkMaintenanceTerminal
-            .DeleteInstalledOnlySourcesAsync()
-            .LoggingAndPropagate("treeViewInstallPendingContextMenuDeleteInstalledOnlyPackagesClick");
     }
 
     private async void treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_pending_rename_zero_note"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("tree_pending_rename_zero_note"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
             e.Handled = true;
-            return;
+            await pendingBulkMaintenanceTerminal
+                .RenameZeroNoteChartsAsync();
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick");
         }
-        e.Handled = true;
-        await pendingBulkMaintenanceTerminal
-            .RenameZeroNoteChartsAsync()
-            .LoggingAndPropagate("treeViewInstallPendingContextMenuRenameZeroNoteToInvalidExtClick");
     }
 
     private async void treeViewInstallPendingContextMenuOverwriteInstalledOnlyPackagesResourcesClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_pending_overwrite_installed_only_resources"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("tree_pending_overwrite_installed_only_resources"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
             e.Handled = true;
-            return;
+            await pendingBulkMaintenanceTerminal
+                .OverwriteInstalledOnlyResourcesAsync();
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPendingContextMenuOverwriteInstalledOnlyPackagesResourcesClick");
         }
-        e.Handled = true;
-        await pendingBulkMaintenanceTerminal
-            .OverwriteInstalledOnlyResourcesAsync()
-            .LoggingAndPropagate("treeViewInstallPendingContextMenuOverwriteInstalledOnlyPackagesResourcesClick");
     }
 
     private void treeViewInstallPackageContextMenuOpenExplorerClick(object sender, RoutedEventArgs e)
@@ -5638,7 +5708,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 packageCatalogTerminal.RemovePackageAsync(
                     PackageCatalogSection.Pending,
                     pkg),
-                "treeViewInstallPackageContextMenuClearFolderClick");
+                "treeViewInstallPackageContextMenuClearFolderClick", reportFailure: false);
             await ApplyPackageCatalogMutationViewAsync(
                 viewModel,
                 result,
@@ -5647,9 +5717,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 PackageCatalogSection.Pending,
                 MainViewUpdateMode.PendingInstallFolderSelected,
                 "treeViewInstallPackageContextMenuClearFolderClick");
-        }
-        catch (OperationCanceledException)
-        {
         }
         catch (Exception exception)
         {
@@ -5686,7 +5753,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 packageCatalogTerminal.RemovePackageAsync(
                     PackageCatalogSection.Installed,
                     pkg),
-                "treeViewInstalledFolderContextMenuClearFolderClick");
+                "treeViewInstalledFolderContextMenuClearFolderClick", reportFailure: false);
             await ApplyPackageCatalogMutationViewAsync(
                 viewModel,
                 result,
@@ -5696,9 +5763,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 MainViewUpdateMode.NewlyInstalledFolderSelected,
                 "treeViewInstalledFolderContextMenuClearFolderClick");
         }
-        catch (OperationCanceledException)
-        {
-        }
         catch (Exception exception)
         {
             await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstalledFolderContextMenuClearFolderClick");
@@ -5707,143 +5771,152 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void treeViewInstallPackageContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_package_remove_install_destination"))
+        try
         {
-            e.Handled = true;
-            return;
+            if (ShouldBlockChartPackageMutationInteraction("tree_package_remove_install_destination"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+            {
+                return;
+            }
+            if (placementTarget.DataContext is not ChartPackage pkg)
+            {
+                return;
+            }
+            if (base.DataContext is MainWindowViewModel viewModel)
+            {
+                e.Handled = true;
+                await pendingInstallEstimationTerminal
+                    .ClearPackagesAsync([pkg]);
+            }
         }
-        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        catch (Exception exception)
         {
-            return;
-        }
-        if (placementTarget.DataContext is not ChartPackage pkg)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            await pendingInstallEstimationTerminal
-                .ClearPackagesAsync([pkg])
-                .LoggingAndPropagate("treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPackageContextMenuRemoveInstallDestinationClick");
         }
     }
 
     private async void treeViewInstallPackageContextMenuForceInstallClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_package_force_install"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("tree_package_force_install"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+            {
+                return;
+            }
+            if (placementTarget.DataContext is not ChartPackage pkg)
+            {
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
             e.Handled = true;
-            return;
+            PackageCatalogSelectionPlan selectionPlan = CaptureNextSiblingOrRoot(
+                treeViewItemInstallPending,
+                pkg,
+                "treeViewInstallPackageContextMenuForceInstallClick");
+            PendingPackageMutationResult result = await pendingInstallationTerminal.ForceInstallPackagesAsync([pkg]);
+            await pendingPackageMutationViewTerminal.ApplyAsync(
+                result,
+                PackageCatalogSection.Pending,
+                MainViewUpdateMode.PendingInstallFolderSelected,
+                "treeViewInstallPackageContextMenuForceInstallClick",
+                () => selectionPlan.ApplyWhenTrackedPackageLeft(this));
         }
-        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPackageContextMenuForceInstallClick");
         }
-        if (placementTarget.DataContext is not ChartPackage pkg)
-        {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        e.Handled = true;
-        PackageCatalogSelectionPlan selectionPlan = CaptureNextSiblingOrRoot(
-            treeViewItemInstallPending,
-            pkg,
-            "treeViewInstallPackageContextMenuForceInstallClick");
-        PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
-            pendingInstallationTerminal.ForceInstallPackagesAsync([pkg]),
-            "treeViewInstallPackageContextMenuForceInstallClick");
-        await pendingPackageMutationViewTerminal.ApplyAsync(
-            result,
-            PackageCatalogSection.Pending,
-            MainViewUpdateMode.PendingInstallFolderSelected,
-            "treeViewInstallPackageContextMenuForceInstallClick",
-            () => selectionPlan.Apply(this));
     }
 
     private async void treeViewInstallPackageContextMenuManualInstallClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_package_manual_install"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("tree_package_manual_install"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+            {
+                return;
+            }
+            if (placementTarget.DataContext is not ChartPackage pkg)
+            {
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
             e.Handled = true;
-            return;
+            PackageCatalogSelectionPlan selectionPlan = CaptureNextSiblingOrRoot(
+                treeViewItemInstallPending,
+                pkg,
+                "treeViewInstallPackageContextMenuManualInstallClick");
+            PendingPackageMutationResult result = await pendingInstallationTerminal.ManualInstallPackagesAsync([pkg]);
+            await pendingPackageMutationViewTerminal.ApplyAsync(
+                result,
+                PackageCatalogSection.Pending,
+                MainViewUpdateMode.PendingInstallFolderSelected,
+                "treeViewInstallPackageContextMenuManualInstallClick",
+                () => selectionPlan.ApplyWhenTrackedPackageLeft(this));
         }
-        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPackageContextMenuManualInstallClick");
         }
-        if (placementTarget.DataContext is not ChartPackage pkg)
-        {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        e.Handled = true;
-        PackageCatalogSelectionPlan selectionPlan = CaptureNextSiblingOrRoot(
-            treeViewItemInstallPending,
-            pkg,
-            "treeViewInstallPackageContextMenuManualInstallClick");
-        PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
-            pendingInstallationTerminal.ManualInstallPackagesAsync([pkg]),
-            "treeViewInstallPackageContextMenuManualInstallClick");
-        await pendingPackageMutationViewTerminal.ApplyAsync(
-            result,
-            PackageCatalogSection.Pending,
-            MainViewUpdateMode.PendingInstallFolderSelected,
-            "treeViewInstallPackageContextMenuManualInstallClick",
-            () => selectionPlan.Apply(this));
     }
 
     private async void treeViewInstallPackageContextMenuSearchInstallationDirectoryClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_package_search_install_destination"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
-        {
-            return;
-        }
-        if (placementTarget.DataContext is not ChartPackage pkg)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            await pendingInstallEstimationTerminal
-                .SearchPackagesAsync(PendingInstallDestinationSearchKind.InstallDestination, [pkg])
-                .LoggingAndPropagate("treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
-        }
+        await SearchPackageInstallationDirectoryAsync(e, InstallEstimationCandidatePolicy.RelatedOnly);
     }
 
-    private async void treeViewInstallPackageContextMenuSearchMergeDestinationClick(object sender, RoutedEventArgs e)
+    private async void treeViewInstallPackageContextMenuSearchInstallationDirectoryKeepUnrelatedClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_package_search_merge_destination"))
+        await SearchPackageInstallationDirectoryAsync(e, InstallEstimationCandidatePolicy.KeepUnrelated);
+    }
+
+    /// <summary>ツリーの通常・明示推定を同じ受付・例外・非同期終端へ渡します。</summary>
+    private async Task SearchPackageInstallationDirectoryAsync(RoutedEventArgs e, InstallEstimationCandidatePolicy candidatePolicy)
+    {
+        try
         {
-            e.Handled = true;
-            return;
+            if (ShouldBlockChartPackageMutationInteraction("tree_package_search_install_destination"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+            {
+                return;
+            }
+            if (placementTarget.DataContext is not ChartPackage pkg)
+            {
+                return;
+            }
+            if (base.DataContext is MainWindowViewModel viewModel)
+            {
+                e.Handled = true;
+                await pendingInstallEstimationTerminal
+                    .SearchPackagesAsync([pkg], candidatePolicy);
+            }
         }
-        if (e.Source is not MenuItem menuItem || !((menuItem.Parent as MenuItem).Parent is ContextMenu { PlacementTarget: TreeViewItem placementTarget }))
+        catch (Exception exception)
         {
-            return;
-        }
-        if (placementTarget.DataContext is not ChartPackage pkg)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            await pendingInstallEstimationTerminal
-                .SearchPackagesAsync(PendingInstallDestinationSearchKind.MergeDestination, [pkg])
-                .LoggingAndPropagate("treeViewInstallPackageContextMenuSearchMergeDestinationClick");
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPackageContextMenuSearchInstallationDirectoryClick");
         }
     }
 
@@ -5896,38 +5969,46 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("tree_duplicate_merge_into"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("tree_duplicate_merge_into"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (!(e.Source is MenuItem { Tag: TreeViewItem tag } menuItem))
+            {
+                return;
+            }
+            string srcPath = tag.DataContext as string;
+            if (string.IsNullOrWhiteSpace(srcPath))
+            {
+                return;
+            }
+            string dstPath = menuItem.DataContext as string;
+            if (string.IsNullOrWhiteSpace(dstPath))
+            {
+                return;
+            }
+            // 親DuplicateGroupを取得
+            TreeViewItem groupTreeItem = WPFUtil.FindVisualParent<TreeViewItem>(tag);
+            var duplicateGroup = groupTreeItem?.DataContext as DuplicateGroup;
             e.Handled = true;
-            return;
+            if (base.DataContext is not MainWindowViewModel viewModel || duplicateGroup == null)
+            {
+                return;
+            }
+            DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
+                .MergeFolderAsync(srcPath, dstPath, duplicateGroup);
+            await ApplyDuplicateFolderMergeResultAsync(result, srcPath, dstPath, viewModel);
         }
-        if (!(e.Source is MenuItem { Tag: TreeViewItem tag } menuItem))
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewDuplicateFolderContextMenuItemMergeIntoTargetClick");
         }
-        string srcPath = tag.DataContext as string;
-        if (string.IsNullOrWhiteSpace(srcPath))
-        {
-            return;
-        }
-        string dstPath = menuItem.DataContext as string;
-        if (string.IsNullOrWhiteSpace(dstPath))
-        {
-            return;
-        }
-        // 親DuplicateGroupを取得
-        TreeViewItem groupTreeItem = WPFUtil.FindVisualParent<TreeViewItem>(tag);
-        var duplicateGroup = groupTreeItem?.DataContext as DuplicateGroup;
-        e.Handled = true;
-        if (base.DataContext is not MainWindowViewModel viewModel || duplicateGroup == null)
-        {
-            return;
-        }
-        DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
-            .MergeFolderAsync(srcPath, dstPath, duplicateGroup);
-        await ApplyDuplicateFolderMergeResultAsync(result, srcPath, dstPath, viewModel);
     }
 
+    /// <summary>統合の失敗・確定事実を通知し、成功後は操作前に捕捉した次群または存続群を選択します。</summary>
     private async Task ApplyDuplicateFolderMergeResultAsync(
         DuplicateMaintenanceMutationResult result,
         string sourcePath,
@@ -5938,250 +6019,90 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             if (result.Failure != null)
             {
-                NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_merge_failed");
+                if (result.MutationReceipt == null && result.RemovalOutcome == null)
+                {
+                    await NotifyMainWindowOperationFailureAsync(result.Failure, "duplicate_merge_failed");
+                }
+                else { TryLogMainWindowFailure(result.Failure, "duplicate_merge_failed"); }
             }
             if (result.ManualRecoveryRequired)
             {
-                NLogWrapper.FileLogger?.Error(
-                    "duplicate_merge_manual_recovery recoveryPaths="
+                try
+                {
+                    NLogWrapper.FileLogger?.Error("duplicate_merge_manual_recovery recoveryPaths="
+                        + string.Join("|", result.RecoveryPaths ?? []));
+                }
+                catch { /* 処理済み変更の診断だけの失敗を再通知しません。 */ }
+            }
+            return;
+        }
+        try
+        {
+            if (result.CompletedWithCleanupFailure)
+            {
+                NLogWrapper.FileLogger?.Warn("duplicate_merge_completed_with_cleanup_failure recoveryPaths="
                     + string.Join("|", result.RecoveryPaths ?? []));
             }
-            return;
+            NLogWrapper.FileLogger?.Info(string.Format(
+                BeMusicSeeker.Properties.Resources.Msg_merge_bms_completed,
+                Path.GetFileName(sourcePath),
+                Path.GetFileName(destinationPath)));
         }
-        if (result.CompletedWithCleanupFailure)
-        {
-            NLogWrapper.FileLogger?.Warn(
-                "duplicate_merge_completed_with_cleanup_failure recoveryPaths="
-                + string.Join("|", result.RecoveryPaths ?? []));
-        }
-        NLogWrapper.FileLogger?.Info(string.Format(
-            BeMusicSeeker.Properties.Resources.Msg_merge_bms_completed,
-            Path.GetFileName(sourcePath),
-            Path.GetFileName(destinationPath)));
-        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionHeader, viewModel);
+        catch { /* 任意診断の失敗だけでは、成功後の選択を止めません。 */ }
+        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel);
     }
 
-    private async Task ApplyDuplicateMaintenanceSelectionAsync(string header, MainWindowViewModel viewModel)
+    /// <summary>
+    /// 明示した保守の成功後は、途中の選択によらず捕捉した対象を選択します。消失した所属は別群へ読み替えず空表示にします。
+    /// 保守結果は自動選択に必要なグループの準備後に返るため、遅れて届く変更通知を待たず、現在のグループをツリーへ反映して一度だけ解決します。
+    /// </summary>
+    private async Task ApplyDuplicateMaintenanceSelectionAsync(DuplicateViewContext selection, MainWindowViewModel viewModel)
     {
-        if (viewModel == null || IsShellClosingOrClosed())
-        {
-            return;
-        }
-        int requestVersion = Interlocked.Increment(ref _duplicateMaintenanceSelectionVersion);
-        if (string.IsNullOrWhiteSpace(header))
+        if (selection == null || viewModel == null || IsShellClosingOrClosed())
         {
             return;
         }
-        TaskCompletionSource<bool> duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
-        PropertyChangedEventHandler handler = (sender, args) =>
-        {
-            if (args.PropertyName == nameof(MaintenanceTreeViewModel.DuplicateChartGroups)
-                && requestVersion == Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
-            {
-                duplicateGroupsChanged.TrySetResult(true);
-            }
-        };
-        viewModel.MaintenanceTree.PropertyChanged += handler;
-        try
-        {
-            string lastReason = string.Empty;
-            for (int attempt = 0; attempt < 2; attempt++)
-            {
-                if (requestVersion != Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
-                {
-                    return;
-                }
-                (bool succeeded, string failReason) = await TryApplyDuplicateMaintenanceSelectionAsync(
-                    header,
-                    viewModel,
-                    requestVersion);
-                lastReason = failReason;
-                if (succeeded)
-                {
-                    NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success header=" + header + " attempt=" + attempt);
-                    return;
-                }
-                if (!ShouldRetryDuplicateGroupAutoSelect(lastReason) || IsShellClosingOrClosed() || attempt == 1)
-                {
-                    break;
-                }
-                Task signal = duplicateGroupsChanged.Task;
-                await Task.WhenAny(signal, Task.Delay(1500));
-                if (requestVersion != Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
-                {
-                    return;
-                }
-                duplicateGroupsChanged = CreateDuplicateGroupsChangedSignal();
-            }
-            if (!IsShellClosingOrClosed())
-            {
-                NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect pending header=" + header + " reason=" + lastReason);
-            }
-        }
-        finally
-        {
-            viewModel.MaintenanceTree.PropertyChanged -= handler;
-        }
-    }
-
-    private static TaskCompletionSource<bool> CreateDuplicateGroupsChangedSignal()
-    {
-        return new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-    }
-
-    private async Task<(bool Succeeded, string FailReason)> TryApplyDuplicateMaintenanceSelectionAsync(
-        string header,
-        MainWindowViewModel viewModel,
-        int requestVersion)
-    {
-        string failReason = string.Empty;
-        DispatcherPriority[] retryPriorities = [DispatcherPriority.Loaded, DispatcherPriority.Render, DispatcherPriority.ContextIdle];
-        foreach (DispatcherPriority retryPriority in retryPriorities)
-        {
-            await Dispatcher.Yield(retryPriority);
-            if (IsShellClosingOrClosed() || requestVersion != Volatile.Read(ref _duplicateMaintenanceSelectionVersion))
-            {
-                failReason = "window_closed";
-                return (false, failReason);
-            }
-            if (TrySelectDuplicateGroupByHeader(header, viewModel, out failReason))
-            {
-                return (true, string.Empty);
-            }
-            if (!ShouldRetryDuplicateGroupAutoSelect(failReason))
-            {
-                return (false, failReason);
-            }
-        }
-        return (false, failReason);
-    }
-
-    private static bool ShouldRetryDuplicateGroupAutoSelect(string failReason)
-    {
-        return failReason == "duplicate_tree_items_not_updated" ||
-            failReason == "duplicated_list_null" ||
-            failReason == "group_not_found" ||
-            failReason == "container_not_realized" ||
-            failReason == "duplicate_items_host_not_found" ||
-            failReason == "bring_index_out_of_range";
-    }
-
-    private bool TrySelectDuplicateGroupByHeader(string header, MainWindowViewModel viewModel, out string failReason)
-    {
-        failReason = string.Empty;
-        // XAML上で Name="treeViewItemSearchDuplicated" を持つTreeViewItem
-        TreeViewItem duplicateRootItem = treeViewItemSearchDuplicated;
-        if (duplicateRootItem == null)
-        {
-            failReason = "root_not_found";
-            return false;
-        }
-
-        List<DuplicateGroup> duplicatedList = viewModel.MaintenanceTree.DuplicateChartGroups;
-        if (duplicatedList == null)
-        {
-            failReason = "duplicated_list_null";
-            return false;
-        }
-
-        DuplicateGroup targetGroup = null;
-        for (int i = 0; i < duplicatedList.Count; i++)
-        {
-            if (duplicatedList[i].Header == header)
-            {
-                targetGroup = duplicatedList[i];
-                break;
-            }
-        }
+        // グループの変更通知はワーカースレッドから届き、Bindingは反映をDispatcherへ予約して、その間の同スレッド通知を無視する。
+        // 結果の受取り時点ではツリーが旧結果のままの場合があるため、現在値を読み直す。後から届く反映は同じ参照なので再構築しない。
+        BindingOperations.GetBindingExpression(treeViewItemSearchDuplicated, ItemsControl.ItemsSourceProperty)?.UpdateTarget();
+        DuplicateGroup targetGroup = selection.ResolveGroup(viewModel.MaintenanceTree.DuplicateChartGroups);
         if (targetGroup == null)
         {
-            failReason = "group_not_found";
-            return false;
+            _lastSelectedTreeViewItem?.IsSelected = false;
+            await viewModel.ApplyUnresolvedDuplicateSelectionAsync(selection);
+            NLogWrapper.FileLogger?.Info("duplicate_group_autoselect unresolved");
+            return;
         }
-
-        // 親TreeViewItemが展開されていることを確認
-        treeViewItemFullScanCheck.IsExpanded = true;
-        duplicateRootItem.IsExpanded = true;
-        duplicateRootItem.BringIntoView();
-        duplicateRootItem.UpdateLayout();
-
-        int targetIndex = FindDuplicateGroupTreeItemIndex(duplicateRootItem, targetGroup);
-        if (targetIndex < 0)
-        {
-            failReason = "duplicate_tree_items_not_updated";
-            return false;
-        }
-
-        var targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
+        TreeViewItem targetItem = RealizeDuplicateGroupTreeItem(targetGroup);
         if (targetItem == null)
         {
-            if (!TryRealizeVirtualizedDuplicateGroupItem(duplicateRootItem, targetIndex, out failReason))
-            {
-                return false;
-            }
-            targetItem = duplicateRootItem.ItemContainerGenerator.ContainerFromIndex(targetIndex) as TreeViewItem;
+            NLogWrapper.FileLogger?.Warn("duplicate_group_autoselect container_not_realized");
+            return;
         }
-
-        // コンテナを取得して選択
-        if (targetItem != null)
-        {
-            targetItem.IsSelected = true;
-            targetItem.IsExpanded = true;
-            targetItem.BringIntoView();
-            return true;
-        }
-        failReason = "container_not_realized";
-        return false;
+        targetItem.IsSelected = true;
+        targetItem.IsExpanded = true;
+        targetItem.BringIntoView();
+        NLogWrapper.FileLogger?.Info("duplicate_group_autoselect success");
     }
 
-    private static int FindDuplicateGroupTreeItemIndex(TreeViewItem duplicateRootItem, DuplicateGroup targetGroup)
+    /// <summary>重複ルートを展開し、仮想化で未生成のグループ項目を公開APIで生成して返します。現在のツリーに無いグループにはnullを返します。</summary>
+    private TreeViewItem RealizeDuplicateGroupTreeItem(DuplicateGroup group)
     {
-        ItemCollection treeItems = duplicateRootItem.Items;
-        for (int i = 0; i < treeItems.Count; i++)
+        TreeViewItem root = treeViewItemSearchDuplicated;
+        root.IsExpanded = true;
+        root.UpdateLayout();
+        int index = root.Items.IndexOf(group);
+        if (index < 0)
         {
-            if (ReferenceEquals(treeItems[i], targetGroup))
-            {
-                return i;
-            }
+            return null;
         }
-        return -1;
-    }
-
-    private bool TryRealizeVirtualizedDuplicateGroupItem(TreeViewItem duplicateRootItem, int targetIndex, out string failReason)
-    {
-        failReason = string.Empty;
-        if (playlistTreeBringIndexIntoViewMethod == null)
+        if (root.ItemContainerGenerator.ContainerFromIndex(index) is TreeViewItem item)
         {
-            failReason = "bring_index_method_not_found";
-            return false;
+            return item;
         }
-        VirtualizingStackPanel duplicateItemsHostPanel = TryGetTreeViewItemItemsHostPanel(duplicateRootItem);
-        if (duplicateItemsHostPanel == null)
-        {
-            failReason = "duplicate_items_host_not_found";
-            return false;
-        }
-        try
-        {
-            playlistTreeBringIndexIntoViewMethod.Invoke(duplicateItemsHostPanel, [targetIndex]);
-            duplicateRootItem.UpdateLayout();
-            return true;
-        }
-        catch (TargetInvocationException ex) when (ex.InnerException is ArgumentOutOfRangeException)
-        {
-            failReason = "bring_index_out_of_range";
-            return false;
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            failReason = "bring_index_out_of_range";
-            return false;
-        }
-        catch (Exception ex)
-        {
-            failReason = "bring_index_failed_" + ex.GetType().Name;
-            return false;
-        }
+        TryGetTreeViewItemItemsHostPanel(root)?.BringIndexIntoViewPublic(index);
+        root.UpdateLayout();
+        return root.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
     }
 
     private static VirtualizingStackPanel TryGetTreeViewItemItemsHostPanel(TreeViewItem treeViewItem)
@@ -6228,73 +6149,76 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
     /// </summary>
     private async void duplicateFolderKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.G || !duplicateMaintenanceTerminal.IsExecuteShortcut)
+        try
         {
-            return;
-        }
-
-        if (sender is not TreeViewItem folderItem)
-        {
-            return;
-        }
-
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-
-        string srcPath = folderItem.DataContext as string;
-        if (string.IsNullOrWhiteSpace(srcPath))
-        {
-            return;
-        }
-
-        // 親TreeViewItemからDuplicateGroupを取得
-        TreeViewItem groupItem = WPFUtil.FindVisualParent<TreeViewItem>(folderItem);
-        if (groupItem?.DataContext is not DuplicateGroup duplicateGroup)
-        {
-            return;
-        }
-
-        DuplicateFolderKeyboardAction action = viewModel.DuplicateMaintenanceWorkflow
-            .CaptureDuplicateFolderKeyboardAction(duplicateGroup, srcPath);
-        if (action.Kind == DuplicateFolderKeyboardActionKind.Merge)
-        {
-            e.Handled = true;
-            if (ShouldBlockChartPackageMutationInteraction("duplicate_merge_execute"))
+            if (e.Key != Key.G || !duplicateMaintenanceTerminal.IsExecuteShortcut)
             {
                 return;
             }
-            DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
-                .MergeFolderAsync(srcPath, action.DestinationPath, duplicateGroup);
-            await ApplyDuplicateFolderMergeResultAsync(
-                result,
-                srcPath,
-                action.DestinationPath,
-                viewModel);
-        }
-        else if (action.Kind == DuplicateFolderKeyboardActionKind.Cleanup)
-        {
-            // フォルダが1つの場合: ハッシュ重複BMSファイルの整理
-            e.Handled = true;
-            DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
-                .CleanupHashAsync(duplicateGroup, srcPath);
-            await ApplyDuplicateHashCleanupResultAsync(result, srcPath, viewModel);
-        }
-        else if (action.Kind == DuplicateFolderKeyboardActionKind.OpenContextMenu)
-        {
-            // フォルダが3つ以上の場合: コンテキストメニューを開いてマージ先を選択
-            OpenDuplicateFolderContextMenu(folderItem);
-        }
 
-        e.Handled = true;
+            if (sender is not TreeViewItem folderItem)
+            {
+                return;
+            }
+
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+
+            string srcPath = folderItem.DataContext as string;
+            if (string.IsNullOrWhiteSpace(srcPath))
+            {
+                return;
+            }
+
+            // 親TreeViewItemからDuplicateGroupを取得
+            TreeViewItem groupItem = WPFUtil.FindVisualParent<TreeViewItem>(folderItem);
+            if (groupItem?.DataContext is not DuplicateGroup duplicateGroup)
+            {
+                return;
+            }
+
+            DuplicateFolderKeyboardAction action = viewModel.DuplicateMaintenanceWorkflow
+                .CaptureDuplicateFolderKeyboardAction(duplicateGroup, srcPath);
+            if (action.Kind == DuplicateFolderKeyboardActionKind.Merge)
+            {
+                e.Handled = true;
+                if (ShouldBlockChartPackageMutationInteraction("duplicate_merge_execute"))
+                {
+                    return;
+                }
+                DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
+                    .MergeFolderAsync(srcPath, action.DestinationPath, duplicateGroup);
+                await ApplyDuplicateFolderMergeResultAsync(
+                    result,
+                    srcPath,
+                    action.DestinationPath,
+                    viewModel);
+            }
+            else if (action.Kind == DuplicateFolderKeyboardActionKind.Cleanup)
+            {
+                // フォルダが1つの場合: ハッシュ重複BMSファイルの整理
+                e.Handled = true;
+                DuplicateMaintenanceMutationResult result = await duplicateMaintenanceTerminal
+                    .CleanupHashAsync(duplicateGroup, srcPath);
+                await ApplyDuplicateHashCleanupResultAsync(result, srcPath, viewModel);
+            }
+            else if (action.Kind == DuplicateFolderKeyboardActionKind.OpenContextMenu)
+            {
+                // フォルダが3つ以上の場合: コンテキストメニューを開いてマージ先を選択
+                OpenDuplicateFolderContextMenu(folderItem);
+            }
+
+            e.Handled = true;
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "duplicateFolderKeyDown");
+        }
     }
 
-    /// <summary>
-    /// フォルダが1つの重複グループで、ハッシュ重複BMSファイルを整理する。
-    /// 各ハッシュグループごとに1つだけ残し、残りをごみ箱へ移動する。
-    /// 保持ルール: 更新日時が最も古いものを優先、同日時ならファイル名が最も短いものを優先。
-    /// </summary>
+    /// <summary>ハッシュ整理の失敗・確定事実を通知し、成功後は操作前に捕捉した次群を選択します。</summary>
     private async Task ApplyDuplicateHashCleanupResultAsync(
         DuplicateMaintenanceMutationResult result,
         string folderPath,
@@ -6304,15 +6228,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             if (result.Failure != null)
             {
-                NLogWrapper.FileLogger?.Warn(result.Failure, "duplicate_hash_cleanup_failed");
+                if (result.MutationReceipt == null && result.RemovalOutcome == null)
+                {
+                    await NotifyMainWindowOperationFailureAsync(result.Failure, "duplicate_hash_cleanup_failed");
+                }
+                else { TryLogMainWindowFailure(result.Failure, "duplicate_hash_cleanup_failed"); }
             }
             return;
         }
-        NLogWrapper.FileLogger?.Info(string.Format(
-            "Cleaned up {0} duplicate hash BMS file(s) in folder: {1}",
-            result.RemovedChartCount,
-            Path.GetFileName(folderPath)));
-        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionHeader, viewModel);
+        try
+        {
+            NLogWrapper.FileLogger?.Info(string.Format(
+                "Cleaned up {0} duplicate hash BMS file(s) in folder: {1}",
+                result.RemovedChartCount,
+                Path.GetFileName(folderPath)));
+        }
+        catch { /* 任意診断の失敗だけでは、成功後の選択を止めません。 */ }
+        await ApplyDuplicateMaintenanceSelectionAsync(result.SelectionContext, viewModel);
     }
 
     /// <summary>
@@ -6477,7 +6409,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         MenuItem menuItemFindExternalPackage = null;
         MenuItem menuItem3 = null;
         MenuItem menuItem4 = null;
-        MenuItem menuItem7 = null;
         MenuItem menuItem8 = null;
         MenuItem menuItem9 = null;
         MenuItem menuItem10 = null;
@@ -6496,6 +6427,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         Separator separatorExternalActions = null;
         Separator separator = null;
         MenuItem menuItem19 = null;
+        MenuItem menuItemChartProperties = null;
         Separator separator2 = null;
         MenuItem menuItemRemoveChartInfoParseFailure = null;
         foreach (Control item in (IEnumerable)contextMenu.Items)
@@ -6525,9 +6457,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
                 case "tableContextMenuItemOpenDocument":
                     menuItemOpenDocument = item as MenuItem;
-                    break;
-                case "tableContextMenuItemUpdateRankingData":
-                    menuItem7 = item as MenuItem;
                     break;
                 case "tableContextMenuItemInstall":
                     menuItem8 = item as MenuItem;
@@ -6584,6 +6513,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
                 case "tableContextMenuSeparatorForFolderview":
                     separator = item as Separator;
+                    break;
+                case "tableContextMenuItemChartProperties":
+                    menuItemChartProperties = item as MenuItem;
                     break;
                 case "tableContextMenuItemConvertToAudioFile":
                     menuItem19 = item as MenuItem;
@@ -6667,18 +6599,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         }
         if (menuItem18 != null)
         {
-            bool hasScoreViewerTarget = selectedChartContextMenuTerminals.ScoreViewer.HasScoreViewerTarget(selectedTargets);
-            menuItem18.Header = selectedTargets.Count > 1
-                ? BeMusicSeeker.Properties.Resources.Register_chart_with_viewer
-                : BeMusicSeeker.Properties.Resources.Open_chart_viewer;
-            menuItem18.Visibility = hasScoreViewerTarget ? Visibility.Visible : Visibility.Collapsed;
-            menuItem18.IsEnabled = selectedChartContextMenuTerminals.ScoreViewer.CanRegisterScoreViewer(selectedTargets);
-        }
-        if (menuItem7 != null)
-        {
-            bool hasRankingTarget = selectedChartContextMenuTerminals.RankingCache.HasRankingTarget(selectedTargets);
-            menuItem7.Visibility = hasRankingTarget ? Visibility.Visible : Visibility.Collapsed;
-            menuItem7.IsEnabled = selectedChartContextMenuTerminals.RankingCache.CanRequestRanking(selectedTargets);
+            ApplyScoreViewerMenuItem(
+                menuItem18,
+                selectedChartContextMenuTerminals.ScoreViewer.ResolveMenuMode(ResolveScoreViewerCandidates(row)));
         }
         MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(item => item.Name == "tableContextMenuItemDeleteInstallPackages");
         List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
@@ -6775,6 +6698,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             menuItemFullScanAllCharts.Visibility = Visibility.Visible;
             menuItemFullScanAllCharts.IsEnabled = canRescanAllCharts;
         }
+        if (menuItemChartProperties != null)
+        {
+            menuItemChartProperties.IsEnabled = ChartPropertiesViewModel.ResolveTarget(selectedTargets) != null;
+        }
         if (menuItem19 != null && separator2 != null)
         {
             bool canConvertToAudio = contextMenuState.CanConvertToAudio;
@@ -6793,11 +6720,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 {
                     menuItem18.Visibility = Visibility.Collapsed;
                     menuItem18.IsEnabled = false;
-                }
-                if (menuItem7 != null)
-                {
-                    menuItem7.Visibility = Visibility.Collapsed;
-                    menuItem7.IsEnabled = false;
                 }
                 if (menuItemRenameInvalidExt != null)
                 {
@@ -6837,11 +6759,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             {
                 menuItem18.Visibility = Visibility.Collapsed;
                 menuItem18.IsEnabled = false;
-            }
-            if (menuItem7 != null)
-            {
-                menuItem7.Visibility = Visibility.Collapsed;
-                menuItem7.IsEnabled = false;
             }
             if (menuItem8 != null)
             {
@@ -6899,6 +6816,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                 menuItemDeleteInstallPackages.IsEnabled = false;
             }
         }
+        CollapseRedundantTableContextMenuSeparators(contextMenu);
     }
 
     private void tableContextMenuPlaylistMissingOpened(object sender, RoutedEventArgs e)
@@ -6934,8 +6852,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             webAnchorName: "tableContextMenuItemOpenURL",
             programParentName: "tableContextMenuItemOpenProgramActions");
         bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
-        bool canOpenScoreViewer = selectedChartContextMenuTerminals.ScoreViewer.HasScoreViewerTarget([rowTarget]);
-        bool canUpdateRanking = selectedChartContextMenuTerminals.RankingCache.CanRequestRanking([rowTarget]);
+        // クリック時に判定し直す候補と同じ取り方で、項目の見出し・表示・可否を決める。
+        ScoreViewerMenuMode scoreViewerMode = selectedChartContextMenuTerminals.ScoreViewer
+            .ResolveMenuMode(ResolveScoreViewerCandidates(row));
         List<object> effectivePlaylistUrlRows = GetEffectiveContextMenuRows(row);
         PlaylistUrlContextMenuAvailability playlistUrlAvailability =
             playlistWorkspaceTerminals.UrlAcquisition.CaptureAvailability(
@@ -6970,16 +6889,51 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     item.IsEnabled = entry != null;
                     break;
                 case "tableContextMenuItemRegisterScore":
-                    item.Visibility = canOpenScoreViewer ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = canOpenScoreViewer;
-                    break;
-                case "tableContextMenuItemUpdateRankingData":
-                    item.Visibility = canUpdateRanking ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = canUpdateRanking;
+                    if (item is MenuItem scoreViewerMenuItem)
+                    {
+                        ApplyScoreViewerMenuItem(scoreViewerMenuItem, scoreViewerMode);
+                    }
                     break;
             }
         }
-        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " canOpenScoreViewer=" + canOpenScoreViewer + " canUpdateRanking=" + canUpdateRanking);
+        CollapseRedundantTableContextMenuSeparators(contextMenu);
+        NLogWrapper.FileLogger?.Info("playlist_missing_context_menu rowType=" + row?.GetType().FullName + " entryParent=" + entry?.parent?.name + " isBmson=" + isBmsonContextRow + " url=" + playlistUrlAvailability.CanOpenUrl + " urlDiff=" + playlistUrlAvailability.CanOpenDiffUrl + " scoreViewerMode=" + scoreViewerMode);
+    }
+
+    /// <summary>現在表示する譜面メニューの先頭・連続・末尾に不要な区切り線を残しません。</summary>
+    private static void CollapseRedundantTableContextMenuSeparators(ContextMenu menu)
+    {
+        Separator pendingSeparator = null;
+        bool hasVisibleItem = false;
+        foreach (Control item in menu.Items)
+        {
+            if (item is Separator separator)
+            {
+                // 無名の固定区切りは、閲覧項目などの表示が変わる再Openでも再評価します。
+                if (string.IsNullOrEmpty(separator.Name))
+                {
+                    separator.Visibility = Visibility.Visible;
+                }
+                if (separator.Visibility != Visibility.Visible)
+                {
+                    continue;
+                }
+                separator.Visibility = Visibility.Collapsed;
+                if (hasVisibleItem && pendingSeparator == null)
+                {
+                    pendingSeparator = separator;
+                }
+            }
+            else if (item.Visibility == Visibility.Visible)
+            {
+                if (pendingSeparator != null)
+                {
+                    pendingSeparator.Visibility = Visibility.Visible;
+                    pendingSeparator = null;
+                }
+                hasVisibleItem = true;
+            }
+        }
     }
 
     private void playHistoryContextMenuOpened(object sender, RoutedEventArgs e)
@@ -7038,23 +6992,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     item.IsEnabled = state?.CanOpenExplorer == true && LongPathFileSystem.FileExists(state.ChartPath);
                     break;
                 case "playHistoryContextMenuItemRegisterScore":
-                    item.Visibility = state?.CanOpenScoreViewer == true ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state?.CanOpenScoreViewer == true && LongPathFileSystem.FileExists(state.ChartPath);
-                    break;
-                case "playHistoryContextMenuSeparatorHash":
-                    item.Visibility = state != null
-                        && (hasConfiguredWebActions || state.HasLocalChartItem)
-                        && state.HasHashCopyItem
-                        ? Visibility.Visible
-                        : Visibility.Collapsed;
-                    break;
-                case "playHistoryContextMenuItemCopyMd5":
-                    item.Visibility = state?.CanCopyMd5 == true ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state?.CanCopyMd5 == true;
-                    break;
-                case "playHistoryContextMenuItemCopySha256":
-                    item.Visibility = state?.CanCopySha256 == true ? Visibility.Visible : Visibility.Collapsed;
-                    item.IsEnabled = state?.CanCopySha256 == true;
+                    if (item is MenuItem playHistoryScoreViewerMenuItem)
+                    {
+                        ApplyScoreViewerMenuItem(
+                            playHistoryScoreViewerMenuItem,
+                            state == null
+                                ? ScoreViewerMenuMode.Hidden
+                                : selectedChartContextMenuTerminals.ScoreViewer.ResolveMenuMode([state.ScoreViewerCandidate]));
+                    }
                     break;
                 case "playHistoryContextMenuItemAddDateRangeToSearch":
                     item.Visibility = playHistoryDateSearchSnapshot != null ? Visibility.Visible : Visibility.Collapsed;
@@ -7062,36 +7007,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
                     break;
             }
         }
+        CollapseRedundantTableContextMenuSeparators(contextMenu);
     }
 
     private void playHistoryContextMenuClosed(object sender, RoutedEventArgs e)
     {
         playHistoryDateSearchSnapshot = null;
         ResetPlayHistoryDateSearchMenuItem(sender as ContextMenu);
-    }
-
-    private void playHistoryContextMenuItemCopyHashClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is not MenuItem { Tag: string copyKind })
-        {
-            return;
-        }
-
-        PlayHistoryContextMenuActionKind? actionKind = copyKind switch
-        {
-            PlayHistoryContextMenuState.CopyMd5Kind => PlayHistoryContextMenuActionKind.CopyMd5,
-            PlayHistoryContextMenuState.CopySha256Kind => PlayHistoryContextMenuActionKind.CopySha256,
-            _ => null
-        };
-        if (!actionKind.HasValue
-            || !TryGetPlayHistoryContextMenuAction(sender, actionKind.Value, out PlayHistoryContextMenuAction action)
-            || string.IsNullOrWhiteSpace(action.Value))
-        {
-            return;
-        }
-
-        Clipboard.SetText(action.Value);
-        e.Handled = true;
     }
 
     private void playHistoryContextMenuItemAddDateRangeToSearchClick(object sender, RoutedEventArgs e)
@@ -7157,23 +7079,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void playHistoryContextMenuItemRegisterScoreViewerClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetPlayHistoryContextMenuAction(
-                e.Source,
-                PlayHistoryContextMenuActionKind.RegisterScoreViewer,
-                out PlayHistoryContextMenuAction action)
-            || action.ScoreViewerTarget == null)
+        try
         {
-            return;
-        }
+            if (!TryGetPlayHistoryContextMenuAction(
+                    e.Source,
+                    PlayHistoryContextMenuActionKind.RegisterScoreViewer,
+                    out PlayHistoryContextMenuAction action)
+                || action.ScoreViewerDecision == null)
+            {
+                return;
+            }
 
-        var targets = new List<ScoreViewerTarget> { action.ScoreViewerTarget };
-        e.Handled = true;
-        if (base.DataContext is MainWindowViewModel viewModel)
+            e.Handled = true;
+            if (base.DataContext is MainWindowViewModel viewModel)
+            {
+                await selectedChartContextMenuTerminals.ScoreViewer.RunAsync(
+                    action.ScoreViewerDecision,
+                    "playHistoryContextMenuItemRegisterScoreViewerClick");
+            }
+        }
+        catch (Exception exception)
         {
-            await selectedChartContextMenuTerminals.ScoreViewer.RunAsync(
-                targets,
-                openSingleViewerOnSuccess: true,
-                "playHistoryContextMenuItemRegisterScoreViewerClick");
+            await NotifyMainWindowOperationFailureAsync(exception, "playHistoryContextMenuItemRegisterScoreViewerClick");
         }
     }
 
@@ -7196,30 +7123,42 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void tableContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || !IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
+        try
         {
-            return;
+            if (base.DataContext is not MainWindowViewModel viewModel || !IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
+            {
+                return;
+            }
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+            if (targets.Count == 0)
+            {
+                return;
+            }
+            await viewModel.PendingPackages
+                .OpenInstallDestinationForChartsAsync(targets);
         }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
-        if (targets.Count == 0)
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemOpenInstallDestinationClick");
         }
-        await viewModel.PendingPackages
-            .OpenInstallDestinationForChartsAsync(targets)
-            .LoggingAndPropagate("tableContextMenuItemOpenInstallDestinationClick");
     }
 
     private async void treeViewInstallPackageContextMenuOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: ChartPackage dataContext } } })
-            || base.DataContext is not MainWindowViewModel viewModel)
+        try
         {
-            return;
+            if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: ChartPackage dataContext } } })
+                || base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            await viewModel.PendingPackages
+                .OpenInstallDestinationForPackageAsync(dataContext);
         }
-        await viewModel.PendingPackages
-            .OpenInstallDestinationForPackageAsync(dataContext)
-            .LoggingAndPropagate("treeViewInstallPackageContextMenuOpenInstallDestinationClick");
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "treeViewInstallPackageContextMenuOpenInstallDestinationClick");
+        }
     }
 
     private void tableContextMenuItemOpenBMSFileClick(object sender, RoutedEventArgs e)
@@ -7322,13 +7261,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return [contextRow];
     }
 
-    private void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemOpenDocumentFileClick(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem { DataContext: string dataContext }
-            && base.DataContext is MainWindowViewModel viewModel)
+        try
         {
-            selectedChartContextMenuTerminals.SelectedChartExternalActions.OpenRelatedDocument(dataContext);
-            e.Handled = true;
+            if (e.Source is MenuItem { DataContext: string dataContext }
+                && base.DataContext is MainWindowViewModel viewModel)
+            {
+                selectedChartContextMenuTerminals.SelectedChartExternalActions.OpenRelatedDocument(dataContext);
+                e.Handled = true;
+            }
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemOpenDocumentFileClick");
         }
     }
 
@@ -7342,158 +7288,193 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
 
 
-    private void tableContextMenuItemUpdateRankingDataClick(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// 譜面ビューアの項目の表示時とクリック時で共通に使う、選択行ごとの候補を返します。
+    /// 選択行があればその行数、なければ右クリックした行の1行で、譜面操作の対象へ解決できない行も対象外の1行として数えます。
+    /// </summary>
+    private List<ScoreViewerCandidate> ResolveScoreViewerCandidates(object contextRow)
     {
-        if (!TryGetContextMenuRow(e.Source, out _))
+        List<object> rows = GetSelectedGridRowsSnapshot();
+        if (rows.Count == 0 && contextRow != null)
         {
-            return;
+            rows.Add(contextRow);
         }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets();
-        if (targets.Count != 0)
-        {
-            if (selectedChartContextMenuTerminals.RankingCache.Request(targets))
-            {
-                e.Handled = true;
-            }
-        }
+        ChartOperationSourceScope sourceScope = GetCurrentChartOperationSourceScope();
+        return [.. rows.Select(row =>
+            GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target)
+                ? ScoreViewerCandidate.FromChart(target.Chart)
+                : ScoreViewerCandidate.NotTarget)];
+    }
+
+    /// <summary>譜面ビューアの項目の見出し・表示・可否を共通判定の結果に合わせます。表示するときは常に有効です。</summary>
+    private static void ApplyScoreViewerMenuItem(MenuItem item, ScoreViewerMenuMode mode)
+    {
+        item.Header = mode == ScoreViewerMenuMode.Register
+            ? BeMusicSeeker.Properties.Resources.Register_chart_with_viewer
+            : BeMusicSeeker.Properties.Resources.Open_chart_viewer;
+        item.Visibility = mode == ScoreViewerMenuMode.Hidden ? Visibility.Collapsed : Visibility.Visible;
+        item.IsEnabled = mode != ScoreViewerMenuMode.Hidden;
     }
 
     private async void tableContextMenuItemRegisterBMSFileToScoreViwer(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out _))
+        try
         {
-            return;
+            if (!TryGetContextMenuRow(e.Source, out object row))
+            {
+                return;
+            }
+            List<ScoreViewerCandidate> candidates = ResolveScoreViewerCandidates(row);
+            e.Handled = true;
+            if (base.DataContext is MainWindowViewModel viewModel)
+            {
+                await selectedChartContextMenuTerminals.ScoreViewer.RunAsync(
+                    candidates,
+                    "tableContextMenuItemRegisterBMSFileToScoreViwer");
+            }
         }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets();
-        e.Handled = true;
-        if (base.DataContext is MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            await selectedChartContextMenuTerminals.ScoreViewer.RunAsync(
-                targets,
-                "tableContextMenuItemRegisterBMSFileToScoreViwer");
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemRegisterBMSFileToScoreViwer");
         }
     }
 
     private async void tableContextMenuItemForceFileScanCheckSelectedCharts(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out _))
+        try
         {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
-        if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
-        {
-            e.Handled = true;
-            SelectedChartResourceHealthWorkflowResult result = await selectedChartContextMenuTerminals.SelectedChartResourceHealth.RescanAsync(request);
-            if (!result.Succeeded && result.Failure != null)
+            if (!TryGetContextMenuRow(e.Source, out _))
             {
-                Task.FromException(result.Failure).ObserveFault("tableContextMenuItemForceFileScanCheckSelectedCharts");
+                return;
             }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
+            if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
+            {
+                e.Handled = true;
+                SelectedChartResourceHealthWorkflowResult result = await selectedChartContextMenuTerminals.SelectedChartResourceHealth.RescanAsync(request);
+                if (!result.Succeeded && result.Failure != null)
+                {
+                    await NotifyMainWindowOperationFailureAsync(result.Failure, "tableContextMenuItemForceFileScanCheckSelectedCharts");
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemForceFileScanCheckSelectedCharts");
         }
     }
 
     private async void tableContextMenuRemoveInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out _))
+        try
         {
-            return;
-        }
-        if (ShouldBlockChartPackageMutationInteraction("table_context_menu_remove_install_destination"))
-        {
-            e.Handled = true;
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        bool isInstalledLocationRepair = IsFullScanMainViewSection(GetCurrentMainViewOperationSection());
-        ChartOperationCapabilities capability = isInstalledLocationRepair
-            ? ChartOperationCapabilities.RepairInstalledLocation
-            : ChartOperationCapabilities.UpdateInstallDestination;
-        RepairInstalledLocationRequest repairRequest = null;
-        if (isInstalledLocationRepair)
-        {
-            List<ChartOperationTarget> targets = GetSelectedChartTargets(capability);
-            RepairInstalledLocationRequest.TryCreate(targets, out repairRequest);
-        }
-        PendingInstallDestinationClearRequest pendingInstallRequest = null;
-        if (!isInstalledLocationRepair)
-        {
-            List<ChartOperationTarget> pendingTargets = GetSelectedChartTargets(capability, isPendingSection: true);
-            PendingInstallDestinationClearRequest.TryCreate(pendingTargets, out pendingInstallRequest);
-        }
-        if ((repairRequest?.HasTargets == true) || (pendingInstallRequest?.HasTargets == true))
-        {
-            e.Handled = true;
+            if (!TryGetContextMenuRow(e.Source, out _))
+            {
+                return;
+            }
+            if (ShouldBlockChartPackageMutationInteraction("table_context_menu_remove_install_destination"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            bool isInstalledLocationRepair = IsFullScanMainViewSection(GetCurrentMainViewOperationSection());
+            ChartOperationCapabilities capability = isInstalledLocationRepair
+                ? ChartOperationCapabilities.RepairInstalledLocation
+                : ChartOperationCapabilities.UpdateInstallDestination;
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(capability, isPendingSection: !isInstalledLocationRepair);
+            if (targets.Count == 0)
+            {
+                return;
+            }
             if (isInstalledLocationRepair)
             {
-                await installedLocationRepairTerminal
-                    .ClearCorrectAsync(repairRequest)
-                    .LoggingAndPropagate("tableContextMenuRemoveInstallDestinationClick");
+                if (RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest repairRequest))
+                {
+                    e.Handled = true;
+                    await installedLocationRepairTerminal.ClearCorrectAsync(repairRequest);
+                }
             }
             else
             {
-                await pendingInstallEstimationTerminal
-                    .ClearPendingAsync(pendingInstallRequest)
-                    .LoggingAndPropagate("tableContextMenuRemoveInstallDestinationClick");
+                e.Handled = true;
+                await ClearSelectedPendingChartsAsync(targets);
             }
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuRemoveInstallDestinationClick");
         }
     }
 
     private async void tableContextMenuSearchCorrectInstallationDirectoryChartsClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out _))
+        try
         {
-            return;
+            if (!TryGetContextMenuRow(e.Source, out _))
+            {
+                return;
+            }
+            if (ShouldBlockChartPackageMutationInteraction("table_context_menu_search_correct_installation_directory"))
+            {
+                e.Handled = true;
+                return;
+            }
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
+            if (RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request))
+            {
+                if (base.DataContext is not MainWindowViewModel viewModel)
+                {
+                    return;
+                }
+                e.Handled = true;
+                await installedLocationRepairTerminal
+                    .SearchCorrectAsync(request);
+            }
         }
-        if (ShouldBlockChartPackageMutationInteraction("table_context_menu_search_correct_installation_directory"))
+        catch (Exception exception)
         {
-            e.Handled = true;
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
         }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
-        if (RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request))
+    }
+
+    private async void tableContextMenuFixInstallationDirectoryClick(object sender, RoutedEventArgs e)
+    {
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("datagrid_fix_installation_directory"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (!TryGetContextMenuRow(e.Source, out _))
+            {
+                return;
+            }
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
+            if (!RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request))
+            {
+                return;
+            }
             if (base.DataContext is not MainWindowViewModel viewModel)
             {
                 return;
             }
             e.Handled = true;
             await installedLocationRepairTerminal
-                .SearchCorrectAsync(request)
-                .LoggingAndPropagate("tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
+                .FixInstalledLocationsAsync(request);
         }
-    }
-
-    private async void tableContextMenuFixInstallationDirectoryClick(object sender, RoutedEventArgs e)
-    {
-        if (ShouldBlockChartPackageMutationInteraction("datagrid_fix_installation_directory"))
+        catch (Exception exception)
         {
-            e.Handled = true;
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuFixInstallationDirectoryClick");
         }
-        if (!TryGetContextMenuRow(e.Source, out _))
-        {
-            return;
-        }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
-        if (!RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request))
-        {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        e.Handled = true;
-        await installedLocationRepairTerminal
-            .FixInstalledLocationsAsync(request)
-            .LoggingAndPropagate("tableContextMenuFixInstallationDirectoryClick");
     }
 
     private async void tableContextMenuItemDeleteEntryClick(object sender, RoutedEventArgs e)
@@ -7505,8 +7486,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         e.Handled = true;
         try
         {
-            await playlistWorkspaceTerminals.EntryRemoval
-                .DeleteSelectedEntriesAsync(GetSelectedGridRowsSnapshot());
+            List<object> selectedRows = GetSelectedGridRowsSnapshot();
+            var input = ScenarioUiOperationInput.Capture(viewModel, "playlist-entry-delete", [.. selectedRows]);
+            Task operation = playlistWorkspaceTerminals.EntryRemoval.DeleteSelectedEntriesAsync(selectedRows);
+            viewModel.PublishScenarioOperation(input, operation);
+            await operation;
         }
         catch (OperationCanceledException)
         {
@@ -7519,204 +7503,296 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private async void tableContextMenuItemForceFileScanCheckAllCharts(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockStartupUiInteraction("datagrid_context_menu_full_scan_all_charts"))
+        try
         {
+            if (ShouldBlockStartupUiInteraction("datagrid_context_menu_full_scan_all_charts"))
+            {
+                e.Handled = true;
+                return;
+            }
             e.Handled = true;
-            return;
+            if (base.DataContext is not MainWindowViewModel viewModel
+                || viewModel.MaintenanceRescanWorkflow == null)
+            {
+                return;
+            }
+            MaintenanceRescanStartResult result = await maintenanceRescanTerminal.RequestStartAsync();
+            if (result.Status == MaintenanceRescanStartStatus.Failed && result.Failure != null)
+            {
+                await NotifyMainWindowOperationFailureAsync(result.Failure, "tableContextMenuItemForceFileScanCheckAllCharts");
+            }
         }
-        e.Handled = true;
-        if (base.DataContext is not MainWindowViewModel viewModel
-            || viewModel.MaintenanceRescanWorkflow == null)
+        catch (Exception exception)
         {
-            return;
-        }
-        MaintenanceRescanStartResult result = await maintenanceRescanTerminal.RequestStartAsync();
-        if (result.Status == MaintenanceRescanStartStatus.Failed && result.Failure != null)
-        {
-            Task.FromException(result.Failure).ObserveFault("tableContextMenuItemForceFileScanCheckAllCharts");
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemForceFileScanCheckAllCharts");
         }
     }
 
     private async void tableContextMenuItemRemoveChartInfoParseFailureClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out _) || !IsChartInfoParseErrorMainViewSection(GetCurrentMainViewOperationSection()))
+        try
         {
-            return;
+            if (!TryGetContextMenuRow(e.Source, out _) || !IsChartInfoParseErrorMainViewSection(GetCurrentMainViewOperationSection()))
+            {
+                return;
+            }
+            List<string> md5s = GetSelectedChartInfoParseFailureMd5s();
+            if (base.DataContext is not MainWindowViewModel viewModel || md5s.Count == 0)
+            {
+                return;
+            }
+            ChartInfoParseFailureRemovalOperation operation = selectedChartContextMenuTerminals.ChartInfoParseFailureRemoval.BeginRemove(
+                new ChartInfoParseFailureRemovalRequest(md5s));
+            Exception acceptanceFailure = null;
+            try
+            {
+                ChartInfoParseFailureRemovalAcceptance acceptance = await operation.Acceptance;
+                if (acceptance.Accepted)
+                {
+                    e.Handled = true;
+                }
+            }
+            catch (Exception exception) { acceptanceFailure = exception; }
+            ChartInfoParseFailureRemovalResult result;
+            try { result = await operation.Completion; }
+            catch (Exception completionFailure)
+            {
+                if (acceptanceFailure != null) { throw new AggregateException(acceptanceFailure, completionFailure); }
+                throw;
+            }
+            if (acceptanceFailure != null)
+            {
+                if (result.Status == ChartInfoParseFailureRemovalStatus.Failed && result.Failure != null)
+                {
+                    throw new AggregateException(acceptanceFailure, result.Failure);
+                }
+                ExceptionDispatchInfo.Capture(acceptanceFailure).Throw();
+            }
+            if (result.Status == ChartInfoParseFailureRemovalStatus.Failed && result.Failure != null)
+            {
+                await NotifyMainWindowOperationFailureAsync(result.Failure, "tableContextMenuItemRemoveChartInfoParseFailureClick");
+            }
         }
-        List<string> md5s = GetSelectedChartInfoParseFailureMd5s();
-        if (base.DataContext is not MainWindowViewModel viewModel || md5s.Count == 0)
+        catch (Exception exception)
         {
-            return;
-        }
-        ChartInfoParseFailureRemovalOperation operation = selectedChartContextMenuTerminals.ChartInfoParseFailureRemoval.BeginRemove(
-            new ChartInfoParseFailureRemovalRequest(md5s));
-        ChartInfoParseFailureRemovalAcceptance acceptance = await operation.Acceptance;
-        if (acceptance.Accepted)
-        {
-            e.Handled = true;
-        }
-        ChartInfoParseFailureRemovalResult result = await operation.Completion;
-        if (result.Status == ChartInfoParseFailureRemovalStatus.Failed && result.Failure != null)
-        {
-            Task.FromException(result.Failure).ObserveFault("tableContextMenuItemRemoveChartInfoParseFailureClick");
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemRemoveChartInfoParseFailureClick");
         }
     }
 
-    private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("datagrid_auto_rename_folder"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("datagrid_auto_rename_folder"))
+            {
+                e.Handled = true;
+                return;
+            }
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary);
             e.Handled = true;
-            return;
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            await folderAutoRenameTerminal.StartSelectedAsync(targets);
         }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary);
-        e.Handled = true;
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemAutoRenameFolderClick");
         }
-        folderAutoRenameTerminal.StartSelected(targets);
     }
 
     private async void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("datagrid_rename_invalid_extension"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("datagrid_rename_invalid_extension"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
             e.Handled = true;
-            return;
+            SelectedChartMutationResult result = await selectedChartContextMenuTerminals.SelectedChartMutation.RenameInvalidExtensionsAsync(
+                new SelectedInvalidExtensionRenameRequest(
+                    GetSelectedChartTargets(ChartOperationCapabilities.RenameInvalidExtension),
+                    IsPendingMainViewSection(GetCurrentMainViewOperationSection())));
+            if (!result.Succeeded && result.Failure != null
+                && result.MutationReceipt == null && result.RemovalOutcome == null)
+            {
+                await NotifyMainWindowOperationFailureAsync(result.Failure, "tableContextMenuItemRenameBMSFileClick");
+            }
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            return;
-        }
-        e.Handled = true;
-        SelectedChartMutationResult result = await selectedChartContextMenuTerminals.SelectedChartMutation.RenameInvalidExtensionsAsync(
-            new SelectedInvalidExtensionRenameRequest(
-                GetSelectedChartTargets(ChartOperationCapabilities.RenameInvalidExtension),
-                IsPendingMainViewSection(GetCurrentMainViewOperationSection())));
-        if (!result.Succeeded && result.Failure != null)
-        {
-            Task.FromException(result.Failure).ObserveFault("tableContextMenuItemRenameBMSFileClick");
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemRenameBMSFileClick");
         }
     }
 
     private async void tableContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("datagrid_remove_chart"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("datagrid_remove_chart"))
+            {
+                e.Handled = true;
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            MainViewOperationSection section = GetCurrentMainViewOperationSection();
+            List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(IsPendingMainViewSection(section));
+            TryGetContextMenuChartTarget(sender, e.Source, out ChartOperationTarget contextTarget);
             e.Handled = true;
-            return;
+            SelectedChartMutationResult result = await selectedChartContextMenuTerminals.SelectedChartMutation.DeleteAsync(
+                new SelectedChartDeleteRequest(selectedTargets, contextTarget, section));
+            if (!result.Succeeded && result.Failure != null
+                && result.MutationReceipt == null && result.RemovalOutcome == null)
+            {
+                await NotifyMainWindowOperationFailureAsync(result.Failure, "tableContextMenuItemRemoveBMSFileClick");
+            }
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        catch (Exception exception)
         {
-            return;
-        }
-        MainViewOperationSection section = GetCurrentMainViewOperationSection();
-        List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(IsPendingMainViewSection(section));
-        TryGetContextMenuChartTarget(sender, e.Source, out ChartOperationTarget contextTarget);
-        e.Handled = true;
-        SelectedChartMutationResult result = await selectedChartContextMenuTerminals.SelectedChartMutation.DeleteAsync(
-            new SelectedChartDeleteRequest(selectedTargets, contextTarget, section));
-        if (!result.Succeeded && result.Failure != null)
-        {
-            Task.FromException(result.Failure).ObserveFault("tableContextMenuItemRemoveBMSFileClick");
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemRemoveBMSFileClick");
         }
     }
 
     private async void tableContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
     {
-        if (ShouldBlockChartPackageMutationInteraction("datagrid_move_chart"))
+        try
         {
+            if (ShouldBlockChartPackageMutationInteraction("datagrid_move_chart"))
+            {
+                e.Handled = true;
+                return;
+            }
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary);
+            if (sender is not MenuItem menuItem)
+            {
+                return;
+            }
+            if (base.DataContext is not MainWindowViewModel viewModel
+                || menuItem.DataContext is not string dstDir)
+            {
+                return;
+            }
             e.Handled = true;
-            return;
+            SelectedChartMutationResult result = await selectedChartContextMenuTerminals.SelectedChartMutation.MoveAsync(
+                new SelectedChartMoveRequest(targets, dstDir));
+            if (!result.Succeeded && result.Failure != null
+                && result.MutationReceipt == null && result.RemovalOutcome == null)
+            {
+                await NotifyMainWindowOperationFailureAsync(result.Failure, "tableContextMenuItemMoveFileClick");
+            }
         }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary);
-        if (sender is not MenuItem menuItem)
+        catch (Exception exception)
         {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel
-            || menuItem.DataContext is not string dstDir)
-        {
-            return;
-        }
-        e.Handled = true;
-        SelectedChartMutationResult result = await selectedChartContextMenuTerminals.SelectedChartMutation.MoveAsync(
-            new SelectedChartMoveRequest(targets, dstDir));
-        if (!result.Succeeded && result.Failure != null)
-        {
-            Task.FromException(result.Failure).ObserveFault("tableContextMenuItemMoveFileClick");
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemMoveFileClick");
         }
     }
 
-    private void fixEncodingSelectedBMS(object sender, RoutedEventArgs e)
+    private async void fixEncodingSelectedBMS(object sender, RoutedEventArgs e)
     {
-        if (e.Source is MenuItem menuItem && TryGetContextMenuRow(e.Source, out _))
+        try
         {
-            SelectedChartEncodingRequest request = new(
-                GetSelectedChartTargets(ChartOperationCapabilities.RunBmsEncodingFix),
-                menuItem.Tag.ToString());
-            if (!request.HasTargets || base.DataContext is not MainWindowViewModel viewModel)
+            if (e.Source is MenuItem menuItem && TryGetContextMenuRow(e.Source, out _))
             {
-                return;
-            }
-            SelectedChartMutationResult result = selectedChartContextMenuTerminals.SelectedChartMutation.ApplyEncoding(request);
-            if (result.Succeeded)
-            {
-                e.Handled = true;
-            }
-            else if (result.Failure != null)
-            {
-                Task.FromException(result.Failure).ObserveFault("fixEncodingSelectedBMS");
-            }
-        }
-    }
-
-    private void ignoreFileScanCheckSelectedCharts(object sender, RoutedEventArgs e)
-    {
-        if (TryGetContextMenuRow(e.Source, out _))
-        {
-            if (base.DataContext is not MainWindowViewModel viewModel)
-            {
-                return;
-            }
-            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
-            if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
-            {
-                e.Handled = true;
-                SelectedChartResourceHealthWorkflowResult result = selectedChartContextMenuTerminals.SelectedChartResourceHealth.SetWarningsIgnored(request);
-                if (!result.Succeeded && result.Failure != null)
+                SelectedChartEncodingRequest request = new(
+                    GetSelectedChartTargets(ChartOperationCapabilities.RunBmsEncodingFix),
+                    menuItem.Tag.ToString());
+                if (!request.HasTargets || base.DataContext is not MainWindowViewModel viewModel)
                 {
-                    Task.FromException(result.Failure).ObserveFault("ignoreFileScanCheckSelectedCharts");
+                    return;
+                }
+                SelectedChartMutationResult result = await selectedChartContextMenuTerminals.SelectedChartMutation.ApplyEncodingAsync(request);
+                if (result.Succeeded)
+                {
+                    e.Handled = true;
+                }
+                else if (result.Failure != null)
+                {
+                    await NotifyMainWindowOperationFailureAsync(result.Failure, "fixEncodingSelectedBMS");
                 }
             }
         }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "fixEncodingSelectedBMS");
+        }
     }
 
-    private void notIgnoredFileScanCheckSelectedCharts(object sender, RoutedEventArgs e)
+    private async void ignoreFileScanCheckSelectedCharts(object sender, RoutedEventArgs e)
     {
-        if (TryGetContextMenuRow(e.Source, out _))
+        try
         {
-            if (base.DataContext is not MainWindowViewModel viewModel)
+            if (TryGetContextMenuRow(e.Source, out _))
             {
-                return;
-            }
-            List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
-            if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
-            {
-                e.Handled = true;
-                SelectedChartResourceHealthWorkflowResult result = selectedChartContextMenuTerminals.SelectedChartResourceHealth.SetWarningsIgnored(request, unset: true);
-                if (!result.Succeeded && result.Failure != null)
+                if (base.DataContext is not MainWindowViewModel viewModel)
                 {
-                    Task.FromException(result.Failure).ObserveFault("notIgnoredFileScanCheckSelectedCharts");
+                    return;
+                }
+                List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
+                if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
+                {
+                    e.Handled = true;
+                    SelectedChartResourceHealthWorkflowResult result = selectedChartContextMenuTerminals.SelectedChartResourceHealth.SetWarningsIgnored(request);
+                    if (!result.Succeeded && result.Failure != null)
+                    {
+                        await NotifyMainWindowOperationFailureAsync(result.Failure, "ignoreFileScanCheckSelectedCharts");
+                    }
                 }
             }
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "ignoreFileScanCheckSelectedCharts");
+        }
+    }
+
+    private async void notIgnoredFileScanCheckSelectedCharts(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            if (TryGetContextMenuRow(e.Source, out _))
+            {
+                if (base.DataContext is not MainWindowViewModel viewModel)
+                {
+                    return;
+                }
+                List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
+                if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
+                {
+                    e.Handled = true;
+                    SelectedChartResourceHealthWorkflowResult result = selectedChartContextMenuTerminals.SelectedChartResourceHealth.SetWarningsIgnored(request, unset: true);
+                    if (!result.Succeeded && result.Failure != null)
+                    {
+                        await NotifyMainWindowOperationFailureAsync(result.Failure, "notIgnoredFileScanCheckSelectedCharts");
+                    }
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "notIgnoredFileScanCheckSelectedCharts");
         }
     }
 
     private async void forceInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
-        await ForceInstallSelectedPendingChartsAsync(e);
+        try
+        {
+            await ForceInstallSelectedPendingChartsAsync(e);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "forceInstallSelectedPendingCharts");
+        }
     }
 
     private async Task ForceInstallSelectedPendingChartsAsync(RoutedEventArgs e)
@@ -7735,36 +7811,44 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        var request = PendingInstallPackageOperationRequest.CreateForceInstall(targets);
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
         e.Handled = true;
+        await ForceInstallSelectedPendingChartsAsync(targets);
+    }
+
+    /// <summary>選択した実保留譜面の新規導入と必要表示を共用し、同じ実結果を返します。</summary>
+    internal async Task<PendingPackageMutationResult> ForceInstallSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets)
+    {
+        var request = PendingInstallPackageOperationRequest.CreateForceInstall(targets);
         PackageCatalogSelectionPlan selectionPlan = treeViewItemInstallPending.IsSelected
             ? PackageCatalogSelectionPlan.None
             : CaptureNextSiblingOrRoot(
                 treeViewItemInstallPending,
                 treeView.SelectedItem,
                 "forceInstallSelectedPendingCharts");
-        PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
-            pendingInstallationTerminal.InstallPendingAsync(request),
-            "forceInstallSelectedPendingCharts");
+        PendingPackageMutationResult result = await pendingInstallationTerminal.InstallPendingAsync(request);
         await pendingPackageMutationViewTerminal.ApplyAsync(
             result,
             PackageCatalogSection.Pending,
             MainViewUpdateMode.PendingInstallFolderSelected,
             "forceInstallSelectedPendingCharts",
-            () =>
-            {
-                ClearMainGridSelection();
-                selectionPlan.Apply(this);
-            });
+            () => selectionPlan.ApplyWhenTrackedPackageLeft(this, ClearMainGridSelection));
+        return result;
     }
 
     private async void manualInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
-        await ManualInstallSelectedPendingChartsAsync(e);
+        try
+        {
+            await ManualInstallSelectedPendingChartsAsync(e);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "manualInstallSelectedPendingCharts");
+        }
     }
 
     private async Task ManualInstallSelectedPendingChartsAsync(RoutedEventArgs e)
@@ -7783,39 +7867,58 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        var request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        if (base.DataContext is not MainWindowViewModel)
         {
             return;
         }
         e.Handled = true;
+        await ManualInstallSelectedPendingChartsAsync(targets);
+    }
+
+    /// <summary>選択譜面の実導入と必要表示を共用し、拒否・失敗を含む同じ操作結果を呼出元へ返します。</summary>
+    internal async Task<PendingPackageMutationResult> ManualInstallSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets)
+    {
+        var request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
         PackageCatalogSelectionPlan selectionPlan = treeViewItemInstallPending.IsSelected
             ? PackageCatalogSelectionPlan.None
             : CaptureNextSiblingOrRoot(
                 treeViewItemInstallPending,
                 treeView.SelectedItem,
                 "manualInstallSelectedPendingCharts");
-        PendingPackageMutationResult result = await ObservePendingPackageMutationAsync(
-            pendingInstallationTerminal.InstallPendingAsync(request),
-            "manualInstallSelectedPendingCharts");
+        PendingPackageMutationResult result = await pendingInstallationTerminal.InstallPendingAsync(request);
         await pendingPackageMutationViewTerminal.ApplyAsync(
             result,
             PackageCatalogSection.Pending,
             MainViewUpdateMode.PendingInstallFolderSelected,
             "manualInstallSelectedPendingCharts",
-            () =>
-            {
-                ClearMainGridSelection();
-                selectionPlan.Apply(this);
-            });
+            () => selectionPlan.ApplyWhenTrackedPackageLeft(this, ClearMainGridSelection));
+        return result;
     }
 
     private async void searchInstallDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
-        await SearchInstallDestinationSelectedPendingChartsAsync(e);
+        await SearchInstallDestinationSelectedPendingChartsWithPolicyAsync(e, InstallEstimationCandidatePolicy.RelatedOnly);
     }
 
-    private async Task SearchInstallDestinationSelectedPendingChartsAsync(RoutedEventArgs e)
+    private async void searchInstallDestinationSelectedPendingChartsKeepUnrelated(object sender, RoutedEventArgs e)
+    {
+        await SearchInstallDestinationSelectedPendingChartsWithPolicyAsync(e, InstallEstimationCandidatePolicy.KeepUnrelated);
+    }
+
+    /// <summary>一覧の通常・明示推定を同じ例外通知へ接続します。</summary>
+    private async Task SearchInstallDestinationSelectedPendingChartsWithPolicyAsync(RoutedEventArgs e, InstallEstimationCandidatePolicy candidatePolicy)
+    {
+        try
+        {
+            await SearchInstallDestinationSelectedPendingChartsAsync(e, candidatePolicy);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "searchInstallDestinationSelectedPendingCharts");
+        }
+    }
+
+    private async Task SearchInstallDestinationSelectedPendingChartsAsync(RoutedEventArgs e, InstallEstimationCandidatePolicy candidatePolicy)
     {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_search_install_destination"))
         {
@@ -7831,11 +7934,78 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        var request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets);
-        var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        await pendingInstallEstimationTerminal
-            .SearchPendingAsync(request);
+        await SearchSelectedPendingChartsAsync(targets, candidatePolicy);
+    }
+
+    /// <summary>選択譜面の推定要求を作成し、既存の推定終端へ渡します。</summary>
+    private Task SearchSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets, InstallEstimationCandidatePolicy candidatePolicy)
+        => pendingInstallEstimationTerminal.SearchPendingAsync(
+            PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets, candidatePolicy));
+
+    /// <summary>選択譜面の導入先解除を、配置先修復と分離した保留用終端へ渡します。</summary>
+    private Task ClearSelectedPendingChartsAsync(IReadOnlyList<ChartOperationTarget> targets)
+        => PendingInstallDestinationClearRequest.TryCreate(targets, out PendingInstallDestinationClearRequest request)
+            ? pendingInstallEstimationTerminal.ClearPendingAsync(request)
+            : Task.CompletedTask;
+
+    /// <summary>操作バーの実行時に、現在表示中の保留一覧と変更活動・選択を再確認します。</summary>
+    private List<ChartOperationTarget> GetPendingInstallBarTargets(string action)
+    {
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || !viewModel.MainChartList.IsPendingInstallViewActive
+            || viewModel.PlaylistWorkspace.IsPlaylistSummaryMode
+            || viewModel.PlayHistory.IsViewActive
+            || ShouldBlockChartPackageMutationInteraction(action))
+        {
+            return [];
+        }
+        return GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+    }
+
+    private async void pendingInstallEstimateClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            List<ChartOperationTarget> targets = GetPendingInstallBarTargets("pending_install_bar_estimate");
+            if (targets.Count == 0) { return; }
+            e.Handled = true;
+            await SearchSelectedPendingChartsAsync(targets, InstallEstimationCandidatePolicy.RelatedOnly);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "pendingInstallEstimateClick");
+        }
+    }
+
+    private async void pendingInstallExecuteClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            List<ChartOperationTarget> targets = GetPendingInstallBarTargets("pending_install_bar_install");
+            if (targets.Count == 0) { return; }
+            e.Handled = true;
+            await ManualInstallSelectedPendingChartsAsync(targets);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "pendingInstallExecuteClick");
+        }
+    }
+
+    private async void pendingInstallClearClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            List<ChartOperationTarget> targets = GetPendingInstallBarTargets("pending_install_bar_clear");
+            if (targets.Count == 0) { return; }
+            e.Handled = true;
+            await ClearSelectedPendingChartsAsync(targets);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "pendingInstallClearClick");
+        }
     }
 
     private async void tableContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
@@ -7843,9 +8013,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         try
         {
             await RemovePackageCatalogSelectionFromContextMenuAsync(e);
-        }
-        catch (OperationCanceledException)
-        {
         }
         catch (Exception exception)
         {
@@ -7903,7 +8070,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         e.Handled = true;
         PackageCatalogMutationResult result = await ObservePackageCatalogMutationAsync(
             operation,
-            "tableContextMenuItemDeleteInstallPackagesClick");
+            "tableContextMenuItemDeleteInstallPackagesClick", reportFailure: false);
         await ApplyPackageCatalogMutationViewAsync(
             viewModel,
             result,
@@ -7946,63 +8113,87 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         return false;
     }
 
-    private async void searchMergeDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
+    private async void TableContextMenuItemChartPropertiesClick(object sender, RoutedEventArgs e)
     {
-        await SearchMergeDestinationSelectedPendingChartsAsync(e);
-    }
-
-    private async Task SearchMergeDestinationSelectedPendingChartsAsync(RoutedEventArgs e)
-    {
-        if (ShouldBlockChartPackageMutationInteraction("datagrid_search_merge_destination"))
+        string chartPath = null;
+        try
         {
+            if (IsShellClosingOrClosed() || !TryGetContextMenuRow(e.Source, out object row))
+            {
+                return;
+            }
+            ChartOperationSourceScope scope = GetCurrentChartOperationSourceScope();
+            List<ChartOperationTarget> targets = GetSelectedChartTargets(scope);
+            if (targets.Count == 0 && GridRowResolver.TryGetChartOperationTarget(row, scope, out ChartOperationTarget rowTarget))
+            {
+                targets.Add(rowTarget);
+            }
+            ChartOperationTarget target = ChartPropertiesViewModel.ResolveTarget(targets);
+            if (target == null)
+            {
+                return;
+            }
             e.Handled = true;
-            return;
+            chartPath = target.Chart.Path;
+            chartPropertiesWindowManager.Open(target.Chart, ChartPropertiesViewModel.CapturePlacement(target));
         }
-        if (!TryGetContextMenuRow(e.Source, out _))
+        catch (Exception exception)
         {
-            return;
+            string route = nameof(TableContextMenuItemChartPropertiesClick) + ": path=" + chartPath;
+            if (IsShellClosingOrClosed())
+            {
+                TryLogMainWindowFailure(exception, route);
+            }
+            else
+            {
+                await NotifyMainWindowOperationFailureAsync(exception, route);
+            }
         }
-        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
-        if (targets == null || targets.Count == 0)
-        {
-            return;
-        }
-        var request = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch(targets);
-        var viewModel = base.DataContext as MainWindowViewModel;
-        e.Handled = true;
-        await pendingInstallEstimationTerminal
-            .SearchPendingAsync(request)
-            .LoggingAndPropagate("searchMergeDestinationSelectedPendingCharts");
     }
 
     private async void tableContextMenuItemConvertToAudioFileClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out _)
-            || base.DataContext is not MainWindowViewModel viewModel)
+        try
         {
-            return;
+            if (!TryGetContextMenuRow(e.Source, out _)
+                || base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            SelectedChartAudioConversionRequest request = new(
+                GetSelectedChartTargets(ChartOperationCapabilities.ConvertToAudio));
+            if (!request.HasTargets)
+            {
+                return;
+            }
+            e.Handled = true;
+            await selectedChartContextMenuTerminals.SelectedChartAudioConversion.RunAsync(request);
         }
-        SelectedChartAudioConversionRequest request = new(
-            GetSelectedChartTargets(ChartOperationCapabilities.ConvertToAudio));
-        if (!request.HasTargets)
+        catch (Exception exception)
         {
-            return;
+            await NotifyMainWindowOperationFailureAsync(exception, "tableContextMenuItemConvertToAudioFileClick");
         }
-        e.Handled = true;
-        await selectedChartContextMenuTerminals.SelectedChartAudioConversion.RunAsync(request);
     }
 
     private async void playlistTableDrop(object sender, DragEventArgs e)
     {
-        e.Handled = true;
-        e.Effects = DragDropEffects.None;
         treeViewItemInstantStoryBoardPlaylistTable.Stop(this);
         treeViewItemInstantStoryBoardPlaylistTable.Children.Clear();
-        var viewModel = base.DataContext as MainWindowViewModel;
+        TreeViewItem hitItem = e.OriginalSource is FrameworkElement source
+            ? WPFUtil.FindVisualParent<TreeViewItem>(source)
+            : null;
+        if (hitItem != null)
+        {
+            hitItem.Background = Brushes.Transparent;
+        }
+        // OSファイルはバブル先のWindow_Dropが一度だけ導入受付へ渡します。
         if (!IsPlaylistDropCandidateDrag(e.Data, out List<object> selectedRows))
         {
             return;
         }
+        e.Handled = true;
+        e.Effects = DragDropEffects.None;
+        var viewModel = base.DataContext as MainWindowViewModel;
         if (sender is not TreeViewItem treeViewItem)
         {
             return;
@@ -8011,14 +8202,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        TreeViewItem treeViewItem2 = WPFUtil.FindVisualParent<TreeViewItem>((FrameworkElement)e.OriginalSource);
-        if (treeViewItem2 == null)
+        if (hitItem == null)
         {
             return;
         }
-        treeViewItem2.Background = Brushes.Transparent;
         PlaylistFolderNode targetFolder;
-        if (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode))
+        if (!TryGetPlaylistFolderNode(hitItem.DataContext, out PlaylistFolderNode folderNode))
         {
             targetFolder = null;
         }
@@ -8037,8 +8226,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         e.Effects = DragDropEffects.Copy;
         try
         {
-            await viewModel.PlaylistWorkspace
-                .AddRowsToFolderAsync(selectedRows, table, targetFolder);
+            var input = ScenarioUiOperationInput.Capture(viewModel, "playlist-drop", [.. selectedRows], table, targetFolder);
+            Task operation = viewModel.PlaylistWorkspace.AddRowsToFolderAsync(selectedRows, table, targetFolder);
+            viewModel.PublishScenarioOperation(input, operation);
+            await operation;
         }
         catch (OperationCanceledException)
         {
@@ -8095,16 +8286,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
             e.Effects = DragDropEffects.Copy;
             treeViewItem.Background = SystemColors.HighlightBrush;
         }
-        if (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out _))
+        if (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out _) && !tviTable.IsExpanded)
         {
             var booleanAnimationUsingKeyFrames = new BooleanAnimationUsingKeyFrames();
             Storyboard.SetTargetProperty(booleanAnimationUsingKeyFrames, new PropertyPath(TreeViewItem.IsExpandedProperty));
             Storyboard.SetTarget(booleanAnimationUsingKeyFrames, tviTable);
-            booleanAnimationUsingKeyFrames.KeyFrames.Add(new DiscreteBooleanKeyFrame(!tviTable.IsExpanded, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(1.0))));
+            booleanAnimationUsingKeyFrames.KeyFrames.Add(new DiscreteBooleanKeyFrame(true, KeyTime.FromTimeSpan(TimeSpan.FromSeconds(1.0))));
             booleanAnimationUsingKeyFrames.FillBehavior = FillBehavior.Stop;
             booleanAnimationUsingKeyFrames.Completed += delegate
             {
-                tviTable.IsExpanded = !tviTable.IsExpanded;
+                tviTable.IsExpanded = true;
             };
             treeViewItemInstantStoryBoardPlaylistTable.Children.Add(booleanAnimationUsingKeyFrames);
             treeViewItemInstantStoryBoardPlaylistTable.Begin(this, isControllable: true);
@@ -8146,43 +8337,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-
-        playbackPanelView.RestoreSelectedSurface();
-        IntPtr handle;
-        try { handle = new WindowInteropHelper(this).Handle; }
-        catch { return; }
-        if (handle != Win32API.GetForegroundWindow())
+        try
         {
-            return;
-        }
-
-        Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)async delegate
-        {
-            if (IsShellClosingOrClosed())
+            playbackPanelView.RestoreSelectedSurface();
+            IntPtr handle = new WindowInteropHelper(this).Handle;
+            if (handle != readPlaybackForegroundWindow())
             {
                 return;
             }
 
-            for (int i = 1; i <= 10; i++)
-            {
-                if (IsShellClosingOrClosed())
-                {
-                    break;
-                }
-
-                NLogWrapper.DebuggerLogger?.Trace("try to set focus on custom table");
-                IntPtr currentHandle;
-                try { currentHandle = new WindowInteropHelper(this).Handle; }
-                catch { break; }
-                if (currentHandle != Win32API.GetForegroundWindow())
-                {
-                    break;
-                }
-
-                Keyboard.Focus(customTableView);
-                await Task.Delay(100);
-            }
-        });
+            // 開始通知内で一度だけ復帰し、後発の検索・セル編集へ古い要求を持ち越しません。
+            requestPlaybackKeyboardFocus(customTableView);
+        }
+        catch (Exception exception)
+        {
+            TryLogMainWindowFailure(exception, "playback surface restoration and focus");
+        }
     }
 
     private void dialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -8190,20 +8360,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         if (sender is FrameworkElement overlayDialog && (bool)e.NewValue)
         {
             activeOverlayDialog = overlayDialog;
-            if (HidesPlaybackSurface(overlayDialog))
-            {
-                PlaybackOverlayVisibility = Visibility.Visible;
-            }
         }
         if (!(bool)e.NewValue && (bool)e.OldValue)
         {
             if (ReferenceEquals(activeOverlayDialog, sender))
             {
                 activeOverlayDialog = null;
-                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog))
-                {
-                    PlaybackOverlayVisibility = Visibility.Collapsed;
-                }
             }
             playbackPanelView.RestoreSelectedSurface();
         }
@@ -8211,6 +8373,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     private TreeViewItem _lastSelectedTreeViewItem;
     private bool _isCrossTreeDeselecting = false;
+
+    /// <summary>
+    /// 左ツリーで選択中の項目と、選択項目の祖先の項目を仮想化の再利用対象から外します。
+    /// WPFは項目の入れ物を再利用するとき選択状態を保存・復元せず入れ物へ残すため、フォーカスの無い選択項目が画面外へ出ると、
+    /// 再利用先の無関係な項目に選択の背景色が付きます。フォーカスを持つ項目を再利用しない既存の挙動を、選択中の項目へ広げます。
+    /// 再利用の通知は項目を所有するItemsControlにだけ届くため、XAMLでデータ項目を生成する段ごとに接続します。
+    /// </summary>
+    private void treeSelectionCleanUpVirtualizedItem(object sender, CleanUpVirtualizedItemEventArgs e)
+    {
+        if (e.UIElement is TreeViewItem item
+            && (item.IsSelected || _lastSelectedTreeViewItem is { IsSelected: true } selected && item.IsAncestorOf(selected)))
+        {
+            e.Cancel = true;
+        }
+    }
 
     private void gridTreePane_TreeViewItemSelected(object sender, RoutedEventArgs e)
     {

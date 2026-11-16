@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using NLog;
 using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 using SQLite;
@@ -13,8 +12,6 @@ namespace BeMusicSeeker.Models.Utils;
 
 public static class TaskEx
 {
-    private static readonly Logger loggerLocal = NLogWrapper.FileLogger;
-
     private static void log2file(Task x, string memberName, string filePath, int lineNumber)
     {
         if (!x.IsFaulted)
@@ -23,10 +20,6 @@ public static class TaskEx
         }
         if (x.Exception != null)
         {
-            if (x.Exception.Flatten().InnerExceptions.Count == 1 && x.Exception.Flatten().InnerExceptions.Any(e => e is TaskCanceledException))
-            {
-                return;
-            }
             if (x.Exception.Flatten().InnerExceptions.Any(e => e is PathTooLongException))
             {
                 LogTaskFault(x.Exception, "path_too_long", memberName, filePath, lineNumber);
@@ -62,7 +55,7 @@ public static class TaskEx
         {
             string version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
             string messages = string.Join(" | ", exception.Flatten().InnerExceptions.Select(e => e.Message));
-            loggerLocal?.Error(exception, version + " - " + memberName + " (" + filePath + ":" + lineNumber + ") task_fault kind=" + kind + " messages=" + messages + Environment.NewLine + exception);
+            NLogWrapper.FileLogger?.Error(exception, version + " - " + memberName + " (" + filePath + ":" + lineNumber + ") task_fault kind=" + kind + " messages=" + messages + Environment.NewLine + exception);
         }
         catch
         {
@@ -77,13 +70,13 @@ public static class TaskEx
     /// <param name="filePath">呼出元のソースパス。</param>
     /// <param name="lineNumber">呼出元のソース行番号。</param>
     /// <returns>対象タスクと同じ成功、例外、またはキャンセルで完了するタスク。</returns>
-    public static async Task LoggingAndPropagate(this Task task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
+    public static Task LoggingAndPropagate(this Task task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
     {
         if (task == null)
         {
             throw new ArgumentNullException(nameof(task));
         }
-        await task.LoggingAndPropagate(log2file, memberName, filePath, lineNumber).ConfigureAwait(false);
+        return task.LoggingAndPropagate(log2file, memberName, filePath, lineNumber);
     }
 
     /// <summary>
@@ -95,13 +88,13 @@ public static class TaskEx
     /// <param name="filePath">呼出元のソースパス。</param>
     /// <param name="lineNumber">呼出元のソース行番号。</param>
     /// <returns>対象タスクと同じ成功値、例外、またはキャンセルで完了するタスク。</returns>
-    public static async Task<T> LoggingAndPropagate<T>(this Task<T> task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
+    public static Task<T> LoggingAndPropagate<T>(this Task<T> task, [CallerMemberName] string memberName = null, [CallerFilePath] string filePath = null, [CallerLineNumber] int lineNumber = 0)
     {
         if (task == null)
         {
             throw new ArgumentNullException(nameof(task));
         }
-        return await Ribbit.Util.Extensions.TaskEx.LoggingAndPropagate(task, log2file, memberName, filePath, lineNumber).ConfigureAwait(false);
+        return Ribbit.Util.Extensions.TaskEx.LoggingAndPropagate(task, log2file, memberName, filePath, lineNumber);
     }
 
     /// <summary>

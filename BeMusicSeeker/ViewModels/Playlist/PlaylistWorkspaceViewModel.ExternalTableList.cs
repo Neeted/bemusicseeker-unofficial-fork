@@ -11,7 +11,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private BMSTableSimpleCategorized externalTableListCatalog;
 
-    private bool isLoadingExternalTableList;
+    private PlaylistImportCatalogState externalTableListState;
 
     private readonly object externalTableListLoadSyncRoot = new();
 
@@ -19,8 +19,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private long externalTableListLoadVersion;
 
+    private bool externalTableListLoadShutdownRequested;
+
     /// <summary>
-    /// Gets the table-list catalog shown by the playlist import menu.
+    /// インポート画面の候補に使う外部カタログを取得します。
     /// </summary>
     public BMSTableSimpleCategorized BMSExternalTableListExt
     {
@@ -35,39 +37,29 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    /// <summary>
-    /// Gets whether the external table-list catalog is being loaded.
-    /// </summary>
-    private bool IsLoadingExternalCollectionBMSTables
+    /// <summary>外部カタログの準備・取得・成功・失敗を区別する状態です。</summary>
+    internal PlaylistImportCatalogState ExternalTableListState
     {
-        get => isLoadingExternalTableList;
-        set
+        get => externalTableListState;
+        private set
         {
-            if (isLoadingExternalTableList != value)
+            if (externalTableListState != value)
             {
-                isLoadingExternalTableList = value;
-                RaisePropertyChanged(nameof(IsLoadingExternalCollectionBMSTables));
+                externalTableListState = value;
+                RaisePropertyChanged(nameof(ExternalTableListState));
             }
         }
     }
 
-    internal PlaylistRootContextMenuAvailability CapturePlaylistRootContextMenuAvailability()
-    {
-        bool minimumInitializationLockHeld = IsWriteLockHeldBMSTablesInitializeMin;
-        return new PlaylistRootContextMenuAvailability(
-            canCreatePlaylist: !minimumInitializationLockHeld
-                && !IsWriteLockHeldBMSTables
-                && !IsWriteLockHeldAnyBMSTable,
-            canLoadPlaylistUri: !minimumInitializationLockHeld,
-            canLoadPlaylistCollection: !minimumInitializationLockHeld && !IsLoadingExternalCollectionBMSTables,
-            canLoadBuiltInTables: !minimumInitializationLockHeld);
-    }
+    /// <summary>新規プレイリストを作成できるかを、既存の書込み状態から取得します。</summary>
+    internal bool CanCreatePlaylist => !IsWriteLockHeldBMSTablesInitializeMin
+        && !IsWriteLockHeldBMSTables && !IsWriteLockHeldAnyBMSTable;
 
     /// <summary>
-    /// Loads and projects the optional external table-list catalog after startup becomes operable.
+    /// 起動後の任意カタログを取得し、成功・空・失敗を画面へ通知します。終了受付の閉鎖後は通信・表示を開始しません。
     /// </summary>
-    /// <param name="tableListUrl">The captured table-list API URI.</param>
-    /// <param name="fetchTableInfoAsync">The asynchronous external-table fetch boundary.</param>
+    /// <param name="tableListUrl">取得先として捕捉したカタログURI。</param>
+    /// <param name="fetchTableInfoAsync">非同期カタログ取得の境界。</param>
     internal async Task LoadExternalTableCollectionAsync(
         Uri tableListUrl,
         Func<Uri, CancellationToken, Task<IReadOnlyList<BMSTableSimple>>> fetchTableInfoAsync)
@@ -82,11 +74,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         CancellationTokenSource previousCancellation;
-        CancellationTokenSource currentCancellation = new();
-        CancellationToken currentToken = currentCancellation.Token;
+        CancellationTokenSource currentCancellation;
+        CancellationToken currentToken;
         long requestVersion;
         lock (externalTableListLoadSyncRoot)
         {
+            if (externalTableListLoadShutdownRequested) { return; }
+            currentCancellation = new();
+            currentToken = currentCancellation.Token;
             previousCancellation = externalTableListLoadCancellation;
             externalTableListLoadCancellation = currentCancellation;
             requestVersion = ++externalTableListLoadVersion;
@@ -98,7 +93,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             await ApplyExternalTableListLoadingStateAsync(
                 requestVersion,
                 currentCancellation,
-                isLoading: true).ConfigureAwait(false);
+                PlaylistImportCatalogState.Loading).ConfigureAwait(false);
+            currentToken.ThrowIfCancellationRequested();
             IReadOnlyList<BMSTableSimple> tableInfo = await fetchTableInfoAsync(
                 tableListUrl,
                 currentToken).ConfigureAwait(false);
@@ -114,7 +110,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             await ApplyExternalTableListLoadingStateAsync(
                 requestVersion,
                 currentCancellation,
-                isLoading: false).ConfigureAwait(false);
+                PlaylistImportCatalogState.NotStarted).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -124,7 +120,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             await ApplyExternalTableListLoadingStateAsync(
                 requestVersion,
                 currentCancellation,
-                isLoading: false).ConfigureAwait(false);
+                PlaylistImportCatalogState.Failed).ConfigureAwait(false);
         }
         finally
         {
@@ -140,19 +136,20 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// Cancels the optional external table-list request during coordinated shutdown.
+    /// 協調終了時に同じ画面寿命での取得受付を不可逆に閉じ、登録済み取得へ取消を届けます。未開始仕事の後着登録も拒否します。
     /// </summary>
     internal void CancelExternalTableCollectionLoadForShutdown()
     {
         CancellationTokenSource cancellation;
         lock (externalTableListLoadSyncRoot)
         {
+            externalTableListLoadShutdownRequested = true;
             cancellation = externalTableListLoadCancellation;
             externalTableListLoadCancellation = null;
             externalTableListLoadVersion++;
         }
         CancelExternalTableListLoad(cancellation);
-        dispatchPresentation(() => IsLoadingExternalCollectionBMSTables = false);
+        dispatchPresentation(() => ExternalTableListState = PlaylistImportCatalogState.NotStarted);
     }
 
     private async Task ApplyExternalTableListCatalogAsync(
@@ -167,20 +164,20 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
             BMSExternalTableListExt = catalog;
-            IsLoadingExternalCollectionBMSTables = false;
+            ExternalTableListState = PlaylistImportCatalogState.Loaded;
         }).ConfigureAwait(false);
     }
 
     private async Task ApplyExternalTableListLoadingStateAsync(
         long requestVersion,
         CancellationTokenSource requestCancellation,
-        bool isLoading)
+        PlaylistImportCatalogState state)
     {
         await playlistRestoreUiApplyScheduler(() =>
         {
             if (IsCurrentExternalTableListLoad(requestVersion, requestCancellation))
             {
-                IsLoadingExternalCollectionBMSTables = isLoading;
+                ExternalTableListState = state;
             }
         }).ConfigureAwait(false);
     }
@@ -213,7 +210,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// Builds the two-level table-list menu hierarchy while preserving the API order rules.
+    /// 既存の一覧順序規則を維持し、二段階の分類階層を構築します。
     /// </summary>
     internal static BMSTableSimpleCategorized BuildExternalTableListCatalog(
         IEnumerable<BMSTableSimple> tableInfo)
@@ -257,27 +254,4 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         return catalog;
     }
-}
-
-internal sealed class PlaylistRootContextMenuAvailability
-{
-    internal PlaylistRootContextMenuAvailability(
-        bool canCreatePlaylist,
-        bool canLoadPlaylistUri,
-        bool canLoadPlaylistCollection,
-        bool canLoadBuiltInTables)
-    {
-        CanCreatePlaylist = canCreatePlaylist;
-        CanLoadPlaylistUri = canLoadPlaylistUri;
-        CanLoadPlaylistCollection = canLoadPlaylistCollection;
-        CanLoadBuiltInTables = canLoadBuiltInTables;
-    }
-
-    internal bool CanCreatePlaylist { get; }
-
-    internal bool CanLoadPlaylistUri { get; }
-
-    internal bool CanLoadPlaylistCollection { get; }
-
-    internal bool CanLoadBuiltInTables { get; }
 }

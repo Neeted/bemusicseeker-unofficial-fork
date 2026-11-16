@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -17,11 +20,22 @@ internal sealed class LibraryCatalogMutationFacts
     /// <param name="chartRemoveRequests">確定した譜面削除要求。</param>
     /// <param name="chartPathChanges">確定した譜面パス移動。</param>
     /// <param name="folderPathChanges">確定したフォルダーパス移動。</param>
+    /// <param name="textChanges">存続する同token BMSのTXT実差分。</param>
+    /// <param name="folderProjectionExcludedDirectories">管理出力主体が所有し、局所移転から除外する範囲。</param>
+    /// <param name="relocatedTextFlags">セッションで評価済みの移転先完全一致pathとTXT。BMS移転がある場合は全移転先を必須とします。</param>
     internal LibraryCatalogMutationFacts(
         IEnumerable<OwnedChartRemoveRequest> chartRemoveRequests = null,
         IEnumerable<LibraryChartPathChange> chartPathChanges = null,
-        IEnumerable<LibraryFolderPathChange> folderPathChanges = null)
+        IEnumerable<LibraryFolderPathChange> folderPathChanges = null,
+        IEnumerable<ChartFile> textChanges = null,
+        IReadOnlyDictionary<string, int> relocatedTextFlags = null,
+        IEnumerable<string> folderProjectionExcludedDirectories = null)
     {
+        FolderProjectionExcludedDirectories = Array.AsReadOnly((folderProjectionExcludedDirectories ?? []).ToArray());
+        TextChanges = Array.AsReadOnly((textChanges ?? []).ToArray());
+        RelocatedTextFlags = new System.Collections.ObjectModel.ReadOnlyDictionary<string, int>(
+            relocatedTextFlags == null ? new Dictionary<string, int>(StringComparer.Ordinal)
+                : new Dictionary<string, int>(relocatedTextFlags, StringComparer.Ordinal));
         ChartRemoveRequests = Array.AsReadOnly((chartRemoveRequests ?? [])
             .Where(request => request != null)
             .ToArray());
@@ -33,6 +47,15 @@ internal sealed class LibraryCatalogMutationFacts
             .ToArray());
     }
 
+    /// <summary>管理出力主体へ委ねる通常/custom行の物理範囲です。</summary>
+    internal IReadOnlyList<string> FolderProjectionExcludedDirectories { get; }
+
+    /// <summary>同じ操作の最終配置で評価済みの移転先BMSのTXTです。欠落pathを再探索して補いません。</summary>
+    internal IReadOnlyDictionary<string, int> RelocatedTextFlags { get; }
+
+    /// <summary>同token・完全一致pathを保持する存続BMSのTXT実差分です。</summary>
+    internal IReadOnlyList<ChartFile> TextChanges { get; }
+
     /// <summary>所有者参照またはパス整理として確定した削除要求。</summary>
     internal IReadOnlyList<OwnedChartRemoveRequest> ChartRemoveRequests { get; }
 
@@ -43,7 +66,7 @@ internal sealed class LibraryCatalogMutationFacts
     internal IReadOnlyList<LibraryFolderPathChange> FolderPathChanges { get; }
 
     /// <summary>いずれかのカタログ事実を保持しているかを返します。</summary>
-    internal bool HasChanges => ChartRemoveRequests.Count > 0
+    internal bool HasChanges => TextChanges.Count > 0 || ChartRemoveRequests.Count > 0
         || ChartPathChanges.Count > 0
         || FolderPathChanges.Count > 0;
 
@@ -144,31 +167,196 @@ internal enum LibraryStorageRowPathNotificationPolicy
     Notify
 }
 
-/// <summary>
-/// One extension family handled inside a single invalid-extension rename user operation.
-/// Multiple batches may share one <see cref="LibraryMutationSessionReceipt"/> without
-/// introducing per-file durable receipts.
-/// </summary>
-internal sealed class LibraryFileExtensionRenameBatch
+/// <summary>一操作で共用する種別・完全一致行のindexと、物理フォルダの包含対応です。永続索引へは保持しません。</summary>
+internal sealed class LibraryChartRemovalSelection
 {
-    /// <summary>Copies one extension-family target set for later session execution.</summary>
-    /// <param name="charts">Charts whose invalid extensions belong to this batch.</param>
-    /// <param name="newExtension">The normalized destination extension for the batch.</param>
-    internal LibraryFileExtensionRenameBatch(
-        IEnumerable<ChartFile> charts,
-        string newExtension)
+    /// <summary>選択順のindexを一度だけ割り当て、実際に包含するフォルダだけを依存先へ結びます。</summary>
+    internal LibraryChartRemovalSelection(IEnumerable<LibraryChartRef> charts)
     {
-        Charts = Array.AsReadOnly((charts ?? [])
-            .Where(chart => chart != null)
-            .ToArray());
-        NewExtension = newExtension ?? string.Empty;
+        Targets = Array.AsReadOnly((charts ?? []).Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path)).ToArray());
+        SelectedRows = new HashSet<(ChartFileKind Kind, string Path)>(Targets.Select(chart => (chart.Kind, chart.Path)));
+        var groups = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+        var paths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        for (int index = 0; index < Targets.Count; index++)
+        {
+            string path = DirectoryExt.GetDirectoryNameSimple(Targets[index].Path);
+            string physical = PhysicalPath(path);
+            if (!groups.TryGetValue(physical, out List<int> indexes))
+            {
+                groups.Add(physical, indexes = []);
+                paths.Add(physical, path);
+            }
+            indexes.Add(index);
+        }
+        var descendants = groups.Keys.ToDictionary(path => path, _ => new List<int>(), StringComparer.OrdinalIgnoreCase);
+        foreach ((string path, List<int> indexes) in groups)
+        {
+            string parent = DirectoryExt.GetDirectoryNameSimple(path);
+            while (!string.IsNullOrEmpty(parent) && !string.Equals(parent, path, StringComparison.OrdinalIgnoreCase))
+            {
+                if (descendants.TryGetValue(parent, out List<int> required)) { required.AddRange(indexes); }
+                string next = DirectoryExt.GetDirectoryNameSimple(parent);
+                if (string.Equals(next, parent, StringComparison.OrdinalIgnoreCase)) { break; }
+                parent = next;
+            }
+        }
+        Folders = Array.AsReadOnly(groups.Keys.OrderByDescending(path => path.Length).Select(path => new LibraryChartRemovalPlanFolder
+        {
+            Path = paths[path],
+            TargetIndexes = groups[path].AsReadOnly(),
+            RequiredRemovedTargetIndexes = descendants[path].AsReadOnly()
+        }).ToArray());
     }
 
-    /// <summary>Gets the immutable chart target list for this extension family.</summary>
-    internal IReadOnlyList<ChartFile> Charts { get; }
+    private LibraryChartRemovalSelection(IReadOnlyList<LibraryChartRef> targets, IReadOnlyList<LibraryChartRemovalPlanFolder> folders)
+    {
+        Targets = targets;
+        SelectedRows = new HashSet<(ChartFileKind Kind, string Path)>(Targets.Select(chart => (chart.Kind, chart.Path)));
+        Folders = folders;
+    }
 
-    /// <summary>Gets the destination extension used by the filesystem executor.</summary>
+    /// <summary>DB行の種別とraw完全一致パスを保持する、選択順の固定参照です。</summary>
+    internal IReadOnlyList<LibraryChartRef> Targets { get; }
+    /// <summary>候補と適用計画が共用する種別・raw完全一致キーの選択集合です。</summary>
+    internal IReadOnlySet<(ChartFileKind Kind, string Path)> SelectedRows { get; }
+    /// <summary>子を先に並べた物理scopeと、同じ対象indexによる実包含依存です。</summary>
+    internal IReadOnlyList<LibraryChartRemovalPlanFolder> Folders { get; }
+
+    /// <summary>保護Yesの直下だけを外し、既に捕捉した対応を残るindexへ写します。包含探索はやり直しません。</summary>
+    internal LibraryChartRemovalSelection ExcludeFolders(ISet<string> blocked)
+    {
+        var retained = new List<LibraryChartRef>();
+        var remap = new Dictionary<int, int>();
+        for (int index = 0; index < Targets.Count; index++)
+        {
+            if (blocked.Contains(PhysicalPath(DirectoryExt.GetDirectoryNameSimple(Targets[index].Path)))) { continue; }
+            remap.Add(index, retained.Count);
+            retained.Add(Targets[index]);
+        }
+        return new LibraryChartRemovalSelection(retained.AsReadOnly(), Array.AsReadOnly(Folders
+            .Where(folder => folder.TargetIndexes.Any(remap.ContainsKey))
+            .Select(folder => new LibraryChartRemovalPlanFolder
+            {
+                Path = folder.Path,
+                TargetIndexes = Array.AsReadOnly(folder.TargetIndexes.Where(remap.ContainsKey).Select(index => remap[index]).ToArray()),
+                RequiredRemovedTargetIndexes = Array.AsReadOnly(folder.RequiredRemovedTargetIndexes.Where(remap.ContainsKey).Select(index => remap[index]).ToArray())
+            }).ToArray()));
+    }
+
+    /// <summary>行のrawキーとは分けて物理同一性を求め、不正パスは従来の対象別実行失敗へ渡します。</summary>
+    internal static string PhysicalPath(string path)
+    {
+        try { return LongPathFileSystem.NormalizePathForStorage(path); }
+        catch { return path ?? string.Empty; }
+    }
+}
+
+/// <summary>確認前に固定した削除対象と、同じ捕捉境界で得た確認候補・未解決結果です。</summary>
+internal sealed class LibraryChartRemovalPreflight
+{
+    /// <summary>操作単位の捕捉値をコピーし、確認後の実行まで変更不能に保持します。</summary>
+    internal LibraryChartRemovalPreflight(
+        IEnumerable<ChartFile> targets,
+        IEnumerable<string> wholeFolderCandidatePaths,
+        IEnumerable<string> unresolvedPaths,
+        int inputCount,
+        int pathOnlyInputCount,
+        IEnumerable<string> registeredUserRoots = null,
+        string installDirectory = null,
+        IEnumerable<LibraryChartRemovalTarget> rejectedTargets = null,
+        LibraryChartRemovalSelection selection = null)
+    {
+        Targets = Array.AsReadOnly((targets ?? []).Where(target => target != null).ToArray());
+        Selection = selection ?? new LibraryChartRemovalSelection(Targets.Select(chart => LibraryChartRef.FromChartFile(chart)));
+        WholeFolderCandidatePaths = Array.AsReadOnly((wholeFolderCandidatePaths ?? []).ToArray());
+        UnresolvedPaths = Array.AsReadOnly((unresolvedPaths ?? []).ToArray());
+        InputCount = inputCount;
+        PathOnlyInputCount = pathOnlyInputCount;
+        RegisteredUserRoots = Array.AsReadOnly((registeredUserRoots ?? []).ToArray());
+        InstallDirectory = installDirectory;
+        RejectedTargets = Array.AsReadOnly((rejectedTargets ?? []).ToArray());
+    }
+
+    /// <summary>候補、承認後の計画、実削除で共用する操作内対応です。</summary>
+    internal LibraryChartRemovalSelection Selection { get; }
+    /// <summary>確認前の所持識別・形式・配置を持つ固定共通値です。</summary>
+    internal IReadOnlyList<ChartFile> Targets { get; }
+    /// <summary>固定対象と同じ境界で捕捉したフォルダ削除確認候補です。</summary>
+    internal IReadOnlyList<string> WholeFolderCandidatePaths { get; }
+    /// <summary>事前照合が成立しなかった要求パスです。</summary>
+    internal IReadOnlyList<string> UnresolvedPaths { get; }
+    /// <summary>重複排除前の有効な入力件数です。</summary>
+    internal int InputCount { get; }
+    /// <summary>所持識別がない入力件数です。</summary>
+    internal int PathOnlyInputCount { get; }
+
+    /// <summary>確認前に捕捉した利用者登録です。欠落・親子・順序を保持します。</summary>
+    internal IReadOnlyList<string> RegisteredUserRoots { get; }
+    /// <summary>同じ確認入力で保護する導入先です。</summary>
+    internal string InstallDirectory { get; }
+    /// <summary>全体削除Yesを別操作へ読み替えず、物理計画から除いた対象です。</summary>
+    internal IReadOnlyList<LibraryChartRemovalTarget> RejectedTargets { get; }
+
+    /// <summary>当該scope内の登録childも含め、全体削除と登録解除を確認します。</summary>
+    internal string GetWholeFolderConfirmationMessage(string scope)
+    {
+        string[] affected = RegisteredUserRoots.Where(root => IsWithin(root, scope)).ToArray();
+        return affected.Length == 0 ? string.Format(Resources.Confirm_DeleteFolderWithNoBms, scope)
+            : string.Format(Resources.Confirm_DeleteRegisteredBmsRoots, scope, string.Join(Environment.NewLine, affected));
+    }
+
+    /// <summary>最後の利用者登録または現在導入先を含む全体削除scopeを識別します。</summary>
+    internal bool IsProtectedWholeFolder(string scope)
+        => RegisteredUserRoots.Count > 0 && RegisteredUserRoots.All(root => IsWithin(root, scope))
+            || !string.IsNullOrWhiteSpace(InstallDirectory) && IsWithin(InstallDirectory, scope);
+
+    /// <summary>承認した候補のうち、保護scopeを除いた実物理集合を返します。</summary>
+    internal IReadOnlyList<string> GetExecutableWholeFolderPaths(IEnumerable<string> approved)
+        => Array.AsReadOnly((approved ?? []).Where(scope => WholeFolderCandidatePaths.Contains(scope, StringComparer.OrdinalIgnoreCase)
+            && !IsProtectedWholeFolder(scope)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray());
+
+    /// <summary>Yesで拒否した直下groupだけを除き、明示選択の安全子は自身の判断を保ってP判定・停止・物理へ渡します。Noの対象は変更しません。</summary>
+    internal LibraryChartRemovalPreflight ExcludeProtectedWholeFolderApprovals(IEnumerable<string> approved)
+    {
+        string[] blocked = (approved ?? []).Where(scope => WholeFolderCandidatePaths.Contains(scope, StringComparer.OrdinalIgnoreCase)
+            && IsProtectedWholeFolder(scope)).ToArray();
+        if (blocked.Length == 0) { return this; }
+        var blockedPhysical = new HashSet<string>(blocked.Select(LibraryChartRemovalSelection.PhysicalPath), StringComparer.OrdinalIgnoreCase);
+        ChartFile[] rejected = Targets.Where(target => blockedPhysical.Contains(LibraryChartRemovalSelection.PhysicalPath(DirectoryExt.GetDirectoryNameSimple(target.Path)))).ToArray();
+        return new LibraryChartRemovalPreflight(Targets.Except(rejected), WholeFolderCandidatePaths.Except(blocked, StringComparer.OrdinalIgnoreCase),
+            UnresolvedPaths, InputCount, PathOnlyInputCount, RegisteredUserRoots, InstallDirectory,
+            RejectedTargets.Concat(rejected.Select(target => new LibraryChartRemovalTarget(target.Path, LibraryChartRemovalState.NotExecuted,
+                new InvalidOperationException(string.Format(Resources.Warn_CannotDeleteProtectedBmsRoot, System.IO.Path.GetDirectoryName(target.Path)))))),
+            Selection.ExcludeFolders(blockedPhysical));
+    }
+
+    private static bool IsWithin(string path, string scope)
+        => LongPathFileSystem.IsSameOrDescendantDirectoryPath(path, scope);
+}
+
+/// <summary>一つの変更セッションで処理する、確認前の固定対象と変更先拡張子です。</summary>
+internal sealed class LibraryFileExtensionRenameBatch
+{
+    /// <summary>固定対象列をコピーし、元選択や並行したpreflight配列を保持しません。</summary>
+    /// <param name="targets">現在の所持識別・形式・配置を持つ不変の共通値。</param>
+    /// <param name="newExtension">変更先拡張子。</param>
+    /// <param name="inputCount">未解決も含む入力件数。省略時は固定対象件数。</param>
+    internal LibraryFileExtensionRenameBatch(
+        IEnumerable<ChartFile> targets,
+        string newExtension,
+        int? inputCount = null)
+    {
+        Targets = Array.AsReadOnly((targets ?? []).Where(target => target != null).ToArray());
+        NewExtension = newExtension ?? string.Empty;
+        InputCount = inputCount ?? Targets.Count;
+    }
+
+    /// <summary>確認後に再確定しない固定対象列です。</summary>
+    internal IReadOnlyList<ChartFile> Targets { get; }
+    /// <summary>filesystem処理に渡す変更先拡張子です。</summary>
     internal string NewExtension { get; }
+    /// <summary>未解決を成功扱いしないための入力件数です。</summary>
+    internal int InputCount { get; }
 }
 
 /// <summary>不正な拡張子の変更処理が確定した不変の結果です。</summary>
@@ -259,18 +447,18 @@ internal sealed class LibraryChartPathChange
     /// <summary>変更前のパス。</summary>
     public string OldPath { get; init; }
 
-    /// <summary>chartが保持するBMS storage ownerを返します。</summary>
-    /// <returns>対応するBMS owner。存在しない場合はnull。</returns>
-    internal BMSFile GetBmsStorageOwner() => Chart?.GetBmsStorageOwner();
 
-    /// <summary>chartが保持するBMSON storage ownerを返します。</summary>
-    /// <returns>対応するBMSON owner。存在しない場合はnull。</returns>
-    internal LR2SongDBExtended.bmson_song GetBmsonStorageOwner() => Chart?.GetBmsonStorageOwner();
 }
 
 /// <summary>カタログのフォルダー行の旧パスと新パスを保持する移動事実。</summary>
 internal sealed class LibraryFolderPathChange
 {
+    /// <summary>物理移動が配下全体に成功した場合だけtrueとします。exact行の変更と区別します。</summary>
+    public bool IncludesDescendants { get; init; }
+
+    /// <summary>採番済みcustomファイルの実移転であることを表します。</summary>
+    public bool IsCustomFile { get; init; }
+
     /// <summary>変更後のフォルダーパス。</summary>
     public string NewFolderPath { get; init; }
 
@@ -281,8 +469,10 @@ internal sealed class LibraryFolderPathChange
 /// <summary>カタログとパッケージの状態適用に要した結果を保持します。</summary>
 internal sealed class BmsLibraryStateApplyResult
 {
-    /// <summary>状態適用前後の保存行バージョン。</summary>
-    public StorageRowsVersionSnapshot StorageRowsVersion { get; set; }
+    /// <summary>確定パスを受付権とモデル排他の解放後に公開する処理です。</summary>
+    internal Action PublishPackagePaths { get; set; }
+    /// <summary>状態適用前後の共通所持集合版です。独立した保存行版を保持しません。</summary>
+    public OwnedChartCollectionVersionSnapshot StorageRowsVersion { get; set; }
 
     /// <summary>フォルダーDB更新の経過時間。</summary>
     public long FolderDbMs { get; set; }
@@ -306,9 +496,50 @@ internal sealed class BmsLibraryStateApplyResult
     public long PackageApplyMs { get; set; }
 }
 
-/// <summary>譜面またはパッケージ項目の導入先更新事実。</summary>
+/// <summary>所持譜面の確定DST更新、または保留項目の候補・配置へ適用する物理成功scopeです。</summary>
 internal sealed class LibraryInstallDestinationChange
 {
+    /// <summary>保留項目へ順に適用する物理成功範囲です。空の場合は従来の確定DST更新です。</summary>
+    public string SourceFolderPath { get; init; }
+
+    /// <summary>改名・移動・統合の存続先です。削除の場合は空です。</summary>
+    public string DestinationFolderPath { get; init; }
+
+    /// <summary>削除・統合により、成功範囲に触れる項目の全候補を失効させます。</summary>
+    public bool InvalidateCandidates { get; init; }
+
+    /// <summary>物理フォルダの同一性と区切り境界で、当該範囲への包含を判定します。</summary>
+    internal static bool IsUnderFolder(string path, string folder)
+    {
+        if (string.IsNullOrWhiteSpace(path) || string.IsNullOrWhiteSpace(folder)) { return false; }
+        string pathKey = NormalizeDirectory(path);
+        string folderKey = NormalizeDirectory(folder);
+        return string.Equals(pathKey, folderKey, StringComparison.OrdinalIgnoreCase)
+            || pathKey.StartsWith(folderKey + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>成功範囲にあるpathだけを同じ相対位置で移します。候補の順位や存在は再評価しません。</summary>
+    internal static string RelocatePath(string path, string source, string destination)
+    {
+        if (!IsUnderFolder(path, source)) { return path; }
+        string sourceKey = NormalizeDirectory(source);
+        string pathKey = NormalizeDirectory(path);
+        string destinationBase = destination.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string destinationRoot = Path.GetPathRoot(destination);
+        if (string.Equals(destinationBase, destinationRoot?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase))
+        {
+            destinationBase = destinationRoot;
+        }
+        return Path.Combine(destinationBase, pathKey.Length == sourceKey.Length ? string.Empty : pathKey[(sourceKey.Length + 1)..]);
+    }
+
+    private static string NormalizeDirectory(string path)
+    {
+        try { path = Path.GetFullPath(path.Trim()); }
+        catch { path = path.Trim(); }
+        return path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
     /// <summary>ライブラリ側の対象譜面。</summary>
     public ChartFile Chart { get; init; }
 
@@ -326,9 +557,6 @@ internal sealed class LibraryInstallDestinationChange
     internal string GetCurrentInstallDestination() => Entry?.Chart?.InstallDestination
         ?? Chart?.InstallDestination;
 
-    /// <summary>chartが保持するBMS storage ownerを返します。</summary>
-    /// <returns>対応するBMS owner。存在しない場合はnull。</returns>
-    internal BMSFile GetBmsStorageOwner() => Chart?.GetBmsStorageOwner();
 
     /// <summary>
     /// 導入先状態と同時にパス変更を反映した譜面スナップショットを生成します。
@@ -337,6 +565,13 @@ internal sealed class LibraryInstallDestinationChange
     /// <returns>反映後の譜面スナップショット。対象がない場合はnull。</returns>
     internal ChartFile CreateAppliedChartSnapshot(IEnumerable<LibraryChartPathChange> pathChanges = null)
     {
+        if (Entry != null && !string.IsNullOrWhiteSpace(SourceFolderPath))
+        {
+            // 保留の確認用snapshotも同じscope適用を使い、別主体の譜面パス変更は重ねません。
+            PackageChartEntry snapshot = Entry.ToChartEntrySnapshot();
+            snapshot.ApplyLibraryFolderChange(this);
+            return snapshot.Chart;
+        }
         ChartFile source = Entry?.Chart ?? Chart;
         if (source == null)
         {
@@ -384,8 +619,6 @@ internal sealed class LibraryInstallDestinationChange
             return null;
         }
 
-        BMSFile bmsFile = source.GetBmsStorageOwner();
-        LR2SongDBExtended.bmson_song bmsonSong = source.GetBmsonStorageOwner();
         foreach (LibraryChartPathChange pathChange in pathChanges ?? [])
         {
             ChartFile changedChart = pathChange?.Chart;
@@ -393,9 +626,7 @@ internal sealed class LibraryInstallDestinationChange
             {
                 continue;
             }
-            if (ReferenceEquals(changedChart, source)
-                || (bmsFile != null && ReferenceEquals(changedChart.GetBmsStorageOwner(), bmsFile))
-                || (bmsonSong != null && ReferenceEquals(changedChart.GetBmsonStorageOwner(), bmsonSong)))
+            if (source.Token != null && ReferenceEquals(changedChart.Token, source.Token))
             {
                 return pathChange.NewPath;
             }

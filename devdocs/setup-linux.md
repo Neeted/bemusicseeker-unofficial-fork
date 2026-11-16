@@ -2,7 +2,7 @@
 
 Linux x64でソースを編集し、Windows向けのクロスビルドと、Windows依存のない既存テストの局所検証を行う手順です。通常の開発環境と最終検証は[Windowsの構築手順](setup.md)と[検証仕様](spec/development/testing.md)に従います。
 
-LinuxでWPFアプリを実行する手順ではありません。クロスビルドの成功はWindows上の実行、画面、再生、ネイティブDLL、更新・配布、NativeAOTの成功を保証しません。Linuxの確認を`Functional` / `Full`の成功として報告しません。
+LinuxでWPFアプリを実行する手順ではありません。クロスビルドの成功はWindows上の実行、画面、再生、ネイティブDLL、更新・配布、NativeAOTの成功を保証しません。Linuxの確認を`verify` / `full`の成功として報告しません。
 
 ## 前提
 
@@ -70,7 +70,7 @@ dotnet build BeMusicSeeker.sln --no-restore -c Release --disable-build-servers \
 
 次は既存の`FractionTests`を実行する再現例です。現在のクラスには4テストがありますが、件数を固定した成功条件にはしません。実際の変更では関連する既存テストを選び直し、検出・実行された名前と範囲を確認します。この例だけで無関係な変更の検証を完了しません。
 
-`.tmp/linux-tests/`がこの例専用であることを確認してから実行します。プロジェクト・ロック・出力・TRXはすべて一時領域に置き、Gitへ追加しません。パッケージ版はルートの[中央管理ファイル](../Directory.Packages.props)を継承します。
+`.tmp/linux-tests/`がこの例専用であることを確認してから実行します。プロジェクト・ロック・出力・TRXはすべて一時領域に置き、Gitへ追加しません。テストSDK版はルートの[global.json](../global.json)を継承し、SDKがframework・adapter・MTPの依存版を管理します。
 
 ```bash
 (
@@ -78,21 +78,20 @@ dotnet build BeMusicSeeker.sln --no-restore -c Release --disable-build-servers \
   test_project=.tmp/linux-tests/Existing.Tests.csproj
   mkdir -p .tmp/linux-tests
   cat > "$test_project" <<'XML'
-<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="MSTest.Sdk">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <LangVersion>14.0</LangVersion>
     <Nullable>enable</Nullable>
-    <IsTestProject>true</IsTestProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TestingExtensionsProfile>None</TestingExtensionsProfile>
+    <EnableMicrosoftTestingExtensionsTrxReport>true</EnableMicrosoftTestingExtensionsTrxReport>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="MSTest.TestAdapter" />
-    <PackageReference Include="MSTest.TestFramework" />
     <Compile Include="../../BeMusicSeeker/Ribbit/Math/Fraction.cs" Link="Fraction.cs" />
-    <Compile Include="../../BeMusicSeeker.Tests/Chart/FractionTests.cs" Link="FractionTests.cs" />
+    <Compile Include="../../tests/BeMusicSeeker.Core.Tests/Chart/FractionTests.cs" Link="FractionTests.cs" />
   </ItemGroup>
 </Project>
 XML
@@ -103,8 +102,9 @@ XML
   dotnet restore "$test_project" --locked-mode -p:Configuration=Release -p:Platform=x64
   dotnet build "$test_project" --no-restore -c Release -p:Platform=x64
   rm -f -- .tmp/linux-tests/results/existing.trx
-  dotnet test "$test_project" --no-build --no-restore -c Release -p:Platform=x64 \
-    --logger 'trx;LogFileName=existing.trx' --results-directory "$PWD/.tmp/linux-tests/results"
+  dotnet run --project "$test_project" --no-build --no-restore -c Release -p:Platform=x64 -- \
+    --report-trx --report-trx-filename existing.trx --minimum-expected-tests 1 \
+    --results-directory "$PWD/.tmp/linux-tests/results"
   python3 - <<'PY'
 import sys
 import xml.etree.ElementTree as ET
@@ -121,11 +121,11 @@ PY
 )
 ```
 
-`dotnet test`の非ゼロ終了、テスト0件、TRX欠落、`Skipped` / `Inconclusive` / `NotExecuted`を含む`Passed`以外は成功ではありません。前回のTRXを再利用しないよう、実行前に当該ファイルを除去しています。ソース選択や中央管理の依存関係を変えた場合は、この一時プロジェクトのロックだけを内容確認の上で作り直します。追跡対象のロック不一致をこの手順で解消しません。
+`dotnet run`の非ゼロ終了、テスト0件、TRX欠落、`Skipped` / `Inconclusive` / `NotExecuted`を含む`Passed`以外は成功ではありません。前回のTRXを再利用しないよう、実行前に当該ファイルを除去しています。ソース選択や中央管理の依存関係を変えた場合は、この一時プロジェクトのロックだけを内容確認の上で作り直します。追跡対象のロック不一致をこの手順で解消しません。
 
 ## 残る確認と引継ぎ
 
-Linuxで行った復元・ビルドと、選択した既存テストの名前・件数・結果を報告し、Windowsで未実施の検証を明示します。通常の最終統合はWindowsの`Functional`、配布・更新・リリースは`Full`を行います。画面操作や音声機器などの実機確認は、変更に応じてユーザーへ推奨し、実施と未実施の扱いは[検証方針](spec/development/testing.md#検証方針)に従います。
+Linuxで行った復元・ビルドと、選択した既存テストの名前・件数・結果を報告し、Windowsで未実施の検証を明示します。通常開発のコミット・`dev` への統合はWindowsの`verify`、正式リリース前の公開候補は`full`を行います。区分の選択と変更に応じた追加検証は[実行範囲の選択](spec/development/testing.md#実行範囲の選択)に従います。画面操作や音声機器などの実機確認は、変更に応じてユーザーへ推奨し、実施と未実施の扱いは[検証方針](spec/development/testing.md#検証方針)に従います。
 
 補助CLIをLinux上で確認する場合も、`--help`の成功は引数入口の確認に限ります。実データを使う処理、ファイル形式、DB差分、Windows固有の挙動は、それぞれ対応する既存テストと実行条件で別途確認します。
 

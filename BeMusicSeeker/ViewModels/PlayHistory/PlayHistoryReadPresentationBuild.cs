@@ -6,6 +6,7 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class PlayHistoryReadPresentationBuildRequest
 {
+    /// <summary>表示構築の入力を捕捉し、索引未取得のnullを正常な空索引と区別します。</summary>
     internal PlayHistoryReadPresentationBuildRequest(
         long requestId,
         PlayHistoryPeriodRequest periodRequest,
@@ -21,13 +22,14 @@ internal sealed class PlayHistoryReadPresentationBuildRequest
         PlayHistoryDisplayTargetItem displayTarget,
         long displayTargetRevision,
         IEnumerable<string> summaryFilterTexts,
-        PlayHistoryPeriodSummaryOverride summaryOverride)
+        PlayHistoryPeriodSummaryOverride summaryOverride,
+        PlayHistorySourceProfile sourceProfile = null)
     {
         RequestId = requestId;
         PeriodRequest = periodRequest ?? throw new ArgumentNullException(nameof(periodRequest));
         ProjectedRows = projectedRows == null ? [] : [.. projectedRows];
         ProjectionDiagnostics = projectionDiagnostics == null ? [] : [.. projectionDiagnostics];
-        PeriodIndexPlayedAt = periodIndexPlayedAt == null ? [] : [.. periodIndexPlayedAt];
+        PeriodIndexPlayedAt = periodIndexPlayedAt == null ? null : [.. periodIndexPlayedAt];
         PeriodIndexDiagnostics = periodIndexDiagnostics == null ? [] : [.. periodIndexDiagnostics];
         Provider = provider;
         SchemaStatus = schemaStatus;
@@ -38,8 +40,11 @@ internal sealed class PlayHistoryReadPresentationBuildRequest
         DisplayTargetRevision = displayTargetRevision;
         SummaryFilterTexts = summaryFilterTexts == null ? [] : [.. summaryFilterTexts];
         SummaryOverride = summaryOverride;
+        SourceProfile = sourceProfile;
     }
 
+    /// <summary>期間ツリーの生成失敗を、その読取り元の診断へ記録する局所入力です。</summary>
+    internal PlayHistorySourceProfile SourceProfile { get; }
     internal long RequestId { get; }
     internal PlayHistoryPeriodRequest PeriodRequest { get; }
     internal IReadOnlyList<PlayHistoryRow> ProjectedRows { get; }

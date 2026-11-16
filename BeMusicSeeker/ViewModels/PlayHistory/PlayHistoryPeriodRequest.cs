@@ -17,6 +17,7 @@ internal enum PlayHistoryPeriodKind
     Diagnostics
 }
 
+/// <summary>ローカル日付の共通開始境界を使い、履歴の半開区間と確定条件を保持する要求です。</summary>
 internal sealed class PlayHistoryPeriodRequest
 {
     private PlayHistoryPeriodRequest(
@@ -27,7 +28,7 @@ internal sealed class PlayHistoryPeriodRequest
         Lr2PlayHistoryFinalizationFilter finalizationFilter)
     {
         Kind = kind;
-        Label = label ?? string.Empty;
+        this.label = label ?? string.Empty;
         PlayedAtFromInclusive = playedAtFromInclusive;
         PlayedAtToExclusive = playedAtToExclusive;
         FinalizationFilter = finalizationFilter;
@@ -35,7 +36,11 @@ internal sealed class PlayHistoryPeriodRequest
 
     internal PlayHistoryPeriodKind Kind { get; }
 
-    internal string Label { get; }
+    private readonly string label;
+
+    /// <summary>確定した日時境界を保ち、相対期間のラベルだけを現在言語で取得します。</summary>
+    internal string Label => Kind is PlayHistoryPeriodKind.Year or PlayHistoryPeriodKind.Month or PlayHistoryPeriodKind.Day
+        ? label : ResolveLabel(Kind);
 
     internal long? PlayedAtFromInclusive { get; }
 
@@ -64,6 +69,7 @@ internal sealed class PlayHistoryPeriodRequest
         return Create(kind, DateTimeOffset.Now, TimeZoneInfo.Local);
     }
 
+    /// <summary>指定時刻帯の今日を基準に、相対期間の両端を共通日付境界で求めます。</summary>
     internal static PlayHistoryPeriodRequest Create(PlayHistoryPeriodKind kind, DateTimeOffset now, TimeZoneInfo timeZone)
     {
         timeZone ??= TimeZoneInfo.Local;
@@ -78,20 +84,20 @@ internal sealed class PlayHistoryPeriodRequest
         switch (kind)
         {
             case PlayHistoryPeriodKind.Today:
-                from = ToUnixSeconds(localToday, timeZone);
-                to = ToUnixSeconds(localToday.AddDays(1), timeZone);
+                from = LocalDateBoundary.ToUnixSeconds(localToday, timeZone);
+                to = LocalDateBoundary.ToUnixSeconds(localToday.AddDays(1), timeZone);
                 break;
             case PlayHistoryPeriodKind.Yesterday:
-                from = ToUnixSeconds(localToday.AddDays(-1), timeZone);
-                to = ToUnixSeconds(localToday, timeZone);
+                from = LocalDateBoundary.ToUnixSeconds(localToday.AddDays(-1), timeZone);
+                to = LocalDateBoundary.ToUnixSeconds(localToday, timeZone);
                 break;
             case PlayHistoryPeriodKind.Recent7Days:
-                from = ToUnixSeconds(localToday.AddDays(-6), timeZone);
-                to = ToUnixSeconds(localToday.AddDays(1), timeZone);
+                from = LocalDateBoundary.ToUnixSeconds(localToday.AddDays(-6), timeZone);
+                to = LocalDateBoundary.ToUnixSeconds(localToday.AddDays(1), timeZone);
                 break;
             case PlayHistoryPeriodKind.Recent30Days:
-                from = ToUnixSeconds(localToday.AddDays(-29), timeZone);
-                to = ToUnixSeconds(localToday.AddDays(1), timeZone);
+                from = LocalDateBoundary.ToUnixSeconds(localToday.AddDays(-29), timeZone);
+                to = LocalDateBoundary.ToUnixSeconds(localToday.AddDays(1), timeZone);
                 break;
         }
 
@@ -119,6 +125,7 @@ internal sealed class PlayHistoryPeriodRequest
             timeZone);
     }
 
+    /// <summary>指定日の開始を含み翌日開始を含まない区間を返します。丸日欠落では両端が同じ空区間です。</summary>
     internal static PlayHistoryPeriodRequest CreateDay(int year, int month, int day, TimeZoneInfo timeZone)
     {
         DateTime from = new(year, month, day);
@@ -153,20 +160,14 @@ internal sealed class PlayHistoryPeriodRequest
         };
     }
 
-    private static long ToUnixSeconds(DateTime localDateTime, TimeZoneInfo timeZone)
-    {
-        var unspecified = DateTime.SpecifyKind(localDateTime, DateTimeKind.Unspecified);
-        return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(unspecified, timeZone)).ToUnixTimeSeconds();
-    }
-
     private static PlayHistoryPeriodRequest CreateRange(PlayHistoryPeriodKind kind, string label, DateTime localFromInclusive, DateTime localToExclusive, TimeZoneInfo timeZone)
     {
         timeZone ??= TimeZoneInfo.Local;
         return new PlayHistoryPeriodRequest(
             kind,
             label,
-            ToUnixSeconds(localFromInclusive, timeZone),
-            ToUnixSeconds(localToExclusive, timeZone),
+            LocalDateBoundary.ToUnixSeconds(localFromInclusive, timeZone),
+            LocalDateBoundary.ToUnixSeconds(localToExclusive, timeZone),
             Lr2PlayHistoryFinalizationFilter.FinalizedOnly);
     }
 

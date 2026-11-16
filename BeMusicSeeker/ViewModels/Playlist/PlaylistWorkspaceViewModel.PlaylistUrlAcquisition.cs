@@ -8,9 +8,19 @@ using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
+/// <summary>URL取得行の種別です。表示の書式は種別から読取り時に現在の資源で選び、取消後の再送でも保持します。</summary>
+internal enum PlaylistUrlAcquisitionKind
+{
+    /// <summary>URL候補の取得です。</summary>
+    UrlDownload,
+
+    /// <summary>外部パッケージの探索です。</summary>
+    ExternalPackageLookup
+}
+
 internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
 {
-    internal static PlaylistUrlDownloadStatusSnapshot Inactive { get; } = new(false, 0, 0, string.Empty, false, string.Empty);
+    internal static PlaylistUrlDownloadStatusSnapshot Inactive { get; } = new(false, 0, 0, string.Empty, false, PlaylistUrlAcquisitionKind.UrlDownload);
 
     internal PlaylistUrlDownloadStatusSnapshot(
         bool isActive,
@@ -18,14 +28,14 @@ internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
         int completedCount,
         string currentDisplayName,
         bool canCancel,
-        string labelFormat)
+        PlaylistUrlAcquisitionKind kind)
     {
         IsActive = isActive;
         TotalCount = isActive ? Math.Max(0, totalCount) : 0;
         CompletedCount = isActive ? Math.Max(0, completedCount) : 0;
         CurrentDisplayName = isActive ? currentDisplayName ?? string.Empty : string.Empty;
         CanCancel = isActive && canCancel;
-        LabelFormat = isActive ? labelFormat ?? string.Empty : string.Empty;
+        Kind = kind;
     }
 
     internal bool IsActive { get; }
@@ -38,7 +48,8 @@ internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
 
     internal bool CanCancel { get; }
 
-    internal string LabelFormat { get; }
+    /// <summary>取得行の種別です。表示用の書式は保持しません。</summary>
+    internal PlaylistUrlAcquisitionKind Kind { get; }
 }
 
 internal sealed class PlaylistUrlContextMenuAvailability
@@ -91,9 +102,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly Func<Action, Task> playlistUrlAcquisitionPresentationScheduler;
 
-    private readonly Func<bool> playlistUrlInstallQueueActiveProvider;
 
-    private readonly Func<IReadOnlyList<string>, bool> playlistUrlInstallSink;
+    private readonly Func<DroppedInstallBatchRequest, bool> playlistUrlInstallSink;
 
     private readonly Action<Uri> playlistUrlBrowserOpenSink;
 
@@ -103,13 +113,49 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private CancellationTokenSource playlistUrlAcquisitionCancellation;
 
+    private readonly CancellationTokenSource playlistUrlShutdownCancellation = new();
+
+    private readonly HashSet<Task> playlistUrlTasks = [];
+
+    /// <summary>表示終了後の導入引渡しと未受理入力の回収も含め、新規取得を閉じ全要求を取り消します。</summary>
+    internal void RequestPlaylistUrlShutdown()
+    {
+        lock (playlistUrlAcquisitionSync) { playlistUrlShutdownCancellation.Cancel(); }
+    }
+
+    /// <summary>終了時に受理済みの全URL操作の実終端を待ちます。取得表示の終了は完了として扱いません。</summary>
+    internal Task WaitForPlaylistUrlIdleAsync()
+    {
+        lock (playlistUrlAcquisitionSync) { return Task.WhenAll(playlistUrlTasks); }
+    }
+
+    private Task TrackPlaylistUrlTask(Func<Task> operation)
+    {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (playlistUrlAcquisitionSync)
+        {
+            if (playlistUrlShutdownCancellation.IsCancellationRequested) { return Task.CompletedTask; }
+            playlistUrlTasks.Add(completion.Task);
+        }
+        _ = CompletePlaylistUrlTaskAsync(operation, completion);
+        return completion.Task;
+    }
+
+    private async Task CompletePlaylistUrlTaskAsync(Func<Task> operation, TaskCompletionSource completion)
+    {
+        try { await operation().ConfigureAwait(false); completion.TrySetResult(); }
+        catch (OperationCanceledException exception) { completion.TrySetCanceled(exception.CancellationToken); }
+        catch (Exception exception) { completion.TrySetException(exception); }
+        finally { lock (playlistUrlAcquisitionSync) { playlistUrlTasks.Remove(completion.Task); } }
+    }
+
     private int playlistUrlAcquisitionTotalCount;
 
     private int playlistUrlAcquisitionCompletedCount;
 
     private string playlistUrlAcquisitionCurrentDisplayName = string.Empty;
 
-    private string playlistUrlAcquisitionLabelFormat = string.Empty;
+    private PlaylistUrlAcquisitionKind playlistUrlAcquisitionKind;
 
     internal event EventHandler<PlaylistUrlDownloadStatusSnapshot> PlaylistUrlDownloadStatusChanged;
 
@@ -124,8 +170,16 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    /// <summary>右クリック時の有効行を固定し、単体は元URLをブラウザーへ、複数行は確認付き一括取得へ渡します。</summary>
+    /// <param name="rows">選択順の有効行。空の場合は何もしません。</param>
+    /// <param name="isDiffUrl">差分URLを使う場合はtrue。</param>
+    /// <returns>ブラウザー配送または一括取得の終端まで待つTask。</returns>
     internal Task RunPlaylistUrlActionAsync(IEnumerable<object> rows, bool isDiffUrl)
     {
+        if (IsPlaylistUrlDownloadRunning)
+        {
+            return Task.CompletedTask;
+        }
         List<object> rowSnapshot = [.. (rows ?? []).Where(row => row != null)];
         if (rowSnapshot.Count <= 1)
         {
@@ -134,7 +188,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 : isDiffUrl
                     ? GridRowResolver.GetUrlDiff(rowSnapshot[0])
                     : GridRowResolver.GetUrl(rowSnapshot[0]);
-            return RunSinglePlaylistUrlAsync(url);
+            return OpenPlaylistUrlInBrowserAsync(url);
         }
         return RunPlaylistUrlBatchAsync(
             PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rowSnapshot, isDiffUrl),
@@ -179,7 +233,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 && GridRowResolver.GetUrlDiff(contextRow) is Uri diffUrl
                 && diffUrl.IsAbsoluteUri;
         bool canFindExternalPackage = !isDownloadRunning
-            && !playlistUrlInstallQueueActiveProvider()
             && PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(rowSnapshot).Count > 0;
 
         return new PlaylistUrlContextMenuAvailability(
@@ -190,22 +243,17 @@ public sealed partial class PlaylistWorkspaceViewModel
             canFindExternalPackage);
     }
 
-    internal async Task RunSinglePlaylistUrlAsync(Uri url)
+    /// <summary>URLセルの単体クリックとして、自動導入条件に応じた取得またはブラウザー配送を行います。</summary>
+    /// <param name="url">セルの元URL。</param>
+    /// <returns>取得・導入引渡しまたはブラウザー配送の終端まで待つTask。</returns>
+    internal Task RunSinglePlaylistUrlAsync(Uri url)
     {
         if (url == null || !url.IsAbsoluteUri || IsPlaylistUrlDownloadRunning)
         {
-            return;
+            return Task.CompletedTask;
         }
 
-        BMSPlaylist playlistStore = getPlaylistStore();
-        if (!TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable admission))
-        {
-            return;
-        }
-        using (admission)
-        {
-            await RunSinglePlaylistUrlCoreAsync(url);
-        }
+        return TrackPlaylistUrlTask(() => RunSinglePlaylistUrlCoreAsync(url));
     }
 
     private async Task RunSinglePlaylistUrlCoreAsync(Uri url)
@@ -219,13 +267,17 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         Uri normalizedUrl = PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(url);
+        CancellationToken requestCancellation = playlistUrlShutdownCancellation.Token;
         if (!PlaylistUrlAcquisitionWorkflow.IsHttpOrHttpsUri(normalizedUrl))
         {
             return;
         }
         if (GetPlaylistUrlAcquisitionOptions().ShouldAutoInstall)
         {
-            PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url).ConfigureAwait(false);
+            using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(1, url.ToString(), PlaylistUrlAcquisitionKind.UrlDownload);
+            if (cancellation == null) { return; }
+            requestCancellation = cancellation.Token;
+            PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url, cancellation).ConfigureAwait(false);
             if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded
                 && playlistUrlAcquisitionWorkflow.IsStagedFileReady(result.FilePath))
             {
@@ -244,22 +296,26 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
         }
 
-        await playlistUrlAcquisitionPresentationScheduler(
-            () => playlistUrlBrowserOpenSink(url)).ConfigureAwait(true);
+        await OpenPlaylistUrlInBrowserAsync(url, requestCancellation).ConfigureAwait(true);
     }
 
-    internal async Task RunPlaylistUrlBatchAsync(IEnumerable<Uri> urls, bool isDiffUrl)
+    /// <summary>取得用の正規化をせず、元の絶対HTTP(S) URLを既存のUI配送で開き、配送先の失敗も呼出元へ返します。</summary>
+    private Task OpenPlaylistUrlInBrowserAsync(Uri url, CancellationToken cancellationToken = default)
     {
-        BMSPlaylist playlistStore = getPlaylistStore();
-        if (!TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable admission))
+        if (url == null || !url.IsAbsoluteUri || !PlaylistUrlAcquisitionWorkflow.IsHttpOrHttpsUri(url))
         {
-            return;
+            return Task.CompletedTask;
         }
-        using (admission)
+        return playlistUrlAcquisitionPresentationScheduler(() =>
         {
-            await RunPlaylistUrlBatchCoreAsync(urls, isDiffUrl);
-        }
+            playlistUrlShutdownCancellation.Token.ThrowIfCancellationRequested();
+            cancellationToken.ThrowIfCancellationRequested();
+            playlistUrlBrowserOpenSink(url);
+        });
     }
+
+    internal Task RunPlaylistUrlBatchAsync(IEnumerable<Uri> urls, bool isDiffUrl)
+        => TrackPlaylistUrlTask(() => RunPlaylistUrlBatchCoreAsync(urls, isDiffUrl));
 
     private async Task RunPlaylistUrlBatchCoreAsync(IEnumerable<Uri> urls, bool isDiffUrl)
     {
@@ -272,12 +328,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             await ShowPlaylistUrlAcquisitionNotificationAsync(
                 PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets);
-            return;
-        }
-        if (IsPlaylistUrlInstallQueueActive())
-        {
-            await ShowPlaylistUrlAcquisitionNotificationAsync(
-                PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue);
             return;
         }
         if (targets.Count >= PlaylistUrlDownloadLargeSelectionWarningThreshold)
@@ -297,13 +347,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         var downloadedPaths = new List<string>();
-        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var downloadedKeys = new HashSet<string>(StringComparer.Ordinal);
         int browserFallbackCount = 0;
         int blockedBySizeLimitCount = 0;
         int duplicateCount = 0;
         int failedCount = 0;
         int canceledCount = 0;
-        CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(targets.Count, string.Empty, string.Empty);
+        using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(targets.Count, string.Empty, PlaylistUrlAcquisitionKind.UrlDownload);
         if (cancellation == null)
         {
             return;
@@ -324,7 +374,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     i,
                     target.ToString(),
                     canCancel: true,
-                    labelFormat: null);
+                    kind: PlaylistUrlAcquisitionKind.UrlDownload);
                 PlaylistUrlDownloadResult result;
                 try
                 {
@@ -356,13 +406,18 @@ public sealed partial class PlaylistWorkspaceViewModel
                         browserFallbackCount++;
                         break;
                 }
-                UpdatePlaylistUrlDownloadStatus(true, targets.Count, i + 1, target.ToString(), !cancellation.IsCancellationRequested, null);
+                UpdatePlaylistUrlDownloadStatus(true, targets.Count, i + 1, target.ToString(), !cancellation.IsCancellationRequested, PlaylistUrlAcquisitionKind.UrlDownload);
                 if (cancellation.IsCancellationRequested)
                 {
                     canceledCount = targets.Count - i - 1;
                     break;
                 }
             }
+        }
+        catch (Exception exception)
+        {
+            await ReclaimPlaylistUrlInputsAsync(downloadedPaths, exception).ConfigureAwait(false);
+            throw;
         }
         finally
         {
@@ -385,18 +440,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             canceledCount);
     }
 
-    private async Task RunExternalPackageLookupAsync(IEnumerable<string> chartMd5Targets)
-    {
-        BMSPlaylist playlistStore = getPlaylistStore();
-        if (!TryEnterPlaylistMutationAdmission(playlistStore, out IDisposable admission))
-        {
-            return;
-        }
-        using (admission)
-        {
-            await RunExternalPackageLookupCoreAsync(chartMd5Targets);
-        }
-    }
+    private Task RunExternalPackageLookupAsync(IEnumerable<string> chartMd5Targets)
+        => TrackPlaylistUrlTask(() => RunExternalPackageLookupCoreAsync(chartMd5Targets));
 
     private async Task RunExternalPackageLookupCoreAsync(IEnumerable<string> chartMd5Targets)
     {
@@ -411,12 +456,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets);
             return;
         }
-        if (IsPlaylistUrlInstallQueueActive())
-        {
-            await ShowPlaylistUrlAcquisitionNotificationAsync(
-                PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue);
-            return;
-        }
         if (!await ConfirmPlaylistUrlAcquisitionAsync(
             targets.Count,
             isDiffUrl: false,
@@ -426,8 +465,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
 
         var downloadedPaths = new List<string>();
-        var downloadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var failedDownloadKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var downloadedKeys = new HashSet<string>(StringComparer.Ordinal);
+        var failedDownloadKeys = new HashSet<string>(StringComparer.Ordinal);
         int noCandidateCount = 0;
         int duplicateDownloadedUrlCount = 0;
         int duplicateFailedUrlCount = 0;
@@ -435,10 +474,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         int unsupportedCount = 0;
         int failedCount = 0;
         int canceledCount = 0;
-        CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(
+        using CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(
             targets.Count,
             string.Empty,
-            BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format);
+            PlaylistUrlAcquisitionKind.ExternalPackageLookup);
         if (cancellation == null)
         {
             return;
@@ -459,7 +498,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     i,
                     targetMd5,
                     canCancel: true,
-                    labelFormat: BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format);
+                    kind: PlaylistUrlAcquisitionKind.ExternalPackageLookup);
                 PlaylistExternalPackageWorkflowResult result;
                 try
                 {
@@ -472,12 +511,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         playlistUrlAcquisitionWorkflow.LogDownload,
                         cancellation.Token).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException)
-                {
-                    canceledCount = targets.Count - i;
-                    break;
-                }
-                if (cancellation.IsCancellationRequested)
+                catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
                 {
                     canceledCount = targets.Count - i;
                     break;
@@ -512,13 +546,18 @@ public sealed partial class PlaylistWorkspaceViewModel
                     i + 1,
                     targetMd5,
                     !cancellation.IsCancellationRequested,
-                    BeMusicSeeker.Properties.Resources.Playlist_external_package_lookup_progress_label_format);
+                    PlaylistUrlAcquisitionKind.ExternalPackageLookup);
                 if (cancellation.IsCancellationRequested)
                 {
                     canceledCount = targets.Count - i - 1;
                     break;
                 }
             }
+        }
+        catch (Exception exception)
+        {
+            await ReclaimPlaylistUrlInputsAsync(downloadedPaths, exception).ConfigureAwait(false);
+            throw;
         }
         finally
         {
@@ -566,24 +605,29 @@ public sealed partial class PlaylistWorkspaceViewModel
                 playlistUrlAcquisitionCompletedCount,
                 playlistUrlAcquisitionCurrentDisplayName,
                 canCancel: false,
-                labelFormat: playlistUrlAcquisitionLabelFormat);
+                kind: playlistUrlAcquisitionKind);
         }
     }
 
-    private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync(Uri url)
+    private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync(Uri url, CancellationTokenSource cancellation)
     {
         string displayName = url?.ToString() ?? string.Empty;
-        CancellationTokenSource cancellation = BeginPlaylistUrlAcquisition(1, displayName, string.Empty);
-        if (cancellation == null)
-        {
-            return PlaylistUrlDownloadResult.Failed();
-        }
-        UpdatePlaylistUrlDownloadStatus(true, 1, 0, displayName, canCancel: false, labelFormat: null);
+        PlaylistUrlDownloadResult result = null;
         try
         {
-            PlaylistUrlDownloadResult result = await playlistUrlAcquisitionWorkflow.DownloadCandidateAsync(url, cancellationToken: cancellation.Token).ConfigureAwait(false);
-            UpdatePlaylistUrlDownloadStatus(true, 1, 1, displayName, canCancel: false, labelFormat: null);
+            UpdatePlaylistUrlDownloadStatus(true, 1, 0, displayName, canCancel: true, kind: PlaylistUrlAcquisitionKind.UrlDownload);
+            result = await playlistUrlAcquisitionWorkflow.DownloadCandidateAsync(url, cancellationToken: cancellation.Token).ConfigureAwait(false);
+            cancellation.Token.ThrowIfCancellationRequested();
+            UpdatePlaylistUrlDownloadStatus(true, 1, 1, displayName, canCancel: false, kind: PlaylistUrlAcquisitionKind.UrlDownload);
             return result;
+        }
+        catch (Exception exception)
+        {
+            if (result?.Kind == PlaylistUrlDownloadResultKind.Downloaded)
+            {
+                await ReclaimPlaylistUrlInputsAsync([result.FilePath], exception).ConfigureAwait(false);
+            }
+            throw;
         }
         finally
         {
@@ -605,7 +649,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             downloadedKeys,
             allowSharedPageResolution: false,
             cancellationToken).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
+        // 保存と応答解放を完了した取得物は、取消し後も既存の集約・回収へ渡します。
+        if (result.Kind != PlaylistUrlDownloadResultKind.Downloaded)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+        }
         playlistUrlAcquisitionWorkflow.LogDownload(
             "playlist_external_package_lookup download_result provider="
                 + lookupResult.ProviderId
@@ -625,12 +673,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         };
     }
 
-    private CancellationTokenSource BeginPlaylistUrlAcquisition(int totalCount, string currentDisplayName, string labelFormat)
+    private CancellationTokenSource BeginPlaylistUrlAcquisition(int totalCount, string currentDisplayName, PlaylistUrlAcquisitionKind kind)
     {
-        var cancellation = new CancellationTokenSource();
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(playlistUrlShutdownCancellation.Token);
         lock (playlistUrlAcquisitionSync)
         {
-            if (playlistUrlAcquisitionRunning != 0)
+            if (playlistUrlAcquisitionRunning != 0 || playlistUrlShutdownCancellation.IsCancellationRequested)
             {
                 cancellation.Dispose();
                 return null;
@@ -638,16 +686,29 @@ public sealed partial class PlaylistWorkspaceViewModel
             playlistUrlAcquisitionTotalCount = Math.Max(0, totalCount);
             playlistUrlAcquisitionCompletedCount = 0;
             playlistUrlAcquisitionCurrentDisplayName = currentDisplayName ?? string.Empty;
-            playlistUrlAcquisitionLabelFormat = labelFormat ?? string.Empty;
+            playlistUrlAcquisitionKind = kind;
             playlistUrlAcquisitionCancellation = cancellation;
             playlistUrlAcquisitionRunning = 1;
             return cancellation;
         }
     }
 
+    // 回収失敗で取得・導入・公開の失敗を隠さず、両方の原因を保持する。
+    private async Task ReclaimPlaylistUrlInputsAsync(IReadOnlyList<string> paths, Exception operationFailure)
+    {
+        try
+        {
+            await playlistUrlAcquisitionWorkflow.ReclaimStagedFilesAsync(paths).ConfigureAwait(false);
+        }
+        catch (Exception cleanupFailure) when (operationFailure != null)
+        {
+            throw new AggregateException(operationFailure, cleanupFailure);
+        }
+    }
+
     private void EndPlaylistUrlAcquisition(CancellationTokenSource cancellation)
     {
-        bool shouldDispose = false;
+        bool shouldPublishInactive = false;
         lock (playlistUrlAcquisitionSync)
         {
             if (!ReferenceEquals(playlistUrlAcquisitionCancellation, cancellation))
@@ -658,14 +719,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             playlistUrlAcquisitionTotalCount = 0;
             playlistUrlAcquisitionCompletedCount = 0;
             playlistUrlAcquisitionCurrentDisplayName = string.Empty;
-            playlistUrlAcquisitionLabelFormat = string.Empty;
+            playlistUrlAcquisitionKind = PlaylistUrlAcquisitionKind.UrlDownload;
             playlistUrlAcquisitionRunning = 0;
-            UpdatePlaylistUrlDownloadStatus(false, 0, 0, string.Empty, canCancel: false, labelFormat: null);
-            shouldDispose = true;
+            shouldPublishInactive = true;
         }
-        if (shouldDispose)
+        if (shouldPublishInactive)
         {
-            cancellation.Dispose();
+            UpdatePlaylistUrlDownloadStatus(false, 0, 0, string.Empty, canCancel: false, kind: PlaylistUrlAcquisitionKind.UrlDownload);
         }
     }
 
@@ -675,7 +735,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         int completedCount,
         string currentDisplayName,
         bool canCancel,
-        string labelFormat)
+        PlaylistUrlAcquisitionKind kind)
     {
         lock (playlistUrlAcquisitionSync)
         {
@@ -684,30 +744,25 @@ public sealed partial class PlaylistWorkspaceViewModel
                 playlistUrlAcquisitionTotalCount = Math.Max(0, totalCount);
                 playlistUrlAcquisitionCompletedCount = Math.Max(0, completedCount);
                 playlistUrlAcquisitionCurrentDisplayName = currentDisplayName ?? string.Empty;
-                playlistUrlAcquisitionLabelFormat = labelFormat ?? string.Empty;
+                playlistUrlAcquisitionKind = kind;
             }
             else
             {
                 playlistUrlAcquisitionTotalCount = 0;
                 playlistUrlAcquisitionCompletedCount = 0;
                 playlistUrlAcquisitionCurrentDisplayName = string.Empty;
-                playlistUrlAcquisitionLabelFormat = string.Empty;
+                playlistUrlAcquisitionKind = PlaylistUrlAcquisitionKind.UrlDownload;
             }
-            PlaylistUrlDownloadStatusChanged?.Invoke(
-                this,
+            PublishPlaylistProgressEvent(
+                PlaylistUrlDownloadStatusChanged,
                 new PlaylistUrlDownloadStatusSnapshot(
                     isActive,
                     totalCount,
                     completedCount,
                     currentDisplayName,
                     canCancel,
-                    labelFormat));
+                    kind));
         }
-    }
-
-    private bool IsPlaylistUrlInstallQueueActive()
-    {
-        return playlistUrlInstallQueueActiveProvider();
     }
 
     private PlaylistUrlAcquisitionOptionsSnapshot GetPlaylistUrlAcquisitionOptions()
@@ -762,26 +817,33 @@ public sealed partial class PlaylistWorkspaceViewModel
     private async Task ShowPlaylistUrlAcquisitionNotificationAsync(
         PlaylistUrlAcquisitionNotificationKind kind)
     {
-        string message = kind switch
+        try
         {
-            PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets
-                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets,
-            PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue
-                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue,
-            PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets
-                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets,
-            PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue
-                => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue,
-            PlaylistUrlAcquisitionNotificationKind.InstallUnavailable
-                => BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable,
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
-        };
-        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
-            UiMessageRequest.CreateWarning(
-                message,
-                BeMusicSeeker.Properties.Resources.Warning))
-            .ConfigureAwait(true);
-        ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition notification");
+            string message = kind switch
+            {
+                PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets
+                    => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets,
+                PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue
+                    => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue,
+                PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets
+                    => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets,
+                PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue
+                    => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue,
+                PlaylistUrlAcquisitionNotificationKind.InstallUnavailable
+                    => BeMusicSeeker.Properties.Resources.Warn_PackageInstallUnavailable,
+                _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
+            };
+            UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
+                UiMessageRequest.CreateWarning(
+                    message,
+                    BeMusicSeeker.Properties.Resources.Warning))
+                .ConfigureAwait(true);
+            ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition notification");
+        }
+        catch (Exception failure)
+        {
+            TryLogPlaylistDropSecondaryFailure(failure, "playlist_url_acquisition_notification_failed");
+        }
     }
 
     private async Task ShowPlaylistUrlAcquisitionSummaryAsync(
@@ -798,34 +860,41 @@ public sealed partial class PlaylistWorkspaceViewModel
         int unsupportedCount,
         int canceledCount)
     {
-        string message = externalPackageLookup
-            ? string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistExternalPackageLookupResult,
-                targetCount,
-                downloadedCount,
-                noCandidateCount,
-                duplicateDownloadedUrlCount,
-                duplicateFailedUrlCount,
-                blockedBySizeLimitCount,
-                unsupportedCount,
-                failedCount,
-                canceledCount)
-            : string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistUrlDownloadResult,
-                targetCount,
-                downloadedCount,
-                browserFallbackCount,
-                blockedBySizeLimitCount,
-                duplicateCount,
-                failedCount,
-                canceledCount);
-        UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
-            UiMessageRequest.CreateInformation(
-                message,
-                BeMusicSeeker.Properties.Resources.Information,
-                downloadedCount > 0))
-            .ConfigureAwait(true);
-        ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition summary");
+        try
+        {
+            string message = externalPackageLookup
+                ? string.Format(
+                    BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistExternalPackageLookupResult,
+                    targetCount,
+                    downloadedCount,
+                    noCandidateCount,
+                    duplicateDownloadedUrlCount,
+                    duplicateFailedUrlCount,
+                    blockedBySizeLimitCount,
+                    unsupportedCount,
+                    failedCount,
+                    canceledCount)
+                : string.Format(
+                    BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistUrlDownloadResult,
+                    targetCount,
+                    downloadedCount,
+                    browserFallbackCount,
+                    blockedBySizeLimitCount,
+                    duplicateCount,
+                    failedCount,
+                    canceledCount);
+            UiDialogResult result = await playlistWorkspaceDialogService.ShowMessageAsync(
+                UiMessageRequest.CreateInformation(
+                    message,
+                    BeMusicSeeker.Properties.Resources.Information,
+                    downloadedCount > 0))
+                .ConfigureAwait(true);
+            ThrowIfPlaylistUrlDialogNotShown(result, "Playlist URL acquisition summary");
+        }
+        catch (Exception failure)
+        {
+            TryLogPlaylistDropSecondaryFailure(failure, "playlist_url_acquisition_summary_failed");
+        }
     }
 
     private static bool ToPlaylistUrlConfirmationDecision(UiDialogResult result, string routeName)
@@ -874,15 +943,43 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        if (!playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot)))
+        var cleanupFailures = new List<Exception>();
+        var request = new DroppedInstallBatchRequest(pathSnapshot, pathSnapshot, pathSnapshot,
+            playlistUrlAcquisitionWorkflow.ReclaimStagedFile, (_, failure) => cleanupFailures.Add(failure));
+        bool accepted = false;
+        Exception operationFailure = null;
+        try
         {
-            await ShowPlaylistUrlAcquisitionNotificationAsync(
-                PlaylistUrlAcquisitionNotificationKind.InstallUnavailable).ConfigureAwait(true);
-            return;
+            accepted = playlistUrlInstallSink(request);
+            if (!accepted)
+            {
+                await ShowPlaylistUrlAcquisitionNotificationAsync(PlaylistUrlAcquisitionNotificationKind.InstallUnavailable).ConfigureAwait(true);
+                return;
+            }
+            await playlistUrlInstallCompletionProvider().ConfigureAwait(false);
+            await playlistUrlAcquisitionPresentationScheduler(() => PlaylistUrlInstallTreeExpansionRequested?.Invoke()).ConfigureAwait(true);
         }
-        await playlistUrlAcquisitionPresentationScheduler(
-            () => PlaylistUrlInstallTreeExpansionRequested?.Invoke())
-            .ConfigureAwait(true);
+        catch (Exception exception)
+        {
+            operationFailure = exception;
+            throw;
+        }
+        finally
+        {
+            if (!accepted)
+            {
+                // 拒否時のownerによる回収と受理前故障を、同じ要求の一回限りの処分へ集約します。
+                await Task.Run(request.TryAbandonUnconsumedSources).ConfigureAwait(false);
+                await request.WaitForDispositionAsync().ConfigureAwait(false);
+            }
+            // 受理後は待ち行列の実idleまで待った結果だけを確認し、導入へ移した入力を削除しません。
+            if (cleanupFailures.Count > 0)
+            {
+                if (operationFailure != null) { cleanupFailures.Insert(0, operationFailure); }
+                throw new AggregateException(cleanupFailures);
+            }
+        }
+
     }
 
 }

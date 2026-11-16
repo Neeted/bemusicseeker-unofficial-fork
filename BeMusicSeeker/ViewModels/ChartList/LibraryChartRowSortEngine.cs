@@ -248,10 +248,6 @@ internal static class LibraryChartRowSortEngine
         {
             return null;
         }
-        if (double.TryParse(levelText, NumberStyles.Float, CultureInfo.CurrentCulture, out double currentCultureValue))
-        {
-            return currentCultureValue;
-        }
         if (double.TryParse(levelText, NumberStyles.Float, CultureInfo.InvariantCulture, out double invariantCultureValue))
         {
             return invariantCultureValue;

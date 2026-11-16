@@ -475,6 +475,7 @@ hr {
 <li class="toc-level-3"><a href="#first-scan">First Scan</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#settings-dialog">Settings Dialog</a></summary><ul>
+<li class="toc-level-3"><a href="#settings-that-need-attention">Settings That Need Attention</a></li>
 <li class="toc-level-3"><details open><summary><a href="#general">General</a></summary><ul>
 <li class="toc-level-4"><a href="#registering-bms-directories">Registering BMS Directories</a></li>
 <li class="toc-level-4"><a href="#linked-with-lr2">Linked with LR2</a></li>
@@ -492,10 +493,18 @@ hr {
 <li class="toc-level-3"><details open><summary><a href="#playlist-settings">Playlist Settings</a></summary><ul>
 <li class="toc-level-4"><a href="#play-log-folder-display-presets">Play Log FOLDER Display Presets</a></li>
 </ul></details></li>
-<li class="toc-level-3"><a href="#install">Install</a></li>
+<li class="toc-level-3"><details open><summary><a href="#install">Install</a></summary><ul>
+<li class="toc-level-4"><a href="#installation-destination">Installation destination</a></li>
+<li class="toc-level-4"><a href="#new-folder-naming">New folder naming</a></li>
+<li class="toc-level-4"><a href="#import-and-new-installation">Import and new installation</a></li>
+<li class="toc-level-4"><a href="#automatic-destination-estimation">Automatic destination estimation</a></li>
+<li class="toc-level-4"><a href="#overwriting-and-source-package-cleanup">Overwriting and source package cleanup</a></li>
+<li class="toc-level-4"><a href="#confirmation-messages">Confirmation messages</a></li>
+</ul></details></li>
 <li class="toc-level-3"><a href="#backup">Backup</a></li>
 <li class="toc-level-3"><details open><summary><a href="#advanced">Advanced</a></summary><ul>
 <li class="toc-level-4"><a href="#advanced-settings-reference">Advanced Settings Reference</a></li>
+<li class="toc-level-4"><a href="#startup-sort-cache-preparation">Startup Sort Cache Preparation</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#right-click-settings">Right-click settings</a></summary><ul>
 <li class="toc-level-4"><a href="#registering-web-pages">Registering Web Pages</a></li>
@@ -505,6 +514,7 @@ hr {
 <li class="toc-level-2"><details open><summary><a href="#startup--reload--progress-display">Startup / Reload / Progress Display</a></summary><ul>
 <li class="toc-level-3"><a href="#automatic-updates">Automatic Updates</a></li>
 <li class="toc-level-3"><a href="#progress-display">Progress Display</a></li>
+<li class="toc-level-3"><a href="#operations-that-cannot-run-together">Operations That Cannot Run Together</a></li>
 <li class="toc-level-3"><a href="#library-reload">Library Reload</a></li>
 <li class="toc-level-3"><a href="#re-run-initialization">Re-run Initialization</a></li>
 <li class="toc-level-3"><a href="#playlist-reload">Playlist Reload</a></li>
@@ -515,13 +525,13 @@ hr {
 <li class="toc-level-3"><a href="#copy-operations">Copy Operations</a></li>
 <li class="toc-level-3"><details open><summary><a href="#context-menu">Context Menu</a></summary><ul>
 <li class="toc-level-4"><a href="#opening-external-pages-and-programs">Opening External Pages and Programs</a></li>
-<li class="toc-level-4"><a href="#updating-rankings">Updating Rankings</a></li>
 <li class="toc-level-4"><a href="#checking-encoding-and-file-state">Checking Encoding and File State</a></li>
 <li class="toc-level-4"><a href="#installation-and-destination-correction">Installation and Destination Correction</a></li>
 <li class="toc-level-4"><a href="#moving-deleting-and-converting-files">Moving, Deleting, and Converting Files</a></li>
 <li class="toc-level-4"><a href="#removing-list-items-and-parse-records">Removing List Items and Parse Records</a></li>
 <li class="toc-level-4"><a href="#rename-to-invalid-extension">Rename to Invalid Extension</a></li>
 </ul></details></li>
+<li class="toc-level-3"><a href="#checking-chart-properties">Checking Chart Properties</a></li>
 <li class="toc-level-3"><a href="#tree-context-menu">Tree Context Menu</a></li>
 <li class="toc-level-3"><a href="#other-popup-menus">Other Popup Menus</a></li>
 </ul></details></li>
@@ -574,7 +584,7 @@ hr {
 <li class="toc-level-4"><a href="#selecting-or-entering-a-destination">Selecting or Entering a Destination</a></li>
 <li class="toc-level-4"><a href="#removing-or-deleting-pending-packages">Removing or Deleting Pending Packages</a></li>
 </ul></details></li>
-<li class="toc-level-3"><a href="#install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</a></li>
+<li class="toc-level-3"><a href="#install-destination-estimation">Install-Destination Estimation</a></li>
 <li class="toc-level-3"><a href="#smart-overwrite">Smart Overwrite</a></li>
 <li class="toc-level-3"><a href="#advanced-features">Advanced Features</a></li>
 </ul></details></li>
@@ -597,6 +607,7 @@ hr {
 <li class="toc-level-3"><a href="#display-target-and-folder">Display Target and FOLDER</a></li>
 <li class="toc-level-3"><a href="#play-log-context-menu">Play Log Context Menu</a></li>
 <li class="toc-level-3"><a href="#notes-for-beatoraja">Notes for beatoraja</a></li>
+<li class="toc-level-3"><a href="#when-a-settings-operation-cannot-finish">When a settings operation cannot finish</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#backup--uninstall">Backup / Uninstall</a></summary><ul>
 <li class="toc-level-3"><a href="#playlist-backup-and-restore">Playlist Backup and Restore</a></li>
@@ -608,6 +619,7 @@ hr {
 <li class="toc-level-3"><a href="#logs--bug-reports">Logs / Bug Reports</a></li>
 <li class="toc-level-3"><details open><summary><a href="#startup--initialization">Startup / Initialization</a></summary><ul>
 <li class="toc-level-4"><a href="#a-registered-folder-is-unavailable">A Registered Folder Is Unavailable</a></li>
+<li class="toc-level-4"><a href="#startup-asks-you-to-check-settings">Startup Asks You to Check Settings</a></li>
 <li class="toc-level-4"><a href="#startup-or-initialization-is-slow">Startup or Initialization Is Slow</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#download--install">Download / Install</a></summary><ul>
@@ -619,9 +631,11 @@ hr {
 <li class="toc-level-4"><a href="#cannot-retrieve-data-from-external-services">Cannot Retrieve Data from External Services</a></li>
 <li class="toc-level-4"><a href="#cannot-generate-recommendations">Cannot Generate Recommendations</a></li>
 <li class="toc-level-4"><a href="#playlist-status-fails">Playlist STATUS Fails</a></li>
+<li class="toc-level-4"><a href="#json-export-fails">JSON Export Fails</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#lr2-integration">LR2 Integration</a></summary><ul>
 <li class="toc-level-4"><a href="#lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</a></li>
+<li class="toc-level-4"><a href="#table-output-stops-because-output-locations-overlap">Table Output Stops Because Output Locations Overlap</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#play-log-troubleshooting">Play Log Troubleshooting</a></summary><ul>
 <li class="toc-level-4"><a href="#past-lr2-plays-are-not-shown">Past LR2 Plays Are Not Shown</a></li>
@@ -632,6 +646,7 @@ hr {
 <li class="toc-level-4"><a href="#audio-playback-or-conversion-fails">Audio Playback or Conversion Fails</a></li>
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#maintenance-troubleshooting">Maintenance Troubleshooting</a></summary><ul>
+<li class="toc-level-4"><a href="#missing-resources-remain-reported-after-adding-files-externally">Missing Resources Remain Reported After Adding Files Externally</a></li>
 <li class="toc-level-4"><a href="#file-moving-or-merging-fails">File Moving or Merging Fails</a></li>
 <li class="toc-level-4"><a href="#retrying-metadata-parsing">Retrying Metadata Parsing</a></li>
 <li class="toc-level-4"><a href="#lamp-viewer-scores-are-unavailable">Lamp Viewer Scores Are Unavailable</a></li>
@@ -664,6 +679,7 @@ hr {
 </ul>
 </li>
 <li><a href="#settings-dialog">Settings Dialog</a><ul>
+<li><a href="#settings-that-need-attention">Settings That Need Attention</a></li>
 <li><a href="#general">General</a><ul>
 <li><a href="#lr2-play-log">LR2 Play Log</a></li>
 </ul>
@@ -673,15 +689,27 @@ hr {
 <li><a href="#audio">Audio</a></li>
 <li><a href="#recording">Recording</a></li>
 <li><a href="#playlist-settings">Playlist Settings</a></li>
-<li><a href="#install">Install</a></li>
+<li><a href="#install">Install</a><ul>
+<li><a href="#installation-destination">Installation destination</a></li>
+<li><a href="#new-folder-naming">New folder naming</a></li>
+<li><a href="#import-and-new-installation">Import and new installation</a></li>
+<li><a href="#automatic-destination-estimation">Automatic destination estimation</a></li>
+<li><a href="#overwriting-and-source-package-cleanup">Overwriting and source package cleanup</a></li>
+<li><a href="#confirmation-messages">Confirmation messages</a></li>
+</ul>
+</li>
 <li><a href="#backup">Backup</a></li>
-<li><a href="#advanced">Advanced</a></li>
+<li><a href="#advanced">Advanced</a><ul>
+<li><a href="#startup-sort-cache-preparation">Startup Sort Cache Preparation</a></li>
+</ul>
+</li>
 <li><a href="#right-click-settings">Right-click settings</a></li>
 </ul>
 </li>
 <li><a href="#startup--reload--progress-display">Startup / Reload / Progress Display</a><ul>
 <li><a href="#automatic-updates">Automatic Updates</a></li>
 <li><a href="#progress-display">Progress Display</a></li>
+<li><a href="#operations-that-cannot-run-together">Operations That Cannot Run Together</a></li>
 <li><a href="#library-reload">Library Reload</a></li>
 <li><a href="#re-run-initialization">Re-run Initialization</a></li>
 <li><a href="#playlist-reload">Playlist Reload</a></li>
@@ -692,6 +720,7 @@ hr {
 <li><a href="#selecting-and-editing-rows">Selecting and Editing Rows</a></li>
 <li><a href="#copy-operations">Copy Operations</a></li>
 <li><a href="#context-menu">Context Menu</a></li>
+<li><a href="#checking-chart-properties">Checking Chart Properties</a></li>
 <li><a href="#tree-context-menu">Tree Context Menu</a></li>
 <li><a href="#other-popup-menus">Other Popup Menus</a></li>
 </ul>
@@ -724,7 +753,7 @@ hr {
 <li><a href="#installation-steps">Installation Steps</a></li>
 <li><a href="#new">New</a></li>
 <li><a href="#pending">Pending</a></li>
-<li><a href="#install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</a></li>
+<li><a href="#install-destination-estimation">Install-Destination Estimation</a></li>
 <li><a href="#smart-overwrite">Smart Overwrite</a></li>
 <li><a href="#advanced-features">Advanced Features</a></li>
 </ul>
@@ -777,17 +806,18 @@ hr {
 <p>BeMusicSeeker Unofficial Fork is a portable application that does not require installation. Download the latest version from the <a href="https://github.com/Neeted/bemusicseeker-unofficial-fork/releases">release page</a>, extract it to any folder, and start it. Do not run it directly from the ZIP file; always extract it to a writable folder first.</p>
 <p>Before extracting the ZIP, right-click the downloaded file, open <code>Properties</code>, and if an <code>Unblock</code> checkbox appears near the bottom of the window, check it and press <code>Apply</code>. This clears the safety mark Windows adds to files downloaded from the internet before the package is extracted. Applying it to the ZIP first helps avoid Windows applying extra restrictions to <code>BeMusicSeeker.exe</code> or bundled DLL files after extraction.</p>
 <p><img alt="Unblock the downloaded ZIP from Properties" src="img/allow_zoneid3.png"/></p>
-<p>The application creates files such as <code>config/user.config</code> and <code>data/song.db</code> near the executable. If you place it under <code>Program Files</code>, in a read-only folder, or in a location where sync conflicts are likely, saving settings or creating the standalone DB may fail. When updating, keep <code>config</code> and <code>data</code> and overwrite the main application files with the new version.</p>
+<p>The application creates files such as <code>config/user.config</code> and <code>data/song.db</code> near the executable. If you place it under <code>Program Files</code>, in a read-only folder, or in a location where sync conflicts are likely, saving settings or creating the standalone DB may fail. When updating manually, keep <code>config</code> and <code>data</code> and overwrite the main application files with the new version.</p>
 <h3 id="preparing-everything-15-x64">Preparing Everything 1.5 (x64)</h3>
 <p>If possible, install <a href="https://www.voidtools.com/everything-1.5/">Everything 1.5 (x64)</a> first.</p>
 <p>During initialization, BeMusicSeeker enumerates a large number of BMS chart files, audio files, images, videos, and related resources. When Everything is available, chart and resource-file searches can be accelerated. The application can run without it, but first scans and reloads may take a long time for large libraries.</p>
 <p>Start BeMusicSeeker after Everything has finished indexing your BMS-related folders and can search them.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>When Everything is available, BeMusicSeeker treats Everything's search results as all of the charts in your BMS directories. Charts in locations that are not in Everything's index (such as drives or folders you have not added to the index, network drives, or junction targets that Everything does not follow) are not found and are removed from the library by the startup scan or a reload. In LR2-linked mode, they are also removed from <code>song.db</code>. The chart files themselves are not deleted, but information stored for each chart cannot be restored. If you register such a location as a BMS directory, add it to the index in Everything's options and confirm that Everything can search it, or exit Everything before using BeMusicSeeker. When Everything is unavailable, ordinary file searching is used and a warning says so.</p></div>
 <h3 id="migrating-existing-settings">Migrating Existing Settings</h3>
 <p>In an environment where the traditional BeMusicSeeker is already installed, existing settings are copied automatically on first launch. The destination is <code>config/user.config</code> under the folder where this application is placed. The original BeMusicSeeker settings file is not modified.</p>
 <h3 id="first-launch">First Launch</h3>
 <p>On first launch, an initial setup dialog with language selection is shown.</p>
 <p><img alt="Initial setup" src="img/初回設定.PNG"/></p>
-<p>Choose a language, proceed to the settings dialog, and configure the operating mode and required items. The first scan of BMS files does not start until the required items are filled in and <code>Save and close</code> is pressed.</p>
+<p>Choose a language, configure the required settings, and confirm the BMS directories. Press <code>Start with this environment</code> to begin the first scan. While any setting still needs correction, <code>Start with this environment</code> is unavailable. Use the entries under <code>Settings that need attention</code> at the bottom of the Settings dialog to go to each field and correct it.</p>
 <h3 id="operating-mode">Operating Mode</h3>
 <p>Choose the operating mode in the <code>General</code> settings category.</p>
 <div class="table-scroll"><table>
@@ -813,20 +843,30 @@ hr {
 </table></div>
 <p>Standalone mode does not use LR2 scores, custom folders, or IR integration. beatoraja integration and LR2body as a playback application can be configured separately.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Before saving your first LR2 linked setup, back up LR2's <code>song.db</code>, the selected LR2 configuration file (<code>config.xml</code> or <code>config.xmh</code>), and each player's <code>score.db</code>. BeMusicSeeker updates the LR2 library and configuration.</p></div>
-<p>In LR2 linked mode, <code>song.db</code> is updated when charts are installed or organized. bmson is managed within BeMusicSeeker. See <a href="#general">General</a> for setup and <a href="#custom-folder-output">Custom Folder Output</a> for destinations. Restart the application after changing the operating mode.</p>
+<p>In LR2 linked mode, <code>song.db</code> is updated when charts are installed or organized. bmson is managed within BeMusicSeeker. See <a href="#general">General</a> for setup and <a href="#custom-folder-output">Custom Folder Output</a> for destinations. Changing the operating mode or LR2 directory while the library is running opens a restart confirmation. Canceling restores the saved settings.</p>
 <h3 id="first-scan">First Scan</h3>
 <p>After settings are complete, the first scan starts. The first scan checks all chart files, registers them in the DB, and creates the basic data required for install estimation and maintenance information.
 Depending on library size, disk speed, and Everything availability, this may take several minutes or longer.</p>
 <p>Once the first build is complete, later launches mainly use differential updates. If you move the entire BMS folder tree significantly, or rebuild the DB from an empty state, the heavy processing will run again.</p>
 <h2 id="settings-dialog">Settings Dialog</h2>
-<p>The settings dialog is saved when <code>Save and close</code> is pressed. Depending on the changed settings, the result may be immediate application, next-use application, score-only reload, library reload, reinitialization, or a restart request. The <code>Right-click settings</code> category is read the next time a context menu is opened.</p>
+<p>Ordinary settings save when you select or check a value. Text fields save on Enter or when you leave the field, and sliders save when you finish the adjustment. Some settings, such as BMS directories, are saved when you press the confirmation button in their section after editing.</p>
+<h3 id="settings-that-need-attention">Settings That Need Attention</h3>
+<p>When a setting required to start using the library has a problem, <code>Settings that need attention</code> appears at the bottom of the Settings dialog and lists each problem as "Page: reason". Click an entry, or select it and press Enter or Space, to open that page and bring the field into view. Pages with problems show a <code>!</code> mark in the category list, and the reason also appears below the field.</p>
+<p>Using scores, external images, BMT output, and external players are not saved when checked until the required directory or file is available; the reason appears below the field. Select the required item or clear the check to remove the reason. Combinations saved by earlier versions that do not meet these conditions are also listed. Clear the check and save, or correct the setting so that it meets the conditions.</p>
 <h3 id="general">General</h3>
 <p><img alt="General Settings" src="img/設定_一般.PNG"/></p>
 <p>Configure the language, operating mode, BMS directories, LR2 directory, beatoraja directory, and player to use.</p>
 <h4 id="registering-bms-directories">Registering BMS Directories</h4>
-<p>In either mode, register the root folders to search for charts. Use <code>Add</code> or drag folders onto the list. Avoid registering the same location twice or registering both a parent and its child. Select the new-install destination from these registered BMS directories.</p>
+<p>In either mode, edit the search-root list with <code>Add</code>, drag and drop, and removal, then press <code>Change BMS directories</code>. Multiple edits apply once using the final list. When removing the current install destination, check <code>Current install destination (to be removed)</code> and select a remaining BMS directory under <code>New install destination</code> before confirming. Selection alone does not save changes. If no directories remain, add a BMS directory or use <code>Discard these changes</code> to restore the list and install destination.</p>
+<p>Removing a folder from search unregisters its charts and leaves the original files in place. To switch to an empty folder, select it as the new-install destination and confirm the directory list. You can then install charts there.</p>
+<p>Registered paths adopt the actual folder-name casing confirmed during scanning.</p>
+<p>In LR2 linked mode, registrations are saved as absolute paths, including paths entered in relative form. If you move the LR2 installation to another location, register the BMS directories at their new locations.</p>
+<p>When an LR2 directory is configured, its built-in <code>LR2files\CustomFolder</code> and subfolders cannot be explicitly registered as BMS directories in either mode. Its parent folders and drive root remain available for registration.</p>
 <h4 id="linked-with-lr2">Linked with LR2</h4>
 <p>Normally, specifying the <code>LR2 directory</code> automatically sets the standard locations for <code>song.db</code> and <code>config.xml</code> / <code>config.xmh</code>. Use each file's <code>Browse</code> button only when the standard location cannot be used. The status display identifies standard and individually configured paths.</p>
+<p>Even when the <code>LR2 directory</code> is empty, if <code>song.db</code> and <code>config.xml</code> / <code>config.xmh</code> are in the standard locations of the same LR2 folder, BeMusicSeeker uses that folder as the LR2 directory and shows the inferred path in the warning under the field. Setting the <code>LR2 directory</code> is still recommended.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>When the <code>LR2 directory</code> is empty and cannot be determined from the locations of <code>song.db</code> and <code>config.xml</code> / <code>config.xmh</code>, the LR2 score DB cannot be used, LR2's built-in custom folders (<code>LR2files\CustomFolder</code>) are not synchronized to the LR2 song DB, and LR2 backup does not save the score DB.</p></div>
+<p>To select files individually, open <code>Details</code> in the environment section. Select both paths, then use <code>Apply environment (restart when running)</code> in that Details section to apply them with one restart. During initial setup, this only saves the settings. Complete the required settings and press <code>Start with this environment</code> to begin initialization.</p>
 <p>Add or remove BMS directories through BeMusicSeeker's <code>General</code> category. LR2 database auto-update is set to manual-only when saving the initial setup and on startup.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>BeMusicSeeker also manages charts that LR2 cannot read. Check <a href="#lr2-compatibility-warnings">LR2 Compatibility Warnings</a> and address charts that may cause problems during LR2 selection or playback.</p></div>
 <p><code>Resync LR2 song.db data</code> is unnecessary during normal use. If you encounter problems with LR2 integration, see <a href="#lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</a>.</p>
@@ -836,11 +876,13 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <p>Check the <code>LR2 Play Log</code> status and use the button beside it to install or repair the feature. View recorded history in <a href="#play-log">Play Log</a>. For stopping recording or deleting history, see <a href="#uninstalling-application-data">Uninstalling Application Data</a>.</p>
 <h4 id="beatoraja-integration">beatoraja Integration</h4>
 <p>Specify the beatoraja directory. BeMusicSeeker reads table and player locations from <code>config_sys.json</code> in that directory and reads scores from the selected player folder's <code>score.db</code>.</p>
+<p>Choose the directory under beatoraja integration at the bottom of the General page. A valid combination saves automatically and applies without restarting the application. Expand Details to check the player, score database, and table output location. If score reading is enabled, select a player with a valid score database in the new directory.</p>
 <p>See <a href="#managing-beatoraja-difficulty-tables">Managing beatoraja Difficulty Tables</a> for table import and export. For updating beatoraja's song database, you can use the separate <a href="https://github.com/Neeted/songdata-updater">songdata-updater</a> tool.</p>
 <h3 id="appearance">Appearance</h3>
 <p><img alt="Settings Appearance" src="img/設定_外観.PNG"/></p>
-<p>Change settings related to themes and display. Appearance changes generally do not require rebuilding the library.</p>
-<p>The list appearance settings adjust the shared table display used by the library list, playlist detail, play log, and playlist summary. You can change the list font size, row height, and header height. The defaults are font size <code>11</code>, row height <code>19</code>, and header height <code>22</code>.</p>
+<p>Change settings related to themes and display.</p>
+<p>Font selects the font used for text in lists, menus, Settings, dialogs, and more, from the fonts installed on Windows. The default is Meiryo UI. Characters that the selected font does not contain are shown in Meiryo UI. Icons and special text such as the clear lamp and DJ LEVEL in lists are not affected.</p>
+<p>The list appearance settings adjust the shared table display used by the library list, playlist detail, play log, and playlist summary. You can change the list font size, row height, and header height. The font size can be set in steps of 0.5.</p>
 <h3 id="playback">Playback</h3>
 <p><img alt="Playback Settings" src="img/設定_再生.PNG"/></p>
 <p>Select the player used to play charts. The built-in player is for simple audio-only preview playback. When using external players such as uBMplay, BMIIDXView2015, or LR2, specify the executable path.</p>
@@ -848,7 +890,7 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <h3 id="audio">Audio</h3>
 <p><img alt="Audio Settings" src="img/設定_オーディオ.PNG"/></p>
 <p>Configure the internal player's output driver, device, sample rate, format, and volume. Choose <code>WASAPI (Shared)</code> (default), <code>WASAPI (Exclusive)</code>, or <code>ASIO</code>. Selecting a driver and device displays their capabilities. Changing the driver or device resets sample rate and format to Auto; changing the sample rate resets only the format to Auto.</p>
-<p>Click <code>Stop playback and test</code> to stop current playback and test the output settings being edited. Settings controls are unavailable until the test finishes. Review the result and save the settings you want with <code>Save and close</code>. For problems, see <a href="#audio-playback-or-conversion-fails">Audio Playback or Conversion Fails</a>.</p>
+<p>Click <code>Stop playback and test</code> to stop current playback and test the output settings being edited. Valid output combinations save automatically. Running the test itself does not save again. Audio output changes keep current playback running and apply from the next playback start. For problems, see <a href="#audio-playback-or-conversion-fails">Audio Playback or Conversion Fails</a>.</p>
 <p>Advanced audio settings let you adjust low latency and buffer size for the selected driver. Smaller buffers reduce latency but may cause audio dropouts.</p>
 <div class="table-scroll"><table>
 <thead>
@@ -984,21 +1026,132 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <li>See <a href="#import-external-playlist">Import External Playlist</a> for using external table lists.</li>
 </ul>
 <h4 id="play-log-folder-display-presets">Play Log FOLDER Display Presets</h4>
-<p>Click <code>Add</code> or <code>Edit</code>, enter a preset name, and select several playlists. Use these presets in the <a href="#display-target-and-folder">Play Log Display Target and FOLDER</a> drop-down.</p>
+<p>Click <code>Add</code> or <code>Edit</code>, enter a preset name, and select several playlists. Use these presets in the <a href="#display-target-and-folder">Play Log Display Target and FOLDER</a> drop-down. <code>Remove from list</code> saves only when you choose <code>OK</code> in the confirmation.</p>
 <h3 id="install">Install</h3>
 <p><img alt="Install Settings" src="img/設定_インストール.PNG"/></p>
+<p>Configure the installation destination, folder naming, import, destination estimation, overwriting and source cleanup, and confirmation messages.</p>
+<h4 id="installation-destination">Installation destination</h4>
 <p>Select a new-install destination from the registered BMS directories and configure new-folder naming. Custom folder output destinations are excluded from the choices. See <a href="#install--pending-packages">Install / Pending Packages</a> for installation steps.</p>
+<h4 id="new-folder-naming">New folder naming</h4>
 <p><code>Folder name format</code> supports <code>%ARTIST%</code> (artist) and <code>%TITLE%</code> (title); include at least one of them. The default is <code>[%ARTIST%] %TITLE%</code>. For example, artist <code>Artist</code> and title <code>Song</code> produce <code>[Artist] Song</code> with the default format. This format is used both when creating folders during installation and by <code>Automatic folder renaming</code>.</p>
 <p><code>Restrict usable characters to Shift_JIS set</code> is ON by default. It replaces unsupported folder-name characters with characters representable in Shift_JIS to prioritize compatibility. It applies both to folder creation during installation and to automatic folder renaming.</p>
+<h4 id="import-and-new-installation">Import and new installation</h4>
+<p><img alt="Install Settings: Import and Estimation" src="img/設定_インストール_自動処理.PNG"/></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Try automatic download and installation when clicking the URL1/URL2 columns</td>
+<td>OFF</td>
+<td>Clicking a URL1/URL2 cell in a single row tries automatic retrieval and installation instead of opening a browser. Also enable startup BMS file scanning under <code>Advanced settings</code> → <code>Initialization</code>. This does not affect multi-row URL import.</td>
+</tr>
+<tr>
+<td>Add packages to pending instead of automatically installing them, even when identified as new</td>
+<td>OFF</td>
+<td>Review packages in Pending even when identified as new. Use this to check destinations for owned works with changed chart hashes, or to keep difficulty table packages together. New packages held by this setting are not estimated automatically; run estimation manually as needed.</td>
+</tr>
+<tr>
+<td>Require all used resources for automatic new installation</td>
+<td>OFF</td>
+<td>When OFF, complete used audio meets the resource requirement for automatic new installation even if images or videos are missing. When ON, all used resources are required; incomplete packages remain pending. Non-audio shortages skip automatic searches for new candidates. After checking the missing resources, use <code>Install as new</code> from Pending if acceptable.</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="automatic-destination-estimation">Automatic destination estimation</h4>
+<p><img alt="Install Settings: Automatic Destination Estimation" src="img/設定_インストール_自動推定.PNG"/></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Automatically select the top candidate with a strong title and artist match, even when multiple candidates remain</td>
+<td>OFF</td>
+<td>When candidates remain tied, select the top candidate if it meets the automatic selection conditions. When OFF, review and select a candidate. A uniquely determined candidate is selected automatically regardless of this setting.</td>
+</tr>
+<tr>
+<td>Minimum audio completeness for automatic destination selection</td>
+<td>99%</td>
+<td>Automatic selection requires each chart’s audio completeness, combining the candidate destination and bundled files, to meet this value. Choose 90–100% in 1% steps. Missing-resource warnings remain, and this does not change the conditions for allowing new installation.</td>
+</tr>
+<tr>
+<td>Install automatically when estimation after import determines a destination</td>
+<td>OFF</td>
+<td>After packages are added to Pending, install without confirmation those whose destination is determined by that automatic estimation. Manual estimation is excluded. Other settings control overwriting and source package deletion.</td>
+</tr>
+</tbody>
+</table></div>
+<p>If a used resource name contains a parent-folder reference (<code>../</code> or <code>..\</code>), you can inspect the candidates, but automatic destination selection and automatic installation are held. Select a candidate or enter a destination, then install explicitly if needed. The warning remains.</p>
+<p>See <a href="#install-destination-estimation">Install-Destination Estimation</a> for reviewing candidates and running manual estimation.</p>
+<h4 id="overwriting-and-source-package-cleanup">Overwriting and source package cleanup</h4>
+<p><img alt="Install Settings: Overwriting and Confirmation" src="img/設定_インストール_ファイルと確認.PNG"/></p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Installation moves, overwrites, or deletes actual files. Make a separate copy before proceeding if you want to keep the original distribution. Moved source files are removed even when source package cleanup is OFF.</p></div>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Enable smart overwrite</td>
+<td>ON</td>
+<td>Compare the size and modification time of same-name files during differential installation, resource overwrites in owned packages, and duplicate folder merges. When OFF, overwrite with the source file. See <a href="#smart-overwrite">Smart Overwrite</a> for the comparison rules.</td>
+</tr>
+<tr>
+<td>Keep same-name .bmx/.pmx/.txt files with numbered names during smart overwrite</td>
+<td>OFF</td>
+<td>Only when smart overwrite is ON, install applicable same-name files with numbered names as needed. Identical content is not duplicated.</td>
+</tr>
+<tr>
+<td>Delete owned charts remaining in the source package after normal installation</td>
+<td>OFF</td>
+<td>Clean up owned charts remaining after installation and empty source folders. Unowned or unclassified remnants are retained. Moved files do not remain at the source even when OFF.</td>
+</tr>
+</tbody>
+</table></div>
+<h4 id="confirmation-messages">Confirmation messages</h4>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Default</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Show a confirmation message for differential installation</td>
+<td>ON</td>
+<td>Confirm before operations that insert files into existing folders, such as differential installation to an estimated destination.</td>
+</tr>
+<tr>
+<td>Show a confirmation message when installing a pending package as new</td>
+<td>ON</td>
+<td>Confirm when installing a pending package as new with no destination set. If a destination is already set, confirmation is required even when OFF.</td>
+</tr>
+</tbody>
+</table></div>
 <h3 id="backup">Backup</h3>
 <p><img alt="Backup Settings" src="img/設定_バックアップ.PNG"/></p>
 <p>Back up or restore playlists and configure automatic backups of LR2 files. See <a href="#backup--uninstall">Backup / Uninstall</a> for operations, destinations, and restoration.</p>
 <h3 id="advanced">Advanced</h3>
 <p><img alt="Settings Advanced" src="img/設定_詳細.PNG"/></p>
-<p>Change advanced settings such as confirmation messages, initialization, LR2 integration, and install assistance.</p>
+<p>Configure message display, initialization, LR2 integration, and dangerous operations. Installation settings and installation confirmation messages are grouped under <a href="#install">Install</a>.</p>
 <p>If startup scanning is OFF, <a href="#library-reload">reload the library</a> before estimating install destinations.</p>
 <h4 id="advanced-settings-reference">Advanced Settings Reference</h4>
-<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Source-package deletion and overwrite settings affect actual files. Moved source files are removed even when deletion is OFF; make a separate copy first if you want to keep the original package.</p></div>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -1014,18 +1167,6 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>Show confirmation message on registering to the chart viewer</td>
 <td>ON</td>
 <td>Shows a confirmation before chart viewer registration operations.</td>
-</tr>
-<tr>
-<td>Message Display</td>
-<td>Show confirmation message on diff install</td>
-<td>ON</td>
-<td>Shows a confirmation before operations that insert files into existing folders, such as differential install to an estimated destination.</td>
-</tr>
-<tr>
-<td>Message Display</td>
-<td>Show confirmation before installing as new</td>
-<td>ON</td>
-<td>Confirms before installing a pending package with no destination as new. A configured destination always requires confirmation, even when this is OFF.</td>
 </tr>
 <tr>
 <td>Message Display</td>
@@ -1055,7 +1196,7 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>Initialization</td>
 <td>Set initial selection to Install &gt; Pending at startup</td>
 <td>ON</td>
-<td>Opens the pending package screen as the initial view after startup. Intended for users who want to prioritize new installs and pending cleanup.</td>
+<td>Opens the pending package screen as the initial view from the next startup. When OFF, the library root is selected. Changing the setting does not change the current selection. Intended for users who want to prioritize new installs and pending cleanup.</td>
 </tr>
 <tr>
 <td>Initialization</td>
@@ -1064,10 +1205,16 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>Optimize database reading. Normally leave this ON.</td>
 </tr>
 <tr>
+<td>Initialization</td>
+<td>Startup sort cache preparation</td>
+<td>Basic only</td>
+<td>Choose which columns to sort in advance after startup. See the <a href="#startup-sort-cache-preparation">column comparison</a>. Changes apply from the next application start.</td>
+</tr>
+<tr>
 <td>LR2 Integration</td>
 <td>Update LR2IR ranking cache on startup</td>
 <td>OFF</td>
-<td>Reads LR2IR ranking data after startup and updates display data such as <code>RANKING</code>, <code>RANK UPDATE</code>, <code>T-SCORE</code>, and <code>ΔMAX</code>. This may be heavy during the first build or after changing LR2ID, so enable it only when needed.</td>
+<td>Reads LR2IR ranking data from existing local XML files after startup and updates display data such as <code>RANKING</code>, <code>RANK UPDATE</code>, <code>T-SCORE</code>, and <code>ΔMAX</code>. This may be heavy during the first build or after changing LR2ID, so enable it only when needed.</td>
 </tr>
 <tr>
 <td>LR2 Integration</td>
@@ -1081,50 +1228,43 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <td>OFF</td>
 <td>Retrieves LR2IR score information and detects unsent state from differences with local scores.</td>
 </tr>
+</tbody>
+</table></div>
+<h4 id="startup-sort-cache-preparation">Startup Sort Cache Preparation</h4>
+<p>In <code>Advanced</code> → <code>Initialization</code>, use <code>Startup sort cache preparation</code> to choose how much sorting to prepare in advance for the regular library list after startup. The results are cached for use when you select a prepared column. The default is <code>Basic only</code>, and changes apply from the next application start.</p>
+<p>Both ascending and descending orders are prepared. <code>Standard</code> includes every column in <code>Basic only</code>, and <code>All</code> includes every column in <code>Standard</code>, adding the columns shown below.</p>
+<div class="table-scroll"><table>
+<thead>
 <tr>
-<td>Install</td>
-<td>Try to run installation automatically after download</td>
-<td>OFF</td>
-<td>Try automatic retrieval and installation from a single URL-cell click. Also enable startup BMS file scanning. Nested archives may require manual extraction. Multi-row URL import attempts installation regardless of this setting.</td>
+<th>Setting</th>
+<th>Columns sorted in advance</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>None</td>
+<td>No sorting is prepared in advance.</td>
 </tr>
 <tr>
-<td>Install</td>
-<td>Add to pending instead of auto-installing even for new entries</td>
-<td>OFF</td>
-<td>Even if enough resources are present for a new work, do not install automatically; always make it possible to confirm it in the pending list.</td>
+<td>Basic only (default)</td>
+<td><code>TITLE</code>, <code>FOLDER</code>, <code>PATH</code>, <code>ARTIST</code>.</td>
 </tr>
 <tr>
-<td>Install</td>
-<td>Even if multiple candidates remain, use the first candidate as the install destination when its title and artist match strongly</td>
-<td>OFF</td>
-<td>Automatically set the first candidate when TITLE / ARTIST match strongly. Multiple-candidate warnings may remain.</td>
+<td>Standard</td>
+<td><strong>In addition to Basic only:</strong> <code>CLEAR</code>, <code>DJ LEVEL</code> / <code>RATE</code>, <code>BP</code>, <code>JUDGE</code> / <code>JUDGE%</code>, <code>NOTES</code>, <code>LONG</code>, <code>SCRATCH</code>, <code>MAINBPM</code>, <code>MINBPM</code>, <code>MAXBPM</code>, <code>SOFLAN</code>, <code>TOTAL</code>, <code>T/N</code>, <code>DURATION</code>, <code>DENSITY</code>, <code>PEAK</code>, <code>END</code>.</td>
 </tr>
 <tr>
-<td>Install</td>
-<td>Delete the source package after a normal installation even if it still contains already-owned charts</td>
-<td>OFF</td>
-<td>Clean up remaining already-owned charts and empty source folders after installation. Unowned or unidentifiable remnants are retained. Moved source files are removed even when OFF.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>Optimize bundled file overwrite by comparing modified date and size on diff install</td>
-<td>ON</td>
-<td>Enables <a href="#smart-overwrite">Smart Overwrite</a>.</td>
-</tr>
-<tr>
-<td>Install</td>
-<td>During smart overwrite, keep <em>.bmx/</em>.pmx/*.txt by automatically adding numbers to their names instead of overwriting them</td>
-<td>OFF</td>
-<td>In <a href="#smart-overwrite">Smart Overwrite</a>, protected extensions are not overwritten and are kept with sequentially numbered names.</td>
+<td>All</td>
+<td><strong>In addition to Standard:</strong> <code>GENRE</code>, <code>KEYS</code>, <code>TAG</code>, <code>MD5 HASH</code>, <code>SHA256 HASH</code>, <code>INSTL DST</code>, <code>INSTL DST TITLE</code>, <code>INSTL DST ARTIST</code>, <code>PLAYLIST</code>, <code>SCORE</code>, <code>COMBO</code>, <code>RANKING</code>, <code>RANK UPDATE</code>, <code>T-SCORE</code>, <code>ΔMAX</code>, <code>LEVEL</code>, <code>DIFFICULTY</code>, <code>FEATURE</code>.</td>
 </tr>
 </tbody>
 </table></div>
-<p>See <a href="#smart-overwrite">Smart Overwrite</a> for same-name files during additional-chart installation and duplicate-folder merging.</p>
+<p><code>DJ LEVEL</code> / <code>RATE</code> and <code>JUDGE</code> / <code>JUDGE%</code> are grouped because each pair uses the same sort order. Resource health columns <code>WAV</code>, <code>BGA</code>, and <code>MOVIE</code>, along with <code>ENCODING</code> and <code>WARNING</code>, are sorted when selected. Columns outside the prepared range, or all columns when <code>None</code> is selected, can still be sorted normally.</p>
 <h3 id="right-click-settings">Right-click settings</h3>
 <p><img alt="Right-click Settings" src="img/設定_右クリック設定.PNG"/></p>
 <p>Edit <code>Open web pages</code> and <code>Open with a program</code> entries shared by normal lists, playlists, and Play Log. Add or delete entries and change names, enabled states, and order.</p>
 <h4 id="registering-web-pages">Registering Web Pages</h4>
-<p>Specify an absolute HTTP/HTTPS URL template and target chart type: BMS, bmson, or both. Include at least one <code>{md5}</code> or <code>{sha256}</code> placeholder; placeholders are case-sensitive. Entries are hidden for rows without a required hash. The six default entries below are all ON.</p>
+<p>Specify an absolute HTTP/HTTPS URL template and target chart type: BMS, bmson, or both. Include at least one <code>{md5}</code> or <code>{sha256}</code> placeholder; placeholders are case-sensitive. Rows with an unknown format, such as unowned playlist entries and unresolved beatoraja history, can use entries for any target chart type. LR2 history is treated as BMS. Entries are hidden for rows without a required hash. The six default entries below are all ON.</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -1176,17 +1316,47 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <h4 id="registering-programs">Registering Programs</h4>
 <p>Specify a name and executable, and include <code>{filePath}</code> in the arguments. The default argument is <code>{filePath}</code>. Choosing an executable fills a blank name from its filename.</p>
 <p>Group arguments with double quotes, for example <code>--file="{filePath}"</code>. Chart paths containing spaces are passed as one argument. Single quotes are literal characters; <code>{filePath}</code> is the only supported placeholder. The working directory is the executable's folder. Program entries require a local chart; hash-only rows use web pages only.</p>
-<p>Correct field errors before pressing <code>Save and close</code>. Disabled entries also need valid contents. <code>Cancel</code> or closing the window discards edits. <code>Restore defaults</code> takes effect after saving.</p>
+<p>Correct field errors before confirming the selected action. Disabled entries also need valid contents. Discarding the selected action restores its unconfirmed input. Reordering saves as soon as you do it. Delete and <code>Restore defaults</code> save only when you choose <code>OK</code> in the confirmation.</p>
 <h2 id="startup--reload--progress-display">Startup / Reload / Progress Display</h2>
 <h3 id="automatic-updates">Automatic Updates</h3>
 <p><img alt="Automatic Update" src="img/auto_update_dialog.png"/></p>
 <p>When a newer version is found at startup, the automatic update dialog is shown. Pressing <code>Update</code> downloads the selected update package, verifies it, closes the app, and lets the updater replace the files. After the update completes, the app restarts automatically.</p>
 <p>The dialog may offer both an app-only package and a package bundled with analyzed metadata. The app-only package updates only the application files. The metadata bundle also includes the latest analyzed metadata, making it easier to show metadata in playlists even for charts you do not currently have.</p>
 <p>The update may wait for initialization or file operations to finish. Do not force-close the app while the update is running.</p>
-<p>If automatic update fails, or if you prefer to inspect the release manually, press <code>Release Page</code> to open the GitHub release page and update by downloading and overwriting the zip manually.</p>
+<p>If automatic update fails, or if you prefer to inspect the release manually, press <code>Release Page</code> to open the GitHub release page, download the ZIP, and overwrite the files.</p>
 <h3 id="progress-display">Progress Display</h3>
-<p>The status bar shows startup progress such as settings and file checks, chart loading, and preparation for install-destination estimation. Playlist, score, and maintenance loading may continue after the application becomes usable.</p>
+<p>The status bar shows startup progress such as settings and file checks, chart loading, and preparation for install-destination estimation. Chart information completion and playlist, score, and maintenance loading may continue after the application becomes usable.</p>
 <p><img alt="Progress Display" src="img/進捗表示.PNG"/></p>
+<h3 id="operations-that-cannot-run-together">Operations That Cannot Run Together</h3>
+<p>Operations that change the library or playlists cannot run at the same time. While a process in the left column is running, the operations in the right column cannot start.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Running process</th>
+<th>Operations that cannot start</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Loading right after startup and chart information completion, library reload, re-running initialization</td>
+<td>Deleting, moving, or renaming chart folders, duplicate cleanup, installation, starting a preview, and confirming settings that require library processing, such as BMS directories</td>
+</tr>
+<tr>
+<td>Destination estimation and installation after import</td>
+<td>Additional imports, changes to pending packages, starting a preview</td>
+</tr>
+<tr>
+<td>Full LR2 synchronization</td>
+<td>Starting a preview, confirming settings that require library processing</td>
+</tr>
+<tr>
+<td>Saving, synchronizing, or importing playlists</td>
+<td>Saving, synchronizing, or importing other playlists, editing or deleting playlists</td>
+</tr>
+</tbody>
+</table></div>
+<p>An operation that cannot start is not performed, and "Another library operation is in progress." is shown. The operation is not queued. Your input is kept, so check the <a href="#progress-display">progress display</a> and run the operation again after the process finishes.</p>
+<p>Browsing, searching, sorting, and selecting in lists, and changing settings unrelated to the running process, remain available.</p>
 <h3 id="library-reload">Library Reload</h3>
 <p><code>Reload</code> from the library context menu reflects additions, removals, and updates in your owned files. It does not rebuild the entire DB or reload scores.</p>
 <p>Use it in cases such as these:</p>
@@ -1215,7 +1385,9 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <p><img alt="Library search example" src="img/一覧_ライブラリ_検索例.PNG"/></p>
 <p>Click a column header to sort. Many columns can be displayed, including <code>TITLE</code>, <code>ARTIST</code>, <code>PATH</code>, <code>LEVEL</code>, and <code>CLEAR</code>. Column visibility and order can be changed from the header context menu.</p>
 <h3 id="selecting-and-editing-rows">Selecting and Editing Rows</h3>
-<p>Click for one row, <code>Ctrl + click</code> to toggle individual rows, <code>Shift + click</code> for a range, and <code>Ctrl + A</code> for all rows. Use arrow keys to move and <code>Shift + Up / Down</code> to extend the range. Press F2 or type to edit an editable cell. A normal click opens a URL cell; another click, F2, or typing edits its URL.</p>
+<p>Click for one row, <code>Ctrl + click</code> to toggle individual rows, <code>Shift + click</code> for a range, and <code>Ctrl + A</code> for all rows. Use Up / Down to move between rows and <code>Shift + Up / Down</code> to extend the range. The arrow keys move the selected cell.</p>
+<p>Press F2 or type to start editing the current editable cell.</p>
+<p>When a URL column is narrow, click its icon to retrieve the linked content. Widen the column to display the URL as text; editable cells support another click, F2, or typing to edit, just like other cells.</p>
 <h3 id="copy-operations">Copy Operations</h3>
 <p>In lists such as the library, playlist detail, and install / pending views, you can copy displayed content from the keyboard.</p>
 <ul>
@@ -1228,28 +1400,24 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <h4 id="opening-external-pages-and-programs">Opening External Pages and Programs</h4>
 <ul>
 <li><code>Open web pages</code>: Enabled items from <code>Settings &gt; Right-click settings</code> are shown in their configured order. The defaults are BMS-IR, Mocha, MinIR, rianIR, STELLAVERSE IR, and Kaleid IR; BMS-IR is BMS-only. Each entry is hidden when its URL template requires a missing MD5 or SHA-256.</li>
-<li><code>Open main URL</code> / <code>Open diff URL</code>: Opens the main URL / diff URL obtained from a playlist or URL completion. When multiple rows are selected, these actions are shown as <code>Import selected main URLs</code> / <code>Import selected diff URLs</code>; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.</li>
+<li><code>Open main URL in browser</code> / <code>Open diff URL in browser</code>: Opens the main URL / diff URL obtained from a playlist or URL completion in a browser. When multiple rows are selected, these actions are shown as <code>Import selected main URLs</code> / <code>Import selected diff URLs</code>; after confirmation, only URLs that can be downloaded as supported files are passed to install processing. URLs that need to open in a browser are skipped without opening them, and progress is shown in the status bar.</li>
 <li><code>Find source via external API</code>: In playlist detail, sends the selected rows' MD5 values to external APIs and looks for main-package source candidates. It does not use <code>URL1</code> / <code>URL2</code>, so rows with empty URLs can still be targets when an MD5 is available.</li>
 <li><code>Open in Explorer</code>: Opens the folder containing the chart file in Explorer.</li>
 <li><code>Open install destination</code>: Opens the folder recorded as <code>INSTL DST</code> or as the install destination.</li>
 <li><code>Open with default app</code>: Opens the chart file using the OS file association.</li>
 <li><code>Open with a program</code>: Runs a program configured in <code>Settings &gt; Right-click settings</code> for a locally resolved chart.</li>
 <li><code>Open text file</code>: Opens document candidates such as readme files in the same folder from a submenu.</li>
-<li><code>Open in chart viewer</code>: Registers or displays the chart in the chart viewer.</li>
-</ul>
-<h4 id="updating-rankings">Updating Rankings</h4>
-<ul>
-<li><code>Update ranking data</code>: Update ranking information for selected charts, even when automatic startup refresh is OFF. It depends on an external cache service; see <a href="#cannot-retrieve-data-from-external-services">Cannot Retrieve Data from External Services</a> if retrieval fails.</li>
+<li><code>Open in chart viewer</code> / <code>Register chart with the chart viewer</code>: Shows BMS charts in the chart viewer. With one row selected, the menu shows <code>Open in chart viewer</code>; a chart that is not yet registered with the chart viewer is registered and then opened. Charts you do not own and charts whose file cannot be found are opened by MD5. With two or more rows selected, the menu shows <code>Register chart with the chart viewer</code> and registers only BMS charts whose files exist, without opening the viewer. The item is hidden when there is no applicable chart.</li>
 </ul>
 <h4 id="checking-encoding-and-file-state">Checking Encoding and File State</h4>
 <ul>
-<li><code>Fix character encoding</code>: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. <code>Mark as fixed</code> treats the current estimated result as confirmed.</li>
-<li><code>File scan</code>: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. <code>Rescan all charts</code> targets all charts in the library. <code>Add to ignore list</code> / <code>Remove from ignore list</code> are settings used to exclude or include charts in displays such as the full resource scan.</li>
+<li><code>Chart properties</code>: Check the <a href="#checking-chart-properties">resource details</a> in a read-only window.</li>
+<li><code>Fix character encoding</code>: Specifies the character encoding from options such as Japanese Shift_JIS, UTF-8, Korean KS_C_5601, Simplified Chinese GB2312, and Traditional Chinese Big5. Resource names in the chart are read again using the same encoding, and chart health is updated. <code>Mark as fixed</code> treats the current estimated result as confirmed.</li>
+<li><code>File scan</code>: Re-scans the selected chart and resets chart health information that can be checked in places such as the full resource scan screen. <code>Rescan all charts</code> targets all charts in the library. <code>Add to ignore list</code> / <code>Remove from ignore list</code> are settings used to exclude or include charts in displays such as the full resource scan. Saving the same chart content again preserves the ignore choice. A content change or an explicit forced scan clears it.</li>
 </ul>
 <h4 id="installation-and-destination-correction">Installation and Destination Correction</h4>
 <ul>
 <li><code>Install</code> -&gt; <code>Estimate install destination</code>: Estimates the install destination for pending charts.</li>
-<li><code>Install</code> -&gt; <code>Estimate merge destination</code>: Performs estimation for packages that contain only already-owned charts, or for resource-focused merging, without adding bundled resources to the evaluation.</li>
 <li><code>Install</code> -&gt; <code>Install to estimated install destination</code>: Installs to <code>INSTL DST</code>.</li>
 <li><code>Install</code> -&gt; <code>Install as new</code>: Treats the package as an ordinary new install without using the estimated destination.</li>
 <li><code>Install</code> -&gt; <code>Clear install destination</code>: Clears <code>INSTL DST</code>, estimated-destination display, estimation warnings, and candidates.</li>
@@ -1263,31 +1431,44 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <ul>
 <li><code>Move to</code>: Moves the entire folder containing the selected charts to another library root folder selected from the menu.</li>
 <li><code>Remove entry</code>: In playlist detail, removes the selected row from the playlist.</li>
-<li><code>Delete file</code>: Lets you choose <code>Rename to invalid extension (*.bmx/*.pmx)</code> or <code>Move to Recycle bin</code>.</li>
+<li><code>Delete file</code>: Lets you choose <code>Rename to invalid extension (*.bmx/*.pmx)</code> or <code>Move to Recycle bin</code>. When moving library charts to the Recycle Bin, deletion begins after you answer all confirmations. Choose <code>No</code> for whole-folder deletion to delete only the selected charts, or <code>Cancel</code> to cancel the entire operation. If you choose <code>No</code> for a child folder, choosing <code>Yes</code> for its parent still preserves both folders and their bundled files; only the selected charts are deleted.</li>
 <li><code>Automatic folder renaming</code>: Renames the selected chart's folder according to the folder-name format in settings.</li>
 <li><code>Convert to audio file</code>: Outputs BMS / bmson chart playback as an audio file according to the recording settings in the settings dialog.</li>
 </ul>
+<p>Edit a chart’s <code>FOLDER</code> cell to rename its folder. Confirming the original name, including after changing it and changing it back, leaves the folder unchanged.</p>
+<p>With LR2 integration enabled, renaming or moving a folder also updates external custom folders beneath it to their new locations. When deleting or disabling charts leaves <code>folderinfo.txt</code> or custom folders in place, the LR2 folder hierarchy they require is retained.</p>
 <h4 id="removing-list-items-and-parse-records">Removing List Items and Parse Records</h4>
 <ul>
 <li><code>Remove from list</code>: Removes the target from the new / pending / installed package display. Distinguish this from operations that delete actual files.</li>
 <li><code>Remove metadata parse failure record</code>: Shown on the parse errors screen. Deletes the saved parse failure record and returns the item to the set of files to be parsed again.</li>
 </ul>
-<p>In playlist detail for unowned charts, configured <code>Open web pages</code> entries, <code>Open main URL</code>, <code>Open diff URL</code>, <code>Find source via external API</code>, <code>Open in chart viewer</code>, <code>Update ranking data</code>, and <code>Remove entry</code> remain available where their row capabilities allow them. Hash-based actions, such as web pages and external APIs, require the corresponding MD5 or SHA-256. Main and additional-chart URL actions require a valid URL; <code>Remove entry</code> requires no hash.</p>
+<p>In playlist detail for unowned charts, configured <code>Open web pages</code> entries, <code>Open main URL in browser</code>, <code>Open diff URL in browser</code>, <code>Find source via external API</code>, <code>Open in chart viewer</code>, and <code>Remove entry</code> remain available where their row capabilities allow them. Hash-based actions, such as web pages and external APIs, require the corresponding MD5 or SHA-256. Main and additional-chart URL actions require a valid URL; <code>Remove entry</code> requires no hash.</p>
 <h4 id="rename-to-invalid-extension">Rename to Invalid Extension</h4>
 <p>Rename BMS-family charts to <code>.bmx</code> and PMS-family charts to <code>.pmx</code> so they are no longer loaded as normal charts. Use this to exclude zero-note charts or mistakenly registered files.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>If an identical file already exists at the destination or a numbered candidate name, the original chart is deleted as a duplicate. Keep a copy first if you need the original.</p></div>
 <p>Choose <code>Delete file</code> → <code>Rename to invalid extension (*.bmx/*.pmx)</code>. If a same-name file has different contents, or a same-name folder exists, an available numbered name such as <code>name(1).bmx</code> is used. Processed charts are removed from the library list or pending package.</p>
+<h3 id="checking-chart-properties">Checking Chart Properties</h3>
+<p>Select one chart with a local file and choose <code>Chart properties</code> from the list context menu. Charts inside pending packages are supported too. The chart is read from its original file; resources are checked against the configured installation destination, or the first candidate if unset, or the current location if neither exists. Bundled resources that would be installed are included for destinations and candidates. Multiple selections and unowned charts are unavailable.</p>
+<p>The window shows the title, artist, chart path, resource verification basis and verification path, with three categories:</p>
+<ul>
+<li><code>Resource issues</code>: Check missing resources and invalid paths with the original text and a short reason. BMS entries appear in source order with line numbers. Later auxiliary-image definitions are also checked; healthy images and empty specifications are omitted.</li>
+<li><code>Unused resource definitions</code>: #WAV and #BMP definitions not referenced for sound or display in this chart, with their original text and classification reason. Another definition number or chart may use the same file.</li>
+<li><code>Undefined reference numbers</code>: Definition numbers referenced by the chart without a corresponding #WAV or #BMP definition, such as silent notes. <code>#WAV01</code> and <code>#BMP01</code> are listed separately.</li>
+</ul>
+<p>CP932 diagnostics for LR2 are attached to the same definition when they use the normal interpretation. When the interpretation differs, the original text and line position appear under <code>Issues when interpreted as CP932</code>. The same specification may appear alongside its normal interpretation.</p>
+<p>For BMSON, the window lists unused audio channels and <code>bga_header</code> definitions, and BGA reference numbers with no matching definition. Audio and auxiliary images use their native field names, such as <code>sound_channels</code> and <code>info.back_image</code>.</p>
+<p>Select text in values or lists and use Ctrl+A to select all and Ctrl+C to copy. Results are read when the window opens. If reading or analysis fails, a message appears below the chart path. To check again, close the window with the title-bar close button or Esc and reopen it. You can close it while reading or after a failure.</p>
 <h3 id="tree-context-menu">Tree Context Menu</h3>
 <p>The left sidebar tree also has context menus depending on location.</p>
 <p>Library:</p>
 <ul>
-<li>Library root: You can run <code>Reload</code>, <code>Reinitialize</code>, and <code>Add root folder</code>.</li>
-<li>Library folder: You can run <code>Reload</code>, <code>Reinitialize</code>, <code>Open in Explorer</code>, <code>Unregister root folder</code>, and <code>Batch rename folders</code>.</li>
+<li>Library root: You can run <code>Reload</code> and <code>Reinitialize</code>.</li>
+<li>Library folder: You can run <code>Reload</code>, <code>Reinitialize</code>, <code>Open in Explorer</code> and <code>Batch rename folders</code>.</li>
 <li><code>Batch rename folders</code> may take quite a long time depending on the size of the root folder, so <strong>normally it is recommended to narrow candidates with search and then run it from the context menu for the selected range.</strong></li>
 </ul>
 <p>Playlists:</p>
 <ul>
-<li>Playlist root: You can run <code>Create new</code>, <code>Import</code>, and <code>Reload</code>. Import options include specifying a URL, loading from a difficulty table list, importing the Overjoy BMS difficulty estimation table, recommend tables, and so on.</li>
+<li>Playlist root: You can run <code>Create new</code>, <code>Import playlists</code>, and <code>Reload</code>. The import window lets you select multiple tables from the table list, built-in tables, URLs, or files.</li>
 <li>Playlist body: You can run <code>Reload</code>, <code>Open page</code>, <code>Override Level</code>, <code>Create new folder</code>, <code>Export</code>, <code>Remove playlist</code>, and <code>Properties</code>. For details on each item, see <a href="#playlist-detail">Playlist Detail</a>.</li>
 <li>Folder in playlist: You can run <code>Remove folder</code> and <code>Rename folder</code>.</li>
 <li>Playlist summary row: You can run <code>Reload</code>, <code>Open page</code>, <code>Apply current order to BMT SORT</code>, <code>Move to top of BMT SORT</code>, <code>Move to bottom of BMT SORT</code>, <code>Bulk edit...</code>, <code>Properties</code>, and <code>Remove playlist</code>. Reloading multiple selected rows in the summary targets the selected playlists regardless of their external sync flag.</li>
@@ -1296,7 +1477,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <ul>
 <li><code>New</code> root: <code>Clear all</code> empties the new package display.</li>
 <li><code>Pending</code> root: You can run <code>Clear all</code> and <code>Advanced features</code>. For advanced features, see <a href="#advanced-features">Advanced Features</a>.</li>
-<li>Pending package: You can run <code>Open in Explorer</code>, <code>Open install destination</code>, the <code>Install</code> submenu, and <code>Remove from list</code>. The <code>Install</code> submenu contains <code>Estimate install destination</code>, <code>Estimate merge destination</code>, <code>Install to estimated install destination</code>, <code>Install as new</code>, and <code>Clear install destination</code>.</li>
+<li>Pending package: You can run <code>Open in Explorer</code>, <code>Open install destination</code>, the <code>Install</code> submenu, and <code>Remove from list</code>. The <code>Install</code> submenu contains <code>Estimate install destination</code>, <code>Install to estimated install destination</code>, <code>Install as new</code>, and <code>Clear install destination</code>.</li>
 <li>Installed package: You can run <code>Open in Explorer</code> and <code>Remove from list</code>.</li>
 </ul>
 <p>Maintenance:</p>
@@ -1309,7 +1490,7 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <p>Some menus are opened from buttons at the top of the screen rather than by right-clicking.</p>
 <ul>
 <li>Playback control menu: See <a href="#playback-panel-controls">Playback Panel Controls</a>.</li>
-<li>Mode filter: Switches display targets for <code>5KEYS</code>, <code>7KEYS</code>, <code>9KEYS</code>, <code>10KEYS</code>, and <code>14KEYS</code>.</li>
+<li>Mode filter: Switches display targets for <code>5KEYS</code>, <code>7KEYS</code>, <code>9KEYS</code>, <code>10KEYS</code>, <code>14KEYS</code>, <code>24KEYS</code>, and <code>48KEYS</code>.</li>
 <li>Playlist summary ownership filter: Switches between <code>All</code>, <code>OWNED=100%</code>, and <code>OWNED&lt;100%</code>.</li>
 </ul>
 <h2 id="search">Search</h2>
@@ -1322,9 +1503,10 @@ You can use field specifiers such as <code>title:</code>, <code>artist:</code>, 
 <div class="highlight"><pre><span></span><code>title:Satellite
 artist:xi
 level:12
-rate:&gt;=80
+rate:&gt;=0.8
 playlist:"Satellite Sub"
 </code></pre></div>
+<p><code>RATE</code> is displayed as a percentage. Numeric searches and regular expressions in the chart list and playlist detail use 0 to 1: <code>rate:&gt;=0.8</code> matches 80% or higher, and <code>rate:re:^0[.]8$</code> matches 80%.</p>
 <h3 id="completion-history-and-favorites">Completion, History, and Favorites</h3>
 <p>Choose search fields, playlist names, and values from the search-box suggestions. Select with Up / Down and apply with Enter or Tab. The 20 most recent searches are saved. Buttons in history rows add a search to favorites or delete it; favorites have no count limit.
 For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword Search Syntax Guide</a>.</p>
@@ -1361,18 +1543,19 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <h3 id="converting-to-audio-files">Converting to Audio Files</h3>
 <p>Export selected owned charts to audio files without waiting for real-time playback. Both BMS / bmson and their referenced audio resources are required.</p>
 <ol>
-<li>Configure file type, quality, volume, and filename in <a href="#recording">Recording</a>, and save with <code>Save and close</code>.</li>
+<li>Configure file type, quality, volume, and filename in <a href="#recording">Recording</a>, Each item saves when its input is confirmed.</li>
 <li>Select charts in the list. You can select several rows at once.</li>
 <li>Right-click and choose <code>Convert to audio file</code>, then select an output folder.</li>
 <li>Normal playback stops and conversion begins in selection order. You can cancel from the progress display.</li>
-<li>Review the success, failure, and unprocessed counts at completion, and check the files in the output folder.</li>
+<li>Review the success, failure, and unprocessed counts and the output format at completion, and check the files in the output folder.</li>
 </ol>
+<p>If the encoder for the saved file type cannot be found, a warning appears before you choose the output folder. Select <code>OK</code> to convert only this time as WAVE, or <code>Cancel</code> to stop without converting. Either way, the file type saved in the recording settings does not change.</p>
 <p>Omitted audio resources are reported as warnings at completion. For failures, see <a href="#audio-playback-or-conversion-fails">Audio Playback or Conversion Fails</a>.</p>
 <h2 id="playlists">Playlists</h2>
 <p>In BeMusicSeeker, installed difficulty tables and custom playlists can be managed as <code>playlists</code>. Playlists have a summary view for listing overall ownership status and a detail view for checking individual charts.</p>
 <h3 id="playlist-summary">Playlist Summary</h3>
 <p><img alt="Playlist summary" src="img/一覧_プレイリストサマリー.PNG"/></p>
-<p>The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, external sync status, and beatoraja <code>.bmt</code> output settings. You can click <code>NAME</code>, <code>PREFIX</code>, or <code>SYMBOL</code> cells to edit them inline; If you show the hidden-by-default <code>FOLDER NAME</code> column, you can edit the playlist properties folder name from the list. When the folder name is unset, the playlist-name-derived folder name is shown with the same background color used for undefined metadata. If you show the hidden-by-default <code>HEADER</code> and <code>DATA</code> columns, you can open the resolved header and data URIs, including relative URIs resolved from the page/header URI.</p>
+<p>The playlist summary lists each playlist's chart count, owned count, unowned count, ownership rate, external sync status, and beatoraja <code>.bmt</code> output settings. You can click <code>NAME</code>, <code>PREFIX</code>, or <code>SYMBOL</code> cells to edit them inline; If you show the hidden-by-default <code>FOLDER NAME</code> column, you can edit the playlist properties folder name from the list. When the folder name is unset, the playlist-name-derived folder name is shown with a background color indicating that it is actually unset. If you show the hidden-by-default <code>HEADER</code> and <code>DATA</code> columns, you can open the resolved header and data URIs, including relative URIs resolved from the page/header URI.</p>
 <p>From the search field at the upper right, you can switch the ownership filter between <code>All</code>, <code>OWNED=100%</code>, and <code>OWNED&lt;100%</code>.</p>
 <p>When you find a table whose number of unowned charts has increased, <strong>double-click the row to move to that playlist's detail view.</strong></p>
 <p>The <code>STATUS</code> column shows the result of external playlist sync performed after startup or during reload. Broken links, header retrieval failures, data retrieval failures, and similar issues can be checked here. Details are shown in the tooltip.</p>
@@ -1383,7 +1566,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>Select multiple rows and open <code>Bulk edit...</code> from the context menu to apply custom folder output types, <code>OUTPUT</code>, root folder, external sync, <code>.bmt</code> output, or initialization from external data to the selected rows. The dialog has no global OK; only the apply button in each section changes that section.</p>
 <p><code>OUTPUT</code> selects the normal output destination or an additional normal output. The saved <code>OUTPUT</code> value is updated even for playlists with <code>Make root folder</code> enabled, but the actual output destination remains the root folder output destination.</p>
 <p>For custom folder output types, checked means output, unchecked means no output, and indeterminate means no change. Bulk custom folder output changes show progress in the status bar and do not regenerate <code>.bmt</code> files.</p>
-<p>When external sync is turned on, playlists without valid URL information are skipped and reported in the result.</p>
+<p>When external sync is turned on, playlists without valid URL information remain OFF and are skipped without a notification. Playlists already ON are unchanged; only newly enabled playlists are saved and output. If none can be enabled, applying still finishes normally and the dialog input returns to “No change”.</p>
 <p>The external-data initialization section reloads the external playlist URL regardless of the external sync flag and resets only the checked fields. Playlists whose external URL cannot be read are skipped. While applying changes, the status bar shows progress for external data loading, saving, and custom folder output.</p>
 <ul>
 <li>Playlist name: Resets the name from the external data.</li>
@@ -1402,15 +1585,17 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <li><code>Open page</code>: Open its page URI in a browser.</li>
 <li><code>Override Level</code>: Apply the table's levels to matching local library charts. Actual chart files are unchanged. Some tables, such as recommend tables, do not support this.</li>
 <li><code>Create new folder</code>: Add a manually managed folder to a playlist without external sync.</li>
-<li><code>Export</code>: Save <code>header.json</code> and <code>data.json</code>, choosing a destination for each file.</li>
+<li><code>Export</code>: Choose the header and data destinations in the export window, review both, then press <code>Export</code>. Both fields are required and must point to different files.</li>
 <li><code>Remove playlist</code>: Remove the playlist from management.</li>
 <li><code>Properties</code>: Edit <a href="#playlist-properties">names, URIs, and folder output</a>.</li>
 </ul>
 <h4 id="creating-and-editing-local-playlists">Creating and Editing Local Playlists</h4>
 <p>Right-click the playlist tree root and select <code>Create new</code>. With external sync OFF, drag chart rows onto the playlist itself or a folder to add them. Play-log rows corresponding to owned charts can also be added.</p>
-<p>Edit levels, folders, URL1 / URL2, comments, and similar fields in the detail list. Drag charts to another folder to move them within the same playlist. Adding to the root of a folder-based playlist selects a suitable folder and creates one if necessary. <code>Remove entry</code> removes a row from the playlist.</p>
+<p>Edit levels, URL1 / URL2, comments, and similar fields in the detail list. Drag charts onto another folder in the tree to change their membership within the same playlist. <code>Remove entry</code> removes a row from the playlist.</p>
+<p>Edit folder names in the tree. Confirming a blank name or a name containing only whitespace combines its charts into the single <code>No folder name</code> group. This group disappears from the tree when its last chart is moved or removed. Previously saved whitespace-only names remain unchanged.</p>
+<p>Adding charts to the root of a folder-based playlist selects a suitable existing named folder and creates one if necessary. To add charts to <code>No folder name</code>, drop them onto that folder explicitly.</p>
 <h3 id="downloading-main-packages-and-additional-charts">Downloading Main Packages and Additional Charts</h3>
-<p>Open main-package and additional-chart URLs from the <code>URL1</code> / <code>URL2</code> columns. <a href="#url1url2-completion">URL completion</a> may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON both <code>Try to run installation automatically after download</code> and <code>Scan BMS files and component files at startup</code> in <code>Advanced settings</code>. If either is OFF, clicking opens the URL in a browser. The single-row <code>Open main URL</code> / <code>Open diff URL</code> context-menu commands open a browser.</p>
+<p>Open main-package and additional-chart URLs from the <code>URL1</code> / <code>URL2</code> columns. <a href="#url1url2-completion">URL completion</a> may fill empty URLs. To automatically retrieve and install files by clicking a single URL cell, turn ON <code>Try automatic download and installation when clicking the URL1/URL2 columns</code> under <code>Install</code> and <code>Scan BMS files and component files at startup</code> under <code>Advanced settings</code> → <code>Initialization</code>. If either is OFF, clicking opens the URL in a browser. The single-row <code>Open main URL in browser</code> / <code>Open diff URL in browser</code> context-menu commands open a browser. You can also cancel a single automatic download from its progress display.</p>
 <h4 id="importing-multiple-urls">Importing Multiple URLs</h4>
 <p>Select several rows and choose <code>Import selected main URLs</code> / <code>Import selected diff URLs</code> from the context menu. After confirmation, duplicate URLs are removed, downloads run in order, and automatic installation is attempted regardless of the single-download setting. Cancel through the progress display; files downloaded before cancellation still proceed to installation. Completion reports retrieved, skipped, size-limit, failed, and unprocessed counts.</p>
 <p>Supported charts are <code>.bme</code>, <code>.bms</code>, <code>.bml</code>, <code>.pms</code>, and <code>.bmson</code>; archives are <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, and <code>.lzh</code>. Automatic downloads are limited to <code>512 MiB</code> per file. Supported sources include direct links and some distribution pages on Google Drive, Dropbox, OneDrive, MediaFire, manbow, <code>venue.bmssearch.net</code>, and <code>bmssearch.net/bmses</code>. Bulk import skips Google Drive shared folders, MEGA, AXFC, and pages requiring login, CAPTCHA, or JavaScript interaction. Download those in a browser and <a href="#installation-steps">install by drag and drop</a>.</p>
@@ -1423,7 +1608,7 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <h4 id="how-to-open">How to Open</h4>
 <p>From a playlist tree item or a single playlist-summary row, choose <code>Open lamp viewer</code>. Every activation creates a fresh window, so multiple viewers for the same playlist can remain open independently. Closing the main window closes all viewers.</p>
 <h4 id="screen-layout_1">Screen Layout</h4>
-<p>The top cards show total charts, owned, missing, ownership rate, active score source, and playlist last update. A second card group shows played, unplayed, play rate, average EX score rate, and whole-playlist clear rate.</p>
+<p>The top area shows total charts, owned, missing, ownership rate, active score source, and playlist last update. It also shows played, unplayed, play rate, average EX score rate, and whole-playlist clear rate.</p>
 <p>The graph area has clear lamps on the left and DJ levels on the right. Each normal folder appears in playlist order in one shared scrollable area. Both halves of a row use <code>folder name | stacked bar | chart count</code>. Empty ordinary folders remain visible with a count of zero.</p>
 <p>Use <code>Percentage</code> / <code>Song count</code> at the top right to switch the graph display. New windows start in <code>Percentage</code>: each folder fills the bar width and segments show percentages. In <code>Song count</code>, the largest normal folder fills the width and all other folders use the same scale, making their counts comparable. Segments show counts. Song count here means playlist chart entries. The overall bars fill the width in both modes; only their segment labels change.</p>
 <p>A segment label appears only when it fits. Hover over a segment to see its count and percentage; the percentage always refers to that folder's own chart count. Each window keeps its own display mode through date changes and data updates. Newly opened windows start in <code>Percentage</code>.</p>
@@ -1473,16 +1658,37 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Turning a playlist's <code>BMT OUTPUT</code> OFF removes its managed <code>.bmt</code> and registered URL at the next output. Before disabling output globally, enable <code>Keep existing .bmt files when output is disabled</code> if you want to preserve them.</p></div>
 <p>With the keep-existing-files option enabled, disabling global output stops automatic re-export while retaining the existing <code>.bmt</code> files and registered URLs.</p>
 <h3 id="import-external-playlist">Import External Playlist</h3>
-<p><img alt="Playlist import menu" src="img/プレイリストインポート_ツリーコンテキストメニュー.PNG"/></p>
-<p>Right-click the playlist tree root and use <code>Import</code> to add external playlists. You can choose from registered external table lists or specify a URI to load.</p>
-<p>The default difficulty table list retrieval URI is managed by <a href="https://darksabun.club/table/tablelist.html">DARKSABUN</a>.</p>
-<p><img alt="Playlist import URL specification" src="img/プレイリストインポート_URLを指定して読み込む.PNG"/></p>
-<p>Import menus such as external table lists and recommend tables <strong>do not close when you click a single item, so you can select and import multiple tables in sequence.</strong></p>
-<p>In <code>Load from URL</code>, you can enter destination URIs across multiple lines. If you paste multiple difficulty table URLs at once, each line is treated as a load target, and external loading plus post-registration work are processed in batches. If a playlist with the same name already exists, that URL is skipped and the result dialog shows the skipped count and names after processing finishes.</p>
-<p>Externally synced playlists can be updated by re-fetching the original difficulty table. After importing, check the sync result in the playlist summary <code>STATUS</code> column.</p>
+<p>Register multiple playlists together from the table list, URLs, or JSON files. Right-click the playlist tree root and choose <code>Import playlists</code>. External table HTML is limited to <code>10 MiB</code>; header and chart-data JSON are each limited to <code>100 MiB</code>. Compressed responses are measured after decompression.</p>
+<p><img alt="Import playlists" src="img/プレイリストをインポート.png"/></p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>How to choose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Table list</td>
+<td>Search by name, symbol, category, or part of a URL, then check the tables to import.</td>
+</tr>
+<tr>
+<td>Built-in tables</td>
+<td>Check the <a href="#built-in-difficulty-estimates-and-recommendations">built-in difficulty estimates and recommendations</a> to import.</td>
+</tr>
+<tr>
+<td>URL / file</td>
+<td>Enter one table URL or JSON file path per line, then press <code>Add to selection</code>. The file picker appends a path to the input box.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Use category checkboxes, or <code>All</code> in the table list, to select or clear all tables matching the display conditions. <code>Hide registered URLs</code> is ON by default. To also hide candidates whose names match existing tables, turn on <code>Hide matching names</code>.</p>
+<p>Selections stay on the right when you change tabs or search conditions. Use <code>Remove</code> for individual items or <code>Clear all</code> for the whole selection. Review the selection, then press <code>Import</code>.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Items marked <code>Same URL</code> are skipped. <code>Matching name</code> warns of a possible duplicate name; the item is skipped if the loaded table name duplicates another table. Check the result dialog for skipped or failed items.</p></div>
+<p>Open registered tables from the playlist tree. Reload externally synced playlists to update them from the original difficulty tables. Check the sync result in the <a href="#playlist-summary">playlist summary</a> <code>STATUS</code> column.</p>
 <h3 id="built-in-difficulty-estimates-and-recommendations">Built-in Difficulty Estimates and Recommendations</h3>
 <p>The built-in difficulty estimates and recommendations integrate <a href="https://github.com/naktazdim/walkure-offline/">Walkure Offline</a>, the offline version of <a href="http://walkure.net/hakkyou/index.html">Walkure's Insane BMS difficulty estimates and recommendations</a>. No internet connection, LR2 player ID, or score upload is required.</p>
-<p>Right-click the playlist tree root and choose <code>Import</code> → <code>Load built-in difficulty estimates and recommendations</code>.</p>
+<p>Right-click the playlist tree root, open <code>Import playlists</code>, and choose the <code>Built-in tables</code> tab. Select multiple types to register them in one import.</p>
 <p>Difficulty estimates have four types: EASY, NORMAL, HARD, and FC. To view each difficulty's star rating, right-click the chart list's column header and enable the <code>ENTRY LEVEL</code> column.</p>
 <p>Recommendations use the LR2 or beatoraja player and score database selected in <code>General</code> settings. Targets above the current lamp with at least a 20% clear probability appear under EASY, NORMAL, HARD, or FC, sorted by probability within each group. A chart can have multiple targets. The star rating in the table name is estimated player skill; the clear probability (%) is shown in the same <code>ENTRY LEVEL</code> column.</p>
 <div class="table-scroll"><table>
@@ -1510,27 +1716,32 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>All three types can be registered together. Reload the relevant tables after playing. Recommendation names are generated from the type and estimated skill on every reload, replacing any manual name. Display symbols, output settings, and memos are retained.</p>
 <p>Turn on <code>Show Recommend update messages</code> to see the new skill and signed change when estimated skill changes after a reload.</p>
 <h3 id="playlist-properties">Playlist Properties</h3>
+<p>When creating a playlist or saving its properties manually, enter a name containing at least one non-whitespace character.</p>
 <p>Right-click a playlist and open <code>Properties</code> to view and edit the playlist name, display symbol, external sync settings, page URI, header URI, and data URI.</p>
+<p>For an externally synced playlist, changing and saving its page URI (or header URI when no page URI is set) reloads it from the new source. Saving a change from external sync OFF to ON also reloads the playlist. Saving the same source again or changing only the data URI does not trigger a reload unless you also turn external sync ON.</p>
 <p>Properties such as the playlist name and folder settings are saved in the in-app DB even in standalone mode. Only in LR2 linked mode is LR2 custom folder output also updated after saving.</p>
 <div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p>The folder prefix is saved as a local setting. Even for externally synced playlists, a folder prefix changed from Properties or the playlist summary is not reset from external data during normal reloads. To restore the external-data default, use <code>Bulk edit...</code> in the playlist summary and run <code>Initialize from external data</code>.</p></div>
 <p><img alt="Playlist properties general" src="img/プレイリストプロパティ_一般.PNG"/></p>
-<p>In the <code>Folder</code> category, you can set the sort key and ascending / descending order for items inside folders, as well as the order of folders. For externally synced playlists, editing items that conflict with the sync source is restricted.</p>
+<p>In the <code>Folder</code> category, you can set the sort key and ascending / descending order for items inside folders, as well as the order of folders. For externally synced playlists, editing items that conflict with the sync source is restricted. If synchronization replaces a row while you are editing it, saving the old row is rejected. Select the latest row and make the edit again.</p>
 <p><img alt="Playlist properties folder" src="img/プレイリストプロパティ_フォルダ.PNG"/></p>
 <p>In the <code>Custom folder</code> category, you can set the output folder types, <code>OUTPUT</code>, and output names. Save changes with <code>OK</code>.</p>
+<p>Enter a single folder name without a path. Names containing <code>\</code> or <code>/</code>, absolute paths, <code>.</code> and <code>..</code> are not accepted. Leave the name blank to use the default derived from the playlist name.</p>
 <p>When the entry unit is folder, level-folder output and sorting by level or added date are unavailable.</p>
 <p><img alt="Playlist properties custom folder" src="img/プレイリストプロパティ_カスタムフォルダ.PNG"/></p>
 <h3 id="custom-folder-output">Custom Folder Output</h3>
 <p>In LR2 linked mode, playlists can be output as LR2 custom folders. LR2 custom folders are a feature that uses SQL conditions to create chart sets and show them as virtual folders on the song selection screen without moving the actual files.</p>
 <p>BeMusicSeeker outputs difficulty tables and local playlists in this format. It is intended for uses such as selecting <code>★1</code>, <code>★2</code>, and similar folders from difficulty tables in LR2, finding only unplayed charts, or placing frequently used tables at the root of the song selection screen.</p>
-<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Use dedicated folders for custom output and keep important data elsewhere. Output updates remove obsolete files; changing destinations or deleting playlists removes the old playlist output folder entirely. Do not place manually managed custom folders or other files inside it.</p></div>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Use a dedicated output folder for each playlist and keep important data elsewhere, whether using the normal, root, or additional normal destination. Output updates overwrite and clean up the playlist output folder and its contents, including files already present. Changing destinations or deleting playlists removes the old playlist output folder entirely.</p><p>Output files use Shift_JIS. Conditions containing characters that this encoding cannot represent may fail to match charts when LR2 itself rereads the files.</p></div>
 <h4 id="setup-flow">Setup Flow</h4>
 <ol>
-<li>In the <code>Playlist</code> category in the settings dialog, specify the <code>Normal output destination</code>, and if needed, <code>Additional normal output destinations</code> and the <code>Root folder output destination</code>. To change the initial state for new playlists and tables added from external URLs, also configure <code>Output folder defaults</code>.</li>
+<li>In the <code>Playlist</code> category in the settings dialog, select the <code>Normal output destination</code> and <code>Root folder output destination</code> separately and accept any migration confirmation shown to save each selection. Add <code>Additional normal output destinations</code> if needed. If processing remains incomplete, use the retry button in that section. To change the initial state for new playlists and tables added from external URLs, also configure <code>Output folder defaults</code>.</li>
 <li>From playlist <code>Properties</code>, configure <code>OUTPUT</code>, the output name, <code>Make root folder</code>, and the folder types to output.</li>
 <li>To change multiple playlists at once, use <code>Bulk edit...</code> from the playlist summary and apply <code>OUTPUT</code>, folder output types, or <code>Make root folder</code> to the selected rows.</li>
 </ol>
 <p><code>OUTPUT</code> selects the <code>Normal output destination</code> or one of the <code>Additional normal output destinations</code> from settings. While <code>Make root folder</code> is enabled, the saved <code>OUTPUT</code> value is kept, but the actual output destination is the <code>Root folder output destination</code>. When root folder output is turned off, the playlist returns to the saved <code>OUTPUT</code> destination.</p>
-<div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p>LR2 custom folder output is an LR2 linked mode feature. Even in standalone mode, playlist names and folder settings are saved in the in-app DB, but LR2 <code>.lr2folder</code> output is not updated.</p></div>
+<p>Choose playlist output folders that are neither identical nor nested. Use different output names under the same base. This is checked before saving changes to names, output destinations, root folder mode, bulk edits, or removal of an additional output base.</p>
+<p>Custom <code>.lr2folder</code> files placed directly under an output base or in separate folders outside playlist output folders continue to be read. Playlist output cleanup does not delete the entire base or unrelated separate folders.</p>
+<div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p>LR2 custom folder output is an LR2 linked mode feature. Even in standalone mode, playlist names and folder settings are saved in the in-app DB, but LR2 <code>.lr2folder</code> output is not updated.</p></div><div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p>Names saved by older versions of the app or by editing the DB directly, such as <code>TableName\sub</code> or <code>TableName/sub</code>, are displayed and used for output as <code>TableNamesub</code>, with the separators removed. A table whose resulting output location is identical to, or nested with, another playlist's output location stops outputting its LR2 folders, and a warning shows the table name and location. See <a href="#table-output-stops-because-output-locations-overlap">Table Output Stops Because Output Locations Overlap</a>. Files in the old hierarchy are not automatically moved or deleted.</p></div>
 <h4 id="output-destination-usage">Output Destination Usage</h4>
 <p>Choose these locations in the <code>Playlist</code> settings category.</p>
 <div class="table-scroll"><table>
@@ -1560,8 +1771,9 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 </tbody>
 </table></div>
 <p>Output destinations cannot be identical or nested. Previously used output folders can be configured again while still registered in LR2, subject to these conditions. Confirmation also identifies locations removed from song search.</p>
-<p>Normal output remains part of song search; additional and root output do not. None appears in BMS directory settings, new-install destination choices, or the library folder tree. Changing normal output removes the old location from search and from LR2 registration unless it remains another output destination. Removing an additional destination returns its playlists to normal output.</p>
+<p>Normal, additional, and root output bases cannot be LR2's built-in <code>LR2files\CustomFolder</code>, its subfolders, or its immediate parent <code>LR2files</code>. Higher parent folders are allowed. If an existing setting is in the prohibited range, startup returns to settings so you can correct the destination. This correction does not move or delete old files in the built-in area.</p>
 <p><code>Output folder defaults</code> applies to newly created or imported playlists. Use properties or <a href="#bulk-edit">Bulk edit</a> for existing tables.</p>
+<div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p>Normal output remains part of song search; additional and root output do not. None appears in BMS directory settings, new-install destination choices, or the library folder tree. Changing normal output removes the old location from search and from LR2 registration unless it remains another output destination. Removing an additional destination returns its playlists to normal output.</p><p>Normal output is part of song search to stay compatible with the original BeMusicSeeker. It is intended, however, as the output location for playlists managed by this app, so we recommend not mixing it with the folders where songs are placed.</p></div>
 <h4 id="folder-types-to-output">Folder Types To Output</h4>
 <p>In the <code>Custom folder</code> category, use the checkboxes to choose which folders to output for each playlist.</p>
 <div class="table-scroll"><table>
@@ -1644,13 +1856,17 @@ For detailed syntax, see the <a href="keyword-search-syntax-guide.html">Keyword 
 <p>Supported inputs are BMS / bmson charts, work folders, and <code>.zip</code>, <code>.7z</code>, <code>.rar</code>, or <code>.lzh</code> archives. New works go to the new-install destination; additional charts for existing works can be installed from Pending.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Installation moves charts and bundled resources from the source package and may delete source files or folders. Make a separate copy before drag and drop if you want to keep the original distribution.</p></div>
 <h3 id="installation-steps">Installation Steps</h3>
+<p>To install packages as soon as automatic estimation during import determines their destination, turn ON <code>Install automatically when estimation after import determines a destination</code> under <code>Install</code> → <code>Automatic destination estimation</code> before importing. Eligible packages are installed without a confirmation dialog, and results appear in <code>New</code>. This setting is OFF by default.</p>
 <ol>
 <li>Drag and drop a BMS work, differential chart, or a folder / archive containing them onto the window.</li>
-<li>Items that appear to be new unowned works and have enough bundled resources are normally installed to the <code>New install destination</code> configured in the settings dialog. If <code>Add to pending instead of auto-installing even for new entries</code> is enabled in Advanced settings, they remain in Pending even when judged as new.</li>
-<li>Items with few resources that appear to be differential charts for existing works are added to <code>Pending</code>, and install-destination estimation is performed.</li>
-<li>Check <code>WARNING</code>, <code>TITLE</code>, <code>ARTIST</code>, <code>INSTL DST TITLE</code>, <code>INSTL DST ARTIST</code>, and related columns. If necessary, manually enter <code>INSTL DST</code> or choose it from the suggested candidates.</li>
+<li>New unowned works with all used audio files present are normally installed to the <code>New install destination</code> configured in the settings dialog. To require images and videos too, turn ON <code>Require all used resources for automatic new installation</code> under <code>Install</code> → <code>Import and new installation</code>. If <code>Add packages to pending instead of automatically installing them, even when identified as new</code> is enabled, they remain in Pending even when judged as new.</li>
+<li>Items with missing used audio files are added to <code>Pending</code>, and install-destination estimation is performed. When the setting above keeps a package pending solely for missing images or videos, searching for new candidates is skipped. Candidates known from owned charts still undergo TITLE/ARTIST matching, and the destination is set when the conditions are met. You can estimate its destination manually from Pending.</li>
+<li>For packages still pending, check <code>WARNING</code>, <code>TITLE</code>, <code>ARTIST</code>, <code>INSTL DST TITLE</code>, <code>INSTL DST ARTIST</code>, and related columns. If necessary, manually enter <code>INSTL DST</code> or choose it from the suggested candidates.</li>
 <li>Select rows that look correct, then run <code>Install</code> -&gt; <code>Install to estimated install destination</code> from the context menu.</li>
 </ol>
+<p>You can drop multiple files or folders at once. Inputs cannot be added during installation, so wait for the current operation to finish and drop them again (see <a href="#operations-that-cannot-run-together">Operations That Cannot Run Together</a>).</p>
+<p>If the chart's folder directly contains audio whose filename starts with <code>preview</code> or <code>_preview</code> (<code>.wav</code>, <code>.ogg</code>, <code>.mp3</code>, or <code>.flac</code>), dropping even one chart imports the entire folder as one package. Filename matching is case-insensitive, and sibling charts and charts in subfolders are included in that package.</p>
+<p>Cancelling estimation preserves registered packages and already applied results; you can manually estimate the remaining pending packages. Cancelling during automatic installation finishes the current package before stopping. Packages not yet started remain pending with their destinations intact. The result message shows successful installations and the number not started.</p>
 <p>Use <a href="#selecting-and-editing-rows">multiple-row selection</a> to estimate and install several packages together.</p>
 <h3 id="new">New</h3>
 <p><code>New</code> shows packages immediately after installation. Temporary warnings shown before installation are re-evaluated according to the post-installation state.
@@ -1658,7 +1874,11 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p><img alt="Install New" src="img/一覧_インストール_新規.PNG"/></p>
 <h3 id="pending">Pending</h3>
 <p><img alt="Install Pending" src="img/一覧_インストール_保留.PNG"/></p>
-<p><code>Pending</code> contains packages not yet installed. Check or correct their destination before installation. You can also re-estimate using <a href="#install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</a>.</p>
+<p><code>Pending</code> contains packages not yet installed. Check or correct their destination before installation. For pending packages restored at startup, select them and run <code>Install</code> → <code>Estimate install destination</code> from the context menu. You can also re-estimate using <a href="#install-destination-estimation">Install-Destination Estimation</a>.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Packages temporarily extracted from archives or URLs are deleted when the app exits, even while shown in Pending, and are not restored on the next startup. Install packages you need before exiting. Source folders and source archives you select directly are excluded from this temporary-file cleanup.</p></div>
+<p>When you open the Pending root or an individual package, an operation bar with <code>Estimate</code>, <code>Install</code>, and <code>Clear</code> appears below the search field. Select charts in the central list and use these buttons for the same actions as <code>Estimate install destination</code>, <code>Install to estimated install destination</code>, and <code>Clear install destination</code> in the context menu. Use Ctrl / Shift to select multiple charts. Charts belonging to the same package are processed together as a package, just as with the context menu. All three buttons are disabled when no charts are selected.</p>
+<p><code>Estimate</code> only estimates the destination. Check the results before clicking <code>Install</code>. Estimation that keeps unrelated candidates and installation as new remain available from the context menu.</p>
+<p>Turning ON automatic installation leaves existing pending packages in place. For destinations determined through manual estimation, candidate selection, or text entry, use <code>Install to estimated install destination</code> to install them.</p>
 <h4 id="checking-destinations-and-warning">Checking Destinations and WARNING</h4>
 <div class="table-scroll"><table>
 <thead>
@@ -1674,15 +1894,16 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tr>
 <tr>
 <td>INSTL DST TITLE / ARTIST</td>
-<td>Title and artist of a representative chart at the destination</td>
+<td>Title–artist pair representing the destination folder</td>
 </tr>
 <tr>
 <td>WARNING</td>
-<td>Missing resources, ambiguous candidates, title or artist mismatches, and similar issues</td>
+<td>Missing resources, ambiguous candidates, unconfirmed title–artist matches, and similar issues</td>
 </tr>
 </tbody>
 </table></div>
-<p><code>WARNING</code> shows a <code>[type count] label</code> summary; hover for details. Several missing-resource types can share one label. Resource shortages may disappear from the summary when a destination is set, so check the details too.</p>
+<p><code>INSTL DST TITLE</code> and <code>INSTL DST ARTIST</code> show the title and artist from the same chart that supports the match, after removing subtitles and chart-author annotations. Strong matches show the candidate folder’s most frequent pair; other related candidates show a pair that meets the similarity conditions. The artist may be blank. When the destination is still unset, the displayed pair belongs to the first candidate. Both columns are blank when there is no displayed candidate or valid title.</p>
+<p><code>WARNING</code> shows a <code>[type count] label</code> summary; hover for details. Several missing-resource types can share one label. Resource shortages in pending packages remain in the summary after a destination is set.</p>
 <div class="table-scroll"><table>
 <thead>
 <tr>
@@ -1696,12 +1917,16 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <td>Compare candidate locations, titles, and artists.</td>
 </tr>
 <tr>
-<td>TITLE/ARTIST mismatch / Install estimation</td>
+<td>TITLE/ARTIST unconfirmed / Install estimation</td>
 <td>Matching resources may still give a low-confidence result. Check that it is the correct work.</td>
 </tr>
 <tr>
+<td>Audio missing after installation / Audio after installation unverified</td>
+<td>Estimation found that the group would lack audio after installation, or its completeness could not be verified. This reason also appears on rows whose own WAV is 100%. It remains after manual destination changes and is updated by re-estimation.</td>
+</tr>
+<tr>
 <td>Missing resources</td>
-<td>Check missing WAV, BGA, or video percentages. A standalone additional chart normally lacks resources before installation.</td>
+<td>For pending charts, check each chart against the configured destination, or the first candidate if unset, or the current location if neither exists. Bundled resources that would be installed are included for destinations and candidates.</td>
 </tr>
 <tr>
 <td>Install destination unknown / Unsupported resource path / Search limit</td>
@@ -1720,15 +1945,18 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h4 id="removing-or-deleting-pending-packages">Removing or Deleting Pending Packages</h4>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p><code>Delete file</code> → <code>Move to Recycle bin</code> deletes actual files. When whole-folder deletion is selected and all charts in the package are selected, bundled resources are moved too. Multi-row operations do not confirm each folder separately; check your selection.</p></div>
 <p><code>Remove from list</code> removes ordinary user folders or manually selected archives from Pending without deleting their source files. Application-managed temporary packages created by URL import may also have their temporary files deleted.</p>
-<h3 id="install-destination-and-merge-destination-estimation">Install-Destination and Merge-Destination Estimation</h3>
-<p>The <code>Install</code> context menu contains several similarly named estimation operations.</p>
-<p><code>Estimate install destination</code> is for ordinary differential-chart installation. Resources bundled in the pending package are counted as resources that will become available after installation, and BeMusicSeeker looks for the destination that works best when combined with the existing directory. Usually, use this operation. <strong>In other words, bundled additional audio files are also considered.</strong></p>
-<p><code>Estimate merge destination</code> is for pending packages that contain only already-owned charts, or for cases where you want to move only resources into an existing folder. It does not add bundled resources inside the pending package to the evaluation; it searches for a merge destination using only resources already present in the existing library. Existing <code>INSTL DST</code> values are overwritten. A confirmation dialog is shown before execution.</p>
+<h3 id="install-destination-estimation">Install-Destination Estimation</h3>
+<p>Use <code>Install</code> → <code>Estimate install destination</code> for both additional charts and packages containing only already-owned charts. It compares how many files used by the charts will be available after combining bundled resources with each candidate folder. When combined coverage is equal, candidates with more matching files of their own rank higher.</p>
+<p>When the bundled files alone verifiably cover at least 90% of the used audio, candidates are retained if TITLE / ARTIST match strongly or both the title and artist of the same chart are similar. Otherwise, similarity in either field is sufficient. This 90% uses audio brought in by the package before adding the destination, so it can differ from the displayed <code>WAV</code> value. If renamed titles or artists leave no suitable candidates, use <code>Estimate installation location (keep unrelated candidates)</code> to inspect candidates by their resource matches.</p>
+<p>Automatic confirmation of <code>INSTL DST</code> requires a strong TITLE / ARTIST match and each chart’s used-audio coverage from the package and candidate together to meet the configured threshold (99% by default). If audio is missing, you can still inspect and select a candidate manually. Missing images or videos alone do not prevent automatic confirmation. Enabling automatic selection among multiple candidates keeps the same audio requirement.</p>
+<p>With automatic installation during import enabled, packages whose destinations were determined by that import’s automatic estimation are installed after estimation completes successfully. Manually started estimation only sets destinations. If charts from the same source folder are grouped into one package and any unowned chart was not automatically assigned a destination by this import, the entire package remains pending.</p>
+<p>An explicit <code>INSTL DST</code> selects an existing folder. If that folder is renamed or deleted before installation, the chart stays at its source; select the destination again. Re-estimation preserves a package’s confirmed destinations. Clear all destinations first to estimate the package again.</p>
+<p>Confirming search roots removes pending inputs beneath those roots from Pending so they do not overlap with owned charts. Their source files remain in place.</p>
 <p><code>Install to estimated install destination</code> installs pending packages whose <code>INSTL DST</code> is set into their estimated destinations, one package at a time in list order. Check results in New after installation. Packages whose charts all have an empty <code>INSTL DST</code> remain in Pending. Same-name collisions among bundled files are handled according to <a href="#smart-overwrite">Smart Overwrite</a> in the settings dialog.</p>
-<p><code>Install as new</code> ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF <code>Show confirmation before installing as new</code> in Advanced settings. Rejected packages remain pending. <strong>A typical use case is when the package shows something like <code>WAV 97%</code>, but that is known to be the original distribution state of the work.</strong></p>
-<p><code>Clear install destination</code> clears <code>INSTL DST</code>, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Use it when you want to redo estimation.</p>
+<p><code>Install as new</code> ignores the estimated destination and treats the package as an ordinary new installation. If a destination is configured, confirmation that it will not be used is always required. If no destination is configured, confirmation is shown by default to explain that the pending package is intentionally being installed as new, even if WARNINGs such as missing resources remain. Only the latter confirmation can be skipped by turning OFF <code>Show a confirmation message when installing a pending package as new</code> under <code>Install</code> → <code>Confirmation messages</code>. Rejected packages remain pending. <strong>A typical use case is when the package shows something like <code>WAV 97%</code>, but that is known to be the original distribution state of the work.</strong></p>
+<p><code>Clear install destination</code> clears <code>INSTL DST</code>, estimated-destination title / artist, install-destination-estimation warnings, and candidate suggestions for the selected rows. Resource health and missing-resource warnings return to the original-location results calculated when the package entered Pending, including restoration at startup. Clearing does not check files added or removed afterward. Use it when you want to redo estimation.</p>
 <h3 id="smart-overwrite">Smart Overwrite</h3>
-<p>Control same-name audio, BGA, images, readme files, and other resources during additional-chart installation, resource overwrite for owned packages, and duplicate-folder merging. Configure it in <code>Advanced settings</code>; the default is ON.</p>
+<p>Control same-name audio, BGA, images, readme files, and other resources during additional-chart installation, resource overwrite for owned packages, and duplicate-folder merging. Configure it under <code>Install</code> → <code>Overwriting and source package cleanup</code>; the default is ON.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>These operations can overwrite destination files and delete source files. Make copies of the destination and source package if you need to preserve particular audio or images. Comparisons use size and modification time, not audio quality.</p></div>
 <div class="table-scroll"><table>
 <thead>
@@ -1757,7 +1985,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tbody>
 </table></div>
 <p>If equal-size files differ by more than <code>2</code> seconds, the newer file is kept. Different-size files are also compared by modification time. When OFF, same-name destination files are overwritten by the source.</p>
-<p>Enable <code>During smart overwrite, keep *.bmx/*.pmx/*.txt by automatically adding numbers to their names instead of overwriting them</code> to retain overwrite candidates ending in <code>.bmx</code>, <code>.pmx</code>, or <code>.txt</code> under available names such as <code>name(1).txt</code>. If an identical numbered file already exists, the source is deleted.</p>
+<p>Enable <code>Keep same-name .bmx/.pmx/.txt files with numbered names during smart overwrite</code> to retain overwrite candidates ending in <code>.bmx</code>, <code>.pmx</code>, or <code>.txt</code> under available names such as <code>name(1).txt</code>. If an identical numbered file already exists, the source is deleted.</p>
 <p>BMS / PMS / bmson chart files use adjusted names such as <code>chart_.bms</code> on same-name collisions regardless of this setting. For file/folder type conflicts, see <a href="#file-moving-or-merging-fails">File Moving or Merging Fails</a>.</p>
 <h3 id="advanced-features">Advanced Features</h3>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Permanent package deletion bypasses the Recycle Bin, and resource overwrite can replace existing files. Check the package and destination and keep any files you need before proceeding.</p></div>
@@ -1778,6 +2006,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <li>LR2 resource path too long: The actual resource path LR2 would reference, formed by combining the chart folder and resource definition, may be too long. Consider moving the chart folder to a shorter location or shortening resource folder / file names.</li>
 </ul>
 <p>A resource definition containing a parent-directory reference such as <code>..</code> is not treated as LR2-incompatible by itself. However, if the actual referenced path including the placement location becomes too long, it is subject to <code>LR2 resource path too long</code>.</p>
+<p>With character restriction turned OFF, renaming a folder to include unsupported characters keeps the charts managed at their new location in BeMusicSeeker. Folders that LR2 cannot represent are omitted from its folder hierarchy. Renaming them back to CP932 / Shift_JIS-compatible names restores that hierarchy.</p>
 <p>BeMusicSeeker does not delete these charts; it only visualizes them as warnings. LR2 may still fail to select or play them. If necessary, rename chart files, resource files, or parent folders to CP932 / Shift_JIS-compatible names and shorter paths.</p>
 <h3 id="zero-note-search">Zero-Note Search</h3>
 <p><img alt="Zero-Note Search" src="img/一覧_ゼロノート検索.PNG"/></p>
@@ -1797,6 +2026,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h4 id="merge-duplicate-folders">Merge Duplicate Folders</h4>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Merging moves source files and may delete already-owned duplicate charts or the source folder. Same-name audio and BGA resources follow <a href="#smart-overwrite">Smart Overwrite</a>. Check the quality and formats you want to keep, and make copies of source files you need.</p></div>
 <p>Select <strong>the folder you want to merge away</strong> in the duplicate-file-check tree and choose the folder to keep from <code>Merge to</code>. By default, confirm source and destination before proceeding. Turning OFF <code>Show a confirmation message when merging or cleaning up in “Duplicate file check”</code> in <code>Advanced settings</code> skips confirmation.</p>
+<p>When the source folder contains subfolders, the confirmation also shows the number of those folders and states that they are moved to the destination keeping their relative layout.</p>
 <p>BMS / bmson and bundled resources are merged. Same-hash charts are deduplicated; different charts with the same filename are retained under adjusted names. The source folder is deleted when empty or containing only already-owned charts. It remains when unidentifiable files or similar items are left.</p>
 <h4 id="continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></h4>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Use <code>Ctrl + G</code> on the folder you want to merge away. Cleanup within one folder keeps one chart and moves the others to the Recycle Bin.</p></div>
@@ -1811,40 +2041,52 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>For failed moves or merges, see <a href="#file-moving-or-merging-fails">File Moving or Merging Fails</a>.</p>
 <h3 id="full-resource-scan">Full Resource Scan</h3>
 <p><img alt="Full Resource Scan" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
-<p>This view checks missing WAV, BGA, video, image, and similar resources.
-<code>Rescan all charts</code> is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. If you add missing resources after installation, update the state by rescanning the relevant row or rescanning all charts.</p>
+<p>This view checks missing WAV, BGA, video, image, and similar resources.</p>
+<p><code>WAV</code>, <code>BGA</code>, and <code>MOVIE</code> show existing / required files used by the chart. Multiple IDs referencing the same file count once, and unused definitions are excluded. All files defined for the same used ID are checked, without excluding conditional branches or LNOBJ references. For example, three existing files out of four required files give 75%. A category with no used files shows <code>-</code>. Empty names, extension-only names and images of unknown type are excluded. Invalid paths with a filename count as individual missing requirements. A chart with no audio requirements is not treated as missing audio. <code>-</code> also appears when the chart or resources cannot be checked.</p>
+<p><code>-</code> also appears before a check or when coverage cannot be determined. IDs without a resource definition are excluded from missing-resource checks. Rescanning also updates older saved counts to the used-file basis.</p>
+<p>An explicitly specified invalid auxiliary image path or parent-folder reference (<code>../</code>) in BMSON also produces a missing-image warning. With complete audio, requiring all used resources keeps the package pending when ON and permits automatic new installation when OFF.</p>
+<p><code>Rescan all charts</code> is an explicit heavy operation. Ordinary startup does not revalidate resources for all charts. After adding missing resources externally, follow <a href="#maintenance-troubleshooting">Maintenance Troubleshooting</a> to update their status.</p>
 <h2 id="play-log">Play Log</h2>
 <p><img alt="Play Log" src="img/一覧_プレイログ.PNG"/></p>
 <p>The <code>Play Log</code> tree shows LR2 or beatoraja play history in the main list.</p>
 <h3 id="displayed-history">Displayed History</h3>
 <p>In LR2 linked mode, the view shows play logs recorded in LR2's score DB. To use LR2 play logs, install them first from <a href="#lr2-play-log">LR2 Play Log in the settings dialog</a>. <strong>For LR2, only plays made after installation are shown. Past plays made before installation cannot be restored as play-log rows.</strong></p>
 <p>When beatoraja integration is loading scores, the view shows update history from the beatoraja player data used for score loading. LR2 and beatoraja history are not merged into one list.</p>
+<p>Scores and play history are loaded together at startup and when the score source, player, or DB path changes. Installing, repairing, or deleting LR2 play logs also reloads them. Play Log and the lamp viewer use these loaded results. Changing periods, search conditions or display targets, or reinitializing the library does not reload external scores; new plays appear at the next load. Playlist membership and ownership continue to follow current library information.</p>
 <h3 id="periods-and-unfinalized--diagnostics">Periods and Unfinalized / Diagnostics</h3>
 <p>Choose <code>All</code>, <code>Today</code>, <code>Yesterday</code>, <code>Recent 7 Days</code>, <code>Recent 30 Days</code>, <code>By Date</code>, or <code>Unfinalized / Diagnostics</code>. <code>By Date</code> lets you choose a year, month, or day. Periods use local midnight boundaries, and recent 7/30-day ranges include today.</p>
 <p><code>Unfinalized / Diagnostics</code> is an LR2-only view of rows with potentially inconsistent history. See <a href="#what-is-unfinalized--diagnostics">What Is Unfinalized / Diagnostics?</a>.</p>
 <h3 id="summary">Summary</h3>
 <p>The dedicated summary row below the list header shows judge count, play count, playtime, SCORE / BP / COMBO / CLEAR updates, and a compact clear breakdown such as ASSIST, EASY, NORMAL, HARD, and FC. EXH is shown only when displaying beatoraja history. Clicking an update-type or clear-breakdown card filters the list by that condition.</p>
 <p>Multiple selected cards are combined with OR, and the card filter is combined with the search box by AND. Selected cards are visually highlighted; click them again to clear the card filter.</p>
+<p>For LR2, playtime and judge count are calculated from eligible records remaining in the filtered list. For example, filtering 60-second and 120-second records down to the 60-second record changes playtime from 3:00 to 1:00.</p>
 <p>For beatoraja, judge count, play count, and playtime are values for the period selected on the screen. They do not change when the search box, summary cards, or the top-right drop-down reduces the visible row count. If beatoraja period-summary data cannot be read, the value is shown as <code>-</code>. For loading problems, check the summary diagnostic and <a href="#logs--bug-reports">logs</a>.</p>
 <h3 id="reading-rows">Reading Rows</h3>
 <p>Play-log rows show best-update transitions such as <code>old -&gt; new</code> for SCORE, BEST DJ, BEST RATE, BP, COMBO, and CLEAR. CLEAR uses compact labels such as <code>NP</code>, <code>EASY</code>, <code>NORMAL</code>, <code>HARD</code>, <code>EXH</code>, and <code>FC</code>; CLEAR and BEST DJ color the source, arrow, and destination separately when the row is not selected. Initial BP values are shown as the value only. <code>TYPE</code> can contain multiple update kinds, such as <code>score bp clear</code>; <code>play</code> is used only when no more specific update kind applies. LR2 <code>OP HISTORY</code> shows newly achieved option history by name.</p>
 <p>For beatoraja, only rows where a best value was updated are shown. Plays without an update, including interrupted plays, do not become list rows.</p>
 <h3 id="display-target-and-folder">Display Target and FOLDER</h3>
 <p>The drop-down menu at the top-right of the Play Log view switches the display target and how the FOLDER column is projected. <code>All</code> shows all history rows in the range selected in the period tree. <code>Preset: &lt;name&gt;</code> filters the rows to charts included in the playlists selected in <code>Play Log FOLDER Display Presets</code>, and the FOLDER column shows each playlist symbol plus level. <code>FOLDER: &lt;name&gt;</code> does not filter rows; it keeps the rows selected by the period tree and search box, and only projects the FOLDER column using that preset. Charts outside the preset have an empty FOLDER value. Selecting a single playlist filters to charts in that playlist and shows the playlist folder name in the FOLDER column. The last selected display target is saved and automatically selected again on the next startup when the same item is available.</p>
+<p>History and archived dates cover single charts, including charts you do not own. All matching records in the selected period can be displayed and searched without a row limit.</p>
 <h3 id="play-log-context-menu">Play Log Context Menu</h3>
-<p>The play-log context menu uses the same configured <code>Open web pages</code> entries, order, and chart-kind rules as the normal list. Hash-only rows expose those entries; rows resolved to a local chart can use <code>Open with a program</code>. Explorer, chart viewer, and MD5 / SHA256 copy operations remain available.</p>
+<p>The play-log context menu uses the same configured <code>Open web pages</code> entries, order, and chart-kind rules as the normal list. Hash-only rows expose those entries; rows resolved to a local chart can use <code>Open with a program</code>. Explorer and chart viewer operations are also available. To copy MD5 or SHA256, show the <code>MD5 HASH</code> / <code>SHA256</code> columns from the header context menu, then use <code>Ctrl + C</code> for the current cell or <code>Ctrl + Shift + C</code> for the selected rows.</p>
 <p>Play-log rows that resolve to owned charts can be dragged onto a non-externally-synced playlist body or folder to add them. If the selection includes unresolved rows, that drag is not accepted as a playlist add operation.</p>
 <h3 id="notes-for-beatoraja">Notes for beatoraja</h3>
 <p>The selected score player's folder must contain <code>scorelog.db</code>. History is read-only and shows best updates for SCORE / CLEAR / BP / COMBO. BEST DJ / BEST RATE are shown when note counts are available.</p>
 <p>Judge count, play count, and playtime come from daily totals in <code>score.db</code> for the selected period. They may differ from the row count after searching or card filtering. These values are <code>-</code> under <code>Unfinalized / Diagnostics</code>.</p>
+<h3 id="when-a-settings-operation-cannot-finish">When a settings operation cannot finish</h3>
+<p>If BMS directories or output locations report an incomplete save, return to that section and apply it again. You can revise the paths there if a folder has moved or disappeared. Unrelated normal settings can still be saved. Closing and reopening Settings keeps the information needed to finish that operation; it does not undo completed changes.</p>
+<p>If audio settings cannot be saved, the Audio page shows <code>Retry saving audio settings</code>. Resolve the problem with the settings destination, then press it. Current playback continues, and successfully saved settings apply to the next playback. If processing is incomplete after a beatoraja change, retry from that same section.</p>
 <h2 id="backup--uninstall">Backup / Uninstall</h2>
 <h3 id="playlist-backup-and-restore">Playlist Backup and Restore</h3>
 <p>In the <code>Backup</code> settings category, click <code>Backup playlists</code> and choose where to save the SQL file. The default filename is <code>BeMusicSeeker_backup.sql</code>. This backup contains playlists, not actual chart or audio files.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Restoring replaces current playlists with the backup contents. Back up playlists you want to retain to another file before restoring.</p></div>
 <p>Click <code>Restore playlists</code>, confirm, and select the saved SQL file. The application exits after restoration; start it again afterward.</p>
 <h3 id="automatic-lr2-file-backups">Automatic LR2 File Backups</h3>
-<p>In LR2 linked mode, enable <code>Backup and optimize LR2 data</code> in <code>Backup</code>. Choose an existing destination folder and select <code>config.xml</code>, <code>song.db</code>, and score databases as needed. Schedule choices are daily, weekly, and monthly; retention is <code>1</code>–<code>10</code> generations.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Choose a destination folder dedicated to this feature. Folders directly inside it named with a date on or before today (<code>yyyy-MM-dd</code>) may be deleted during backup rotation, regardless of who created them or what they contain.</p></div>
+<p>In LR2 linked mode, enable <code>Backup and optimize LR2 data</code> in <code>Backup</code>. If no existing destination folder is set, a folder selection opens when you enable it. Choosing a folder saves the option and the destination together and shows that backups start from the next startup. Cancelling the selection leaves the option off. You can also choose the destination with <code>Browse</code> before enabling the option, and turning the option off keeps the destination. Then select <code>config.xml</code>, <code>song.db</code>, and score databases as needed. Schedule choices are daily, weekly, and monthly; retention is <code>1</code>–<code>10</code> generations.</p>
 <p>When the schedule is due at startup, files are saved in a <code>yyyy-MM-dd</code> folder under the destination. A date is saved only once; older generations exceeding retention are removed. Successful backup also optimizes the databases. Saving the setting does not run a backup immediately, so make manual copies when you need protection just before an operation.</p>
+<p>Folders dated in the future are excluded from scheduling, retention counts, and deletion until the current date reaches them. The total number of folders may therefore exceed the configured retention count.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>If score databases are selected for backup and the <code>Score</code> folder itself or any folder inside it is a folder link (such as a junction), the entire backup attempt fails. If database optimization cannot be completed after saving, a warning is shown and the saved backup is retained.</p></div>
 <p>To restore, close BeMusicSeeker and LR2, then copy the required date folder's files back to their original locations.</p>
 <h3 id="protecting-application-settings-and-the-bms-library">Protecting Application Settings and the BMS Library</h3>
 <p>With the application closed, copy <code>config/user.config</code> and, in standalone mode, <code>data/song.db</code>. Restore by copying them back while the application is closed. In LR2 linked mode, also protect <code>song.db</code>, the selected LR2 configuration file (<code>config.xml</code> or <code>config.xmh</code>), and each player's <code>score.db</code>.</p>
@@ -1870,7 +2112,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 </tr>
 <tr>
 <td>Remove BeMusicSeeker data…</td>
-<td>Remove BeMusicSeeker-managed data from the LR2 song database. Exit the application afterward.</td>
+<td>Remove BeMusicSeeker-managed data from the LR2 song database. Stop running tasks before removal and exit the application whether removal succeeds or fails.</td>
 </tr>
 </tbody>
 </table></div>
@@ -1884,7 +2126,9 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h4 id="a-registered-folder-is-unavailable">A Registered Folder Is Unavailable</h4>
 <p>At startup, BeMusicSeeker checks every registered BMS directory regardless of the <code>Scan BMS files and component files at startup</code> setting. In LR2-linked mode, it also checks the normal, additional, and root folder custom output destinations. If any location cannot be found or accessed, initialization stops and a warning identifies the location. Unavailable registrations are not removed automatically.</p>
 <p>If an external or network drive is temporarily disconnected, reconnect it. If a registered location is incorrect, correct BMS directories under <code>General</code> and custom folder output destinations under <code>Playlist</code> in Settings. If you have not yet created a folder at the intended location, create it; if access is denied, check its permissions. Creating an empty folder does not restore the charts that were previously stored there.</p>
-<p>After correcting the problem, press <code>Save and close</code> in Settings to retry initialization. You can also reconnect the drive and restart the application. BMS directories only need to be readable; LR2 custom output destinations must also allow files to be created, written, and deleted.</p>
+<p>After correcting the problem, confirm the corrected sections in Settings and press <code>Start with this environment</code> to retry initialization. You can also reconnect the drive and restart the application. For this check, both BMS directories and LR2 custom output destinations only need to be readable.</p>
+<h4 id="startup-asks-you-to-check-settings">Startup Asks You to Check Settings</h4>
+<p>If a required setting has a problem at startup or when you press <code>Start with this environment</code>, "Please check that the setting is correct." is shown followed by each setting that needs correction as "Page: reason". After you close the message, the same entries are listed under <code>Settings that need attention</code> in the Settings dialog. At startup, the Settings dialog opens after you close the message; if you pressed <code>Start with this environment</code>, they appear in the Settings dialog that is already open. Go to each field from its entry, correct it, and press <code>Start with this environment</code> to retry initialization.</p>
 <h4 id="startup-or-initialization-is-slow">Startup or Initialization Is Slow</h4>
 <ul>
 <li>Install Everything 1.5 (x64) and check that it can search your BMS folders.</li>
@@ -1897,23 +2141,29 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <h4 id="where-are-downloaded-files-and-temporary-extraction-files-stored">Where Are Downloaded Files and Temporary Extraction Files Stored?</h4>
 <p>When importing playlist URLs in bulk or searching for main packages through external APIs, BeMusicSeeker creates downloaded files and temporary extraction files in the Windows temporary area. This is usually under <code>%TEMP%</code> on the C drive, in a BeMusicSeeker-managed temporary area. When importing many URLs or large main packages, make sure the C drive has enough free space.</p>
 <h4 id="when-are-temporary-files-deleted">When Are Temporary Files Deleted?</h4>
-<p>Archives downloaded by URL import are deleted after successful extraction. Extracted folders remain while needed for installation or Pending, and are cleaned up when no longer needed during processing or shutdown. Old temporary files left by forced termination are cleaned up on the next startup.</p>
+<p>Archives downloaded by URL import are deleted after successful extraction. Extracted folders remain while needed for installation or Pending during the current run. They are cleaned up when no longer needed during processing, and any remaining folders are deleted at shutdown, even while shown in Pending. This cleanup does not delete source folders or source archives you select directly. Old temporary files left by forced termination are cleaned up on the next startup.</p>
 <h4 id="does-removing-an-item-from-pending-delete-the-actual-files">Does Removing an Item from Pending Delete the Actual Files?</h4>
 <p>Ordinary user folders and manually selected source archives are not deleted by <code>Remove from list</code> alone. To delete actual files, use <code>Delete file</code> -&gt; <code>Move to Recycle bin</code> from the context menu. However, if the package was created in BeMusicSeeker-managed temporary storage by URL import or a similar flow, removing it from Pending may also delete the temporary source files.</p>
 <h3 id="playlists--external-sites">Playlists / External Sites</h3>
 <h4 id="cannot-retrieve-data-from-external-services">Cannot Retrieve Data from External Services</h4>
-<p>Ranking caches, IR, and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.</p>
+<p>IR and source searches depend on external services. Check whether the destination is available and try again later for temporary problems. Service shutdowns or data-format changes can also prevent retrieval. Check the destination and cause recorded in the log.</p>
 <h4 id="cannot-generate-recommendations">Cannot Generate Recommendations</h4>
 <p>Check that the player and score database selected in <code>General</code> settings are correct and that the score database is accessible, then reload the relevant table.</p>
 <h4 id="playlist-status-fails">Playlist <code>STATUS</code> Fails</h4>
 <p>The external difficulty-table URL may be returning 404, 403, timeout, or similar errors. Check the tooltip for <code>STATUS</code> in the playlist summary, or <code>playlist_reload_target_failed</code> in <code>log/application.log</code>.</p>
 <p>When beatoraja Table URL import restores a table from cache, <code>STATUS</code> still shows the retrieval result for the original URL. Import success and external-sync failure can therefore appear together.</p>
 <p>If the external site is temporarily failing, wait and reload later. If the URL has changed, you need to update the URI in playlist properties.</p>
+<h4 id="json-export-fails">JSON Export Fails</h4>
+<p>Check the destination folders, write permissions, and free space. Close other applications using the files, then export again. If saving the header fails, the data file remains unchanged. If only the header is saved, a partial failure is reported and the existing data file is kept. On a first export, no data file is created.</p>
 <h3 id="lr2-integration">LR2 Integration</h3>
 <h4 id="lr2-cannot-select-a-chart">LR2 Cannot Select a Chart</h4>
 <p>Check whether the chart appears in <code>LR2 compatibility warnings</code>. Charts containing chart paths or resource definitions that cannot be represented in CP932 / Shift_JIS, or overly long chart paths / resource reference paths, may fail selection or playback in LR2.</p>
-<p>In LR2 linked mode, also check the <code>Syncing LR2 song.db</code> state in the status bar. If incomplete or failed work remains, LR2 may be reading an old <code>song.db</code>. Press <code>Retry</code> and let synchronization finish before starting LR2.</p>
-<p>Even after synchronization is complete, you can use <code>Resync LR2 song.db data</code> in the settings dialog if another tool has changed the <code>song</code> / <code>folder</code> information in <code>song.db</code> and you suspect inconsistencies in the data generated for LR2.</p>
+<p>In LR2 linked mode, also check the <code>Syncing LR2 song.db</code> state in the status bar. If incomplete or failed work remains, LR2 may be reading an old <code>song.db</code>. Use <code>Resync LR2 song.db data</code> in the settings dialog and let synchronization finish before starting LR2.</p>
+<p>If you cannot browse folders or open custom folders in the LR2 song selection screen, use <code>Resync LR2 song.db data</code> in the settings dialog. This rebuilds all generated information in the <code>folder</code> / <code>song</code> tables and restores levels to the values defined in the charts.</p>
+<h4 id="table-output-stops-because-output-locations-overlap">Table Output Stops Because Output Locations Overlap</h4>
+<p>The warning "The LR2 folders of the following tables were not output because their output locations overlap with other tables." appears when a table saved by an older version with a hierarchical output name such as <code>A\B</code> now has an output location that is identical to, or nested with, another playlist's location under the current single-name rule (<code>AB</code>). Only the listed tables stop outputting. Startup, the other playlists' output, and LR2 synchronization continue.</p>
+<p>In the playlist <code>Properties</code> or the <code>FOLDER NAME</code> column of the playlist summary (hidden by default), change the output name of each listed table to a name that does not overlap other output locations. The changed table is output to its new location. The table it overlapped is output the next time its output is needed, such as the next startup, a change to that table, or a playlist reload.</p>
+<p>Files left in the old hierarchy (for example <code>A\B</code>) are not moved or deleted automatically. If outdated folders remain in the LR2 song selection screen, delete the old hierarchy folders under the output base yourself.</p>
 <h3 id="play-log-troubleshooting">Play Log Troubleshooting</h3>
 <h4 id="past-lr2-plays-are-not-shown">Past LR2 Plays Are Not Shown</h4>
 <p>The LR2 play log records only plays made in LR2 after the play-log feature has been installed. Plays made before installation cannot be restored in the Play Log view.</p>
@@ -1926,6 +2176,8 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>For internal playback, check the driver and device in <code>Audio</code>, then use <code>Stop playback and test</code>. Increase the buffer and test again for dropouts. Check panel volume and mute, and Windows volume when using WASAPI Shared.</p>
 <p>For conversion, check the source chart, referenced audio, output folder, and external encoder executable. For integer-range overflow, follow the completion message to reduce gain, or retry with peak normalization and gain 1.0. Logs provide target and cause details.</p>
 <h3 id="maintenance-troubleshooting">Maintenance Troubleshooting</h3>
+<h4 id="missing-resources-remain-reported-after-adding-files-externally">Missing Resources Remain Reported After Adding Files Externally</h4>
+<p>Close BeMusicSeeker before changing charts or resources in the library with external tools. After the changes, start the app and run the library's <code>Reload</code>. Once reload finishes, use <code>File scan</code> → <code>Rescan</code> on the affected charts to update missing-resource status. Reload alone may not update that status.</p>
 <h4 id="file-moving-or-merging-fails">File Moving or Merging Fails</h4>
 <p>Close other applications holding the files, and check permissions and free space. A same-name file/folder conflict stops the affected package before changes and reports the conflicting path. Check both source and destination, resolve the conflict, and retry.</p>
 <h4 id="retrying-metadata-parsing">Retrying Metadata Parsing</h4>

@@ -24,5 +24,7 @@ internal sealed class ChartDigestBackfillResult
 
     public long TotalMs { get; set; }
 
+    public List<ChartFile> ChangedCharts { get; } = [];
+
     public List<string> FailedPaths { get; } = [];
 }

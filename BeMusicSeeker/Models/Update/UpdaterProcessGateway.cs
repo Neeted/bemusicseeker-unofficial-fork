@@ -1,13 +1,18 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 
 namespace BeMusicSeeker.Models.Update;
 
 internal sealed class UpdaterProcessLaunchRequest
 {
+    /// <summary>検証済みの値から更新ツール起動要求を作ります。外部からは<see cref="Create"/>を使います。</summary>
     private UpdaterProcessLaunchRequest(
         string executablePath,
         string workingDirectory,
@@ -16,7 +21,8 @@ internal sealed class UpdaterProcessLaunchRequest
         string backupDirectory,
         string readyFilePath,
         string decisionFilePath,
-        string restartExecutablePath)
+        string restartExecutablePath,
+        IReadOnlyList<string> restartArguments)
     {
         ExecutablePath = executablePath;
         WorkingDirectory = workingDirectory;
@@ -26,6 +32,7 @@ internal sealed class UpdaterProcessLaunchRequest
         ReadyFilePath = readyFilePath;
         DecisionFilePath = decisionFilePath;
         RestartExecutablePath = restartExecutablePath;
+        RestartArguments = restartArguments;
     }
 
     internal string ExecutablePath { get; }
@@ -44,6 +51,19 @@ internal sealed class UpdaterProcessLaunchRequest
 
     internal string RestartExecutablePath { get; }
 
+    /// <summary>更新後にアプリを再起動するときの引数です。実行ファイルのパスは含みません。</summary>
+    internal IReadOnlyList<string> RestartArguments { get; }
+
+    /// <summary>パスと再起動引数を検証し、変更不能な更新ツール起動要求を作ります。</summary>
+    /// <param name="executablePath">更新ツールの実行ファイルです。</param>
+    /// <param name="workingDirectory">更新ツールの作業ディレクトリです。</param>
+    /// <param name="applicationDirectory">更新対象のアプリのディレクトリです。</param>
+    /// <param name="packagePath">検証済みの更新ZIPです。</param>
+    /// <param name="backupDirectory">復元用の退避先です。</param>
+    /// <param name="readyFilePath">更新ツールの受付通知ファイルです。</param>
+    /// <param name="decisionFilePath">アプリの続行・取消の決定ファイルです。</param>
+    /// <param name="restartExecutablePath">更新後に再起動する実行ファイルです。</param>
+    /// <param name="restartArguments">更新後の再起動で渡す引数です。実行ファイルのパスは含めず、引数なしは空の列にします。</param>
     internal static UpdaterProcessLaunchRequest Create(
         string executablePath,
         string workingDirectory,
@@ -52,8 +72,10 @@ internal sealed class UpdaterProcessLaunchRequest
         string backupDirectory,
         string readyFilePath,
         string decisionFilePath,
-        string restartExecutablePath)
+        string restartExecutablePath,
+        IReadOnlyList<string> restartArguments)
     {
+        ArgumentNullException.ThrowIfNull(restartArguments);
         ValidatePath(executablePath, nameof(executablePath));
         ValidatePath(workingDirectory, nameof(workingDirectory));
         ValidatePath(applicationDirectory, nameof(applicationDirectory));
@@ -70,7 +92,8 @@ internal sealed class UpdaterProcessLaunchRequest
             backupDirectory,
             readyFilePath,
             decisionFilePath,
-            restartExecutablePath);
+            restartExecutablePath,
+            Array.AsReadOnly(restartArguments.ToArray()));
     }
 
     private static void ValidatePath(string value, string parameterName)
@@ -96,20 +119,50 @@ internal static class UpdaterProcessGatewayPolicy
 
 internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
 {
+    /// <summary>起動処理が<see cref="Process"/>を返した後、受付の公開を待つ製品既定の期限です。</summary>
+    internal static readonly TimeSpan DefaultReadyTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>未完了の更新処理の回復を待つ製品既定の期限です。</summary>
+    internal static readonly TimeSpan DefaultRecoveryTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>cancel公開後の正常終了と、強制停止後の終了確認をそれぞれ待つ製品既定の期限です。</summary>
+    internal static readonly TimeSpan DefaultTerminationTimeout = TimeSpan.FromSeconds(10);
+
     private readonly Func<ProcessStartInfo, Process> startProcess;
 
     private readonly TimeSpan recoveryTimeout;
 
     private readonly TimeSpan terminationTimeout;
 
+    private readonly TimeSpan readyTimeout;
+
+    /// <summary>このインスタンスが使う受付の期限です。製品の構築が既定値を使うことの検査に使います。</summary>
+    internal TimeSpan ReadyTimeout => readyTimeout;
+
+    /// <summary>このインスタンスが使う回復の期限です。</summary>
+    internal TimeSpan RecoveryTimeout => recoveryTimeout;
+
+    /// <summary>このインスタンスが使う停止の期限です。</summary>
+    internal TimeSpan TerminationTimeout => terminationTimeout;
+
+    /// <summary>
+    /// 製品は全期限を既定値で構築します。期限の引数は、期限切れの経路を製品既定の実時間を待たずに検査するためのものです。
+    /// </summary>
     internal WindowsUpdaterProcessGateway(
         Func<ProcessStartInfo, Process> startProcess = null,
         TimeSpan? recoveryTimeout = null,
-        TimeSpan? terminationTimeout = null)
+        TimeSpan? terminationTimeout = null,
+        TimeSpan? readyTimeout = null)
     {
         this.startProcess = startProcess ?? (startInfo => Process.Start(startInfo));
-        this.recoveryTimeout = recoveryTimeout ?? TimeSpan.FromMinutes(2);
-        this.terminationTimeout = terminationTimeout ?? TimeSpan.FromSeconds(10);
+        this.recoveryTimeout = recoveryTimeout ?? DefaultRecoveryTimeout;
+        this.terminationTimeout = terminationTimeout ?? DefaultTerminationTimeout;
+        this.readyTimeout = readyTimeout ?? DefaultReadyTimeout;
+        if (this.readyTimeout <= TimeSpan.Zero
+            || this.readyTimeout.TotalMilliseconds > int.MaxValue)
+        {
+            throw new ArgumentOutOfRangeException(nameof(readyTimeout));
+        }
         if (this.recoveryTimeout <= TimeSpan.Zero
             || this.recoveryTimeout.TotalMilliseconds > int.MaxValue)
         {
@@ -122,6 +175,10 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         }
     }
 
+    /// <summary>
+    /// 型付き要求とInvariantのPIDを<see cref="ProcessStartInfo.ArgumentList"/>で非表示の更新プロセスへ渡す準備をします。
+    /// 再起動引数は<c>--restart-arguments-json</c>へ文字列配列のJSON1トークンとして渡し、引用はArgumentListに委ねます。
+    /// </summary>
     public IPreparedUpdaterLaunch Prepare(UpdaterProcessLaunchRequest request)
     {
         if (request == null)
@@ -134,15 +191,17 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
             UseShellExecute = false,
             CreateNoWindow = true,
             WorkingDirectory = request.WorkingDirectory,
-            Arguments = JoinArguments(
-                "--app-dir", request.ApplicationDirectory,
-                "--package", request.PackagePath,
-                "--backup-dir", request.BackupDirectory,
-                "--ready-file", request.ReadyFilePath,
-                "--decision-file", request.DecisionFilePath,
-                "--pid", Process.GetCurrentProcess().Id.ToString(),
-                "--restart-exe", request.RestartExecutablePath)
         };
+        AddArguments(
+            startInfo,
+            "--app-dir", request.ApplicationDirectory,
+            "--package", request.PackagePath,
+            "--backup-dir", request.BackupDirectory,
+            "--ready-file", request.ReadyFilePath,
+            "--decision-file", request.DecisionFilePath,
+            "--pid", Process.GetCurrentProcess().Id.ToString(CultureInfo.InvariantCulture),
+            "--restart-exe", request.RestartExecutablePath,
+            "--restart-arguments-json", JsonSerializer.Serialize(request.RestartArguments));
         return new PreparedUpdaterLaunch(() =>
         {
             Process process = null;
@@ -203,9 +262,9 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         {
             UseShellExecute = false,
             CreateNoWindow = true,
-            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? applicationDirectory,
-            Arguments = JoinArguments("--recover", "--app-dir", applicationDirectory)
+            WorkingDirectory = Path.GetDirectoryName(executablePath) ?? applicationDirectory
         };
+        AddArguments(startInfo, "--recover", "--app-dir", applicationDirectory);
         using Process process = startProcess(startInfo)
             ?? throw new UpdaterLaunchFailureException("Updater recovery process did not start.");
         if (!process.WaitForExit((int)recoveryTimeout.TotalMilliseconds))
@@ -240,16 +299,20 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         return true;
     }
 
-    private static void WaitForReady(Process process, string readyFilePath)
+    /// <summary>完成名への移動用ハンドルが残っていても受付内容を読み取り、受付の期限内の公開を確認します。</summary>
+    private void WaitForReady(Process process, string readyFilePath)
     {
-        DateTime deadline = DateTime.UtcNow.AddSeconds(10);
+        DateTime deadline = DateTime.UtcNow + readyTimeout;
         while (DateTime.UtcNow < deadline)
         {
             try
             {
                 if (File.Exists(readyFilePath))
                 {
-                    string marker = File.ReadAllText(readyFilePath).Trim();
+                    // Windowsでは名前の変更後も移動用のDELETEハンドルが閉じるまで残り得ます。
+                    using var stream = new FileStream(readyFilePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
+                    using var reader = new StreamReader(stream, Encoding.UTF8);
+                    string marker = reader.ReadToEnd().Trim();
                     if (string.Equals(marker, "1", StringComparison.Ordinal))
                     {
                         return;
@@ -286,9 +349,11 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
             Thread.Sleep(50);
         }
 
-        throw new UpdaterLaunchFailureException("Updater process did not publish its ready handshake within 10 seconds.");
+        throw new UpdaterLaunchFailureException(
+            "Updater process did not publish its ready handshake within " + readyTimeout.TotalSeconds + " seconds.");
     }
 
+    /// <summary>cancel公開後は既存停止期限で正常終端を待ち、公開失敗・無応答だけを強制停止して元失敗を保持します。</summary>
     private void AbortUpdaterProcess(Process process, string decisionFilePath)
     {
         Exception decisionFailure = null;
@@ -304,7 +369,14 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         Exception terminationFailure = null;
         try
         {
-            StopProcess(process);
+            if (decisionFailure != null || !process.WaitForExit((int)terminationTimeout.TotalMilliseconds))
+            {
+                StopProcess(process);
+            }
+            else if (process.ExitCode != 0)
+            {
+                throw new UpdaterLaunchFailureException("Updater cancellation did not complete successfully. exitCode=" + process.ExitCode);
+            }
         }
         catch (Exception exception)
         {
@@ -417,62 +489,18 @@ internal sealed class WindowsUpdaterProcessGateway : IUpdaterProcessGateway
         }
     }
 
+    /// <summary>UTF-8・改行なしの決定を完成後に公開し、既存の決定は置換します。</summary>
     private static void TryPublishDecision(string decisionFilePath, string decision)
     {
-        string temporaryPath = decisionFilePath + ".tmp";
         byte[] bytes = Encoding.UTF8.GetBytes(decision);
-        using (FileStream stream = new(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.Read))
-        {
-            stream.Write(bytes, 0, bytes.Length);
-            stream.Flush(flushToDisk: true);
-        }
-        File.Move(temporaryPath, decisionFilePath, overwrite: true);
+        UpdateMarkerPublisher.Publish(decisionFilePath, overwrite: true, stream => stream.Write(bytes, 0, bytes.Length));
     }
 
-    private static string JoinArguments(params string[] values)
+    private static void AddArguments(ProcessStartInfo startInfo, params string[] values)
     {
-        string[] arguments = new string[values.Length];
-        for (int i = 0; i < values.Length; i++)
+        foreach (string value in values)
         {
-            arguments[i] = QuoteArgument(values[i]);
+            startInfo.ArgumentList.Add(value);
         }
-        return string.Join(" ", arguments);
-    }
-
-    private static string QuoteArgument(string value)
-    {
-        value ??= string.Empty;
-        if (value.Length == 0)
-        {
-            return "\"\"";
-        }
-
-        var quoted = new System.Text.StringBuilder();
-        quoted.Append('"');
-        int backslashCount = 0;
-        foreach (char c in value)
-        {
-            if (c == '\\')
-            {
-                backslashCount++;
-                continue;
-            }
-
-            if (c == '"')
-            {
-                quoted.Append('\\', backslashCount * 2 + 1);
-                quoted.Append('"');
-                backslashCount = 0;
-                continue;
-            }
-
-            quoted.Append('\\', backslashCount);
-            backslashCount = 0;
-            quoted.Append(c);
-        }
-
-        quoted.Append('\\', backslashCount * 2);
-        quoted.Append('"');
-        return quoted.ToString();
     }
 }

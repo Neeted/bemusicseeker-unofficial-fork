@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsTestProject>false</IsTestProject>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../BeMusicSeeker/BeMusicSeeker.csproj" />
+    <ProjectReference Include="../../BeMusicSeeker.TestSupport/BeMusicSeeker.TestSupport.csproj" />
+  </ItemGroup>
+  <Import Project="../UpdaterRestartApplication/UpdaterRestartApplication.targets" />
+</Project>

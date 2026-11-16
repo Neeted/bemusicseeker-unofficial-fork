@@ -21,6 +21,9 @@ if ([string]::IsNullOrWhiteSpace($msbuild)) {
 }
 
 & $msbuild $project /t:Build /p:Configuration=$Configuration /p:Platform=x64 /m
+if ($LASTEXITCODE -ne 0) {
+    throw "MSBuild failed with exit code $LASTEXITCODE."
+}
 
 $output = Join-Path (Join-Path $PSScriptRoot "..") "EverythingBridge_x64.dll"
 if (Test-Path $output) {

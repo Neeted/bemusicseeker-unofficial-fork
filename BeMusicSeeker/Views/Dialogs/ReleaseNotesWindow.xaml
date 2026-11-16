@@ -21,9 +21,11 @@
 
     </ResourceDictionary>
   </views:ThemedWindow.Resources>
-  <Border Style="{StaticResource App.Canonical.NativeWindowContentStyle}">
-    <FlowDocumentScrollViewer BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" MinHeight="320" MaxHeight="620" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsToolBarVisible="False" IsSelectionEnabled="True">
-<FlowDocument FontFamily="Meiryo UI" FontSize="12" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="12">
+  <FlowDocumentScrollViewer Padding="0" BorderThickness="0" MinHeight="320" MaxHeight="620" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" IsToolBarVisible="False" IsSelectionEnabled="True">
+      <FlowDocumentScrollViewer.Resources>
+        <Style TargetType="{x:Type ScrollViewer}" BasedOn="{StaticResource App.Canonical.ScrollViewerStyle}" />
+      </FlowDocumentScrollViewer.Resources>
+<FlowDocument FontFamily="{DynamicResource App.UiFontFamily}" FontSize="12" Background="{DynamicResource App.ControlBackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" PagePadding="16">
 <FrameworkContentElement.Resources>
 <ResourceDictionary>
 <Style x:Key="{x:Type List}" TargetType="{x:Type List}" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
@@ -36,6 +38,23 @@
 </ResourceDictionary>
 </FrameworkContentElement.Resources>
 <List>
+<ListItem>
+<Paragraph FontWeight="Bold">3.2.0.0:</Paragraph>
+<List MarkerStyle="Box">
+<ListItem>
+<Paragraph>インストール先の推定精度を高め、取り込み後の自動推定で導入先が確定したパッケージを自動でインストールできるようにしました（既定はOFF）。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>リソース健康度を #WAV・#BMP の定義数ではなく譜面で実際に使用するファイルを基準に計算し、未使用の定義を除外しました。保存済みの値の更新には再スキャンが必要です。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>リソース不足や未使用定義を確認できる「譜面プロパティ」を追加し、プレイリストのインポート画面を統合しました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>設定、外観テーマ（全11種類）、一覧のキー操作、ランプビューアの複数モニター対応などの画面を調整しました。</Paragraph>
+</ListItem>
+</List>
+</ListItem>
 <ListItem>
 <Paragraph FontWeight="Bold">3.1.0.0:</Paragraph>
 <List MarkerStyle="Box">
@@ -496,6 +515,6 @@
 </ListItem>
 </List>
 </FlowDocument>
-    </FlowDocumentScrollViewer>
-  </Border>
+  </FlowDocumentScrollViewer>
+
 </views:ThemedWindow>

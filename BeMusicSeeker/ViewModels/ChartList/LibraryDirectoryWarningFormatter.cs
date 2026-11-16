@@ -68,7 +68,7 @@ internal static class LibraryDirectoryWarningFormatter
 
     private static string FormatCause(LibraryDirectoryPreflightException failure)
     {
-        string cause = failure.Cause switch
+        return failure.Cause switch
         {
             LibraryDirectoryPreflightFailureCause.NotFound =>
                 Resources.LibraryDirectoryPreflightCauseNotFound,
@@ -79,18 +79,12 @@ internal static class LibraryDirectoryWarningFormatter
             LibraryDirectoryPreflightFailureCause.InvalidPath =>
                 Resources.LibraryDirectoryPreflightCauseInvalidPath,
             LibraryDirectoryPreflightFailureCause.InvalidConfiguration =>
-                Resources.LibraryDirectoryPreflightCauseInvalidConfiguration,
+                failure.Reason == LibraryDirectoryPreflightService.ReservedBuiltinCustomFolderReason && failure.InnerException != null
+                    ? Resources.LibraryDirectoryPreflightCauseInvalidConfiguration + Environment.NewLine + failure.InnerException.Message
+                    : Resources.LibraryDirectoryPreflightCauseInvalidConfiguration,
             LibraryDirectoryPreflightFailureCause.Io =>
                 Resources.LibraryDirectoryPreflightCauseIo,
-            LibraryDirectoryPreflightFailureCause.Write =>
-                Resources.LibraryDirectoryPreflightCauseWrite,
-            LibraryDirectoryPreflightFailureCause.Cleanup =>
-                Resources.LibraryDirectoryPreflightCauseCleanup,
             _ => Resources.LibraryDirectoryPreflightCauseIo
         };
-
-        return failure.CleanupException == null
-            ? cause
-            : cause + Environment.NewLine + Resources.LibraryDirectoryPreflightCleanupFailure;
     }
 }

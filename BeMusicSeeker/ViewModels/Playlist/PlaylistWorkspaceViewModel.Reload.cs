@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -41,11 +43,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             && rows.All(row => row?.TableRef != null && ContainsActivePlaylistTable(row.TableRef));
     }
 
-    internal Task ResyncPlaylistsAsync(IEnumerable<PlaylistSummaryRow> rows)
+    internal Task<bool> ResyncPlaylistsAsync(IEnumerable<PlaylistSummaryRow> rows)
     {
         if (rows == null)
         {
-            return Task.CompletedTask;
+            return Task.FromResult(false);
         }
         List<BMSTable> tables = [.. rows
             .Where(row => row?.TableRef != null)
@@ -54,6 +56,12 @@ public sealed partial class PlaylistWorkspaceViewModel
         return ResyncPlaylistsAsync(tables);
     }
 
+    /// <summary>
+    /// 単体の表を再同期し、受理された場合だけ現在の正本の表を返します。
+    /// 受付が拒否された場合（他の操作中・対象の失効）は、表が残っていても返さず、呼出元が選択を動かさないことを区別できるようにします。
+    /// </summary>
+    /// <param name="table">再同期する表。</param>
+    /// <returns>受理され、同じ正本が残っている場合はその表。拒否された場合と対象がなくなった場合は <see langword="null"/>。</returns>
     internal async Task<BMSTable> ResyncPlaylistTableAsync(BMSTable table)
     {
         if (table == null)
@@ -61,78 +69,57 @@ public sealed partial class PlaylistWorkspaceViewModel
             return null;
         }
 
-        await ResyncPlaylistsAsync([table]);
-        return GetPlaylistStore().ResolveActivePlaylistTableForMutation(table);
+        bool accepted = await ResyncPlaylistsAsync([table]);
+        return accepted
+            ? GetPlaylistStore().ResolveActivePlaylistTableForMutation(table)
+            : null;
     }
 
     internal BMSTable ResolveActivePlaylistSummaryTable(PlaylistSummaryRow row)
     {
         return row?.TableRef == null
             ? null
-            : ResolveActivePlaylistTable(row.TableRef, row.Name);
+            : ResolveActivePlaylistTable(row.TableRef);
     }
 
-    internal BMSTable ResolveActivePlaylistTable(BMSTable previousTable, string fallbackName = null)
+    /// <summary>同じ正本の参照または永続IDで表示対象を解決します。名前・URLから別対象を作りません。</summary>
+    internal BMSTable ResolveActivePlaylistTable(BMSTable previousTable)
     {
         if (previousTable == null)
         {
             return null;
         }
 
-        IEnumerable<BMSTable> activeTables = GetPlaylistStore().BMSTables?.Cast<BMSTable>()
-            ?? Enumerable.Empty<BMSTable>();
-        if (previousTable.playlist_id.HasValue)
-        {
-            BMSTable byId = activeTables.FirstOrDefault(candidate =>
-                candidate?.playlist_id == previousTable.playlist_id);
-            return byId;
-        }
-
-        string pageUrl = previousTable.Page_url?.AbsoluteUri ?? string.Empty;
-        string headerUrl = previousTable.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty;
-        if (!string.IsNullOrEmpty(pageUrl) || !string.IsNullOrEmpty(headerUrl))
-        {
-            BMSTable byUrl = activeTables.FirstOrDefault(candidate =>
-                candidate != null
-                && string.Equals(
-                    candidate.Page_url?.AbsoluteUri ?? string.Empty,
-                    pageUrl,
-                    StringComparison.OrdinalIgnoreCase)
-                && string.Equals(
-                    candidate.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty,
-                    headerUrl,
-                    StringComparison.OrdinalIgnoreCase));
-            if (byUrl != null)
-            {
-                return byUrl;
-            }
-        }
-
-        string name = string.IsNullOrWhiteSpace(fallbackName)
-            ? previousTable.name
-            : fallbackName;
-        return activeTables.FirstOrDefault(candidate =>
-            candidate != null
-            && string.Equals(candidate.name, name, StringComparison.Ordinal));
+        return GetPlaylistStore().ResolveActivePlaylistTableForMutation(previousTable);
     }
 
-    internal async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
+    /// <summary>手動再同期の保存・出力と、この操作が要求した一覧公開およびheader配送の実終端を同じP内で回収します。</summary>
+    /// <returns>再同期を受理して実行した場合は <see langword="true"/>。受付の拒否（他の操作中・対象の失効）や対象なしでは <see langword="false"/>。</returns>
+    internal async Task<bool> ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
     {
         if (tablesToResync == null)
         {
-            return;
+            return false;
         }
         List<BMSTable> requestedTables = [.. tablesToResync.Where(table => table != null).Distinct()];
         if (requestedTables.Count == 0)
         {
-            return;
+            return false;
         }
         BMSPlaylist playlists = GetPlaylistStore();
+        // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。
+        // 明示の再読込みは、出力を止めた表（出力先が他の表と重なる表）を一件の警告で案内します。
+        return await RunWithOperationNoticesAsync(playlists, "manual playlist resync notification",
+            () => ResyncPlaylistsAdmittedAsync(playlists, requestedTables), warnStoppedOutputs: true).ConfigureAwait(false);
+    }
+
+    private async Task<bool> ResyncPlaylistsAdmittedAsync(BMSPlaylist playlists, List<BMSTable> requestedTables)
+    {
         if (playlists.IsPlaylistUpdating
             || !TryEnterPlaylistMutationAdmission(playlists, out IDisposable admission))
         {
             RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: true, isStale: false);
-            return;
+            return false;
         }
         using (admission)
         {
@@ -143,7 +130,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (resolvedRequestedTables.Count == 0)
             {
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: false, isStale: true);
-                return;
+                return false;
             }
             List<BMSTable> activeTables = [.. resolvedRequestedTables
                 .Where(playlists.ContainsBMSTable)
@@ -155,12 +142,22 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (activeTables.Count == 0)
             {
                 RaiseMutationRejected(PlaylistWorkspaceMutationKind.Reload, isBusy: false, isStale: true);
-                return;
+                return false;
             }
             bool isFullReload = activeTables.Count > 1;
             var stopwatch = Stopwatch.StartNew();
-            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = null;
+            PlaylistExternalSyncOwner.PlaylistReloadOperationResult results = null;
+            using LibraryFileMutationCapability capability = playlists.CreatePlaylistMutationCapability(admission);
             using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
+            List<Exception> failures = [];
+            var adoptionFailures = new ConcurrentQueue<Exception>();
+            long requestedSummaryGeneration = 0;
+            var summaryPresentations = new ConcurrentQueue<Task>();
+            void CaptureSummaryPresentation(long generation, Task completion)
+            {
+                if (generation == Interlocked.Read(ref requestedSummaryGeneration)) { summaryPresentations.Enqueue(completion); }
+            }
+            PlaylistSummaryBuildStarted += CaptureSummaryPresentation;
             try
             {
                 BeginPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource);
@@ -171,44 +168,62 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + activeTables.Count);
                 results = await playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     activeTables,
-                    result =>
-                    {
-                        RecordPlaylistSyncResult(result);
-                        LogPlaylistSyncFailure(result);
-                    },
+                    target => AdoptPlaylistReloadTarget(target, "manual_playlist_resync", adoptionFailures,
+                        beforeSummaryRefresh: generation => Interlocked.Exchange(ref requestedSummaryGeneration, generation)),
                     snapshot => ReportPlaylistSyncProgress(snapshot, ManualPlaylistReloadProgressSource,
-                        BeMusicSeeker.Properties.Resources.Statusbar_progress_task_playlist_manual_reload),
+                        PlaylistSyncProgressKind.ManualPlaylistReload),
                     "manual_resync",
                     requireCurrentTargetForApply: true,
-                    publishReferenceReceipts: true);
-                playlists.BmtOutput.QueueBeatorajaBmtExportAll("manual_resync");
-                RequestPlaylistSummaryDataRefresh(
-                    "manual_playlist_resync");
+                    publishReferenceReceipts: false, capability: capability);
+                if (results.Exception is Exception reloadFailure) { failures.Add(reloadFailure); }
                 RequestPlaylistDetailReloadRefresh();
-                bool cleanupQueued = QueuePlaylistReloadCleanup(isFullReload, activeTables.Count);
-                WritePlaylistReloadLog(
-                    "playlist_reload_operation completed operationKind="
-                    + GetPlaylistReloadOperationKindText(isFullReload)
-                    + " reason=manual_resync tableCount="
-                    + activeTables.Count
-                    + " processedCount="
-                    + (results?.Count ?? 0)
-                    + " summaryRebuildMs="
-                    + LastPlaylistSummaryBuildElapsedMs
-                    + " detailRefreshMs="
-                    + LastDetailBuildElapsedMs
-                    + " cleanupQueued="
-                    + cleanupQueued.ToString().ToLowerInvariant()
-                    + " elapsedMs="
-                    + stopwatch.ElapsedMilliseconds);
+                if (failures.Count == 0 && adoptionFailures.IsEmpty)
+                {
+                    bool cleanupQueued = QueuePlaylistReloadCleanup(isFullReload, activeTables.Count);
+                    WritePlaylistReloadLog(
+                        "playlist_reload_operation completed operationKind="
+                        + GetPlaylistReloadOperationKindText(isFullReload)
+                        + " reason=manual_resync tableCount="
+                        + activeTables.Count
+                        + " processedCount="
+                        + (results?.Count ?? 0)
+                        + " summaryRebuildMs="
+                        + LastPlaylistSummaryBuildElapsedMs
+                        + " detailRefreshMs="
+                        + LastDetailBuildElapsedMs
+                        + " cleanupQueued="
+                        + cleanupQueued.ToString().ToLowerInvariant()
+                        + " elapsedMs="
+                        + stopwatch.ElapsedMilliseconds);
+                }
             }
+            catch (Exception failure) { failures.Add(failure); }
             finally
             {
-                EndPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource);
-                PublishPlaylistOperationNotificationReceipt(
-                    notificationSession,
-                    "manual playlist resync notification");
+                failures.AddRange(adoptionFailures);
+                try
+                {
+                    await playlistRestoreUiApplyScheduler(() =>
+                    {
+                        // この再同期が残した既存要求だけをdrainします。別要求へ置換された世代や非表示の構築は待ちません。
+                        long requested = Interlocked.Read(ref requestedSummaryGeneration);
+                        if (requested != 0 && IsPlaylistSummaryMode
+                            && CurrentPlaylistSummaryDataRebuildGeneration + 1 == requested)
+                        { DrainDeferredPlaylistSummaryRefresh(dataRefreshRequired: false, rebuildAsync: true); }
+                    }).ConfigureAwait(false);
+                }
+                catch (Exception failure) { failures.Add(failure); }
+                finally { PlaylistSummaryBuildStarted -= CaptureSummaryPresentation; }
+                try { await Task.WhenAll(summaryPresentations).ConfigureAwait(false); }
+                catch (Exception failure) { failures.Add(failure); }
+                try { await WaitForDetailEntryDeliveryAsync().ConfigureAwait(false); }
+                catch (Exception failure) { failures.Add(failure); }
+                CapturePlaylistWorkflowFailure(() => EndPlaylistSyncProgressOperation(ManualPlaylistReloadProgressSource), failures);
+                CapturePlaylistWorkflowFailure(() => PublishPlaylistOperationNotificationReceipt(
+                    notificationSession, "manual playlist resync notification"), failures);
             }
+            ThrowPlaylistWorkflowFailures(failures);
+            return true;
         }
     }
 
@@ -226,6 +241,54 @@ public sealed partial class PlaylistWorkspaceViewModel
             + (result.PageUri?.ToString() ?? string.Empty));
     }
 
+    /// <summary>
+    /// 対象の確定直後に詳細の参照・STATUS・一覧更新要求を採用します。
+    /// 並列callbackの必須採用失敗は操作内に集め、全対象と必要出力の終端後に返します。
+    /// </summary>
+    private void AdoptPlaylistReloadTarget(PlaylistExternalSyncOwner.PlaylistReloadTargetResult target,
+        string reason, ConcurrentQueue<Exception> failures, bool applyReferences = true,
+        Action<long> beforeSummaryRefresh = null)
+    {
+        void Capture(Action action)
+        {
+            try { action(); }
+            catch (Exception failure) { failures.Enqueue(failure); }
+        }
+        if (applyReferences && target.UpdateReceipt != null)
+        {
+            Capture(() => ApplyReferenceReplaceReceipt(target.UpdateReceipt));
+        }
+        PlaylistSyncAttemptResult sync = target.IsHandledExternalLoadFailure
+            ? PlaylistSyncAttemptResult.CreateReportedExternalFailure(target.SourceTable, target.Uri, target.Exception)
+            : target.Exception == null
+                ? PlaylistSyncAttemptResult.CreateSuccess(target.SourceTable, target.ResultTable, target.Uri, target.Updated)
+                : PlaylistSyncAttemptResult.CreateFailure(target.SourceTable, target.ResultTable, target.Uri, target.Exception);
+        Capture(() => RecordPlaylistSyncResult(sync));
+        // 取得失敗の詳細は取得境界で記録済み。STATUSには分類だけを渡します。
+        if (!target.IsHandledExternalLoadFailure)
+        {
+            try { LogPlaylistSyncFailure(sync); }
+            catch (Exception diagnosticFailure)
+            {
+                try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(diagnosticFailure, "playlist_manual_resync_diagnostic_failed"); }
+                catch { /* 診断の再通知で元の再取得結果を変えない。 */ }
+            }
+        }
+        Capture(() => RequestPlaylistSummaryDataRefresh(reason, beforeRefreshRequested: beforeSummaryRefresh));
+    }
+
+    private static void CapturePlaylistWorkflowFailure(Action action, ICollection<Exception> failures)
+    {
+        try { action(); }
+        catch (Exception failure) { failures.Add(failure); }
+    }
+
+    private static void ThrowPlaylistWorkflowFailures(IReadOnlyList<Exception> failures)
+    {
+        if (failures.Count == 1) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failures[0]).Throw(); }
+        if (failures.Count > 1) { throw new AggregateException(failures).Flatten(); }
+    }
+
     private void ApplyReferenceReplaceReceipt(
         PlaylistExternalSyncOwner.PlaylistTableUpdateReceipt receipt,
         BMSPlaylist playlists = null,
@@ -235,54 +298,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        library ??= getPlaylistLibrary();
-        if (library == null)
-        {
-            return;
-        }
         playlists ??= getPlaylistStore();
-        bool objectReplaced = receipt.OldTable != null
-            && receipt.NewTable != null
-            && !ReferenceEquals(receipt.OldTable, receipt.NewTable);
-        if (receipt.NewTable == null
-            || playlists?.ContainsBMSTable(receipt.NewTable) != true)
+        if (receipt.NewTable != null && playlists?.ContainsBMSTable(receipt.NewTable) == true
+            && (receipt.Updated || receipt.ReferenceEntriesChanged || !ReferenceEquals(receipt.OldTable, receipt.NewTable)))
         {
-            if (receipt.OldTable != null)
-            {
-                library.RemoveReferenceBMSTables(receipt.OldTable);
-            }
-            return;
-        }
-        bool referenceIndexChanged = receipt.Updated
-            || receipt.ReferenceEntriesChanged
-            || objectReplaced;
-        bool referenceIndexApplied = false;
-        if (referenceIndexChanged)
-        {
-            library.ReplaceReferenceBMSTable(
-                receipt.OldTable,
-                receipt.NewTable,
-                receipt.OldEntriesSnapshot,
-                receipt.NewEntriesSnapshot);
-            referenceIndexApplied = true;
-        }
-        if (playlists?.ContainsBMSTable(receipt.NewTable) != true)
-        {
-            if (referenceIndexApplied)
-            {
-                library.RemoveReferenceBMSTables(receipt.NewTable);
-            }
-            return;
-        }
-        if (objectReplaced || receipt.Updated || receipt.ReferenceEntriesChanged)
-        {
-            ReplaceCurrentPlaylistDetailSelectionTable(
-                receipt.OldTable,
-                receipt.NewTable);
-            if (referenceIndexChanged)
-            {
-                RequestPlaylistReferenceSortInvalidation();
-            }
+            ReplaceCurrentPlaylistDetailSelectionTable(receipt.OldTable, receipt.NewTable);
         }
     }
 }

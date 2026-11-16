@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
 using Livet;
 
@@ -183,6 +184,28 @@ public sealed class ChartListFilterViewModel : ViewModel
             this.playlistNameCandidates);
         keywordSearchAssistanceOwner.UpdateContext(context, catalogSnapshot);
         UpdateKeywordSearchPresentation(raiseHelpText: true);
+    }
+
+    /// <summary>画面の表示寿命へ言語通知を接続し、現在の資源で警告とヘルプを同期します。再接続で購読を重複させません。</summary>
+    internal void AttachKeywordSearchPresentation()
+    {
+        ResourceService.Current.PropertyChanged -= KeywordSearchResourcesChanged;
+        ResourceService.Current.PropertyChanged += KeywordSearchResourcesChanged;
+        UpdateKeywordSearchPresentation(raiseHelpText: true);
+    }
+
+    /// <summary>画面の表示寿命が終わった検索表示を言語通知から切り離します。</summary>
+    internal void DetachKeywordSearchPresentation()
+    {
+        ResourceService.Current.PropertyChanged -= KeywordSearchResourcesChanged;
+    }
+
+    private void KeywordSearchResourcesChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(e.PropertyName) || e.PropertyName == nameof(ResourceService.Resources))
+        {
+            UpdateKeywordSearchPresentation(raiseHelpText: true);
+        }
     }
 
     private void UpdateKeywordSearchPresentation(bool raiseHelpText)

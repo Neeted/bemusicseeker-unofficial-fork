@@ -19,7 +19,11 @@ internal sealed class Lr2ManagedPlaylistOutputScopeOwner
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
     }
 
-    internal Lr2SongDbSyncAppManagedOutputScope Capture(BmsLibraryOptionsSnapshot options)
+    /// <summary>現在の正本と適用済み配置が指す管理領域を短い読取り接続で捕捉します。接続は結果返却前に閉じます。</summary>
+    /// <param name="options">受理済み操作の設定入力。</param>
+    /// <param name="throwOnFailure">交差保護のために読取り失敗を呼出元へ返す場合はtrue。従来の同期準備では不完全結果を返します。</param>
+    /// <returns>管理領域と読取り完了状態。</returns>
+    internal Lr2SongDbSyncAppManagedOutputScope Capture(BmsLibraryOptionsSnapshot options, bool throwOnFailure = false)
     {
         if (options == null)
         {
@@ -48,7 +52,7 @@ internal sealed class Lr2ManagedPlaylistOutputScopeOwner
                 }
             }
         }
-        catch
+        catch when (!throwOnFailure)
         {
             return new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: false);
         }

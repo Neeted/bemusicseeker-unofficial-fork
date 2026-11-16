@@ -1,10 +1,10 @@
 using System;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models;
 
 internal static class ChartFileIdentity
 {
+    /// <summary>同じ形式の項目を、所持トークンを優先して照合し、一致しなければ大文字小文字を区別しない物理パスで照合します。確認後の固定対象や所持項目削除の厳密な識別には使用しません。</summary>
     internal static bool IsSameChartTarget(ChartFile chart, ChartFile targetChart)
     {
         if (chart == null || targetChart == null || chart.Kind != targetChart.Kind)
@@ -15,19 +15,7 @@ internal static class ChartFileIdentity
         {
             return true;
         }
-        BMSFile bmsFile = chart.GetBmsStorageOwner();
-        BMSFile targetBmsFile = targetChart.GetBmsStorageOwner();
-        if (bmsFile != null
-            && targetBmsFile != null
-            && ReferenceEquals(bmsFile, targetBmsFile))
-        {
-            return true;
-        }
-        LR2SongDBExtended.bmson_song bmsonSong = chart.GetBmsonStorageOwner();
-        LR2SongDBExtended.bmson_song targetBmsonSong = targetChart.GetBmsonStorageOwner();
-        if (bmsonSong != null
-            && targetBmsonSong != null
-            && ReferenceEquals(bmsonSong, targetBmsonSong))
+        if (chart.Token != null && ReferenceEquals(chart.Token, targetChart.Token))
         {
             return true;
         }

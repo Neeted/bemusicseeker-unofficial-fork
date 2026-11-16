@@ -1,0 +1,52 @@
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.TestSupport.Files;
+
+namespace BeMusicSeeker.Tests;
+
+
+[TestClass]
+public sealed class Lr2PlaylistEntryPersistenceTests
+{
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
+    /// <summary>playlist項目を実SQLiteへ保存し接続を閉じて再読込みしてもタイトルを保持し、列mappingや永続化の欠落を検出します。</summary>
+    [TestMethod]
+    public void PlaylistEntryTitleRoundTripsThroughSongDb()
+    {
+        using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = Path.Combine(migrationWorkspace.RootDirectory, "BeMusicSeeker-playlist-entry-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string databasePath = Path.Combine(root, "song.db");
+        try
+        {
+            using (LR2SongDBExtended database = databaseScope.OpenSongWrite(databasePath))
+            {
+                database.CreateTable<LR2SongDBExtended.playlist_entry>();
+                database.Insert(new LR2SongDBExtended.playlist_entry
+                {
+                    playlist_id = 1,
+                    md5 = "839194ef691f63a91a97b2a7c481bb1d",
+                    title = "E1 Fixture Song"
+                });
+            }
+
+            using (LR2SongDBExtended database = databaseScope.OpenSongWrite(databasePath))
+            {
+                LR2SongDBExtended.playlist_entry entry = database.FindWithQuery<LR2SongDBExtended.playlist_entry>(
+                    "SELECT * FROM playlist_entry WHERE playlist_id = ?",
+                    1);
+                Assert.IsNotNull(entry);
+                Assert.AreEqual("E1 Fixture Song", entry.title);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+}

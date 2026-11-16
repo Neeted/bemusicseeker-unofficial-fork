@@ -2,13 +2,15 @@
 
 ## 目的と適用範囲
 
-通常の機能検証、性能測定、大容量データ、外部プロセス、配布・更新の受入検証について、実行範囲・環境・資源・待機・結果判定を定めます。保証対象とテストの追加・変更・削除は[テスト設計](test-authoring.md)、担当の実行責任と引継ぎは[エージェント運用](agent-workflow.md)に従います。
+通常の機能検証と配布・更新の受入検証について、検証区分の選択、実行の調整、期限、結果判定、実機確認の扱いを定めます。保証対象とテストの追加・変更・削除は[テスト設計](test-authoring.md)、担当の実行責任と引継ぎは[エージェント運用](agent-workflow.md)に従います。
+
+標準入口の対象module・必須ID・段階ごとの制限時間・結果の保存先の一覧は[検証入口の説明](../../../tools/BeMusicSeeker.Verify/README.md)を正本とします。本書は、その一覧を使って検証区分を選び、結果を判定するための契約を扱います。テストや検証基盤を書く・直すときの実行基盤の規則は[テストの実行基盤](test-runtime.md)、画面テストの規則は[画面テストの分離](ui-test-isolation.md)に従います。
 
 ## 用語
 
 [共通用語集](../glossary.md)を参照します。コードの識別子は原表記を使います。
 
-**テストプロセス**は実際の `dotnet test` と、そのテストホストを指します。**完全修飾名（FQN）**は名前空間・クラス・メソッドまでを含むテスト識別子です。**判定記録**は実行結果を機械的に確認するTRXやJSONです。
+**テストプロセス**はMTPテストアプリと、その所有するテストホストを指します。**完全修飾名（FQN）**は名前空間・クラス・メソッドまでを含むテスト識別子です。**判定記録**は実行結果を機械的に確認するTRXやJSONです。**必須ID**は、Scenarios・Desktopのテスト名の先頭に置く `SC-01` や `DT-01` などの識別子で、標準入口が選択結果に含まれることを要求するものです。
 
 **実機確認**は、実環境で人またはエージェントが操作・観察する確認です。画面、実OS入力・フォーカス・IME、DPI・実モニター、音声機器、担当の起動・設定適用・入力継承などを含みます。実アプリや外部プロセスを起動して結果を自動判定する既存の検証は、自動検証として扱います。
 
@@ -18,216 +20,196 @@
 
 開発環境の構築、実装、統合、レビュー、コミット、リリースを通じて、実機確認を必須工程にしません。エージェントは原則として自動テストと静的確認で検証し、表示・配置などの確認に必要なら画面外のWPF描画スクリーンショットを使います。スクリーンショットを全件の必須条件にせず、この方針のためだけに代替基盤やテストを増設しません。
 
-実機確認が有用な場合は、変更に関係する理由、条件、操作、期待結果をユーザーへ簡潔に推奨します。結果待ちを必須工程にせず、エージェント自身が実施するのはユーザーが明示的に依頼した場合です。実機確認の未実施だけで各工程の完了を妨げません。
+実機確認が有用な場合は、変更に関係する理由、条件、操作、期待結果を利用者へ簡潔に推奨します。結果待ちを必須工程にせず、エージェント自身が実施するのは利用者が明示的に依頼した場合です。実機確認の未実施だけで各工程の完了を妨げません。
 
-自動検証の成功を実機確認済みとは扱わず、未実施・未確認の範囲を報告します。必須の自動検証、失敗の報告と修正、既知不具合への対処は維持します。以下の実行区分・期限・失敗条件と、各機能仕様の自動検証をこの方針で緩和しません。
+自動検証の成功を実機確認済みとは扱わず、未実施・未確認の範囲を報告します。必須の自動検証、失敗の報告と修正、既知不具合への対処は維持します。本書と[テストの実行基盤](test-runtime.md)・[画面テストの分離](ui-test-isolation.md)が定める検証区分・期限・失敗条件と、各機能仕様の自動検証をこの方針で緩和しません。
+
+静的レビューと実行検証は独立した合格条件です。レビューの開始条件と進め方は[レビューの進行](agent-workflow.md#レビューの進行)に従い、`verify`・`full`・性能測定の完了や成功を待ちません。全体テストの未完了・未成功だけを静的な不合格理由にせず、統合・完了時には最終差分に適用できる両方の合格を要求します。合格を要求する範囲は[完了判定](agent-workflow.md#完了判定)に従います。レビュー合格で必要なテストを省略せず、失敗・未実行を成功へ読み替えません。
 
 ### 実行範囲の選択
 
-反復中は変更に関係する契約と接続を対象に絞り、最終統合では下表の標準区分を使います。局所テストを追加したことや、広いテストの新設が不要だったことを理由に、既存の必須検証を省略しません。局所的な変更でも、既存の代表的な統合・受入テストを回帰確認として実行できます。
+検証区分は作業段階で選びます。
 
-テストの保証範囲と実行区分は別です。統合・E2Eという呼び方だけで `Full` へ移したり、すべての変更に全体フローの新設を要求したりしません。必要な環境・資源・規模から[テスト区分](#テスト区分)を選び、どこまで確認したかを報告します。文書のみの変更は[文書と検証](../../../AGENTS.md#文書と検証)に従います。
+| 作業段階 | 使う検証区分 |
+| --- | --- |
+| 反復中 | 対象moduleの直接MTP実行、または `dev` |
+| 通常開発のコミット・`dev` への統合 | `verify` |
+| 正式リリース前の公開候補 | `prepare-candidate` で生成した候補に対する `full --distribution-catalog <absolute catalog>` |
+
+必要な実行検証の成功と独立した最終静的レビューの合格を揃えて、通常開発のコミット・`dev` への統合を行えます。軽微な修正で `verify` とレビューを省略できる条件は[工程の適用範囲](agent-workflow.md#工程の適用範囲)に従います。文書のみの変更は[文書と検証](../../../AGENTS.md#文書と検証)に従います。
+
+`full` は正式リリース前の公開候補に必須です。公開時には合格summaryと同じZIPを照合し、後で再生成したものへ差し替えません。公開までの順序は[リリース手順](release.md#正式リリースの準備)に従います。
+
+公開候補は、次の条件で再利用を判断します。
+
+- テストだけを変更し、製品・依存関係・配布設定・同梱資料やその内容が変わらない場合は、通常のGit差分を確認して同じ候補を再利用できます。
+- それらが変わった場合は、新しい候補を生成して `full` を再実行します。
+- `full` の自動整形による変更も、同じ基準で判断します。
+
+配布スクリプトや更新処理を開発中に変更する場合も、通常の最終検証は `verify` とし、変更した契約を確認できる関連テスト・受入検証を絞って追加します。必要なら開発中にも `full` を実行できますが、変更ファイルの種類や将来のリリースだけを理由に、コミット前の `full` を必須にしません。次版のリリースノート作成や、配布物に含まれる実行時設定の変更だけでも同様です。レビューでは作業段階と変更の影響を確認し、変更固有の検証が不足する場合は、その対象と確認すべき契約を示します。
+
+局所テストを追加したことや、広いテストの新設が不要だったことを理由に、選択した段階で必要な既存検証を省略しません。テストの保証範囲と検証区分は別です。統合・E2Eという呼び方だけで `full` へ移したり、すべての変更に全体フローの新設を要求したりしません。必要な環境・資源・規模から[テスト区分](test-runtime.md#テスト区分)を選び、どこまで確認したかを報告します。
+
+### 複数ワークツリーの検証
+
+`verify` と `full` は、全ワークツリーを通じて同時に一件だけ実行します。全体ルートが担当間の連絡で開始と終了を調整し、必要な局所検証などの準備が揃った順に実行枠を割り当てます。`full` の通し実行だけが残った場合も同じ順序へ入れ、後から準備が揃った `verify` によって待機が延び続けないようにします。
+
+別ワークツリーの対象moduleの局所MTP実行と、その実行に必要なビルドは並行できます。局所MTP実行は単位責任者が開始・結果・所有プロセスの回収まで管理し、実行のたびに全体ルートの開始許可を求めません。
+
+同一ワークツリーでも静的レビューと実行検証は並行できます。その間は次を守ります。
+
+- レビュー対象と判断に使う共有依存を固定し、それらを書き換える編集・自動整形・生成処理を止めます。必要な自動整形は凍結前に済ませます。標準入口に自動整形が含まれる場合は、その工程をレビューと重ねません。
+- ソースを変更しないテストと、レビュー対象外の生成物だけを書くビルドは継続できます。
+- 実行中のテストが読むバイナリやデータをビルド等で上書きしません。別ワークツリーを含め、共有出力・設定・DB等の資源衝突を避けます。
+
+実行失敗が判明してもレビュー全体を自動停止・失効させません。新しい証拠を担当へ共有し、判断に影響する箇所を確認します。修正は該当範囲の凍結を解除して行い、修正後に誰を呼ぶかは[レビューの進行](agent-workflow.md#レビューの進行)に従います。
+
+実測負荷や資源問題が出た場合は、その根拠に応じて全体ルートが実行の開始順や並行範囲を調整します。性能測定は他の重い検証と分離し、全体ルートが開始を調整します。版と範囲は既存の担当連絡とGitで引き継ぎ、恒久台帳や自動予約機構は追加しません。
+
+開始済みの処理を別の検証の都合で中断せず、終了と結果回収を待ちます。競合しない別ワークツリーの調査・編集は進められます。ワークツリーの追加・完了・再利用の判断、所有と独立性、移管時の確認結果の引継ぎは[並列作業](agent-workflow.md#並列作業)に従います。
+
+最終検証済みの版をそのまま `dev` へfast-forwardで統合できる場合、統合直後に同じ `verify` を重複して実行しません。検証後にコードや関連する基底が変わった場合は、新しい版に必要な検証を行います。ブランチ更新と影響するレビューは[通常の統合手順](release.md#通常の作業ブランチの統合)に従います。
 
 ### 標準入口
 
-PowerShell 7から、リポジトリのルートで実行します。
-
-標準入口はWindows上で使います。Linuxで実装を変更した場合は、[Linuxの構築手順](../../setup-linux.md)に従い、変更に関連する既存テストのうちLinuxで実行可能なものを実行し、Windows向けクロスビルドの成功も確認します。実行した範囲・結果と、Linuxで実行できないテスト・未実施のWindows検証を明示して報告します。Linuxの結果を `Functional` / `Full` の成功へ置き換えません。
+WindowsのPowerShell 7からリポジトリルートで実行します。標準入口は [BeMusicSeeker.Verify](../../../tools/BeMusicSeeker.Verify/README.md) です。`global.json` のMSTest.Sdkがテストフレームワーク・アダプター・MTPの版を所有し、ロックファイルに従う復元で依存を固定します。テストの発見・DataRowの展開・filter・TRXは標準MTPへ任せ、独自のFQN列挙や分割実行は作りません。
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'FullyQualifiedName~対象のテスト名'
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Functional
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Full
+dotnet run --project tools/BeMusicSeeker.Verify -- dev
+dotnet run --project tools/BeMusicSeeker.Verify -- verify
+$candidate = Join-Path (Get-Location) 'artifacts/candidates/release-1'
+dotnet run --project tools/BeMusicSeeker.Verify -- prepare-candidate --output $candidate
+dotnet run --project tools/BeMusicSeeker.Verify -- full --distribution-catalog "$candidate/catalog.json"
+dotnet run --project tools/BeMusicSeeker.Verify -- compatibility --suite chart-info-bms
+dotnet run --project tools/BeMusicSeeker.Verify -- performance --suite scan-commit
 ```
 
-| 区分 | 用途と処理 |
+| profile | 用途 |
 | --- | --- |
-| フィルター付き `Quick` | 反復中の対象確認。指定対象だけの専用経路を使用する。 |
-| フィルターなし `Quick` | 通常の機能テストの共通実行処理を一回使う。 |
-| `Functional` | 通常の最終統合。同じ最終版に対して一回を原則とする。 |
-| `Full` | 配布・更新・リリースに関わる検証。共通の `Functional` の後に配布物の受入を行う。 |
+| `dev` | 自動整形を省いた反復。 |
+| `verify` | 変更したC#の自動整形を含む、通常開発のコミット・`dev` への統合の標準。 |
+| `full` | 全体の自動整形を含む、明示した公開候補の受入。 |
+| `compatibility` | 専用入力・環境を準備して、登録済みsuiteの一つを明示実行する。 |
+| `performance` | 全仕事量の計測を他の重い検証と分離して、登録済みsuiteの一つを明示実行する。 |
 
-`Quick` はフィルターの有無によらず、`Functional` / `Full` と同じ整形検査を行います。全コードモードで、ロックファイルに従う復元の後、空白整形と C# スタイルの検査、SDK 標準解析を含む通常のビルド、出力検査、実テストの順に進みます。整形差分が必要なら失敗とし、自動修正はしません。
+各profileが選ぶmoduleと必須ID、suiteの一覧は[検証入口の説明](../../../tools/BeMusicSeeker.Verify/README.md)に示します。
 
-整形検査は、まずプロジェクトを評価せず、ルートを `dotnet format whitespace --folder --verify-no-changes` で検査します。生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` だけを除き、その他の作業ファイルの失敗を隠しません。続いて `dotnet format style BeMusicSeeker.sln --verify-no-changes --severity error --no-restore --verbosity minimal` で、ソリューションの C# スタイルを検査します。両検査は既存の `format` フェーズの180秒期限を共有し、どちらかの失敗・期限超過で後続のビルド・テストへ進みません。このフェーズは既存の復元・ビルド・テストの時間予算に含めません。文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。Mermaidを追加・変更する場合は[補助図の更新と確認](../README.md#更新と確認)も行い、描画確認と対象アプリの検証を区別します。
+#### 結果の判定
 
-SDK 標準解析は [`global.json`](../../../global.json) に記載した SDK の `version` と `rollForward` の選択に従います。[`Directory.Build.props`](../../../Directory.Build.props) は本体 `BeMusicSeeker`、更新プログラム `BeMusicSeeker.Updater`、テスト `BeMusicSeeker.Tests` にだけ `EnforceCodeStyleInBuild=true` を適用し、nullable 診断を警告ではなくビルドエラーとして扱います。nullable 解析そのものは各プロジェクトとソースの既存設定に従い、この共通設定から新しい解析範囲を有効化しません。補助ツールのプロジェクトにはこのビルド時スタイル検査と nullable 診断のエラー化を追加せず、SDK の既定解析を従来どおり実行します。
+標準入口は、選択した全moduleで次をすべて満たした場合だけ成功とします。
 
-C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、エラーに設定した規則を `dotnet format style` で検査します。通常のビルドで実行できるスタイル解析は補助防御として維持します。nullable 診断は null 許容契約の不一致を作業中に残さないためビルドエラーとして扱い、その他の SDK 品質診断は既定の重大度を維持します。全警告を一律にエラーへ変更しません。生成コードは SDK の扱いに従い、テストへリンクした補助ツールのコードはテストプロジェクトのコンパイル対象として検査します。
+- 今回の実行の非空なTRXがあり、全行が `Passed` で、実行単位の結果も成功している。
+- テストプロセスが正常終了し、所有するプロセスとパイプがすべて終端している。
+- profileが要求する必須IDが、選択結果のテスト名の先頭にすべて現れる。同じmodule内で同じIDの行が複数あることは許可し、その全行に `Passed` を要求する。別moduleへの同じIDの重複は拒否する。
+
+選択ゼロ、一部または全部のskip、TRXの欠落・不正、制限時間超過、回収失敗は成功にしません。`dev`・`verify` の `--filter` はmoduleの集合を減らさず、必須IDが不足すればfilter指定時も失敗します。`full`・`performance` の `--filter`、suiteの指定漏れ・未登録名は準備前に拒否します。環境suiteの未選択は未実施であり、`full` の成功を全環境suiteの成功へ読み替えません。
+
+#### 直接MTP実行
+
+局所的な絞込みは、対象projectを直接実行します。
+
+```powershell
+dotnet run --project tests/BeMusicSeeker.Core.Tests -c Debug -p:Platform=x64 -- --filter 'FullyQualifiedName~FractionTests' --report-trx --minimum-expected-tests 1
+```
+
+直接MTPの成功は、標準入口の自動整形・ビルド・全moduleと必須IDの結果確認を代替しません。直接実行でも、結果が非空で全行 `Passed` であること、終了コード、所有プロセスの回収を確認します。
+
+Linuxでは[クロスビルドと局所検証](../../setup-linux.md)の実行範囲と未実施のWindows検証を報告し、Windowsの `verify`・`full` の成功に置き換えません。
+
+### 自動整形の対象と実行
+
+`verify` は、未ステージ・ステージ済みの変更ファイルと、Git の除外設定に該当しない未追跡ファイルの和集合から、現在存在する C# ファイルを選びます。対象は作業ツリー上のファイル全体であり、変更行だけには限定しません。`full` は全体を対象とします。いずれも生成先の `artifacts/verification`、`bin`、`obj`、`.tmp` を除きます。変更対象がゼロなら formatter を起動せず、対象指定なしの全体整形に置き換えません。
+
+[共通の整形処理](../../../tests/BeMusicSeeker.TestSupport/Verification/RepositoryFormatter.cs)は、`dotnet format` のスタイル修正を先に行い、続いて空白・改行を揃えます。変更範囲では両方に同じファイル一覧を渡します。整形後に同じ formatter の変更なし検査を重ねません。C# 以外も含む Git 差分の空白検査は、整形後に行います。
+
+標準検証では、対象の取得と両方の formatter が `format` 段階の制限時間を共有します。整形はproject全体の意味解析で長いため、ビルドを整形と同時に開始します。formatterの設計時評価は各プロジェクト既定のDebug構成、検証のビルドはRelease/x64で、中間・出力先は分かれます。整形の書込みとコンパイラの読取りが重なった共有違反は整形の失敗として扱います。Git の取得失敗、formatter の非ゼロ終了・制限時間超過、差分の空白エラーでは、同時のビルドを取り消し、再ビルド・テストへ進みません。整形が対象の内容を変えた場合は、同時のビルドの結果を採らず、整形後の内容で再ビルドした結果で判定します。採らなかったビルドでも、ログ保存と所有プロセスの回収の失敗は非成功です。この段階は復元・ビルド・テストの制限時間に含めません。formatter の警告は診断へ残します。自動整形の成功は、自動修正できないものも含むすべてのスタイル診断がゼロであることを意味しません。
+
+手動で整形だけを行う場合も、同じ処理を使います。
+
+```powershell
+pwsh -NoProfile -File .\scripts\format-code.ps1
+pwsh -NoProfile -File .\scripts\format-code.ps1 -Scope All
+```
+
+手動入口は、ビルド済みのReleaseのVerify実行ファイルへ処理を渡します。未準備なら変更C#がゼロでも失敗し、暗黙のビルド・復元や別構成の探索をしません。準備のコマンドと期限は[手動整形の準備](../../../tools/BeMusicSeeker.Verify/README.md#手動整形の準備)に示します。
+
+手動入口の既定範囲は `Changed` です。整形対象がある場合はロックファイルに従う復元から実行し、復元済みなら `-NoRestore` で省略できます。対象取得・復元・整形は一つの制限時間を共有します。整形規則、SDK、プロジェクト構成を変更した作業では、`-Scope All` で全体を整形します。通常検証が設定変更から対象範囲を推定して自動で広げることはありません。
+
+C# の正規形は [`.editorconfig`](../../../.editorconfig) を正本とし、エラーに設定した規則を formatter の自動修正対象にします。ビルド時のスタイル解析は全モードで有効化せず、スタイルの処理を formatter に集約します。SDK 標準の品質解析は [`global.json`](../../../global.json) の `version` と `rollForward` に従って選択した SDK の既定を維持します。
+
+[`Directory.Build.props`](../../../Directory.Build.props) は本体 `BeMusicSeeker`、更新プログラム `BeMusicSeeker.Updater`、TestSupportと各 `*.Tests` の nullable 診断をビルドエラーとして扱います。nullable 解析の範囲は各プロジェクトとソースの既存設定に従います。補助ツールには nullable 診断のエラー化を追加せず、全警告も一律にエラーへ変更しません。生成コードは SDK の扱いに従い、テストへリンクした補助ツールのコードはテストプロジェクトのコンパイル対象とします。
+
+文書だけの変更の確認は[ルートの指針](../../../AGENTS.md)に従います。Mermaidを追加・変更する場合は[補助図の更新と確認](../README.md#更新と確認)も行い、描画確認と対象アプリの検証を区別します。
 
 ### 実行期限と失敗分類
 
-通常の機能テストは、ポータブル設定用の `dotnet test` 開始直前から、全テストプロセスの実際の `ExitTime` までを一つの実行範囲とします。準備・復元・ビルド・出力確認・結果回収・環境復元・差分確認は、この時間に含めません。
+テスト段階の制限時間は、profileごとに一つを全moduleで共有します。現在の値は `dev`・`verify` が600秒、`full` が1380秒です。
 
-`FunctionalTimeoutSeconds` による既定・上限は300秒です。一つの期限をポータブル設定、残りの起動、全プロセスの終了まで共有し、プロセスや段階ごとに作り直しません。失敗後の停止と出力読取りには、この期限から追加10秒までの共通期限を使います。
+- 起動前に取った一つの単調時計の始点をScenarios・Desktopにも渡し、後から起動したmoduleや局所的な待機で延長しません。
+- テスト段階には、表示言語ファイルのコピー、テストプロセスの起動、結果判定、summaryの保存、回収を含みます。
+- 準備・ビルド・候補の検査と展開は別の段階で、テスト段階の時間に含めません。
+- 制限時間は停止を検出するための運用上の上限です。速度の合格基準には使いません。
 
-| 実際の終了までの時間・結果 | 判定 |
-| --- | --- |
-| 成功かつ180秒以下 | 通常成功。 |
-| 成功かつ180秒超、300秒以下 | 成功のまま、運用目標の超過と実測時間を警告し、利用者への報告にも含める。 |
-| 300秒超 | 時間超過。後片付け中の遅い終了を成功へ戻さない。 |
-| 時間内の決定的な失敗 | 初回から原因を調べる。成功するまでの再実行はしない。 |
+各時間の記録項目は[時間と証跡](../../../tools/BeMusicSeeker.Verify/README.md#時間と証跡)に示します。
 
-真の時間超過だけは、所有するプロセスツリーの停止・残留確認と診断保存の後、同じコマンド、フィルター、時間予算、版、条件で一回だけ再実行できます。予算内で成功し、症状の再発や決定的な診断がなければ一過性の負荷として両結果を報告します。それ以外は原因を調べます。局所的な失敗検出タイマーは、この再実行規則の代わりではありません。
+致命的な失敗を検出したときは、検出時刻+10秒と段階の制限時間+10秒の早い方を回収期限として一度だけ確定します。期限後に遅れて正常終了しても成功に戻しません。制限時間内の決定的な失敗は、初回から原因を調べます。
 
-失敗結果は原因調査の入力であり、担当の技術的な行き詰まりを示すものではありません。統合検証の失敗は[不備の差し戻し](agent-workflow.md#不備の差し戻し)で修正担当へ戻します。修正後の新しい版の検証と、失敗した同一版の再実行は区別します。障害解決担当の呼出しを正当化するためだけの追加実行はしません。
+真の時間超過だけは、所有するプロセスツリーの停止・残留確認と診断保存の後、同じコマンド、フィルター、制限時間、版、条件で一回だけ再実行できます。制限時間内に成功し、症状の再発や決定的な診断がなければ一過性の負荷として両方の結果を報告します。それ以外は原因を調べます。局所的な失敗検出タイマーは、この再実行規則の代わりになりません。
 
-### 通常テストの分割と並列実行
+`full` の一部で不安定な結果が出た場合は、症状が出た時点で並行していた実行を考慮して原因を調べ、再現や修正の確認はその段階・対象を直接実行して行えます。通しの `full` を繰り返すことを調査の前提にしません。公開候補の受入には、[実行範囲の選択](#実行範囲の選択)のとおり最終版の `full` の成功が必要です。
 
-コンパイル済みテストDLLを型のロードなしで一回走査し、実際の実行に使う6プロセス分の計画を同じメタデータから生成・検証して使用します。ポータブル設定だけを先に完了し、成功後は同じ計画から残る5プロセスを追加の待機段階なしで起動します。`DoNotParallelize` は名前空間を含む属性名で判定し、型属性はその型の全テストメソッドへ、メソッド属性はそのメソッドへ適用します。
-
-| プロセス | 並列数・範囲 | 担当 |
-| --- | --- | --- |
-| `portable-settings` | 1、`MethodLevel` | `PlayerPanelStateSettingsCompatibilityTests` の全テスト。 |
-| `bass-collectible` | 1、`MethodLevel` | `BassCollectibleLoadContextTests`。ポータブル設定完了後に独立して実行する。 |
-| `shared-state-a` | 1、`MethodLevel` | `DoNotParallelize` の完全修飾名をOrdinal順に並べ、偶数番目を交互割当した集合。 |
-| `shared-state-b` | 1、`MethodLevel` | 同じ集合の奇数番目を交互割当した集合。 |
-| `parallel-a` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストを、完全修飾名のOrdinal順で偶数番目に交互割当した集合。 |
-| `parallel-b` | `ProcessorCount`、`MethodLevel` | 専用ホストと`DoNotParallelize`を除く通常テストを、完全修飾名のOrdinal順で奇数番目に交互割当した集合。 |
-
-クラス・メソッドの所属は `verify-refactor.ps1` がコンパイル済みDLLのメタデータから作る実行計画を正本とします。全ホストが同じ判定から生成した完全修飾名のinclude条件をrunsettingsへ渡します。通常テストはOrdinal順の偶奇で二つのホストへ交互に割り当て、`parallel-a` と `parallel-b` の和が通常テスト全体になることを重複・漏れなく検査します。専用クラス、共有状態、通常テストの集合を一回ずつ実行し、表示名や`DataRow`表示値による分割は行いません。最大同時実行数は `3 + 2 * ProcessorCount` です。通常テストは追跡対象ファイルを変えず、実行順・並列度によらず結果を維持します。負荷を下げるためだけの並列数制限ではなく、共有資源と競合を修正します。
-
-`LR2SongDBExtended` は全DBで共通のstatic `Monitor`を使います。一つの通常ホストでは互いに無関係な一時DBの処理まで直列化されるため、通常テストを二つのプロセスへ分けます。`parallel-a` / `parallel-b` の交互割当は負荷分散の規則です。共有資源の安全性はこの割当順には依存させず、fixtureの所有、`DoNotParallelize` の共有状態ホスト、専用ホストで保ちます。
-
-テストアセンブリの`AssemblyInitialize`では、既存のIO完了ポート下限を保持したまま、worker下限を `max(既存値, 7 * ProcessorCount + ProcessorCount)` に設定します。7は小規模fixtureで同時に占有される既知のパイプライン主体（テスト本体、reader、parser、post-parse、2つのcollector、writer）の数であり、本番の最大値や厳密な上限ではありません。各通常ホストの最大ProcessorCount並列に継続処理用のProcessorCount分を加え、同期的なテスト待機によるworker補充遅延を避けるテスト環境専用の設定です。設定に失敗した場合は検証を失敗として扱います。この設定はテストアセンブリだけに適用し、本番のスレッドプール設定や上限・監視は変更しません。
-
-`BassCollectibleLoadContextTests` はWPFのホスト・リソースを解決しない専用プロセスで、回収可能なロードコンテキストと、BASSの静的初期化がネイティブDLLをロードしない条件を確認します。通常テストの譜面情報の保存・解析・補完を含むテスト群は専用の接頭辞分割を作らず、`parallel-a` / `parallel-b` のメソッド単位実行を使用します。
-
-### テスト区分
-
-| `TestCategory` | Functional | Full | 用途 |
-| --- | --- | --- | --- |
-| 省略・機能名、`Compatibility` | 対象 | 対象 | 小さい合成入力・少数の固定入力による機能と軽量互換性。 |
-| `ProcessIntegration` | 除外 | 対象 | 別プロセスや更新プログラムとの統合。 |
-| `ReleaseAcceptance` | 除外 | 対象 | 配布物、更新パッケージ、実アプリの受入。 |
-| `Performance` / `Net10Performance` | 除外 | 除外 | 変更前後の処理時間・仕事量の比較。 |
-| `LargeFixture` | 除外 | 除外 | 巨大DB、大量の実データ。 |
-| `ParserCompatibilityFull` | 除外 | 除外 | 全実譜面と参照実装との互換性。 |
-| `ProductionDiffFull` | 除外 | 除外 | 実データとの差分。 |
-| `ParserCompatibilitySlow` | 除外 | 除外 | 巨大・低速の解析入力。 |
-
-[BMS譜面位置の比較ツール](chart-parse-audit.md)は簡易開発用です。変更確認は対象RunnerのReleaseビルドと差分点検に限定し、恒常toolテストは設けません。
-
-カテゴリは実行特性を表します。小さい互換性テストや、少数の実部品を接続する検証は通常検証に含められます。`ProcessIntegration` は別プロセス等を扱う区分であり、主体間の接続を確認するすべてのテストを指しません。
-
-### 資源の分離と共有
-
-通常テストは固有の一時ファイル・DB・設定と、再現可能な入力を使い、追跡対象ファイルや利用者のデータを変更しません。公開サービスの可用性、ローカルサービスの索引反映、同じPCでの利用者の操作を合否条件にしません。EverythingやOS走査を利用する機能は、取得範囲と完全性を明示した変更不能な入力集合で検証し、作成直後のファイルが外部索引に現れることを前提にしません。外部環境との接続そのものを確認する場合は、対応する実行区分と条件を明示します。
-
-DBの準備・観測は検証対象の処理と分けます。入力作成だけの複数行投入・スキーマ準備は一つのトランザクションへまとめ、SELECTだけの観測には既存の読取り専用接続を使います。無関係な一時DBの観測がプロセス共通の書込みロックを取り合わないようにします。スキーマ作成・確定境界自体を保証するテストでは、対象の本番処理とトランザクション境界を維持します。
-
-共有設定、リソース辞書、文化圏、テーマ、ウィンドウ一覧などを変更する場合は、準備から復元までの所有を確認します。`DoNotParallelize` は分離不能な共有資源とその復元方法を説明できる範囲に使い、独立した状態だけを扱うテストは並列実行します。この属性は他プロセスや利用者の操作を排他しません。外部入力の分離とテスト間の共有状態は別々に確認します。
-
-### 非同期処理の待機
-
-通常完了は、対象のTask、イベント、状態遷移に直接結び付く通知で待ちます。通知より先に処理が失敗した場合も観測し、来ない通知だけを待ち続けません。テストが閉じた待合せは `finally` で解放し、所有する処理の終結と後片付けを待ちます。
-
-単なる到達・完了確認には局所期限を追加せず、停止は検証全体の期限で検出します。局所的な制限時間は、外部プロセス、画面表示、解放、ロックが成立しないこと、時間超過契約の失敗検出に限定します。固定の `Thread.Sleep` や余裕時間としての `Task.Delay` から成功を推測しません。短い否定観測は、通常完了を待つ方法や時間保証の証明とは区別します。
-
-不安定なテストは共有状態、順序依存、待機、資源競合を調べます。期限延長、再試行増加、実行担当数や分割数の削減だけで失敗を隠しません。同一版の再実行は[実行期限と失敗分類](#実行期限と失敗分類)に従います。
-
-### プロセスの待機と失敗
-
-開始、完了待機、標準出力・標準エラーの読取り、停止、診断保存、残留確認を一つの管理主体が行います。起動したPID、生成時刻、子孫関係を追跡し、名前だけで無関係なプロセスを停止しません。待機と出力読取りは残りの期限内に収めます。
-
-既知のUTF-8出力元である `dotnet` / `pwsh` は、起動前に `StandardOutputEncoding` と `StandardErrorEncoding` の両方へUTF-8のデコーダーを設定します。通常のコマンドと分割テストの起動は、共通の `Set-VerificationRedirectedProcessEncoding` を使います。保存時にUTF-8へ変換するだけでは、読取り時の誤変換を直せません。`dotnet` の `DOTNET_CLI_FORCE_UTF8_ENCODING=1` は子プロセスの環境だけへ設定し、親のコンソール・出力文字コード・カルチャ・環境変数、および他のネイティブコマンドの既定の文字コードを変更しません。
-
-失敗時は、実行中または最後に確認したテスト、経過時間、出力、進捗・TRX・停止診断の場所を残します。元の失敗を後片付けの失敗で置換せず、二次的な診断に保持します。元の失敗がなくても後片付けが失敗したら失敗です。開始前の環境変数と作業ディレクトリも復元します。追跡対象ファイルの指紋による外部変更監視は行いません。
-
-### 画面テストの分離
-
-WPFは `TestUiDispatcherHost` の一つの `Application` と専用STA Dispatcherを共有します。最初の `Dispatcher` / `Invoke` / `Drain` / `RunWindowTest` 利用時に遅延起動し、テストごとに作りません。ウィンドウなしの操作は `Invoke`、実ウィンドウ・Popupは `RunWindowTest` と `TestWindowPresentationScope` を使います。
-
-Dispatcher上のTask待機は `TestUiDispatcherHost.AwaitTaskOnDispatcher` を使います。テストごとの `Application`・STAスレッド・独自のDispatcher待機ループは作りません。直接の `Dispatcher.PushFrame` や `HwndSource` は共通基盤か明示された例外に限ります。
-
-`ShowAndWaitForContentRendered` は表示前に通知を購読し、期限付きのDispatcher処理で読込み・描画・非ゼロの配置・HWNDを確認します。モーダル、即時終了、描画通知を制御する場合は、表示直前に `PrepareForOwnedPresentation` を呼びます。
-
-表示の観測待機は、実際の描画・配置・ネイティブ条件の成立を完了条件とします。成立後に、無関係な継続処理による一般的な `ApplicationIdle` 待ちを成功条件へ追加しません。描画通知がない場合、即時終了、ネイティブ観測の失敗、期限超過を成功へ置き換えず、表示観測と後片付けの待機を区別します。
-
-共通基盤は非アクティブ表示専用です。表示直前に手動配置、タスクバー非表示、非アクティブ表示を適用し、全モニターの外へ置きます。HWND生成時には既存の拡張スタイルを保って `WS_EX_NOACTIVATE` を設定・再読取りします。前面でないことと矩形も確認し、Popupにも開く境界で同じ規則を適用します。ネイティブAPIの失敗や表示観測の失敗は、テスト本体とは独立して保持します。
-
-通常テストに前面操作の例外は設けません。実OSカーソルの取得・移動や `Mouse.GetPosition` による物理位置、実フォーカスの取得成功、物理修飾キー、入力キャプチャ、Popupが外部入力で閉じないことを合否条件にしません。イベントを明示しても呼出先がOS状態を参照する場合は分離できていないため、本番の処理へ明示入力を渡す境界で検証します。Popupの内容と接続は、開閉イベント・操作入力、閉じたテンプレートのBinding、明示配置などで確認します。
-
-非公開WPFメソッドによるフォーカス偽装や、テスト専用の本番分岐、外部入力を無視する製品仕様の変更は行いません。実フォーカス移動・IME等のOS接続は[実機確認](#ユーザーに推奨する実機確認)と分担します。共有Dispatcherの待機中には別テストが再入し得るため、Dispatcherの利用だけで排他できると考えず、[資源の分離と共有](#資源の分離と共有)に従います。
-
-開始時の共有スレッドのウィンドウ・HWNDを基準に、追跡したPopup、深い所有関係から順にウィンドウ、購読、Dispatcherの残処理、残留HWNDを片付けます。設定画面には `CloseForOwnerShutdown` を使います。失敗の優先順位はテスト本体、表示観測、後片付けです。
-
-共有ホストは現在の `AppearanceTheme` を退避し、準備完了前に保存せずLightへ設定します。終了時は同じDispatcherで復元して `Application` とDispatcherを停止し、通知とスレッド結合で待ちます。未起動なら何もしません。既存Applicationとの競合、起動失敗、呼出し・終了失敗は表面化させ、`Application.ResourceAssembly` は変更しません。
+失敗結果は原因調査の入力です。統合検証の失敗は[不備の差し戻し](agent-workflow.md#不備の差し戻し)で修正担当へ戻します。修正後の新しい版の検証と、失敗した同一版の再実行は区別します。
 
 ### Fullの処理順と期限
 
-共通の通常検証を一回完了した後、ツールの基本確認、公開旧版のキャッシュ準備、現在版の配布物作成、既存データ起動、現行更新の基本確認、`ProcessIntegration`、`ReleaseAcceptance` の順に進みます。重い配布処理を通常テストの300秒に混ぜません。
+`full` は次の順に進みます。
 
-| 段階 | 制限時間 |
-| --- | ---: |
-| 整形検査 | 180秒 |
-| ツールの基本確認 | 60秒 |
-| 公開旧版のキャッシュ準備 | 180秒 |
-| 現在版の配布物作成 | 180秒 |
-| 既存データ起動 | 180秒 |
-| 現行更新の受入 | 240秒 |
-| `ProcessIntegration`、`ReleaseAcceptance` | 各180秒 |
+1. `prepare-candidate` が、公開可能なHTML付きのCurrent、固定のLegacy、試験用のNextと、それらを記録する配布候補の目録を先に生成する。
+2. `full` は全体の自動整形・Releaseビルドの後、絶対パスで指定した配布候補の目録を検査し、候補を展開・接続する。製品のpublishやZIPの再生成は行わない。
+3. Core・Scenarios・Desktopを各一回、Windowsを重複のない3分類で実行する。環境・性能の明示suiteは含めない。
 
-値と診断先は `verification-runner-contract.ps1` の記述を正本とします。各段階で一度作る実行期限と、その10秒後の後片付け期限を内部の全コマンドへ渡します。小区間で期限を作り直さず、後片付け時間に完了した処理を成功へ戻しません。
+ScenariosとDesktopの必須ID、各段階とケースの制限時間、候補の展開と受渡しは[検証入口の説明](../../../tools/BeMusicSeeker.Verify/README.md)を正本とします。期限と選択は [VerificationPlan](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationPlan.cs) と [VerificationRunner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs) が所有します。
 
-現在版のアプリ・更新プログラム・正確な版の `SkipDocHtml` パッケージは、一回だけ作成して共有します。`distribution-manifest.json` がパス、版、コミット、実行・生成物ID、診断用SHA-256を伝えます。利用側は存在・配置を確認して隔離コピーを操作し、追加の封印や前後の全ツリー再照合はしません。隔離作業先はリポジトリ外です。
+候補の受渡しでは次を守ります。
 
-`accept-net10-update.ps1` はこのマニフェストを必須とし、現在版へ同じ現在版を適用して、受付、管理対象の更新・削除、本物のアプリの再起動、起動完了、終了、データ保持を確認します。単独実行でも作成済みの配布物を使います。
+- 通常起動の実行ファイル・assets・表示言語ファイル・ネイティブ部品は、検査済みのCurrentを展開した同じ配置へ揃え、profileはケース専有のままにします。更新・故障のfixtureが明示する配置は維持します。
+- 候補の指定が片方だけの場合は、日常のビルドへ代替せず失敗します。
+- 利用側は配布候補の目録と追跡された旧版の識別情報を照合し、必要なケースでは所有する `TestWorkspace` へ展開します。再publish、別配布候補の目録の探索、欠落した入力の自動代替は行いません。
 
-再起動失敗時の復元テストは、本番の準備・適用処理と呼出し単位のプロセス開始代替処理を使い、配布実行ファイルを破壊しません。非公開の処理入口を呼ぶ例外はこの境界だけとし、確認対象は元の例外、到達した起動、メタデータ・ファイル・利用者データの復元です。非公開名そのものを契約にしません。画面を確認しない更新プロセスは `CreateNoWindow=true` を使用します。
+ケース固有の制限時間は、テスト段階で共有する制限時間を延長しません。Desktopは既存の利用者セッションの排他と単一workerで実入力を専有し、Scenariosの後に実行します。各ケースは、共有の制限時間とケース固有の上限の早い方を外側の期限とし、所有する入力と資源の回収に10秒を先取りした操作期限を使います。
 
-`UpdaterPackageSyncTests` は実プロセスの終了とreadyファイルで順序を制御し、[非同期処理の待機](#非同期処理の待機)に従います。通常の終了・受付確認には局所期限を追加せず、標準入口の検証全体の期限を使います。生存アプリの模擬プロセスは準備通知後に使い、検査が終わるまで入力待ちで生存させます。決定前・排他競合中に終了しないことは通常完了と別に観測します。ケース固有のアプリディレクトリと回復登録を使い、所有プロセスと出力の回収後に登録・一時領域を清掃します。
+- 残り時間が回収の余裕以下なら、新しい入力を開始しません。
+- 実入力後に失敗した場合は、最初の検出時刻+10秒と外側の期限の早い方を一度だけ確定し、所有する入力の解除、入力元のSTA、返却済みのアプリのセッション、fixtureの回収へ渡します。
+- 通常の回収は操作期限内で行い、遅い完了や回収の失敗を成功へ変えません。起動接続を返す前の失敗では、既存のドライバーの回収を維持します。
 
-再起動先と生存アプリには、[テスト専用GUI stub](../../../BeMusicSeeker.Tests/Fixtures/UpdaterRestartApplication/Program.cs)を使います。既定Terminalへconsoleの寿命を渡さないよう本番と同じWinExeとし、追加引数なしの本番ShellExecuteを通します。版ごとのmarker内容・生存gateは隣接入力をpackage・backupとともに移動させます。marker生成は終了の代わりにせず、root・両pipeのEOF・Job内の全子終了を待ちます。直接Updaterとそのexecution gateの起動は引き続き画面を作りません。stubは.NET 10 runtimeのある検証環境で動くframework依存の単一exeで、通常のテストbuildから独立発行します。
+復旧の実製品プロセスの代表ケースは、[`RecoveryScenarioTests`](../../../tests/BeMusicSeeker.Scenarios.Tests/Recovery/RecoveryScenarioTests.cs) の `SC-13` と `SC-14` を `full` で実行し、Dailyには追加しません。専有の `TestWorkspace`、`OwnedProcess`、UI moduleの利用者セッションの排他を共有し、各ケースの同じ期限で確認の到達・操作Task・応答・実際の退出を待ちます。自然な退出は入力前に期待として登録し、未知の切断や未応答を成功として許可しません。
 
 ### 公開旧版からの移行とリリース判定
 
-[固定配布物の指定](../../acceptance/v216-first-hop/artifact.json)が示す公開v2.1.6.0 ZIPだけを使用します。サイズは11,260,709バイト、SHA-256は次の値です。
+[固定配布物の指定](../../acceptance/v216-first-hop/artifact.json)が示す公開v2.1.6.0のZIPだけを使用します。取得元のHTTPS URL、メタデータ、サイズ、SHA-256はこの指定を正本とし、いずれかが一致しなければ失敗です。キャッシュがない場合だけ同じディレクトリの一時ファイルへ制限時間付きで取得し、検証後に原子的に公開します。既存の不正なキャッシュの自動修復、再取得による隠蔽、別版やソースからの代替ビルドはしません。
 
-```text
-C2C460B6757478816912A59FEA535209B2A960528C8996FFE12225EC7CED7BB2
-```
+旧版からの適用は `ReleaseAcceptance` カテゴリのテスト（`[TestCategory("ReleaseAcceptance")]`）で、固定ZIP内の実際のprotocol-1更新プログラムを直接起動します。現行の実配布ZIPを入力とし、次を確認します。
 
-指定のHTTPSリリースURL、メタデータ、サイズ、ハッシュの不一致は失敗です。キャッシュがない場合だけ同じディレクトリの一時ファイルへ期限付きで取得し、検証後に原子的に公開します。既存の不正キャッシュの自動修復、再取得による隠蔽、別版やソースからの代替ビルドはしません。
+- 制限時間内の正常終了と出力の回収。
+- 全管理ファイルの相対位置と内容。新版から除かれた旧管理ファイルが正規の配置から除去されていること。
+- 更新プログラムが再生成する管理一覧は、記載されたパスの集合を比較する。改行・列挙順のバイト一致は要求しない。
+- `data/`・`config/` と利用者が追加したファイルは、更新プログラムの起動前に採取したパスの集合・バイト内容と比較する。退避・作業領域を含めた全ツリーの一致は要求しない。
 
-旧版からの適用はC#の `ReleaseAcceptance` テストで、固定ZIP内の実際のprotocol-1更新プログラムを直接起動します。現行の実配布ZIPを入力とし、期限内の正常終了と出力回収に加え、全管理ファイルの相対位置・内容、新版から除かれた旧管理ファイルの正規配置からの除去を確認します。更新プログラムが再生成する管理一覧は記載されたパス集合を比較し、改行・列挙順のバイト一致は要求しません。`data/`・`config/` と利用者追加ファイルは、更新プログラムの起動前に採取したパス集合・バイト内容と比較します。退避・作業領域を含めた全ツリー一致は要求しません。旧更新プログラムは入力ZIPを消費するため、Fullの生成物を変更せず、同じ内容の検証用コピーを渡します。
+旧更新プログラムは入力ZIPを消費するため、指定された候補を変更せず、同じ内容の検証用コピーを渡します。
 
-旧アプリの画面起動、起動ログ待ち、更新通知や所有モーダルの有無、旧アプリの通常終了、旧版の終了待ちと管理ファイルロック時の特性は、この受入から除きます。別枠の旧GUI受入も設けません。旧更新プログラムが子プロセスを作る場合は所有・回収しますが、画面内容を合格条件にはしません。現行更新プログラムの失敗・復元・終了待ちの検査は維持し、現行配布物の起動とDB・設定の意味上の移行は既存データ起動および現行更新の受入で検証します。
+旧アプリの画面起動、起動ログ待ち、更新通知や所有モーダルの有無、旧アプリの通常終了、旧版の終了待ちと管理ファイルのロック時の特性は、この受入から除きます。別枠の旧GUI受入も設けません。旧更新プログラムが子プロセスを作る場合は所有・回収しますが、画面内容を合格条件にはしません。現行の更新プログラムの失敗・復元・終了待ちの検査は維持し、現行配布物の起動とDB・設定の意味上の移行は、既存データ起動および現行更新の受入で検証します。
 
-この旧版専用ケースは.NET Framework 4.7.2から.NET 10への配布構成移行を確認する一時的な互換性検査です。移行版の受入を終え、旧配布構成からの直接更新を必須の検査対象から外す判断をした時点で、ケース、固定旧ZIPの指定と専用キャッシュ処理、専用の必須判定、関連資料をまとめて退役させます。旧版番号ごとの検査を恒久的に増やしません。
+この旧版専用のケースは、.NET Framework 4.7.2から.NET 10への配布構成の移行を確認する一時的な互換性検査です。移行版の受入を終え、旧配布構成からの直接更新を必須の検査対象から外すと判断した時点で、ケース、固定旧ZIPの指定と専用のキャッシュ処理、専用の必須判定、関連資料をまとめて退役させます。旧版番号ごとの検査を恒久的に増やしません。
 
-既存データ起動と更新の受入は、初期設定・ライブラリ構築済みの利用者を表す設定と既存DBを入力にします。設定生成は共通処理を使い、`AssemblyVersion` を実保存形式の `SerializableVersion` XML、その他の単一値の設定を文字列として保存します。更新後の最初の起動は、初期設定からの新規利用ではなく、移行した設定とDBを読み取れるかの確認です。
+既存データ起動と更新の受入は、初期設定・ライブラリ構築済みの利用者を表す設定と既存DBを入力にします。設定の生成は共通処理を使い、`AssemblyVersion` を実際の保存形式の `SerializableVersion` XML、その他の単一値の設定を文字列として保存します。更新後の最初の起動は、初期設定からの新規利用ではなく、移行した設定とDBを読み取れるかの確認です。
 
-既存データ起動では、`startup_ready_operable` と `startup_post_initialization_maintenance_complete` の両方を同じ実行期限内で待ってから終了します。画面操作可能の記録だけで終了すると、起動後のLR2自動同期を中断するためです。終了後に既存の意味保持と同期結果を検査し、処理が終わったことだけで同期成功とは扱いません。
+既存データ起動では、`startup_ready_operable` と `startup_post_initialization_maintenance_complete` の両方を同じ制限時間内で待ってから終了します。必須のローカル処理と必要なLR2同期は画面が操作可能になる前に終端し、その後の任意の外部同期・保守も完了を確認します。終了後に既存の意味の保持と同期結果を検査し、処理が終わったことだけで同期成功とは扱いません。
 
-現行配布物の画面起動受入では、予期しない所有ダイアログが可視・有効なら失敗とし、自動で閉じて成功にしません。初回構築通知も自動操作せず、利用済み入力の不備や起動の問題として扱います。初期設定自体の検証を更新受入へ混ぜません。この判定を、画面を起動しない旧更新プログラムのファイル適用検査には適用しません。
-
-`Assert-VerificationTestOutcomes` は通常テスト全プロセスと後続受入のTRXを合成し、`release-outcomes.json` を生成します。旧更新受入も実際のC#テストの完全修飾名と実行結果を使い、スクリプトが組み立てた専用の成功JSONは使用しません。必須項目は正確に一件の `Passed` を要求します。欠落、重複、その他の状態は失敗です。任意項目の `Skipped` / `Inconclusive` / `NotExecuted` は完全修飾名の明示一覧と空でない理由がある場合だけ許可します。カテゴリ全体や未知の項目を一括で除外しません。
-
-### 解析・大規模データ・外部エンコーダー
-
-通常の解析確認は小さい合成譜面を使います。解析器・復号・譜面情報の保存形式を変える場合は、対象に合う追加検証を明示します。
-
-```powershell
-$env:BMS_TEST_CHART_INFO_FULL = '1'
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ParserCompatibilityFull'
-$env:BMS_TEST_PRODUCTION_DIFF_FULL = '1'
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ProductionDiffFull'
-$env:BMS_TEST_CHART_INFO_SLOW = '1'
-pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'TestCategory=ParserCompatibilitySlow'
-```
-
-実譜面・境界例のコピーにはビルド前の `BMS_TEST_CHART_INFO_FULL=1` が必要です。対応フラグがなければ `Inconclusive`、有効なのに入力がなければ失敗とします。約20 MiBを解析する実データ差分も、通常検証へ混ぜません。
-
-性能測定の入口は `benchmark-net10-performance.ps1 -Corpus all -Configuration Release -Scale small,medium,large` です。1,000 / 25,000 / 200,000行の合成入力を、800万の逆引きキーや実DB・20 ZIPの導入全体の代わりとは扱いません。条件、完了範囲、反復値、結果同等性は[性能仕様](../core/performance-and-scale.md)に従います。
-
-外部エンコーダーは `ExternalAudioEncoderSmokeTests` で明示実行します。通常は `Inconclusive`、`BMS_TEST_AUDIO_ENCODERS=1` で有効です。`BMS_TEST_AUDIO_ENCODER_DIR`、アプリ基準、`libs\x64`、`x64` の順に検索します。`BMS_TEST_AUDIO_ENCODER_TYPES` は `MP3_LAME,AAC_NERO,OPUS,FLAC,OGG_VORBIS` の部分集合です。指定した実行ファイルがない場合、または指定なしで一つも見つからない場合は失敗です。
-
-生成した短いステレオPCM/WAVを本番の `BassAudioWriter` とエンコード・停止・後片付けへ通し、ファイルの形式識別と採番を確認します。実行ファイル、ライセンス、生成音声をリポジトリの固定入力へ追加しません。
+現行配布物の画面起動の受入では、予期しない所有ダイアログが可視・有効なら失敗とし、自動で閉じて成功にしません。初回構築の通知も自動操作せず、利用済み入力の不備や起動の問題として扱います。初期設定自体の検証を更新の受入へ混ぜません。この判定を、画面を起動しない旧更新プログラムのファイル適用の検査には適用しません。
 
 ### 画面確認
 
-ユーザーの明示依頼によりエージェントが実機で画面確認を行う場合は、[検証方針](#検証方針)に加えて、以下の起動・操作・終了手順に従います。
+利用者の明示依頼によりエージェントが実機で画面確認を行う場合は、[検証方針](#検証方針)に加えて、次の起動・操作・終了手順に従います。
 
 実アプリを確認するときは、作成したリポジトリ内の `BeMusicSeeker.exe` の正確なパスを指定します。作業ディレクトリと利用データも確認し、インストール版を名前検索で起動しません。起動したPIDと生成時刻を控え、確認後は通常終了を要求して終了を待ち、操作セッションも終了します。無関係な同名プロセスを停止しません。
 
@@ -235,11 +217,11 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 画面の表示、入力、完了状態は区別して確認します。単にウィンドウが現れたことやログが静かになったことを、対象操作の成功条件にしません。
 
-### ユーザーに推奨する実機確認
+### 利用者に推奨する実機確認
 
-入力・フォーカス経路、表示、機器対応、担当設定などを変更し、実環境との接続を確かめることが有用な場合に、次の項目から関係する確認を推奨します。必須工程やレビューの合格条件にはしません。通常の `Quick`・`Functional`・`Full` の成功だけで、この範囲を確認済みとはしません。専用CI、操作禁止のPC、入力遮断を通常テストの前提にせず、エージェントへの明示依頼がある場合の起動と後片付けは[画面確認](#画面確認)に従います。
+入力・フォーカス経路、表示、機器対応、担当設定などを変更し、実環境との接続を確かめることが有用な場合に、次の観点から関係する確認を推奨します。必須工程やレビューの合格条件にはしません。通常の局所MTP実行・`verify`・`full` の成功だけで、この範囲を確認済みとはしません。専用CI、操作禁止のPC、入力遮断を通常テストの前提にせず、エージェントへの明示依頼がある場合の起動と後片付けは[画面確認](#画面確認)に従います。
 
-具体的な操作と期待結果は変更対象の機能仕様から選び、条件・対象操作・観測結果を短く示します。以下は確認観点であり、全項目を毎回実施する一覧ではありません。
+具体的な操作と期待結果は変更対象の機能仕様から選び、条件・対象操作・観測結果を短く示します。次の表は確認観点であり、全項目を毎回実施する一覧ではありません。
 
 | 確認観点 | 操作と観測 |
 | --- | --- |
@@ -254,18 +236,16 @@ pwsh -NoProfile -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter 'Tes
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 通常検証の分割、選択、共有期限 | [標準スクリプト](../../../scripts/verify-refactor.ps1) | 実際の実行計画、検出されたテスト集合、終了時刻、TRXを照合する。 |
-| 全コードモードの空白整形・C# 正規形、差分失敗、共有期限 | [正規形設定](../../../.editorconfig)、[標準スクリプト](../../../scripts/verify-refactor.ps1) の `Invoke-RepositoryFormatVerification` | 両 formatter の変更なし検査と、違反時にビルド前で失敗する実行プローブ。 |
-| 各段階の期限・診断・停止 | [検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |
-| 失敗時の差し戻し・再実行 | [エージェント運用](agent-workflow.md#不備の差し戻し)、本書 | 修正担当への差し戻し、同一版の再実行と修正後の検証、障害解決の条件を区別する。 |
-| UTF-8出力の読取りと保存、親環境の非変更 | [共通のプロセス処理](../../../scripts/verification-process-lifecycle.ps1) の `Set-VerificationRedirectedProcessEncoding` / `Start-VerificationRedirectedProcess`、[分割テストの起動](../../../scripts/verify-refactor.ps1) の `Start-FunctionalShardProcess` | [`VerificationProcessLifecycleTests`](../../../BeMusicSeeker.Tests/Verification/VerificationProcessLifecycleTests.cs) の `RedirectedUtf8OutputPreservesBothPipesAndArtifactsWithoutChangingParent`（`ProcessIntegration`）は、両ストリームと保存物の日本語・記号・絵文字、親設定の不変、残留プロセスなしを確認する。通常コマンドと分割テストが同じ設定処理を起動前に呼ぶことは、両入口を点検する。 |
-| 一時資源・共有状態・通常完了の待機 | [共通補助処理](../../../BeMusicSeeker.Tests/Helpers)、各機能のテスト準備 | 所有・復元、通知前の失敗、待合せの解放、実際の完了条件を確認する。 |
-| 画面の準備、表示、破棄 | [`TestUiDispatcherHost`](../../../BeMusicSeeker.Tests/Helpers/TestUiScheduler.cs)、[`TestWindowPresentationScope`](../../../BeMusicSeeker.Tests/Helpers/TestUiScheduler.cs) | [`SettingsControlPresentationTests`](../../../BeMusicSeeker.Tests/Settings/SettingsControlPresentationTests.cs)、[`WpfTestApplicationHostTests`](../../../BeMusicSeeker.Tests/Helpers/WpfTestApplicationHostTests.cs)。一般idleへの到達とは別に実描画・配置・ネイティブ条件を確認し、所有資源と失敗優先順位を維持する。 |
-| 公開旧版のファイル適用、現行版の更新 | C#の旧更新受入、[現行更新の受入](../../../scripts/accept-net10-update.ps1) | [`LegacyUpdaterDistributionMigrationTests`](../../../BeMusicSeeker.Tests/Update/LegacyUpdaterDistributionMigrationTests.cs) は固定旧updaterによる実配布ZIPの適用・旧ファイル除去・利用者ファイル保持、[`UpdaterPackageSyncTests`](../../../BeMusicSeeker.Tests/Update/UpdaterPackageSyncTests.cs) は現行updaterのプロトコル・失敗・復元を確認する。 |
-| 利用済み設定の生成と非初回判定 | [受入設定の生成](../../../scripts/acceptance-settings-fixture.ps1)、[既存データ起動](../../../scripts/accept-net10-existing-data.ps1) | [`ApplicationSettingsLifecycleTests`](../../../BeMusicSeeker.Tests/Settings/ApplicationSettingsLifecycleTests.cs) の `LegacySettingsFixtureGeneratorPreservesTypedVersionAndScalarValues` は生成した設定を実設定ストアで読み、版・設定値・非初回判定を確認する。現行配布物での既存設定の読取りはFullの既存データ起動で確認する。 |
-| 予期しない所有モーダルの拒否 | [共通の画面観測](../../../scripts/verification-ui-automation.ps1) | [`ExistingDataAcceptanceDialogContractTests`](../../../BeMusicSeeker.Tests/Verification/ExistingDataAcceptanceDialogContractTests.cs) はPID・所有先・可視・有効・モーダル条件とプロセス結果ゲートを確認する。自動応答は行わない。 |
-| 外部エンコーダー | [`BassAudioWriter`](../../../BeMusicSeeker/Ribbit/Media/BassAudioWriter.cs) | [`ExternalAudioEncoderSmokeTests`](../../../BeMusicSeeker.Tests/Playback/ExternalAudioEncoderSmokeTests.cs) |
+| 通常開発と正式リリース前の検証区分、候補の再利用、変更に応じた追加検証 | 本書の[実行範囲の選択](#実行範囲の選択)、[開発指針](../../../AGENTS.md#文書と検証)、[リリース手順](release.md#配布物の生成と検証)、[エージェント運用](agent-workflow.md#完了判定) | 作業段階・公開候補の確定と各文書の案内を照合する。運用文言を固定する自動テストは設けない。 |
+| 複数ワークツリーの検証と結果の再利用 | 本書の[複数ワークツリーの検証](#複数ワークツリーの検証)、[並列作業](agent-workflow.md#並列作業)、[通常の統合手順](release.md#通常の作業ブランチの統合) | 全体ルートによる `verify`・性能測定の開始調整と単位責任者による対象moduleの局所MTP実行の自主管理、別ワークツリーの必要ビルドとの並行、資源衝突と実測負荷、対象版・共有依存、移管時の結果引継ぎ、検証版と統合版の一致を照合する。運用文言を固定する自動テストは設けない。 |
+| module選択・必須ID・共有期限・全行Passed | [VerificationPlan](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationPlan.cs)、[VerificationRunner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs) | Coreの `VerificationPlanTests`・`VerificationRunnerTests`・`ResultGateTests` が、選択module・必須ID・filter・非空結果・全行Passed・元の期限の継承を確認する。 |
+| 手動・標準の整形、前段失敗 | [RepositoryFormatter](../../../tests/BeMusicSeeker.TestSupport/Verification/RepositoryFormatter.cs)、[手動入口](../../../scripts/format-code.ps1) | Coreの `RepositoryFormatterTests`・`VerificationRunnerTests` が、Gitの三集合、全体整形、`NoRestore`、共有期限、実際のアダプター、元の診断・非ゼロ終了と後続の停止、整形と同時のビルドの取消と、整形が内容を変えた場合の再ビルドによる置換を確認する。 |
+| 各段階の期限・診断・停止 | [VerificationRunner](../../../tests/BeMusicSeeker.TestSupport/Verification/VerificationRunner.cs)、[検証スクリプト群](../../../scripts) | 実行に使う期限とプロセス所有情報、失敗時の診断・残留を確認する。 |
+| 失敗時の差し戻し・再実行 | [エージェント運用](agent-workflow.md#不備の差し戻し)、本書 | 修正担当への差し戻し、同一版の再実行と修正後の検証、反復回数による再計画を区別する。 |
+| 公開旧版の適用・現行更新 | [Scenarios/Update](../../../tests/BeMusicSeeker.Scenarios.Tests/Update) | `LegacyUpdaterDistributionMigrationTests`・`UpdaterPackageSyncTests` と `SC-CurrentUpdate` で実配布の適用・保存・再起動を確認する。UIの更新ダイアログからの提示・適用・別PIDの再起動と同じ配信での非循環は、[Desktop.E2E/Update](../../../tests/BeMusicSeeker.Desktop.E2E.Tests/Update) の `SC-15A` が実UIAで確認する。更新ツールの再起動失敗から、前版への巻き戻し・失敗記録の公開・次の明示起動での通知と記録の消費・配信を本物のNextへ切り替えた次の更新までの連続した流れは、同じ場所の `SC-15C` が実UIAで確認する。 |
+| 利用済み設定・既存DBの移行 | [Scenarios/Acceptance](../../../tests/BeMusicSeeker.Scenarios.Tests/Acceptance) | `PublishedExistingDataAcceptanceTests` で、Standalone・LR2の各2起動、意味の保持・設定の安定と元入力の保持を確認する。 |
+| 予期しない所有モーダルの拒否 | [PublishedApplicationSession](../../../tests/BeMusicSeeker.TestSupport/Scenarios/PublishedApplicationSession.cs) | `SC-ExistingData`・`SC-CurrentUpdate`・`SC-16` が実際の所有Windowと通常終了を観測し、自動応答で異常を隠さない。スキーマ確認と初期化失敗の通知は、所有モーダルの観測で検出する。 |
 
 ## 関連資料
 
-[テスト設計](test-authoring.md)、[エージェント運用](agent-workflow.md)、[リリース](release.md)、[テスト入力の案内](../../../BeMusicSeeker.Tests/TestData/README.md)。
+[テスト設計](test-authoring.md)、[テストの実行基盤](test-runtime.md)、[画面テストの分離](ui-test-isolation.md)、[エージェント運用](agent-workflow.md)、[リリース](release.md)、[検証入口の説明](../../../tools/BeMusicSeeker.Verify/README.md)、[互換検査の案内](../../../tests/BeMusicSeeker.Compatibility.Tests/README.md)、[テスト入力の案内](../../../BeMusicSeeker.Tests/TestData/README.md)。

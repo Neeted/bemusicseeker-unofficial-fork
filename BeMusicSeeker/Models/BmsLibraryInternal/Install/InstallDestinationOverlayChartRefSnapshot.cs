@@ -8,17 +8,17 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal sealed class InstallDestinationOverlayChartRefSnapshot
 {
     private static readonly InstallDestinationOverlayChartRefSnapshot empty = new(
-        new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase),
+        new Dictionary<string, List<ChartFile>>(StringComparer.OrdinalIgnoreCase),
         []);
 
-    private readonly Dictionary<string, List<LibraryChartRef>> refsByInstallDestinationDirectory;
+    private readonly Dictionary<string, List<ChartFile>> refsByInstallDestinationDirectory;
     private readonly List<string> sortedInstallDestinationDirectories;
 
     private InstallDestinationOverlayChartRefSnapshot(
-        Dictionary<string, List<LibraryChartRef>> refsByInstallDestinationDirectory,
+        Dictionary<string, List<ChartFile>> refsByInstallDestinationDirectory,
         List<string> sortedInstallDestinationDirectories)
     {
-        this.refsByInstallDestinationDirectory = refsByInstallDestinationDirectory ?? new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
+        this.refsByInstallDestinationDirectory = refsByInstallDestinationDirectory ?? new Dictionary<string, List<ChartFile>>(StringComparer.OrdinalIgnoreCase);
         this.sortedInstallDestinationDirectories = sortedInstallDestinationDirectories ?? [];
     }
 
@@ -35,13 +35,12 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
     internal static InstallDestinationOverlayChartRefSnapshot FromCharts(IEnumerable<ChartFile> charts)
     {
         return FromLibraryChartRefs((charts ?? [])
-            .Select(LibraryChartRef.FromChartFile)
             .Where(chart => chart != null));
     }
 
-    internal static InstallDestinationOverlayChartRefSnapshot FromLibraryChartRefs(IEnumerable<LibraryChartRef> charts)
+    internal static InstallDestinationOverlayChartRefSnapshot FromLibraryChartRefs(IEnumerable<ChartFile> charts)
     {
-        List<LibraryChartRef> refs = [.. (charts ?? [])
+        List<ChartFile> refs = [.. (charts ?? [])
             .Where(chart => chart != null)
             .GroupBy(CreateRuntimeKey, StringComparer.Ordinal)
             .Where(group => !string.IsNullOrWhiteSpace(group.Key))
@@ -51,16 +50,16 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
             return Empty;
         }
 
-        var refsByDirectory = new Dictionary<string, List<LibraryChartRef>>(StringComparer.OrdinalIgnoreCase);
-        foreach (LibraryChartRef chart in refs)
+        var refsByDirectory = new Dictionary<string, List<ChartFile>>(StringComparer.OrdinalIgnoreCase);
+        foreach (ChartFile chart in refs)
         {
-            string directoryKey = CreateDirectoryKey(chart.GetChartSnapshot()?.InstallDestination);
+            string directoryKey = CreateDirectoryKey(chart.InstallDestination);
             if (string.IsNullOrWhiteSpace(directoryKey))
             {
                 continue;
             }
 
-            if (!refsByDirectory.TryGetValue(directoryKey, out List<LibraryChartRef> directoryRefs))
+            if (!refsByDirectory.TryGetValue(directoryKey, out List<ChartFile> directoryRefs))
             {
                 directoryRefs = [];
                 refsByDirectory[directoryKey] = directoryRefs;
@@ -78,7 +77,7 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
             [.. refsByDirectory.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)]);
     }
 
-    internal List<LibraryChartRef> GetChartRefsUnderInstallDestination(string folderPath)
+    internal List<ChartFile> GetChartsUnderInstallDestination(string folderPath)
     {
         string folderKey = CreateDirectoryKey(folderPath);
         if (string.IsNullOrWhiteSpace(folderKey))
@@ -86,8 +85,8 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
             return [];
         }
 
-        List<LibraryChartRef> refs = [];
-        if (refsByInstallDestinationDirectory.TryGetValue(folderKey, out List<LibraryChartRef> directRefs))
+        List<ChartFile> refs = [];
+        if (refsByInstallDestinationDirectory.TryGetValue(folderKey, out List<ChartFile> directRefs))
         {
             refs.AddRange(directRefs);
         }
@@ -112,14 +111,17 @@ internal sealed class InstallDestinationOverlayChartRefSnapshot
         return refs;
     }
 
-    private static string CreateRuntimeKey(LibraryChartRef chart)
+    /// <summary>導入先投影から要求に必要な不変識別だけを返します。</summary>
+    internal List<LibraryChartRef> GetChartRefsUnderInstallDestination(string folderPath)
+        => [.. GetChartsUnderInstallDestination(folderPath).Select(chart => LibraryChartRef.FromChartFile(chart))];
+    private static string CreateRuntimeKey(ChartFile chart)
     {
         if (chart == null)
         {
             return null;
         }
 
-        ChartFileKind chartKind = chart.Kind == LibraryChartKind.Bmson ? ChartFileKind.Bmson : ChartFileKind.Bms;
+        ChartFileKind chartKind = chart.Kind;
         string primaryKey = ChartFileRuntimeStateKey.Create(chartKind, chart.Path, chart.Md5, chart.Sha256);
         if (!string.IsNullOrWhiteSpace(primaryKey))
         {

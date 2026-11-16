@@ -3,6 +3,12 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class PendingInstallBatchResult
 {
+    /// <summary>パッケージ境界で取消を観測したかどうか。開始済み対象は完了させます。</summary>
+    internal bool Cancelled { get; set; }
+
+    /// <summary>取消で開始しなかった対象。導入先と元を保持します。</summary>
+    internal List<ChartPackage> UnprocessedPackages { get; } = [];
+
     public HashSet<ChartPackage> PendingPackagesToRemove { get; } = [];
 
     public List<ChartPackage> DeferredInstalledPackages { get; } = [];

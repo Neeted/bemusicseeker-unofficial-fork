@@ -161,6 +161,7 @@ internal sealed class Lr2IrRankingLookup
 
 internal static class Lr2IrRankingCacheParser
 {
+    /// <summary>固定Gregorian日時の順位XMLから集計し、不正な更新日時には既存のcache書込時刻を使います。</summary>
     public static bool TryParseSummary(string rankingXml, string md5, DateTime cacheLastWriteTime, int lr2Id, out Lr2IrRankingParseResult result)
     {
         if (!TryParseLookup(rankingXml, md5, cacheLastWriteTime, false, out Lr2IrRankingLookup lookup))
@@ -173,6 +174,7 @@ internal static class Lr2IrRankingCacheParser
         return true;
     }
 
+    /// <summary>順位行と固定Gregorian日時を読み、必要な場合だけ全順位を実体化します。</summary>
     public static bool TryParseLookup(string rankingXml, string md5, DateTime cacheLastWriteTime, bool materializeRanking, out Lr2IrRankingLookup lookup)
     {
         lookup = null;
@@ -338,7 +340,7 @@ internal static class Lr2IrRankingCacheParser
         }
 
         string tail = rankingXml.TrimEnd('\0').Tail(33, 19);
-        return DateTime.TryParseExact(tail, "yyyy-MM-dd HH:mm:ss", null, DateTimeStyles.None, out DateTime parsed)
+        return DateTime.TryParseExact(tail, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None, out DateTime parsed)
             ? parsed
             : fallback;
     }

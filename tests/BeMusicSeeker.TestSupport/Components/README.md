@@ -1,0 +1,11 @@
+# 局所テストの共有fixture
+
+このnamespaceは、機能の入力・依存を指定して組み立てるComponentテストの補助を一度だけ定義します。各テストmoduleから参照し、ソースのリンクやコピー、テストproject間の参照は作りません。
+
+`TestBmsLibrary` は準備完了を直接設定する局所fixtureです。ScenariosとDesktopの通常起動・初期化の成功確認には使わず、それらは本番bootstrapを通します。
+
+画面を組み立てる `MainWindowViewModelTestFactory` と `MainWindowTestLifetime` は隣の `Wpf` namespaceに置きます。これらも局所の画面fixtureであり、Scenarioの本番起動を代替しません。使用する実行moduleが画面とsession排他を所有し、helperへ所有を移しません。
+
+物理配置はschedulerの意味を変えません。`TestBmsLibrary` の既定は構築したthreadのDispatcher、`TestBmsPlaylist` の既定は共有STA hostのDispatcherを捕捉します。必要な場合は既存の明示scheduler引数を使い、Dispatcherなしの経路と利用可能なinline schedulerを同一視しません。
+
+DBの所有者と寿命は呼出元が渡します。設定専用領域の回収も呼出元のtesthostが、所有する処理と画面の終端後に既存のcleanup入口で行います。共有fixtureにassembly初期化や独立したcleanupを追加しません。

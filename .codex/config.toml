@@ -1,9 +1,9 @@
 [agents]
 enabled = true
-# 全担当をルートが直接呼び、テスト設計の後に引継ぎを点検する。
-# 停止・待機中も上限に含め、障害解決担当の枠を確保する。
-# 書込み担当を終了してから凍結し、新規の予備レビューを反復して最終レビューへ進む。
-max_concurrent_threads_per_session = 3
+# 主担当を除き、同時に開いている子担当スレッドの上限。
+# 64は容量の余裕値であり、運用人数の目標や必須上限ではない。必要な委譲を妨げる場合は見直す。
+# ワークツリー数・所有・委譲の運用は devdocs/spec/development/agent-workflow.md に従う。
+max_concurrent_threads_per_session = 64
 
 [features.multi_agent_v2]
 enabled = true
@@ -13,15 +13,19 @@ default_wait_timeout_ms = 900000
 max_wait_timeout_ms = 3600000
 
 root_agent_usage_hint_text = """
+複数の独立した実装単位を並行開発する場合の全体ルートと単位責任者の分担は、
+`devdocs/spec/development/agent-workflow.md` の「役割と順序」「担当の共通契約」「並列作業」に従ってください。
+
 統合確認・検証・レビューで実装の不備を見つけたら、まず元の実装担当へ戻してください。
-不備の発見だけでは `issue-resolver` を呼びません。呼出し前に
+`issue-resolver` は再計画後の実装単位だけに使います。
 `devdocs/spec/development/agent-workflow.md` の「不備の差し戻し」と
-「障害解決担当を使う条件」を確認してください。
+「反復回数と再計画」に従ってください。
 
 委譲した担当の完了はイベントで待ってください。完了確認だけを目的に、状態一覧、
 担当の会話、差分、ログを繰り返し読み取ったり、待機中という進捗だけを通知したりしません。
 
-委譲後は、原則として timeout_ms=900000 の wait_agent を一度呼びます。
+全体ルートと単位責任者は、配れる独立作業があれば配分し、自分に進める仕事があれば進めます。
+配る仕事も自分の仕事もない場合に、原則 timeout_ms=900000 の wait_agent で待ちます。
 実際の担当からの連絡か利用者の入力があった場合に早く復帰します。
 意味のある状態変化がないまま期限に達した場合は、進捗通知や
 list_agents / read_thread による確認を挟まず、再び待機します。

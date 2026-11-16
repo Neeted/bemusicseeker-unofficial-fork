@@ -5,6 +5,7 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlayHistoryWorkflowOwner
 {
+    /// <summary>履歴行の入力とローカル能力を捕捉します。表示項目の有無で未解決行を拒否しません。</summary>
     internal bool TryCreateContextMenuState(object row, out PlayHistoryContextMenuState state)
     {
         return PlayHistoryContextMenuState.TryCreate(row, out state);
@@ -38,37 +39,19 @@ public sealed partial class PlayHistoryWorkflowOwner
                 action = PlayHistoryContextMenuAction.ForPath(state.ChartPath);
                 return true;
             case PlayHistoryContextMenuActionKind.RegisterScoreViewer:
-                if (!state.CanOpenScoreViewer)
+                ScoreViewerMenuDecision decision = state.ResolveScoreViewerDecision();
+                if (decision.Mode != ScoreViewerMenuMode.Open)
                 {
                     return false;
                 }
-                action = PlayHistoryContextMenuAction.ForScoreViewer(
-                    new ScoreViewerTarget(state.Md5, state.ChartPath, state.ChartTitle));
+                action = PlayHistoryContextMenuAction.ForScoreViewer(decision);
                 return true;
-            case PlayHistoryContextMenuActionKind.CopyMd5:
-                return TryCreateCopyAction(state, PlayHistoryContextMenuState.CopyMd5Kind, out action);
-            case PlayHistoryContextMenuActionKind.CopySha256:
-                return TryCreateCopyAction(state, PlayHistoryContextMenuState.CopySha256Kind, out action);
             default:
                 return false;
         }
     }
 
-    private static bool TryCreateCopyAction(
-        PlayHistoryContextMenuState state,
-        string copyKind,
-        out PlayHistoryContextMenuAction action)
-    {
-        action = null;
-        string value = state.GetCopyValue(copyKind);
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-        action = PlayHistoryContextMenuAction.ForValue(value);
-        return true;
-    }
-
+    /// <summary>取得済みの履歴hashを設定Web操作へ渡し、ローカルpathは既存の実在検査を通します。</summary>
     internal bool TryCreateRightClickActionResolutionInput(
         object row,
         Func<string, bool> fileExists,

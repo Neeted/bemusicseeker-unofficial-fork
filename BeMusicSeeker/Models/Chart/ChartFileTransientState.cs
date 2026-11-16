@@ -25,6 +25,9 @@ internal sealed class ChartFileTransientState
 
     internal bool HasInstallEstimationWarningProjection { get; private set; }
 
+    /// <summary>未判定nullを含めて明示的に資源健康度を投影するかを表します。</summary>
+    internal bool HasResourceHealthProjection { get; private set; }
+
     internal int? WAVHealth { get; private set; }
 
     internal int? BGAHealth { get; private set; }
@@ -52,6 +55,7 @@ internal sealed class ChartFileTransientState
         || HasWarningProjection
         || HasInstallEstimationWarningProjection
         || (Warnings?.Count ?? 0) > 0
+        || HasResourceHealthProjection
         || WAVHealth.HasValue
         || BGAHealth.HasValue
         || MovieHealth.HasValue
@@ -59,6 +63,41 @@ internal sealed class ChartFileTransientState
         || BannerHealth.HasValue
         || BackbmpHealth.HasValue
         || !string.IsNullOrWhiteSpace(EncodingName);
+
+    /// <summary>所持の一時DSTと候補だけを成功した物理範囲へ追従させ、他の表示状態を保持します。</summary>
+    internal ChartFileTransientState ApplyFolderChange(BmsLibraryInternal.LibraryInstallDestinationChange change)
+    {
+        bool destinationAffected = BmsLibraryInternal.LibraryInstallDestinationChange.IsUnderFolder(InstallDestination, change.SourceFolderPath);
+        bool candidatesAffected = InstallDestinationSuggestions.Any(path => BmsLibraryInternal.LibraryInstallDestinationChange.IsUnderFolder(path, change.SourceFolderPath));
+        if (!destinationAffected && !candidatesAffected) { return this; }
+        var next = (ChartFileTransientState)MemberwiseClone();
+        next.HasInstallDestinationProjection = true;
+        if (destinationAffected)
+        {
+            next.InstallDestination = string.IsNullOrWhiteSpace(change.DestinationFolderPath) ? null
+                : BmsLibraryInternal.LibraryInstallDestinationChange.RelocatePath(InstallDestination, change.SourceFolderPath, change.DestinationFolderPath);
+        }
+        if (change.InvalidateCandidates)
+        {
+            next.InstallDestinationSuggestions = [];
+            next.HasInstallEstimationWarningProjection = true;
+            bool retainsDestination = !string.IsNullOrWhiteSpace(next.InstallDestination);
+            next.Warnings = [.. Warnings.Where(warning => warning.Category != ChartWarningCategory.InstallEstimation
+                || (retainsDestination && warning.Kind is ChartWarningKind.UnsupportedResourcePath
+                    or ChartWarningKind.InstalledDestinationResolveFailed or ChartWarningKind.SourceSurfaceScanLimitExceeded))];
+            if (!retainsDestination)
+            {
+                next.InstallDestinationTitle = string.Empty;
+                next.InstallDestinationArtist = string.Empty;
+            }
+        }
+        else
+        {
+            next.InstallDestinationSuggestions = [.. InstallDestinationSuggestions.Select(path =>
+                BmsLibraryInternal.LibraryInstallDestinationChange.RelocatePath(path, change.SourceFolderPath, change.DestinationFolderPath))];
+        }
+        return next;
+    }
 
     internal static ChartFileTransientState FromChartFile(
         ChartFile chart,
@@ -81,6 +120,7 @@ internal sealed class ChartFileTransientState
             HasInstallDestinationProjection = forceInstallDestinationProjection,
             Warnings = includeWarningSnapshot ? chart.Warnings : [],
             HasWarningProjection = forceWarningProjection || (includeWarningSnapshot && (chart.Warnings?.Count ?? 0) > 0),
+            HasResourceHealthProjection = chart.ResourceHealthMaintenanceSnapshot != null,
             WAVHealth = chart.WAVHealth,
             BGAHealth = chart.BGAHealth,
             MovieHealth = chart.MovieHealth,
@@ -104,6 +144,7 @@ internal sealed class ChartFileTransientState
             Warnings = [],
             HasWarningProjection = false,
             HasInstallEstimationWarningProjection = false,
+            HasResourceHealthProjection = HasResourceHealthProjection,
             WAVHealth = WAVHealth,
             BGAHealth = BGAHealth,
             MovieHealth = MovieHealth,
@@ -140,7 +181,8 @@ internal sealed class ChartFileTransientState
         };
     }
 
-    internal static ChartFileTransientState FromResourceHealthMaintenanceInfo(BMSFileMaintenanceInfo maintenanceInfo)
+    /// <summary>件数由来の未判定nullも明示的に上書きする資源表示を捕捉します。</summary>
+    internal static ChartFileTransientState FromResourceHealthSnapshot(BmsLibraryInternal.ResourceHealthMaintenanceSnapshot maintenanceInfo)
     {
         if (maintenanceInfo == null)
         {
@@ -149,16 +191,18 @@ internal sealed class ChartFileTransientState
 
         return new ChartFileTransientState
         {
-            WAVHealth = maintenanceInfo.WAVHealth,
-            BGAHealth = maintenanceInfo.BGAHealth,
-            MovieHealth = maintenanceInfo.MovieHealth,
-            StagefileHealth = maintenanceInfo.StagefileHealth,
-            BannerHealth = maintenanceInfo.BannerHealth,
-            BackbmpHealth = maintenanceInfo.BackbmpHealth,
-            EncodingName = maintenanceInfo.encoding
+            HasResourceHealthProjection = true,
+            WAVHealth = maintenanceInfo.GetWavHealth(),
+            BGAHealth = maintenanceInfo.GetBgaHealth(),
+            MovieHealth = maintenanceInfo.GetMovieHealth(),
+            StagefileHealth = maintenanceInfo.GetStagefileHealth(),
+            BannerHealth = maintenanceInfo.GetBannerHealth(),
+            BackbmpHealth = maintenanceInfo.GetBackbmpHealth(),
+            EncodingName = maintenanceInfo.Encoding
         };
     }
 
+    /// <summary>資源表示を捕捉し、明示的な保守値がある場合はnullも投影します。未取得の空表示だけでは投影を作りません。</summary>
     internal static ChartFileTransientState FromResourceHealthChart(ChartFile chart)
     {
         if (chart == null)
@@ -168,6 +212,7 @@ internal sealed class ChartFileTransientState
 
         return new ChartFileTransientState
         {
+            HasResourceHealthProjection = chart.ResourceHealthMaintenanceSnapshot != null,
             WAVHealth = chart.WAVHealth,
             BGAHealth = chart.BGAHealth,
             MovieHealth = chart.MovieHealth,

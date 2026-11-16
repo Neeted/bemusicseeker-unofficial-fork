@@ -40,6 +40,8 @@ internal static class PlayHistorySortEngine
         ["Option"] = nameof(PlayHistoryRow.Option),
         ["OPTION"] = nameof(PlayHistoryRow.Option),
         ["Sha256"] = nameof(PlayHistoryRow.Sha256),
+        ["Md5"] = nameof(PlayHistoryRow.Md5),
+        ["MD5 HASH"] = nameof(PlayHistoryRow.Md5),
         ["SHA256"] = nameof(PlayHistoryRow.Sha256),
         ["Provider"] = nameof(PlayHistoryRow.Provider),
         ["PROVIDER"] = nameof(PlayHistoryRow.Provider),
@@ -51,6 +53,7 @@ internal static class PlayHistorySortEngine
         ["FINALIZED"] = nameof(PlayHistoryRow.Finalized)
     };
 
+    /// <summary>履歴列の並替え先を正規化します。MD5列は取得元の生hashやSHA256と区別してMd5へ接続します。</summary>
     internal static bool TryNormalizeSortColumn(string columnName, out string normalizedColumnName)
     {
         if (string.IsNullOrWhiteSpace(columnName))
@@ -102,6 +105,7 @@ internal static class PlayHistorySortEngine
             nameof(PlayHistoryRow.JudgeTotal) => Sort(source, row => row?.JudgeTotal, direction),
             nameof(PlayHistoryRow.Option) => SortString(source, row => row?.Option, direction),
             nameof(PlayHistoryRow.Sha256) => SortString(source, row => row?.Sha256, direction),
+            nameof(PlayHistoryRow.Md5) => SortString(source, row => row?.Md5, direction),
             nameof(PlayHistoryRow.Provider) => Sort(source, row => row?.Provider, direction),
             nameof(PlayHistoryRow.Source) => SortString(source, row => row?.Source, direction),
             nameof(PlayHistoryRow.RawHash) => SortString(source, row => row?.RawHash, direction),

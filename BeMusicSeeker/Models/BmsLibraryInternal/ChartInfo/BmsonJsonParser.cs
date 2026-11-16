@@ -2,11 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class BmsonJsonParser
 {
+    /// <summary>旧キーを原文上で現代名へ揃え、基本値・詳細値へ同じ数値字句と旧形式の固定resolutionを渡します。</summary>
     public static BmsonDocument Parse(string json)
     {
         if (string.IsNullOrWhiteSpace(json))
@@ -19,10 +21,28 @@ internal static class BmsonJsonParser
             Converters = { new BmsonIntJsonConverter(), new BmsonDoubleJsonConverter() },
             MissingMemberHandling = MissingMemberHandling.Ignore
         };
-        string normalizedJson = (json ?? string.Empty).TrimStart('\uFEFF');
+        string normalizedJson = BmsonLegacyKeyNormalizer.Normalize(json.TrimStart('\uFEFF'));
         BmsonDocument document = JsonConvert.DeserializeObject<BmsonDocument>(normalizedJson, settings) ?? new BmsonDocument();
         ApplyRawNumberTexts(document, normalizedJson);
         return Normalize(document);
+    }
+
+    /// <summary>基本値と詳細値の解析で、JSONの入力失敗だけを対象単位に留め、包まれた内部故障は操作側へ返します。</summary>
+    internal static bool IsInputFailure(JsonException failure)
+    {
+        for (Exception cause = failure.InnerException; cause != null; cause = cause.InnerException)
+        {
+            // Json.NETは数値・文字列などをDTOへ変換できない場合、引数名のないArgumentExceptionで包みます。
+            // 引数の契約違反やその派生型まで入力不良として隠しません。
+            bool incompatibleJsonValue = cause.GetType() == typeof(ArgumentException)
+                && ((ArgumentException)cause).ParamName == null;
+            if (cause is not (JsonException or FormatException or InvalidCastException or OverflowException)
+                && !incompatibleJsonValue)
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static BmsonDocument Normalize(BmsonDocument document)
@@ -81,6 +101,10 @@ internal static class BmsonJsonParser
             int count = Math.Min(document.BpmEvents.Length, bpmTexts.Count);
             for (int index = 0; index < count; index++)
             {
+                if (document.BpmEvents[index] == null)
+                {
+                    throw new JsonSerializationException("bmson bpm_events must not contain null.");
+                }
                 document.BpmEvents[index].BpmText = NormalizeCanonicalJavaNumberText(bpmTexts[index]);
                 if (TryParseRawJavaDouble(bpmTexts[index], out double bpm))
                 {
@@ -468,6 +492,7 @@ internal sealed class BmsonIntJsonConverter : JsonConverter
         return type == typeof(int);
     }
 
+    /// <summary>既存の数値変換を維持し、Token由来の範囲・型失敗だけをJSON入力失敗として返します。</summary>
     public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
     {
         bool nullable = Nullable.GetUnderlyingType(objectType) != null;
@@ -477,11 +502,18 @@ internal sealed class BmsonIntJsonConverter : JsonConverter
         }
         if (reader.TokenType == JsonToken.Integer)
         {
-            return Convert.ToInt32(reader.Value, CultureInfo.InvariantCulture);
+            try
+            {
+                return Convert.ToInt32(reader.Value, CultureInfo.InvariantCulture);
+            }
+            catch (Exception ex) when (ex is OverflowException or InvalidCastException or FormatException)
+            {
+                throw new JsonSerializationException("Cannot convert bmson value to int: " + reader.Value, ex);
+            }
         }
         if (reader.TokenType == JsonToken.Float)
         {
-            return (int)Math.Truncate(Convert.ToDouble(reader.Value, CultureInfo.InvariantCulture));
+            return (int)Math.Truncate(ReadInputDouble(reader));
         }
         if (reader.TokenType == JsonToken.String)
         {
@@ -498,10 +530,40 @@ internal sealed class BmsonIntJsonConverter : JsonConverter
         throw new JsonSerializationException("Cannot convert bmson value to int: " + reader.Value);
     }
 
+    private static double ReadInputDouble(JsonReader reader)
+    {
+        try
+        {
+            return Convert.ToDouble(reader.Value, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is OverflowException or InvalidCastException or FormatException)
+        {
+            throw new JsonSerializationException("Cannot convert bmson value to double: " + reader.Value, ex);
+        }
+    }
+
     public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
     {
         writer.WriteValue(value);
     }
+}
+
+/// <summary>従来は未解釈だったBGAイベントIDだけを任意の参照として読みます。数値変換規則を共有し、解釈不能値は未指定として受理します。</summary>
+internal sealed class BmsonBgaEventIdJsonConverter : JsonConverter
+{
+    /// <summary>イベントの省略可能な整数IDだけを対象にします。</summary>
+    public override bool CanConvert(Type objectType) => objectType == typeof(int?);
+
+    /// <summary>値全体を消費し、通常の整数変換に失敗したイベントIDから参照を作りません。JSON構文失敗は伝播します。</summary>
+    public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+    {
+        var value = JToken.Load(reader);
+        try { return value.ToObject<int?>(serializer); }
+        catch (JsonSerializationException) { return null; }
+    }
+
+    /// <summary>取得済みイベントIDを通常の数値として出力します。</summary>
+    public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer) => writer.WriteValue(value);
 }
 
 internal sealed class BmsonDoubleJsonConverter : JsonConverter
@@ -512,6 +574,7 @@ internal sealed class BmsonDoubleJsonConverter : JsonConverter
         return type == typeof(double);
     }
 
+    /// <summary>既存の数値変換を維持し、Token由来の範囲・型失敗だけをJSON入力失敗として返します。</summary>
     public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
     {
         bool nullable = Nullable.GetUnderlyingType(objectType) != null;
@@ -521,7 +584,7 @@ internal sealed class BmsonDoubleJsonConverter : JsonConverter
         }
         if (reader.TokenType == JsonToken.Integer || reader.TokenType == JsonToken.Float)
         {
-            return Convert.ToDouble(reader.Value, CultureInfo.InvariantCulture);
+            return ReadInputDouble(reader);
         }
         if (reader.TokenType == JsonToken.String)
         {
@@ -536,6 +599,18 @@ internal sealed class BmsonDoubleJsonConverter : JsonConverter
             }
         }
         throw new JsonSerializationException("Cannot convert bmson value to double: " + reader.Value);
+    }
+
+    private static double ReadInputDouble(JsonReader reader)
+    {
+        try
+        {
+            return Convert.ToDouble(reader.Value, CultureInfo.InvariantCulture);
+        }
+        catch (Exception ex) when (ex is OverflowException or InvalidCastException or FormatException)
+        {
+            throw new JsonSerializationException("Cannot convert bmson value to double: " + reader.Value, ex);
+        }
     }
 
     public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
@@ -604,8 +679,9 @@ internal sealed class BmsonInfo
     [JsonProperty("judge_rank")]
     public int JudgeRank { get; set; } = 100;
 
+    /// <summary>明示されたTOTAL倍率。省略とnullは0として保持し、正値だけを定義済みとします。</summary>
     [JsonProperty("total")]
-    public double Total { get; set; } = 100.0;
+    public double Total { get; set; }
 
     [JsonProperty("init_bpm")]
     public double InitBpm { get; set; }
@@ -778,8 +854,9 @@ internal sealed class BmsonBga
 
 internal sealed class BmsonBgaHeader
 {
+    /// <summary>参照に使う数値IDです。省略をID 0へ読み替えません。</summary>
     [JsonProperty("id")]
-    public int Id { get; set; }
+    public int? Id { get; set; }
 
     [JsonProperty("name")]
     public string Name { get; set; } = string.Empty;
@@ -787,6 +864,11 @@ internal sealed class BmsonBgaHeader
 
 internal sealed class BmsonBgaNote
 {
+    /// <summary>有効な数値IDでBGAヘッダーを参照します。解釈不能値は未指定とし、従来受理したイベントを拒否しません。</summary>
+    [JsonProperty("id")]
+    [JsonConverter(typeof(BmsonBgaEventIdJsonConverter))]
+    public int? Id { get; set; }
+
     [JsonProperty("y")]
     public int Y { get; set; }
 }

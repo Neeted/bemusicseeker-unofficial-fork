@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using BeMusicSeeker.Models;
@@ -40,6 +41,9 @@ public sealed partial class PlaylistWorkspaceViewModel
     private long playlistDetailSelectionRevision;
 
     internal event EventHandler<PlaylistTreeSelectionActivatedEventArgs> TreeSelectionActivated;
+
+    /// <summary>有効な明示選択の版を更新した後、UIへ配送する前に同期通知します。依存更新や選択解除は新しい画面受付にしません。</summary>
+    internal event EventHandler<PlaylistTreeSelectionActivatedEventArgs> TreeSelectionAccepted;
 
     internal event EventHandler PlaylistTablesPresentationChanged;
 
@@ -172,6 +176,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void AttachPlaylistTreeStore(BMSPlaylist nextStore, BMSLibrary nextLibrary)
     {
+        SetDetailEntryCommitStore(nextStore);
         SetPlaylistExternalSyncReceiptSubscription(nextStore, nextLibrary);
         bool changed = MutatePlaylistTreeAfterInvalidatingHydrationReceipt(
             () => !ReferenceEquals(playlistTreeStore, nextStore)
@@ -334,12 +339,15 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal void RequestSummarySelection()
     {
         long selectionRevision = ClearPlaylistDetailSelection();
+        var accepted = PlaylistTreeSelectionActivatedEventArgs.Summary(selectionRevision, summaryModeChanged: false);
+        TreeSelectionAccepted?.Invoke(this, accepted);
         PlaylistSourceRetirementRequest detailSourceRetirement =
             PrepareDetailSourceRetirementForRegularView();
         RegisterPlaylistSummaryDetailSourceRetirement(detailSourceRetirement);
         dispatchPresentation(
             () =>
             {
+                if (accepted.Navigation != null && !accepted.Navigation.IsCurrent) { return; }
                 bool isCurrent;
                 lock (playlistDetailSelectionSyncRoot)
                 {
@@ -361,7 +369,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     this,
                     PlaylistTreeSelectionActivatedEventArgs.Summary(
                         selectionRevision,
-                        summaryModeChanged));
+                        summaryModeChanged, accepted.Navigation));
                 lock (playlistDetailSelectionSyncRoot)
                 {
                     if (!IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision))
@@ -402,7 +410,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null)
+    /// <summary>表示された構成を出自として明示選択します。構成なしの要求を現在構成で補完しません。</summary>
+    internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null,
+        IReadOnlyList<PlaylistFolderNode> folderNodesAtSelection = null)
     {
         PlaylistDetailSelectionScope selectionScope = folderNode == null
             ? PlaylistDetailSelectionScope.OrdinaryRoot
@@ -413,39 +423,37 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistDetailFilter filter = folderNode?.SpecialKind == PlaylistFolderNodeSpecialKind.NotOwned
             ? PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
             : PlaylistDetailFilter.PlaylistFilter;
-        PlaylistDetailSelection selection = new(table, selectionScope, folderName, filter);
+        PlaylistDetailSelection selection = new(table, selectionScope, folderName, filter, folderNodesAtSelection);
         long selectionRevision;
         lock (playlistDetailSelectionSyncRoot)
         {
             playlistDetailSelection = selection;
             selectionRevision = ++playlistDetailSelectionRevision;
         }
+        var accepted = PlaylistTreeSelectionActivatedEventArgs.CreateDetail(selection, selectionRevision, summaryModeChanged: false);
+        if (table != null) { TreeSelectionAccepted?.Invoke(this, accepted); }
         dispatchPresentation(
             () =>
             {
-                bool isCurrent;
+                if (accepted.Navigation != null && !accepted.Navigation.IsCurrent) { return; }
+                PlaylistDetailSelection currentSelection;
+                long currentRevision;
                 lock (playlistDetailSelectionSyncRoot)
                 {
-                    isCurrent = IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision);
+                    // 同じ選択参照で表やフォルダが置換された場合は、現在の対象を解決する。旧選択の版や受付は再適用しない。
+                    if (accepted.Navigation == null && !IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision)) { return; }
+                    currentSelection = playlistDetailSelection?.Clone();
+                    currentRevision = playlistDetailSelectionRevision;
                 }
-                if (!isCurrent)
-                {
-                    return;
-                }
+                if (currentSelection == null) { return; }
                 bool summaryModeChanged = RequestPlaylistSummaryMode(enabled: false);
                 lock (playlistDetailSelectionSyncRoot)
                 {
-                    if (!IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision))
-                    {
-                        return;
-                    }
+                    if (!IsCurrentPlaylistDetailSelectionWithoutLock(currentSelection, currentRevision)) { return; }
                 }
-                TreeSelectionActivated?.Invoke(
-                    this,
-                    PlaylistTreeSelectionActivatedEventArgs.CreateDetail(
-                        selection,
-                        selectionRevision,
-                        summaryModeChanged));
+                TreeSelectionActivated?.Invoke(this,
+                    PlaylistTreeSelectionActivatedEventArgs.CreateDetail(currentSelection, currentRevision,
+                        summaryModeChanged, accepted.Navigation));
             });
     }
 
@@ -503,6 +511,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    /// <summary>確定したフォルダ名の対応を選択へ反映したことを通知し、ツリーの表示同期を促します。</summary>
+    internal event EventHandler DetailFolderSelectionRemapped;
+
+    /// <summary>選択中の通常フォルダを確定した対応先へ移し、移動先ノードがなければ表本体を選択します。</summary>
     internal bool RemapCurrentPlaylistDetailFolderSelection(
         BMSTable table,
         IReadOnlyDictionary<string, string> rewrittenFolders)
@@ -516,27 +528,18 @@ public sealed partial class PlaylistWorkspaceViewModel
             string currentFolderName = playlistDetailSelection?.FolderName;
             if (playlistDetailSelection?.Table != table
                 || currentFolderName == null
+                || playlistDetailSelection.HasCurrentFolderNodes
                 || !rewrittenFolders.TryGetValue(currentFolderName, out string rewrittenFolder))
             {
                 return false;
             }
-            playlistDetailSelection = playlistDetailSelection.WithFolderName(rewrittenFolder);
+            playlistDetailSelection = table.FolderNodes.Any(node => !node.IsSpecial && node.FolderName == rewrittenFolder)
+                ? playlistDetailSelection.WithFolderName(rewrittenFolder)
+                : new PlaylistDetailSelection(table, PlaylistDetailSelectionScope.OrdinaryRoot, null, PlaylistDetailFilter.PlaylistFilter);
             playlistDetailSelectionRevision++;
-            return true;
         }
-    }
-
-    internal bool MarkCurrentPlaylistDetailEntriesChanged(BMSTable table, string reason)
-    {
-        lock (playlistDetailSelectionSyncRoot)
-        {
-            if (playlistDetailSelection?.Table != table)
-            {
-                return false;
-            }
-            IncrementDetailContentRevision(reason);
-            return true;
-        }
+        dispatchPresentation(() => DetailFolderSelectionRemapped?.Invoke(this, EventArgs.Empty));
+        return true;
     }
 
     private bool IsCurrentPlaylistDetailSelectionWithoutLock(
@@ -552,16 +555,23 @@ public sealed partial class PlaylistWorkspaceViewModel
 
 internal sealed class PlaylistDetailSelection
 {
+    // 構成更新後の同キー明示選択と旧構成の選択を区別する、一つの不変集合参照です。
+    // Cloneと表参照置換では保ち、改名対応を採用した後は新しい構成へ更新します。
+    private readonly IReadOnlyList<PlaylistFolderNode> folderNodesAtSelection;
+
+    /// <summary>選択キーとその構成を捕捉します。構成履歴を蓄積せず、選択の寿命だけ旧構成を参照します。</summary>
     internal PlaylistDetailSelection(
         BMSTable table,
         PlaylistDetailSelectionScope scope,
         string folderName,
-        PlaylistDetailFilter filter)
+        PlaylistDetailFilter filter,
+        IReadOnlyList<PlaylistFolderNode> folderNodesAtSelection = null)
     {
         Table = table;
         Scope = scope;
         FolderName = folderName;
         Filter = filter;
+        this.folderNodesAtSelection = folderNodesAtSelection;
     }
 
     internal BMSTable Table { get; }
@@ -572,19 +582,25 @@ internal sealed class PlaylistDetailSelection
 
     internal PlaylistDetailFilter Filter { get; }
 
+    /// <summary>既に確定後の構成から明示選択された場合、旧構成の改名対応を再適用しません。</summary>
+    internal bool HasCurrentFolderNodes => ReferenceEquals(folderNodesAtSelection, Table?.FolderNodes);
+
+    /// <summary>捕捉した構成の出自を保持して要求を複製します。</summary>
     internal PlaylistDetailSelection Clone()
     {
-        return new PlaylistDetailSelection(Table, Scope, FolderName, Filter);
+        return new PlaylistDetailSelection(Table, Scope, FolderName, Filter, folderNodesAtSelection);
     }
 
+    /// <summary>構成の出自を再捕捉せず、参照先の表だけを差し替えます。</summary>
     internal PlaylistDetailSelection WithTable(BMSTable table)
     {
-        return new PlaylistDetailSelection(table, Scope, FolderName, Filter);
+        return new PlaylistDetailSelection(table, Scope, FolderName, Filter, folderNodesAtSelection);
     }
 
+    /// <summary>確定した対応を適用し、対応先の公開構成を採用します。</summary>
     internal PlaylistDetailSelection WithFolderName(string folderName)
     {
-        return new PlaylistDetailSelection(Table, Scope, folderName, Filter);
+        return new PlaylistDetailSelection(Table, Scope, folderName, Filter, Table.FolderNodes);
     }
 
     internal bool Matches(PlaylistDetailSelection other)
@@ -603,13 +619,17 @@ internal sealed class PlaylistTreeSelectionActivatedEventArgs : EventArgs
         bool isSummary,
         PlaylistDetailSelection detail,
         long selectionRevision,
-        bool summaryModeChanged)
+        bool summaryModeChanged, RegularChartNavigationRequest navigation = null)
     {
+        Navigation = navigation;
         IsSummary = isSummary;
         Detail = detail;
         SelectionRevision = selectionRevision;
         SummaryModeChanged = summaryModeChanged;
     }
+
+    /// <summary>同期受付で接続した同じ要求です。UI配送まで保持し、古いサマリー解除・選択を抑止します。</summary>
+    internal RegularChartNavigationRequest Navigation { get; set; }
 
     internal bool IsSummary { get; }
 
@@ -619,20 +639,22 @@ internal sealed class PlaylistTreeSelectionActivatedEventArgs : EventArgs
 
     internal bool SummaryModeChanged { get; }
 
+    /// <summary>サマリーの選択版と、それに対応する受付参照をUI配送まで保持します。</summary>
     internal static PlaylistTreeSelectionActivatedEventArgs Summary(
         long selectionRevision,
-        bool summaryModeChanged)
-        => new(true, null, selectionRevision, summaryModeChanged);
+        bool summaryModeChanged, RegularChartNavigationRequest navigation = null)
+        => new(true, null, selectionRevision, summaryModeChanged, navigation);
 
+    /// <summary>詳細一覧の固定選択と選択版、それに対応する受付参照をUI配送まで保持します。</summary>
     internal static PlaylistTreeSelectionActivatedEventArgs CreateDetail(
         PlaylistDetailSelection detail,
         long selectionRevision,
-        bool summaryModeChanged)
+        bool summaryModeChanged, RegularChartNavigationRequest navigation = null)
     {
         return new PlaylistTreeSelectionActivatedEventArgs(
             isSummary: false,
             detail ?? throw new ArgumentNullException(nameof(detail)),
             selectionRevision,
-            summaryModeChanged);
+            summaryModeChanged, navigation);
     }
 }

@@ -66,7 +66,7 @@ internal static class ChartInfoMetadataBundleStartupImporter
 
     private static void ImportDatabaseBundle(string bundlePath, BmsLibraryDbGateway dbGateway, Action<string> logInstallPerformance)
     {
-        string bundleSha256 = BMSFile.GetSHA256Hash(bundlePath);
+        string bundleSha256 = ChartFileContentReader.ComputeSha256(bundlePath);
         logInstallPerformance?.Invoke("chart_info_metadata_import start bundleType=db path=\"" + bundlePath + "\" bundleSha256=" + bundleSha256);
         ChartInfoMetadataBundleImportResult result = dbGateway.ImportChartInfoMetadataBundle(bundlePath, bundleSha256);
         LogImportResult(logInstallPerformance, result, "db", bundlePath, bundleSha256, null, null, -1L);
@@ -79,7 +79,7 @@ internal static class ChartInfoMetadataBundleStartupImporter
         Func<string, string, IReadOnlyList<ArchiveEntryMetadata>> extractArchiveEntries,
         Func<string> createTempDirectory)
     {
-        string archiveSha256 = BMSFile.GetSHA256Hash(archivePath);
+        string archiveSha256 = ChartFileContentReader.ComputeSha256(archivePath);
         logInstallPerformance?.Invoke("chart_info_metadata_import start bundleType=7z archivePath=\"" + archivePath + "\" bundleSha256=" + archiveSha256);
         var importHistoryStopwatch = Stopwatch.StartNew();
         if (dbGateway.IsChartInfoMetadataBundleImportRecorded(archiveSha256))
@@ -132,9 +132,8 @@ internal static class ChartInfoMetadataBundleStartupImporter
 
     private static string CreateDefaultTempDirectory()
     {
-        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_ChartInfoMetadata_" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(tempDirectoryPath);
-        return tempDirectoryPath;
+        // 呼出しごとに独立leafを受け取り、既存finallyがそのleafだけを回収する。
+        return TempDirectoryPublisher.Get("chart-info-metadata");
     }
 
     private static string ResolveExtractedMetadataDbPath(string tempDirectoryPath)

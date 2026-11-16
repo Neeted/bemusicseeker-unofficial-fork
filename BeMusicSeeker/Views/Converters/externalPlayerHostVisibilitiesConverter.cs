@@ -24,7 +24,7 @@ internal class externalPlayerHostVisibilitiesConverter : IMultiValueConverter
             {
                 return Visibility.Collapsed;
             }
-            if (!isEnabled || values[2] == null)
+            if (!isEnabled || values[2] is not true)
             {
                 return Visibility.Collapsed;
             }

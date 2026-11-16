@@ -16,7 +16,8 @@ param(
     [switch]$IncludeMetadata,
     [string]$MetadataSource = "artifacts\chart-info-metadata\latest\chart-info-metadata.7z",
     [string]$MetadataPackageSuffix = "-with-metadata",
-    [string]$ArtifactRoot
+    [string]$ArtifactRoot,
+    [string]$ApplicationVersion
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,10 +26,19 @@ $ErrorActionPreference = "Stop"
 $devRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $configuration = "Release"
 $platform = "x64"
-$solution = Join-Path $devRoot "BeMusicSeeker.sln"
 $appProject = Join-Path $devRoot "BeMusicSeeker\BeMusicSeeker.csproj"
 $updaterProject = Join-Path $devRoot "BeMusicSeeker.Updater\BeMusicSeeker.Updater.csproj"
+. (Join-Path $PSScriptRoot "application-version.ps1")
 $artifactRootWasProvided = -not [string]::IsNullOrWhiteSpace($ArtifactRoot)
+$versionWasProvided = $PSBoundParameters.ContainsKey('ApplicationVersion')
+if ($versionWasProvided -and (-not $artifactRootWasProvided -or $SkipBuild)) {
+    throw "ApplicationVersionの指定には専有ArtifactRootと実buildが必要です。SkipBuildとは併用できません。"
+}
+$effectiveVersion = if ($versionWasProvided) { Assert-ApplicationVersion -Value $ApplicationVersion }
+else { Get-ApplicationVersion -RepositoryRoot $devRoot }
+if (-not $SkipBuild -and -not (Test-Path -LiteralPath (Join-Path $devRoot 'BeMusicSeeker/packages.publish.lock.json') -PathType Leaf)) {
+    throw 'App publish lock is missing: BeMusicSeeker/packages.publish.lock.json'
+}
 $artifactRootPath = if ($artifactRootWasProvided) {
     [System.IO.Path]::GetFullPath($ArtifactRoot)
 }
@@ -56,10 +66,31 @@ function Invoke-CheckedCommand {
         [string[]]$Arguments
     )
 
-    & $Command @Arguments
+    # package戻り値を破棄する呼出元でも、native診断を親stdoutへ残します。
+    & $Command @Arguments | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed with exit code $LASTEXITCODE`: $Command $($Arguments -join ' ')"
     }
+}
+
+# Native AOTのリンク準備（ILCompilerのvcvars探索）は vswhere.exe をPATHから探します。
+# Visual Studio Installerの標準の導入先にあってPATHに無い場合だけ、このプロセスのPATHの先頭へ加えます。
+# 解決できるなら何もせず、利用者の環境設定は変えません。呼出元が呼出し後に元のPATHへ戻します。
+# Git Bashなどから起動すると環境変数 ProgramFiles(x86) が渡らないことがあるため、既定の位置はOSから取得します。
+function Add-VswhereToPathIfMissing {
+    if (Get-Command 'vswhere.exe' -CommandType Application -ErrorAction SilentlyContinue) { return }
+
+    $programFilesX86 = [System.Environment]::GetEnvironmentVariable('ProgramFiles(x86)')
+    if ([string]::IsNullOrWhiteSpace($programFilesX86)) {
+        $programFilesX86 = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::ProgramFilesX86)
+    }
+    if ([string]::IsNullOrWhiteSpace($programFilesX86)) { return }
+
+    $installerDirectory = Join-Path $programFilesX86 'Microsoft Visual Studio\Installer'
+    if (-not (Test-Path -LiteralPath (Join-Path $installerDirectory 'vswhere.exe') -PathType Leaf)) { return }
+
+    $env:PATH = $installerDirectory + [System.IO.Path]::PathSeparator + $env:PATH
+    Write-Host "  vswhere.exe がPATHに無いため、このpublishだけ次をPATHの先頭へ加えました: $installerDirectory"
 }
 
 function Invoke-SelfContainedPublish {
@@ -67,27 +98,24 @@ function Invoke-SelfContainedPublish {
     if (Test-Path $updaterPublishOutput) { Remove-Item $updaterPublishOutput -Recurse -Force }
     New-Item -ItemType Directory -Path $appPublishOutput, $updaterPublishOutput -Force | Out-Null
 
-    Write-Host "  main app の managed-bundle ReadyToRun SCD を publish 中..."
-    & dotnet publish $appProject `
-        --configuration $configuration `
-        --runtime win-x64 `
-        --self-contained true `
-        --no-restore `
-        --property:Platform=$platform `
-        --property:PublishProfile=WinX64SelfContained `
-        --property:PublishDir=$appPublishOutput
-    if ($LASTEXITCODE -ne 0) { throw "main app の Self-contained publish に失敗しました" }
-
-    Write-Host "  updater の single-file SCD を publish 中..."
-    & dotnet publish $updaterProject `
-        --configuration $configuration `
-        --runtime win-x64 `
-        --self-contained true `
-        --no-restore `
-        --property:Platform=$platform `
-        --property:PublishProfile=WinX64SelfContainedSingleFile `
-        --property:PublishDir=$updaterPublishOutput
-    if ($LASTEXITCODE -ne 0) { throw "updater の Self-contained single-file publish に失敗しました" }
+    $projects = @(
+        @{ Name = 'BeMusicSeeker'; Project = $appProject; Profile = 'WinX64SelfContained'; Output = $appPublishOutput },
+        @{ Name = 'BeMusicSeeker.Updater'; Project = $updaterProject; Profile = 'WinX64SelfContainedSingleFile'; Output = $updaterPublishOutput }
+    )
+    foreach ($project in $projects) {
+        # restoreとpublishで同じ具体値を渡します。WPF一時project名へ再展開させません。
+        $properties = @("-p:Platform=$platform", "-p:Configuration=$configuration",
+            "-p:PublishProfile=$($project.Profile)", '-p:UseSharedCompilation=false')
+        if ($project.Name -eq 'BeMusicSeeker') { $properties += "-p:BeMusicSeekerAppVersion=$effectiveVersion" }
+        if ($artifactRootWasProvided) {
+            $intermediate = (Join-Path $artifactRootPath "obj/$($project.Name)") + [System.IO.Path]::DirectorySeparatorChar
+            $binary = (Join-Path $artifactRootPath "bin/$($project.Name)") + [System.IO.Path]::DirectorySeparatorChar
+            $properties += @("-p:BaseIntermediateOutputPath=$intermediate", "-p:MSBuildProjectExtensionsPath=$intermediate", "-p:BaseOutputPath=$binary")
+        }
+        Write-Host "  $($project.Name) の専有restore/publishを実行中..."
+        Invoke-CheckedCommand dotnet restore $project.Project '--runtime' 'win-x64' '--locked-mode' '--disable-build-servers' @properties
+        Invoke-CheckedCommand dotnet publish $project.Project '--runtime' 'win-x64' '--self-contained' 'true' '--no-restore' '--disable-build-servers' @properties "-p:PublishDir=$($project.Output)"
+    }
 
     Assert-SelfContainedPublishLayout $appPublishOutput $updaterPublishOutput
 }
@@ -131,16 +159,6 @@ function Assert-SelfContainedPublishLayout($appOutput, $updaterOutput) {
             throw "Single-file updater publish output contains a companion payload: $legacyCompanion"
         }
     }
-}
-
-# AssemblyInformationalVersion を読み取る
-function Get-AppVersion {
-    $asmInfoPath = Join-Path $devRoot "BeMusicSeeker\Properties\AssemblyInfo.cs"
-    $content = Get-Content $asmInfoPath -Raw
-    if ($content -match 'AssemblyInformationalVersion\("([^"]+)"\)') {
-        return $Matches[1]
-    }
-    throw "AssemblyInformationalVersion が見つかりません: $asmInfoPath"
 }
 
 function Resolve-MetadataSource {
@@ -276,7 +294,34 @@ function New-ZipPackage($version, $packageSuffix, $metadataInfo) {
 
     if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
     Write-Host "  パッケージ作成中: $zipName"
-    Compress-Archive -Path "$targetStagingDir\*" -DestinationPath $zipPath -CompressionLevel Optimal
+    # Compress-Archive 1.2.6と同じ非hidden集合・階層を保ち、内容の転送と圧縮は.NETへ任せます。
+    $archive = [System.IO.Compression.ZipFile]::Open($zipPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($topLevel in Get-ChildItem -LiteralPath $targetStagingDir) {
+            if ($topLevel -is [System.IO.DirectoryInfo]) {
+                # 旧方式は直下directory自身を登録せず、子孫のうち直下fileがないdirectoryだけを明示登録します。
+                foreach ($item in Get-ChildItem -LiteralPath $topLevel.FullName -Recurse) {
+                    $relative = [System.IO.Path]::GetRelativePath($targetStagingDir, $item.FullName).Trim().Replace('\', '/')
+                    if ($item -is [System.IO.DirectoryInfo]) {
+                        if ($item.GetFiles().Count -eq 0) {
+                            [void]$archive.CreateEntry("$relative/", [System.IO.Compression.CompressionLevel]::Optimal)
+                        }
+                    }
+                    else {
+                        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                            $archive, $item.FullName, $relative, [System.IO.Compression.CompressionLevel]::Optimal)
+                    }
+                }
+            }
+            else {
+                [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                    $archive, $topLevel.FullName, $topLevel.Name, [System.IO.Compression.CompressionLevel]::Optimal)
+            }
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
 
     Remove-Item $targetStagingDir -Recurse -Force
 
@@ -317,11 +362,14 @@ function New-ReleasePackage {
     if (-not $SkipBuild) {
         Write-Host "  配布用 Self-contained publish 中..."
         Push-Location $devRoot
+        $originalPath = $env:PATH
         try {
-            Invoke-CheckedCommand dotnet restore $solution '-r' 'win-x64' '--locked-mode' '-p:PublishReadyToRun=true'
+            Add-VswhereToPathIfMissing
             Invoke-SelfContainedPublish
         }
         finally {
+            # 補完したPATHは、この実行の子プロセスだけに使い、呼出元のプロセスへ残しません。
+            $env:PATH = $originalPath
             Pop-Location
         }
         Write-Host "  Self-contained publish 完了" -ForegroundColor Green
@@ -332,7 +380,9 @@ function New-ReleasePackage {
     }
 
     # バージョン取得
-    $version = Get-AppVersion
+    $version = $effectiveVersion
+    $binaryVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $appPublishOutput 'BeMusicSeeker.exe')).ProductVersion
+    if ($binaryVersion -cne $version) { throw "実appの版と配布版が一致しません: app=$binaryVersion package=$version" }
     Write-Host "  バージョン: $version"
 
     if (Test-Path $stagingRoot) { Remove-Item $stagingRoot -Recurse -Force }
@@ -345,6 +395,13 @@ function New-ReleasePackage {
     if ($IncludeMetadata) {
         $metadataPackage = New-ZipPackage $version $MetadataPackageSuffix $metadataInfo
         $packages += $metadataPackage
+    }
+    else {
+        # 通常版の完成後にだけ、同版の古い標準metadata同梱ZIPを退役します。
+        $obsoleteMetadataPackage = Join-Path $distDir "bemusicseeker-unofficial-fork-v$version-with-metadata.zip"
+        if (Test-Path -LiteralPath $obsoleteMetadataPackage -PathType Leaf) {
+            Remove-Item -LiteralPath $obsoleteMetadataPackage
+        }
     }
 
     return $packages

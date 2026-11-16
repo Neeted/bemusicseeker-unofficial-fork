@@ -1,11 +1,10 @@
 using System;
 using BeMusicSeeker.Properties;
-using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Models;
 
 /// <summary>
-/// Provides the mutable settings used by the playback feature.
+/// 再生機能の設定と、操作終端で保存する音量候補を提供します。
 /// </summary>
 internal interface IPlaybackSettingsStore
 {
@@ -17,27 +16,26 @@ internal interface IPlaybackSettingsStore
 
     bool SinglePlay { get; set; }
 
-    bool UsesLr2Body { get; }
-
-    bool UsesUbMplay { get; }
-
-    bool UsesBmiIdxView { get; }
-
     bool UseExternalPanelImage { get; }
 
     string StagefilePath { get; }
 
+    /// <summary>現在再生へ即時反映する音量候補です。保存済み設定の読取りには公開しません。</summary>
     int PlayerVolume { get; set; }
+
+    /// <summary>音量候補だけを保存します。失敗時も候補を破棄し、最新の確定音量へ戻します。</summary>
+    void CommitPlayerVolume();
 
     bool UsesLr2Database { get; }
 }
 
 /// <summary>
-/// Adapts the persisted application settings to the playback feature boundary.
+/// 再生設定の確定値と、操作終端まで公開しない音量候補を再生機能へ接続します。
 /// </summary>
 internal sealed class SettingsPlaybackSettingsStore : IPlaybackSettingsStore
 {
     private readonly Func<Settings> settingsProvider;
+    private int? previewPlayerVolume;
 
     internal SettingsPlaybackSettingsStore(Func<Settings> settingsProvider)
     {
@@ -71,20 +69,23 @@ internal sealed class SettingsPlaybackSettingsStore : IPlaybackSettingsStore
         set => Values.SinglePlayMode = value;
     }
 
-    public bool UsesLr2Body => Values.UsePlayerLR2body;
-
-    public bool UsesUbMplay => Values.UsePlayeruBMplay;
-
-    public bool UsesBmiIdxView => Values.UsePlayerBMIIDXView;
-
     public bool UseExternalPanelImage => Values.UseExternalPanelImage;
 
     public string StagefilePath => Values.StagefilePath;
 
+    /// <inheritdoc />
     public int PlayerVolume
     {
-        get => Values.uBMplayVolume;
-        set => Values.uBMplayVolume = value;
+        get => previewPlayerVolume ?? Values.uBMplayVolume;
+        set => previewPlayerVolume = value;
+    }
+
+    /// <inheritdoc />
+    public void CommitPlayerVolume()
+    {
+        if (previewPlayerVolume is not int volume) { return; }
+        try { Values.Commit((nameof(Settings.uBMplayVolume), volume)); }
+        finally { previewPlayerVolume = null; }
     }
 
     public bool UsesLr2Database => Values.OperationModeLR2DB;

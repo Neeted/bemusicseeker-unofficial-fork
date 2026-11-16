@@ -1,8 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -14,25 +17,9 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>捕捉した要求の実行境界を表示先へ通知します。</summary>
     internal Action<OperationProgressRequest, bool> RequestProgressReporter { get; set; }
 
-    private OperationProgressRequest deferredExternalSyncProgressRequest;
-
-    private Action<OperationProgressRequest, bool> deferredExternalSyncProgressReporter;
-
     private const string ExternalPlaylistSyncProgressSource = "external_playlist_sync";
 
-    private readonly object deferredExternalSyncLock = new();
-
-    private int deferredExternalSyncRequestedVersion;
-
-    private bool deferredExternalSyncRunning;
-
-    private string deferredExternalSyncReason;
-
-    private bool deferredExternalSyncFromReloadTables;
-
-    private bool deferredExternalSyncPublishesReferenceReceipt;
-
-    private long deferredExternalSyncOperationToken;
+    private int externalSyncProgressSeed;
 
     private readonly Func<string, Func<Task>, bool> playlistExternalSyncScheduler;
 
@@ -44,365 +31,110 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private BMSLibrary subscribedPlaylistExternalSyncLibrary;
 
+    /// <summary>schedulerが開始した同じ同期Taskを通知します。同期完了receiptはこの通知より先に発生する場合があります。</summary>
+    internal event Action<string, Task> ExternalPlaylistSyncStarted;
+
     internal event EventHandler<PlaylistExternalSyncRequestEventArgs> PlaylistExternalSyncQueued;
 
     internal event EventHandler<PlaylistExternalSyncCompletionEventArgs> PlaylistExternalSyncCompleted;
 
     internal event EventHandler<PlaylistExternalSyncReferenceAppliedEventArgs> PlaylistExternalSyncReferenceApplied;
 
-    internal void QueueExternalPlaylistSync(
-        string reason,
-        bool fromReloadTables,
-        bool publishReferenceReceipt,
-        long operationToken)
+    /// <summary>起動の任意同期を既存schedulerへ登録します。実開始時にPを非待機取得し、Busyでは再予約せず見送ります。</summary>
+    internal void QueueExternalPlaylistSync(string reason, bool fromReloadTables, bool publishReferenceReceipt, long operationToken)
+    {
+        if (!playlistExternalSyncScheduler(reason, () =>
+        {
+            Task operation = RunExternalPlaylistSyncAsync(reason, fromReloadTables, publishReferenceReceipt, operationToken);
+            Action<string, Task> observers = ExternalPlaylistSyncStarted;
+            if (observers != null)
+            {
+                foreach (Action<string, Task> observer in observers.GetInvocationList())
+                {
+                    try { observer(reason, operation); }
+                    catch (Exception failure) { Task.FromException(failure).ObserveFault("playlistSyncObserver"); }
+                }
+            }
+            return operation;
+        }))
+        {
+            PublishPlaylistProgressEvent(PlaylistExternalSyncCompleted, new PlaylistExternalSyncCompletionEventArgs(
+                reason, 0, fromReloadTables, publishReferenceReceipt, operationToken, succeeded: false, wasSkipped: true));
+        }
+    }
+
+    /// <summary>Pを通信・対象確定前に取得し、外部同期の保存・必要出力・公開・通知session終端を直接待ちます。内部継続は同owner権限を借用し、進捗・任意receipt表示の失敗は実同期結果へ加えません。</summary>
+    internal async Task RunExternalPlaylistSyncAsync(string reason, bool fromReloadTables, bool publishReferenceReceipt, long operationToken,
+        LibraryFileMutationCapability capability = null)
     {
         BMSPlaylist playlists = getPlaylistStore();
-        if (playlists == null)
+        if (playlists == null) { return; }
+        // 通知の収集先はPより外側に置き、Pを解放した後に表示を依頼します。借用した権限の呼出し元は、自身の収集先の内側で呼びます。
+        await RunWithOperationNoticesAsync(playlists, "external playlist sync notification",
+            () => RunExternalPlaylistSyncAdmittedAsync(playlists, reason, fromReloadTables, publishReferenceReceipt, operationToken, capability))
+            .ConfigureAwait(false);
+    }
+
+    private async Task RunExternalPlaylistSyncAdmittedAsync(BMSPlaylist playlists, string reason, bool fromReloadTables, bool publishReferenceReceipt, long operationToken,
+        LibraryFileMutationCapability capability)
+    {
+        IDisposable admission;
+        if (capability != null)
         {
+            admission = playlists.AcquirePlaylistMutationLease(reason, capability: capability);
+        }
+        else if (playlistReloadCleanupShutdownRequestedProvider() || !playlists.TryEnterPlaylistMutation(out admission))
+        {
+            PublishPlaylistProgressEvent(PlaylistExternalSyncCompleted, new PlaylistExternalSyncCompletionEventArgs(
+                reason, 0, fromReloadTables, publishReferenceReceipt, operationToken, succeeded: false, wasSkipped: true));
             return;
         }
-        if (playlistReloadCleanupShutdownRequestedProvider())
+        using (admission)
+        using (LibraryFileMutationCapability authority = playlists.CreatePlaylistMutationCapability(admission))
+        using (PlaylistOperationNotificationOwner.OperationNotificationSession notifications = playlists.OperationNotificationOwner.BeginSession())
         {
-            WritePlaylistReloadLog(
-                "deferred_external_sync skipped reason=shutdown_requested requestReason="
-                + (reason ?? string.Empty));
-            return;
-        }
-
-        int version;
-        bool shouldStartWorker = false;
-        string queuedReason;
-        bool queuedFromReloadTables;
-        bool queuedPublishesReferenceReceipt;
-        long queuedOperationToken;
-        OperationProgressRequest queuedProgressRequest;
-        lock (deferredExternalSyncLock)
-        {
-            version = ++deferredExternalSyncRequestedVersion;
-            deferredExternalSyncReason = reason ?? string.Empty;
-            deferredExternalSyncFromReloadTables = fromReloadTables;
-            deferredExternalSyncPublishesReferenceReceipt = publishReferenceReceipt;
-            deferredExternalSyncOperationToken = operationToken;
-            deferredExternalSyncProgressRequest = ProgressRequestFactory == null ? null
-                : ProgressRequestFactory(ExternalPlaylistSyncProgressSource, version) with { OperationToken = operationToken };
-            queuedReason = deferredExternalSyncReason;
-            queuedFromReloadTables = deferredExternalSyncFromReloadTables;
-            queuedPublishesReferenceReceipt = deferredExternalSyncPublishesReferenceReceipt;
-            queuedOperationToken = deferredExternalSyncOperationToken;
-            queuedProgressRequest = deferredExternalSyncProgressRequest;
-            deferredExternalSyncProgressReporter = RequestProgressReporter;
-            if (!deferredExternalSyncRunning)
+            int version = System.Threading.Interlocked.Increment(ref externalSyncProgressSeed);
+            OperationProgressRequest request = ProgressRequestFactory?.Invoke(ExternalPlaylistSyncProgressSource, version);
+            // 必須同期の業務token=0でも、受付時の起動由来の表示識別は保持します。
+            if (request != null && operationToken != 0) { request = request with { OperationToken = operationToken }; }
+            PublishPlaylistProgressEvent(PlaylistExternalSyncQueued, new PlaylistExternalSyncRequestEventArgs(reason, version, fromReloadTables, publishReferenceReceipt, operationToken, request));
+            bool succeeded = false;
+            List<Exception> failures = [];
+            var adoptionFailures = new ConcurrentQueue<Exception>();
+            try
             {
-                deferredExternalSyncRunning = true;
-                shouldStartWorker = true;
-            }
-        }
-
-        PlaylistExternalSyncQueued?.Invoke(
-            this,
-            new PlaylistExternalSyncRequestEventArgs(
-                queuedReason,
-                version,
-                queuedFromReloadTables,
-                queuedPublishesReferenceReceipt,
-                queuedOperationToken, queuedProgressRequest));
-        if (!shouldStartWorker)
-        {
-            return;
-        }
-
-        async Task Work()
-        {
-            while (true)
-            {
-                ExternalPlaylistSyncRequestSnapshot request = CaptureDeferredExternalSyncRequest();
-                DateTime startedAt = DateTime.UtcNow;
-                BMSPlaylist currentPlaylists = getPlaylistStore() ?? playlists;
-                // deferred request は既存 coalescing worker が受理済みなので、store admission を非同期に待機できます。
-                // manual command は非待機 Try 経路を使います。
-                using IDisposable admission = await WaitForPlaylistMutationAdmissionAsync(currentPlaylists).ConfigureAwait(false);
-                if (playlistReloadCleanupShutdownRequestedProvider())
+                ReportRequestProgress(request, true);
+                BeginPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request);
+                PlaylistExternalSyncOwner.PlaylistReloadOperationResult result = await playlists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true,
+                    target => AdoptPlaylistReloadTarget(target, "external_playlist_sync", adoptionFailures,
+                        applyReferences: publishReferenceReceipt),
+                    snapshot => ReportPlaylistSyncProgress(snapshot, ExternalPlaylistSyncProgressSource,
+                        PlaylistSyncProgressKind.ExternalPlaylistSync, request),
+                    cancellationToken: playlists.StartupReadiness.ShutdownToken,
+                    publishReferenceReceipts: false, capability: authority).ConfigureAwait(false);
+                if (result.Exception is Exception reloadFailure) { failures.Add(reloadFailure); }
+                if (publishReferenceReceipt)
                 {
-                    return;
+                    PublishPlaylistProgressEvent(PlaylistExternalSyncReferenceApplied,
+                        new PlaylistExternalSyncReferenceAppliedEventArgs(reason, version, operationToken));
                 }
-                using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
-                bool succeeded = false;
-                int updatedCount = 0;
-                request.ProgressReporter?.Invoke(request.ProgressRequest, true);
-                try
-                {
-                    BeginPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request.ProgressRequest);
-                    string operationKind = GetPlaylistReloadOperationKindText(
-                        request.Reason,
-                        request.FromReloadTables);
-                    WritePlaylistReloadLog(
-                        "playlist_reload_operation started operationKind="
-                        + operationKind
-                        + " reason="
-                        + request.Reason
-                        + " tableCount=0 version="
-                        + request.Version);
-                    WritePlaylistReloadLog(
-                        "deferred_external_sync run reason="
-                        + request.Reason
-                        + " fromReloadTables="
-                        + request.FromReloadTables.ToString().ToLowerInvariant()
-                        + " version="
-                        + request.Version);
-                    if (getPlaylistStore() == null)
-                    {
-                        throw new InvalidOperationException("Playlist persistence is not available.");
-                    }
-                    List<BMSTable> tables = await currentPlaylists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
-                        reloadExtPlaylist: true,
-                        result =>
-                        {
-                            RecordPlaylistSyncResult(result);
-                        },
-                        snapshot => ReportPlaylistSyncProgress(snapshot, ExternalPlaylistSyncProgressSource,
-                            BeMusicSeeker.Properties.Resources.Statusbar_progress_task_external_playlist_sync, request.ProgressRequest),
-                        publishReferenceReceipts: request.PublishesReferenceReceipt).ConfigureAwait(false);
-                    updatedCount = tables?.Count ?? 0;
-                    currentPlaylists.BmtOutput.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + request.Reason,
-                        originatingRequest: request.ProgressRequest);
-                    if (request.PublishesReferenceReceipt)
-                    {
-                        PlaylistExternalSyncReferenceApplied?.Invoke(
-                            this,
-                            new PlaylistExternalSyncReferenceAppliedEventArgs(
-                                request.Reason,
-                                request.Version,
-                                request.OperationToken));
-                    }
-                    RequestPlaylistSummaryDataRefresh(
-                        "deferred_external_sync");
-                    bool cleanupQueued = QueuePlaylistReloadCleanup(
-                        request.Reason,
-                        request.FromReloadTables,
-                        updatedCount);
-                    WritePlaylistReloadLog(
-                        "playlist_reload_operation completed operationKind="
-                        + operationKind
-                        + " reason="
-                        + request.Reason
-                        + " tableCount="
-                        + updatedCount
-                        + " summaryRebuildMs="
-                        + LastPlaylistSummaryBuildElapsedMs
-                        + " detailRefreshMs="
-                        + LastDetailBuildElapsedMs
-                        + " cleanupQueued="
-                        + cleanupQueued.ToString().ToLowerInvariant()
-                        + " elapsedMs="
-                        + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
-                    WritePlaylistReloadLog(
-                        "deferred_external_sync done reason="
-                        + request.Reason
-                        + " fromReloadTables="
-                        + request.FromReloadTables.ToString().ToLowerInvariant()
-                        + " version="
-                        + request.Version
-                        + " elapsedMs="
-                        + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds
-                        + " updatedCount="
-                        + updatedCount);
-                    succeeded = true;
-                }
-                catch (Exception ex)
-                {
-                    WritePlaylistReloadLog(
-                        "playlist_reload_operation failed operationKind="
-                        + GetPlaylistReloadOperationKindText(request.Reason, request.FromReloadTables)
-                        + " reason="
-                        + request.Reason
-                        + " version="
-                        + request.Version
-                        + " elapsedMs="
-                        + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds
-                        + " message="
-                        + ex.Message);
-                    WritePlaylistReloadLog(
-                        "deferred_external_sync failed reason="
-                        + request.Reason
-                        + " fromReloadTables="
-                        + request.FromReloadTables.ToString().ToLowerInvariant()
-                        + " version="
-                        + request.Version
-                        + " elapsedMs="
-                        + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds
-                        + " message="
-                        + ex.Message);
-                }
-                finally
-                {
-                    EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request.ProgressRequest);
-                    request.ProgressReporter?.Invoke(request.ProgressRequest, false);
-                    RaisePlaylistOperationNotificationPresentationRequested(
-                        notificationSession.TakeReceipt(),
-                        "external playlist sync notification");
-                }
-
-                PlaylistExternalSyncCompleted?.Invoke(
-                    this,
-                    new PlaylistExternalSyncCompletionEventArgs(
-                        request.Reason,
-                        request.Version,
-                        request.FromReloadTables,
-                        request.PublishesReferenceReceipt,
-                        request.OperationToken,
-                        succeeded,
-                        wasSkipped: false));
-                if (TryCompleteDeferredExternalSyncWorkerCycle(request.Version))
-                {
-                    break;
-                }
+                RequestPlaylistDetailReloadRefresh();
+                // 例外を再送出しなくても、対象失敗を全件成功として公開しません。
+                succeeded = failures.Count == 0 && adoptionFailures.IsEmpty && result.All(target => target.Succeeded);
             }
-        }
-
-        int rejectedVersion = version;
-        string rejectedReason = queuedReason;
-        bool rejectedFromReloadTables = queuedFromReloadTables;
-        bool rejectedPublishesReferenceReceipt = queuedPublishesReferenceReceipt;
-        long rejectedOperationToken = queuedOperationToken;
-        while (!playlistExternalSyncScheduler(rejectedReason, Work))
-        {
-            if (TryCompleteDeferredExternalSyncWorkerCycle(rejectedVersion))
+            catch (Exception failure) { failures.Add(failure); }
+            finally
             {
-                PublishDeferredExternalSyncSkipped(
-                    rejectedVersion,
-                    rejectedReason,
-                    rejectedFromReloadTables,
-                    rejectedPublishesReferenceReceipt,
-                    rejectedOperationToken,
-                    "startup_scheduler_rejected");
-                return;
+                failures.AddRange(adoptionFailures);
+                CapturePlaylistWorkflowFailure(() => EndPlaylistSyncProgressOperation(ExternalPlaylistSyncProgressSource, request), failures);
+                ReportRequestProgress(request, false);
+                CapturePlaylistWorkflowFailure(() => PublishPlaylistOperationNotificationReceipt(
+                    notifications, "external playlist sync notification"), failures);
+                PublishPlaylistProgressEvent(PlaylistExternalSyncCompleted, new PlaylistExternalSyncCompletionEventArgs(
+                    reason, version, fromReloadTables, publishReferenceReceipt, operationToken, succeeded && failures.Count == 0, wasSkipped: false));
             }
-
-            ExternalPlaylistSyncRequestSnapshot latest = CaptureDeferredExternalSyncRequest();
-            rejectedVersion = latest.Version;
-            rejectedReason = latest.Reason;
-            rejectedFromReloadTables = latest.FromReloadTables;
-            rejectedPublishesReferenceReceipt = latest.PublishesReferenceReceipt;
-            rejectedOperationToken = latest.OperationToken;
+            ThrowPlaylistWorkflowFailures(failures);
         }
-    }
-
-    internal bool IsDeferredExternalPlaylistSyncIdle
-    {
-        get
-        {
-            lock (deferredExternalSyncLock)
-            {
-                return !deferredExternalSyncRunning;
-            }
-        }
-    }
-
-    internal string DescribeDeferredExternalPlaylistSyncWaitState()
-    {
-        lock (deferredExternalSyncLock)
-        {
-            return "deferredExternalSyncRunning="
-                + deferredExternalSyncRunning.ToString().ToLowerInvariant()
-                + " requestedVersion="
-                + deferredExternalSyncRequestedVersion;
-        }
-    }
-
-    internal void DiscardDeferredExternalPlaylistSyncForShutdown(string reason)
-    {
-        ExternalPlaylistSyncRequestSnapshot request;
-        lock (deferredExternalSyncLock)
-        {
-            if (!deferredExternalSyncRunning)
-            {
-                return;
-            }
-            deferredExternalSyncRunning = false;
-            request = new ExternalPlaylistSyncRequestSnapshot(
-                deferredExternalSyncRequestedVersion,
-                deferredExternalSyncReason ?? string.Empty,
-                deferredExternalSyncFromReloadTables,
-                deferredExternalSyncPublishesReferenceReceipt,
-                deferredExternalSyncOperationToken, deferredExternalSyncProgressRequest, deferredExternalSyncProgressReporter);
-        }
-        PlaylistExternalSyncCompleted?.Invoke(
-            this,
-            new PlaylistExternalSyncCompletionEventArgs(
-                request.Reason,
-                request.Version,
-                request.FromReloadTables,
-                request.PublishesReferenceReceipt,
-                request.OperationToken,
-                succeeded: false,
-                wasSkipped: true));
-        WritePlaylistReloadLog(
-            "deferred_external_sync discarded reason=shutdown_requested requestReason="
-            + (reason ?? string.Empty)
-            + " version="
-            + request.Version);
-    }
-
-    private void PublishDeferredExternalSyncSkipped(
-        int version,
-        string reason,
-        bool fromReloadTables,
-        bool publishesReferenceReceipt,
-        long operationToken,
-        string shutdownReason)
-    {
-        PlaylistExternalSyncCompleted?.Invoke(
-            this,
-            new PlaylistExternalSyncCompletionEventArgs(
-                reason ?? string.Empty,
-                version,
-                fromReloadTables,
-                publishesReferenceReceipt,
-                operationToken,
-                succeeded: false,
-                wasSkipped: true));
-        WritePlaylistReloadLog(
-            "deferred_external_sync skipped reason="
-            + (shutdownReason ?? "shutdown_requested")
-            + " requestReason="
-            + (reason ?? string.Empty)
-            + " version="
-            + version);
-    }
-
-    private ExternalPlaylistSyncRequestSnapshot CaptureDeferredExternalSyncRequest()
-    {
-        lock (deferredExternalSyncLock)
-        {
-            return new ExternalPlaylistSyncRequestSnapshot(
-                deferredExternalSyncRequestedVersion,
-                deferredExternalSyncReason ?? string.Empty,
-                deferredExternalSyncFromReloadTables,
-                deferredExternalSyncPublishesReferenceReceipt,
-                deferredExternalSyncOperationToken, deferredExternalSyncProgressRequest, deferredExternalSyncProgressReporter);
-        }
-    }
-
-    private bool TryCompleteDeferredExternalSyncWorkerCycle(int version)
-    {
-        lock (deferredExternalSyncLock)
-        {
-            if (deferredExternalSyncRequestedVersion != version)
-            {
-                return false;
-            }
-            deferredExternalSyncRunning = false;
-            return true;
-        }
-    }
-
-    private void RaisePlaylistOperationNotificationPresentationRequested(
-        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
-        string routeName)
-    {
-        PlaylistOperationNotificationPresentationRequested?.Invoke(
-            this,
-            new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, routeName));
     }
 
     private void SetPlaylistExternalSyncReceiptSubscription(
@@ -455,39 +187,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private readonly struct ExternalPlaylistSyncRequestSnapshot
-    {
-        internal ExternalPlaylistSyncRequestSnapshot(
-            int version,
-            string reason,
-            bool fromReloadTables,
-            bool publishesReferenceReceipt,
-            long operationToken, OperationProgressRequest progressRequest = null,
-            Action<OperationProgressRequest, bool> progressReporter = null)
-        {
-            ProgressRequest = progressRequest;
-            ProgressReporter = progressReporter;
-            Version = version;
-            Reason = reason;
-            FromReloadTables = fromReloadTables;
-            PublishesReferenceReceipt = publishesReferenceReceipt;
-            OperationToken = operationToken;
-        }
 
-        internal OperationProgressRequest ProgressRequest { get; }
-
-        internal Action<OperationProgressRequest, bool> ProgressReporter { get; }
-
-        internal int Version { get; }
-
-        internal string Reason { get; }
-
-        internal bool FromReloadTables { get; }
-
-        internal bool PublishesReferenceReceipt { get; }
-
-        internal long OperationToken { get; }
-    }
 }
 
 internal sealed class PlaylistExternalSyncRequestEventArgs : EventArgs

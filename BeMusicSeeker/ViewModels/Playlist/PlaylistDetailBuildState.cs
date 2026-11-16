@@ -107,6 +107,7 @@ internal sealed class PlaylistDetailBuildState
         lock (SyncRoot)
         {
             RequestVersion++;
+            PendingRequest?.Complete();
             PendingRequest = null;
             CurrentBuildRequest = null;
             completion = AdvanceCompletedRequestVersionUnsafe(RequestVersion);
@@ -153,6 +154,7 @@ internal sealed class PlaylistDetailBuildState
         lock (SyncRoot)
         {
             RequestVersion++;
+            PendingRequest?.Complete();
             PendingRequest = null;
             CurrentBuildRequest = null;
             completion = AdvanceCompletedRequestVersionUnsafe(RequestVersion);
@@ -202,7 +204,6 @@ internal sealed class PlaylistDetailBuildState
             viewState.View.GenerationId = 0L;
             viewState.View.LastAppliedCount = 0;
             viewState.Source.IsPlaylistCellEditing = false;
-            viewState.Source.PendingScoreSnapshotRefreshVersion = 0;
         }
         return new PlaylistSourceClearCommitResult(sourceRows, viewRows, previousGenerationId, buildCancellation);
     }

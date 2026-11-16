@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -69,8 +70,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    // モデル共通通知の既存操作IDを保ち、呼出し元が所有する仕事だけを識別します。
-    private void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot, string source, string singleLabel = null, OperationProgressRequest request = null)
+    /// <summary>モデル共通通知の既存操作IDを保ち、呼出し元の識別と操作の種別を付けます。書式は種別から表示側が現在の資源で作ります。</summary>
+    private void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot, string source, PlaylistSyncProgressKind? kind = null, OperationProgressRequest request = null)
     {
         if (snapshot == null)
         {
@@ -78,16 +79,38 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         snapshot.Source = source;
         snapshot.Request = request;
-        if (singleLabel != null)
+        if (kind is { } value)
         {
-            snapshot.SingleLabel = singleLabel;
-            snapshot.LabelFormat = singleLabel + " {0}/{1}";
+            snapshot.Kind = value;
         }
         ReportPlaylistSyncProgress(snapshot);
     }
 
+    // 進捗表示の失敗は保存・参照反映の成否へ戻さず、独立した購読先への終端通知も妨げません。
+    private void PublishPlaylistProgressEvent<T>(EventHandler<T> handlers, T args) where T : EventArgs
+    {
+        if (handlers == null) { return; }
+        foreach (EventHandler<T> handler in handlers.GetInvocationList())
+        {
+            try { handler(this, args); }
+            catch (Exception failure)
+            {
+                TryLogPlaylistDropSecondaryFailure(failure, "playlist_progress_notification_failed event=" + typeof(T).Name);
+            }
+        }
+    }
+
+    private void ReportRequestProgress(OperationProgressRequest request, bool running)
+    {
+        try { RequestProgressReporter?.Invoke(request, running); }
+        catch (Exception failure)
+        {
+            TryLogPlaylistDropSecondaryFailure(failure, "playlist_request_progress_failed running=" + running);
+        }
+    }
+
     private void PublishPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
     {
-        PlaylistSyncProgressChanged?.Invoke(this, new PlaylistSyncProgressChangedEventArgs(snapshot));
+        PublishPlaylistProgressEvent(PlaylistSyncProgressChanged, new PlaylistSyncProgressChangedEventArgs(snapshot));
     }
 }

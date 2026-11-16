@@ -1,19 +1,18 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Immutable chart-info persistence facts submitted to the catalog mutation owner.
+/// 詳細情報・失敗・ハッシュ対応の不変な保存変更事実です。DB行への変換は保存境界で行います。
 /// </summary>
 internal sealed class CatalogChartInfoWriteRequest
 {
     internal CatalogChartInfoWriteRequest(
         IEnumerable<ChartDigestBackfillEntry> digestEntries = null,
-        IEnumerable<LR2SongDBExtended.chart_info> chartInfoRows = null,
-        IEnumerable<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows = null,
+        IEnumerable<BeMusicSeeker.Models.ChartDetails> chartInfoRows = null,
+        IEnumerable<BeMusicSeeker.Models.ChartParseFailure> parseFailureRows = null,
         IEnumerable<string> parseFailureDeleteMd5s = null)
     {
         DigestEntries = Array.AsReadOnly([.. (digestEntries ?? [])
@@ -22,11 +21,9 @@ internal sealed class CatalogChartInfoWriteRequest
                 && !string.IsNullOrWhiteSpace(entry.Sha256))
             .Select(entry => new ChartDigestBackfillEntry(entry.Md5, entry.Sha256))]);
         ChartInfoRows = Array.AsReadOnly([.. (chartInfoRows ?? [])
-            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))
-            .Select(CreateChartInfoCopy)]);
+            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))]);
         ParseFailureRows = Array.AsReadOnly([.. (parseFailureRows ?? [])
-            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.md5))
-            .Select(CreateParseFailureCopy)]);
+            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.md5))]);
         ParseFailureDeleteMd5s = Array.AsReadOnly([.. (parseFailureDeleteMd5s ?? [])
             .Where(md5 => !string.IsNullOrWhiteSpace(md5))
             .Select(md5 => md5.Trim())
@@ -35,9 +32,9 @@ internal sealed class CatalogChartInfoWriteRequest
 
     internal IReadOnlyList<ChartDigestBackfillEntry> DigestEntries { get; }
 
-    internal IReadOnlyList<LR2SongDBExtended.chart_info> ChartInfoRows { get; }
+    internal IReadOnlyList<BeMusicSeeker.Models.ChartDetails> ChartInfoRows { get; }
 
-    internal IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure> ParseFailureRows { get; }
+    internal IReadOnlyList<BeMusicSeeker.Models.ChartParseFailure> ParseFailureRows { get; }
 
     internal IReadOnlyList<string> ParseFailureDeleteMd5s { get; }
 
@@ -46,60 +43,7 @@ internal sealed class CatalogChartInfoWriteRequest
         || ParseFailureRows.Count > 0
         || ParseFailureDeleteMd5s.Count > 0;
 
-    private static LR2SongDBExtended.chart_info CreateChartInfoCopy(LR2SongDBExtended.chart_info source)
-    {
-        return new LR2SongDBExtended.chart_info
-        {
-            sha256 = source.sha256,
-            md5 = source.md5,
-            charthash = source.charthash,
-            level = source.level,
-            difficulty = source.difficulty,
-            difficulty_defined = source.difficulty_defined,
-            mainbpm = source.mainbpm,
-            maxbpm = source.maxbpm,
-            minbpm = source.minbpm,
-            length = source.length,
-            mode = source.mode,
-            judge = source.judge,
-            bga = source.bga,
-            exlevel = source.exlevel,
-            feature = source.feature,
-            notes = source.notes,
-            n = source.n,
-            ln = source.ln,
-            s = source.s,
-            ls = source.ls,
-            total = source.total,
-            total_defined = source.total_defined,
-            density = source.density,
-            peakdensity = source.peakdensity,
-            enddensity = source.enddensity,
-            distribution = source.distribution,
-            speedchange = source.speedchange,
-            speedchange_count = source.speedchange_count,
-            lanenotes = source.lanenotes,
-            parser_version = source.parser_version,
-            updated_at = source.updated_at
-        };
-    }
 
-    private static LR2SongDBExtended.chart_info_parse_failure CreateParseFailureCopy(
-        LR2SongDBExtended.chart_info_parse_failure source)
-    {
-        return new LR2SongDBExtended.chart_info_parse_failure
-        {
-            md5 = source.md5,
-            sha256 = source.sha256,
-            path = source.path,
-            parser_version = source.parser_version,
-            failure_kind = source.failure_kind,
-            exception_type = source.exception_type,
-            message = source.message,
-            parse_timeout_ms = source.parse_timeout_ms,
-            updated_at = source.updated_at
-        };
-    }
 }
 
 internal sealed class CatalogChartInfoWriteReceipt
@@ -133,23 +77,18 @@ internal sealed class CatalogChartInfoWriteReceipt
 }
 
 /// <summary>
-/// Immutable chart-info storage request. Inline BMS/BMSON rows, full-backfill narrow song
-/// projections, and chart-info facts are committed by one catalog mutation command.
+/// 共通基本値、既存song行だけへの限定投影、詳細情報を一つの保存コマンドで確定する不変要求です。
 /// </summary>
 internal sealed class CatalogChartInfoStorageWriteRequest
 {
+    /// <summary>DB確定前に、共通の保存変更事実と既存行だけへの限定投影を固定します。</summary>
     internal CatalogChartInfoStorageWriteRequest(
-        IEnumerable<BMSFile> bmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        IEnumerable<ChartFile> charts,
         CatalogChartInfoWriteRequest chartInfo,
         IEnumerable<Lr2ChartInfoSongProjection> chartInfoSongProjections = null)
     {
-        BmsRows = Array.AsReadOnly([.. (bmsRows ?? [])
-            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))
-            .Select(row => row.CreateSongRowPersistenceCopy())]);
-        BmsonRows = Array.AsReadOnly([.. (bmsonRows ?? [])
-            .Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))
-            .Select(CatalogMaintenanceWriteRequest.CreateBmsonPersistenceCopy)]);
+        Charts = Array.AsReadOnly([.. (charts ?? [])
+            .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.Path))]);
         ChartInfo = chartInfo ?? new CatalogChartInfoWriteRequest();
         ChartInfoSongProjections = Array.AsReadOnly([.. (chartInfoSongProjections ?? [])
             .Where(projection => projection != null)
@@ -157,22 +96,20 @@ internal sealed class CatalogChartInfoStorageWriteRequest
             .Select(group => group.Last())]);
     }
 
-    internal IReadOnlyList<BMSFile> BmsRows { get; }
-
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonRows { get; }
+    /// <summary>生成列を書き込む共通の譜面値です。</summary>
+    internal IReadOnlyList<ChartFile> Charts { get; }
 
     internal CatalogChartInfoWriteRequest ChartInfo { get; }
 
     internal IReadOnlyList<Lr2ChartInfoSongProjection> ChartInfoSongProjections { get; }
 
-    internal bool HasChanges => BmsRows.Count > 0
-        || BmsonRows.Count > 0
+    internal bool HasChanges => Charts.Count > 0
         || ChartInfoSongProjections.Count > 0
         || ChartInfo.HasChanges;
 }
 
 /// <summary>
-/// Reports the durable rows and narrow projections applied by one chart-info storage transaction.
+/// 一つの詳細保存トランザクションで永続確定した件数と限定投影の結果です。
 /// </summary>
 internal sealed class CatalogChartInfoStorageWriteReceipt
 {

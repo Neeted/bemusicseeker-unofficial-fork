@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace BeMusicSeeker.Models.Utils;
@@ -25,6 +27,37 @@ internal static class LongPathFileSystem
         public DateTime LastWriteTimeUtc { get; }
     }
 
+    /// <summary>属性・列挙の失敗が正常な不存在を示す場合だけ真です。アクセス拒否や一般I/Oを不存在へ読み替えません。</summary>
+    internal static bool IsNotFoundFailure(Exception failure)
+        => failure is FileNotFoundException or DirectoryNotFoundException;
+
+    /// <summary>登録位置の各要素を親の直下列挙で確認し、実在する綴りを返します。drive・共有名とリンク先は置換しません。</summary>
+    /// <remarks>追加の表記確認だけが不能な場合は元入力を保持します。通常の利用可否検査は呼出元のpreflightが担当します。</remarks>
+    internal static string ConfirmDirectoryPathSpelling(string path)
+    {
+        try
+        {
+            string normalized = TrimTrailingDirectorySeparators(NormalizePathForStorage(path));
+            string root = Path.GetPathRoot(normalized);
+            if (string.IsNullOrEmpty(root)) { return path; }
+            string current = root;
+            foreach (string component in normalized[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+            {
+                string entry = EnumerateDirectories(current, component, SearchOption.TopDirectoryOnly)
+                    .FirstOrDefault(candidate => string.Equals(Path.GetFileName(TrimTrailingDirectorySeparators(candidate)), component, StringComparison.OrdinalIgnoreCase));
+                if (entry == null) { return path; }
+                current = Path.Combine(current, Path.GetFileName(TrimTrailingDirectorySeparators(entry)));
+            }
+            if ((GetAttributes(current) & FileAttributes.Directory) == 0) { return path; }
+            return TrimTrailingDirectorySeparators(current);
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or ArgumentException
+            or NotSupportedException or System.Security.SecurityException)
+        {
+            return path;
+        }
+    }
+
     public static string NormalizePathForStorage(string path)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -36,6 +69,30 @@ internal static class LongPathFileSystem
         return IsFullyQualifiedWindowsPath(normalized)
             ? NormalizeFullyQualifiedWindowsPath(normalized)
             : Path.GetFullPath(normalized);
+    }
+
+    /// <summary>既存の物理単位照合規則でdot・末尾区切りを正規化します。復元では正規化の実失敗を原因として伝え、DB生キー自体は変更しません。</summary>
+    internal static string NormalizePhysicalScopePath(string path)
+        => TrimTrailingDirectorySeparators(NormalizePathForStorage(path?.Trim()));
+
+    /// <summary>物理単位の照合用pathを作れた場合だけ真です。通常入力の既存の受理規則を維持し、FSを参照しません。</summary>
+    /// <param name="path">既存の保留範囲または照合対象のパスです。</param>
+    /// <param name="normalizedPath">従来の保留復元と同じ規則で得た照合用パスです。</param>
+    /// <returns>正規化できた場合は真です。不能なDBキーのexact処理を拒否するものではありません。</returns>
+    internal static bool TryNormalizePhysicalScopePath(string path, out string normalizedPath)
+    {
+        normalizedPath = null;
+        if (string.IsNullOrWhiteSpace(path)) { return false; }
+        try
+        {
+            normalizedPath = NormalizePhysicalScopePath(path);
+            return !string.IsNullOrWhiteSpace(normalizedPath);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException or IOException)
+        {
+            normalizedPath = null;
+            return false;
+        }
     }
 
     public static string TrimTrailingDirectorySeparators(string path)
@@ -241,7 +298,12 @@ internal static class LongPathFileSystem
         File.Copy(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), overwrite);
     }
 
-    public static void CopyDirectory(string sourcePath, string destinationPath, bool overwrite)
+    /// <summary>ディレクトリを再帰コピーします。指定時は各ディレクトリの内容列挙・宛先作成前に再解析ポイントを拒否します。</summary>
+    /// <param name="sourcePath">コピー元ディレクトリ。</param>
+    /// <param name="destinationPath">コピー先ディレクトリ。</param>
+    /// <param name="overwrite">既存のコピー先への上書きを許可するか。</param>
+    /// <param name="rejectDirectoryReparsePoints">ディレクトリへのリンクを辿らず、コピー全体を失敗させるか。既定では従来どおり辿ります。</param>
+    public static void CopyDirectory(string sourcePath, string destinationPath, bool overwrite, bool rejectDirectoryReparsePoints = false)
     {
         ThrowIfSamePath(sourcePath, destinationPath);
         ThrowIfDestinationIsInsideSourceDirectory(sourcePath, destinationPath);
@@ -250,11 +312,15 @@ internal static class LongPathFileSystem
             throw new IOException("Destination directory already exists.");
         }
 
+        if (rejectDirectoryReparsePoints && (GetAttributes(sourcePath) & FileAttributes.ReparsePoint) != 0)
+        {
+            throw new IOException(string.Format(Properties.Resources.Error_DirectoryLinkCopyNotAllowedFormat, sourcePath));
+        }
         CreateDirectory(destinationPath);
         foreach (string sourceDirectoryPath in GetDirectories(sourcePath))
         {
             string destinationChildPath = Path.Combine(destinationPath, Path.GetFileName(sourceDirectoryPath));
-            CopyDirectory(sourceDirectoryPath, destinationChildPath, overwrite);
+            CopyDirectory(sourceDirectoryPath, destinationChildPath, overwrite, rejectDirectoryReparsePoints);
         }
         foreach (string sourceFilePath in GetFiles(sourcePath))
         {
@@ -297,8 +363,129 @@ internal static class LongPathFileSystem
         return candidatePath;
     }
 
+    /// <summary>
+    /// ディレクトリ移動先の衝突を判定します。宛先が存在しなければ衝突なしです。
+    /// 元と宛先が大小文字だけ異なる場合は、両パスを開いたボリュームとファイルIDで同一の物理ディレクトリかをO(1)で比較し、同一なら衝突なし(外部で実表記が変わった場合を含む)、別実体(大小文字を区別するディレクトリ内の別エントリ)なら衝突とします。
+    /// 識別子は128bitのFileIdInfoを優先し、FileIdInfo非対応のFS(FAT・exFAT・一部のネットワーク共有)では両パスとも同じ方式でGetFileInformationByHandleの64bit索引へ代替して比較します。
+    /// 親ディレクトリは列挙しません。両方式でハンドル取得や識別子取得に失敗した場合は例外を漏らさず、従来どおり宛先が存在するものとして衝突ありを返します。
+    /// </summary>
+    internal static bool HasDirectoryMoveDestinationConflict(string sourcePath, string destinationPath)
+    {
+        if (!EntryExists(destinationPath)) { return false; }
+        if (!string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase)) { return true; }
+        if (string.Equals(sourcePath, destinationPath, StringComparison.Ordinal)) { return true; }
+        if (!OperatingSystem.IsWindows()) { return true; }
+        return !TryIsSamePhysicalDirectory(sourcePath, destinationPath, out bool same) || !same;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileIdInfo
+    {
+        public ulong VolumeSerialNumber;
+        public ulong FileIdLow;
+        public ulong FileIdHigh;
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern Microsoft.Win32.SafeHandles.SafeFileHandle OpenDirectoryForIdentity(
+        string path, uint desiredAccess, uint shareMode, IntPtr securityAttributes, uint creationDisposition, uint flags, IntPtr template);
+
+    /// <summary>ネイティブの BY_HANDLE_FILE_INFORMATION(FILETIME は4バイト境界の52バイト)と同じ配置です。Pack=4 を外すと ulong が8バイト境界へずれ、識別子が誤った位置から読まれます。</summary>
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    internal struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public ulong CreationTime;
+        public ulong LastAccessTime;
+        public ulong LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFileInformationByHandleEx", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReadFileIdInfo(
+        Microsoft.Win32.SafeHandles.SafeFileHandle handle, int informationClass, out FileIdInfo info, uint size);
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFileInformationByHandle", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ReadByHandleFileInformation(
+        Microsoft.Win32.SafeHandles.SafeFileHandle handle, out ByHandleFileInformation info);
+
+    /// <summary>
+    /// ディレクトリのボリュームとファイルIDを読みます。既定は128bitのFileIdInfo(NTFS/ReFS)で、legacyではFileIdInfo非対応のFS(FAT・exFAT・一部のネットワーク共有)向けにBY_HANDLE_FILE_INFORMATIONの64bit索引を使います。
+    /// 異なる方式の識別子は比較できないため、呼出し側が両パスを同じ方式で読みます。
+    /// </summary>
+    internal static bool TryReadDirectoryIdentity(string path, bool legacy, out (ulong Volume, ulong IdLow, ulong IdHigh) identity)
+    {
+        identity = default;
+        try
+        {
+            // 属性読取りだけの最小アクセスで、共有を全許可し BACKUP_SEMANTICS でディレクトリを開きます。
+            using Microsoft.Win32.SafeHandles.SafeFileHandle handle = OpenDirectoryForIdentity(
+                ToExtendedPath(path), 0, 7, IntPtr.Zero, 3, 0x02000000, IntPtr.Zero);
+            if (handle.IsInvalid) { return false; }
+            if (legacy)
+            {
+                if (!ReadByHandleFileInformation(handle, out ByHandleFileInformation legacyInfo)) { return false; }
+                identity = (legacyInfo.VolumeSerialNumber, ((ulong)legacyInfo.FileIndexHigh << 32) | legacyInfo.FileIndexLow, 0);
+                return true;
+            }
+            if (!ReadFileIdInfo(handle, 18, out FileIdInfo info, (uint)Marshal.SizeOf<FileIdInfo>())) { return false; }
+            identity = (info.VolumeSerialNumber, info.FileIdLow, info.FileIdHigh);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryIsSamePhysicalDirectory(string firstPath, string secondPath, out bool same)
+    {
+        same = false;
+        // どちらか一方でもFileIdInfoを読めなければ、両方を同じ代替方式で読み直します。
+        foreach (bool legacy in new[] { false, true })
+        {
+            if (TryReadDirectoryIdentity(firstPath, legacy, out (ulong Volume, ulong IdLow, ulong IdHigh) first) && TryReadDirectoryIdentity(secondPath, legacy, out (ulong Volume, ulong IdLow, ulong IdHigh) second))
+            {
+                same = first == second;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool MoveDirectorySpelling(string sourcePath, string destinationPath, uint flags);
+
+    /// <summary>ディレクトリを移動します。大小文字だけの変更も単一の物理改名で完了し、中間配置を作りません。</summary>
     public static void MoveDirectory(string sourcePath, string destinationPath, bool overwrite)
     {
+        if (!string.Equals(sourcePath, destinationPath, StringComparison.Ordinal)
+            && string.Equals(sourcePath, destinationPath, StringComparison.OrdinalIgnoreCase))
+        {
+            if ((File.GetAttributes(ToExtendedPath(sourcePath)) & FileAttributes.Directory) == 0)
+            { throw new IOException("Source is not a directory."); }
+            if (HasDirectoryMoveDestinationConflict(sourcePath, destinationPath))
+            { throw new IOException("Destination directory already exists."); }
+            if (OperatingSystem.IsWindows())
+            {
+                // Directory.Move の同一パス拒否を避け、置換フラグなしで最終表記へ直接変更します。
+                if (!MoveDirectorySpelling(ToExtendedPath(sourcePath), ToExtendedPath(destinationPath), 0))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    throw new IOException(new Win32Exception(error).Message, unchecked((int)0x80070000) | error);
+                }
+            }
+            else { Directory.Move(sourcePath, destinationPath); }
+            return;
+        }
         ThrowIfSamePath(sourcePath, destinationPath);
         ThrowIfDestinationIsInsideSourceDirectory(sourcePath, destinationPath);
         bool destinationExists = DirectoryExists(destinationPath);

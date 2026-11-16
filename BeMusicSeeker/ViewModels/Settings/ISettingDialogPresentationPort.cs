@@ -1,9 +1,7 @@
-using System.Threading.Tasks;
-
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// 設定画面の表示要求と、後続処理へ渡す表示寿命の終了をシェルへ接続します。
+/// 設定画面の表示要求と終了要求をシェルへ接続します。
 /// </summary>
 internal interface ISettingDialogPresentationPort
 {
@@ -13,12 +11,8 @@ internal interface ISettingDialogPresentationPort
 
     void OpenInitialSetupLanguageDialog();
 
-    /// <summary>後続処理を伴わない取消などのために、設定画面の終了を要求します。</summary>
+    /// <summary>設定画面の終了を同期の要求として出します。完了は待ちません。</summary>
     void CloseSettingsDialog();
-
-    /// <summary>設定画面を閉じ、モーダル表示とシェルの表示状態の後片付けが完了するまで待ちます。</summary>
-    /// <returns>保存後の通知や初期化を開始してよい境界を表すタスク。</returns>
-    Task CloseSettingsDialogAsync();
 
     void RefreshAppearanceSelection();
 }

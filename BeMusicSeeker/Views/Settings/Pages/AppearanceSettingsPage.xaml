@@ -5,20 +5,47 @@
              xmlns:settings="clr-namespace:BeMusicSeeker.Views.Settings"
              xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels"
              x:Name="page" HorizontalContentAlignment="Stretch">
-  <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="../SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries></ResourceDictionary></UserControl.Resources>
+  <UserControl.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries><ResourceDictionary Source="../SettingsControls.xaml" /></ResourceDictionary.MergedDictionaries><BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" /></ResourceDictionary></UserControl.Resources>
   <StackPanel>
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}"
                               Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_description, Mode=OneWay}">
-      <UniformGrid Columns="2">
-        <settings:SettingsOptionRow Margin="0,0,6,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme_light, Mode=OneWay}"
-                                    Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_light_description, Mode=OneWay}">
-          <RadioButton x:Name="radioButtonLightTheme" GroupName="AppearanceTheme" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme_light, Mode=OneWay}" IsChecked="{Binding IsLightAppearanceTheme, Mode=TwoWay}" />
-        </settings:SettingsOptionRow>
-        <settings:SettingsOptionRow Margin="6,0,0,0" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme_dark, Mode=OneWay}"
-                                    Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_theme_dark_description, Mode=OneWay}">
-          <RadioButton x:Name="radioButtonDarkTheme" GroupName="AppearanceTheme" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme_dark, Mode=OneWay}" IsChecked="{Binding IsDarkAppearanceTheme, Mode=TwoWay}" />
-        </settings:SettingsOptionRow>
-      </UniformGrid>
+      <ComboBox AutomationProperties.AutomationId="SettingsTheme" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}" x:Name="appearanceThemeComboBox" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding AppearanceThemeOptions}"
+                  DisplayMemberPath="DisplayName" SelectedValuePath="Key"
+                  SelectedValue="{Binding AppearanceTheme, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+        <ComboBox.ItemContainerStyle>
+          <Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource SettingsComboBoxItemStyle}">
+            <!-- DisplayMemberPathは候補のUIA Nameを指定しないため、同じ表示名を明示して接続する。 -->
+            <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+          </Style>
+        </ComboBox.ItemContainerStyle>
+      </ComboBox>
+    </settings:SettingsSection>
+
+    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_font, Mode=OneWay}"
+                              Description="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_appearance_font_description, Mode=OneWay}">
+      <ComboBox AutomationProperties.AutomationId="SettingsFont" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_font, Mode=OneWay}" x:Name="appearanceFontComboBox" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding AppearanceFontOptions}"
+                  SelectedValuePath="Key" TextSearch.TextPath="DisplayName"
+                  SelectedValue="{Binding AppearanceFontFamily, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                  SelectionChanged="appearanceFontComboBoxSelectionChanged">
+        <!-- 候補はインストール済みのフォントの数だけあり、それぞれ別のフォントで描く。開いたときに全フォントを読み込まないよう、表示範囲の候補だけを実体化する。 -->
+        <ComboBox.ItemsPanel>
+          <ItemsPanelTemplate><VirtualizingStackPanel /></ItemsPanelTemplate>
+        </ComboBox.ItemsPanel>
+        <!-- 表示名を候補のフォントで描く。閉じた状態の選択中の候補にも同じテンプレートが使われる。 -->
+        <ComboBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding DisplayName}" FontFamily="{Binding PreviewFontFamily}" />
+          </DataTemplate>
+        </ComboBox.ItemTemplate>
+        <ComboBox.ItemContainerStyle>
+          <Style TargetType="{x:Type ComboBoxItem}" BasedOn="{StaticResource SettingsComboBoxItemStyle}">
+            <!-- ItemTemplateは候補のUIA Nameを指定しないため、同じ表示名を明示して接続する。 -->
+            <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName}" />
+          </Style>
+        </ComboBox.ItemContainerStyle>
+      </ComboBox>
     </settings:SettingsSection>
 
     <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table, Mode=OneWay}"
@@ -26,35 +53,36 @@
       <StackPanel>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_font_size, Mode=OneWay}">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
-            <Slider Minimum="8" Maximum="18" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding CustomTableFontSize, StringFormat={}{0:F0} pt}" />
+            <Slider x:Name="sliderCustomTableFontSize" Minimum="8" Maximum="18" TickFrequency="0.5" SmallChange="0.5" IsSnapToTickEnabled="True" Value="{Binding CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />
+            <TextBlock Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding Value, ElementName=sliderCustomTableFontSize, StringFormat={}{0:0.#} px}" />
           </Grid>
         </settings:SettingsField>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_row_height, Mode=OneWay}">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
-            <Slider Minimum="16" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding CustomTableRowHeight, StringFormat={}{0:F0} px}" />
+            <Slider x:Name="sliderCustomTableRowHeight" Minimum="16" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />
+            <TextBlock Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding Value, ElementName=sliderCustomTableRowHeight, StringFormat={}{0:F0} px}" />
           </Grid>
         </settings:SettingsField>
         <settings:SettingsField Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_header_height, Mode=OneWay}">
           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="84" /></Grid.ColumnDefinitions>
-            <Slider Minimum="18" Maximum="48" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-            <TextBlock Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding CustomTableHeaderHeight, StringFormat={}{0:F0} px}" />
+            <Slider x:Name="sliderCustomTableHeaderHeight" Minimum="18" Maximum="48" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=Explicit}" />
+            <TextBlock Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" TextAlignment="Right" Text="{Binding Value, ElementName=sliderCustomTableHeaderHeight, StringFormat={}{0:F0} px}" />
           </Grid>
         </settings:SettingsField>
         <Button HorizontalAlignment="Right" Style="{StaticResource SettingsQuietButtonStyle}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_reset_defaults, Mode=OneWay}" Click="resetCustomTableAppearanceDefaultsButtonClick" />
       </StackPanel>
     </settings:SettingsSection>
 
-    <settings:SettingsSection Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}">
-      <StackPanel>
+    <settings:SettingsSection Margin="0" IsEnabled="{Binding IsIndependentSectionEnabled}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}"><StackPanel>
+      <StackPanel settings:SettingsDeficiencyTarget.Field="ExternalImage">
         <CheckBox x:Name="checkBoxUseExternalPanelImage" IsChecked="{Binding UseExternalPanelImage}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}" />
-        <settings:SettingsPathPicker Margin="24,10,0,0" IsEnabled="{Binding IsChecked, ElementName=checkBoxUseExternalPanelImage}"
+        <settings:SettingsPathPicker Margin="26,8,0,0" IsEnabled="{Binding IsChecked, ElementName=checkBoxUseExternalPanelImage}"
                                      Label="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.FilePath_StageFile, Mode=OneWay}"
                                      Path="{Binding StagefilePath, Mode=OneWay}" IsPathReadOnly="True"
                                      BrowseText="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}"
+                                     ValidationMessage="{Binding FieldReasons[ExternalImage], Mode=OneWay}" ValidationStatus="{Binding FieldReasonStatuses[ExternalImage], Mode=OneWay}"
                                      BrowseRequested="browseStagefilePathButtonClick" />
       </StackPanel>
-    </settings:SettingsSection>
+    <Button Tag="retry:image" Style="{StaticResource SettingsQuietButtonStyle}" HorizontalAlignment="Left" Margin="0,8,0,0" IsEnabled="{Binding IsIndependentSectionEnabled}" Visibility="{Binding CanRetryImageSettings, Converter={StaticResource BooleanToVisibilityConverter}}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Settings_retry, Mode=OneWay}" /></StackPanel></settings:SettingsSection>
   </StackPanel>
 </UserControl>

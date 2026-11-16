@@ -26,10 +26,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     private Action<PlayHistoryViewRequest> refreshView;
     private Func<PlaylistSourceRetirementRequest> prepareDetailSourceRetirement;
     private bool isViewActive;
-    private readonly Action<string> mainViewLog;
-    internal PlayHistoryWorkflowOwner(Action<string> mainViewLog = null)
+    internal PlayHistoryWorkflowOwner()
     {
-        this.mainViewLog = mainViewLog ?? (_ => { });
         PresentationState.CurrentSortSnapshot = new SortSnapshot(null, null, revision: 0L);
     }
 
@@ -42,6 +40,21 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
 
     internal event EventHandler<PlayHistoryViewRequestActivatedEventArgs> PeriodRequestActivated;
+
+    /// <summary>期間・検索の既存表示Taskと不変要求を読取り専用で通知します。購読者の例外は業務処理へ戻しません。</summary>
+    internal event Action<long, long, Task> ViewRefreshStarted;
+
+    /// <summary>既に開始した実Taskを一回通知し、新しい表示処理や再実行を開始しません。</summary>
+    internal void NotifyViewRefreshStarted(PlayHistoryViewRequest request, Task operation)
+    {
+        Action<long, long, Task> observers = ViewRefreshStarted;
+        if (observers == null) { return; }
+        foreach (Action<long, long, Task> observer in observers.GetInvocationList())
+        {
+            try { observer(request.RequestId, request.KeywordFilterRevision, operation); }
+            catch (Exception failure) { Task.FromException(failure).ObserveFault("playHistoryRefreshObserver"); }
+        }
+    }
 
     internal void ConfigureViewRefreshScheduler(
         Func<bool> isShutdownRequested,
@@ -77,14 +90,15 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             "playHistoryKeywordFilterUpdated");
     }
 
-    internal void QueueDisplayTargetRefresh(string identity, bool advanceRevision = true)
+    /// <summary>対象更新を既存queueへ渡します。同じ論理対象の依存更新は選択を保ち、版を進めない再queueでは現在要求の採用方針を継承します。</summary>
+    internal void QueueDisplayTargetRefresh(string identity, bool advanceRevision = true, bool? preserveSelection = null)
     {
         EnsureViewRefreshSchedulerConfigured();
         if (isViewRefreshShutdownRequested())
         {
             return;
         }
-        if (!TryBeginDisplayTargetRefresh(identity, advanceRevision, out PlayHistoryViewRequest request))
+        if (!TryBeginDisplayTargetRefresh(identity, advanceRevision, out PlayHistoryViewRequest request, preserveSelection))
         {
             return;
         }
@@ -120,6 +134,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             throw;
         }
         refreshTask.ObserveFault(operationName);
+        NotifyViewRefreshStarted(request, refreshTask);
     }
 
     private void EnsureViewRefreshSchedulerConfigured()
@@ -303,11 +318,36 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
     internal PlayHistoryViewRequest ActiveRequest { get; private set; }
 
-    internal void InvalidateReadCache(string reason)
+    /// <summary>同じ確定batchの新取得・投影依存だけで現在条件の要求を置き換えます。catalogの版進行だけでは更新せず、既存publisherのSourceChanged分類を使って警告・保守だけの確定を除外します。外部DBは読みません。</summary>
+    internal bool ApplyLibraryChanges(NormalLibraryRefreshNotificationBatch batch)
     {
-        Deactivate(clearViewActivity: false);
-        readCache.Invalidate();
-        mainViewLog("play_history_read_cache_invalidated reason=" + (reason ?? string.Empty));
+        if (batch == null) { return false; }
+        ScorePlayHistorySnapshot sourceSnapshot = batch.ScoreChanges.Count > 0
+            ? viewExecutionDependencies?.SourceResolver()?.PlayHistorySnapshot : null;
+        PlayHistoryViewRequest previous;
+        string keyword;
+        string target;
+        long targetRevision;
+        bool acquisitionChanged;
+        lock (PresentationState.SyncRoot)
+        {
+            acquisitionChanged = batch.ScoreChanges.Count > 0
+                && !ReferenceEquals(ActiveRequest?.SourceSnapshot, sourceSnapshot);
+            bool projectionChanged = batch.HasEffect(LibraryChartRefreshEffects.SourceChanged)
+                || batch.ReferenceCommits.Any(commit => commit.Revision != commit.BaseRevision)
+                || batch.ResetsPriorNotifications || batch.DeletedTokens.Count > 0;
+            if (!acquisitionChanged && !projectionChanged) { return false; }
+            PresentationState.CurrentView = null;
+            previous = ActiveRequest;
+            keyword = PresentationState.CurrentKeywordIdentity;
+            target = PresentationState.CurrentDisplayTargetIdentity;
+            targetRevision = PresentationState.DisplayTargetRevision;
+        }
+        if (acquisitionChanged) { readCache.ClearPeriodIndex(); }
+        if (previous == null) { return false; }
+        return BeginRequest(previous.PeriodRequest, keyword, target, targetRevision,
+            previous.DetailSourceRetirement, previous, preserveSelection: !acquisitionChanged,
+            sourceSnapshot: acquisitionChanged ? sourceSnapshot : previous.SourceSnapshot) != null;
     }
 
     private void ToggleSummaryFilterCard(PlayHistorySummaryCard card)
@@ -383,6 +423,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         lock (PresentationState.SyncRoot)
         {
             selectedSummaryFilterKeys.Clear();
+            PresentationState.AdoptedSummary = null;
         }
     }
 
@@ -393,6 +434,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         lock (PresentationState.SyncRoot)
         {
             selectedSummaryFilterKeys.Clear();
+            PresentationState.AdoptedSummary = null;
             cardsChanged = PresentationState.SetSummaryCards([]);
             diagnosticChanged = PresentationState.SetDiagnosticText(string.Empty);
         }
@@ -419,6 +461,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
     }
 
+    /// <summary>生の読取り失敗を非採用とし、期間索引の失敗は正常な行の表示構築から分けます。</summary>
     internal PlayHistoryReadWorkflowResult BuildReadView(
         PlayHistoryReadWorkflowRequest request,
         BMSLibrary library,
@@ -469,9 +512,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             if (request.Source.Provider == PlayHistoryProvider.Beatoraja)
             {
                 BeatorajaPlayHistoryReadRequest readRequest = periodRequest.ToBeatorajaReadRequest(request.Source.ScoreDbPath);
-                readRequest.ScoresBySha256 = request.Source.BeatorajaScoreContext.ScoresBySha256;
-                readRequest.ScoreSnapshotVersion = request.Source.BeatorajaScoreContext.ScoreSnapshotVersion;
-                beatorajaReadResult = readCache.ReadBeatoraja(readRequest, cancellationToken, out readCacheHit);
+                beatorajaReadResult = readCache.ReadBeatoraja(request.Source.PlayHistorySnapshot, readRequest, cancellationToken, out readCacheHit);
                 schemaStatus = beatorajaReadResult.SchemaStatus;
                 rawReadCount = beatorajaReadResult.Rows.Count;
                 readDiagnostics = beatorajaReadResult.Diagnostics;
@@ -479,6 +520,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             else
             {
                 lr2ReadResult = readCache.ReadLr2(
+                    request.Source.PlayHistorySnapshot,
                     periodRequest.ToLr2ReadRequest(request.Source.ScoreDbPath, request.Source.IsLr2LinkedProfile),
                     cancellationToken,
                     out readCacheHit);
@@ -525,9 +567,17 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 presentation: null);
         }
 
+        bool canReadPeriodIndex = schemaStatus is Lr2PlayHistorySchemaStatus.Installed or Lr2PlayHistorySchemaStatus.Repairable;
+        // 非連携の適用外スキップは読取り失敗ではなく、DB照会なしの空行と情報診断を表示する。
+        if ((!canReadPeriodIndex && schemaStatus != Lr2PlayHistorySchemaStatus.SkippedProfile)
+            || lr2ReadResult?.HasErrors == true || beatorajaReadResult?.HasErrors == true)
+        {
+            return new PlayHistoryReadWorkflowResult(false, string.Empty, readMs,
+                readStage, periodStage, projectionStage, presentation: null, failedStage: "read", readDiagnostics);
+        }
+
         IReadOnlyList<long> periodIndexPlayedAt = [];
         IReadOnlyList<PlayHistoryDiagnostic> periodIndexDiagnostics = [];
-        bool canReadPeriodIndex = schemaStatus is Lr2PlayHistorySchemaStatus.Installed or Lr2PlayHistorySchemaStatus.Repairable;
         if (canReadPeriodIndex)
         {
             var periodStopwatch = Stopwatch.StartNew();
@@ -537,11 +587,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 if (request.Source.Provider == PlayHistoryProvider.Beatoraja)
                 {
                     BeatorajaPlayHistoryPeriodIndexResult periodResult = readCache.ReadBeatorajaPeriodIndex(
+                        request.Source.PlayHistorySnapshot,
                         new BeatorajaPlayHistoryPeriodIndexRequest
                         {
-                            ScoreDbPath = request.Source.ScoreDbPath,
-                            ScoresBySha256 = request.Source.BeatorajaScoreContext.ScoresBySha256,
-                            ScoreSnapshotVersion = request.Source.BeatorajaScoreContext.ScoreSnapshotVersion
+                            ScoreDbPath = request.Source.ScoreDbPath
                         },
                         cancellationToken,
                         out periodCacheHit);
@@ -551,6 +600,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 else
                 {
                     Lr2PlayHistoryPeriodIndexResult periodResult = readCache.ReadLr2PeriodIndex(
+                        request.Source.PlayHistorySnapshot,
                         new Lr2PlayHistoryPeriodIndexRequest
                         {
                             ScoreDbPath = request.Source.ScoreDbPath,
@@ -562,7 +612,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     periodIndexDiagnostics = periodResult.Diagnostics;
                 }
                 periodStage = new PlayHistoryPeriodIndexStageMetrics(
-                    PlayHistoryPeriodIndexStageStatus.Completed,
+                    periodIndexDiagnostics.Any(diagnostic => diagnostic?.Severity == PlayHistoryDiagnosticSeverity.Error)
+                        ? PlayHistoryPeriodIndexStageStatus.Failed : PlayHistoryPeriodIndexStageStatus.Completed,
                     periodCacheHit,
                     periodIndexPlayedAt?.Count ?? 0,
                     periodIndexDiagnostics?.Count ?? 0,
@@ -585,17 +636,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     projectionStage,
                     presentation: null);
             }
-            request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
-            if (!IsCurrentRequest(requestId))
+            if (periodStage.Status == PlayHistoryPeriodIndexStageStatus.Failed)
             {
-                return new PlayHistoryReadWorkflowResult(
-                    built: false,
-                    canceledStage: "after_period_index",
-                    readMs + periodStage.ElapsedMs,
-                    readStage,
-                    periodStage,
-                    projectionStage,
-                    presentation: null);
+                periodIndexPlayedAt = null;
             }
         }
         else
@@ -606,7 +649,18 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 dayCount: 0,
                 diagnosticCount: 0,
                 elapsedMs: 0L);
-            request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
+        }
+        request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
+        if (!IsCurrentRequest(requestId))
+        {
+            return new PlayHistoryReadWorkflowResult(
+                built: false,
+                canceledStage: "after_period_index",
+                readMs + periodStage.ElapsedMs,
+                readStage,
+                periodStage,
+                projectionStage,
+                presentation: null);
         }
 
         PlayHistoryProjectionResult projectionResult;
@@ -614,7 +668,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         bool projectionIndexCacheHit = false;
         int projectionIndexStaleRetries = 0;
         long projectionMs = 0L;
-        Exception projectionFailure = null;
         if (rawReadCount > 0)
         {
             try
@@ -624,7 +677,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                         library,
                         beatorajaReadResult,
                         cancellationToken,
-                        ex => projectionFailure = ex,
                         out projectionIndexMs,
                         out projectionIndexCacheHit,
                         out projectionIndexStaleRetries,
@@ -633,7 +685,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                         library,
                         lr2ReadResult,
                         cancellationToken,
-                        ex => projectionFailure = ex,
                         out projectionIndexMs,
                         out projectionIndexCacheHit,
                         out projectionIndexStaleRetries,
@@ -682,8 +733,14 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             projectionIndexCacheHit,
             projectionIndexStaleRetries,
             projectionMs,
-            projectionFailure);
+            failure: null);
         request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.ProjectionCompleted(readStage, periodStage, projectionStage));
+        if (projectionFallback)
+        {
+            return new PlayHistoryReadWorkflowResult(false, string.Empty,
+                readMs + periodStage.ElapsedMs + projectionIndexMs + projectionMs, readStage, periodStage,
+                projectionStage, presentation: null, failedStage: "projection", projectionResult.Diagnostics);
+        }
         PlayHistoryPeriodSummaryOverride summaryOverride = request.Source.Provider == PlayHistoryProvider.Beatoraja
             ? ResolveBeatorajaPeriodSummaryOverride(periodRequest, beatorajaReadResult)
             : null;
@@ -703,7 +760,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 request.DisplayTarget,
                 request.ViewRequest.DisplayTargetRevision > 0 ? request.ViewRequest.DisplayTargetRevision : DisplayTargetRevision,
                 request.SummaryFilterTexts,
-                summaryOverride),
+                summaryOverride,
+                beatorajaReadResult?.SourceProfile ?? lr2ReadResult?.SourceProfile),
             playlist);
         return new PlayHistoryReadWorkflowResult(
             presentation.Built,
@@ -715,12 +773,14 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             presentation);
     }
 
+    /// <summary>履歴の成功表示または未取得を、行・選択・詳細sourceと同じ既存終端で確定します。</summary>
     internal PlayHistoryTerminalCommitResult ApplyTerminal(
         PlayHistoryTerminalRequest request,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace)
     {
-        if (request?.ViewState == null || request.MainRowsRequest?.Rows == null)
+        if (request == null || (request.ViewState == null && (request.FailedViewRequest?.RequestId ?? 0L) <= 0)
+            || request.MainRowsRequest?.Rows == null)
         {
             throw new ArgumentException("A complete play-history terminal request is required.", nameof(request));
         }
@@ -764,7 +824,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 playlistDetailActive: false,
                 playlistSummaryActive: false);
             mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
-            PruneSummaryFilters(request.ViewState.Provider);
+            if (request.ViewState != null)
+            {
+                PruneSummaryFilters(request.ViewState.Provider);
+            }
             return true;
         }
 
@@ -891,14 +954,11 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
 
         IReadOnlyList<PlayHistoryDiagnostic> diagnostics = CreateViewDiagnostics(state.Diagnostics, sortSucceeded, sortProfile);
         var summary = PlayHistoryPeriodSummary.FromRows(
-            state.PeriodRequest.Label,
             sortedRows,
             state.SummaryOverride);
-        System.Collections.IList nextRowsView = sortedRows.Count == 0
-            && mainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView
-            && currentPlayHistoryView.Count == 0
-                ? mainChartList.Rows
-                : new PlayHistoryVirtualView(sortedRows, CountDistinctFolderLabels(sortedRows));
+        PlayHistoryViewRequest activeRequest = SnapshotActiveRequest();
+        System.Collections.IList nextRowsView = new PlayHistoryVirtualView(sortedRows,
+            CountDistinctFolderLabels(sortedRows), activeRequest?.SourceSnapshot, state.PeriodRequest, state.DisplayTargetIdentity);
         long columnSettingStartMs = stopwatch.ElapsedMilliseconds;
         bool ownsCandidateRows = !ReferenceEquals(mainChartList.Rows, nextRowsView);
         try
@@ -907,11 +967,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 request.Mode,
                 request.ColumnFilterMode);
             string diagnosticSummaryText = PlayHistoryPresentationState.FormatDiagnosticSummary(diagnostics);
-            string gridSummaryText = PlayHistoryPresentationState.FormatGridSummaryText(
-                state.PeriodRequest,
-                summary,
-                diagnostics,
-                diagnosticSummaryText);
             IReadOnlyList<PlayHistorySummaryCard> summaryCards = PlayHistoryPresentationState.CreateSummaryCards(
                 summary,
                 state.Provider,
@@ -920,6 +975,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 new PlayHistoryTerminalRequest
                 {
                     ViewState = state,
+                    PeriodSummary = summary,
+                    SummaryDiagnostics = diagnostics,
                     ColumnSelection = columnSelection,
                     ArchivePeriodTree = request.ArchivePeriodTree,
                     SummaryCards = summaryCards,
@@ -929,8 +986,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                     {
                         Rows = nextRowsView,
                         ColumnsSettings = columnSelection.ColumnsSettings,
-                        SelectionPolicy = MainChartListSelectionPolicy.Reset,
-                        Summary = MainChartListSummaryUpdate.Explicit(gridSummaryText),
+                        SelectionPolicy = activeRequest?.PreserveSelection == true
+                            ? MainChartListSelectionPolicy.Preserve : MainChartListSelectionPolicy.Reset,
+                        Summary = MainChartListSummaryUpdate.Explicit(string.Empty),
                         ColumnSettingReuse = columnSelection.Reused,
                         ColumnPreparationMs = columnSelection.ElapsedMs,
                         TerminalStageStartMs = columnSettingStartMs,
@@ -1151,9 +1209,19 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             return PlayHistoryReadPresentationBuildResult.Stale();
         }
 
-        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(
-            request.PeriodIndexPlayedAt,
-            TimeZoneInfo.Local);
+        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = [];
+        if (request.PeriodIndexPlayedAt != null)
+        {
+            try
+            {
+                archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(request.PeriodIndexPlayedAt, TimeZoneInfo.Local);
+            }
+            catch (Exception failure) when (failure is not OutOfMemoryException)
+            {
+                PlayHistoryDiagnostic diagnostic = CreateReadFailureDiagnostic(request.SourceProfile, "period_tree", failure);
+                diagnostics = MergeDiagnostics(diagnostics, [diagnostic]);
+            }
+        }
         if (!IsCurrentRequest(request.RequestId))
         {
             return PlayHistoryReadPresentationBuildResult.Stale();
@@ -1198,6 +1266,20 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             request.ProjectedRows.Count,
             targetRows.Count,
             archivePeriodTree);
+    }
+
+    private static PlayHistoryDiagnostic CreateReadFailureDiagnostic(PlayHistorySourceProfile source, string stage, Exception failure)
+    {
+        PlayHistoryReadDiagnostics.Report(failure, source?.Provider.ToString(), stage, source?.SourcePath);
+        return new PlayHistoryDiagnostic
+        {
+            Provider = source?.Provider ?? PlayHistoryProvider.Lr2,
+            Stage = stage,
+            Severity = PlayHistoryDiagnosticSeverity.Error,
+            Code = "play_history_" + stage + "_failed",
+            Message = failure.Message,
+            SourcePath = source?.SourcePath ?? string.Empty
+        };
     }
 
     private static IReadOnlyList<PlayHistoryDiagnostic> MergeDiagnostics(
@@ -1536,20 +1618,26 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
     }
 
+    /// <summary>現在条件の要求を一度置き換えて旧workerを取消します。依存更新は期待する旧要求を照合し、後発の実選択を上書きしません。</summary>
     internal PlayHistoryViewRequest BeginRequest(
         PlayHistoryPeriodRequest periodRequest,
         string keywordIdentity,
         string displayTargetIdentity,
         long displayTargetRevision,
-        PlaylistSourceRetirementRequest detailSourceRetirement = null)
+        PlaylistSourceRetirementRequest detailSourceRetirement = null,
+        PlayHistoryViewRequest expectedRequest = null,
+        bool preserveSelection = false,
+        ScorePlayHistorySnapshot sourceSnapshot = null)
     {
         CancellationTokenSource previousCancellation;
         PlayHistoryViewRequest request;
         bool wasViewActive;
         lock (PresentationState.SyncRoot)
         {
+            if (expectedRequest != null && !ReferenceEquals(ActiveRequest, expectedRequest)) { return null; }
             wasViewActive = isViewActive;
             previousCancellation = InvalidateRequestUnsafe();
+            PresentationState.CurrentView = null;
             isViewActive = true;
             PresentationState.RequestCancellation = new CancellationTokenSource();
             PresentationState.CurrentKeywordIdentity = keywordIdentity ?? string.Empty;
@@ -1561,7 +1649,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 PresentationState.KeywordRevision,
                 displayTargetRevision)
             {
-                DetailSourceRetirement = detailSourceRetirement
+                DetailSourceRetirement = detailSourceRetirement,
+                SourceSnapshot = sourceSnapshot,
+                PreserveSelection = preserveSelection
             };
             ActiveRequest = request;
         }
@@ -1734,14 +1824,19 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 revision,
                 DisplayTargetRevision)
             {
-                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement
+                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement,
+                SourceSnapshot = ActiveRequest.SourceSnapshot,
+                PreserveSelection = false
             };
+            ActiveRequest = request;
             keywordActiveCount++;
             return true;
         }
     }
 
-    internal bool TryBeginDisplayTargetRefresh(string identity, bool advanceRevision, out PlayHistoryViewRequest request)
+    /// <summary>対象版を予約し、明示切替または同対象の依存更新に応じた選択方針を現在要求へ引き継ぎます。</summary>
+    internal bool TryBeginDisplayTargetRefresh(string identity, bool advanceRevision, out PlayHistoryViewRequest request,
+        bool? preserveSelection = null)
     {
         lock (PresentationState.SyncRoot)
         {
@@ -1778,8 +1873,11 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
                 KeywordRevision,
                 revision)
             {
-                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement
+                DetailSourceRetirement = ActiveRequest.DetailSourceRetirement,
+                SourceSnapshot = ActiveRequest.SourceSnapshot,
+                PreserveSelection = preserveSelection ?? (!advanceRevision && ActiveRequest.PreserveSelection)
             };
+            ActiveRequest = request;
             displayTargetActiveCount++;
             return true;
         }
@@ -1989,7 +2087,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         BMSLibrary library,
         Lr2PlayHistoryReadResult readResult,
         CancellationToken cancellationToken,
-        Action<Exception> logProjectionFailure,
         out long projectionIndexMs,
         out bool projectionIndexCacheHit,
         out int projectionIndexStaleRetries,
@@ -2019,13 +2116,13 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             projectionMs = 0L;
+            PlayHistoryReadDiagnostics.Report(ex, readResult.SourceProfile.Provider.ToString(), "projection", readResult.SourceProfile.SourcePath);
             PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectLr2Rows(readResult, PlayHistoryProjectionIndex.Empty);
             List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
             diagnostics.Add(CreateProjectionFailureDiagnostic(PlayHistoryProvider.Lr2, ex.Message, readResult?.SourceProfile?.SourcePath));
-            logProjectionFailure?.Invoke(ex);
             return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
         }
     }
@@ -2034,7 +2131,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         BMSLibrary library,
         BeatorajaPlayHistoryReadResult readResult,
         CancellationToken cancellationToken,
-        Action<Exception> logProjectionFailure,
         out long projectionIndexMs,
         out bool projectionIndexCacheHit,
         out int projectionIndexStaleRetries,
@@ -2064,13 +2160,13 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         {
             throw;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not OutOfMemoryException)
         {
             projectionMs = 0L;
+            PlayHistoryReadDiagnostics.Report(ex, readResult.SourceProfile.Provider.ToString(), "projection", readResult.SourceProfile.SourcePath);
             PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectBeatorajaRows(readResult, PlayHistoryProjectionIndex.Empty);
             List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
             diagnostics.Add(CreateProjectionFailureDiagnostic(PlayHistoryProvider.Beatoraja, ex.Message, readResult?.SourceProfile?.SourcePath));
-            logProjectionFailure?.Invoke(ex);
             return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
         }
     }
@@ -2209,19 +2305,18 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
         }
     }
 
-    internal void Deactivate(Action deactivateSelection = null, bool clearViewActivity = true)
+    /// <summary>画面の退役として現在要求と派生表示を失効させ、選択の解除と旧日索引の解放を行います。</summary>
+    internal void Deactivate(Action deactivateSelection = null)
     {
         CancellationTokenSource cancellation;
         ExceptionDispatchInfo deactivationException = null;
         bool wasViewActive;
         lock (PresentationState.SyncRoot)
         {
-            wasViewActive = isViewActive && clearViewActivity;
+            wasViewActive = isViewActive;
             cancellation = InvalidateRequestUnsafe();
-            if (clearViewActivity)
-            {
-                isViewActive = false;
-            }
+            PresentationState.CurrentView = null;
+            isViewActive = false;
         }
         try
         {
@@ -2232,6 +2327,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel, ISettingsDialo
             deactivationException = ExceptionDispatchInfo.Capture(ex);
         }
         Cancel(cancellation);
+        readCache.ClearPeriodIndex();
         if (wasViewActive)
         {
             RaisePropertyChanged(nameof(IsViewActive));
@@ -2279,6 +2375,7 @@ internal sealed class PlayHistoryViewRequestActivatedEventArgs : EventArgs
     }
 
     internal PlayHistoryViewRequest Request { get; }
+
 }
 
 internal sealed class PlayHistoryViewRequest
@@ -2304,4 +2401,10 @@ internal sealed class PlayHistoryViewRequest
     internal long DisplayTargetRevision { get; }
 
     internal PlaylistSourceRetirementRequest DetailSourceRetirement { get; set; }
+
+    /// <summary>この要求で読んだ取得組です。旧要求の退役とともに参照を解放します。</summary>
+    internal ScorePlayHistorySnapshot SourceSnapshot { get; set; }
+
+    /// <summary>同じ取得組・期間の投影依存更新でだけ、履歴行識別による選択復元を許可します。</summary>
+    internal bool PreserveSelection { get; set; }
 }

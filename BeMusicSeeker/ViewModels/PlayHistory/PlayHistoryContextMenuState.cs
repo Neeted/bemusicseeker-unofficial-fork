@@ -6,16 +6,13 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class PlayHistoryContextMenuState
 {
-    internal const string CopyMd5Kind = "Md5";
-    internal const string CopySha256Kind = "Sha256";
-
     private PlayHistoryContextMenuState(
         string md5,
         string sha256,
         string chartPath,
         string chartTitle,
         ChartFile resolvedChart,
-        bool canOpenScoreViewer,
+        ScoreViewerCandidate scoreViewerCandidate,
         bool hasResolvedChart,
         ExternalChartKind? chartKind)
     {
@@ -24,15 +21,17 @@ internal sealed class PlayHistoryContextMenuState
         ChartPath = chartPath ?? string.Empty;
         ChartTitle = chartTitle ?? string.Empty;
         this.resolvedChart = resolvedChart;
-        CanOpenScoreViewer = canOpenScoreViewer;
+        ScoreViewerCandidate = scoreViewerCandidate;
         HasResolvedChart = hasResolvedChart;
         ChartKind = chartKind;
     }
 
     private readonly ChartFile resolvedChart;
 
+    /// <summary>履歴行に取得済みのMD5です。SHA256や取得元の生hashで補いません。</summary>
     internal string Md5 { get; }
 
+    /// <summary>履歴行に取得済みのSHA256です。追加の譜面読込みを行いません。</summary>
     internal string Sha256 { get; }
 
     internal string ChartPath { get; }
@@ -46,23 +45,27 @@ internal sealed class PlayHistoryContextMenuState
         && !string.IsNullOrWhiteSpace(ChartPath)
         && System.IO.Path.IsPathFullyQualified(ChartPath);
 
-    internal bool CanOpenScoreViewer { get; }
+    /// <summary>
+    /// 右クリックした行1件の譜面ビューアの候補です。解決済みの行は譜面の種類・MD5・パス、
+    /// 未解決のLR2行はBMS・履歴のMD5・パスなし、未解決のbeatoraja行は種類を確定できないため対象外です。
+    /// </summary>
+    internal ScoreViewerCandidate ScoreViewerCandidate { get; }
+
+    /// <summary>譜面ビューアの共通判定で「開く」を有効に表示するかを返します。ファイルの実在は要件にしません。</summary>
+    internal bool CanOpenScoreViewer => ResolveScoreViewerDecision().Mode == ScoreViewerMenuMode.Open;
+
+    /// <summary>右クリックした行1件の候補を、複数選択中でも他の行を含めず、共通判定へ渡します。</summary>
+    internal ScoreViewerMenuDecision ResolveScoreViewerDecision()
+        => ScoreViewerMenuDecision.Resolve([ScoreViewerCandidate]);
 
     internal bool HasResolvedChart { get; }
 
     /// <summary>譜面種別を取得します。履歴の取得元だけでは BMS/bmson を区別できない場合は null です。</summary>
     internal ExternalChartKind? ChartKind { get; }
 
-    internal bool CanCopyMd5 => !string.IsNullOrWhiteSpace(Md5);
-
-    internal bool CanCopySha256 => !string.IsNullOrWhiteSpace(Sha256);
-
     internal bool HasLocalChartItem => CanOpenAssociated || CanOpenScoreViewer;
 
-    internal bool HasHashCopyItem => CanCopyMd5 || CanCopySha256;
-
-    internal bool HasVisibleItem => HasLocalChartItem || HasHashCopyItem;
-
+    /// <summary>履歴行の取得済みhashとローカル能力を捕捉します。表示する項目の有無は設定Web操作・ローカル操作・日付選択の各判断へ委ねます。</summary>
     internal static bool TryCreate(object row, out PlayHistoryContextMenuState state)
     {
         state = null;
@@ -72,18 +75,13 @@ internal sealed class PlayHistoryContextMenuState
         }
 
         ChartFile chart = playHistoryRow.ResolvedChart;
-        string md5 = FirstNonEmpty(
-            GridRowResolver.GetHash(playHistoryRow),
-            playHistoryRow.Md5,
-            playHistoryRow.RawHash);
-        string sha256 = FirstNonEmpty(
-            GridRowResolver.GetExternalActionSha256(playHistoryRow),
-            playHistoryRow.Sha256,
-            chart?.Sha256,
-            chart?.ChartInfo?.sha256);
-        bool canOpenScoreViewer = chart?.Kind == ChartFileKind.Bms
-            && !string.IsNullOrWhiteSpace(chart.Md5)
-            && !string.IsNullOrWhiteSpace(chart.Path);
+        string md5 = playHistoryRow.Md5;
+        string sha256 = playHistoryRow.Sha256;
+        ScoreViewerCandidate scoreViewerCandidate = chart != null
+            ? ScoreViewerCandidate.FromChart(chart)
+            : playHistoryRow.Provider == PlayHistoryProvider.Lr2
+                ? new ScoreViewerCandidate(ChartFileKind.Bms, md5, Path: null, Title: null)
+                : ScoreViewerCandidate.NotTarget;
         ExternalChartKind? chartKind = chart != null
             ? chart.Kind == ChartFileKind.Bmson ? ExternalChartKind.BmsonOnly : ExternalChartKind.BmsOnly
             : playHistoryRow.Provider == PlayHistoryProvider.Lr2 ? ExternalChartKind.BmsOnly : null;
@@ -93,28 +91,13 @@ internal sealed class PlayHistoryContextMenuState
             chart?.Path,
             chart?.Title,
             chart,
-            canOpenScoreViewer,
+            scoreViewerCandidate,
             chart != null,
             chartKind);
-        if (state.HasVisibleItem)
-        {
-            return true;
-        }
-
-        state = null;
-        return false;
+        return true;
     }
 
-    internal string GetCopyValue(string kind)
-    {
-        return kind switch
-        {
-            CopyMd5Kind => CanCopyMd5 ? Md5 : null,
-            CopySha256Kind => CanCopySha256 ? Sha256 : null,
-            _ => null
-        };
-    }
-
+    /// <summary>履歴行の本来のMD5/SHA256と、実在時だけのローカルpathを設定操作の解決へ渡します。</summary>
     internal RightClickActionResolutionInput CreateResolutionInput(Func<string, bool> fileExists)
     {
         string localPath = HasResolvedChart
@@ -145,58 +128,37 @@ internal sealed class PlayHistoryContextMenuState
             ChartOperationCapabilities.OpenFile | ChartOperationCapabilities.OpenFolder);
     }
 
-    private static string FirstNonEmpty(params string[] values)
-    {
-        foreach (string value in values)
-        {
-            if (!string.IsNullOrWhiteSpace(value))
-            {
-                return value.Trim();
-            }
-        }
-        return null;
-    }
 }
 
 internal enum PlayHistoryContextMenuActionKind
 {
     OpenAssociated,
     OpenExplorer,
-    RegisterScoreViewer,
-    CopyMd5,
-    CopySha256
+    RegisterScoreViewer
 }
 
 internal sealed class PlayHistoryContextMenuAction
 {
     private PlayHistoryContextMenuAction(
-        string value,
         string path,
-        ScoreViewerTarget scoreViewerTarget)
+        ScoreViewerMenuDecision scoreViewerDecision)
     {
-        Value = value;
         Path = path;
-        ScoreViewerTarget = scoreViewerTarget;
+        ScoreViewerDecision = scoreViewerDecision;
     }
-
-    internal string Value { get; }
 
     internal string Path { get; }
 
-    internal ScoreViewerTarget ScoreViewerTarget { get; }
-
-    internal static PlayHistoryContextMenuAction ForValue(string value)
-    {
-        return new PlayHistoryContextMenuAction(value, null, null);
-    }
+    /// <summary>譜面ビューアの共通判定の結果です。パスだけの操作では null です。</summary>
+    internal ScoreViewerMenuDecision ScoreViewerDecision { get; }
 
     internal static PlayHistoryContextMenuAction ForPath(string path)
     {
-        return new PlayHistoryContextMenuAction(null, path, null);
+        return new PlayHistoryContextMenuAction(path, null);
     }
 
-    internal static PlayHistoryContextMenuAction ForScoreViewer(ScoreViewerTarget scoreViewerTarget)
+    internal static PlayHistoryContextMenuAction ForScoreViewer(ScoreViewerMenuDecision scoreViewerDecision)
     {
-        return new PlayHistoryContextMenuAction(null, null, scoreViewerTarget);
+        return new PlayHistoryContextMenuAction(null, scoreViewerDecision);
     }
 }

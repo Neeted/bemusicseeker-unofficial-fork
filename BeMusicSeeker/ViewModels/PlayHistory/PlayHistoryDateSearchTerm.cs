@@ -173,7 +173,8 @@ internal readonly struct PlayHistoryWallClockSecond : IComparable<PlayHistoryWal
 /// </summary>
 internal sealed class PlayHistoryDateSearchTerm
 {
-    private const string LocalTimestampFormat = "yyyy/MM/dd HH:mm:ss";
+    // 表示をコピーした日時と既存のslash日時を、同じ壁時計秒として受理する。
+    private static readonly string[] LocalTimestampFormats = ["yyyy-MM-dd HH:mm:ss", "yyyy/MM/dd HH:mm:ss"];
 
     private static readonly string[] ExactDayFormats =
     [
@@ -206,7 +207,7 @@ internal sealed class PlayHistoryDateSearchTerm
         $"date:\"{Start.ToCanonicalTimestamp()}..{End.ToCanonicalTimestamp()}\"";
 
     /// <summary>
-    /// Parses one dedicated Play Log date term without applying timezone or offset conversion.
+    /// 固定Gregorianの日付とハイフン・slash日時を、時刻帯変換せず壁時計の検索条件へ解析します。
     /// </summary>
     /// <param name="term">The normalized field term.</param>
     /// <param name="parsed">The parsed local wall-clock term when successful.</param>
@@ -318,7 +319,7 @@ internal sealed class PlayHistoryDateSearchTerm
     {
         if (!DateTime.TryParseExact(
                 text ?? string.Empty,
-                LocalTimestampFormat,
+                LocalTimestampFormats,
                 CultureInfo.InvariantCulture,
                 DateTimeStyles.None,
                 out DateTime parsed))

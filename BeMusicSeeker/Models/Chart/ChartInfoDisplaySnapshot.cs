@@ -1,5 +1,4 @@
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models;
 
@@ -7,7 +6,7 @@ internal sealed class ChartInfoDisplaySnapshot
 {
     internal static readonly ChartInfoDisplaySnapshot Empty = new(null);
 
-    private ChartInfoDisplaySnapshot(LR2SongDBExtended.chart_info chartInfo)
+    private ChartInfoDisplaySnapshot(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         ChartLevelText = ChartInfoDisplayFormatter.FormatOptionalInt(chartInfo?.level);
         ChartLevelSortKey = chartInfo?.level ?? 0;
@@ -119,7 +118,7 @@ internal sealed class ChartInfoDisplaySnapshot
 
     internal int? ChartSoflanCount { get; }
 
-    internal static ChartInfoDisplaySnapshot FromChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    internal static ChartInfoDisplaySnapshot FromChartInfo(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         return chartInfo == null ? Empty : new ChartInfoDisplaySnapshot(chartInfo);
     }

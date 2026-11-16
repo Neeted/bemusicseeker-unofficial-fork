@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
@@ -14,7 +13,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
 /// chart_info backfill 中に補完した MD5/SHA-256 対応です。
-/// BMSFile へ SHA-256 を反映する前に DB へ保存できるよう、所有オブジェクトとは分離しています。
+/// LR2SongDB.song へ SHA-256 を反映する前に DB へ保存できるよう、所有オブジェクトとは分離しています。
 /// </summary>
 /// <remarks>
 /// 保存する digest 対応を作成します。
@@ -49,14 +48,21 @@ internal sealed class Lr2SongUserColumns
 /// </summary>
 /// <param name="songDbPath">song.dbのパス。</param>
 /// <param name="scoreDbPath">score.dbのパス。</param>
-/// <param name="songDbFactory">既定接続を置き換える内部検証用の生成処理。</param>
+/// <param name="databaseScope">接続と書込み排他を所有するアプリケーションスコープ。</param>
+/// <param name="loadOptions">構成時に捕捉した読取り方式。</param>
+/// <param name="initializeSongConnection">所有済みの書込み接続に適用する初期化処理。</param>
 internal sealed class BmsLibraryDbGateway(
+    ApplicationDatabaseScope databaseScope,
+    BmsDatabaseLoadOptions loadOptions,
     string songDbPath,
     string scoreDbPath = null,
-    Func<string, LR2SongDBExtended> songDbFactory = null)
+    Action<LR2SongDBExtended> initializeSongConnection = null)
 {
-    private readonly Func<string, LR2SongDBExtended> _songDbFactory =
-        songDbFactory ?? (path => new LR2SongDBExtended(path));
+    /// <summary>この窓口と派生する読取り処理が共有する接続所有者です。</summary>
+    internal ApplicationDatabaseScope DatabaseScope { get; } = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+
+    /// <summary>この構成で固定したDB読取り方式です。</summary>
+    internal BmsDatabaseLoadOptions LoadOptions { get; } = loadOptions ?? throw new ArgumentNullException(nameof(loadOptions));
 
     internal const string SongPathNocaseIndexName = "song_idx_path_nocase";
 
@@ -110,7 +116,7 @@ internal sealed class BmsLibraryDbGateway(
 
     internal const int CurrentChartInfoSchemaVersion = 5;
 
-    internal const int CurrentChartInfoParserVersion = 21;
+    internal const int CurrentChartInfoParserVersion = 22;
 
     internal const int ChartInfoMetadataBundleFormatVersion = 1;
 
@@ -129,40 +135,48 @@ internal sealed class BmsLibraryDbGateway(
     /// <returns>呼出し側が dispose を所有する書込み接続。</returns>
     public LR2SongDBExtended OpenSongDb()
     {
-        return _songDbFactory(SongDbPath);
+        return DatabaseScope.OpenSongWrite(SongDbPath, initializeSongConnection);
     }
 
+    /// <summary>書込み排他を取得せず、同じ所有者の読取り専用song接続を生成します。</summary>
+    /// <returns>呼出し側がdisposeする読取り専用接続。</returns>
     public LR2SongDBExtended OpenSongDbReadOnly()
     {
-        return new LR2SongDBExtended(SongDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
+        return DatabaseScope.OpenSongReadOnly(SongDbPath);
     }
 
+    /// <summary>同じ所有者のscore書込み排他と接続を取得します。</summary>
+    /// <returns>呼出し側がdisposeする書込み接続。</returns>
     public LR2ScoreDBExtended OpenScoreDb()
     {
         if (string.IsNullOrWhiteSpace(ScoreDbPath))
         {
             throw new InvalidOperationException("Score DB path is not configured.");
         }
-        return new LR2ScoreDBExtended(ScoreDbPath);
+        return DatabaseScope.OpenScoreWrite(ScoreDbPath);
     }
 
+    /// <summary>書込み排他を取得せず、同じ所有者の読取り専用score接続を生成します。</summary>
+    /// <returns>呼出し側がdisposeする読取り専用接続。</returns>
     public LR2ScoreDBExtended OpenScoreDbReadOnly()
     {
         if (string.IsNullOrWhiteSpace(ScoreDbPath))
         {
             throw new InvalidOperationException("Score DB path is not configured.");
         }
-        return new LR2ScoreDBExtended(ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex, acquireProcessLock: false);
+        return DatabaseScope.OpenScoreReadOnly(ScoreDbPath);
     }
 
+    /// <summary>同じ所有者の読取り専用接続で履歴schemaを検査し、修復は行いません。</summary>
     public Lr2PlayHistorySchemaCheckResult CheckLr2PlayHistorySchema(bool isLr2LinkedProfile)
     {
-        return new Lr2PlayHistorySchemaService().Check(ScoreDbPath, isLr2LinkedProfile);
+        return new Lr2PlayHistorySchemaService(DatabaseScope).Check(ScoreDbPath, isLr2LinkedProfile);
     }
 
+    /// <summary>明示操作として、同じ所有者の書込み接続で履歴schemaを設置・修復します。</summary>
     public Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchema(bool isLr2LinkedProfile)
     {
-        return new Lr2PlayHistorySchemaService().InstallOrRepair(ScoreDbPath, isLr2LinkedProfile);
+        return new Lr2PlayHistorySchemaService(DatabaseScope).InstallOrRepair(ScoreDbPath, isLr2LinkedProfile);
     }
 
     /// <summary>
@@ -172,6 +186,7 @@ internal sealed class BmsLibraryDbGateway(
     /// <remarks>
     /// 処理または commit の失敗後は savepoint への rollback を一度だけ試みます。
     /// その rollback と診断出力の失敗では元の例外を置き換えず、元の stack trace を維持して再送出します。
+    /// 処理・rollback・診断で直接捕捉したメモリ不足は、復元や診断の完了を待たず即時終了します。
     /// </remarks>
     public void ExecuteSongDbTransaction(Action<LR2SongDBExtended> action)
     {
@@ -186,12 +201,22 @@ internal sealed class BmsLibraryDbGateway(
             action(songDb);
             songDb.Commit();
         }
+        catch (OutOfMemoryException ex)
+        {
+            Environment.FailFast("song.dbのトランザクション中にメモリが不足しました。", ex);
+            throw;
+        }
         catch (Exception)
         {
             try
             {
                 // Commit や入れ子の InsertAll が既に全体を rollback していると、savepoint は無効になる。
                 songDb.RollbackTo(savepoint);
+            }
+            catch (OutOfMemoryException ex)
+            {
+                Environment.FailFast("song.dbのrollback中にメモリが不足しました。", ex);
+                throw;
             }
             catch (Exception rollbackException)
             {
@@ -200,6 +225,11 @@ internal sealed class BmsLibraryDbGateway(
                     NLogWrapper.FileLogger?.Warn(
                         rollbackException,
                         "song_db_transaction_rollback_failed");
+                }
+                catch (OutOfMemoryException ex)
+                {
+                    Environment.FailFast("song.dbのrollback失敗診断中にメモリが不足しました。", ex);
+                    throw;
                 }
                 catch
                 {
@@ -228,16 +258,9 @@ internal sealed class BmsLibraryDbGateway(
         });
     }
 
-    public void ReplaceInstallRows(IEnumerable<string> installPathsToDelete, ChartPackage packageToUpsert)
-    {
-        if (packageToUpsert == null || string.IsNullOrWhiteSpace(packageToUpsert.path))
-        {
-            throw new ArgumentNullException(nameof(packageToUpsert));
-        }
-
-        ApplyInstallTableMutation(installPathsToDelete, [packageToUpsert]);
-    }
-
+    /// <summary>捕捉したinstall生キーの完全一致削除と確定行の保存を一transactionで反映します。</summary>
+    /// <param name="installPathsToDelete">解除する元の生キーです。現在行の再解決や物理回収は行いません。</param>
+    /// <param name="packagesToUpsert">同じ確定で保存する登録です。</param>
     public void ApplyInstallTableMutation(
         IEnumerable<string> installPathsToDelete,
         IEnumerable<ChartPackage> packagesToUpsert)
@@ -254,20 +277,32 @@ internal sealed class BmsLibraryDbGateway(
 
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
-            foreach (string path in paths)
-            {
-                songDb.Delete<LR2SongDBExtended.install>(path);
-            }
-            if (packages.Count > 0)
-            {
-                songDb.InsertAll(packages, typeof(LR2SongDBExtended.install));
-            }
+            ApplyInstallTableMutationWithinTransaction(songDb, paths, packages);
         });
     }
 
-    public void UpsertSongs(IEnumerable<BMSFile> bmsFiles)
+    /// <summary>呼出元の既存transaction内で、捕捉した生installキーを完全一致で削除して確定行を保存します。接続・transaction・commitは所有しません。</summary>
+    /// <param name="songDb">呼出元がtransactionを保持する接続です。</param>
+    /// <param name="installPathsToDelete">初期snapshotまたは確定した通常操作が保持する元の生キーです。</param>
+    /// <param name="packagesToUpsert">削除後に従来どおり保存する確定行です。</param>
+    internal static void ApplyInstallTableMutationWithinTransaction(LR2SongDBExtended songDb,
+        IEnumerable<string> installPathsToDelete, IEnumerable<ChartPackage> packagesToUpsert)
     {
-        List<BMSFile> files = [.. (bmsFiles ?? []).Where(file => file != null)];
+        ArgumentNullException.ThrowIfNull(songDb);
+        foreach (string path in (installPathsToDelete ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.Ordinal))
+        { songDb.Delete<LR2SongDBExtended.install>(path); }
+        List<ChartPackage> packages = [.. (packagesToUpsert ?? []).Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))];
+        if (packages.Count > 0) { songDb.InsertAll(packages, typeof(LR2SongDBExtended.install)); }
+    }
+
+    /// <summary>明示選択された保留一覧初期化としてinstall全登録だけを一transactionで削除します。元入力・他表・物理回収は扱いません。</summary>
+    internal void ResetInstallTable()
+        => ExecuteSongDbTransaction(songDb => songDb.DeleteAll<LR2SongDBExtended.install>());
+
+    /// <summary>不変な譜面の生成列をDB境界で保存行へ変換して反映します。</summary>
+    public void UpsertSongs(IEnumerable<ChartFile> bmsFiles)
+    {
+        List<LR2SongDB.song> files = [.. (bmsFiles ?? []).Where(file => file != null).Select(ChartSongStorageMapping.ToBmsRow)];
         if (files.Count == 0)
         {
             return;
@@ -276,7 +311,7 @@ internal sealed class BmsLibraryDbGateway(
         {
             EnsureBmsonSchema(songDb);
             EnsureSongLookupIndexes(songDb);
-            foreach (BMSFile file in files)
+            foreach (LR2SongDB.song file in files)
             {
                 Lr2SongDbWriter.UpsertGeneratedSong(songDb, file);
             }
@@ -306,20 +341,10 @@ internal sealed class BmsLibraryDbGateway(
         return result;
     }
 
-    internal static void ApplySongUserColumns(BMSFile bmsFile, Lr2SongUserColumns userColumns)
+    internal void UpdateSongLevels(IEnumerable<ChartFile> bmsFiles)
     {
-        if (bmsFile == null || userColumns == null)
-        {
-            return;
-        }
-
-        bmsFile.PreserveUserSongColumns(userColumns.favorite, userColumns.adddate, userColumns.tag);
-    }
-
-    public void UpdateSongLevels(IEnumerable<BMSFile> bmsFiles)
-    {
-        List<BMSFile> files = [.. (bmsFiles ?? [])
-            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.path) && file.level.HasValue)];
+        List<ChartFile> files = [.. (bmsFiles ?? [])
+            .Where(file => file != null && !string.IsNullOrWhiteSpace(file.Path) && file.Level.HasValue)];
         if (files.Count == 0)
         {
             return;
@@ -330,16 +355,28 @@ internal sealed class BmsLibraryDbGateway(
             string tableName = SQLiteTable<LR2SongDB.song>.GetTableName();
             string levelColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.level);
             string pathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
-            foreach (BMSFile file in files)
+            foreach (ChartFile file in files)
             {
                 songDb.Execute(
                     "UPDATE " + tableName
                     + " SET " + levelColumn + " = ?"
                     + " WHERE " + pathColumn + " = ?;",
-                    file.level,
-                    file.path);
+                    file.Level,
+                    file.Path);
             }
         });
+    }
+
+    /// <summary>既存行のmodeだけを書き戻し、他の生成列や利用者列を変更しません。</summary>
+    internal void UpdateSongModes(IEnumerable<ChartFile> charts)
+    {
+        List<ChartFile> values = [.. (charts ?? []).Where(chart => chart?.Kind == ChartFileKind.Bms && !string.IsNullOrWhiteSpace(chart.Path))];
+        if (values.Count == 0)
+        {
+            return;
+        }
+
+        ExecuteSongDbTransaction(db => { foreach (ChartFile chart in values) { db.Execute("UPDATE song SET mode = ? WHERE path = ?;", chart.Mode, chart.Path); } });
     }
 
     internal static void PrepareFileScanDiffCommitSchema(LR2SongDBExtended songDb)
@@ -395,7 +432,7 @@ internal sealed class BmsLibraryDbGateway(
         metrics.BmsDateUpdateMs = stopwatch.ElapsedMilliseconds;
 
         stopwatch.Restart();
-        metrics.BmsChangedCount = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, chunk.AddedBmsFiles);
+        metrics.BmsChangedCount = Lr2SongDbWriter.UpsertGeneratedSongs(songDb, chunk.AddedBmsFiles.Select(ChartSongStorageMapping.ToBmsRow).ToArray());
         stopwatch.Stop();
         metrics.BmsUpsertMs = stopwatch.ElapsedMilliseconds;
 
@@ -405,18 +442,18 @@ internal sealed class BmsLibraryDbGateway(
         metrics.BmsonDeleteMs = stopwatch.ElapsedMilliseconds;
 
         stopwatch.Restart();
-        foreach (LR2SongDBExtended.bmson_song addedBmsonSong in chunk.UpsertBmsonSongs)
+        foreach (ChartFile addedBmsonChart in chunk.UpsertBmsonSongs)
         {
-            if (addedBmsonSong != null)
+            if (addedBmsonChart != null)
             {
-                songDb.InsertOrReplace(addedBmsonSong, typeof(LR2SongDBExtended.bmson_song));
+                songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(addedBmsonChart), typeof(LR2SongDBExtended.bmson_song));
             }
         }
         stopwatch.Stop();
         metrics.BmsonUpsertMs = stopwatch.ElapsedMilliseconds;
 
         stopwatch.Restart();
-        BulkUpsertMaintenanceInfos(songDb, chunk.MaintenanceInfoRows);
+        BulkUpsertMaintenanceInfos(songDb, chunk.MaintenanceInfoRows.Select(MaintenanceStorageMapping.ToStorage));
         stopwatch.Stop();
         metrics.MaintenanceUpsertMs = stopwatch.ElapsedMilliseconds;
 
@@ -432,9 +469,10 @@ internal sealed class BmsLibraryDbGateway(
         return metrics;
     }
 
-    public void UpsertMaintenanceInfos(IEnumerable<BMSFileMaintenanceInfo> maintenanceInfos)
+    /// <summary>捕捉済みの共通保守値を、既存DB境界で保存列へ変換します。</summary>
+    public void UpsertMaintenanceInfos(IEnumerable<ResourceHealthMaintenanceSnapshot> maintenanceInfos)
     {
-        List<BMSFileMaintenanceInfo> entries = [.. (maintenanceInfos ?? []).Where(info => info != null && !string.IsNullOrWhiteSpace(info.path))];
+        List<LR2SongDBExtended.maintenance> entries = [.. (maintenanceInfos ?? []).Where(info => info != null && !string.IsNullOrWhiteSpace(info.Path)).Select(MaintenanceStorageMapping.ToStorage)];
         if (entries.Count == 0)
         {
             return;
@@ -488,103 +526,28 @@ internal sealed class BmsLibraryDbGateway(
         return [.. songDb.Table<ChartPackage>()];
     }
 
-    private static int? ParseNullableInt(string value)
-    {
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result)
-            ? result
-            : null;
-    }
-
-    private static int ParseInt(string value)
-    {
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result)
-            ? result
-            : 0;
-    }
-
-    private static double? ParseNullableDouble(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-        if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out double invariantValue))
-        {
-            return invariantValue;
-        }
-        if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out double currentValue))
-        {
-            return currentValue;
-        }
-        return null;
-    }
-
-    private static DateTime? ParseNullableDateTime(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return null;
-        }
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long ticks))
-        {
-            try
-            {
-                return new DateTime(ticks);
-            }
-            catch (ArgumentOutOfRangeException)
-            {
-            }
-        }
-        if (DateTime.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeLocal, out DateTime invariantValue))
-        {
-            return invariantValue;
-        }
-        if (DateTime.TryParse(value, CultureInfo.CurrentCulture, DateTimeStyles.AssumeLocal, out DateTime currentValue))
-        {
-            return currentValue;
-        }
-        return null;
-    }
-
-    private static bool ParseBoolean(string value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            return false;
-        }
-        if (bool.TryParse(value, out bool boolValue))
-        {
-            return boolValue;
-        }
-        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long integerValue))
-        {
-            return integerValue != 0;
-        }
-        return false;
-    }
-
     /// <summary>
-    /// 移動・削除を旧／新exact keyで一つのcatalog transactionへ反映します。
+    /// 移動・削除を旧／新exact keyで一つのcatalog transactionへ反映します。物理subtreeの成功範囲は限定取得して展開し、管理出力を除外します。
     /// 呼出し側はcommit後にだけstorageとpackageを反映し、別表記の行を対象へ加えません。
     /// </summary>
     internal CatalogRelocationDbReceipt ReplaceAndRemoveLibraryMutationRows(
         CatalogRelocationRequest relocationRequest,
-        CatalogStorageRowsRemovalRequest removalRequest)
+        CatalogStorageRowsRemovalRequest removalRequest, IReadOnlyList<ChartFile> textChanges = null)
     {
         List<CatalogFolderPathReplacement> folderRows = [.. (relocationRequest?.FolderPathChanges ?? [])
             .Where(change => !string.IsNullOrWhiteSpace(change?.OldFolderPath)
                 && !string.IsNullOrWhiteSpace(change.NewFolderPath))
-            .GroupBy(change => NormalizeFolderRecordPath(change.OldFolderPath), StringComparer.Ordinal)
+            .GroupBy(change => change.IsCustomFile ? change.OldFolderPath : NormalizeFolderRecordPath(change.OldFolderPath), StringComparer.Ordinal)
             .Select(group => group.Last())];
         List<BmsSongPathReplacement> bmsRows = [.. (relocationRequest?.BmsPathReplacements ?? [])
             .Where(replacement => replacement?.Song != null
-                && !string.IsNullOrWhiteSpace(replacement.Song.path)
+                && !string.IsNullOrWhiteSpace(replacement.Song.Path)
                 && !string.IsNullOrWhiteSpace(replacement.OldPath))
             .GroupBy(replacement => replacement.OldPath, StringComparer.Ordinal)
             .Select(group => group.Last())];
         List<BmsonSongPathReplacement> bmsonRows = [.. (relocationRequest?.BmsonPathReplacements ?? [])
             .Where(replacement => replacement?.Song != null
-                && !string.IsNullOrWhiteSpace(replacement.Song.path)
+                && !string.IsNullOrWhiteSpace(replacement.Song.Path)
                 && !string.IsNullOrWhiteSpace(replacement.OldPath))
             .GroupBy(replacement => replacement.OldPath, StringComparer.Ordinal)
             .Select(group => group.Last())];
@@ -599,13 +562,14 @@ internal sealed class BmsLibraryDbGateway(
             && bmsRows.Count == 0
             && bmsonRows.Count == 0
             && !hasBmsRemoval
-            && !hasBmsonRemoval)
+            && !hasBmsonRemoval
+            && (textChanges?.Count ?? 0) == 0)
         {
             return result;
         }
         foreach (CatalogFolderPathReplacement row in folderRows)
         {
-            if (!LongPathFileSystem.DirectoryExists(row.NewFolderPath))
+            if (row.IsCustomFile ? !LongPathFileSystem.FileExists(row.NewFolderPath) : !LongPathFileSystem.DirectoryExists(row.NewFolderPath))
             {
                 throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, row.NewFolderPath));
             }
@@ -620,7 +584,7 @@ internal sealed class BmsLibraryDbGateway(
             }
 
             var stopwatch = Stopwatch.StartNew();
-            result.FolderDbTargetRows = ReplaceFolderRecords(songDb, folderRows);
+            result.FolderDbTargetRows = ReplaceFolderRecords(songDb, folderRows, relocationRequest?.FolderProjectionExcludedDirectories ?? []);
             stopwatch.Stop();
             result.FolderDbMs = stopwatch.ElapsedMilliseconds;
 
@@ -649,8 +613,21 @@ internal sealed class BmsLibraryDbGateway(
                 bmsonRows);
             stopwatch.Stop();
             result.BmsonRemovalDbMs = stopwatch.ElapsedMilliseconds;
+            UpdateTextRows(songDb, textChanges);
         });
         return result;
+    }
+
+    /// <summary>呼出元のsong transaction内で存続BMSのtxtだけを更新します。</summary>
+    internal static void UpdateTextRows(LR2SongDBExtended songDb, IReadOnlyList<ChartFile> changes)
+    {
+        foreach (ChartFile chart in changes ?? [])
+        {
+            if (songDb.Execute("UPDATE song SET txt = ? WHERE path = ? AND hash = ? COLLATE NOCASE;", chart.Txt, chart.Path, chart.Md5) != 1)
+            {
+                throw new InvalidOperationException("TXT target changed before database commit.");
+            }
+        }
     }
 
     private static void DeleteBmsMutationRows(
@@ -663,29 +640,29 @@ internal sealed class BmsLibraryDbGateway(
             return;
         }
 
-        var removedOwners = new HashSet<BMSFile>(removalRequest.RemovedBmsRows ?? []);
+        var removedOwners = new HashSet<OwnedChartToken>((removalRequest.RemovedBmsRows ?? []).Select(chart => chart.Token));
         var protectedDestinationPaths = new HashSet<string>(
             (relocations ?? [])
                 .Where(relocation => relocation?.Song != null
-                    && !removedOwners.Contains(relocation.LiveOwner))
-                .Select(relocation => relocation.Song.path)
+                    && !removedOwners.Contains(relocation.LiveOwner.Token))
+                .Select(relocation => relocation.Song.Path)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.Ordinal);
 
         var removalPaths = new HashSet<string>(StringComparer.Ordinal);
         var hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSFile owner in removalRequest.RemovedBmsRows ?? [])
+        foreach (ChartFile owner in removalRequest.RemovedBmsRows ?? [])
         {
             if (owner == null)
             {
                 continue;
             }
             BmsSongPathReplacement relocation = relocations?.FirstOrDefault(
-                replacement => ReferenceEquals(replacement.LiveOwner, owner));
-            string path = relocation?.Song?.path ?? owner.path;
-            if (!string.IsNullOrWhiteSpace(owner.hash))
+                replacement => ReferenceEquals(replacement.LiveOwner.Token, owner.Token));
+            string path = relocation?.Song?.Path ?? owner.Path;
+            if (!string.IsNullOrWhiteSpace(owner.Md5))
             {
-                hashes.Add(owner.hash);
+                hashes.Add(owner.Md5);
             }
             if (protectedDestinationPaths.Contains(path))
             {
@@ -717,25 +694,25 @@ internal sealed class BmsLibraryDbGateway(
             return;
         }
 
-        var removedOwners = new HashSet<LR2SongDBExtended.bmson_song>(removalRequest.RemovedBmsonRows ?? []);
+        var removedOwners = new HashSet<OwnedChartToken>((removalRequest.RemovedBmsonRows ?? []).Select(chart => chart.Token));
         var protectedDestinationPaths = new HashSet<string>(
             (relocations ?? [])
                 .Where(relocation => relocation?.Song != null
-                    && !removedOwners.Contains(relocation.LiveOwner))
-                .Select(relocation => relocation.Song.path)
+                    && !removedOwners.Contains(relocation.LiveOwner.Token))
+                .Select(relocation => relocation.Song.Path)
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.Ordinal);
 
         var removalPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (LR2SongDBExtended.bmson_song owner in removalRequest.RemovedBmsonRows ?? [])
+        foreach (ChartFile owner in removalRequest.RemovedBmsonRows ?? [])
         {
             if (owner == null)
             {
                 continue;
             }
             BmsonSongPathReplacement relocation = relocations?.FirstOrDefault(
-                replacement => ReferenceEquals(replacement.LiveOwner, owner));
-            string path = relocation?.Song?.path ?? owner.path;
+                replacement => ReferenceEquals(replacement.LiveOwner.Token, owner.Token));
+            string path = relocation?.Song?.Path ?? owner.Path;
             if (!string.IsNullOrWhiteSpace(path)
                 && !protectedDestinationPaths.Contains(path))
             {
@@ -825,22 +802,38 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
+    /// <summary>
+    /// アプリ所有の表と索引を明示的に準備し、通常読取り前に本人スコアの刷新履歴表を用意します。
+    /// 既存の刷新履歴・本人スコア・楽曲行は保持します。
+    /// </summary>
     public void EnsureAppOwnedSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         ExecuteAppOwnedSchemaTransaction(songDb, EnsureAppOwnedSchema);
     }
 
+    /// <summary>
+    /// ライブラリの起動後に必要な表と索引を明示的に準備します。
+    /// 初回の刷新履歴読取り前に保存先を作成し、繰返し準備しても既存の刷新履歴・本人スコア・楽曲行は保持します。
+    /// </summary>
+    /// <remarks>
+    /// 同じ接続の一トランザクションで準備し、DDLごとの確定による共通DBロックの占有を減らします。
+    /// 途中失敗では今回の構造・版変更を全て戻して元の失敗を返し、原因除去後の明示再実行を可能にします。
+    /// </remarks>
     public void EnsureLibraryStartupSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
-        EnsureSongLookupIndexes(songDb);
-        songDb.CreateTable<LR2SongDB.folder>();
-        songDb.CreateTable<LR2SongDBExtended.install>();
-        EnsureMaintenanceSchema(songDb);
-        songDb.CreateTable<LR2SongDBExtended.ir_score>();
-        EnsureIrDataSchema(songDb);
-        EnsureChartInfoSchema(songDb);
+        ExecuteAppOwnedSchemaTransaction(songDb, connection =>
+        {
+            EnsureSongLookupIndexes(connection);
+            connection.CreateTable<LR2SongDB.folder>();
+            connection.CreateTable<LR2SongDBExtended.install>();
+            EnsureMaintenanceSchema(connection);
+            connection.CreateTable<LR2SongDBExtended.ir_score>();
+            connection.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
+            EnsureIrDataSchema(connection);
+            EnsureChartInfoSchema(connection);
+        });
     }
 
     /// <summary>
@@ -862,6 +855,10 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
+    /// <summary>
+    /// アプリ所有の構造を明示的に修復し、刷新履歴表がないDBでも初回読取り・保存を可能にします。
+    /// 既存の刷新履歴・本人スコア・楽曲行は保持します。
+    /// </summary>
     public void RepairAppOwnedSchema()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
@@ -990,12 +987,12 @@ internal sealed class BmsLibraryDbGateway(
     /// chart_info を sha256 keyed dictionary として読み込みます。
     /// </summary>
     /// <returns>sha256 をキーにした譜面解析メタデータ。</returns>
-    public Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfoMap()
+    public Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfoMap()
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         EnsureChartInfoSchema(songDb);
-        var dictionary = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.chart_info item in songDb.Table<LR2SongDBExtended.chart_info>())
+        var dictionary = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
+        foreach (BeMusicSeeker.Models.ChartDetails item in songDb.Table<LR2SongDBExtended.chart_info>().Select(ChartInfoStorageMapping.ToCommon))
         {
             if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
             {
@@ -1009,7 +1006,7 @@ internal sealed class BmsLibraryDbGateway(
     /// 現行 parser version の chart_info を read-only connection から sha256 keyed dictionary として読み込みます。
     /// </summary>
     /// <returns>schema が current でない、または read-only load に失敗した場合は null。</returns>
-    public Dictionary<string, LR2SongDBExtended.chart_info> TryLoadCurrentChartInfoMapReadOnly()
+    public Dictionary<string, BeMusicSeeker.Models.ChartDetails> TryLoadCurrentChartInfoMapReadOnly()
     {
         try
         {
@@ -1019,12 +1016,12 @@ internal sealed class BmsLibraryDbGateway(
                 return null;
             }
 
-            var dictionary = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+            var dictionary = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
             string sql = "SELECT " + ChartInfoColumnList
                 + " FROM chart_info WHERE sha256 IS NOT NULL AND TRIM(sha256) <> '' AND parser_version >= "
                 + CurrentChartInfoParserVersion
                 + ";";
-            foreach (LR2SongDBExtended.chart_info item in songDb.Query<LR2SongDBExtended.chart_info>(sql))
+            foreach (BeMusicSeeker.Models.ChartDetails item in songDb.Query<LR2SongDBExtended.chart_info>(sql).Select(ChartInfoStorageMapping.ToCommon))
             {
                 if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
                 {
@@ -1039,13 +1036,14 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
+    /// <summary>起動時の詳細情報と現行失敗集合を読取り専用で構築します。型付きraw射影は数値の精度とticksを保持し、表示に不要な列を読みません。</summary>
     public ChartInfoHydrationLoadResult LoadChartInfoHydrationData(TimeSpan parseTimeout)
     {
         var result = new ChartInfoHydrationLoadResult();
         using LR2SongDBExtended songDb = OpenSongDbReadOnly();
         result.ReadOnly = songDb.IsReadOnlyConnection;
         result.DbLockWaitMs = songDb.ProcessLockWaitMs;
-        if (UseRawChartInfoHydrationLoader())
+        if (LoadOptions.UseRawChartInfoHydration)
         {
             LoadChartInfoHydrationDataRaw(songDb, parseTimeout, result);
             return result;
@@ -1053,7 +1051,7 @@ internal sealed class BmsLibraryDbGateway(
 
         result.MaterializeMode = "sqlite_net";
         var stopwatch = Stopwatch.StartNew();
-        foreach (LR2SongDBExtended.chart_info item in songDb.Table<LR2SongDBExtended.chart_info>())
+        foreach (BeMusicSeeker.Models.ChartDetails item in songDb.Table<LR2SongDBExtended.chart_info>().Select(ChartInfoStorageMapping.ToCommon))
         {
             result.ChartInfoRows++;
             if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
@@ -1065,7 +1063,7 @@ internal sealed class BmsLibraryDbGateway(
                 }
             }
         }
-        foreach (LR2SongDBExtended.chart_info_parse_failure row in songDb.Table<LR2SongDBExtended.chart_info_parse_failure>())
+        foreach (BeMusicSeeker.Models.ChartParseFailure row in songDb.Table<LR2SongDBExtended.chart_info_parse_failure>().Select(ChartInfoStorageMapping.ToCommon))
         {
             result.ParseFailureRows++;
             if (IsCurrentChartInfoParseFailure(row, parseTimeout))
@@ -1079,26 +1077,20 @@ internal sealed class BmsLibraryDbGateway(
         return result;
     }
 
-    private static bool UseRawChartInfoHydrationLoader()
-    {
-        string mode = Environment.GetEnvironmentVariable("BMS_CHART_INFO_HYDRATION_LOAD_MODE");
-        return !string.Equals(mode, "sqlite_net", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static void LoadChartInfoHydrationDataRaw(
         LR2SongDBExtended songDb,
         TimeSpan parseTimeout,
         ChartInfoHydrationLoadResult result)
     {
-        result.MaterializeMode = "raw_string_display";
+        result.MaterializeMode = "raw_typed_display";
         long objectTicks = 0L;
         long stopwatchFrequency = Stopwatch.Frequency;
         var stopwatch = Stopwatch.StartNew();
         var chartInfoCommand = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(ChartInfoHydrationRawSelectSql);
-        int rawRows = chartInfoCommand.ForEachRawValueAsString(delegate (string[] values)
+        int rawRows = chartInfoCommand.ForEachRawRow(delegate (LR2SongDBExtended.SQLiteCommandExtended.RawRow values)
         {
             long objectStart = Stopwatch.GetTimestamp();
-            LR2SongDBExtended.chart_info item = CreateChartInfoHydrationDisplayRow(values);
+            BeMusicSeeker.Models.ChartDetails item = CreateChartInfoHydrationDisplayRow(values);
             result.ChartInfoRows++;
             if (item != null && !string.IsNullOrWhiteSpace(item.sha256))
             {
@@ -1111,14 +1103,14 @@ internal sealed class BmsLibraryDbGateway(
             objectTicks += Stopwatch.GetTimestamp() - objectStart;
         });
         var parseFailureCommand = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(ChartInfoParseFailureHydrationRawSelectSql);
-        rawRows += parseFailureCommand.ForEachRawValueAsString(delegate (string[] values)
+        rawRows += parseFailureCommand.ForEachRawRow(delegate (LR2SongDBExtended.SQLiteCommandExtended.RawRow values)
         {
             long objectStart = Stopwatch.GetTimestamp();
             result.ParseFailureRows++;
-            string md5 = GetRawValue(values, 0);
-            int parserVersion = ParseInt(GetRawValue(values, 1));
-            string failureKind = GetRawValue(values, 2);
-            int? parseTimeoutMs = ParseNullableInt(GetRawValue(values, 3));
+            string md5 = values.GetString(0);
+            int parserVersion = (values.GetInt32(1) ?? 0);
+            string failureKind = values.GetString(2);
+            int? parseTimeoutMs = values.GetInt32(3);
             if (!string.IsNullOrWhiteSpace(md5)
                 && IsCurrentChartInfoParseFailure(parserVersion, failureKind, parseTimeoutMs, parseTimeout))
             {
@@ -1135,43 +1127,38 @@ internal sealed class BmsLibraryDbGateway(
         result.MaterializeMs = totalMs;
     }
 
-    private static LR2SongDBExtended.chart_info CreateChartInfoHydrationDisplayRow(string[] values)
+    private static BeMusicSeeker.Models.ChartDetails CreateChartInfoHydrationDisplayRow(LR2SongDBExtended.SQLiteCommandExtended.RawRow values)
     {
-        return new LR2SongDBExtended.chart_info
+        return new BeMusicSeeker.Models.ChartDetails
         {
-            sha256 = GetRawValue(values, 0),
-            md5 = GetRawValue(values, 1),
-            level = ParseNullableInt(GetRawValue(values, 2)),
-            difficulty = ParseNullableInt(GetRawValue(values, 3)),
-            difficulty_defined = ParseBoolean(GetRawValue(values, 4)),
-            mainbpm = ParseNullableDouble(GetRawValue(values, 5)),
-            maxbpm = ParseNullableDouble(GetRawValue(values, 6)),
-            minbpm = ParseNullableDouble(GetRawValue(values, 7)),
-            length = ParseNullableInt(GetRawValue(values, 8)),
-            mode = ParseNullableInt(GetRawValue(values, 9)),
-            judge = ParseNullableInt(GetRawValue(values, 10)),
-            bga = ParseNullableInt(GetRawValue(values, 11)),
-            exlevel = ParseNullableInt(GetRawValue(values, 12)),
-            feature = ParseInt(GetRawValue(values, 13)),
-            notes = ParseInt(GetRawValue(values, 14)),
-            n = ParseInt(GetRawValue(values, 15)),
-            ln = ParseInt(GetRawValue(values, 16)),
-            s = ParseInt(GetRawValue(values, 17)),
-            ls = ParseInt(GetRawValue(values, 18)),
-            total = ParseNullableDouble(GetRawValue(values, 19)),
-            total_defined = ParseBoolean(GetRawValue(values, 20)),
-            density = ParseNullableDouble(GetRawValue(values, 21)),
-            peakdensity = ParseNullableDouble(GetRawValue(values, 22)),
-            enddensity = ParseNullableDouble(GetRawValue(values, 23)),
-            speedchange_count = ParseInt(GetRawValue(values, 24)),
-            parser_version = ParseInt(GetRawValue(values, 25)),
-            updated_at = ParseNullableDateTime(GetRawValue(values, 26)) ?? default
+            sha256 = values.GetString(0),
+            md5 = values.GetString(1),
+            level = values.GetInt32(2),
+            difficulty = values.GetInt32(3),
+            difficulty_defined = values.GetBoolean(4),
+            mainbpm = values.GetDouble(5),
+            maxbpm = values.GetDouble(6),
+            minbpm = values.GetDouble(7),
+            length = values.GetInt32(8),
+            mode = values.GetInt32(9),
+            judge = values.GetInt32(10),
+            bga = values.GetInt32(11),
+            exlevel = values.GetInt32(12),
+            feature = (values.GetInt32(13) ?? 0),
+            notes = (values.GetInt32(14) ?? 0),
+            n = (values.GetInt32(15) ?? 0),
+            ln = (values.GetInt32(16) ?? 0),
+            s = (values.GetInt32(17) ?? 0),
+            ls = (values.GetInt32(18) ?? 0),
+            total = values.GetDouble(19),
+            total_defined = values.GetBoolean(20),
+            density = values.GetDouble(21),
+            peakdensity = values.GetDouble(22),
+            enddensity = values.GetDouble(23),
+            speedchange_count = (values.GetInt32(24) ?? 0),
+            parser_version = (values.GetInt32(25) ?? 0),
+            updated_at = values.GetDateTime(26) ?? default
         };
-    }
-
-    private static string GetRawValue(string[] values, int index)
-    {
-        return values != null && index >= 0 && index < values.Length ? values[index] : null;
     }
 
     /// <summary>
@@ -1180,15 +1167,15 @@ internal sealed class BmsLibraryDbGateway(
     /// </summary>
     /// <param name="sha256s">検索対象 SHA-256。</param>
     /// <returns>SHA-256 をキーにした chart_info。</returns>
-    public Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosBySha256(IEnumerable<string> sha256s)
+    public Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfosBySha256(IEnumerable<string> sha256s)
     {
         List<string> keys = NormalizeChartInfoLookupKeys(sha256s);
-        var result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
         if (keys.Count == 0)
         {
             return result;
         }
-        foreach (LR2SongDBExtended.chart_info row in LoadChartInfoRowsByColumn("sha256", keys, orderBySha256: false))
+        foreach (BeMusicSeeker.Models.ChartDetails row in LoadChartInfoRowsByColumn("sha256", keys, orderBySha256: false))
         {
             if (row != null && !string.IsNullOrWhiteSpace(row.sha256))
             {
@@ -1227,15 +1214,15 @@ internal sealed class BmsLibraryDbGateway(
     /// </summary>
     /// <param name="md5s">検索対象 MD5。</param>
     /// <returns>MD5 をキーにした chart_info。</returns>
-    public Dictionary<string, LR2SongDBExtended.chart_info> LoadChartInfosByMd5(IEnumerable<string> md5s)
+    public Dictionary<string, BeMusicSeeker.Models.ChartDetails> LoadChartInfosByMd5(IEnumerable<string> md5s)
     {
         List<string> keys = NormalizeChartInfoLookupKeys(md5s);
-        var result = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, BeMusicSeeker.Models.ChartDetails>(StringComparer.OrdinalIgnoreCase);
         if (keys.Count == 0)
         {
             return result;
         }
-        foreach (LR2SongDBExtended.chart_info row in LoadChartInfoRowsByColumn("md5", keys, orderBySha256: true))
+        foreach (BeMusicSeeker.Models.ChartDetails row in LoadChartInfoRowsByColumn("md5", keys, orderBySha256: true))
         {
             if (row != null && !string.IsNullOrWhiteSpace(row.md5) && !result.ContainsKey(row.md5))
             {
@@ -1250,12 +1237,12 @@ internal sealed class BmsLibraryDbGateway(
     /// </summary>
     /// <param name="parseTimeout">今回の解析 timeout。</param>
     /// <returns>MD5 をキーにした解析失敗記録。</returns>
-    public Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentChartInfoParseFailureMap(TimeSpan parseTimeout)
+    public Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> LoadCurrentChartInfoParseFailureMap(TimeSpan parseTimeout)
     {
         using LR2SongDBExtended songDb = OpenSongDb();
         EnsureChartInfoSchema(songDb);
-        var result = new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
-        foreach (LR2SongDBExtended.chart_info_parse_failure row in songDb.Table<LR2SongDBExtended.chart_info_parse_failure>())
+        var result = new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase);
+        foreach (BeMusicSeeker.Models.ChartParseFailure row in songDb.Table<LR2SongDBExtended.chart_info_parse_failure>().Select(ChartInfoStorageMapping.ToCommon))
         {
             if (IsCurrentChartInfoParseFailure(row, parseTimeout))
             {
@@ -1271,12 +1258,12 @@ internal sealed class BmsLibraryDbGateway(
     /// <param name="md5s">検索対象 MD5。</param>
     /// <param name="parseTimeout">今回の解析 timeout。</param>
     /// <returns>MD5 をキーにした現行の解析失敗記録。</returns>
-    public Dictionary<string, LR2SongDBExtended.chart_info_parse_failure> LoadCurrentChartInfoParseFailuresByMd5(
+    public Dictionary<string, BeMusicSeeker.Models.ChartParseFailure> LoadCurrentChartInfoParseFailuresByMd5(
         IEnumerable<string> md5s,
         TimeSpan parseTimeout)
     {
         List<string> keys = NormalizeChartInfoLookupKeys(md5s);
-        var result = new Dictionary<string, LR2SongDBExtended.chart_info_parse_failure>(StringComparer.OrdinalIgnoreCase);
+        var result = new Dictionary<string, BeMusicSeeker.Models.ChartParseFailure>(StringComparer.OrdinalIgnoreCase);
         if (keys.Count == 0)
         {
             return result;
@@ -1284,7 +1271,7 @@ internal sealed class BmsLibraryDbGateway(
 
         using LR2SongDBExtended songDb = OpenSongDb();
         EnsureChartInfoSchema(songDb);
-        foreach (LR2SongDBExtended.chart_info_parse_failure row in QueryChartInfoParseFailuresByMd5(songDb, keys))
+        foreach (BeMusicSeeker.Models.ChartParseFailure row in QueryChartInfoParseFailuresByMd5(songDb, keys))
         {
             if (IsCurrentChartInfoParseFailure(row, parseTimeout))
             {
@@ -1355,9 +1342,9 @@ internal sealed class BmsLibraryDbGateway(
         return summary;
     }
 
-    public void UpsertChartInfoParseFailures(IEnumerable<LR2SongDBExtended.chart_info_parse_failure> rows)
+    public void UpsertChartInfoParseFailures(IEnumerable<BeMusicSeeker.Models.ChartParseFailure> rows)
     {
-        List<LR2SongDBExtended.chart_info_parse_failure> sourceRows = NormalizeChartInfoParseFailureRows(rows);
+        List<BeMusicSeeker.Models.ChartParseFailure> sourceRows = NormalizeChartInfoParseFailureRows(rows);
         if (sourceRows.Count == 0)
         {
             return;
@@ -1365,7 +1352,7 @@ internal sealed class BmsLibraryDbGateway(
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureChartInfoSchema(songDb);
-            foreach (LR2SongDBExtended.chart_info_parse_failure row in sourceRows)
+            foreach (BeMusicSeeker.Models.ChartParseFailure row in sourceRows)
             {
                 ExecuteChartInfoParseFailureUpsert(songDb, row);
             }
@@ -1389,23 +1376,13 @@ internal sealed class BmsLibraryDbGateway(
         });
     }
 
-    public List<LR2SongDBExtended.bmson_song> LoadBmsonSongs()
-    {
-        using LR2SongDBExtended songDb = OpenSongDb();
-        if (!TableExists(songDb, SQLiteTable<LR2SongDBExtended.bmson_song>.GetTableName()))
-        {
-            return [];
-        }
-        return [.. songDb.Table<LR2SongDBExtended.bmson_song>()];
-    }
-
     /// <summary>
     /// 解析済み chart_info 行を保存します。
     /// </summary>
     /// <param name="rows">保存する譜面解析メタデータ。</param>
-    public void UpsertChartInfos(IEnumerable<LR2SongDBExtended.chart_info> rows)
+    public void UpsertChartInfos(IEnumerable<BeMusicSeeker.Models.ChartDetails> rows)
     {
-        List<LR2SongDBExtended.chart_info> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
+        List<BeMusicSeeker.Models.ChartDetails> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
         if (sourceRows.Count == 0)
         {
             return;
@@ -1413,7 +1390,7 @@ internal sealed class BmsLibraryDbGateway(
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureChartInfoSchema(songDb);
-            foreach (LR2SongDBExtended.chart_info row in sourceRows)
+            foreach (BeMusicSeeker.Models.ChartDetails row in sourceRows)
             {
                 ExecuteChartInfoUpsert(songDb, row);
             }
@@ -1564,13 +1541,13 @@ internal sealed class BmsLibraryDbGateway(
     /// <param name="parseFailureDeleteMd5s">削除する解析失敗記録の MD5。</param>
     public void UpsertChartInfoBackfillChunk(
         IEnumerable<ChartDigestBackfillEntry> digestEntries,
-        IEnumerable<LR2SongDBExtended.chart_info> rows,
-        IEnumerable<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows = null,
+        IEnumerable<BeMusicSeeker.Models.ChartDetails> rows,
+        IEnumerable<BeMusicSeeker.Models.ChartParseFailure> parseFailureRows = null,
         IEnumerable<string> parseFailureDeleteMd5s = null)
     {
         List<ChartDigestBackfillEntry> sourceDigestEntries = [.. (digestEntries ?? []).Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))];
-        List<LR2SongDBExtended.chart_info> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
-        List<LR2SongDBExtended.chart_info_parse_failure> sourceParseFailureRows = NormalizeChartInfoParseFailureRows(parseFailureRows);
+        List<BeMusicSeeker.Models.ChartDetails> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
+        List<BeMusicSeeker.Models.ChartParseFailure> sourceParseFailureRows = NormalizeChartInfoParseFailureRows(parseFailureRows);
         List<string> sourceParseFailureDeleteMd5s = NormalizeChartInfoLookupKeys(parseFailureDeleteMd5s);
         if (sourceDigestEntries.Count == 0 && sourceRows.Count == 0 && sourceParseFailureRows.Count == 0 && sourceParseFailureDeleteMd5s.Count == 0)
         {
@@ -1585,8 +1562,8 @@ internal sealed class BmsLibraryDbGateway(
     internal static void UpsertChartInfoBackfillChunk(
         LR2SongDBExtended songDb,
         IEnumerable<ChartDigestBackfillEntry> digestEntries,
-        IEnumerable<LR2SongDBExtended.chart_info> rows,
-        IEnumerable<LR2SongDBExtended.chart_info_parse_failure> parseFailureRows = null,
+        IEnumerable<BeMusicSeeker.Models.ChartDetails> rows,
+        IEnumerable<BeMusicSeeker.Models.ChartParseFailure> parseFailureRows = null,
         IEnumerable<string> parseFailureDeleteMd5s = null)
     {
         if (songDb == null)
@@ -1594,8 +1571,8 @@ internal sealed class BmsLibraryDbGateway(
             throw new ArgumentNullException(nameof(songDb));
         }
         List<ChartDigestBackfillEntry> sourceDigestEntries = [.. (digestEntries ?? []).Where(entry => entry != null && !string.IsNullOrWhiteSpace(entry.Md5) && !string.IsNullOrWhiteSpace(entry.Sha256))];
-        List<LR2SongDBExtended.chart_info> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
-        List<LR2SongDBExtended.chart_info_parse_failure> sourceParseFailureRows = NormalizeChartInfoParseFailureRows(parseFailureRows);
+        List<BeMusicSeeker.Models.ChartDetails> sourceRows = [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.sha256))];
+        List<BeMusicSeeker.Models.ChartParseFailure> sourceParseFailureRows = NormalizeChartInfoParseFailureRows(parseFailureRows);
         List<string> sourceParseFailureDeleteMd5s = NormalizeChartInfoLookupKeys(parseFailureDeleteMd5s);
         if (sourceDigestEntries.Count == 0 && sourceRows.Count == 0 && sourceParseFailureRows.Count == 0 && sourceParseFailureDeleteMd5s.Count == 0)
         {
@@ -1606,7 +1583,7 @@ internal sealed class BmsLibraryDbGateway(
         {
             songDb.Execute(ChartDigestMapUpsertSql, entry.Md5, entry.Sha256);
         }
-        foreach (LR2SongDBExtended.chart_info row in sourceRows)
+        foreach (BeMusicSeeker.Models.ChartDetails row in sourceRows)
         {
             ExecuteChartInfoUpsert(songDb, row);
         }
@@ -1614,13 +1591,13 @@ internal sealed class BmsLibraryDbGateway(
         {
             songDb.Execute(ChartInfoParseFailureDeleteSql, md5);
         }
-        foreach (LR2SongDBExtended.chart_info_parse_failure row in sourceParseFailureRows)
+        foreach (BeMusicSeeker.Models.ChartParseFailure row in sourceParseFailureRows)
         {
             ExecuteChartInfoParseFailureUpsert(songDb, row);
         }
     }
 
-    private static void ExecuteChartInfoUpsert(LR2SongDBExtended songDb, LR2SongDBExtended.chart_info row)
+    private static void ExecuteChartInfoUpsert(LR2SongDBExtended songDb, BeMusicSeeker.Models.ChartDetails row)
     {
         songDb.Execute(
             ChartInfoUpsertSql,
@@ -1657,7 +1634,7 @@ internal sealed class BmsLibraryDbGateway(
             row.updated_at);
     }
 
-    private static void ExecuteChartInfoParseFailureUpsert(LR2SongDBExtended songDb, LR2SongDBExtended.chart_info_parse_failure row)
+    private static void ExecuteChartInfoParseFailureUpsert(LR2SongDBExtended songDb, BeMusicSeeker.Models.ChartParseFailure row)
     {
         songDb.Execute(
             ChartInfoParseFailureUpsertSql,
@@ -1672,9 +1649,9 @@ internal sealed class BmsLibraryDbGateway(
             row.updated_at);
     }
 
-    public void UpsertChartDigests(IEnumerable<BMSFile> files)
+    internal void UpsertChartDigests(IEnumerable<ChartFile> files)
     {
-        List<BMSFile> sourceFiles = [.. (files ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.hash) && !string.IsNullOrWhiteSpace(file.sha256))];
+        List<ChartFile> sourceFiles = [.. (files ?? []).Where(file => file != null && !string.IsNullOrWhiteSpace(file.Md5) && !string.IsNullOrWhiteSpace(file.Sha256))];
         if (sourceFiles.Count == 0)
         {
             return;
@@ -1682,16 +1659,17 @@ internal sealed class BmsLibraryDbGateway(
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             EnsureBmsonSchema(songDb);
-            foreach (BMSFile file in sourceFiles)
+            foreach (ChartFile file in sourceFiles)
             {
-                UpsertChartDigest(songDb, file);
+                UpsertChartDigest(songDb, ChartSongStorageMapping.ToBmsRow(file));
             }
         });
     }
 
-    public void UpsertBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    /// <summary>共通bmson値をDB境界で保存行へ変換して反映します。</summary>
+    internal void UpsertBmsonSongs(IEnumerable<ChartFile> songs)
     {
-        List<LR2SongDBExtended.bmson_song> sourceSongs = [.. (songs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+        List<LR2SongDBExtended.bmson_song> sourceSongs = [.. (songs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.Path)).Select(ChartSongStorageMapping.ToBmsonRow)];
         if (sourceSongs.Count == 0)
         {
             return;
@@ -1711,6 +1689,7 @@ internal sealed class BmsLibraryDbGateway(
         return path?.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
     }
 
+    /// <summary>純移転では旧DB行の全列を引き継ぎ、移転依存列と最終配置で確定したTXTだけを更新します。旧NULLを確定TXTへ戻しません。</summary>
     private static void ReplaceBmsSongPathsWithMaintenance(LR2SongDBExtended songDb, IReadOnlyCollection<BmsSongPathReplacement> rows)
     {
         if (songDb == null || rows == null || rows.Count == 0)
@@ -1718,33 +1697,47 @@ internal sealed class BmsLibraryDbGateway(
             return;
         }
 
-        var userColumnsByOldPath = new Dictionary<string, Lr2SongUserColumns>(StringComparer.Ordinal);
+        var previous = new Dictionary<string, LR2SongDB.song>(StringComparer.Ordinal);
+        var userColumns = new Dictionary<string, Lr2SongUserColumns>(StringComparer.Ordinal);
+        // 全旧行の捕捉を先に終え、交換や連鎖移転でも他の対象の元行を失わない。
         foreach (BmsSongPathReplacement replacement in rows)
         {
-            Lr2SongUserColumns userColumns = ReadSongUserColumns(songDb, replacement.OldPath);
-            if (userColumns != null)
+            LR2SongDB.song row = songDb.Query<LR2SongDB.song>("SELECT * FROM song WHERE path = ? LIMIT 1;", replacement.OldPath).FirstOrDefault();
+            if (row != null)
             {
-                userColumnsByOldPath[replacement.OldPath] = userColumns;
+                previous[replacement.OldPath] = row;
             }
+
+            Lr2SongUserColumns columns = ReadSongUserColumns(songDb, replacement.OldPath);
+            if (columns != null)
+            {
+                userColumns[replacement.OldPath] = columns;
+            }
+        }
+        foreach (BmsSongPathReplacement replacement in rows)
+        {
             songDb.Delete<LR2SongDB.song>(replacement.OldPath);
             songDb.Delete<LR2SongDBExtended.maintenance>(replacement.OldPath);
-            songDb.Delete<LR2SongDBExtended.maintenance>(replacement.Song.path);
+            songDb.Delete<LR2SongDBExtended.maintenance>(replacement.Song.Path);
         }
-
         foreach (BmsSongPathReplacement replacement in rows)
         {
+            LR2SongDB.song row = previous.TryGetValue(replacement.OldPath, out LR2SongDB.song oldRow)
+                ? oldRow : ChartSongStorageMapping.ToBmsRow(replacement.Song);
+            row.path = replacement.Song.Path;
+            row.txt = replacement.Song.Txt;
+            row.folder = null;
+            row.parent = null;
+            if (Lr2SongFolderParentNormalizer.TryComputeExpectedHashes(row.path, out string folder, out string parent)) { row.folder = folder; row.parent = parent; }
+            songDb.InsertOrReplace(row, typeof(LR2SongDB.song));
+            if (userColumns.TryGetValue(replacement.OldPath, out Lr2SongUserColumns columns))
+            {
+                ApplySongUserColumns(songDb, row.path, columns);
+            }
+
             if (replacement.MaintenanceInfo != null)
             {
-                songDb.InsertOrReplace(replacement.MaintenanceInfo, typeof(LR2SongDBExtended.maintenance));
-            }
-        }
-
-        Lr2SongDbWriter.UpsertGeneratedSongs(songDb, [.. rows.Select(replacement => replacement.Song)]);
-        foreach (BmsSongPathReplacement replacement in rows)
-        {
-            if (userColumnsByOldPath.TryGetValue(replacement.OldPath, out Lr2SongUserColumns userColumns))
-            {
-                ApplySongUserColumns(songDb, replacement.Song.path, userColumns);
+                songDb.InsertOrReplace(MaintenanceStorageMapping.ToStorage(replacement.MaintenanceInfo), typeof(LR2SongDBExtended.maintenance));
             }
         }
     }
@@ -1756,29 +1749,41 @@ internal sealed class BmsLibraryDbGateway(
             return;
         }
 
-        bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
+        bool hasMaintenance = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
+        var previous = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.Ordinal);
+        foreach (BmsonSongPathReplacement replacement in rows)
+        {
+            LR2SongDBExtended.bmson_song row = songDb.Query<LR2SongDBExtended.bmson_song>("SELECT * FROM bmson_song WHERE path = ? LIMIT 1;", replacement.OldPath).FirstOrDefault();
+            if (row != null)
+            {
+                previous[replacement.OldPath] = row;
+            }
+        }
         foreach (BmsonSongPathReplacement replacement in rows)
         {
             songDb.Delete<LR2SongDBExtended.bmson_song>(replacement.OldPath);
-            if (hasMaintenanceTable)
+            if (hasMaintenance)
             {
                 songDb.Delete<LR2SongDBExtended.maintenance>(replacement.OldPath);
-                songDb.Delete<LR2SongDBExtended.maintenance>(replacement.Song.path);
+                songDb.Delete<LR2SongDBExtended.maintenance>(replacement.Song.Path);
             }
         }
-
-        foreach (LR2SongDBExtended.bmson_song song in rows.Select(replacement => replacement.Song))
+        foreach (BmsonSongPathReplacement replacement in rows)
         {
-            songDb.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
-            if (hasMaintenanceTable && song.MaintenanceInfo != null)
+            LR2SongDBExtended.bmson_song row = previous.TryGetValue(replacement.OldPath, out LR2SongDBExtended.bmson_song oldRow)
+                ? oldRow : ChartSongStorageMapping.ToBmsonRow(replacement.Song);
+            row.path = replacement.Song.Path;
+            row.folder = Path.GetDirectoryName(row.path) ?? string.Empty;
+            songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
+            if (hasMaintenance && replacement.Song.ResourceHealthMaintenanceSnapshot != null)
             {
-                song.MaintenanceInfo.NormalizeForBmson(song.path, song.md5);
-                songDb.InsertOrReplace(song.MaintenanceInfo, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(MaintenanceStorageMapping.ToStorage(replacement.Song.ResourceHealthMaintenanceSnapshot), typeof(LR2SongDBExtended.maintenance));
             }
         }
     }
 
-    private static int ReplaceFolderRecords(LR2SongDBExtended songDb, IReadOnlyCollection<CatalogFolderPathReplacement> rows)
+    private static int ReplaceFolderRecords(LR2SongDBExtended songDb, IReadOnlyCollection<CatalogFolderPathReplacement> rows,
+        IReadOnlyList<string> excludedDirectories)
     {
         if (songDb == null || rows == null || rows.Count == 0)
         {
@@ -1786,25 +1791,66 @@ internal sealed class BmsLibraryDbGateway(
         }
 
         int replaced = 0;
-        var changesByOldPath = rows.ToDictionary(
-            change => NormalizeFolderRecordPath(change.OldFolderPath),
-            change => change,
-            StringComparer.Ordinal);
-        List<string> oldPaths = [.. changesByOldPath.Keys];
-        foreach (LR2SongDB.folder folder in QueryFolderRecordsByExactPaths(songDb, oldPaths))
+        var excludedScope = Lr2DirectoryScopeMatcher.Create(excludedDirectories);
+        var replacements = new Dictionary<string, string>(StringComparer.Ordinal);
+        var existingRows = new Dictionary<string, LR2SongDB.folder>(StringComparer.Ordinal);
+        foreach (CatalogFolderPathReplacement change in rows)
         {
-            if (folder == null || !changesByOldPath.TryGetValue(folder.path, out CatalogFolderPathReplacement change))
+            string oldPath = change.IsCustomFile ? change.OldFolderPath : NormalizeFolderRecordPath(change.OldFolderPath);
+            string newPath = change.IsCustomFile ? change.NewFolderPath : NormalizeFolderRecordPath(change.NewFolderPath);
+            replacements[oldPath] = newPath;
+            if (change.IncludesDescendants)
+            {
+                foreach (LR2SongDB.folder existing in Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, [oldPath], excludedDirectories.Select(Lr2FolderPath.ToFolderPath)))
+                {
+                    // 範囲取得は物理包含、削除と置換は取得済みraw完全一致キーを使います。
+                    replacements[existing.path] = newPath + existing.path.Substring(oldPath.Length);
+                    existingRows[existing.path] = existing;
+                }
+            }
+        }
+        foreach (LR2SongDB.folder folder in QueryFolderRecordsByExactPaths(songDb,
+            [.. replacements.Keys.Where(path => !existingRows.ContainsKey(path))]))
+        {
+            existingRows[folder.path] = folder;
+        }
+        foreach (LR2SongDB.folder folder in existingRows.Values)
+        {
+            string destination = replacements[folder.path];
+            if (excludedScope.ContainsNormalizedDirectory(Lr2FolderPath.NormalizeDirectoryPath(folder.path))
+                || excludedScope.ContainsNormalizedDirectory(Lr2FolderPath.NormalizeDirectoryPath(destination)))
+            {
+                continue;
+            }
+            bool isCustom = string.Equals(Path.GetExtension(folder.path), ".lr2folder", StringComparison.OrdinalIgnoreCase);
+            if (isCustom && !LongPathFileSystem.FileExists(destination))
             {
                 continue;
             }
             replaced++;
             songDb.Delete<LR2SongDB.folder>(folder.path);
-            folder.title = Path.GetFileName(change.NewFolderPath);
-            folder.path = NormalizeFolderRecordPath(change.NewFolderPath);
+            folder.path = destination;
+            if (!isCustom)
+            {
+                folder.title = Path.GetFileName(destination.TrimEnd(Path.DirectorySeparatorChar));
+            }
+            // 通常行だけを投影から省きます。customは定義由来の列と追加時刻を新exactへ保持し、
+            // 到達不能なparentをNULLにして、対応名へ戻る次の物理移転でCRCを復元します。
+            string parentDirectory = Path.GetDirectoryName(destination.TrimEnd(Path.DirectorySeparatorChar));
+            if (!Lr2CompatibilityEvaluator.TryGetCp932ByteCount(destination, out _)
+                || (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash
+                    && !Lr2CompatibilityEvaluator.TryGetCp932ByteCount(parentDirectory, out _)))
+            {
+                if (isCustom)
+                {
+                    folder.parent = null;
+                    songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
+                }
+                continue;
+            }
             if (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash)
             {
-                string directoryName = Path.GetDirectoryName(change.NewFolderPath.TrimEnd(Path.DirectorySeparatorChar));
-                folder.parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(directoryName);
+                folder.parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(parentDirectory);
             }
             songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
         }
@@ -1872,9 +1918,17 @@ internal sealed class BmsLibraryDbGateway(
         return songDb.Table<LR2SongDBExtended.ir_score_refresh_metadata>().FirstOrDefault(row => row.lr2id == lr2Id);
     }
 
+    /// <summary>実保存成績が同内容の場合に、対象IDの刷新履歴だけを専用transactionで確定します。</summary>
+    /// <param name="lr2Id">刷新履歴の対象プレイヤーID。</param>
+    /// <param name="scoreDigestSha256">実保存成績と一致を確認した取得成績のdigest。</param>
+    /// <remarks>他IDの履歴を保持し、通常の保存失敗は呼出元へ伝播します。</remarks>
     public void UpsertIrScoreRefreshMetadata(int lr2Id, string scoreDigestSha256)
     {
-        using LR2SongDBExtended songDb = OpenSongDb();
+        ExecuteSongDbTransaction(songDb => UpsertIrScoreRefreshMetadata(songDb, lr2Id, scoreDigestSha256));
+    }
+
+    private static void UpsertIrScoreRefreshMetadata(LR2SongDBExtended songDb, int lr2Id, string scoreDigestSha256)
+    {
         songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
         songDb.InsertOrReplace(new LR2SongDBExtended.ir_score_refresh_metadata
         {
@@ -1954,7 +2008,12 @@ internal sealed class BmsLibraryDbGateway(
         return [.. deduplicated.Values];
     }
 
-    public void ReplaceIrScoreTable(IEnumerable<LR2IRScore> scoreTable)
+    /// <summary>本人スコア全体と対象IDの刷新履歴を同じ接続・transactionで一体保存します。</summary>
+    /// <param name="scoreTable">置換する本人スコア。正常空も保存します。</param>
+    /// <param name="lr2Id">刷新履歴の対象プレイヤーID。</param>
+    /// <param name="scoreDigestSha256">置換する取得成績のdigest。</param>
+    /// <remarks>他IDの履歴を保持し、statement・commitの通常失敗は呼出元へ伝播します。</remarks>
+    public void ReplaceIrScoreTableAndRefreshMetadata(IEnumerable<LR2IRScore> scoreTable, int lr2Id, string scoreDigestSha256)
     {
         List<LR2IRScore> entries = [.. (scoreTable ?? []).Where(score => score != null)];
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
@@ -1977,6 +2036,7 @@ internal sealed class BmsLibraryDbGateway(
                 SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.pr),
                 SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.minbp)
             ]);
+            UpsertIrScoreRefreshMetadata(songDb, lr2Id, scoreDigestSha256);
         });
     }
 
@@ -2124,7 +2184,7 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
-    internal static void UpsertChartDigest(LR2SongDBExtended songDb, BMSFile file)
+    internal static void UpsertChartDigest(LR2SongDBExtended songDb, LR2SongDB.song file)
     {
         if (songDb == null)
         {
@@ -2156,6 +2216,7 @@ internal sealed class BmsLibraryDbGateway(
 
     /// <summary>
     /// 借用済み song.db connection 上で app-owned schema を準備します。
+    /// 通常読取りが表を作成せずに済むよう、本人スコアの刷新履歴表もここで用意します。
     /// transaction の開始、commit、rollback は呼び出し側の owner が行います。
     /// </summary>
     internal static void EnsureAppOwnedSchema(LR2SongDBExtended songDb)
@@ -2173,6 +2234,7 @@ internal sealed class BmsLibraryDbGateway(
         EnsureBmsonSchema(songDb);
         EnsureMaintenanceSchema(songDb);
         EnsureChartInfoSchemaOnConnection(songDb, stampVersion);
+        songDb.CreateTable<LR2SongDBExtended.ir_score_refresh_metadata>();
         EnsureIrDataSchema(songDb);
         EnsureSongLookupIndexes(songDb);
         EnsureLr2SongDbSyncStatusSchema(songDb);
@@ -2254,9 +2316,9 @@ internal sealed class BmsLibraryDbGateway(
     }
 
 
-    private static void BulkUpsertMaintenanceInfos(LR2SongDBExtended songDb, IEnumerable<BMSFileMaintenanceInfo> maintenanceInfos)
+    private static void BulkUpsertMaintenanceInfos(LR2SongDBExtended songDb, IEnumerable<LR2SongDBExtended.maintenance> maintenanceInfos)
     {
-        List<BMSFileMaintenanceInfo> rows = [.. (maintenanceInfos ?? [])
+        List<LR2SongDBExtended.maintenance> rows = [.. (maintenanceInfos ?? [])
             .Where(row => row != null && !string.IsNullOrWhiteSpace(row.path))];
         if (rows.Count == 0)
         {
@@ -2269,6 +2331,11 @@ internal sealed class BmsLibraryDbGateway(
         ClearTempLookupTable(songDb, TempFileScanMaintenanceUpsertTable);
     }
 
+    /// <summary>保守行の一括反映に使う一時表を用意し、前回の行を消去します。</summary>
+    /// <remarks>
+    /// 主キーは既定のBINARY照合の <c>path TEXT PRIMARY KEY</c> とし、<c>INSERT OR REPLACE</c> で完全に一致するパスだけを最後の値へまとめます。
+    /// 大文字小文字だけが異なるパスは別の行として扱うため、<c>COLLATE NOCASE</c> にしません。
+    /// </remarks>
     private static void PrepareTempMaintenanceUpsertTable(LR2SongDBExtended songDb)
     {
         songDb.Execute(
@@ -2296,7 +2363,7 @@ internal sealed class BmsLibraryDbGateway(
         ClearTempLookupTable(songDb, TempFileScanMaintenanceUpsertTable);
     }
 
-    private static void BulkInsertMaintenanceTempRows(LR2SongDBExtended songDb, IReadOnlyList<BMSFileMaintenanceInfo> rows)
+    private static void BulkInsertMaintenanceTempRows(LR2SongDBExtended songDb, IReadOnlyList<LR2SongDBExtended.maintenance> rows)
     {
         string[] columns = GetMaintenanceColumnNames();
         int columnCount = columns.Length;
@@ -2307,7 +2374,7 @@ internal sealed class BmsLibraryDbGateway(
             string rowPlaceholders = "(" + string.Join(",", Enumerable.Repeat("?", columnCount)) + ")";
             string placeholders = string.Join(",", chunk.Select(_ => rowPlaceholders));
             var args = new List<object>(chunk.Count * columnCount);
-            foreach (BMSFileMaintenanceInfo row in chunk)
+            foreach (LR2SongDBExtended.maintenance row in chunk)
             {
                 AddMaintenanceInsertArgs(args, row);
             }
@@ -2368,7 +2435,7 @@ internal sealed class BmsLibraryDbGateway(
         ];
     }
 
-    private static void AddMaintenanceInsertArgs(List<object> args, BMSFileMaintenanceInfo row)
+    private static void AddMaintenanceInsertArgs(List<object> args, LR2SongDBExtended.maintenance row)
     {
         args.Add(row.hash);
         args.Add(row.path);
@@ -2836,7 +2903,7 @@ internal sealed class BmsLibraryDbGateway(
         summary.MissingChartInfoOwnerCount++;
     }
 
-    private static IEnumerable<LR2SongDBExtended.chart_info> QueryChartInfosByColumn(LR2SongDBExtended songDb, string columnName, IReadOnlyList<string> keys, bool orderBySha256)
+    private static IEnumerable<BeMusicSeeker.Models.ChartDetails> QueryChartInfosByColumn(LR2SongDBExtended songDb, string columnName, IReadOnlyList<string> keys, bool orderBySha256)
     {
         if (songDb == null || keys == null || keys.Count == 0)
         {
@@ -2856,14 +2923,14 @@ internal sealed class BmsLibraryDbGateway(
             {
                 sql += " ORDER BY sha256 COLLATE NOCASE ASC";
             }
-            foreach (LR2SongDBExtended.chart_info row in songDb.Query<LR2SongDBExtended.chart_info>(sql, [.. chunk.Cast<object>()]))
+            foreach (BeMusicSeeker.Models.ChartDetails row in songDb.Query<LR2SongDBExtended.chart_info>(sql, [.. chunk.Cast<object>()]).Select(ChartInfoStorageMapping.ToCommon))
             {
                 yield return row;
             }
         }
     }
 
-    private static IEnumerable<LR2SongDBExtended.chart_info_parse_failure> QueryChartInfoParseFailuresByMd5(
+    private static IEnumerable<BeMusicSeeker.Models.ChartParseFailure> QueryChartInfoParseFailuresByMd5(
         LR2SongDBExtended songDb,
         IReadOnlyList<string> keys)
     {
@@ -2881,16 +2948,16 @@ internal sealed class BmsLibraryDbGateway(
             }
             string placeholders = string.Join(", ", chunk.Select(_ => "?"));
             string sql = "SELECT * FROM " + tableName + " WHERE md5 IN (" + placeholders + ");";
-            foreach (LR2SongDBExtended.chart_info_parse_failure row in songDb.Query<LR2SongDBExtended.chart_info_parse_failure>(sql, [.. chunk.Cast<object>()]))
+            foreach (BeMusicSeeker.Models.ChartParseFailure row in songDb.Query<LR2SongDBExtended.chart_info_parse_failure>(sql, [.. chunk.Cast<object>()]).Select(ChartInfoStorageMapping.ToCommon))
             {
                 yield return row;
             }
         }
     }
 
-    private List<LR2SongDBExtended.chart_info> LoadChartInfoRowsByColumn(string columnName, IReadOnlyList<string> keys, bool orderBySha256)
+    private List<BeMusicSeeker.Models.ChartDetails> LoadChartInfoRowsByColumn(string columnName, IReadOnlyList<string> keys, bool orderBySha256)
     {
-        if (TryLoadChartInfoRowsByColumnReadOnly(columnName, keys, orderBySha256, out List<LR2SongDBExtended.chart_info> rows))
+        if (TryLoadChartInfoRowsByColumnReadOnly(columnName, keys, orderBySha256, out List<BeMusicSeeker.Models.ChartDetails> rows))
         {
             return rows;
         }
@@ -2900,7 +2967,7 @@ internal sealed class BmsLibraryDbGateway(
         return [.. QueryChartInfosByColumn(songDb, columnName, keys, orderBySha256)];
     }
 
-    private bool TryLoadChartInfoRowsByColumnReadOnly(string columnName, IReadOnlyList<string> keys, bool orderBySha256, out List<LR2SongDBExtended.chart_info> rows)
+    private bool TryLoadChartInfoRowsByColumnReadOnly(string columnName, IReadOnlyList<string> keys, bool orderBySha256, out List<BeMusicSeeker.Models.ChartDetails> rows)
     {
         rows = [];
         try
@@ -2920,14 +2987,14 @@ internal sealed class BmsLibraryDbGateway(
         }
     }
 
-    private static List<LR2SongDBExtended.chart_info_parse_failure> NormalizeChartInfoParseFailureRows(IEnumerable<LR2SongDBExtended.chart_info_parse_failure> rows)
+    private static List<BeMusicSeeker.Models.ChartParseFailure> NormalizeChartInfoParseFailureRows(IEnumerable<BeMusicSeeker.Models.ChartParseFailure> rows)
     {
         return [.. (rows ?? []).Where(row => row != null && !string.IsNullOrWhiteSpace(row.md5))];
     }
 
 
 
-    private static bool IsCurrentChartInfoParseFailure(LR2SongDBExtended.chart_info_parse_failure row, TimeSpan parseTimeout)
+    private static bool IsCurrentChartInfoParseFailure(BeMusicSeeker.Models.ChartParseFailure row, TimeSpan parseTimeout)
     {
         if (row == null || string.IsNullOrWhiteSpace(row.md5))
         {
@@ -2985,7 +3052,7 @@ internal sealed class BmsLibraryDbGateway(
             }
             if (!string.IsNullOrWhiteSpace(path) && LongPathFileSystem.FileExists(path))
             {
-                digests[md5] = BMSFile.GetSHA256Hash(path);
+                digests[md5] = ChartFileContentReader.ComputeSha256(path);
             }
         }
         RebuildChartDigestMap(songDb, digests);

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using ManagedBass;
 using ManagedBass.Enc;
@@ -46,8 +47,8 @@ public class BassAudioWriter : BassAudioPlayer
     /// <summary>encoderの現在のlifecycle stateを取得します。</summary>
     public static PlayState RecordState { get; protected set; } = PlayState.Stopped;
 
-    /// <summary>command-line encoderを検索するdirectoryを取得または設定します。</summary>
-    public static string EncoderDirectory { get; set; } = AppContext.BaseDirectory;
+    /// <summary>外部エンコーダーの優先検索先を取得または設定します。初期値は確定済みの読取り素材の配置です。</summary>
+    public static string EncoderDirectory { get; set; } = ApplicationPathPolicy.Current.AssetsDirectory;
 
     /// <summary>現在のencoder command lineを取得します。</summary>
     public static string EncoderCommandLine => encoder?.CommandLine;
@@ -102,15 +103,36 @@ public class BassAudioWriter : BassAudioPlayer
             sampleRateConversionQuality);
     }
 
+    /// <summary>捕捉rate・SRC品質・無音取得方式を明示して、所有sessionを初期化します。</summary>
+    internal static void InitializeOwnedSession(
+        out BassAudioSession ownedSession,
+        SampleRate sampleRate,
+        int sampleRateConversionQuality,
+        NullOutputProcessing processing,
+        float initialGain)
+        => BassAudioPlayer.InitializeNullOwned(
+            sampleRate, sampleRateConversionQuality, processing, initialGain, out ownedSession);
+
     private static string GetEncoderDirectory(EncoderType encodeType)
     {
-        return encodeType.SearchEncoderBinary(LongPathFileSystem.DirectoryExists(EncoderDirectory) ? EncoderDirectory : null);
+        return FindEncoderDirectory(encodeType, EncoderDirectory);
     }
 
-    /// <summary>指定した外部encoderが見つかるかを返します。</summary>
-    public static bool IsEncoderAvailable(EncoderType encodeType)
+    /// <summary>指定フォルダが存在すれば優先し、次に既定の素材配置を探す検索規則の唯一の実装です。</summary>
+    private static string FindEncoderDirectory(EncoderType encodeType, string encoderDirectory)
     {
-        return GetEncoderDirectory(encodeType) != null;
+        return encodeType.SearchEncoderBinary(LongPathFileSystem.DirectoryExists(encoderDirectory) ? encoderDirectory : null);
+    }
+
+    /// <summary>
+    /// 静的な <see cref="EncoderDirectory"/> を読み書きせず、指定した検索先でencoderが見つかるかを返します。
+    /// 検索規則は <see cref="EncoderDirectory"/> を使う場合と同じで、指定フォルダが存在すれば優先し、次に既定の素材配置を探します。
+    /// </summary>
+    /// <param name="encodeType">確認するencoderの形式。WAVEは常に利用できます。</param>
+    /// <param name="encoderDirectory">優先する検索先。存在しない場合は無視します。</param>
+    public static bool IsEncoderAvailable(EncoderType encodeType, string encoderDirectory)
+    {
+        return FindEncoderDirectory(encodeType, encoderDirectory) != null;
     }
 
     /// <summary>encoder開始前にcommand lineへ設定するmetadataを保存します。</summary>

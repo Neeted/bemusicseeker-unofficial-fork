@@ -12,6 +12,7 @@
   <SolidColorBrush x:Key="App.DisabledTextBrush" Color="#FF888888" />
   <SolidColorBrush x:Key="App.BorderBrush" Color="#FF828790" />
   <SolidColorBrush x:Key="App.StrongBorderBrush" Color="#FF000000" />
+  <SolidColorBrush x:Key="App.SearchBorderBrush" Color="#FFCDD4DC" />
   <SolidColorBrush x:Key="App.SeparatorBrush" Color="#FFEFEFEF" />
   <SolidColorBrush x:Key="App.AccentBrush" Color="#FF4169E1" />
   <SolidColorBrush x:Key="App.AccentForegroundBrush" Color="#FFFFFFFF" />
@@ -116,4 +117,9 @@
   <SolidColorBrush x:Key="LightBorderBrush" Color="#AAA" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#DDD" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#444" />
+
+  <SolidColorBrush x:Key="Playback.ControlBackgroundBrush" Color="#FF252526" />
+  <SolidColorBrush x:Key="Playback.ControlForegroundBrush" Color="#FFD4D4D4" />
+  <SolidColorBrush x:Key="Playback.ControlHoverBrush" Color="#FF333337" />
+  <BitmapImage x:Key="Playback.DefaultImage" UriSource="/BeMusicSeeker;component/Assets/Images/default_image.jpg" CacheOption="OnLoad" />
 </ResourceDictionary>

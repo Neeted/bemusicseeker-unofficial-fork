@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Globalization;
 using System.Linq;
@@ -15,6 +16,19 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// <summary>接続解放後の読取り状態と、モデルへ射影済みの変更不能な原観測です。</summary>
 internal sealed record WalkureScoreInput(
     ScoreTableLoadStatus Status, ImmutableDictionary<string, WalkureLamp> Scores, string FailureMessage = "");
+
+/// <summary>
+/// スコアDBを利用できず、おすすめ表を生成できないことを表します。
+/// 対象を自動選択する一括同期がメッセージ文字列に頼らず、この条件だけをその表の見送りとして判別するために型で区別します。
+/// 読込み失敗や観測なしなど他の失敗は <see cref="InvalidOperationException"/> のままです。
+/// </summary>
+internal sealed class RecommendationScoreNotConfiguredException : InvalidOperationException
+{
+    /// <summary>利用者向けの未設定の文言をメッセージとして例外を作成します。</summary>
+    internal RecommendationScoreNotConfiguredException() : base(Resources.Error_RecommendationScoreNotConfigured)
+    {
+    }
+}
 
 /// <summary>同梱モデルから内蔵推定表と、選択中スコアのリコメンド表を生成します。</summary>
 internal sealed class PlaylistRecommendedTableOwner
@@ -43,6 +57,7 @@ internal sealed class PlaylistRecommendedTableOwner
     /// <param name="baseTable">設定を引き継ぐ既存表。</param>
     /// <param name="cancellationToken">読取り、計算、表生成を取り消すトークン。</param>
     /// <param name="scoreCapture">複数表操作内だけで共有する原入力。</param>
+    /// <returns>未修飾の生成hashを保ち、保存済み接頭辞を完成行の所属と明示順へ一度適用した未公開表。行の所属IDは親表の現在値から取得します。</returns>
     internal async Task<BMSTable> LoadWalkureTableAsync(
         Uri pageUri, BMSTable baseTable = null, CancellationToken cancellationToken = default,
         Lazy<Task<WalkureScoreInput>> scoreCapture = null)
@@ -90,9 +105,11 @@ internal sealed class PlaylistRecommendedTableOwner
             cancellationToken.ThrowIfCancellationRequested();
             if (input.Status != ScoreTableLoadStatus.Loaded)
             {
-                throw new InvalidOperationException(input.Status == ScoreTableLoadStatus.NotConfigured
-                    ? Resources.Error_RecommendationScoreNotConfigured
-                    : Resources.Error_RecommendationScoreReadFailed + " " + input.FailureMessage);
+                if (input.Status == ScoreTableLoadStatus.NotConfigured)
+                {
+                    throw new RecommendationScoreNotConfiguredException();
+                }
+                throw new InvalidOperationException(Resources.Error_RecommendationScoreReadFailed + " " + input.FailureMessage);
             }
         }
         // モデル読込み・数学・行構築を UI スレッドから離し、原入力を一操作中に固定する。
@@ -106,7 +123,9 @@ internal sealed class PlaylistRecommendedTableOwner
             {
                 table.name = baseTable.name;
             }
-            table.compat_prefix = baseTable.compat_prefix;
+            // 生成hash確定後の完成表だけを共通候補で変換し、所属・明示順・索引を同時に揃える。
+            var prefixEdit = new PlaylistHeaderEdit { Fields = PlaylistHeaderFields.CompatPrefix, CompatPrefix = baseTable.compat_prefix };
+            table.ApplyEntryMutation(table.PrepareHeaderMutation(prefixEdit));
             table.playlist_id = baseTable.playlist_id;
             table.symbol = baseTable.symbol;
             table.ignore_folder_output = baseTable.ignore_folder_output;
@@ -142,8 +161,18 @@ internal sealed class PlaylistRecommendedTableOwner
                 & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 & ~LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
         };
+        List<BMSTableEntry> entries;
+        // 生成内容の識別です。org_name は表示言語のリソースから作るため含めず、言語に依存しない種類・方針・★の値だけで作ります。
+        string contentIdentity;
         if (input == null)
         {
+            contentIdentity = "estimation:" + estimationLamp switch
+            {
+                WalkureLamp.Easy => "easy",
+                WalkureLamp.Normal => "normal",
+                WalkureLamp.Hard => "hard",
+                _ => "fc"
+            };
             table.org_name = estimationLamp switch
             {
                 WalkureLamp.Easy => Resources.Insane_estimation_table_easy,
@@ -158,7 +187,7 @@ internal sealed class PlaylistRecommendedTableOwner
                 WalkureLamp.Hard => "H★",
                 _ => "F★"
             };
-            table.entries = [];
+            entries = [];
             foreach (WalkureModelEntry entry in model.Entries)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -169,7 +198,7 @@ internal sealed class PlaylistRecommendedTableOwner
 
                 foreach ((string membership, string level) in entry.TableLevels.OrderBy(item => item.Key, StringComparer.Ordinal))
                 {
-                    table.entries.Add(new BMSTableEntry
+                    entries.Add(new BMSTableEntry
                     {
                         md5 = entry.Md5,
                         title = entry.Name,
@@ -189,22 +218,29 @@ internal sealed class PlaylistRecommendedTableOwner
                 WalkureScorePolicy.FailedAsUnplayed => Resources.Recommended_failed_as_unplayed,
                 _ => Resources.Recommended_standard
             };
+            contentIdentity = "recommended:" + policy switch
+            {
+                WalkureScorePolicy.UnplayedAsFailed => "unplayed_as_failed",
+                WalkureScorePolicy.FailedAsUnplayed => "failed_as_unplayed",
+                _ => "standard"
+            } + ":" + rating.StarRating.ToString("F2", CultureInfo.InvariantCulture);
             table.org_name = string.Format(Resources.RecommendFormat, policyName, rating.StarRating.ToString("F2", CultureInfo.InvariantCulture));
             table.org_symbol = "R★";
             table.ignore_folder_output |= LR2SongDBExtended.playlist.CustomFolderType.LevelFolder;
             table.Folder_order = ["EASY", "NORMAL", "HARD", "FC"];
-            table.entries = [.. model.Recommend(observations, rating.Theta, cancellationToken).Select(item => new BMSTableEntry
+            entries = [.. model.Recommend(observations, rating.Theta, cancellationToken).Select(item => new BMSTableEntry
             {
                 md5 = item.Entry.Md5, title = item.Entry.Name, level = item.Percent,
                 folder = item.Lamp == WalkureLamp.FullCombo ? "FC" : item.Lamp.ToString().ToUpperInvariant()
             })];
         }
+        table.entries = entries;
         table.name = table.org_name;
         table.symbol = table.org_symbol;
         // 外部表と同じ変更検知へ、時刻や利用者設定を含まない生成内容を渡す。
         table.header_sha256 = BMSTable.ComputeSha256Hex(new JObject
         {
-            ["name"] = table.org_name,
+            ["identity"] = contentIdentity,
             ["symbol"] = table.org_symbol,
             ["folder_sort_ascending"] = table.folder_sort_ascending,
             ["folder_order"] = new JArray(table.Folder_order)
@@ -237,9 +273,10 @@ internal sealed class PlaylistRecommendedTableOwner
         double? oldSkill = Skill(previousName), newSkill = Skill(appliedTable.org_name);
         if (oldSkill.HasValue && newSkill.HasValue && oldSkill != newSkill)
         {
-            notificationOwner.QueueInformation(string.Format(Resources.Recommend_SkillUpdatedMessage,
-                newSkill.Value.ToString("F2"), (newSkill.Value - oldSkill.Value).ToString(" (+#0.00); (-#0.00);")),
-                Resources.Recommend_SkillUpdatedTitle);
+            // 数値はInvariant書式の文字列を事実として保持し、本文の言語だけを表示直前に決めます。
+            notificationOwner.QueueInformation(PlaylistOperationNotificationOwner.OperationNotificationText.FromResource(nameof(Resources.Recommend_SkillUpdatedMessage),
+                newSkill.Value.ToString("F2", CultureInfo.InvariantCulture), (newSkill.Value - oldSkill.Value).ToString(" (+#0.00); (-#0.00);", CultureInfo.InvariantCulture)),
+                nameof(Resources.Recommend_SkillUpdatedTitle));
         }
     }
 }

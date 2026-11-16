@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
 using BeMusicSeeker.Models.LR2;
 using Ribbit.Util.Extensions;
 
@@ -24,6 +23,13 @@ internal sealed class Lr2FolderFileSyncItem
     public string ParentHash { get; set; }
 
     public bool PreserveExistingRowOnly { get; set; }
+
+    /// <summary>
+    /// このパス自体の行は作らず、親ディレクトリの行だけを実際の更新時刻へ揃える項目です。
+    /// 表ディレクトリを削除した後に、削除したディレクトリの祖先（基点まで）の行を同じ同期で追従させるために使い、
+    /// パスには削除したディレクトリ（または、その祖先のうち行を揃える最も近い祖先の直下の要素）を指定します。
+    /// </summary>
+    public bool ParentRowsOnly { get; set; }
 }
 
 internal sealed class Lr2FolderFileDbSyncRequest
@@ -32,9 +38,15 @@ internal sealed class Lr2FolderFileDbSyncRequest
 
     public IReadOnlyCollection<string> ScopeDirectories { get; set; } = [];
 
+    /// <summary>同じ物理対象の旧表記を取得する追加prefix。生成・削除判定には使わず、既存のScopeDirectoriesと管理除外を維持します。</summary>
+    public IReadOnlyCollection<string> AdditionalReadDirectories { get; set; } = [];
+
     public IReadOnlyCollection<string> DirectoryRowScopeDirectories { get; set; } = [];
 
     public IReadOnlyCollection<string> DirectoryRowGenerationScopeDirectories { get; set; } = [];
+
+    /// <summary>生成停止境界と区別する、今回の階層の実ルート集合です。</summary>
+    public IReadOnlyCollection<string> DirectoryRowRootDirectories { get; set; } = [];
 
     public IReadOnlyCollection<string> ScopePaths { get; set; } = [];
 
@@ -51,6 +63,59 @@ internal sealed class Lr2FolderFileDbSyncRequest
     public bool ScopeReadLr2FolderRowsOnly { get; set; }
 
     public bool UpdateParentDirectoryRowsForPreservedItems { get; set; } = true;
+
+    /// <summary>
+    /// 指定時は、項目の完全一致キーの行がなく、条件の追加譜面のsong.adddateが新曲期間内の場合だけ項目を書き込みます。
+    /// 局所同期の確定後に組込みの新曲フォルダを作る経路だけが指定します。条件を満たさない場合は何も書き込みません。
+    /// 書き込む場合は通常の組込みfolderの書込みと同じく、同じファイルの旧版の絶対パスのキーの行を新しいキーの行へ置き換えて退役させ、
+    /// 親directoryの行を整えます。整理（prune）は行いません。
+    /// </summary>
+    public Lr2BuiltinNewSongFolderCreationCondition CreateOnlyWhenMissingForRecentSongs { get; set; }
+}
+
+/// <summary>
+/// 局所同期の確定後に組込みの新曲フォルダ行を作る条件です。今回追加したBMSの完全一致パスだけでsong.adddateを読み、全譜面を走査しません。
+/// </summary>
+/// <param name="addedSongPaths">今回追加したBMSの保存パス。移動・改名で追加日時を引き継いだ譜面は含めません。</param>
+/// <param name="config">操作で捕捉したLR2設定。titleflashの期間に使います。</param>
+/// <param name="nowUtc">期間判定の基準時刻。</param>
+/// <param name="lr2RootPath">現在のLR2root。旧版の絶対パスのキーを作るために使います。空の場合は相対キーだけを照会します。</param>
+internal sealed class Lr2BuiltinNewSongFolderCreationCondition(
+    IReadOnlyCollection<string> addedSongPaths,
+    Lr2ConfigSnapshot config,
+    DateTime nowUtc,
+    string lr2RootPath)
+{
+    /// <summary>組込みの新曲フォルダのLR2root相対のfolderキーです。</summary>
+    internal static readonly string RelativeFolderKey = Path.Combine("LR2files", "CustomFolder", "newsong.lr2folder");
+
+    public IReadOnlyCollection<string> AddedSongPaths { get; } = addedSongPaths ?? [];
+
+    public Lr2ConfigSnapshot Config { get; } = config;
+
+    public DateTime NowUtc { get; } = nowUtc;
+
+    public string Lr2RootPath { get; } = lr2RootPath;
+
+    /// <summary>
+    /// 既存行の事前照会に使うfolderキーです。相対キーと、現在のLR2rootで作る旧版の絶対パスのキーを返します。
+    /// </summary>
+    internal IReadOnlyList<string> CreateExistingRowKeys()
+    {
+        var keys = new List<string> { RelativeFolderKey };
+        if (!string.IsNullOrWhiteSpace(Lr2RootPath))
+        {
+            try
+            {
+                keys.Add(Path.GetFullPath(Path.Combine(Lr2RootPath, RelativeFolderKey)));
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                // 絶対キーを作れないLR2rootでは、相対キーだけを照会します。
+            }
+        }
+        return keys;
+    }
 }
 
 internal sealed class Lr2FolderFileDbSyncResult(
@@ -107,6 +172,7 @@ internal static class Lr2FolderFileDbSyncService
 {
     private static readonly IEqualityComparer<string> PathComparer = StringComparer.OrdinalIgnoreCase;
 
+    /// <summary>customと必要親のraw完全一致キーを同期します。別キーへの置換は削除・新規生成とし、adddateは完全一致の存続行だけ保持します。</summary>
     internal static Lr2FolderFileDbSyncResult Sync(
         LR2SongDBExtended songDb,
         Lr2FolderFileDbSyncRequest request,
@@ -122,8 +188,25 @@ internal static class Lr2FolderFileDbSyncService
         Lr2FolderExistingRowsReadResult existingRows = ReadExistingRows(songDb, request);
         List<LR2SongDB.folder> existingRowList = existingRows.Rows;
         Dictionary<string, LR2SongDB.folder> existingRowsByPath = CreateExistingRowMap(existingRowList);
-        var generatedPathsByKey = new Dictionary<string, string>(PathComparer);
-        var generatedParentDirectoryKeys = new HashSet<string>(PathComparer);
+        if (request.CreateOnlyWhenMissingForRecentSongs != null
+            && !ShouldCreateMissingItemsForRecentSongs(songDb, request, existingRowsByPath))
+        {
+            stopwatch.Stop();
+            return new Lr2FolderFileDbSyncResult(
+                request.Items?.Count ?? 0,
+                existingRowList.Count,
+                existingRows.ExactReadCount,
+                existingRows.ScopeReadCount,
+                generatedCount: 0,
+                upsertedCount: 0,
+                deletedCount: 0,
+                preservedCount: 0,
+                skippedUnsupportedPathCount: 0,
+                skippedMissingMetadataCount: 0,
+                stopwatch.ElapsedMilliseconds);
+        }
+        var generatedPaths = new HashSet<string>(StringComparer.Ordinal);
+        var generatedParentDirectoryKeys = new HashSet<string>(StringComparer.Ordinal);
         var upsertRows = new List<LR2SongDB.folder>();
         var replaceDeletePaths = new List<string>();
         int itemCount = 0;
@@ -136,7 +219,7 @@ internal static class Lr2FolderFileDbSyncService
                 ? request.DirectoryRowGenerationScopeDirectories
                 : request.DirectoryRowScopeDirectories;
         var directoryRowGenerationScopeMatcher =
-            DirectoryScopeMatcher.Create(directoryRowGenerationScopeDirectories);
+            DirectoryScopeMatcher.Create(directoryRowGenerationScopeDirectories, request.DirectoryRowRootDirectories);
 
         foreach (Lr2FolderFileSyncItem item in request.Items ?? [])
         {
@@ -152,8 +235,28 @@ internal static class Lr2FolderFileDbSyncService
                 skippedUnsupportedPathCount++;
                 continue;
             }
-            LR2SongDB.folder existingRow = ResolveExistingRow(item, existingRowsByPath, databasePath, out string replaceDeletePath);
-            if (item.FolderType == 1 || IsNormalDirectoryRow(existingRow))
+            if (item.ParentRowsOnly)
+            {
+                UpsertParentDirectoryRows(
+                    item,
+                    databasePath,
+                    directoryRowGenerationScopeMatcher,
+                    existingRowsByPath,
+                    request.GeneratedAtUtc,
+                    request.DirectoryMetadataResolver,
+                    generatedPaths,
+                    generatedParentDirectoryKeys,
+                    upsertRows);
+                continue;
+            }
+            existingRowsByPath.TryGetValue(databasePath, out LR2SongDB.folder existingRow);
+            string physicalPath = NormalizeFilePath(item.FilePath);
+            LR2SongDB.folder physicalRow = physicalPath != null && existingRowsByPath.TryGetValue(physicalPath, out LR2SongDB.folder found)
+                ? found : null;
+            // 旧absoluteは削除事実だけに使います。値は新databaseキーに一致する行だけから保持します。
+            string replaceDeletePath = !string.Equals(physicalPath, databasePath, StringComparison.Ordinal)
+                ? physicalRow?.path : null;
+            if (item.FolderType == 1 || IsNormalDirectoryRow(existingRow) || IsNormalDirectoryRow(physicalRow))
             {
                 skippedUnsupportedPathCount++;
                 continue;
@@ -161,7 +264,8 @@ internal static class Lr2FolderFileDbSyncService
             if (item.PreserveExistingRowOnly && existingRow != null)
             {
                 preservedCount++;
-                generatedPathsByKey[databasePath] = databasePath;
+                generatedPaths.Add(databasePath);
+                if (replaceDeletePath != null) { replaceDeletePaths.Add(replaceDeletePath); }
                 if (request.UpdateParentDirectoryRowsForPreservedItems)
                 {
                     UpsertParentDirectoryRows(
@@ -171,7 +275,7 @@ internal static class Lr2FolderFileDbSyncService
                         existingRowsByPath,
                         request.GeneratedAtUtc,
                         request.DirectoryMetadataResolver,
-                        generatedPathsByKey,
+                        generatedPaths,
                         generatedParentDirectoryKeys,
                         upsertRows);
                 }
@@ -203,7 +307,7 @@ internal static class Lr2FolderFileDbSyncService
             }
 
             generatedCount++;
-            generatedPathsByKey[databasePath] = databasePath;
+            generatedPaths.Add(databasePath);
             if (!string.IsNullOrWhiteSpace(replaceDeletePath)
                 && !string.Equals(replaceDeletePath, row.path, StringComparison.Ordinal))
             {
@@ -221,7 +325,7 @@ internal static class Lr2FolderFileDbSyncService
                 existingRowsByPath,
                 request.GeneratedAtUtc,
                 request.DirectoryMetadataResolver,
-                generatedPathsByKey,
+                generatedPaths,
                 generatedParentDirectoryKeys,
                 upsertRows);
         }
@@ -231,7 +335,7 @@ internal static class Lr2FolderFileDbSyncService
         {
             deletePaths.AddRange(CreateDeletePaths(
                 existingRowList,
-                generatedPathsByKey,
+                generatedPaths,
                 request.ScopeDirectories,
                 request.DirectoryRowScopeDirectories,
                 request.ScopePaths,
@@ -240,7 +344,7 @@ internal static class Lr2FolderFileDbSyncService
         }
         deletePaths = [.. deletePaths
             .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(PathComparer)];
+            .Distinct(StringComparer.Ordinal)];
 
         Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ApplySyncPlan(
             songDb,
@@ -260,6 +364,81 @@ internal static class Lr2FolderFileDbSyncService
             skippedUnsupportedPathCount,
             skippedMissingMetadataCount,
             stopwatch.ElapsedMilliseconds);
+    }
+
+    private const int SongAddDateQueryChunkSize = 500;
+
+    /// <summary>
+    /// 組込みの新曲フォルダのファイルを列挙・読み取る前に、DBだけで作成が必要かを判定します。
+    /// 追加譜面のsong.adddateがいずれも新曲期間外、またはfolder表に新曲フォルダの行（相対キーか、現在のLR2rootで作る旧版の絶対キーの完全一致）が
+    /// 既にある場合はfalseです。照会は主キーの完全一致だけで行い、folder表を走査しません。
+    /// 作成が不要な場合にファイルの読取り失敗で局所同期を失敗させないため、呼出し元はこの結果がtrueの場合だけファイルを読みます。
+    /// </summary>
+    /// <param name="songDb">読み取るsong.db。</param>
+    /// <param name="condition">追加譜面と期間の条件。</param>
+    /// <returns>作成が必要な可能性がある場合はtrue。</returns>
+    internal static bool RequiresBuiltinNewSongFolderRowCreation(
+        LR2SongDBExtended songDb,
+        Lr2BuiltinNewSongFolderCreationCondition condition)
+    {
+        ArgumentNullException.ThrowIfNull(songDb);
+        if (condition == null || !HasRecentAddedSong(songDb, condition))
+        {
+            return false;
+        }
+
+        return Lr2FolderExistingRowLookup.QueryExactPaths(songDb, condition.CreateExistingRowKeys()).Count == 0;
+    }
+
+    /// <summary>
+    /// 項目の完全一致キーの既存行がなく、追加譜面のsong.adddateのいずれかが組込みfolderと同じ規則で新曲期間内かを判定します。
+    /// 呼出し元の事前判定から書込みまでの間に行が作られた場合も、ここで既存行を変更しません。
+    /// </summary>
+    private static bool ShouldCreateMissingItemsForRecentSongs(
+        LR2SongDBExtended songDb,
+        Lr2FolderFileDbSyncRequest request,
+        IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath)
+    {
+        Lr2BuiltinNewSongFolderCreationCondition condition = request.CreateOnlyWhenMissingForRecentSongs;
+        foreach (Lr2FolderFileSyncItem item in request.Items ?? [])
+        {
+            string databasePath = NormalizeFilePath(item?.DatabasePath ?? item?.FilePath);
+            if (!string.IsNullOrWhiteSpace(databasePath) && existingRowsByPath.ContainsKey(databasePath))
+            {
+                return false;
+            }
+        }
+
+        return HasRecentAddedSong(songDb, condition);
+    }
+
+    /// <summary>
+    /// 追加譜面のsong.adddateのいずれかが組込みfolderと同じ規則で新曲期間内かを判定します。
+    /// song.adddateは主キーpathの完全一致で読み、期間内の行が見つかった時点で打ち切ります。
+    /// </summary>
+    private static bool HasRecentAddedSong(
+        LR2SongDBExtended songDb,
+        Lr2BuiltinNewSongFolderCreationCondition condition)
+    {
+        string songTable = SQLiteTable<LR2SongDB.song>.GetTableName();
+        string pathColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.path);
+        string addDateColumn = SQLiteTable<LR2SongDB.song>.GetColumnName(row => row.adddate);
+        foreach (string[] chunk in condition.AddedSongPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.Ordinal)
+            .Chunk(SongAddDateQueryChunkSize))
+        {
+            IEnumerable<int?> addDates = songDb.Query<LR2SongDB.song>(
+                "SELECT " + pathColumn + ", " + addDateColumn + " FROM " + songTable
+                + " WHERE " + pathColumn + " IN (" + string.Join(",", chunk.Select(_ => "?")) + ");",
+                chunk.Cast<object>().ToArray())
+                .Select(row => row.adddate);
+            if (Lr2BuiltinCustomFolderSettings.CreateFromAddDates(condition.Config, addDates, condition.NowUtc).IncludeNewSongFolder)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static Lr2FolderExistingRowsReadResult ReadExistingRows(
@@ -306,7 +485,7 @@ internal static class Lr2FolderFileDbSyncService
         var directoryRowGenerationScopeMatcher =
             DirectoryScopeMatcher.Create(request.DirectoryRowGenerationScopeDirectories?.Count > 0
                 ? request.DirectoryRowGenerationScopeDirectories
-                : request.DirectoryRowScopeDirectories);
+                : request.DirectoryRowScopeDirectories, request.DirectoryRowRootDirectories);
         foreach (Lr2FolderFileSyncItem item in request.Items ?? [])
         {
             AddExactFilePath(result, item?.DatabasePath);
@@ -336,7 +515,7 @@ internal static class Lr2FolderFileDbSyncService
 
         foreach (string path in request.ScopePaths ?? [])
         {
-            AddExactFilePath(result, path);
+            if (!string.IsNullOrWhiteSpace(path)) { result.Add(path); }
         }
 
         return result;
@@ -344,12 +523,17 @@ internal static class Lr2FolderFileDbSyncService
 
     private static IReadOnlyCollection<string> CreateExistingRowScopeDirectories(Lr2FolderFileDbSyncRequest request)
     {
-        var result = new HashSet<string>(PathComparer);
+        // SQLのprefix検索へ旧・新の非ASCII表記を両方渡します。物理包含の比較とは分けます。
+        var result = new HashSet<string>(StringComparer.Ordinal);
         foreach (string directory in request?.ScopeDirectories ?? [])
         {
             AddScopeDirectory(result, directory);
         }
         foreach (string directory in request?.DirectoryRowScopeDirectories ?? [])
+        {
+            AddScopeDirectory(result, directory);
+        }
+        foreach (string directory in request?.AdditionalReadDirectories ?? [])
         {
             AddScopeDirectory(result, directory);
         }
@@ -381,7 +565,7 @@ internal static class Lr2FolderFileDbSyncService
         IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
         DateTime generatedAtUtc,
         Func<string, Lr2FolderDirectoryMetadata> directoryMetadataResolver,
-        IDictionary<string, string> generatedPathsByKey,
+        ISet<string> generatedPaths,
         ISet<string> generatedParentDirectoryKeys,
         IList<LR2SongDB.folder> upsertRows)
     {
@@ -403,7 +587,7 @@ internal static class Lr2FolderFileDbSyncService
                 continue;
             }
 
-            generatedPathsByKey[parentRow.path] = parentRow.path;
+            generatedPaths.Add(parentRow.path);
             LR2SongDB.folder existingParentRow = existingRowsByPath.TryGetValue(parentRow.path, out LR2SongDB.folder existingParent)
                 ? existingParent
                 : null;
@@ -416,17 +600,8 @@ internal static class Lr2FolderFileDbSyncService
 
     private static Dictionary<string, LR2SongDB.folder> CreateExistingRowMap(IEnumerable<LR2SongDB.folder> existingRows)
     {
-        var result = new Dictionary<string, LR2SongDB.folder>(PathComparer);
-        foreach (LR2SongDB.folder row in existingRows ?? [])
-        {
-            string path = NormalizeFilePath(row?.path);
-            if (string.IsNullOrWhiteSpace(path) || result.ContainsKey(path))
-            {
-                continue;
-            }
-            result.Add(path, row);
-        }
-        return result;
+        return (existingRows ?? []).Where(row => row?.path != null)
+            .ToDictionary(row => row.path, StringComparer.Ordinal);
     }
 
     private static void AddExistingRow(IDictionary<string, LR2SongDB.folder> rowsByPath, LR2SongDB.folder row)
@@ -492,38 +667,9 @@ internal static class Lr2FolderFileDbSyncService
             : Lr2FolderExistingRowLookup.QueryPathPrefixScopes(songDb, scopePaths, excludedScopePaths);
     }
 
-    private static LR2SongDB.folder ResolveExistingRow(
-        Lr2FolderFileSyncItem item,
-        IReadOnlyDictionary<string, LR2SongDB.folder> existingRowsByPath,
-        string databasePath,
-        out string replaceDeletePath)
-    {
-        replaceDeletePath = null;
-        if (existingRowsByPath == null || string.IsNullOrWhiteSpace(databasePath))
-        {
-            return null;
-        }
-
-        if (existingRowsByPath.TryGetValue(databasePath, out LR2SongDB.folder row))
-        {
-            return row;
-        }
-
-        string physicalPath = NormalizeFilePath(item?.FilePath);
-        if (string.IsNullOrWhiteSpace(physicalPath)
-            || string.Equals(physicalPath, databasePath, StringComparison.OrdinalIgnoreCase)
-            || !existingRowsByPath.TryGetValue(physicalPath, out row))
-        {
-            return null;
-        }
-
-        replaceDeletePath = row.path;
-        return row;
-    }
-
     private static List<string> CreateDeletePaths(
         IEnumerable<LR2SongDB.folder> existingRows,
-        IReadOnlyDictionary<string, string> generatedPathsByKey,
+        IReadOnlySet<string> generatedPaths,
         IEnumerable<string> scopeDirectories,
         IEnumerable<string> directoryRowScopeDirectories,
         IEnumerable<string> scopePaths,
@@ -534,16 +680,15 @@ internal static class Lr2FolderFileDbSyncService
         var directoryRowScopeMatcher = DirectoryScopeMatcher.Create(directoryRowScopeDirectories);
         var pruneExcludeMatcher = DirectoryScopeMatcher.Create(pruneExcludedDirectories);
         HashSet<string> pruneExcludedPathSet = new((pruneExcludedPaths ?? [])
-            .Select(NormalizeFilePath)
-            .Where(path => !string.IsNullOrWhiteSpace(path)), PathComparer);
+            .Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.Ordinal);
         var explicitPaths = new HashSet<string>(
-            (scopePaths ?? []).Select(NormalizeFilePath).Where(path => !string.IsNullOrWhiteSpace(path)),
-            PathComparer);
+            (scopePaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.Ordinal);
         var deletePaths = new List<string>();
 
         foreach (LR2SongDB.folder row in existingRows ?? [])
         {
-            string path = NormalizeFilePath(row?.path);
+            string path = row?.path;
             if (string.IsNullOrWhiteSpace(path))
             {
                 continue;
@@ -568,16 +713,12 @@ internal static class Lr2FolderFileDbSyncService
                 continue;
             }
 
-            if (generatedPathsByKey != null
-                && generatedPathsByKey.TryGetValue(path, out string generatedPath)
-                && string.Equals(path, generatedPath, StringComparison.Ordinal))
+            if (generatedPaths?.Contains(path) == true)
             {
                 continue;
             }
 
-            if ((generatedPathsByKey != null
-                    && generatedPathsByKey.ContainsKey(path))
-                || explicitPaths.Contains(path)
+            if (explicitPaths.Contains(path)
                 || scopeMatcher.Contains(path)
                 || isDirectoryRowScopePath)
             {
@@ -588,12 +729,14 @@ internal static class Lr2FolderFileDbSyncService
         return deletePaths;
     }
 
+    /// <summary>DB生成と同じ実ルート・停止境界から、所有者が先に捕捉すべき物理親だけを返します。現在FSの読取りは所有者へ委ねます。</summary>
     internal static IReadOnlyCollection<string> CreateParentDirectoryMetadataTargets(
         IEnumerable<Lr2FolderFileSyncItem> items,
-        IEnumerable<string> directoryRowGenerationScopeDirectories)
+        IEnumerable<string> directoryRowGenerationScopeDirectories,
+        IEnumerable<string> directoryRowRootDirectories = null)
     {
         var directoryRowGenerationScopeMatcher =
-            DirectoryScopeMatcher.Create(directoryRowGenerationScopeDirectories);
+            DirectoryScopeMatcher.Create(directoryRowGenerationScopeDirectories, directoryRowRootDirectories);
         var result = new HashSet<string>(PathComparer);
         foreach (Lr2FolderFileSyncItem item in items ?? [])
         {
@@ -680,7 +823,7 @@ internal static class Lr2FolderFileDbSyncService
             type = isKnownRelativeLr2Directory ? 2 : 1,
             parent = parentHash,
             date = lastWriteTimeUtc.Value.ToUnixtime(),
-            adddate = existingRow?.adddate ?? generatedAtUtc.ToUnixtime()
+            adddate = existingRow != null ? existingRow.adddate : generatedAtUtc.ToUnixtime()
         };
         return true;
     }
@@ -765,13 +908,18 @@ internal static class Lr2FolderFileDbSyncService
 
         private readonly HashSet<string> roots;
 
-        private DirectoryScopeMatcher(List<string> scopes)
+        internal IReadOnlySet<string> RealRoots { get; }
+
+        internal IReadOnlySet<string> Boundaries => roots;
+
+        private DirectoryScopeMatcher(List<string> scopes, IEnumerable<string> realRoots = null)
         {
             this.scopes = scopes ?? [];
+            RealRoots = new HashSet<string>((realRoots ?? []).Select(Lr2FolderPhysicalParentDirectoryTargetHelper.NormalizeDirectory).Where(path => !string.IsNullOrWhiteSpace(path)), PathComparer);
             roots = new HashSet<string>(this.scopes, PathComparer);
         }
 
-        public static DirectoryScopeMatcher Create(IEnumerable<string> scopeDirectories)
+        public static DirectoryScopeMatcher Create(IEnumerable<string> scopeDirectories, IEnumerable<string> realRoots = null)
         {
             List<string> normalizedScopes = [.. (scopeDirectories ?? [])
                 .Select(NormalizeScopeDirectory)
@@ -780,7 +928,7 @@ internal static class Lr2FolderFileDbSyncService
                 .OrderBy(path => path.Length)];
             return normalizedScopes.Count == 0
                 ? Empty
-                : new DirectoryScopeMatcher(normalizedScopes);
+                : new DirectoryScopeMatcher(normalizedScopes, realRoots);
         }
 
         public bool Contains(string path)
@@ -813,17 +961,6 @@ internal static class Lr2FolderFileDbSyncService
             return false;
         }
 
-        public bool ContainsRoot(string directory)
-        {
-            if (string.IsNullOrWhiteSpace(directory) || roots.Count == 0)
-            {
-                return false;
-            }
-
-            string normalizedDirectory = NormalizeScopeDirectory(directory);
-            return !string.IsNullOrWhiteSpace(normalizedDirectory) && roots.Contains(normalizedDirectory);
-        }
-
         private static string NormalizePathForScopeComparison(string path)
         {
             try
@@ -834,7 +971,7 @@ internal static class Lr2FolderFileDbSyncService
                 }
                 if (Path.IsPathRooted(path))
                 {
-                    return Lr2FolderPath.NormalizeDirectoryPath(path);
+                    return Path.IsPathFullyQualified(path) ? Lr2FolderPath.NormalizeDirectoryPath(path) : null;
                 }
                 return path.Trim()
                     .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
@@ -889,18 +1026,9 @@ internal static class Lr2FolderFileDbSyncService
         string databasePath,
         DirectoryScopeMatcher directoryRowScopeMatcher)
     {
-        var targets = new List<ParentDirectoryRowTarget>();
-        string databaseDirectory = NormalizeParentDirectoryPath(databasePath);
-        string physicalDirectory = NormalizePhysicalParentDirectoryPath(item?.FilePath);
-        while (!string.IsNullOrWhiteSpace(databaseDirectory)
-            && !string.IsNullOrWhiteSpace(physicalDirectory)
-            && directoryRowScopeMatcher.Contains(databaseDirectory)
-            && !directoryRowScopeMatcher.ContainsRoot(databaseDirectory))
-        {
-            targets.Add(new ParentDirectoryRowTarget(databaseDirectory, physicalDirectory));
-            databaseDirectory = NormalizeParentDirectoryPath(databaseDirectory);
-            physicalDirectory = NormalizeParentDirectoryPath(physicalDirectory);
-        }
+        List<ParentDirectoryRowTarget> targets = [.. Lr2FolderPhysicalParentDirectoryTargetHelper.EnumerateNormalizedParents(
+            databasePath, item?.FilePath, directoryRowScopeMatcher.Boundaries, directoryRowScopeMatcher.RealRoots)
+            .Select(target => new ParentDirectoryRowTarget(target.DatabaseDirectory, target.PhysicalDirectory))];
         targets.Reverse();
         return targets;
     }
@@ -910,51 +1038,6 @@ internal static class Lr2FolderFileDbSyncService
         public string DatabaseDirectory { get; } = databaseDirectory;
 
         public string PhysicalDirectory { get; } = physicalDirectory;
-    }
-
-    private static string NormalizeParentDirectoryPath(string databasePath)
-    {
-        if (string.IsNullOrWhiteSpace(databasePath))
-        {
-            return null;
-        }
-
-        try
-        {
-            string normalizedPath = databasePath.Trim()
-                .Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar)
-                .TrimEnd(Path.DirectorySeparatorChar);
-            string directory = Path.GetDirectoryName(normalizedPath);
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                return null;
-            }
-
-            string relativeDirectory = NormalizeKnownRelativeDirectory(directory);
-            return relativeDirectory ?? Lr2FolderPath.NormalizeDirectoryPath(directory);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return null;
-        }
-    }
-
-    private static string NormalizePhysicalParentDirectoryPath(string filePath)
-    {
-        if (string.IsNullOrWhiteSpace(filePath))
-        {
-            return null;
-        }
-
-        try
-        {
-            string directory = Path.GetDirectoryName(filePath);
-            return Lr2FolderPath.NormalizeDirectoryPath(directory);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-        {
-            return null;
-        }
     }
 
     private static bool TryCreateDirectoryRowPath(
@@ -1015,26 +1098,7 @@ internal static class Lr2FolderFileDbSyncService
         bool isKnownRelativeLr2Directory,
         DirectoryScopeMatcher directoryRowScopeMatcher)
     {
-        try
-        {
-            string parentDirectory = Path.GetDirectoryName(directory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-            if (string.IsNullOrWhiteSpace(parentDirectory))
-            {
-                return null;
-            }
-
-            if (directoryRowScopeMatcher.ContainsRoot(parentDirectory)
-                || (isKnownRelativeLr2Directory && IsKnownRelativeLr2FolderDirectoryRoot(parentDirectory)))
-            {
-                return Lr2SongFolderParentNormalizer.RootParentHash;
-            }
-
-            return Lr2SongFolderParentNormalizer.ComputeDirectoryHash(parentDirectory);
-        }
-        catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is EncoderFallbackException)
-        {
-            return null;
-        }
+        return Lr2FolderPhysicalParentDirectoryTargetHelper.ComputeNormalizedParentHash(directory, directoryRowScopeMatcher.RealRoots);
     }
 
     private static string ResolveDirectoryTitle(string directory)

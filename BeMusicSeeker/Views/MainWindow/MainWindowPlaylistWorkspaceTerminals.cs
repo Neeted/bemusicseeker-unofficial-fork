@@ -159,22 +159,18 @@ internal sealed class MainWindowForegroundTerminal
 /// </summary>
 internal sealed class MainWindowPlaylistWorkspaceTerminals
 {
-    /// <summary>
-    /// Initializes the playlist-workspace terminal bundle.
-    /// </summary>
-    /// <param name="entryRemoval">Playlist-entry removal terminal.</param>
-    /// <param name="tableLevelOverwrite">Playlist-table level overwrite terminal.</param>
-    /// <param name="tableRemoval">Playlist-table removal terminal.</param>
-    /// <param name="collectionImport">External collection and built-in playlist import terminal.</param>
-    /// <param name="urlAcquisition">Playlist URL action and availability terminal.</param>
-    /// <param name="urlInstallTreeExpansionEventSource">Typed owner completion-event source.</param>
-    /// <param name="urlInstallTreeExpansion">Install-tree presentation expansion terminal.</param>
-    /// <param name="tablesReload">Playlist-root table reload terminal.</param>
+    /// <summary>プレイリスト操作の既存所有者へ接続する画面終端を束ねます。</summary>
+    /// <param name="entryRemoval">エントリー削除の終端。</param>
+    /// <param name="tableLevelOverwrite">表レベル上書きの終端。</param>
+    /// <param name="tableRemoval">表削除の終端。</param>
+    /// <param name="urlAcquisition">譜面配布URL取得の終端。</param>
+    /// <param name="urlInstallTreeExpansionEventSource">取得完了通知の発行元。</param>
+    /// <param name="urlInstallTreeExpansion">取得完了後のツリー展開。</param>
+    /// <param name="tablesReload">表全体の再取得。</param>
     internal MainWindowPlaylistWorkspaceTerminals(
         MainWindowPlaylistEntryRemovalTerminal entryRemoval,
         MainWindowPlaylistTableLevelOverwriteTerminal tableLevelOverwrite,
         MainWindowPlaylistTableRemovalTerminal tableRemoval,
-        MainWindowPlaylistCollectionImportTerminal collectionImport,
         MainWindowPlaylistUrlAcquisitionTerminal urlAcquisition,
         IMainWindowPlaylistUrlInstallTreeExpansionEventSource urlInstallTreeExpansionEventSource,
         MainWindowPlaylistUrlInstallTreeExpansionTerminal urlInstallTreeExpansion,
@@ -184,7 +180,6 @@ internal sealed class MainWindowPlaylistWorkspaceTerminals
         TableLevelOverwrite = tableLevelOverwrite
             ?? throw new ArgumentNullException(nameof(tableLevelOverwrite));
         TableRemoval = tableRemoval ?? throw new ArgumentNullException(nameof(tableRemoval));
-        CollectionImport = collectionImport ?? throw new ArgumentNullException(nameof(collectionImport));
         UrlAcquisition = urlAcquisition ?? throw new ArgumentNullException(nameof(urlAcquisition));
         UrlInstallTreeExpansionEventSource = urlInstallTreeExpansionEventSource
             ?? throw new ArgumentNullException(nameof(urlInstallTreeExpansionEventSource));
@@ -207,11 +202,6 @@ internal sealed class MainWindowPlaylistWorkspaceTerminals
     /// Gets the playlist-table removal terminal.
     /// </summary>
     internal MainWindowPlaylistTableRemovalTerminal TableRemoval { get; }
-
-    /// <summary>
-    /// Gets the external playlist collection import terminal.
-    /// </summary>
-    internal MainWindowPlaylistCollectionImportTerminal CollectionImport { get; }
 
     /// <summary>
     /// Gets the playlist URL acquisition terminal.
@@ -251,9 +241,6 @@ internal sealed class MainWindowPlaylistWorkspaceTerminals
                 viewModel.PlaylistWorkspace.PlaylistTableLevelOverwriteWorkflow.OverwriteAsync),
             new MainWindowPlaylistTableRemovalTerminal(
                 viewModel.PlaylistWorkspace.PlaylistRemovalWorkflow.RemoveTreeTableAsync),
-            new MainWindowPlaylistCollectionImportTerminal(
-                viewModel.PlaylistWorkspace.TryEnqueueExternalPlaylistCollectionImport,
-                viewModel.PlaylistWorkspace.TryEnqueueBuiltInExternalPlaylistImport),
             new MainWindowPlaylistUrlAcquisitionTerminal(
                 viewModel.PlaylistWorkspace.RunSinglePlaylistUrlAsync,
                 viewModel.PlaylistWorkspace.RunPlaylistUrlActionAsync,
@@ -303,48 +290,7 @@ internal sealed class MainWindowPlaylistTablesReloadTerminal
 }
 
 /// <summary>
-/// Narrows compiled playlist import menu clicks to the playlist workspace queue owner.
-/// </summary>
-internal sealed class MainWindowPlaylistCollectionImportTerminal
-{
-    private readonly Func<BMSTableSimple, bool> enqueueCollectionImport;
-
-    private readonly Func<string, bool> enqueueBuiltInImport;
-
-    /// <summary>
-    /// Initializes the collection-import terminal.
-    /// </summary>
-    /// <param name="enqueueCollectionImport">Owner operation for one collection leaf.</param>
-    /// <param name="enqueueBuiltInImport">Owner operation for one built-in raw tag.</param>
-    internal MainWindowPlaylistCollectionImportTerminal(
-        Func<BMSTableSimple, bool> enqueueCollectionImport,
-        Func<string, bool> enqueueBuiltInImport)
-    {
-        this.enqueueCollectionImport = enqueueCollectionImport
-            ?? throw new ArgumentNullException(nameof(enqueueCollectionImport));
-        this.enqueueBuiltInImport = enqueueBuiltInImport
-            ?? throw new ArgumentNullException(nameof(enqueueBuiltInImport));
-    }
-
-    /// <summary>
-    /// Enqueues one external collection leaf without changing its identity.
-    /// </summary>
-    /// <param name="source">The exact generated menu-item data context.</param>
-    /// <returns>Whether the workspace accepted the queue request.</returns>
-    internal bool TryEnqueueExternalPlaylistCollectionImport(BMSTableSimple source)
-        => enqueueCollectionImport(source);
-
-    /// <summary>
-    /// Enqueues one built-in playlist import using its exact XAML tag.
-    /// </summary>
-    /// <param name="rawTag">The exact built-in menu-item tag.</param>
-    /// <returns>Whether the workspace accepted the queue request.</returns>
-    internal bool TryEnqueueBuiltInExternalPlaylistImport(string rawTag)
-        => enqueueBuiltInImport(rawTag);
-}
-
-/// <summary>
-/// Narrows playlist URL cells and context-menu actions to the playlist workspace owner.
+/// URLセルクリックと右クリック操作をプレイリストワークスペースの別々の入口へ渡します。
 /// </summary>
 internal sealed class MainWindowPlaylistUrlAcquisitionTerminal
 {
@@ -357,12 +303,12 @@ internal sealed class MainWindowPlaylistUrlAcquisitionTerminal
     private readonly Func<object, IReadOnlyList<object>, PlaylistUrlContextMenuAvailability> captureAvailability;
 
     /// <summary>
-    /// Initializes the playlist URL terminal.
+    /// URLセルクリックと右クリックを、それぞれのワークスペース入口へ接続します。
     /// </summary>
-    /// <param name="runSinglePlaylistUrlAsync">Owner operation for one URL cell.</param>
-    /// <param name="runPlaylistUrlActionAsync">Owner operation for one exact row snapshot.</param>
-    /// <param name="runExternalPackageLookupAsync">Owner operation for one exact row snapshot.</param>
-    /// <param name="captureAvailability">Owner availability query for one row scope.</param>
+    /// <param name="runSinglePlaylistUrlAsync">自動取得条件を判定する単体URLセルの入口。</param>
+    /// <param name="runPlaylistUrlActionAsync">有効行の固定スナップショットを受け取る入口。</param>
+    /// <param name="runExternalPackageLookupAsync">有効行の固定スナップショットを受け取る入口。</param>
+    /// <param name="captureAvailability">有効行の範囲に対するメニュー可否の問合せ。</param>
     internal MainWindowPlaylistUrlAcquisitionTerminal(
         Func<Uri, Task> runSinglePlaylistUrlAsync,
         Func<IReadOnlyList<object>, bool, Task> runPlaylistUrlActionAsync,
@@ -380,27 +326,27 @@ internal sealed class MainWindowPlaylistUrlAcquisitionTerminal
     }
 
     /// <summary>
-    /// Runs one URL through the existing workspace acquisition route.
+    /// URLセルのクリックを自動取得条件を持つ既存入口へ渡します。
     /// </summary>
-    /// <param name="url">The exact URL resolved by the compiled cell.</param>
-    /// <returns>The owner operation task.</returns>
+    /// <param name="url">実セルから解決した元URL。</param>
+    /// <returns>所有者の操作終端まで待つTask。</returns>
     internal Task RunSinglePlaylistUrlAsync(Uri url)
         => runSinglePlaylistUrlAsync(url);
 
     /// <summary>
-    /// Runs a URL or diff-URL action using the exact effective row snapshot.
+    /// 本体・差分の右クリック操作を固定行で渡し、所有者が単体のブラウザー起動と複数行の一括取得を判断します。
     /// </summary>
-    /// <param name="rows">The effective selected rows in their compiled order.</param>
-    /// <param name="isDiffUrl">Whether the diff URL column/menu was selected.</param>
-    /// <returns>The owner operation task.</returns>
+    /// <param name="rows">画面上の選択順を保った有効行。</param>
+    /// <param name="isDiffUrl">差分URLメニューが選択された場合はtrue。</param>
+    /// <returns>所有者の操作終端まで待つTask。</returns>
     internal Task RunPlaylistUrlActionAsync(IReadOnlyList<object> rows, bool isDiffUrl)
         => runPlaylistUrlActionAsync(rows ?? throw new ArgumentNullException(nameof(rows)), isDiffUrl);
 
     /// <summary>
     /// Runs the external-package lookup using the exact effective row snapshot.
     /// </summary>
-    /// <param name="rows">The effective selected rows in their compiled order.</param>
-    /// <returns>The owner operation task.</returns>
+    /// <param name="rows">画面上の選択順を保った有効行。</param>
+    /// <returns>所有者の操作終端まで待つTask。</returns>
     internal Task RunExternalPackageLookupAsync(IReadOnlyList<object> rows)
         => runExternalPackageLookupAsync(rows ?? throw new ArgumentNullException(nameof(rows)));
 

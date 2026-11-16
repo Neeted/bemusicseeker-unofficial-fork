@@ -3,9 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
-    <PackageVersion Include="MSTest.TestAdapter" Version="3.6.4" />
-    <PackageVersion Include="MSTest.TestFramework" Version="3.6.4" />
+    <PackageVersion Include="FlaUI.UIA3" Version="5.0.0" />
     <PackageVersion Include="LivetCask.Core" Version="4.0.2" />
     <PackageVersion Include="LivetCask.EventListeners" Version="4.0.2" />
     <PackageVersion Include="LivetCask.Mvvm" Version="4.0.2" />
@@ -21,5 +19,8 @@
     <PackageVersion Include="sqlite-net-pcl" Version="1.11.285" />
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.4" />
     <PackageVersion Include="SevenZipExtractor" Version="1.0.19" />
+    <PackageVersion Include="Vortice.Direct2D1" Version="3.8.3" />
+    <PackageVersion Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageVersion Include="Vortice.Direct3D9" Version="3.8.3" />
   </ItemGroup>
 </Project>

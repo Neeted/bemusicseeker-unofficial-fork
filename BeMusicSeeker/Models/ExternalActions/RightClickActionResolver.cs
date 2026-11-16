@@ -41,7 +41,7 @@ internal sealed class RightClickActionResolutionInput
     internal string LocalFilePath { get; }
 
     /// <summary>
-    /// 解決対象 chart の種別を取得します。null は BMS/bmson を確定できない入力を表します。
+    /// 解決対象 chart の種別を取得します。null は形式不明を表し、Web操作を形式で制限しません。
     /// </summary>
     internal ExternalChartKind? ChartKind { get; }
 }
@@ -212,11 +212,12 @@ internal static class RightClickActionResolver
     }
 
     /// <summary>
-    /// action の chart kind が対象 chart に適用可能かを判定します。
+    /// 形式不明なら形式制限を掛けず、既知形式は設定の対象形式と照合します。
     /// </summary>
     internal static bool IsEligible(ExternalChartKind actionKind, ExternalChartKind? chartKind)
     {
-        return actionKind == ExternalChartKind.All
+        return chartKind == null
+            || actionKind == ExternalChartKind.All
             || actionKind == chartKind;
     }
 

@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
@@ -19,6 +19,91 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
     private readonly IExternalPlayerProcessGateway processGateway;
 
     private readonly ExternalPlayerWaitPolicy waitPolicy;
+
+    // 固定Exitedハンドラーの同期再入から、最外要求のロック解放後へ結果を渡す間だけ参照します。
+    private ExitNotificationScope activeExitScope;
+
+    private sealed class ExitNotificationScope
+    {
+        internal readonly List<(Action<object, EventArgs> Callback, object Sender, EventArgs Args, Exception Failure)> Notifications = [];
+        internal readonly Dictionary<TemporarilyRewriteSettings, Exception> RestorationResults = [];
+    }
+
+    /// <summary>最外要求だけが結果scopeを所有し、同期再入は借用します。例外終了でもロック解放後に確定順で通知し、同じ返却故障の通知は開始・停止の呼出元へ渡します。</summary>
+    /// <param name="action">lock内で実行する既存要求。</param>
+    /// <remarks>
+    /// 結果scopeを所有するのは最外の開始・停止・終了イベントだけです。<c>HasExited</c> の確認で終了イベントが同期的に再入した場合は
+    /// scopeを借用し、捕捉したプロセス参照が現在の参照と同じときだけ一度整理します。scopeへの一時参照はロック内の finally で解除し、
+    /// 確定したコールバックの一覧は外側のロックを解放した後の finally で順に配送します。
+    /// </remarks>
+    private void ExecuteWithExitNotifications(Action action)
+    {
+        ExitNotificationScope ownedScope = null;
+        Exception propagatedFailure = null;
+        try
+        {
+            lock (lockThis)
+            {
+                if (activeExitScope != null) { action(); return; }
+                ownedScope = new ExitNotificationScope();
+                activeExitScope = ownedScope;
+                try { action(); }
+                finally { activeExitScope = null; }
+            }
+        }
+        catch (Exception failure)
+        {
+            propagatedFailure = failure;
+            if (ownedScope != null && ownedScope.Notifications.Any(result => result.Failure != null && ContainsFailure(failure, result.Failure)))
+            {
+                propagatedFailure = new PlaybackExitFailureException(failure);
+                throw propagatedFailure;
+            }
+            throw;
+        }
+        finally
+        {
+            if (ownedScope != null)
+            {
+                foreach ((Action<object, EventArgs> Callback, object Sender, EventArgs Args, Exception Failure) result in ownedScope.Notifications)
+                {
+                    bool handledByCaller = result.Failure != null && ContainsFailure(propagatedFailure, result.Failure);
+                    NotifyExitSafely(result.Callback, result.Sender, result.Args, result.Failure, handledByCaller);
+                }
+            }
+        }
+
+        // この要求が返す原因だけを照合し、他の終了故障や後続要求の通知所有は変えません。
+        static bool ContainsFailure(Exception propagated, Exception failure) => propagated != null
+            && (ReferenceEquals(propagated, failure)
+                || (propagated is AggregateException aggregate
+                    ? aggregate.InnerExceptions.Any(inner => ContainsFailure(inner, failure))
+                    : ContainsFailure(propagated.InnerException, failure)));
+    }
+
+    /// <summary>HasExitedの同期通知が確定した復元失敗も呼出元へ返し、同じbackupを同じ要求内で再試行しません。</summary>
+    private bool HasExitedLocked(IExternalPlayerProcessSession process)
+    {
+        bool exited = process.HasExited;
+        ThrowKnownRestorationFailureLocked();
+        return exited;
+    }
+
+    private void ThrowKnownRestorationFailureLocked()
+    {
+        if (iniFile != null && activeExitScope.RestorationResults.TryGetValue(iniFile, out Exception failure)
+            && failure != null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
+    }
+
+    private void CaptureExitNotificationLocked(object sender, EventArgs args, Exception failure)
+    {
+        Action<object, EventArgs> callback = onExitCallback;
+        onExitCallback = null;
+        if (callback != null) { activeExitScope.Notifications.Add((callback, sender, args, failure)); }
+    }
 
     private enum KeyCode
     {
@@ -42,47 +127,39 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         F2 = 60
     }
 
+    /// <summary>一時値の原子的公開と、補完保存を除く元バイト列の復元を所有します。</summary>
     internal sealed class TemporarilyRewriteSettings
     {
         private readonly string iniFilePath;
 
         private readonly byte[] backupContents;
 
-        internal bool RevertSettings()
+        /// <summary>保持した元のバイト列を原子的に復元します。失敗は呼出元へ返し、所有権を解除しません。</summary>
+        internal void RevertSettings()
         {
-            if (backupContents == null)
+            if (backupContents != null)
             {
-                return true;
-            }
-            try
-            {
-                File.WriteAllBytes(iniFilePath, backupContents);
-                return true;
-            }
-            catch
-            {
-                return false;
+                AtomicFileWriter.Write(iniFilePath, stream => stream.Write(backupContents));
             }
         }
 
+        /// <summary>既存INIを読み、一時値を原子的に公開します。不在の場合だけ不足節を新規生成します。</summary>
         internal TemporarilyRewriteSettings(string iniFilePath, int playerVolume)
         {
             this.iniFilePath = iniFilePath;
             byte[] originalContents = null;
+            try { originalContents = File.ReadAllBytes(iniFilePath); }
+            catch (FileNotFoundException) { }
             string input = string.Empty;
-            string newline = Environment.NewLine;
-            bool trailingNewline = true;
-            try
+            if (originalContents != null)
             {
-                originalContents = File.ReadAllBytes(iniFilePath);
-                input = File.ReadAllText(iniFilePath, Encoding.GetEncoding("shift_jis"));
-                newline = input.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
-                trailingNewline = input.EndsWith("\n", StringComparison.Ordinal);
+                // File.ReadAllTextが行っていたBOM検出も、取得した同じbytesから維持します。
+                using var reader = new StreamReader(new MemoryStream(originalContents), Encoding.GetEncoding("shift_jis"));
+                input = reader.ReadToEnd();
             }
-            catch
-            {
-                originalContents = null;
-            }
+            string newline = originalContents == null ? Environment.NewLine
+                : input.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+            bool trailingNewline = originalContents == null || input.EndsWith("\n", StringComparison.Ordinal);
 
             List<string> lines = input.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n').ToList();
             if (trailingNewline && lines.Count > 0 && lines[^1].Length == 0)
@@ -101,19 +178,10 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 "Volume",
                 Math.Min(100, Math.Max(0, playerVolume)).ToString());
 
-            try
-            {
-                string output = string.Join(newline, lines);
-                if (trailingNewline)
-                {
-                    output += newline;
-                }
-                File.WriteAllText(iniFilePath, output, Encoding.GetEncoding("shift_jis"));
-            }
-            catch
-            {
-                originalContents = null;
-            }
+            string output = string.Join(newline, lines);
+            if (trailingNewline) { output += newline; }
+            byte[] rewritten = Encoding.GetEncoding("shift_jis").GetBytes(output);
+            AtomicFileWriter.Write(iniFilePath, stream => stream.Write(rewritten));
             backupContents = allParametersExisted ? originalContents : null;
         }
 
@@ -205,9 +273,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private ExternalWindowHandle foregroundWindowHandle;
 
-    private EventHandler onExitEventHandlerRegstered;
-
-    private readonly EventHandler onExitEventHandlerDefault;
+    private Action<object, EventArgs> onExitCallback;
 
     private readonly object lockThis = new();
 
@@ -371,7 +437,6 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             ?? throw new ArgumentNullException(nameof(playerSettingsGateway));
         this.processGateway = processGateway ?? throw new ArgumentNullException(nameof(processGateway));
         this.waitPolicy = waitPolicy ?? ExternalPlayerWaitPolicy.Default;
-        onExitEventHandlerDefault = uBMplayExited;
     }
 
     void IExternalWindowPlayer.AttachWindowHost(IExternalPlayerWindowHost windowHost)
@@ -379,46 +444,50 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         this.windowHost = windowHost ?? throw new ArgumentNullException(nameof(windowHost));
     }
 
-    public void CloseProcess()
+    /// <summary>所有processの終了を確認して設定を復元します。実復元失敗はbackupを保持して返し、次の明示操作で再試行します。</summary>
+    public void CloseProcess() => ExecuteWithExitNotifications(CloseProcessCoreLocked);
+
+    private void CloseProcessCoreLocked()
     {
-        lock (lockThis)
+        ThrowKnownRestorationFailureLocked();
+        Exception requestFailure = null;
+        Exception playerFailure = null;
+        try
         {
-            Exception requestFailure = null;
-            Exception playerFailure = null;
-            try
-            {
-                CloseRequestProcessLocked();
-            }
-            catch (Exception exception)
-            {
-                requestFailure = exception;
-            }
-            try
-            {
-                CloseProcessLocked(restoreSettings: true);
-            }
-            catch (Exception exception)
-            {
-                playerFailure = exception;
-            }
-            if (requestFailure != null && playerFailure != null)
-            {
-                throw new AggregateException(
-                    "uBMplay player and request processes could not be terminated.",
-                    requestFailure,
-                    playerFailure);
-            }
-            if (requestFailure != null)
-            {
-                throw new InvalidOperationException(
-                    "uBMplay request process could not be terminated.",
-                    requestFailure);
-            }
-            if (playerFailure != null)
-            {
-                throw playerFailure;
-            }
+            CloseRequestProcessLocked();
         }
+        catch (Exception exception)
+        {
+            requestFailure = exception;
+        }
+        try
+        {
+            CloseProcessLocked(restoreSettings: true);
+        }
+        catch (Exception exception)
+        {
+            playerFailure = exception;
+        }
+        if (requestFailure != null && playerFailure != null)
+        {
+            if (ReferenceEquals(requestFailure, playerFailure)) { ExceptionDispatchInfo.Capture(requestFailure).Throw(); }
+            throw new AggregateException(
+                "uBMplay player and request processes could not be terminated.",
+                requestFailure,
+                playerFailure);
+        }
+        if (requestFailure != null)
+        {
+            throw new InvalidOperationException(
+                "uBMplay request process could not be terminated.",
+                requestFailure);
+        }
+        if (playerFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(playerFailure).Throw();
+        }
+        // 終了に失敗したprocessの遅い自然終了は、同じ要求のcallbackで観測し続けます。
+        onExitCallback = null;
     }
 
     private void CloseProcessLocked(bool restoreSettings)
@@ -432,20 +501,13 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             return;
         }
         SendReleaseKeyEvent(KeyCode.NONE);
-        if (onExitEventHandlerRegstered != null)
-        {
-            uBMplayProcess.Exited -= onExitEventHandlerRegstered;
-        }
-        if (onExitEventHandlerDefault != null)
-        {
-            uBMplayProcess.Exited -= onExitEventHandlerDefault;
-        }
+        uBMplayProcess.Exited -= uBMplayExited;
         Exception closeFailure = null;
         try
         {
             uBMplayProcess.CloseMainWindow();
             waitPolicy.WaitForProcessExit(
-                () => uBMplayProcess.HasExited,
+                () => HasExitedLocked(uBMplayProcess),
                 uBMplayProcess.Kill,
                 "uBMplay did not terminate after graceful close and kill.");
         }
@@ -455,14 +517,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
         if (closeFailure != null)
         {
-            if (onExitEventHandlerDefault != null)
-            {
-                uBMplayProcess.Exited += onExitEventHandlerDefault;
-            }
-            if (onExitEventHandlerRegstered != null)
-            {
-                uBMplayProcess.Exited += onExitEventHandlerRegstered;
-            }
+            uBMplayProcess.Exited += uBMplayExited;
             throw new InvalidOperationException("uBMplay could not be terminated.", closeFailure);
         }
         uBMplayHandleShowing = default;
@@ -473,6 +528,8 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
     }
 
+    /// <summary>INIの原子的準備後に起動・再利用します。自然終了の復元結果は現在要求のcallbackへロック外で一度渡します。</summary>
+    /// <remarks>準備・復元の実失敗では新規起動しません。同じ復元故障を開始側へ返す場合は終了引数で通知所有を開始側へ渡します。返却Taskは開始境界で完了します。</remarks>
     public Task PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
     {
         if (!File.Exists(bmsFilePath))
@@ -484,7 +541,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             throw new FileNotFoundException(BeMusicSeeker.Properties.Resources.Error_ExecutableNotFound, "");
         }
         string iniFilePath = Path.Combine(DirectoryExt.GetDirectoryNameSimple(ExePath), "ubm.ini");
-        lock (lockThis)
+        ExecuteWithExitNotifications(() =>
         {
             CloseExitedRequestProcessLocked();
             if (uBMplayRequestProcess != null)
@@ -497,8 +554,9 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             }
             try
             {
-                bool startedNewProcess = createProcess(bmsFilePath, onExitEventHandler);
-                if (startedNewProcess && (uBMplayProcess == null || uBMplayProcess.HasExited || !RequireWindowHost().IsWindow(uBMplayHandleShowing)))
+                onExitCallback = onExitEventHandler;
+                bool startedNewProcess = createProcess(bmsFilePath);
+                if (startedNewProcess && (uBMplayProcess == null || HasExitedLocked(uBMplayProcess) || !RequireWindowHost().IsWindow(uBMplayHandleShowing)))
                 {
                     ThrowStartupFailed();
                 }
@@ -509,10 +567,11 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             {
                 try
                 {
-                    CloseProcess();
+                    CloseProcessCoreLocked();
                 }
                 catch (Exception cleanupFailure)
                 {
+                    if (ReferenceEquals(startupFailure, cleanupFailure)) { throw; }
                     throw new AggregateException(
                         "uBMplay startup failed and its process cleanup could not be completed.",
                         startupFailure,
@@ -520,43 +579,49 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 }
                 throw;
             }
-        }
+        });
         return Task.CompletedTask;
-    }
-
-    private bool RevertSettingsLocked()
-    {
-        if (iniFile == null)
-        {
-            return true;
-        }
-        if (!iniFile.RevertSettings())
-        {
-            return false;
-        }
-        iniFile = null;
-        return true;
     }
 
     private bool TryRevertSettingsWhenNoOwnedProcessLocked()
     {
+        TemporarilyRewriteSettings backup = iniFile;
+        ThrowKnownRestorationFailureLocked();
         CloseExitedRequestProcessLocked();
-        if (uBMplayProcess != null && !uBMplayProcess.HasExited)
+        IExternalPlayerProcessSession process = uBMplayProcess;
+        if (process != null)
         {
-            return false;
+            if (!HasExitedLocked(process)) { return false; }
+            CompletePlayerProcessExitLocked(process);
         }
-        if (uBMplayRequestProcess != null)
+        if (uBMplayRequestProcess != null) { return false; }
+        if (backup == null) { return true; }
+        // 再入が同じbackupの結果を確定済みなら、それを利用します。新backupには適用しません。
+        if (activeExitScope.RestorationResults.TryGetValue(backup, out Exception previousFailure))
         {
-            return false;
+            if (previousFailure != null) { ExceptionDispatchInfo.Capture(previousFailure).Throw(); }
+            return true;
         }
-        return RevertSettingsLocked();
+        try
+        {
+            backup.RevertSettings();
+            activeExitScope.RestorationResults.Add(backup, null);
+            if (ReferenceEquals(iniFile, backup)) { iniFile = null; }
+            return true;
+        }
+        catch (Exception failure)
+        {
+            activeExitScope.RestorationResults.Add(backup, failure);
+            throw;
+        }
     }
 
     private void CloseExitedRequestProcessLocked()
     {
-        if (uBMplayRequestProcess?.HasExited == true)
+        IExternalPlayerProcessSession process = uBMplayRequestProcess;
+        if (process != null && HasExitedLocked(process))
         {
-            CompleteRequestProcessExitLocked(uBMplayRequestProcess);
+            CompleteRequestProcessExitLocked(process);
         }
     }
 
@@ -567,11 +632,11 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         {
             return;
         }
-        if (!process.HasExited)
+        if (!HasExitedLocked(process))
         {
             process.CloseMainWindow();
             waitPolicy.WaitForProcessExit(
-                () => process.HasExited,
+                () => HasExitedLocked(process),
                 process.Kill,
                 "uBMplay request process did not terminate after graceful close and kill.");
         }
@@ -586,26 +651,26 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
         process.Exited -= uBMplayRequestExited;
         uBMplayRequestProcess = null;
-        TryRevertSettingsWhenNoOwnedProcessLocked();
     }
 
-    private void uBMplayRequestExited(object sender, EventArgs e)
+    private void uBMplayRequestExited(object sender, EventArgs e) => ExecuteWithExitNotifications(() =>
     {
-        lock (lockThis)
-        {
-            if (sender is IExternalPlayerProcessSession process)
-            {
-                CompleteRequestProcessExitLocked(process);
-            }
-        }
-    }
+        if (sender is not IExternalPlayerProcessSession process
+            || !ReferenceEquals(uBMplayRequestProcess, process)) { return; }
+        CompleteRequestProcessExitLocked(process);
+        if (uBMplayProcess != null) { return; }
+        Exception failure = null;
+        try { TryRevertSettingsWhenNoOwnedProcessLocked(); }
+        catch (Exception exception) { failure = exception; }
+        CaptureExitNotificationLocked(sender, e, failure);
+    });
 
     private static void ThrowStartupFailed()
     {
         throw new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_UbmplayStartupFailed);
     }
 
-    private bool createProcess(string bmsFilePath, Action<object, EventArgs> onExitEventHandler = null)
+    private bool createProcess(string bmsFilePath)
     {
         bool flag = false;
         foregroundWindowHandle = RequireWindowHost().GetForegroundWindow();
@@ -636,16 +701,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         if (uBMplayHandleShowing.IsEmpty)
         {
             uBMplayProcess = processGateway.Prepare(launchRequest);
-            uBMplayProcess.Exited += onExitEventHandlerDefault;
-            if (onExitEventHandler != null)
-            {
-                onExitEventHandlerRegstered = onExitEventHandler.Invoke;
-                uBMplayProcess.Exited += onExitEventHandlerRegstered;
-            }
-            else
-            {
-                onExitEventHandlerRegstered = null;
-            }
+            uBMplayProcess.Exited += uBMplayExited;
             uBMplayProcess.Start();
             waitPolicy.WaitUntil(
                 () =>
@@ -686,7 +742,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                     }
                     return false;
                 },
-                () => uBMplayProcess.HasExited,
+                () => HasExitedLocked(uBMplayProcess),
                 () => { },
                 string.Format(BeMusicSeeker.Properties.Resources.Error_PlayerMainWindowTimeoutFormat, "uBMplay"),
                 pollMilliseconds: 0);
@@ -700,7 +756,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             {
                 process.Start();
                 waitPolicy.WaitUntil(
-                    () => process.HasExited,
+                    () => HasExitedLocked(process),
                     aborted: null,
                     () =>
                     {
@@ -734,7 +790,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
 
     private void waitForLoading(string bmsFilePath)
     {
-        if (uBMplayProcess == null || uBMplayProcess.HasExited)
+        if (uBMplayProcess == null || HasExitedLocked(uBMplayProcess))
         {
             ThrowStartupFailed();
         }
@@ -746,7 +802,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             {
                 if (!RequireWindowHost().IsWindow(uBMplayHandleShowing))
                 {
-                    CloseProcess();
+                    CloseProcessCoreLocked();
                     ThrowStartupFailed();
                 }
                 stringBuilder.Clear();
@@ -776,7 +832,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 }
                 return false;
             },
-            () => uBMplayProcess.HasExited,
+            () => HasExitedLocked(uBMplayProcess),
             () => { },
             BeMusicSeeker.Properties.Resources.Error_UbmplayChartLoadTimeout,
             pollMilliseconds: 0);
@@ -909,7 +965,8 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         SendReleaseKeyEvent(KeyCode.KEY1);
     }
 
-    public void VolumeChanged()
+    /// <summary>外部プレイヤーの実行中音量は変更しません。次の起動では保存済みの音量を使います。</summary>
+    public void VolumeChanged(int volume)
     {
     }
 
@@ -928,7 +985,7 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
                 for (int i = 0; i < 5; i++)
                 {
                     RequireWindowHost().SetForegroundWindow(uBMplayHandleShowing);
-                    Thread.Sleep(50);
+                    waitPolicy.Wait(50);
                 }
                 RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: true);
                 NLogWrapper.DebuggerLogger?.Trace("pushed");
@@ -946,14 +1003,14 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
             }
             code = nowPressed;
             nowPressed = KeyCode.NONE;
-            Thread.Sleep(50);
+            waitPolicy.Wait(50);
             RequireWindowHost().SendKey((short)code, KeyEventFlags[code], keyDown: false);
             if (!CurrentFocusForKeyEvent.IsEmpty)
             {
                 for (int i = 0; i < 5; i++)
                 {
                     RequireWindowHost().SetForegroundWindow(CurrentFocusForKeyEvent);
-                    Thread.Sleep(50);
+                    waitPolicy.Wait(50);
                 }
                 CurrentFocusForKeyEvent = default;
             }
@@ -961,26 +1018,36 @@ public class uBMplay : ObservableObject, IBMSPlayer, IExternalWindowPlayer, INot
         }
     }
 
-    private void uBMplayExited(object sender, EventArgs e)
+    private void CompletePlayerProcessExitLocked(IExternalPlayerProcessSession process)
     {
-        lock (lockThis)
+        if (!ReferenceEquals(uBMplayProcess, process)) { return; }
+        process.Exited -= uBMplayExited;
+        uBMplayProcess = null;
+        uBMplayHandleShowing = default;
+    }
+
+    private void uBMplayExited(object sender, EventArgs e) => ExecuteWithExitNotifications(() =>
+    {
+        if (sender is not IExternalPlayerProcessSession process
+            || !ReferenceEquals(uBMplayProcess, process)) { return; }
+        CompletePlayerProcessExitLocked(process);
+        Exception failure = null;
+        try
         {
-            if (sender is IExternalPlayerProcessSession process
-                && !ReferenceEquals(uBMplayProcess, process))
-            {
-                return;
-            }
-            uBMplayHandleShowing = default;
-            if (uBMplayProcess != null)
-            {
-                uBMplayProcess.Exited -= onExitEventHandlerDefault;
-                if (onExitEventHandlerRegstered != null)
-                {
-                    uBMplayProcess.Exited -= onExitEventHandlerRegstered;
-                }
-            }
-            uBMplayProcess = null;
-            TryRevertSettingsWhenNoOwnedProcessLocked();
+            if (!TryRevertSettingsWhenNoOwnedProcessLocked()) { return; }
+        }
+        catch (Exception exception) { failure = exception; }
+        CaptureExitNotificationLocked(sender, e, failure);
+    });
+
+    private void NotifyExitSafely(Action<object, EventArgs> callback, object sender, EventArgs args, Exception failure, bool failureNotificationOwnedByCaller)
+    {
+        if (callback == null) { return; }
+        try { callback.Invoke(sender, failure == null ? args : new PlaybackExitEventArgs(failure, failureNotificationOwnedByCaller)); }
+        catch (Exception notificationFailure)
+        {
+            try { NLogWrapper.FileLogger?.Warn(notificationFailure, "ubmplay_exit_notification_failed"); }
+            catch { /* 通知故障はイベントの呼出元へ返しません。 */ }
         }
     }
 }

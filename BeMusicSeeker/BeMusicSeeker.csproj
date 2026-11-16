@@ -1,17 +1,47 @@
 <Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="../ApplicationVersion.props" />
   <PropertyGroup>
     <AssemblyName>BeMusicSeeker</AssemblyName>
     <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
     <GenerateTargetFrameworkAttribute>False</GenerateTargetFrameworkAttribute>
     <OutputType>WinExe</OutputType>
     <UseWPF>True</UseWPF>
+    <!-- App.xamlをPageとしてコンパイルし、検証配置の確定前にAppを作る生成Mainを持ちません。 -->
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+    <StartupObject>BeMusicSeeker.Program</StartupObject>
     <TargetFramework>net10.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
     <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <!-- 専有BaseOutputPathへ切り替えても、以前の通常出力をsourceとして取り込みません。 -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);bin/**;obj/**</DefaultItemExcludes>
   </PropertyGroup>
+  <Target Name="PrepareApplicationVersionInputs">
+    <PropertyGroup>
+      <_ApplicationVersionSource>$(IntermediateOutputPath)ApplicationVersion.g.cs</_ApplicationVersionSource>
+      <_ApplicationVersionInputs>$(IntermediateOutputPath)ApplicationVersion.inputs</_ApplicationVersionInputs>
+    </PropertyGroup>
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <WriteLinesToFile File="$(_ApplicationVersionInputs)" Lines="$(BeMusicSeekerAppVersion)" Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <ItemGroup>
+      <!-- 生成を省略したbuildやWPF一時projectでも、同じsourceを一度だけCompileへ接続します。 -->
+      <Compile Remove="$(_ApplicationVersionSource)" />
+      <Compile Include="$(_ApplicationVersionSource)" />
+      <FileWrites Include="$(_ApplicationVersionSource);$(_ApplicationVersionInputs)" />
+    </ItemGroup>
+  </Target>
+  <Target Name="GenerateApplicationInformationalVersion" BeforeTargets="BeforeCompile;CoreCompile"
+          DependsOnTargets="PrepareApplicationVersionInputs"
+          Inputs="$(_ApplicationVersionInputs);$(MSBuildProjectFullPath)" Outputs="$(_ApplicationVersionSource)">
+    <ItemGroup>
+      <_ApplicationVersionAttribute Include="System.Reflection.AssemblyInformationalVersionAttribute">
+        <_Parameter1>$(BeMusicSeekerAppVersion)</_Parameter1>
+      </_ApplicationVersionAttribute>
+    </ItemGroup>
+    <WriteCodeFragment Language="C#" AssemblyAttributes="@(_ApplicationVersionAttribute)" OutputFile="$(_ApplicationVersionSource)" />
+  </Target>
   <PropertyGroup>
     <LangVersion>14.0</LangVersion>
     <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
@@ -49,11 +79,13 @@
       <TargetPath>test.mp3</TargetPath>
     </None>
     <None Remove="Assets\Images\default_image.jpg" />
+    <None Remove="Assets\Images\Playback\*.jpg" />
     <None Remove="Assets\Fonts\sovjetboxbd_v0_9.otf" />
     <None Remove="Assets\Images\icon_and_logo.png" />
     <None Remove="Assets\Fonts\ligaturesymbols-2.11.otf" />
     <None Remove="Assets\Fonts\commodore-20rounded-20v1.2.ttf" />
     <Resource Include="Assets\Images\default_image.jpg" />
+    <Resource Include="Assets\Images\Playback\*.jpg" />
     <Resource Include="Assets\Fonts\sovjetboxbd_v0_9.otf" />
     <Resource Include="Assets\Images\icon_and_logo.png" />
     <Resource Include="Assets\Fonts\ligaturesymbols-2.11.otf" />
@@ -82,6 +114,9 @@
     <PackageReference Include="ManagedBass.Enc" />
     <PackageReference Include="ManagedBass.Asio" />
     <PackageReference Include="ManagedBass.Wasapi" />
+    <PackageReference Include="Vortice.Direct2D1" />
+    <PackageReference Include="Vortice.Direct3D11" />
+    <PackageReference Include="Vortice.Direct3D9" />
   </ItemGroup>
 
   <ItemGroup>

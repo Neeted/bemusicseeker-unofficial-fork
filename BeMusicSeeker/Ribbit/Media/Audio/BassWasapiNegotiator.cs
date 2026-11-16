@@ -772,8 +772,9 @@ internal sealed class BassWasapiNegotiator
         }
         session.IsStarted = true;
 
+        // BASSWASAPIのBufferLengthは端末形式によらずFloat32 callbackのbyte長です。
         double latencyMilliseconds = info.BufferLength * 1000d
-            / bytesPerSample
+            / sizeof(float)
             / info.Frequency
             / info.Channels;
         var result = new BassAudioBackendResult(

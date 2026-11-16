@@ -33,12 +33,16 @@ internal enum ScoreTableLoadStatus
     Failed
 }
 
+/// <summary>通常成績と取得済み全履歴を一組として渡します。双方の成否を独立に保持し、履歴だけの失敗を通常成績の失敗へ置き換えません。</summary>
 internal sealed class ScoreTableLoadResult
 {
     /// <summary>
     /// ロードできた LR2 score 行です。空であっても <see cref="Status"/> が <see cref="ScoreTableLoadStatus.Loaded"/> ならロード成功を表します。
     /// </summary>
     public List<BMSScore> Scores { get; } = [];
+
+    /// <summary>通常成績と同じ取得操作で固定した全履歴。通常成績の成否から独立します。</summary>
+    internal ScorePlayHistorySnapshot PlayHistorySnapshot { get; set; }
 
     /// <summary>
     /// ロードできた beatoraja score 行を SHA256 で引いた辞書です。
@@ -49,6 +53,9 @@ internal sealed class ScoreTableLoadResult
     /// ロード処理が選択した score source です。失敗時も選択された source を保持します。
     /// </summary>
     public ActiveScoreSource ActiveScoreSource { get; set; }
+
+    /// <summary>今回選択した読取りDBパスです。取得結果には失敗時も今回の対象パスを記録します。</summary>
+    public string ScoreDbPath { get; set; } = string.Empty;
 
     /// <summary>
     /// score table のロード状態です。

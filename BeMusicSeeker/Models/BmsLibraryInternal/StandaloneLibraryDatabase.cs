@@ -9,11 +9,14 @@ internal static class StandaloneLibraryDatabase
     /// <summary>
     /// composition が捕捉したアプリケーション配置で standalone song DB を準備します。
     /// </summary>
+    /// <param name="databaseScope">接続と書込み排他を所有するスコープ。</param>
     /// <param name="applicationPathSnapshot">この操作で使用するアプリケーション配置。</param>
     /// <returns>song DB の作成状態と既存データ状態。</returns>
     public static StandaloneLibraryDatabaseEnsureResult EnsurePortableSongDb(
+        ApplicationDatabaseScope databaseScope,
         ApplicationPathSnapshot applicationPathSnapshot)
     {
+        ArgumentNullException.ThrowIfNull(databaseScope);
         if (applicationPathSnapshot == null)
         {
             throw new ArgumentNullException(nameof(applicationPathSnapshot));
@@ -26,9 +29,9 @@ internal static class StandaloneLibraryDatabase
         {
         }
 
-        using var songDb = new LR2SongDBExtended(songDbPath);
+        using LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath);
         EnsureLibrarySchema(songDb);
-        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         bool hasLibraryCharts =

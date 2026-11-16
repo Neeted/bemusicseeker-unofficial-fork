@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -8,6 +9,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using BeMusicSeeker.Models.Update;
 using Microsoft.Win32;
 
 namespace BeMusicSeeker.Updater;
@@ -129,7 +131,7 @@ internal static partial class Program
     {
         if (args.Length == 1 && string.Equals(args[0], "--version", StringComparison.OrdinalIgnoreCase))
         {
-            Console.WriteLine(ProtocolVersion);
+            Console.WriteLine(ProtocolVersion.ToString(CultureInfo.InvariantCulture));
             return 0;
         }
 
@@ -155,12 +157,13 @@ internal static partial class Program
             ClearRecoveryStartup(request.AppDirectory);
             RegisterRecoveryStartup(request.AppDirectory);
             WritePreparedTransactionJournal(request);
-            StartTransactionWatchdog(request.AppDirectory);
+            using Process watchdog = StartTransactionWatchdog(request.AppDirectory);
             PublishReadyHandshake(request);
             if (!WaitForLaunchDecision(request))
             {
                 DiscardPreparedTransactionJournal(request.AppDirectory);
                 ClearRecoveryStartup(request.AppDirectory);
+                StopTransactionWatchdog(watchdog);
                 return 0;
             }
             PrepareFullTransactionJournal(request);
@@ -169,7 +172,7 @@ internal static partial class Program
         }
         catch (TransactionRecoveryDeferredException exception)
         {
-            Console.Error.WriteLine(exception.Message);
+            WriteDiagnosticBestEffort(string.Empty, exception);
             return 2;
         }
         catch (Exception ex)
@@ -182,7 +185,7 @@ internal static partial class Program
                     TryWriteFailureReceipt(request, ex);
                 }
             }
-            Console.Error.WriteLine(ex);
+            WriteDiagnosticBestEffort(string.Empty, ex);
             return 1;
         }
     }
@@ -213,7 +216,7 @@ internal static partial class Program
         {
             TryWriteFailureReceipt(appDirectory, exception);
             TryRearmRecoveryStartup(appDirectory);
-            Console.Error.WriteLine(exception);
+            WriteDiagnosticBestEffort(string.Empty, exception);
             return 1;
         }
     }
@@ -244,7 +247,8 @@ internal static partial class Program
                     || IsProcessRunningForExecutable(journal.RestartExecutablePath)));
         if (applicationStillRunning
             && journal != null
-            && !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal))
+            && !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+            && !string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal))
         {
             // Startup cleanup must never mutate a live application tree. Leave the
             // journal and handoff in place for the watchdog or a later logon.
@@ -287,7 +291,7 @@ internal static partial class Program
         try
         {
             leaseStream.SetLength(0);
-            byte[] marker = Encoding.UTF8.GetBytes(Environment.ProcessId.ToString());
+            byte[] marker = Encoding.UTF8.GetBytes(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
             leaseStream.Write(marker, 0, marker.Length);
             leaseStream.Flush(flushToDisk: true);
             return new TransactionLease(leaseStream);
@@ -332,6 +336,7 @@ internal static partial class Program
         }
     }
 
+    /// <summary>専用領域を検査し、Invariant整数の受付マーカーをUTF-8・改行なしで完成後に公開します。</summary>
     private static void PublishReadyHandshake(UpdateRequest request)
     {
         string appDirectory = NormalizeExistingDirectory(request.AppDirectory);
@@ -343,12 +348,14 @@ internal static partial class Program
         }
         EnsureNoReparsePointAncestors(appDirectory, "update_work/current/updater-ready.txt");
         EnsureNoReparsePointIfPresent(readyFilePath);
-        byte[] marker = Encoding.UTF8.GetBytes(ProtocolVersion.ToString());
-        using FileStream stream = UpdaterFileSystem.Open(readyFilePath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-        stream.Write(marker, 0, marker.Length);
-        stream.Flush(flushToDisk: true);
+        byte[] marker = Encoding.UTF8.GetBytes(ProtocolVersion.ToString(CultureInfo.InvariantCulture));
+        UpdateMarkerPublisher.Publish(
+            UpdaterFileSystem.ToExtendedPath(readyFilePath),
+            overwrite: false,
+            stream => stream.Write(marker, 0, marker.Length));
     }
 
+    /// <summary>完成名への移動用ハンドルが残っていても決定を読み取り、消費して起動可否を返します。</summary>
     private static bool WaitForLaunchDecision(UpdateRequest request)
     {
         try
@@ -369,7 +376,8 @@ internal static partial class Program
                 if (UpdaterFileSystem.FileExists(decisionFilePath))
                 {
                     string decision;
-                    using (FileStream stream = UpdaterFileSystem.OpenRead(decisionFilePath))
+                    // Windowsでは名前の変更後も移動用のDELETEハンドルが閉じるまで残り得ます。
+                    using (FileStream stream = UpdaterFileSystem.Open(decisionFilePath, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete))
                     using (var reader = new StreamReader(stream, Encoding.UTF8))
                     {
                         decision = reader.ReadToEnd().Trim();
@@ -500,24 +508,18 @@ internal static partial class Program
             journal.Phase = TransactionPhase.Applied;
             WriteTransactionJournal(journal);
 
-            try
-            {
-                SafeDeleteFile(packagePath);
-                SafeDeleteDirectory(extractDirectory);
-            }
-            catch (Exception cleanupException)
-            {
-                Console.Error.WriteLine("The update was applied, but temporary cleanup before restart failed; the restarted application will retry it: " + cleanupException);
-            }
+            TryCleanupTemporaryUpdateArtifacts(
+                packagePath,
+                extractDirectory,
+                "The update was applied, but temporary cleanup before restart failed; the restarted application will retry it.");
 
             journal.Phase = TransactionPhase.Restarting;
             journal.RestartProcessId = -1;
             WriteTransactionJournal(journal);
-            Process restartProcess = startApplication(new ProcessStartInfo(restartExePath)
-            {
-                UseShellExecute = true,
-                WorkingDirectory = Path.GetDirectoryName(restartExePath) ?? appDirectory
-            });
+            Process restartProcess = startApplication(CreateRestartStartInfo(
+                restartExePath,
+                appDirectory,
+                journal.RestartArguments));
             if (restartProcess == null)
             {
                 throw new InvalidOperationException("The updated application could not be restarted.");
@@ -530,11 +532,11 @@ internal static partial class Program
                 WriteTransactionJournal(journal);
                 journal.Phase = TransactionPhase.Committed;
                 WriteTransactionJournal(journal);
-                TryCleanupCommittedTransactionArtifacts(journal);
+                TryCleanupCommittedTransactionArtifacts(journal, requireTemporaryArtifactsAbsent: true);
             }
             catch (Exception cleanupException)
             {
-                Console.Error.WriteLine("The update restarted successfully, but durable transaction cleanup will be retried on the next updater startup: " + cleanupException);
+                WriteDiagnosticBestEffort("The update restarted successfully, but durable transaction cleanup will be retried on the next updater startup: ", cleanupException);
             }
         }
         catch (Exception updateException)
@@ -598,7 +600,8 @@ internal static partial class Program
         }
     }
 
-    private static void StartTransactionWatchdog(string appDirectory)
+    /// <summary>親終了後の回復を担当するwatchdogを起動し、取消時の終端責任を持つMainへhandleを返します。</summary>
+    private static Process StartTransactionWatchdog(string appDirectory)
     {
         string updaterPath = NormalizeExistingFile(Environment.ProcessPath);
         ProcessStartInfo startInfo = new(updaterPath)
@@ -611,14 +614,25 @@ internal static partial class Program
         startInfo.ArgumentList.Add("--app-dir");
         startInfo.ArgumentList.Add(NormalizeExistingDirectory(appDirectory));
         startInfo.ArgumentList.Add("--pid");
-        startInfo.ArgumentList.Add(Environment.ProcessId.ToString());
+        startInfo.ArgumentList.Add(Environment.ProcessId.ToString(CultureInfo.InvariantCulture));
 
         var watchdog = Process.Start(startInfo);
         if (watchdog == null)
         {
             throw new InvalidOperationException("The updater transaction watchdog could not be started.");
         }
-        watchdog.Dispose();
+        return watchdog;
+    }
+
+    /// <summary>正常取消のjournal・登録退役後、取引leaseを保持したまま所有watchdogを停止して実終端を確認します。</summary>
+    private static void StopTransactionWatchdog(Process watchdog)
+    {
+        // watchdogは親終了を待つため、ここで自然終了を待つと循環します。
+        if (!watchdog.HasExited) { watchdog.Kill(); }
+        if (!watchdog.WaitForExit(10000))
+        {
+            throw new TimeoutException("The updater transaction watchdog did not terminate after cancellation.");
+        }
     }
 
     private static void RegisterRecoveryStartup(string appDirectory)
@@ -661,7 +675,7 @@ internal static partial class Program
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine("The updater could not re-arm its recovery RunOnce handoff: " + exception);
+            WriteDiagnosticBestEffort("The updater could not re-arm its recovery RunOnce handoff: ", exception);
         }
     }
 
@@ -698,7 +712,7 @@ internal static partial class Program
         }
         catch (Exception exception)
         {
-            Console.Error.WriteLine("The updater could not clear its recovery RunOnce handoff: " + exception);
+            WriteDiagnosticBestEffort("The updater could not clear its recovery RunOnce handoff: ", exception);
         }
     }
 
@@ -805,6 +819,7 @@ internal static partial class Program
             PreviousDirectory = Path.Combine(backupDirectory, "previous"),
             ExtractDirectory = Path.Combine(appDirectory, "update_work", "extracted"),
             RestartExecutablePath = NormalizeExistingFile(request.RestartExePath),
+            RestartArguments = [.. request.RestartArguments],
             Preflight = true,
             NewPackagePaths = []
         };
@@ -880,7 +895,7 @@ internal static partial class Program
         }
         catch (Exception cleanupException)
         {
-            Console.Error.WriteLine("The updater could not discard its prepared transaction after failure: " + cleanupException);
+            WriteDiagnosticBestEffort("The updater could not discard its prepared transaction after failure: ", cleanupException);
         }
     }
 
@@ -927,15 +942,30 @@ internal static partial class Program
                         }
                     }
 
-                    bool restartApplication = !string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
-                        && !(string.Equals(journal.Phase, TransactionPhase.Restarting, StringComparison.Ordinal)
+                    bool restartConfirmed = string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+                        || (string.Equals(journal.Phase, TransactionPhase.Restarting, StringComparison.Ordinal)
                             && (journal.RestartProcessId > 0
                                 || IsProcessRunningForExecutable(journal.RestartExecutablePath)));
-                    RecoverIncompleteTransaction(appDirectory, retainRolledBackJournal: true);
-                    if (restartApplication)
+                    if (restartConfirmed)
                     {
-                        StartRecoveredApplication(journal);
+                        if (!string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal))
+                        {
+                            journal.Phase = TransactionPhase.Committed;
+                            WriteTransactionJournal(journal);
+                        }
+                        try
+                        {
+                            // 親の直後に動く監視者は、新アプリと同じ一時物を削除しません。
+                            TryCleanupCommittedTransactionArtifacts(journal, requireTemporaryArtifactsAbsent: true);
+                        }
+                        catch (Exception exception)
+                        {
+                            WriteDiagnosticBestEffort("Committed update cleanup remains for the next recovery owner.", exception);
+                        }
+                        return 0;
                     }
+                    RecoverIncompleteTransaction(appDirectory, retainRolledBackJournal: true);
+                    StartRecoveredApplication(journal);
                     CleanupRolledBackJournalIfPresent(appDirectory);
                     ClearRecoveryStartup(appDirectory);
                     return 0;
@@ -954,7 +984,7 @@ internal static partial class Program
         {
             TryWriteFailureReceipt(request?.AppDirectory, exception);
             TryRearmRecoveryStartup(request?.AppDirectory);
-            Console.Error.WriteLine(exception);
+            WriteDiagnosticBestEffort(string.Empty, exception);
             return 1;
         }
     }
@@ -977,16 +1007,37 @@ internal static partial class Program
         string appDirectory = NormalizeExistingDirectory(journal.AppDirectory);
         string restartExecutablePath = NormalizeExistingFile(journal.RestartExecutablePath);
         EnsurePathUnderDirectory(appDirectory, restartExecutablePath, "restart executable");
-        var restartProcess = Process.Start(new ProcessStartInfo(restartExecutablePath)
-        {
-            UseShellExecute = true,
-            WorkingDirectory = Path.GetDirectoryName(restartExecutablePath) ?? appDirectory
-        });
+        var restartProcess = Process.Start(CreateRestartStartInfo(
+            restartExecutablePath,
+            appDirectory,
+            journal.RestartArguments));
         if (restartProcess == null)
         {
             throw new InvalidOperationException("The recovered application could not be restarted.");
         }
         restartProcess.Dispose();
+    }
+
+    /// <summary>
+    /// アプリ再起動の起動情報を作ります。journalに記録された引数を<see cref="ProcessStartInfo.ArgumentList"/>で
+    /// そのまま渡し、更新前のアプリが捕捉した列を適用成功後と復旧後の両方で同じargvに保ちます。
+    /// </summary>
+    private static ProcessStartInfo CreateRestartStartInfo(
+        string restartExecutablePath,
+        string appDirectory,
+        IReadOnlyList<string> restartArguments)
+    {
+        var startInfo = new ProcessStartInfo(restartExecutablePath)
+        {
+            // 「管理者として実行」設定の本体も起動できるようShellExecuteを維持する（falseだと昇格要求で起動に失敗し得る）。
+            UseShellExecute = true,
+            WorkingDirectory = Path.GetDirectoryName(restartExecutablePath) ?? appDirectory
+        };
+        foreach (string argument in restartArguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+        return startInfo;
     }
 
     private static bool IsProcessRunningForExecutable(string executablePath, int excludedProcessId = 0)
@@ -1073,7 +1124,7 @@ internal static partial class Program
                 }
                 catch (Exception existingReceiptException)
                 {
-                    Console.Error.WriteLine("The updater could not read the previous failure receipt while retaining rollback diagnostics: " + existingReceiptException);
+                    WriteDiagnosticBestEffort("The updater could not read the previous failure receipt while retaining rollback diagnostics: ", existingReceiptException);
                 }
             }
 
@@ -1088,7 +1139,7 @@ internal static partial class Program
         }
         catch (Exception receiptException)
         {
-            Console.Error.WriteLine("The updater could not atomically persist its failure receipt; the temporary receipt will be retried on the next startup: " + receiptException);
+            WriteDiagnosticBestEffort("The updater could not atomically persist its failure receipt; the temporary receipt will be retried on the next startup: ", receiptException);
             bool temporaryReceiptExists = false;
             try
             {
@@ -1096,25 +1147,60 @@ internal static partial class Program
             }
             catch (Exception fallbackProbeException)
             {
-                Console.Error.WriteLine("The updater could not inspect its temporary failure receipt fallback: " + fallbackProbeException);
+                WriteDiagnosticBestEffort("The updater could not inspect its temporary failure receipt fallback: ", fallbackProbeException);
             }
             if (!temporaryReceiptExists)
             {
-                Console.Error.WriteLine("The updater has no durable failure receipt fallback: " + receiptException);
+                WriteDiagnosticBestEffort("The updater has no durable failure receipt fallback: ", receiptException);
             }
         }
     }
 
+    /// <summary>復元済みの更新が所有する一時物を、片方の失敗でも独立に回収します。</summary>
     private static void TryCleanupFailedUpdateArtifacts(string packagePath, string extractDirectory)
+    {
+        TryCleanupTemporaryUpdateArtifacts(
+            packagePath,
+            extractDirectory,
+            "The update was rolled back, but temporary cleanup failed; startup cleanup will retry it.");
+    }
+
+    /// <summary>安全に不要となったZIPと展開先だけを回収し、回復用journalやbackupの必須順序は変更しません。</summary>
+    private static void TryCleanupTemporaryUpdateArtifacts(string packagePath, string extractDirectory, string failureMessage)
+    {
+        TryDelete(packagePath, isDirectory: false);
+        TryDelete(extractDirectory, isDirectory: true);
+
+        void TryDelete(string path, bool isDirectory)
+        {
+            try
+            {
+                if (isDirectory)
+                {
+                    SafeDeleteDirectory(path);
+                }
+                else
+                {
+                    SafeDeleteFile(path);
+                }
+            }
+            catch (Exception cleanupException)
+            {
+                WriteDiagnosticBestEffort(failureMessage + " path=" + path + " ", cleanupException);
+            }
+        }
+    }
+
+    /// <summary>診断の文字列化やstderrの故障を、更新・復元・終了コードとreceipt保存から隔離します。</summary>
+    private static void WriteDiagnosticBestEffort(string message, Exception exception = null)
     {
         try
         {
-            SafeDeleteFile(packagePath);
-            SafeDeleteDirectory(extractDirectory);
+            Console.Error.WriteLine(exception == null ? message : message + exception);
         }
-        catch (Exception cleanupException)
+        catch
         {
-            Console.Error.WriteLine("The update was rolled back, but temporary cleanup failed; startup cleanup will retry it: " + cleanupException);
+            // 診断先自身の故障を再通知せず、呼出元の確定済み結果と必要な終端処理を維持します。
         }
     }
 
@@ -1131,6 +1217,7 @@ internal static partial class Program
         TransactionJournalRecord journal = ReadTransactionJournal(journalPath);
         ValidateTransactionJournal(journal, normalizedAppDirectory);
         if (!string.Equals(journal.Phase, TransactionPhase.Committed, StringComparison.Ordinal)
+            && !string.Equals(journal.Phase, TransactionPhase.Prepared, StringComparison.Ordinal)
             && IsProcessRunningForExecutable(journal.RestartExecutablePath))
         {
             TryRearmRecoveryStartup(normalizedAppDirectory);
@@ -1240,13 +1327,42 @@ internal static partial class Program
         }
     }
 
-    private static void TryCleanupCommittedTransactionArtifacts(TransactionJournalRecord journal)
+    /// <summary>一時物の不在が確立してから、確定済み更新のbackup・journal・回復登録を順に退役します。</summary>
+    /// <param name="journal">確定済み更新が所有する回復記録です。</param>
+    /// <param name="requireTemporaryArtifactsAbsent">再起動直後はtrueとし、新アプリと同じ一時物を再削除せず残留時の回復記録を保持します。</param>
+    private static void TryCleanupCommittedTransactionArtifacts(TransactionJournalRecord journal, bool requireTemporaryArtifactsAbsent = false)
     {
-        SafeDeleteFile(journal.PackagePath);
-        SafeDeleteDirectory(journal.ExtractDirectory);
+        if (requireTemporaryArtifactsAbsent)
+        {
+            EnsureTemporaryUpdateArtifactAbsent(journal.PackagePath);
+            EnsureTemporaryUpdateArtifactAbsent(journal.ExtractDirectory);
+        }
+        else
+        {
+            SafeDeleteFile(journal.PackagePath);
+            SafeDeleteDirectory(journal.ExtractDirectory);
+        }
         SafeDeleteDirectory(journal.BackupDirectory);
         DeleteTransactionJournal(journal);
         ClearRecoveryStartup(journal.AppDirectory);
+    }
+
+    /// <summary>欠損だけを一時物の不在とし、残存や属性取得失敗では回復資料の退役を止めます。</summary>
+    private static void EnsureTemporaryUpdateArtifactAbsent(string path)
+    {
+        try
+        {
+            _ = UpdaterFileSystem.GetAttributes(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return;
+        }
+        throw new IOException("Temporary update artifact remains after restart: " + path);
     }
 
     private static void MarkTransactionRolledBack(TransactionJournalRecord journal)
@@ -1394,6 +1510,19 @@ internal static partial class Program
         {
             NormalizeRelativePackagePath(relativePath);
         }
+
+        // 項目なしは空配列になる。項目があって値がnull・NUL入りの場合は不正なjournalとして扱う。
+        ValidateRestartArguments(journal.RestartArguments, "The updater transaction journal restart arguments were not valid.");
+    }
+
+    /// <summary>再起動引数が非null・非null要素・NULなしであることを検査し、違反は不正入力として拒否します。</summary>
+    private static void ValidateRestartArguments(IReadOnlyList<string> restartArguments, string message)
+    {
+        if (restartArguments == null
+            || restartArguments.Any(argument => argument == null || argument.Contains('\0')))
+        {
+            throw new InvalidOperationException(message);
+        }
     }
 
     private static void ValidatePackage(string packagePath)
@@ -1518,7 +1647,6 @@ internal static partial class Program
             }
             SafeDeletePath(path);
         }
-        RemoveEmptyDirectories(appDirectory);
     }
 
     private static void RemoveBlockingManagedAncestors(
@@ -1801,11 +1929,10 @@ internal static partial class Program
     private static void EnsurePathUnderDirectory(string rootDirectory, string candidatePath, string description)
     {
         string normalizedCandidatePath = UpdaterFileSystem.NormalizePath(candidatePath);
-        string normalizedRootDirectory = UpdaterFileSystem.NormalizePath(rootDirectory)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        string normalizedRootDirectory = NormalizeDirectoryPath(rootDirectory);
         if (string.Equals(normalizedCandidatePath, normalizedRootDirectory, StringComparison.OrdinalIgnoreCase)
             || !normalizedCandidatePath.StartsWith(
-                normalizedRootDirectory + Path.DirectorySeparatorChar,
+                WithEndingDirectorySeparator(normalizedRootDirectory),
                 StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("The " + description + " must be under " + normalizedRootDirectory + ".");
@@ -2185,12 +2312,13 @@ internal static partial class Program
             return;
         }
 
-        string normalizedRoot = UpdaterFileSystem.NormalizePath(appDirectory);
-        string current = UpdaterFileSystem.NormalizePath(directory);
+        string normalizedRoot = NormalizeDirectoryPath(appDirectory);
+        string rootPrefix = WithEndingDirectorySeparator(normalizedRoot);
+        string current = NormalizeDirectoryPath(directory);
         var missingDirectories = new List<string>();
         while (!string.Equals(current, normalizedRoot, StringComparison.OrdinalIgnoreCase))
         {
-            if (!current.StartsWith(normalizedRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            if (!current.StartsWith(rootPrefix, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException("Destination directory escaped the application directory: " + destination);
             }
@@ -2206,8 +2334,8 @@ internal static partial class Program
             }
 
             missingDirectories.Add(current);
-            current = Path.GetDirectoryName(current)
-                ?? throw new InvalidOperationException("Destination directory has no application ancestor: " + destination);
+            current = NormalizeDirectoryPath(Path.GetDirectoryName(current)
+                ?? throw new InvalidOperationException("Destination directory has no application ancestor: " + destination));
         }
 
         foreach (string missingDirectory in missingDirectories.AsEnumerable().Reverse())
@@ -2378,50 +2506,6 @@ internal static partial class Program
         }
     }
 
-    private static void RemoveEmptyDirectories(string appDirectory)
-    {
-        foreach (string directory in EnumerateDirectoriesWithoutReparsePoints(appDirectory).OrderByDescending(path => path.Length))
-        {
-            string name = Path.GetFileName(directory);
-            if (PreservedTopLevelNames.Contains(name))
-            {
-                continue;
-            }
-
-            if (!UpdaterFileSystem.EnumerateFileSystemEntries(directory).Any())
-            {
-                UpdaterFileSystem.DeleteDirectory(directory, recursive: false);
-            }
-        }
-    }
-
-    private static IEnumerable<string> EnumerateDirectoriesWithoutReparsePoints(string rootDirectory)
-    {
-        var pending = new Stack<string>();
-        pending.Push(rootDirectory);
-        while (pending.Count > 0)
-        {
-            string parent = pending.Pop();
-            foreach (string entry in UpdaterFileSystem.EnumerateFileSystemEntries(parent))
-            {
-                if (!UpdaterFileSystem.DirectoryExists(entry))
-                {
-                    continue;
-                }
-
-                if (string.Equals(parent, rootDirectory, StringComparison.OrdinalIgnoreCase)
-                    && PreservedTopLevelNames.Contains(Path.GetFileName(entry)))
-                {
-                    continue;
-                }
-
-                EnsureNoReparsePointEntry(entry);
-                yield return entry;
-                pending.Push(entry);
-            }
-        }
-    }
-
     private static void EnsureNoReparsePoint(string path)
     {
         EnsureNoReparsePointEntry(path);
@@ -2518,7 +2602,16 @@ internal static partial class Program
         {
             throw new ArgumentException("Directory path is required.");
         }
-        return UpdaterFileSystem.NormalizePath(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+        // 絶対化前に末尾を落とすと、ドライブルートがドライブ相対パスへ変わる。
+        return Path.TrimEndingDirectorySeparator(UpdaterFileSystem.NormalizePath(path));
+    }
+
+    /// <summary>正規化済みディレクトリを包含判定とURIの基点に使うため、必要な場合だけ末尾区切りを補います。</summary>
+    private static string WithEndingDirectorySeparator(string normalizedDirectoryPath)
+    {
+        return Path.EndsInDirectorySeparator(normalizedDirectoryPath)
+            ? normalizedDirectoryPath
+            : normalizedDirectoryPath + Path.DirectorySeparatorChar;
     }
 
     private static string NormalizeFilePath(string path)
@@ -2532,7 +2625,7 @@ internal static partial class Program
 
     private static string GetRelativePath(string rootDirectory, string path)
     {
-        Uri rootUri = new(NormalizeDirectoryPath(rootDirectory) + Path.DirectorySeparatorChar);
+        Uri rootUri = new(WithEndingDirectorySeparator(NormalizeDirectoryPath(rootDirectory)));
         Uri pathUri = new(UpdaterFileSystem.NormalizePath(path));
         string relative = Uri.UnescapeDataString(rootUri.MakeRelativeUri(pathUri).ToString()).Replace('/', Path.DirectorySeparatorChar);
         return NormalizeRelativePackagePath(relative);
@@ -2655,6 +2748,9 @@ internal static partial class Program
         public bool BackupComplete { get; set; }
 
         public List<string> NewPackagePaths { get; set; } = [];
+
+        /// <summary>更新を開始したアプリが捕捉した再起動引数です。項目がない旧journalは空配列として読みます。</summary>
+        public List<string> RestartArguments { get; set; } = [];
     }
 
     private sealed class RollbackFailureException : Exception
@@ -2728,7 +2824,7 @@ internal static partial class Program
                 || !string.Equals(args[1], "--app-dir", StringComparison.OrdinalIgnoreCase)
                 || string.IsNullOrWhiteSpace(args[2])
                 || !string.Equals(args[3], "--pid", StringComparison.OrdinalIgnoreCase)
-                || !int.TryParse(args[4], out int processId)
+                || !int.TryParse(args[4], NumberStyles.Integer, CultureInfo.InvariantCulture, out int processId)
                 || processId <= 0)
             {
                 throw new ArgumentException("Watchdog requires exactly --watch --app-dir <path> --pid <id>.");
@@ -2754,6 +2850,9 @@ internal static partial class Program
 
         public string RestartExePath { get; private set; }
 
+        /// <summary>再起動時にアプリへ渡す引数です。<c>--restart-arguments-json</c>がなければ空です。</summary>
+        public IReadOnlyList<string> RestartArguments { get; private set; } = [];
+
         public static UpdateRequest Parse(string[] args)
         {
             Dictionary<string, string> values = new(StringComparer.OrdinalIgnoreCase);
@@ -2772,7 +2871,7 @@ internal static partial class Program
             }
 
             string processIdText = ReadRequired(values, "--pid");
-            if (!int.TryParse(processIdText, out int processId) || processId <= 0)
+            if (!int.TryParse(processIdText, NumberStyles.Integer, CultureInfo.InvariantCulture, out int processId) || processId <= 0)
             {
                 throw new ArgumentException("The --pid argument must be a positive process id.");
             }
@@ -2785,8 +2884,45 @@ internal static partial class Program
                 ReadyFilePath = ReadRequired(values, "--ready-file"),
                 DecisionFilePath = ReadRequired(values, "--decision-file"),
                 ProcessId = processId,
-                RestartExePath = ReadRequired(values, "--restart-exe")
+                RestartExePath = ReadRequired(values, "--restart-exe"),
+                RestartArguments = values.TryGetValue("--restart-arguments-json", out string restartArgumentsJson)
+                    ? ParseRestartArguments(restartArgumentsJson)
+                    : []
             };
+        }
+
+        /// <summary>文字列だけのJSON配列を読み、それ以外とNUL入りの要素を不正引数として拒否します。</summary>
+        private static List<string> ParseRestartArguments(string json)
+        {
+            var arguments = new List<string>();
+            try
+            {
+                using var document = JsonDocument.Parse(json);
+                if (document.RootElement.ValueKind != JsonValueKind.Array)
+                {
+                    throw new ArgumentException("The --restart-arguments-json argument must be a JSON array of strings.");
+                }
+
+                foreach (JsonElement element in document.RootElement.EnumerateArray())
+                {
+                    if (element.ValueKind != JsonValueKind.String)
+                    {
+                        throw new ArgumentException("The --restart-arguments-json argument must be a JSON array of strings.");
+                    }
+                    arguments.Add(element.GetString());
+                }
+            }
+            catch (Exception exception) when (exception is JsonException or InvalidOperationException)
+            {
+                throw new ArgumentException("The --restart-arguments-json argument was not valid JSON.", exception);
+            }
+
+            // NULの拒否はJSON解析の失敗と区別し、診断文を拒否理由と一致させる。
+            if (arguments.Any(argument => argument == null || argument.Contains('\0')))
+            {
+                throw new ArgumentException("The --restart-arguments-json argument must not contain NUL characters.");
+            }
+            return arguments;
         }
 
         private static string ReadRequired(Dictionary<string, string> values, string key)

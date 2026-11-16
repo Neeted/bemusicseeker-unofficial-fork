@@ -5,9 +5,10 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Views;
 
@@ -116,14 +117,15 @@ internal sealed class MainWindowInstallTreeTerminal
 /// </summary>
 internal sealed class MainWindowZeroNoteRecheckTerminal
 {
-    private readonly Func<Task<bool>> recheck;
+    private readonly Func<Task<ZeroNoteRecheckStatus>> recheck;
 
-    internal MainWindowZeroNoteRecheckTerminal(Func<Task<bool>> recheck)
+    internal MainWindowZeroNoteRecheckTerminal(Func<Task<ZeroNoteRecheckStatus>> recheck)
     {
         this.recheck = recheck ?? throw new ArgumentNullException(nameof(recheck));
     }
 
-    internal Task<bool> RecheckAsync() => recheck();
+    /// <summary>再確認の結果を返します。受付使用中の警告は所有者が表示済みのため、呼出し側は結果だけで再通知しません。</summary>
+    internal Task<ZeroNoteRecheckStatus> RecheckAsync() => recheck();
 
     internal static MainWindowZeroNoteRecheckTerminal Create(MainWindowViewModel viewModel)
     {
@@ -137,27 +139,33 @@ internal sealed class MainWindowZeroNoteRecheckTerminal
 /// </summary>
 internal sealed class MainWindowColumnResetTerminal
 {
-    private readonly Action<Window> reset;
+    private readonly Func<Window, Task> reset;
 
-    internal MainWindowColumnResetTerminal(Action<Window> reset)
+    internal MainWindowColumnResetTerminal(Func<Window, Task> reset)
     {
         this.reset = reset ?? throw new ArgumentNullException(nameof(reset));
     }
 
-    internal void Reset(Window owner) => reset(owner);
+    /// <summary>
+    /// 確認を表示し、明示的な OK のときだけ列の表示を初期化します。確認を表示できなかった場合は例外で失敗し、初期化しません。
+    /// </summary>
+    internal Task ResetAsync(Window owner) => reset(owner);
 
     internal static MainWindowColumnResetTerminal Create(MainWindowViewModel viewModel)
     {
         ArgumentNullException.ThrowIfNull(viewModel);
-        return new MainWindowColumnResetTerminal(owner =>
+        return new MainWindowColumnResetTerminal(async owner =>
         {
-            if (UiDialogRoute.ShowMessageBox(
-                    owner,
-                    BeMusicSeeker.Properties.Resources.Msg_init_column_settings,
-                    BeMusicSeeker.Properties.Resources.Confirm,
-                    MessageBoxButton.OKCancel,
-                    MessageBoxImage.Question,
-                    MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+            string caption = BeMusicSeeker.Properties.Resources.Confirm;
+            UiDialogResult confirmation = await viewModel.DialogService.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Msg_init_column_settings,
+                caption,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Question,
+                MessageBoxResult.Cancel,
+                owner: owner));
+            UiDialogRoute.ThrowIfNotShown(confirmation, caption);
+            if (confirmation.MessageBoxResult == MessageBoxResult.OK)
             {
                 viewModel.RegularChartList.ResetCurrentColumnPresentation();
             }
@@ -166,44 +174,23 @@ internal sealed class MainWindowColumnResetTerminal
 }
 
 /// <summary>
-/// Owns removal of one library search root after the compiled context-menu route resolves its path.
-/// </summary>
-internal sealed class MainWindowRootFolderUnregisterTerminal
-{
-    private readonly Func<string, Task> unregister;
-
-    internal MainWindowRootFolderUnregisterTerminal(Func<string, Task> unregister)
-    {
-        this.unregister = unregister ?? throw new ArgumentNullException(nameof(unregister));
-    }
-
-    internal Task UnregisterAsync(string path) => unregister(path);
-
-    internal static MainWindowRootFolderUnregisterTerminal Create(MainWindowViewModel viewModel)
-    {
-        ArgumentNullException.ThrowIfNull(viewModel);
-        return new MainWindowRootFolderUnregisterTerminal(
-            viewModel.SettingDialog.RequestRemoveBmsSearchRootAsync);
-    }
-}
-
-/// <summary>
 /// Owns chart-target and library-folder auto-rename requests from the compiled shell menus.
 /// </summary>
 internal sealed class MainWindowFolderAutoRenameTerminal
 {
-    private readonly Func<IReadOnlyList<ChartOperationTarget>, bool> startSelected;
+    private readonly Func<IReadOnlyList<ChartOperationTarget>, Task> startSelected;
     private readonly Func<string, Task> startAll;
 
     internal MainWindowFolderAutoRenameTerminal(
-        Func<IReadOnlyList<ChartOperationTarget>, bool> startSelected,
+        Func<IReadOnlyList<ChartOperationTarget>, Task> startSelected,
         Func<string, Task> startAll)
     {
         this.startSelected = startSelected ?? throw new ArgumentNullException(nameof(startSelected));
         this.startAll = startAll ?? throw new ArgumentNullException(nameof(startAll));
     }
 
-    internal bool StartSelected(IReadOnlyList<ChartOperationTarget> targets)
+    /// <summary>選択譜面の自動改名を要求します。受付使用中の警告は所有者が表示するため、呼出し側は完了を待つだけです。</summary>
+    internal Task StartSelectedAsync(IReadOnlyList<ChartOperationTarget> targets)
         => startSelected(targets ?? throw new ArgumentNullException(nameof(targets)));
 
     internal Task StartAllAsync(string parentDirectory)
@@ -213,7 +200,7 @@ internal sealed class MainWindowFolderAutoRenameTerminal
     {
         ArgumentNullException.ThrowIfNull(viewModel);
         return new MainWindowFolderAutoRenameTerminal(
-            viewModel.FolderAutoRenameWorkflow.RequestStartSelected,
+            viewModel.FolderAutoRenameWorkflow.RequestStartSelectedAsync,
             viewModel.FolderAutoRenameWorkflow.RequestStartAllAsync);
     }
 }
@@ -329,17 +316,18 @@ internal sealed class MainWindowPackageCatalogTerminal
 }
 
 /// <summary>
-/// Owns pending-install destination estimation requests from compiled package and chart menus.
+/// 実メニューから保留パッケージと選択譜面の導入先推定を受け渡します。
 /// </summary>
 internal sealed class MainWindowPendingInstallEstimationTerminal
 {
-    private readonly Func<PendingInstallDestinationSearchKind, IEnumerable<ChartPackage>, Task> searchPackages;
+    private readonly Func<IEnumerable<ChartPackage>, InstallEstimationCandidatePolicy, Task> searchPackages;
     private readonly Func<PendingInstallDestinationSearchRequest, Task> searchPending;
     private readonly Func<PendingInstallDestinationClearRequest, Task> clearPending;
     private readonly Func<IEnumerable<ChartPackage>, Task> clearPackages;
 
+    /// <summary>候補方針付き推定と解除の非同期終端を実画面へ接続します。</summary>
     internal MainWindowPendingInstallEstimationTerminal(
-        Func<PendingInstallDestinationSearchKind, IEnumerable<ChartPackage>, Task> searchPackages,
+        Func<IEnumerable<ChartPackage>, InstallEstimationCandidatePolicy, Task> searchPackages,
         Func<PendingInstallDestinationSearchRequest, Task> searchPending,
         Func<PendingInstallDestinationClearRequest, Task> clearPending,
         Func<IEnumerable<ChartPackage>, Task> clearPackages)
@@ -350,8 +338,9 @@ internal sealed class MainWindowPendingInstallEstimationTerminal
         this.clearPackages = clearPackages ?? throw new ArgumentNullException(nameof(clearPackages));
     }
 
-    internal Task SearchPackagesAsync(PendingInstallDestinationSearchKind kind, IEnumerable<ChartPackage> packages)
-        => searchPackages(kind, packages ?? throw new ArgumentNullException(nameof(packages)));
+    /// <summary>既所持だけの場合も含め、候補方針を同じ保留パッケージ推定へ渡します。</summary>
+    internal Task SearchPackagesAsync(IEnumerable<ChartPackage> packages, InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly)
+        => searchPackages(packages ?? throw new ArgumentNullException(nameof(packages)), candidatePolicy);
 
     internal Task SearchPendingAsync(PendingInstallDestinationSearchRequest request)
         => searchPending(request ?? throw new ArgumentNullException(nameof(request)));
@@ -478,14 +467,14 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
     /// <param name="isSectionRootSelected">Reads the current UI selection state of the pending-package section root.</param>
     /// <param name="getSectionRootItemCount">Reads the current UI item count of the pending-package section root.</param>
     /// <param name="navigateInstallAsync">Navigates to the requested install view when the applied state is empty.</param>
-    /// <param name="dialogs">Optional terminal-report dialog boundary.</param>
+    /// <param name="dialogs">変更結果と失敗の通知に使う窓口。構成が選んだ窓口を渡し、null は許されません。</param>
     internal MainWindowPendingPackageMutationViewTerminal(
         Func<bool> isSectionRootSelected,
         Func<int> getSectionRootItemCount,
         Func<MainViewUpdateMode, Task<bool>> navigateInstallAsync,
-        IUiDialogService dialogs = null)
+        IUiDialogService dialogs)
     {
-        this.dialogs = dialogs;
+        this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.isSectionRootSelected = isSectionRootSelected
             ?? throw new ArgumentNullException(nameof(isSectionRootSelected));
         this.getSectionRootItemCount = getSectionRootItemCount
@@ -495,14 +484,14 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
     }
 
     /// <summary>
-    /// Applies one pending-package mutation result to the already-owned UI view.
+    /// 変更receiptを一度通知し、必須表示・navigationの実故障と未報告の本体故障を所有入口へ伝えます。
     /// </summary>
-    /// <param name="result">The mutation result; a <see langword="null"/> result is a no-op.</param>
-    /// <param name="section">The package-catalog section represented by the route.</param>
-    /// <param name="emptySectionMode">The navigation mode used when the applied section is empty.</param>
-    /// <param name="routeName">The route name used for existing failure logging.</param>
-    /// <param name="applyView">The caller-owned UI view and selection application action.</param>
-    /// <returns>A task that completes after view application, optional navigation, and failure propagation.</returns>
+    /// <param name="result">変更結果。nullなら何もしません。</param>
+    /// <param name="section">この入口が表すパッケージ区画。</param>
+    /// <param name="emptySectionMode">反映後の区画が空の場合のnavigation先。</param>
+    /// <param name="routeName">所有入口を識別する診断名。</param>
+    /// <param name="applyView">呼出元が所有する必須一覧・選択反映。</param>
+    /// <returns>必須表示反映・navigation・任意の結果通知を終えたTask。処理済みの変更失敗は表示目的で再送出しません。</returns>
     internal async Task ApplyAsync(
         PendingPackageMutationResult result,
         PackageCatalogSection section,
@@ -516,13 +505,13 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
         }
         ArgumentNullException.ThrowIfNull(routeName);
 
-        bool initiallySelected = result.ShouldApplyView && isSectionRootSelected();
         MainWindowPendingPackageMutationAppliedViewState appliedViewState = null;
         Exception applyFailure = null;
         if (result.ShouldApplyView)
         {
             try
             {
+                bool initiallySelected = isSectionRootSelected();
                 applyView?.Invoke();
                 appliedViewState = new MainWindowPendingPackageMutationAppliedViewState(
                     initiallySelected,
@@ -542,7 +531,7 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
         {
             try
             {
-                await navigateInstallAsync(emptySectionMode).LoggingAndPropagate(routeName);
+                await navigateInstallAsync(emptySectionMode);
             }
             catch (Exception exception)
             {
@@ -553,24 +542,35 @@ internal sealed class MainWindowPendingPackageMutationViewTerminal
         await FileDbMutationReport.ShowAsync(dialogs,
             BeMusicSeeker.Properties.Resources.Install, result.SessionReceipt, result.Failure);
 
-        Exception mutationFailure = null;
-        try
+        if (result.SessionReceipt == null && result.Failure != null
+            && applyFailure == null && navigationFailure == null)
         {
-            if (result.Failure != null
-                && !ReferenceEquals(result.Failure, result.SessionReceipt?.PrimaryFailure))
+            try { NLogWrapper.FileLogger?.Warn(result.Failure, routeName); }
+            catch { /* 診断先の失敗を元結果へ合成しません。 */ }
+            try
             {
-                await Task.FromException(result.Failure).LoggingAndPropagate(routeName);
+                UiDialogResult notification = await dialogs.ShowMessageAsync(
+                    new UiMessageRequest(
+                        BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + result.Failure.Message,
+                        BeMusicSeeker.Properties.Resources.Error,
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Hand,
+                        MessageBoxResult.OK));
+                UiDialogRoute.ThrowIfNotShown(notification, routeName + " failure notification");
             }
-        }
-        catch (Exception exception)
-        {
-            mutationFailure = exception;
+            catch (Exception notificationFailure)
+            {
+                try { NLogWrapper.FileLogger?.Warn(notificationFailure, routeName + " failure notification"); }
+                catch { /* 通知の診断を再通知しません。 */ }
+            }
         }
 
         var failures = new List<Exception>(capacity: 3);
-        if (mutationFailure != null)
+        // receipt未報告の本体失敗と必須表示故障は、一つのowning通知へまとめて渡します。
+        if (result.SessionReceipt == null && result.Failure != null
+            && (applyFailure != null || navigationFailure != null))
         {
-            failures.Add(mutationFailure);
+            failures.Add(result.Failure);
         }
         if (applyFailure != null)
         {
@@ -671,12 +671,12 @@ internal sealed class MainWindowMainChartCellEditTerminal
 {
     private readonly Func<object, string, bool> tryBegin;
     private readonly Action<object, string> notifyStarted;
-    private readonly Action<object, string, string, bool> complete;
+    private readonly Action<object, string, string, bool, string> complete;
 
     internal MainWindowMainChartCellEditTerminal(
         Func<object, string, bool> tryBegin,
         Action<object, string> notifyStarted,
-        Action<object, string, string, bool> complete)
+        Action<object, string, string, bool, string> complete)
     {
         this.tryBegin = tryBegin ?? throw new ArgumentNullException(nameof(tryBegin));
         this.notifyStarted = notifyStarted ?? throw new ArgumentNullException(nameof(notifyStarted));
@@ -689,8 +689,9 @@ internal sealed class MainWindowMainChartCellEditTerminal
     internal void NotifyStarted(object row, string propertyName)
         => notifyStarted(row, propertyName);
 
-    internal void Complete(object row, string propertyName, string text, bool commit)
-        => complete(row, propertyName, text, commit);
+    /// <summary>開始原文と確定入力を、同じ編集要求の終端へ渡します。</summary>
+    internal void Complete(object row, string propertyName, string text, bool commit, string originalText)
+        => complete(row, propertyName, text, commit, originalText);
 
     internal static MainWindowMainChartCellEditTerminal Create(MainWindowViewModel viewModel)
     {

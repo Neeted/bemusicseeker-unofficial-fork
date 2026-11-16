@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Security.Cryptography;
@@ -14,6 +15,7 @@ internal sealed class UpdateDownloadService
     private const string UpdateFailureReceiptFileName = "update-failure.txt";
     private const string UpdateFailureReceiptTemporaryFileName = "update-failure.txt.tmp";
     private const string TransactionJournalFileName = "update-transaction.json";
+    private const string TransactionLockFileName = "update-transaction.lock";
     private const string UpdaterReadyFileName = "updater-ready.txt";
     private const string UpdaterDecisionFileName = "updater-decision.txt";
     private const string UpdaterExecutableFileName = "BeMusicSeeker.Updater.exe";
@@ -33,10 +35,22 @@ internal sealed class UpdateDownloadService
 
     private readonly IUpdaterProcessGateway updaterProcessGateway;
 
+    private readonly IReadOnlyList<string> restartArguments;
+
+    /// <summary>更新ZIPの取得と更新ツールの起動準備を担当するサービスを作成します。</summary>
+    /// <param name="applicationPathSnapshot">起動時に確定したアプリの配置です。</param>
+    /// <param name="updaterProcessGateway">更新ツールの起動窓口です。</param>
+    /// <param name="restartArguments">
+    /// アプリが起動時に捕捉した再起動引数です。動作モード変更の再起動と同じ値を、更新後の再起動へ引き継ぎます。
+    /// 引数なしで起動した場合は空の列を渡します。
+    /// </param>
     internal UpdateDownloadService(
         ApplicationPathSnapshot applicationPathSnapshot,
-        IUpdaterProcessGateway updaterProcessGateway)
+        IUpdaterProcessGateway updaterProcessGateway,
+        IReadOnlyList<string> restartArguments)
     {
+        this.restartArguments = restartArguments
+            ?? throw new ArgumentNullException(nameof(restartArguments));
         this.applicationPathSnapshot = applicationPathSnapshot
             ?? throw new ArgumentNullException(nameof(applicationPathSnapshot));
         this.updaterProcessGateway = updaterProcessGateway
@@ -165,7 +179,8 @@ internal sealed class UpdateDownloadService
                 Path.Combine(appDirectory, "update_backup"),
                 readyFilePath,
                 decisionFilePath,
-                applicationPathSnapshot.ExecutablePath));
+                applicationPathSnapshot.ExecutablePath,
+                restartArguments));
     }
 
     internal string GetUpdateWorkRoot()
@@ -173,6 +188,10 @@ internal sealed class UpdateDownloadService
         return Path.Combine(applicationPathSnapshot.BaseDirectory, "update_work");
     }
 
+    /// <summary>
+    /// 前回の一時物を回収し、未完了の更新と未確認の失敗記録を既存の回復・通知へ渡します。
+    /// 更新ツールが使用し続けるcurrentと、解放後も同じパスで再利用する同期ロックは保持します。
+    /// </summary>
     internal void CleanupPreviousWorkDirectory()
     {
         string workRoot = GetUpdateWorkRoot();
@@ -201,7 +220,8 @@ internal sealed class UpdateDownloadService
                 continue;
             }
             if (string.Equals(childName, UpdateFailureReceiptFileName, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(childName, UpdateFailureReceiptTemporaryFileName, StringComparison.OrdinalIgnoreCase))
+                || string.Equals(childName, UpdateFailureReceiptTemporaryFileName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(childName, TransactionLockFileName, StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }

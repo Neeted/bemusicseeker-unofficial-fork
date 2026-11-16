@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
 
@@ -37,6 +39,16 @@ internal sealed class UpdateCheckService
             : UpdateCheckResult.NoUpdate(currentVersionText);
     }
 
+    /// <summary>
+    /// 更新判断と取得に使う版・リリースページ・資産だけを必須として検証し、JSON・整数範囲失敗の元原因を保持します。
+    /// </summary>
+    /// <remarks>
+    /// <c>schemaVersion</c>・<c>packageFormatVersion</c>・<c>minimumUpdaterVersion</c> は互換性を断つ変更の目印で、
+    /// 省略時は現行の1とみなし、記載された場合だけ対応範囲を検査します。資産の <c>kind</c>・<c>label</c> と
+    /// <c>releaseTag</c> は v3.1.0.0 以前のアプリが要求するため配信側が出力し続けますが、このアプリは読みません。
+    /// 特に <c>kind</c> は旧版向けの並び順の目印で、資産の中身を表さないためです。<c>publishedAt</c> は
+    /// 配信側の記録で、更新の判断に使いません。
+    /// </remarks>
     internal static UpdateManifest ParseManifest(string manifestJson)
     {
         if (string.IsNullOrWhiteSpace(manifestJson))
@@ -49,12 +61,12 @@ internal sealed class UpdateCheckService
         {
             root = JObject.Parse(manifestJson);
         }
-        catch (Exception ex)
+        catch (JsonException ex)
         {
-            throw new UpdateManifestValidationException("update.json is not valid JSON: " + ex.Message);
+            throw new UpdateManifestValidationException("update.json is not valid JSON: " + ex.Message, ex);
         }
 
-        int schemaVersion = ReadRequiredInt(root, "schemaVersion");
+        int schemaVersion = ReadOptionalInt(root, "schemaVersion") ?? 1;
         if (schemaVersion != 1)
         {
             throw new UpdateManifestValidationException("Unsupported schemaVersion: " + schemaVersion);
@@ -66,23 +78,20 @@ internal sealed class UpdateCheckService
             throw new UpdateManifestValidationException("Invalid version: " + versionText);
         }
 
-        string releaseTag = ReadRequiredString(root, "releaseTag");
-        if (!string.Equals(releaseTag, "v" + versionText, StringComparison.Ordinal))
-        {
-            throw new UpdateManifestValidationException("releaseTag does not match version.");
-        }
-
         string releasePageUrl = ReadRequiredAbsoluteHttpUrl(root, "releasePageUrl");
-        int packageFormatVersion = ReadRequiredInt(root, "packageFormatVersion");
+        int packageFormatVersion = ReadOptionalInt(root, "packageFormatVersion") ?? 1;
         if (packageFormatVersion != 1)
         {
             throw new UpdateManifestValidationException("Unsupported packageFormatVersion: " + packageFormatVersion);
         }
 
-        string minimumUpdaterVersion = ReadRequiredString(root, "minimumUpdaterVersion");
-        if (!int.TryParse(minimumUpdaterVersion, out int minimumUpdaterProtocolVersion) || minimumUpdaterProtocolVersion > CurrentUpdaterProtocolVersion)
+        if (root["minimumUpdaterVersion"] is not null)
         {
-            throw new UpdateManifestValidationException("Unsupported minimumUpdaterVersion: " + minimumUpdaterVersion);
+            string minimumUpdaterVersion = ReadRequiredString(root, "minimumUpdaterVersion");
+            if (!int.TryParse(minimumUpdaterVersion, NumberStyles.Integer, CultureInfo.InvariantCulture, out int minimumUpdaterProtocolVersion) || minimumUpdaterProtocolVersion > CurrentUpdaterProtocolVersion)
+            {
+                throw new UpdateManifestValidationException("Unsupported minimumUpdaterVersion: " + minimumUpdaterVersion);
+            }
         }
 
         if (root["assets"] is not JArray assetsArray || assetsArray.Count == 0)
@@ -91,21 +100,11 @@ internal sealed class UpdateCheckService
         }
 
         List<UpdateAssetInfo> assets = [.. assetsArray.Select(ParseAsset)];
-        if (!assets.Any(asset => string.Equals(asset.Kind, "app", StringComparison.Ordinal)))
-        {
-            throw new UpdateManifestValidationException("assets must contain an app package.");
-        }
-
         return new UpdateManifest
         {
-            SchemaVersion = schemaVersion,
             VersionText = versionText,
             Version = version,
-            ReleaseTag = releaseTag,
             ReleasePageUrl = releasePageUrl,
-            PackageFormatVersion = packageFormatVersion,
-            PublishedAt = ReadOptionalString(root, "publishedAt"),
-            MinimumUpdaterVersion = minimumUpdaterVersion,
             Assets = assets
         };
     }
@@ -115,12 +114,6 @@ internal sealed class UpdateCheckService
         if (token is not JObject asset)
         {
             throw new UpdateManifestValidationException("asset must be an object.");
-        }
-
-        string kind = ReadRequiredString(asset, "kind");
-        if (!string.Equals(kind, "app", StringComparison.Ordinal) && !string.Equals(kind, "app-with-metadata", StringComparison.Ordinal))
-        {
-            throw new UpdateManifestValidationException("Unsupported asset kind: " + kind);
         }
 
         string sha256 = ReadRequiredString(asset, "sha256");
@@ -137,8 +130,6 @@ internal sealed class UpdateCheckService
 
         return new UpdateAssetInfo
         {
-            Kind = kind,
-            Label = ReadRequiredString(asset, "label"),
             FileName = ReadRequiredString(asset, "fileName"),
             Url = ReadRequiredAbsoluteHttpUrl(asset, "url"),
             Sha256 = sha256.ToLowerInvariant(),
@@ -147,7 +138,8 @@ internal sealed class UpdateCheckService
         };
     }
 
-    private static string GetCurrentVersionText()
+    /// <summary>更新比較と製品表示で共用する、製品assemblyのInformationalVersionを取得します。</summary>
+    internal static string GetCurrentVersionText()
     {
         return Assembly.GetExecutingAssembly()
             .GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute), false)
@@ -163,7 +155,7 @@ internal sealed class UpdateCheckService
         }
 
         string separator = string.IsNullOrEmpty(uri.Query) ? "?" : "&";
-        return new Uri(uri.AbsoluteUri + separator + "t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+        return new Uri(uri.AbsoluteUri + separator + "t=" + DateTimeOffset.UtcNow.ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture));
     }
 
     private static string ReadRequiredAbsoluteHttpUrl(JObject obj, string propertyName)
@@ -191,13 +183,25 @@ internal sealed class UpdateCheckService
         return obj[propertyName]?.Type == JTokenType.String ? (string)obj[propertyName] : null;
     }
 
-    private static int ReadRequiredInt(JObject obj, string propertyName)
+    private static int? ReadOptionalInt(JObject obj, string propertyName)
     {
-        if (obj[propertyName]?.Type != JTokenType.Integer)
+        if (obj[propertyName] is null)
+        {
+            return null;
+        }
+
+        if (obj[propertyName].Type != JTokenType.Integer)
         {
             throw new UpdateManifestValidationException(propertyName + " must be an integer.");
         }
-        return (int)obj[propertyName];
+        try
+        {
+            return (int)obj[propertyName];
+        }
+        catch (OverflowException ex)
+        {
+            throw new UpdateManifestValidationException(propertyName + " is outside the Int32 range.", ex);
+        }
     }
 
     private static long ReadRequiredLong(JObject obj, string propertyName)
@@ -206,7 +210,14 @@ internal sealed class UpdateCheckService
         {
             throw new UpdateManifestValidationException(propertyName + " must be an integer.");
         }
-        return (long)obj[propertyName];
+        try
+        {
+            return (long)obj[propertyName];
+        }
+        catch (OverflowException ex)
+        {
+            throw new UpdateManifestValidationException(propertyName + " is outside the Int64 range.", ex);
+        }
     }
 
     private static bool ReadRequiredBool(JObject obj, string propertyName)

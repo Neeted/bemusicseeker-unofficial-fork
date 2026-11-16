@@ -1,0 +1,118 @@
+using System.Text;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Files;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class UbmplaySettingsTests
+{
+    /// <summary>
+    /// 保証：LF/CRLF・末尾改行の有無、Shift_JISと無関係な文字列を保って一時値を公開し、復元時には元のバイト列へ戻す。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void TemporarilyRewriteSettings_PreservesPlayerContractAndRestoresOriginalBytes(bool crlf, bool trailingNewline)
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = workspace.RootDirectory;
+        Directory.CreateDirectory(tempDirectory);
+        string iniPath = Path.Combine(tempDirectory, "ubm.ini");
+        const string original =
+            "[Main]\r\n"
+            + "AlwaysOnTop=True ; keep comment\r\n"
+            + "VSYNC=True\r\n"
+            + "[Option]\r\n"
+            + "BGA=1\r\n"
+            + "AutoSeparate=False\r\n"
+            + "SkinType=2\r\n"
+            + "Volume=12\r\n"
+            + "[Other]\r\n"
+            + "Title=日本語\r\n";
+        string newline = crlf ? "\r\n" : "\n";
+        string input = original.Replace("\r\n", newline, StringComparison.Ordinal);
+        if (!trailingNewline) { input = input.TrimEnd('\r', '\n'); }
+
+        File.WriteAllText(iniPath, input, Encoding.GetEncoding("shift_jis"));
+        byte[] originalBytes = File.ReadAllBytes(iniPath);
+
+        var rewrite = new uBMplay.TemporarilyRewriteSettings(iniPath, 123);
+        string rewritten = File.ReadAllText(iniPath, Encoding.GetEncoding("shift_jis"));
+
+        StringAssert.Contains(rewritten, "AlwaysOnTop=False ; keep comment");
+        StringAssert.Contains(rewritten, "VSYNC=False");
+        StringAssert.Contains(rewritten, "BGA=3");
+        StringAssert.Contains(rewritten, "AutoSeparate=True");
+        StringAssert.Contains(rewritten, "SkinType=0");
+        StringAssert.Contains(rewritten, "Volume=100");
+        StringAssert.Contains(rewritten, "Title=日本語");
+        Assert.AreEqual(trailingNewline, rewritten.EndsWith(newline, StringComparison.Ordinal));
+        if (crlf) { Assert.IsFalse(rewritten.Replace("\r\n", "", StringComparison.Ordinal).Contains('\n')); }
+        else { Assert.IsFalse(rewritten.Contains('\r')); }
+
+
+        rewrite.RevertSettings();
+
+        CollectionAssert.AreEqual(originalBytes, File.ReadAllBytes(iniPath));
+
+    }
+
+    /// <summary>
+    /// 保証：不足する設定節を補って指定音量を渡し、元に復元する対象がなかった設定は復元操作で消さない。
+    /// </summary>
+    [TestMethod]
+    public void TemporarilyRewriteSettings_CreatesMissingSectionsWithoutThrowing()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = workspace.RootDirectory;
+        Directory.CreateDirectory(tempDirectory);
+        string iniPath = Path.Combine(tempDirectory, "ubm.ini");
+
+        File.WriteAllText(iniPath, "[Main]\r\n", Encoding.GetEncoding("shift_jis"));
+
+        var rewrite = new uBMplay.TemporarilyRewriteSettings(iniPath, 37);
+        string rewritten = File.ReadAllText(iniPath, Encoding.GetEncoding("shift_jis"));
+
+        StringAssert.Contains(rewritten, "[Main]");
+        StringAssert.Contains(rewritten, "AlwaysOnTop=False");
+        StringAssert.Contains(rewritten, "[Option]");
+        StringAssert.Contains(rewritten, "Volume=37");
+
+        rewrite.RevertSettings();
+        Assert.AreEqual(rewritten, File.ReadAllText(iniPath, Encoding.GetEncoding("shift_jis")));
+
+    }
+
+    /// <summary>
+    /// 保証：外部プレイヤーへ渡す指定音量は範囲内なら保持し、負数と100超過だけを下限・上限へ制限する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(-1, "Volume=0")]
+    [DataRow(37, "Volume=37")]
+    [DataRow(101, "Volume=100")]
+    public void TemporarilyRewriteSettings_ClampsVolume(int playerVolume, string expectedVolume)
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string tempDirectory = workspace.RootDirectory;
+        Directory.CreateDirectory(tempDirectory);
+        string iniPath = Path.Combine(tempDirectory, "ubm.ini");
+
+        File.WriteAllText(
+            iniPath,
+            "[Main]\nAlwaysOnTop=True\nVSYNC=True\n[Option]\nBGA=1\nAutoSeparate=False\nSkinType=2\nVolume=12\n",
+            Encoding.GetEncoding("shift_jis"));
+
+        _ = new uBMplay.TemporarilyRewriteSettings(iniPath, playerVolume);
+
+        StringAssert.Contains(
+            File.ReadAllText(iniPath, Encoding.GetEncoding("shift_jis")),
+            expectedVolume);
+
+    }
+}

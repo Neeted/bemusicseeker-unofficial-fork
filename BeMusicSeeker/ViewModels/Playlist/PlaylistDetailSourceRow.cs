@@ -2,7 +2,6 @@ using System;
 using System.Globalization;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -15,7 +14,6 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class PlaylistDetailSourceRow
 {
-    private static readonly Regex levelParseRegex = new("([+-]?\\d+(\\.\\d*)?|\\.\\d+)", RegexOptions.Compiled);
 
     /// <summary>
     /// プレイリストエントリ本体です。
@@ -23,14 +21,24 @@ internal sealed class PlaylistDetailSourceRow
     internal BMSTableEntry Entry { get; }
 
     private readonly ChartFile resolvedChartSnapshot;
+    private ResourceHealthWarningProjection resourceHealthProjection;
+    private bool hasResourceHealthProjection;
 
-    private readonly BMSFile resolvedBms;
+    /// <summary>reader または確定結果から受け取った entry 値です。Entry は識別にだけ使います。</summary>
+    internal PlaylistEntryValue EntryValue { get; private set; }
+    /// <summary>表 owner が確定した基準順です。</summary>
+    internal long EntryOrder { get; private set; }
+    /// <summary>投影前の所持 current です。</summary>
+    internal ChartFile OwnedCurrent => resolvedChartSnapshot;
+    /// <summary>候補再解決の依存キーです。MD5 がある場合は SHA-256 へ広げません。</summary>
+    internal PlaylistEntryLookupKey LookupKey => !string.IsNullOrWhiteSpace(EntryValue.Md5)
+        ? new(PlaylistEntryLookupKeyKind.Md5, EntryValue.Md5)
+        : new(PlaylistEntryLookupKeyKind.Sha256, EntryValue.Sha256);
 
-    private readonly LR2SongDBExtended.bmson_song resolvedBmson;
 
     private readonly Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider;
 
-    private readonly Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider;
+    private readonly Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoProjectionProvider;
 
     private ChartScoreSnapshot effectiveScoreSnapshot;
 
@@ -38,8 +46,6 @@ internal sealed class PlaylistDetailSourceRow
     /// 実体譜面を所持しているかどうかです。
     /// </summary>
     internal bool IsOwned => HasOwnedChart(Chart);
-
-    internal BMSFile BmsPlayerFile => resolvedBms;
 
     internal string Title { get; }
 
@@ -59,13 +65,13 @@ internal sealed class PlaylistDetailSourceRow
 
     internal bool HasZeroNoteMismatchWarning { get; }
 
-    internal bool HasHighlightedWarning { get; }
+    internal bool HasHighlightedWarning => ChartWarningProjectionFormatter.HasHighlightedWarning(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
-    internal string DisplayWarning { get; }
+    internal string DisplayWarning => ChartWarningProjectionFormatter.BuildDisplayText(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
-    internal string WarningDigestText { get; }
+    internal string WarningDigestText => ChartWarningProjectionFormatter.BuildDigestText(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
-    internal string WarningTooltipText { get; }
+    internal string WarningTooltipText => ChartWarningProjectionFormatter.BuildTooltipText(Chart, resourceHealthProjection, hasResourceHealthProjection);
 
     internal string comment { get; private set; }
 
@@ -93,9 +99,9 @@ internal sealed class PlaylistDetailSourceRow
 
     internal string encoding { get; }
 
-    internal string RefTablesSymbols { get; }
+    internal string RefTablesSymbols { get; private set; }
 
-    internal string RefTablesNames { get; }
+    internal string RefTablesNames { get; private set; }
 
     internal ClearType clear { get; private set; }
 
@@ -133,13 +139,12 @@ internal sealed class PlaylistDetailSourceRow
 
     internal ChartFile Chart { get; private set; }
 
-    internal LR2SongDBExtended.chart_info EntryChartInfo { get; private set; }
+    internal BeMusicSeeker.Models.ChartDetails EntryChartInfo { get; private set; }
 
-    internal LR2SongDBExtended.chart_info ChartInfo => ResolveChartInfoProjection();
+    internal BeMusicSeeker.Models.ChartDetails ChartInfo => Chart?.ChartInfo ?? EntryChartInfo;
 
-    internal bool HasEntryChartInfoDependency => resolvedBms == null
-        && resolvedChartSnapshot?.GetBmsStorageOwner() == null
-        && resolvedBmson == null;
+    internal bool HasEntryChartInfoDependency => resolvedChartSnapshot == null
+        || string.IsNullOrWhiteSpace(resolvedChartSnapshot.Path);
 
     private ChartInfoDisplaySnapshot ChartInfoDisplay => ChartInfoDisplaySnapshot.FromChartInfo(ChartInfo);
 
@@ -221,49 +226,47 @@ internal sealed class PlaylistDetailSourceRow
         BMSTableEntry entry,
         ChartFile resolvedChart,
         BMSScore scoreSnapshot = null,
-        LR2SongDBExtended.chart_info entryChartInfo = null,
+        BeMusicSeeker.Models.ChartDetails entryChartInfo = null,
         Func<ChartFile, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = null,
         Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = null,
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = null,
-        LibraryChartRef resolvedChartRef = null)
+        Func<ChartFile, BeMusicSeeker.Models.ChartDetails> chartInfoProjectionProvider = null,
+        LibraryChartRef resolvedChartRef = null,
+        PlaylistEntryValue entryValue = null,
+        long entryOrder = 0)
     {
         Entry = entry ?? throw new ArgumentNullException(nameof(entry));
         resolvedChartSnapshot = resolvedChart;
-        resolvedBms = resolvedChartRef?.GetBmsStorageOwner() ?? resolvedChart?.GetBmsStorageOwner();
-        resolvedBmson = resolvedChartRef?.GetBmsonStorageOwner() ?? resolvedChart?.GetBmsonStorageOwner();
+        EntryValue = entryValue ?? entry.CaptureValue();
+        EntryOrder = entryOrder;
         EntryChartInfo = entryChartInfo;
         this.chartTransientStateProvider = chartTransientStateProvider;
         this.chartInfoProjectionProvider = chartInfoProjectionProvider;
         Chart = CreateChartFile();
         ChartFile chart = Chart;
-        effectiveScoreSnapshot = ResolveEffectiveScore(chart, scoreSnapshot);
+        effectiveScoreSnapshot = ResolveInitialScore(chart, scoreSnapshot);
         if (!ReferenceEquals(effectiveScoreSnapshot, chart?.Score))
         {
             Chart = ChartFileProjection.WithScore(chart, effectiveScoreSnapshot);
             chart = Chart;
         }
-        Title = FirstNonEmpty(chart?.Title, entry.title);
-        Artist = FirstNonEmpty(chart?.Artist, entry.artist);
+        Title = FirstNonEmpty(chart?.Title, EntryValue.Title);
+        Artist = FirstNonEmpty(chart?.Artist, EntryValue.Artist);
         genre = FirstNonEmpty(chart?.Genre);
         mode = chart?.Mode;
         tag = chart?.Tag ?? string.Empty;
-        Url = entry.EffectiveUrl;
-        Url_diff = entry.EffectiveUrlDiff;
-        name_diff = entry.name_diff ?? string.Empty;
-        comment = entry.comment ?? string.Empty;
-        memo = entry.memo ?? string.Empty;
-        hash = FirstNonEmpty(chart?.Md5, entry.md5);
-        sha256 = FirstNonEmpty(chart?.Sha256, entry.sha256, entryChartInfo?.sha256);
-        Folder = FirstNonEmpty(entry.folder, chart?.Folder);
+        Url = EntryValue.EffectiveUrl;
+        Url_diff = EntryValue.EffectiveUrlDiff;
+        name_diff = EntryValue.NameDiff ?? string.Empty;
+        comment = EntryValue.Comment ?? string.Empty;
+        memo = EntryValue.Memo ?? string.Empty;
+        hash = FirstNonEmpty(chart?.Md5, EntryValue.Md5);
+        sha256 = FirstNonEmpty(chart?.Sha256, EntryValue.Sha256, entryChartInfo?.sha256);
+        Folder = FirstNonEmpty(EntryValue.Folder, chart?.Folder);
         path = FirstNonEmpty(chart?.Path);
         PlaylistReferenceDisplay playlistReferenceDisplay = playlistReferenceDisplayProvider != null
             ? playlistReferenceDisplayProvider.Invoke(Chart) ?? PlaylistReferenceDisplay.Empty
             : PlaylistReferenceDisplay.Empty;
         HasZeroNoteMismatchWarning = Chart?.Warnings?.Any(warning => warning.Kind == ChartWarningKind.ZeroNoteMismatch) ?? false;
-        HasHighlightedWarning = HasProjectedWarning(Chart);
-        DisplayWarning = ChartWarningProjectionFormatter.BuildDisplayText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false);
-        WarningDigestText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildDigestText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), DisplayWarning);
-        WarningTooltipText = FirstNonEmpty(ChartWarningProjectionFormatter.BuildTooltipText(Chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false), DisplayWarning);
         instl_dst = Chart?.InstallDestination ?? string.Empty;
         InstallDestinationTitle = Chart?.InstallDestinationTitle ?? string.Empty;
         InstallDestinationArtist = Chart?.InstallDestinationArtist ?? string.Empty;
@@ -284,13 +287,13 @@ internal sealed class PlaylistDetailSourceRow
         rankingLastupdate = effectiveScoreSnapshot.RankingLastUpdate;
         stddevVal = effectiveScoreSnapshot.StdDevVal;
         scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
-        lr2_bmsid = entry.lr2_bmsid ?? string.Empty;
-        EntryLevelSortKey = entry.level;
-        Level = BuildLevelText(entry, Chart);
+        lr2_bmsid = EntryValue.Lr2BmsId ?? string.Empty;
+        EntryLevelSortKey = EntryValue.Level;
+        Level = EntryValue.Level?.ToString("R", CultureInfo.InvariantCulture) ?? Chart?.LevelText ?? string.Empty;
         SearchText = BuildSearchText();
     }
 
-    private bool SetEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    private bool SetEntryChartInfo(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         if (!HasEntryChartInfoDependency || ReferenceEquals(EntryChartInfo, chartInfo))
         {
@@ -307,8 +310,8 @@ internal sealed class PlaylistDetailSourceRow
 
     private void SetScoreSnapshot(BMSScore scoreSnapshot)
     {
-        effectiveScoreSnapshot = ResolveEffectiveScore(Chart, scoreSnapshot);
-        Chart = CreateChartFileWithEffectiveScore();
+        effectiveScoreSnapshot = ChartScoreSnapshot.FromBmsScore(scoreSnapshot, Chart?.Path);
+        Chart = ChartFileProjection.WithScore(Chart, effectiveScoreSnapshot);
         clear = effectiveScoreSnapshot.Clear;
         rank = effectiveScoreSnapshot.Rank;
         rate = effectiveScoreSnapshot.Rate;
@@ -322,11 +325,53 @@ internal sealed class PlaylistDetailSourceRow
         scoreDifficulty = effectiveScoreSnapshot.ScoreDifficulty;
     }
 
-    internal PlaylistDetailSourceRow WithEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    /// <summary>同じentryの確定編集属性だけを置換し、遅延中の所持・参照投影を保持します。lookupや所属を変更する差分には使いません。</summary>
+    internal PlaylistDetailSourceRow WithEditedValues(PlaylistEntryValue value)
+    {
+        var copy = (PlaylistDetailSourceRow)MemberwiseClone();
+        copy.EntryValue = EntryValue with
+        {
+            Level = value.Level,
+            Url = value.Url,
+            UrlDiff = value.UrlDiff,
+            EffectiveUrl = value.EffectiveUrl,
+            EffectiveUrlDiff = value.EffectiveUrlDiff,
+            Comment = value.Comment,
+            Memo = value.Memo
+        };
+        if (resolvedChartSnapshot == null) { copy.Chart = ChartFileProjection.WithScore(copy.CreateChartFile(), effectiveScoreSnapshot); }
+        copy.EntryLevelSortKey = value.Level;
+        copy.Level = value.Level?.ToString("R", CultureInfo.InvariantCulture) ?? copy.Chart?.LevelText ?? string.Empty;
+        copy.Url = value.EffectiveUrl;
+        copy.Url_diff = value.EffectiveUrlDiff;
+        copy.comment = value.Comment ?? string.Empty;
+        copy.memo = value.Memo ?? string.Empty;
+        copy.SearchText = copy.BuildSearchText();
+        return copy;
+    }
+
+    /// <summary>確定編集属性だけが現在の入力へ反映済みかを比較し、同値保存で不要な投影を繰り返しません。</summary>
+    internal bool HasEditedValues(PlaylistEntryValue value)
+        => EntryValue.Level == value.Level && Equals(EntryValue.Url, value.Url) && Equals(EntryValue.UrlDiff, value.UrlDiff)
+            && Equals(EntryValue.EffectiveUrl, value.EffectiveUrl) && Equals(EntryValue.EffectiveUrlDiff, value.EffectiveUrlDiff)
+            && EntryValue.Comment == value.Comment && EntryValue.Memo == value.Memo;
+
+    internal PlaylistDetailSourceRow WithEntryChartInfo(BeMusicSeeker.Models.ChartDetails chartInfo)
     {
         var copy = (PlaylistDetailSourceRow)MemberwiseClone();
         copy.SetEntryChartInfo(chartInfo);
         return copy;
+    }
+
+    /// <summary>同じ捕捉入力の参照表示だけを置換し、検索・並べ替えへ渡します。</summary>
+    internal PlaylistDetailSourceRow WithReferenceDisplay(ChartListReferenceInput input)
+    {
+        PlaylistReferenceDisplay display = input.Resolve(hash, sha256);
+        var next = (PlaylistDetailSourceRow)MemberwiseClone();
+        next.RefTablesSymbols = display.Symbols;
+        next.RefTablesNames = display.Names;
+        next.SearchText = next.BuildSearchText();
+        return next;
     }
 
     /// <summary>
@@ -334,10 +379,10 @@ internal sealed class PlaylistDetailSourceRow
     /// chart_info hydration 後に未所持 entry の score hash が初めて解決できる場合に使います。
     /// </summary>
     /// <param name="chartInfo">更新された entry chart_info。</param>
-    /// <param name="scoreSnapshot">現在の score snapshot から解決した score。</param>
+    /// <param name="scoreSnapshot">現在のスコア。null は記録なしとして採用し、コピー元の旧スコアを消去します。</param>
     /// <returns>更新後の source row。</returns>
     internal PlaylistDetailSourceRow WithEntryChartInfoAndScore(
-        LR2SongDBExtended.chart_info chartInfo,
+        BeMusicSeeker.Models.ChartDetails chartInfo,
         BMSScore scoreSnapshot)
     {
         var copy = (PlaylistDetailSourceRow)MemberwiseClone();
@@ -352,66 +397,23 @@ internal sealed class PlaylistDetailSourceRow
     /// <summary>UI表示用の行を生成し、再生状態の読取り口へ接続します。</summary>
     internal PlaylistDetailRow CreateViewRow()
     {
-        Chart = CreateChartFileWithEffectiveScore();
         var row = new PlaylistDetailRow(this);
         row.SetPlaybackStatusProvider(PlaybackStatusProvider);
         return row;
     }
 
-    /// <summary>
-    /// 編集済み view row の値で editable snapshot を更新します。
-    /// 再 sort/filter 時の再生成元となるため、playlist row の durable 保存成功後に同期します。
-    /// </summary>
-    /// <param name="editedRow">編集済み row。</param>
-    internal void SynchronizeEditableSnapshot(PlaylistDetailRow editedRow)
+    /// <summary>専門 owner の捕捉済み警告を共通 formatter へ接続します。</summary>
+    internal PlaylistDetailSourceRow WithResourceHealthProjection(ResourceHealthWarningProjection projection)
     {
-        if (editedRow == null)
-        {
-            throw new ArgumentNullException(nameof(editedRow));
-        }
-        if (!ReferenceEquals(Entry, editedRow.Entry))
-        {
-            throw new InvalidOperationException("PlaylistDetailSourceRow entry mismatch.");
-        }
-        Level = editedRow.Level ?? string.Empty;
-        Url = editedRow.Url;
-        Url_diff = editedRow.Url_diff;
-        comment = editedRow.comment ?? string.Empty;
-        memo = editedRow.memo ?? string.Empty;
-        EntryLevelSortKey = ResolveEntryLevelSortKey(editedRow.Level, Entry.level, editedRow.EntryLevelSortKey);
-        Chart = CreateChartFileWithEffectiveScore();
-        SearchText = BuildSearchText();
+        var next = (PlaylistDetailSourceRow)MemberwiseClone();
+        next.resourceHealthProjection = projection ?? ResourceHealthWarningProjection.Empty;
+        next.hasResourceHealthProjection = true;
+        return next;
     }
 
     private ChartFile CreateChartFile()
     {
-        BMSFile bmsOwner = resolvedBms ?? resolvedChartSnapshot?.GetBmsStorageOwner();
-        if (bmsOwner != null)
-        {
-            ChartFile ownerSource = ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner);
-            ChartFile currentChart = resolvedChartSnapshot ?? ownerSource;
-            currentChart = ChartFileProjection.WithScore(currentChart, effectiveScoreSnapshot ?? currentChart.Score);
-            currentChart = ApplyChartInfoProjection(currentChart, ownerSource ?? currentChart);
-            return ChartFileProjection.WithTransientState(
-                currentChart,
-                GetChartTransientState(ownerSource ?? currentChart, includeWarningSnapshot: true));
-        }
-        if (resolvedBmson != null)
-        {
-            if (resolvedChartSnapshot != null)
-            {
-                ChartFile ownerSource = ChartFileProjection.FromBmsonStorageOwnerIdentity(resolvedBmson);
-                ChartFile projectedChart = resolvedChartSnapshot;
-                projectedChart = ApplyChartInfoProjection(projectedChart, ownerSource);
-                return ChartFileProjection.WithTransientState(
-                    projectedChart,
-                    GetChartTransientState(ChartFileProjection.FromStorageOwner(ownerSource, includeWarningSnapshot: false, includeResourceReferences: false), includeWarningSnapshot: true));
-            }
-            ChartFile identityChart = ChartFileProjection.FromBmsonSong(resolvedBmson, includeWarningSnapshot: false, includeResourceReferences: false);
-            return ChartFileProjection.FromStorageOwnerWithTransientState(
-                identityChart,
-                GetChartTransientState(identityChart, includeWarningSnapshot: true));
-        }
+
         if (resolvedChartSnapshot != null)
         {
             ChartFile projectedChart = ApplyChartInfoProjection(resolvedChartSnapshot, resolvedChartSnapshot);
@@ -421,54 +423,21 @@ internal sealed class PlaylistDetailSourceRow
         }
         return ChartFileProjection.FromBmsMetadata(
             path,
-            FirstNonEmpty(hash, Entry?.md5),
-            FirstNonEmpty(sha256, Entry?.sha256, EntryChartInfo?.sha256),
-            FirstNonEmpty(Title, Entry?.title),
-            FirstNonEmpty(Artist, Entry?.artist),
+            FirstNonEmpty(hash, EntryValue?.Md5),
+            FirstNonEmpty(sha256, EntryValue?.Sha256, EntryChartInfo?.sha256),
+            FirstNonEmpty(Title, EntryValue?.Title),
+            FirstNonEmpty(Artist, EntryValue?.Artist),
             genre,
-            FirstNonEmpty(Folder, Entry?.folder),
+            FirstNonEmpty(Folder, EntryValue?.Folder),
             tag,
-            Entry?.level,
+            EntryValue?.Level,
             mode,
             EntryChartInfo);
     }
 
-    private ChartFile CreateChartFileWithEffectiveScore()
-    {
-        ChartFile chart = CreateChartFile();
-        return !ReferenceEquals(effectiveScoreSnapshot, chart?.Score)
-            ? ChartFileProjection.WithScore(chart, effectiveScoreSnapshot)
-            : chart;
-    }
-
-    private LR2SongDBExtended.chart_info ResolveChartInfoProjection()
-    {
-        BMSFile bmsOwner = resolvedBms ?? resolvedChartSnapshot?.GetBmsStorageOwner();
-        if (bmsOwner != null)
-        {
-            ChartFile ownerSource = ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner) ?? resolvedChartSnapshot;
-            return ResolveChartInfoFromProvider(ownerSource)
-                ?? resolvedChartSnapshot?.ChartInfo
-                ?? EntryChartInfo;
-        }
-        if (resolvedBmson != null)
-        {
-            ChartFile ownerSource = resolvedChartSnapshot ?? ChartFileProjection.FromBmsonStorageOwnerIdentity(resolvedBmson);
-            return ResolveChartInfoFromProvider(ownerSource)
-                ?? ownerSource?.ChartInfo;
-        }
-        if (resolvedChartSnapshot != null)
-        {
-            return ResolveChartInfoFromProvider(resolvedChartSnapshot)
-                ?? resolvedChartSnapshot.ChartInfo
-                ?? EntryChartInfo;
-        }
-        return EntryChartInfo;
-    }
-
     private ChartFile ApplyChartInfoProjection(ChartFile chart, ChartFile identitySource)
     {
-        LR2SongDBExtended.chart_info resolved = ResolveChartInfoFromProvider(identitySource ?? chart);
+        BeMusicSeeker.Models.ChartDetails resolved = ResolveChartInfoFromProvider(identitySource ?? chart);
         if (chart == null || resolved == null || ReferenceEquals(resolved, chart.ChartInfo))
         {
             return chart;
@@ -476,7 +445,7 @@ internal sealed class PlaylistDetailSourceRow
         return ChartFileProjection.WithChartInfo(chart, resolved);
     }
 
-    private LR2SongDBExtended.chart_info ResolveChartInfoFromProvider(ChartFile chart)
+    private BeMusicSeeker.Models.ChartDetails ResolveChartInfoFromProvider(ChartFile chart)
     {
         return chart == null ? null : chartInfoProjectionProvider?.Invoke(chart);
     }
@@ -491,57 +460,17 @@ internal sealed class PlaylistDetailSourceRow
             ?? ChartFileTransientState.Empty;
     }
 
-    private static ChartScoreSnapshot ResolveEffectiveScore(ChartFile chart, BMSScore scoreSnapshot)
+    private static ChartScoreSnapshot ResolveInitialScore(ChartFile chart, BMSScore scoreSnapshot)
     {
         return scoreSnapshot != null
             ? ChartScoreSnapshot.FromBmsScore(scoreSnapshot, chart?.Path)
             : chart?.Score ?? ChartScoreSnapshot.MissingChart;
     }
 
-    private static bool HasProjectedWarning(ChartFile chart)
-    {
-        return ChartWarningProjectionFormatter.HasHighlightedWarning(chart, ResourceHealthWarningProjection.Empty, hasResourceHealthProjection: false);
-    }
-
     private static bool HasOwnedChart(ChartFile chart)
     {
         return !string.IsNullOrWhiteSpace(chart?.Path)
             && !string.IsNullOrWhiteSpace(chart?.Md5);
-    }
-
-    private static string BuildLevelText(BMSTableEntry entry, ChartFile chart)
-    {
-        if (entry?.level != null)
-        {
-            return entry.level.ToString();
-        }
-        return chart?.LevelText ?? string.Empty;
-    }
-
-    private static double? ResolveEntryLevelSortKey(string levelText, double? entryLevel, double? rowSortKey)
-    {
-        if (entryLevel.HasValue)
-        {
-            return entryLevel;
-        }
-        if (rowSortKey.HasValue)
-        {
-            return rowSortKey;
-        }
-        if (string.IsNullOrWhiteSpace(levelText))
-        {
-            return null;
-        }
-        Match match = levelParseRegex.Match(levelText.Trim());
-        if (!match.Success)
-        {
-            return null;
-        }
-        if (double.TryParse(match.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsedLevel))
-        {
-            return parsedLevel;
-        }
-        return null;
     }
 
     private static string FirstNonEmpty(params string[] candidates)

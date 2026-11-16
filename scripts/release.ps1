@@ -3,6 +3,9 @@
     同じリポジトリの配布物からリリース下書きを作成・公開するスクリプト
 
 .DESCRIPTION
+    全モードで -DistributionCatalog と -FullSummary に絶対パスを指定し、
+    full 合格時と同一の公開候補だけを使います。
+
     -CreateDraft は main 上の配布物から update.json と GitHub Pages 用の HTML を
     生成し、生成物だけをコミットしてタグと draft Release を作成します。
 
@@ -11,12 +14,19 @@
 
     -CreatePrereleaseDraft は dev の HEAD に明示した preview tag を付け、main と追跡中の
     配布情報を変更せずに prerelease draft を作成します。
+
+    -MetadataBundleOnly は、full で検証した候補のうちメタデータ同梱版だけを Release 資産と
+    update.json へ載せます。通常版は検証用に候補へ残し、公開しません。同じ版の全モードで
+    同じ指定を使います。
 #>
 param(
     [switch]$CreateDraft,
     [switch]$CreatePrereleaseDraft,
     [switch]$PublishDraft,
-    [string]$PreviewSuffix = "preview.1"
+    [switch]$MetadataBundleOnly,
+    [string]$PreviewSuffix = "preview.1",
+    [string]$DistributionCatalog,
+    [string]$FullSummary
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,13 +37,13 @@ $publicRepoName = "bemusicseeker-unofficial-fork"
 $publicBranch = "main"
 $developmentBranch = "dev"
 $publicSiteUrl = "https://neeted.github.io/bemusicseeker-unofficial-fork"
-$distDir = Join-Path $root "dist"
 
 Push-Location $root
 
 try {
 
 . (Join-Path $PSScriptRoot "portable-package-layout.ps1")
+. (Join-Path $PSScriptRoot "application-version.ps1")
 
 function Invoke-GhOutput {
     param(
@@ -126,80 +136,70 @@ function Assert-WorkingTreeClean {
     }
 }
 
-function Get-AppVersion {
-    $asmInfoPath = Join-Path $root "BeMusicSeeker\Properties\AssemblyInfo.cs"
-    if (-not (Test-Path -LiteralPath $asmInfoPath -PathType Leaf)) {
-        throw "AssemblyInfo.cs が見つかりません: $asmInfoPath"
-    }
-
-    $content = Get-Content -LiteralPath $asmInfoPath -Raw
-    if ($content -notmatch 'AssemblyInformationalVersion\("([^"]+)"\)') {
-        throw "AssemblyInformationalVersion が見つかりません: $asmInfoPath"
-    }
-
-    $version = $Matches[1].Trim()
-    try {
-        [void][System.Version]::Parse($version)
-    }
-    catch {
-        throw "AssemblyInformationalVersion が System.Version として解釈できません: $version"
-    }
-    return $version
-}
-
-function Get-ReleaseAssetNamePriority {
-    param(
-        [Parameter(Mandatory)][string]$Name,
-        [Parameter(Mandatory)][string]$Tag
-    )
-
-    if ($Name -eq "bemusicseeker-unofficial-fork-$Tag.zip") { return 0 }
-    if ($Name -eq "bemusicseeker-unofficial-fork-$Tag-with-metadata.zip") { return 1 }
-    return 99
-}
-
-function Get-UpdateAssetKindPriority {
-    param([Parameter(Mandatory)][string]$Kind)
-
-    if ($Kind -eq "app") { return 0 }
-    if ($Kind -eq "app-with-metadata") { return 1 }
-    return 99
-}
-
-function Sort-UpdateManifestAssets {
-    param([Parameter(Mandatory)][object[]]$Assets)
-
-    return ,@($Assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority ([string]$_.kind) } }, fileName)
-}
-
 function Get-ReleaseContext {
-    $version = Get-AppVersion
+    $version = Get-ApplicationVersion -RepositoryRoot $root
     $tag = "v$version"
     $notesPath = Join-Path $root "release notes\$tag リリースノート.md"
     if (-not (Test-Path -LiteralPath $notesPath -PathType Leaf)) {
         throw "リリースノートが見つかりません: $notesPath"
     }
 
-    $normalName = "bemusicseeker-unofficial-fork-$tag.zip"
-    $metadataName = "bemusicseeker-unofficial-fork-$tag-with-metadata.zip"
-    $releaseAssets = @()
-    if (Test-Path -LiteralPath $distDir -PathType Container) {
-        $releaseAssets = @(Get-ChildItem -LiteralPath $distDir -File -Filter "bemusicseeker-unofficial-fork-$tag*.zip" |
-            Sort-Object @{ Expression = { Get-ReleaseAssetNamePriority $_.Name $tag } }, Name)
-    }
-
-    foreach ($asset in $releaseAssets) {
-        if ($asset.Name -ne $normalName -and $asset.Name -ne $metadataName) {
-            throw "対象版の配布 ZIP 名が不正です: $($asset.Name)"
+    foreach ($inputPath in @($DistributionCatalog, $FullSummary)) {
+        if ([string]::IsNullOrWhiteSpace($inputPath) -or
+            -not [IO.Path]::IsPathFullyQualified($inputPath) -or
+            -not (Test-Path -LiteralPath $inputPath -PathType Leaf)) {
+            throw "-DistributionCatalog と -FullSummary には存在する絶対ファイルパスが必要です。"
         }
     }
-
-    $normalAsset = @($releaseAssets | Where-Object { $_.Name -eq $normalName })
-    if ($normalAsset.Count -ne 1) {
-        throw "通常版パッケージが見つかりません: $([IO.Path]::Combine('dist', $normalName))`n先に publish.ps1 を実行してください。"
+    $catalog = Get-Content -LiteralPath $DistributionCatalog -Raw | ConvertFrom-Json
+    $summary = Get-Content -LiteralPath $FullSummary -Raw | ConvertFrom-Json
+    if ($summary.profile -cne "full" -or $summary.passed -isnot [bool] -or -not $summary.passed) {
+        throw "公開には full が合格した summary が必要です。"
     }
-    foreach ($asset in $releaseAssets) {
+    if ([string]::IsNullOrWhiteSpace([string]$summary.distributionCatalog) -or
+        -not [IO.Path]::IsPathFullyQualified([string]$summary.distributionCatalog) -or
+        [IO.Path]::GetFullPath([string]$summary.distributionCatalog) -ine [IO.Path]::GetFullPath($DistributionCatalog)) {
+        throw "full summary の catalog が指定候補と一致しません。"
+    }
+    if ($null -eq $catalog.Current) { throw "catalog に Current がありません。" }
+    $candidates = @($catalog.Current)
+    $metadataProperty = $catalog.PSObject.Properties["CurrentWithMetadata"]
+    if ($null -ne $metadataProperty -and $null -ne $metadataProperty.Value) { $candidates += $metadataProperty.Value }
+    $verified = @($summary.releaseArtifacts)
+    if ($verified.Count -ne $candidates.Count) { throw "full summary の公開 ZIP 集合が候補と一致しません。" }
+    $verifiedAssets = @()
+    for ($index = 0; $index -lt $candidates.Count; $index++) {
+        $candidate = $candidates[$index]
+        $packagePath = [string]$candidate.packagePath
+        $expectedName = if ($index -eq 0) { "bemusicseeker-unofficial-fork-$tag.zip" } else { "bemusicseeker-unofficial-fork-$tag-with-metadata.zip" }
+        if ([string]$candidate.version -cne $version -or
+            [string]::IsNullOrWhiteSpace($packagePath) -or -not [IO.Path]::IsPathFullyQualified($packagePath) -or
+            [IO.Path]::GetFileName($packagePath) -cne $expectedName -or
+            -not (Test-Path -LiteralPath $packagePath -PathType Leaf)) {
+            throw "公開候補の版・パス・ZIP 名が正本と一致しないか、ZIP がありません: $packagePath"
+        }
+        $asset = Get-Item -LiteralPath $packagePath
+        $hash = (Get-FileHash -LiteralPath $packagePath -Algorithm SHA256).Hash
+        if ([int64]$candidate.sizeBytes -ne $asset.Length -or [string]$candidate.sha256 -ine $hash) {
+            throw "公開候補の ZIP 実体が catalog と一致しません: $packagePath"
+        }
+        $matches = @($verified | Where-Object {
+            [string]$_.packagePath -ieq $packagePath -and [string]$_.version -ceq $version -and
+            [int64]$_.sizeBytes -eq $asset.Length -and [string]$_.sha256 -ieq $hash
+        })
+        if ($matches.Count -ne 1) { throw "公開候補の ZIP が full 合格時の実体と一致しません: $packagePath" }
         Assert-PortableReleasePackageLayout $asset.FullName
+        $verifiedAssets += $asset
+    }
+
+    # full は候補全体を検証し、公開する資産はその部分集合から選びます。
+    # 同梱版だけを公開しても、通常版は同梱版の内容一致を確かめる検証の基準として候補に残ります。
+    if ($MetadataBundleOnly) {
+        if ($verifiedAssets.Count -lt 2) { throw "-MetadataBundleOnly には catalog の CurrentWithMetadata が必要です。" }
+        $releaseAssets = @($verifiedAssets[1])
+    }
+    else {
+        $releaseAssets = @($verifiedAssets)
     }
 
     return [PSCustomObject]@{
@@ -227,24 +227,28 @@ function Get-ReleaseAssetMetadata {
     param(
         [Parameter(Mandatory)]$Asset,
         [Parameter(Mandatory)]$Context,
-        [Parameter(Mandatory)][string]$Tag
+        [Parameter(Mandatory)][string]$Tag,
+        [Parameter(Mandatory)][int]$Index
     )
 
     $normalName = "bemusicseeker-unofficial-fork-$($Context.Tag).zip"
     $metadataName = "bemusicseeker-unofficial-fork-$($Context.Tag)-with-metadata.zip"
     if ($Asset.Name -eq $normalName) {
-        $kind = "app"
         $label = "App only"
         $includesMetadata = $false
     }
     elseif ($Asset.Name -eq $metadataName) {
-        $kind = "app-with-metadata"
         $label = "App with metadata bundle"
         $includesMetadata = $true
     }
     else {
         throw "自動アップデート manifest に含められない asset 名です: $($Asset.Name)"
     }
+    # kind は v3.1.0.0 以前のアプリとの互換だけに使う並び順の目印です。旧版は app の資産を必須として
+    # 先頭・初期選択に表示し、kind を表示名にだけ使います。更新ツールは ZIP の中身でメタデータを扱います。
+    # 中身の種類は includesChartInfoMetadata が表し、v3.2.0.0 以降のアプリは kind を読みません。
+    if ($Index -gt 1) { throw "update.json に載せられる資産は2件までです。" }
+    $kind = if ($Index -eq 0) { "app" } else { "app-with-metadata" }
 
     return [PSCustomObject]@{
         kind = $kind
@@ -302,10 +306,10 @@ function New-UpdateManifest {
         [Parameter(Mandatory)][string]$Tag
     )
 
-    $metadata = @($Context.ReleaseAssets | ForEach-Object { Get-ReleaseAssetMetadata $_ $Context $Tag })
-    if (-not ($metadata | Where-Object { $_.kind -eq "app" })) {
-        throw "通常版パッケージが見つかりません。update.json には本体のみ asset が必要です。"
-    }
+    $releaseAssets = @($Context.ReleaseAssets)
+    $metadata = @(for ($index = 0; $index -lt $releaseAssets.Count; $index++) {
+        Get-ReleaseAssetMetadata $releaseAssets[$index] $Context $Tag $index
+    })
 
     $manifestPath = Join-Path $root "update.json"
     $publishedAt = Get-ExistingManifestPublishedAt $manifestPath $Context.Version $Tag
@@ -321,7 +325,7 @@ function New-UpdateManifest {
         packageFormatVersion = 1
         publishedAt = $publishedAt
         minimumUpdaterVersion = "1"
-        assets = (Sort-UpdateManifestAssets $metadata)
+        assets = $metadata
     }
 }
 
@@ -564,8 +568,9 @@ function Assert-UpdateManifestMatchesLocal {
         throw "update.json の publishedAt が空です。"
     }
 
-    $actualAssets = @($actual.assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority ([string]$_.kind) } }, fileName)
-    $expectedAssets = @($expected.assets | Sort-Object @{ Expression = { Get-UpdateAssetKindPriority ([string]$_.kind) } }, fileName)
+    # 先頭の資産をアプリが初期選択するため、並び順も照合します。
+    $actualAssets = @($actual.assets)
+    $expectedAssets = @($expected.assets)
     if ($actualAssets.Count -ne $expectedAssets.Count) {
         throw "update.json の asset 数が local zip と一致しません。"
     }
@@ -740,13 +745,12 @@ function Invoke-PublishDraft {
 
 Write-Host "=== 前提条件の確認 ===" -ForegroundColor Cyan
 Assert-ExactlyOneMode
-Assert-GhAuthenticated
-
 $context = Get-ReleaseContext
+Assert-GhAuthenticated
 Write-Host "  対象バージョン: $($context.Tag)"
 Write-Host "  リリースノート: $($context.NotesPath)"
 foreach ($asset in $context.ReleaseAssets) {
-    Write-Host "  asset: dist\$($asset.Name)"
+    Write-Host "  asset: $($asset.FullName)"
 }
 
 if ($CreateDraft) {

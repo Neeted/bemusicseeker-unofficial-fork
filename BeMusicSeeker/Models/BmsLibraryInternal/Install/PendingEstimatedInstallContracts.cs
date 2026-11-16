@@ -32,15 +32,6 @@ internal sealed class EstimatedInstallDeferredFeedback
 {
     private readonly List<EstimatedInstallFeedbackNotification> notifications = [];
 
-    private readonly BufferedDialogService dialogService;
-
-    internal EstimatedInstallDeferredFeedback()
-    {
-        dialogService = new BufferedDialogService(this);
-    }
-
-    internal IBmsLibraryDialogService DialogService => dialogService;
-
     internal void LogInstallPerformance(string message)
     {
         notifications.Add(EstimatedInstallFeedbackNotification.PerformanceLog(message));
@@ -59,6 +50,15 @@ internal sealed class EstimatedInstallDeferredFeedback
         }
     }
 
+    /// <summary>公開時に操作の収集先へ渡す、件数と標本を持つ案内を延期します。</summary>
+    internal void DeferNotice(BMSLibrary.OperationDialogMessage notice)
+    {
+        if (notice != null)
+        {
+            notifications.Add(EstimatedInstallFeedbackNotification.NoticeMessage(notice));
+        }
+    }
+
     internal void ShowEstimatedCleanupOnlyCompletedWarning(int cleanupOnlySucceeded)
     {
         notifications.Add(EstimatedInstallFeedbackNotification.CleanupOnlyWarning(cleanupOnlySucceeded));
@@ -70,33 +70,12 @@ internal sealed class EstimatedInstallDeferredFeedback
         notifications.Clear();
         return current;
     }
-
-    private sealed class BufferedDialogService(EstimatedInstallDeferredFeedback owner) : IBmsLibraryDialogService
-    {
-        private readonly EstimatedInstallDeferredFeedback owner = owner;
-
-        public UiDialogDefaultResult Show(
-            string messageBoxText,
-            string caption,
-            UiDialogButton button,
-            UiDialogIcon icon,
-            UiDialogDefaultResult defaultResult = UiDialogDefaultResult.None)
-        {
-            owner.notifications.Add(EstimatedInstallFeedbackNotification.Dialog(
-                messageBoxText,
-                caption,
-                button,
-                icon,
-                defaultResult));
-            return defaultResult;
-        }
-    }
 }
 
 internal enum EstimatedInstallFeedbackKind
 {
-    Dialog,
     CleanupOnlyWarning,
+    Notice,
     PerformanceLog,
     WarningLog,
     DeferredAction
@@ -113,34 +92,19 @@ internal sealed class EstimatedInstallFeedbackNotification
 
     internal string Message { get; private init; }
 
-    internal string Caption { get; private init; }
-
-    internal UiDialogButton Button { get; private init; }
-
-    internal UiDialogIcon Icon { get; private init; }
-
-    internal UiDialogDefaultResult DefaultResult { get; private init; }
-
     internal int CleanupOnlySucceeded { get; private init; }
+
+    internal BMSLibrary.OperationDialogMessage Notice { get; private init; }
 
     internal Exception Exception { get; private init; }
 
     internal Action Action { get; private init; }
 
-    internal static EstimatedInstallFeedbackNotification Dialog(
-        string message,
-        string caption,
-        UiDialogButton button,
-        UiDialogIcon icon,
-        UiDialogDefaultResult defaultResult)
+    internal static EstimatedInstallFeedbackNotification NoticeMessage(BMSLibrary.OperationDialogMessage notice)
     {
-        return new EstimatedInstallFeedbackNotification(EstimatedInstallFeedbackKind.Dialog)
+        return new EstimatedInstallFeedbackNotification(EstimatedInstallFeedbackKind.Notice)
         {
-            Message = message,
-            Caption = caption,
-            Button = button,
-            Icon = icon,
-            DefaultResult = defaultResult
+            Notice = notice
         };
     }
 
@@ -182,14 +146,11 @@ internal sealed class EstimatedInstallBatchApplyContext
 {
     public List<ChartFile> AddedCharts { get; } = [];
 
-    public List<BMSFile> AddedBmsFiles { get; } = [];
-
     public HashSet<string> AffectedDirectories { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public void AddInstalledTargets(ChartStorageTargetSet addedTargets, string destinationDirectory)
     {
         AddedCharts.AddRange((addedTargets?.Charts ?? []).Where(chart => chart != null));
-        AddedBmsFiles.AddRange(addedTargets?.BmsFiles ?? []);
         AddAffectedDirectory(destinationDirectory);
         foreach (ChartFile addedChart in addedTargets?.Charts ?? [])
         {

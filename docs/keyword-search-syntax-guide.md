@@ -110,7 +110,7 @@ Search history is shared by the main chart list, playlist detail, and Play Log. 
 | Key | Result |
 | :--- | :--- |
 | `↑` / `↓` | Select a suggestion |
-| `Enter` / `Tab` | Insert the selected suggestion |
+| `Enter` / `Tab` | Insert the suggestion selected with `↑` / `↓`. When no suggestion is selected, `Enter` confirms the search as typed and saves it to history. `Tab` completes the first suggestion if you have typed at least one character of a field name or value; otherwise (blank input, right after `:`, and so on) it moves to the next control |
 | `Esc` | Close suggestions |
 | `Ctrl+Space` | Open suggestions again |
 | `Shift+Tab` | Move to the action buttons for the selected Favorite or history row |
@@ -204,7 +204,8 @@ title:alpha|beta
 | `maxbpm` | Maximum BPM |
 | `minbpm` | Minimum BPM |
 | `duration` / `length` | Play duration in seconds |
-| `judge` / `judge%` / `judgepct` | Judge width. Also accepts `veryhard`, `hard`, `normal`, `easy`, and `veryeasy` |
+| `judge` | Judge width. Accepts numeric conditions, `defined` / `undefined`, and the names `veryhard`, `hard`, `normal`, `easy`, and `veryeasy` |
+| `judge%` / `judgepct` | Judge width. Accepts numeric conditions and `defined` / `undefined` |
 | `feature` | Chart features: `ln`, `mine`, `random`, `lnmode`, `cn`, `hcn`, `stop`, `scroll` |
 | `notes` | Total notes |
 | `long` / `ln` | Long-note count |
@@ -223,6 +224,8 @@ title:alpha|beta
 | `bp` | BP |
 | `memo` | Memo; Playlist detail only |
 | `comment` | Comment; Playlist detail only |
+
+`RATE` is displayed as a percentage, but numeric conditions and regular expressions use a value from 0 to 1. `rate:>=0.8` matches 80% or higher; `rate:re:^0[.]8$` matches 80%. Regular expressions also use `.` as the decimal separator.
 
 Without a field, the main chart list searches TITLE, ARTIST, GENRE, TAG, PATH, playlist display symbols, MD5, and SHA256. Playlist detail also searches memo and comment.
 
@@ -266,6 +269,8 @@ While you type, this screen suggests Search fields but not Search values.
 | `source` | History source name or path |
 
 Without a field, Play Log searches TITLE, ARTIST, PATH, the FOLDER display name, referenced playlist names, hashes, TYPE, clear status, source, and play date.
+
+Use a regular expression such as `date:re:"^2026-06-19 12:"` to search the DATE column's `yyyy-MM-dd HH:mm:ss` value. The date-only forms `yyyy-MM-dd` and `yyyy/MM/dd` remain search candidates.
 
 Play Log does not support chart-list fields such as `level`, `difficulty`, `notes`, `rank`, `rate`, `score`, or `bp`.
 
@@ -374,9 +379,15 @@ re:^alpha
 title:re:^alpha
 -title:re:^test
 path:re:\\BMS\\.*\.bms$
+title:re:^(alpha|beta)$
+title:re:"^a b"
 ```
 
+Everything after `re:`, including any `|`, is one regular expression. `title:re:^(alpha|beta)$` matches `alpha` or `beta`. For an expression that contains a space, enclose the whole expression in double quotation marks, as in `title:re:"^a b"`.
+
 Regular-expression matching is case-insensitive. An expression that takes too long is stopped and treated as not matching that condition.
+
+Blank displayed values are also searched. `memo:re:^$` matches rows with a blank MEMO, and `-memo:re:^$` matches rows with a nonblank MEMO. Whitespace-only values are not blank. A field that searches multiple values, such as referenced playlist names, is not treated as an empty string when it has no values.
 
 ### Search for `"` or `\` Inside Double Quotes
 

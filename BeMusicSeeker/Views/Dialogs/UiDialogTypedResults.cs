@@ -6,7 +6,7 @@ using Parago.Windows;
 namespace BeMusicSeeker.Views.Dialogs;
 
 /// <summary>
-/// file picker route の結果を表します。詳細な選択値は Unit 5 の picker 統合で追加します。
+/// file picker route の結果を表します。
 /// </summary>
 internal sealed class UiFilePickerResult
 {
@@ -34,7 +34,7 @@ internal sealed class UiFilePickerResult
 }
 
 /// <summary>
-/// folder picker route の結果を表します。詳細な選択値は Unit 5 の picker 統合で追加します。
+/// folder picker route の結果を表します。
 /// </summary>
 internal sealed class UiFolderPickerResult
 {
@@ -62,7 +62,7 @@ internal sealed class UiFolderPickerResult
 }
 
 /// <summary>
-/// save file picker route の結果を表します。詳細な選択値は Unit 5 の picker 統合で追加します。
+/// save file picker route の結果を表します。
 /// </summary>
 internal sealed class UiSaveFilePickerResult
 {
@@ -88,7 +88,7 @@ internal sealed class UiSaveFilePickerResult
 }
 
 /// <summary>
-/// progress operation route の結果を表します。詳細な進捗結果は Unit 4 の progress 統合で追加します。
+/// progress operation route の結果を表します。
 /// </summary>
 internal sealed class UiProgressResult
 {
@@ -114,7 +114,7 @@ internal sealed class UiProgressResult
 }
 
 /// <summary>
-/// progress operation から UI へ進捗を報告する context です。Unit 4 で legacy progress static state の置換先にします。
+/// progress operation から UI へ進捗を報告する context です。
 /// </summary>
 internal sealed class UiProgressContext
 {

@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Ribbit.Net;
 
@@ -413,7 +415,7 @@ internal sealed class GingerPlaylistExternalPackageLookupProvider : IPlaylistExt
                 root.Value<long?>("fileSize"));
             return true;
         }
-        catch
+        catch (Exception failure) when (failure is JsonException or FormatException or InvalidCastException or OverflowException)
         {
             return false;
         }
@@ -499,7 +501,8 @@ internal sealed class KonmaiPlaylistExternalPackageLookupProvider : IPlaylistExt
             {
                 return false;
             }
-            string downloadUrl = root["data"]?.Value<string>("song_url");
+            if (root["data"] is not JObject data) { return false; }
+            string downloadUrl = data.Value<string>("song_url");
             if (!PlaylistExternalPackageLookupUriSupport.TryCreateDirectDownloadCandidateUri(downloadUrl, out Uri downloadUri))
             {
                 return false;
@@ -508,10 +511,10 @@ internal sealed class KonmaiPlaylistExternalPackageLookupProvider : IPlaylistExt
                 ProviderIdValue,
                 NormalizeMd5(chartMd5),
                 downloadUri,
-                root["data"]?.Value<string>("song_name"));
+                data.Value<string>("song_name"));
             return true;
         }
-        catch
+        catch (Exception failure) when (failure is JsonException or FormatException or InvalidCastException or OverflowException)
         {
             return false;
         }
@@ -563,12 +566,14 @@ internal sealed class PlaylistExternalPackageLookupService
 
     /// <summary>
     /// provider を優先順に問い合わせ、最初に導入可能だった候補を返します。
+    /// 通常の通信失敗だけを候補内へ閉じ、内部故障と未解決の回収は呼出元へ返します。
+    /// 完了済みの保存成功は取消し後も保持し、導入へ集約する呼出元へ渡します。
     /// </summary>
     /// <param name="chartMd5">検索対象の譜面 MD5。</param>
     /// <param name="downloadAsync">候補 URL のダウンロードを試行する関数。第 2 引数には処理中断用トークンが渡されます。</param>
-    /// <param name="downloadedDownloadKeys">成功済み URL の重複判定キー。</param>
-    /// <param name="failedDownloadKeys">失敗済み URL の重複判定キー。</param>
-    /// <param name="downloadKeyFactory">候補 URL から重複判定キーを作成する関数。</param>
+    /// <param name="downloadedDownloadKeys">有意な大小文字を区別する成功済み実体キー集合。</param>
+    /// <param name="failedDownloadKeys">有意な大小文字を区別する失敗済み実体キー集合。同じ失敗実体だけを再試行から除きます。</param>
+    /// <param name="downloadKeyFactory">scheme/hostとfragmentを正規化し、path/query・共有file IDを保持するキー生成関数。</param>
     /// <param name="log">診断ログを出力する関数。</param>
     /// <param name="cancellationToken">処理を中断するためのトークン。</param>
     /// <returns>優先順検索とダウンロード試行の結果。</returns>
@@ -586,6 +591,13 @@ internal sealed class PlaylistExternalPackageLookupService
             throw new ArgumentNullException(nameof(downloadAsync));
         }
 
+        // 診断先の故障で取得候補の選択や取得済み入力の引渡しを変えません。
+        void Log(string message)
+        {
+            try { log?.Invoke(message); }
+            catch (Exception) { }
+        }
+
         bool sawLookupFailure = false;
         bool sawFailedDuplicate = false;
         PlaylistExternalPackageWorkflowResult lastDownloadFailure = null;
@@ -601,29 +613,29 @@ internal sealed class PlaylistExternalPackageLookupService
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or OperationCanceledException)
             {
                 sawLookupFailure = true;
-                log?.Invoke("playlist_external_package_lookup provider_failed provider=" + provider.ProviderId + " md5=" + chartMd5 + " errorType=" + ex.GetType().FullName + " error=" + SanitizeLogValue(ex.Message));
+                Log("playlist_external_package_lookup provider_failed provider=" + provider.ProviderId + " md5=" + chartMd5 + Environment.NewLine + ex);
                 continue;
             }
 
             if (lookupResult == null)
             {
-                log?.Invoke("playlist_external_package_lookup no_candidate provider=" + provider.ProviderId + " md5=" + chartMd5);
+                Log("playlist_external_package_lookup no_candidate provider=" + provider.ProviderId + " md5=" + chartMd5);
                 continue;
             }
 
             string downloadKey = CreateDownloadKey(downloadKeyFactory, lookupResult.DownloadUri);
             if (!string.IsNullOrWhiteSpace(downloadKey) && downloadedDownloadKeys?.Contains(downloadKey) == true)
             {
-                log?.Invoke("playlist_external_package_lookup duplicate_downloaded provider=" + provider.ProviderId + " md5=" + chartMd5 + " url=" + lookupResult.DownloadUri + " key=" + downloadKey);
+                Log("playlist_external_package_lookup duplicate_downloaded provider=" + provider.ProviderId + " md5=" + chartMd5 + " url=" + lookupResult.DownloadUri + " key=" + downloadKey);
                 return PlaylistExternalPackageWorkflowResult.Skipped(PlaylistExternalPackageWorkflowResultKind.DuplicateDownloadedUrl, lookupResult, downloadKey);
             }
             if (!string.IsNullOrWhiteSpace(downloadKey) && failedDownloadKeys?.Contains(downloadKey) == true)
             {
                 sawFailedDuplicate = true;
-                log?.Invoke("playlist_external_package_lookup duplicate_failed provider=" + provider.ProviderId + " md5=" + chartMd5 + " url=" + lookupResult.DownloadUri + " key=" + downloadKey);
+                Log("playlist_external_package_lookup duplicate_failed provider=" + provider.ProviderId + " md5=" + chartMd5 + " url=" + lookupResult.DownloadUri + " key=" + downloadKey);
                 continue;
             }
 
@@ -632,16 +644,19 @@ internal sealed class PlaylistExternalPackageLookupService
             try
             {
                 attempt = await downloadAsync(lookupResult, cancellationToken).ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
+                if (attempt?.Kind != PlaylistExternalPackageDownloadAttemptKind.Downloaded)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 throw;
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is HttpRequestException or IOException or UnauthorizedAccessException or OperationCanceledException)
             {
                 AddFailedDownloadKey(failedDownloadKeys, downloadKey);
-                log?.Invoke("playlist_external_package_lookup download_failed provider=" + provider.ProviderId + " md5=" + chartMd5 + " url=" + lookupResult.DownloadUri + " errorType=" + ex.GetType().FullName + " error=" + SanitizeLogValue(ex.Message));
+                Log("playlist_external_package_lookup download_failed provider=" + provider.ProviderId + " md5=" + chartMd5 + " url=" + lookupResult.DownloadUri + Environment.NewLine + ex);
                 lastDownloadFailure = PlaylistExternalPackageWorkflowResult.Skipped(PlaylistExternalPackageWorkflowResultKind.Failed, lookupResult, downloadKey);
                 continue;
             }
@@ -710,13 +725,7 @@ internal sealed class PlaylistExternalPackageLookupService
         return values?.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
     }
 
-    private static string SanitizeLogValue(string value)
-    {
-        return (value ?? string.Empty)
-            .Replace("\r", " ")
-            .Replace("\n", " ")
-            .Trim();
-    }
+
 }
 
 /// <summary>

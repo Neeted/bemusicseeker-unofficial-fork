@@ -17,11 +17,11 @@ internal sealed class PlaylistDetailSourceSnapshotState
     internal PlaylistSourceIdentity? CurrentIdentity;
     internal long LastBuiltLibraryIndexVersion;
     internal long LastBuiltPlaylistRevision;
+    /// <summary>元集合全体が覆うscore変更の位置です。局所投影で読んだ最新lookup版へ付け替えません。</summary>
     internal int LastBuiltScoreSnapshotVersion;
     internal int LastBuiltChartInfoIndexVersion;
-    internal long PlaylistContentRevision;
+    internal PlaylistDetailDependencies Dependencies;
     internal bool IsPlaylistCellEditing;
-    internal int PendingScoreSnapshotRefreshVersion;
     internal WeakReference<List<PlaylistDetailSourceRow>> PreviousRowsWeakReference;
     internal long PreviousGenerationId;
 }
@@ -80,6 +80,7 @@ internal sealed class PlaylistDetailViewState
                     Source.PreviousGenerationId = result.PreviousSourceGenerationId;
                 }
                 Source.Rows = request.SourceRows;
+                Source.Dependencies = request.BuildRequest.InputDependencies;
                 Source.CurrentTable = request.CurrentTable;
                 Source.CurrentSelectionScope = request.CurrentSelectionScope;
                 Source.CurrentFolderName = request.CurrentFolderName;

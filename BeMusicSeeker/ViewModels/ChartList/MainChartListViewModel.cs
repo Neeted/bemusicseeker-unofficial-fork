@@ -19,6 +19,34 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed class MainChartListViewModel : ViewModel
 {
+    private MainChartListSummaryUpdate adoptedSummary = MainChartListSummaryUpdate.Explicit(string.Empty);
+
+    /// <summary>画面の寿命内だけ、採用済み件数の言語変更を購読します。</summary>
+    internal void AttachLanguagePresentation()
+    {
+        DetachLanguagePresentation();
+        ResourceService.Current.PropertyChanged += LanguageResourcesChanged;
+        RefreshSummaryLanguage();
+    }
+
+    /// <summary>画面の退役に合わせて件数表示の購読を解除します。</summary>
+    internal void DetachLanguagePresentation()
+        => ResourceService.Current.PropertyChanged -= LanguageResourcesChanged;
+
+    private void LanguageResourcesChanged(object sender, PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName == nameof(ResourceService.Resources)) { RefreshSummaryLanguage(); }
+    }
+
+    /// <summary>採用時に正規化した数値だけを使い、一覧の再列挙・再検索をせず翻訳します。</summary>
+    internal void RefreshSummaryLanguage()
+    {
+        if (adoptedSummary.Kind != MainChartListSummaryKind.NormalCounts) { return; }
+        string next = FormatSummaryText(adoptedSummary.RowCount, adoptedSummary.DistinctFolderCount);
+        if (summaryText == next) { return; }
+        summaryText = next;
+        RaisePropertyChanged(nameof(SummaryText));
+    }
     private const long ColumnSettingSlowLogThresholdMs = 100L;
 
     private readonly Action<Action> dispatchPresentationAction;
@@ -42,6 +70,9 @@ public sealed class MainChartListViewModel : ViewModel
     private MainChartListSortTarget sortTarget;
 
     private long rowsCommitGeneration;
+
+    /// <summary>実際に現在採用されている行世代です。操作の成功は当該Taskの結果と併せて判定します。</summary>
+    internal long RowsGeneration => Interlocked.Read(ref rowsCommitGeneration);
 
     private readonly object presentationMetadataSyncRoot = new();
 
@@ -306,6 +337,9 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     internal event EventHandler RowsReplacing;
 
+    /// <summary>選択維持policyの行差替えで、Binding公開前の選択捕捉と公開後の復元を画面へ委ねます。</summary>
+    internal event EventHandler<MainChartListSelectionRestoration> RowsSelectionPreserving;
+
     internal event EventHandler RowsReplacementCanceled;
 
     internal event EventHandler RowsReplacementPublishFailed;
@@ -315,6 +349,7 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;
 
+    /// <summary>現在文脈の編集能力をpureに評価します。照会でも使うため、購読側は編集開始・受付保存を行いません。</summary>
     internal event EventHandler<MainChartListCellEditBeginningEventArgs> CellEditBeginningRequested;
 
     internal event EventHandler<MainChartListCellEditContext> CellEditStarted;
@@ -402,7 +437,7 @@ public sealed class MainChartListViewModel : ViewModel
     public CustomTableRowDragKind RowDragKind => ResolveRowDragKind(ColumnsSettings);
 
     /// <summary>
-    /// Gets or sets the summary text displayed below the main chart table.
+    /// 主一覧の集計文言を取得または明示設定します。直接の設定は通常件数の再整形入力を解除します。
     /// </summary>
     public string SummaryText
     {
@@ -410,6 +445,7 @@ public sealed class MainChartListViewModel : ViewModel
         set
         {
             string next = value ?? string.Empty;
+            adoptedSummary = MainChartListSummaryUpdate.Explicit(next);
             if (summaryText != next)
             {
                 summaryText = next;
@@ -427,6 +463,9 @@ public sealed class MainChartListViewModel : ViewModel
     /// Gets the immutable operation context for the rows currently presented by the main chart table.
     /// </summary>
     internal MainChartListOperationContext CurrentOperationContext => Volatile.Read(ref operationContext);
+
+    /// <summary>実際に表示している一覧が導入保留区分かを返します。操作バーの表示に使用します。</summary>
+    public bool IsPendingInstallViewActive => CurrentOperationContext.OperationSection == MainViewOperationSection.InstallPending;
 
     /// <summary>
     /// Updates the operation context synchronously with the shell's selected main-view mode.
@@ -449,6 +488,7 @@ public sealed class MainChartListViewModel : ViewModel
     {
         if (changed)
         {
+            RaisePropertyChanged(nameof(IsPendingInstallViewActive));
             OperationContextChanged?.Invoke(this, EventArgs.Empty);
         }
     }
@@ -489,17 +529,36 @@ public sealed class MainChartListViewModel : ViewModel
         SortRequested?.Invoke(this, new MainChartListSortRequestedEventArgs(columnName, direction, sortTarget));
     }
 
+    /// <summary>現在文脈の編集可否だけを照会し、受付中・編集中のセルを変更しません。</summary>
+    internal bool CanBeginCellEdit(object row, string propertyName)
+    {
+        return EvaluateCellEdit(CreateCellEditContext(row, propertyName));
+    }
+
+    /// <summary>照会と同じ判断を実開始時に再評価し、受理したセルだけを開始通知へ引き渡します。</summary>
     internal bool TryBeginCellEdit(object row, string propertyName)
     {
+        return TryBeginCellEditCore(CreateCellEditContext(row, propertyName));
+    }
+
+    private MainChartListCellEditContext CreateCellEditContext(object row, string propertyName)
+    {
         MainChartListOperationContext context = CurrentOperationContext;
-        return TryBeginCellEditCore(new MainChartListCellEditContext(
+        return new MainChartListCellEditContext(
             row,
             propertyName,
             context.SourceScope,
-            context.OperationSection));
+            context.OperationSection);
     }
 
     private bool TryBeginCellEditCore(MainChartListCellEditContext context)
+    {
+        bool accepted = EvaluateCellEdit(context);
+        pendingCellEditContext = accepted ? context : null;
+        return accepted;
+    }
+
+    private bool EvaluateCellEdit(MainChartListCellEditContext context)
     {
         if (context == null)
         {
@@ -507,7 +566,6 @@ public sealed class MainChartListViewModel : ViewModel
         }
         var request = new MainChartListCellEditBeginningEventArgs(context);
         CellEditBeginningRequested?.Invoke(this, request);
-        pendingCellEditContext = request.Accepted ? context : null;
         return request.Accepted;
     }
 
@@ -521,13 +579,14 @@ public sealed class MainChartListViewModel : ViewModel
         }
     }
 
-    internal void RequestCellEditEnded(object row, string propertyName, string text, bool commit)
+    /// <summary>同じ編集の開始範囲へ確定入力と捕捉済み原文を一回だけ配送し、配送前に活動中の要求を解放します。</summary>
+    internal void RequestCellEditEnded(object row, string propertyName, string text, bool commit, string originalText = null)
     {
         if (IsSameCellEdit(activeCellEditContext, row, propertyName))
         {
             MainChartListCellEditContext context = activeCellEditContext;
             activeCellEditContext = null;
-            var request = new MainChartListCellEditEndedEventArgs(context, text, commit);
+            var request = new MainChartListCellEditEndedEventArgs(context, text, commit, originalText);
             CellEditEndedRequested?.Invoke(this, request);
         }
     }
@@ -586,9 +645,9 @@ public sealed class MainChartListViewModel : ViewModel
     }
 
     /// <summary>
-    /// Updates the normal chart-list summary from the supplied row collection.
+    /// 通常一覧の行から件数を捕捉し、行集合を保持せず言語再整形できる数値へ正規化します。
     /// </summary>
-    /// <param name="rowsForSummary">Rows used to calculate visible chart and folder counts.</param>
+    /// <param name="rowsForSummary">表示件数とフォルダ数の入力です。nullは明示的に集計を解除します。</param>
     public void UpdateSummaryText(IList rowsForSummary)
     {
         if (rowsForSummary == null)
@@ -607,13 +666,14 @@ public sealed class MainChartListViewModel : ViewModel
     }
 
     /// <summary>
-    /// Updates the normal chart-list summary from known chart and folder counts.
+    /// 採用する通常一覧の件数を保持して表示し、以後の言語変更で同じ数値を再整形します。
     /// </summary>
-    /// <param name="rowCount">Visible chart count.</param>
-    /// <param name="distinctFolderCount">Visible distinct-folder count.</param>
+    /// <param name="rowCount">表示する譜面件数。</param>
+    /// <param name="distinctFolderCount">表示するフォルダ数。不明値の扱いは既存の書式に従います。</param>
     public void UpdateSummaryText(int rowCount, int distinctFolderCount)
     {
         SummaryText = FormatSummaryText(rowCount, distinctFolderCount);
+        adoptedSummary = MainChartListSummaryUpdate.NormalCounts(rowCount, distinctFolderCount);
     }
 
     /// <summary>
@@ -750,7 +810,8 @@ public sealed class MainChartListViewModel : ViewModel
             throw new ArgumentNullException(nameof(request.ColumnsSettings));
         }
 
-        string nextSummaryText = ResolveSummaryText(request.Summary);
+        MainChartListSummaryUpdate nextSummary = NormalizeSummary(request.Summary);
+        string nextSummaryText = ResolveSummaryText(nextSummary);
         int nextSelectedIndex = request.SelectionPolicy == MainChartListSelectionPolicy.Reset
             ? -1
             : selectedIndex;
@@ -793,7 +854,8 @@ public sealed class MainChartListViewModel : ViewModel
             summaryChanged,
             selectionChanged,
             rowsReplacementPrepared,
-            prepareSwapMs);
+            prepareSwapMs)
+        { NextSummary = nextSummary };
     }
 
     private MainChartListRowsCommit CommitPreparedRows(MainChartListPreparedRowsApply prepared)
@@ -840,6 +902,7 @@ public sealed class MainChartListViewModel : ViewModel
         columnsSettings = request.ColumnsSettings;
         selectedIndex = prepared.NextSelectedIndex;
         summaryText = prepared.NextSummaryText;
+        adoptedSummary = prepared.NextSummary;
         bool operationContextChanged = request.OperationContextMode.HasValue
             && CommitOperationContextWithoutNotification(request.OperationContextMode.Value);
         prepared.Committed = true;
@@ -920,6 +983,12 @@ public sealed class MainChartListViewModel : ViewModel
         long setViewNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
         long columnNotificationMs = 0L;
         var publishExceptions = new List<Exception>();
+        MainChartListSelectionRestoration selectionRestoration = null;
+        if (prepared.RowsChanged && request.SelectionPolicy == MainChartListSelectionPolicy.Preserve && IsCurrentRowsCommit(commit))
+        {
+            selectionRestoration = new(request.Rows);
+            TryPublish(() => RowsSelectionPreserving?.Invoke(this, selectionRestoration), publishExceptions);
+        }
         if (prepared.RowsChanged && IsCurrentRowsCommit(commit))
         {
             TryPublish(() => RaisePropertyChanged(nameof(Rows)), publishExceptions);
@@ -943,6 +1012,10 @@ public sealed class MainChartListViewModel : ViewModel
         {
             TryPublish(() => RaisePropertyChanged(nameof(SelectedIndex)), publishExceptions);
         }
+        if (selectionRestoration != null && IsCurrentRowsCommit(commit))
+        {
+            TryPublish(selectionRestoration.Restore, publishExceptions);
+        }
         if (commit.OperationContextChanged && IsCurrentRowsCommit(commit))
         {
             TryPublish(() => PublishOperationContextChanged(changed: true), publishExceptions);
@@ -963,7 +1036,8 @@ public sealed class MainChartListViewModel : ViewModel
             columnSettingMs,
             setViewMs,
             columnStageMs,
-            request.ColumnSettingReuse);
+            request.ColumnSettingReuse,
+            commit.Generation);
         if (publishExceptions.Count > 0)
         {
             throw new AggregateException(
@@ -998,16 +1072,6 @@ public sealed class MainChartListViewModel : ViewModel
         }
     }
 
-    internal bool TryUpdateNormalSummary(IList expectedRows, int rowCount, int distinctFolderCount)
-    {
-        if (!ReferenceEquals(rows, expectedRows))
-        {
-            return false;
-        }
-        UpdateSummaryText(rowCount, distinctFolderCount);
-        return true;
-    }
-
     private static CustomTableRowDragKind ResolveRowDragKind(CustomTableColumnSettings settings)
     {
         return CustomTableRowDragKind.PlaylistDropCandidateRows;
@@ -1040,6 +1104,16 @@ public sealed class MainChartListViewModel : ViewModel
         };
     }
 
+    private MainChartListSummaryUpdate NormalizeSummary(MainChartListSummaryUpdate summary)
+        => summary.Kind switch
+        {
+            MainChartListSummaryKind.Preserve => adoptedSummary,
+            MainChartListSummaryKind.NormalRows => MainChartListSummaryUpdate.NormalCounts(summary.Rows.Count,
+                summary.Rows is IChartListViewMetadata metadata ? metadata.DistinctFolderCount
+                    : CountDistinctFoldersForRows(summary.Rows)),
+            _ => summary
+        };
+
     private static string FormatSummaryText(int rowCount, int distinctFolderCount)
     {
         string text = "[" + rowCount + BeMusicSeeker.Properties.Resources.Num_songs;
@@ -1066,10 +1140,6 @@ public sealed class MainChartListViewModel : ViewModel
 
     private static string GetSummaryFolderName(object row)
     {
-        if (row is BMSFile bmsFile)
-        {
-            return bmsFile.Folder;
-        }
         if (row is PlaylistDetailRow playlistDetailRow)
         {
             return playlistDetailRow.Folder;
@@ -1185,9 +1255,11 @@ internal sealed class MainChartListCellEditBeginningEventArgs : EventArgs
 
 internal sealed class MainChartListCellEditEndedEventArgs : EventArgs
 {
-    internal MainChartListCellEditEndedEventArgs(MainChartListCellEditContext context, string text, bool commit)
+    /// <summary>開始時の文脈・原文と終端入力を保持します。原文を持たない直接要求は省略できますが行から補完しません。</summary>
+    internal MainChartListCellEditEndedEventArgs(MainChartListCellEditContext context, string text, bool commit, string originalText = null)
     {
         Context = context ?? throw new ArgumentNullException(nameof(context));
+        OriginalText = originalText;
         Text = text ?? string.Empty;
         Commit = commit;
     }
@@ -1195,6 +1267,9 @@ internal sealed class MainChartListCellEditEndedEventArgs : EventArgs
     internal MainChartListCellEditContext Context { get; }
 
     internal string Text { get; }
+
+    /// <summary>編集部品が開始時に捕捉した原文です。行の現在値から再構成しません。</summary>
+    internal string OriginalText { get; }
 
     internal bool Commit { get; }
 }
@@ -1342,6 +1417,8 @@ internal sealed class MainChartListRowsApplyRequest
 
 internal sealed class MainChartListPreparedRowsApply
 {
+    /// <summary>採用後に行集合を保持しない、数値または明示文言へ正規化した集計です。</summary>
+    internal MainChartListSummaryUpdate NextSummary { get; init; }
     internal MainChartListPreparedRowsApply(
         MainChartListRowsApplyRequest request,
         string nextSummaryText,
@@ -1540,14 +1617,19 @@ internal readonly struct MainChartListRowsApplyResult
         long columnSettingMs,
         long setViewMs,
         long columnStageMs,
-        bool columnSettingReuse)
+        bool columnSettingReuse,
+        long generation = 0)
     {
         PrepareSwapMs = prepareSwapMs;
         ColumnSettingMs = columnSettingMs;
         SetViewMs = setViewMs;
         ColumnStageMs = columnStageMs;
         ColumnSettingReuse = columnSettingReuse;
+        Generation = generation;
     }
+
+    /// <summary>この結果を作った実行の行採用世代です。後発の現在世代を取り直しません。</summary>
+    internal long Generation { get; }
 
     internal long PrepareSwapMs { get; }
 

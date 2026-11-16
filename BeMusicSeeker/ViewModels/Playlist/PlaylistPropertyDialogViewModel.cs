@@ -2,13 +2,15 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
-using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Views.Dialogs;
 using Livet;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -21,13 +23,18 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
 
     private readonly PlaylistPropertySaveService saveService;
 
+    private readonly Func<Task> waitForSavedPresentation;
+
     private PlaylistPropertyEditSession editSession;
 
     private readonly bool isForNewTable;
 
     private int operationInProgress;
 
-    private PlaylistPropertySaveCommit incompletePostSaveCommit;
+    private readonly IUiDialogService dialogService;
+
+    // 外部同期の切替えの確認中の Task。ViewModel が所有し、確認中は値を確定しません。
+    private Task externalSyncConfirmation;
 
     private ObservableCollection<string> _folder_order;
 
@@ -234,7 +241,9 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
                 }
                 RaisePropertyChanged("name");
                 RaisePropertyChanged(nameof(output_dir));
-                if (temp_custom_folder_output_settings?.OperationModeLR2DB == true && !IsOutputDirValid())
+                // 同名は保存時に一回だけ案内します。入力時は、名前由来の出力先の重なりも同名が原因のため案内しません。
+                if (!saveService.IsDuplicateNameInput(editSession, _name)
+                    && temp_custom_folder_output_settings?.OperationModeLR2DB == true && !IsOutputDirValid())
                 {
                     saveService.NotifyValidationError(PlaylistPropertyValidationError.OutputDirectoryChangedByPlaylistName);
                 }
@@ -259,6 +268,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>ページURLを取得・設定します。nullは明示解除とし、非nullの入力は既存の絶対URI検証・空白解除を維持します。</summary>
     public Uri Page_url
     {
         get
@@ -273,7 +283,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         {
             if (!(_Page_url == value))
             {
-                if (IsUrlValid(value) && value.IsAbsoluteUri)
+                if (value == null)
+                {
+                    _Page_url = null;
+                }
+                else if (IsUrlValid(value) && value.IsAbsoluteUri)
                 {
                     _Page_url = value;
                 }
@@ -361,26 +375,69 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
                 value = false;
                 saveService.NotifyValidationError(PlaylistPropertyValidationError.InvalidExternalSyncUris);
             }
-            if (!_is_external_sync && value)
-            {
-                if (!saveService.ConfirmExternalSyncChange(enable: true))
-                {
-                    RaisePropertyChanged("is_external_sync");
-                    return;
-                }
-            }
-            else if (_is_external_sync && !value)
-            {
-                if (!saveService.ConfirmExternalSyncChange(enable: false))
-                {
-                    RaisePropertyChanged("is_external_sync");
-                    return;
-                }
-            }
-            _is_external_sync = value;
+            // 値は確認の承認まで確定しません。表示を旧値へ戻したうえで確認を始め、承認後に値を設定します。
             RaisePropertyChanged("is_external_sync");
+            if (_is_external_sync == value || externalSyncConfirmation is { IsCompleted: false })
+            {
+                // 検証で旧値へ戻した場合と、確認中のさらなる切替えは、表示を戻すだけにします。
+                return;
+            }
+            externalSyncConfirmation = ConfirmAndApplyExternalSyncAsync(value);
         }
     }
+
+    /// <summary>
+    /// 外部同期の切替えの確認を窓口へ依頼し、承認された場合だけ値を設定して変更を通知します。
+    /// 確認の表示の失敗は承認にも取消にも読み替えず、値を変えずにログへ残し、この入口から Error の通知を一度だけ試みます。
+    /// 戻り値の Task は失敗しません。
+    /// </summary>
+    private async Task ConfirmAndApplyExternalSyncAsync(bool enable)
+    {
+        try
+        {
+            UiDialogResult result = await dialogService.ConfirmAsync(new UiConfirmationRequest(
+                enable
+                    ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
+                    : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.None)).ConfigureAwait(true);
+            UiDialogRoute.ThrowIfNotShown(result, "playlist property external sync confirmation");
+            if (result.MessageBoxResult is not (MessageBoxResult.OK or MessageBoxResult.Yes) || editSession == null)
+            {
+                // 拒否、または確認中に編集セッションが終わった場合は、値を変えません。
+                return;
+            }
+            _is_external_sync = enable;
+            RaisePropertyChanged("is_external_sync");
+        }
+        catch (Exception failure)
+        {
+            await NotifyExternalSyncConfirmationFailureAsync(failure).ConfigureAwait(true);
+        }
+    }
+
+    private async Task NotifyExternalSyncConfirmationFailureAsync(Exception failure)
+    {
+        try { NLogWrapper.FileLogger?.Warn(failure, "playlist_property_external_sync_confirmation_failed"); }
+        catch { /* 診断先の失敗を操作の結果や別の通知へ合成しません。 */ }
+        try
+        {
+            UiDialogResult notification = await dialogService.ShowMessageAsync(UiMessageRequest.CreateError(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + failure.Message,
+                BeMusicSeeker.Properties.Resources.Error)).ConfigureAwait(true);
+            UiDialogRoute.ThrowIfNotShown(notification, "playlist property external sync confirmation failure notification");
+        }
+        catch (Exception notificationFailure)
+        {
+            try { NLogWrapper.FileLogger?.Warn(notificationFailure, "playlist_property_external_sync_confirmation_failure_notification_failed"); }
+            catch { /* 任意の通知の失敗はログだけに留めます。 */ }
+        }
+    }
+
+    /// <summary>確認中の外部同期の切替えがあれば、その終端まで待ちます。保存と初期化は、確定した値だけを使うために先に待ちます。</summary>
+    private Task WaitForExternalSyncConfirmationAsync() => externalSyncConfirmation ?? Task.CompletedTask;
 
     public bool is_root_folder
     {
@@ -398,6 +455,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>既存値の単一名表示と、新しい明示出力名の検査・候補更新を行います。</summary>
     public string output_dir
     {
         get
@@ -406,6 +464,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         }
         set
         {
+            if (!BMSTable.IsOutputDirectoryNameInputValid(value))
+            {
+                saveService.NotifyValidationError(PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName);
+                return;
+            }
             value = BMSTable.NormalizeOutputDirectoryName(value);
             string defaultOutputDirectoryName = BMSTable.CreateDefaultOutputDirectoryName(name);
             if (!string.IsNullOrWhiteSpace(value)
@@ -469,14 +532,27 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         return options.FirstOrDefault(option =>
                 !option.IsNoChange
                 && string.Equals(option.BaseName, normalized, StringComparison.OrdinalIgnoreCase))
+            ?? (normalized == null ? null : AddUnregisteredOutputBaseOption(normalized))
             ?? options.FirstOrDefault(option => !option.IsNoChange && option.BaseName == null)
             ?? options.FirstOrDefault();
     }
 
+    private PlaylistCustomFolderOutputBaseOption AddUnregisteredOutputBaseOption(string name)
+    {
+        var option = new PlaylistCustomFolderOutputBaseOption(name, name);
+        _outputBaseOptions = OutputBaseOptions.Append(option).ToArray();
+        return option;
+    }
+
+    /// <param name="dialogService">外部同期の切替えの確認と、確認の失敗の通知を表示する窓口。null は許されません。</param>
     internal PlaylistPropertyDialogViewModel(
         PlaylistPropertySaveService service,
-        PlaylistPropertyEditSession preparedSession)
+        PlaylistPropertyEditSession preparedSession,
+        IUiDialogService dialogService,
+        Func<Task> waitForSavedPresentation = null)
     {
+        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+        this.waitForSavedPresentation = waitForSavedPresentation;
         saveService = service ?? throw new ArgumentNullException(nameof(service));
         editSession = preparedSession ?? throw new ArgumentNullException(nameof(preparedSession));
         bmsTable = editSession.Table;
@@ -541,15 +617,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         {
             return true;
         }
-        if (Page_url != null && Page_url.Scheme == "bmseeker")
-        {
-            return true;
-        }
-        if (Header_url != null && Data_url != null && ((Page_url != null && Page_url.IsAbsoluteUri) || Header_url.IsAbsoluteUri))
-        {
-            return true;
-        }
-        return false;
+        return BMSTable.CanStartExternalSync(Page_url, Header_url);
     }
 
     private bool IsOutputDirValid()
@@ -564,7 +632,7 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             return false;
         }
         string storedValue = PlaylistPropertySaveService.NormalizeSummaryOutputDirectory(name, value);
-        return saveService.IsOutputDirectoryValid(editSession, name, storedValue);
+        return saveService.IsOutputDirectoryValid(editSession, name, storedValue, custom_folder_output_base_option?.BaseName, is_root_folder);
     }
 
     internal async Task<PlaylistPropertyDialogOperationResult> ResetPropertiesAsync()
@@ -575,16 +643,10 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         }
         try
         {
-            if (incompletePostSaveCommit != null)
-            {
-                throw new InvalidOperationException(
-                    "Playlist save follow-up is incomplete. Retry Save before closing the dialog.");
-            }
+            await WaitForExternalSyncConfirmationAsync().ConfigureAwait(true);
             PlaylistPropertyValues values = await saveService.ResetAsync(editSession);
             loadTableProperties(values);
-            return isForNewTable || CheckValidation()
-                ? PlaylistPropertyDialogOperationResult.Completed
-                : PlaylistPropertyDialogOperationResult.ValidationFailed;
+            return PlaylistPropertyDialogOperationResult.Completed;
         }
         finally
         {
@@ -597,66 +659,82 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         return saveService.IsValid(editSession, CreatePropertyValues());
     }
 
+    /// <summary>同じPで未完了出力を先に終え、保存結果の確定参照と最新値を採用してから元失敗を通知します。継続失敗時は未保存の編集中入力を保ちます。</summary>
     internal async Task<PlaylistPropertyDialogOperationResult> SaveAndApplyAsync()
     {
         if (Interlocked.CompareExchange(ref operationInProgress, 1, 0) != 0)
         {
             return PlaylistPropertyDialogOperationResult.Busy;
         }
+        // 保存の通知（出力の警告・外部同期の失敗など）は、Pを解放した後にまとめて表示を依頼します。
+        // 収集先はPより外側に置き、保存サービスの内側の収集先は、この収集先へ引き継がれます。
+        using PlaylistOperationNotificationOwner.OperationNotificationSession operationNotifications =
+            editSession.Store.OperationNotificationOwner.BeginSession();
+        try
+        {
+            return await SaveAndApplyAdmittedAsync().ConfigureAwait(true);
+        }
+        finally
+        {
+            await saveService.PublishNotificationsAfterReleaseAsync(operationNotifications, "playlist property save notification").ConfigureAwait(true);
+        }
+    }
+
+    private async Task<PlaylistPropertyDialogOperationResult> SaveAndApplyAdmittedAsync()
+    {
         PlaylistPropertySaveCommit commit = null;
+        IDisposable admission = null;
+        LibraryFileMutationCapability capability = null;
+        try
+        {
+            // 確認中の切替えは、保存が使う値を確定させるため、受付を取得する前に終端まで待ちます。
+            await WaitForExternalSyncConfirmationAsync().ConfigureAwait(true);
+            if (!editSession.Store.TryEnterPlaylistMutation(out admission))
+            {
+                Volatile.Write(ref operationInProgress, 0);
+                // 受付（P）の競合は、副作用なし・下書き保持で一回案内します。同じ画面の操作が進行中のための拒否（上の判定）は案内しません。
+                saveService.NotifyPlaylistBusyRejection(editSession);
+                return PlaylistPropertyDialogOperationResult.Busy;
+            }
+            capability = editSession.Store.CreatePlaylistMutationCapability(admission);
+        }
+        catch
+        {
+            admission?.Dispose();
+            Volatile.Write(ref operationInProgress, 0);
+            throw;
+        }
+        using IDisposable acceptedOperation = admission;
+        using LibraryFileMutationCapability acceptedAuthority = capability;
         try
         {
             PlaylistPropertyValues values = CreatePropertyValues();
-            if (incompletePostSaveCommit != null)
+            (commit, PlaylistPropertyValidationError? validationError) = await saveService.TrySaveAsync(editSession, values, capability);
+            if (commit == null)
             {
-                if (!PlaylistPropertyValues.ContentEquals(
-                    incompletePostSaveCommit.AppliedValues,
-                    values))
+                if (validationError == PlaylistPropertyValidationError.DuplicatePlaylistName)
                 {
-                    throw new InvalidOperationException(
-                        "Playlist save follow-up must be retried before changing properties again.");
+                    // 同名の案内は操作の収集先へ積み、受付を解放した後に表示します。
+                    saveService.NotifyValidationError(PlaylistPropertyValidationError.DuplicatePlaylistName);
+                    return PlaylistPropertyDialogOperationResult.DuplicatePlaylistName;
                 }
-                if (!await saveService.IsRetryTargetCurrentAsync(
-                    editSession,
-                    incompletePostSaveCommit))
-                {
-                    throw new InvalidOperationException(
-                        "Playlist properties changed while save follow-up was pending. Reopen the dialog before saving again.");
-                }
-                commit = incompletePostSaveCommit;
+                return validationError == PlaylistPropertyValidationError.OutputDirectoryNameMustBeSingleName
+                    ? PlaylistPropertyDialogOperationResult.OutputDirectoryNameMustBeSingleName
+                    : PlaylistPropertyDialogOperationResult.ValidationFailed;
             }
-            else
-            {
-                commit = await saveService.TrySaveAsync(editSession, values);
-                if (commit == null)
-                {
-                    return PlaylistPropertyDialogOperationResult.ValidationFailed;
-                }
-            }
-            await Task.Run(() => saveService.ApplyPostSaveUpdatesAsync(commit));
-            bmsTable = commit.Table;
-            incompletePostSaveCommit = null;
+            editSession.Adopt(commit);
+            bmsTable = editSession.Table;
+            Exception presentationFailure = null;
+            try { if (commit.RequestedValuesSaved) { loadTableProperties(editSession.Values); } }
+            catch (Exception failure) { presentationFailure = failure; }
+            // 継続失敗時も取消基準は最新確定値です。画面反映が失敗しても共通配送の終端を試みます。
+            try { if (waitForSavedPresentation != null) { await waitForSavedPresentation(); } }
+            catch (Exception failure) { presentationFailure ??= failure; }
+            try { await commit.SavedPresentation; }
+            catch (Exception failure) { presentationFailure ??= failure; }
+            saveService.PublishSaveFailure(commit);
+            if (presentationFailure != null) { System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(presentationFailure).Throw(); }
             return PlaylistPropertyDialogOperationResult.Completed;
-        }
-        catch (Exception saveFailure) when (commit != null)
-        {
-            incompletePostSaveCommit = commit;
-            try
-            {
-                PlaylistPropertyEditSession reconciledSession =
-                    await saveService.ReconcileFailedSaveAsync(editSession, commit);
-                editSession.Dispose();
-                editSession = reconciledSession;
-                bmsTable = reconciledSession.Table;
-                loadTableProperties(reconciledSession.Values);
-                commit.AppliedValues = CreatePropertyValues();
-            }
-            catch (Exception reconciliationFailure)
-            {
-                throw new AggregateException(saveFailure, reconciliationFailure).Flatten();
-            }
-            ExceptionDispatchInfo.Capture(saveFailure).Throw();
-            throw new InvalidOperationException("Playlist save failure propagation unexpectedly returned.");
         }
         finally
         {
@@ -680,7 +758,8 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             HeaderUrl = Header_url,
             DataUrl = Data_url,
             IsExternalSync = is_external_sync,
-            OutputDirectory = output_dir,
+            // 表示用getterの整形で、無変更の旧保存値を新規入力へ変えない。
+            OutputDirectory = _output_dir,
             CustomFolderOutputBaseName = custom_folder_output_base_option?.BaseName,
             IsRootFolder = is_root_folder,
             CompatPrefix = compat_prefix
@@ -737,9 +816,13 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
     }
 }
 
+/// <summary>画面を閉じられる終端か、入力訂正または受付の再操作が必要かを返します。</summary>
 internal enum PlaylistPropertyDialogOperationResult
 {
     Completed,
     ValidationFailed,
+    OutputDirectoryNameMustBeSingleName,
+    /// <summary>同名による拒否。案内はViewModelが通知済みで、画面は入力を保持して開いたままにします。</summary>
+    DuplicatePlaylistName,
     Busy
 }

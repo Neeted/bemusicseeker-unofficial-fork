@@ -617,7 +617,7 @@ feature:
 </tr>
 <tr>
 <td style="text-align: left;"><code>Enter</code> / <code>Tab</code></td>
-<td style="text-align: left;">選択中の候補を入力する</td>
+<td style="text-align: left;"><code>↑</code> / <code>↓</code> で選んだ候補を入力する。候補を選んでいないときは、<code>Enter</code> で入力したとおりに検索を確定して履歴へ保存する。<code>Tab</code> は、項目名または値を1文字以上入力していれば先頭の候補で補完し、空欄や <code>:</code> の直後などでは次の項目へ移動する</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Esc</code></td>
@@ -737,8 +737,12 @@ title:alpha|beta
 <td style="text-align: left;">演奏時間（秒）</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>judge</code> / <code>judge%</code> / <code>judgepct</code></td>
-<td style="text-align: left;">判定幅。<code>veryhard</code>、<code>hard</code>、<code>normal</code>、<code>easy</code>、<code>veryeasy</code> も利用できます</td>
+<td style="text-align: left;"><code>judge</code></td>
+<td style="text-align: left;">判定幅。数値条件と <code>defined</code> / <code>undefined</code> のほか、<code>veryhard</code>、<code>hard</code>、<code>normal</code>、<code>easy</code>、<code>veryeasy</code> も利用できます</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>judge%</code> / <code>judgepct</code></td>
+<td style="text-align: left;">判定幅の数値条件と <code>defined</code> / <code>undefined</code> を利用できます</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>feature</code></td>
@@ -814,6 +818,7 @@ title:alpha|beta
 </tr>
 </tbody>
 </table></div>
+<p><code>RATE</code> の表示は百分率ですが、数値条件と正規表現は0～1の尺度を使います。<code>rate:&gt;=0.8</code> は80%以上、<code>rate:re:^0[.]8$</code> は80%に一致します。正規表現でも小数点は <code>.</code> を使います。</p>
 <p>検索対象を指定しない場合、メインの譜面一覧では TITLE、ARTIST、GENRE、TAG、PATH、プレイリストの表示記号、MD5、SHA256 を検索します。プレイリスト詳細では、さらにメモとコメントも検索します。</p>
 <h3 id="プレイリスト一覧">プレイリスト一覧</h3>
 <div class="table-scroll"><table>
@@ -940,6 +945,7 @@ title:alpha|beta
 </tbody>
 </table></div>
 <p>検索対象を指定しない場合は、TITLE、ARTIST、PATH、FOLDER欄、参照プレイリスト名、各ハッシュ値、TYPE、クリア状態、取得元、プレイ日付などを検索します。</p>
+<p><code>date:re:"^2026-06-19 12:"</code> のように、DATE 列の <code>yyyy-MM-dd HH:mm:ss</code> を正規表現で検索できます。日付だけの <code>yyyy-MM-dd</code> と <code>yyyy/MM/dd</code> も引き続き検索候補になります。</p>
 <p>プレイログでは、<code>level</code>、<code>difficulty</code>、<code>notes</code>、<code>rank</code>、<code>rate</code>、<code>score</code>、<code>bp</code> など、譜面一覧用の検索対象は利用できません。</p>
 <p>上部のサマリーカードと検索欄は組み合わせて利用できます。たとえば SCORE 更新カードを選んだ状態は <code>type:score</code>、EASY カードは <code>type:clear newclear:EC</code> に相当します。検索欄の条件とは AND、複数のカード同士は OR で絞り込まれます。</p>
 <hr/>
@@ -1085,8 +1091,12 @@ date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
 title:re:^alpha
 -title:re:^test
 path:re:\\BMS\\.*\.bms$
+title:re:^(alpha|beta)$
+title:re:"^a b"
 </code></pre></div>
+<p><code>re:</code> の後ろは、<code>|</code> を含めて全体が1つの正規表現です。<code>title:re:^(alpha|beta)$</code> は <code>alpha</code> または <code>beta</code> に一致します。スペースを含む式は、<code>title:re:"^a b"</code> のように式全体をダブルクォートで囲みます。</p>
 <p>正規表現は大文字・小文字を区別しません。処理に時間がかかりすぎる式は途中で停止し、その条件には一致しなかったものとして扱われます。</p>
+<p>表示上の空欄も検索対象です。<code>memo:re:^$</code> は MEMO が空欄の行、<code>-memo:re:^$</code> は空欄でない行に一致します。空白文字だけの値は空欄に含めません。参照プレイリスト名など複数の値を探す項目では、値がない場合を空文字として検索しません。</p>
 <h3 id="ダブルクォート内で--や--を検索する">ダブルクォート内で <code>"</code> や <code>\</code> を検索する</h3>
 <p>ダブルクォート内では、<code>\"</code> で <code>"</code>、<code>\\</code> で <code>\</code> を表します。</p>
 <div class="highlight"><pre><span></span><code>title:"alpha \"quoted\""

@@ -616,7 +616,7 @@ feature:
 </tr>
 <tr>
 <td style="text-align: left;"><code>Enter</code> / <code>Tab</code></td>
-<td style="text-align: left;">Insert the selected suggestion</td>
+<td style="text-align: left;">Insert the suggestion selected with <code>↑</code> / <code>↓</code>. When no suggestion is selected, <code>Enter</code> confirms the search as typed and saves it to history. <code>Tab</code> completes the first suggestion if you have typed at least one character of a field name or value; otherwise (blank input, right after <code>:</code>, and so on) it moves to the next control</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>Esc</code></td>
@@ -736,8 +736,12 @@ title:alpha|beta
 <td style="text-align: left;">Play duration in seconds</td>
 </tr>
 <tr>
-<td style="text-align: left;"><code>judge</code> / <code>judge%</code> / <code>judgepct</code></td>
-<td style="text-align: left;">Judge width. Also accepts <code>veryhard</code>, <code>hard</code>, <code>normal</code>, <code>easy</code>, and <code>veryeasy</code></td>
+<td style="text-align: left;"><code>judge</code></td>
+<td style="text-align: left;">Judge width. Accepts numeric conditions, <code>defined</code> / <code>undefined</code>, and the names <code>veryhard</code>, <code>hard</code>, <code>normal</code>, <code>easy</code>, and <code>veryeasy</code></td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>judge%</code> / <code>judgepct</code></td>
+<td style="text-align: left;">Judge width. Accepts numeric conditions and <code>defined</code> / <code>undefined</code></td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>feature</code></td>
@@ -813,6 +817,7 @@ title:alpha|beta
 </tr>
 </tbody>
 </table></div>
+<p><code>RATE</code> is displayed as a percentage, but numeric conditions and regular expressions use a value from 0 to 1. <code>rate:&gt;=0.8</code> matches 80% or higher; <code>rate:re:^0[.]8$</code> matches 80%. Regular expressions also use <code>.</code> as the decimal separator.</p>
 <p>Without a field, the main chart list searches TITLE, ARTIST, GENRE, TAG, PATH, playlist display symbols, MD5, and SHA256. Playlist detail also searches memo and comment.</p>
 <h3 id="playlist-list">Playlist List</h3>
 <div class="table-scroll"><table>
@@ -939,6 +944,7 @@ title:alpha|beta
 </tbody>
 </table></div>
 <p>Without a field, Play Log searches TITLE, ARTIST, PATH, the FOLDER display name, referenced playlist names, hashes, TYPE, clear status, source, and play date.</p>
+<p>Use a regular expression such as <code>date:re:"^2026-06-19 12:"</code> to search the DATE column's <code>yyyy-MM-dd HH:mm:ss</code> value. The date-only forms <code>yyyy-MM-dd</code> and <code>yyyy/MM/dd</code> remain search candidates.</p>
 <p>Play Log does not support chart-list fields such as <code>level</code>, <code>difficulty</code>, <code>notes</code>, <code>rank</code>, <code>rate</code>, <code>score</code>, or <code>bp</code>.</p>
 <p>Summary cards above the list can be combined with the search box. For example, the SCORE update card is equivalent to <code>type:score</code>, and the EASY card is equivalent to <code>type:clear newclear:EC</code>. Card filters are combined with the search box using AND; multiple selected cards are combined with OR.</p>
 <hr/>
@@ -1084,8 +1090,12 @@ date:"2026/08/27 10:22:50..2026/08/27 11:04:12"
 title:re:^alpha
 -title:re:^test
 path:re:\\BMS\\.*\.bms$
+title:re:^(alpha|beta)$
+title:re:"^a b"
 </code></pre></div>
+<p>Everything after <code>re:</code>, including any <code>|</code>, is one regular expression. <code>title:re:^(alpha|beta)$</code> matches <code>alpha</code> or <code>beta</code>. For an expression that contains a space, enclose the whole expression in double quotation marks, as in <code>title:re:"^a b"</code>.</p>
 <p>Regular-expression matching is case-insensitive. An expression that takes too long is stopped and treated as not matching that condition.</p>
+<p>Blank displayed values are also searched. <code>memo:re:^$</code> matches rows with a blank MEMO, and <code>-memo:re:^$</code> matches rows with a nonblank MEMO. Whitespace-only values are not blank. A field that searches multiple values, such as referenced playlist names, is not treated as an empty string when it has no values.</p>
 <h3 id="search-for--or--inside-double-quotes">Search for <code>"</code> or <code>\</code> Inside Double Quotes</h3>
 <p>Inside double quotes, use <code>\"</code> for <code>"</code> and <code>\\</code> for <code>\</code>.</p>
 <div class="highlight"><pre><span></span><code>title:"alpha \"quoted\""

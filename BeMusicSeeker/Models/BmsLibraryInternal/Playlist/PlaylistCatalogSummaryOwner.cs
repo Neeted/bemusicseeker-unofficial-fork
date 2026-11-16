@@ -137,7 +137,7 @@ internal sealed class PlaylistCatalogSummaryOwner
                     cacheHit = true;
                     return cachedResult;
                 }
-                entriesRevision = table.PlaylistEntriesRevision;
+                entriesRevision = table.EntryLookupRevision;
                 entriesLoadState = table.PlaylistEntriesLoadState;
                 lock (gate)
                 {
@@ -151,7 +151,7 @@ internal sealed class PlaylistCatalogSummaryOwner
             cancellationToken.ThrowIfCancellationRequested();
             using (table.ReaderWriterLock.GetReaderGuard())
             {
-                if (table.PlaylistEntriesRevision != entriesRevision
+                if (table.EntryLookupRevision != entriesRevision
                     || table.PlaylistEntriesLoadState != entriesLoadState
                     || !string.Equals(
                         key,
@@ -242,7 +242,7 @@ internal sealed class PlaylistCatalogSummaryOwner
             ? "id:" + table.playlist_id.Value.ToString(CultureInfo.InvariantCulture)
             : "name:" + (table.name ?? string.Empty) + "|symbol:" + (table.symbol ?? string.Empty);
         return tableKey
-            + "|entryRevision:" + table.PlaylistEntriesRevision.ToString(CultureInfo.InvariantCulture)
+            + "|entryRevision:" + table.EntryLookupRevision.ToString(CultureInfo.InvariantCulture)
             + "|owned:" + ownedSnapshotVersion.ToString(CultureInfo.InvariantCulture)
             + "|state:" + table.PlaylistEntriesLoadState;
     }

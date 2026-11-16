@@ -1,0 +1,3922 @@
+using System.ComponentModel;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
+using System.Windows.Threading;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
+using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
+using Newtonsoft.Json.Linq;
+using static BeMusicSeeker.Tests.SettingsRootTestFixture;
+using static BeMusicSeeker.Tests.SettingsWindowTestFixture;
+using static BeMusicSeeker.TestSupport.Components.SettingsMediaTestFixture;
+using static BeMusicSeeker.TestSupport.Wpf.SettingsStartupTestFixture;
+
+namespace BeMusicSeeker.Tests;
+
+/// <summary>設定適用の保存・後続処理・失敗／取消・実 owner 接続を検証します。</summary>
+/// <remarks>共有 culture・theme・Bass 受付と composition 購読を使うため非並列にします。</remarks>
+[TestClass]
+[TestCategory("Windows.Settings")]
+[DoNotParallelize]
+public sealed class SettingDialogEditCompletionTests
+{
+    private TestWorkspace? ownedWorkspace;
+
+    /// <summary>初期化済みのケース専有媒体だけを返し、constructorでは領域を作りません。</summary>
+    private TestWorkspace CaseWorkspace => ownedWorkspace
+        ?? throw new InvalidOperationException("ケースの可変媒体はTestInitialize後に利用します。");
+
+    /// <summary>ケースのconstructorと既存field準備が成功した後に可変媒体を所有します。</summary>
+    [TestInitialize]
+    public void InitializeWorkspace() => ownedWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+    /// <summary>ケース固有の処理と既存finallyが終わった後に、開始済みの所有媒体だけを回収します。</summary>
+    [TestCleanup]
+    public void CleanupWorkspace() => ownedWorkspace?.Dispose();
+
+    /// <summary>このケースの準備とモデルで共有するDBの所有者です。</summary>
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
+    private static SettingsDialogViewModel CreateOperationModeDialog(
+        CountingSettingsEditSession settingsSession,
+        RecordingRootDialogService dialogs,
+        IApplicationLifetimePort applicationLifetime)
+    {
+        MainWindowViewModel owner = MainWindowViewModelTestFactory.Create();
+        owner.SettingDialog.Dispose();
+        SetActiveLibraryProfile(owner, true);
+        return new SettingsDialogViewModel(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope,
+            new TestSettingsDialogStatePort(owner, () => Task.FromResult(new StartupInitializationResult(StartupInitializationOutcome.Succeeded))),
+            owner.PlaylistWorkspace,
+            owner.PlaylistWorkspace,
+            owner.PlayHistory,
+            owner.LibraryFolderTree,
+            new TestSettingsDialogPlayerFactoryPort(),
+            new TestSettingsDialogPlaybackRuntimePort(),
+            owner.Lr2SongDbSyncWorkflow,
+            settingsSession, new ApplicationDataUninstallWorkflowOwner(dialogs, new Lr2ApplicationDataUninstallStore(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope)),
+            requestOperationModeRestart: request =>
+            {
+                request.BeforeSave?.Invoke();
+                settingsSession.SaveEnvironmentForRestart(request.Environment, request.HistoryIdentity);
+                return Task.FromResult(true);
+            },
+            applicationLifetime: applicationLifetime,
+            cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+            schemaDialogs: dialogs,
+            externalShellGateway: ExternalShellGatewayPolicy.Current,
+            applicationPathSnapshot: ApplicationPathPolicy.Current,
+            audioDeviceCatalog: new TestAudioDeviceCatalog(),
+            audioSettingsGateway: new TestAudioSettingsGateway(),
+            audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+    }
+
+    /// <summary>未設定・欠損・不正・占有 config／DB の起動は設定案内へ終端し、初回と通常の案内順を分け、元ファイルと raw path を保って修復・出力を始めないことを確認します。</summary>
+    [TestMethod]
+    [DataRow("null-path", false)]
+    [DataRow("null-path", true)]
+    [DataRow("empty-path", false)]
+    [DataRow("empty-path", true)]
+    [DataRow("whitespace-path", false)]
+    [DataRow("whitespace-path", true)]
+    [DataRow("missing-file", false)]
+    [DataRow("missing-file", true)]
+    [DataRow("invalid-path", false)]
+    [DataRow("invalid-path", true)]
+    [DataRow("malformed-xml", false)]
+    [DataRow("malformed-xml", true)]
+    [DataRow("missing-jukebox", false)]
+    [DataRow("missing-jukebox", true)]
+    [DataRow("wrong-root", false)]
+    [DataRow("wrong-root", true)]
+    [DataRow("locked-file", false)]
+    [DataRow("locked-file", true)]
+    [DataRow("missing-song-db", false)]
+    [DataRow("missing-song-db", true)]
+    public void InitializeAsync_InvalidLr2SettingsUseSettingsGuidanceAndPreserveFiles(
+        string invalidSetting,
+        bool firstStartup)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string lr2Root = Path.Combine(root, "lr2");
+        string outputBase = Path.Combine(root, "output-base");
+        string rootOutputBase = Path.Combine(root, "root-output-base");
+        var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+            Path.Combine(root, "application", "BeMusicSeeker.exe"));
+        try
+        {
+            (string songDb, string configPath) = CreateValidLr2Layout(lr2Root);
+            switch (invalidSetting)
+            {
+                case "malformed-xml":
+                    File.WriteAllText(configPath, "<config>");
+                    break;
+                case "missing-jukebox":
+                    File.WriteAllText(configPath, "<config><system /></config>");
+                    break;
+                case "wrong-root":
+                    File.WriteAllText(configPath, "<other><jukebox /></other>");
+                    break;
+            }
+            byte[] configBefore = File.ReadAllBytes(configPath);
+            byte[] songDbBefore = File.ReadAllBytes(songDb);
+            string? rawConfigPath = invalidSetting switch
+            {
+                "null-path" => null,
+                "empty-path" => string.Empty,
+                "whitespace-path" => "   ",
+                "missing-file" => Path.Combine(root, "missing", "config.xml"),
+                "invalid-path" => "invalid\0path",
+                _ => configPath
+            };
+            Settings settings = CreateValidStandaloneSettings(lr2Root);
+            settings.OperationModeLR2DB = true;
+            settings.LR2RootPath = lr2Root;
+            settings.LR2ConfigXmlPath = rawConfigPath!;
+            settings.LR2SongDBPath = invalidSetting == "missing-song-db"
+                ? Path.Combine(root, "missing", "song.db")
+                : songDb;
+            settings.LR2CustomFolderOutputBaseDir = outputBase;
+            settings.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
+            settings.LR2CustomFolderAdditionalOutputBaseDirs = string.Empty;
+            if (invalidSetting == "missing-song-db")
+            {
+                // ディレクトリ検査には通るが設定全体は無効な状態で、XML修復を開始しないことを確認します。
+                Directory.CreateDirectory(outputBase);
+                Directory.CreateDirectory(rootOutputBase);
+            }
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            using (FileStream? lockedConfig = invalidSetting == "locked-file"
+                ? new FileStream(configPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None)
+                : null)
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    MainWindowViewModel viewModel = new ApplicationComposition(
+                        settingsEditSession: settingsSession,
+                        uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                        applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup),
+                        cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                        runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                        fileDbMutationDialogService: dialogs,
+                        dialogService: UndeclaredDialogs.Create())
+                        .CreateMainWindowViewModel();
+                    void ObserveGuidance(string request)
+                    {
+                        Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                        Assert.IsFalse(viewModel.IsLibraryOperationInProgress);
+                        sequence.Add(request);
+                    }
+                    dialogs.MessageObserved = () => ObserveGuidance("warning");
+                    var presentation = new RecordingSettingsDialogPresentationPort(ObserveGuidance);
+                    viewModel.SettingDialog.AttachPresentationPort(presentation);
+                    try
+                    {
+                        Assert.IsTrue(viewModel.SettingDialog.BuildDeficiencies().Any(item =>
+                            item.Category == SettingsCategory.General && item.Field == SettingsDeficiencyField.Lr2Environment && item.Reason == Resources.Error_InvalidLR2SongDbOrConfigPath));
+
+                        Task<bool> initialization = viewModel.InitializeAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "invalid-lr2-settings-startup");
+
+                        Assert.IsFalse(initialization.GetAwaiter().GetResult());
+                        Assert.IsFalse(viewModel.IsInitializationCompleted);
+                        Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+                        Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+                        Assert.AreEqual(firstStartup ? 0 : 1, dialogs.MessageCount);
+                        Assert.AreEqual(0, dialogs.ConfirmationCount);
+                        CollectionAssert.AreEqual(
+                            firstStartup ? new[] { "initial-setup" } : new[] { "warning", "open" },
+                            sequence);
+                        Assert.IsTrue(viewModel.SettingDialog.Deficiencies.Any(item =>
+                            item.Category == SettingsCategory.General && item.Field == SettingsDeficiencyField.Lr2Environment));
+                        if (!firstStartup)
+                        {
+                            Assert.AreEqual(SettingsDeficiency.FormatStartupWarning(viewModel.SettingDialog.Deficiencies), dialogs.LastMessageText);
+                            StringAssert.Contains(dialogs.LastMessageText, string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_InvalidLR2SongDbOrConfigPath));
+                        }
+                        Assert.AreEqual(rawConfigPath, viewModel.SettingDialog.LR2ConfigXmlPath);
+                        Assert.AreEqual(lr2Root, viewModel.SettingDialog.LR2RootPath);
+                        Assert.AreEqual(settings.LR2SongDBPath, viewModel.SettingDialog.LR2SongDBPath);
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                    }
+                    finally
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                            viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                            "invalid-lr2-settings-shutdown");
+                        viewModel.SettingDialog.Dispose();
+                    }
+                });
+            }
+            CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(songDbBefore, File.ReadAllBytes(songDb));
+            Assert.IsFalse(File.Exists(applicationPath.StandaloneSongDbPath));
+            Assert.IsFalse(Directory.Exists(Path.Combine(root, "missing")));
+            if (invalidSetting != "missing-song-db")
+            {
+                Assert.IsFalse(Directory.Exists(outputBase));
+                Assert.IsFalse(Directory.Exists(rootOutputBase));
+            }
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    // MSTest が各ケース開始前に注入する。fixture cleanup の診断に使用する。
+    public TestContext TestContext { get; set; } = null!;
+
+    /// <summary>culture変更で表示カタログと音声ownerから画面へ転送する二つの選択肢名を更新し、二度Disposeした後はどちらにも通知しないことを確認して、共有リソースへの購読漏れを検出します。</summary>
+    [TestMethod]
+    public void DisposedSettingsDialogStopsListeningToResourceServiceCultureChanges()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            string previousCulture = Resources.Culture?.Name ?? "ja-JP";
+            SettingsDialogViewModel? dialog = null;
+            try
+            {
+                AudioDeviceTestWorkflowOwner workflow = AudioDeviceTestWorkflowTestFactory.Create();
+                Settings values = TestSettingsFactory.CreateIsolatedSettings();
+                using var harness = SettingsDialogHarness.Create(values,
+                    settingsEditSession: new NoOpSettingsEditSession(values),
+                    audioDeviceTestWorkflow: workflow);
+                dialog = harness.Dialog;
+                var ownerNotifications = new List<string?>();
+                var viewModelNotifications = new List<string?>();
+                workflow.PropertyChanged += (_, args) => ownerNotifications.Add(args.PropertyName);
+                dialog.PropertyChanged += (_, args) => viewModelNotifications.Add(args.PropertyName);
+
+                ResourceService.Current.ChangeCulture("en-US");
+                foreach (string name in new[] { nameof(SettingsDialogViewModel.PlayerResamplingQualityNames), nameof(SettingsDialogViewModel.PlayerMixerThreadCountNames) })
+                {
+                    CollectionAssert.Contains(ownerNotifications, name);
+                    CollectionAssert.Contains(viewModelNotifications, name);
+                }
+
+                dialog.Dispose();
+                dialog.Dispose();
+                ownerNotifications.Clear();
+                viewModelNotifications.Clear();
+
+                ResourceService.Current.ChangeCulture("ja-JP");
+                Assert.AreEqual(0, ownerNotifications.Count);
+                Assert.AreEqual(0, viewModelNotifications.Count);
+            }
+            finally
+            {
+                dialog?.Dispose();
+                ResourceService.Current.ChangeCulture(previousCulture);
+            }
+        });
+    }
+
+    /// <summary>実音量Sliderのpreviewは現在再生runtimeだけへ届き、操作終端で音量だけを実保存します。同値終端は保存0、失敗は表示・現在再生・readerを最新確定値へ戻します。</summary>
+    /// <remarks>実provider・composition・Internal playerから音声runtime境界までを接続します。OS音声出力だけを固定代替し、別項目保存と終了時保存にもpreviewを混ぜません。dragの失敗行は先行保存60の後のpreview70を失敗させ、初期値50でなく最新確定60へ戻すことを確認します。</remarks>
+    [TestMethod]
+    [DataRow("drag", false)]
+    [DataRow("mouse", false)]
+    [DataRow("keyboard", false)]
+    [DataRow("close", false)]
+    [DataRow("drag", true)]
+    [DataRow("close", true)]
+    public void SettingDialogVolumeBinding_UsesComposedPlaybackOwner(string completion, bool failSave)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            string path = Path.Combine(root, "user.config");
+            SettingsWindow? window = null;
+            SettingsDialogViewModel? dialog = null;
+            MainWindowViewModel? owner = null;
+            var runtime = new VolumePreviewPlaybackRuntime();
+            try
+            {
+                Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(path));
+                values.uBMplayVolume = 50;
+                values.Save();
+                var gateway = new SettingsPlayerSettingsGateway(() => values);
+                var player = new InternalBMSAutoPlayerSoundOnly(gateway, runtime);
+                var failures = new List<Exception>();
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: new SettingsEditSession(values),
+                    defaultBmsPlayerFactory: () => player, reportSettingsApplyFailure: failures.Add,
+                    uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    dialogService: UndeclaredDialogs.Create());
+                owner = composition.CreateMainWindowViewModelForTest();
+                owner.SettingDialog.Dispose();
+                IUiDialogService schemaDialogs = UndeclaredDialogs.Create();
+                dialog = new SettingsDialogViewModel(composition.DatabaseScope, owner, owner.PlaylistWorkspace, owner.PlaylistWorkspace,
+                    owner.PlayHistory, owner.LibraryFolderTree, composition, owner.PlaybackPanel, owner.Lr2SongDbSyncWorkflow,
+                    new SettingsEditSession(values), new ApplicationDataUninstallWorkflowOwner(schemaDialogs, new Lr2ApplicationDataUninstallStore(composition.DatabaseScope)), schemaDialogs, reportApplyFailure: failures.Add,
+                    applicationLifetime: TestApplicationContext.CreateLifetime(), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    externalShellGateway: ExternalShellGatewayPolicy.Current, applicationPathSnapshot: ApplicationPathPolicy.Current,
+                    audioDeviceCatalog: new TestAudioDeviceCatalog(), audioSettingsGateway: new SettingsAudioGateway(() => values),
+                    audioDeviceTestWorkflow: AudioDeviceTestWorkflowTestFactory.Create());
+                window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
+                dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+                { if (request == "close") { window.CloseFromPresentation(); } }));
+                var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                window.Closed += (_, _) => closed.TrySetResult();
+                windowTest.ShowAndWaitForContentRendered(window);
+                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Slider slider = FindDescendants<Slider>(window).Single(item => item.Name == "audioVolumeSlider");
+                TextBlock text = FindDescendants<TextBlock>(window).Single(item =>
+                    item.GetBindingExpression(TextBlock.TextProperty)?.ParentBinding.Path?.Path == "PlaybackPanel.PlayerVolume");
+                if (completion == "keyboard") { slider.Focus(); System.Windows.Input.Keyboard.Focus(slider); }
+                slider.SetCurrentValue(Slider.ValueProperty, 40d);
+                slider.SetCurrentValue(Slider.ValueProperty, 60d);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                CollectionAssert.AreEqual(new[] { 40, 60 }, runtime.Volumes.ToArray());
+                Assert.AreEqual(60, owner.PlaybackPanel.PlayerVolume);
+                Assert.AreEqual("60%", text.Text);
+                Assert.AreEqual(50, values.uBMplayVolume);
+                var composedGateway = (IPlayerSettingsGateway)(typeof(ApplicationComposition)
+                    .GetField("playerSettingsGateway", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(composition)
+                    ?? throw new AssertFailedException("実構成のplayer readerがありません。"));
+                Assert.AreEqual(50, composedGateway.CaptureSnapshot().PlayerVolume);
+                dialog.UseBeatorajaScoreDb = true; // 不正な別候補は音量確定の対象ではありません。
+                bool other = !dialog.ShowRecommUpdatedMsg;
+                dialog.ShowRecommUpdatedMsg = other;
+                values.Save();
+                Settings before = TestSettingsFactory.OpenSettings(path);
+                Assert.AreEqual(50, before.uBMplayVolume);
+                Assert.AreEqual(other, before.ShowRecommUpdatedMsg);
+                Assert.IsFalse(before.UseBeatorajaScoreDb);
+                void CompleteInput()
+                {
+                    switch (completion)
+                    {
+                        case "drag": slider.RaiseEvent(new DragCompletedEventArgs(0, 0, false) { RoutedEvent = Thumb.DragCompletedEvent }); break;
+                        case "mouse":
+                            slider.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0, System.Windows.Input.MouseButton.Left)
+                            { RoutedEvent = System.Windows.Input.Mouse.PreviewMouseUpEvent }); break;
+                        case "keyboard":
+                            slider.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, PresentationSource.FromVisual(window), 0, System.Windows.Input.Key.Right)
+                            { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyUpEvent }); break;
+                        case "close": window.Close(); TestUiDispatcherHost.AwaitPresentationOnDispatcher(closed.Task, "volume-close-final-value"); break;
+                    }
+                }
+                if (failSave && completion == "drag")
+                {
+                    CompleteInput();
+                    Assert.AreEqual(60, TestSettingsFactory.OpenSettings(path).uBMplayVolume);
+                    Assert.AreEqual(60, composedGateway.CaptureSnapshot().PlayerVolume);
+                    slider.SetCurrentValue(Slider.ValueProperty, 70d);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreEqual(70, owner.PlaybackPanel.PlayerVolume);
+                    Assert.AreEqual(70, runtime.Volumes.Last());
+                    Assert.AreEqual(60, values.uBMplayVolume);
+                    Assert.AreEqual(60, composedGateway.CaptureSnapshot().PlayerVolume);
+                }
+                using (FileStream? blocked = failSave ? new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite) : null) { CompleteInput(); }
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                int expected = failSave && completion != "drag" ? 50 : 60;
+                Assert.AreEqual(expected, TestSettingsFactory.OpenSettings(path).uBMplayVolume);
+                Assert.AreEqual(expected, values.uBMplayVolume);
+                Assert.AreEqual(expected, gateway.CaptureSnapshot().PlayerVolume);
+                Assert.AreEqual(expected, composedGateway.CaptureSnapshot().PlayerVolume);
+                Assert.AreEqual(expected, owner.PlaybackPanel.PlayerVolume);
+                Assert.AreEqual(expected, runtime.Volumes.Last());
+                Assert.AreEqual(expected, slider.Value);
+                Assert.AreEqual(expected + "%", text.Text);
+                Assert.AreEqual(failSave ? 1 : 0, failures.Count);
+                // 同じ終端が重なっても保存は再実行しません。実媒体を置換不能にして確認します。
+                using (var blocked = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    slider.RaiseEvent(new DragCompletedEventArgs(0, 0, false) { RoutedEvent = Thumb.DragCompletedEvent });
+                    owner.PlaybackPanel.CompleteVolumeAdjustment();
+                }
+                Assert.AreEqual(failSave ? 1 : 0, failures.Count);
+            }
+            finally
+            {
+                if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                if (dialog != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AudioSettingsCompletionTask, "volume-audio-owner-terminal"); dialog.Dispose(); }
+                if (owner != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.PlaybackPanel.CloseForShutdown(), "volume-player-owner-terminal"); }
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>音量通知の実consumerを残し、OS出力のみ固定する境界です。譜面開始はこの入力確定検証の対象外です。</summary>
+    private sealed class VolumePreviewPlaybackRuntime : IAudioPlaybackRuntime
+    {
+        internal List<int> Volumes { get; } = [];
+        public int CurrentVoices => 0;
+        public int MaxVoices => 0;
+        public AudioPlaybackInitializationResult Initialize(PlayerSettingsSnapshot settings) => throw new AssertFailedException("音量操作から再生を開始しません。");
+        public Task WaitForOutputReadyAsync() => Task.CompletedTask;
+        public void ClearMaxVoices() { }
+        public void SetVolume(int volume) => Volumes.Add(volume);
+        public void Free() { }
+    }
+
+    /// <summary>両モードで画面を繰り返し開閉しても保存要求を出さず、明示した選択と実RadioButtonのClickから確認一回・承認後の保存一回へ進むことを確認します。</summary>
+    /// <remarks>標準の選択後と同じ状態をBindingを保って渡し、物理キー・マウス状態を参照するWPF入力処理は呼びません。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void OperationModeRadio_RepeatedWindowLifetimesDoNotRequestChangeUntilAcceptedClick(bool initialOperationMode)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            var openedWindows = new List<SettingsWindow>();
+            try
+            {
+                Settings settings = CreateValidStandaloneSettings(root);
+                settings.OperationModeLR2DB = initialOperationMode;
+                settings.LR2RootPath = string.Empty;
+                if (initialOperationMode)
+                { (settings.LR2SongDBPath, settings.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2")); }
+                else { settings.LR2SongDBPath = string.Empty; settings.LR2ConfigXmlPath = string.Empty; }
+                var settingsSession = new CountingSettingsEditSession(settings);
+                var dialogs = new RecordingRootDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                };
+                var lifetime = new CountingApplicationLifetime();
+                using SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
+                var presentationPort = new WindowClosingPresentationPort();
+                dialog.AttachPresentationPort(presentationPort);
+
+                for (int presentation = 0; presentation < 3; presentation++)
+                {
+                    SettingsWindow window = OpenSettingsWindow(windowTest, dialog);
+                    openedWindows.Add(window);
+                    presentationPort.CurrentWindow = window;
+                    AssertOperationModePresentation(window, initialOperationMode);
+                    Assert.AreEqual(0, dialogs.ConfirmationCount);
+                    Assert.AreEqual(0, settingsSession.SaveCount);
+                    Assert.AreEqual(0, lifetime.RestartCount);
+
+                    Button cancelButton = FindDescendants<Button>(window).Single(button => button.Name == "buttonCancel");
+                    cancelButton.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, cancelButton));
+                    Assert.IsNull(window.DataContext, "A closed settings Window must release the shared ViewModel binding graph.");
+                }
+
+                SettingsWindow finalWindow = OpenSettingsWindow(windowTest, dialog);
+                openedWindows.Add(finalWindow);
+                presentationPort.CurrentWindow = finalWindow;
+                RadioButton requestedMode = FindOperationModeRadio(finalWindow, useLr2: !initialOperationMode);
+                requestedMode.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                Assert.AreEqual(true, requestedMode.IsChecked);
+                Assert.AreEqual(0, dialogs.ConfirmationCount, "プログラムによる選択表示だけでは確認しません。");
+                Assert.AreEqual(0, settingsSession.SaveCount, "実Click前にはモードを保存しません。");
+                requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
+                finalWindow.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+
+                Assert.AreEqual(1, dialogs.ConfirmationCount);
+                Assert.AreEqual(1, settingsSession.SaveCount);
+                Assert.AreEqual(0, lifetime.RestartCount);
+                Assert.AreEqual(!initialOperationMode, dialog.OperationModeLR2DB);
+                Assert.AreEqual(!initialOperationMode, settings.OperationModeLR2DB);
+                AssertOperationModePresentation(finalWindow, !initialOperationMode);
+            }
+            finally
+            {
+                foreach (SettingsWindow window in openedWindows.Where(window => window.IsLoaded))
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>両モードの実Radioで、確認取消と別実操作中の入口拒否を分け、保存・再起動なしで両選択表示を確定モードへ戻します。</summary>
+    /// <remarks>確認前に反対の選択へ切り替え、取消が実際に選択表示を復元することをOS入力状態から分離して観測します。</remarks>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void OperationModeRadio_RejectedClickRestoresSelectionWithoutSaveOrRestart(bool initialOperationMode, bool operationBusy)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            SettingsWindow? window = null;
+            try
+            {
+                Settings settings = CreateValidStandaloneSettings(root);
+                settings.OperationModeLR2DB = initialOperationMode;
+                settings.LR2RootPath = string.Empty;
+                if (initialOperationMode)
+                { (settings.LR2SongDBPath, settings.LR2ConfigXmlPath) = CreateValidLr2Layout(Path.Combine(root, "lr2")); }
+                else { settings.LR2SongDBPath = string.Empty; settings.LR2ConfigXmlPath = string.Empty; }
+                var settingsSession = new CountingSettingsEditSession(settings);
+                var dialogs = new RecordingRootDialogService
+                {
+                    ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel)
+                };
+                var lifetime = new CountingApplicationLifetime();
+                using SettingsDialogViewModel dialog = CreateOperationModeDialog(settingsSession, dialogs, lifetime);
+                window = OpenSettingsWindow(windowTest, dialog);
+
+                var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                Task? operation = operationBusy ? dialog.RunSettingsOperationAsync(() => release.Task) : null;
+                try
+                {
+                    RadioButton requestedMode = FindOperationModeRadio(window, useLr2: !initialOperationMode);
+                    Assert.AreEqual(!operationBusy, requestedMode.IsEnabled);
+                    requestedMode.SetCurrentValue(ToggleButton.IsCheckedProperty, true);
+                    Assert.AreEqual(true, requestedMode.IsChecked);
+                    requestedMode.RaiseEvent(new RoutedEventArgs(ButtonBase.ClickEvent, requestedMode));
+                    window.Dispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+
+                    Assert.AreEqual(operationBusy ? 0 : 1, dialogs.ConfirmationCount);
+                    Assert.AreEqual(0, settingsSession.SaveCount);
+                    Assert.AreEqual(0, lifetime.RestartCount);
+                    Assert.AreEqual(initialOperationMode, dialog.OperationModeLR2DB);
+                    Assert.AreEqual(initialOperationMode, settings.OperationModeLR2DB);
+                    AssertOperationModePresentation(window, initialOperationMode);
+                }
+                finally
+                {
+                    release.TrySetResult();
+                    if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "mode-rejected-operation-terminal"); }
+                }
+            }
+            finally
+            {
+                if (window?.IsLoaded == true)
+                {
+                    window.CloseForOwnerShutdown();
+                }
+                Directory.Delete(root, recursive: true);
+            }
+        });
+    }
+
+    /// <summary>明示した起動走査・初期 playlist・offline・IR の変更が、それぞれに対応する翻訳済み確認要求へ届くことを確認し、異なる設定の警告を配送する誤りを検出します。</summary>
+    [TestMethod]
+    public void AdvancedStartupOptions_AcceptedChangesPublishLocalizedConfirmationRequestsInOrder()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.ScanBmsFilesOnStartup = true;
+            settings.SkipInitPlaylistLoad = false;
+            settings.EstimateOfflineScoreRanking = false;
+            settings.UpdateLr2IrRankingCacheOnStartup = false;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+            };
+            using var harness = SettingsDialogHarness.Create(settings, activeLibraryProfile: true,
+                settingsEditSession: settingsSession, dialogs: dialogs);
+            SettingsDialogViewModel dialog = harness.Dialog;
+
+            dialog.ScanBmsFilesOnStartup = false;
+            dialog.SkipInitPlaylistLoad = true;
+            dialog.EstimateOfflineScoreRanking = true;
+            dialog.UpdateLr2IrRankingCacheOnStartup = true;
+
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    Resources.Msg_confirm_disable_startup_file_scan,
+                    Resources.Msg_confirm_skip_init_playlist_load,
+                    Resources.Msg_confirm_enable_offline_score_ranking_estimation,
+                    Resources.Msg_confirm_enable_lr2ir_ranking_cache_startup_update
+                },
+                dialogs.ConfirmationRequests
+                    .Select(request => request.MessageBoxText)
+                    .ToArray());
+            foreach (UiConfirmationRequest request in dialogs.ConfirmationRequests)
+            {
+                Assert.AreEqual(Resources.Warning, request.Caption);
+                Assert.AreEqual(MessageBoxButton.OKCancel, request.Button);
+                Assert.AreEqual(MessageBoxImage.Exclamation, request.Icon);
+                Assert.AreEqual(MessageBoxResult.None, request.DefaultResult);
+                Assert.AreEqual(MessageBoxOptions.None, request.Options);
+                Assert.IsNull(request.Owner);
+                Assert.IsNull(request.WarningMessageBoxText);
+            }
+
+            Assert.IsFalse(settings.ScanBmsFilesOnStartup);
+            Assert.IsTrue(settings.SkipInitPlaylistLoad);
+            Assert.IsTrue(settings.EstimateOfflineScoreRanking);
+            Assert.IsTrue(settings.UpdateLr2IrRankingCacheOnStartup);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>準備・設定保存・URL切替・旧先整理の実媒体故障を区別し、採用点、管理外保全、最新入力への次変更を保証します。同先の形式変更/再更新は全表と正本hashを確認します。</summary>
+    [TestMethod]
+    [DataRow("success")]
+    [DataRow("prepare-file")]
+    [DataRow("prepare-manifest")]
+    [DataRow("save")]
+    [DataRow("root-prepare-file")] // score使用ONの新rootでも、準備失敗は採用・score読込みより前に終えます。
+    [DataRow("root-save")] // 新先の準備後に設定保存だけを失敗させ、旧root採用を保ちます。
+    [DataRow("same-root-url")]
+    [DataRow("new-root-url")]
+    [DataRow("old-root-url")]
+    [DataRow("cleanup")]
+    [DataRow("shared-output")]
+    [DataRow("same-output")]
+    [DataRow("register-off")]
+    [DataRow("disable-keep")]
+    [DataRow("disable-remove")]
+    [DataRow("disable-missing-runtime")] // 旧rootのjarだけが失われても、必要URL解除の無作用を成功にしません。
+    [DataRow("old-root-missing-runtime")] // 別rootへの採用後も、旧URL解除未完了なら旧ファイルを保持します。
+    [DataRow("keep-missing-runtime")] // 保持ONは構成対象外でもURL/ファイルを変更しません。
+    [DataRow("no-owned-urls-missing-runtime")] // URL所有がないfiles-only台帳はURL解除を必要条件にしません。
+    [DataRow("empty-old-root")] // 未指定の旧rootへURL同期を要求せず、有効な新rootへ移行できます。
+    public async Task BmtSettingsAdoption_PreservesAdoptedMediaAndAllowsCurrentNextInput(string scenario)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        MainWindowViewModel? owner = null;
+        BMSPlaylist? playlist = null;
+        Exception? primaryFailure = null;
+        var cleanupFailures = new List<Exception>();
+        void Cleanup(Action action) { try { action(); } catch (Exception failure) { cleanupFailures.Add(failure); } }
+        try
+        {
+            string oldRoot = Directory.CreateDirectory(Path.Combine(root, "beatoraja-A")).FullName;
+            string nextRoot = scenario is "new-root-url" or "old-root-url" or "shared-output" or "root-prepare-file" or "root-save" or "old-root-missing-runtime" or "empty-old-root"
+                ? Directory.CreateDirectory(Path.Combine(root, "beatoraja-B")).FullName : oldRoot;
+            string oldOutput = Directory.CreateDirectory(Path.Combine(oldRoot, "table")).FullName;
+            bool keepDisabled = scenario is "disable-keep" or "keep-missing-runtime";
+            bool removeDisabled = scenario is "disable-remove" or "disable-missing-runtime" or "no-owned-urls-missing-runtime";
+            bool sameOutput = scenario is "same-output" or "shared-output" or "register-off" || keepDisabled || removeDisabled;
+            string output = sameOutput ? oldOutput : Directory.CreateDirectory(Path.Combine(nextRoot, "replacement")).FullName;
+            const string unmanagedUrl = "https://example.invalid/user-first";
+            const string otherUrl = "https://example.invalid/user-second";
+            const string obsoleteUrl = "https://example.invalid/obsolete";
+            foreach (string path in new[] { oldRoot, nextRoot }.Distinct())
+            {
+                File.WriteAllText(Path.Combine(path, "beatoraja.jar"), string.Empty);
+                File.WriteAllText(Path.Combine(path, BeatorajaConfigService.ConfigFileName), new Newtonsoft.Json.Linq.JObject
+                { ["tablepath"] = oldOutput, ["tableURL"] = new Newtonsoft.Json.Linq.JArray(unmanagedUrl, otherUrl) }.ToString());
+            }
+            string config = Path.Combine(nextRoot, BeatorajaConfigService.ConfigFileName);
+            string oldConfig = Path.Combine(oldRoot, BeatorajaConfigService.ConfigFileName);
+            string settingsPath = Path.Combine(root, "settings", "user.config");
+            Settings values = CreateValidStandaloneSettings(root, TestSettingsFactory.OpenSettings(settingsPath));
+            values.BeatorajaRootPath = oldRoot;
+            values.BeatorajaBmtTablePath = oldOutput;
+            values.EnableBeatorajaBmtOutput = true;
+            values.RegisterBeatorajaBmtUrls = true;
+            values.BeatorajaBmtHashOutputMode = "Original";
+            bool originalKeep = values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+            if (scenario is "root-prepare-file" or "root-save")
+            {
+                foreach (string path in new[] { oldRoot, nextRoot })
+                {
+                    string playerPath = Directory.CreateDirectory(Path.Combine(path, "player", "player")).FullName;
+                    File.WriteAllBytes(Path.Combine(playerPath, "score.db"), []);
+                }
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaPlayerId = "player";
+                values.BeatorajaScoreDbPath = Path.Combine(oldRoot, "player", "player", "score.db");
+            }
+            values.Save();
+            List<Exception> failures = [];
+            TestUiDispatcherHost.Invoke(() => owner = CreateViewModel(new CountingSettingsEditSession(values) { PersistOwnedValues = true },
+                firstStartup: false, reportSettingsApplyFailure: failures.Add, playbackRuntimePort: new TestSettingsDialogPlaybackRuntimePort(),
+                dialogs: new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK) }));
+            Assert.IsNotNull(owner);
+            SetActiveLibraryProfile(owner, true);
+            string db = PlaylistTestFixture.CreateTempSongDbPath(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, root);
+            PlaylistPersistenceRepository.EnsureSchema(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, db);
+            playlist = AttachPlaylistTables(owner, root, existingDatabasePath: db);
+            BMSTable[] tables = Enumerable.Range(1, 2).Select(id => new BMSTable
+            {
+                playlist_id = id,
+                name = "Both " + id,
+                bmt_sort = id,
+                last_update = new DateTime(2024, 1, 1),
+                Folder_order = ["Folder"],
+                entries = [new BMSTableEntry { title = "Song " + id, md5 = new string((char)('a' + id), 32), sha256 = new string((char)('a' + id), 64), folder = "Folder" }]
+            }).ToArray();
+            foreach (BMSTable table in tables) { playlist.BMSTables.Add(table); }
+            playlist.CommitBMSTablesWithEntriesToDB(tables);
+            await playlist.BmtOutput.ExportAllAsync("initial-original");
+            string oldManifestPath = Path.Combine(oldOutput, BmtTableExportService.ManifestFileName);
+            var oldManifest = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(oldManifestPath));
+            string obsoleteFile = Path.Combine(oldOutput, "obsolete.bmt");
+            File.WriteAllText(obsoleteFile, "old managed");
+            ((Newtonsoft.Json.Linq.JArray)oldManifest["files"]!).Add("obsolete.bmt");
+            oldManifest["playlists"]!["obsolete"] = new Newtonsoft.Json.Linq.JObject { ["file"] = "obsolete.bmt", ["url"] = obsoleteUrl };
+            File.WriteAllText(oldManifestPath, oldManifest.ToString());
+            BeatorajaConfigService.SyncTableUrls(oldRoot, [.. BeatorajaConfigService.ReadTableUrls(oldRoot), obsoleteUrl], []);
+            string unmanagedFile = Path.Combine(oldOutput, "user.bmt");
+            File.WriteAllBytes(unmanagedFile, [1, 255, 42]);
+            if (scenario is "no-owned-urls-missing-runtime" or "empty-old-root")
+            {
+                BeatorajaConfigService.SyncTableUrls(oldRoot, [], BmtTableExportService.ReadManagedTableUrls(oldOutput).Select(entry => entry.Url));
+                if (scenario == "no-owned-urls-missing-runtime")
+                {
+                    oldManifest["playlists"] = new Newtonsoft.Json.Linq.JObject();
+                    File.WriteAllText(oldManifestPath, oldManifest.ToString());
+                }
+                else { values.BeatorajaRootPath = string.Empty; values.Save(); }
+            }
+            if (scenario.EndsWith("missing-runtime", StringComparison.Ordinal)) { File.Delete(Path.Combine(oldRoot, "beatoraja.jar")); }
+            Dictionary<string, byte[]> beforeFiles = Directory.GetFiles(oldOutput).ToDictionary(path => path, File.ReadAllBytes);
+            string[] beforeUrls = BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray();
+            var configDocument = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+            configDocument["tablepath"] = scenario == "same-output" ? output.ToUpperInvariant() + Path.DirectorySeparatorChar : output;
+            File.WriteAllText(config, configDocument.ToString());
+            byte[] configBefore = File.ReadAllBytes(config);
+            string targetManifest = Path.Combine(output, BmtTableExportService.ManifestFileName);
+            string? blockedPath = scenario switch
+            {
+                "prepare-file" or "root-prepare-file" => Path.Combine(output, BmtTableExportService.CreatePlaylistExportMetadata(tables[1]).FileName),
+                "prepare-manifest" => targetManifest,
+                "save" or "root-save" => settingsPath,
+                "same-root-url" or "new-root-url" => config,
+                "old-root-url" => oldConfig,
+                "cleanup" or "disable-remove" => obsoleteFile,
+                _ => null
+            };
+            if (scenario is "prepare-file" or "root-prepare-file" && blockedPath is string blockedFile) { File.Copy(Path.Combine(oldOutput, BmtTableExportService.CreatePlaylistExportMetadata(tables[1]).FileName), blockedFile); }
+            if (scenario == "prepare-manifest") { File.WriteAllText(targetManifest, "{\"files\":[],\"playlists\":{}}"); }
+            SettingsDialogViewModel dialog = owner.SettingDialog;
+            dialog.UseExternalPanelImage = true;
+            dialog.BeatorajaPlayerId = "invalid-score-draft";
+            bool rootChange = nextRoot != oldRoot;
+            if (!rootChange)
+            {
+                dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+                dialog.RegisterBeatorajaBmtUrls = scenario != "register-off";
+                dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = keepDisabled;
+                dialog.EnableBeatorajaBmtOutput = !keepDisabled && !removeDisabled;
+            }
+            bool? preparedAtAdoption = null, oldFilesAtAdoption = null, oldUrlsAtAdoption = null;
+            void ObserveAdoption(object? sender, PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName != (rootChange ? nameof(Settings.BeatorajaRootPath) : nameof(Settings.BeatorajaBmtTablePath))) { return; }
+                preparedAtAdoption = File.Exists(targetManifest) && tables.All(table => File.Exists(Path.Combine(output, BmtTableExportService.CreatePlaylistExportMetadata(table).FileName)));
+                oldFilesAtAdoption = File.Exists(obsoleteFile);
+                oldUrlsAtAdoption = BeatorajaConfigService.ReadTableUrls(oldRoot).Contains(obsoleteUrl);
+            }
+            values.PropertyChanged += ObserveAdoption;
+            try
+            {
+                using FileStream? blocked = blockedPath == null ? null : new FileStream(blockedPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (rootChange) { await dialog.CommitBeatorajaRootSettingsAsync(nextRoot); }
+                else { await dialog.CommitBmtSettingsAsync(); }
+                bool adopted = scenario is not ("prepare-file" or "prepare-manifest" or "save" or "root-prepare-file" or "root-save");
+                Settings reader = TestSettingsFactory.OpenSettings(settingsPath);
+                Assert.AreEqual(Path.TrimEndingDirectorySeparator(adopted ? output : oldOutput), Path.TrimEndingDirectorySeparator(reader.BeatorajaBmtTablePath), ignoreCase: true);
+                Assert.AreEqual(adopted ? nextRoot : oldRoot, reader.BeatorajaRootPath);
+                Assert.AreEqual(!adopted || !keepDisabled && !removeDisabled, reader.EnableBeatorajaBmtOutput);
+                Assert.AreEqual(adopted && !rootChange ? keepDisabled : originalKeep, reader.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                Assert.AreEqual(!(adopted && scenario == "register-off"), reader.RegisterBeatorajaBmtUrls);
+                Assert.AreEqual(adopted && !rootChange ? "PreferSha256Only" : "Original", reader.BeatorajaBmtHashOutputMode, string.Join(Environment.NewLine, failures));
+                Assert.IsTrue(dialog.UseExternalPanelImage);
+                Assert.IsFalse(reader.UseExternalPanelImage);
+                if (!rootChange) { Assert.AreEqual("invalid-score-draft", dialog.BeatorajaPlayerId); }
+                if (adopted && !sameOutput)
+                {
+                    Assert.AreEqual(true, preparedAtAdoption, "採用公開時には必要ファイルと管理情報が既にあります。");
+                    Assert.AreEqual(true, oldFilesAtAdoption);
+                    Assert.AreEqual(beforeUrls.Contains(obsoleteUrl), oldUrlsAtAdoption);
+                }
+                bool urlFailure = scenario is "same-root-url" or "new-root-url" or "old-root-url" or "disable-missing-runtime" or "old-root-missing-runtime";
+                bool hasFailure = !adopted || urlFailure || scenario is "cleanup" or "disable-remove";
+                Assert.AreEqual(hasFailure ? 1 : 0, failures.Count, "old URL remains=" + BeatorajaConfigService.ReadTableUrls(oldRoot).Contains(obsoleteUrl)
+                    + "; old file remains=" + File.Exists(obsoleteFile) + "; adopted enabled=" + reader.EnableBeatorajaBmtOutput
+                    + Environment.NewLine + string.Join(Environment.NewLine, failures));
+                if (!adopted || urlFailure)
+                {
+                    Assert.IsTrue(File.Exists(obsoleteFile));
+                    foreach ((string path, byte[] bytes) in beforeFiles) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                    if (scenario is "prepare-file" or "prepare-manifest" or "root-prepare-file")
+                    {
+                        Assert.IsTrue(File.Exists(Path.Combine(output, BmtTableExportService.CreatePlaylistExportMetadata(tables[0]).FileName)), "新先の一部実生成後に失敗させます。");
+                        if (scenario == "prepare-manifest") { Assert.AreEqual(0, BmtTableExportService.ReadManagedTableUrls(output).Count, "置換失敗で旧台帳を維持します。"); }
+                    }
+                    CollectionAssert.AreEqual(beforeUrls, BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray());
+                    if (scenario is "save" or "root-save") { Assert.IsTrue(File.Exists(targetManifest)); Assert.AreEqual(2, Directory.GetFiles(output, "*.bmt").Length); }
+                    if (urlFailure) { StringAssert.Contains(failures[0].Message, Resources.Settings_bmt_url_switch_failed); }
+                    if (scenario is "same-root-url" or "new-root-url") { CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(config)); }
+                    if (scenario is "old-root-url" or "old-root-missing-runtime") { CollectionAssert.Contains(BeatorajaConfigService.ReadTableUrls(nextRoot).ToArray(), "bemusicseeker://playlist/1"); }
+                }
+                else if (keepDisabled)
+                {
+                    foreach (KeyValuePair<string, byte[]> file in beforeFiles) { CollectionAssert.AreEqual(file.Value, File.ReadAllBytes(file.Key)); }
+                    CollectionAssert.AreEqual(beforeUrls, BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray());
+                    Assert.IsFalse(reader.EnableBeatorajaBmtOutput);
+                }
+                else
+                {
+                    string[] expected = scenario == "register-off" || removeDisabled ? [unmanagedUrl, otherUrl]
+                        : [unmanagedUrl, otherUrl, "bemusicseeker://playlist/1", "bemusicseeker://playlist/2"];
+                    CollectionAssert.AreEqual(expected, BeatorajaConfigService.ReadTableUrls(nextRoot).ToArray());
+                    if (rootChange) { CollectionAssert.AreEqual(new[] { unmanagedUrl, otherUrl }, BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray()); }
+                    if (scenario is "cleanup" or "disable-remove")
+                    { Assert.IsTrue(File.Exists(obsoleteFile)); StringAssert.Contains(failures[0].Message, Resources.Settings_bmt_files_remain); }
+                    else { Assert.IsFalse(File.Exists(obsoleteFile)); }
+                    if (!removeDisabled) { AssertProjection(output, rootChange ? "Original" : "PreferSha256Only"); }
+                }
+                CollectionAssert.AreEqual(new byte[] { 1, 255, 42 }, File.ReadAllBytes(unmanagedFile));
+                if (scenario == "cleanup")
+                {
+                    string finalOutput = Path.Combine(nextRoot, "C");
+                    var currentConfig = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+                    currentConfig["tablepath"] = finalOutput;
+                    File.WriteAllText(config, currentConfig.ToString());
+                    await dialog.CommitBmtSettingsAsync();
+                    Assert.AreEqual(finalOutput, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaBmtTablePath);
+                    AssertProjection(finalOutput, "PreferSha256Only");
+                    Assert.AreEqual(1, failures.Count, "過去のA残存は次のC確定を拒否しません。");
+                }
+            }
+            finally { values.PropertyChanged -= ObserveAdoption; }
+            if (scenario is "prepare-file" or "same-root-url")
+            {
+                string finalOutput = Path.Combine(nextRoot, "latest-C");
+                var latestConfig = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+                latestConfig["tablepath"] = finalOutput;
+                File.WriteAllText(config, latestConfig.ToString());
+                tables[0].entries.Single().title = "Latest saved song";
+                playlist.CommitBMSTablesWithEntriesToDB(tables);
+                dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+                await dialog.CommitBmtSettingsAsync();
+                Assert.AreEqual(finalOutput, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaBmtTablePath);
+                AssertProjection(finalOutput, "PreferSha256Only");
+                Assert.AreEqual(1, failures.Count, "前回の準備/URL失敗で次の最新Cを固定・拒否しません。");
+                if (scenario == "same-root-url") { Assert.IsTrue(File.Exists(obsoleteFile), "今回と無関係になった過去Aの回収を推測しません。"); }
+            }
+            if (scenario == "same-output")
+            {
+                File.WriteAllText(Path.Combine(output, BmtTableExportService.CreatePlaylistExportMetadata(tables[0]).FileName), "external corruption");
+                await dialog.CommitBmtSettingsAsync();
+                AssertProjection(output, "PreferSha256Only");
+            }
+            var repository = new PlaylistPersistenceRepository(MainWindowViewModelTestFactory.GetComposition(owner).DatabaseScope, db);
+            foreach (BMSTable table in tables)
+            {
+                BMSTableEntry stored = repository.LoadPersistedPlaylistEntries(table.playlist_id, activeOnly: true).Single();
+                Assert.AreEqual(table.entries.Single().md5, stored.md5);
+                Assert.AreEqual(table.entries.Single().sha256, stored.sha256);
+            }
+            void AssertProjection(string path, string mode)
+            {
+                List<BmtTableExportService.ManagedTableUrlEntry> managed = BmtTableExportService.ReadManagedTableUrls(path);
+                Assert.AreEqual(2, managed.Count);
+                foreach (BMSTable table in tables)
+                {
+                    using var stream = new System.IO.Compression.GZipStream(File.OpenRead(Path.Combine(path, BmtTableExportService.CreatePlaylistExportMetadata(table).FileName)), System.IO.Compression.CompressionMode.Decompress);
+                    using var reader = new StreamReader(stream);
+                    JToken? song = Newtonsoft.Json.Linq.JObject.Parse(reader.ReadToEnd()).SelectToken("folder[0].songs[0]");
+                    Assert.IsNotNull(song);
+                    Assert.AreEqual(table.entries.Single().title, song.Value<string>("title"));
+                    Assert.AreEqual(mode == "Original" ? table.entries.Single().md5 : null, song.Value<string>("md5"));
+                    Assert.AreEqual(table.entries.Single().sha256, song.Value<string>("sha256"));
+                }
+            }
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            Cleanup(() => playlist?.RequestShutdown("settings-bmt-media-fixture"));
+            if (owner != null)
+            {
+                Cleanup(() => TestUiDispatcherHost.Invoke(() =>
+                {
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "settings-bmt-media-owner-terminal"));
+                    Cleanup(owner.SettingDialog.Dispose);
+                }));
+            }
+            Cleanup(() => Directory.Delete(root, recursive: true));
+            if (cleanupFailures.Count > 0)
+            {
+                if (primaryFailure != null) { primaryFailure.Data["CleanupFailures"] = new AggregateException(cleanupFailures); }
+                else { throw new AggregateException(cleanupFailures); }
+            }
+        }
+    }
+
+    /// <summary>起動操作の block に再同期可否が追従し、無関係な title 変更では再通知せず、Dispose 後は可否購読を解除することを確認します。</summary>
+    [TestMethod]
+    public async Task SettingDialogViewModel_OwnsLr2ManualResyncAvailability()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.OperationModeLR2DB = true;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            SetActiveLibraryProfile(viewModel, true);
+            SettingsDialogViewModel dialog = viewModel.SettingDialog;
+            var changedProperties = new List<string>();
+            dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName!);
+
+            Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
+
+            viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
+            Assert.IsFalse(dialog.CanRequestLr2SongDbSyncDataResync);
+            viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(false);
+            Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
+
+            changedProperties.Clear();
+            viewModel.WindowTitle += " test";
+            CollectionAssert.DoesNotContain(
+                changedProperties,
+                nameof(dialog.CanRequestLr2SongDbSyncDataResync));
+            CollectionAssert.DoesNotContain(
+                changedProperties,
+                nameof(dialog.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation));
+
+            await dialog.RequestLr2SongDbSyncAsync();
+
+            changedProperties.Clear();
+            dialog.Dispose();
+            viewModel.ProgressHub.StartupProgress.SetStartupUiInteractionBlocked(true);
+            CollectionAssert.DoesNotContain(
+                changedProperties,
+                nameof(dialog.CanRequestLr2SongDbSyncDataResync));
+            CollectionAssert.DoesNotContain(
+                changedProperties,
+                nameof(dialog.IsLr2SongDbSyncDataResyncBlockedByLibraryOperation));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>BMS一覧の局所確定は同じL/Pで実差分を完了し、実score取得後も登録公開のcache失効・通知を維持します。成功時はDBと画面へ今回の譜面を反映し、走査失敗でも確定rootの保留解除通知を親L/P・モデル保護の解放後に完了します。</summary>
+    /// <remarks>初期化後の独立保守と区別し、当該確定Taskの実終端でDBと必須UIを観測します。</remarks>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void BmsConfirmation_CompletesRealFileDiffBeforeClosing(bool lr2, bool failScan)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string initialRoot = Path.Combine(root, "Songs");
+        Directory.CreateDirectory(initialRoot);
+        string addedRoot = Path.Combine(root, "added");
+        Directory.CreateDirectory(addedRoot);
+        string chartA = Path.Combine(initialRoot, "a.bms");
+        string chartB = Path.Combine(addedRoot, "b.bms");
+        File.WriteAllText(chartA, "#PLAYER 1\n#TITLE Folder A\n#BPM 120\n#00111:01\n");
+        using var release = new ManualResetEventSlim();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Settings values = lr2 ? CreateValidCustomFolderSettings(root, []) : CreateValidStandaloneSettings(initialRoot);
+                values.ScanBmsFilesOnStartup = true;
+                values.StartupSelectInstallPending = false;
+                var session = new CountingSettingsEditSession(values);
+                var failures = new List<Exception>();
+                var scanFailure = new IOException("controlled root-confirmation scan failure");
+                var scanWarningReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                var scanWarnings = new List<string>();
+                var dialogs = new RecordingRootDialogService();
+                dialogs.MessageObserved = () =>
+                {
+                    scanWarnings.Add(dialogs.LastMessageText);
+                    if (dialogs.LastMessageText.Contains(scanFailure.Message, StringComparison.Ordinal)) { scanWarningReceived.TrySetResult(); }
+                };
+                var scanner = new SettingsChartFileScanner(CapturedChartFileScanner.FromFixture([chartA],
+                    new Dictionary<string, IEnumerable<string>> { [initialRoot] = [] }, [initialRoot]));
+                var ui = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+                int defaultPlayerCount = 0;
+                var composition = new ApplicationComposition(settingsEditSession: session, reportSettingsApplyFailure: failures.Add,
+                    uiScheduler: ui, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
+                    chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs,
+                    defaultBmsPlayerFactory: () => { defaultPlayerCount++; return new RecordingPlaybackPlayer(); },
+                    dialogService: UndeclaredDialogs.Create());
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
+                var owner = new MainWindowViewModel(composition, factory);
+                Task? settingsLibraryTerminal = null;
+                Task? settingsPlaylistTerminal = null;
+                var presentation = new RecordingSettingsDialogPresentationPort();
+                owner.SettingDialog.AttachPresentationPort(presentation);
+                Task? apply = null;
+                Action? detachPendingNotifications = null;
+                try
+                {
+                    Task<bool> initialize = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "folder-settings-initialize");
+                    Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    // 次の明示確定が起動後保守のL受付と競合しないよう、両動作modeで受理済み保守の実終端を待ちます。
+                    AwaitStartupBackgroundCompletionOnDispatcher(owner, "bms-confirm-initial-background");
+                    Assert.AreEqual(1, defaultPlayerCount, "単独動作の実構築は既定playerを一回接続します。");
+                    BMSLibrary library = factory.CreatedLibrary ?? throw new InvalidOperationException("Actual library is unavailable.");
+                    long scoreGeneration = library.GetScoreRuntimeStateForDiagnostics().SourceGeneration;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ReloadScoresOnlyAsync(), "bms-confirm-score-reload");
+                    Assert.IsTrue(library.GetScoreRuntimeStateForDiagnostics().SourceGeneration > scoreGeneration,
+                        "実score取得と採用を通した後の登録通知を検証します。");
+                    int parentCacheVersion = library.BMSParentFolderListCacheVersion;
+                    int parentCacheNotices = 0;
+                    library.PropertyChanged += (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(BMSLibrary.BMSParentFolderListCacheVersion)) { Interlocked.Increment(ref parentCacheNotices); }
+                    };
+                    // 同じ標準構成のstoreを直接確定し、後の譜面差分が起こす別のcache失効で購読切れを隠さないようにします。
+                    composition.BmsRootRegistrations.SaveUserRoots(composition.BmsRootRegistrations.CaptureUserRoots());
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsTrue(library.BMSParentFolderListCacheVersion > parentCacheVersion,
+                        "実score取得後も、譜面差分を伴わない登録公開がモデルのcacheを失効させます。");
+                    Assert.IsTrue(Volatile.Read(ref parentCacheNotices) > 0, "同じ登録公開を既存UI schedulerのcache通知へ接続します。");
+                    File.WriteAllText(chartB, "#PLAYER 1\n#TITLE Folder B\n#BPM 120\n#00111:01\n");
+                    string unrelatedPath = Path.Combine(Directory.CreateDirectory(Path.Combine(root, "UnrelatedPending")).FullName, "pending.bms");
+                    File.WriteAllText(unrelatedPath, "#TITLE Unrelated\n#BPM 120\n");
+                    var becameOwned = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(chartB)))]);
+                    becameOwned.path = addedRoot;
+                    var unrelated = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(unrelatedPath)))]);
+                    unrelated.path = Path.GetDirectoryName(unrelatedPath) ?? throw new InvalidOperationException();
+                    library.ChartPackagesPending = new System.Collections.ObjectModel.ObservableCollection<ChartPackage>([becameOwned, unrelated]);
+                    string pendingDatabase = lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath;
+                    BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(composition.DatabaseScope, pendingDatabase, db =>
+                    { db.InsertOrReplace(becameOwned, typeof(LR2SongDBExtended.install)); db.InsertOrReplace(unrelated, typeof(LR2SongDBExtended.install)); });
+                    byte[] chartBefore = File.ReadAllBytes(chartB);
+                    byte[] unrelatedBefore = File.ReadAllBytes(unrelatedPath);
+                    // getterの直読だけでは通知欠落を検出できないため、実presentationと必須PropertyChangedの受信内容を捕捉します。
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    var presentationReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var propertyReceived = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var notificationFailures = new List<Exception>();
+                    var notifications = new List<(string Kind, bool Dispatcher, bool? AdmissionsReleased, bool GuardsReleased,
+                        string[] Current, string[] Persisted, string[] Presented, string[] ReadPaths)>();
+                    ReaderWriterLockSlimWrapper[] modelGuards = new[] { "rwlockBMSFilesInitializedAll", "rwlockPendingInstallCharts", "rwlockSongDBInstall" }
+                        .Select(name => typeof(BMSLibrary).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(library)
+                            as ReaderWriterLockSlimWrapper ?? throw new InvalidOperationException("Missing model guard: " + name)).ToArray();
+                    void RecordPendingNotification(string kind, TaskCompletionSource received)
+                    {
+                        try
+                        {
+                            bool guardsReleased = modelGuards.All(guard => guard.LockingReadCount == 0 && guard.LockingWriteCount == 0 && !guard.IsUpgradeableReadLockHeld);
+                            using LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), pendingDatabase).OpenSongDbReadOnly();
+                            notifications.Add((kind, TestUiDispatcherHost.Dispatcher.CheckAccess(),
+                                // 全体のIsActiveは親以外のleaseも含むため、親操作自身のL/Pの終端Taskで解放を判定し、未捕捉はnullで記録する。
+                                settingsLibraryTerminal is null || settingsPlaylistTerminal is null ? null
+                                    : settingsLibraryTerminal.IsCompleted && settingsPlaylistTerminal.IsCompleted, guardsReleased,
+                                library.ChartPackagesPending.Select(package => package.path).ToArray(),
+                                pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray(),
+                                owner.InstallTree.ChartPackagesPending.Select(package => package.path).ToArray(),
+                                guardsReleased ? library.GetPendingBmsFormatChartFilesSnapshot().Select(chart => chart.Path).ToArray() : []));
+                        }
+                        catch (Exception failure) { notificationFailures.Add(failure); }
+                        finally { received.TrySetResult(); }
+                    }
+                    EventHandler<InstallTreePresentationChangedEventArgs> presentationHandler = (_, args) =>
+                    {
+                        if ((args.Sections & InstallTreePresentationSection.Pending) != 0) { RecordPendingNotification("presentation", presentationReceived); }
+                    };
+                    PropertyChangedEventHandler propertyHandler = (_, args) =>
+                    {
+                        if (args.PropertyName == nameof(InstallTreeViewModel.ChartPackagesPending)) { RecordPendingNotification("property", propertyReceived); }
+                    };
+                    owner.InstallTree.PresentationChanged += presentationHandler;
+                    owner.InstallTree.PropertyChanged += propertyHandler;
+                    detachPendingNotifications = () =>
+                    {
+                        owner.InstallTree.PresentationChanged -= presentationHandler;
+                        owner.InstallTree.PropertyChanged -= propertyHandler;
+                    };
+                    var next = CapturedChartFileScanner.FromFixture([chartA, chartB],
+                        new Dictionary<string, IEnumerable<string>> { [initialRoot] = [], [addedRoot] = [] }, [initialRoot]);
+                    next.ScanObserved = () =>
+                    {
+                        settingsLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
+                        settingsPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
+                        entered.TrySetResult();
+                        release.Wait();
+                        if (failScan) { throw scanFailure; }
+                    };
+                    scanner.Current = next;
+                    var capturedRoots = new List<IReadOnlyList<string>>();
+                    scanner.RootsObserved = roots => capturedRoots.Add(roots);
+                    string candidateRoot = Path.Combine(root, "ADDED");
+                    owner.SettingDialog.BmsRootPathList.Add(candidateRoot);
+                    owner.SettingDialog.ReplacementBmsInstallDir = candidateRoot;
+                    // 同所の導入先も走査の確認表記へ揃うことを、標準compositionのstore通知と実差分で観測します。
+                    values.BMSInstallDir = candidateRoot;
+                    apply = owner.SettingDialog.CommitBmsRootsAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, apply, "folder-settings-scan"), "folder-settings-scan");
+                    Assert.IsFalse(apply.IsCompleted);
+                    Assert.IsTrue(composition.BmsRootRegistrations.CaptureUserRoots().Contains(candidateRoot, StringComparer.OrdinalIgnoreCase),
+                        "走査が保留中でも検索rootは保存・公開済みです。");
+                    if (lr2) { Assert.IsTrue(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().Contains(candidateRoot, StringComparer.OrdinalIgnoreCase)); }
+                    Assert.IsTrue(composition.OperationAdmission.IsActive);
+                    Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                    CollectionAssert.DoesNotContain(presentation.Requests, "close");
+                    Assert.IsNotNull(settingsLibraryTerminal);
+                    Assert.IsNotNull(settingsPlaylistTerminal);
+                    Assert.IsFalse(settingsLibraryTerminal.IsCompleted);
+                    Assert.IsFalse(settingsPlaylistTerminal.IsCompleted);
+                    release.Set();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "folder-settings-terminal");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                        Task.WhenAll(presentationReceived.Task, propertyReceived.Task), apply, "folder-settings-pending-notifications"), "folder-settings-pending-notifications");
+                    Assert.AreEqual(0, notificationFailures.Count, string.Join(Environment.NewLine, notificationFailures));
+                    Assert.IsTrue(notifications.Any(notice => notice.Kind == "presentation"));
+                    Assert.IsTrue(notifications.Any(notice => notice.Kind == "property"));
+                    foreach ((string Kind, bool Dispatcher, bool? AdmissionsReleased, bool GuardsReleased, string[] Current, string[] Persisted, string[] Presented, string[] ReadPaths) notice in notifications)
+                    {
+                        Assert.IsTrue(notice.Dispatcher, notice.Kind);
+                        Assert.IsNotNull(notice.AdmissionsReleased, notice.Kind + ": 親L/Pの終端Taskが未捕捉です（前提不成立）。");
+                        Assert.IsTrue(notice.AdmissionsReleased, notice.Kind + ": 親L/Pの解放後に通知します。");
+                        Assert.IsTrue(notice.GuardsReleased, notice.Kind + ": モデル保護の解放後に同期読取りできます。");
+                        CollectionAssert.AreEqual(new[] { unrelated.path }, notice.Current, notice.Kind);
+                        CollectionAssert.AreEqual(new[] { unrelated.path }, notice.Persisted, notice.Kind);
+                        CollectionAssert.AreEqual(new[] { unrelated.path }, notice.Presented, notice.Kind);
+                        CollectionAssert.AreEqual(new[] { unrelatedPath }, notice.ReadPaths, notice.Kind);
+                    }
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    if (failScan)
+                    {
+                        // scanner例外は既存の不完全走査結果へ変換されます。必須警告の実受信で元原因の伝達を確認します。
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(
+                            scanWarningReceived.Task, apply, "folder-settings-incomplete-scan-warning"), "folder-settings-incomplete-scan-warning");
+                        StringAssert.Contains(scanWarnings.Single(message => message.Contains(scanFailure.Message, StringComparison.Ordinal)),
+                            "chart_file_scan_failed:" + scanFailure.Message);
+                    }
+                    Assert.IsTrue(owner.SettingDialog.ConfirmedBMSDirectories.Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
+                    Assert.AreEqual(failScan ? candidateRoot : addedRoot, owner.SettingDialog.BMSInstallDir);
+                    CollectionAssert.Contains(owner.SettingDialog.BmsRootPathList.ToArray(), candidateRoot);
+                    Assert.AreEqual(1, defaultPlayerCount, "Folder段階はplayerの再構築を追加しません。");
+                    if (!failScan) { Assert.AreEqual("Folder B", library.BmsCharts.Single(chart => chart.Path == chartB).RawTitle); }
+                    CollectionAssert.AreEqual(new[] { unrelated.path }, library.ChartPackagesPending.Select(package => package.path).ToArray());
+                    CollectionAssert.AreEqual(new[] { unrelated.path }, owner.InstallTree.ChartPackagesPending.Select(package => package.path).ToArray());
+                    CollectionAssert.AreEqual(chartBefore, File.ReadAllBytes(chartB));
+                    CollectionAssert.AreEqual(unrelatedBefore, File.ReadAllBytes(unrelatedPath));
+                    using (LR2SongDBExtended pendingDb = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), pendingDatabase).OpenSongDbReadOnly())
+                    { CollectionAssert.AreEqual(new[] { unrelated.path }, pendingDb.Table<LR2SongDBExtended.install>().Select(row => row.path).ToArray()); }
+
+                    using (LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath).OpenSongDbReadOnly())
+                    {
+                        if (failScan) { Assert.IsFalse(db.Table<LR2SongDB.song>().Any(row => row.path == chartB)); }
+                        else { Assert.AreEqual("Folder B", db.Table<LR2SongDB.song>().Single(row => row.path == chartB).title); }
+                    }
+                    if (lr2)
+                    {
+                        BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new InvalidOperationException("Actual playlist is unavailable.");
+                        Assert.IsTrue(capturedRoots.Any(roots => roots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase)), "同じ確定操作の実走査へ新登録を渡します。");
+                        Assert.IsTrue(composition.ResolveLr2Config(values.LR2ConfigXmlPath).Capture().RegisteredRoots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
+                        Assert.IsTrue(TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath).GetBMSSearchDirectoriesForChangeTracking().Contains(addedRoot, StringComparer.OrdinalIgnoreCase));
+                    }
+                    Assert.AreEqual(!failScan, owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Folder B"));
+                    Assert.IsTrue(settingsLibraryTerminal.IsCompletedSuccessfully);
+                    Assert.IsTrue(settingsPlaylistTerminal.IsCompletedSuccessfully);
+                    if (lr2 && !failScan)
+                    {
+                        detachPendingNotifications();
+                        detachPendingNotifications = null;
+                        next.ScanObserved = null;
+                        capturedRoots.Clear();
+                        File.WriteAllText(values.LR2ConfigXmlPath, "<external-broken");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ReloadFileDiffAsync(), "lr2-confirm-next-diff");
+                        Assert.IsTrue(capturedRoots.Any(roots => roots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase)), "次の差分も同じ公開済み登録を走査します。");
+                        capturedRoots.Clear();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ReinitializeLibraryAsync(), "lr2-confirm-reinitialize");
+                        Assert.IsTrue(capturedRoots.Any(roots => roots.Contains(addedRoot, StringComparer.OrdinalIgnoreCase)), "全再初期化も同じ公開済み登録を走査します。");
+                        CollectionAssert.Contains(library.Lr2Synchronization.CaptureBmsDirectories().RequestedRoots.ToArray(), addedRoot);
+                        Assert.AreEqual("Folder B", library.BmsCharts.Single(chart => chart.Path == chartB).RawTitle);
+                        Assert.IsTrue(owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title == "Folder B"));
+                    }
+                }
+                finally
+                {
+                    release.Set();
+                    try { if (apply != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "folder-settings-cleanup-task"); } }
+                    finally
+                    {
+                        detachPendingNotifications?.Invoke();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "folder-settings-cleanup");
+                        owner.SettingDialog.Dispose();
+                    }
+                }
+            });
+        }
+        finally { release.Set(); Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>実設定確定で旧BMS/BMSONと同hashを解除し、同じproduction libraryへの導入を保証します。通常条件では手動・自動導入に続く改名・削除と再起動、障害条件では固有の保護と回復後の自動導入を分担します。</summary>
+    /// <param name="lr2">LR2連携と単独モードを切り替えます。</param>
+    /// <param name="recovery">0は通常、1は走査失敗後の同値確定、2は走査失敗後の明示再読込み、3は混在0件保護、4はDB解除失敗、5は必須LR2終端失敗からの回復です。</param>
+    [TestMethod]
+    [DataRow(false, 0)]
+    [DataRow(true, 0)]
+    [DataRow(false, 1)]
+    [DataRow(true, 1)]
+    [DataRow(false, 2)]
+    [DataRow(true, 2)]
+    [DataRow(false, 3)]
+    [DataRow(true, 3)]
+    [DataRow(false, 4)]
+    [DataRow(true, 4)]
+    [DataRow(true, 5)]
+    public void BmsConfirmation_EmptyRootRecoversAndAcceptsRealInstallations(bool lr2, int recovery)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string oldRoot = Directory.CreateDirectory(Path.Combine(root, "Songs")).FullName;
+        string oldFolder = Directory.CreateDirectory(Path.Combine(oldRoot, "Work")).FullName;
+        string duplicateFolder = Directory.CreateDirectory(Path.Combine(oldRoot, "Duplicate")).FullName;
+        string newRoot = Directory.CreateDirectory(Path.Combine(root, "New")).FullName;
+        string settingsPath = Path.Combine(root, "user.config");
+        string bms = Path.Combine(oldFolder, "chart.bms");
+        string duplicate = Path.Combine(duplicateFolder, "chart.bms");
+        string bmson = Path.Combine(oldFolder, "chart.bmson");
+        File.WriteAllText(bms, "#PLAYER 1\n#TITLE Old\n#BPM 120\n#WAV01 sound.wav\n#00111:01\n");
+        File.Copy(bms, duplicate);
+        File.WriteAllText(bmson, "{\"version\":\"1.0.0\",\"info\":{\"title\":\"Old BMSON\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[{\"name\":\"sound.wav\",\"notes\":[{\"x\":1,\"y\":0,\"l\":0}]}]}");
+        File.WriteAllBytes(Path.Combine(oldFolder, "sound.wav"), [1, 2, 3]);
+        File.WriteAllBytes(Path.Combine(duplicateFolder, "sound.wav"), [1, 2, 3]);
+        Dictionary<string, byte[]> originalBytes = Directory.GetFiles(oldRoot, "*", SearchOption.AllDirectories).ToDictionary(path => path, File.ReadAllBytes);
+        try
+        {
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Settings values = lr2 ? CreateValidCustomFolderSettings(root, [], TestSettingsFactory.OpenSettings(settingsPath))
+                    : CreateValidStandaloneSettings(oldRoot, TestSettingsFactory.OpenSettings(settingsPath));
+                values.ScanBmsFilesOnStartup = true;
+                values.StartupSelectInstallPending = false;
+                values.ShowNewPackageInstallConfirmMsg = false;
+                values.DeletePendingPackageSourceAfterInstall = false;
+                values.Save();
+                for (int run = 0; run < (recovery == 0 ? 2 : 1); run++)
+                {
+                    if (run > 0) { values = TestSettingsFactory.OpenSettings(settingsPath); }
+                    var warnings = new List<string>();
+                    var failures = new List<Exception>();
+                    var dialogs = new RecordingRootDialogService();
+                    dialogs.MessageObserved = () => warnings.Add(dialogs.LastMessageText);
+                    var scanner = new SettingsChartFileScanner(new FastDirectoryFileScanner());
+                    var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(values),
+                        reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                        applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                        runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "BeMusicSeeker.exe"))),
+                        chartFileScanner: scanner, rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs,
+                        defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer(),
+                        dialogService: UndeclaredDialogs.Create());
+                    var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, []);
+                    var owner = new MainWindowViewModel(composition, factory);
+                    Task? operation = null;
+                    try
+                    {
+                        Task<bool> initialize = owner.InitializeAsync();
+                        operation = initialize;
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "empty-root-initialize");
+                        Assert.IsTrue(initialize.Result);
+                        AwaitStartupBackgroundCompletionOnDispatcher(owner, "empty-root-background");
+                        BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException("実library未構築");
+                        Assert.AreEqual(typeof(BMSLibrary), library.GetType(), "収束を注入するTestBmsLibraryを使いません。");
+                        BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException("実playlist未構築");
+                        string database = lr2 ? values.LR2SongDBPath : composition.ApplicationPathSnapshot.StandaloneSongDbPath;
+                        void AssertEmpty()
+                        {
+                            Assert.AreEqual(0, library.BmsCharts.Count);
+                            Assert.AreEqual(0, library.BmsonCharts.Count);
+                            using LR2SongDBExtended db = new BmsLibraryDbGateway(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly();
+                            Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+                            Assert.AreEqual(0, db.Table<LR2SongDBExtended.bmson_song>().Count());
+                            Assert.IsFalse(owner.LibraryFolderTree.HasOwnedChartUnderRealPath(oldRoot));
+                            Assert.IsFalse(owner.MainChartList.Rows.OfType<LibraryChartRow>().Any(row => row.Title is "Old" or "Old BMSON"));
+                            Assert.IsNull(LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(oldFolder));
+                            Assert.IsNull(LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(duplicateFolder));
+                            foreach ((string path, byte[] bytes) in originalBytes) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                        }
+                        if (run > 0) { AssertEmpty(); continue; }
+                        Assert.AreEqual(2, library.BmsCharts.Count);
+                        Assert.AreEqual(1, library.BmsonCharts.Count);
+                        ChartFile oldChart = library.BmsCharts.Single(chart => chart.Path == bms);
+                        var entry = new BMSTableEntry { md5 = oldChart.Md5, title = "Old", folder = "Folder" };
+                        var table = new BMSTable { playlist_id = 1, name = "Root references", Folder_order = ["Folder"], entries = [entry] };
+                        playlist.BMSTables.Add(table);
+                        playlist.CommitBMSTablesWithEntriesToDB([table]);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.ApplyRequiredLibraryReferencesAsync(), "empty-root-initial-reference");
+                        Assert.IsNotNull(library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _).ResolveChartForPlaylistEntry(entry));
+                        ChartPackage? failureProbe = null;
+                        if (recovery == 5)
+                        {
+                            string source = Directory.CreateDirectory(Path.Combine(root, "FailureProbe")).FullName;
+                            File.WriteAllText(Path.Combine(source, "chart.bms"), "#PLAYER 1\n#TITLE FailureProbe\n#BPM 120\n#WAV01 probe.wav\n#00111:01\n");
+                            File.WriteAllBytes(Path.Combine(source, "probe.wav"), [7, 8, 9]);
+                            values.KeepInstallablePackagesPending = true;
+                            operation = library.InstallChartPackagesAutoWithProgressAsync([source], CancellationToken.None,
+                                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-failure-probe-prepare");
+                            failureProbe = library.ChartPackagesPending.Single(package => package.path == source);
+                        }
+                        DirectoryResourceLookupCache.Entry retainedResource = LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(duplicateFolder);
+                        owner.SettingDialog.BmsRootPathList.Clear();
+                        owner.SettingDialog.BmsRootPathList.Add(newRoot);
+                        if (recovery == 3) { owner.SettingDialog.BmsRootPathList.Add(duplicateFolder); }
+                        owner.SettingDialog.ReplacementBmsInstallDir = newRoot;
+                        if (recovery is 1 or 2)
+                        {
+                            var failed = CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), [newRoot]);
+                            failed.ScanObserved = () => throw new IOException("root-transition-scan-failure");
+                            scanner.Current = failed;
+                        }
+                        if (recovery == 3)
+                        {
+                            scanner.Current = CapturedChartFileScanner.FromFixture([], new Dictionary<string, IEnumerable<string>>(), [newRoot, duplicateFolder]);
+                        }
+                        if (recovery == 4)
+                        {
+                            using LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(database);
+                            db.Execute("CREATE TRIGGER fail_root_removal BEFORE DELETE ON song BEGIN SELECT RAISE(ABORT, 'root-delete-failure'); END;");
+                        }
+                        if (recovery == 5)
+                        {
+                            using LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(database);
+                            // 保存済み未完了を入力として必要同期へ到達させ、その実Completed保存だけを失敗させます。
+                            db.Execute("UPDATE lr2_song_db_sync_status SET status = 'Incomplete';");
+                            db.Execute("CREATE TRIGGER fail_required_lr2 BEFORE INSERT ON lr2_song_db_sync_status WHEN NEW.status = 'Completed' BEGIN SELECT RAISE(ABORT, 'root-required-lr2-failure'); END;");
+                        }
+                        operation = owner.SettingDialog.CommitBmsRootsAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-confirm");
+                        Assert.AreEqual(newRoot, TestSettingsFactory.OpenSettings(settingsPath).BMSInstallDir);
+                        if (recovery == 5)
+                        {
+                            Assert.AreEqual(0, library.BmsCharts.Count);
+                            Assert.AreEqual(0, library.BmsonCharts.Count);
+                            using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongReadOnly(database))
+                            {
+                                Assert.AreEqual(0, db.Table<LR2SongDB.song>().Count());
+                                Assert.AreEqual(0, db.Table<LR2SongDBExtended.bmson_song>().Count());
+                            }
+                            Assert.IsFalse(composition.OperationAdmission.IsActive);
+                            Assert.IsNotNull(failureProbe);
+                            var deniedNotices = new LibraryOperationNotices();
+                            Assert.IsFalse(library.ForceInstallPendingPackagesWithReceipt([failureProbe], true, null, deniedNotices).DurableCommit,
+                                "必須LR2が失敗した後は有効な導入要求も未収束として拒否します。");
+                            Assert.AreEqual(1, deniedNotices.Snapshot().Count);
+                            Assert.AreEqual(0, HostObservationLog.TakeCurrentCase("D", record => record.Detail.Contains(deniedNotices.Snapshot()[0].MessageBoxText[..20], StringComparison.Ordinal)).Count,
+                                "モデルの窓口へ同じ案内を投函しない。");
+                            Assert.IsTrue(File.Exists(Path.Combine(failureProbe.path, "chart.bms")));
+                            Assert.IsTrue(failures.Any(failure => failure.ToString().Contains("root-required-lr2-failure", StringComparison.Ordinal)));
+                            failures.Clear();
+                            using (LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(database)) { db.Execute("DROP TRIGGER fail_required_lr2;"); }
+                            operation = owner.SettingDialog.CommitBmsRootsAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-required-lr2-recovery");
+                            operation = library.RemovePendingPackagesAsync([failureProbe], () => Task.CompletedTask);
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-failure-probe-cleanup");
+                        }
+                        if (recovery == 3)
+                        {
+                            CollectionAssert.AreEqual(new[] { duplicate }, library.BmsCharts.Select(chart => chart.Path).ToArray());
+                            Assert.AreEqual(0, library.BmsonCharts.Count);
+                            Assert.IsNull(LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(oldFolder));
+                            Assert.AreSame(retainedResource, LibraryResourceIndexTestSupport.GetOwner(library).CaptureSnapshot().DirectoryLookupCache.GetEntryOrNull(duplicateFolder));
+                            Assert.IsTrue(library.TryGetInstalledDirectoryByHash(oldChart.Md5, out _));
+                            Assert.IsTrue(warnings.Any(text => text.Contains("empty_scan_with_existing_db", StringComparison.Ordinal)));
+                            Assert.IsFalse(composition.OperationAdmission.IsActive);
+                            var deniedProtectedNotices = new LibraryOperationNotices();
+                            Assert.IsNull(library.RenameChartFolderWithReceipt(duplicateFolder, "Protected", deniedProtectedNotices), "未収束の有効改名は着手前に拒否され、確定事実を返しません。");
+                            Assert.AreEqual(1, deniedProtectedNotices.Snapshot().Count);
+                            Assert.AreEqual(0, HostObservationLog.TakeCurrentCase("D", record => record.Detail.Contains(deniedProtectedNotices.Snapshot()[0].MessageBoxText[..20], StringComparison.Ordinal)).Count,
+                                "モデルの窓口へ同じ案内を投函しない。");
+                            Assert.IsTrue(Directory.Exists(duplicateFolder));
+                            owner.SettingDialog.BmsRootPathList.Remove(duplicateFolder);
+                            scanner.Current = new FastDirectoryFileScanner();
+                            warnings.Clear();
+                            operation = owner.SettingDialog.CommitBmsRootsAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-protected-recovery");
+                        }
+                        if (recovery is 1 or 2 or 4)
+                        {
+                            Assert.AreEqual(2, library.BmsCharts.Count);
+                            Assert.IsFalse(composition.OperationAdmission.IsActive);
+                            var deniedBlockedNotices = new LibraryOperationNotices();
+                            Assert.IsNull(library.RenameChartFolderWithReceipt(oldFolder, "Blocked", deniedBlockedNotices), "親受付解放後も未収束の有効改名を着手前に拒否します。");
+                            Assert.AreEqual(1, deniedBlockedNotices.Snapshot().Count);
+                            Assert.AreEqual(0, HostObservationLog.TakeCurrentCase("D", record => record.Detail.Contains(deniedBlockedNotices.Snapshot()[0].MessageBoxText[..20], StringComparison.Ordinal)).Count,
+                                "モデルの窓口へ同じ案内を投函しない。");
+                            Assert.IsTrue(Directory.Exists(oldFolder));
+                            if (recovery == 4)
+                            {
+                                Assert.IsTrue(failures.Any(failure => failure.ToString().Contains("root-delete-failure", StringComparison.Ordinal)));
+                                failures.Clear();
+                                using LR2SongDBExtended db = composition.DatabaseScope.OpenSongWrite(database);
+                                db.Execute("DROP TRIGGER fail_root_removal;");
+                            }
+                            scanner.Current = new FastDirectoryFileScanner();
+                            operation = recovery != 2 ? owner.SettingDialog.CommitBmsRootsAsync() : owner.ReloadFileDiffAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-recover");
+                        }
+                        AssertEmpty();
+                        Assert.IsFalse(library.TryGetInstalledDirectoryByHash(oldChart.Md5, out _));
+                        Assert.IsNull(library.GetPlaylistLibraryResolveIndexSnapshot(CancellationToken.None, out _, out _).ResolveChartForPlaylistEntry(entry));
+                        Assert.IsTrue(library.DuplicateChartGroups == null || library.DuplicateChartGroups.Count == 0);
+                        Assert.IsFalse(warnings.Any(text => text.Contains("empty_scan_with_existing_db", StringComparison.Ordinal)));
+                        Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                        foreach (bool manual in recovery == 0 ? new[] { true, false } : new[] { false })
+                        {
+                            string title = manual ? "Manual" : "Automatic";
+                            string source = Directory.CreateDirectory(Path.Combine(root, title)).FullName;
+                            File.WriteAllText(Path.Combine(source, "chart.bms"), "#PLAYER 1\n#TITLE " + title + "\n#BPM 120\n#WAV01 new.wav\n#00111:01\n");
+                            File.WriteAllBytes(Path.Combine(source, "new.wav"), [4, 5, 6]);
+                            values.KeepInstallablePackagesPending = manual;
+                            Task<PackageInstallCommandResult> import = library.InstallChartPackagesAutoWithProgressAsync([source], CancellationToken.None,
+                                new InstallServiceComponentTestSupport.RecordingPackageInstallProgressWriter(), new LibraryOperationNotices());
+                            operation = import;
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(import, "empty-root-import-" + title);
+                            Assert.IsFalse(import.Result.HasRequiredFailure, import.Result.EstimationFailure?.ToString());
+                            if (manual)
+                            {
+                                ChartPackage package = library.ChartPackagesPending.Single(package => package.path == source);
+                                LibraryMutationSessionReceipt installed = library.ForceInstallPendingPackagesWithReceipt([package], true, null, new LibraryOperationNotices());
+                                Assert.IsTrue(installed.DurableCommit, installed.PrimaryFailure?.ToString());
+                            }
+                            ChartFile installedChart = library.BmsCharts.Single(chart => chart.RawTitle == title);
+                            string installedFolder = Path.GetDirectoryName(installedChart.Path) ?? throw new AssertFailedException();
+                            Assert.IsTrue(installedFolder.StartsWith(newRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+                            Assert.IsTrue(File.Exists(installedChart.Path));
+                            if (recovery != 0) { continue; }
+                            LibraryMutationSessionReceipt renamed = library.RenameChartFolderWithReceipt(installedFolder, title + "Renamed", new LibraryOperationNotices());
+                            Assert.IsTrue(renamed.DurableCommit, renamed.PrimaryFailure?.ToString());
+                            ChartFile renamedChart = library.BmsCharts.Single(chart => chart.RawTitle == title);
+                            LibraryChartRemovalPreflight removal = library.PrepareLibraryChartRemoval([LibraryChartRef.FromChartFile(renamedChart)]);
+                            library.RemoveLibraryCharts(removal, false, removal.WholeFolderCandidatePaths, new LibraryOperationNotices());
+                            Assert.IsFalse(File.Exists(renamedChart.Path));
+                            AssertEmpty();
+                        }
+                        if (recovery == 0)
+                        {
+                            operation = owner.ReloadFileDiffAsync();
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-no-resurrection");
+                            AssertEmpty();
+                        }
+                    }
+                    finally
+                    {
+                        try { if (operation != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "empty-root-operation-cleanup"); } }
+                        finally
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "empty-root-shutdown");
+                            owner.SettingDialog.Dispose();
+                        }
+                    }
+                }
+            });
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>無効な検索ルートでは通常起動だけが初回言語選択／設定再表示を要求し、設定経由では重ねて表示せず、進捗 block と profile を残さないことを確認します。</summary>
+    [TestMethod]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    public async Task InitializeLibrary_SettingsValidationFailureRoutesGuidanceByCaller(
+        bool firstStartup, bool fromSettings)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        try
+        {
+            Settings invalidSettings = CreateValidStandaloneSettings(root);
+            invalidSettings.BMSRootPath = string.Empty;
+            invalidSettings.StandaloneBmsRootPaths = string.Empty;
+            var settingsSession = new CountingSettingsEditSession(invalidSettings);
+            var dialogs = new RecordingRootDialogService();
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup,
+                dialogs: dialogs);
+            var presentation = new RecordingSettingsDialogPresentationPort();
+            viewModel.SettingDialog.AttachPresentationPort(presentation);
+
+            if (fromSettings)
+            {
+                Assert.AreEqual(
+                    StartupInitializationOutcome.SettingsRequired,
+                    (await ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(null)).Outcome);
+            }
+            else
+            {
+                Assert.IsFalse(await viewModel.InitializeAsync());
+            }
+            CollectionAssert.AreEqual(
+                fromSettings ? Array.Empty<string>() : new[] { firstStartup ? "initial-setup" : "open" },
+                presentation.Requests);
+            bool languageSelection = firstStartup && !fromSettings;
+            Assert.AreEqual(languageSelection ? 0 : 1, dialogs.MessageCount);
+            // 起動時検査の一覧はページ一覧の順で、開いた設定画面へそのまま公開します。初回の言語選択経路でも一覧は同じです。
+            // BMSディレクトリが一件もなければ、導入先の行は出さず、一般ページのBMSディレクトリ欄の一行にまとめます。
+            CollectionAssert.AreEqual(
+                new[] { (SettingsCategory.General, SettingsDeficiencyField.BmsDirectories) },
+                viewModel.SettingDialog.Deficiencies.Select(item => (item.Category, item.Field)).ToArray());
+            if (!languageSelection)
+            {
+                Assert.AreEqual(string.Join(Environment.NewLine,
+                    Resources.Msg_init_settings_check,
+                    string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_BmsDirectoryAndInstallRequired)),
+                    dialogs.LastMessageText);
+            }
+            Assert.IsFalse(viewModel.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+            Assert.IsFalse(viewModel.IsInitializationCompleted);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>実LR2設定不備に対する任意警告が失敗しても設定修復の結果・呼出元の案内を保ち、再帰通知・構築・元XML/DBの変更を始めません。</summary>
+    [TestMethod]
+    [DataRow("startup", false)] // 通常起動の警告Task失敗でも設定を案内します。
+    [DataRow("startup", true)] // 通常起動のFailed結果でも設定を案内します。
+    [DataRow("typed", false)] // 型付き終端は警告Task失敗を設定検証結果へ混ぜません。
+    [DataRow("typed", true)] // 型付き終端はFailed結果でもSettingsRequiredを維持します。
+    public void InvalidLr2Settings_OptionalWarningFailureRetainsSettingsOutcomeAndGuidance(string entry, bool failedResult)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        try
+        {
+            Settings settings = CreateValidCustomFolderSettings(Path.Combine(root, "lr2"), []);
+            string configPath = settings.LR2ConfigXmlPath;
+            string songDbPath = settings.LR2SongDBPath;
+            StartupLibraryConstructionTestSupport.CreateSongDatabase(databaseScope, songDbPath);
+            byte[] songDbBefore = File.ReadAllBytes(songDbPath);
+            byte[] invalidConfigBefore = [];
+            void InvalidateConfig()
+            {
+                File.WriteAllText(configPath, "<config>");
+                invalidConfigBefore = File.ReadAllBytes(configPath);
+            }
+            InvalidateConfig();
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var session = new CountingSettingsEditSession(settings);
+                var notificationFailure = new IOException("settings validation warning failed");
+                var dialogs = new RecordingRootDialogService();
+                if (failedResult) { dialogs.MessageResult = UiDialogResult.Failed(notificationFailure); }
+                else { dialogs.MessageObservedAsync = () => Task.FromException(notificationFailure); }
+                var sequence = new List<string>();
+                var applyFailures = new List<Exception>();
+                var constructionCalls = new List<string>();
+                var failurePresenter = new StartupCompletionTestFixture.RecordingStartupLibraryInitializationFailurePresenter();
+                var composition = new ApplicationComposition(settingsEditSession: session,
+                    reportSettingsApplyFailure: applyFailures.Add,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(ApplicationPathSnapshot.FromExecutablePath(Path.Combine(root, "application", "BeMusicSeeker.exe"))),
+                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, constructionCalls);
+                var owner = new MainWindowViewModel(composition, factory, startupLibraryInitializationFailurePresenter: failurePresenter);
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                var cleanupObservations = new List<(string Phase, string Message, bool LibraryActive, bool PlaylistActive, bool UiBlocked, bool OperationInProgress, bool Editing)>();
+                void ObserveCleanup(string phase, string message)
+                    => cleanupObservations.Add((phase, message, composition.OperationAdmission.IsActive, composition.PlaylistOperationAdmission.IsActive,
+                        owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked, owner.IsLibraryOperationInProgress, dialog.IsEditCompletionInProgress));
+                dialogs.MessageObserved = () =>
+                {
+                    ObserveCleanup("warning", dialogs.LastMessageText);
+                    sequence.Add("warning");
+                };
+                dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+                {
+                    sequence.Add(request);
+                    if (request == "open") { ObserveCleanup("open", string.Empty); }
+                }));
+                try
+                {
+                    if (entry == "typed")
+                    {
+                        Task<StartupInitializationResult> operation = ((ISettingsDialogStatePort)owner).InitializeLibraryAsync(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "invalid-lr2-warning-failed-typed");
+                        StartupInitializationResult result = operation.GetAwaiter().GetResult();
+                        Assert.AreEqual(StartupInitializationOutcome.SettingsRequired, result.Outcome);
+                        Assert.IsNotNull(result.Deficiencies);
+                        Assert.AreNotEqual(0, result.Deficiencies.Count);
+                        Assert.AreSame(result.Deficiencies, dialog.Deficiencies, "起動時検査の一覧をそのまま設定画面へ公開します。");
+                        Assert.IsNull(result.Failure);
+                        Assert.IsFalse(result.CompletionPublished);
+                    }
+                    else
+                    {
+                        Task<bool> operation = owner.InitializeAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "invalid-lr2-warning-failed-startup");
+                        Assert.IsFalse(operation.GetAwaiter().GetResult());
+                    }
+                    ObserveCleanup("terminal", string.Empty);
+                    Assert.AreEqual(entry == "startup" ? 3 : 2, cleanupObservations.Count);
+                    string warning = cleanupObservations.Single(value => value.Phase == "warning").Message;
+                    StringAssert.StartsWith(warning, Resources.Msg_init_settings_check + Environment.NewLine);
+                    StringAssert.Contains(warning, string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, Resources.Error_InvalidLR2SongDbOrConfigPath));
+                    foreach ((string Phase, string Message, bool LibraryActive, bool PlaylistActive, bool UiBlocked, bool OperationInProgress, bool Editing) observation in cleanupObservations)
+                    {
+                        Assert.IsFalse(observation.LibraryActive, observation.Phase);
+                        Assert.IsFalse(observation.PlaylistActive, observation.Phase);
+                        Assert.IsFalse(observation.UiBlocked, observation.Phase);
+                        Assert.IsFalse(observation.OperationInProgress, observation.Phase);
+                        Assert.IsFalse(observation.Editing, observation.Phase);
+                    }
+                    Assert.IsFalse(owner.IsInitializationCompleted);
+                    Assert.IsFalse(owner.HasActiveLibraryProfile);
+                    Assert.AreEqual(1, dialogs.MessageCount);
+                    Assert.AreEqual(0, applyFailures.Count);
+                    Assert.AreEqual(0, failurePresenter.Presentations.Count);
+                    Assert.AreEqual(0, constructionCalls.Count);
+                    CollectionAssert.AreEqual(entry == "startup" ? new[] { "warning", "open" } : new[] { "warning" }, sequence);
+                }
+                finally
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "invalid-lr2-warning-failed-shutdown");
+                    dialog.Dispose();
+                }
+            });
+            CollectionAssert.AreEqual(invalidConfigBefore, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(songDbBefore, File.ReadAllBytes(songDbPath));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>
+    /// 保証：LR2ディレクトリ未設定の警告は、実効LR2ルートを決められない通常起動の成功後に一回だけ、利用できない機能を伝える文言で表示する。
+    /// ルート設定済み、song.db と設定XMLから推測できる環境、設定経由の開始では表示せず、どの場合も実初期化は成功し設定画面を自動で開かない。
+    /// 保存値だけで警告を判断する誤りと、実効ルートが空の環境で起動を失敗させる誤りを検出する。
+    /// </summary>
+    /// <remarks>警告の判断が実際の初期化で捕捉した値と表示の順序につながることを、実初期化を通して確認します。規則の条件網羅は規則のテストが担います。</remarks>
+    [TestMethod]
+    [DataRow("configured", false)]
+    [DataRow("inferable", false)]
+    [DataRow("uninferable", false)]
+    [DataRow("uninferable", true)]
+    public void InitializeLibrary_Lr2RootPathWarningIsLimitedToEmptyRootOnNormalStartup(string rootState, bool fromSettings)
+    {
+        string scope = CreateTemporaryRoot(CaseWorkspace);
+        string lr2LayoutRoot = Path.Combine(scope, "lr2-layout");
+        string applicationRoot = Path.Combine(scope, "application");
+        try
+        {
+            Settings settings = CreateValidCustomFolderSettings(lr2LayoutRoot, []);
+            if (rootState != "configured")
+            {
+                settings.LR2RootPath = string.Empty;
+            }
+            if (rootState == "uninferable")
+            {
+                // 設定XMLだけを別の場所へ移し、song.db との共通のLR2フォルダを無くします。
+                string movedConfigPath = Path.Combine(scope, "moved-config", "config.xml");
+                Directory.CreateDirectory(Path.GetDirectoryName(movedConfigPath)!);
+                File.Move(settings.LR2ConfigXmlPath, movedConfigPath);
+                settings.LR2ConfigXmlPath = movedConfigPath;
+            }
+            string songDbPath = settings.LR2SongDBPath;
+            using (SQLiteConnectionEx db = databaseScope.OpenProviderConnection(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).EnsureAppOwnedSchema();
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, songDbPath);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                LR2Config config = TestLr2ConfigFactory.Load(settings.LR2ConfigXmlPath);
+                var composition = new ApplicationComposition(
+                    settingsEditSession: settingsSession,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                    rootFileEnumerator: new FastRootFileEnumerator(),
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
+                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(settings.LR2ConfigXmlPath);
+                var library = new TestBmsLibrary(composition.DatabaseScope,
+                    songDbPath,
+                    configOwner,
+                    _lr2ScoreDB: null,
+                    startupRequiredFileScanReason: null,
+                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                    applicationPathSnapshot: applicationPath,
+                    chartFileScanner: CapturedChartFileScanner.FromFixture([],
+                        new Dictionary<string, IEnumerable<string>> { [Path.Combine(lr2LayoutRoot, "Songs")] = [] }, [Path.Combine(lr2LayoutRoot, "Songs")]),
+                    uiScheduler: composition.UiScheduler,
+                    rootFileEnumerator: new FastRootFileEnumerator(),
+                    operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, songDbPath, settings, configOwner, library: library);
+                MainWindowViewModel viewModel = new(
+                    composition,
+                    new LateFailureStartupLibraryFactory(library, playlist));
+                var presentation = new RecordingSettingsDialogPresentationPort();
+                viewModel.SettingDialog.AttachPresentationPort(presentation);
+                try
+                {
+                    if (fromSettings)
+                    {
+                        Task<StartupInitializationResult> initialization =
+                            ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(null);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "lr2-root-warning-settings-initialization");
+                        Assert.AreEqual(StartupInitializationOutcome.Succeeded, initialization.GetAwaiter().GetResult().Outcome);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(((ISettingsDialogStatePort)viewModel).CompleteRequiredInitializationAfterAdmissionAsync(initialization.GetAwaiter().GetResult()), "lr2-root-warning-settings-completion");
+                    }
+                    else
+                    {
+                        Task<bool> initialization = viewModel.InitializeAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "lr2-root-warning-startup-initialization");
+                        Assert.IsTrue(initialization.GetAwaiter().GetResult());
+                    }
+
+                    bool warningExpected = rootState == "uninferable" && !fromSettings;
+                    Assert.AreEqual(warningExpected ? 1 : 0, dialogs.MessageCount);
+                    if (warningExpected)
+                    {
+                        Assert.AreEqual(Resources.Warning_LR2RootPathNotSet, dialogs.LastMessageText);
+                    }
+                    Assert.IsTrue(viewModel.IsInitializationCompleted);
+                    Assert.IsTrue(viewModel.HasActiveLibraryProfile);
+                    Assert.AreEqual(0, presentation.Requests.Count);
+                }
+                finally
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                        "lr2-root-warning-shutdown");
+                    viewModel.SettingDialog.Dispose();
+                }
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(scope))
+            {
+                Directory.Delete(scope, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>起動走査の有無と既存 DB の有無によらず、欠損登録 root では警告後に設定を開き、新規 DB 作成や既存 DB の改変前に止まることを確認します。</summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task InitializeAsync_MissingStandaloneRootStopsBeforePortableDbCreationAndShowsOneWarning(
+        bool scanBmsFilesOnStartup,
+        bool existingSongDb)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string applicationRoot = Path.Combine(root, "application");
+        string existingRoot = Path.Combine(root, "bms-existing");
+        string missingRoot = Path.Combine(root, "bms-missing");
+        Directory.CreateDirectory(applicationRoot);
+        Directory.CreateDirectory(existingRoot);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(existingRoot);
+            settings.ScanBmsFilesOnStartup = scanBmsFilesOnStartup;
+            settings.BMSRootPath = existingRoot;
+            settings.StandaloneBmsRootPaths = string.Join(
+                Environment.NewLine,
+                existingRoot,
+                missingRoot);
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            dialogs.MessageObserved = () => sequence.Add("warning");
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            byte[] existingSongDbBytes = [0x41, 0x31, 0x2D, 0x44, 0x30, 0x38];
+            if (existingSongDb)
+            {
+                Directory.CreateDirectory(applicationPath.DataDirectoryPath);
+                File.WriteAllBytes(applicationPath.StandaloneSongDbPath, existingSongDbBytes);
+            }
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                settingsEditSession: settingsSession,
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                fileDbMutationDialogService: dialogs,
+                dialogService: UndeclaredDialogs.Create())
+                .CreateMainWindowViewModel();
+            var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
+            viewModel.SettingDialog.AttachPresentationPort(presentation);
+
+            bool initialized = await viewModel.InitializeAsync();
+
+            Assert.IsFalse(initialized);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.AreEqual(new[] { "warning", "open" }, sequence);
+            StringAssert.Contains(dialogs.LastMessageText, missingRoot);
+            StringAssert.Contains(
+                dialogs.LastMessageText,
+                Resources.LibraryDirectoryPreflightBmsRootRole);
+            if (existingSongDb)
+            {
+                CollectionAssert.AreEqual(existingSongDbBytes, File.ReadAllBytes(applicationPath.StandaloneSongDbPath));
+            }
+            else
+            {
+                Assert.IsFalse(File.Exists(applicationPath.StandaloneSongDbPath));
+            }
+            Assert.IsFalse(viewModel.IsInitializationCompleted);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>LR2 config の登録 root が欠損すると警告と設定案内に終端し、実 config／DB を保って出力先修復を始めないことを確認します。</summary>
+    [TestMethod]
+    public async Task InitializeAsync_LinkedMissingRootStopsBeforeOutputRepairAndPreservesConfig()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string applicationRoot = Path.Combine(root, "application");
+        string lr2Root = Path.Combine(root, "lr2");
+        string missingBmsRoot = Path.Combine(root, "bms-missing");
+        string outputBase = Path.Combine(root, "output-base");
+        Directory.CreateDirectory(applicationRoot);
+        Directory.CreateDirectory(lr2Root);
+        try
+        {
+            (string songDb, string configPath) = CreateValidLr2Layout(lr2Root);
+            File.WriteAllText(
+                configPath,
+                "<config><system /><jukebox><path>"
+                    + missingBmsRoot
+                    + "\\</path></jukebox></config>");
+            byte[] configBefore = File.ReadAllBytes(configPath);
+            byte[] songDbBefore = File.ReadAllBytes(songDb);
+            Settings settings = CreateValidStandaloneSettings(lr2Root);
+            settings.OperationModeLR2DB = true;
+            settings.LR2RootPath = lr2Root;
+            settings.LR2ConfigXmlPath = configPath;
+            settings.LR2SongDBPath = songDb;
+            settings.LR2CustomFolderOutputBaseDir = outputBase;
+            settings.LR2CustomFolderAdditionalOutputBaseDirs = string.Empty;
+            settings.ScanBmsFilesOnStartup = false;
+            settings.SkipInitPlaylistLoad = true;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            dialogs.MessageObserved = () => sequence.Add("warning");
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                settingsEditSession: settingsSession,
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                fileDbMutationDialogService: dialogs,
+                dialogService: UndeclaredDialogs.Create())
+                .CreateMainWindowViewModel();
+            var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
+            viewModel.SettingDialog.AttachPresentationPort(presentation);
+
+            bool initialized = await viewModel.InitializeAsync();
+
+            Assert.IsFalse(initialized);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.AreEqual(new[] { "warning", "open" }, sequence);
+            StringAssert.Contains(dialogs.LastMessageText, missingBmsRoot);
+            StringAssert.Contains(
+                dialogs.LastMessageText,
+                Resources.LibraryDirectoryPreflightBmsRootRole);
+            Assert.IsFalse(Directory.Exists(outputBase));
+            CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(configPath));
+            CollectionAssert.AreEqual(songDbBefore, File.ReadAllBytes(songDb));
+            Assert.IsFalse(viewModel.IsInitializationCompleted);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>欠落ルートの再初期化が、受付解放後の警告と元例外を保ち、再入可能な失敗へ終端することを確認します。</summary>
+    /// <remarks>起動後処理全体の実終端を次の明示操作の前提とし、取得済み設定受付を借用する実差分処理と元失敗の回収を確認します。</remarks>
+    [TestMethod]
+    public void ReinitializeLibraryAsync_LateDirectoryFailureWarnsAfterCleanupAndRethrows()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string rootA = Path.Combine(root, "BMS-A");
+        string rootB = Path.Combine(root, "BMS-B");
+        string unavailableRootB = Path.Combine(root, "BMS-B-unavailable");
+        string applicationRoot = Path.Combine(root, "application");
+        MainWindowViewModel? viewModel = null;
+        ChartFileOperationSynchronizer? admission = null;
+        Exception? primaryFailure = null;
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        Directory.CreateDirectory(applicationRoot);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(rootA);
+            settings.BMSRootPath = rootA;
+            settings.StandaloneBmsRootPaths = string.Join(Environment.NewLine, rootA, rootB);
+            settings.ScanBmsFilesOnStartup = false;
+            settings.SkipInitPlaylistLoad = true;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            StandaloneLibraryDatabaseEnsureResult database =
+                StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
+            IChartFileScanner scanner = CapturedChartFileScanner.FromFixture(
+                [],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [rootA] = [],
+                    [rootB] = []
+                },
+                [rootA, rootB]);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            dialogs.MessageObserved = () => sequence.Add("warning");
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var composition = new ApplicationComposition(
+                    settingsEditSession: settingsSession,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
+                admission = composition.OperationAdmission;
+                var library = new TestBmsLibrary(composition.DatabaseScope,
+                    database.SongDbPath,
+                    getLR2Config: null,
+                    _lr2ScoreDB: null,
+                    startupRequiredFileScanReason: null,
+                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                    settings: settings,
+                    applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                    chartFileScanner: scanner,
+                    operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
+                viewModel = new MainWindowViewModel(
+                    composition,
+                    new LateFailureStartupLibraryFactory(library, playlist));
+                var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
+                viewModel.SettingDialog.AttachPresentationPort(presentation);
+            });
+
+            bool initialized = false;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Task<bool> initialization = viewModel!.InitializeAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "late-directory-startup-initialization");
+                initialized = initialization.GetAwaiter().GetResult();
+            });
+            Assert.IsTrue(initialized);
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Assert.IsNotNull(admission);
+                Assert.IsNotNull(viewModel);
+                AwaitStartupBackgroundCompletionOnDispatcher(viewModel, "late-directory-startup-background-terminal");
+                var acceptedReload = new TestSettingsDialogStatePort(viewModel,
+                    () => ((ISettingsDialogStatePort)viewModel).InitializeLibraryAsync(null),
+                    reloadFileDiff: capability => ((ISettingsDialogStatePort)viewModel).ReloadFileDiffAsync(capability));
+                Assert.IsTrue(admission.TryEnter(out IDisposable reloadLease));
+                using (reloadLease)
+                {
+                    using LibraryFileMutationCapability reloadCapability = admission.CreateMutationCapability(reloadLease);
+                    Task<StartupInitializationResult> reload = acceptedReload.ReloadFileDiffAsync(reloadCapability);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(reload, "settings-real-accepted-file-diff-continuation");
+                    StartupInitializationResult reloadResult = reload.GetAwaiter().GetResult();
+                    Assert.AreEqual(StartupInitializationOutcome.Succeeded, reloadResult.Outcome);
+                    Assert.IsNull(reloadResult.Failure);
+                    Assert.IsNotNull(reloadResult.RequiredResult?.FileResult);
+                    Assert.IsTrue(admission.IsActive, "実差分継続の借用は外側の設定受付を解放しません。");
+                    reloadCapability.Validate(admission);
+                }
+            });
+            Directory.Move(rootB, unavailableRootB);
+            try
+            {
+                LibraryDirectoryPreflightException? thrown = null;
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    try
+                    {
+                        Task reinitialize = viewModel!.ReinitializeLibraryAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(reinitialize, "late-directory-reinitialize");
+                        Assert.Fail("A missing registered root must fail the reinitialize operation.");
+                    }
+                    catch (LibraryDirectoryPreflightException exception)
+                    {
+                        thrown = exception;
+                    }
+                });
+
+                Assert.IsNotNull(thrown);
+                Assert.AreEqual(LibraryDirectoryPreflightUse.BmsRoot, thrown!.Use);
+                Assert.AreEqual(1, dialogs.MessageCount);
+                CollectionAssert.AreEqual(new[] { "warning" }, sequence);
+                StringAssert.Contains(dialogs.LastMessageText, rootB);
+                StringAssert.Contains(
+                    dialogs.LastMessageText,
+                    Resources.LibraryDirectoryPreflightBmsRootRole);
+                Assert.IsTrue(viewModel!.ProgressHub.StartupProgress.IsFailed);
+                Assert.IsTrue(viewModel!.ProgressHub.StartupProgress.IsRetryableFailure);
+            }
+            finally
+            {
+                Directory.Move(unavailableRootB, rootB);
+            }
+        }
+        catch (Exception failure)
+        {
+            primaryFailure = failure;
+            throw;
+        }
+        finally
+        {
+            try
+            {
+                if (viewModel != null)
+                {
+                    TestUiDispatcherHost.Invoke(() =>
+                    {
+                        try
+                        {
+                            // 起動の後続処理は再初期化失敗の cleanup 後も生存するため、実 shell 終了まで回収する。
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                viewModel!.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                                "late-directory-reinitialize-shutdown");
+                        }
+                        finally
+                        {
+                            viewModel.SettingDialog.Dispose();
+                        }
+                    });
+                }
+                Directory.Delete(root, recursive: true);
+            }
+            catch (Exception cleanupFailure) when (primaryFailure != null)
+            {
+                TestContext.WriteLine("Late-directory fixture cleanup: " + cleanupFailure);
+            }
+        }
+    }
+
+    /// <summary>実構成入口の失敗通知中にL/Pと進捗が解放され、元の構成失敗を保持して設定を自動再表示しないことを確認します。</summary>
+    [TestMethod]
+    [DataRow("startup")] // 通常起動も実構成失敗で設定を自動再表示しません。
+    [DataRow("typed")] // 型付き入口は元失敗とOperationFailedを返し、設定検証結果へ読み替えません。
+    public void InitializeAsync_ConstructionFailurePresentsAfterBothAdmissionsAndProgressCleanup(string entry)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string songsRoot = Path.Combine(root, "Songs");
+        string applicationRoot = Path.Combine(root, "application");
+        Directory.CreateDirectory(songsRoot);
+        Directory.CreateDirectory(applicationRoot);
+        MainWindowViewModel? viewModel = null;
+        TestBmsLibrary? library = null;
+        TestBmsPlaylist? playlist = null;
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(songsRoot);
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            StandaloneLibraryDatabaseEnsureResult database = StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            var failure = new InvalidOperationException("controlled startup construction failure");
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+                var session = new CountingSettingsEditSession(settings);
+                var composition = new ApplicationComposition(settingsEditSession: session,
+                    uiScheduler: scheduler, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
+                library = new TestBmsLibrary(composition.DatabaseScope, database.SongDbPath, null, null, null,
+                    () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge,
+                    operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
+                    uiScheduler: scheduler, settings: settings);
+                playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
+                var owner = new MainWindowViewModel(composition, new LateFailureStartupLibraryFactory(library, playlist, () => throw failure));
+                viewModel = owner;
+                owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+                var notificationObservations = new List<(bool LibraryAvailable, bool PlaylistAvailable, bool OperationInProgress, bool UiBlocked, bool Retryable)>();
+                var observationFailures = new List<Exception>();
+                dialogs.MessageObserved = () =>
+                {
+                    sequence.Add("error");
+                    try
+                    {
+                        bool libraryAvailable = composition.OperationAdmission.TryEnter(out IDisposable libraryLease);
+                        bool playlistAvailable;
+                        using (libraryLease)
+                        {
+                            playlistAvailable = composition.PlaylistOperationAdmission.TryEnter(out IDisposable playlistLease);
+                            playlistLease?.Dispose();
+                        }
+                        notificationObservations.Add((libraryAvailable, playlistAvailable, owner.IsLibraryOperationInProgress,
+                            owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked, owner.ProgressHub.StartupProgress.IsRetryableFailure));
+                    }
+                    catch (Exception observationFailure) { observationFailures.Add(observationFailure); }
+                };
+                if (entry == "typed")
+                {
+                    Task<StartupInitializationResult> operation = ((ISettingsDialogStatePort)owner).InitializeLibraryAsync(null);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "startup-construction-failure-typed");
+                    StartupInitializationResult result = operation.GetAwaiter().GetResult();
+                    Assert.AreEqual(StartupInitializationOutcome.OperationFailed, result.Outcome);
+                    Assert.AreSame(failure, result.Failure);
+                    Assert.IsNull(result.Deficiencies);
+                    Assert.IsFalse(result.CompletionPublished);
+                }
+                else
+                {
+                    Task<bool> operation = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "startup-construction-failure");
+                    Assert.IsFalse(operation.GetAwaiter().GetResult());
+                }
+                Assert.AreEqual(0, observationFailures.Count, string.Join(Environment.NewLine, observationFailures));
+                Assert.AreEqual(1, notificationObservations.Count);
+                (bool LibraryAvailable, bool PlaylistAvailable, bool OperationInProgress, bool UiBlocked, bool Retryable) observation = notificationObservations.Single();
+                Assert.IsTrue(observation.LibraryAvailable);
+                Assert.IsTrue(observation.PlaylistAvailable);
+                Assert.IsFalse(observation.OperationInProgress);
+                Assert.IsFalse(observation.UiBlocked);
+                Assert.IsTrue(observation.Retryable);
+            });
+            Assert.AreEqual(1, dialogs.MessageCount);
+            StringAssert.Contains(dialogs.LastMessageText, failure.Message);
+            CollectionAssert.AreEqual(new[] { "error" }, sequence);
+        }
+        finally
+        {
+            if (viewModel != null)
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "startup-construction-failure-close");
+                    viewModel.SettingDialog.Dispose();
+                });
+            }
+            library?.RequestShutdown("startup-construction-fixture-cleanup");
+            playlist?.RequestShutdown("startup-construction-fixture-cleanup");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>通常起動・型付き入口・設定からの開始の実入口で、構築の途中に終了を要求し、ShutdownRequested相当・初回状態保持・親解禁/外部投入の中止と全cleanupを確認します。設定からの開始は閉鎖後でも、通知・設定の失敗通知・再表示を出さないことを確認します。</summary>
+    [TestMethod]
+    [DataRow("startup")] // 通常起動は設定画面を閉じない。
+    [DataRow("typed")] // 借用した受付で呼ぶ型付き入口は、閉鎖の通知を渡さなければ設定画面を閉じない。
+    [DataRow("apply")] // 設定からの開始は閉鎖の要求だけを出し、終了を失敗や再表示へ読み替えない。
+    public void InitializeLibrary_ShutdownRetainsFirstStartupAndDoesNotUnlockOrQueueExternalWork(string entry)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string songsRoot = Path.Combine(root, "Songs");
+        string applicationRoot = Path.Combine(root, "application");
+        Directory.CreateDirectory(songsRoot);
+        Directory.CreateDirectory(applicationRoot);
+        MainWindowViewModel? viewModel = null;
+        TestBmsLibrary? library = null;
+        TestBmsPlaylist? playlist = null;
+        Task<ShellShutdownWorkflowCompletionReceipt>? closeOperation = null;
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(songsRoot);
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            StandaloneLibraryDatabaseEnsureResult database = StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
+            var dialogs = new RecordingRootDialogService();
+            var lifetime = new TestApplicationLifetime(firstStartup: true);
+            var sequence = new List<string>();
+            var applyFailures = new List<Exception>();
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+                var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(settings),
+                    reportSettingsApplyFailure: applyFailures.Add,
+                    uiScheduler: scheduler, applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath), fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer(),
+                    dialogService: UndeclaredDialogs.Create());
+                library = new TestBmsLibrary(composition.DatabaseScope, database.SongDbPath, null, null, null,
+                    () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge,
+                    operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
+                    uiScheduler: scheduler, settings: settings);
+                playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
+                var factory = new LateFailureStartupLibraryFactory(library, playlist, () =>
+                {
+                    MainWindowViewModel activeOwner = viewModel ?? throw new InvalidOperationException("startup owner not composed");
+                    closeOperation = activeOwner.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                });
+                var owner = new MainWindowViewModel(composition, factory);
+                viewModel = owner;
+                owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(sequence.Add));
+                if (entry == "apply")
+                {
+                    Task operation = owner.SettingDialog.StartConfirmedEnvironmentAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "settings-apply-required-shutdown");
+                }
+                else if (entry == "typed")
+                {
+                    using var semaphore = new SemaphoreSlim(1, 1);
+                    var requiredOwner = new StartupLibraryInitializationWorkflowOwner(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), semaphore);
+                    using (StartupRequiredOperationLease accepted = requiredOwner.AcquireRequiredOperation(composition.OperationAdmission, composition.PlaylistOperationAdmission))
+                    {
+                        Task<StartupInitializationResult> operation = ((ISettingsDialogStatePort)owner).InitializeLibraryAsync(accepted.Capability, new(database.SongDbPath), _ => { });
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "settings-required-shutdown");
+                        Assert.AreEqual(StartupInitializationOutcome.ShutdownRequested, operation.GetAwaiter().GetResult().Outcome);
+                    }
+                }
+                else
+                {
+                    Task<bool> operation = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "normal-required-shutdown");
+                    Assert.IsFalse(operation.GetAwaiter().GetResult());
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(((ISettingsDialogStatePort)owner).CompleteRequiredInitializationAfterAdmissionAsync(new(StartupInitializationOutcome.ShutdownRequested)), "settings-required-shutdown-completion");
+                Assert.IsTrue(lifetime.IsFirstStartup);
+                Assert.IsFalse(owner.IsInitializationCompleted);
+                Assert.IsFalse(owner.HasActiveLibraryProfile);
+                Assert.IsFalse(owner.ProgressHub.StartupProgress.IsStartupInitializationRequiredProgressComplete(owner.ProgressHub.StartupProgress.GetActiveStartupProgressOperationToken()));
+                Assert.IsFalse(composition.OperationAdmission.IsActive);
+                Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                Assert.IsNotNull(closeOperation);
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(closeOperation, "required-shutdown-terminal");
+            });
+            Assert.AreEqual(0, dialogs.MessageCount);
+            Assert.AreEqual(0, applyFailures.Count, "終了の要求を設定操作の失敗へ読み替えません。");
+            CollectionAssert.AreEqual(entry == "apply" ? new[] { "close" } : Array.Empty<string>(), sequence);
+        }
+        finally
+        {
+            if (viewModel != null)
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "required-shutdown-close");
+                    viewModel.SettingDialog.Dispose();
+                });
+            }
+            library?.RequestShutdown("required-shutdown-fixture-cleanup");
+            playlist?.RequestShutdown("required-shutdown-fixture-cleanup");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>構築直後に root が消えた起動は受付・進捗を解放して警告し、警告 callback 内の復旧と再起動を完了できることを確認して、通知中の自己 Busy を検出します。</summary>
+    [TestMethod]
+    public void InitializeAsync_LateDirectoryFailureAfterConstructionWarnsAfterCleanupAndOpensSettings()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string rootA = Path.Combine(root, "BMS-A");
+        string rootB = Path.Combine(root, "BMS-B");
+        string unavailableRootB = Path.Combine(root, "BMS-B-unavailable");
+        string applicationRoot = Path.Combine(root, "application");
+        MainWindowViewModel? viewModel = null;
+        Task<bool>? retryInitialization = null;
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        Directory.CreateDirectory(applicationRoot);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(rootA);
+            settings.BMSRootPath = rootA;
+            settings.StandaloneBmsRootPaths = string.Join(Environment.NewLine, rootA, rootB);
+            settings.ScanBmsFilesOnStartup = false;
+            settings.SkipInitPlaylistLoad = true;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            StandaloneLibraryDatabaseEnsureResult database =
+                StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
+            IChartFileScanner scanner = CapturedChartFileScanner.FromFixture(
+                [],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [rootA] = [],
+                    [rootB] = []
+                },
+                [rootA, rootB]);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            bool lateFailureInjected = false;
+            bool retryRequested = false;
+            bool warningObservedWithOperationReleased = false;
+            bool warningObservedWithProgressUnblocked = false;
+            bool retryCompletedDuringWarning = false;
+            bool retrySucceededDuringWarning = false;
+            bool retryTimedOutDuringWarning = false;
+            Exception? retryFailure = null;
+            Exception? retryDrainFailure = null;
+            dialogs.MessageObserved = () =>
+            {
+                sequence.Add("warning");
+            };
+            dialogs.MessageObservedAsync = async () =>
+            {
+                warningObservedWithOperationReleased = !viewModel!.IsLibraryOperationInProgress;
+                warningObservedWithProgressUnblocked = !viewModel!.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked;
+                if (!retryRequested)
+                {
+                    retryRequested = true;
+                    Directory.Move(unavailableRootB, rootB);
+                    retryInitialization = viewModel!.InitializeAsync();
+                }
+                try
+                {
+                    retrySucceededDuringWarning = await retryInitialization!;
+                    retryCompletedDuringWarning = retryInitialization!.IsCompleted;
+                }
+                catch (TimeoutException)
+                {
+                    retryTimedOutDuringWarning = true;
+                    retryCompletedDuringWarning = retryInitialization!.IsCompleted;
+                }
+                catch (Exception exception)
+                {
+                    retryFailure = exception;
+                    retryCompletedDuringWarning = retryInitialization!.IsCompleted;
+                }
+            };
+
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var composition = new ApplicationComposition(
+                    settingsEditSession: settingsSession,
+                    uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                    fileDbMutationDialogService: dialogs,
+                    dialogService: UndeclaredDialogs.Create());
+                var library = new TestBmsLibrary(composition.DatabaseScope,
+                    database.SongDbPath,
+                    getLR2Config: null,
+                    _lr2ScoreDB: null,
+                    startupRequiredFileScanReason: null,
+                    optionsSnapshotProvider: () => BmsLibraryOptionsSnapshot.CreateCurrent(settings),
+                    settings: settings,
+                    applicationPathSnapshot: TestBmsFactory.MissingEverythingBridge,
+                    chartFileScanner: scanner,
+                    operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission);
+                TestBmsPlaylist playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
+                viewModel = new MainWindowViewModel(
+                    composition,
+                    new LateFailureStartupLibraryFactory(
+                        library,
+                        playlist,
+                        () =>
+                        {
+                            if (!lateFailureInjected)
+                            {
+                                lateFailureInjected = true;
+                                Directory.Move(rootB, unavailableRootB);
+                            }
+                        }));
+                viewModel.SettingDialog.AttachPresentationPort(
+                    new RecordingSettingsDialogPresentationPort(sequence.Add));
+            });
+
+            bool initialized = true;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                Task<bool> initialization = viewModel!.InitializeAsync();
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(initialization, "late-directory-startup-failure");
+                initialized = initialization.GetAwaiter().GetResult();
+            });
+
+            if (retryInitialization is { IsCompleted: false })
+            {
+                try
+                {
+                    TestUiDispatcherHost.Invoke(() =>
+                    {
+                        try
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                retryInitialization!,
+                                "late-directory-startup-retry-drain");
+                        }
+                        catch (Exception exception)
+                        {
+                            retryDrainFailure = exception;
+                        }
+                    });
+                }
+                catch (Exception exception)
+                {
+                    retryDrainFailure = exception;
+                }
+            }
+
+            Assert.IsFalse(initialized);
+            Assert.IsNotNull(retryInitialization);
+            Assert.IsTrue(warningObservedWithOperationReleased);
+            Assert.IsTrue(warningObservedWithProgressUnblocked);
+            Assert.IsTrue(retryCompletedDuringWarning);
+            Assert.IsFalse(retryTimedOutDuringWarning);
+            Assert.IsTrue(retrySucceededDuringWarning);
+            Assert.IsNull(retryFailure);
+            Assert.IsNull(retryDrainFailure);
+            Assert.IsTrue(viewModel!.IsInitializationCompleted);
+            Assert.IsTrue(viewModel!.HasActiveLibraryProfile);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.AreEqual(new[] { "warning", "open" }, sequence);
+            StringAssert.Contains(dialogs.LastMessageText, rootB);
+            StringAssert.Contains(dialogs.LastMessageText, Resources.LibraryDirectoryPreflightBmsRootRole);
+            Assert.IsTrue(Directory.Exists(rootB));
+        }
+        finally
+        {
+            if (viewModel != null)
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    if (retryInitialization is { IsCompleted: false })
+                    {
+                        try
+                        {
+                            TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                                retryInitialization!,
+                                "late-directory-startup-retry-cleanup");
+                        }
+                        catch
+                        {
+                        }
+                    }
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(
+                        viewModel!.ShellShutdownWorkflow.RequestWindowCloseAsync(),
+                        "late-directory-startup-shutdown");
+                    viewModel!.SettingDialog.Dispose();
+                });
+            }
+            if (Directory.Exists(unavailableRootB) && !Directory.Exists(rootB))
+            {
+                Directory.Move(unavailableRootB, rootB);
+            }
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>出力先重複を注入通知先へ一回届け、通知成功・Failed・owner不在・Task faultのいずれも元の出力先とconfigを保ち、通知不能を元の入力拒否へ合成せず再通知しないことを確認します。</summary>
+    [TestMethod]
+    [DataRow("Accepted")]
+    [DataRow("Failed")]
+    [DataRow("OwnerUnavailable")]
+    [DataRow("TaskFault")]
+    public void CustomFolderOutputValidation_UsesInjectedDialogAndPreservesRejectedValue(string statusName)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        SettingsDialogViewModel? dialog = null;
+        try
+        {
+            string musicRoot = Path.Combine(root, "Music");
+            string normalOutput = Path.Combine(root, "NormalOutput");
+            string rootOutput = Path.Combine(root, "RootOutput");
+            foreach (string path in new[] { musicRoot, normalOutput, rootOutput })
+            {
+                Directory.CreateDirectory(path);
+            }
+            (string songDb, string configPath) = CreateValidLr2Layout(root);
+            LR2Config config = BeMusicSeeker.TestSupport.Components.TestLr2ConfigFactory.Load(configPath);
+            config.AddBMSSearchDirectories([musicRoot]);
+            config.Save(config.ConfigFilePath);
+            Settings values = CreateValidStandaloneSettings(musicRoot);
+            values.OperationModeLR2DB = true;
+            values.LR2RootPath = root;
+            values.LR2SongDBPath = songDb;
+            values.LR2ConfigXmlPath = configPath;
+            values.LR2CustomFolderOutputBaseDir = normalOutput;
+            values.LR2CustomFolderOutputBaseDirRootType = rootOutput;
+            values.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            var session = new CountingSettingsEditSession(values);
+            var displayFailure = new IOException("設定検証ダイアログの表示失敗");
+            var dialogs = new RecordingRootDialogService
+            {
+                MessageResult = statusName switch
+                {
+                    "Accepted" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                    "Failed" => UiDialogResult.Failed(displayFailure),
+                    "OwnerUnavailable" => UiDialogResult.NotShown(UiDialogStatus.OwnerUnavailable),
+                    "TaskFault" => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK),
+                    _ => throw new ArgumentOutOfRangeException(nameof(statusName))
+                }
+            };
+            if (statusName == "TaskFault") { dialogs.MessageObservedAsync = () => Task.FromException(displayFailure); }
+            using var harness = SettingsDialogHarness.Create(values, settingsEditSession: session, dialogs: dialogs);
+            dialog = harness.Dialog;
+            byte[] savedXml = File.ReadAllBytes(configPath);
+
+            dialog.LR2CustomFolderOutputDir = rootOutput;
+
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            StringAssert.Contains(dialogs.LastMessageText, Resources.Label_NormalOutputBase);
+            StringAssert.Contains(dialogs.LastMessageText, Resources.Label_RootOutputBase);
+            Assert.AreEqual(normalOutput, dialog.LR2CustomFolderOutputDir);
+            Assert.AreEqual(rootOutput, dialog.LR2CustomFolderAsRootOutputDir);
+            Assert.AreEqual(0, session.SaveCount);
+            CollectionAssert.AreEqual(savedXml, File.ReadAllBytes(configPath));
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>一般ページの実Table URLボタンで確定rootと別候補を識別し、破棄取消/実P拒否では保持、受理後は関係rootだけを戻して、操作の実行中だけ同再操作を拒否します（要約の表示の完了は待たず、保持したまま実終端が完了します）。通常Closeは許可します。</summary>
+    /// <remarks>実workspaceの既存URL入力を使ってHTTPを避け、DB/順序/BMTの詳細はPlaylist系列へ分担します。通知の表示を実Taskの完了条件にしません。</remarks>
+    [TestMethod]
+    [DataRow("cancel")]
+    [DataRow("busy")]
+    [DataRow("accepted")]
+    public void BeatorajaTableUrlButton_DeliversConfirmedRootToWorkspace(string outcome)
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            // beatoraja の確認・通知・要約は、設定の窓口(fixture.Dialogs)とは別の、プレイリスト作業領域の窓口へ届く。
+            var playlistDialogs = new PlaylistWorkspaceFixturePorts.PlaylistWorkspaceDialogService
+            {
+                ConfirmationResult = UiDialogResult.FromMessageBoxResult(outcome == "cancel" ? MessageBoxResult.Cancel : MessageBoxResult.OK)
+            };
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(
+                lifetime: TestApplicationContext.CreateLifetime(firstStartup: false), playlistWorkspaceDialogService: playlistDialogs);
+            string root = fixture.Settings.BMSRootPath;
+            string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
+            string candidate = Directory.CreateDirectory(Path.Combine(root, "candidate-beatoraja")).FullName;
+            foreach (string path in new[] { beatoraja, candidate }) { File.WriteAllText(Path.Combine(path, "beatoraja.jar"), string.Empty); }
+            File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{\"tableURL\":[\"https://example.invalid/existing\"]}");
+            File.WriteAllText(Path.Combine(candidate, BeatorajaConfigService.ConfigFileName), "{\"tableURL\":[\"https://example.invalid/candidate\"]}");
+            fixture.OptionalRelease.TrySetResult();
+            fixture.Settings.BeatorajaRootPath = beatoraja;
+            Task<bool> initial = fixture.Start();
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(initial, "table-url-button-initialize");
+            Assert.IsTrue(initial.GetAwaiter().GetResult());
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "table-url-button-background");
+            fixture.Playlist.BMSTables.Add(new BMSTable { playlist_id = 999, name = "Existing", Page_url = new Uri("https://example.invalid/existing") });
+            fixture.Playlist.CommitBMSTableHeaderToDB(fixture.Playlist.BMSTables.Last());
+            SettingsDialogViewModel settings = fixture.Owner.SettingDialog;
+            fixture.Dialogs.ConfirmationResult = outcome == "cancel" ? MessageBoxResult.Cancel : MessageBoxResult.Yes;
+            // 要約の表示は未完了の Task で止める。ワーカーのスレッドを同期で止めず、返す Task が表示の完了を待たずに完了することを観測する。
+            var summaryEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            playlistDialogs.MessageTaskFactory = request =>
+            {
+                if (request.Caption != Resources.Beatoraja_table_url_import_result_title)
+                {
+                    return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                }
+                summaryEntered.TrySetResult();
+                return release.Task;
+            };
+            int confirmations() => playlistDialogs.ConfirmationRequests.Count;
+            var window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings, PlaylistWorkspace = fixture.Owner.PlaylistWorkspace };
+            IDisposable? held = null;
+            Task? terminal = null;
+            try
+            {
+                scope.ShowAndWaitForContentRendered(window);
+                settings.BeatorajaRootPath = candidate;
+                settings.EnableBeatorajaBmtOutput = !fixture.Settings.EnableBeatorajaBmtOutput;
+                if (outcome == "busy") { Assert.IsTrue(fixture.Playlist.TryEnterPlaylistMutation(out held)); }
+                Button button = FindDescendants<Button>(window).Single(button => System.Windows.Automation.AutomationProperties.GetAutomationId(button) == "SettingsImportBeatorajaTableUrls");
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                terminal = settings.SettingsOperationCompletionTask;
+                if (outcome == "accepted")
+                {
+                    // 取込みの実終端は、表示を待たずに完了します。UIスレッドが継続を処理する前の、実行中の間に再度押しても、確認を重ねません。
+                    Assert.IsFalse(terminal.IsCompleted, "UIスレッドが継続を処理する前は、実行中です。");
+                    button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(ConcurrencyProbe.AssertCompletesWhileHeldAsync(summaryEntered.Task, "table-url-summary-request"), "table URL summary arrival");
+                    // 要約の表示を保持したまま、実終端が完了する。表示の完了を待つ誤りは、この待機の期限で検出する。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(ConcurrencyProbe.AssertCompletesWhileHeldAsync(terminal, "table-url-terminal-while-summary-held"), "table URL terminal while summary held");
+                    Assert.AreEqual(beatoraja, settings.BeatorajaRootPath);
+                    Assert.AreNotEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput, "取込みと無関係な候補を保持します。");
+                    Assert.IsTrue(settings.CanCancelBmtSettings, "取込みと無関係なBMT候補は同期取消できます。");
+                    Button cancelBmt = FindDescendants<Button>(window).Single(candidateButton => Equals(candidateButton.Tag, "cancel:bmt"));
+                    Assert.IsTrue(cancelBmt.IsEnabled);
+                    cancelBmt.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    Assert.AreEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput);
+                    Assert.IsFalse(settings.CanCancelBmtSettings);
+                    Assert.AreEqual(1, confirmations());
+                    Assert.IsTrue(settings.IsEditCancellationEnabled, "要約の表示が未完了でも、通常Closeを許可します。");
+                    Assert.AreEqual(1, confirmations());
+                    // 要約は既存の表一件の結果（既存一件、他は零）の本文で、窓口へ一件だけ届いている。
+                    UiMessageRequest summaryRequest = playlistDialogs.MessageRequests.Single();
+                    Assert.AreEqual(Resources.Beatoraja_table_url_import_result_title, summaryRequest.Caption);
+                    Assert.AreEqual(string.Format(Resources.Beatoraja_table_url_import_result_summary_format, 1, 0, 0, 0, 0), summaryRequest.MessageBoxText);
+                    Assert.AreEqual(MessageBoxImage.Information, summaryRequest.Icon);
+                    Assert.IsNull(summaryRequest.Owner);
+                }
+                release.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "table URL actual terminal");
+                Assert.AreEqual(1, confirmations());
+                StringAssert.Contains(playlistDialogs.ConfirmationRequests.Single().MessageBoxText, Resources.FilePath_beatoraja_root);
+                switch (outcome)
+                {
+                    case "cancel":
+                        Assert.AreEqual(0, playlistDialogs.MessageRequests.Count, "取消では通知を出さない。");
+                        break;
+                    case "busy":
+                        UiMessageRequest busy = playlistDialogs.MessageRequests.Single();
+                        Assert.AreEqual(Resources.Warn_LibraryOperationBusy, busy.MessageBoxText);
+                        Assert.AreEqual(Resources.Warning, busy.Caption);
+                        Assert.AreEqual(MessageBoxImage.Exclamation, busy.Icon);
+                        break;
+                    default:
+                        Assert.AreEqual(1, playlistDialogs.MessageRequests.Count, "受理した取込みは要約だけを一件出す。");
+                        break;
+                }
+                if (outcome != "accepted")
+                {
+                    Assert.AreEqual(candidate, settings.BeatorajaRootPath);
+                    Assert.AreNotEqual(fixture.Settings.EnableBeatorajaBmtOutput, settings.EnableBeatorajaBmtOutput, "取込みと無関係な候補を保持します。");
+                    Assert.IsTrue(settings.CanCancelBmtSettings, "取消・受付拒否の実終端後は候補操作を再開します。");
+                    Assert.IsFalse(summaryEntered.Task.IsCompleted);
+                }
+                Assert.IsTrue(window.IsVisible);
+                Assert.AreEqual(beatoraja, fixture.Settings.BeatorajaRootPath);
+                held?.Dispose(); held = null;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(1, confirmations());
+            }
+            finally
+            {
+                release.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)); held?.Dispose();
+                if (terminal != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(terminal, "table URL cleanup"); }
+                window.CloseForOwnerShutdown();
+            }
+        });
+    }
+
+    /// <summary>スコア組の確定から同じL/Pを実ScoreOnlyモデルへ渡し、実親解放後の純通知と必須UIの実終端まで同じWindowの受理Taskを追跡します。</summary>
+    /// <remarks>実compiled選択からWindowの受理Taskへ接続し、実設定・モデル・UI完了を確認します。純通知を保持点にせず既存UI gateで実Taskを待ちます。</remarks>
+    [TestMethod]
+    [DataRow(false)] // 同じroot内のplayer選択。
+    [DataRow(true)] // root pickerの局所組変更。
+    public void ScoreConfirmation_PublishesChangedRealScoreBeforeClosing(bool changeRoot)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string music = Path.Combine(root, "music");
+        string beatoraja = Path.Combine(root, "beatoraja");
+        Directory.CreateDirectory(music);
+        Directory.CreateDirectory(beatoraja);
+        File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+        File.WriteAllText(Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName), "{}");
+        string hash = new('a', 64);
+        string nextBeatoraja = Path.Combine(root, "next-beatoraja");
+        Directory.CreateDirectory(nextBeatoraja);
+        File.WriteAllText(Path.Combine(nextBeatoraja, "beatoraja.jar"), string.Empty);
+        File.WriteAllText(Path.Combine(nextBeatoraja, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"playerB\"}");
+        foreach ((string playerRoot, string player, int score) in new[] { (beatoraja, "playerA", 10), (beatoraja, "playerB", 40), (nextBeatoraja, "playerB", 40) })
+        {
+            string playerDirectory = Path.Combine(playerRoot, "player", player);
+            Directory.CreateDirectory(playerDirectory);
+            using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(Path.Combine(playerDirectory, "score.db"));
+            db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+            db.Execute("INSERT INTO score VALUES (?, 0, 4, ?, 0, 0, 0, 100, 50, 5, 1, 1)", hash, score);
+        }
+        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            TestUiDispatcherHost.RunWindowTest(scope =>
+            {
+                Settings values = CreateValidStandaloneSettings(music);
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaRootPath = beatoraja;
+                values.BeatorajaPlayerId = "playerA";
+                values.BeatorajaScoreDbPath = Path.Combine(beatoraja, "player", "playerA", "score.db");
+                var session = new CountingSettingsEditSession(values);
+                var failures = new List<Exception>();
+                var completionUi = new StartupCompletionTestFixture.CompletionUiScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+                var composition = new ApplicationComposition(settingsEditSession: session,
+                    reportSettingsApplyFailure: failures.Add,
+                    uiScheduler: completionUi,
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge),
+                    rootFileEnumerator: new FastRootFileEnumerator(),
+                    dialogService: UndeclaredDialogs.Create());
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
+;
+                var viewModel = new MainWindowViewModel(composition, factory);
+                var presentation = new RecordingSettingsDialogPresentationPort();
+                viewModel.SettingDialog.AttachPresentationPort(presentation);
+                Task? apply = null;
+                SettingsWindow? window = null;
+                BMSLibrary? library = null;
+                var observations = new List<(bool AllFree, bool MinFree, bool LibraryFree, bool PlaylistFree, bool Ready, int Version, int RuntimeVersion, int Subscriptions, int? Score, bool Closed)>();
+                PropertyChangedEventHandler observer = (_, args) =>
+                {
+                    if (args.PropertyName != nameof(BMSLibrary.ScoreSnapshotVersion)) { return; }
+                    BMSLibrary actual = library ?? throw new InvalidOperationException("Score library was not attached.");
+                    BMSLibrary.ScoreRuntimeState state = actual.GetScoreRuntimeStateForDiagnostics();
+                    observations.Add((!actual.IsWriteLockHeldInitializeAll, !actual.IsWriteLockHeldInitializeMin,
+                        !composition.OperationAdmission.IsActive, !composition.PlaylistOperationAdmission.IsActive,
+                        state.SnapshotReady && actual.ScoreSnapshotReady, actual.ScoreSnapshotVersion, state.SnapshotVersion,
+                        actual.ScoreSubscriptionCount, actual.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash).Score,
+                        presentation.Requests.Contains("close")));
+                    published.TrySetResult();
+                };
+                var scoreDelivered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                EventHandler<NormalLibraryRefreshAppliedEventArgs> scoreDelivery = (_, args) =>
+                {
+                    if (args.NotificationBatch.ScoreChanges.Count > 0) { scoreDelivered.TrySetResult(); }
+                };
+                completionUi.IsCompletionBoundary = () => !composition.OperationAdmission.IsActive
+                    && !composition.PlaylistOperationAdmission.IsActive;
+                try
+                {
+                    Task<bool> initialize = viewModel.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "score-only-real-initialize");
+                    Assert.AreEqual(true, initialize.GetAwaiter().GetResult());
+                    if (viewModel.IsLibraryOperationInProgress)
+                    {
+                        var idle = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        PropertyChangedEventHandler finished = (_, args) => { if (args.PropertyName == nameof(MainWindowViewModel.IsLibraryOperationInProgress) && !viewModel.IsLibraryOperationInProgress) { idle.TrySetResult(); } };
+                        viewModel.PropertyChanged += finished;
+                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(idle.Task, "placement-score-startup-actual-idle"); }
+                        finally { viewModel.PropertyChanged -= finished; }
+                    }
+                    AwaitStartupBackgroundCompletionOnDispatcher(viewModel, "score-only-startup-background-terminal");
+                    library = factory.CreatedLibrary ?? throw new AssertFailedException("Score library was not attached.");
+                    Assert.AreEqual(20, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash).Score);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None), "score-only-real-initial-delivery");
+                    library.PropertyChanged += observer;
+                    viewModel.RegularChartList.NormalLibraryRefreshApplied += scoreDelivery;
+                    var rootDialogs = new RecordingRootDialogService();
+                    window = new SettingsWindow(rootDialogs) { DataContext = viewModel.SettingDialog, PlaylistWorkspace = viewModel.PlaylistWorkspace };
+                    scope.ShowAndWaitForContentRendered(window);
+                    ComboBox playerSelection = FindDescendants<ComboBox>(window).Single(combo =>
+                        combo.GetBindingExpression(ComboBox.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BeatorajaPlayerId));
+                    completionUi.Arm();
+                    int constructionCalls = factory.Calls.Count;
+                    if (changeRoot)
+                    {
+                        rootDialogs.FolderResults.Enqueue(new UiFolderPickerResult(UiDialogStatus.Accepted, [nextBeatoraja]));
+                        BeMusicSeeker.Views.Settings.SettingsPathPicker picker = FindDescendants<BeMusicSeeker.Views.Settings.SettingsPathPicker>(window)
+                            .Single(item => item.GetBindingExpression(BeMusicSeeker.Views.Settings.SettingsPathPicker.PathProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BeatorajaRootPath));
+                        FindDescendants<Button>(picker).Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                    }
+                    else { playerSelection.SetCurrentValue(ComboBox.SelectedItemProperty, "playerB"); }
+                    apply = viewModel.SettingDialog.SettingsOperationCompletionTask;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(completionUi.Entered.Task, apply), "score-only-real-publish-or-failure");
+                    if (!completionUi.Entered.Task.IsCompleted) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-early-terminal"); Assert.Fail(string.Join(Environment.NewLine, failures)); }
+                    Assert.IsFalse(apply.IsCompleted);
+                    Assert.IsTrue(viewModel.SettingDialog.IsEditCancellationEnabled, "必須公開の実終端待ちと通常Closeを区別します。");
+                    Assert.IsTrue(!composition.OperationAdmission.IsActive);
+                    Assert.IsTrue(!composition.PlaylistOperationAdmission.IsActive);
+                    Assert.IsTrue(published.Task.IsCompleted);
+                    // 純通知の時点と、登録済みrangeを実UIへ届ける時点を混ぜず、同じownerの実配送終端を待ちます。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None), "score-only-real-score-delivery");
+                    Assert.IsTrue(scoreDelivered.Task.IsCompleted);
+                    Assert.IsTrue(observations.Count > 0);
+                    foreach ((bool AllFree, bool MinFree, bool LibraryFree, bool PlaylistFree, bool Ready, int Version, int RuntimeVersion, int Subscriptions, int? Score, bool Closed) observation in observations)
+                    {
+                        Assert.IsTrue(observation.AllFree && observation.MinFree && observation.LibraryFree && observation.PlaylistFree, $"All={observation.AllFree}, Min={observation.MinFree}, L={observation.LibraryFree}, P={observation.PlaylistFree}, Ready={observation.Ready}, Version={observation.Version}");
+                        Assert.IsTrue(observation.Ready && !observation.Closed);
+                        Assert.IsTrue(observation.Version > 0);
+                        Assert.AreEqual(observation.Version, observation.RuntimeVersion);
+                        Assert.AreEqual(1, observation.Subscriptions);
+                        Assert.AreEqual(80, observation.Score);
+                    }
+                    CollectionAssert.DoesNotContain(presentation.Requests, "close");
+                    Assert.AreEqual(80, library.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash).Score,
+                        "公開済みsnapshotの実値を読み、on-demandで未実行を補いません。");
+                    completionUi.Release.TrySetResult();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-terminal");
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                    Assert.AreEqual(constructionCalls, factory.Calls.Count, "root変更もライブラリ/playlistを再構築しません。");
+                    Assert.AreEqual(changeRoot ? nextBeatoraja : beatoraja, values.BeatorajaRootPath);
+                    Assert.AreEqual(Path.Combine(changeRoot ? nextBeatoraja : beatoraja, "player", "playerB", "score.db"), values.BeatorajaScoreDbPath);
+                    CollectionAssert.DoesNotContain(presentation.Requests, "close");
+                    Assert.IsTrue(!composition.OperationAdmission.IsActive);
+                    Assert.IsTrue(!composition.PlaylistOperationAdmission.IsActive);
+
+                }
+                finally
+                {
+                    completionUi.Release.TrySetResult();
+                    if (library != null) { library.PropertyChanged -= observer; }
+                    viewModel.RegularChartList.NormalLibraryRefreshApplied -= scoreDelivery;
+                    try { if (apply != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-only-real-cleanup-task"); } }
+                    finally
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "score-only-real-cleanup");
+                        if (window?.IsVisible == true) { window.CloseForOwnerShutdown(); }
+                        viewModel.SettingDialog.Dispose();
+                    }
+                }
+            });
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    /// <summary>標準compositionのroot確定で旧rootのURL解除だけを失敗させ、新root採用・実SQLite score反映・必要UI終端と旧BMT保持を同じTaskで確認します。</summary>
+    [TestMethod]
+    public void BeatorajaRootConfirmation_UrlFailurePublishesRealNewRootScoreBeforeTerminal()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        Exception? primaryFailure = null;
+        var cleanupFailures = new List<Exception>();
+        void Cleanup(Action action) { try { action(); } catch (Exception failure) { cleanupFailures.Add(failure); } }
+        try
+        {
+            string music = Directory.CreateDirectory(Path.Combine(root, "music")).FullName;
+            string oldRoot = Directory.CreateDirectory(Path.Combine(root, "A")).FullName;
+            string newRoot = Directory.CreateDirectory(Path.Combine(root, "B")).FullName;
+            string hash = new('a', 64);
+            foreach ((string playerRoot, int perfect) in new[] { (oldRoot, 10), (newRoot, 40) })
+            {
+                File.WriteAllText(Path.Combine(playerRoot, "beatoraja.jar"), string.Empty);
+                File.WriteAllText(Path.Combine(playerRoot, BeatorajaConfigService.ConfigFileName), "{\"playername\":\"player\",\"tablepath\":\"table\",\"tableURL\":[\"https://example.invalid/user\"]}");
+                string profile = Directory.CreateDirectory(Path.Combine(playerRoot, "player", "player")).FullName;
+                using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(Path.Combine(profile, "score.db"));
+                db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                db.Execute("INSERT INTO score VALUES (?, 0, 4, ?, 0, 0, 0, 100, 50, 5, 1, 1)", hash, perfect);
+            }
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                string settingsPath = Path.Combine(root, "settings", "user.config");
+                Settings values = CreateValidStandaloneSettings(music, TestSettingsFactory.OpenSettings(settingsPath));
+                values.BeatorajaRootPath = oldRoot;
+                values.BeatorajaPlayerId = "player";
+                values.BeatorajaScoreDbPath = Path.Combine(oldRoot, "player", "player", "score.db");
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaBmtTablePath = Path.Combine(oldRoot, "table");
+                values.EnableBeatorajaBmtOutput = true;
+                values.RegisterBeatorajaBmtUrls = true;
+                values.Save();
+                var failures = new List<Exception>();
+                var dialogs = new RecordingRootDialogService();
+                var completionUi = new StartupCompletionTestFixture.CompletionUiScheduler(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
+                var composition = new ApplicationComposition(settingsEditSession: new SettingsEditSession(values), reportSettingsApplyFailure: failures.Add,
+                    uiScheduler: completionUi, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge),
+                    rootFileEnumerator: new FastRootFileEnumerator(), fileDbMutationDialogService: dialogs, settingsDialogService: dialogs,
+                    dialogService: dialogs);
+                var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
+                {
+                    LibraryCreator = profile => new BMSLibrary(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
+                        null, scoreDialogs, profile.StartupRequiredFileScanReason, composition.BmsLibraryOptionsProvider, composition.UiScheduler,
+                        composition.ApplicationPathSnapshot, composition.BmsRootRegistrations, rootFileEnumerator: new FastRootFileEnumerator(),
+                        operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                };
+                var owner = new MainWindowViewModel(composition, factory);
+                Task? operation = null;
+                try
+                {
+                    Task<bool> initialize = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "root-bmt-score-initialize");
+                    Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    AwaitStartupBackgroundCompletionOnDispatcher(owner, "root-bmt-score-background");
+                    BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException("実libraryがありません。");
+                    BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException("実playlistがありません。");
+                    ChartScoreSnapshot Lookup() => library.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash);
+                    Assert.AreEqual(20, Lookup().Score);
+                    var table = new BMSTable
+                    {
+                        playlist_id = 1,
+                        name = "Real root",
+                        Folder_order = ["Folder"],
+                        entries = [new BMSTableEntry { md5 = new string('b', 32), sha256 = hash, title = "Song", folder = "Folder" }]
+                    };
+                    playlist.BMSTables.Add(table);
+                    playlist.CommitBMSTablesWithEntriesToDB([table]);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.BmtOutput.ExportAllAsync("root-bmt-initial"), "root-bmt-initial-output");
+                    string oldFile = Path.Combine(values.BeatorajaBmtTablePath, BmtTableExportService.CreatePlaylistExportMetadata(table).FileName);
+                    completionUi.IsCompletionBoundary = () => !composition.OperationAdmission.IsActive && !composition.PlaylistOperationAdmission.IsActive;
+                    completionUi.Arm();
+                    using (File.Open(Path.Combine(oldRoot, BeatorajaConfigService.ConfigFileName), FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    {
+                        operation = owner.SettingDialog.CommitBeatorajaRootSettingsAsync(newRoot);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(completionUi.Entered.Task, operation, "root-bmt-score-required-ui"), "root-bmt-score-ui-arrival");
+                        Assert.IsFalse(operation.IsCompleted);
+                        Assert.AreEqual(newRoot, TestSettingsFactory.OpenSettings(settingsPath).BeatorajaRootPath);
+                        Assert.AreEqual(80, Lookup().Score);
+                        Assert.IsTrue(File.Exists(oldFile));
+                        CollectionAssert.Contains(BeatorajaConfigService.ReadTableUrls(newRoot).ToArray(), "bemusicseeker://playlist/1");
+                        CollectionAssert.Contains(BeatorajaConfigService.ReadTableUrls(oldRoot).ToArray(), "bemusicseeker://playlist/1");
+                        Assert.IsFalse(composition.OperationAdmission.IsActive);
+                        Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                        completionUi.Release.TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "root-bmt-score-terminal");
+                    }
+                    Assert.AreEqual(1, failures.Count);
+                    StringAssert.Contains(failures[0].Message, Resources.Settings_bmt_url_switch_failed);
+                    Assert.AreEqual(80, Lookup().Score);
+                    Assert.IsTrue(owner.SettingDialog.IsBeatorajaSelectionEnabled);
+                }
+                finally
+                {
+                    completionUi.Release.TrySetResult();
+                    if (operation != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "root-bmt-score-operation-cleanup")); }
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "root-bmt-score-owner-cleanup"));
+                    Cleanup(owner.SettingDialog.Dispose);
+                }
+            });
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            Cleanup(() => Directory.Delete(root, recursive: true));
+            if (cleanupFailures.Count > 0)
+            {
+                if (primaryFailure != null) { primaryFailure.Data["CleanupFailures"] = new AggregateException(cleanupFailures); }
+                else { throw new AggregateException(cleanupFailures); }
+            }
+        }
+    }
+
+    /// <summary>実score DBのA成功→BのSELECT失敗→C成功を通常設定入口で処理し、確定rootのplayerpath、関連項目だけの保存と実BMT媒体・URLへの無影響を確認します。</summary>
+    /// <remarks>標準compositionの実score通知・必要表示まで待ちます。Window接続とL/P解放後の必須UI待機は隣接するcompiled選択試験が分担します。</remarks>
+    [TestMethod]
+    public void ScoreConfirmation_ReadFailureAllowsAnotherPlayerWithoutChangingBmt()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        Exception? primaryFailure = null;
+        var cleanupFailures = new List<Exception>();
+        void Cleanup(Action action) { try { action(); } catch (Exception failure) { cleanupFailures.Add(failure); } }
+        try
+        {
+            string music = Directory.CreateDirectory(Path.Combine(root, "music")).FullName;
+            string beatoraja = Directory.CreateDirectory(Path.Combine(root, "beatoraja")).FullName;
+            string draftRoot = Directory.CreateDirectory(Path.Combine(root, "draft-beatoraja")).FullName;
+            string oldOutput = Directory.CreateDirectory(Path.Combine(beatoraja, "table")).FullName;
+            string newOutput = Directory.CreateDirectory(Path.Combine(beatoraja, "other-table")).FullName;
+            File.WriteAllText(Path.Combine(beatoraja, "beatoraja.jar"), string.Empty);
+            File.WriteAllText(Path.Combine(draftRoot, "beatoraja.jar"), string.Empty);
+            string config = Path.Combine(beatoraja, BeatorajaConfigService.ConfigFileName);
+            File.WriteAllText(config, "{\"playername\":\"A\",\"playerpath\":\"profiles\",\"tablepath\":\"table\",\"tableURL\":[\"https://example.com/unmanaged\"]}");
+            File.WriteAllText(Path.Combine(draftRoot, BeatorajaConfigService.ConfigFileName), "{}");
+            string hash = new('a', 64);
+            foreach ((string player, int perfect) in new[] { ("A", 10), ("B", 0), ("C", 40) })
+            {
+                string path = Path.Combine(Directory.CreateDirectory(Path.Combine(beatoraja, "profiles", player)).FullName, "score.db");
+                using SQLiteConnectionEx db = databaseScope.OpenProviderConnection(path);
+                if (player == "B") { db.Execute("CREATE TABLE unrelated (id INTEGER)"); }
+                else
+                {
+                    db.Execute("CREATE TABLE score (sha256 TEXT, mode INTEGER, clear INTEGER, epg INTEGER, lpg INTEGER, egr INTEGER, lgr INTEGER, notes INTEGER, combo INTEGER, minbp INTEGER, playcount INTEGER, clearcount INTEGER)");
+                    db.Execute("INSERT INTO score VALUES (?, 0, 4, ?, 0, 0, 0, 100, 50, 5, 1, 1)", hash, perfect);
+                }
+            }
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                string settingsPath = Path.Combine(root, "settings", "user.config");
+                Settings values = CreateValidStandaloneSettings(music, TestSettingsFactory.OpenSettings(settingsPath));
+                values.UseBeatorajaScoreDb = true;
+                values.BeatorajaRootPath = beatoraja;
+                values.BeatorajaPlayerId = "A";
+                values.BeatorajaScoreDbPath = Path.Combine(beatoraja, "profiles", "A", "score.db");
+                values.BeatorajaBmtTablePath = oldOutput;
+                values.EnableBeatorajaBmtOutput = true;
+                values.RegisterBeatorajaBmtUrls = true;
+                values.BeatorajaBmtHashOutputMode = "Original";
+                values.Save();
+                var failures = new List<Exception>();
+                var settingsDialogs = new RecordingRootDialogService();
+                var dialogs = new RecordingRootDialogService();
+                var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(values) { PersistOwnedValues = true },
+                    reportSettingsApplyFailure: failures.Add, uiScheduler: new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher),
+                    applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false), cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(TestBmsFactory.AvailableEverythingBridge), rootFileEnumerator: new FastRootFileEnumerator(),
+                    fileDbMutationDialogService: dialogs, settingsDialogService: settingsDialogs,
+                    dialogService: UndeclaredDialogs.Create());
+                var scoreDialogs = new BmsLibraryInitializationTestSupport.RecordingDialogService();
+                var factory = new StartupLibraryConstructionTestSupport.RecordingDelegatingStartupLibraryFactory(composition, [])
+                {
+                    // score読取り・投影は実モデルで行い、Windowの不要な警告終端だけを既存記録窓口へ接続します。
+                    LibraryCreator = profile => new BMSLibrary(composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), profile.SongDbPath, profile.Lr2ConfigOwner, profile.Lr2ScoreDbPath,
+                        null, scoreDialogs, profile.StartupRequiredFileScanReason, composition.BmsLibraryOptionsProvider,
+                        composition.UiScheduler, composition.ApplicationPathSnapshot, composition.BmsRootRegistrations, rootFileEnumerator: new FastRootFileEnumerator(),
+                        operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission)
+                };
+                var owner = new MainWindowViewModel(composition, factory);
+                Task? apply = null;
+                try
+                {
+                    Task<bool> initialize = owner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(initialize, "score-next-real-initialize");
+                    Assert.IsTrue(initialize.GetAwaiter().GetResult());
+                    AwaitStartupBackgroundCompletionOnDispatcher(owner, "score-next-startup-background");
+                    BMSLibrary library = factory.CreatedLibrary ?? throw new AssertFailedException("Library was not attached.");
+                    BMSPlaylist playlist = factory.CreatedPlaylist ?? throw new AssertFailedException("Playlist was not attached.");
+                    ChartScoreSnapshot Lookup() => library.ResolveChartScoreSnapshot(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash);
+                    Assert.AreEqual(20, Lookup().Score);
+                    var table = new BMSTable
+                    {
+                        playlist_id = 1,
+                        name = "Score independent",
+                        bmt_sort = 1,
+                        last_update = new DateTime(2024, 1, 1),
+                        Folder_order = ["Folder"],
+                        entries = [new BMSTableEntry { title = "Song", md5 = new string('b', 32), sha256 = hash, folder = "Folder" }]
+                    };
+                    playlist.BMSTables.Add(table);
+                    playlist.CommitBMSTablesWithEntriesToDB([table]);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(playlist.BmtOutput.ExportAllAsync("score-test-initial"), "score-next-initial-bmt");
+                    Assert.IsTrue(File.Exists(Path.Combine(oldOutput, BmtTableExportService.ManifestFileName)));
+                    File.WriteAllText(Path.Combine(oldOutput, "user.txt"), "old unmanaged");
+                    File.WriteAllText(Path.Combine(newOutput, "user.txt"), "new unmanaged");
+                    var externalConfig = Newtonsoft.Json.Linq.JObject.Parse(File.ReadAllText(config));
+                    externalConfig["tablepath"] = "other-table";
+                    File.WriteAllText(config, externalConfig.ToString());
+                    var files = Directory.GetFiles(oldOutput).Concat(Directory.GetFiles(newOutput)).ToDictionary(path => path, File.ReadAllBytes);
+                    byte[] configBefore = File.ReadAllBytes(config);
+                    string[] urls = BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray();
+                    int messagesBefore = dialogs.MessageRequests.Count;
+                    SettingsDialogViewModel dialog = owner.SettingDialog;
+                    dialog.BeatorajaRootPath = draftRoot;
+                    dialog.BeatorajaBmtHashOutputMode = "PreferSha256Only";
+                    bool savedKeep = values.KeepBeatorajaBmtFilesWhenOutputDisabled;
+                    dialog.KeepBeatorajaBmtFilesWhenOutputDisabled = !savedKeep;
+                    values.Commit((nameof(Settings.ShowNewPackageInstallConfirmMsg), !values.ShowNewPackageInstallConfirmMsg));
+                    bool independentValue = values.ShowNewPackageInstallConfirmMsg;
+                    var row = LibraryChartRow.FromChartFile(new ChartFile(ChartFileKind.Bms, Path.Combine(music, "chart.bms"), string.Empty, hash,
+                        "Title", "Title", "Artist", "Genre", "Folder", string.Empty, string.Empty, null, null, null));
+                    row.SetScoreProjectionProvider(chart => library.ResolveChartScoreSnapshot(chart.Kind, chart.Path, chart.Md5, chart.Sha256), () => library.ScoreSnapshotVersion);
+                    foreach (string player in new[] { "B", "C" })
+                    {
+                        dialog.BeatorajaPlayerId = player;
+                        apply = dialog.CommitScoreSettingsAsync();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-next-" + player);
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.RegularChartList.DeliverPendingLibraryChangesAsync(library, CancellationToken.None), "score-next-delivery-" + player);
+                        Settings fresh = TestSettingsFactory.OpenSettings(settingsPath);
+                        Assert.AreEqual(player, fresh.BeatorajaPlayerId);
+                        Assert.AreEqual(Path.Combine(beatoraja, "profiles", player, "score.db"), fresh.BeatorajaScoreDbPath);
+                        Assert.IsTrue(fresh.UseBeatorajaScoreDb);
+                        Assert.AreEqual(beatoraja, fresh.BeatorajaRootPath);
+                        Assert.AreEqual(oldOutput, fresh.BeatorajaBmtTablePath);
+                        Assert.AreEqual("Original", fresh.BeatorajaBmtHashOutputMode);
+                        Assert.AreEqual(savedKeep, fresh.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                        Assert.AreEqual(independentValue, fresh.ShowNewPackageInstallConfirmMsg);
+                        Assert.AreEqual(draftRoot, dialog.BeatorajaRootPath);
+                        Assert.AreEqual("PreferSha256Only", dialog.BeatorajaBmtHashOutputMode);
+                        Assert.AreEqual(!savedKeep, dialog.KeepBeatorajaBmtFilesWhenOutputDisabled);
+                        Assert.AreEqual(player == "B" ? ScoreTableLoadStatus.Failed : ScoreTableLoadStatus.Loaded, library.GetScoreSnapshotForDiagnostics().LoadStatus);
+                        Assert.AreEqual(player == "B" ? null : (int?)80, Lookup().Score);
+                        Assert.AreEqual(player == "B" ? null : (int?)80, row.Chart.Score.Score);
+                        Assert.AreEqual(messagesBefore + 1, dialogs.MessageRequests.Count);
+                        Assert.AreEqual(Resources.Error_RecommendationScoreReadFailed, dialogs.MessageRequests.Last().MessageBoxText);
+                        Assert.AreEqual(0, scoreDialogs.Calls.Count, "モデルの窓口へは、同期の表示も投函も届かない。失敗の案内は受付の解放後に、ファイル・DB変更の案内の窓口（FileDbMutationDialogs）へ表示する。");
+                        Assert.AreEqual(0, scoreDialogs.Posted.Count);
+                        Assert.AreEqual(0, settingsDialogs.MessageCount, "設定の窓口へは届かず、ファイル・DB変更の案内の窓口だけへ届く。");
+                        CollectionAssert.AreEquivalent(files.Keys.ToArray(), Directory.GetFiles(oldOutput).Concat(Directory.GetFiles(newOutput)).ToArray());
+                        foreach ((string path, byte[] bytes) in files) { CollectionAssert.AreEqual(bytes, File.ReadAllBytes(path)); }
+                        CollectionAssert.AreEqual(configBefore, File.ReadAllBytes(config));
+                        CollectionAssert.AreEqual(urls, BeatorajaConfigService.ReadTableUrls(beatoraja).ToArray());
+                    }
+                    Assert.AreEqual(0, dialogs.ConfirmationCount);
+                    Assert.AreEqual(0, settingsDialogs.ConfirmationCount);
+                    Assert.AreEqual(0, failures.Count, string.Join(Environment.NewLine, failures));
+                }
+                finally
+                {
+                    if (apply != null) { Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(apply, "score-next-operation-cleanup")); }
+                    Cleanup(() => TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "score-next-owner-cleanup"));
+                    Cleanup(owner.SettingDialog.Dispose);
+                }
+            });
+        }
+        catch (Exception failure) { primaryFailure = failure; throw; }
+        finally
+        {
+            Cleanup(() => Directory.Delete(root, recursive: true));
+            if (cleanupFailures.Count > 0)
+            {
+                var cleanupFailure = new AggregateException("score confirmation cleanup", cleanupFailures);
+                if (primaryFailure == null) { throw cleanupFailure; }
+                primaryFailure.Data["ScoreConfirmationCleanupFailure"] = cleanupFailure.ToString();
+            }
+        }
+    }
+
+    /// <summary>通常・追加・ROOTの先の選択を実保存し、同一・親・子関係の次の選択を最新確定配置に対して拒みます。どちらの操作順でも保存済み配置と候補一覧を保持します。</summary>
+    [TestMethod]
+    [DataRow("normal", "additional")]
+    [DataRow("additional", "normal")]
+    [DataRow("normal", "root")]
+    [DataRow("root", "normal")]
+    [DataRow("additional", "root")]
+    [DataRow("root", "additional")]
+    [DataRow("additional", "additional")]
+    public void CustomFolderOutputChoices_RejectOverlappingBasesInEitherEntryOrder(string firstRole, string secondRole)
+    {
+        foreach (string relation in new[] { "same", "parent", "child" })
+        {
+            string root = CreateTemporaryRoot(CaseWorkspace);
+            SettingsDialogViewModel? dialog = null;
+            try
+            {
+                string firstOutput = Path.Combine(root, "Separate", "Output");
+                string secondOutput = relation switch
+                {
+                    "same" => firstOutput,
+                    "parent" => Path.GetDirectoryName(firstOutput)!,
+                    _ => Path.Combine(firstOutput, "Child")
+                };
+                Directory.CreateDirectory(firstOutput);
+                Directory.CreateDirectory(secondOutput);
+                Settings values = CreateValidCustomFolderSettings(root, []);
+                var session = new CountingSettingsEditSession(values);
+                var dialogs = new RecordingRootDialogService();
+                MainWindowViewModel owner = CreateViewModel(session, firstStartup: false, dialogs: dialogs);
+                dialog = owner.SettingDialog;
+                SetCustomFolderOutput(dialog, firstRole, firstOutput);
+                dialog.CommitOutputSettingsAsync(firstRole).GetAwaiter().GetResult();
+                Assert.AreEqual(0, dialogs.MessageCount, dialogs.LastMessageText);
+                string normalBefore = dialog.LR2CustomFolderOutputDir;
+                string rootBefore = dialog.LR2CustomFolderAsRootOutputDir;
+                string[] additionalBefore = dialog.CustomFolderAdditionalOutputBaseDirList.ToArray();
+
+                SetCustomFolderOutput(dialog, secondRole, secondOutput);
+
+                Assert.AreEqual(1, dialogs.MessageCount, relation);
+                Assert.AreEqual(0, dialogs.ConfirmationCount);
+                Assert.AreEqual(normalBefore, dialog.LR2CustomFolderOutputDir);
+                Assert.AreEqual(rootBefore, dialog.LR2CustomFolderAsRootOutputDir);
+                CollectionAssert.AreEqual(additionalBefore, dialog.CustomFolderAdditionalOutputBaseDirList.ToArray());
+            }
+            finally
+            {
+                dialog?.Dispose();
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 各実入口で確認中の終了は副作用を始めず、成功公開後の修復通知中の終了は既公開成功を保持し、新しい案内・後続・設定再表示を止めます。
+    /// 修復通知の時点では、この親操作のLとPが解放済みであることを親操作のleaseに固有の終端Taskで、受付が閉鎖されていないことをIsAdmissionClosedで、それぞれ観測します。
+    /// 親の解放後に登録される後続保守のL・Pは、起動仕様の後続保守の節のとおり正規に取得され得るため、この通知の観測の対象にしません。
+    /// 操作の終端後は、親の終端Taskの成功を先に表明し、後続処理の終端を待ってから全体の受付が静止していること（lease漏れなし）を確認します。
+    /// </summary>
+    [TestMethod]
+    // entry 0:初回の明示開始、2:通常startup、3:tree再初期化。二つのboolは確認中/通知中の終了を区別します。
+    [DataRow(0, false, false)]
+    [DataRow(2, false, false)]
+    [DataRow(3, false, false)]
+    [DataRow(0, true, false)]
+    [DataRow(2, true, false)]
+    [DataRow(3, true, false)]
+    [DataRow(0, false, true)]
+    [DataRow(2, false, true)]
+    [DataRow(3, false, true)]
+    public void LeapYearRepair_ActualInitializationEntriesConfirmBeforeBothAdmissionsAndNotifyAfterTermination(int entry, bool shutdownDuringConfirmation, bool shutdownDuringNotification)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        MainWindowViewModel? owner = null;
+        BMSLibrary? library = null;
+        BMSPlaylist? playlist = null;
+        IDisposable? competing = null;
+        try
+        {
+            Settings values = CreateValidCustomFolderSettings(root, []);
+            string targetDb = values.LR2SongDBPath;
+            string folder = Path.Combine(root, "LeapCandidate");
+            Directory.CreateDirectory(folder);
+            DateTime sentinel = new(2024, 2, 29, 12, 0, 0);
+            Directory.SetLastWriteTime(folder, sentinel);
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), targetDb).EnsureAppOwnedSchema();
+            using (LR2SongDBExtended db = databaseScope.OpenSongWrite(targetDb))
+            {
+                db.CreateTable<LR2SongDB.song>();
+                db.CreateTable<LR2SongDB.folder>();
+                db.Insert(new LR2SongDB.folder { path = folder + Path.DirectorySeparatorChar, type = 1, date = null, adddate = 0, title = "saved identity", info_a = "retained" });
+                Lr2SongDbSyncStatusService.MarkCompleted(db, "fixture-complete", 0, DateTime.UtcNow);
+            }
+            var settingsSession = new CountingSettingsEditSession(values);
+            var dialogs = new RecordingRootDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.Yes) };
+            var mutation = new BmsLibraryInitializationTestSupport.RecordingFileMutationService();
+            bool changed = false;
+            bool warning = false;
+            // 通知先の失敗が局所化されても検証失敗を隠さないよう、callbackでは記録し、実Taskの待機元で表明する。
+            List<(bool LibraryReleased, bool PlaylistReleased, bool LibraryClosed, bool PlaylistClosed, bool Changed, int TimestampCallCount)> warningObservations = [];
+            Task? parentLibraryTerminal = null;
+            Task? parentPlaylistTerminal = null;
+            bool parentTerminalsPending = false;
+            int beforeAcceptedConfirmations = 0;
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+                IApplicationLifetimePort lifetime = TestApplicationContext.CreateLifetime(firstStartup: shutdownDuringConfirmation || shutdownDuringNotification);
+                var composition = new ApplicationComposition(runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(), settingsEditSession: settingsSession, uiScheduler: scheduler,
+                    applicationLifetime: lifetime, cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                    settingsDialogService: dialogs, fileDbMutationDialogService: dialogs, defaultBmsPlayerFactory: () => new RecordingPlaybackPlayer(),
+                    dialogService: UndeclaredDialogs.Create());
+                LR2Config config = TestLr2ConfigFactory.Load(values.LR2ConfigXmlPath);
+                Lr2ConfigOwner configOwner = composition.ResolveLr2Config(values.LR2ConfigXmlPath);
+                var actualLibrary = new TestBmsLibrary(composition.DatabaseScope, targetDb, configOwner, null, mutation, new UnexpectedBmsLibraryDialogService(), scheduler,
+                    () => BmsLibraryOptionsSnapshot.CreateCurrent(values), chartFileScanner: CapturedChartFileScanner.FromFixture([],
+                    new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [Path.Combine(root, "Songs")] = [] }, [Path.Combine(root, "Songs")]),
+                    operationAdmission: composition.OperationAdmission,
+                    playlistOperationAdmission: composition.PlaylistOperationAdmission, settings: values, rootFileEnumerator: new FastRootFileEnumerator());
+                library = actualLibrary;
+                playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, targetDb, values, configOwner, library: actualLibrary);
+                var activeOwner = new MainWindowViewModel(composition, new LateFailureStartupLibraryFactory(actualLibrary, playlist));
+                owner = activeOwner;
+                var presentation = new RecordingSettingsDialogPresentationPort();
+                activeOwner.SettingDialog.AttachPresentationPort(presentation);
+                if (entry == 3)
+                {
+                    SetPrivateField(activeOwner, "initializationCompleted", true);
+                    SetPrivateField(activeOwner, "hasActiveLibraryProfile", true);
+                }
+                if (entry == 0) { activeOwner.SettingDialog.OverwritePlaylistUrlsWithCompletion = !activeOwner.SettingDialog.OverwritePlaylistUrlsWithCompletion; }
+                if (entry == 3)
+                {
+                    // 既存の実接続を使う。任意保守は成功後に開始されるschedulerへ登録され、親の解放後にL・Pを取得し得る。モデル単独fallbackへ迂回しない。
+                    var applicationPort = (IStartupLibraryApplicationPort)activeOwner;
+                    applicationPort.AttachStartupLibrary(actualLibrary);
+                    applicationPort.AttachStartupServices(new StartupLibraryServices(new LibraryProfile(true, targetDb,
+                        [Path.Combine(root, "Songs")], configOwner, null, true, true, false, false, "leap-reinitialize-fixture"), actualLibrary, playlist));
+                }
+                dialogs.ConfirmationObserved = request =>
+                {
+                    StringAssert.Contains(request.MessageBoxText, folder);
+                    Assert.AreEqual(MessageBoxResult.No, request.DefaultResult);
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                    Assert.AreEqual(0, settingsSession.SaveCount);
+                    Assert.AreEqual(sentinel, Directory.GetLastWriteTime(folder));
+                    // 確認は設定画面の閉鎖より前に終わります。
+                    Assert.AreEqual(0, presentation.Requests.Count);
+                };
+                mutation.OnSetTimestamps = call =>
+                {
+                    // 設定からの開始だけが、最初の書込みの前に設定画面を一度閉じます。通常起動・ツリー再初期化は閉じません。
+                    CollectionAssert.AreEqual(entry == 0 ? new[] { "close" } : Array.Empty<string>(), presentation.Requests);
+                    Assert.IsTrue(composition.OperationAdmission.IsActive);
+                    Assert.IsTrue(composition.PlaylistOperationAdmission.IsActive);
+                    // 親のL・Pのlease固有の終端Taskを捕捉する。後続保守のleaseと区別して親の解放だけを観測できる。
+                    parentLibraryTerminal = composition.OperationAdmission.WaitForIdleAsync();
+                    parentPlaylistTerminal = composition.PlaylistOperationAdmission.WaitForIdleAsync();
+                    parentTerminalsPending = !parentLibraryTerminal.IsCompleted && !parentPlaylistTerminal.IsCompleted;
+                    Assert.IsFalse(actualLibrary.IsWriteLockHeldInitializeAll);
+                    Assert.IsFalse(actualLibrary.IsWriteLockHeldInitializeMin);
+                    Assert.IsTrue(call.LastWriteTime.HasValue);
+                    Directory.SetLastWriteTime(call.Path, call.LastWriteTime.GetValueOrDefault());
+                    changed = true;
+                };
+                dialogs.MessageObserved = () =>
+                {
+                    if (dialogs.LastMessageText != Resources.Warn_LR2LeapYearBugDetected) { return; }
+                    warning = true;
+                    // 全体のIsActive/TryEnterは、親の解放後に登録された後続保守のleaseも含むため使わない。
+                    bool libraryReleased = parentLibraryTerminal?.IsCompleted ?? false;
+                    bool playlistReleased = parentPlaylistTerminal?.IsCompleted ?? false;
+                    warningObservations.Add((libraryReleased, playlistReleased, composition.OperationAdmission.IsAdmissionClosed,
+                        composition.PlaylistOperationAdmission.IsAdmissionClosed, changed, mutation.TimestampCalls.Count));
+                };
+                void AssertWarningAfterAdmissionRelease()
+                {
+                    Assert.IsTrue(parentTerminalsPending, "親のL・Pの終端Taskは、親の保持中に未完了で捕捉されます。");
+                    Assert.AreEqual(1, warningObservations.Count);
+                    Assert.IsTrue(warningObservations[0].LibraryReleased, "通知時点で親のLは解放済みです。");
+                    Assert.IsTrue(warningObservations[0].PlaylistReleased, "通知時点で親のPは解放済みです。");
+                    Assert.IsFalse(warningObservations[0].LibraryClosed);
+                    Assert.IsFalse(warningObservations[0].PlaylistClosed);
+                    Assert.IsTrue(warningObservations[0].Changed);
+                    Assert.AreEqual(1, warningObservations[0].TimestampCallCount);
+                }
+                if (shutdownDuringConfirmation)
+                {
+                    var confirmationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var releaseConfirmation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    dialogs.ConfirmationObservedAsync = async () =>
+                    {
+                        confirmationEntered.TrySetResult();
+                        await releaseConfirmation.Task;
+                    };
+                    Task? shutdown = null;
+                    Task operation = entry switch
+                    {
+                        0 => activeOwner.SettingDialog.StartConfirmedEnvironmentAsync(),
+                        2 => activeOwner.InitializeAsync(),
+                        _ => activeOwner.ReinitializeLibraryAsync()
+                    };
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(Task.WhenAny(confirmationEntered.Task, operation), "leap-confirmation-entered");
+                        Assert.IsTrue(confirmationEntered.Task.IsCompletedSuccessfully);
+                        Assert.IsFalse(operation.IsCompleted);
+                        shutdown = activeOwner.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                        Assert.IsTrue(composition.OperationAdmission.IsAdmissionClosed);
+                        Assert.IsTrue(composition.PlaylistOperationAdmission.IsAdmissionClosed);
+                        releaseConfirmation.TrySetResult();
+                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "leap-confirmation-shutdown-operation"); }
+                        catch (OperationCanceledException) when (entry == 3 && operation.IsCanceled) { }
+                        if (entry == 3) { Assert.IsTrue(operation.IsCanceled, "ツリー入口の事前確認取消を実Taskで観測します。"); }
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "leap-confirmation-shutdown-terminal");
+                        if (operation is Task<bool> initialization) { Assert.IsFalse(initialization.GetAwaiter().GetResult()); }
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                        Assert.AreEqual(0, mutation.TimestampCalls.Count);
+                        Assert.AreEqual(0, dialogs.MessageCount);
+                        Assert.AreEqual(0, presentation.Requests.Count);
+                        Assert.IsTrue(lifetime.IsFirstStartup);
+                        Assert.IsFalse(changed);
+                        Assert.IsFalse(warning);
+                        Assert.IsFalse(composition.OperationAdmission.IsActive);
+                        Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                        if (entry != 3) { Assert.IsFalse(activeOwner.IsInitializationCompleted); Assert.IsFalse(activeOwner.HasActiveLibraryProfile); }
+                    }
+                    finally
+                    {
+                        releaseConfirmation.TrySetResult();
+                        try { TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "leap-confirmation-operation-cleanup"); }
+                        catch (OperationCanceledException) when (entry == 3 && operation.IsCanceled) { }
+                        finally { if (shutdown != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "leap-confirmation-shutdown-cleanup"); } }
+                    }
+                    return;
+                }
+                if (shutdownDuringNotification)
+                {
+                    var notificationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    var releaseNotification = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                    List<(string Message, bool Changed, bool Warning)> notificationObservations = [];
+                    dialogs.MessageObservedAsync = async () =>
+                    {
+                        notificationObservations.Add((dialogs.LastMessageText, changed, warning));
+                        dialogs.MessageResult = UiDialogResult.NotShown(UiDialogStatus.AppClosing);
+                        notificationEntered.TrySetResult();
+                        await releaseNotification.Task;
+                    };
+                    Task? shutdown = null;
+                    Task operation = entry switch
+                    {
+                        0 => activeOwner.SettingDialog.StartConfirmedEnvironmentAsync(),
+                        2 => activeOwner.InitializeAsync(),
+                        _ => activeOwner.ReinitializeLibraryAsync()
+                    };
+                    try
+                    {
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(notificationEntered.Task, operation,
+                            "leap-notification-shutdown-entered"), "leap-notification-shutdown-arrival");
+                        Assert.AreEqual(1, notificationObservations.Count);
+                        CollectionAssert.AreEqual(new[] { Resources.Warn_LR2LeapYearBugDetected }, notificationObservations.Select(value => value.Message).ToArray());
+                        Assert.IsFalse(operation.IsCompleted);
+                        shutdown = activeOwner.ShellShutdownWorkflow.RequestWindowCloseAsync();
+                        releaseNotification.TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "leap-notification-shutdown-operation");
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "leap-notification-shutdown-terminal");
+                        if (operation is Task<bool> initialization) { Assert.IsFalse(initialization.GetAwaiter().GetResult()); }
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                        Assert.AreEqual(1, mutation.TimestampCalls.Count);
+                        Assert.AreEqual(1, dialogs.MessageCount);
+                        CollectionAssert.AreEqual(entry == 0 ? new[] { "close" } : Array.Empty<string>(), presentation.Requests, "通知中の終了は再表示に読み替えません。");
+                        Assert.AreEqual(entry == 3, lifetime.IsFirstStartup, "通常・初設定の成功公開後の終了は成立済み初回完了を取り消しません。");
+                        Assert.IsTrue(changed);
+                        Assert.IsTrue(warning);
+                        AssertWarningAfterAdmissionRelease();
+                        Assert.IsFalse(composition.OperationAdmission.IsActive);
+                        Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                        Assert.IsFalse(activeOwner.ProgressHub.StartupProgress.IsFailed);
+                        Assert.IsTrue(activeOwner.IsInitializationCompleted);
+                        Assert.IsTrue(activeOwner.HasActiveLibraryProfile);
+                    }
+                    finally
+                    {
+                        releaseNotification.TrySetResult();
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "leap-notification-operation-cleanup");
+                        if (shutdown != null) { TestUiDispatcherHost.AwaitTaskOnDispatcher(shutdown, "leap-notification-shutdown-cleanup"); }
+                    }
+                    return;
+                }
+                if (entry is 0 or 3)
+                {
+                    // どちらのBusyでも候補確認・保存・修復はなく、解放後の新しい明示要求を受け付ける。
+                    foreach (ChartFileOperationSynchronizer admission in new[] { composition.OperationAdmission, composition.PlaylistOperationAdmission })
+                    {
+                        Assert.IsTrue(admission.TryEnter(out IDisposable held));
+                        using (held) { TestUiDispatcherHost.AwaitTaskOnDispatcher(entry == 0 ? activeOwner.SettingDialog.StartConfirmedEnvironmentAsync() : activeOwner.ReinitializeLibraryAsync(), "leap-settings-busy"); }
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                        Assert.AreEqual(0, dialogs.ConfirmationCount);
+                        Assert.AreEqual(0, mutation.TimestampCalls.Count);
+                        Assert.AreEqual(0, presentation.Requests.Count, "受付の拒否は設定画面を閉じません。");
+                    }
+                    // 確認中に他操作が先着した場合も予約を持たず、副作用前に拒否する。
+                    Action<UiConfirmationRequest>? assertConfirmation = dialogs.ConfirmationObserved;
+                    foreach (ChartFileOperationSynchronizer admission in new[] { composition.OperationAdmission, composition.PlaylistOperationAdmission })
+                    {
+                        dialogs.ConfirmationObserved = request =>
+                        {
+                            assertConfirmation?.Invoke(request);
+                            Assert.IsTrue(admission.TryEnter(out competing));
+                        };
+                        TestUiDispatcherHost.AwaitTaskOnDispatcher(entry == 0 ? activeOwner.SettingDialog.StartConfirmedEnvironmentAsync() : activeOwner.ReinitializeLibraryAsync(), "leap-lost-admission");
+                        Assert.AreEqual(0, settingsSession.SaveCount);
+                        Assert.AreEqual(0, mutation.TimestampCalls.Count);
+                        Assert.AreEqual(0, presentation.Requests.Count, "確認中に他の操作が先着した開始は設定画面を閉じません。");
+                        if (ReferenceEquals(admission, composition.PlaylistOperationAdmission))
+                        {
+                            Assert.IsFalse(composition.OperationAdmission.IsActive, "P先着で要求側が取得したLを解放します。");
+                        }
+                        competing?.Dispose(); competing = null;
+                    }
+                    dialogs.ConfirmationObserved = assertConfirmation;
+                    beforeAcceptedConfirmations = dialogs.ConfirmationCount;
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(entry == 0 ? activeOwner.SettingDialog.StartConfirmedEnvironmentAsync() : activeOwner.ReinitializeLibraryAsync(), "leap-settings-accepted");
+                    Assert.AreEqual(0, settingsSession.SaveCount);
+                }
+                else if (entry == 2)
+                {
+                    Task<bool> operation = activeOwner.InitializeAsync();
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "leap-normal-startup");
+                    Assert.IsTrue(operation.GetAwaiter().GetResult());
+                    Assert.AreEqual("BeMusicSeeker Unofficial Fork - " + typeof(MainWindowViewModel).Assembly
+                        .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion, activeOwner.WindowTitle);
+                }
+                else { TestUiDispatcherHost.AwaitTaskOnDispatcher(activeOwner.ReinitializeLibraryAsync(), "leap-tree-reinitialize"); }
+                Assert.IsTrue(changed);
+                Assert.IsTrue(warning);
+                AssertWarningAfterAdmissionRelease();
+                Assert.AreEqual(beforeAcceptedConfirmations + 1, dialogs.ConfirmationCount);
+                CollectionAssert.AreEqual(entry == 0 ? new[] { "close" } : Array.Empty<string>(), presentation.Requests, "成功した開始は閉鎖だけで、再表示しません。");
+                // 主表明：受理した親操作のL・Pは操作の終端で成功解放済み。後続保守の保持に左右されない。
+                Assert.IsTrue(parentLibraryTerminal!.IsCompletedSuccessfully);
+                Assert.IsTrue(parentPlaylistTerminal!.IsCompletedSuccessfully);
+                // lease漏れの確認：登録済み後続処理の終端を待ってから、全体が静止していることを確認する。
+                AwaitStartupBackgroundCompletionOnDispatcher(activeOwner, "leap-startup-background-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(composition.OperationAdmission.WaitForIdleAsync(), "leap-library-terminal");
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(composition.PlaylistOperationAdmission.WaitForIdleAsync(), "leap-playlist-terminal");
+                Assert.IsFalse(composition.OperationAdmission.IsActive);
+                Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+            });
+            using LR2SongDBExtended verify = new BmsLibraryDbGateway(MainWindowViewModelTestFactory.GetComposition(owner ?? throw new AssertFailedException()).DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), targetDb).OpenSongDbReadOnly();
+            LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(value => value.path == folder + Path.DirectorySeparatorChar);
+            if (shutdownDuringConfirmation) { Assert.AreEqual(0, row.adddate); Assert.AreEqual(sentinel, Directory.GetLastWriteTime(folder)); }
+            else { Assert.IsNull(row.adddate); }
+            Assert.IsNull(row.date);
+            Assert.AreEqual("saved identity", row.title);
+            Assert.AreEqual("retained", row.info_a);
+        }
+        finally
+        {
+            competing?.Dispose();
+            if (owner != null)
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(owner.ShellShutdownWorkflow.RequestWindowCloseAsync(), "leap-initialization-close");
+                    owner.SettingDialog.Dispose();
+                });
+            }
+            library?.RequestShutdown("leap-fixture-cleanup");
+            playlist?.RequestShutdown("leap-fixture-cleanup");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 初回の明示開始で設定画面を閉じた後に、処理の失敗・閉鎖後のディレクトリ消失が起きた場合と、閉じる処理自体が失敗した場合の通知と再表示を確認します。
+    /// 閉鎖後の失敗は、閉鎖 → 通知（全窓口の合計で一回、受付と進捗の解放後・保留中もUIスレッドが進む）→ 再表示の順に進み、再表示は通知を閉じるまで出ません。
+    /// 再表示の時点で元の操作は終端済みで、開始できる状態に戻り、原因を取り除いた再開始は自動でなく利用者の操作で成功して閉鎖だけを要求します。
+    /// 閉じる処理自体の失敗は、書込みを始めず、設定の失敗通知を一回だけ出して再表示しません。
+    /// </summary>
+    [TestMethod]
+    [DataRow("construction")] // 閉鎖後の構築失敗は、設定の失敗通知でなく通常起動と同じ文面の通知にする。
+    [DataRow("late-directory")] // 閉鎖後にBMSルートが消えた場合は、通常起動と同じディレクトリの警告にする。
+    [DataRow("close-failure")] // 閉鎖の要求が例外になった場合は、書込みを始めず従来の設定の失敗通知にする。
+    public void InitialEnvironmentStart_FailureAfterCloseNotifiesOnceThenReopensForRetry(string failureKind)
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string rootA = Path.Combine(root, "BMS-A");
+        string rootB = Path.Combine(root, "BMS-B");
+        string unavailableRootB = Path.Combine(root, "BMS-B-unavailable");
+        string applicationRoot = Path.Combine(root, "application");
+        Directory.CreateDirectory(rootA);
+        Directory.CreateDirectory(rootB);
+        Directory.CreateDirectory(applicationRoot);
+        MainWindowViewModel? viewModel = null;
+        TestBmsLibrary? library = null;
+        TestBmsPlaylist? playlist = null;
+        bool rootMoved = false;
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(rootA);
+            settings.BMSRootPath = rootA;
+            settings.StandaloneBmsRootPaths = string.Join(Environment.NewLine, rootA, rootB);
+            settings.ScanBmsFilesOnStartup = false;
+            settings.SkipInitPlaylistLoad = true;
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            StandaloneLibraryDatabaseEnsureResult database = StandaloneLibraryDatabase.EnsurePortableSongDb(databaseScope, applicationPath);
+            PlaylistPersistenceRepository.EnsureSchema(databaseScope, database.SongDbPath);
+            IChartFileScanner scanner = CapturedChartFileScanner.FromFixture([],
+                new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase) { [rootA] = [], [rootB] = [] }, [rootA, rootB]);
+            var dialogs = new RecordingRootDialogService();
+            var requests = new List<string>();
+            var applyFailures = new List<Exception>();
+            var constructionFailure = new InvalidOperationException("controlled failure after the settings window closed");
+            var closeFailure = new InvalidOperationException("controlled settings window close failure");
+            var notificationEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var notificationRelease = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool injectFailure = true;
+            int factoryCalls = 0;
+            (bool LibraryHeld, bool PlaylistHeld, int FactoryCalls, bool OperationCompleted)? closeObservation = null;
+            (bool LibraryFree, bool PlaylistFree, bool OperationInProgress, bool UiBlocked, bool OpenRequested)? notificationObservation = null;
+            (bool OperationCompleted, bool LibraryFree, bool PlaylistFree, bool CanStart)? openObservation = null;
+            dialogs.MessageObserved = () => requests.Add("notify");
+            dialogs.MessageObservedAsync = async () =>
+            {
+                MainWindowViewModel owner = viewModel!;
+                ApplicationComposition active = MainWindowViewModelTestFactory.GetComposition(owner);
+                bool libraryFree = active.OperationAdmission.TryEnter(out IDisposable? libraryLease);
+                bool playlistFree;
+                using (libraryLease)
+                {
+                    playlistFree = active.PlaylistOperationAdmission.TryEnter(out IDisposable? playlistLease);
+                    playlistLease?.Dispose();
+                }
+                notificationObservation = (libraryFree, playlistFree, owner.IsLibraryOperationInProgress,
+                    owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked, requests.Contains("open"));
+                notificationEntered.TrySetResult();
+                await notificationRelease.Task;
+            };
+            TestUiDispatcherHost.Invoke(() =>
+            {
+                var scheduler = new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher);
+                var composition = new ApplicationComposition(settingsEditSession: new CountingSettingsEditSession(settings),
+                    reportSettingsApplyFailure: exception => { applyFailures.Add(exception); requests.Add("apply-failure"); },
+                    uiScheduler: scheduler, applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                    cultureCatalog: TestApplicationContext.CreateCultureCatalog(), runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                    fileDbMutationDialogService: dialogs, settingsDialogService: dialogs, dialogService: UndeclaredDialogs.Create());
+                library = new TestBmsLibrary(composition.DatabaseScope, database.SongDbPath, null, null, null,
+                    () => BmsLibraryOptionsSnapshot.CreateCurrent(settings), TestBmsFactory.MissingEverythingBridge, chartFileScanner: scanner,
+                    operationAdmission: composition.OperationAdmission, playlistOperationAdmission: composition.PlaylistOperationAdmission,
+                    uiScheduler: scheduler, settings: settings);
+                playlist = MainWindowViewModelTestFactory.CreatePlaylist(composition.DatabaseScope, database.SongDbPath, settings, library: library);
+                var owner = new MainWindowViewModel(composition, new LateFailureStartupLibraryFactory(library, playlist, () =>
+                {
+                    factoryCalls++;
+                    if (!injectFailure) { return; }
+                    if (failureKind == "construction") { throw constructionFailure; }
+                    if (failureKind == "late-directory" && !rootMoved) { Directory.Move(rootB, unavailableRootB); rootMoved = true; }
+                }));
+                viewModel = owner;
+                SettingsDialogViewModel dialog = owner.SettingDialog;
+                dialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+                {
+                    requests.Add(request);
+                    if (request == "close")
+                    {
+                        closeObservation = (composition.OperationAdmission.IsActive, composition.PlaylistOperationAdmission.IsActive, factoryCalls,
+                            dialog.SettingsOperationCompletionTask.IsCompleted);
+                        if (injectFailure && failureKind == "close-failure") { throw closeFailure; }
+                    }
+                    if (request == "open")
+                    {
+                        bool libraryFree = composition.OperationAdmission.TryEnter(out IDisposable? libraryLease);
+                        bool playlistFree;
+                        using (libraryLease)
+                        {
+                            playlistFree = composition.PlaylistOperationAdmission.TryEnter(out IDisposable? playlistLease);
+                            playlistLease?.Dispose();
+                        }
+                        openObservation = (dialog.SettingsOperationCompletionTask.IsCompleted, libraryFree, playlistFree, dialog.CanStartEnvironment);
+                    }
+                }));
+                Assert.AreEqual(string.Empty, SettingsDeficiency.FormatDiagnostic(dialog.BuildDeficiencies()));
+                Task operation = dialog.StartConfirmedEnvironmentAsync();
+                if (failureKind != "close-failure")
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(notificationEntered.Task, operation,
+                        "initial-start-failure-notification"), "initial-start-failure-notification");
+                    Assert.IsFalse(operation.IsCompleted);
+                    // 通知は非同期で保留され、保留中もUIスレッドが進み、再表示は通知を閉じるまで出ません。
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background).Task,
+                        "initial-start-ui-thread-progress");
+                    CollectionAssert.AreEqual(new[] { "close", "notify" }, requests);
+                    notificationRelease.TrySetResult();
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "initial-start-failure-operation");
+
+                // 閉鎖の時点では書込みを始めておらず、両受付を保持した受理済みの操作の途中です。
+                Assert.IsNotNull(closeObservation);
+                Assert.IsTrue(closeObservation.Value.LibraryHeld);
+                Assert.IsTrue(closeObservation.Value.PlaylistHeld);
+                Assert.AreEqual(0, closeObservation.Value.FactoryCalls);
+                Assert.IsFalse(closeObservation.Value.OperationCompleted);
+                // 通知は全経路の合計で一回です。
+                Assert.AreEqual(1, dialogs.MessageCount + applyFailures.Count);
+                Assert.IsFalse(owner.HasActiveLibraryProfile);
+                Assert.IsFalse(owner.IsInitializationCompleted);
+                if (failureKind == "close-failure")
+                {
+                    CollectionAssert.AreEqual(new[] { "close", "apply-failure" }, requests);
+                    Assert.AreSame(closeFailure, applyFailures.Single());
+                    Assert.AreEqual(0, factoryCalls, "閉じる処理が失敗した初期化は、書込みも構築も始めません。");
+                    Assert.IsFalse(composition.OperationAdmission.IsActive);
+                    Assert.IsFalse(composition.PlaylistOperationAdmission.IsActive);
+                }
+                else
+                {
+                    CollectionAssert.AreEqual(new[] { "close", "notify", "open" }, requests);
+                    Assert.AreEqual(0, applyFailures.Count, "閉鎖後の失敗は設定の失敗通知を通しません。");
+                    Assert.AreEqual(1, factoryCalls);
+                    Assert.IsNotNull(notificationObservation);
+                    Assert.IsTrue(notificationObservation.Value.LibraryFree);
+                    Assert.IsTrue(notificationObservation.Value.PlaylistFree);
+                    Assert.IsFalse(notificationObservation.Value.OperationInProgress);
+                    Assert.IsFalse(notificationObservation.Value.UiBlocked);
+                    Assert.IsFalse(notificationObservation.Value.OpenRequested);
+                    if (failureKind == "construction")
+                    {
+                        StringAssert.Contains(dialogs.LastMessageText, Resources.Msg_error_unexpected);
+                        StringAssert.Contains(dialogs.LastMessageText, constructionFailure.Message);
+                    }
+                    else
+                    {
+                        StringAssert.Contains(dialogs.LastMessageText, rootB);
+                        StringAssert.Contains(dialogs.LastMessageText, Resources.LibraryDirectoryPreflightBmsRootRole);
+                    }
+                    // 再表示の時点で元の操作は終端済みで、受付は解放済み、開始できる状態に戻っています。
+                    Assert.IsNotNull(openObservation);
+                    Assert.IsTrue(openObservation.Value.OperationCompleted);
+                    Assert.IsTrue(openObservation.Value.LibraryFree);
+                    Assert.IsTrue(openObservation.Value.PlaylistFree);
+                    Assert.IsTrue(openObservation.Value.CanStart);
+                }
+                Assert.IsTrue(dialog.CanStartEnvironment);
+                Assert.IsTrue(dialog.IsEditCancellationEnabled);
+                // 失敗後は操作中でなく、次の確定を受け付け、進捗は再試行できる失敗の状態です。
+                Assert.IsTrue(dialog.IsEditCompletionEnabled);
+                Assert.IsFalse(dialog.IsEditCompletionInProgress);
+                Assert.IsTrue(owner.ProgressHub.StartupProgress.IsFailed);
+                Assert.IsTrue(owner.ProgressHub.StartupProgress.IsRetryableFailure);
+                Assert.IsFalse(owner.ProgressHub.StartupProgress.IsStartupUiInteractionBlocked);
+
+                // 自動の再試行はなく、原因を取り除いた利用者の再開始が成功し、閉鎖だけを要求します。
+                int requestsBeforeRetry = requests.Count;
+                int messagesBeforeRetry = dialogs.MessageCount;
+                int applyFailuresBeforeRetry = applyFailures.Count;
+                injectFailure = false;
+                if (rootMoved) { Directory.Move(unavailableRootB, rootB); rootMoved = false; }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.StartConfirmedEnvironmentAsync(), "initial-start-retry");
+                CollectionAssert.AreEqual(new[] { "close" }, requests.Skip(requestsBeforeRetry).ToArray());
+                Assert.AreEqual(messagesBeforeRetry, dialogs.MessageCount);
+                Assert.AreEqual(applyFailuresBeforeRetry, applyFailures.Count);
+                Assert.IsTrue(owner.HasActiveLibraryProfile);
+                Assert.IsTrue(owner.IsInitializationCompleted);
+                AwaitStartupBackgroundCompletionOnDispatcher(owner, "initial-start-retry-background-terminal");
+            });
+        }
+        finally
+        {
+            if (rootMoved && Directory.Exists(unavailableRootB) && !Directory.Exists(rootB)) { Directory.Move(unavailableRootB, rootB); }
+            if (viewModel != null)
+            {
+                TestUiDispatcherHost.Invoke(() =>
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(viewModel.ShellShutdownWorkflow.RequestWindowCloseAsync(), "initial-start-failure-close");
+                    viewModel.SettingDialog.Dispose();
+                });
+            }
+            library?.RequestShutdown("initial-start-failure-fixture-cleanup");
+            playlist?.RequestShutdown("initial-start-failure-fixture-cleanup");
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// 初回の明示開始は、読取り専用の準備と利用者の確認がすべて終わってから、最初の書込みの前に一度だけ設定画面を閉じます。
+    /// schema-approve は確認の間は閉鎖が出ず、閉鎖の時点で確認は済み・app_schema の版は未更新・L/Pは使用中で、成功と完了通知が成立します。
+    /// schema-cancel は確認の取消で閉鎖せず終了の要求だけを出し、pending-exit は閉鎖後の保留復元の「終了」で通知も再表示も出さず終了の要求を一回だけ出し、初回の状態を保ちます。
+    /// </summary>
+    [TestMethod]
+    [DataRow("schema-approve")] // 確認の承認後に閉鎖し、閉鎖時点では書込みが始まっていない。
+    [DataRow("schema-cancel")] // 閉鎖前の確認の取消は終了の要求として扱い、閉鎖も再表示もしない。
+    [DataRow("pending-exit")] // 閉鎖後の保留復元の終了は、通知も再表示もしない。
+    public void InitialEnvironmentStart_ClosesOnlyAfterConfirmationsAndBeforeWrites(string scenario)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            using var input = new PendingRestoreInput();
+            using var fixture = new StartupCompletionTestFixture.CompletionFixture(lr2Mode: scenario != "pending-exit");
+            fixture.OptionalRelease.TrySetResult();
+            fixture.Owner.StartupUpdateWorkflow.NotifyClosing();
+            string database = fixture.Library.InitializationSongDbPath;
+            var requests = new List<string>();
+            int exitRequests = 0;
+            int messages = 0;
+            fixture.Dialogs.MessageObservedAsync = _ => { messages++; return Task.CompletedTask; };
+            fixture.Owner.ShellShutdownWorkflow.InitializationExitRequested += () => exitRequests++;
+            var confirmationReached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var confirmationChoice = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            FileStream? held = null;
+            (int Confirmations, int SchemaVersion, bool LibraryHeld, bool PlaylistHeld)? closeObservation = null;
+            int ReadSchemaVersion()
+            {
+                using LR2SongDBExtended db = new BmsLibraryDbGateway(fixture.Composition.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), database).OpenSongDbReadOnly();
+                return db.ExecuteScalar<int>("SELECT version FROM app_schema_version WHERE name = 'app_schema'");
+            }
+            if (scenario == "pending-exit")
+            {
+                input.Register(fixture.Composition.DatabaseScope, database);
+                held = input.LockB();
+                fixture.Dialogs.PendingRestoreObservedAsync = () => Task.FromResult(new UiWindowDialogResult<PendingPackageRestoreChoice>(UiDialogStatus.Accepted, PendingPackageRestoreChoice.Exit));
+            }
+            else
+            {
+                BmsLibraryInitializationTestSupport.ExecuteSongDbFixtureTransaction(fixture.Composition.DatabaseScope, database,
+                    db => db.Execute("UPDATE app_schema_version SET version = 0 WHERE name = 'app_schema'"));
+                fixture.Dialogs.ConfirmationObservedAsync = _ => { confirmationReached.TrySetResult(); return confirmationChoice.Task; };
+            }
+            try
+            {
+                fixture.Owner.SettingDialog.AttachPresentationPort(new RecordingSettingsDialogPresentationPort(request =>
+                {
+                    requests.Add(request);
+                    if (request == "close")
+                    {
+                        closeObservation = (fixture.Dialogs.ConfirmationCount, scenario == "pending-exit" ? -1 : ReadSchemaVersion(),
+                            fixture.Composition.OperationAdmission.IsActive, fixture.Composition.PlaylistOperationAdmission.IsActive);
+                    }
+                }));
+                Task operation = fixture.Owner.SettingDialog.StartConfirmedEnvironmentAsync();
+                fixture.Track(operation);
+                if (scenario != "pending-exit")
+                {
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(confirmationReached.Task, operation, "initial-start-schema-confirmation"),
+                        "initial-start-schema-confirmation");
+                    Assert.IsFalse(operation.IsCompleted);
+                    CollectionAssert.AreEqual(Array.Empty<string>(), requests, "利用者の確認の間は閉鎖しません。");
+                    confirmationChoice.TrySetResult(UiDialogResult.FromMessageBoxResult(scenario == "schema-approve" ? MessageBoxResult.OK : MessageBoxResult.Cancel));
+                }
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(operation, "initial-start-confirmation-operation");
+                Assert.AreEqual(scenario == "pending-exit" ? 0 : 1, fixture.Dialogs.ConfirmationCount);
+                if (scenario == "schema-approve")
+                {
+                    CollectionAssert.AreEqual(new[] { "close" }, requests);
+                    Assert.IsNotNull(closeObservation);
+                    Assert.AreEqual(1, closeObservation.Value.Confirmations);
+                    Assert.AreEqual(0, closeObservation.Value.SchemaVersion, "閉鎖の時点では app_schema の版を更新していません。");
+                    Assert.IsTrue(closeObservation.Value.LibraryHeld);
+                    Assert.IsTrue(closeObservation.Value.PlaylistHeld);
+                    Assert.IsTrue(fixture.Owner.HasActiveLibraryProfile);
+                    Assert.IsTrue(fixture.Owner.IsInitializationCompleted);
+                    Assert.AreEqual(1, fixture.CompletionNotifications);
+                    Assert.AreNotEqual(0, ReadSchemaVersion());
+                    Assert.AreEqual(0, exitRequests);
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(fixture.WaitForBackgroundTerminalAsync(), "initial-start-schema-background-terminal");
+                }
+                else
+                {
+                    CollectionAssert.AreEqual(scenario == "pending-exit" ? new[] { "close" } : Array.Empty<string>(), requests,
+                        "確認の取消は閉鎖せず、閉鎖後の保留復元の終了も再表示しません。");
+                    Assert.AreEqual(1, exitRequests);
+                    Assert.IsFalse(fixture.Owner.IsInitializationCompleted);
+                    Assert.IsFalse(fixture.Owner.HasActiveLibraryProfile);
+                    Assert.IsTrue(fixture.Lifetime.IsFirstStartup, "終了の要求は初回の状態を取り消しません。");
+                    Assert.AreEqual(0, fixture.CompletionNotifications);
+                    Assert.AreEqual(0, messages, "終了の要求は通知にも再表示にも読み替えません。");
+                    if (scenario == "schema-cancel") { Assert.AreEqual(0, ReadSchemaVersion()); }
+                    else { Assert.AreEqual(1, fixture.Dialogs.PendingRestoreCount); }
+                }
+                Assert.IsFalse(fixture.Composition.OperationAdmission.IsActive);
+                Assert.IsFalse(fixture.Composition.PlaylistOperationAdmission.IsActive);
+            }
+            finally
+            {
+                confirmationChoice.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+                held?.Dispose();
+            }
+        });
+    }
+
+    private static void AssertOperationModePresentation(SettingsWindow window, bool useLr2)
+    {
+        RadioButton useLr2Radio = FindOperationModeRadio(window, useLr2: true);
+        RadioButton standaloneRadio = FindOperationModeRadio(window, useLr2: false);
+        Assert.AreEqual(BindingMode.OneWay, useLr2Radio.GetBindingExpression(ToggleButton.IsCheckedProperty)?.ParentBinding.Mode);
+        Assert.AreEqual(BindingMode.OneWay, standaloneRadio.GetBindingExpression(ToggleButton.IsCheckedProperty)?.ParentBinding.Mode);
+        Assert.AreEqual(useLr2, useLr2Radio.IsChecked == true);
+        Assert.AreEqual(!useLr2, standaloneRadio.IsChecked == true);
+    }
+
+    private static RadioButton FindOperationModeRadio(SettingsWindow window, bool useLr2)
+    {
+        string name = useLr2 ? "radioButtonUseLR2" : "radioButtonNotUseLR2";
+        return FindDescendants<RadioButton>(window).Single(radioButton => radioButton.Name == name);
+    }
+
+    private static BMSPlaylist AttachPlaylistTables(
+        MainWindowViewModel viewModel,
+        string root,
+        IList<string>? scheduledOperations = null,
+        string? existingDatabasePath = null)
+    {
+        string databasePath = existingDatabasePath ?? Path.Combine(root, "settings-test-playlists.db");
+        if (existingDatabasePath == null)
+        {
+            File.WriteAllBytes(databasePath, []);
+        }
+        ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+        Settings values = composition.SettingsEditSession.Values;
+        var tables = new TestBmsPlaylist(composition.DatabaseScope, databasePath, null, null, null,
+            () => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(values),
+            () => BeatorajaBmtOptionsSnapshot.CreateCurrent(values),
+            composition.CustomFolderOutputSettingsProvider,
+            mutationAdmission: composition.PlaylistOperationAdmission)
+        {
+            BMSTables = []
+        };
+        tables.StartupBackgroundTaskScheduler = (operation, reason, _, _) =>
+        {
+            scheduledOperations?.Add(operation + ":" + reason);
+            return true;
+        };
+        SetPrivateField(viewModel, "tables", tables);
+        return tables;
+    }
+
+    private sealed class LateFailureStartupLibraryFactory : IStartupLibraryFactory
+    {
+        private readonly BMSLibrary library;
+        private readonly BMSPlaylist playlist;
+        private readonly Action? beforeCreateBmsLibrary;
+
+        internal LateFailureStartupLibraryFactory(
+            BMSLibrary library,
+            BMSPlaylist playlist,
+            Action? beforeCreateBmsLibrary = null)
+        {
+            this.library = library ?? throw new ArgumentNullException(nameof(library));
+            this.playlist = playlist ?? throw new ArgumentNullException(nameof(playlist));
+            this.beforeCreateBmsLibrary = beforeCreateBmsLibrary;
+        }
+
+        public BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
+        {
+            beforeCreateBmsLibrary?.Invoke();
+            return library;
+        }
+
+        public BMSPlaylist CreateBmsPlaylist(LibraryProfile libraryProfile, BMSLibrary library) => playlist;
+    }
+
+    private sealed class CountingApplicationLifetime : IApplicationLifetimePort
+    {
+        internal int RestartCount { get; private set; }
+
+        public bool IsFirstStartup => false;
+
+        public void CompleteFirstStartup()
+        {
+        }
+
+        public void MarkCoordinatedShutdownStarted(string reason)
+        {
+        }
+
+        public void ExitForUnrestoredDestination(System.Exception failure)
+        => throw new System.InvalidOperationException("Unexpected unrestored destination exit.", failure);
+
+        /// <summary>テストが所有する一時入力は各fixtureで回収し、アプリ全体の回収を行いません。</summary>
+        public Task CompleteTemporaryDirectoriesAsync(Action<string, Exception> logWarning) => Task.CompletedTask;
+
+        public void RequestShutdown()
+        {
+        }
+
+        public Task RestartApplicationAsync()
+        {
+            RestartCount++;
+            return Task.CompletedTask;
+        }
+    }
+}

@@ -1,18 +1,16 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models;
 
 public class ChartPackage : LR2SongDBExtended.install
 {
-    private readonly List<PackageChartEntry> chartEntries;
+    private List<PackageChartEntry> chartEntries;
 
-    private readonly bool hasExplicitChartFiles;
+    private bool hasExplicitChartFiles;
 
     private readonly object installEstimationSnapshotLock = new();
 
@@ -21,6 +19,22 @@ public class ChartPackage : LR2SongDBExtended.install
     private PackageInstallSurfaceSnapshot packageInstallSurfaceSnapshot;
 
     internal PendingEstimateDeferredReason DeferredEstimateReason { get; set; }
+
+    /// <summary>発見・完全復元した元packageの寿命で保持する導入禁止条件です。導入先編集や未所持抽出では再評価しません。保存しません。</summary>
+    internal bool HasResourceBearingNestedCharts { get; set; }
+
+    /// <summary>取得した全譜面の完全性です。起動復元では全対象が完全な場合だけ公開します。</summary>
+    internal bool HasCompleteChartDiscovery => hasExplicitChartFiles || packageChartDiscoverySnapshot?.IsComplete == true;
+
+    /// <summary>確定後、受付権とモデル排他を解放してからパスとヘッダーを公開します。</summary>
+    internal void PublishPath()
+    {
+        RaisePropertyChanged(nameof(path));
+        PublishDisplayTitle();
+    }
+
+    /// <summary>代表entryの確定後にヘッダーだけを公開します。所属集合通知は発行しません。</summary>
+    internal void PublishDisplayTitle() => RaisePropertyChanged(nameof(DisplayTitle));
 
     public string DisplayTitle
     {
@@ -37,6 +51,9 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
+    /// <summary>具体化済みの所属列が変わった時に、派生参照索引へだけ通知します。</summary>
+    internal event Action<ChartPackage> ChartEntriesChanged;
+
     internal List<PackageChartEntry> ChartEntries
     {
         get
@@ -45,7 +62,12 @@ public class ChartPackage : LR2SongDBExtended.install
             {
                 return [.. chartEntries ?? []];
             }
-            return GetOrBuildPackageChartDiscoverySnapshot(out _).ChartEntries;
+            PackageChartDiscoverySnapshot snapshot = GetOrBuildPackageChartDiscoverySnapshot(out bool cacheHit);
+            if (!cacheHit)
+            {
+                ChartEntriesChanged?.Invoke(this);
+            }
+            return snapshot.ChartEntries;
         }
     }
 
@@ -65,49 +87,45 @@ public class ChartPackage : LR2SongDBExtended.install
         return true;
     }
 
-    internal void ApplySingleFileInstallDestination(string destinationDirectory, IEnumerable<PackageChartEntry> entries)
-    {
-        foreach (PackageChartEntry entry in entries ?? [])
-        {
-            string chartPath = entry?.Chart?.Path;
-            if (string.IsNullOrWhiteSpace(chartPath))
-            {
-                continue;
-            }
-            entry.ApplyInstalledPath(Path.Combine(destinationDirectory, Path.GetFileName(chartPath)));
-        }
-    }
-
-    internal void ApplyDirectoryInstallDestination(string sourcePath, string destinationDirectory, IEnumerable<PackageChartEntry> entries)
-    {
-        foreach (PackageChartEntry entry in entries ?? [])
-        {
-            string chartPath = entry?.Chart?.Path;
-            if (string.IsNullOrWhiteSpace(chartPath))
-            {
-                continue;
-            }
-            entry.ApplyInstalledPath(chartPath.ReplaceFromStart(sourcePath + Path.DirectorySeparatorChar, destinationDirectory + Path.DirectorySeparatorChar, isIgnoreCase: true));
-        }
-    }
-
+    /// <summary>確定した所属列を保持します。残存entryを複製せず、以後のパス変更で再探索しません。</summary>
     internal void ReplaceChartEntries(IEnumerable<PackageChartEntry> nextEntries)
     {
         List<PackageChartEntry> normalizedEntries = [.. NormalizeChartEntries(nextEntries)];
-        if (hasExplicitChartFiles)
+        lock (installEstimationSnapshotLock)
         {
-            chartEntries.Clear();
-            chartEntries.AddRange(normalizedEntries);
-            return;
+            chartEntries = normalizedEntries;
+            hasExplicitChartFiles = true;
         }
-        GetOrBuildPackageChartDiscoverySnapshot(out _).ReplaceChartEntries(normalizedEntries);
+        ChartEntriesChanged?.Invoke(this);
+    }
+
+    /// <summary>既に取得した所属列だけを捕捉します。未取得のファイル探索や解析を開始しません。</summary>
+    internal IReadOnlyList<PackageChartEntry> CaptureMaterializedChartEntries()
+    {
+        lock (installEstimationSnapshotLock)
+        {
+            return hasExplicitChartFiles ? [.. chartEntries ?? []] : packageChartDiscoverySnapshot?.ChartEntries ?? [];
+        }
+    }
+
+    /// <summary>導入済み所属への加入時に、取得済み列を確定列へ移します。パス変更後も再探索へ戻しません。</summary>
+    internal void RetainMaterializedChartEntries()
+    {
+        lock (installEstimationSnapshotLock)
+        {
+            if (!hasExplicitChartFiles && packageChartDiscoverySnapshot != null)
+            {
+                chartEntries = packageChartDiscoverySnapshot.ChartEntries;
+                hasExplicitChartFiles = true;
+            }
+        }
     }
 
     private static IEnumerable<PackageChartEntry> NormalizeChartEntries(IEnumerable<PackageChartEntry> entries)
     {
         foreach (PackageChartEntry entry in entries ?? [])
         {
-            PackageChartEntry snapshot = entry?.ToChartEntrySnapshot();
+            PackageChartEntry snapshot = entry;
             if (snapshot?.Chart == null)
             {
                 continue;
@@ -131,13 +149,17 @@ public class ChartPackage : LR2SongDBExtended.install
         return new ChartPackage(entries, hasExplicitChartEntries: true);
     }
 
-    internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, ChartResourceSnapshot definedResources = null)
+    /// <summary>同一対象列の事前捕捉入力を受け渡し、未捕捉時だけ共通builderで参照と配置を作ります。既知空列を再取得しません。</summary>
+    internal PackageInstallEstimationSnapshot GetOrBuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, ChartResourceSnapshot definedResources = null,
+        IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> targetChartResources = null)
     {
         PackageInstallSurfaceSnapshot installSurfaceSnapshot = GetOrBuildInstallEstimationSurfaceSnapshot(out bool sourceSurfaceCacheHit);
-        return PackageInstallEstimationSnapshotBuilder.Build(this, targetEntries, installSurfaceSnapshot, sourceSurfaceCacheHit, definedResources: definedResources);
+        return PackageInstallEstimationSnapshotBuilder.Build(this, targetEntries, installSurfaceSnapshot, sourceSurfaceCacheHit, definedResources: definedResources, targetChartResources: targetChartResources);
     }
 
-    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null)
+    /// <summary>同じpackage・対象entry列の同梱入力と配置付き要求を共有builderへ渡します。原参照と既知空の捕捉列を保持します。</summary>
+    internal PackageInstallEstimationSnapshot BuildInstallEstimationSnapshotFromEntries(IEnumerable<PackageChartEntry> targetEntries, PackageInstallSurfaceSnapshot installSurfaceSnapshot, bool sourceSurfaceCacheHit, bool sourceSurfaceBatchHit = false, ChartResourceSnapshot definedResources = null,
+        IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> targetChartResources = null)
     {
         return PackageInstallEstimationSnapshotBuilder.Build(
             this,
@@ -145,7 +167,8 @@ public class ChartPackage : LR2SongDBExtended.install
             installSurfaceSnapshot,
             sourceSurfaceCacheHit,
             sourceSurfaceBatchHit,
-            definedResources);
+            definedResources,
+            targetChartResources);
     }
 
     internal void InvalidateInstallEstimationSnapshot()
@@ -157,7 +180,8 @@ public class ChartPackage : LR2SongDBExtended.install
         }
     }
 
-    private PackageInstallSurfaceSnapshot GetOrBuildInstallEstimationSurfaceSnapshot(out bool cacheHit)
+    /// <summary>既存の入力元cacheを共有し、推定と保留配置評価で同じ同梱範囲を使います。</summary>
+    internal PackageInstallSurfaceSnapshot GetOrBuildInstallEstimationSurfaceSnapshot(out bool cacheHit)
     {
         lock (installEstimationSnapshotLock)
         {
@@ -170,6 +194,16 @@ public class ChartPackage : LR2SongDBExtended.install
             }
             cacheHit = true;
             return packageInstallSurfaceSnapshot;
+        }
+    }
+
+    /// <summary>現在の入力パスに対応する取得済み同梱入力だけを読みます。未取得時に列挙を開始しません。</summary>
+    internal PackageInstallSurfaceSnapshot CaptureInstallEstimationSurfaceSnapshot()
+    {
+        lock (installEstimationSnapshotLock)
+        {
+            return string.Equals(packageInstallSurfaceSnapshot?.SourcePath, path ?? string.Empty, StringComparison.OrdinalIgnoreCase)
+                ? packageInstallSurfaceSnapshot : null;
         }
     }
 

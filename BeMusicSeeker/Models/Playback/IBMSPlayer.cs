@@ -79,7 +79,9 @@ internal interface IBMSPlayer : INotifyPropertyChanged
 
     void DecreaseHighSpeed();
 
-    void VolumeChanged();
+    /// <summary>指定した音量を現在再生へ反映します。保存済みの次回再生条件は変更しません。</summary>
+    /// <param name="volume">0から100の現在再生用音量。</param>
+    void VolumeChanged(int volume);
 }
 
 internal interface IExternalWindowPlayer

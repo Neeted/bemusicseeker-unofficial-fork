@@ -5,49 +5,42 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal enum PendingInstallDestinationSearchKind
-{
-    InstallDestination,
-    MergeDestination
-}
-
 internal sealed class PendingInstallDestinationSearchRequest
 {
     private PendingInstallDestinationSearchRequest(
-        PendingInstallDestinationSearchKind kind,
         IReadOnlyList<ChartOperationTarget> packageTargets,
-        IReadOnlyList<PackageChartEntry> looseEntries)
+        IReadOnlyList<PackageChartEntry> looseEntries,
+        InstallEstimationCandidatePolicy candidatePolicy)
     {
-        Kind = kind;
         PackageTargets = packageTargets ?? throw new ArgumentNullException(nameof(packageTargets));
         LooseEntries = looseEntries ?? throw new ArgumentNullException(nameof(looseEntries));
+        CandidatePolicy = candidatePolicy;
         if (!HasTargets)
         {
             throw new ArgumentException("At least one pending install destination target is required.", nameof(packageTargets));
         }
     }
 
-    internal PendingInstallDestinationSearchKind Kind { get; }
-
     internal IReadOnlyList<ChartOperationTarget> PackageTargets { get; }
 
     internal IReadOnlyList<PackageChartEntry> LooseEntries { get; }
+
+    /// <summary>この一回の推定に限って適用する候補の表示・順位方針です。</summary>
+    internal InstallEstimationCandidatePolicy CandidatePolicy { get; }
 
     internal int SelectedRowCount => PackageTargets.Count + LooseEntries.Count;
 
     internal bool HasTargets => PackageTargets.Count > 0 || LooseEntries.Count > 0;
 
-    internal static PendingInstallDestinationSearchRequest CreateInstallDestinationSearch(IEnumerable<ChartOperationTarget> targets)
+    /// <summary>パッケージ・単独譜面の対象と一操作の候補方針を固定します。既存入口は関連候補だけを扱います。</summary>
+    internal static PendingInstallDestinationSearchRequest CreateInstallDestinationSearch(
+        IEnumerable<ChartOperationTarget> targets,
+        InstallEstimationCandidatePolicy candidatePolicy = InstallEstimationCandidatePolicy.RelatedOnly)
     {
-        return Create(PendingInstallDestinationSearchKind.InstallDestination, targets);
+        return Create(targets, candidatePolicy);
     }
 
-    internal static PendingInstallDestinationSearchRequest CreateMergeDestinationSearch(IEnumerable<ChartOperationTarget> targets)
-    {
-        return Create(PendingInstallDestinationSearchKind.MergeDestination, targets);
-    }
-
-    private static PendingInstallDestinationSearchRequest Create(PendingInstallDestinationSearchKind kind, IEnumerable<ChartOperationTarget> targets)
+    private static PendingInstallDestinationSearchRequest Create(IEnumerable<ChartOperationTarget> targets, InstallEstimationCandidatePolicy candidatePolicy)
     {
         if (targets == null)
         {
@@ -63,6 +56,6 @@ internal sealed class PendingInstallDestinationSearchRequest
             .Select(target => target.ToPackageChartEntry())
             .Where(entry => entry?.Chart != null)];
 
-        return new PendingInstallDestinationSearchRequest(kind, packageTargets, looseEntries);
+        return new PendingInstallDestinationSearchRequest(packageTargets, looseEntries, candidatePolicy);
     }
 }

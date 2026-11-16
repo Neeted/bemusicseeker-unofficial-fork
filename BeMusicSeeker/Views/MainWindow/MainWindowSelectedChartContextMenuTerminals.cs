@@ -8,7 +8,7 @@ using BeMusicSeeker.ViewModels;
 namespace BeMusicSeeker.Views;
 
 /// <summary>
-/// Provides the selected-chart feature terminals used by compiled table context-menu routes.
+/// コンパイル済みの譜面メニューから、譜面操作と閲覧の担当へ接続します。
 /// </summary>
 internal sealed class MainWindowSelectedChartContextMenuTerminals
 {
@@ -17,7 +17,6 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
         MainWindowSelectedChartResourceHealthTerminal selectedChartResourceHealth,
         MainWindowSelectedChartAudioConversionTerminal selectedChartAudioConversion,
         MainWindowChartInfoParseFailureRemovalTerminal chartInfoParseFailureRemoval,
-        MainWindowRankingCacheTerminal rankingCache,
         MainWindowScoreViewerTerminal scoreViewer,
         MainWindowSelectedChartExternalActionsTerminal selectedChartExternalActions)
     {
@@ -25,7 +24,6 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
         SelectedChartResourceHealth = selectedChartResourceHealth ?? throw new ArgumentNullException(nameof(selectedChartResourceHealth));
         SelectedChartAudioConversion = selectedChartAudioConversion ?? throw new ArgumentNullException(nameof(selectedChartAudioConversion));
         ChartInfoParseFailureRemoval = chartInfoParseFailureRemoval ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemoval));
-        RankingCache = rankingCache ?? throw new ArgumentNullException(nameof(rankingCache));
         ScoreViewer = scoreViewer ?? throw new ArgumentNullException(nameof(scoreViewer));
         SelectedChartExternalActions = selectedChartExternalActions ?? throw new ArgumentNullException(nameof(selectedChartExternalActions));
     }
@@ -37,8 +35,6 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
     internal MainWindowSelectedChartAudioConversionTerminal SelectedChartAudioConversion { get; }
 
     internal MainWindowChartInfoParseFailureRemovalTerminal ChartInfoParseFailureRemoval { get; }
-
-    internal MainWindowRankingCacheTerminal RankingCache { get; }
 
     internal MainWindowScoreViewerTerminal ScoreViewer { get; }
 
@@ -52,7 +48,7 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
                 viewModel.SelectedChartMutations.DeleteAsync,
                 viewModel.SelectedChartMutations.RenameInvalidExtensionsAsync,
                 viewModel.SelectedChartMutations.MoveAsync,
-                viewModel.SelectedChartMutations.ApplyEncoding),
+                viewModel.SelectedChartMutations.ApplyEncodingAsync),
             new MainWindowSelectedChartResourceHealthTerminal(
                 viewModel.SelectedChartResourceHealth.RescanAsync,
                 viewModel.SelectedChartResourceHealth.SetWarningsIgnored),
@@ -60,19 +56,8 @@ internal sealed class MainWindowSelectedChartContextMenuTerminals
                 viewModel.SelectedChartAudioConversion.RunAsync),
             new MainWindowChartInfoParseFailureRemovalTerminal(
                 viewModel.ChartInfoParseFailureRemoval.BeginRemove),
-            new MainWindowRankingCacheTerminal(
-                viewModel.RankingCacheDownloadWorkflow.HasRankingTarget,
-                viewModel.RankingCacheDownloadWorkflow.CanRequestRanking,
-                viewModel.RankingCacheDownloadWorkflow.Request),
             new MainWindowScoreViewerTerminal(
-                viewModel.ScoreViewerRegistration.HasScoreViewerTarget,
-                viewModel.ScoreViewerRegistration.CanRegisterScoreViewer,
-                viewModel.ScoreViewerRegistration.RunAsync,
-                (targets, openSingleViewerOnSuccess, logName) =>
-                    viewModel.ScoreViewerRegistration.RunAsync(
-                        targets,
-                        openSingleViewerOnSuccess,
-                        logName)),
+                viewModel.ScoreViewerRegistration.RunAsync),
             new MainWindowSelectedChartExternalActionsTerminal(
                 viewModel.SelectedChartExternalActions.CanExecute,
                 viewModel.SelectedChartExternalActions.Execute,
@@ -93,13 +78,13 @@ internal sealed class MainWindowSelectedChartMutationTerminal
     private readonly Func<SelectedChartDeleteRequest, Task<SelectedChartMutationResult>> delete;
     private readonly Func<SelectedInvalidExtensionRenameRequest, Task<SelectedChartMutationResult>> renameInvalidExtensions;
     private readonly Func<SelectedChartMoveRequest, Task<SelectedChartMutationResult>> move;
-    private readonly Func<SelectedChartEncodingRequest, SelectedChartMutationResult> applyEncoding;
+    private readonly Func<SelectedChartEncodingRequest, Task<SelectedChartMutationResult>> applyEncoding;
 
     internal MainWindowSelectedChartMutationTerminal(
         Func<SelectedChartDeleteRequest, Task<SelectedChartMutationResult>> delete,
         Func<SelectedInvalidExtensionRenameRequest, Task<SelectedChartMutationResult>> renameInvalidExtensions,
         Func<SelectedChartMoveRequest, Task<SelectedChartMutationResult>> move,
-        Func<SelectedChartEncodingRequest, SelectedChartMutationResult> applyEncoding)
+        Func<SelectedChartEncodingRequest, Task<SelectedChartMutationResult>> applyEncoding)
     {
         this.delete = delete ?? throw new ArgumentNullException(nameof(delete));
         this.renameInvalidExtensions = renameInvalidExtensions ?? throw new ArgumentNullException(nameof(renameInvalidExtensions));
@@ -116,7 +101,8 @@ internal sealed class MainWindowSelectedChartMutationTerminal
     internal Task<SelectedChartMutationResult> MoveAsync(SelectedChartMoveRequest request)
         => move(request ?? throw new ArgumentNullException(nameof(request)));
 
-    internal SelectedChartMutationResult ApplyEncoding(SelectedChartEncodingRequest request)
+    /// <summary>文字コードの保存と反映通知の終端を呼出し元へ返します。</summary>
+    internal Task<SelectedChartMutationResult> ApplyEncodingAsync(SelectedChartEncodingRequest request)
         => applyEncoding(request ?? throw new ArgumentNullException(nameof(request)));
 }
 
@@ -182,75 +168,53 @@ internal sealed class MainWindowChartInfoParseFailureRemovalTerminal
 }
 
 /// <summary>
-/// Narrows ranking-cache context-menu state and request operations to the existing owner.
-/// </summary>
-internal sealed class MainWindowRankingCacheTerminal
-{
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> hasRankingTarget;
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> canRequestRanking;
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> request;
-
-    internal MainWindowRankingCacheTerminal(
-        Func<IEnumerable<ChartOperationTarget>, bool> hasRankingTarget,
-        Func<IEnumerable<ChartOperationTarget>, bool> canRequestRanking,
-        Func<IEnumerable<ChartOperationTarget>, bool> request)
-    {
-        this.hasRankingTarget = hasRankingTarget ?? throw new ArgumentNullException(nameof(hasRankingTarget));
-        this.canRequestRanking = canRequestRanking ?? throw new ArgumentNullException(nameof(canRequestRanking));
-        this.request = request ?? throw new ArgumentNullException(nameof(request));
-    }
-
-    internal bool HasRankingTarget(IEnumerable<ChartOperationTarget> targets)
-        => hasRankingTarget(targets ?? throw new ArgumentNullException(nameof(targets)));
-
-    internal bool CanRequestRanking(IEnumerable<ChartOperationTarget> targets)
-        => canRequestRanking(targets ?? throw new ArgumentNullException(nameof(targets)));
-
-    internal bool Request(IEnumerable<ChartOperationTarget> targets)
-        => request(targets ?? throw new ArgumentNullException(nameof(targets)));
-}
-
-/// <summary>
-/// Narrows score-viewer availability and registration operations to the existing owner.
+/// 譜面ビューアの項目の判定を本番の実装で持ち、判定後の処理だけを差し替え可能にして担当へ接続します。
+/// 通常の譜面一覧、未所持のプレイリスト項目、プレイログの3つのメニューが、表示時とクリック時の両方で同じ判定を使います。
 /// </summary>
 internal sealed class MainWindowScoreViewerTerminal
 {
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> hasScoreViewerTarget;
-    private readonly Func<IEnumerable<ChartOperationTarget>, bool> canRegisterScoreViewer;
-    private readonly Func<IReadOnlyList<ChartOperationTarget>, string, Task<ScoreViewerRegistrationResult>> runChartTargets;
-    private readonly Func<IReadOnlyList<ScoreViewerTarget>, bool, string, Task<ScoreViewerRegistrationResult>> runScoreViewerTargets;
+    private readonly Func<ScoreViewerMenuDecision, string, Task<ScoreViewerRegistrationResult>> run;
 
+    /// <summary>判定後の処理を接続して初期化します。</summary>
+    /// <param name="run">非表示でない判定と入口名を受けて、開く・登録する処理を行う実行部分。</param>
     internal MainWindowScoreViewerTerminal(
-        Func<IEnumerable<ChartOperationTarget>, bool> hasScoreViewerTarget,
-        Func<IEnumerable<ChartOperationTarget>, bool> canRegisterScoreViewer,
-        Func<IReadOnlyList<ChartOperationTarget>, string, Task<ScoreViewerRegistrationResult>> runChartTargets,
-        Func<IReadOnlyList<ScoreViewerTarget>, bool, string, Task<ScoreViewerRegistrationResult>> runScoreViewerTargets)
+        Func<ScoreViewerMenuDecision, string, Task<ScoreViewerRegistrationResult>> run)
     {
-        this.hasScoreViewerTarget = hasScoreViewerTarget ?? throw new ArgumentNullException(nameof(hasScoreViewerTarget));
-        this.canRegisterScoreViewer = canRegisterScoreViewer ?? throw new ArgumentNullException(nameof(canRegisterScoreViewer));
-        this.runChartTargets = runChartTargets ?? throw new ArgumentNullException(nameof(runChartTargets));
-        this.runScoreViewerTargets = runScoreViewerTargets ?? throw new ArgumentNullException(nameof(runScoreViewerTargets));
+        this.run = run ?? throw new ArgumentNullException(nameof(run));
     }
 
-    internal bool HasScoreViewerTarget(IEnumerable<ChartOperationTarget> targets)
-        => hasScoreViewerTarget(targets ?? throw new ArgumentNullException(nameof(targets)));
+    /// <summary>
+    /// メニューを開くときの項目の扱いを返します。所持BMSを1件見つけた時点で打ち切るので、UIスレッドで全件のファイルを確認しません。
+    /// 見出しは <see cref="ScoreViewerMenuMode.Open"/> が「譜面ビューアで開く」、<see cref="ScoreViewerMenuMode.Register"/> が「譜面ビューアに登録する」で、
+    /// <see cref="ScoreViewerMenuMode.Hidden"/> は項目を表示しません。
+    /// </summary>
+    /// <param name="candidates">選択した行ごとの候補。</param>
+    internal ScoreViewerMenuMode ResolveMenuMode(IReadOnlyList<ScoreViewerCandidate> candidates)
+        => ScoreViewerMenuDecision.ResolveMode(candidates ?? throw new ArgumentNullException(nameof(candidates)));
 
-    internal bool CanRegisterScoreViewer(IEnumerable<ChartOperationTarget> targets)
-        => canRegisterScoreViewer(targets ?? throw new ArgumentNullException(nameof(targets)));
-
-    internal Task<ScoreViewerRegistrationResult> RunAsync(
-        IReadOnlyList<ChartOperationTarget> targets,
+    /// <summary>
+    /// クリック時の候補から判定し直して処理します。判定が非表示なら通知もせず何もしません。
+    /// 全件のファイルの実在確認はUIスレッドの外で行います。
+    /// </summary>
+    /// <param name="candidates">クリック時点の選択した行ごとの候補。</param>
+    /// <param name="logName">失敗の記録へ添える入口名。</param>
+    internal async Task<ScoreViewerRegistrationResult> RunAsync(
+        IReadOnlyList<ScoreViewerCandidate> candidates,
         string logName)
-        => runChartTargets(targets ?? throw new ArgumentNullException(nameof(targets)), logName);
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        ScoreViewerMenuDecision decision = await Task.Run(() => ScoreViewerMenuDecision.Resolve(candidates));
+        return await RunAsync(decision, logName);
+    }
 
-    internal Task<ScoreViewerRegistrationResult> RunAsync(
-        IReadOnlyList<ScoreViewerTarget> targets,
-        bool openSingleViewerOnSuccess,
-        string logName)
-        => runScoreViewerTargets(
-            targets ?? throw new ArgumentNullException(nameof(targets)),
-            openSingleViewerOnSuccess,
-            logName);
+    /// <summary>判定済みの結果を処理します。非表示の判定なら何もしません。</summary>
+    internal Task<ScoreViewerRegistrationResult> RunAsync(ScoreViewerMenuDecision decision, string logName)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        return decision.Mode == ScoreViewerMenuMode.Hidden
+            ? Task.FromResult<ScoreViewerRegistrationResult>(null)
+            : run(decision, logName);
+    }
 }
 
 /// <summary>

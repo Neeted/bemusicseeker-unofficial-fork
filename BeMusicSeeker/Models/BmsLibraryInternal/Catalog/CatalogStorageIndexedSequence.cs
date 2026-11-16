@@ -6,13 +6,13 @@ using System.Collections.Immutable;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// storage 行の現在値と、順序・exact lookup に必要な不変の位置情報をまとめます。
+/// 共通の捕捉値と、順序・完全一致パス検索に必要な不変の位置情報をまとめます。
 /// </summary>
 internal sealed class CatalogStorageSequenceEntry<T>
 {
-    /// <summary>storage 行と lookup・順序情報を結び付けます。</summary>
-    /// <param name="value">live owner row。</param>
-    /// <param name="exactPath">row を識別する exact path。</param>
+    /// <summary>捕捉値とパス検索・順序情報を結び付けます。</summary>
+    /// <param name="value">この順序項目が捕捉した値。</param>
+    /// <param name="exactPath">配置を検索する完全一致パス。所持項目の識別とは別です。</param>
     /// <param name="sortKey">現在の sequence 比較に使う key。</param>
     /// <param name="ordinal">同値 key の安定順序。</param>
     internal CatalogStorageSequenceEntry(
@@ -27,7 +27,7 @@ internal sealed class CatalogStorageSequenceEntry<T>
         Ordinal = ordinal;
     }
 
-    /// <summary>live owner row。</summary>
+    /// <summary>この順序項目が捕捉した値。</summary>
     internal T Value { get; }
 
     /// <summary>row の exact path。</summary>
@@ -52,10 +52,10 @@ internal interface ICatalogStorageSequenceWorkObserver
     /// <summary>sequence の列挙開始を一回記録します。</summary>
     void ObserveEnumeration();
 
-    /// <summary>sequence の列挙で実際に訪問した entry を一つ記録します。</summary>
+    /// <summary>source から取得した entry を一つ記録します。範囲内の一時バッファへの先読みも含みます。</summary>
     void ObserveEntryVisit();
 
-    /// <summary>全 entry を読み出す明示的な materialization を記録します。</summary>
+    /// <summary>要求範囲を明示的な結果へ具体化した件数を記録します。一時的な列挙バッファは含めません。</summary>
     void ObserveMaterialization(int count);
 }
 
@@ -193,14 +193,12 @@ internal sealed class CatalogStorageIndexedSequence<T>
     internal IReadOnlyList<CatalogStorageSequenceEntry<T>> CaptureRange(int index, int count)
     {
         ValidateRange(index, count);
-        var captured = new List<CatalogStorageSequenceEntry<T>>(count);
+        var captured = new CatalogStorageSequenceEntry<T>[count];
         workObserver?.ObserveEnumeration();
+        entries.CopyTo(index, captured, 0, count);
         for (int offset = 0; offset < count; offset++)
         {
-            CatalogStorageSequenceEntry<T> entry = entries[index + offset];
-            workObserver?.ObserveAccess();
             workObserver?.ObserveEntryVisit();
-            captured.Add(entry);
         }
         workObserver?.ObserveMaterialization(count);
         return captured;
@@ -287,21 +285,52 @@ internal sealed class CatalogStorageIndexedSequence<T>
         return low;
     }
 
-    /// <summary>現在世代の entry を順序どおり列挙します。</summary>
-    internal IEnumerable<CatalogStorageSequenceEntry<T>> EnumerateEntries()
+    /// <summary>
+    /// 指定範囲だけを順序どおり列挙します。先頭以外は最大256件の局所配列を一つ再利用し、
+    /// 範囲内だけを先読みします。この一時バッファは明示結果の materialization とは区別します。
+    /// </summary>
+    /// <param name="start">列挙を開始する位置。</param>
+    /// <param name="count">列挙する件数。</param>
+    internal IEnumerable<CatalogStorageSequenceEntry<T>> EnumerateEntries(int start, int count)
     {
+        ValidateRange(start, count);
         workObserver?.ObserveEnumeration();
-        foreach (CatalogStorageSequenceEntry<T> entry in entries)
+        if (count == 0)
         {
-            workObserver?.ObserveEntryVisit();
-            yield return entry;
+            yield break;
+        }
+        if (start == 0)
+        {
+            using ImmutableList<CatalogStorageSequenceEntry<T>>.Enumerator enumerator = entries.GetEnumerator();
+            for (int remaining = count; remaining > 0 && enumerator.MoveNext(); remaining--)
+            {
+                workObserver?.ObserveEntryVisit();
+                yield return enumerator.Current;
+            }
+            yield break;
+        }
+
+        var buffer = new CatalogStorageSequenceEntry<T>[Math.Min(256, count)];
+        for (int offset = 0; offset < count;)
+        {
+            int copiedCount = Math.Min(buffer.Length, count - offset);
+            entries.CopyTo(start + offset, buffer, 0, copiedCount);
+            for (int index = 0; index < copiedCount; index++)
+            {
+                workObserver?.ObserveEntryVisit();
+            }
+            for (int index = 0; index < copiedCount; index++)
+            {
+                yield return buffer[index];
+            }
+            offset += copiedCount;
         }
     }
 
     /// <summary>read view の明示的な全件 materialization を記録します。</summary>
-    internal void ObserveMaterialization()
+    internal void ObserveMaterialization(int? count = null)
     {
-        workObserver?.ObserveMaterialization(entries.Count);
+        workObserver?.ObserveMaterialization(count ?? entries.Count);
     }
 
     private void ValidateRange(int index, int count)
@@ -315,24 +344,40 @@ internal sealed class CatalogStorageIndexedSequence<T>
 
 /// <summary>
 /// immutable sequence を IList-compatible な read-only view として公開します。
-/// 要素の materialize は CopyTo など明示的な利用時だけ行われます。
+/// 結果の materialize は CopyTo など明示的な利用時だけ行われます。
+/// 途中開始の列挙は sequence の上限付き一時バッファを使い、範囲外を読みません。
 /// </summary>
 internal sealed class CatalogStorageReadOnlyView<T> : IReadOnlyList<T>, IList<T>, IList
 {
     private readonly CatalogStorageIndexedSequence<T> sequence;
+    private readonly int start;
+    private readonly int count;
 
     /// <summary>指定された sequence を read-only projection として公開します。</summary>
     /// <param name="sequence">projection の backing sequence。</param>
     internal CatalogStorageReadOnlyView(CatalogStorageIndexedSequence<T> sequence)
+        : this(sequence, 0, sequence?.Count ?? 0)
     {
-        this.sequence = sequence ?? throw new ArgumentNullException(nameof(sequence));
     }
 
-    public int Count => sequence.Count;
+    /// <summary>同じ不変sequenceの指定範囲を、列挙・複製せずに捕捉します。</summary>
+    internal CatalogStorageReadOnlyView(CatalogStorageIndexedSequence<T> sequence, int start, int count)
+    {
+        this.sequence = sequence ?? throw new ArgumentNullException(nameof(sequence));
+        if (start < 0 || count < 0 || start > sequence.Count - count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(start));
+        }
+        this.start = start;
+        this.count = count;
+    }
+
+    public int Count => count;
 
     public T this[int index]
     {
-        get => sequence.EntryAt(index).Value;
+        get => index >= 0 && index < count ? sequence.EntryAt(start + index).Value
+            : throw new ArgumentOutOfRangeException(nameof(index));
         set => throw new NotSupportedException();
     }
 
@@ -354,7 +399,7 @@ internal sealed class CatalogStorageReadOnlyView<T> : IReadOnlyList<T>, IList<T>
 
     public IEnumerator<T> GetEnumerator()
     {
-        foreach (CatalogStorageSequenceEntry<T> entry in sequence.EnumerateEntries())
+        foreach (CatalogStorageSequenceEntry<T> entry in sequence.EnumerateEntries(start, count))
         {
             yield return entry.Value;
         }
@@ -386,7 +431,7 @@ internal sealed class CatalogStorageReadOnlyView<T> : IReadOnlyList<T>, IList<T>
         {
             throw new ArgumentOutOfRangeException(nameof(arrayIndex));
         }
-        sequence.ObserveMaterialization();
+        sequence.ObserveMaterialization(Count);
         int index = arrayIndex;
         foreach (T value in this)
         {
@@ -435,7 +480,7 @@ internal sealed class CatalogStorageReadOnlyView<T> : IReadOnlyList<T>, IList<T>
         {
             throw new ArgumentException("The destination array is invalid.", nameof(array));
         }
-        sequence.ObserveMaterialization();
+        sequence.ObserveMaterialization(Count);
         int destinationIndex = index;
         foreach (T value in this)
         {

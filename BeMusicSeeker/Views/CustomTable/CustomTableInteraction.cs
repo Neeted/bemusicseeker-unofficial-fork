@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.Windows;
 
@@ -54,20 +53,25 @@ public sealed class CustomTableSortRequestedEventArgs : EventArgs
     public ListSortDirection Direction { get; }
 }
 
+/// <summary>選択の変化の通知です。通知のために主行以外の行を実体化しないよう、選択行は件数だけを持ちます。</summary>
+/// <remarks>全選択行が必要な購読側は、その操作の境界で <see cref="CustomTableView.GetSelectedRowsSnapshot"/> を呼びます。</remarks>
 public sealed class CustomTableSelectionChangedEventArgs : EventArgs
 {
-    internal CustomTableSelectionChangedEventArgs(int selectedIndex, object selectedRow, IReadOnlyList<object> selectedRows)
+    internal CustomTableSelectionChangedEventArgs(int selectedIndex, object selectedRow, int selectedCount)
     {
         SelectedIndex = selectedIndex;
         SelectedRow = selectedRow;
-        SelectedRows = selectedRows;
+        SelectedCount = selectedCount;
     }
 
+    /// <summary>主行の添字です。主行がなければ-1です。</summary>
     public int SelectedIndex { get; }
 
+    /// <summary>主行の行です。主行がないか範囲外ならnullです。</summary>
     public object SelectedRow { get; }
 
-    public IReadOnlyList<object> SelectedRows { get; }
+    /// <summary>選択行数です。null行を含む、モデル上の添字の件数です。</summary>
+    public int SelectedCount { get; }
 }
 
 public sealed class CustomTableRowRequestedEventArgs : EventArgs
@@ -156,10 +160,12 @@ public sealed class CustomTableCellActionRequestedEventArgs : EventArgs
 
 public sealed class CustomTableCellEditEndedEventArgs : EventArgs
 {
-    internal CustomTableCellEditEndedEventArgs(CustomTableHitTestResult hit, string editPropertyName, string text, bool commit)
+    /// <summary>置換前の原文と終端入力を同じ編集対象に結び付けます。</summary>
+    internal CustomTableCellEditEndedEventArgs(CustomTableHitTestResult hit, string editPropertyName, string text, bool commit, string originalText)
     {
         Hit = hit;
         EditPropertyName = editPropertyName;
+        OriginalText = originalText;
         Text = text ?? string.Empty;
         Commit = commit;
     }
@@ -175,6 +181,9 @@ public sealed class CustomTableCellEditEndedEventArgs : EventArgs
     public string EditPropertyName { get; }
 
     public string Text { get; }
+
+    /// <summary>直接打鍵で置換する前に一回捕捉したセルの編集原文です。</summary>
+    public string OriginalText { get; }
 
     public bool Commit { get; }
 }

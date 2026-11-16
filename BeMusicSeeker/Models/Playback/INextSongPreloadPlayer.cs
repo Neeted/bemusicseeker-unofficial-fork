@@ -5,7 +5,8 @@ using System.Threading.Tasks;
 namespace BeMusicSeeker.Models;
 
 /// <summary>曲の準備・開始と、演奏・終了処理の終端を分けた開始結果です。</summary>
-internal sealed record PlaybackStartOperation(Task Ready, Task Completion);
+/// <param name="NativeObservation">同じruntimeの受動観測元。未指定の通常runtimeではnullです。</param>
+internal sealed record PlaybackStartOperation(Task Ready, Task Completion, IPlaybackNativeObservation? NativeObservation = null);
 
 /// <summary>内蔵音声playerの次曲一件の準備と非同期停止の能力境界です。</summary>
 internal interface INextSongPreloadPlayer

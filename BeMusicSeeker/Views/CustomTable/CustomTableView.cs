@@ -6,6 +6,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -16,6 +17,8 @@ using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.Views;
 
@@ -58,13 +61,16 @@ internal enum CustomTableKeyboardCommand
     CopySelectedRowsTsv
 }
 
-public sealed class CustomTableView : Grid
+public sealed partial class CustomTableView : Grid
 {
     internal const double CellTextHorizontalPadding = 2d;
     private const double ColumnResizeHitTestMargin = 4d;
-    private const double ScrollBarThickness = 15d;
+    // 共通ScrollBarの固定ヒット領域と、末尾を露出するための計算を揃える。
+    internal const double ScrollBarThickness = 16d;
+    // 背景を細い状態から不透明に表示する一覧用ScrollBar Styleの資源キー。
+    private const string ListScrollBarStyleKey = "App.Canonical.ListScrollBarStyle";
     private const double CellEditorBorderThickness = 1d;
-    private const int RowSubscriptionOverscan = 5;
+    internal const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
     private const long RenderSlowLogThresholdMs = 100L;
     private static readonly Thickness CellEditorBorderThicknessValue = new(CellEditorBorderThickness);
@@ -113,6 +119,15 @@ public sealed class CustomTableView : Grid
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontSize));
 
+    /// <summary>
+    /// 通常の文字、見出し、セルの編集欄に使うフォントを識別します。未指定とnullは既定の表示フォントです。
+    /// </summary>
+    public static readonly DependencyProperty TextFontFamilyProperty = DependencyProperty.Register(
+        nameof(TextFontFamily),
+        typeof(FontFamily),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(AppFontService.DefaultFontFamily, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontFamily));
+
     public static readonly DependencyProperty SelectedIndexProperty = DependencyProperty.Register(
         nameof(SelectedIndex),
         typeof(int),
@@ -147,29 +162,31 @@ public sealed class CustomTableView : Grid
     private readonly Canvas editorLayer;
     private readonly ScrollBar verticalScrollBar;
     private readonly ScrollBar horizontalScrollBar;
-    private readonly Border scrollBarCorner;
     private readonly ToolTip cellToolTip;
     private readonly Popup editSuggestionPopup;
     private readonly ListBox editSuggestionListBox;
     private readonly CustomTableSelectionModel selectionModel = new();
-    private readonly CustomTableCellValueCache cellValueCache = new();
+    private readonly CustomTableRowCache rowCache = new();
     private readonly CustomTableRowChangeTracker rowChangeTracker;
     private readonly CustomTableRowInvalidationQueue pendingRowInvalidations = new();
     private readonly CustomTableRedrawScheduler rowPropertyChangedRedrawScheduler;
+    // 保持範囲を購読してよい状態です。表示の切替（ApplyVisibilityChanged）で決まり、非表示の間は購読を持ちません。
+    private bool isRowRetentionActive;
+    private bool isRowRetentionReleased;
+    private RetainedRowsUpdate pendingRetainedRowsUpdate;
+    private string pendingRetainedRowsReason;
+    private bool pendingRetainedRowsLogAlways;
+    // ホイールの回転量のうち、一刻みに満たない分です。表ごとに持ち、向きが変わるか範囲の端に達すると捨てます。
+    private int wheelRemainder;
     private readonly List<INotifyPropertyChanged> subscribedColumnLayouts = [];
     private readonly HashSet<string> loggedRenderReasons = [];
     private CustomTableColumnLayoutSnapshot columnLayoutSnapshot;
     private INotifyCollectionChanged itemsCollectionChanged;
     private string pendingRedrawReason = "initial";
-    private int lastVisibleSubscriptionFirstIndex = -1;
-    private int lastVisibleSubscriptionCount = -1;
-    private int rowValueGeneration;
-    private int columnValueGeneration;
-    private long cellValueInvalidationGeneration;
-    private long hiddenCellValueInvalidationGeneration;
     private long itemsAppliedTimestamp;
     private bool firstRenderLogged = true;
     private bool updatingSelectedIndexFromSelection;
+    private (object[] Selected, object Current, object Anchor)? selectionIdentities;
     private bool isResizingColumn;
     private ICustomTableColumnLayout resizingColumnLayout;
     private int resizingColumnMinWidth;
@@ -197,7 +214,20 @@ public sealed class CustomTableView : Grid
     private bool preparationRenderLogged;
     private bool suppressColumnRedrawUntilItemsSourceChanged;
     private MainChartListViewModel subscribedMainChartList;
+    private IUiDialogService dialogService;
 
+    /// <summary>
+    /// 通知に使う構成の共通窓口を接続します。XAMLの要素として引数なしで生成されるため、生成の後にホストが一度設定します。
+    /// 未設定のまま通知しようとした場合は、通知の失敗として診断に残します。
+    /// </summary>
+    /// <param name="dialogService">コピー失敗などの通知に使う窓口。</param>
+    internal void ConfigureDialogs(IUiDialogService dialogService)
+    {
+        ArgumentNullException.ThrowIfNull(dialogService);
+        this.dialogService = dialogService;
+    }
+
+    /// <summary>全面の描画・編集面へ固定幅のスクロールバーを重ね、既存の表操作と購読を接続します。</summary>
     public CustomTableView()
     {
         ClipToBounds = true;
@@ -206,15 +236,15 @@ public sealed class CustomTableView : Grid
         UseLayoutRounding = true;
         SnapsToDevicePixels = true;
         SetResourceReference(Panel.BackgroundProperty, "ScrollBar.TrackBackgroundBrush");
-        RowDefinitions.Add(new RowDefinition { Height = new GridLength(1d, GridUnitType.Star) });
-        RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1d, GridUnitType.Star) });
-        ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         surface = new CustomTableSurface(this);
         verticalScrollBar = new ScrollBar
         {
             Orientation = Orientation.Vertical,
             Width = ScrollBarThickness,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            // Windowなしの配置でもOS既定の最小17 DIPへ広げない。
+            MinWidth = 0d,
+            MinHeight = 0d,
             Minimum = 0d,
             SmallChange = 3d
         };
@@ -222,11 +252,16 @@ public sealed class CustomTableView : Grid
         {
             Orientation = Orientation.Horizontal,
             Height = ScrollBarThickness,
+            VerticalAlignment = VerticalAlignment.Bottom,
+            // Windowなしの配置でもOS既定の最小17 DIPへ広げない。
+            MinWidth = 0d,
+            MinHeight = 0d,
             Minimum = 0d,
             SmallChange = 16d
         };
-        scrollBarCorner = new Border();
-        scrollBarCorner.SetResourceReference(Border.BackgroundProperty, "ScrollBar.TrackBackgroundBrush");
+        // 本体の2本だけ一覧用Styleを明示する。暗黙Styleにしないため、編集候補Popupなど同じ資源範囲の他のバーへは波及しない。
+        verticalScrollBar.SetResourceReference(StyleProperty, ListScrollBarStyleKey);
+        horizontalScrollBar.SetResourceReference(StyleProperty, ListScrollBarStyleKey);
         cellToolTip = new ToolTip
         {
             PlacementTarget = this,
@@ -259,36 +294,37 @@ public sealed class CustomTableView : Grid
         rowChangeTracker = new CustomTableRowChangeTracker(delegate (INotifyPropertyChanged row, PropertyChangedEventArgs e)
         {
             EnqueueRowInvalidation(row);
-        });
+        }, rowCache.InvalidateRow);
         verticalScrollBar.ValueChanged += VerticalScrollBarValueChanged;
         horizontalScrollBar.ValueChanged += HorizontalScrollBarValueChanged;
         Children.Add(surface);
         Children.Add(editorLayer);
         Children.Add(verticalScrollBar);
         Children.Add(horizontalScrollBar);
-        Children.Add(scrollBarCorner);
-        SetColumn(surface, 0);
-        SetRow(surface, 0);
-        SetColumn(editorLayer, 0);
-        SetRow(editorLayer, 0);
-        SetColumn(verticalScrollBar, 1);
-        SetRow(verticalScrollBar, 0);
-        SetColumn(horizontalScrollBar, 0);
-        SetRow(horizontalScrollBar, 1);
-        SetColumn(scrollBarCorner, 1);
-        SetRow(scrollBarCorner, 1);
-        surface.SizeChanged += delegate
+        // Surfaceと編集面は全面を共有し、バーだけを前面へ重ねる。
+        SetZIndex(editorLayer, 1);
+        SetZIndex(verticalScrollBar, 2);
+        SetZIndex(horizontalScrollBar, 2);
+        surface.SizeChanged += delegate (object sender, SizeChangedEventArgs e)
         {
-            InvalidateColumnLayoutSnapshot();
+            if (e.WidthChanged)
+            {
+                InvalidateColumnLayoutSnapshot();
+            }
             UpdateScrollBars();
-            UpdateVisibleRowSubscriptions("surface_size_changed");
+            MarkRetainedRowsStale("surface_size_changed");
+            RefreshAutomationChildren();
             RequestRedraw("surface_size_changed");
         };
-        SizeChanged += delegate
+        SizeChanged += delegate (object sender, SizeChangedEventArgs e)
         {
-            InvalidateColumnLayoutSnapshot();
+            if (e.WidthChanged)
+            {
+                InvalidateColumnLayoutSnapshot();
+            }
             UpdateScrollBars();
-            UpdateVisibleRowSubscriptions("size_changed");
+            MarkRetainedRowsStale("size_changed");
+            RefreshAutomationChildren();
             RequestRedraw("size_changed");
         };
         PreviewMouseLeftButtonDown += CustomTableViewPreviewMouseLeftButtonDown;
@@ -322,6 +358,8 @@ public sealed class CustomTableView : Grid
     private void CustomTableViewLoaded(object sender, RoutedEventArgs e)
     {
         AppThemeService.ThemeChanged += AppThemeServiceThemeChanged;
+        ResourceService.Current.PropertyChanged -= ResourceServicePropertyChanged;
+        ResourceService.Current.PropertyChanged += ResourceServicePropertyChanged;
         SubscribeMainChartList(DataContext as MainChartListViewModel);
         RefreshTheme("loaded");
     }
@@ -329,7 +367,9 @@ public sealed class CustomTableView : Grid
     private void CustomTableViewUnloaded(object sender, RoutedEventArgs e)
     {
         AppThemeService.ThemeChanged -= AppThemeServiceThemeChanged;
+        ResourceService.Current.PropertyChanged -= ResourceServicePropertyChanged;
         SubscribeMainChartList(null);
+        ApplyVisibilityChanged(false);
     }
 
     private void CustomTableViewDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -338,6 +378,9 @@ public sealed class CustomTableView : Grid
         {
             SubscribeMainChartList(e.NewValue as MainChartListViewModel);
         }
+        InvalidateColumnCellValues();
+        RequestRedraw("operation_context");
+        RaiseAutomationChanged(CustomTableAutomationChange.Value);
     }
 
     private void SubscribeMainChartList(MainChartListViewModel mainChartList)
@@ -349,23 +392,50 @@ public sealed class CustomTableView : Grid
         if (subscribedMainChartList != null)
         {
             subscribedMainChartList.RowsReplacing -= MainChartListRowsReplacing;
+            subscribedMainChartList.RowsSelectionPreserving -= MainChartListRowsSelectionPreserving;
             subscribedMainChartList.RowsReplacementCanceled -= MainChartListRowsReplacementCanceled;
             subscribedMainChartList.RowsReplacementPublishFailed -= MainChartListRowsReplacementCanceled;
             subscribedMainChartList.DisplayRefreshRequested -= MainChartListDisplayRefreshRequested;
+            subscribedMainChartList.OperationContextChanged -= MainChartListOperationContextChanged;
         }
         subscribedMainChartList = mainChartList;
         if (subscribedMainChartList != null)
         {
             subscribedMainChartList.RowsReplacing += MainChartListRowsReplacing;
+            subscribedMainChartList.RowsSelectionPreserving += MainChartListRowsSelectionPreserving;
             subscribedMainChartList.RowsReplacementCanceled += MainChartListRowsReplacementCanceled;
             subscribedMainChartList.RowsReplacementPublishFailed += MainChartListRowsReplacementCanceled;
             subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;
+            subscribedMainChartList.OperationContextChanged += MainChartListOperationContextChanged;
         }
     }
 
     private void MainChartListRowsReplacing(object sender, EventArgs e)
     {
         InvokePresentationAction(PrepareForItemsSourceSwap);
+    }
+
+    /// <summary>識別対応の譜面一覧へ移るBinding公開後に、同じ元集合なら選択識別を復元し、識別非対応の元表示や別集合の旧添字による選択を解除します。</summary>
+    private void MainChartListRowsSelectionPreserving(object sender, MainChartListSelectionRestoration e)
+    {
+        InvokePresentationAction(() =>
+        {
+            if (e.Rows is not ICustomTableSelectionIdentitySource after) { return; }
+            if (ItemsSource is not ICustomTableSelectionIdentitySource before
+                || !before.SharesSelectionIdentityScope(after))
+            {
+                e.Register(() =>
+                {
+                    if (ReferenceEquals(ItemsSource, after)) { ClearSelection(); }
+                });
+                return;
+            }
+            (object[] Selected, object Current, object Anchor) captured = CaptureSelectionIdentities(before);
+            e.Register(() =>
+            {
+                if (ReferenceEquals(ItemsSource, after)) { RestoreSelectionIdentities(after, captured); }
+            });
+        });
     }
 
     private void MainChartListRowsReplacementCanceled(object sender, EventArgs e)
@@ -376,6 +446,26 @@ public sealed class CustomTableView : Grid
     private void MainChartListDisplayRefreshRequested(object sender, EventArgs e)
     {
         InvokePresentationAction(RefreshDisplay);
+    }
+
+    /// <summary>生存する表示文脈の能力変更だけで列値と描画を失効させ、editor・選択・現在セルを保持します。</summary>
+    private void MainChartListOperationContextChanged(object sender, EventArgs e)
+    {
+        InvokePresentationAction(() =>
+        {
+            if (!IsLoaded || !ReferenceEquals(sender, subscribedMainChartList)) { return; }
+            InvalidateColumnCellValues();
+            RequestRedraw("operation_context");
+            RaiseAutomationChanged(CustomTableAutomationChange.Value);
+        });
+    }
+
+    /// <summary>表示のたびに最新文脈を一度捕捉します。受付を伴う編集開始probeは使いません。</summary>
+    private bool CanEditInstallDestination(object row)
+    {
+        if (DataContext is not MainChartListViewModel mainChartList) { return false; }
+        MainChartListOperationContext context = mainChartList.CurrentOperationContext;
+        return GridRowResolver.TryGetInstallDestinationEditTarget(row, context.SourceScope, context.OperationSection, out _);
     }
 
     private void InvokePresentationAction(Action action)
@@ -397,6 +487,22 @@ public sealed class CustomTableView : Grid
         }
     }
 
+    // アプリ言語はthread cultureを変えないため、表示資源の通知で既存cacheを更新します。
+    // 旧語を捕捉せずUI適用時の現在語を使い、切離し後の配送では表へ触れません。
+    private void ResourceServicePropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (!string.IsNullOrEmpty(e.PropertyName) && e.PropertyName != nameof(ResourceService.Resources)) { return; }
+        InvokePresentationAction(() =>
+        {
+            if (!IsLoaded) { return; }
+            CloseCellToolTip();
+            InvalidateDisplayValues();
+            surface.ClearTextLayoutCache();
+            RequestRedraw("language_changed");
+            RaiseAutomationChanged(CustomTableAutomationChange.Value);
+        });
+    }
+
     private void AppThemeServiceThemeChanged(object sender, EventArgs e)
     {
         if (Dispatcher.CheckAccess())
@@ -410,7 +516,7 @@ public sealed class CustomTableView : Grid
     private void RefreshTheme(string reason)
     {
         CustomTablePalette.Invalidate();
-        cellValueCache.Clear();
+        rowCache.Clear();
         surface.ClearTextLayoutCache();
         ApplyOverlayTheme();
         RequestRedraw(reason);
@@ -458,7 +564,6 @@ public sealed class CustomTableView : Grid
         border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
         border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
         border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
-        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
         border.SetValue(Border.CornerRadiusProperty, new CornerRadius(0d));
         border.SetValue(UIElement.SnapsToDevicePixelsProperty, true);
         border.AppendChild(contentHost);
@@ -525,6 +630,15 @@ public sealed class CustomTableView : Grid
         set => SetValue(HeaderHeightProperty, value);
     }
 
+    /// <summary>
+    /// 行と見出しの高さを表示倍率で物理画素の整数へ丸めた、縦の寸法です。描画・当たり判定・編集欄の位置・
+    /// スクロール範囲と完全表示行容量・行ドロップの位置・UI Automationの矩形が共通に使います。
+    /// <see cref="RowHeight"/>・<see cref="HeaderHeight"/> の値と保存値は変えません。
+    /// </summary>
+    internal CustomTableRowGeometry RowGeometry => new(RowHeight, HeaderHeight, surface.ActualHeight, PixelsPerDip);
+
+    private double PixelsPerDip => VisualTreeHelper.GetDpi(this).PixelsPerDip;
+
     public double TextFontSize
     {
         get => (double)GetValue(TextFontSizeProperty);
@@ -555,6 +669,13 @@ public sealed class CustomTableView : Grid
         set => SetValue(RowDragKindProperty, value);
     }
 
+    /// <summary>通常の文字、見出し、セルの編集欄に使うフォントです。変更すると文字の配置を作り直します。</summary>
+    public FontFamily TextFontFamily
+    {
+        get => (FontFamily)GetValue(TextFontFamilyProperty);
+        set => SetValue(TextFontFamilyProperty, value);
+    }
+
     public FontFamily ScoreFontFamily
     {
         get => (FontFamily)GetValue(ScoreFontFamilyProperty);
@@ -569,13 +690,23 @@ public sealed class CustomTableView : Grid
 
     internal int RowCount => ItemsSource?.Count ?? 0;
 
+    /// <summary>バー背後を含む全面の実描画幅です。スクロール用の有効表示幅とは区別します。</summary>
     internal double SurfaceWidth => surface.ActualWidth;
 
+    /// <summary>バー背後を含む全面の実描画高です。完全表示行容量とは区別します。</summary>
     internal double SurfaceHeight => surface.ActualHeight;
 
     internal bool IsRowSelected(int rowIndex)
     {
         return selectionModel.IsSelected(rowIndex);
+    }
+
+    /// <summary>指定位置の行に属する現在セルの列を返します。</summary>
+    internal CustomTableColumn GetCurrentCellColumn(int rowIndex)
+    {
+        return currentCellHit?.Kind == CustomTableHitKind.Cell && currentCellHit.RowIndex == rowIndex
+            ? currentCellHit.Column
+            : null;
     }
 
     internal bool IsCurrentCell(int rowIndex, CustomTableColumn column)
@@ -598,7 +729,7 @@ public sealed class CustomTableView : Grid
 
     internal CustomTableTextStyle ResolveTextStyle(CustomTableTextStyle textStyle)
     {
-        return (textStyle ?? CustomTableTextStyle.Normal).WithFontSize(TextFontSize);
+        return (textStyle ?? CustomTableTextStyle.Normal).WithFontFamily(TextFontFamily).WithFontSize(TextFontSize);
     }
 
     internal bool IsReorderSourceColumn(CustomTableColumn column)
@@ -615,17 +746,20 @@ public sealed class CustomTableView : Grid
         view.CommitActiveEdit();
         view.currentCellHit = null;
         view.ClearPendingItemsSourceSwapColumnRedrawSuppression();
+        if (e.NewValue == null)
+        {
+            // 読み込み解除の経路でも、描画先と文字のレイアウトを解放する。次の描画で必要な分だけ作り直す。
+            view.surface?.ReleaseDrawingResources();
+        }
         view.DetachCollectionChanged(e.OldValue as INotifyCollectionChanged);
         view.AttachCollectionChanged(e.NewValue as INotifyCollectionChanged);
         view.MarkItemsApplied();
         view.InvalidateAllCellValues();
         view.CoerceSelectionToCurrentRows();
         view.UpdateScrollBars();
-        view.UpdateVisibleRowSubscriptions(
-            "items_source_changed",
-            logAlways: true,
-            invalidateCellValuesWhenWindowChanges: false);
+        view.MarkRetainedRowsRebuild("items_source_changed", logAlways: true);
         view.RequestRedraw("items_source_changed");
+        view.RaiseAutomationChanged(CustomTableAutomationChange.Structure);
     }
 
     private static void OnColumnsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -636,6 +770,7 @@ public sealed class CustomTableView : Grid
         view.InvalidateColumnLayoutSnapshot();
         view.InvalidateColumnCellValues();
         view.UpdateScrollBars();
+        view.RaiseAutomationChanged(CustomTableAutomationChange.Structure);
         if (view.suppressColumnRedrawUntilItemsSourceChanged)
         {
             return;
@@ -667,9 +802,9 @@ public sealed class CustomTableView : Grid
     {
         var view = (CustomTableView)d;
         view.CommitActiveEdit();
-        view.InvalidateColumnLayoutSnapshot();
         view.UpdateScrollBars();
-        view.UpdateVisibleRowSubscriptions("layout_metric_changed");
+        view.MarkRetainedRowsStale("layout_metric_changed");
+        view.RefreshAutomationChildren();
         view.RequestRedraw("layout_metric_changed");
     }
 
@@ -702,19 +837,36 @@ public sealed class CustomTableView : Grid
             : BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
     }
 
+    private static object CoerceTextFontFamily(DependencyObject d, object baseValue)
+    {
+        return baseValue as FontFamily ?? AppFontService.DefaultFontFamily;
+    }
+
+    /// <summary>外部から実際に受理した主行変更だけで旧編集を一回確定し、同期再入後の最新主行へ現在セルと可視範囲を揃えます。</summary>
     private static void OnSelectedIndexChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var view = (CustomTableView)d;
-        if (!view.updatingSelectedIndexFromSelection)
+        if (!view.updatingSelectedIndexFromSelection && !view.selectionIdentities.HasValue)
         {
             int selectedIndex = (int)e.NewValue;
             if (selectedIndex < 0 || view.RowCount > 0)
             {
+                int previousCurrent = view.selectionModel.CurrentIndex;
                 view.selectionModel.SetItemCount(view.RowCount);
                 view.selectionModel.SyncCurrentIndex(selectedIndex);
+                if (previousCurrent != view.selectionModel.CurrentIndex)
+                {
+                    string columnId = view.currentCellHit?.Column?.Id;
+                    IList rows = view.ItemsSource;
+                    view.CommitActiveEdit();
+                    // 編集終端の同期整列で主行が移動し得るため、入力の旧添字を再適用しない。
+                    view.EnsureRowVisible(view.selectionModel.CurrentIndex);
+                    view.EnsureCurrentCellForCurrentRow(ReferenceEquals(rows, view.ItemsSource) ? columnId : null);
+                }
             }
         }
         view.RequestRedraw("selection");
+        view.RaiseAutomationChanged(CustomTableAutomationChange.Selection);
     }
 
     private static void OnSortStateChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -738,6 +890,11 @@ public sealed class CustomTableView : Grid
         {
             itemsCollectionChanged.CollectionChanged += ItemsSourceCollectionChanged;
         }
+        if (collection is ICustomTableSelectionIdentitySource source)
+        {
+            source.SelectionUpdateStarting += CaptureSelectionIdentities;
+            source.SelectionUpdateCompleted += RestoreSelectionIdentities;
+        }
     }
 
     private void DetachCollectionChanged(INotifyCollectionChanged collection)
@@ -745,6 +902,12 @@ public sealed class CustomTableView : Grid
         if (collection != null)
         {
             collection.CollectionChanged -= ItemsSourceCollectionChanged;
+        }
+        if (collection is ICustomTableSelectionIdentitySource source)
+        {
+            source.SelectionUpdateStarting -= CaptureSelectionIdentities;
+            source.SelectionUpdateCompleted -= RestoreSelectionIdentities;
+            selectionIdentities = null;
         }
         if (ReferenceEquals(itemsCollectionChanged, collection))
         {
@@ -754,33 +917,79 @@ public sealed class CustomTableView : Grid
 
     private void ItemsSourceCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
+        if (!ReferenceEquals(sender, ItemsSource)) { return; }
         CommitActiveEdit();
         currentCellHit = null;
         ClearPendingItemsSourceSwapColumnRedrawSuppression();
         MarkItemsApplied();
         InvalidateAllCellValues();
-        CoerceSelectionToCurrentRows();
+        if (!selectionIdentities.HasValue) { CoerceSelectionToCurrentRows(); }
         UpdateScrollBars();
-        UpdateVisibleRowSubscriptions(
+        MarkRetainedRowsRebuild(
             GetCollectionChangedSubscriptionReason(e),
-            logAlways: e?.Action == NotifyCollectionChangedAction.Reset,
-            invalidateCellValuesWhenWindowChanges: false);
+            logAlways: e?.Action == NotifyCollectionChangedAction.Reset);
         RequestRedraw("items_source_changed");
+        RaiseAutomationChanged(CustomTableAutomationChange.Structure);
+    }
+
+    /// <summary>選択・主行・Shift基点だけを、更新前の元集合識別で短命に捕捉します。</summary>
+    private void CaptureSelectionIdentities(object sender, EventArgs e)
+    {
+        if (sender is not ICustomTableSelectionIdentitySource source || !ReferenceEquals(sender, ItemsSource)) { return; }
+        if (e is CustomTableSelectionResetStartingEventArgs)
+        {
+            // 編集終端の同期再入が局所更新を完結してから、外側の旧行と選択を捕捉する。
+            CommitActiveEdit();
+            if (!ReferenceEquals(sender, ItemsSource)) { return; }
+        }
+        selectionIdentities = CaptureSelectionIdentities(source);
+    }
+
+    /// <summary>実体化なしの索引を使って、選択数に比例する識別だけを取得します。</summary>
+    private (object[] Selected, object Current, object Anchor) CaptureSelectionIdentities(ICustomTableSelectionIdentitySource source)
+        => (selectionModel.SelectedIndices.Select(source.GetSelectionIdentity).ToArray(),
+            source.GetSelectionIdentity(selectionModel.CurrentIndex), source.GetSelectionIdentity(selectionModel.AnchorIndex));
+
+    /// <summary>最終順序へ選択を戻します。主行の添字が同じでも副選択と基点を必ず照合します。</summary>
+    private void RestoreSelectionIdentities(object sender, EventArgs e)
+    {
+        if (sender is not ICustomTableSelectionIdentitySource source || !ReferenceEquals(sender, ItemsSource)) { return; }
+        (object[] Selected, object Current, object Anchor)? captured = selectionIdentities;
+        selectionIdentities = null;
+        if (e is CustomTableSelectionUpdateEventArgs requested)
+        {
+            RestoreSelectionIdentities(source, (requested.Selected, requested.Current, requested.Anchor));
+            EnsureRowVisible(selectionModel.CurrentIndex);
+            EnsureCurrentCellForCurrentRow();
+        }
+        else if (captured.HasValue) { RestoreSelectionIdentities(source, captured.Value); }
+    }
+
+    /// <summary>残る選択・主行・基点だけを採用し、同じ主添字でも副選択の旧位置を使いません。</summary>
+    private void RestoreSelectionIdentities(ICustomTableSelectionIdentitySource source, (object[] Selected, object Current, object Anchor) captured)
+    {
+        selectionModel.SetItemCount(RowCount);
+        bool changed = selectionModel.RestoreIndices(captured.Selected.Select(source.IndexOfSelectionIdentity),
+            source.IndexOfSelectionIdentity(captured.Current), source.IndexOfSelectionIdentity(captured.Anchor));
+        // 行数減少によるcoerceが先に空にした場合も、選択消失を通知する。
+        changed |= captured.Selected.Length != selectionModel.SelectedCount;
+        UpdateSelectedIndexFromSelectionModel();
+        if (changed) { RaiseSelectionChanged(); }
+        RequestRedraw("selection");
+        RaiseAutomationChanged(CustomTableAutomationChange.Selection);
     }
 
     internal void ApplyVisibilityChanged(bool isVisible)
     {
+        isRowRetentionActive = isVisible;
+        isRowRetentionReleased = !isVisible;
         if (isVisible)
         {
             MarkItemsApplied();
-            bool invalidatedWhileHidden =
-                cellValueInvalidationGeneration != hiddenCellValueInvalidationGeneration;
             UpdateScrollBars();
-            UpdateVisibleRowSubscriptions(
-                "visible_changed",
-                logAlways: true,
-                invalidateCellValuesWhenWindowChanges: !invalidatedWhileHidden,
-                isVisibleOverride: true);
+            // 非表示の間は購読を持たないため、最初の描画で最新の位置の範囲を全件取得する。
+            MarkRetainedRowsRebuild("visible_changed", logAlways: true);
+            RefreshAutomationChildren();
             RequestRedraw("visible_changed");
             return;
         }
@@ -788,12 +997,26 @@ public sealed class CustomTableView : Grid
         CommitActiveEdit();
         CloseCellToolTip();
         rowChangeTracker.DetachAllRows();
-        lastVisibleSubscriptionFirstIndex = -1;
-        lastVisibleSubscriptionCount = -1;
+        // 保留中の範囲の更新は破棄する。後の配置や消化で再購読や行集合の読取りをしない。
+        pendingRetainedRowsUpdate = RetainedRowsUpdate.None;
         EndColumnResize();
         ClearDragState();
         ClearHeaderDragState();
-        hiddenCellValueInvalidationGeneration = cellValueInvalidationGeneration;
+        pendingRowInvalidations.Clear();
+        rowCache.Clear();
+        // 再表示では、最新の状態から描画先と文字のレイアウトを作り直す。
+        surface.ReleaseDrawingResources();
+    }
+
+    /// <summary>倍率が変わると行と見出しの高さの実効値が変わるため、編集欄を確定し、スクロール範囲と可視行を更新して描き直します。</summary>
+    internal void HandleDpiChanged()
+    {
+        CommitActiveEdit();
+        CloseCellToolTip();
+        UpdateScrollBars();
+        MarkRetainedRowsStale("dpi_changed");
+        RefreshAutomationChildren();
+        RequestRedraw("dpi_changed");
     }
 
     private void AttachColumnLayoutHandlers()
@@ -823,15 +1046,43 @@ public sealed class CustomTableView : Grid
     private void ColumnLayoutPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
         CommitActiveEdit();
+        if (e.PropertyName == nameof(ICustomTableColumnLayout.Width) && sender is ICustomTableColumnLayout layout)
+        {
+            ApplyColumnWidthChange(layout);
+            return;
+        }
         currentCellHit = null;
         RebuildColumns();
+    }
+
+    // 列インスタンスと他列の取得済み値を保ち、幅で役割が変わるURL列だけを再評価します。
+    private void ApplyColumnWidthChange(ICustomTableColumnLayout layout)
+    {
+        bool valuesChanged = false;
+        foreach (CustomTableColumn column in VisibleColumns)
+        {
+            if (ReferenceEquals(column.Layout, layout) && column.HasWidthDependentContent)
+            {
+                rowCache.InvalidateColumnValues(column.Id);
+                valuesChanged = true;
+            }
+        }
+        InvalidateColumnLayoutSnapshot();
+        CloseCellToolTip();
+        UpdateScrollBars();
+        RefreshAutomationChildren();
+        RequestRedraw("column_resize");
+        if (valuesChanged)
+        {
+            RaiseAutomationChanged(CustomTableAutomationChange.Value);
+        }
     }
 
     private void RebuildColumns()
     {
         Columns = PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnsSettings).ToArray()
-            : [.. CustomTableColumnFactory.CreateMainColumns(ColumnsSettings)];
+            : [.. CustomTableColumnFactory.CreateMainColumns(ColumnsSettings, CanEditInstallDestination)];
         InvalidateColumnLayoutSnapshot();
         InvalidateColumnCellValues();
     }
@@ -861,8 +1112,10 @@ public sealed class CustomTableView : Grid
     {
         CommitActiveEdit();
         CloseCellToolTip();
-        UpdateVisibleRowSubscriptions("vertical_scroll");
+        // 行集合へは触れない。保持範囲は次の描画で、その時点の最新の位置に対して一回だけ更新する。
+        MarkRetainedRowsStale("vertical_scroll");
         RequestRedraw("scroll_vertical");
+        RaiseAutomationChanged(CustomTableAutomationChange.Scroll);
     }
 
     private void HorizontalScrollBarValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -870,61 +1123,95 @@ public sealed class CustomTableView : Grid
         CommitActiveEdit();
         CloseCellToolTip();
         RequestRedraw("scroll_horizontal");
+        RaiseAutomationChanged(CustomTableAutomationChange.Scroll);
     }
 
     private void UpdateScrollBars()
     {
         int rowCount = RowCount;
-        int fullVisibleRows = CalculateFullVisibleRowCapacity();
+        double extentWidth = GetColumnLayoutSnapshot().ExtentWidth;
+        double width = Math.Max(0d, surface.ActualWidth);
+        (bool hasVertical, bool hasHorizontal, int fullVisibleRows, double viewportWidth) = CalculateScrollBarLayout(width, extentWidth, rowCount, RowGeometry);
         verticalScrollBar.ViewportSize = fullVisibleRows;
         verticalScrollBar.LargeChange = Math.Max(1, fullVisibleRows);
         verticalScrollBar.Maximum = CalculateVerticalScrollMaximum(rowCount, fullVisibleRows);
-        verticalScrollBar.Visibility = rowCount > fullVisibleRows ? Visibility.Visible : Visibility.Collapsed;
+        verticalScrollBar.Visibility = hasVertical ? Visibility.Visible : Visibility.Collapsed;
         if (verticalScrollBar.Value > verticalScrollBar.Maximum)
         {
             verticalScrollBar.Value = verticalScrollBar.Maximum;
         }
-        double extentWidth = GetColumnLayoutSnapshot().ExtentWidth;
-        double viewportWidth = Math.Max(0d, surface.ActualWidth);
         horizontalScrollBar.ViewportSize = viewportWidth;
         horizontalScrollBar.LargeChange = Math.Max(1d, viewportWidth);
         horizontalScrollBar.Maximum = Math.Max(0d, extentWidth - viewportWidth);
-        horizontalScrollBar.Visibility = extentWidth > viewportWidth + 0.5d ? Visibility.Visible : Visibility.Collapsed;
+        horizontalScrollBar.Visibility = hasHorizontal ? Visibility.Visible : Visibility.Collapsed;
+        horizontalScrollBar.Margin = new Thickness(0d, 0d, hasVertical ? ScrollBarThickness : 0d, 0d);
         if (horizontalScrollBar.Value > horizontalScrollBar.Maximum)
         {
             horizontalScrollBar.Value = horizontalScrollBar.Maximum;
         }
-        scrollBarCorner.Visibility = verticalScrollBar.Visibility == Visibility.Visible && horizontalScrollBar.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// <summary>全面の実寸法から必要な軸だけを追加し、前回状態に依存しない有効表示幅と完全表示行容量を求めます。</summary>
+    /// <remarks>描画寸法は減らさず、戻り値をスクロール範囲とセル露出の計算だけへ適用します。</remarks>
+    /// <param name="width">全面の実幅（DIP）。</param>
+    /// <param name="extentWidth">表示列の合計幅（DIP）。</param>
+    /// <param name="rowCount">行数。</param>
+    /// <param name="rows">物理画素の整数で持つ縦の寸法。完全表示行容量は画素の整数で求めます。</param>
+    internal static (bool HasVertical, bool HasHorizontal, int FullVisibleRows, double ViewportWidth) CalculateScrollBarLayout(
+        double width, double extentWidth, int rowCount, CustomTableRowGeometry rows)
+    {
+        bool hasVertical = false;
+        bool hasHorizontal = false;
+        // バーなしから必要な軸だけを追加する。前回のVisibilityへ依存させない。
+        while (true)
+        {
+            int capacity = rows.FullVisibleRowCapacity(hasHorizontal);
+            bool nextVertical = hasVertical || rowCount > capacity;
+            bool nextHorizontal = hasHorizontal || extentWidth > Math.Max(0d, width - (nextVertical ? ScrollBarThickness : 0d)) + 0.5d;
+            if (nextVertical == hasVertical && nextHorizontal == hasHorizontal)
+            {
+                break;
+            }
+            hasVertical = nextVertical;
+            hasHorizontal = nextHorizontal;
+        }
+        int fullVisibleRows = rows.FullVisibleRowCapacity(hasHorizontal);
+        double viewportWidth = Math.Max(0d, width - (hasVertical ? ScrollBarThickness : 0d));
+        return (hasVertical, hasHorizontal, fullVisibleRows, viewportWidth);
+    }
+
+    /// <summary>横バーの手前まで完全表示できる行数を返します。極小領域でも既存の最小一行を保ちます。</summary>
     internal int CalculateFullVisibleRowCapacity()
     {
-        return CalculateFullVisibleRowCapacity(CalculateBodyHeight(), RowHeight);
+        return RowGeometry.FullVisibleRowCapacity(horizontalScrollBar.Visibility == Visibility.Visible);
     }
 
+    /// <summary>バーの背後と部分表示を含む全面の描画行数を返し、可視行購読にも使います。</summary>
     internal int CalculateDrawableRowCapacity()
     {
-        return CalculateDrawableRowCapacity(CalculateBodyHeight(), RowHeight);
+        return RowGeometry.DrawableRowCapacity;
     }
 
+    /// <summary>有効な本体高さを行高で切り捨て、完全表示容量を求めます。</summary>
+    /// <remarks>
+    /// 二つの長さは同じ単位で渡します。表は <see cref="CustomTableRowGeometry"/> から物理画素の整数を渡すため、商は丸め誤差を含みません。
+    /// </remarks>
     internal static int CalculateFullVisibleRowCapacity(double bodyHeight, double rowHeight)
     {
         return Math.Max(1, (int)Math.Floor(Math.Max(0d, bodyHeight) / Math.Max(1d, rowHeight)));
     }
 
+    /// <summary>全面の本体高さを行高で切り上げ、部分行を含む描画容量を求めます。</summary>
+    /// <remarks>二つの長さは同じ単位で渡します。表は物理画素の整数を渡します。</remarks>
     internal static int CalculateDrawableRowCapacity(double bodyHeight, double rowHeight)
     {
         return Math.Max(1, (int)Math.Ceiling(Math.Max(0d, bodyHeight) / Math.Max(1d, rowHeight)));
     }
 
+    /// <summary>最終行を完全表示容量の末尾へ置く、行単位の最大開始位置を返します。</summary>
     internal static int CalculateVerticalScrollMaximum(int rowCount, int fullVisibleRows)
     {
         return Math.Max(0, Math.Max(0, rowCount) - Math.Max(1, fullVisibleRows));
-    }
-
-    private double CalculateBodyHeight()
-    {
-        return Math.Max(0d, surface.ActualHeight - HeaderHeight);
     }
 
     internal CustomTableColumnLayoutSnapshot GetColumnLayoutSnapshot()
@@ -944,36 +1231,33 @@ public sealed class CustomTableView : Grid
         columnLayoutSnapshot = null;
     }
 
+    /// <summary>行と共通の寿命で、要求された列値だけを取得します。</summary>
     internal CustomTableCellValue GetCellValue(object row, CustomTableColumn column, out bool cacheHit)
     {
-        return cellValueCache.GetOrCreate(row, column, rowValueGeneration, columnValueGeneration, out cacheHit);
+        if (row == null || column == null)
+        {
+            cacheHit = false;
+            return CustomTableCellValue.Empty;
+        }
+        return rowCache.GetOrCreate(row).GetValue(column, out cacheHit);
     }
 
-    internal bool HasHighlightedWarning(object row)
-    {
-        return cellValueCache.HasHighlightedWarning(row);
-    }
+    /// <summary>値と警告が共有する行エントリを取得します。</summary>
+    internal CustomTableRowEntry GetRowEntry(object row) => rowCache.GetOrCreate(row);
+
+    /// <summary>警告を他の表示値と同じ寿命で取得します。</summary>
+    internal bool HasHighlightedWarning(object row) => row != null && GetRowEntry(row).HasHighlightedWarning;
+
+    /// <summary>表示文化やパレットの変更時に、整形済みの値とブラシを更新します。</summary>
+    internal void InvalidateDisplayValues() => InvalidateAllCellValues();
 
     private void InvalidateAllCellValues()
     {
-        cellValueInvalidationGeneration++;
-        unchecked
-        {
-            rowValueGeneration++;
-        }
         pendingRowInvalidations.Clear();
-        cellValueCache.Clear();
+        rowCache.Clear();
     }
 
-    private void InvalidateColumnCellValues()
-    {
-        cellValueInvalidationGeneration++;
-        unchecked
-        {
-            columnValueGeneration++;
-        }
-        cellValueCache.Clear();
-    }
+    private void InvalidateColumnCellValues() => rowCache.Clear();
 
     private void EnqueueRowInvalidation(INotifyPropertyChanged row)
     {
@@ -994,15 +1278,24 @@ public sealed class CustomTableView : Grid
         }
         foreach (object row in rows)
         {
-            cellValueCache.InvalidateRow(row);
+            rowCache.InvalidateRow(row);
         }
         RequestRedraw("row_property_changed");
+        RaiseAutomationChanged(CustomTableAutomationChange.Value);
     }
 
+    /// <summary>描画を要求します。UI Automationの通知とは結び付けません。通知は変更の種類ごとに <see cref="RaiseAutomationChanged"/> で明示します。</summary>
     private void RequestRedraw(string reason)
     {
         pendingRedrawReason = NormalizeRedrawReason(reason);
         surface.InvalidateVisual();
+    }
+
+    /// <summary>選択の変更を描画へ反映し、UI Automationの選択の通知を予約します。</summary>
+    private void RequestSelectionRedraw()
+    {
+        RequestRedraw("selection");
+        RaiseAutomationChanged(CustomTableAutomationChange.Selection);
     }
 
     internal string ConsumeRedrawReason()
@@ -1017,47 +1310,104 @@ public sealed class CustomTableView : Grid
         return string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
     }
 
-    private void UpdateVisibleRowSubscriptions(
-        string reason,
-        bool logAlways = false,
-        bool invalidateCellValuesWhenWindowChanges = true,
-        bool? isVisibleOverride = null)
+    /// <summary>
+    /// 描画が使う行参照を返します。描画の直前に確定した保持範囲が持つ参照を位置で取得し、行集合の添字アクセスをしません。
+    /// 一度も表示していない表と窓のない表は、行集合から読みます。非表示にして資源を解放した表は、行集合を読まず空のセルを描き、再表示で最新の状態から描きます。
+    /// </summary>
+    internal object GetRowForRender(int index)
     {
+        IList rows = ItemsSource;
+        if (rowChangeTracker.TryGetRow(rows, index, out object row))
+        {
+            return row;
+        }
+        // 非表示にして解放した表の描画（WPFの配置で描かれることがある）は、行集合を読まず空のセルにする。表示面は再表示で作り直す。
+        return isRowRetentionReleased && !IsVisible ? null : rows[index];
+    }
+
+    /// <summary>保持範囲の更新の要求です。</summary>
+    private enum RetainedRowsUpdate
+    {
+        /// <summary>更新を要求していません。</summary>
+        None,
+        /// <summary>範囲の位置だけが変わりました。重なる行は保ちます。</summary>
+        Move,
+        /// <summary>行集合の内容が変わった可能性があります。範囲の全位置を取り直します。</summary>
+        Rebuild
+    }
+
+    /// <summary>
+    /// 範囲の位置（スクロール・寸法・倍率）が変わったことを記録します。行集合へは触れず、保持範囲は次の描画で一回だけ更新します。
+    /// </summary>
+    private void MarkRetainedRowsStale(string reason)
+    {
+        if (pendingRetainedRowsUpdate == RetainedRowsUpdate.None)
+        {
+            pendingRetainedRowsUpdate = RetainedRowsUpdate.Move;
+        }
+        pendingRetainedRowsReason = reason;
+    }
+
+    /// <summary>
+    /// 行集合の差替え・変更通知・再表示で、範囲の全位置の取り直しを次の描画へ予約します。
+    /// 行がなくなった場合は読むものがないため、購読の解除と値の破棄を同期に行い、保留中の更新を破棄します。
+    /// </summary>
+    private void MarkRetainedRowsRebuild(string reason, bool logAlways = false)
+    {
+        if (RowCount == 0)
+        {
+            rowChangeTracker.DetachAllRows();
+            pendingRetainedRowsUpdate = RetainedRowsUpdate.None;
+            return;
+        }
+        pendingRetainedRowsUpdate = RetainedRowsUpdate.Rebuild;
+        pendingRetainedRowsReason = reason;
+        pendingRetainedRowsLogAlways |= logAlways;
+    }
+
+    /// <summary>
+    /// 保留中の保持範囲の更新を、その時点の最新の位置に対して一回だけ行います。描画（<see cref="CustomTableSurface"/> の <c>OnRender</c>）の冒頭で呼び、
+    /// 描画の時点で可視行（部分表示の行を含む）が保持範囲に入り購読済みであることを保証します。更新の要求がなければ何もしません。
+    /// 非表示の表は購読を持たないため、保留を破棄して何も読みません。
+    /// </summary>
+    internal void CommitRetainedRows()
+    {
+        RetainedRowsUpdate update = pendingRetainedRowsUpdate;
+        if (update == RetainedRowsUpdate.None)
+        {
+            return;
+        }
+        string reason = pendingRetainedRowsReason;
+        bool logAlways = pendingRetainedRowsLogAlways;
+        pendingRetainedRowsUpdate = RetainedRowsUpdate.None;
+        pendingRetainedRowsLogAlways = false;
+        if (!isRowRetentionActive && !IsVisible)
+        {
+            rowChangeTracker.DetachAllRows();
+            return;
+        }
         var stopwatch = Stopwatch.StartNew();
         int firstIndex = 0;
         int requestedCount = 0;
-        if (isVisibleOverride ?? IsVisible)
+        int rowCount = RowCount;
+        if (rowCount > 0)
         {
-            int rowCount = RowCount;
-            if (rowCount > 0)
+            int firstVisibleIndex = FirstVisibleRowIndex;
+            int drawableRows = CalculateDrawableRowCapacity();
+            firstIndex = Math.Max(0, firstVisibleIndex - RowSubscriptionOverscan);
+            int lastExclusive = Math.Min(rowCount, firstVisibleIndex + drawableRows + RowSubscriptionOverscan);
+            requestedCount = Math.Max(0, lastExclusive - firstIndex);
+            if (update == RetainedRowsUpdate.Rebuild)
             {
-                int firstVisibleIndex = FirstVisibleRowIndex;
-                int drawableRows = CalculateDrawableRowCapacity();
-                firstIndex = Math.Max(0, firstVisibleIndex - RowSubscriptionOverscan);
-                int lastExclusive = Math.Min(rowCount, firstVisibleIndex + drawableRows + RowSubscriptionOverscan);
-                requestedCount = Math.Max(0, lastExclusive - firstIndex);
-                if (firstIndex != lastVisibleSubscriptionFirstIndex || requestedCount != lastVisibleSubscriptionCount)
-                {
-                    if (invalidateCellValuesWhenWindowChanges)
-                    {
-                        InvalidateAllCellValues();
-                    }
-                    lastVisibleSubscriptionFirstIndex = firstIndex;
-                    lastVisibleSubscriptionCount = requestedCount;
-                }
-                rowChangeTracker.ReplaceVisibleRows(ItemsSource, firstIndex, requestedCount);
+                rowChangeTracker.Rebuild(ItemsSource, firstIndex, requestedCount);
             }
             else
             {
-                lastVisibleSubscriptionFirstIndex = -1;
-                lastVisibleSubscriptionCount = -1;
-                rowChangeTracker.DetachAllRows();
+                rowChangeTracker.Move(ItemsSource, firstIndex, requestedCount);
             }
         }
         else
         {
-            lastVisibleSubscriptionFirstIndex = -1;
-            lastVisibleSubscriptionCount = -1;
             rowChangeTracker.DetachAllRows();
         }
         stopwatch.Stop();
@@ -1098,7 +1448,7 @@ public sealed class CustomTableView : Grid
         {
             UpdateSelectedIndexFromSelectionModel();
             RaiseSelectionChanged();
-            RequestRedraw("selection");
+            RequestSelectionRedraw();
         }
     }
 
@@ -1134,7 +1484,7 @@ public sealed class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
     }
 
     public void SetRowDropInsertPreview(int insertIndex)
@@ -1163,6 +1513,7 @@ public sealed class CustomTableView : Grid
         ClearPendingItemsSourceSwapColumnRedrawSuppression();
         InvalidateAllCellValues();
         RequestRedraw("refresh_display");
+        RaiseAutomationChanged(CustomTableAutomationChange.Value);
     }
 
     public void PrepareForItemsSourceSwap()
@@ -1217,14 +1568,16 @@ public sealed class CustomTableView : Grid
         double horizontalOffset = HorizontalOffset;
         double tableX = surfacePoint.X + horizontalOffset;
         CustomTableColumnLayoutSnapshot layout = GetColumnLayoutSnapshot();
-        if (surfacePoint.Y < HeaderHeight)
+        CustomTableRowGeometry rowGeometry = RowGeometry;
+        double headerHeight = rowGeometry.HeaderHeight;
+        if (surfacePoint.Y < headerHeight)
         {
             if (layout.TryResolveResizeColumn(surfacePoint.X, ColumnResizeHitTestMargin, out CustomTableColumnLayoutEntry resizeEntry, out Rect resizeRect))
             {
                 return new CustomTableHitTestResult(CustomTableHitKind.HeaderResize, -1, null, resizeEntry.Column, resizeEntry.ColumnIndex, resizeRect);
             }
             bool hasHeaderColumn = layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry headerEntry);
-            Rect headerRect = hasHeaderColumn ? headerEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, 0d, HeaderHeight) : new Rect(0d, 0d, surface.ActualWidth, HeaderHeight);
+            Rect headerRect = hasHeaderColumn ? headerEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, 0d, headerHeight) : new Rect(0d, 0d, surface.ActualWidth, headerHeight);
             return new CustomTableHitTestResult(CustomTableHitKind.Header, -1, null, headerEntry.Column, hasHeaderColumn ? headerEntry.ColumnIndex : -1, headerRect);
         }
         bool hasColumn = layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry cellEntry);
@@ -1232,15 +1585,14 @@ public sealed class CustomTableView : Grid
         {
             return CreateEmptyHit();
         }
-        double rowHeight = Math.Max(1d, RowHeight);
-        int rowIndex = FirstVisibleRowIndex + (int)Math.Floor((surfacePoint.Y - HeaderHeight) / rowHeight);
+        int slot = rowGeometry.RowSlotAt(surfacePoint.Y);
+        int rowIndex = FirstVisibleRowIndex + slot;
         IList rows = ItemsSource;
         if (rows == null || rowIndex < 0 || rowIndex >= rows.Count)
         {
             return CreateEmptyHit();
         }
-        double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
-        Rect cellRect = cellEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, rowY, rowHeight);
+        Rect cellRect = cellEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, rowGeometry.RowTop(slot), rowGeometry.RowHeight);
         return new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], cellEntry.Column, cellEntry.ColumnIndex, cellRect);
     }
 
@@ -1261,7 +1613,6 @@ public sealed class CustomTableView : Grid
         if (hit.Kind == CustomTableHitKind.HeaderResize)
         {
             ClearPendingSingleSelectionOnMouseUp();
-            CommitActiveEdit();
             BeginColumnResize(hit, e.GetPosition(surface).X);
             e.Handled = true;
             return;
@@ -1277,49 +1628,72 @@ public sealed class CustomTableView : Grid
             e.Handled = true;
             return;
         }
-        if (hit.Kind == CustomTableHitKind.Cell)
+        e.Handled = HandleCellMouseDown(hit, MouseButton.Left, Keyboard.Modifiers, e.ClickCount, e.GetPosition(this));
+    }
+
+    /// <summary>実ヒットと押下情報から行選択とセル操作を処理し、選択通知・メニュー要求より前に現在行と操作列を揃えます。</summary>
+    /// <remarks>見出し・スクロールバー・編集中の入力の判定は呼出元で済ませます。空白は選択と現在セルを保ちます。画面外の残行にも現在セルの行・列を保持し、編集の可視判定は編集受付で行います。</remarks>
+    internal bool HandleCellMouseDown(CustomTableHitTestResult hit, MouseButton button, ModifierKeys modifiers, int clickCount, Point dragStartPoint)
+    {
+        if (hit.Kind != CustomTableHitKind.Cell)
         {
-            bool plainSingleClick = e.ClickCount == 1
-                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
-            bool delaySingleSelectionUntilMouseUp = plainSingleClick
-                && selectionModel.SelectedIndices.Count > 1
-                && selectionModel.IsSelected(hit.RowIndex);
-            bool shouldBeginEditOnRepeatClick = e.ClickCount == 1
-                && IsSameEditableCell(currentCellHit, hit)
-                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            if (button == MouseButton.Left) { ClearDragState(); }
+            return false;
+        }
+        if (button == MouseButton.Right)
+        {
+            Focus();
+            bool changed = selectionModel.SelectForRightClick(hit.RowIndex);
             currentCellHit = hit;
-            bool changed = ApplyMouseSelection(hit.RowIndex);
+            UpdateSelectedIndexFromSelectionModel();
             if (changed)
             {
                 RaiseSelectionChanged();
             }
-            rowDragStartPoint = e.ClickCount == 1 ? e.GetPosition(this) : null;
-            rowDragStartHit = e.ClickCount == 1 ? hit : null;
+            RequestSelectionRedraw();
+            RowContextMenuRequested?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
+            return true;
+        }
+        if (button == MouseButton.Left)
+        {
+            bool plainSingleClick = clickCount == 1
+                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            bool delaySingleSelectionUntilMouseUp = plainSingleClick
+                && selectionModel.SelectedCount > 1
+                && selectionModel.IsSelected(hit.RowIndex);
+            bool shouldBeginEditOnRepeatClick = clickCount == 1
+                && IsSameEditableCell(currentCellHit, hit)
+                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            currentCellHit = hit;
+            bool changed = ApplyMouseSelection(hit.RowIndex, modifiers);
+            if (changed)
+            {
+                RaiseSelectionChanged();
+            }
+            rowDragStartPoint = clickCount == 1 ? dragStartPoint : null;
+            rowDragStartHit = clickCount == 1 ? hit : null;
             pendingSingleSelectionOnMouseUpRowIndex = delaySingleSelectionUntilMouseUp ? hit.RowIndex : -1;
-            if (e.ClickCount == 1
+            if (clickCount == 1
                 && IsActionCell(hit)
-                && (Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
+                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
             {
                 ClearDragState();
                 CellActionRequested?.Invoke(this, new CustomTableCellActionRequestedEventArgs(hit));
-                e.Handled = true;
-                return;
+                return true;
             }
             if (shouldBeginEditOnRepeatClick && BeginCellEdit(hit, null))
             {
                 ClearDragState();
-                e.Handled = true;
-                return;
+                return true;
             }
-            if (e.ClickCount >= 2)
+            if (clickCount >= 2)
             {
                 ClearDragState();
                 RowActivated?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
             }
-            e.Handled = true;
-            return;
+            return true;
         }
-        ClearDragState();
+        return false;
     }
 
     private static bool IsActionCell(CustomTableHitTestResult hit)
@@ -1344,6 +1718,10 @@ public sealed class CustomTableView : Grid
         }
         CommitActiveEdit();
         CloseCellToolTip();
+        if (IsDescendantOfScrollChrome(e.OriginalSource as DependencyObject))
+        {
+            return;
+        }
         CustomTableHitTestResult hit = HitTestTable(e.GetPosition(surface));
         if (hit.Kind == CustomTableHitKind.HeaderResize)
         {
@@ -1360,18 +1738,7 @@ public sealed class CustomTableView : Grid
             e.Handled = true;
             return;
         }
-        if (hit.Kind == CustomTableHitKind.Cell)
-        {
-            Focus();
-            if (selectionModel.SelectForRightClick(hit.RowIndex))
-            {
-                UpdateSelectedIndexFromSelectionModel();
-                RaiseSelectionChanged();
-                RequestRedraw("selection");
-            }
-            RowContextMenuRequested?.Invoke(this, new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true));
-            e.Handled = true;
-        }
+        e.Handled = HandleCellMouseDown(hit, MouseButton.Right, Keyboard.Modifiers, e.ClickCount, default);
     }
 
     private void CustomTableViewPreviewMouseMove(object sender, MouseEventArgs e)
@@ -1405,6 +1772,13 @@ public sealed class CustomTableView : Grid
                 e.Handled = true;
                 return;
             }
+        }
+        // 開始済みのドラッグは上で継続し、バー上の通常hoverだけを背後のセルから除外する。
+        if (IsDescendantOfScrollChrome(e.OriginalSource as DependencyObject))
+        {
+            Cursor = null;
+            CloseCellToolTip();
+            return;
         }
         CustomTableHitTestResult hit = HitTestTable(position);
         Cursor = hit.Kind == CustomTableHitKind.HeaderResize ? Cursors.SizeWE : null;
@@ -1444,23 +1818,35 @@ public sealed class CustomTableView : Grid
 
     private void CustomTableViewPreviewMouseWheel(object sender, MouseWheelEventArgs e)
     {
+        // 未確定の編集は、刻み未満や縦バーなしの通知でも従来どおり確定する。
         CommitActiveEdit();
-        if (verticalScrollBar.Visibility != Visibility.Visible || e.Delta == 0)
+        if (verticalScrollBar.Visibility != Visibility.Visible)
+        {
+            wheelRemainder = 0;
+            return;
+        }
+        if (e.Delta == 0)
         {
             return;
         }
         CloseCellToolTip();
-        double direction = e.Delta > 0 ? -1d : 1d;
-        double nextValue = Math.Max(verticalScrollBar.Minimum, Math.Min(verticalScrollBar.Maximum, verticalScrollBar.Value + direction * verticalScrollBar.SmallChange));
-        if (!verticalScrollBar.Value.Equals(nextValue))
+        // OSの設定は入力のたびに読む。設定の変更を再起動なしで反映する。
+        CustomTableWheelScroll.Result scrolled = CustomTableWheelScroll.Convert(
+            e.Delta, wheelRemainder, SystemParameters.WheelScrollLines, CalculateFullVisibleRowCapacity(), verticalScrollBar.Value, verticalScrollBar.Maximum);
+        wheelRemainder = scrolled.Remainder;
+        if (!verticalScrollBar.Value.Equals(scrolled.Position))
         {
-            verticalScrollBar.Value = nextValue;
+            verticalScrollBar.Value = scrolled.Position;
         }
         e.Handled = true;
     }
 
     private void CustomTableViewPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        if (e.Key is Key.Left or Key.Right && FindVisualParent<ScrollBar>(e.OriginalSource as DependencyObject) != null)
+        {
+            return;
+        }
         ModifierKeys modifiers = e.KeyboardDevice.Modifiers;
         if (activeEditor == null
             && (e.Key is Key.Apps or Key.Return
@@ -1474,7 +1860,7 @@ public sealed class CustomTableView : Grid
 
     /// <summary>
     /// 表が受け付けるキー操作を、入力キーと修飾キーの組み合わせから実行します。
-    /// OSの修飾キー状態は入口で取得し、選択・編集・行操作へ同じ入力値を渡します。
+    /// OSの修飾キー状態は入口で取得し、現在セル移動・選択・編集・行操作へ同じ入力値を渡します。
     /// </summary>
     /// <param name="key">処理するキー。</param>
     /// <param name="modifiers">キー入力時の修飾キー。</param>
@@ -1530,6 +1916,10 @@ public sealed class CustomTableView : Grid
         }
         switch (key)
         {
+            case Key.Left when modifiers == ModifierKeys.None:
+                return MoveCurrentCellHorizontally(-1);
+            case Key.Right when modifiers == ModifierKeys.None:
+                return MoveCurrentCellHorizontally(1);
             case Key.F2:
                 return TryBeginEditCurrentCell(null);
             case Key.Up:
@@ -1584,17 +1974,23 @@ public sealed class CustomTableView : Grid
         }
     }
 
-    private bool ApplyMouseSelection(int rowIndex)
+    private bool ApplyMouseSelection(int rowIndex, ModifierKeys modifiers)
     {
         selectionModel.SetItemCount(RowCount);
-        ModifierKeys modifiers = Keyboard.Modifiers;
         bool changed = (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift
             ? selectionModel.SelectRange(rowIndex)
             : (modifiers & ModifierKeys.Control) == ModifierKeys.Control
                 ? selectionModel.Toggle(rowIndex)
                 : selectionModel.SelectForLeftMouseDownDragCandidate(rowIndex);
         UpdateSelectedIndexFromSelectionModel();
-        RequestRedraw("selection");
+        int currentRowIndex = selectionModel.CurrentIndex;
+        if (currentRowIndex != rowIndex)
+        {
+            // Ctrl解除の残行は画面外でも論理的な現在セルにします。編集受付では従来どおり可視ヒットを作り直します。
+            currentCellHit = currentRowIndex < 0 ? null : new CustomTableHitTestResult(
+                CustomTableHitKind.Cell, currentRowIndex, ItemsSource[currentRowIndex], currentCellHit.Column, currentCellHit.ColumnIndex, Rect.Empty);
+        }
+        RequestSelectionRedraw();
         return changed;
     }
 
@@ -1614,7 +2010,7 @@ public sealed class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
         return changed;
     }
 
@@ -1634,7 +2030,7 @@ public sealed class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
         return RowCount > 0;
     }
 
@@ -1649,18 +2045,17 @@ public sealed class CustomTableView : Grid
         {
             RaiseSelectionChanged();
         }
-        RequestRedraw("selection");
+        RequestSelectionRedraw();
         return RowCount > 0;
     }
 
     private bool CopySelectedRowsToClipboard()
     {
-        string text = CustomTableDataTransfer.BuildTsv(GetSelectedRowsSnapshot(), VisibleColumns);
-        if (string.IsNullOrEmpty(text))
+        if (!CustomTableDataTransfer.TryBuildTsv(GetSelectedRowsSnapshot(), VisibleColumns, out string text))
         {
             return false;
         }
-        Clipboard.SetText(text);
+        SetClipboardText(text);
         return true;
     }
 
@@ -1685,11 +2080,94 @@ public sealed class CustomTableView : Grid
             return false;
         }
         string text = CustomTableDataTransfer.BuildCellText(rows[rowIndex], column);
-        Clipboard.SetText(text);
+        SetClipboardText(text);
         return true;
     }
 
-    private void EnsureCurrentCellForCurrentRow()
+    private void SetClipboardText(string text)
+    {
+        try { Clipboard.SetText(text); }
+        catch (Exception exception)
+        {
+            // キー操作は受け付け済みです。コピーの成否とキーの処理済み状態を混同しません。
+            _ = NotifyClipboardFailureAsync(exception);
+        }
+    }
+
+    private async Task NotifyClipboardFailureAsync(Exception exception)
+    {
+        TryLogClipboardFailure(exception);
+        try
+        {
+            IUiDialogService dialogs = dialogService
+                ?? throw new InvalidOperationException("Custom table dialog service is not configured.");
+            UiDialogResult notification = await dialogs.ShowMessageAsync(new UiMessageRequest(
+                BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception.Message,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK,
+                owner: Window.GetWindow(this)));
+            UiDialogRoute.ThrowIfNotShown(notification, "Custom table clipboard failure notification");
+        }
+        catch (Exception notificationFailure) { TryLogClipboardFailure(notificationFailure); }
+    }
+
+    private static void TryLogClipboardFailure(Exception exception)
+    {
+        try { NLogWrapper.FileLogger?.Warn(exception, "custom table clipboard"); }
+        catch { /* 通知と診断の失敗をコピーの元原因へ合成しません。 */ }
+    }
+
+    private bool MoveCurrentCellHorizontally(int direction)
+    {
+        int rowIndex = selectionModel.CurrentIndex;
+        if (rowIndex < 0 || rowIndex >= RowCount || !selectionModel.IsSelected(rowIndex) || SurfaceWidth <= 0d)
+        {
+            return false;
+        }
+        IReadOnlyList<CustomTableColumnLayoutEntry> entries = GetColumnLayoutSnapshot().Entries;
+        int currentIndex = -1;
+        if (currentCellHit?.Kind == CustomTableHitKind.Cell
+            && currentCellHit.RowIndex == rowIndex
+            && ReferenceEquals(currentCellHit.Row, ItemsSource[rowIndex]))
+        {
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (entries[i].Column?.IsVisible == true
+                    && string.Equals(entries[i].Column.Id, currentCellHit.Column?.Id, StringComparison.Ordinal))
+                {
+                    currentIndex = i;
+                    break;
+                }
+            }
+        }
+        int nextIndex = currentIndex < 0 ? (direction > 0 ? 0 : entries.Count - 1) : currentIndex + direction;
+        while (nextIndex >= 0 && nextIndex < entries.Count && entries[nextIndex].Column?.IsVisible != true)
+        {
+            nextIndex += direction;
+        }
+        if (nextIndex < 0 || nextIndex >= entries.Count)
+        {
+            // 端での入力は受け付けますが、手動スクロールも現在セルも維持します。
+            return currentIndex >= 0;
+        }
+        CustomTableColumnLayoutEntry target = entries[nextIndex];
+        EnsureRowVisible(rowIndex);
+        EnsureColumnVisible(target, direction);
+        if (!TryCreateCellHit(rowIndex, target.Column.Id, out CustomTableHitTestResult hit))
+        {
+            return false;
+        }
+        currentCellHit = hit;
+        CloseCellToolTip();
+        RequestRedraw("current_cell");
+        return true;
+    }
+
+    /// <summary>最新主行へ現存する同列を引き継ぎ、列消失時は先頭表示列へ移します。</summary>
+    /// <param name="fallbackColumnId">旧編集の同期整列がhitを破棄した場合だけ使う、同じ行集合で捕捉した列ID。再入が作ったhitを優先します。</param>
+    private void EnsureCurrentCellForCurrentRow(string fallbackColumnId = null)
     {
         int rowIndex = selectionModel.CurrentIndex;
         if (rowIndex < 0)
@@ -1697,16 +2175,64 @@ public sealed class CustomTableView : Grid
             currentCellHit = null;
             return;
         }
-        string columnId = currentCellHit?.Column?.Id;
-        if (!TryCreateCellHit(rowIndex, columnId, out CustomTableHitTestResult hit))
+        IReadOnlyList<CustomTableColumnLayoutEntry> entries = GetColumnLayoutSnapshot().Entries;
+        string columnId = currentCellHit == null ? fallbackColumnId : currentCellHit.Column?.Id;
+        CustomTableColumnLayoutEntry? first = null;
+        CustomTableColumnLayoutEntry? target = null;
+        foreach (CustomTableColumnLayoutEntry entry in entries)
         {
-            CustomTableColumn firstColumn = VisibleColumns.FirstOrDefault();
-            if (firstColumn != null)
+            if (entry.Column?.IsVisible != true)
             {
-                TryCreateCellHit(rowIndex, firstColumn.Id, out hit);
+                continue;
+            }
+            first ??= entry;
+            if (string.Equals(entry.Column.Id, columnId, StringComparison.Ordinal))
+            {
+                target = entry;
+                break;
             }
         }
-        currentCellHit = hit;
+        target ??= first;
+        currentCellHit = null;
+        if (target is CustomTableColumnLayoutEntry column)
+        {
+            EnsureColumnVisible(column, direction: 0);
+            TryCreateCellHit(rowIndex, column.Column.Id, out CustomTableHitTestResult hit);
+            currentCellHit = hit;
+        }
+    }
+
+    private void EnsureColumnVisible(CustomTableColumnLayoutEntry column, int direction)
+    {
+        double viewportWidth = horizontalScrollBar.ViewportSize;
+        if (viewportWidth <= 0d)
+        {
+            return;
+        }
+        double left = column.TableX;
+        double right = left + column.Width;
+        double offset = HorizontalOffset;
+        double nextOffset = offset;
+        if (column.Width > viewportWidth)
+        {
+            if (direction > 0 || (direction == 0 && left >= offset + viewportWidth))
+            {
+                nextOffset = left;
+            }
+            else if (direction < 0 || right <= offset)
+            {
+                nextOffset = right - viewportWidth;
+            }
+        }
+        else if (left < offset)
+        {
+            nextOffset = left;
+        }
+        else if (right > offset + viewportWidth)
+        {
+            nextOffset = right - viewportWidth;
+        }
+        horizontalScrollBar.Value = Math.Clamp(nextOffset, horizontalScrollBar.Minimum, horizontalScrollBar.Maximum);
     }
 
     private void EnsureRowVisible(int rowIndex)
@@ -1899,9 +2425,7 @@ public sealed class CustomTableView : Grid
         ListSortDirection newDirection = string.Equals(SortColumnName, column.SortMemberPath, StringComparison.Ordinal) && SortDirection == ListSortDirection.Ascending
             ? ListSortDirection.Descending
             : ListSortDirection.Ascending;
-        SetCurrentValue(SortColumnNameProperty, column.SortMemberPath);
-        SetCurrentValue(SortDirectionProperty, newDirection);
-        RequestRedraw("sort_state");
+        // 並べ替えの列と方向は購読側のBindingの更新でだけ変える。要求が拒否された場合に矢印だけが先に変わらないようにする。
         SortRequested?.Invoke(this, new CustomTableSortRequestedEventArgs(column, newDirection));
     }
 
@@ -1922,7 +2446,7 @@ public sealed class CustomTableView : Grid
     {
         IList rows = ItemsSource;
         object selectedRow = rows != null && selectionModel.CurrentIndex >= 0 && selectionModel.CurrentIndex < rows.Count ? rows[selectionModel.CurrentIndex] : null;
-        SelectionChanged?.Invoke(this, new CustomTableSelectionChangedEventArgs(selectionModel.CurrentIndex, selectedRow, GetSelectedRowsSnapshot()));
+        SelectionChanged?.Invoke(this, new CustomTableSelectionChangedEventArgs(selectionModel.CurrentIndex, selectedRow, selectionModel.SelectedCount));
     }
 
     private bool TryBeginEditCurrentCell(string replacementText)
@@ -1937,6 +2461,8 @@ public sealed class CustomTableView : Grid
         }
         return BeginCellEdit(hit, replacementText);
     }
+
+    private string activeEditOriginalText;
 
     private bool BeginCellEdit(CustomTableHitTestResult hit, string replacementText)
     {
@@ -1960,7 +2486,9 @@ public sealed class CustomTableView : Grid
             return false;
         }
         Rect editorRect = CreateEditorRect(hit.Column, rect);
-        TextBox textBox = CreateCellEditor(hit, replacementText);
+        string originalText = hit.Column.GetEditText(hit.Row) ?? string.Empty;
+        TextBox textBox = CreateCellEditor(hit, replacementText ?? originalText);
+        activeEditOriginalText = originalText;
         textBox.LostKeyboardFocus += ActiveEditorLostKeyboardFocus;
         Canvas.SetLeft(textBox, editorRect.Left);
         Canvas.SetTop(textBox, editorRect.Top);
@@ -1971,6 +2499,7 @@ public sealed class CustomTableView : Grid
         textBox.TextChanged += ActiveEditorTextChanged;
         editorLayer.Children.Add(textBox);
         CellEditStarted?.Invoke(this, new CustomTableCellEditStartedEventArgs(hit, hit.Column.EditPropertyName));
+        RaiseAutomationChanged(CustomTableAutomationChange.Structure);
         UpdateEditSuggestions();
         textBox.Focus();
         if (replacementText == null)
@@ -2008,6 +2537,10 @@ public sealed class CustomTableView : Grid
             DataContext = hit.Row
         };
         ApplyCellEditorTheme(textBox);
+        // ウィンドウは描画方式を指定しないため、編集欄にはセルの文字と同じ方式を明示する。
+        TextOptions.SetTextFormattingMode(textBox, textStyle.TextFormattingMode);
+        System.Windows.Automation.AutomationProperties.SetAutomationId(textBox, "CellEditor");
+        System.Windows.Automation.AutomationProperties.SetName(textBox, hit.Column.Header ?? string.Empty);
         return textBox;
     }
 
@@ -2069,6 +2602,8 @@ public sealed class CustomTableView : Grid
             TextBox editor = activeEditor;
             CustomTableHitTestResult hit = activeEditHit;
             string text = editor.Text ?? string.Empty;
+            string originalText = activeEditOriginalText;
+            activeEditOriginalText = null;
             CloseEditSuggestions();
             editor.LostKeyboardFocus -= ActiveEditorLostKeyboardFocus;
             editor.TextChanged -= ActiveEditorTextChanged;
@@ -2077,9 +2612,11 @@ public sealed class CustomTableView : Grid
             activeEditHit = null;
             if (hit != null)
             {
-                cellValueCache.InvalidateRow(hit.Row);
-                CellEditEnded?.Invoke(this, new CustomTableCellEditEndedEventArgs(hit, hit.Column?.EditPropertyName, text, commit));
+                rowCache.InvalidateRow(hit.Row);
+                CellEditEnded?.Invoke(this, new CustomTableCellEditEndedEventArgs(hit, hit.Column?.EditPropertyName, text, commit, originalText));
             }
+            // 編集欄が子から外れる。値の変更は行の変更通知で別に届く。
+            RaiseAutomationChanged(CustomTableAutomationChange.Structure);
             RequestRedraw("edit");
             return true;
         }
@@ -2303,9 +2840,9 @@ public sealed class CustomTableView : Grid
 
     private Rect CreateVisibleCellSlotRect(double columnX, double columnWidth, int rowIndex)
     {
-        double rowHeight = Math.Max(1d, RowHeight);
-        double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
-        double visibleHeight = Math.Min(rowHeight, Math.Max(0d, surface.ActualHeight - rowY));
+        CustomTableRowGeometry rowGeometry = RowGeometry;
+        double rowY = rowGeometry.RowTop(rowIndex - FirstVisibleRowIndex);
+        double visibleHeight = Math.Min(rowGeometry.RowHeight, Math.Max(0d, surface.ActualHeight - rowY));
         return CustomTableColumnLayout.CreateVisibleColumnSlotRect(
             columnX,
             columnWidth,
@@ -2317,9 +2854,9 @@ public sealed class CustomTableView : Grid
 
     private Rect CreateVisibleCellInteriorRect(double columnX, double columnWidth, int rowIndex)
     {
-        double rowHeight = Math.Max(1d, RowHeight);
-        double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
-        double visibleHeight = Math.Min(rowHeight, Math.Max(0d, surface.ActualHeight - rowY));
+        CustomTableRowGeometry rowGeometry = RowGeometry;
+        double rowY = rowGeometry.RowTop(rowIndex - FirstVisibleRowIndex);
+        double visibleHeight = Math.Min(rowGeometry.RowHeight, Math.Max(0d, surface.ActualHeight - rowY));
         return CustomTableColumnLayout.CreateVisibleColumnInteriorRect(
             columnX,
             columnWidth,
@@ -2334,12 +2871,16 @@ public sealed class CustomTableView : Grid
         return column?.CellKind == CustomTableCellKind.StatusIcon;
     }
 
-    private void BeginColumnResize(CustomTableHitTestResult hit, double surfaceX)
+    /// <summary>実見出し境界のヒットから幅変更を開始し、旧セルの入力を一回確定してからドラッグ座標を捕捉します。</summary>
+    /// <param name="hit">幅変更可能な見出し境界の実ヒット。</param>
+    /// <param name="surfaceX">表の描画面を基準とする入力開始位置。</param>
+    internal void BeginColumnResize(CustomTableHitTestResult hit, double surfaceX)
     {
         if (hit?.Column == null || hit.Column.Layout == null || !hit.Column.CanResize)
         {
             return;
         }
+        CommitActiveEdit();
         CloseCellToolTip();
         isResizingColumn = true;
         resizingColumnLayout = hit.Column.Layout;
@@ -2351,7 +2892,9 @@ public sealed class CustomTableView : Grid
         CaptureMouse();
     }
 
-    private void UpdateColumnResize(double surfaceX)
+    /// <summary>開始位置からの実入力座標で列幅を更新します。同期の設定通知と直接列の経路を一つの局所失効へ揃えます。</summary>
+    /// <param name="surfaceX">表の描画面を基準とする現在の入力位置。</param>
+    internal void UpdateColumnResize(double surfaceX)
     {
         if (!isResizingColumn || resizingColumnLayout == null)
         {
@@ -2361,15 +2904,17 @@ public sealed class CustomTableView : Grid
         int width = Math.Max(resizingColumnMinWidth, Math.Min(resizingColumnMaxWidth, (int)Math.Round(resizingStartWidth + delta)));
         if (resizingColumnLayout.Width != width)
         {
-            resizingColumnLayout.Width = width;
-            InvalidateColumnLayoutSnapshot();
-            InvalidateColumnCellValues();
-            UpdateScrollBars();
-            RequestRedraw("column_resize");
+            ICustomTableColumnLayout layout = resizingColumnLayout;
+            layout.Width = width;
+            if (layout is not INotifyPropertyChanged notifying || !subscribedColumnLayouts.Contains(notifying))
+            {
+                ApplyColumnWidthChange(layout);
+            }
         }
     }
 
-    private void EndColumnResize()
+    /// <summary>幅変更の入力捕捉とカーソルを解除し、確定した現在幅で再描画します。</summary>
+    internal void EndColumnResize()
     {
         if (!isResizingColumn)
         {
@@ -2388,6 +2933,7 @@ public sealed class CustomTableView : Grid
         Cursor = null;
         InvalidateColumnLayoutSnapshot();
         UpdateScrollBars();
+        RefreshAutomationChildren();
         RequestRedraw("column_resize");
     }
 
@@ -2438,7 +2984,10 @@ public sealed class CustomTableView : Grid
         };
     }
 
-    private string ResolveCellToolTip(CustomTableHitTestResult hit)
+    /// <summary>実セルの明示tooltipを優先し、通常テキストは現在幅で省略される場合だけ元文字列を返します。</summary>
+    /// <param name="hit">表示内容を調べる現存セルの実ヒット。</param>
+    /// <returns>表示する補助文字列。必要がなければnull。</returns>
+    internal string ResolveCellToolTip(CustomTableHitTestResult hit)
     {
         string explicitTooltip = hit.Column.GetTooltip(hit.Row);
         if (!string.IsNullOrWhiteSpace(explicitTooltip))
@@ -2454,15 +3003,13 @@ public sealed class CustomTableView : Grid
         {
             return null;
         }
-        double maxTextWidth = Math.Max(1d, hit.Column.Width - 4d);
-        double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        bool wouldTrim = CustomTableTextLayoutCache.WouldTrim(
-            cellValue.Text,
-            maxTextWidth,
-            ResolveTextStyle(cellValue.TextStyle),
-            ScoreFontFamily,
-            pixelsPerDip,
-            CultureInfo.CurrentUICulture);
+        IReadOnlyList<CustomTableColumnLayoutEntry> entries = GetColumnLayoutSnapshot().Entries;
+        if (hit.ColumnIndex < 0 || hit.ColumnIndex >= entries.Count)
+        {
+            return null;
+        }
+        // 描画と同じ基準（セルの内側の幅から文字余白を引いた幅と、レイアウトの自然な幅）で省略を判定する。
+        bool wouldTrim = surface.WouldTrim(cellValue.Text, ResolveTextStyle(cellValue.TextStyle), entries[hit.ColumnIndex]);
         return wouldTrim ? cellValue.Text : null;
     }
 
@@ -2488,8 +3035,7 @@ public sealed class CustomTableView : Grid
         while (source != null)
         {
             if (ReferenceEquals(source, verticalScrollBar)
-                || ReferenceEquals(source, horizontalScrollBar)
-                || ReferenceEquals(source, scrollBarCorner))
+                || ReferenceEquals(source, horizontalScrollBar))
             {
                 return true;
             }
@@ -2497,6 +3043,15 @@ public sealed class CustomTableView : Grid
         }
         return false;
     }
+
+    /// <summary>
+    /// 描画で通知した計数です。テストが描画一回分の結果を読むための観測点です。
+    /// 可視行・可視列の数と文字のレイアウトのヒット数・ミス数は直近一回の描画の値で、描画回数（<see cref="CustomTableRenderStats.RenderCount"/>）だけは表を作ってからの累計です。
+    /// </summary>
+    internal CustomTableRenderStats LastRenderStats { get; private set; }
+
+    /// <summary>表示面が現在WPFへ渡している画像です。解放後はnullです。</summary>
+    internal ImageSource SurfaceImage => surface.Image;
 
     internal void NotifySurfaceRendered(
         int visibleRowCount,
@@ -2511,6 +3066,7 @@ public sealed class CustomTableView : Grid
         int textCacheHits = 0,
         int textCacheMisses = 0)
     {
+        LastRenderStats = new CustomTableRenderStats(LastRenderStats.RenderCount + 1, visibleRowCount, visibleColumnCount, textCacheHits, textCacheMisses);
         int visibleCellCount = TableFirstVisibleMetrics.CalculateVisibleCellCount(visibleRowCount, visibleColumnCount);
         TryLogRenderMetrics(
             redrawReason,
@@ -2585,7 +3141,7 @@ public sealed class CustomTableView : Grid
             + " textCacheHitRate=" + textCacheHitRate
             + " textCacheHits=" + textCacheHits
             + " textCacheMisses=" + textCacheMisses
-            + " cellValueCacheCount=" + cellValueCache.Count);
+            + " rowCacheCount=" + rowCache.Count);
     }
 
     private static void QueuePerformanceLog(string stage, string fields)
@@ -2604,6 +3160,14 @@ public sealed class CustomTableView : Grid
             || string.Equals(reason, "pending_items_source_swap_skipped", StringComparison.Ordinal);
     }
 }
+
+/// <summary>直近一回の描画で通知した計数です。</summary>
+/// <param name="RenderCount">通知した描画の累計回数。</param>
+/// <param name="VisibleRowCount">描いた行数。</param>
+/// <param name="VisibleColumnCount">可視列数。</param>
+/// <param name="TextCacheHits">文字のレイアウトを再利用した回数。</param>
+/// <param name="TextCacheMisses">文字のレイアウトを新しく作った回数。</param>
+internal readonly record struct CustomTableRenderStats(int RenderCount, int VisibleRowCount, int VisibleColumnCount, int TextCacheHits, int TextCacheMisses);
 
 internal static class CustomTableColumnLayout
 {
@@ -2690,534 +3254,5 @@ internal static class CustomTableColumnLayout
         double visibleRight = Math.Min(viewportWidth, interiorRight);
         double interiorHeight = Math.Max(0d, height - GridLineThickness);
         return new Rect(visibleLeft, y, Math.Max(0d, visibleRight - visibleLeft), interiorHeight);
-    }
-
-    internal static Rect CreateColumnSlotRect(double columnX, double columnWidth, double horizontalOffset, double y, double height)
-    {
-        return new Rect(columnX - horizontalOffset, y, Math.Max(0d, columnWidth), height);
-    }
-
-    internal static Rect CreateInteriorRect(Rect slotRect)
-    {
-        if (slotRect.IsEmpty)
-        {
-            return Rect.Empty;
-        }
-        double width = Math.Max(0d, slotRect.Width - GridLineThickness);
-        double height = Math.Max(0d, slotRect.Height - GridLineThickness);
-        return new Rect(slotRect.X, slotRect.Y, width, height);
-    }
-
-    internal static double CreateRightGridLineX(double columnX, double columnWidth, double horizontalOffset)
-    {
-        return columnX + columnWidth - horizontalOffset - GridLineThickness / 2d;
-    }
-
-    internal static double CreateBottomGridLineY(double y, double height)
-    {
-        return y + height - GridLineThickness / 2d;
-    }
-
-    internal static bool IsGridLineFullyVisible(double center, double viewportStart, double viewportEnd)
-    {
-        double halfThickness = GridLineThickness / 2d;
-        return center - halfThickness >= viewportStart
-            && center + halfThickness <= viewportEnd;
-    }
-
-    internal static int CountColumnsWithinViewport(IReadOnlyList<CustomTableColumn> columns, double horizontalOffset, double viewportWidth)
-    {
-        double currentX = 0d;
-        int count = 0;
-        if (columns != null)
-        {
-            foreach (CustomTableColumn column in columns)
-            {
-                double width = column?.Width ?? 0d;
-                if (currentX + width > horizontalOffset && currentX < horizontalOffset + viewportWidth)
-                {
-                    count++;
-                }
-                if (currentX >= horizontalOffset + viewportWidth)
-                {
-                    break;
-                }
-                currentX += width;
-            }
-        }
-        return count;
-    }
-}
-
-internal sealed class CustomTableSurface : FrameworkElement
-{
-    private readonly CustomTableView owner;
-    private readonly CustomTableTextLayoutCache textLayoutCache = new();
-    private int renderTextCacheHits;
-    private int renderTextCacheMisses;
-    private long renderRowHighlightTicks;
-    private long renderCellValueTicks;
-    private long renderTextLayoutTicks;
-    private long renderDrawTextTicks;
-
-    internal CustomTableSurface(CustomTableView owner)
-    {
-        this.owner = owner;
-        ClipToBounds = true;
-        SnapsToDevicePixels = true;
-    }
-
-    internal void ClearTextLayoutCache()
-    {
-        textLayoutCache.Clear();
-    }
-
-    protected override void OnRender(DrawingContext drawingContext)
-    {
-        var renderStopwatch = Stopwatch.StartNew();
-        renderTextCacheHits = 0;
-        renderTextCacheMisses = 0;
-        renderRowHighlightTicks = 0L;
-        renderCellValueTicks = 0L;
-        renderTextLayoutTicks = 0L;
-        renderDrawTextTicks = 0L;
-        double width = ActualWidth;
-        double height = ActualHeight;
-        if (width <= 0d || height <= 0d)
-        {
-            owner.NotifySurfaceRendered(0, 0, 0L, -1d, owner.ConsumeRedrawReason());
-            return;
-        }
-        string redrawReason = owner.ConsumeRedrawReason();
-        CustomTableColumnLayoutSnapshot layout = owner.GetColumnLayoutSnapshot();
-        DrawBackground(drawingContext, width, height);
-        DrawHeader(drawingContext, layout, width, height);
-        if (owner.IsItemsSourceSwapPending)
-        {
-            renderStopwatch.Stop();
-            owner.NotifySurfaceRendered(
-                visibleRowCount: 0,
-                visibleColumnCount: layout.VisibleColumnCount,
-                renderWorkMs: renderStopwatch.ElapsedMilliseconds,
-                textCacheHitRate: -1d,
-                redrawReason: "pending_items_source_swap_skipped");
-            return;
-        }
-        int visibleRowCount = DrawRows(drawingContext, layout, width, height);
-        DrawRowDropInsertPreview(drawingContext, width, height);
-        renderStopwatch.Stop();
-        owner.NotifySurfaceRendered(
-            visibleRowCount,
-            layout.VisibleColumnCount,
-            renderStopwatch.ElapsedMilliseconds,
-            CustomTableTextLayoutCache.CalculateHitRate(renderTextCacheHits, renderTextCacheMisses),
-            redrawReason,
-            StopwatchTicksToMilliseconds(renderRowHighlightTicks),
-            StopwatchTicksToMilliseconds(renderCellValueTicks),
-            StopwatchTicksToMilliseconds(renderTextLayoutTicks),
-            StopwatchTicksToMilliseconds(renderDrawTextTicks),
-            renderTextCacheHits,
-            renderTextCacheMisses);
-    }
-
-    private static long StopwatchTicksToMilliseconds(long ticks)
-    {
-        return ticks <= 0L ? 0L : (ticks * 1000L) / Stopwatch.Frequency;
-    }
-
-    private void DrawBackground(DrawingContext drawingContext, double width, double height)
-    {
-        drawingContext.DrawRectangle(CustomTablePalette.Current.RowBackground, null, new Rect(0d, 0d, width, height));
-    }
-
-    private void DrawHeader(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width, double height)
-    {
-        double headerHeight = owner.HeaderHeight;
-        double horizontalOffset = owner.HorizontalOffset;
-        CustomTablePalette palette = CustomTablePalette.Current;
-        drawingContext.DrawRectangle(palette.HeaderBackground, null, new Rect(0d, 0d, width, headerHeight));
-        foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
-        {
-            CustomTableColumn column = entry.Column;
-            if (column != null)
-            {
-                Rect cellRect = entry.CreateInteriorRect(horizontalOffset, 0d, headerHeight);
-                if (owner.IsReorderSourceColumn(column))
-                {
-                    drawingContext.DrawRectangle(
-                        palette.ReorderSourceHeader,
-                        null,
-                        entry.CreateVisibleInteriorRect(horizontalOffset, width, 0d, headerHeight));
-                }
-                DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, [], TextAlignment.Center, owner.ResolveTextStyle(CustomTableTextStyle.Normal));
-                DrawSortGlyph(drawingContext, column, cellRect);
-                double borderX = entry.RightGridLineX(horizontalOffset);
-                if (CustomTableColumnLayout.IsGridLineFullyVisible(borderX, 0d, width))
-                {
-                    drawingContext.DrawLine(palette.HeaderBorder, new Point(borderX, 0d), new Point(borderX, headerHeight));
-                }
-            }
-        }
-        double bottomGridLineY = CustomTableColumnLayout.CreateBottomGridLineY(0d, headerHeight);
-        if (CustomTableColumnLayout.IsGridLineFullyVisible(bottomGridLineY, 0d, height))
-        {
-            drawingContext.DrawLine(palette.HeaderBorder, new Point(0d, bottomGridLineY), new Point(width, bottomGridLineY));
-        }
-        if (owner.IsColumnReorderPreviewActive)
-        {
-            double insertX = Math.Max(0d, Math.Min(width, owner.ColumnReorderPreviewInsertX));
-            drawingContext.DrawLine(palette.ColumnReorderInsert, new Point(insertX, 0d), new Point(insertX, headerHeight));
-        }
-    }
-
-    private int DrawRows(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width, double height)
-    {
-        IList rows = owner.ItemsSource;
-        int rowCount = rows?.Count ?? 0;
-        if (rowCount == 0)
-        {
-            return 0;
-        }
-        double rowHeight = Math.Max(1d, owner.RowHeight);
-        double y = owner.HeaderHeight;
-        int firstRowIndex = owner.FirstVisibleRowIndex;
-        int drawableRowCapacity = owner.CalculateDrawableRowCapacity();
-        int lastRowExclusive = Math.Min(rowCount, firstRowIndex + drawableRowCapacity);
-        int drawnRows = 0;
-        for (int rowIndex = firstRowIndex; rowIndex < lastRowExclusive && y < height; rowIndex++)
-        {
-            object row = rows[rowIndex];
-            bool selected = owner.IsRowSelected(rowIndex);
-            CustomTablePalette palette = CustomTablePalette.Current;
-            long highlightStart = Stopwatch.GetTimestamp();
-            bool highlightedWarning = owner.HasHighlightedWarning(row);
-            renderRowHighlightTicks += Stopwatch.GetTimestamp() - highlightStart;
-            Brush rowBackground = selected
-                ? palette.SelectedRowBackground
-                : highlightedWarning
-                    ? palette.WarningRowBackground
-                    : (rowIndex & 1) == 1
-                        ? palette.AlternatingRowBackground
-                        : palette.RowBackground;
-            var rowRect = new Rect(0d, y, width, Math.Min(rowHeight, height - y));
-            drawingContext.DrawRectangle(rowBackground, null, rowRect);
-            DrawRowCells(drawingContext, layout, rowIndex, row, width, y, rowHeight);
-            double bottomGridLineY = CustomTableColumnLayout.CreateBottomGridLineY(y, rowHeight);
-            if (CustomTableColumnLayout.IsGridLineFullyVisible(bottomGridLineY, 0d, height))
-            {
-                drawingContext.DrawLine(palette.CellBorder, new Point(0d, bottomGridLineY), new Point(width, bottomGridLineY));
-            }
-            y += rowHeight;
-            drawnRows++;
-        }
-        return drawnRows;
-    }
-
-    private void DrawRowDropInsertPreview(DrawingContext drawingContext, double width, double height)
-    {
-        if (!owner.IsRowDropInsertPreviewActive || width <= 0d || height <= owner.HeaderHeight)
-        {
-            return;
-        }
-        IList rows = owner.ItemsSource;
-        int rowCount = rows?.Count ?? 0;
-        int insertIndex = Math.Max(0, Math.Min(rowCount, owner.RowDropPreviewInsertIndex));
-        int firstRowIndex = owner.FirstVisibleRowIndex;
-        int visibleCapacity = owner.CalculateDrawableRowCapacity();
-        int lastVisibleExclusive = Math.Min(rowCount, firstRowIndex + visibleCapacity);
-        double rowHeight = Math.Max(1d, owner.RowHeight);
-        double y;
-        if (insertIndex <= firstRowIndex)
-        {
-            y = owner.HeaderHeight;
-        }
-        else if (insertIndex >= lastVisibleExclusive)
-        {
-            y = owner.HeaderHeight + Math.Max(0, lastVisibleExclusive - firstRowIndex) * rowHeight;
-        }
-        else
-        {
-            y = owner.HeaderHeight + (insertIndex - firstRowIndex) * rowHeight;
-        }
-        y = Math.Max(owner.HeaderHeight, Math.Min(height, y));
-        drawingContext.DrawLine(CustomTablePalette.Current.ColumnReorderInsert, new Point(0d, y), new Point(width, y));
-    }
-
-    private void DrawRowCells(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, int rowIndex, object row, double width, double y, double rowHeight)
-    {
-        double horizontalOffset = owner.HorizontalOffset;
-        foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
-        {
-            CustomTableColumn column = entry.Column;
-            if (column == null)
-            {
-                continue;
-            }
-            Rect cellRect = entry.CreateInteriorRect(horizontalOffset, y, rowHeight);
-            bool currentCell = owner.IsCurrentCell(rowIndex, column);
-            long cellValueStart = Stopwatch.GetTimestamp();
-            CustomTableCellValue cellValue = owner.GetCellValue(row, column, out _);
-            renderCellValueTicks += Stopwatch.GetTimestamp() - cellValueStart;
-            if (!owner.IsRowSelected(rowIndex) && cellValue.Background != null)
-            {
-                drawingContext.DrawRectangle(cellValue.Background, null, entry.CreateVisibleInteriorRect(horizontalOffset, width, y, rowHeight));
-            }
-            if (currentCell)
-            {
-                drawingContext.DrawRectangle(CustomTablePalette.Current.CurrentCellBackground, null, entry.CreateVisibleInteriorRect(horizontalOffset, width, y, rowHeight));
-            }
-            bool hasTextRuns = cellValue.TextRuns.Count > 0;
-            Brush foreground = hasTextRuns
-                ? cellValue.Foreground
-                : currentCell
-                    ? CustomTablePalette.Current.CurrentCellForeground
-                    : owner.IsRowSelected(rowIndex)
-                        ? CustomTableScoreBrushProvider.SelectedForeground
-                        : cellValue.Foreground;
-            if (cellValue.CellKind == CustomTableCellKind.DownloadIcon)
-            {
-                DrawDownloadIcon(drawingContext, cellValue.Text, cellRect, foreground);
-            }
-            else if (cellValue.CellKind == CustomTableCellKind.StatusIcon)
-            {
-                DrawStatusIcon(drawingContext, cellValue.Text, cellRect, foreground);
-            }
-            else if (cellValue.CellKind == CustomTableCellKind.CheckBox)
-            {
-                DrawCheckBox(drawingContext, cellValue.IsChecked, cellRect, foreground);
-            }
-            else
-            {
-                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.TextRuns, cellValue.Alignment, owner.ResolveTextStyle(cellValue.TextStyle));
-            }
-            double borderX = entry.RightGridLineX(horizontalOffset);
-            if (CustomTableColumnLayout.IsGridLineFullyVisible(borderX, 0d, width))
-            {
-                drawingContext.DrawLine(CustomTablePalette.Current.CellBorder, new Point(borderX, y), new Point(borderX, y + rowHeight));
-            }
-        }
-    }
-
-    private void DrawCellText(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground, IReadOnlyList<CustomTableTextRunStyle> textRuns, TextAlignment alignment, CustomTableTextStyle textStyle)
-    {
-        if (string.IsNullOrEmpty(text) || cellRect.Width <= 2d || cellRect.Height <= 1d)
-        {
-            return;
-        }
-        CustomTableTextStyle effectiveTextStyle = textStyle ?? owner.ResolveTextStyle(CustomTableTextStyle.Normal);
-        double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        double maxTextWidth = Math.Max(1d, cellRect.Width - CustomTableView.CellTextHorizontalPadding * 2d);
-        double maxTextHeight = Math.Max(Math.Max(1d, cellRect.Height), effectiveTextStyle.FontSize * 2d);
-        long layoutStart = Stopwatch.GetTimestamp();
-        FormattedText formattedText = textLayoutCache.GetOrCreate(
-            text,
-            maxTextWidth,
-            maxTextHeight,
-            alignment,
-            effectiveTextStyle,
-            owner.ScoreFontFamily,
-            foreground,
-            textRuns,
-            pixelsPerDip,
-            CultureInfo.CurrentUICulture,
-            out bool cacheHit);
-        renderTextLayoutTicks += Stopwatch.GetTimestamp() - layoutStart;
-        if (cacheHit)
-        {
-            renderTextCacheHits++;
-        }
-        else
-        {
-            renderTextCacheMisses++;
-        }
-        double x = cellRect.X + CustomTableView.CellTextHorizontalPadding;
-        double y = cellRect.Y + Math.Max(0d, (cellRect.Height - formattedText.Height) / 2d) + effectiveTextStyle.VerticalOffset;
-        long drawTextStart = Stopwatch.GetTimestamp();
-        drawingContext.PushClip(new RectangleGeometry(cellRect));
-        drawingContext.DrawText(formattedText, new Point(x, y));
-        drawingContext.Pop();
-        renderDrawTextTicks += Stopwatch.GetTimestamp() - drawTextStart;
-    }
-
-    private static void DrawDownloadIcon(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground)
-    {
-        if (string.IsNullOrEmpty(text) || cellRect.Width <= 8d || cellRect.Height <= 8d)
-        {
-            return;
-        }
-        Brush iconBrush = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
-        double size = Math.Max(8d, Math.Min(13d, Math.Min(cellRect.Width - 6d, cellRect.Height - 4d)));
-        double centerX = cellRect.Left + cellRect.Width / 2d;
-        double top = cellRect.Top + Math.Max(1d, (cellRect.Height - size) / 2d);
-        double bottom = top + size;
-        double trayY = bottom - 2d;
-        var pen = new Pen(iconBrush, 1.7d)
-        {
-            StartLineCap = PenLineCap.Square,
-            EndLineCap = PenLineCap.Square
-        };
-        if (pen.CanFreeze)
-        {
-            pen.Freeze();
-        }
-        var arrow = new StreamGeometry();
-        using (StreamGeometryContext context = arrow.Open())
-        {
-            context.BeginFigure(new Point(centerX, top), isFilled: false, isClosed: false);
-            context.LineTo(new Point(centerX, trayY - 3d), isStroked: true, isSmoothJoin: false);
-            context.BeginFigure(new Point(centerX - 4d, trayY - 7d), isFilled: false, isClosed: false);
-            context.LineTo(new Point(centerX, trayY - 3d), isStroked: true, isSmoothJoin: false);
-            context.LineTo(new Point(centerX + 4d, trayY - 7d), isStroked: true, isSmoothJoin: false);
-            context.BeginFigure(new Point(centerX - 6d, trayY), isFilled: false, isClosed: false);
-            context.LineTo(new Point(centerX - 6d, bottom), isStroked: true, isSmoothJoin: false);
-            context.LineTo(new Point(centerX + 6d, bottom), isStroked: true, isSmoothJoin: false);
-            context.LineTo(new Point(centerX + 6d, trayY), isStroked: true, isSmoothJoin: false);
-        }
-        arrow.Freeze();
-        drawingContext.DrawGeometry(null, pen, arrow);
-    }
-
-    private static void DrawStatusIcon(DrawingContext drawingContext, string text, Rect cellRect, Brush foreground)
-    {
-        if (string.IsNullOrEmpty(text) || cellRect.Width <= 6d || cellRect.Height <= 6d)
-        {
-            return;
-        }
-        if (!Enum.TryParse(text, out CustomTableStatusIconKind iconKind) || iconKind == CustomTableStatusIconKind.None)
-        {
-            return;
-        }
-        Brush iconBrush = foreground ?? CustomTableScoreBrushProvider.DefaultForeground;
-        double size = Math.Max(7d, Math.Min(12d, Math.Min(cellRect.Width - 4d, cellRect.Height - 4d)));
-        double left = cellRect.Left + (cellRect.Width - size) / 2d;
-        double top = cellRect.Top + (cellRect.Height - size) / 2d;
-        var iconRect = new Rect(left, top, size, size);
-        var pen = new Pen(iconBrush, 1.5d)
-        {
-            StartLineCap = PenLineCap.Round,
-            EndLineCap = PenLineCap.Round,
-            LineJoin = PenLineJoin.Round
-        };
-        if (pen.CanFreeze)
-        {
-            pen.Freeze();
-        }
-        switch (iconKind)
-        {
-            case CustomTableStatusIconKind.Forward:
-                DrawTrianglePair(drawingContext, iconBrush, iconRect, forward: true);
-                break;
-            case CustomTableStatusIconKind.Backward:
-                DrawTrianglePair(drawingContext, iconBrush, iconRect, forward: false);
-                break;
-            case CustomTableStatusIconKind.Play:
-                DrawTriangle(drawingContext, iconBrush, new Point(iconRect.Left + 2d, iconRect.Top + 1d), new Point(iconRect.Left + 2d, iconRect.Bottom - 1d), new Point(iconRect.Right - 1d, iconRect.Top + iconRect.Height / 2d));
-                break;
-            case CustomTableStatusIconKind.Loading:
-                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Left + 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
-                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Left + iconRect.Width / 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
-                drawingContext.DrawEllipse(iconBrush, null, new Point(iconRect.Right - 2d, iconRect.Top + iconRect.Height / 2d), 1.2d, 1.2d);
-                break;
-            case CustomTableStatusIconKind.Pause:
-                drawingContext.DrawRectangle(iconBrush, null, new Rect(iconRect.Left + 2d, iconRect.Top + 1d, 2d, iconRect.Height - 2d));
-                drawingContext.DrawRectangle(iconBrush, null, new Rect(iconRect.Right - 4d, iconRect.Top + 1d, 2d, iconRect.Height - 2d));
-                break;
-            case CustomTableStatusIconKind.Searching:
-                drawingContext.DrawEllipse(null, pen, new Point(iconRect.Left + iconRect.Width * 0.43d, iconRect.Top + iconRect.Height * 0.43d), iconRect.Width * 0.28d, iconRect.Height * 0.28d);
-                drawingContext.DrawLine(pen, new Point(iconRect.Left + iconRect.Width * 0.63d, iconRect.Top + iconRect.Height * 0.63d), new Point(iconRect.Right - 1d, iconRect.Bottom - 1d));
-                break;
-            case CustomTableStatusIconKind.ScoreUnsent:
-                DrawRefreshIcon(drawingContext, iconBrush, pen, iconRect);
-                break;
-        }
-    }
-
-    private static void DrawCheckBox(DrawingContext drawingContext, bool? isChecked, Rect cellRect, Brush foreground)
-    {
-        if (!isChecked.HasValue || cellRect.Width <= 8d || cellRect.Height <= 8d)
-        {
-            return;
-        }
-        double size = Math.Max(8d, Math.Min(12d, Math.Min(cellRect.Width - 4d, cellRect.Height - 4d)));
-        double left = cellRect.Left + (cellRect.Width - size) / 2d;
-        double top = cellRect.Top + (cellRect.Height - size) / 2d;
-        var rect = new Rect(left, top, size, size);
-        CustomTablePalette palette = CustomTablePalette.Current;
-        drawingContext.DrawRectangle(palette.CheckBoxBackground, palette.CheckBoxBorder, rect);
-        if (isChecked.Value)
-        {
-            Pen checkPen = foreground == null || ReferenceEquals(foreground, CustomTableScoreBrushProvider.DefaultForeground)
-                ? palette.CheckBoxCheck
-                : new Pen(foreground, 1.8d);
-            drawingContext.DrawLine(checkPen, new Point(rect.Left + 2.5d, rect.Top + size * 0.55d), new Point(rect.Left + size * 0.43d, rect.Bottom - 2.5d));
-            drawingContext.DrawLine(checkPen, new Point(rect.Left + size * 0.43d, rect.Bottom - 2.5d), new Point(rect.Right - 2d, rect.Top + 2.5d));
-        }
-    }
-
-    private static void DrawRefreshIcon(DrawingContext drawingContext, Brush brush, Pen pen, Rect rect)
-    {
-        var start = new Point(rect.Right - 2d, rect.Top + rect.Height * 0.45d);
-        var end = new Point(rect.Left + 2d, rect.Top + rect.Height * 0.58d);
-        var arc = new StreamGeometry();
-        using (StreamGeometryContext context = arc.Open())
-        {
-            context.BeginFigure(start, isFilled: false, isClosed: false);
-            context.ArcTo(end, new Size(rect.Width * 0.42d, rect.Height * 0.42d), 0d, isLargeArc: true, SweepDirection.Counterclockwise, isStroked: true, isSmoothJoin: false);
-        }
-        arc.Freeze();
-        drawingContext.DrawGeometry(null, pen, arc);
-        DrawTriangle(drawingContext, brush, new Point(end.X, end.Y), new Point(end.X + 4d, end.Y - 1d), new Point(end.X + 2d, end.Y + 3d));
-    }
-
-    private static void DrawTrianglePair(DrawingContext drawingContext, Brush brush, Rect rect, bool forward)
-    {
-        double mid = rect.Left + rect.Width / 2d;
-        if (forward)
-        {
-            DrawTriangle(drawingContext, brush, new Point(rect.Left, rect.Top + 1d), new Point(rect.Left, rect.Bottom - 1d), new Point(mid, rect.Top + rect.Height / 2d));
-            DrawTriangle(drawingContext, brush, new Point(mid - 1d, rect.Top + 1d), new Point(mid - 1d, rect.Bottom - 1d), new Point(rect.Right, rect.Top + rect.Height / 2d));
-        }
-        else
-        {
-            DrawTriangle(drawingContext, brush, new Point(rect.Right, rect.Top + 1d), new Point(rect.Right, rect.Bottom - 1d), new Point(mid, rect.Top + rect.Height / 2d));
-            DrawTriangle(drawingContext, brush, new Point(mid + 1d, rect.Top + 1d), new Point(mid + 1d, rect.Bottom - 1d), new Point(rect.Left, rect.Top + rect.Height / 2d));
-        }
-    }
-
-    private static void DrawTriangle(DrawingContext drawingContext, Brush brush, Point p1, Point p2, Point p3)
-    {
-        var geometry = new StreamGeometry();
-        using (StreamGeometryContext context = geometry.Open())
-        {
-            context.BeginFigure(p1, isFilled: true, isClosed: true);
-            context.LineTo(p2, isStroked: true, isSmoothJoin: false);
-            context.LineTo(p3, isStroked: true, isSmoothJoin: false);
-        }
-        geometry.Freeze();
-        drawingContext.DrawGeometry(brush, null, geometry);
-    }
-
-    private void DrawSortGlyph(DrawingContext drawingContext, CustomTableColumn column, Rect cellRect)
-    {
-        if (column == null || string.IsNullOrWhiteSpace(column.SortMemberPath) || !string.Equals(column.SortMemberPath, owner.SortColumnName, StringComparison.Ordinal) || !owner.SortDirection.HasValue || cellRect.Width < 8d || cellRect.Height < 8d)
-        {
-            return;
-        }
-        double centerX = cellRect.Left + cellRect.Width / 2d;
-        double top = cellRect.Top + 1d;
-        double bottom = top + 3.5d;
-        bool ascending = owner.SortDirection == ListSortDirection.Ascending;
-        Point p1 = ascending ? new Point(centerX, top) : new Point(centerX, bottom);
-        Point p2 = ascending ? new Point(centerX - 3d, bottom) : new Point(centerX - 3d, top);
-        Point p3 = ascending ? new Point(centerX + 3d, bottom) : new Point(centerX + 3d, top);
-        var geometry = new StreamGeometry();
-        using (StreamGeometryContext context = geometry.Open())
-        {
-            context.BeginFigure(p1, isFilled: true, isClosed: true);
-            context.LineTo(p2, isStroked: true, isSmoothJoin: false);
-            context.LineTo(p3, isStroked: true, isSmoothJoin: false);
-        }
-        geometry.Freeze();
-        drawingContext.DrawGeometry(CustomTablePalette.Current.SortGlyph, null, geometry);
     }
 }

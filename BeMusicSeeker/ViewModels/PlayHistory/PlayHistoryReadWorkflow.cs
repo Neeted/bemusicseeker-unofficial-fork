@@ -1,70 +1,33 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class BeatorajaPlayHistoryScoreContext
-{
-    internal static BeatorajaPlayHistoryScoreContext Empty { get; } = new(
-        0,
-        new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase));
-
-    internal BeatorajaPlayHistoryScoreContext(
-        int scoreSnapshotVersion,
-        IReadOnlyDictionary<string, BMSScore> scoresBySha256)
-    {
-        ScoreSnapshotVersion = Math.Max(0, scoreSnapshotVersion);
-        ScoresBySha256 = scoresBySha256 == null
-            ? new Dictionary<string, BMSScore>(StringComparer.OrdinalIgnoreCase)
-            : scoresBySha256.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.OrdinalIgnoreCase);
-    }
-
-    internal int ScoreSnapshotVersion { get; }
-
-    internal IReadOnlyDictionary<string, BMSScore> ScoresBySha256 { get; }
-}
-
+/// <summary>同じ成績取得操作の履歴と取得世代を捕捉します。設定やファイルの現在状態から再選択しません。</summary>
 internal sealed class PlayHistoryReadSourceContext
 {
-    private PlayHistoryReadSourceContext(
-        PlayHistoryProvider provider,
-        string scoreDbPath,
-        bool isLr2LinkedProfile,
-        BeatorajaPlayHistoryScoreContext beatorajaScoreContext)
+    private PlayHistoryReadSourceContext(BMSLibrary.ScoreSnapshot snapshot)
     {
-        Provider = provider;
-        ScoreDbPath = scoreDbPath ?? string.Empty;
-        IsLr2LinkedProfile = isLr2LinkedProfile;
-        BeatorajaScoreContext = beatorajaScoreContext ?? BeatorajaPlayHistoryScoreContext.Empty;
+        PlayHistorySnapshot = snapshot?.PlayHistorySnapshot;
+        SourceGeneration = snapshot?.SourceGeneration ?? 0;
+        Provider = PlayHistorySnapshot?.Source == ActiveScoreSource.Beatoraja ? PlayHistoryProvider.Beatoraja : PlayHistoryProvider.Lr2;
+        ScoreDbPath = PlayHistorySnapshot?.ScoreDbPath ?? string.Empty;
+        IsLr2LinkedProfile = PlayHistorySnapshot?.Lr2?.SchemaStatus != Lr2PlayHistorySchemaStatus.SkippedProfile;
     }
-
+    /// <summary>取得時点で選んだproviderです。</summary>
     internal PlayHistoryProvider Provider { get; }
+    /// <summary>取得時点の成績DBパスです。</summary>
     internal string ScoreDbPath { get; }
+    /// <summary>取得時点でLR2連携を使ったかを示します。</summary>
     internal bool IsLr2LinkedProfile { get; }
-    internal BeatorajaPlayHistoryScoreContext BeatorajaScoreContext { get; }
-
-    internal static PlayHistoryReadSourceContext Lr2(string scoreDbPath, bool isLr2LinkedProfile)
-    {
-        return new PlayHistoryReadSourceContext(
-            PlayHistoryProvider.Lr2,
-            scoreDbPath,
-            isLr2LinkedProfile,
-            BeatorajaPlayHistoryScoreContext.Empty);
-    }
-
-    internal static PlayHistoryReadSourceContext Beatoraja(
-        string scoreDbPath,
-        BeatorajaPlayHistoryScoreContext scoreContext)
-    {
-        return new PlayHistoryReadSourceContext(
-            PlayHistoryProvider.Beatoraja,
-            scoreDbPath,
-            isLr2LinkedProfile: false,
-            scoreContext);
-    }
+    /// <summary>表示版とは独立した既存の取得世代です。</summary>
+    internal long SourceGeneration { get; }
+    /// <summary>生行・診断・集計時系列を保持する取得組です。</summary>
+    internal ScorePlayHistorySnapshot PlayHistorySnapshot { get; }
+    /// <summary>公開済み成績の取得組だけから履歴表示入力を構成します。未準備なら取得せず利用不可です。</summary>
+    internal static PlayHistoryReadSourceContext FromSnapshot(BMSLibrary.ScoreSnapshot snapshot) => new(snapshot);
 }
 
 internal sealed class PlayHistoryReadWorkflowRequest
@@ -208,7 +171,8 @@ internal enum PlayHistoryPeriodIndexStageStatus
     NotStarted,
     Completed,
     SkippedSchemaUnavailable,
-    Canceled
+    Canceled,
+    Failed
 }
 
 internal sealed class PlayHistoryProjectionStageMetrics
@@ -257,6 +221,7 @@ internal enum PlayHistoryProjectionStageStatus
 
 internal sealed class PlayHistoryReadWorkflowResult
 {
+    /// <summary>成功、取消し、取得失敗を区別し、未採用の失敗診断だけを表示側へ渡します。</summary>
     internal PlayHistoryReadWorkflowResult(
         bool built,
         string canceledStage,
@@ -264,7 +229,9 @@ internal sealed class PlayHistoryReadWorkflowResult
         PlayHistoryReadStageMetrics read,
         PlayHistoryPeriodIndexStageMetrics periodIndex,
         PlayHistoryProjectionStageMetrics projection,
-        PlayHistoryReadPresentationBuildResult presentation)
+        PlayHistoryReadPresentationBuildResult presentation,
+        string failedStage = null,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics = null)
     {
         Built = built;
         CanceledStage = canceledStage ?? string.Empty;
@@ -273,7 +240,14 @@ internal sealed class PlayHistoryReadWorkflowResult
         PeriodIndex = periodIndex;
         Projection = projection;
         Presentation = presentation;
+        FailedStage = failedStage ?? string.Empty;
+        Diagnostics = diagnostics ?? [];
     }
+
+    /// <summary>失敗を取消しや正常0件へ読み替えず、採用側へ渡します。</summary>
+    internal string FailedStage { get; }
+    /// <summary>非採用となった段階の診断。元例外を表示用に保存しません。</summary>
+    internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
 
     internal bool Built { get; }
     internal string CanceledStage { get; }

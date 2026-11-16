@@ -8,8 +8,6 @@ internal sealed class LibraryMergeResult
 
     public List<LibraryChartRef> SourceCharts { get; } = [];
 
-    public ChartPackage Repackage { get; set; }
-
     public IPrimaryHashLookup ExistingHashes { get; set; } = EmptyPrimaryHashLookup.Instance;
 
     /// <summary>mergeとともに移動するpackageとinstall stateの参照。</summary>

@@ -50,6 +50,7 @@ internal static class BeatorajaBmtTableImportService
         return Path.Combine(tablePath ?? string.Empty, BMSTable.ComputeSha256Hex(configTableUrl) + ".bmt");
     }
 
+    /// <summary>実gzipキャッシュを読み、表・譜面・コースの任意文字列を日時へ変換せず保持します。</summary>
     internal static JObject ReadCachedTableData(string cachePath)
     {
         if (string.IsNullOrWhiteSpace(cachePath))
@@ -60,9 +61,16 @@ internal static class BeatorajaBmtTableImportService
         using FileStream fileStream = LongPathFileSystem.OpenRead(cachePath);
         using var gzipStream = new GZipStream(fileStream, CompressionMode.Decompress);
         using var reader = new StreamReader(gzipStream, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
-        return JObject.Parse(reader.ReadToEnd());
+        using var jsonReader = new JsonTextReader(reader) { DateParseHandling = DateParseHandling.None };
+        var table = JObject.Load(jsonReader);
+        // JObject.Parseと同じく末尾まで読み、後続の別JSONを許容しない。
+        while (jsonReader.Read()) { }
+        return table;
     }
 
+    /// <summary>BMTの所属とnullable levelを常にCompatibleのJSON読込みへ渡し、設定の生URLを正本として表を復元します。BMTで未採用の日時fieldは転送しません。</summary>
+    /// <param name="tableData">フォルダ・譜面・コースを含むBMTデータ。</param>
+    /// <param name="configTableUrl">キャッシュ内のURLより優先する設定の絶対URL。</param>
     internal static BMSTable CreateTable(JObject tableData, string configTableUrl)
     {
         if (tableData == null)
@@ -105,8 +113,8 @@ internal static class BeatorajaBmtTableImportService
         JArray data = BuildDataRows(folders);
 
         var table = new BMSTable();
-        table.LoadHeaderJSON(header.ToString(Formatting.None), configTableUri, configTableUri);
-        table.LoadDataJSON(data.ToString(Formatting.None));
+        table.LoadHeaderJSON(header.ToString(Formatting.None), PlaylistJsonDatePolicy.Compatible, configTableUri, configTableUri);
+        table.LoadDataJSON(data.ToString(Formatting.None), PlaylistJsonDatePolicy.Compatible);
         return table;
     }
 
@@ -155,12 +163,10 @@ internal static class BeatorajaBmtTableImportService
         var row = new JObject
         {
             ["title"] = title ?? string.Empty,
-            ["folder"] = folderName ?? string.Empty
+            ["folder"] = folderName ?? string.Empty,
+            // 欠落は旧形式のlevel解釈へ進むため、非数値所属にも正本形式のnullを明示する。
+            ["org_level"] = level.HasValue ? new JValue(level.Value) : JValue.CreateNull()
         };
-        if (level.HasValue)
-        {
-            row["org_level"] = level.Value;
-        }
         AddIfNotEmpty(row, "artist", song.Value<string>("artist"));
         AddIfNotEmpty(row, "md5", md5);
         AddIfNotEmpty(row, "sha256", sha256);

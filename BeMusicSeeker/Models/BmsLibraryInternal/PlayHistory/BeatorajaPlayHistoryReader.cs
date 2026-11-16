@@ -1,23 +1,31 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading;
-using SQLite;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>beatorajaの履歴とplayer累計を、構成が所有する読取り専用接続で取得します。</summary>
 internal sealed class BeatorajaPlayHistoryReader
 {
-    internal const int DefaultReadLimit = 5000;
+    private readonly ApplicationDatabaseScope databaseScope;
+
+    /// <summary>接続とその寿命を所有するスコープを受け取ります。</summary>
+    internal BeatorajaPlayHistoryReader(ApplicationDatabaseScope databaseScope)
+    {
+        this.databaseScope = databaseScope ?? throw new ArgumentNullException(nameof(databaseScope));
+    }
 
     private const int NormalScoreMode = 0;
 
+    /// <summary>beatorajaの通常モード・SHA-256長64の単曲更新履歴を一覧・日付索引用に読み取り専用で全件取得します。件数上限は設けません。</summary>
     internal BeatorajaPlayHistoryReadResult Read(BeatorajaPlayHistoryReadRequest request)
     {
         return Read(request, CancellationToken.None);
     }
 
+    /// <summary>beatorajaの通常モード・SHA-256長64の単曲更新履歴を一覧・日付索引用に読み取り専用で全件取得し、取消しを観測します。件数上限は設けません。</summary>
     internal BeatorajaPlayHistoryReadResult Read(BeatorajaPlayHistoryReadRequest request, CancellationToken cancellationToken)
     {
         request = ResolveRequestPaths(request);
@@ -44,12 +52,12 @@ internal sealed class BeatorajaPlayHistoryReader
                     sourceProfile,
                     [],
                     diagnostics,
-                    Lr2PlayHistorySchemaStatus.Installed,
+                    Lr2PlayHistorySchemaStatus.Unreadable,
                     playerSnapshots,
                     playerSnapshotsAvailable);
             }
 
-            using var connection = new SQLiteConnection(request.ScoreLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+            using SQLiteConnectionEx connection = databaseScope.OpenReadOnly(request.ScoreLogDbPath);
             List<object> args = [];
             string sql = BuildScoreLogReadSql(request, args);
             cancellationToken.ThrowIfCancellationRequested();
@@ -76,44 +84,9 @@ internal sealed class BeatorajaPlayHistoryReader
         }
         catch (Exception ex)
         {
+            PlayHistoryReadDiagnostics.Report(ex, "beatoraja", "read", request.ScoreLogDbPath);
             diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_read_failed", ex.Message, request.ScoreLogDbPath));
             return new BeatorajaPlayHistoryReadResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable, playerSnapshots, playerSnapshotsAvailable);
-        }
-    }
-
-    internal BeatorajaPlayHistoryPeriodIndexResult ReadPeriodIndex(BeatorajaPlayHistoryPeriodIndexRequest request, CancellationToken cancellationToken)
-    {
-        BeatorajaPlayHistoryReadRequest resolved = ResolveRequestPaths(new BeatorajaPlayHistoryReadRequest
-        {
-            ScoreDbPath = request?.ScoreDbPath,
-            ScoreLogDbPath = request?.ScoreLogDbPath
-        });
-        cancellationToken.ThrowIfCancellationRequested();
-        var sourceProfile = PlayHistorySourceProfile.Beatoraja(resolved.ScoreLogDbPath);
-        var diagnostics = new List<PlayHistoryDiagnostic>();
-        if (!EnsureScoreLogExists(resolved.ScoreLogDbPath, diagnostics))
-        {
-            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Installed);
-        }
-
-        try
-        {
-            using var connection = new SQLiteConnection(resolved.ScoreLogDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
-            cancellationToken.ThrowIfCancellationRequested();
-            List<PeriodIndexRow> rows = connection.Query<PeriodIndexRow>(
-                "SELECT MAX(date) AS played_at FROM scorelog WHERE mode = ? GROUP BY strftime('%Y-%m-%d', date, 'unixepoch', 'localtime') ORDER BY played_at DESC;",
-                NormalScoreMode);
-            cancellationToken.ThrowIfCancellationRequested();
-            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [.. rows.Select(row => row.played_at)], diagnostics, Lr2PlayHistorySchemaStatus.Installed);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            diagnostics.Add(CreateDiagnostic(PlayHistoryDiagnosticSeverity.Error, "play_history_beatoraja_period_index_failed", ex.Message, resolved.ScoreLogDbPath));
-            return new BeatorajaPlayHistoryPeriodIndexResult(sourceProfile, [], diagnostics, Lr2PlayHistorySchemaStatus.Unreadable);
         }
     }
 
@@ -151,9 +124,10 @@ internal sealed class BeatorajaPlayHistoryReader
         return false;
     }
 
+    /// <summary>通常モードの単曲ハッシュを期間内で全件読みます。player累計の取得条件は変えません。</summary>
     private static string BuildScoreLogReadSql(BeatorajaPlayHistoryReadRequest request, List<object> args)
     {
-        var where = new List<string> { "mode = ?" };
+        var where = new List<string> { "mode = ?", "length(sha256) = 64" };
         args.Add(NormalScoreMode);
         if (request.PlayedAtFromInclusive.HasValue)
         {
@@ -169,18 +143,10 @@ internal sealed class BeatorajaPlayHistoryReader
         string sql = "SELECT rowid AS history_id, sha256, mode, clear, oldclear, score, oldscore, combo, oldcombo, minbp, oldminbp, date FROM scorelog WHERE "
             + string.Join(" AND ", where)
             + " ORDER BY date DESC, rowid DESC";
-        int limit = request.Limit.HasValue && request.Limit.Value > 0
-            ? request.Limit.Value
-            : DefaultReadLimit;
-        if (!request.DisableLimit && limit > 0)
-        {
-            sql += " LIMIT ?";
-            args.Add(limit);
-        }
         return sql + ";";
     }
 
-    private static IReadOnlyList<BeatorajaPlayerAggregateSnapshot> LoadPlayerAggregateSnapshots(
+    private IReadOnlyList<BeatorajaPlayerAggregateSnapshot> LoadPlayerAggregateSnapshots(
         BeatorajaPlayHistoryReadRequest request,
         List<PlayHistoryDiagnostic> diagnostics,
         CancellationToken cancellationToken,
@@ -199,7 +165,7 @@ internal sealed class BeatorajaPlayHistoryReader
 
         try
         {
-            using var connection = new SQLiteConnection(request.ScoreDbPath, SQLiteOpenFlags.ReadOnly | SQLiteOpenFlags.FullMutex);
+            using SQLiteConnectionEx connection = databaseScope.OpenReadOnly(request.ScoreDbPath);
             cancellationToken.ThrowIfCancellationRequested();
             List<PlayerAggregateRow> rows = connection.Query<PlayerAggregateRow>(
                 "SELECT date, playcount, epg, lpg, egr, lgr, egd, lgd, ebd, lbd, epr, lpr, ems, lms, playtime FROM player WHERE date > 0 ORDER BY date ASC;");
@@ -244,6 +210,7 @@ internal sealed class BeatorajaPlayHistoryReader
         }
         catch (Exception ex)
         {
+            PlayHistoryReadDiagnostics.Report(ex, "beatoraja", "player_aggregate", request.ScoreDbPath);
             diagnostics?.Add(CreateDiagnostic(
                 PlayHistoryDiagnosticSeverity.Warning,
                 "play_history_beatoraja_player_aggregate_unreadable",
@@ -296,15 +263,10 @@ internal sealed class BeatorajaPlayHistoryReader
             notes = notes,
             old_maxcombo = row.oldcombo,
             new_maxcombo = row.combo,
-            old_minbp = NormalizeBeatorajaMinBp(row.oldminbp),
-            new_minbp = NormalizeBeatorajaMinBp(row.minbp)
+            old_minbp = ScoreValueCalculator.NormalizeMinBp(row.oldminbp),
+            new_minbp = ScoreValueCalculator.NormalizeMinBp(row.minbp)
         };
         return record;
-    }
-
-    private static int? NormalizeBeatorajaMinBp(int? value)
-    {
-        return !value.HasValue || value.Value == int.MaxValue ? null : value;
     }
 
     private static PlayHistoryDiagnostic CreateDiagnostic(PlayHistoryDiagnosticSeverity severity, string code, string message, string sourcePath)
@@ -385,8 +347,4 @@ internal sealed class BeatorajaPlayHistoryReader
         public long playtime { get; set; }
     }
 
-    private sealed class PeriodIndexRow
-    {
-        public long played_at { get; set; }
-    }
 }

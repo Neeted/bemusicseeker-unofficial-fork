@@ -1,7 +1,7 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Views.Settings.Pages;
@@ -24,8 +24,23 @@ public partial class AppearanceSettingsPage : UserControl
     /// </summary>
     internal void RefreshThemeSelection()
     {
-        radioButtonLightTheme.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateTarget();
-        radioButtonDarkTheme.GetBindingExpression(ToggleButton.IsCheckedProperty)?.UpdateTarget();
+        appearanceThemeComboBox.GetBindingExpression(System.Windows.Controls.Primitives.Selector.SelectedValueProperty)?.UpdateTarget();
+    }
+
+    private void appearanceFontComboBoxSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        // 保存に失敗すると、Bindingは選択欄の値だけを確定値へ戻し、選択の変更中のため表示中の候補は戻さない。
+        // 変更の完了後に、保存されなかった候補が表示に残っていれば、確定値の候補を選び直す。
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.DataBind, () =>
+        {
+            if (DataContext is SettingsDialogViewModel viewModel
+                && appearanceFontComboBox.SelectedItem is SettingsDialogViewModel.AppearanceFontOption selected
+                && !string.Equals(selected.Key, viewModel.AppearanceFontFamily, StringComparison.Ordinal))
+            {
+                appearanceFontComboBox.SelectedItem = viewModel.AppearanceFontOptions
+                    .FirstOrDefault(option => string.Equals(option.Key, viewModel.AppearanceFontFamily, StringComparison.Ordinal));
+            }
+        });
     }
 
     private SettingsDialogViewModel GetViewModel()
@@ -45,8 +60,16 @@ public partial class AppearanceSettingsPage : UserControl
         GetViewModel().ResetCustomTableAppearanceDefaults();
     }
 
-    private void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
+    private async void browseStagefilePathButtonClick(object sender, RoutedEventArgs e)
     {
-        GetSettingsWindow().HandleBrowseStagefilePath();
+        SettingsWindow settingsWindow = GetSettingsWindow();
+        try
+        {
+            settingsWindow.HandleBrowseStagefilePath();
+        }
+        catch (Exception exception)
+        {
+            await settingsWindow.HandleSettingsRouteFailureAsync(exception, "stage image file picker");
+        }
     }
 }

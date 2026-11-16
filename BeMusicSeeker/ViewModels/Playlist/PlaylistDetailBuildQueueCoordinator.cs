@@ -55,12 +55,13 @@ internal readonly struct PlaylistBuildQueueCoalesceResult
 
 internal static class PlaylistDetailBuildQueueCoordinator
 {
+    /// <summary>同じ表示でも必要参照位置が未配送なら受理し、同一の未完了要求だけへ合流します。</summary>
     internal static PlaylistBuildQueueRegisterResult RegisterRequest(
         PlaylistDetailBuildState state,
         PlaylistBuildRequest request,
         PlaylistRequestIdentity? currentViewIdentity,
         int lastBuiltScoreSnapshotVersion,
-        bool isShutdownRequested)
+        bool isShutdownRequested, long lastBuiltReferenceRevision = long.MaxValue)
     {
         TaskCompletionSource<bool> completion = null;
         PlaylistBuildQueueRegisterResult result;
@@ -70,6 +71,7 @@ internal static class PlaylistDetailBuildQueueCoordinator
             if (state.PendingRequest != null && state.PendingRequest.Identity == request.Identity)
             {
                 request.RequestVersion = state.PendingRequest.RequestVersion;
+                request.JoinCompletion(state.PendingRequest);
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "pending", ignoredReason: null, lastBuiltScoreSnapshotVersion);
             }
 
@@ -78,27 +80,32 @@ internal static class PlaylistDetailBuildQueueCoordinator
                 && state.CurrentBuildRequest.Identity == request.Identity)
             {
                 request.RequestVersion = state.CurrentBuildRequest.RequestVersion;
+                request.JoinCompletion(state.CurrentBuildRequest);
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "running", ignoredReason: null, lastBuiltScoreSnapshotVersion);
             }
 
             if (state.PendingRequest == null
                 && state.CurrentBuildRequest == null
                 && currentViewIdentity.HasValue
-                && currentViewIdentity.Value == request.Identity)
+                && currentViewIdentity.Value == request.Identity
+                && lastBuiltReferenceRevision >= request.RequiredReferenceRevision)
             {
                 request.RequestVersion = state.RequestVersion;
+                request.Complete();
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "current_view", "noop_same_view", lastBuiltScoreSnapshotVersion);
             }
 
             if (state.ShutdownCancellationRequested || isShutdownRequested)
             {
                 request.RequestVersion = state.RequestVersion;
+                request.Complete();
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "shutdown", "shutdown_requested", lastBuiltScoreSnapshotVersion);
             }
 
             state.RequestVersion = request.RequestVersion;
             completion = state.AdvanceCompletedRequestVersionUnsafe(request.RequestVersion - 1);
             CancellationTokenSource previousCancellation = state.CurrentBuildCancellation;
+            state.PendingRequest?.Complete();
             state.PendingRequest = request;
             state.ShutdownCancellationRequested = false;
             bool startWorker = !state.WorkerRunning;
@@ -204,6 +211,7 @@ internal static class PlaylistDetailBuildQueueCoordinator
                 Monitor.Wait(state.SyncRoot, remainingMs);
                 if (state.ShutdownCancellationRequested)
                 {
+                    request.Complete();
                     request = null;
                     cancelledForShutdown = true;
                     break;
@@ -214,6 +222,7 @@ internal static class PlaylistDetailBuildQueueCoordinator
                     continue;
                 }
 
+                request.Complete();
                 request = state.PendingRequest;
                 state.PendingRequest = null;
                 state.CurrentBuildRequest = request;
@@ -265,6 +274,7 @@ internal static class PlaylistDetailBuildQueueCoordinator
         TaskCompletionSource<bool> completion;
         lock (state.SyncRoot)
         {
+            state.PendingRequest?.Complete();
             state.PendingRequest = null;
             state.ShutdownCancellationRequested = true;
             TryCancel(state.CurrentBuildCancellation);

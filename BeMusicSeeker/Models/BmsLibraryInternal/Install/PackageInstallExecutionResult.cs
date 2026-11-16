@@ -60,7 +60,7 @@ internal sealed class PackagePhysicalMoveResult
 internal sealed class PackageInstallSessionPhysicalMutation
 {
     private readonly FileDbMutationPreparedCommit preparedCommit;
-    private readonly Action applyLiveState;
+    private readonly Action<IReadOnlyDictionary<(ChartFileKind Kind, string Path), ChartFile>> applyLiveState;
 
     /// <summary>導入・統合の session が durable point 後まで所有する package physical mutation を作成します。</summary>
     /// <param name="preparedCommit">stage/promotion 済み executor state。</param>
@@ -68,16 +68,20 @@ internal sealed class PackageInstallSessionPhysicalMutation
     /// <param name="destinationDirectory">operation-level resource scan に追加する成功 destination root。</param>
     internal PackageInstallSessionPhysicalMutation(
         FileDbMutationPreparedCommit preparedCommit,
-        Action applyLiveState,
-        string destinationDirectory)
+        Action<IReadOnlyDictionary<(ChartFileKind Kind, string Path), ChartFile>> applyLiveState,
+        string destinationDirectory, IEnumerable<string> successfulTextDirectories = null)
     {
         this.preparedCommit = preparedCommit ?? throw new ArgumentNullException(nameof(preparedCommit));
         this.applyLiveState = applyLiveState;
         DestinationDirectory = destinationDirectory;
+        SuccessfulTextDirectories = Array.AsReadOnly((successfulTextDirectories ?? []).ToArray());
     }
 
     /// <summary>resource index の operation-scoped scan 対象 destination directory。</summary>
     internal string DestinationDirectory { get; }
+
+    /// <summary>Prepare成功の非directory TXTの確定宛先親です。</summary>
+    internal IReadOnlyList<string> SuccessfulTextDirectories { get; }
 
     /// <summary>session terminal facts に追加する confirmed physical target。</summary>
     internal IReadOnlyList<LibraryMutationSessionTarget> ConfirmedTargets => preparedCommit.ConfirmedTargets;
@@ -88,16 +92,18 @@ internal sealed class PackageInstallSessionPhysicalMutation
     /// <summary>canonical durable apply 後に必要な live package state と source cleanup を確定します。</summary>
     /// <param name="applyLiveState">canonical internal apply が成功し live state を進めてよいかどうか。</param>
     /// <param name="finalizationFailure">先行する durable finalization failure。</param>
+    /// <param name="committedCharts">DB と所持集合に確定した対象だけの現在値。導入では必須です。</param>
     internal FileDbMutationReceipt CompleteAfterDurableCommit(
         bool applyLiveState,
-        Exception finalizationFailure = null)
+        Exception finalizationFailure = null,
+        IReadOnlyDictionary<(ChartFileKind Kind, string Path), ChartFile> committedCharts = null)
     {
         Exception completionFailure = finalizationFailure;
         if (applyLiveState)
         {
             try
             {
-                this.applyLiveState?.Invoke();
+                this.applyLiveState?.Invoke(committedCharts);
             }
             catch (Exception exception)
             {
@@ -189,42 +195,75 @@ internal sealed class PackageInstallExecutionResult
     public long TotalMs { get; set; }
 }
 
+/// <summary>今回の取り込みが適用へ渡さなかった管理入力の、実回収失敗を保持します。</summary>
+internal sealed class PackageInstallInputCleanupFailure(string path, Exception failure)
+{
+    /// <summary>回収できず残った管理入力です。</summary>
+    internal string Path { get; } = path;
+    /// <summary>回収時の元の例外です。</summary>
+    internal Exception Failure { get; } = failure;
+}
+
 /// <summary>
-/// Immutable terminal facts for the package-install command seam.
+/// 取り込み・直接推定の同一操作が返す、確定事実と実失敗です。
 /// </summary>
 internal sealed class PackageInstallCommandResult
 {
-    /// <summary>Creates immutable command facts from the operation-scoped install session.</summary>
-    /// <param name="registeredPackages">Packages durably registered before the terminal was returned.</param>
-    /// <param name="sessionReceipt">Canonical install-session terminal facts.</param>
+    /// <summary>初段と後段の確定事実を独立して保持します。後続の失敗は確定済みの結果を置き換えません。</summary>
     internal PackageInstallCommandResult(
         IEnumerable<ChartPackage> registeredPackages,
-        LibraryMutationSessionReceipt sessionReceipt)
+        LibraryMutationSessionReceipt sessionReceipt,
+        Exception estimationFailure = null,
+        LibraryMutationSessionReceipt estimatedInstallReceipt = null,
+        IEnumerable<ChartPackage> unprocessedPackages = null,
+        IEnumerable<Exception> workflowFailures = null,
+        bool synchronizationIncomplete = false,
+        IEnumerable<PackageInstallInputCleanupFailure> inputCleanupFailures = null)
     {
-        RegisteredPackages = Array.AsReadOnly([.. (registeredPackages ?? []).Where(package => package != null)]);
+        EstimationFailure = estimationFailure;
+        RegisteredPackages = Array.AsReadOnly([.. (registeredPackages ?? []).Where(package => package != null).Distinct()]);
         SessionReceipt = sessionReceipt ?? LibraryMutationSessionReceipt.Empty;
+        EstimatedInstallReceipt = estimatedInstallReceipt;
+        UnprocessedPackages = Array.AsReadOnly([.. (unprocessedPackages ?? []).Distinct()]);
+        WorkflowFailures = Array.AsReadOnly([.. (workflowFailures ?? []).Where(failure => failure != null)]);
+        SynchronizationIncomplete = synchronizationIncomplete;
+        InputCleanupFailures = Array.AsReadOnly([.. inputCleanupFailures ?? []]);
     }
 
+    /// <summary>自動推定自体の失敗・取消です。</summary>
+    internal Exception EstimationFailure { get; }
+    /// <summary>準備、停止、同期、回収などセッション外の実失敗を保持します。</summary>
+    internal IReadOnlyList<Exception> WorkflowFailures { get; }
+    /// <summary>必須反映まで成功し公開できる登録済みパッケージです。</summary>
     internal IReadOnlyList<ChartPackage> RegisteredPackages { get; }
-
-    /// <summary>導入操作の canonical session 終端 facts。</summary>
+    /// <summary>取り込み初段の確定事実です。</summary>
     internal LibraryMutationSessionReceipt SessionReceipt { get; }
-
-    /// <summary>パッケージ変更前に見つかった immutable な宛先型衝突を取得します。</summary>
+    /// <summary>推定後の導入バッチの確定事実です。未開始時はnullです。</summary>
+    internal LibraryMutationSessionReceipt EstimatedInstallReceipt { get; }
+    /// <summary>Busyまたは取消により後段で開始しなかった有限対象です。</summary>
+    internal IReadOnlyList<ChartPackage> UnprocessedPackages { get; }
+    /// <summary>必要な同期が安全条件または同期失敗により未完了かどうか。</summary>
+    internal bool SynchronizationIncomplete { get; }
+    /// <summary>未引渡し管理入力の回収失敗を、セッション内の元パッケージ片付けと区別して保持します。</summary>
+    internal IReadOnlyList<PackageInstallInputCleanupFailure> InputCleanupFailures { get; }
+    /// <summary>一操作の二つの確定境界を統合せず列挙します。</summary>
+    internal IEnumerable<LibraryMutationSessionReceipt> SessionReceipts => EstimatedInstallReceipt == null
+        ? [SessionReceipt] : [SessionReceipt, EstimatedInstallReceipt];
+    /// <summary>両段階で検出した宛先型衝突です。</summary>
     internal IReadOnlyList<FileDbMutationDestinationTypeConflict> DestinationTypeConflicts =>
-        SessionReceipt.DestinationTypeConflicts;
-
-    internal bool HasDurableCommit => SessionReceipt.DurableCommit;
-
-    internal bool HasRequiredFailure => SessionReceipt.HasRequiredFailure;
-
-    /// <summary>Gets whether a post-durable required finalizer failed for this command.</summary>
-    internal bool HasDurableFinalizationFailure => SessionReceipt.HasDurableFinalizationFailure;
-
-    internal bool ManualRecoveryRequired => SessionReceipt.ManualRecoveryRequired;
-
-    internal bool CompletedWithCleanupFailure => SessionReceipt.CompletedWithCleanupFailure;
-
-    /// <summary>Gets operation-scoped paths that may require confirmation or recovery.</summary>
-    internal IReadOnlyList<string> RecoveryPaths => SessionReceipt.CandidatePaths;
+        SessionReceipts.SelectMany(receipt => receipt.DestinationTypeConflicts).ToArray();
+    /// <summary>少なくとも一段階が永続確定したかどうか。</summary>
+    internal bool HasDurableCommit => SessionReceipts.Any(receipt => receipt.DurableCommit);
+    /// <summary>両段階の必須失敗、推定・操作外失敗、必要同期未完了を合わせた判定です。</summary>
+    internal bool HasRequiredFailure => SessionReceipts.Any(receipt => receipt.HasRequiredFailure)
+        || EstimationFailure != null || WorkflowFailures.Count > 0 || InputCleanupFailures.Count > 0 || SynchronizationIncomplete;
+    /// <summary>いずれかの段階が永続確定後の必須反映に失敗したかどうか。</summary>
+    internal bool HasDurableFinalizationFailure => SessionReceipts.Any(receipt => receipt.HasDurableFinalizationFailure);
+    /// <summary>いずれかの段階に未回復の物理変更があるかどうか。</summary>
+    internal bool ManualRecoveryRequired => SessionReceipts.Any(receipt => receipt.ManualRecoveryRequired);
+    /// <summary>確定成功した段階の元の後片付けに失敗したかどうか。</summary>
+    internal bool CompletedWithCleanupFailure => SessionReceipts.Any(receipt => receipt.CompletedWithCleanupFailure);
+    /// <summary>両段階の確認・回復候補を重複なく保持します。</summary>
+    internal IReadOnlyList<string> RecoveryPaths => SessionReceipts.SelectMany(receipt => receipt.CandidatePaths)
+        .Concat(InputCleanupFailures.Select(failure => failure.Path)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
 }

@@ -80,7 +80,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         switch (columnId)
         {
             case "IsExternalSync":
-                if (!await ConfirmPlaylistSummaryExternalSyncChangeAsync(value))
+                // 確認を出す前に受付の可否を検査し、使用中なら確認を出さずに案内します。確認後の取得で競合した場合は、取得側が一回案内します。
+                if (RejectIfPlaylistBusyBeforeConfirmation("playlist summary external sync busy notification")
+                    || !await ConfirmPlaylistSummaryExternalSyncChangeAsync(value))
                 {
                     return;
                 }

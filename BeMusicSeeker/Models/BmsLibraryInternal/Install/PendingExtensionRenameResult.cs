@@ -23,7 +23,7 @@ internal sealed class PendingExtensionRenameResult
 
 internal sealed class PendingExtensionRenameFailure
 {
-    public BMSFile File { get; set; }
+    public ChartFile File { get; set; }
 
     public RenameInvalidExtensionOutcome Outcome { get; set; }
 }

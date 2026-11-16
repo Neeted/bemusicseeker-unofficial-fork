@@ -84,7 +84,6 @@ internal static class Lr2FolderDirectoryEnumerationService
             roots,
             [new RootFileEnumerationGroup(RootFileEnumerationService.DirectoriesGroupName, [], includeDirectories: true)],
             everythingNative,
-            retryEmptyEverythingResultWithFastEnumerator: true,
             rootFileEnumerator: rootFileEnumerator);
         return CreateEntriesFromGroupedResult(result, roots, targetSet);
     }

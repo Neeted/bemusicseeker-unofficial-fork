@@ -6,19 +6,24 @@
 
 ## 用語
 
-[共通用語集](../glossary.md)を参照します。コードの識別子は原表記を使います。
+[共通用語集](../glossary.md)に従います。
 
 ## 仕様
 
 ### 有効条件と場所
 
-`EnableBeatorajaBmtOutput` が有効で、ルートに `config_sys.json` と `beatoraja.jar` または `beatoraja.exe` がある場合に出力します。出力先は `tablepath` から求め、相対ならbeatorajaルートを基準にします。派生値の `BeatorajaBmtTablePath` は画面から直接編集しません。プレイヤーとスコアDBも同じルートの `playerpath` と選択IDから求めます。
+空表名の外部データは保存可能ですが、BMT出力は警告や補名を行わずスキップします。表の名前なしフォルダはそのまま保持します。外部LR2表の既存配置条件は変更しません。
+
+`EnableBeatorajaBmtOutput` が有効で、ルートに `config_sys.json` と `beatoraja.jar` または `beatoraja.exe` がある場合に出力します。出力先は `tablepath` から求め、相対ならbeatorajaルートを基準にします。派生値の `BeatorajaBmtTablePath` は画面から直接編集しません。スコアは確定ルートの `playerpath` と選択IDから独立して解決し、スコア操作からBMT出力先を解決・保存しません。
 
 対象は `is_bmt_output=true` の表です。全出力では対象外の管理ファイルとURLを除きます。これは、全体設定を無効にしたとき既存出力を残す `KeepBeatorajaBmtFilesWhenOutputDisabled` とは別です。
 
 ### 形式とハッシュ
 
 BMTはgzip圧縮したUTF-8 JSONです。URLのSHA-256に `.bmt` を付けたファイル名を使います。
+
+表・フォルダ・譜面・コースの名前は、日時に見える場合もJSONの文字列として原文を保持します。コースJSONの再解析とgzipキャッシュの読戻しで日時への自動変換を行いません。
+外部 `config_sys.json` の任意文字列も同様に保持し、Table URL同期でplayer名や未知キーを日時へ変換しません。
 
 | 項目 | 内容 |
 | --- | --- |
@@ -28,6 +33,17 @@ BMTはgzip圧縮したUTF-8 JSONです。URLのSHA-256に `.bmt` を付けたフ
 | `course` | 元ヘッダーのコースをbeatorajaの形へ変換する。制約を `MIRROR`、`GAUGE_LR2`、`LN` 等へ対応させ、検証条件に合わないトロフィーは除く。 |
 
 譜面にはタイトルとMD5/SHA-256の少なくとも一方が必要です。対応範囲で `artist`、`url`、`appendurl`、`ipfs`、`appendipfs`、`org_md5` を出します。コースのハッシュは元ヘッダーの値だけを使います。
+
+保存済みの親MD5は、起動時に生値を遅延保持したentryでも最初の公開読取りで解決し、BMTの既存の小文字化・重複除去を適用して `org_md5` 配列へ入力順に渡します。MD5あり・SHA-256のみのどちらでも親0・1・複数を保持し、親なしの値は出しません。詳細表示による先読みの有無で出力は変わりません。読取り・出力のために元DBのhash・親MD5を補正せず、起動時の全件展開や出力ごとのDB再読込みは行いません。公開読取り・clone・JSONとの共通契約は[保存と出力](storage-and-export.md#正本と識別)に従います。
+
+コース制約は前後の空白と大文字小文字を正規化し、次の正規名と既存短縮名を同じ出力へ対応させます。自身が出力した正規名も、BMTキャッシュの復元、DB保存、再出力を経て保持します。他の既存制約との元の順序を保ち、変換後の重複は最初の一件だけを残し、未知の制約は省略します。変換は出力上だけで行い、保存済み `course_json`、元コースの名前・ハッシュ、トロフィーの採否と公開規則は変更しません。
+
+| 正規名・出力値 | 既存短縮名 |
+| --- | --- |
+| `GAUGE_5KEYS` | `gauge_5k` |
+| `GAUGE_7KEYS` | `gauge_7k` |
+| `GAUGE_9KEYS` | `gauge_9k` |
+| `GAUGE_24KEYS` | `gauge_24k` |
 
 | `BeatorajaBmtHashOutputMode` | 譜面のハッシュ出力 |
 | --- | --- |
@@ -39,19 +55,44 @@ MD5とSHA-256が別譜面を指す場合はMD5を正本とし、危険な対の�
 
 ### 順序と出力契機
 
+生成内容の意味を変更した場合は既存の `exporterVersion` を更新します。旧生成版の管理BMTは同じ入力指紋でも通常出力で一度再生成し、現行生成版で入力と実ファイルが未変更なら以後の生成・書込みを省略します。別の移行台帳や全件強制出力の状態は持ちません。
+
+生成意味版1の日時風文字列の変換、生成意味版2の正規gauge制約の欠落、生成意味版3の起動hydrate後の親MD5欠落も、この通常出力で修復します。入力指紋・実ファイルの更新時刻・サイズが一致する有効なgzipでも、旧生成版なら再生成の対象です。管理台帳のスキーマ版2は変更しません。
+
 表の順序は `bmt_sort` 昇順です。未正規化の同値・欠損は名前とIDで解消します。順序だけの変更はURL同期だけを行い、BMT本体を書き直しません。個別出力可否の変更はその表だけを出力・削除します。
 
-起動・`ReloadTables`・復元では譜面読込みと遅延外部同期の完了後、現在のプロファイルとDBの全対象へ揃えます。表が0件でも不要な管理ファイルを整理します。外部更新の既知変更・ハッシュ初期化、ローカル保存、譜面行保存、BMT内容に影響するプロパティ変更では対象を出力します。
+起動・`ReloadTablesAsync`・復元では必須の譜面読込み・出力修復を直接待ち、保存済みプレイリストに対して管理対象の集合と実ファイルの状態を揃えます。表が0件でも不要な管理ファイルを整理します。外部更新の既知変更・ハッシュ初期化、ローカル保存、譜面行保存、BMT内容に影響するプロパティ変更では対象を出力します。
 
-LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを予約しません。BMTの有効状態・出力先変更は全出力と旧先の整理を行いますが、無効化時の保持設定が有効ならファイル・台帳・URLを残します。ハッシュ出力モードだけの変更は即時再出力せず、次の通常出力時に反映します。表削除はその表の管理ファイルとURLだけを外します。
+LR2出力先、ルート型、LR2出力種類だけの変更ではBMTを再生成しません。無関係な通常項目の保存もBMTを開始しません。表の削除は、その表の管理ファイルとURLだけを外します。
+
+設定画面からの変更は、次のように出力します。候補の編集、確認、局所確定の受付と処理の寿命は[設定のbeatorajaの局所反映](../runtime/settings.md#beatorajaの局所反映)を正本とします。
+
+| 設定の変更 | BMTの出力 |
+| --- | --- |
+| BMTの有効状態・出力先の変更 | 全出力と旧出力先の整理を行う。無効化時の保持設定が有効なら、ファイル・台帳・URLを残す。 |
+| BMTの組の局所確定、同じ値での明示的な再更新 | 全表の再生成を要求し、必要出力とTable URL反映の完了を待つ。未変更判定による生成の省略を適用しない。外部configの `tablepath` はこの明示操作で解決し、操作中の入力を後から書き換えない。 |
+| beatorajaルートの有効な選択 | 保存済みのBMT方針で新しい出力先を準備してから設定を採用し、URL反映・旧出力先の整理を同じ受理Taskで回収する。未確定のBMT候補を混ぜない。 |
+| 確定済み環境の初回開始 | 初期化の必要BMTとして全表の投影を要求する。 |
+
+BMTの確定は、確定したルートとBMT自身の候補だけを使い、スコアの使用・プレイヤーの不備や別の候補には依存しません。スコア操作からBMTを開始・再開しません。同じ物理出力先での形式変更・明示的な再更新は、現在の設定と保存済みの正本から再生成します。途中の生成物の完全な復元や過去の要求の再開は保証せず、最新の入力の再保存を許容し、成功済みの工程を省略するための段階を持ちません。生成の失敗は通知し、必要なら既存の変更・再更新のボタンを案内します。
+
+出力無効時の通常の編集・削除・順序変更はBMTのI/Oを行いません。無効化を保存する明示的な全体出力だけが保持設定に従って既存出力を整理します。保持設定が有効なら読取不能の台帳にも通常編集を依存させません。
 
 全出力の進捗は実際に内容を生成・圧縮する表を対象にします。未変更で生成0件、整理・URL同期だけの場合に架空の0/1進捗を出しません。
 
+異なる物理先AからBへの変更の順序と失敗時の扱いは、[Table URL同期](#table-url同期)に従います。旧要求や成功した段階は後続の変更へ持ち越さず、A→Bの失敗後のCへの変更も最新の入力から処理します。過去の全旧先を後で自動回収する保証は設けません。
+
 ### 管理台帳と未変更判定
 
-出力先直下の `.bemusicseeker-bmt-manifest` を使い、`.json` は付けません。`files` は物理ファイルの所有、`playlists` は表IDとURLの所有を示します。表名、ヘッダー・データハッシュ、更新日時ticks、出力に関係する入力の指紋、実ファイル名・更新時刻・サイズを保持します。
+出力先直下の `.bemusicseeker-bmt-manifest` を使い、`.json` は付けません。`files` は物理ファイルの所有、`playlists` は表IDとURLの所有を示します。表名・URL、ヘッダー・データハッシュ、更新日時ticks、出力に関係する入力の指紋、実ファイル名・更新時刻・サイズを保持します。
 
-スキーマ版2ではこれらが一致する場合、内容生成とgzip書込みを省略します。指紋はタグ解決結果、外部同期扱い、互換接頭辞、フォルダ順、コースJSONを含みます。所持索引によるハッシュ解決結果だけの変化は無効化条件にしません。旧 `contentHash` は使わず、旧台帳のファイル・URL所有情報を保持して通常出力で現行形式へ移します。
+スキーマ版2ではこれらが一致する場合、内容生成とgzip書込みを省略します。入力指紋は、タグ解決結果、外部同期扱い、互換接頭辞、フォルダ順（空の順序と空文字だけの順序は、どちらも自動整列として同じ入力にそろえます。[保存と出力](storage-and-export.md#改名の入力)）、コースJSONと、存在する場合の解決済みdata URIから作ります。本文hashが同じままdataの実転送先が変わり相対entry本体・差分の解決先が変わった場合も、必要な投影と実gzip更新へ反映します。ハッシュ出力方式や所持索引によるハッシュ解決結果は含めません。旧 `contentHash` は使わず、旧台帳のファイル・URL所有情報を保持して通常出力で現行形式へ移します。
+
+実data URIは一表につき一度解決し、`GetComponents(HttpRequestUrl, SafeUnescaped)` の参照を入力指紋の材料にします。HTTPのpath/queryの有意caseと予約文字を保ち、scheme/host/既定port・相対/絶対・fragmentだけの同値な表記差を吸収します。Windowsドライブ・UNCでは局所文字列を大文字へ揃え、`Uri.Equals` の同値範囲へ合わせます。外部同期flagでは限定せず、URIがない表には空の新項目も加えず旧指紋を保ちます。追加処理はURI長に依存し、entryの列挙・展開・DB読取りを増やしません。既存のフォルダ順・コース列挙と管理情報の件数分の処理は残ります。
+
+旧指紋を持つ実data文脈ありの表は、次に通常出力対象となった回に一度投影・書込みを行います。部分出力で対象外の管理表を投影へ追加せず、後の全出力ではその時点で対象になる未移行の文脈あり表が各一度更新され得ます。文脈なしlocal等の旧指紋と実ファイル状態が一致すれば初回から省略します。生成算法・スキーマ・生成意味版は変えず、移行状態や全表強制の経路を加えません。
+
+入力が変わる回は生成bytesが同じでも一度投影・gzip置換を行い得ます。その次の同じ完全入力指紋・実ファイル状態の通常要求では、BMT本体の投影・圧縮・置換を省略し、bytesとmtimeを保ちます。生成後のbytes比較による省略は行いません。この省略は要求全体のI/Oゼロや台帳のmtime保持を意味せず、通常要求は台帳を保存し得ます。順序だけのURL同期で台帳も書き換えない契約は維持します。
 
 空表はURLだけを記録し、有効な内容が得られたら同じIDへファイルを付けます。URL変更でファイル名が変わる場合は、新しいものを管理し、他表が参照しない旧ファイルを整理します。同名ファイルは管理外でも上書きし、それ以後管理対象にします。
 
@@ -70,7 +111,7 @@ flowchart LR
 
 ### 整理と失敗
 
-削除するのは台帳にあるBMTだけで、管理外ファイルを走査して削除しません。全出力では別プロファイル由来も含め現在集合へ揃えます。`files` は現在ファイルに加え削除できなかった旧ファイルを保持し、`playlists` は現在の対象へ更新します。全削除の部分失敗ならURL所有権を空にし、未削除ファイルを残します。出力先変更後の旧先は自動回収せず、残留を通知します。
+削除するのは台帳にあるBMTだけで、管理外ファイルを走査して削除しません。全出力では別プロファイル由来も含め現在集合へ揃えます。変更表だけの部分出力は既存の表・URL所有へ変更を適用し、無関係な所有を消しません。旧URLのファイルは残る共有参照がなければ整理します。空の部分変更も全量更新へ読み替えません。`files` は現在ファイルに加え削除できなかった旧ファイルを保持し、`playlists` は現在の対象へ更新します。全削除の部分失敗ならURL所有権を空にし、未削除ファイルを残します。設定変更でURL切替に成功した後は今回の旧先だけを整理し、残留を通知します。後続操作へ旧先の回収履歴を持ち越しません。
 
 `RemovedCount` は削除完了件数で、不存在も含みます。失敗、共有参照により残したもの、台帳自体の削除は含みません。存在確認のfalseを削除成功とみなさず、削除操作の結果で判定します。
 
@@ -84,7 +125,7 @@ flowchart LR
 | 表の要素 | 非空キー、オブジェクト値、非空URL。`file` の省略・null・空文字はURLのみ。参照ファイルも物理台帳へ含める。 |
 | その他 | 重複プロパティは拒否。未知の追加情報は許可。既知の任意項目は省略・nullを許すが値があれば宣言した型が必要。`exporterVersion` の違いは未変更判定の不一致であり、非対応スキーマではない。 |
 
-部分削除・読取り・保存失敗は対象と原因を変更不能な結果へまとめ、出力ロックと台帳ロックを抜けてから既存のプレイリスト通知へ渡します。元の `AsyncLocal` セッションが終わっていても通知します。台帳保存前に変更したBMTを戻す複数ファイルのトランザクションや、永続的な再試行キューは持ちません。
+部分削除・読取り・保存失敗は対象と原因を変更不能な結果へまとめ、出力ロックと台帳ロックを抜けてから既存のプレイリスト通知へ渡します。必要出力は変更元の同じTaskで待ち、出力失敗を元の操作結果へ返します。受付の保持点は[競合ポリシー](../core/operation-concurrency-policy.md#プレイリストと必要出力)に従います。台帳保存前に変更したBMTを戻す複数ファイルのトランザクションや、永続的な再試行キューは持ちません。
 
 #### 台帳確定とURL公開の順序
 
@@ -102,19 +143,43 @@ flowchart TB
 
 ### Table URL同期
 
-URL同期は確定した台帳の所有情報から行い、物理書込み・削除0件でも省略しません。台帳の読取り・保存に失敗した操作では、未確定のURL所有権を反映しません。
+順序だけのURL同期は確定した台帳を読み、configの管理URL順を反映する専用経路です。BMT生成・削除・台帳保存は行わず、台帳が読取り可能なら置換不能でも成立します。出力を伴うURL同期も、確定した台帳の所有情報から行い、物理書込み・削除0件でも省略しません。構成ファイルの読取り・書込み失敗は必要出力の部分失敗として元の操作へ返します。生成済みBMT・確定済みDBを戻さず、元の原因を保持し、次の明示操作で新しい入力を捕捉します。台帳の読取り・保存に失敗した操作では、未確定のURL所有権を反映しません。
+
+出力有効の既存beatorajaルートでは、構成ファイルの破損・読取不能を表示用の無効判定や既定設定へ置換しません。必要同期は対象の構成ファイルパスと元原因を実通知へ渡し、その終端まで変更元のPを保持します。出力無効の通常変更は構成ファイルの読取りにも依存せず、未指定ルートの明示出力先と対象外ルートの従来の無作用は維持します。
 
 `RegisterBeatorajaBmtUrls` が有効なら、既存配列から前回の管理URLを除き、管理外URLの順序を先頭側に保って、現在の管理URLをBMT順で末尾へ追加します。空表のURLも管理対象です。現在の表一覧に見つからない台帳要素は既知の表の後ろへ名前・ID順で並べます。登録設定が無効なら前回管理URLを外します。
 
+設定による異なる物理先A→Bは、Bの必要ファイル・管理情報を準備し、user.config保存成功でBを採用した後、管理URLを切り替えてからA管理ファイルを整理します。準備・設定保存失敗ではAの設定・URL・ファイルを維持し、Bの部分生成物は残ることがあります。同rootの旧新URLは一回の原子的同期、別rootはB登録成功後にA解除とします。URL切替失敗ではB採用を維持し、旧URLがまだ有効な可能性をファイル残存と区別して通知し、Aのファイルは整理しません。整理だけの失敗はB採用・URLを維持し、残存を通知して終了します。同じ物理先は旧先として削除しません。無効化の保持ONはファイル・台帳・管理URLをすべて保持します。保持OFFはURL除去成功後にファイルを整理し、物理残存からURL所有を復活させません。今回の管理URL集合がある非空rootについて、実行ファイル等の欠落で共通同期が対象外となった場合もURL未反映の部分失敗とし、旧管理ファイルを保持します。共通同期の対象外での無作用は維持し、旧root未指定・URL所有なし・保持ONへ不要な同期を要求しません。
+
 beatorajaの登録URL取込みでは成功・既存一致した表を元URL順でBMT順の先頭へ反映します。失敗URLは管理外として残します。詳細は[Table URL取込み](table-url-import.md)を参照します。
+
+起動時の保存済み表の必要出力の待機と、開始・更新・全終端の通知は、[LR2カスタムフォルダ出力](lr2-custom-folders.md#修復と一括反映)と共通です。BMTの出力は、実行基盤の暗黙の実行文脈を参照しません。
+
+進捗要求の生成・開始・終了、件数進捗、性能ログ、失敗報告コールバックは任意通知です。その失敗は局所診断に留め、実BMT・台帳・設定の成功や取消しを変更せず、通知だけのために未完了出力を作りません。実ファイル・設定の失敗は引き続き必要出力の失敗とし、確定済みDBと出力の事実を保持します。
 
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 形式・ハッシュ・空表・未変更判定・台帳破損・削除失敗 | [`BmtTableExportService`](../../../BeMusicSeeker/Models/Playlist/BmtTableExportService.cs) | [`BmtTableExportServiceTests`](../../../BeMusicSeeker.Tests/Playlist/BmtTableExportServiceTests.cs) |
-| 出力予約・URL同期・0件・通知の寿命 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`](../../../BeMusicSeeker.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
-| 順序と一括編集 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`](../../../BeMusicSeeker.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
+| 形式・ハッシュ・空表・未変更判定・台帳破損・削除失敗 | [`BmtTableExportService`](../../../BeMusicSeeker/Models/Playlist/BmtTableExportService.cs) | [`BmtTableExportServiceTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmtTableExportServiceTests.cs) |
+| 実data参照差と同値表現の投影入力 | `BmtTableExportService.CreatePlaylistExportMetadata` / `BuildProjectionInputSha256` | `BmtTableExportServiceTests.CreatePlaylistExportMetadata_EffectiveDataUriChangesProjectionFingerprint` は本文hash・日時・同期元が同じでもdirectory/path/query case・予約文字の別参照で指紋差を確認する。`CreatePlaylistExportMetadata_EquivalentDataReferencesKeepProjectionFingerprint` は相対/絶対・scheme/host/既定port/fragment・drive/UNC case、`CreatePlaylistExportMetadata_UnrelatedSourcesKeepProjectionFingerprint` は無関係page/header差と文脈なしを分担する。metadataへの新しいentry走査がないことは静的確認する。 |
+| 旧入力指紋の初回移行、local初回省略、部分出力と次回省略 | `BmtTableExportService.CreateExportPlan` / `ExportTableDataSet` | `BmtTableExportServiceTests.ExportTableDataSet_LegacyDataContextMigratesOnlyRequestedTableThenSkips` は有効gzipと旧schema2/同生成版の固定指紋から、文脈あり対象の一度の投影/write、新指紋確定と次回の投影なし/write0・bytes/mtime保持、localの初回省略、非対象管理表・管理外物の保全を確認する。入力・実file時刻変更のwriteは既存 `ExportTableDataSet_RewritesWhenProjectionInputFingerprintChanges` / `ExportTableDataSet_RewritesWhenManagedPlaylistFileTimestampChanges` が維持する。 |
+| 同本文・実data転送から通常reloadと既存BMT更新 | `PlaylistExternalSyncOwner`、`PlaylistBmtOutputOwner`、`BmtTableExportService` | [`BmsPlaylistExternalReloadTests.ReloadPlaylistTargetsAsync_RedirectedRelativeUrlsReachExistingBmtAndNextOutputSkips`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistExternalReloadTests.cs) はAのURLを持つ実gzip/台帳を通常登録で残したまま、実HTTP転送→通常reloadの終端でBの相対本体・差分を現行/返却/readonly DBと新規gzip readerで確認する。元同期元・hash・日時・ローカル状態を保ち、次の同入力通常BMT要求では投影進捗なし・bytes/mtime保持を確認する。全絶対entryのURI-only保存は既存 `ReloadPlaylistTargetsAsync_RedirectedDataContextPersistsWithoutUpdatedFlag` に残す。 |
+| 起動後の遅延親MD5と詳細先読みから独立した出力 | [`BMSTableEntry`](../../../BeMusicSeeker/Models/Playlist/BMSTableEntry.cs)、`BmtTableExportService.CreateEntryProjectionSnapshot` | `BmtTableExportServiceTests.ExportTable_AfterStartupHydrationPreservesParentsWithOrWithoutDetails` が通常保存→新接続の起動hydrate→通常attach→実gzipで、MD5あり単親・SHA256のみ複数親・親なし、詳細snapshot有無、自己hash・行数と元DBの対象・無関係行の不変を確認する。`BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl` は実cache→DB保存→新接続→実gzipの親列を分担する。 |
+| 日時風の任意名 | `BmtTableExportService`、[`BeatorajaBmtTableImportService`](../../../BeMusicSeeker/Models/Playlist/BeatorajaBmtTableImportService.cs)、[`BeatorajaConfigService`](../../../BeMusicSeeker/Models/Settings/BeatorajaConfigService.cs) | `BmtTableExportServiceTests.ExportTable_ExternalTableWritesBeatorajaBmtShape` はコース再解析から実gzipまで、`BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl` は実cacheからDB保存・新接続の読戻し・実gzip再出力まで文字列原文と型、所属・hash・raw URLを確認する。`BeatorajaConfigService_SyncTableUrlsPreservesUnmanagedAndReplacesManaged` は実config更新後の任意文字列と管理外URL順を確認する。 |
+| コース制約の正規名・短縮名・混在列の往復 | `BmtTableExportService.ConvertConstraint`、`BuildCourseConstraints`、`BeatorajaBmtTableImportService`、`PlaylistPersistenceRepository` | `BmtTableExportServiceTests.BeatorajaBmtTableImportService_LoadCachedTable_RestoresTableWithConfigRawUrl` が正規名だけ、短縮名だけ、他制約・両順の別名重複・未知値の混在を別コースに置き、実gzip→DB保存→新接続読戻し→実gzipで独立した期待列、元name・hash、有効trophy・release、保存 `course_json` の不変を確認する。不正trophy除外は `ExportTable_ExternalTableWritesBeatorajaBmtShape` が分担する。 |
+| 旧生成意味版からの一度の修復と以後の省略 | `BmtTableExportService` の生成意味版と未変更判定 | `BmtTableExportServiceTests.ExportTableDataSet_SkipsUnchangedManagedPlaylistWrites` が旧1の日時名・旧2の制約欠落・旧3の親MD5欠落を別条件で確認する。入力・実gzipの時刻・サイズを揃えた現行版の省略を対照とし、版だけを旧版へ戻した通常再生成と、次回の投影不要・書込み0件・省略1件・gzip内容・時刻・管理URLの不変を確認する。 |
+| 起動時の必要出力の接続と、BMTの生産側通知 | 起動の必須初期化、[`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`StartupRequiredInitializationTests`](../../../tests/BeMusicSeeker.Core.Tests/Startup/StartupRequiredInitializationTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) / [`BmsPlaylistMigrationAndRegistrationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)。 |
+| 空表名の外部データの非出力 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | `PlaylistWorkspaceExternalSourceTests.TryStartPlaylistImport_NewExternalTablePreservesFourDigitAddDateInDatabase` が、実インポート・DB・項目の保持と、出力要求の終端での非生成・失敗通知なしを確認する。 |
+| 必要出力の直接待機・URL同期・0件・元操作の部分失敗 | [`BMSPlaylist`](../../../BeMusicSeeker/Models/Playlist/BMSPlaylist.cs) | [`BmsPlaylistCustomFolderOutputTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs) / [`BmsPlaylistCustomFolderOutputTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistCustomFolderOutputTests.cs)、[`BmsPlaylistMigrationAndRegistrationTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) / [`BmsPlaylistMigrationAndRegistrationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) |
+| 部分変更・全量現在集合・無効保持・明示整理、置換不能台帳の順序同期 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.BeatorajaBmtOperations_PreserveUnchangedOwnershipAndSeparateUrlSyncFromOutput`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) が実SQLite・台帳・gzip・configで未変更表と管理外データを確認する。 |
+| 台帳確定後の物理削除失敗とURL所有解除、報告中のP保持・終了回収、台帳未確定時のURL非公開 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs) の `BeatorajaBmtOwnershipRelease_PublishesCommittedUrlsDespiteDeleteFailure` が通常削除と無効全整理の実台帳・config・残存媒体を確認し、`BeatorajaBmtFailure_ReportsTargetAndCauseWithinAcceptedOperation` が台帳読取・保存失敗時のconfig不変と元原因を確認する。下位のfiles/playlists分離は `BmtTableExportServiceTests.ManagedCleanupFailure_RetainsPhysicalOwnership` が引き続き担当する。 |
+| BMT組の局所確定・同値再生成、正本と管理外データの保全 | 設定の局所確定、`PlaylistBmtOutputOwner` | [`SettingDialogEditCompletionTests.BmtSettingsAdoption_PreservesAdoptedMediaAndAllowsCurrentNextInput`](../../../tests/BeMusicSeeker.Windows.Tests/Settings/SettingDialogEditCompletionTests.cs) が同先の方式変更・外部破損後の明示再更新、管理外file/URL順、実SQLiteの元hashを確認する。下位形式行列は `BmtTableExportServiceTests` が分担する。 |
+| 新先準備・設定採用・URL切替・旧先整理の失敗境界 | 設定の局所確定、BMT担当、`BeatorajaConfigService` | 同 `BmtSettingsAdoption_PreservesAdoptedMediaAndAllowsCurrentNextInput` が実BMT置換/manifest/user.config/config/削除の共有拒否を分け、fresh設定、採用時の媒体、同root/別root URL、保持ON/OFF、準備・URL・整理失敗後の最新Cを確認する。score使用ONのroot準備/設定保存失敗も旧root採用を維持する。実行ファイルだけを失った旧rootでの無効化/別root移行、保持ON・URL所有なし・旧root未指定も同じ条件表で区別する。同root一回同期への旧新集合の接続は局所コード確認、原子的置換の原本保持は既存 `BeatorajaConfigService_SyncTableUrlsPreservesUnmanagedAndReplacesManaged` が分担する。 |
+| 通知故障と実出力結果の分離 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs) | [`BmsPlaylistMigrationAndRegistrationTests.RegisteredBatch_AwaitsActualBmtOutputAndPreservesCommittedDatabaseOnOutputFailure`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmsPlaylistMigrationAndRegistrationTests.cs)で通知故障時の実BMT・台帳・設定成功と、実台帳失敗時のDB保持を確認する。[`BmtTableExportServiceTests.OrderedProjectionProgressPublisherSerializesCallbacksInCompletionOrder`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/BmtTableExportServiceTests.cs)で先行通知故障後も後続通知を直列に試みる。 |
+| 順序四入口のDB・サマリー・configと同じP寿命、無変更、取込み後配置 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistWorkspacePersistenceCommandTests.BmtOrderCommands_CompleteDatabaseSummaryAndConfigInOneAcceptedTask`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs)、[`PlaylistWorkspaceExternalSourceTests.BeatorajaTableUrlImport_ExistingTablesKeepInputFrontOrderAndRemainingRelativeOrder`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspaceExternalSourceTests.cs)。画面の選択・Bindingは既存 [`MainWindowPlaylistWorkspaceWpfTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) / [`MainWindowPlaylistWorkspaceWpfTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPlaylistWorkspaceWpfTests.cs) が分担する。 |
+| 順序と一括編集 | [`PlaylistWorkspaceViewModel`](../../../BeMusicSeeker/ViewModels/Playlist/PlaylistWorkspaceViewModel.cs) | [`PlaylistSummaryBulkEditTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistSummaryBulkEditTests.cs) / [`PlaylistSummaryBulkEditTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistSummaryBulkEditTests.cs)、[`PlaylistWorkspacePersistenceCommandTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) / [`PlaylistWorkspacePersistenceCommandTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs) |
+| 構成ファイルの解析・読取り・置換失敗、通知中のP保持、修復後の明示同期、無効保持falseの通常順序保存 | [`PlaylistBmtOutputOwner`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Playlist/PlaylistBmtOutputOwner.cs)、[`BeatorajaConfigService`](../../../BeMusicSeeker/Models/Settings/BeatorajaConfigService.cs) | [`PlaylistWorkspacePersistenceCommandTests.BmtOrderConfigFailure_KeepsCommittedOrderAndAdmissionThroughNotification / BmtOrderDisabled_SavesOrderWithoutReadingLockedConfigOrManifest`](../../../tests/BeMusicSeeker.Core.Tests/Playlist/PlaylistWorkspacePersistenceCommandTests.cs)。四成功入口と保持trueは既存のworkspace・ownerケースが分担する。 |
 
 ## 関連資料
 

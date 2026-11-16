@@ -74,21 +74,18 @@ internal static class CustomFolderOutputBaseRegistry
             .Where(entry => !string.IsNullOrWhiteSpace(entry.Name))];
     }
 
+    /// <summary>追加名なしでは既定先の値をそのまま返し、指定した追加名だけを登録から解決します。未登録名はnullを返します。</summary>
     internal static string ResolveNormalOutputBaseDirectory(
         string savedBaseName,
         string defaultBaseDirectory,
         string serializedAdditionalBaseDirectories)
     {
-        if (TryResolveNormalOutputBaseDirectory(
+        TryResolveNormalOutputBaseDirectory(
             savedBaseName,
             defaultBaseDirectory,
             serializedAdditionalBaseDirectories,
-            out string outputBaseDirectory))
-        {
-            return outputBaseDirectory;
-        }
-
-        return defaultBaseDirectory;
+            out string outputBaseDirectory);
+        return outputBaseDirectory;
     }
 
     internal static bool TryResolveNormalOutputBaseDirectory(
@@ -117,18 +114,14 @@ internal static class CustomFolderOutputBaseRegistry
         return false;
     }
 
+    /// <summary>追加先の保存名は未登録でも表示へ残し、空名だけを通常先の表示名として扱います。</summary>
     internal static string GetDisplayName(
         string savedBaseName,
         string defaultBaseDirectory,
         string serializedAdditionalBaseDirectories)
     {
         string normalizedSavedName = NormalizeBaseName(savedBaseName);
-        if (!string.IsNullOrWhiteSpace(normalizedSavedName)
-            && CreateAdditionalEntries(DeserializeBaseDirectories(serializedAdditionalBaseDirectories))
-                .Any(entry => string.Equals(entry.Name, normalizedSavedName, StringComparison.OrdinalIgnoreCase)))
-        {
-            return normalizedSavedName;
-        }
+        if (!string.IsNullOrWhiteSpace(normalizedSavedName)) { return normalizedSavedName; }
 
         return GetDirectoryDisplayName(defaultBaseDirectory);
     }

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Xml;
 using System.Xml.Linq;
@@ -16,9 +17,9 @@ internal sealed class PortableSettingsStartupFile
         this.path = Path.GetFullPath(path ?? throw new ArgumentNullException(nameof(path)));
     }
 
-    /// <summary>Validates input, optionally imports missing settings, and warns after quarantine but before fresh creation.</summary>
-    /// <param name="migrateMissing">Legacy import, invoked only when the portable input is absent.</param>
-    /// <param name="warnRecovery">Reports the preserved backup and default reset before creation or materialization.</param>
+    /// <summary>入力を検証し、破損XMLをGregorianのUTC保全名へ退避してから、新規作成前に警告します。</summary>
+    /// <param name="migrateMissing">設定が存在しない場合だけ呼ぶ旧設定の移入処理です。</param>
+    /// <param name="warnRecovery">保全先と初期化を、新規作成・設定値取得の前に知らせます。</param>
     internal void Prepare(Action migrateMissing, Action<string> warnRecovery)
     {
         XDocument document;
@@ -28,7 +29,7 @@ internal sealed class PortableSettingsStartupFile
         }
         catch (PortableSettingsException exception) when (exception.InnerException is XmlException)
         {
-            string backup = path + ".broken-" + DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffffffZ") + "-" + Guid.NewGuid().ToString("N");
+            string backup = path + ".broken-" + DateTime.UtcNow.ToString("yyyyMMddTHHmmssfffffffZ", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N");
             try
             {
                 File.Move(path, backup);

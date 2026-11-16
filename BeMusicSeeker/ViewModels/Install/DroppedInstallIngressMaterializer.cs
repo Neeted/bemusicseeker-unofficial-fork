@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Frozen;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
@@ -92,7 +94,7 @@ internal sealed class DroppedInstallIngressMaterializer
     }
 
     /// <summary>
-    /// Acquires a complete batch atomically and returns a durable request or a typed failure.
+    /// 実体のルート・祖先・子孫を検査してバッチ全体を確保し、永続する要求または分類付き失敗を返します。信頼済みTEMPの子孫だけは起点属性を検査しません。
     /// </summary>
     internal DroppedInstallIngressAcquisitionResult Acquire(IEnumerable<string> paths)
     {
@@ -109,7 +111,7 @@ internal sealed class DroppedInstallIngressMaterializer
 
             string[] normalizedPaths = originals.Select(LongPathFileSystem.NormalizePathForStorage).ToArray();
             bool[] transient = normalizedPaths.Select(IsExternalTransientSource).ToArray();
-            bool[] sourceIsDirectory = new bool[normalizedPaths.Length];
+            var transientSources = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
             for (int index = 0; index < normalizedPaths.Length; index++)
             {
                 string source = normalizedPaths[index];
@@ -127,7 +129,12 @@ internal sealed class DroppedInstallIngressMaterializer
                         ? GetTrustedRootDescendantAttributes(source)
                         : GetStableSourceAttributesWithAncestors(source);
                     EnsureSourceTreeIsNotReparsePoints(source, attributes);
-                    sourceIsDirectory[index] = (attributes & FileAttributes.Directory) != 0;
+                    if (transient[index])
+                    {
+                        transientSources.TryAdd(
+                            LongPathFileSystem.TrimTrailingDirectorySeparators(source),
+                            (attributes & FileAttributes.Directory) != 0);
+                    }
                 }
                 catch (Exception exception) when (exception is FileNotFoundException
                     || exception is DirectoryNotFoundException
@@ -137,10 +144,12 @@ internal sealed class DroppedInstallIngressMaterializer
                 }
             }
 
+            IReadOnlySet<string> fullySelectedDirectories = PackageInstallInputSelection.Capture(normalizedPaths);
+
             if (!transient.Any(value => value))
             {
                 return DroppedInstallIngressAcquisitionResult.Success(
-                    new DroppedInstallBatchRequest(normalizedPaths, originals, [], null, reportCleanupFailure));
+                    new DroppedInstallBatchRequest(normalizedPaths, originals, [], null, reportCleanupFailure, fullySelectedDirectories));
             }
 
             ingressRoot = NormalizeDirectoryPath(createManagedIngressRoot());
@@ -160,22 +169,20 @@ internal sealed class DroppedInstallIngressMaterializer
                 string destination = LongPathFileSystem.NormalizePathForStorage(
                     Path.Combine(ingressRoot, relativePath));
                 EnsureDestinationWithinIngressRoot(destination, ingressRoot);
-                if (sourceIsDirectory[index]
+                string copySource = LongPathFileSystem.TrimTrailingDirectorySeparators(source);
+                if (transientSources[copySource]
                     && LongPathFileSystem.IsSameOrDescendantDirectoryPath(ingressRoot, source))
                 {
                     throw new UnsafeDroppedInstallSourceException("The managed ingress destination is inside a dropped source directory.");
                 }
                 durablePaths[index] = destination;
-                mappedPaths[source] = destination;
+                mappedPaths[copySource] = destination;
             }
 
-            foreach (string source in GetMinimalCopySources(normalizedPaths, transient, sourceIsDirectory))
+            foreach ((string source, bool isDirectory) in GetMinimalCopySources(transientSources))
             {
                 string destination = mappedPaths[source];
-                int sourceIndex = Array.FindIndex(
-                    normalizedPaths,
-                    path => string.Equals(path, source, StringComparison.OrdinalIgnoreCase));
-                if (sourceIsDirectory[sourceIndex])
+                if (isDirectory)
                 {
                     CopyDirectoryWithoutReparsePoints(source, destination, ingressRoot);
                 }
@@ -192,7 +199,10 @@ internal sealed class DroppedInstallIngressMaterializer
                 originals,
                 [ingressRoot],
                 deleteManagedIngressRoot,
-                reportCleanupFailure);
+                reportCleanupFailure,
+                fullySelectedDirectories.Select(directory => IsExternalTransientSource(directory)
+                    ? LongPathFileSystem.NormalizePathForStorage(Path.Combine(ingressRoot, Path.GetRelativePath(systemTempRoot, directory)))
+                    : directory).ToFrozenSet(StringComparer.OrdinalIgnoreCase));
             ingressRoot = null;
             return DroppedInstallIngressAcquisitionResult.Success(request);
         }
@@ -227,31 +237,35 @@ internal sealed class DroppedInstallIngressMaterializer
             systemTempRoot);
     }
 
-    private static IEnumerable<string> GetMinimalCopySources(
-        string[] paths,
-        bool[] transient,
-        bool[] sourceIsDirectory)
+    /// <summary>
+    /// 末尾区切りを除いたコピー元と取得済みの種別から、選択された一時ディレクトリに包含されないものだけを返します。
+    /// </summary>
+    private static IEnumerable<KeyValuePair<string, bool>> GetMinimalCopySources(
+        Dictionary<string, bool> sources)
     {
-        var unique = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        for (int index = 0; index < paths.Length; index++)
+        var directories = sources.Where(source => source.Value)
+            .Select(source => source.Key)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, bool> source in sources)
         {
-            if (transient[index])
+            // ファイル同士は包含しません。全入力の再探索を避け、祖先だけを集合で照合します。
+            bool coveredByDirectory = false;
+            if (directories.Count != 0)
             {
-                unique.Add(paths[index]);
+                string ancestor = Path.GetDirectoryName(source.Key);
+                while (!string.IsNullOrEmpty(ancestor))
+                {
+                    if (directories.Contains(ancestor))
+                    {
+                        coveredByDirectory = true;
+                        break;
+                    }
+                    ancestor = Path.GetDirectoryName(ancestor);
+                }
             }
-        }
-
-        foreach (string candidate in unique)
-        {
-            bool coveredByDirectory = unique.Any(other =>
-                !string.Equals(candidate, other, StringComparison.OrdinalIgnoreCase)
-                && sourceIsDirectory[Array.FindIndex(
-                    paths,
-                    path => string.Equals(path, other, StringComparison.OrdinalIgnoreCase))]
-                && LongPathFileSystem.IsSameOrDescendantDirectoryPath(candidate, other));
             if (!coveredByDirectory)
             {
-                yield return candidate;
+                yield return source;
             }
         }
     }
@@ -310,15 +324,28 @@ internal sealed class DroppedInstallIngressMaterializer
     private FileAttributes GetStableSourceAttributesWithAncestors(string source)
     {
         string root = Path.GetPathRoot(source);
-        string relativePath = string.IsNullOrWhiteSpace(root)
-            ? string.Empty
-            : Path.GetRelativePath(root, source);
+        if (string.IsNullOrWhiteSpace(root))
+        {
+            throw new UnsafeDroppedInstallSourceException("A dropped install source must have a filesystem root.");
+        }
+
+        // 実体の起点は相対配置ではありません。ルート自身も一度属性を検査します。
+        FileAttributes attributes = getAttributes(root);
+        EnsureAttributesAreNotReparsePoint(attributes);
+        if ((attributes & FileAttributes.Directory) == 0)
+        {
+            throw new DirectoryNotFoundException("A dropped install source root is not a directory: " + root);
+        }
+        string relativePath = Path.GetRelativePath(root, source);
+        if (string.Equals(relativePath, ".", StringComparison.Ordinal))
+        {
+            return attributes;
+        }
         ValidateRelativePath(relativePath);
         string[] components = relativePath.Split(
             [Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar],
             StringSplitOptions.RemoveEmptyEntries);
         string current = root;
-        FileAttributes attributes = default;
         for (int index = 0; index < components.Length; index++)
         {
             current = LongPathFileSystem.NormalizePathForStorage(

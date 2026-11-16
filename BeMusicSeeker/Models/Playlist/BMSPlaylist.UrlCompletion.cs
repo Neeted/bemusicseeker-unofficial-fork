@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using Newtonsoft.Json;
 using Ribbit.Logging;
 using Ribbit.Net;
 using Ribbit.Util.Extensions;
@@ -37,6 +41,12 @@ public partial class BMSPlaylist
 
     private string playlistUrlCompletionLatestReason = "initial";
 
+    private static void LogPlaylistUrlCompletionDiagnostic(Action write)
+    {
+        try { write(); }
+        catch (Exception) { }
+    }
+
     private PlaylistUrlCompletionOptionsSnapshot GetPlaylistUrlCompletionOptions()
     {
         return playlistUrlCompletionOptionsProvider()
@@ -51,6 +61,7 @@ public partial class BMSPlaylist
     /// <summary>
     /// プレイリスト URL 補完の再取得と再適用をバックグラウンドで予約します。
     /// 初期化や外部同期と競合しても最新要求だけへ収束するよう、versioning と単一実行セマフォで直列化します。
+    /// 診断だけの失敗は隔離し、内部故障と所有する取消しは実処理の終端として返します。
     /// </summary>
     /// <param name="reason">ログに残す呼び出し理由。</param>
     internal void SchedulePlaylistUrlCompletionRefresh(string reason)
@@ -58,38 +69,33 @@ public partial class BMSPlaylist
         string normalizedReason = string.IsNullOrWhiteSpace(reason) ? "unspecified" : reason;
         playlistUrlCompletionLatestReason = normalizedReason;
         long requestedVersion = Interlocked.Increment(ref playlistUrlCompletionRequestedVersion);
-        NLogWrapper.FileLogger?.Info("playlist_url_completion schedule version=" + requestedVersion + " reason=" + normalizedReason);
+        LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion schedule version=" + requestedVersion + " reason=" + normalizedReason));
         async Task work()
         {
-            try
+            if (IsShutdownRequested)
             {
-                if (IsShutdownRequested)
-                {
-                    NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=shutdown_requested requestReason=" + normalizedReason);
-                    return;
-                }
-                await RefreshPlaylistUrlCompletionLoopAsync().ConfigureAwait(false);
+                LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=shutdown_requested requestReason=" + normalizedReason));
+                return;
             }
-            catch (Exception ex)
-            {
-                NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_refresh_failed reason=" + normalizedReason);
-            }
+            // 実処理の故障を成功に変換せず、所有スケジューラーの終端へ返します。
+            await RefreshPlaylistUrlCompletionLoopAsync().ConfigureAwait(false);
         }
         if (StartupBackgroundTaskScheduler != null)
         {
-            if (StartupBackgroundTaskScheduler("playlist_url_completion", normalizedReason, "playlist_entries_hydration", work))
+            if (StartupBackgroundTaskScheduler("playlist_url_completion", normalizedReason, null, work))
             {
                 return;
             }
-            NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=startup_scheduler_rejected requestReason=" + normalizedReason);
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=startup_scheduler_rejected requestReason=" + normalizedReason));
             return;
         }
         if (IsShutdownRequested)
         {
-            NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=shutdown_requested requestReason=" + normalizedReason);
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion skipped reason=shutdown_requested requestReason=" + normalizedReason));
             return;
         }
-        _ = Task.Run(work);
+        Task.Run(work).ObserveFault((task, _, _, _) =>
+            NLogWrapper.FileLogger?.Warn(task.Exception, "playlist_url_completion_refresh_failed reason=" + normalizedReason));
     }
 
     /// <summary>
@@ -106,7 +112,7 @@ public partial class BMSPlaylist
         }
         PlaylistUrlCompletionOptionsSnapshot options = GetPlaylistUrlCompletionOptions();
         PlaylistUrlCompletionApplyStats applyStats = ApplyPlaylistUrlCompletionToTableCore(table, options);
-        NLogWrapper.FileLogger?.Info("playlist_url_completion apply_cached_table reason=" + (reason ?? string.Empty) + " table=" + FormatTextForLog(table.name) + " entries=" + applyStats.EntryCount + " changed=" + applyStats.ChangedEntryCount + " runtimeUrl=" + applyStats.RuntimeUrlCount + " runtimeUrlDiff=" + applyStats.RuntimeUrlDiffCount);
+        LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion apply_cached_table reason=" + (reason ?? string.Empty) + " table=" + FormatTextForLog(table.name) + " entries=" + applyStats.EntryCount + " changed=" + applyStats.ChangedEntryCount + " runtimeUrl=" + applyStats.RuntimeUrlCount + " runtimeUrlDiff=" + applyStats.RuntimeUrlDiffCount));
     }
 
     internal void ApplyCachedPlaylistUrlCompletionToTables(IEnumerable<BMSTable> tables, string reason)
@@ -122,7 +128,7 @@ public partial class BMSPlaylist
         {
             aggregateStats.Add(ApplyPlaylistUrlCompletionToTableCore(table, options));
         }
-        NLogWrapper.FileLogger?.Info("playlist_url_completion apply_cached_tables reason=" + (reason ?? string.Empty) + " tables=" + aggregateStats.TableCount + " entries=" + aggregateStats.EntryCount + " changed=" + aggregateStats.ChangedEntryCount + " runtimeUrl=" + aggregateStats.RuntimeUrlCount + " runtimeUrlDiff=" + aggregateStats.RuntimeUrlDiffCount);
+        LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion apply_cached_tables reason=" + (reason ?? string.Empty) + " tables=" + aggregateStats.TableCount + " entries=" + aggregateStats.EntryCount + " changed=" + aggregateStats.ChangedEntryCount + " runtimeUrl=" + aggregateStats.RuntimeUrlCount + " runtimeUrlDiff=" + aggregateStats.RuntimeUrlDiffCount));
     }
 
     private async Task RefreshPlaylistUrlCompletionLoopAsync()
@@ -157,13 +163,14 @@ public partial class BMSPlaylist
 
     private async Task RefreshPlaylistUrlCompletionCoreAsync(long version, string reason)
     {
-        NLogWrapper.FileLogger?.Info("playlist_url_completion start version=" + version + " reason=" + reason);
+        startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
+        LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion start version=" + version + " reason=" + reason));
         await EnsureAllPlaylistEntriesLoadedAsync("playlist_url_completion").ConfigureAwait(false);
         PlaylistUrlCompletionOptionsSnapshot options = GetPlaylistUrlCompletionOptions();
         if (!options.EnablePlaylistUrlCompletion)
         {
             PlaylistUrlCompletionApplyStats disabledApplyStats = ClearPlaylistUrlCompletionFromLoadedTables();
-            NLogWrapper.FileLogger?.Info("playlist_url_completion finish version=" + version + " reason=" + reason + " disabled=true tables=" + disabledApplyStats.TableCount + " entries=" + disabledApplyStats.EntryCount + " changed=" + disabledApplyStats.ChangedEntryCount);
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion finish version=" + version + " reason=" + reason + " disabled=true tables=" + disabledApplyStats.TableCount + " entries=" + disabledApplyStats.EntryCount + " changed=" + disabledApplyStats.ChangedEntryCount));
             return;
         }
         string configuredTsvSource = options.PlaylistMd5UrlMappingTsvUri;
@@ -172,18 +179,27 @@ public partial class BMSPlaylist
         bool hasValidConfiguredTsvSource = !hasConfiguredTsvSource || PlaylistUrlCompletionSupport.TryResolveSourceUri(configuredTsvSource, out tsvSourceUri);
         if (hasConfiguredTsvSource && !hasValidConfiguredTsvSource)
         {
-            NLogWrapper.FileLogger?.Warn("playlist_url_completion_tsv_invalid_source raw=" + configuredTsvSource);
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Warn("playlist_url_completion_tsv_invalid_source raw=" + configuredTsvSource));
         }
         Task<PlaylistUrlCompletionRefreshSourceResult> tsvTask = FetchPlaylistUrlCompletionTsvSnapshotAsync(tsvSourceUri, hasConfiguredTsvSource, hasValidConfiguredTsvSource);
         Task<PlaylistUrlCompletionRefreshSourceResult> stellaTask = FetchPlaylistUrlCompletionStellaSnapshotAsync(options);
-        PlaylistUrlCompletionRefreshSourceResult[] refreshResults = await Task.WhenAll(tsvTask, stellaTask).ConfigureAwait(false);
+        PlaylistUrlCompletionRefreshSourceResult[] refreshResults = await Task.WhenAll(tsvTask, stellaTask)
+            .LoggingAndPropagate((task, _, _, _) =>
+            {
+                if (task.IsFaulted)
+                {
+                    // 並行した取得元の失敗をここで診断し、表示用の例外履歴は保持しません。
+                    NLogWrapper.FileLogger?.Warn(task.Exception, "playlist_url_completion_sources_failed version=" + version + " reason=" + reason);
+                }
+            }).ConfigureAwait(false);
+        startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
         PlaylistUrlCompletionRefreshSourceResult tsvResult = refreshResults[0];
         PlaylistUrlCompletionRefreshSourceResult stellaResult = refreshResults[1];
         PlaylistUrlCompletionApplyStats applyStats = ApplyPlaylistUrlCompletionToLoadedTablesCore(
             options,
             tsvResult.Snapshot.Candidates,
             stellaResult.Snapshot.Candidates);
-        NLogWrapper.FileLogger?.Info("playlist_url_completion finish version=" + version + " reason=" + reason + " tsvCandidates=" + tsvResult.Snapshot.CandidateCount + " tsvDuplicateSkipped=" + tsvResult.Snapshot.DuplicateCount + " tsvIgnored=" + tsvResult.Snapshot.IgnoredRowCount + " tsvSnapshotReplaced=" + tsvResult.ShouldReplaceSnapshot.ToString().ToLowerInvariant() + " tsvSnapshotCached=" + tsvResult.UsedCachedSnapshot.ToString().ToLowerInvariant() + " stellaCandidates=" + stellaResult.Snapshot.CandidateCount + " stellaDuplicateSkipped=" + stellaResult.Snapshot.DuplicateCount + " stellaIgnored=" + stellaResult.Snapshot.IgnoredRowCount + " stellaSnapshotReplaced=" + stellaResult.ShouldReplaceSnapshot.ToString().ToLowerInvariant() + " stellaSnapshotCached=" + stellaResult.UsedCachedSnapshot.ToString().ToLowerInvariant() + " tables=" + applyStats.TableCount + " entries=" + applyStats.EntryCount + " changed=" + applyStats.ChangedEntryCount + " runtimeUrl=" + applyStats.RuntimeUrlCount + " runtimeUrlDiff=" + applyStats.RuntimeUrlDiffCount);
+        LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion finish version=" + version + " reason=" + reason + " tsvCandidates=" + tsvResult.Snapshot.CandidateCount + " tsvDuplicateSkipped=" + tsvResult.Snapshot.DuplicateCount + " tsvIgnored=" + tsvResult.Snapshot.IgnoredRowCount + " tsvSnapshotReplaced=" + tsvResult.ShouldReplaceSnapshot.ToString().ToLowerInvariant() + " tsvSnapshotCached=" + tsvResult.UsedCachedSnapshot.ToString().ToLowerInvariant() + " stellaCandidates=" + stellaResult.Snapshot.CandidateCount + " stellaDuplicateSkipped=" + stellaResult.Snapshot.DuplicateCount + " stellaIgnored=" + stellaResult.Snapshot.IgnoredRowCount + " stellaSnapshotReplaced=" + stellaResult.ShouldReplaceSnapshot.ToString().ToLowerInvariant() + " stellaSnapshotCached=" + stellaResult.UsedCachedSnapshot.ToString().ToLowerInvariant() + " tables=" + applyStats.TableCount + " entries=" + applyStats.EntryCount + " changed=" + applyStats.ChangedEntryCount + " runtimeUrl=" + applyStats.RuntimeUrlCount + " runtimeUrlDiff=" + applyStats.RuntimeUrlDiffCount));
     }
 
     private async Task<PlaylistUrlCompletionRefreshSourceResult> FetchPlaylistUrlCompletionTsvSnapshotAsync(Uri sourceUri, bool hasConfiguredSource, bool hasValidConfiguredSource)
@@ -204,14 +220,15 @@ public partial class BMSPlaylist
         }
         lock (playlistUrlCompletionSnapshotLock)
         {
-            if (playlistUrlCompletionTsvSnapshotFetched && UriEquals(playlistUrlCompletionTsvSnapshotSourceUri, sourceUri))
+            if (playlistUrlCompletionTsvSnapshotFetched && PlaylistUrlCompletionSupport.UriEquals(playlistUrlCompletionTsvSnapshotSourceUri, sourceUri))
             {
                 return PlaylistUrlCompletionRefreshSourceResult.FromCache(new PlaylistUrlCompletionSourceSnapshot(playlistUrlCompletionTsvSnapshot, 0, 0));
             }
         }
         try
         {
-            string content = await FetchPlaylistUrlCompletionTsvContentAsync(sourceUri, CancellationToken.None).ConfigureAwait(false);
+            string content = await FetchPlaylistUrlCompletionTsvContentAsync(sourceUri, startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+            startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
             PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseMd5UrlMappingTsv(content);
             lock (playlistUrlCompletionSnapshotLock)
             {
@@ -221,14 +238,15 @@ public partial class BMSPlaylist
             }
             return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(snapshot);
         }
+        catch (OperationCanceledException) when (startupReadinessCoordinator.IsShutdownRequested) { throw; }
         catch (TaskCanceledException ex)
         {
-            NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_tsv_timeout source=" + sourceUri + " timeoutMs=" + PlaylistUrlCompletionTimeoutMs);
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_tsv_timeout source=" + sourceUri + " timeoutMs=" + PlaylistUrlCompletionTimeoutMs));
             return PlaylistUrlCompletionRefreshSourceResult.KeepCurrent(GetCachedPlaylistUrlCompletionTsvSnapshot());
         }
-        catch (Exception ex2)
+        catch (Exception ex2) when (ex2 is HttpRequestException or IOException or UnauthorizedAccessException or OperationCanceledException)
         {
-            NLogWrapper.FileLogger?.Warn(ex2, "playlist_url_completion_tsv_failed source=" + sourceUri);
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Warn(ex2, "playlist_url_completion_tsv_failed source=" + sourceUri));
             return PlaylistUrlCompletionRefreshSourceResult.KeepCurrent(GetCachedPlaylistUrlCompletionTsvSnapshot());
         }
     }
@@ -249,7 +267,8 @@ public partial class BMSPlaylist
         }
         try
         {
-            string content = await FetchPlaylistUrlCompletionStellaContentAsync(stellaUri, CancellationToken.None).ConfigureAwait(false);
+            string content = await FetchPlaylistUrlCompletionStellaContentAsync(stellaUri, startupReadinessCoordinator.ShutdownToken).ConfigureAwait(false);
+            startupReadinessCoordinator.ShutdownToken.ThrowIfCancellationRequested();
             PlaylistUrlCompletionSourceSnapshot snapshot = PlaylistUrlCompletionSupport.ParseStellaUploadFullJson(content);
             lock (playlistUrlCompletionSnapshotLock)
             {
@@ -258,14 +277,15 @@ public partial class BMSPlaylist
             }
             return PlaylistUrlCompletionRefreshSourceResult.ReplaceWith(snapshot);
         }
+        catch (OperationCanceledException) when (startupReadinessCoordinator.IsShutdownRequested) { throw; }
         catch (TaskCanceledException ex)
         {
-            NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_stella_timeout source=" + stellaUri + " timeoutMs=" + PlaylistUrlCompletionTimeoutMs);
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Warn(ex, "playlist_url_completion_stella_timeout source=" + stellaUri + " timeoutMs=" + PlaylistUrlCompletionTimeoutMs));
             return PlaylistUrlCompletionRefreshSourceResult.KeepCurrent(GetCachedPlaylistUrlCompletionStellaSnapshot());
         }
-        catch (Exception ex2)
+        catch (Exception ex2) when (ex2 is HttpRequestException or IOException or UnauthorizedAccessException or OperationCanceledException or JsonException or FormatException)
         {
-            NLogWrapper.FileLogger?.Warn(ex2, "playlist_url_completion_stella_failed source=" + stellaUri);
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Warn(ex2, "playlist_url_completion_stella_failed source=" + stellaUri));
             return PlaylistUrlCompletionRefreshSourceResult.KeepCurrent(GetCachedPlaylistUrlCompletionStellaSnapshot());
         }
     }
@@ -349,7 +369,7 @@ public partial class BMSPlaylist
         }
         if (!table.ArePlaylistEntriesLoaded)
         {
-            NLogWrapper.FileLogger?.Info("playlist_url_completion skip_unloaded_table table=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\"");
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion skip_unloaded_table table=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\""));
             return new PlaylistUrlCompletionApplyStats
             {
                 TableCount = 1
@@ -376,6 +396,8 @@ public partial class BMSPlaylist
             TableCount = 1
         };
         bool overwriteExisting = options.OverwritePlaylistUrlsWithCompletion;
+        List<PlaylistEntryChange> changes = [];
+        PlaylistEntryCommitReceipt committed;
         using (table.ReaderWriterLock.GetWriterGuard())
         {
             foreach (BMSTableEntry entry in table.entries ?? Enumerable.Empty<BMSTableEntry>())
@@ -394,9 +416,11 @@ public partial class BMSPlaylist
                 // そのため URL2 だけ空でも、TSV 側に MD5 がある限り Stella で補うことはしません。
                 Uri completedUrl = candidate?.Url;
                 Uri completedUrlDiff = candidate?.UrlDiff;
+                PlaylistEntryValue before = entry.CaptureValue();
                 if (entry.ApplyRuntimeUrlCompletion(completedUrl, completedUrlDiff, overwriteExisting))
                 {
                     tableStats.ChangedEntryCount++;
+                    changes.Add(table.CaptureEntryChange(entry, before));
                 }
                 if (entry.RuntimeUrlCompletion != null)
                 {
@@ -407,11 +431,15 @@ public partial class BMSPlaylist
                     tableStats.RuntimeUrlDiffCount++;
                 }
             }
+            committed = table.CommitEntryValues(changes);
+            RegisterEntryCommit(committed);
         }
+        try { CompleteReferencesAndOutputs([committed], () => { }); }
+        finally { SignalEntryCommitsAvailable(); }
         return tableStats;
     }
 
-    private static PlaylistUrlCompletionApplyStats ClearPlaylistUrlCompletionFromTable(BMSTable table)
+    private PlaylistUrlCompletionApplyStats ClearPlaylistUrlCompletionFromTable(BMSTable table)
     {
         if (table == null)
         {
@@ -423,9 +451,11 @@ public partial class BMSPlaylist
         };
         if (!table.ArePlaylistEntriesLoaded)
         {
-            NLogWrapper.FileLogger?.Info("playlist_url_completion clear_skip_unloaded_table table=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\"");
+            LogPlaylistUrlCompletionDiagnostic(() => NLogWrapper.FileLogger?.Info("playlist_url_completion clear_skip_unloaded_table table=\"" + (table.name ?? string.Empty).Replace("\"", "\"\"") + "\""));
             return tableStats;
         }
+        List<PlaylistEntryChange> changes = [];
+        PlaylistEntryCommitReceipt committed;
         using (table.ReaderWriterLock.GetWriterGuard())
         {
             foreach (BMSTableEntry entry in table.entries ?? Enumerable.Empty<BMSTableEntry>())
@@ -435,12 +465,18 @@ public partial class BMSPlaylist
                     continue;
                 }
                 tableStats.EntryCount++;
+                PlaylistEntryValue before = entry.CaptureValue();
                 if (entry.ClearRuntimeUrlCompletions())
                 {
                     tableStats.ChangedEntryCount++;
+                    changes.Add(table.CaptureEntryChange(entry, before));
                 }
             }
+            committed = table.CommitEntryValues(changes);
+            RegisterEntryCommit(committed);
         }
+        try { CompleteReferencesAndOutputs([committed], () => { }); }
+        finally { SignalEntryCommitsAvailable(); }
         return tableStats;
     }
 
@@ -481,19 +517,6 @@ public partial class BMSPlaylist
                 Snapshot = snapshot ?? PlaylistUrlCompletionSourceSnapshot.Empty
             };
         }
-    }
-
-    private static bool UriEquals(Uri left, Uri right)
-    {
-        if (ReferenceEquals(left, right))
-        {
-            return true;
-        }
-        if (left == null || right == null)
-        {
-            return false;
-        }
-        return Uri.Compare(left, right, UriComponents.AbsoluteUri, UriFormat.SafeUnescaped, StringComparison.OrdinalIgnoreCase) == 0;
     }
 
     private struct PlaylistUrlCompletionApplyStats

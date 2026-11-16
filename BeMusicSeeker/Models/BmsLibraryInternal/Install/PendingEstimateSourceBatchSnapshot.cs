@@ -2,17 +2,6 @@ using System.Collections.Generic;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-/// <summary>
-/// Identifies the in-memory inputs from which a pending install estimate was produced.
-/// Retry callers capture this stamp in the same read boundary as the package's
-/// installed/missing partition so a newer stamp can never validate an older partition.
-/// </summary>
-internal readonly record struct PendingInstallEstimateCurrentnessStamp(
-    long ResourceIndexGeneration,
-    int OwnedCollectionVersion,
-    long InstalledLookupGeneration,
-    long DigestMutationGeneration);
-
 internal sealed class SourceSurfaceEntryView
 {
     public string SourceDirectory { get; set; } = string.Empty;
@@ -31,18 +20,14 @@ internal sealed class SourceSurfaceEntryView
 
     public string ScanBackend { get; set; } = string.Empty;
 
+    /// <summary>観測済み同梱にない資源の不存在を確定できるかを共有します。</summary>
+    public bool IsComplete { get; set; } = true;
+
     public bool ScanLimitExceeded { get; set; }
 
     public int VisitedFileSystemEntryCount { get; set; }
 
     public int MaxVisitedFileSystemEntryCount { get; set; }
-}
-
-internal sealed class SourceBaselinePrefilterResult
-{
-    public bool Deferred { get; set; }
-
-    public int PrimaryHealth { get; set; }
 }
 
 internal sealed class PendingEstimateSourceBatchPackageState
@@ -57,28 +42,31 @@ internal sealed class PendingEstimateSourceBatchPackageState
 
     public List<PackageChartEntry> AlreadyInstalledEntries { get; set; } = [];
 
-    public List<PackageChartEntry> MissingEntries { get; set; } = [];
+    /// <summary>自動推定で評価する未所持群です。全既所持パッケージの準備状態は作りません。</summary>
+    public List<PackageChartEntry> TargetEntries { get; set; } = [];
 
+    /// <summary>TargetEntriesと同じ順序で一度捕捉した譜面相対参照とpackage内配置です。空列は既知0件であり再取得しません。</summary>
+    public IReadOnlyList<(ChartResourceSnapshot Resources, string RelativeDirectory)> TargetChartResources { get; set; } = [];
+
+    /// <summary>同じTargetChartResourcesから作ったpackage-root要求集合です。早期判定と推定本体で共用します。</summary>
     public ChartResourceSnapshot ChartResources { get; set; } = new ChartResourceSnapshot();
 
     public ChartInstallationEstimateMode EstimateMode { get; set; }
 
     public InstalledDirectoryLookupResult PreparationInstalledResolution { get; set; }
 
-    /// <summary>
-    /// Gets or sets the runtime inputs used for <see cref="PreparationInstalledResolution"/>.
-    /// </summary>
-    public PendingInstallEstimateCurrentnessStamp? PreparationCurrentnessStamp { get; set; }
 
     public SourceSurfaceEntryView SourceSurface { get; set; }
 
-    public SourceBaselinePrefilterResult BaselinePrefilter { get; set; } = new SourceBaselinePrefilterResult();
+    /// <summary>音源完全でハッシュ候補がない入力の新規リソース探索を省略します。既知ハッシュ候補のStrong評価や手動推定では設定しません。</summary>
+    public bool SkipAutomaticEstimation { get; set; }
 
     public bool UsesBatchSourceSurface { get; set; }
 
-    public bool HasMissingFiles => MissingEntries.Count > 0;
+    /// <summary>評価する使用資源の譜面群を持つかを返します。</summary>
+    public bool HasTargetEntries => TargetEntries.Count > 0;
 
-    public bool AttemptInstalledResolve => AlreadyInstalledEntries.Count > 0 && HasMissingFiles;
+    public bool AttemptInstalledResolve => AlreadyInstalledEntries.Count > 0 && HasTargetEntries;
 }
 
 internal sealed class PendingEstimateSourceBatchSnapshot
@@ -87,11 +75,6 @@ internal sealed class PendingEstimateSourceBatchSnapshot
 
     public List<PendingEstimateSourceBatchPackageState> PackageStates { get; } = [];
 
-    /// <summary>
-    /// Gets or sets the versioned inputs shared by every package state in this batch. The stamp
-    /// guards the prepared installed/missing partition and source-derived state as one unit.
-    /// </summary>
-    public PendingInstallEstimateCurrentnessStamp PreparationCurrentnessStamp { get; set; }
 
     public int RootCount { get; set; }
 

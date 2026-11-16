@@ -569,46 +569,77 @@ unsigned int FindDateModifiedPropertyId(void* client) {
 	return g_api.FindPropertyW(client, L"System.DateModified");
 }
 
-bool GetResultPath(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
-	for (int retry = 0; retry < 4; retry++) {
-		size_t len = g_api.GetResultPathW(resultList, index, buffer.data(), buffer.size());
-		if (len == 0) {
-			return false;
-		}
-		if (len < buffer.size()) {
-			out.assign(buffer.data());
-			return true;
-		}
-		buffer.resize(len + 1);
+/// <summary>
+/// 固定SDKの不変な結果から完全な非空文字列を取得し、query所有のbufferを再利用します。
+/// 取得不能・容量照会との不一致はfalseで返し、未確認の断片を採用しません。
+/// </summary>
+/// <remarks>
+/// Everything SDK 3.0.0.9 の戻り値の意味に依存します。容量ありの呼出しは書き込んだUTF-16の長さ、
+/// 容量0の呼出しはNULを含む必要容量を返します。末尾に余裕がある短いパスは一回の取得で済ませ、
+/// サロゲート対の手前での切詰めと区別できない場合だけ必要容量を照会します。再取得後も長さが
+/// 一致しなければ失敗とします。bufferは同じqueryの中で再利用し、拡張回数だけを計数します。
+/// </remarks>
+bool GetCompleteResultString(Everything3_GetResultPathWFn getter, void* resultList, size_t index,
+	std::vector<wchar_t>& buffer, size_t& length, unsigned long long* resizeCount) {
+	length = getter(resultList, index, buffer.data(), buffer.size());
+	if (length == 0 || length >= buffer.size() || buffer[length] != L'\0') {
+		return false;
+	}
+	// 非ゼロ容量の返却は必要長ではなく書込み長。サロゲート対が残り1文字に
+	// 入らず止まる場合もあるため、末尾2文字分だけは容量0でNUL込み必要容量を確認する。
+	if (buffer.size() - length > 2) {
+		return true;
+	}
+	size_t required = getter(resultList, index, nullptr, 0);
+	if (required == 0) {
+		return false;
+	}
+	if (required > buffer.size()) {
+		buffer.resize(required);
 		if (resizeCount) {
 			*resizeCount += 1;
 		}
+		length = getter(resultList, index, buffer.data(), buffer.size());
 	}
-	return false;
+	return length > 0 && length == required - 1 && length < buffer.size() && buffer[length] == L'\0';
 }
 
-bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
-	for (int retry = 0; retry < 4; retry++) {
-		size_t len = g_api.GetResultNameW(resultList, index, buffer.data(), buffer.size());
-		if (len == 0) {
-			return false;
-		}
-		if (len < buffer.size()) {
-			out.assign(buffer.data());
-			return !out.empty();
-		}
-		buffer.resize(len + 1);
-		if (resizeCount) {
-			*resizeCount += 1;
-		}
+/// <summary>完全なディレクトリ文字列だけを分離取得の出力へ渡します。</summary>
+bool GetResultPath(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
+	size_t length;
+	if (!GetCompleteResultString(g_api.GetResultPathW, resultList, index, buffer, length, resizeCount)) {
+		return false;
 	}
-	return false;
+	out.assign(buffer.data(), length);
+	return true;
+}
+
+/// <summary>完全なファイル名だけを分離取得の出力へ渡します。</summary>
+bool GetResultName(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& out, unsigned long long* resizeCount = nullptr) {
+	size_t length;
+	if (!GetCompleteResultString(g_api.GetResultNameW, resultList, index, buffer, length, resizeCount)) {
+		return false;
+	}
+	out.assign(buffer.data(), length);
+	return true;
+}
+
+// 絶対drive rootのseparatorだけはdirectoryの一部。C:という相対表現からrootを推測しない。
+size_t DriveRootPrefixLength(const wchar_t* value, size_t length) {
+	return length >= 3 && ((value[0] >= L'A' && value[0] <= L'Z') || (value[0] >= L'a' && value[0] <= L'z'))
+		&& value[1] == L':' && (value[2] == L'\\' || value[2] == L'/') ? 3 : 0;
+}
+
+size_t DirectoryPathLengthWithoutTrailingSeparators(const wchar_t* value, size_t length) {
+	const size_t rootLength = DriveRootPrefixLength(value, length);
+	while (length > rootLength && (value[length - 1] == L'\\' || value[length - 1] == L'/')) {
+		length--;
+	}
+	return length;
 }
 
 void AssignNormalizedDirectoryPath(const wchar_t* value, size_t length, std::wstring& output) {
-	while (length > 0 && (value[length - 1] == L'\\' || value[length - 1] == L'/')) {
-		length--;
-	}
+	length = DirectoryPathLengthWithoutTrailingSeparators(value, length);
 	output.resize(length);
 	for (size_t i = 0; i < length; i++) {
 		wchar_t ch = value[i];
@@ -636,26 +667,16 @@ bool SplitFullPathBuffer(const wchar_t* fullPath, size_t length, std::wstring& d
 	if (pos >= length) {
 		return false;
 	}
-	AssignNormalizedDirectoryPath(fullPath, pos - 1, directoryPath);
+	AssignNormalizedDirectoryPath(fullPath, pos, directoryPath);
 	fileName.assign(fullPath + pos, length - pos);
 	return !fileName.empty();
 }
 
+/// <summary>完全取得を確認してからfull pathをディレクトリと名前へ分割します。</summary>
 bool GetResultFullPathAndSplit(void* resultList, size_t index, std::vector<wchar_t>& buffer, std::wstring& directoryPath, std::wstring& fileName, unsigned long long* resizeCount = nullptr) {
-	for (int retry = 0; retry < 4; retry++) {
-		size_t len = g_api.GetResultFullPathNameW(resultList, index, buffer.data(), buffer.size());
-		if (len == 0) {
-			return false;
-		}
-		if (len < buffer.size()) {
-			return SplitFullPathBuffer(buffer.data(), len, directoryPath, fileName);
-		}
-		buffer.resize(len + 1);
-		if (resizeCount) {
-			*resizeCount += 1;
-		}
-	}
-	return false;
+	size_t length;
+	return GetCompleteResultString(g_api.GetResultFullPathNameW, resultList, index, buffer, length, resizeCount)
+		&& SplitFullPathBuffer(buffer.data(), length, directoryPath, fileName);
 }
 
 std::wstring CombinePathAndName(const std::wstring& directoryPath, const std::wstring& fileName) {
@@ -783,7 +804,8 @@ bool IsDotOrDotDot(const std::wstring& segment) {
 	return segment == L"." || segment == L"..";
 }
 
-std::wstring NormalizeReferencePathForLookup(const std::wstring& path) {
+// directoryとfileが共有する構造処理だけを行い、物理directory名の拡張子を変えない。
+std::wstring NormalizeReferencePathStructure(const std::wstring& path) {
 	if (path.empty()) {
 		return std::wstring();
 	}
@@ -820,7 +842,12 @@ std::wstring NormalizeReferencePathForLookup(const std::wstring& path) {
 		}
 		joined += segments[i];
 	}
-	return NormalizeExtensionAlias(joined);
+	return joined;
+}
+
+// 資源拡張子の同一視は末尾fileの参照にだけ適用する。
+std::wstring NormalizeReferencePathForLookup(const std::wstring& path) {
+	return NormalizeExtensionAlias(NormalizeReferencePathStructure(path));
 }
 
 std::wstring NormalizeResourceKeyForLookup(const std::wstring& path) {
@@ -837,6 +864,9 @@ bool StartsWithDirectoryPrefix(const std::wstring& filePath, const std::wstring&
 	if (filePath.size() == directoryPath.size()) {
 		return true;
 	}
+	if (!directoryPath.empty() && (directoryPath.back() == L'\\' || directoryPath.back() == L'/')) {
+		return true;
+	}
 	wchar_t next = filePath[directoryPath.size()];
 	return next == L'\\' || next == L'/';
 }
@@ -845,11 +875,7 @@ std::wstring TrimTrailingSeparators(const std::wstring& path) {
 	if (path.empty()) {
 		return path;
 	}
-	size_t end = path.size();
-	while (end > 0 && (path[end - 1] == L'\\' || path[end - 1] == L'/')) {
-		end--;
-	}
-	return path.substr(0, end);
+	return path.substr(0, DirectoryPathLengthWithoutTrailingSeparators(path.data(), path.size()));
 }
 
 void NormalizeDirectoryPathInPlace(std::wstring& path) {
@@ -858,18 +884,20 @@ void NormalizeDirectoryPathInPlace(std::wstring& path) {
 			ch = L'\\';
 		}
 	}
-	while (!path.empty() && (path.back() == L'\\' || path.back() == L'/')) {
-		path.pop_back();
-	}
+	path.resize(DirectoryPathLengthWithoutTrailingSeparators(path.data(), path.size()));
 }
 
 std::wstring GetParentDirectory(const std::wstring& path) {
 	std::wstring trimmed = TrimTrailingSeparators(path);
+	const size_t rootLength = DriveRootPrefixLength(trimmed.data(), trimmed.size());
+	if (rootLength != 0 && trimmed.size() == rootLength) {
+		return std::wstring();
+	}
 	size_t pos = trimmed.find_last_of(L"\\/");
 	if (pos == std::wstring::npos) {
 		return std::wstring();
 	}
-	return trimmed.substr(0, pos);
+	return trimmed.substr(0, (std::max)(rootLength, pos));
 }
 
 std::wstring NormalizeRelativePathForLookup(const std::wstring& chartDirectory, const std::wstring& filePath) {
@@ -904,7 +932,7 @@ std::wstring NormalizeRelativeDirectoryPrefixForLookup(const std::wstring& chart
 	if (relative.empty()) {
 		return std::wstring();
 	}
-	std::wstring normalized = NormalizeReferencePathForLookup(relative);
+	std::wstring normalized = NormalizeReferencePathStructure(relative);
 	if (normalized.empty()) {
 		return std::wstring();
 	}
@@ -1050,6 +1078,10 @@ void AppendCategoryRawHit(CategoryRawHits& rawHits, std::wstring&& directoryPath
 	inserted.first->second.push_back(std::move(fileName));
 }
 
+/// <summary>
+/// queryを列挙し、文字列の取得不完全をquery全体の失敗として返します。
+/// 先行callbackの結果があっても、呼出元は失敗したqueryを公開結果へ確定しません。
+/// </summary>
 template <typename Callback, typename HitCountCallback>
 bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, QueryExecutionStats* stats, HitCountCallback&& onHitCount, bool useFullPathRead = false, bool includeDateModified = false) {
 	void* state = g_api.CreateSearchState();
@@ -1098,6 +1130,7 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 		std::vector<wchar_t> nameBuffer(512);
 		std::wstring path;
 		std::wstring name;
+		bool resultsComplete = true;
 		for (size_t i = 0; i < hitCount; i++) {
 			const bool timeSdkRead = !sampleSdkReadTiming || (i % SDK_READ_TIMING_SAMPLE_INTERVAL) == 0;
 			std::chrono::steady_clock::time_point sdkReadStartedAt;
@@ -1120,7 +1153,8 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 				}
 			}
 			if (!gotResult) {
-				continue;
+				resultsComplete = false;
+				break;
 			}
 			unsigned long long dateModifiedFileTime = 0ull;
 			if (includeDateModified && g_api.GetResultDateModified) {
@@ -1152,7 +1186,7 @@ bool ExecuteQuery(void* client, const wchar_t* query, Callback&& onResult, Query
 			stats->sdkReadMs = sdkReadMs;
 			stats->callbackMs = readMs > sdkReadMs ? readMs - sdkReadMs : 0;
 		}
-		ok = true;
+		ok = resultsComplete;
 	} while (false);
 
 	if (result) {
@@ -1527,6 +1561,11 @@ unsigned int GetWorkerCount(size_t workItemCount) {
 	return desired == 0u ? 1u : desired;
 }
 
+/// <summary>リソースディレクトリの所有譜面ディレクトリと相対ディレクトリ接頭辞を、キャッシュから取得または構築します。</summary>
+/// <remarks>
+/// 所有者の探索と相対接頭辞の正規化は、同じ走査の中でキャッシュに無いディレクトリについてだけ一回行い、
+/// リソースごとに再構築しません。所有者と接頭辞のキャッシュは同じ項目で管理するため、両者のhit・missは同時に計数します。
+/// </remarks>
 bool EnsureResourceDirectoryInfo(
 	const ScanAggregate& aggregate,
 	ResourceAssignmentContext& context,

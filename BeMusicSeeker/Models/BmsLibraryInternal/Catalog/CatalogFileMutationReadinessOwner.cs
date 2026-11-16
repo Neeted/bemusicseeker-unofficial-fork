@@ -59,8 +59,8 @@ internal sealed class CatalogFileMutationReadinessOwner
     }
 
     /// <summary>
-    /// Publishes convergence after the authoritative scan diff and canonical
-    /// catalog storage replacement have both completed successfully.
+    /// 完全走査の正本・索引と、入口が必要とするLR2・参照・表示の終端成功後に収束を公開します。
+    /// 部分解除や保存だけの成功では呼び出しません。
     /// </summary>
     internal void MarkConverged()
     {
@@ -77,7 +77,7 @@ internal sealed class CatalogFileMutationAdmissionOwner
 {
     private readonly BMSLibrary.Lr2SynchronizationOwner lr2SynchronizationOwner;
     private readonly CatalogFileMutationReadinessOwner readinessOwner;
-    private readonly Action<CatalogPathConvergenceBlockReason> showConvergenceRequiredWarning;
+    private readonly Func<CatalogPathConvergenceBlockReason, BMSLibrary.OperationDialogMessage> createConvergenceRequiredWarning;
 
     /// <summary>
     /// Creates the admission owner that composes path-convergence readiness
@@ -85,18 +85,18 @@ internal sealed class CatalogFileMutationAdmissionOwner
     /// </summary>
     /// <param name="lr2SynchronizationOwner">Existing exclusive mutation admission owner.</param>
     /// <param name="readinessOwner">Process-local catalog path-convergence state.</param>
-    /// <param name="showConvergenceRequiredWarning">Interactive warning shown when convergence is not current.</param>
+    /// <param name="createConvergenceRequiredWarning">収束が現在でないときの警告の案内を作る処理。案内は呼出元が渡した操作の収集先へ加えます。</param>
     internal CatalogFileMutationAdmissionOwner(
         BMSLibrary.Lr2SynchronizationOwner lr2SynchronizationOwner,
         CatalogFileMutationReadinessOwner readinessOwner,
-        Action<CatalogPathConvergenceBlockReason> showConvergenceRequiredWarning)
+        Func<CatalogPathConvergenceBlockReason, BMSLibrary.OperationDialogMessage> createConvergenceRequiredWarning)
     {
         this.lr2SynchronizationOwner = lr2SynchronizationOwner
             ?? throw new ArgumentNullException(nameof(lr2SynchronizationOwner));
         this.readinessOwner = readinessOwner
             ?? throw new ArgumentNullException(nameof(readinessOwner));
-        this.showConvergenceRequiredWarning = showConvergenceRequiredWarning
-            ?? throw new ArgumentNullException(nameof(showConvergenceRequiredWarning));
+        this.createConvergenceRequiredWarning = createConvergenceRequiredWarning
+            ?? throw new ArgumentNullException(nameof(createConvergenceRequiredWarning));
     }
 
     /// <summary>
@@ -111,15 +111,14 @@ internal sealed class CatalogFileMutationAdmissionOwner
     internal CatalogPathConvergenceBlockReason BlockReason => readinessOwner.BlockReason;
 
     /// <summary>
-    /// Performs a non-reserving preflight check. The subsequent authoritative
-    /// <see cref="TryBeginFileOperationMutation"/> call still re-checks readiness after it
-    /// owns the existing exclusive mutation lease.
+    /// 予約しない事前検査です。受理済み権限は同じ管理主体へ照合し、本受付では収束状態を再確認します。
     /// </summary>
-    /// <param name="operation">Operation name used by the shared mutation diagnostics.</param>
-    /// <param name="showMessage">Whether convergence or existing busy-state preflight should show its warning.</param>
-    internal bool TryBlockMutation(string operation, bool showMessage)
+    /// <param name="operation">変更操作の診断名。</param>
+    /// <param name="notices">拒否警告を加える、この操作の収集先。nullは警告を求めません。表示は所有者が受付の解放後に行います。</param>
+    /// <param name="capability">同じ共通受付の生存権限。nullは新規要求の競合判定です。</param>
+    internal bool TryBlockMutation(string operation, LibraryOperationNotices notices, LibraryFileMutationCapability capability = null)
     {
-        if (lr2SynchronizationOwner.TryBlockMutation(operation, showMessage))
+        if (lr2SynchronizationOwner.TryBlockMutation(operation, capability))
         {
             return true;
         }
@@ -128,10 +127,7 @@ internal sealed class CatalogFileMutationAdmissionOwner
             return false;
         }
         CatalogPathConvergenceBlockReason blockReason = readinessOwner.BlockReason;
-        if (showMessage)
-        {
-            showConvergenceRequiredWarning(blockReason);
-        }
+        notices?.Add(createConvergenceRequiredWarning(blockReason));
         return true;
     }
 
@@ -142,16 +138,15 @@ internal sealed class CatalogFileMutationAdmissionOwner
     /// distinct null result after the acquired lease has been released.
     /// </summary>
     /// <param name="operation">Operation name used by the shared mutation diagnostics.</param>
-    /// <param name="showMessage">Whether a convergence rejection should show its warning after the lease is released.</param>
-    /// <param name="showBusyMessage">Whether the existing mutation owner should show its busy warning before returning null.</param>
+    /// <param name="notices">拒否警告を加える、この操作の収集先。nullは警告を求めません。表示は所有者が受付の解放後に行います。</param>
     /// <param name="throwOnBusyRace">Whether failure to acquire the raw exclusive lease is surfaced as the legacy busy exception instead of a null terminal.</param>
+    /// <param name="capability">同じ共通受付ownerの生存権限。nullは新規の非待機受付で、借用終端では外側leaseを解放しません。</param>
     internal LibraryFileMutationLease TryBeginFileOperationMutation(
         string operation,
-        bool showMessage,
-        bool showBusyMessage = true,
-        bool throwOnBusyRace = true)
+        LibraryOperationNotices notices,
+        bool throwOnBusyRace = true, LibraryFileMutationCapability capability = null)
     {
-        LibraryFileMutationLease lease = lr2SynchronizationOwner.TryBeginMutation(operation, showBusyMessage);
+        LibraryFileMutationLease lease = lr2SynchronizationOwner.TryBeginMutation(operation, capability);
         if (lease == null)
         {
             if (throwOnBusyRace)
@@ -167,10 +162,7 @@ internal sealed class CatalogFileMutationAdmissionOwner
 
         CatalogPathConvergenceBlockReason blockReason = readinessOwner.BlockReason;
         lease.Dispose();
-        if (showMessage)
-        {
-            showConvergenceRequiredWarning(blockReason);
-        }
+        notices?.Add(createConvergenceRequiredWarning(blockReason));
         return null;
     }
 }

@@ -217,6 +217,20 @@ public sealed class KeywordSearchPresentationItem
 
     internal bool IsSavedQuery => Kind is KeywordSearchPresentationItemKind.Favorite or KeywordSearchPresentationItemKind.History;
 
+    /// <summary>
+    /// 入力状態の適用可否とは独立に、同じ区画の同じ候補行かを比較します。
+    /// 保存式は保存された本文、補完は挿入内容で識別し、新しい保存IDは持ちません。
+    /// </summary>
+    /// <param name="other">比較する候補行。</param>
+    /// <returns>種別と行の内容が一致する場合は <see langword="true"/>。</returns>
+    internal bool HasSameRowIdentity(KeywordSearchPresentationItem other)
+        => other != null
+            && Kind == other.Kind
+            && string.Equals(
+                IsSavedQuery ? Query : InsertionText,
+                other.IsSavedQuery ? other.Query : other.InsertionText,
+                StringComparison.Ordinal);
+
     internal int ReplacementStart => Identity.ReplacementStart;
 
     internal int ReplacementLength => Identity.ReplacementLength;
@@ -283,15 +297,21 @@ public sealed class KeywordSearchPresentationState
     /// <param name="context">The search context represented by the snapshot.</param>
     /// <param name="catalogRevision">The catalog revision represented by the snapshot.</param>
     /// <param name="sections">The visible sections in rendering order.</param>
+    /// <param name="canCompleteWithoutSelection">
+    /// 候補の前方一致に使う項目名または値の接頭辞を1文字以上入力済みで、候補を選んでいないTabが
+    /// 表示中の先頭候補を適用してよいかどうか。
+    /// </param>
     internal KeywordSearchPresentationState(
         bool isOpen,
         string text,
         int caretIndex,
         GridKeywordSearchContext context,
         long catalogRevision,
-        IReadOnlyList<KeywordSearchPresentationSection> sections)
+        IReadOnlyList<KeywordSearchPresentationSection> sections,
+        bool canCompleteWithoutSelection = false)
     {
         IsOpen = isOpen;
+        CanCompleteWithoutSelection = isOpen && canCompleteWithoutSelection;
         Text = text ?? string.Empty;
         CaretIndex = caretIndex;
         Context = context;
@@ -335,6 +355,14 @@ public sealed class KeywordSearchPresentationState
     /// Gets visible rows flattened in section order for keyboard navigation.
     /// </summary>
     public IReadOnlyList<KeywordSearchPresentationItem> VisibleItems { get; }
+
+    /// <summary>
+    /// 候補を選んでいないTabが表示中の先頭候補を適用するかどうかを取得します。
+    /// 1文字以上入力した接頭辞から作った項目名・値の候補を表示している間だけ <see langword="true"/> です。
+    /// 候補を絞り込む接頭辞と同じ値で判定するため、空欄、保存済み検索式の行、0文字の接頭辞では
+    /// 通常のフォーカス移動のままです。
+    /// </summary>
+    public bool CanCompleteWithoutSelection { get; }
 }
 
 /// <summary>
@@ -631,7 +659,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Applies an immutable item after validating text, caret, context, and catalog revision.
+    /// 原文・caret・文脈・候補集合の版に対応する置換範囲を適用します。古い候補は拒否し、現在の入力で再計算します。
     /// </summary>
     internal KeywordSearchApplyResult TryApply(
         KeywordSearchPresentationItem item,
@@ -673,6 +701,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             || item.Identity.CatalogRevision != catalogRevision
             || item.Identity.CatalogRevision != ownerCatalogRevision)
         {
+            Refresh(safeText, safeCaretIndex);
             return KeywordSearchApplyResult.FailureResult(
                 KeywordSearchApplyFailure.StaleCandidate,
                 safeText,
@@ -833,7 +862,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
                 caretIndex,
                 currentContext,
                 catalogRevision,
-                fieldPrefixOnly: false);
+                out _);
             if (fields.Count > 0)
             {
                 emptySections.Add(new KeywordSearchPresentationSection(
@@ -844,33 +873,12 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             return OpenOrClosedPresentation(text, caretIndex, currentContext, catalogRevision, emptySections);
         }
 
-        if (HasUnquotedSeparatorBeforeCaret(text, caretIndex))
-        {
-            IReadOnlyList<KeywordSearchPresentationItem> fields = CreateFieldItems(
-                text,
-                caretIndex,
-                currentContext,
-                catalogRevision,
-                fieldPrefixOnly: false);
-            return OpenOrClosedPresentation(
-                text,
-                caretIndex,
-                currentContext,
-                catalogRevision,
-                fields.Count == 0
-                    ? []
-                    : [new KeywordSearchPresentationSection(
-                        KeywordSearchPresentationSectionKind.Fields,
-                        GetSectionHeaderText(KeywordSearchPresentationSectionKind.Fields),
-                        fields)]);
-        }
-
         IReadOnlyList<KeywordSearchPresentationItem> fieldItems = CreateFieldItems(
             text,
             caretIndex,
             currentContext,
             catalogRevision,
-            fieldPrefixOnly: true);
+            out bool hasFieldPrefix);
         if (fieldItems.Count > 0)
         {
             return OpenOrClosedPresentation(
@@ -881,14 +889,16 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
                 [new KeywordSearchPresentationSection(
                     KeywordSearchPresentationSectionKind.Fields,
                     GetSectionHeaderText(KeywordSearchPresentationSectionKind.Fields),
-                    fieldItems)]);
+                    fieldItems)],
+                hasFieldPrefix);
         }
 
         IReadOnlyList<KeywordSearchPresentationItem> valueItems = CreateValueItems(
             text,
             caretIndex,
             currentContext,
-            catalogRevision);
+            catalogRevision,
+            out bool hasValuePrefix);
         if (valueItems.Count > 0)
         {
             return OpenOrClosedPresentation(
@@ -899,7 +909,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
                 [new KeywordSearchPresentationSection(
                     KeywordSearchPresentationSectionKind.Values,
                     GetSectionHeaderText(KeywordSearchPresentationSectionKind.Values),
-                    valueItems)]);
+                    valueItems)],
+                hasValuePrefix);
         }
 
         return ClosedPresentation();
@@ -910,28 +921,31 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         int caretIndex,
         GridKeywordSearchContext currentContext,
         long catalogRevision,
-        bool fieldPrefixOnly)
+        out bool hasPrefix)
     {
+        hasPrefix = false;
         TokenSpan span = FindCurrentToken(text, caretIndex);
         int safeCaretIndex = Math.Max(0, Math.Min(caretIndex, text.Length));
         if (span.Start > safeCaretIndex)
         {
             return [];
         }
-        string tokenPrefix = text.Substring(span.Start, safeCaretIndex - span.Start);
-        bool negated = tokenPrefix.Length > 1 && tokenPrefix[0] == '-';
-        int fieldStart = span.Start + (negated ? 1 : 0);
-        string fieldPrefix = text.Substring(fieldStart, safeCaretIndex - fieldStart);
-        if (ContainsUnquotedBoundary(fieldPrefix)
-            || (fieldPrefixOnly && fieldPrefix.Length == 0))
+        string token = text[span.Start..span.End];
+        GridKeywordSearchSyntax.TokenSyntax syntax = GridKeywordSearchSyntax.ParseToken(token);
+        int fieldStart = span.Start + (syntax.IsNegated ? 1 : 0);
+        int fieldEnd = syntax.FieldRange is Range fieldRange
+            ? span.Start + fieldRange.End.Value
+            : span.End;
+        if (safeCaretIndex < fieldStart || safeCaretIndex > fieldEnd
+            || (syntax.FieldRange == null && (syntax.IsRegex
+                || token.Any(character => character is ':' or '"' or '|' or '\\'))))
         {
             return [];
         }
-        int colonIndex = FindUnquotedChar(fieldPrefix, ':');
-        if (colonIndex >= 0)
-        {
-            return [];
-        }
+        string fieldPrefix = text[fieldStart..safeCaretIndex];
+        hasPrefix = fieldPrefix.Length > 0;
+        int replacementEnd = fieldEnd + (syntax.FieldRange.HasValue ? 1 : 0);
+        bool negated = syntax.IsNegated;
         IReadOnlyList<string> knownFields = GridKeywordSearchQuery.GetKnownFields(currentContext);
         List<KeywordSearchPresentationItem> items = [];
         foreach (string field in knownFields
@@ -944,7 +958,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
                 currentContext,
                 catalogRevision,
                 fieldStart,
-                safeCaretIndex - fieldStart);
+                replacementEnd - fieldStart);
             items.Add(new KeywordSearchPresentationItem(
                 KeywordSearchPresentationItemKind.Field,
                 (negated ? "-" : string.Empty) + field + ":",
@@ -960,8 +974,10 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         string text,
         int caretIndex,
         GridKeywordSearchContext currentContext,
-        long catalogRevision)
+        long catalogRevision,
+        out bool hasPrefix)
     {
+        hasPrefix = false;
         if (currentContext == GridKeywordSearchContext.PlaylistSummary)
         {
             return [];
@@ -976,6 +992,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             return [];
         }
         string normalizedPrefix = NormalizeValuePrefix(fragment.RawPrefix);
+        hasPrefix = normalizedPrefix.Length > 0;
         List<KeywordSearchPresentationItem> items = [];
         foreach (string value in values
             .Where(value => normalizedPrefix.Length == 0
@@ -1051,7 +1068,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         int caretIndex,
         GridKeywordSearchContext currentContext,
         long catalogRevision,
-        IReadOnlyList<KeywordSearchPresentationSection> sections)
+        IReadOnlyList<KeywordSearchPresentationSection> sections,
+        bool canCompleteWithoutSelection = false)
     {
         IReadOnlyList<KeywordSearchPresentationSection> visibleSections = (sections ?? [])
             .Where(section => section != null && section.Items.Count > 0)
@@ -1062,7 +1080,8 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             caretIndex,
             currentContext,
             catalogRevision,
-            new ReadOnlyCollection<KeywordSearchPresentationSection>(visibleSections.ToArray()));
+            new ReadOnlyCollection<KeywordSearchPresentationSection>(visibleSections.ToArray()),
+            canCompleteWithoutSelection);
     }
 
     private KeywordSearchPresentationState ClosedPresentation()
@@ -1093,7 +1112,13 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
     private CandidateSnapshotKey CreateCurrentKeyUnsafe()
         => new(currentText, currentCaretIndex, context, catalogSnapshot.Revision);
 
-    private static bool PresentationEquivalent(
+    /// <summary>
+    /// 入力・版・表示内容が等しい通知を、所有者と表示部品で同じ基準により判定します。
+    /// </summary>
+    /// <param name="first">現在の表示。</param>
+    /// <param name="second">次の表示。</param>
+    /// <returns>再反映が不要な場合は <see langword="true"/>。</returns>
+    internal static bool PresentationEquivalent(
         KeywordSearchPresentationState first,
         KeywordSearchPresentationState second)
     {
@@ -1139,46 +1164,6 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         return true;
     }
 
-    private static bool HasUnquotedSeparatorBeforeCaret(string text, int caretIndex)
-    {
-        text ??= string.Empty;
-        int safeCaretIndex = Math.Max(0, Math.Min(caretIndex, text.Length));
-        if (safeCaretIndex == 0 || !char.IsWhiteSpace(text[safeCaretIndex - 1]))
-        {
-            return false;
-        }
-
-        bool inQuote = false;
-        bool escaping = false;
-        for (int index = 0; index < safeCaretIndex - 1; index++)
-        {
-            char character = text[index];
-            if (inQuote)
-            {
-                if (escaping)
-                {
-                    escaping = false;
-                    continue;
-                }
-                if (character == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                if (character == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (character == '"')
-            {
-                inQuote = true;
-            }
-        }
-        return !inQuote;
-    }
-
     private static string ApplyItem(
         KeywordSearchPresentationItem item,
         string sourceText,
@@ -1191,6 +1176,11 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
             string prefix = sourceText.Remove(start, length).Insert(start, item.InsertionText);
             int separatorStart = start + item.InsertionText.Length;
             string suffix = prefix.Substring(separatorStart);
+            if (suffix.StartsWith('|'))
+            {
+                caretIndex = separatorStart;
+                return prefix;
+            }
             int skip = 0;
             while (skip < suffix.Length && char.IsWhiteSpace(suffix[skip]))
             {
@@ -1220,75 +1210,30 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         fragment = default;
         int safeCaretIndex = Math.Max(0, Math.Min(caretIndex, text.Length));
         TokenSpan span = FindCurrentToken(text, safeCaretIndex);
-        if (span.Start >= safeCaretIndex)
+        string token = text[span.Start..span.End];
+        GridKeywordSearchSyntax.TokenSyntax syntax = GridKeywordSearchSyntax.ParseToken(token);
+        if (syntax.IsRegex || syntax.FieldRange is not Range fieldRange)
         {
             return false;
         }
-        string tokenPrefix = text.Substring(span.Start, safeCaretIndex - span.Start);
-        bool negated = tokenPrefix.Length > 1 && tokenPrefix[0] == '-';
-        int fieldOffset = negated ? 1 : 0;
-        int colonIndex = FindUnquotedChar(tokenPrefix, ':');
-        if (colonIndex <= fieldOffset)
+        string field = token[fieldRange].Trim().ToLowerInvariant();
+        int valueStart = span.Start + syntax.TermsRange.Start.Value;
+        if (safeCaretIndex < valueStart || !KeywordSearchCatalog.IsValueField(currentContext, field))
         {
             return false;
         }
-        string field = tokenPrefix.Substring(fieldOffset, colonIndex - fieldOffset).Trim().ToLowerInvariant();
-        if (!KeywordSearchCatalog.IsValueField(currentContext, field))
+        foreach (string alternative in GridKeywordSearchSyntax.SplitUnquoted(token[syntax.TermsRange], '|'))
         {
-            return false;
-        }
-        int valueStart = span.Start + colonIndex + 1;
-        string rawPrefix = text.Substring(valueStart, safeCaretIndex - valueStart);
-        if (StartsWithRegexPrefix(rawPrefix) || ContainsUnquotedPipe(rawPrefix))
-        {
-            return false;
-        }
-        int replacementEnd = FindQuotedValueReplacementEnd(
-            text,
-            valueStart,
-            safeCaretIndex,
-            span.End);
-        fragment = new ValueFragment(field, valueStart, safeCaretIndex, rawPrefix, replacementEnd - valueStart);
-        return true;
-    }
-
-    private static int FindQuotedValueReplacementEnd(
-        string text,
-        int valueStart,
-        int caretIndex,
-        int tokenEnd)
-    {
-        int replacementEnd = caretIndex;
-        if (valueStart >= text.Length || text[valueStart] != '"')
-        {
-            return replacementEnd;
-        }
-
-        bool escaping = false;
-        int safeTokenEnd = Math.Max(valueStart + 1, Math.Min(tokenEnd, text.Length));
-        for (int index = valueStart + 1; index < safeTokenEnd; index++)
-        {
-            char character = text[index];
-            if (escaping)
+            int valueEnd = valueStart + alternative.Length;
+            if (safeCaretIndex <= valueEnd)
             {
-                escaping = false;
-                continue;
+                fragment = new ValueFragment(field, valueStart, safeCaretIndex,
+                    text[valueStart..safeCaretIndex], alternative.Length, alternative.StartsWith('"'));
+                return true;
             }
-            if (character == '\\')
-            {
-                escaping = true;
-                continue;
-            }
-            if (character == '"')
-            {
-                if (index >= caretIndex)
-                {
-                    replacementEnd = index + 1;
-                }
-                break;
-            }
+            valueStart = valueEnd + 1;
         }
-        return replacementEnd;
+        return false;
     }
 
     private static string NormalizeValuePrefix(string rawPrefix)
@@ -1336,6 +1281,7 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
         string text = value ?? string.Empty;
         bool needsQuote = preserveQuotes
             || text.Length == 0
+            || StartsWithRegexPrefix(text)
             || text.Any(character => char.IsWhiteSpace(character) || character is '"' or '\\' or '|');
         if (!needsQuote)
         {
@@ -1358,170 +1304,30 @@ internal sealed class KeywordSearchAssistanceOwner : INotifyPropertyChanged
     private static bool StartsWithRegexPrefix(string rawValue)
         => (rawValue ?? string.Empty).TrimStart().StartsWith("re:", StringComparison.OrdinalIgnoreCase);
 
-    private static bool ContainsUnquotedBoundary(string value)
-        => ContainsUnquoted(value, ':', '"', '|', '\\');
-
-    private static bool ContainsUnquotedPipe(string value)
-        => ContainsUnquoted(value, '|');
-
-    private static bool ContainsUnquoted(string value, params char[] targets)
-    {
-        bool inQuote = false;
-        bool escaping = false;
-        foreach (char character in value ?? string.Empty)
-        {
-            if (inQuote)
-            {
-                if (escaping)
-                {
-                    escaping = false;
-                    continue;
-                }
-                if (character == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                if (character == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (character == '"')
-            {
-                inQuote = true;
-                continue;
-            }
-            if (targets.Contains(character))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static int FindUnquotedChar(string value, char target)
-    {
-        bool inQuote = false;
-        bool escaping = false;
-        for (int index = 0; index < (value?.Length ?? 0); index++)
-        {
-            char character = value[index];
-            if (inQuote)
-            {
-                if (escaping)
-                {
-                    escaping = false;
-                    continue;
-                }
-                if (character == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                if (character == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (character == '"')
-            {
-                inQuote = true;
-                continue;
-            }
-            if (character == target)
-            {
-                return index;
-            }
-        }
-        return -1;
-    }
-
+    // parser・保存式と同じ引用規則を使い、caret右側も含む語を選びます。
     private static TokenSpan FindCurrentToken(string text, int caretIndex)
     {
-        text ??= string.Empty;
-        int safeCaretIndex = Math.Max(0, Math.Min(caretIndex, text.Length));
-        int start = 0;
-        bool inQuote = false;
-        bool escaping = false;
-        for (int index = 0; index < safeCaretIndex; index++)
+        foreach (Range range in GridKeywordSearchSyntax.Tokenize(text))
         {
-            char character = text[index];
-            if (inQuote)
+            if (range.Start.Value <= caretIndex && caretIndex <= range.End.Value)
             {
-                if (escaping)
-                {
-                    escaping = false;
-                    continue;
-                }
-                if (character == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                if (character == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (character == '"')
-            {
-                inQuote = true;
-                continue;
-            }
-            if (char.IsWhiteSpace(character) && !inQuote)
-            {
-                start = index + 1;
+                return new TokenSpan(range.Start.Value, range.End.Value);
             }
         }
-        int end = safeCaretIndex;
-        for (; end < text.Length; end++)
-        {
-            char character = text[end];
-            if (inQuote)
-            {
-                if (escaping)
-                {
-                    escaping = false;
-                    continue;
-                }
-                if (character == '\\')
-                {
-                    escaping = true;
-                    continue;
-                }
-                if (character == '"')
-                {
-                    inQuote = false;
-                }
-                continue;
-            }
-            if (character == '"')
-            {
-                inQuote = true;
-                continue;
-            }
-            if (char.IsWhiteSpace(character) && !inQuote)
-            {
-                break;
-            }
-        }
-        return new TokenSpan(start, end);
+        return new TokenSpan(caretIndex, caretIndex);
     }
 
+    /// <summary>現在の通常値またはOR選択肢の全体範囲と、絞込み用のcaret左側を保持します。</summary>
     private readonly struct ValueFragment
     {
-        internal ValueFragment(string field, int valueStart, int caretIndex, string rawPrefix, int replacementLength)
+        internal ValueFragment(string field, int valueStart, int caretIndex, string rawPrefix, int replacementLength, bool isQuoted)
         {
             Field = field;
             ValueStart = valueStart;
             CaretIndex = caretIndex;
             RawPrefix = rawPrefix;
             ReplacementLength = replacementLength;
-            IsQuoted = rawPrefix?.StartsWith("\"", StringComparison.Ordinal) == true;
+            IsQuoted = isQuoted;
         }
 
         internal string Field { get; }

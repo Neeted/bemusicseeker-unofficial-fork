@@ -1426,15 +1426,26 @@ public partial class BMSFile
     }
 #nullable restore annotations
 
-    /// <summary>通常読込みの自動判別と同じfallbackでbyte列を復号します。空入力の拒否とMD5採取は読込み側の責務です。</summary>
+    /// <summary>通常読込みと同じ自動判別・fallbackで復号し、UTF-8の先頭BOMだけを除きます。空入力の拒否とMD5採取は読込み側の責務です。</summary>
     /// <param name="data">一度だけ読み込んだ譜面byte列です。</param>
     /// <param name="encoding">通常の判別またはfallbackで採用した文字コードです。</param>
     /// <returns>通常読込みと同じ復号本文です。</returns>
     public static string DecodeForAudit(byte[] data, out Encoding encoding)
     {
+        return DecodeSource(data, out encoding);
+    }
+
+    /// <summary>通常読込みと監査準備が共有する復号です。UTF-8の先頭BOM以外は従来の本文・判別順・fallbackを保ちます。</summary>
+    private static string DecodeSource(byte[] data, out Encoding encoding)
+    {
         string source = getAutoDetectedString(data, out Encoding detected);
         encoding = detected ?? sjisEncDefault;
-        return detected == null ? sjisEncDefault.GetString(data) : source;
+        if (detected == null)
+        {
+            source = sjisEncDefault.GetString(data);
+        }
+        return encoding.CodePage == utf8Enc.CodePage && source.Length > 0 && source[0] == '\uFEFF'
+            ? source.Substring(1) : source;
     }
 
     public static BMSFile Parse(string path)
@@ -1494,15 +1505,15 @@ public partial class BMSFile
             throw new Exception("Invalid MD5 string: " + text);
         }
         Md5 = text.ToLowerInvariant();
-        string autoDetectedString = getAutoDetectedString(array, out Encoding enc);
-        Encode = enc ?? sjisEncDefault;
+        string source = DecodeSource(array, out Encoding encoding);
+        Encode = encoding;
         parseOptions?.InputRead?.Invoke(new BmsInputIdentity(Md5, array.LongLength, Encode.WebName, Encode.CodePage));
         if (array.Length == 0)
         {
             throw new InvalidDataException(filePath + " is empty file.");
         }
 
-        return enc == null ? sjisEncDefault.GetString(array) : autoDetectedString;
+        return source;
     }
 
     private void Analyze(Queue<int> randomPattern = null)
@@ -1511,8 +1522,8 @@ public partial class BMSFile
         {
             throw new InvalidOperationException("Source cannot be null");
         }
-        ParseMain(Source, randomPattern);
-        SetIndexEncoding();
+        bool preserveIndexCase = ParseMain(Source, randomPattern);
+        SetIndexEncoding(preserveIndexCase);
         ResolveNoteConflict();
         CalculateTiming();
         if (Measures.LastIndex < 0)
@@ -1521,15 +1532,17 @@ public partial class BMSFile
         }
     }
 
-    private void ParseMain(string source, Queue<int> pattern = null)
+    private bool ParseMain(string source, Queue<int> pattern = null)
     {
+        // 採用枝の最後の有効宣言を解析後へ渡し、宣言前の定義・ノート・LNOBJにも同じ解釈を適用します。
+        bool preserveIndexCase = false;
         randomPattern.Clear();
         Random genRan = parseOptions?.RandomSource ?? new Random();
         object[] selector(string s, int n)
         {
             int length = s.Length;
             int i;
-            for (i = 0; i < length && s[i] != ' ' && s[i] != ':'; i++)
+            for (i = 0; i < length && s[i] != ' ' && s[i] != '\t' && s[i] != ':'; i++)
             {
             }
             return (i != length) ?
@@ -1550,6 +1563,8 @@ public partial class BMSFile
         try
         {
             object[] cur = enumerator.Current;
+            // 再帰が進めた停止命令も同じ変数で判断し、呼出し前の命令を参照しません。
+            // 資源番号の拡張表記を保つため、元の命令は保持し、命令の識別時だけ大文字化します。
             string command = string.Empty;
             string parameter = string.Empty;
             int ifDepth = 0;
@@ -1563,8 +1578,7 @@ public partial class BMSFile
                     parameter = (string)cur[2];
                     if (!string.IsNullOrWhiteSpace(command) && command[0] == '#')
                     {
-                        string text = command.ToUpperInvariant();
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#ELSEIF":
                             case "#ELSE":
@@ -1572,9 +1586,9 @@ public partial class BMSFile
                                 ifDepth--;
                                 break;
                         }
-                        bool flag = stopCond(text);
+                        bool flag = stopCond(command.ToUpperInvariant());
                         NLogWrapper.DebuggerLogger?.Trace((flag ? "PARSE! " : "SKIPED ") + new string('\t', ifDepth) + command + " " + parameter);
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#IF":
                             case "#ELSEIF":
@@ -1586,7 +1600,7 @@ public partial class BMSFile
                         {
                             return false;
                         }
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#RANDOM":
                                 {
@@ -1652,9 +1666,9 @@ public partial class BMSFile
                 }
                 return true;
             }
-            bool parseLines(Func<string, bool> stopCond)
+            // 同じRANDOMの値を入れ子へ引き継ぎ、枝内の再選択を呼出し元へ漏らさないよう値で受け取ります。
+            bool parseLines(Func<string, bool> stopCond, int? num)
             {
-                int? num = null;
                 while (enumerator.MoveNext())
                 {
                     cur = enumerator.Current;
@@ -1663,8 +1677,7 @@ public partial class BMSFile
                     parameter = (string)cur[2];
                     if (!string.IsNullOrWhiteSpace(command) && command[0] == '#')
                     {
-                        string text = command.ToUpperInvariant();
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#ELSEIF":
                             case "#ELSE":
@@ -1672,11 +1685,11 @@ public partial class BMSFile
                                 ifDepth--;
                                 break;
                         }
-                        bool flag = stopCond(text);
+                        bool flag = stopCond(command.ToUpperInvariant());
                         NLogWrapper.DebuggerLogger?.Trace("PARSE! " + new string('\t', ifDepth) + command + " " + parameter);
                         if (flag)
                         {
-                            switch (text)
+                            switch (command.ToUpperInvariant())
                             {
                                 case "#IF":
                                 case "#ELSEIF":
@@ -1686,7 +1699,7 @@ public partial class BMSFile
                             }
                             return false;
                         }
-                        switch (text)
+                        switch (command.ToUpperInvariant())
                         {
                             case "#RANDOM":
                                 {
@@ -1736,9 +1749,9 @@ public partial class BMSFile
                                         int num6 = parameter.TryParseOrDefault(0);
                                         if (num.HasValue && num6 != 0 && num == num6)
                                         {
-                                            if (!parseLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
+                                            if (!parseLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF"), num))
                                             {
-                                                switch (text)
+                                                switch (command.ToUpperInvariant())
                                                 {
                                                     case "#ELSEIF":
                                                     case "#ELSE":
@@ -1754,12 +1767,12 @@ public partial class BMSFile
                                         }
                                         if (!skipLines(l => ifDepth == curIfDepth && (l == "#ELSEIF" || l == "#ELSE" || l == "#ENDIF")))
                                         {
-                                            switch (text)
+                                            switch (command.ToUpperInvariant())
                                             {
                                                 case "#ELSEIF":
                                                     continue;
                                                 case "#ELSE":
-                                                    if (parseLines(l => ifDepth == curIfDepth && l == "#ENDIF"))
+                                                    if (parseLines(l => ifDepth == curIfDepth && l == "#ENDIF", num))
                                                     {
                                                         return true;
                                                     }
@@ -1785,6 +1798,13 @@ public partial class BMSFile
                                 break;
                             case "#GENRE":
                                 Genre = parameter;
+                                break;
+                            case "#BASE":
+                                if (int.TryParse(parameter, NumberStyles.Integer, NumericCulture, out int indexBase)
+                                    && indexBase is 16 or 36 or 62)
+                                {
+                                    preserveIndexCase = indexBase == 62;
+                                }
                                 break;
                             case "#LNOBJ":
                                 if (parameter.IsBMSBase64())
@@ -1814,7 +1834,7 @@ public partial class BMSFile
                                 }
                             case "#RANK":
                                 {
-                                    if (int.TryParse(parameter, out int result9) && result9 >= 0)
+                                    if (int.TryParse(parameter, NumberStyles.Integer, NumericCulture, out int result9) && result9 >= 0)
                                     {
                                         Rank = result9;
                                     }
@@ -1826,7 +1846,7 @@ public partial class BMSFile
                                 }
                             case "#TOTAL":
                                 {
-                                    if (double.TryParse(parameter, out double result7) && result7 > 0.0)
+                                    if (double.TryParse(parameter, NumberStyles.Float | NumberStyles.AllowThousands, NumericCulture, out double result7) && result7 > 0.0)
                                     {
                                         Total = result7;
                                     }
@@ -1847,7 +1867,7 @@ public partial class BMSFile
                                 break;
                             case "#PLAYLEVEL":
                                 {
-                                    if (double.TryParse(parameter, out double result8) && result8 >= 0.0)
+                                    if (double.TryParse(parameter, NumberStyles.Float | NumberStyles.AllowThousands, NumericCulture, out double result8) && result8 >= 0.0)
                                     {
                                         Playlevel = result8;
                                     }
@@ -1859,7 +1879,7 @@ public partial class BMSFile
                                 }
                             case "#DIFFICULTY":
                                 {
-                                    if (int.TryParse(parameter, out int result5) && result5 > 0)
+                                    if (int.TryParse(parameter, NumberStyles.Integer, NumericCulture, out int result5) && result5 > 0)
                                     {
                                         Difficulty = result5;
                                     }
@@ -1950,7 +1970,7 @@ public partial class BMSFile
                                                                     Pos = pos
                                                                 }))
                                                                 {
-                                                                    if (!(item4.Idx == "00") && int.TryParse(item4.Idx, NumberStyles.HexNumber, null, out int result3))
+                                                                    if (!(item4.Idx == "00") && int.TryParse(item4.Idx, NumberStyles.HexNumber, NumericCulture, out int result3))
                                                                     {
                                                                         var item2 = new Chart.Note(Measures[num2], type)
                                                                         {
@@ -2382,18 +2402,24 @@ public partial class BMSFile
                 return true;
             }
 
-            parseLines(cmd => false);
+            parseLines(cmd => false, null);
             NLogWrapper.DebuggerLogger?.Trace("BMS Parser: RANDOM pattern: " + string.Join(", ", [.. randomPattern.Select(i => i.ToString())]));
         }
         finally
         {
             enumerator?.Dispose();
         }
+        return preserveIndexCase;
     }
 
-    private void SetIndexEncoding()
+    private void SetIndexEncoding(bool preserveIndexCase)
     {
         IndexEncoding = IndexEncoding.Base64;
+        // 明示62だけは大小文字を保持し、16/36と宣言なしは互換性のため従来の定義件数による推測へ戻します。
+        if (preserveIndexCase)
+        {
+            return;
+        }
         string[] array = new string[4096];
         string[] array2 = new string[4096];
         string[] array3 = new string[4096];

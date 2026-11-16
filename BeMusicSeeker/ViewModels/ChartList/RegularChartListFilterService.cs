@@ -33,11 +33,11 @@ internal static class RegularChartListFilterService
     }
 
     /// <summary>
-    /// Applies the selected play-mode filter to regular chart rows.
+    /// 通常行へ共通のモード判定を適用し、入力順を保ちます。Allでは未列挙値も通します。
     /// </summary>
-    /// <param name="sourceRows">Rows produced by the keyword stage.</param>
-    /// <param name="modeFilter">Selected play-mode filter.</param>
-    /// <returns>Rows that match the selected play modes, or the original rows when all modes are allowed.</returns>
+    /// <param name="sourceRows">キーワード絞込み後の行。</param>
+    /// <param name="modeFilter">選択した一覧モード。</param>
+    /// <returns>選択したモードとnullの行。Allでは元の行集合。</returns>
     internal static IEnumerable<LibraryChartRow> ApplyModeFilter(IEnumerable<LibraryChartRow> sourceRows, ChartModeFilter modeFilter)
     {
         if (sourceRows == null)
@@ -49,37 +49,18 @@ internal static class RegularChartListFilterService
             return sourceRows;
         }
 
-        HashSet<int?> modeValues = CreateModeFilterValueSet(modeFilter);
-        return sourceRows.Where(row => modeValues.Contains(row.mode));
+        return sourceRows.Where(row => modeFilter.Matches(row.mode));
     }
 
-    /// <summary>
-    /// Creates the set of row mode values accepted by a mode filter.
-    /// </summary>
-    /// <param name="modeFilter">Selected play-mode filter.</param>
-    /// <returns>Accepted mode values. Null is always included to preserve legacy unknown-mode behavior.</returns>
+    /// <summary>通常一覧の差分判定用に、選択した既知モードとnullの集合を作ります。Allの全通過は呼出し元で判定します。</summary>
+    /// <param name="modeFilter">選択した一覧モード。</param>
+    /// <returns>共通判定に一致する既知の一覧モードとnull。</returns>
     internal static HashSet<int?> CreateModeFilterValueSet(ChartModeFilter modeFilter)
     {
         HashSet<int?> modeValues = [null];
-        if ((modeFilter & ChartModeFilter._5KEYS) == ChartModeFilter._5KEYS)
+        foreach (int mode in new[] { 5, 7, 9, 10, 14, 24, 48 })
         {
-            modeValues.Add(5);
-        }
-        if ((modeFilter & ChartModeFilter._7KEYS) == ChartModeFilter._7KEYS)
-        {
-            modeValues.Add(7);
-        }
-        if ((modeFilter & ChartModeFilter._9KEYS) == ChartModeFilter._9KEYS)
-        {
-            modeValues.Add(9);
-        }
-        if ((modeFilter & ChartModeFilter._10KEYS) == ChartModeFilter._10KEYS)
-        {
-            modeValues.Add(10);
-        }
-        if ((modeFilter & ChartModeFilter._14KEYS) == ChartModeFilter._14KEYS)
-        {
-            modeValues.Add(14);
+            if (modeFilter.Matches(mode)) { modeValues.Add(mode); }
         }
         return modeValues;
     }

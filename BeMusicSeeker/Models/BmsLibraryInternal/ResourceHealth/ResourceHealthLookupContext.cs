@@ -322,9 +322,9 @@ internal sealed class ResourceHealthLookupContext
             this.audioPaths = MaterializeSortedPaths(audioPaths);
             this.imagePaths = MaterializeSortedPaths(imagePaths);
             this.moviePaths = MaterializeSortedPaths(moviePaths);
-            this.stagefilePath = stagefilePath ?? string.Empty;
-            this.backbmpPath = backbmpPath ?? string.Empty;
-            this.bannerPath = bannerPath ?? string.Empty;
+            this.stagefilePath = stagefilePath;
+            this.backbmpPath = backbmpPath;
+            this.bannerPath = bannerPath;
             hashCode = ComputeHashCode(
                 this.audioPaths,
                 this.imagePaths,
@@ -336,9 +336,9 @@ internal sealed class ResourceHealthLookupContext
 
         public bool Equals(ResourceHealthSetSignature other)
         {
-            return PathComparer.Equals(stagefilePath ?? string.Empty, other.stagefilePath ?? string.Empty)
-                && PathComparer.Equals(backbmpPath ?? string.Empty, other.backbmpPath ?? string.Empty)
-                && PathComparer.Equals(bannerPath ?? string.Empty, other.bannerPath ?? string.Empty)
+            return PathComparer.Equals(stagefilePath, other.stagefilePath)
+                && PathComparer.Equals(backbmpPath, other.backbmpPath)
+                && PathComparer.Equals(bannerPath, other.bannerPath)
                 && PathsEqual(audioPaths, other.audioPaths)
                 && PathsEqual(imagePaths, other.imagePaths)
                 && PathsEqual(moviePaths, other.moviePaths);

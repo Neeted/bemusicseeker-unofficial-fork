@@ -200,7 +200,7 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Pins a query without reordering an already pinned favorite.
+    /// 保存式の共通比較で未登録の検索式だけを先頭へ追加し、登録済みのお気に入りは並べ替えません。
     /// </summary>
     internal KeywordSearchSavedQueryMutationResult TryAddFavorite(string query)
     {
@@ -214,7 +214,7 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
         List<string> nextFavorites;
         lock (syncRoot)
         {
-            if (favorites.Any(current => string.Equals(current, normalizedQuery, StringComparison.OrdinalIgnoreCase)))
+            if (favorites.Any(current => KeywordSearchSavedQueryComparer.Instance.Equals(current, normalizedQuery)))
             {
                 return KeywordSearchSavedQueryMutationResult.Success(changed: false);
             }
@@ -234,7 +234,7 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Removes exactly one normalized favorite from this scope.
+    /// 整形済み保存式の共通比較で一致するお気に入り一件だけを、この保存範囲から削除します。
     /// </summary>
     internal KeywordSearchSavedQueryMutationResult TryRemoveFavorite(string query)
     {
@@ -248,7 +248,7 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
         lock (syncRoot)
         {
             int index = favorites.FindIndex(current =>
-                string.Equals(current, normalizedQuery, StringComparison.OrdinalIgnoreCase));
+                KeywordSearchSavedQueryComparer.Instance.Equals(current, normalizedQuery));
             if (index < 0)
             {
                 return KeywordSearchSavedQueryMutationResult.Success(changed: false);
@@ -269,7 +269,7 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Deletes exactly one normalized history entry while retaining a favorite with the same query.
+    /// 整形済み保存式の共通比較で一致する履歴一件だけを削除し、同じ式のお気に入りは保持します。
     /// </summary>
     internal KeywordSearchSavedQueryMutationResult TryDeleteHistory(string query)
     {
@@ -283,7 +283,7 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
         lock (syncRoot)
         {
             int index = history.FindIndex(current =>
-                string.Equals(current, normalizedQuery, StringComparison.OrdinalIgnoreCase));
+                KeywordSearchSavedQueryComparer.Instance.Equals(current, normalizedQuery));
             if (index < 0)
             {
                 return KeywordSearchSavedQueryMutationResult.Success(changed: false);
@@ -304,18 +304,18 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Projects History for a context without deleting incompatible backing entries.
+    /// 保存式の共通比較でお気に入りとの重複を隠し、表示先に非対応の元履歴を削除せずに投影します。
     /// </summary>
     internal IReadOnlyList<string> GetProjectedHistory(GridKeywordSearchContext context)
     {
         KeywordSearchSavedQueryState current = State;
         HashSet<string> favoriteIdentities = new(
-            current.Favorites.Select(KeywordSearchHistoryStore.NormalizeEntryForIdentity),
-            StringComparer.OrdinalIgnoreCase);
+            current.Favorites,
+            KeywordSearchSavedQueryComparer.Instance);
         List<string> projected = [];
         foreach (string query in current.History)
         {
-            if (favoriteIdentities.Contains(KeywordSearchHistoryStore.NormalizeEntryForIdentity(query)))
+            if (favoriteIdentities.Contains(query))
             {
                 continue;
             }
@@ -323,10 +323,7 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
             {
                 continue;
             }
-            if (!projected.Contains(query, StringComparer.OrdinalIgnoreCase))
-            {
-                projected.Add(query);
-            }
+            projected.Add(query);
         }
         return new ReadOnlyCollection<string>(projected);
     }
@@ -444,7 +441,7 @@ internal sealed class KeywordSearchSavedQueryOwner : INotifyPropertyChanged
 internal static class KeywordSearchFavoritesStore
 {
     /// <summary>
-    /// Restores favorites while skipping malformed lines and case-insensitive duplicates.
+    /// 不正な行を読み飛ばし、保存式の共通比較で重複を除いてお気に入りを復元します。
     /// </summary>
     internal static IReadOnlyList<string> Deserialize(string serializedFavorites)
     {
@@ -462,7 +459,7 @@ internal static class KeywordSearchFavoritesStore
                     Convert.FromBase64String(line.Trim()));
                 string normalizedEntry = KeywordSearchHistoryStore.NormalizeEntryForIdentity(entry);
                 if (normalizedEntry.Length > 0
-                    && !favorites.Contains(normalizedEntry, StringComparer.OrdinalIgnoreCase))
+                    && !favorites.Contains(normalizedEntry, KeywordSearchSavedQueryComparer.Instance))
                 {
                     favorites.Add(normalizedEntry);
                 }
@@ -476,7 +473,7 @@ internal static class KeywordSearchFavoritesStore
     }
 
     /// <summary>
-    /// Serializes favorites without applying the history twenty-entry cap.
+    /// 保存式の共通比較で重複を除き、履歴の20件上限を適用せずにお気に入りを保存します。
     /// </summary>
     internal static string Serialize(IEnumerable<string> favorites)
     {
@@ -485,7 +482,7 @@ internal static class KeywordSearchFavoritesStore
         foreach (string favorite in normalized)
         {
             string value = KeywordSearchHistoryStore.NormalizeEntryForIdentity(favorite);
-            if (value.Length > 0 && !entries.Contains(value, StringComparer.OrdinalIgnoreCase))
+            if (value.Length > 0 && !entries.Contains(value, KeywordSearchSavedQueryComparer.Instance))
             {
                 entries.Add(value);
             }

@@ -4,24 +4,9 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class Lr2SongDbSyncScanSurfaceSnapshot(
-    int generation,
-    IReadOnlyList<string> rootDirectories,
-    IReadOnlyList<string> normalFolderDirectoryPaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> normalFolderDirectoryEntries,
-    IReadOnlyList<string> folderInfoFilePaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
-    IReadOnlyList<string> textFileDirectories,
-    IReadOnlyList<string> lr2FolderDiscoveryDirectories,
-    IReadOnlyList<string> lr2FolderFilePaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
-    bool lr2FolderFileDiscoveryComplete,
-    int ownedCollectionVersion,
-    int bmsRowsVersion,
-    int bmsonRowsVersion)
+/// <summary>一回の取得で確定した走査面です。後段へ直接渡し、共有消費状態や版照合を持ちません。</summary>
+internal sealed class Lr2SongDbSyncScanSurfaceSnapshot(IReadOnlyList<string> rootDirectories, IReadOnlyList<string> normalFolderDirectoryPaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries, IReadOnlyDictionary<string, RootFileEnumerationEntry> normalFolderDirectoryEntries, IReadOnlyList<string> folderInfoFilePaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries, IReadOnlyList<string> textFileDirectories, IReadOnlyList<string> lr2FolderDiscoveryDirectories, IReadOnlyList<string> lr2FolderFilePaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries, bool lr2FolderFileDiscoveryComplete)
 {
-    public int Generation { get; } = generation;
 
     public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
@@ -49,9 +34,4 @@ internal sealed class Lr2SongDbSyncScanSurfaceSnapshot(
 
     public bool Lr2FolderFileDiscoveryComplete { get; } = lr2FolderFileDiscoveryComplete;
 
-    public int OwnedCollectionVersion { get; } = ownedCollectionVersion;
-
-    public int BmsRowsVersion { get; } = bmsRowsVersion;
-
-    public int BmsonRowsVersion { get; } = bmsonRowsVersion;
 }

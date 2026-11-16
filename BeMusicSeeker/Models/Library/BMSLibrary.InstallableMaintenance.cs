@@ -23,13 +23,13 @@ public partial class BMSLibrary
 
     private sealed class InstallableMaintenanceSnapshot
     {
-        internal InstallableMaintenanceSnapshot(List<BMSFile> files, int snapshotCount)
+        internal InstallableMaintenanceSnapshot(List<ChartFile> files, int snapshotCount)
         {
             Files = files;
             SnapshotCount = snapshotCount;
         }
 
-        internal List<BMSFile> Files { get; }
+        internal List<ChartFile> Files { get; }
 
         internal int SnapshotCount { get; }
     }
@@ -45,18 +45,13 @@ public partial class BMSLibrary
 
         LogInstallPerformance("installable_maintenance_deferred queue reason=" + (reason ?? "unknown")
             + " version=" + queueState.Version
-            + " snapshotCount=" + CountInstallableMaintenanceSnapshotTargets()
             + " criticalMs=" + criticalElapsedMs);
         if (!queueState.ShouldStartWorker)
         {
             return;
         }
 
-        Task work()
-        {
-            ProcessInstallableMaintenanceRequests();
-            return Task.CompletedTask;
-        }
+        Task work() => ProcessInstallableMaintenanceRequestsAsync();
         if (StartupBackgroundTaskScheduler != null)
         {
             if (StartupBackgroundTaskScheduler("installable_maintenance", reason ?? "queue", dependency, work))
@@ -71,7 +66,7 @@ public partial class BMSLibrary
             CompleteInstallableMaintenanceForShutdown("shutdown_requested");
             return;
         }
-        Task.Run(() => ProcessInstallableMaintenanceRequests()).ObserveFault("ProcessDeferredInstallableMaintenance");
+        Task.Run(work).ObserveFault("ProcessDeferredInstallableMaintenance");
     }
 
     private void CompleteInstallableMaintenanceForShutdown(string shutdownReason)
@@ -102,7 +97,7 @@ public partial class BMSLibrary
         return packageLifecycleOwner.CompleteInstallableMaintenanceRequest(requestVersion);
     }
 
-    private void ProcessInstallableMaintenanceRequests()
+    private async Task ProcessInstallableMaintenanceRequestsAsync()
     {
         while (true)
         {
@@ -123,59 +118,82 @@ public partial class BMSLibrary
             var maintenanceResult = new MaintenanceWorkflowResult();
             InstallableMaintenanceSnapshot snapshot = null;
             List<Action> postLeaseEffects = [];
-            request.ProgressReporter?.Invoke(request.ProgressRequest, true);
+            IDisposable admissionLease = null;
+            // 読込み失敗は、読取りスレッドでも受付の保持中でも表示せず、ここへ集めて受付の解放後に一度だけ投函します。
+            MaintenanceReadFailureCollector readFailures = null;
             try
             {
-                using (LibraryFileMutationLease mutationLease = lr2SynchronizationOwner.BeginMutationWhenAvailable(
-                    "installable_maintenance_deferred"))
+                request.ProgressReporter?.Invoke(request.ProgressRequest, true);
+                try
                 {
-                    snapshot = CreateInstallableMaintenanceSnapshot();
-                    snapshotCount = snapshot.SnapshotCount;
-                    LogInstallPerformance("installable_maintenance_deferred run version=" + request.Version
-                        + " snapshotCount=" + snapshotCount
-                        + " criticalMs=" + request.CriticalElapsedMs);
-                    var stopwatchSetMode = Stopwatch.StartNew();
-                    setModeTargetCount = setModeAndCommitToDB(snapshot.Files);
-                    stopwatchSetMode.Stop();
-                    setModeMs = stopwatchSetMode.ElapsedMilliseconds;
+                    LibraryFileMutationLease mutationLease =
+                        await lr2SynchronizationOwner.AcquireAcceptedBackgroundMutationAsync("installable_maintenance_deferred").ConfigureAwait(false);
+                    admissionLease = mutationLease;
+                    if (IsShutdownRequested)
+                    {
+                        MarkInstallableMaintenanceSkipped(request.Version);
+                        return;
+                    }
+                    using (LibraryFileMutationCapability capability = mutationLease.CreateMutationCapability())
+                    {
+                        snapshot = CreateInstallableMaintenanceSnapshot();
+                        snapshotCount = snapshot.SnapshotCount;
+                        LogInstallPerformance("installable_maintenance_deferred run version=" + request.Version
+                            + " snapshotCount=" + snapshotCount
+                            + " criticalMs=" + request.CriticalElapsedMs);
+                        var stopwatchSetMode = Stopwatch.StartNew();
+                        setModeTargetCount = setModeAndCommitToDB(snapshot.Files);
+                        stopwatchSetMode.Stop();
+                        setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
-                    var stopwatchSetHealth = Stopwatch.StartNew();
-                    maintenanceResult = ApplyInstallableCatalogMaintenance(
-                        "installable_maintenance_deferred",
-                        postLeaseEffectObserver: effect =>
-                        {
-                            if (effect != null)
+                        var stopwatchSetHealth = Stopwatch.StartNew();
+                        readFailures = new MaintenanceReadFailureCollector();
+                        maintenanceResult = ApplyInstallableCatalogMaintenance(
+                            "installable_maintenance_deferred",
+                            capability: capability,
+                            postLeaseEffectObserver: effect =>
                             {
-                                postLeaseEffects.Add(effect);
-                            }
-                        }) ?? new MaintenanceWorkflowResult();
-                    stopwatchSetHealth.Stop();
-                    setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
+                                if (effect != null)
+                                {
+                                    postLeaseEffects.Add(effect);
+                                }
+                            },
+                            readFailures: readFailures) ?? new MaintenanceWorkflowResult();
+                        stopwatchSetHealth.Stop();
+                        setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
+                        ResetInstallableMaintenanceWriteLockFlags();
+                    }
+
+                    // 公開効果は表示を含まない状態の公開だけです。表示は受付の解放後の投函が担当するため、この位置のままで順序を保ちます。
+                    FlushPostLeaseEffects(postLeaseEffects, diagnosticEffects: null);
+
+                    stopwatch.Stop();
+                    LogCompletedInstallableMaintenance(request, maintenanceResult, snapshotCount, setModeTargetCount, setModeMs, setHealthMs, setZeroNoteMs, stopwatch.ElapsedMilliseconds);
+                    LogInstallPerformance("init_library_installable critical_ms=" + request.CriticalElapsedMs + " deferred_ms=" + stopwatch.ElapsedMilliseconds);
+                }
+                catch (Exception ex)
+                {
+                    stopwatch.Stop();
+                    LogFailedInstallableMaintenance(request, maintenanceResult, snapshotCount, setModeTargetCount, setModeMs, setHealthMs, setZeroNoteMs, stopwatch.ElapsedMilliseconds, ex);
+                }
+                finally
+                {
+                    request.ProgressReporter?.Invoke(request.ProgressRequest, false);
                     ResetInstallableMaintenanceWriteLockFlags();
+                    snapshot?.Files?.Clear();
+                    LogStartupMemoryCheckpoint("installable_maintenance_deferred", "after_release");
                 }
 
-                FlushPostLeaseEffects(postLeaseEffects, diagnosticEffects: null);
-
-                stopwatch.Stop();
-                LogCompletedInstallableMaintenance(request, maintenanceResult, snapshotCount, setModeTargetCount, setModeMs, setHealthMs, setZeroNoteMs, stopwatch.ElapsedMilliseconds);
-                LogInstallPerformance("init_library_installable critical_ms=" + request.CriticalElapsedMs + " deferred_ms=" + stopwatch.ElapsedMilliseconds);
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                LogFailedInstallableMaintenance(request, maintenanceResult, snapshotCount, setModeTargetCount, setModeMs, setHealthMs, setZeroNoteMs, stopwatch.ElapsedMilliseconds, ex);
+                if (CompleteInstallableMaintenanceRequest(request.Version))
+                {
+                    return;
+                }
             }
             finally
             {
-                request.ProgressReporter?.Invoke(request.ProgressRequest, false);
-                ResetInstallableMaintenanceWriteLockFlags();
-                snapshot?.Files?.Clear();
-                LogStartupMemoryCheckpoint("installable_maintenance_deferred", "after_release");
-            }
-
-            if (CompleteInstallableMaintenanceRequest(request.Version))
-            {
-                return;
+                admissionLease?.Dispose();
+                // 受付の解放後に、成功でも例外でも集めた失敗を待たずに投函します。表示の完了は保守の終端と次の受付を待たせません。
+                if (readFailures != null) { PostMaintenanceReadFailures(readFailures); }
             }
         }
     }
@@ -184,8 +202,8 @@ public partial class BMSLibrary
     {
         using (rwlockBMSFiles.GetReaderGuard())
         {
-            List<BMSFile> filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
-            int snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count;
+            List<ChartFile> filesSnapshot = [.. (BmsCharts ?? []).Where(file => file != null)];
+            int snapshotCount = CreateOwnedChartCollectionViewUnsafe().Count;
             return new InstallableMaintenanceSnapshot(filesSnapshot, snapshotCount);
         }
     }

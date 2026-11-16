@@ -8,25 +8,26 @@ using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
+/// <summary>確定したディレクティブ値。管理出力では物理本文とDB行の共通の正本です。</summary>
 internal sealed class Lr2FolderFileDefinition
 {
-    public string Title { get; set; }
+    public string Title { get; init; }
 
-    public string Subtitle { get; set; }
+    public string Subtitle { get; init; }
 
-    public string Category { get; set; }
+    public string Category { get; init; }
 
-    public string InformationA { get; set; }
+    public string InformationA { get; init; }
 
-    public string InformationB { get; set; }
+    public string InformationB { get; init; }
 
-    public string Command { get; set; }
+    public string Command { get; init; }
 
-    public int? MaxTracks { get; set; }
+    public int? MaxTracks { get; init; }
 
-    public string Banner { get; set; }
+    public string Banner { get; init; }
 
-    public bool HasCustomFolderDirective { get; set; }
+    public bool HasCustomFolderDirective { get; init; }
 }
 
 internal sealed class Lr2FolderFileRowRequest
@@ -50,9 +51,12 @@ internal sealed class Lr2FolderFileRowRequest
 
 internal static class Lr2FolderFileProjection
 {
+    /// <summary>管理外・組込みの物理ディレクティブを従来の別名・Trim規則で読み、確定後の定義を一度だけ構築します。</summary>
     internal static Lr2FolderFileDefinition ParseDefinition(IEnumerable<string> lines)
     {
-        var definition = new Lr2FolderFileDefinition();
+        string title = null, subtitle = null, category = null, informationA = null, informationB = null, command = null, banner = null;
+        int? maxTracks = null;
+        bool hasCustomFolderDirective = false;
         foreach (string line in lines ?? [])
         {
             if (!TryReadDirective(line, out string directive, out string body))
@@ -63,43 +67,67 @@ internal static class Lr2FolderFileProjection
             switch (directive.ToUpperInvariant())
             {
                 case "TITLE":
-                    definition.Title = body;
+                    title = body;
                     break;
                 case "SUBTITLE":
-                    definition.Subtitle = body;
+                    subtitle = body;
                     break;
                 case "CATEGORY":
                 case "GENRE":
-                    definition.Category = body;
+                    category = body;
                     break;
                 case "INFORMATION_A":
-                    definition.InformationA = body;
+                    informationA = body;
                     break;
                 case "INFORMATION_B":
-                    definition.InformationB = body;
+                    informationB = body;
                     break;
                 case "TAG":
                 case "COMMAND":
-                    definition.Command = body;
+                    command = body;
                     break;
                 case "MAXTRACKS":
                 case "PLAYLEVEL":
-                    if (int.TryParse(body, NumberStyles.Integer, CultureInfo.InvariantCulture, out int maxTracks))
+                    if (int.TryParse(body, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedMaxTracks))
                     {
-                        definition.MaxTracks = maxTracks;
+                        maxTracks = parsedMaxTracks;
                     }
                     break;
                 case "BANNER":
-                    definition.Banner = body;
+                    banner = body;
                     break;
                 case "CUSTOMFOLDER":
-                    definition.HasCustomFolderDirective = true;
+                    hasCustomFolderDirective = true;
                     break;
             }
         }
-        return definition;
+        return new Lr2FolderFileDefinition
+        {
+            Title = title,
+            Subtitle = subtitle,
+            Category = category,
+            InformationA = informationA,
+            InformationB = informationB,
+            Command = command,
+            Banner = banner,
+            MaxTracks = maxTracks,
+            HasCustomFolderDirective = hasCustomFolderDirective
+        };
     }
 
+    /// <summary>管理定義から既存の項目順・改行で物理本文を生成します。値の内部空白は変更しません。</summary>
+    internal static string CreateManagedText(Lr2FolderFileDefinition definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return "#COMMAND " + definition.Command + Environment.NewLine
+            + "#MAXTRACKS " + definition.MaxTracks.GetValueOrDefault().ToString(CultureInfo.InvariantCulture) + Environment.NewLine
+            + "#CATEGORY " + definition.Category + Environment.NewLine
+            + "#TITLE " + definition.Title + Environment.NewLine
+            + "#INFORMATION_A " + definition.InformationA + Environment.NewLine
+            + "#INFORMATION_B " + definition.InformationB + Environment.NewLine + Environment.NewLine;
+    }
+
+    /// <summary>読取り済み定義からcustom行を作り、同じrawキーの既存adddateはNULLも保持します。定義のない新規行は合成しません。</summary>
     internal static bool TryCreateFolderRow(Lr2FolderFileRowRequest request, out LR2SongDB.folder row)
     {
         row = null;
@@ -107,6 +135,7 @@ internal static class Lr2FolderFileProjection
         string databasePath = NormalizeDatabasePath(request.DatabasePath ?? request.FilePath);
         if (string.IsNullOrWhiteSpace(databasePath)
             || request.LastWriteTimeUtc == null
+            || request.Definition == null
             || !IsSupportedFolderType(request.FolderType))
         {
             return false;
@@ -122,22 +151,24 @@ internal static class Lr2FolderFileProjection
             return false;
         }
 
-        Lr2FolderFileDefinition definition = request.Definition ?? new Lr2FolderFileDefinition();
+        Lr2FolderFileDefinition definition = request.Definition;
         row = new LR2SongDB.folder
         {
-            title = definition.Title,
-            subtitle = definition.Subtitle,
-            category = definition.Category,
-            info_a = definition.InformationA,
-            info_b = definition.InformationB,
-            command = definition.Command,
+            title = definition.Title?.Trim(),
+            subtitle = definition.Subtitle?.Trim(),
+            category = definition.Category?.Trim(),
+            info_a = definition.InformationA?.Trim(),
+            info_b = definition.InformationB?.Trim(),
+            command = definition.Command?.Trim(),
             path = databasePath,
             type = request.FolderType,
-            banner = definition.Banner,
+            banner = definition.Banner?.Trim(),
             parent = parentHash,
             date = request.LastWriteTimeUtc.Value.ToUnixtime(),
             max = definition.MaxTracks ?? 0,
-            adddate = request.ExistingRow?.adddate ?? request.GeneratedAtUtc.ToUnixtime()
+            adddate = request.ExistingRow != null
+                && string.Equals(request.ExistingRow.path, databasePath, StringComparison.Ordinal)
+                ? request.ExistingRow.adddate : request.GeneratedAtUtc.ToUnixtime()
         };
         return true;
     }

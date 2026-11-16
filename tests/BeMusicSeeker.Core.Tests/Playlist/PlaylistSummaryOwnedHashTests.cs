@@ -1,0 +1,59 @@
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.TestSupport.Components;
+using static BeMusicSeeker.TestSupport.Components.PlaylistSummaryAggregationTestSupport;
+
+namespace BeMusicSeeker.Tests;
+
+
+[TestClass]
+public sealed class PlaylistSummaryOwnedHashTests
+{
+    private readonly ApplicationDatabaseScope databaseScope = new();
+
+    /// <summary>取消済み要求で所持hash索引を取得すると取消を返し、取消後の索引構築成功を検出します。</summary>
+    [TestMethod]
+    public void GetOwnedChartHashIndexSnapshot_RejectsCanceledBuildBeforeReadingStorage()
+    {
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
+        {
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService(), new TestUiScheduler(() => null));
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            Assert.ThrowsExactly<OperationCanceledException>(() =>
+                library.GetOwnedChartHashIndexSnapshot(cancellation.Token));
+        });
+    }
+
+    /// <summary>BMSとbmsonのMD5・SHA-256を同じ所持索引へ収録し、形式やhash種類による欠落を検出します。</summary>
+    [TestMethod]
+    public void GetOwnedChartHashIndexSnapshot_IncludesBmsonHashes()
+    {
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
+        {
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new PlaylistSummaryAggregationTestDoubles.RecordingDialogService(), new TestUiScheduler(() => null));
+            SetLibraryFilesWithoutNotification(library,
+            [
+                CreateLibraryFile(@"C:\Songs\bms.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+            ]);
+            SetLibraryBmsonSongsWithoutNotification(library,
+            [
+                ChartTestValues.Empty(ChartFileKind.Bmson) with {
+                    Path = @"C:\Songs\bmson\chart.bmson",
+                    Folder = @"C:\Songs\bmson",
+                    Md5 = "cccccccccccccccccccccccccccccccc",
+                    Sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                }
+            ]);
+
+            OwnedChartHashIndexVersionedSnapshot snapshot = library.GetOwnedChartHashIndexSnapshot();
+
+            CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), "cccccccccccccccccccccccccccccccc");
+            CollectionAssert.Contains(new List<string>(snapshot.Sha256Hashes), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            CollectionAssert.Contains(new List<string>(snapshot.Sha256Hashes), "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+        });
+    }
+
+}

@@ -10,6 +10,7 @@ internal sealed class InstalledDirectoryLookupResult
 
     public InstalledDirectoryResolveReason Reason { get; set; }
 
+    /// <summary>要求全体で有効な候補根へ一致した異なるMD5の数です。同じMD5が複数根へ一致しても一件とし、候補根ごとの票数とは区別します。</summary>
     public int MatchedHashCount { get; set; }
 
     public int CandidateDirectoryCount { get; set; }

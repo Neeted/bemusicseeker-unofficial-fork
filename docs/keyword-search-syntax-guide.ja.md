@@ -110,7 +110,7 @@ playlist:"Satellite Sub"
 | 操作 | 結果 |
 | :--- | :--- |
 | `↑` / `↓` | 候補を選ぶ |
-| `Enter` / `Tab` | 選択中の候補を入力する |
+| `Enter` / `Tab` | `↑` / `↓` で選んだ候補を入力する。候補を選んでいないときは、`Enter` で入力したとおりに検索を確定して履歴へ保存する。`Tab` は、項目名または値を1文字以上入力していれば先頭の候補で補完し、空欄や `:` の直後などでは次の項目へ移動する |
 | `Esc` | 候補を閉じる |
 | `Ctrl+Space` | 候補をもう一度開く |
 | `Shift+Tab` | 選択中のお気に入り・履歴行の操作ボタンへ移動する |
@@ -204,7 +204,8 @@ title:alpha|beta
 | `maxbpm` | 最大BPM |
 | `minbpm` | 最小BPM |
 | `duration` / `length` | 演奏時間（秒） |
-| `judge` / `judge%` / `judgepct` | 判定幅。`veryhard`、`hard`、`normal`、`easy`、`veryeasy` も利用できます |
+| `judge` | 判定幅。数値条件と `defined` / `undefined` のほか、`veryhard`、`hard`、`normal`、`easy`、`veryeasy` も利用できます |
+| `judge%` / `judgepct` | 判定幅の数値条件と `defined` / `undefined` を利用できます |
 | `feature` | 譜面の特徴。`ln`、`mine`、`random`、`lnmode`、`cn`、`hcn`、`stop`、`scroll` |
 | `notes` | 総ノーツ数 |
 | `long` / `ln` | ロングノーツ数 |
@@ -223,6 +224,8 @@ title:alpha|beta
 | `bp` | BP |
 | `memo` | メモ（プレイリスト詳細のみ） |
 | `comment` | コメント（プレイリスト詳細のみ） |
+
+`RATE` の表示は百分率ですが、数値条件と正規表現は0～1の尺度を使います。`rate:>=0.8` は80%以上、`rate:re:^0[.]8$` は80%に一致します。正規表現でも小数点は `.` を使います。
 
 検索対象を指定しない場合、メインの譜面一覧では TITLE、ARTIST、GENRE、TAG、PATH、プレイリストの表示記号、MD5、SHA256 を検索します。プレイリスト詳細では、さらにメモとコメントも検索します。
 
@@ -266,6 +269,8 @@ title:alpha|beta
 | `source` | 履歴の取得元名またはパス |
 
 検索対象を指定しない場合は、TITLE、ARTIST、PATH、FOLDER欄、参照プレイリスト名、各ハッシュ値、TYPE、クリア状態、取得元、プレイ日付などを検索します。
+
+`date:re:"^2026-06-19 12:"` のように、DATE 列の `yyyy-MM-dd HH:mm:ss` を正規表現で検索できます。日付だけの `yyyy-MM-dd` と `yyyy/MM/dd` も引き続き検索候補になります。
 
 プレイログでは、`level`、`difficulty`、`notes`、`rank`、`rate`、`score`、`bp` など、譜面一覧用の検索対象は利用できません。
 
@@ -374,9 +379,15 @@ re:^alpha
 title:re:^alpha
 -title:re:^test
 path:re:\\BMS\\.*\.bms$
+title:re:^(alpha|beta)$
+title:re:"^a b"
 ```
 
+`re:` の後ろは、`|` を含めて全体が1つの正規表現です。`title:re:^(alpha|beta)$` は `alpha` または `beta` に一致します。スペースを含む式は、`title:re:"^a b"` のように式全体をダブルクォートで囲みます。
+
 正規表現は大文字・小文字を区別しません。処理に時間がかかりすぎる式は途中で停止し、その条件には一致しなかったものとして扱われます。
+
+表示上の空欄も検索対象です。`memo:re:^$` は MEMO が空欄の行、`-memo:re:^$` は空欄でない行に一致します。空白文字だけの値は空欄に含めません。参照プレイリスト名など複数の値を探す項目では、値がない場合を空文字として検索しません。
 
 ### ダブルクォート内で `"` や `\` を検索する
 

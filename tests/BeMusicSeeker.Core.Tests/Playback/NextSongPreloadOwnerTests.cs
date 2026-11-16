@@ -1,0 +1,270 @@
+using BeMusicSeeker.Models;
+using BeMusicSeeker.TestSupport.Files;
+using BeMusicSeeker.TestSupport.Wpf;
+using Ribbit.BMS;
+using Ribbit.Media.Audio;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class NextSongPreloadOwnerTests
+{
+    /// <summary>入力I/Oだけを通常失敗とし、分類外BMS・native・OOM・独立cleanupを含む失敗は次候補へ読み替えない。</summary>
+    [TestMethod]
+    public void InputClassificationPreservesIndependentFatalCauses()
+    {
+        foreach (Exception failure in new Exception[] { new InvalidDataException(), new IOException(), new UnauthorizedAccessException() })
+        {
+            Assert.IsTrue(NextSongPreloadOwner.IsInputFailure(failure));
+        }
+        foreach (Exception failure in new Exception[] { new BMSFile.InvalidBmsFileException("unclassified"),
+            new AudioSourceFatalException("native"), new OutOfMemoryException(),
+            new AggregateException(new InvalidDataException(), new InvalidOperationException("cleanup")) })
+        {
+            Assert.IsFalse(NextSongPreloadOwner.IsInputFailure(failure));
+        }
+    }
+
+    /// <summary>実parserの型付き入力不良を準備中に引き取り、元Taskの終端と同じ例外を一回だけ移管して再解析しない。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PendingParserFailureTransfersOriginalExceptionOnce(bool bmson)
+    {
+        using var fixture = new ChartFixture();
+        string path = fixture.Input(bmson ? "bad.bmson" : "bad.bms").Path;
+        File.WriteAllText(path, bmson ? "{\"info\":{\"init_bpm\":0}}" : "#BPM 120\n#RANDOM 2147483647\n");
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        int preparations = 0;
+        var owner = new NextSongPreloadOwner((input, token) =>
+        {
+            Interlocked.Increment(ref preparations);
+            entered.SetResult();
+            release.Wait();
+            return PreparedBmsSong.Prepare(PlaybackChart.Load(input.Path), 1f, token);
+        });
+        var input = NextSongPreloadInput.Capture(path);
+        Task<PreparedBmsSong> work = owner.Request(input);
+        Task<PreparedBmsSong?>? adoption = null;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, work, "parser-preparation");
+            adoption = owner.TakeAsync(input);
+            Assert.IsFalse(adoption.IsCompleted);
+            release.Set();
+            Exception failure = await Assert.ThrowsAsync<Exception>(() => work);
+            Assert.IsTrue(NextSongPreloadOwner.IsInputFailure(failure));
+            Assert.AreSame(failure, await Assert.ThrowsAsync<Exception>(() => adoption));
+            Assert.AreEqual(1, preparations);
+            Assert.IsNull(await owner.TakeAsync(input));
+        }
+        finally
+        {
+            release.Set();
+            try { await work; } catch (Exception failure) when (NextSongPreloadOwner.IsInputFailure(failure)) { }
+            if (adoption != null) { try { await adoption; } catch (Exception failure) when (NextSongPreloadOwner.IsInputFailure(failure)) { } }
+            await owner.InvalidateAsync();
+        }
+    }
+
+    /// <summary>
+    /// 保証：新旧bmsonの先読み結果を一度だけ採用し、不正入力の失敗は採用まで保持して再解析や別入力への読み替えをしない。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BmsonPreloadDispatchesModernOrLegacyAndKeepsInputFailureUntilAdoption(bool legacy)
+    {
+        using var fixture = new ChartFixture();
+        string path = fixture.Input("next.bmson").Path;
+        File.WriteAllText(path, legacy ? "{\"version\":\"0.21\",\"info\":{\"initBPM\":120},\"soundChannel\":[]}"
+            : "{\"info\":{\"init_bpm\":120},\"sound_channels\":[]}");
+        var owner = new NextSongPreloadOwner((input, token) => PreparedBmsSong.Prepare(PlaybackChart.Load(input.Path), 0.4f, token));
+        var input = NextSongPreloadInput.Capture(path);
+        PreparedBmsSong prepared = await owner.Request(input);
+        Assert.AreSame(prepared, await owner.TakeAsync(input));
+        Assert.IsNull(prepared.Chart.Bms);
+        File.WriteAllText(path, "{\"info\":{\"init_bpm\":0}}");
+        input = NextSongPreloadInput.Capture(path);
+        Task<PreparedBmsSong> failing = owner.Request(input);
+        InvalidBmsonFileException failure = await Assert.ThrowsExactlyAsync<InvalidBmsonFileException>(() => failing);
+        Assert.IsTrue(NextSongPreloadOwner.IsInputFailure(failure));
+        Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<InvalidBmsonFileException>(() => owner.TakeAsync(input)));
+        Assert.IsNull(await owner.TakeAsync(input));
+    }
+
+    /// <summary>
+    /// 保証：同じ入力の準備中に採用を求めるとその実Taskを待ち、取消や再デコードなしに一度だけ準備結果を移管する。
+    /// </summary>
+    [TestMethod]
+    public async Task MatchingPreparation_WaitsForTheSameWorkAndTransfersItOnce()
+    {
+        using var fixture = new ChartFixture();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        int preparations = 0;
+        bool cancelled = false;
+        var owner = new NextSongPreloadOwner((input, token) =>
+        {
+            Interlocked.Increment(ref preparations);
+            using CancellationTokenRegistration registration = token.Register(() => cancelled = true);
+            entered.SetResult();
+            release.Wait();
+            return PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token);
+        });
+        NextSongPreloadInput input = fixture.Input("next.bms");
+        Task<PreparedBmsSong?>? adoption = null;
+        Task<PreparedBmsSong> preparation = owner.Request(input);
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, preparation, "next-song.preparation");
+            adoption = owner.TakeAsync(input);
+            Assert.IsFalse(adoption.IsCompleted);
+            release.Set();
+            PreparedBmsSong prepared = await adoption ?? throw new AssertFailedException("準備結果が必要です。");
+            Assert.AreSame(await preparation, prepared);
+            Assert.AreEqual(1, preparations, "準備途中のNextでも再デコードしません。");
+            Assert.IsFalse(cancelled);
+            Assert.IsNull(await owner.TakeAsync(input));
+        }
+        finally
+        {
+            release.Set();
+            if (adoption != null) { await adoption; }
+            await owner.InvalidateAsync();
+        }
+    }
+
+    /// <summary>
+    /// 保証：完了済みの同じ先読みを再ロードせず採用し、音声資源の所有権は一度だけ移管する。
+    /// </summary>
+    [TestMethod]
+    public async Task CompletedPreparation_IsReusedWithoutAnotherLoad()
+    {
+        using var fixture = new ChartFixture();
+        int preparations = 0;
+        var owner = new NextSongPreloadOwner((input, token) =>
+        {
+            preparations++;
+            return PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token);
+        });
+        NextSongPreloadInput input = fixture.Input("next.bms");
+        PreparedBmsSong prepared = await owner.Request(input);
+        Assert.AreSame(prepared, await owner.TakeAsync(input));
+        Assert.AreEqual(1, preparations);
+        Assert.IsNotNull(prepared.TakeResources());
+        Assert.ThrowsExactly<InvalidOperationException>(() => prepared.TakeResources());
+    }
+
+    /// <summary>
+    /// 保証：別曲の採用要求は先読みを取消して後片付けの終端まで待ち、取消通知だけで破棄完了を返さない。
+    /// </summary>
+    [TestMethod]
+    public async Task ChangedTarget_CancelsAndJoinsBeforeDiscardingThePreparation()
+    {
+        using var fixture = new ChartFixture();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancelled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cleanup = new ManualResetEventSlim();
+        var owner = new NextSongPreloadOwner((input, token) =>
+        {
+            using CancellationTokenRegistration registration = token.Register(() => cancelled.TrySetResult());
+            entered.SetResult();
+            cleanup.Wait();
+            token.ThrowIfCancellationRequested();
+            return PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token);
+        });
+        Task<PreparedBmsSong> preparation = owner.Request(fixture.Input("next.bms"));
+        Task<PreparedBmsSong?>? discard = null;
+        try
+        {
+            await TestUiDispatcherHost.AwaitNotificationAsync(entered.Task, preparation, "next-song.preparation-before-discard");
+            discard = owner.TakeAsync(fixture.Input("different.bms"));
+            await TestUiDispatcherHost.AwaitNotificationAsync(cancelled.Task, discard, "next-song.discard-cancellation");
+            Assert.IsFalse(discard.IsCompleted, "取消要求だけでは後片付け完了になりません。");
+            cleanup.Set();
+            Assert.IsNull(await discard);
+        }
+        finally
+        {
+            cleanup.Set();
+            if (discard != null) { await discard; }
+            await owner.InvalidateAsync();
+        }
+    }
+
+    /// <summary>
+    /// 保証：先読みの入力不正は同じ例外を採用側へ一度の解析で返し、採用時の再試行で元の失敗を隠さない。
+    /// </summary>
+    [TestMethod]
+    public async Task InputFailure_IsReturnedOnAdoptionWithoutRetry()
+    {
+        using var fixture = new ChartFixture();
+        File.WriteAllText(fixture.Input("next.bms").Path, "#BPM 120\n#RANDOM 2147483647\n");
+        int preparations = 0;
+        var owner = new NextSongPreloadOwner((input, token) =>
+        {
+            preparations++;
+            return PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token);
+        });
+        NextSongPreloadInput input = fixture.Input("next.bms");
+        Task<PreparedBmsSong> preparation = owner.Request(input);
+        Ribbit.BMS.BMSFile.InvalidBmsFileException failure = await Assert.ThrowsExactlyAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => preparation);
+        Assert.IsTrue(failure.IsInputFailure);
+        Assert.AreSame(failure, await Assert.ThrowsExactlyAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => owner.TakeAsync(input)));
+        Assert.AreEqual(1, preparations);
+    }
+
+    /// <summary>
+    /// 保証：先読み破棄時は通常の入力不正だけを抑制し、decoder解放不能等の致命的失敗は元の例外で表面化させる。
+    /// </summary>
+    [TestMethod]
+    public async Task DiscardedFailure_SuppressesOnlyOrdinaryInputErrors()
+    {
+        using var fixture = new ChartFixture();
+        File.WriteAllText(fixture.Input("input.bms").Path, "#BPM 120\n#RANDOM 2147483647\n");
+        var inputOwner = new NextSongPreloadOwner((input, token) =>
+            PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token));
+        Task<PreparedBmsSong> inputTask = inputOwner.Request(fixture.Input("input.bms"));
+        await Assert.ThrowsExactlyAsync<Ribbit.BMS.BMSFile.InvalidBmsFileException>(() => inputTask);
+        await inputOwner.InvalidateAsync();
+
+        var fatal = new AudioSourceFatalException("decoderの解放を確認できません。");
+        var fatalOwner = new NextSongPreloadOwner((_, _) => throw fatal);
+        Task<PreparedBmsSong> fatalTask = fatalOwner.Request(fixture.Input("fatal.bms"));
+        await Assert.ThrowsExactlyAsync<AudioSourceFatalException>(() => fatalTask);
+        Assert.AreSame(fatal, await Assert.ThrowsExactlyAsync<AudioSourceFatalException>(() => fatalOwner.InvalidateAsync()));
+    }
+
+    /// <summary>
+    /// 保証：先読み後にファイル属性が変わった入力には準備済み結果を渡さず、変更前の譜面を再生しない。
+    /// </summary>
+    [TestMethod]
+    public async Task ChangedFileAttributes_RejectPreparedSnapshot()
+    {
+        using var fixture = new ChartFixture();
+        var owner = new NextSongPreloadOwner((input, token) =>
+            PreparedBmsSong.Prepare(new Ribbit.BMS.BMSFile(input.Path), 0.4f, token));
+        NextSongPreloadInput original = fixture.Input("next.bms");
+        await owner.Request(original);
+        File.AppendAllText(original.Path, "#TITLE changed\n");
+        Assert.IsNull(await owner.TakeAsync(NextSongPreloadInput.Capture(original.Path)));
+    }
+
+    private sealed class ChartFixture : IDisposable
+    {
+        private readonly TestWorkspace workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        private string directory => workspace.RootDirectory;
+
+
+        internal NextSongPreloadInput Input(string name)
+        {
+            string path = System.IO.Path.Combine(directory, name);
+            if (!File.Exists(path)) { File.WriteAllText(path, "#PLAYER 1\n#TITLE test\n#BPM 120\n#00111:00\n"); }
+            return NextSongPreloadInput.Capture(path);
+        }
+
+        public void Dispose() => workspace.Dispose();
+    }
+}

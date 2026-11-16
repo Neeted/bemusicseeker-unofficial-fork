@@ -4,30 +4,8 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal sealed class Lr2SongDbSyncInput(
-    IReadOnlyList<string> rootDirectories,
-    IReadOnlyList<string> chartPaths,
-    IReadOnlyList<string> normalFolderDirectoryPaths,
-    IReadOnlyList<string> folderInfoFilePaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
-    IReadOnlyList<string> lr2FolderDiscoveryDirectories,
-    IReadOnlyList<string> lr2FolderPruneDirectories,
-    string lr2RootPath,
-    string lr2NormalCustomFolderOutputBaseDir,
-    IReadOnlyList<string> lr2AdditionalNormalCustomFolderOutputBaseDirs,
-    string lr2RootCustomFolderOutputBaseDir,
-    IReadOnlyList<string> lr2BuiltinFolderSourceDirectories,
-    Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings,
-    IReadOnlyList<string> lr2FolderFilePaths,
-    IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries,
-    bool lr2FolderFileDiscoveryComplete,
-    IReadOnlyList<BMSFile> songRows,
-    IReadOnlyList<string> textFileDirectories,
-    int scanSurfaceGeneration,
-    int ownedChartCollectionVersion,
-    int bmsRowsVersion,
-    int bmsonRowsVersion)
+/// <summary>同操作の確定した探索面と行・管理型定義を全体同期へ渡します。管理未提供を空定義へ補いません。</summary>
+internal sealed class Lr2SongDbSyncInput(IReadOnlyList<string> rootDirectories, IReadOnlyList<string> chartPaths, IReadOnlyList<string> normalFolderDirectoryPaths, IReadOnlyList<string> folderInfoFilePaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoFileEntries, IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries, IReadOnlyList<string> lr2FolderDiscoveryDirectories, IReadOnlyList<string> lr2FolderPruneDirectories, string lr2RootPath, string lr2NormalCustomFolderOutputBaseDir, IReadOnlyList<string> lr2AdditionalNormalCustomFolderOutputBaseDirs, string lr2RootCustomFolderOutputBaseDir, IReadOnlyList<string> lr2BuiltinFolderSourceDirectories, Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings, IReadOnlyList<string> lr2FolderFilePaths, IReadOnlyDictionary<string, RootFileEnumerationEntry> lr2FolderFileEntries, bool lr2FolderFileDiscoveryComplete, IReadOnlyList<ChartFile> songRows, IReadOnlyList<string> textFileDirectories, IReadOnlyDictionary<string, Lr2FolderFileDefinition> managedFolderDefinitions = null)
 {
     public IReadOnlyList<string> RootDirectories { get; } = rootDirectories ?? [];
 
@@ -65,17 +43,16 @@ internal sealed class Lr2SongDbSyncInput(
     public IReadOnlyDictionary<string, RootFileEnumerationEntry> Lr2FolderFileEntries { get; } =
         lr2FolderFileEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>同じ操作で確定した管理定義を再解析せず全体投影へ渡します。nullは未提供です。</summary>
+    public IReadOnlyDictionary<string, Lr2FolderFileDefinition> ManagedFolderDefinitions { get; } = managedFolderDefinitions;
+
     public bool Lr2FolderFileDiscoveryComplete { get; } = lr2FolderFileDiscoveryComplete;
 
-    public IReadOnlyList<BMSFile> SongRows { get; } = songRows ?? [];
+    public IReadOnlyList<ChartFile> SongRows { get; } = songRows ?? [];
 
     public IReadOnlyList<string> TextFileDirectories { get; } = textFileDirectories ?? [];
 
-    public int ScanSurfaceGeneration { get; } = scanSurfaceGeneration;
 
-    public int OwnedChartCollectionVersion { get; } = ownedChartCollectionVersion;
 
-    public int BmsRowsVersion { get; } = bmsRowsVersion;
 
-    public int BmsonRowsVersion { get; } = bmsonRowsVersion;
 }

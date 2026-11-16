@@ -4,6 +4,7 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal static class ResourceHealthIndexMutationPlanner
 {
+    /// <summary>保守の保存値・警告投影に変更がある対象を反映し、現在索引がなければ既存の復元方針を適用します。</summary>
     internal static ResourceHealthIndexMutation BuildMaintenanceMutation(
         ResourceMaintenanceTargetSet maintenanceTargets,
         ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
@@ -14,8 +15,8 @@ internal static class ResourceHealthIndexMutationPlanner
     {
         var mutation = new ResourceHealthIndexMutation();
         IReadOnlyList<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts;
-        bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
-        bool shouldUpdateIndex = workflowHasUpdates || !resourceHealthIndexCurrent || forceResourceHealthDelta;
+        // 警告詳細だけの差も保守の更新へ含めるため、同値の再検査で索引と表示通知を再発させません。
+        bool shouldUpdateIndex = workflowHasUpdates || !resourceHealthIndexCurrent;
         if (!shouldUpdateIndex)
         {
             return mutation;

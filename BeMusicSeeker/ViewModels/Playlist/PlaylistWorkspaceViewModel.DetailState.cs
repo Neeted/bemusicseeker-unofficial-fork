@@ -50,58 +50,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             viewAlive ? CountDetailRows(viewRows) : 0);
     }
 
-    internal event EventHandler<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs> PlaylistDetailScoreSnapshotRefreshRequested;
-
-    internal void RequestPlaylistDetailScoreSnapshotRefresh(int scoreSnapshotVersion)
-    {
-        if (!IsPlaylistDetailViewActive || IsPlaylistSummaryMode)
-        {
-            return;
-        }
-
-        int lastBuiltVersion;
-        bool deferredByEdit;
-        lock (DetailViewState.SyncRoot)
-        {
-            lastBuiltVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
-            if (scoreSnapshotVersion <= lastBuiltVersion)
-            {
-                return;
-            }
-            if (DetailViewState.Source.IsPlaylistCellEditing)
-            {
-                DetailViewState.Source.PendingScoreSnapshotRefreshVersion = Math.Max(
-                    DetailViewState.Source.PendingScoreSnapshotRefreshVersion,
-                    scoreSnapshotVersion);
-                deferredByEdit = true;
-            }
-            else
-            {
-                deferredByEdit = false;
-            }
-        }
-
-        PublishPlaylistDetailScoreSnapshotRefreshRequested(
-            scoreSnapshotVersion,
-            lastBuiltVersion,
-            deferredByEdit,
-            refreshRequired: !deferredByEdit);
-    }
-
-    private void PublishPlaylistDetailScoreSnapshotRefreshRequested(
-        int scoreSnapshotVersion,
-        int lastBuiltVersion,
-        bool deferredByEdit,
-        bool refreshRequired)
-    {
-        PlaylistDetailScoreSnapshotRefreshRequested?.Invoke(
-            this,
-            new PlaylistDetailScoreSnapshotRefreshRequestedEventArgs(
-                scoreSnapshotVersion,
-                lastBuiltVersion,
-                deferredByEdit,
-                refreshRequired));
-    }
 }
 
 internal readonly struct PlaylistPreviousDetailRowsSnapshot
@@ -125,27 +73,4 @@ internal readonly struct PlaylistPreviousDetailRowsSnapshot
     internal bool ViewAlive { get; }
 
     internal int ViewRowCount { get; }
-}
-
-internal sealed class PlaylistDetailScoreSnapshotRefreshRequestedEventArgs : EventArgs
-{
-    internal PlaylistDetailScoreSnapshotRefreshRequestedEventArgs(
-        int scoreSnapshotVersion,
-        int lastBuiltVersion,
-        bool deferredByEdit,
-        bool refreshRequired)
-    {
-        ScoreSnapshotVersion = scoreSnapshotVersion;
-        LastBuiltVersion = lastBuiltVersion;
-        DeferredByEdit = deferredByEdit;
-        RefreshRequired = refreshRequired;
-    }
-
-    internal int ScoreSnapshotVersion { get; }
-
-    internal int LastBuiltVersion { get; }
-
-    internal bool DeferredByEdit { get; }
-
-    internal bool RefreshRequired { get; }
 }

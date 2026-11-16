@@ -19,19 +19,6 @@ internal static class Lr2FolderExistingRowLookup
         return QueryExactPaths(songDb, exactPaths, "f.*");
     }
 
-    internal static IReadOnlyList<LR2SongDB.folder> QueryExactPathsForNormalFolderMtime(
-        LR2SongDBExtended songDb,
-        IEnumerable<string> exactPaths)
-    {
-        string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
-        string typeColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.type);
-        string dateColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.date);
-        return QueryExactPaths(
-            songDb,
-            exactPaths,
-            "f." + pathColumn + ", f." + typeColumn + ", f." + dateColumn);
-    }
-
     internal static IReadOnlyList<LR2SongDB.folder> QueryExactPathsForCustomFolderLayout(
         LR2SongDBExtended songDb,
         IEnumerable<string> exactPaths)
@@ -95,20 +82,67 @@ internal static class Lr2FolderExistingRowLookup
             additionalFilter: " AND " + pathColumn + " LIKE '%.lr2folder' COLLATE NOCASE");
     }
 
-    internal static IReadOnlyList<LR2SongDB.folder> QueryNormalFolderMtimePathPrefixScopes(
-        LR2SongDBExtended songDb,
-        IEnumerable<string> folderPathPrefixes)
+    /// <summary>削除候補の通常親を必要とするcustom候補のexact pathだけを、既存の索引付き範囲読取りで捕捉します。</summary>
+    internal static IReadOnlyList<string> QueryCustomFolderDependencyPaths(
+        LR2SongDBExtended songDb, IEnumerable<string> folderPathPrefixes)
     {
         string pathColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.path);
-        string typeColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.type);
-        string dateColumn = SQLiteTable<LR2SongDB.folder>.GetColumnName(row => row.date);
-        return QueryPathPrefixScopes(
-            songDb,
-            folderPathPrefixes,
-            [],
-            pathColumn + ", " + typeColumn + ", " + dateColumn,
-            " AND " + typeColumn + " = 1");
+        return [.. QueryPathPrefixScopes(songDb, folderPathPrefixes, [], pathColumn,
+            " AND " + pathColumn + " LIKE '%.lr2folder' COLLATE NOCASE").Select(row => row.path)];
     }
+
+    /// <summary>削除候補祖先をまとめて照会し、今回のsubtree外に存続する通常行が必要とする祖先だけを返します。</summary>
+    internal static IReadOnlyList<string> QueryAncestorsWithRetainedNormalChildren(
+        LR2SongDBExtended songDb, IEnumerable<string> ancestorDirectories, IEnumerable<string> pruneDirectories)
+    {
+        List<string> candidates = BuildLookupPaths(ancestorDirectories.Select(Lr2FolderPath.ToFolderPath));
+        if (candidates.Count == 0) { return []; }
+        List<PathPrefixRange> excluded = CreatePrefixRanges(pruneDirectories.Select(Lr2FolderPath.ToFolderPath));
+        BmsLibraryDbGateway.EnsureFolderLookupIndexes(songDb);
+        const string candidateTable = "lr2_folder_retained_child_candidates";
+        const string excludedTable = "lr2_folder_retained_child_exclusions";
+        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS " + candidateTable + " (path TEXT PRIMARY KEY, upper TEXT NOT NULL);");
+        songDb.Execute("CREATE TEMP TABLE IF NOT EXISTS " + excludedTable + " (lower TEXT COLLATE NOCASE PRIMARY KEY, upper TEXT);");
+        songDb.Execute("DELETE FROM temp." + candidateTable + ";");
+        songDb.Execute("DELETE FROM temp." + excludedTable + ";");
+        try
+        {
+            // 正規化済みprefixは末尾が区切り一文字なので、その次の文字が排他的上限になります。
+            // 上限はC#で求めて一時表に持たせ、SQLite 3.7.15・3.7.16で追加されたunicode()・char()を問い合わせに使いません。
+            // 不正なサロゲートを含む別々のパスはUTF-8で同じ値になり得るため、一意制約の重複は無視します。
+            foreach (string[] chunk in candidates.Chunk(TempInsertChunkSize))
+            {
+                songDb.Execute("INSERT OR IGNORE INTO temp." + candidateTable + " (path, upper) VALUES "
+                    + string.Join(",", chunk.Select(_ => "(?, ?)")),
+                    chunk.SelectMany(path => new object[] { path, CreateRequiredPrefixUpperBound(path) }).ToArray());
+            }
+            string table = SQLiteTable<LR2SongDB.folder>.GetTableName();
+            foreach (PathPrefixRange[] chunk in excluded.Chunk(TempInsertChunkSize))
+            {
+                songDb.Execute("INSERT INTO temp." + excludedTable + " VALUES "
+                    + string.Join(",", chunk.Select(_ => "(?, ?)")),
+                    chunk.SelectMany(range => new object[] { range.Lower, range.Upper }).ToArray());
+            }
+            // 除外区間は互いに素なので、索引で直前の下限一件だけを確認し、多数削除時の全区間照合を避けます。
+            string sql = "SELECT p.path FROM temp." + candidateTable + " p WHERE EXISTS (SELECT 1 FROM "
+                + table + " f INDEXED BY " + BmsLibraryDbGateway.FolderPathNocaseIndexName
+                + " WHERE f.path COLLATE NOCASE > p.path AND f.path COLLATE NOCASE < p.upper"
+                + " AND f.type = 1 AND COALESCE(f.path COLLATE NOCASE < (SELECT e.upper FROM temp." + excludedTable
+                + " e WHERE e.lower <= f.path ORDER BY e.lower DESC LIMIT 1), 0) = 0 LIMIT 1)";
+            return [.. songDb.Query<LR2SongDB.folder>(sql).Select(row => Lr2FolderPath.NormalizeDirectoryPath(row.path))];
+        }
+        finally
+        {
+            songDb.Execute("DELETE FROM temp." + candidateTable + ";");
+            songDb.Execute("DELETE FROM temp." + excludedTable + ";");
+        }
+    }
+
+    /// <summary>区切りで終わる正規化済みfolderパスの配下を表す排他的上限を返します。区切りは最大の文字ではないため必ず求まります。</summary>
+    private static string CreateRequiredPrefixUpperBound(string folderPath)
+        => TryCreatePrefixUpperBound(folderPath, out string upperBound)
+            ? upperBound
+            : throw new InvalidOperationException("The folder path has no exclusive upper bound: " + folderPath);
 
     internal static IReadOnlyList<LR2SongDB.folder> QueryPathPrefixScopes(
         LR2SongDBExtended songDb,

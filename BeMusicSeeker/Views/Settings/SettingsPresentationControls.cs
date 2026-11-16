@@ -10,6 +10,16 @@ using System.Windows.Media;
 
 namespace BeMusicSeeker.Views.Settings;
 
+/// <summary>内容の標準CheckBoxに設定値と入力を任せ、ラベル直下の説明と余白だけをまとめます。</summary>
+public class SettingsCheckBoxOption : ContentControl
+{
+    /// <summary>チェックボックスの下に常時表示する説明を識別します。</summary>
+    public static readonly DependencyProperty DescriptionProperty = DependencyProperty.Register(nameof(Description), typeof(string), typeof(SettingsCheckBoxOption), new PropertyMetadata(string.Empty));
+
+    /// <summary>設定の使い方を説明する文字列を取得または設定します。</summary>
+    public string Description { get => (string)GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
+}
+
 /// <summary>Presents a major settings section without owning settings state.</summary>
 public class SettingsSection : HeaderedContentControl
 {
@@ -20,10 +30,16 @@ public class SettingsSection : HeaderedContentControl
     public string Description { get => (string)GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
 }
 
-/// <summary>Presents a label, optional description and validation text above one settings editor.</summary>
+/// <summary>入力名を見出しから補い、任意の説明と検証結果を設定入力へ添えます。</summary>
 public class SettingsField : HeaderedContentControl
 {
     private readonly Dictionary<DependencyObject, BindingExpressionBase> fallbackAutomationNameBindings = [];
+
+    /// <summary>入力名としての見出しを保持したまま、その表示だけを切り替えるプロパティを識別します。</summary>
+    public static readonly DependencyProperty IsHeaderVisibleProperty = DependencyProperty.Register(nameof(IsHeaderVisible), typeof(bool), typeof(SettingsField), new PropertyMetadata(true));
+
+    /// <summary>見出しを表示するかを取得または設定します。既定は表示で、非表示でも入力名・説明・検証結果を保持します。</summary>
+    public bool IsHeaderVisible { get => (bool)GetValue(IsHeaderVisibleProperty); set => SetValue(IsHeaderVisibleProperty, value); }
 
     /// <summary>Identifies the optional field description.</summary>
     public static readonly DependencyProperty DescriptionProperty = DependencyProperty.Register(nameof(Description), typeof(string), typeof(SettingsField), new PropertyMetadata(string.Empty));
@@ -320,5 +336,62 @@ internal sealed class SettingsStatusBannerAutomationPeer : FrameworkElementAutom
     private static bool HasDisplayableContent(object content)
     {
         return content != null && (content is not string text || !string.IsNullOrWhiteSpace(text));
+    }
+}
+
+/// <summary>
+/// 設定ページの要素を、不備の案内の行から移る対象の欄として識別します。値は <see cref="BeMusicSeeker.ViewModels.SettingsDeficiencyField"/> の列挙名です。
+/// 状態は持たず、設定画面が対象の欄を探すときの目印だけを提供します。
+/// </summary>
+public static class SettingsDeficiencyTarget
+{
+    /// <summary>対象の欄の識別子を保持する添付プロパティを識別します。</summary>
+    public static readonly DependencyProperty FieldProperty = DependencyProperty.RegisterAttached(
+        "Field", typeof(string), typeof(SettingsDeficiencyTarget), new PropertyMetadata(string.Empty));
+
+    /// <summary>要素に付けた対象の欄の識別子を取得します。</summary>
+    /// <param name="element">設定ページの要素。</param>
+    public static string GetField(DependencyObject element) => (string)element.GetValue(FieldProperty);
+
+    /// <summary>要素へ対象の欄の識別子を付けます。</summary>
+    /// <param name="element">設定ページの要素。</param>
+    /// <param name="value">欄の列挙名。</param>
+    public static void SetField(DependencyObject element, string value) => element.SetValue(FieldProperty, value);
+}
+
+/// <summary>
+/// ページ一覧の項目に付ける不備の印です。状態の文言を支援技術向けの <see cref="AutomationProperties.ItemStatus"/> へ写し、
+/// 文言があるかを <see cref="IsMarkedProperty"/> として項目のテンプレートへ渡します。判定は持たず、VMが返した文言だけを使います。
+/// </summary>
+public static class SettingsNavigationMark
+{
+    /// <summary>印の状態の文言を識別します。空文字列またはnullは印なしです。</summary>
+    public static readonly DependencyProperty StatusProperty = DependencyProperty.RegisterAttached(
+        "Status", typeof(string), typeof(SettingsNavigationMark), new PropertyMetadata(string.Empty, OnStatusChanged));
+
+    private static readonly DependencyPropertyKey IsMarkedPropertyKey = DependencyProperty.RegisterAttachedReadOnly(
+        "IsMarked", typeof(bool), typeof(SettingsNavigationMark), new PropertyMetadata(false));
+
+    /// <summary>印を表示するかを識別します。<see cref="StatusProperty"/> から求め、直接は設定しません。</summary>
+    public static readonly DependencyProperty IsMarkedProperty = IsMarkedPropertyKey.DependencyProperty;
+
+    /// <summary>項目の印の状態の文言を取得します。</summary>
+    /// <param name="element">ページ一覧の項目。</param>
+    public static string GetStatus(DependencyObject element) => (string)element.GetValue(StatusProperty);
+
+    /// <summary>項目の印の状態の文言を設定します。</summary>
+    /// <param name="element">ページ一覧の項目。</param>
+    /// <param name="value">不備のあるページなら状態の文言、なければ空文字列。</param>
+    public static void SetStatus(DependencyObject element, string value) => element.SetValue(StatusProperty, value);
+
+    /// <summary>項目に印を表示するかを取得します。</summary>
+    /// <param name="element">ページ一覧の項目。</param>
+    public static bool GetIsMarked(DependencyObject element) => (bool)element.GetValue(IsMarkedProperty);
+
+    private static void OnStatusChanged(DependencyObject element, DependencyPropertyChangedEventArgs e)
+    {
+        string status = e.NewValue as string ?? string.Empty;
+        element.SetValue(AutomationProperties.ItemStatusProperty, status);
+        element.SetValue(IsMarkedPropertyKey, status.Length > 0);
     }
 }

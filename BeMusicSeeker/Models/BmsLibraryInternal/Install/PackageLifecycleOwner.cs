@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,41 +9,11 @@ using BeMusicSeeker.Models.Utils;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Owns the package collections and the installable lifecycle state used by the
-/// library facade. Package estimation evaluation remains a capability supplied by
-/// the composition root; queue, readiness, progress, and package state do not.
+/// パッケージの所属、準備状態、推定進捗と変更通知の寿命を所有します。
+/// 推定の受付と実行順は、共通受付を保持する機能Ownerが担当します。
 /// </summary>
 internal sealed partial class PackageLifecycleOwner
 {
-    /// <summary>
-    /// Attempts to normalize a detached pending-package source path before publication.
-    /// </summary>
-    /// <param name="path">Source path supplied by discovery or regrouping.</param>
-    /// <returns><see langword="true"/> when a canonical path was produced.</returns>
-    internal static bool TryNormalizePendingPackagePath(string path, out string normalizedPath)
-    {
-        normalizedPath = null;
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return false;
-        }
-        try
-        {
-            normalizedPath = LongPathFileSystem.TrimTrailingDirectorySeparators(
-                LongPathFileSystem.NormalizePathForStorage(path.Trim()));
-            return !string.IsNullOrWhiteSpace(normalizedPath);
-        }
-        catch (Exception exception) when (
-            exception is ArgumentException
-            or NotSupportedException
-            or PathTooLongException
-            or IOException)
-        {
-            normalizedPath = null;
-            return false;
-        }
-    }
-
     /// <summary>
     /// Validates canonical source-path uniqueness without changing package state.
     /// </summary>
@@ -72,7 +41,7 @@ internal sealed partial class PackageLifecycleOwner
                     "Pending package ingress was rejected because the same package instance appears more than once.");
             }
 
-            if (!TryNormalizePendingPackagePath(package.path, out string canonicalPath))
+            if (!LongPathFileSystem.TryNormalizePhysicalScopePath(package.path, out string canonicalPath))
             {
                 throw new InvalidOperationException(
                     "Pending package ingress was rejected because its source path could not be normalized.");
@@ -91,7 +60,7 @@ internal sealed partial class PackageLifecycleOwner
             {
                 continue;
             }
-            if (!TryNormalizePendingPackagePath(installRow.path, out string canonicalPath))
+            if (!LongPathFileSystem.TryNormalizePhysicalScopePath(installRow.path, out string canonicalPath))
             {
                 throw new InvalidOperationException(
                     "Pending install-row projection was rejected because its source path could not be normalized.");
@@ -117,24 +86,12 @@ internal sealed partial class PackageLifecycleOwner
         }
     }
 
-    private readonly object queueStatusLock = new();
 
     private readonly object installableMaintenanceLock = new();
 
     private readonly object estimationProgressLock = new();
 
     private readonly object packageCollectionStateLock = new();
-
-    private readonly SemaphoreSlim estimationExecutionGate = new(1, 1);
-
-    // Pending filesystem mutations and pending-estimate publication must
-    // reserve the same owner-owned admission.  This is intentionally a
-    // fail-fast token rather than a waitable semaphore: UI operations hold it
-    // while resolving and confirming their target, so a background batch can
-    // report deferral instead of retaining a model or database lock.
-    private readonly PendingOperationAdmission pendingOperationAdmission = new();
-
-    private readonly PendingInstallEstimateQueueProcessor pendingEstimateQueueProcessor;
 
     private readonly BmsLibraryDbGateway dbGateway;
 
@@ -156,17 +113,14 @@ internal sealed partial class PackageLifecycleOwner
 
     private ObservableCollection<ChartPackage> installedPackages;
 
-    private PendingInstallEstimateQueueStatusSnapshot pendingEstimateQueueStatus = new();
 
     private readonly AsyncLocal<CollectionMutationDeferral> collectionMutationDeferral = new();
 
     private InstallEstimationProgressSnapshot installEstimationProgress = new();
 
-    private int pendingEstimateQueueStatusVersion;
 
     private int installEstimationProgressVersion;
 
-    private long latestPendingEstimateQueueStatusSequence;
 
     private int installableMaintenanceRequestedVersion;
 
@@ -179,8 +133,6 @@ internal sealed partial class PackageLifecycleOwner
     internal PackageLifecycleOwner(
         BmsLibraryDbGateway dbGateway,
         IUiScheduler uiScheduler,
-        Action<PendingInstallEstimateBatchRequest, CancellationToken> processPendingEstimateBatch,
-        Action<Exception> pendingEstimateBatchFailed,
         Action<string> raisePropertyChanged,
         Func<IEnumerable<ChartPackage>, ObservableCollection<ChartPackage>> packageCollectionFactory,
         Action raiseInstalledPackagesChanged,
@@ -199,6 +151,7 @@ internal sealed partial class PackageLifecycleOwner
             throw new InvalidOperationException("Package collection factory returned null.");
         }
         pendingPackagesView = new ReadOnlyObservableCollection<ChartPackage>(pendingPackages);
+        installedPackages.CollectionChanged += OnInstalledPackageCollectionChanged;
         stateMutationApplier = new PackageStateMutationApplier(
             this.dbGateway,
             () => pendingPackages,
@@ -210,24 +163,24 @@ internal sealed partial class PackageLifecycleOwner
             this.uiScheduler,
             TryDeferCollectionMutation,
             RunPackageCollectionStateMutation);
-        pendingEstimateQueueProcessor = new PendingInstallEstimateQueueProcessor(
-            processPendingEstimateBatch ?? throw new ArgumentNullException(nameof(processPendingEstimateBatch)),
-            UpdatePendingEstimateQueueStatus,
-            pendingEstimateBatchFailed);
     }
 
     internal ObservableCollection<ChartPackage> PendingPackages => pendingPackages;
 
     internal ReadOnlyObservableCollection<ChartPackage> PendingPackagesView => pendingPackagesView;
 
-    internal bool TryEnterPendingOperation(out IDisposable lease)
-    {
-        return pendingOperationAdmission.TryEnter(out lease);
-    }
+
 
     internal ObservableCollection<ChartPackage> InstalledPackages => installedPackages;
 
-    internal IDisposable BeginCollectionMutationScope(bool queuePublication = false)
+    /// <summary>
+    /// パッケージ集合状態の反映後の通知を延期します。非同期公開では通知・診断先の失敗を局所処理し、独立した後続通知を続けます。
+    /// 同期公開と入れ子scopeの既存の通知・例外伝播は維持します。
+    /// </summary>
+    /// <param name="queuePublication">最外scopeの通知をUIキューへ投稿する場合は true。false はscope完了時の同期公開です。</param>
+    /// <param name="deferPublication">最外scopeを同期区間で閉じた後の純通知を受け取ります。指定時はqueuePublicationより優先し、通知はscope・guard・ExecutionContextの寿命を保持しません。入れ子では従来どおり親scopeへ集約します。</param>
+    /// <returns>作成元の実行contextで入れ子順に完了して延期した通知を引き渡すscope。</returns>
+    internal IDisposable BeginCollectionMutationScope(bool queuePublication = false, Action<Action> deferPublication = null)
     {
         CollectionMutationDeferral previous = collectionMutationDeferral.Value;
         if (previous?.IsCompleted == true)
@@ -236,16 +189,14 @@ internal sealed partial class PackageLifecycleOwner
         }
         CollectionMutationDeferral current = new();
         collectionMutationDeferral.Value = current;
-        return new CollectionMutationScopeLease(this, current, previous, queuePublication);
+        return new CollectionMutationScopeLease(this, current, previous, queuePublication, deferPublication);
     }
 
     internal StartupInstallReadinessState StartupReadiness => startupReadiness;
 
-    internal int PendingEstimateQueueStatusVersion => pendingEstimateQueueStatusVersion;
 
     internal int InstallEstimationProgressVersion => installEstimationProgressVersion;
 
-    internal bool IsPendingEstimateQueueIdle => pendingEstimateQueueProcessor.IsIdle;
 
     /// <summary>受付時の表示識別を要求版と一緒に捕捉します。</summary>
     internal Func<string, long, OperationProgressRequest> ProgressRequestFactory { get; set; }
@@ -482,35 +433,6 @@ internal sealed partial class PackageLifecycleOwner
         SetInstalledPackages(CreatePackageCollection(packages));
     }
 
-    internal void ReplacePendingPackagesWithRegroupedPackage(
-        IEnumerable<ChartPackage> sourcePackages,
-        ChartPackage regroupedPackage)
-    {
-        List<ChartPackage> sourcePackageList = [.. (sourcePackages ?? []).Where(package => package != null)];
-        if (sourcePackageList.Count == 0)
-        {
-            throw new ArgumentException("At least one source package is required.", nameof(sourcePackages));
-        }
-        if (regroupedPackage == null)
-        {
-            throw new ArgumentNullException(nameof(regroupedPackage));
-        }
-
-        List<ChartPackage> currentPendingPackages = [.. pendingPackages.Where(package => package != null)];
-        int insertIndex = currentPendingPackages.FindIndex(package => sourcePackageList.Contains(package));
-        if (insertIndex < 0)
-        {
-            insertIndex = currentPendingPackages.Count;
-        }
-        List<ChartPackage> replacedPendingPackages = [.. currentPendingPackages.Where(package => !sourcePackageList.Contains(package))];
-        replacedPendingPackages.Insert(insertIndex, regroupedPackage);
-        ObservableCollection<ChartPackage> nextPendingPackages = CreatePackageCollection(replacedPendingPackages);
-
-        ValidatePendingPackagePathUniqueness(nextPendingPackages);
-        dbGateway.ReplaceInstallRows(sourcePackageList.Select(package => package.path), regroupedPackage);
-        SetPendingPackages(nextPendingPackages);
-    }
-
     internal void SetPendingPackages(ObservableCollection<ChartPackage> value)
     {
         if (value == null)
@@ -545,94 +467,80 @@ internal sealed partial class PackageLifecycleOwner
         }
     }
 
-    /// <summary>
-    /// Reconciles persisted install rows against the registered BMS roots before
-    /// replacing the canonical pending collection. Rejected rows lose only their
-    /// install record; this restore boundary never removes source files.
-    /// </summary>
-    internal InstallTableLoadResult ReloadInstallTable(
+    /// <summary>全保留をdetachedで取得・評価し、一transaction確定後に完成collectionへ一度だけ置き換えます。通知を実行せず、確定前失敗ではDBと既存一覧を保持します。</summary>
+    /// <param name="initializationService">全復元を取得・評価する既存サービスです。</param>
+    /// <param name="dbGateway">この確定に使う既存DB窓口です。</param>
+    /// <param name="registeredBmsRoots">保留から除く登録済みルートです。</param>
+    /// <param name="isInstalledChart">既所持警告の判定です。</param>
+    /// <param name="publication">確定後に呼出元がUIへ渡す純通知です。scope・guard・transactionを保持しません。</param>
+    internal InstallTableLoadResult ReloadInstallTableWithoutPublishing(
         BmsLibraryInitializationService initializationService,
         BmsLibraryDbGateway dbGateway,
         IEnumerable<string> registeredBmsRoots,
-        Func<ChartFile, bool> isInstalledChart)
+        Func<ChartFile, bool> isInstalledChart, out Action publication)
     {
-        if (initializationService == null)
+        ArgumentNullException.ThrowIfNull(initializationService);
+        ArgumentNullException.ThrowIfNull(dbGateway);
+        InstallTableLoadResult result;
+        ObservableCollection<ChartPackage> pending;
+        ObservableCollection<ChartPackage> installed;
+        ReadOnlyObservableCollection<ChartPackage> pendingView;
+        try
         {
-            throw new ArgumentNullException(nameof(initializationService));
+            result = initializationService.LoadInstallTable(dbGateway, registeredBmsRoots, isInstalledChart);
+            ValidatePendingPackagePathUniqueness(result.PendingPackages, result.InstallRowsToUpsert);
+            pending = CreatePackageCollection(result.PendingPackages);
+            installed = CreatePackageCollection([]);
+            pendingView = new ReadOnlyObservableCollection<ChartPackage>(pending);
+            dbGateway.ApplyInstallTableMutation(result.InstallPathsToDelete, result.InstallRowsToUpsert);
         }
-        if (dbGateway == null)
+        catch (Exception failure) when (failure is not OperationCanceledException and not OutOfMemoryException)
         {
-            throw new ArgumentNullException(nameof(dbGateway));
+            throw new PendingPackageRestoreException(failure);
         }
-
-        InstallTableLoadResult result = initializationService.LoadInstallTable(
-            dbGateway,
-            registeredBmsRoots,
-            isInstalledChart);
-        // StalePackages identifies rows that were classified for pruning. A
-        // raw path in StaleInstallPaths that is not in this set is the
-        // detached primary key of an otherwise valid survivor alias.
-        var classifiedStalePaths = new HashSet<string>(
-            result.StalePackages
-                .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))
-                .Select(package => package.path),
-            StringComparer.Ordinal);
-        var pendingCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (ChartPackage pendingPackage in result.PendingPackages)
+        // DB確定後の同期・通知失敗は専用復元失敗へ包まず、既存の公開失敗として伝えます。
+        bool pendingChanged;
+        bool installedChanged;
+        lock (packageCollectionStateLock)
         {
-            if (pendingPackage != null
-                && TryNormalizePendingPackagePath(pendingPackage.path, out string canonicalPath))
-            {
-                pendingCanonicalPaths.Add(canonicalPath);
-            }
+            pendingChanged = !ReferenceEquals(pendingPackages, pending);
+            pendingPackages = pending;
+            pendingPackagesView = pendingView;
+            installedChanged = ReplaceInstalledPackagesCore(installed);
         }
-
-        var survivorAliasCanonicalPaths = new HashSet<string>(StringComparer.Ordinal);
-        foreach (string rawPath in result.StaleInstallPaths)
+        Action<string> notify = raisePropertyChanged;
+        publication = () =>
         {
-            if (string.IsNullOrWhiteSpace(rawPath)
-                || classifiedStalePaths.Contains(rawPath)
-                || !TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
-                || string.Equals(rawPath, canonicalPath, StringComparison.Ordinal)
-                || !pendingCanonicalPaths.Contains(canonicalPath))
-            {
-                continue;
-            }
-            survivorAliasCanonicalPaths.Add(canonicalPath);
-        }
-
-        var aliasTransactionPaths = new List<string>();
-        foreach (string rawPath in result.StaleInstallPaths)
-        {
-            if (!string.IsNullOrWhiteSpace(rawPath)
-                && TryNormalizePendingPackagePath(rawPath, out string canonicalPath)
-                && survivorAliasCanonicalPaths.Contains(canonicalPath))
-            {
-                aliasTransactionPaths.Add(rawPath);
-            }
-        }
-
-        if (aliasTransactionPaths.Count > 0)
-        {
-            List<ChartPackage> survivorPackages = [.. result.PendingPackages.Where(package =>
-                package != null
-                && TryNormalizePendingPackagePath(package.path, out string canonicalPath)
-                && survivorAliasCanonicalPaths.Contains(canonicalPath))];
-            dbGateway.ApplyInstallTableMutation(
-                aliasTransactionPaths,
-                survivorPackages);
-        }
-
-        List<string> staleInstallPaths = [.. result.StaleInstallPaths
-            .Where(path => !aliasTransactionPaths.Contains(path, StringComparer.Ordinal))];
-        if (staleInstallPaths.Count > 0)
-        {
-            dbGateway.DeleteInstallRows(staleInstallPaths);
-        }
-        SetPendingPackages(CreatePackageCollection([]));
-        SetInstalledPackages(CreatePackageCollection([]));
-        AddPendingPackages(result.PendingPackages);
+            if (pendingChanged) { notify("ChartPackagesPending"); }
+            if (installedChanged) { notify("ChartPackagesInstalled"); }
+        };
         return result;
+    }
+
+    /// <summary>明示選択された一覧初期化としてinstall全登録だけを一括削除し、成功時だけ保留を空にします。導入済み一覧と入力ファイルは変更しません。</summary>
+    /// <returns>呼出元が確定後にUIへ渡す純通知です。schedulerやmodel保護へ戻りません。</returns>
+    internal Action ResetPendingPackagesWithoutPublishing(BmsLibraryDbGateway dbGateway)
+    {
+        ArgumentNullException.ThrowIfNull(dbGateway);
+        ObservableCollection<ChartPackage> pending;
+        ReadOnlyObservableCollection<ChartPackage> pendingView;
+        try
+        {
+            pending = CreatePackageCollection([]);
+            pendingView = new ReadOnlyObservableCollection<ChartPackage>(pending);
+            dbGateway.ResetInstallTable();
+        }
+        catch (Exception failure) when (failure is not OperationCanceledException and not OutOfMemoryException)
+        {
+            throw new PendingPackageRestoreException(failure);
+        }
+        lock (packageCollectionStateLock)
+        {
+            pendingPackages = pending;
+            pendingPackagesView = pendingView;
+        }
+        Action<string> notify = raisePropertyChanged;
+        return () => notify("ChartPackagesPending");
     }
 
     private void InvokeOnUi(Action mutation)
@@ -665,7 +573,10 @@ internal sealed partial class PackageLifecycleOwner
         {
             return false;
         }
+        installedPackages.CollectionChanged -= OnInstalledPackageCollectionChanged;
+        ReconcileInstalledPackageMembership(value);
         installedPackages = value;
+        installedPackages.CollectionChanged += OnInstalledPackageCollectionChanged;
         return true;
     }
 
@@ -704,7 +615,8 @@ internal sealed partial class PackageLifecycleOwner
     private void CompleteCollectionMutationScope(
         CollectionMutationDeferral current,
         CollectionMutationDeferral previous,
-        bool queuePublication)
+        bool queuePublication,
+        Action<Action> deferPublication)
     {
         if (!ReferenceEquals(collectionMutationDeferral.Value, current))
         {
@@ -723,6 +635,14 @@ internal sealed partial class PackageLifecycleOwner
             }
             return;
         }
+        if (deferPublication != null)
+        {
+            deferPublication(() =>
+            {
+                foreach (Action mutation in mutations) { InvokeOnUi(mutation); }
+            });
+            return;
+        }
         if (!queuePublication)
         {
             foreach (Action mutation in mutations)
@@ -737,21 +657,21 @@ internal sealed partial class PackageLifecycleOwner
             IUiScheduledOperation operation = uiScheduler.Schedule(
                 () =>
                 {
-                    try
+                    foreach (Action mutation in mutations)
                     {
-                        foreach (Action mutation in mutations)
+                        try
                         {
                             mutation();
                         }
-                    }
-                    catch (Exception exception)
-                    {
-                        collectionPublicationFailed(exception);
+                        catch (Exception exception)
+                        {
+                            ReportCollectionPublicationFailureBestEffort(exception);
+                        }
                     }
                 });
             if (!operation.IsAccepted)
             {
-                collectionPublicationFailed(new InvalidOperationException(
+                ReportCollectionPublicationFailureBestEffort(new InvalidOperationException(
                     "Package collection publication was rejected: " + operation.RejectionReason));
                 return;
             }
@@ -760,12 +680,12 @@ internal sealed partial class PackageLifecycleOwner
                 {
                     if (task.IsFaulted)
                     {
-                        collectionPublicationFailed(task.Exception?.GetBaseException()
+                        ReportCollectionPublicationFailureBestEffort(task.Exception?.GetBaseException()
                             ?? new InvalidOperationException("Package collection publication failed."));
                     }
                     else if (task.IsCanceled || operation.IsAborted)
                     {
-                        collectionPublicationFailed(new OperationCanceledException(
+                        ReportCollectionPublicationFailureBestEffort(new OperationCanceledException(
                             "Package collection publication was canceled after scheduling."));
                     }
                 },
@@ -775,7 +695,20 @@ internal sealed partial class PackageLifecycleOwner
         }
         catch (Exception exception)
         {
+            ReportCollectionPublicationFailureBestEffort(exception);
+        }
+    }
+
+    /// <summary>任意公開の元原因を既存の診断先へ渡し、診断先の二次失敗を後続通知や公開Taskへ伝播させません。</summary>
+    private void ReportCollectionPublicationFailureBestEffort(Exception exception)
+    {
+        try
+        {
             collectionPublicationFailed(exception);
+        }
+        catch (Exception)
+        {
+            // 診断だけの失敗で、確定済み状態や独立した後続通知を変更しません。
         }
     }
 
@@ -792,12 +725,12 @@ internal sealed partial class PackageLifecycleOwner
                     }
                     catch (Exception exception)
                     {
-                        collectionPublicationFailed(exception);
+                        ReportCollectionPublicationFailureBestEffort(exception);
                     }
                 });
             if (!operation.IsAccepted)
             {
-                collectionPublicationFailed(new InvalidOperationException(
+                ReportCollectionPublicationFailureBestEffort(new InvalidOperationException(
                     "Package lifecycle property publication was rejected: "
                     + operation.RejectionReason));
                 return;
@@ -807,12 +740,12 @@ internal sealed partial class PackageLifecycleOwner
                 {
                     if (task.IsFaulted)
                     {
-                        collectionPublicationFailed(task.Exception?.GetBaseException()
+                        ReportCollectionPublicationFailureBestEffort(task.Exception?.GetBaseException()
                             ?? new InvalidOperationException("Package lifecycle property publication failed."));
                     }
                     else if (task.IsCanceled || operation.IsAborted)
                     {
-                        collectionPublicationFailed(new OperationCanceledException(
+                        ReportCollectionPublicationFailureBestEffort(new OperationCanceledException(
                             "Package lifecycle property publication was canceled after scheduling."));
                     }
                 },
@@ -822,7 +755,7 @@ internal sealed partial class PackageLifecycleOwner
         }
         catch (Exception exception)
         {
-            collectionPublicationFailed(exception);
+            ReportCollectionPublicationFailureBestEffort(exception);
         }
     }
 
@@ -881,70 +814,28 @@ internal sealed partial class PackageLifecycleOwner
         private readonly CollectionMutationDeferral previous;
 
         private readonly bool queuePublication;
+        private readonly Action<Action> deferPublication;
         private int disposed;
 
         internal CollectionMutationScopeLease(
             PackageLifecycleOwner owner,
             CollectionMutationDeferral current,
             CollectionMutationDeferral previous,
-            bool queuePublication)
+            bool queuePublication,
+            Action<Action> deferPublication)
         {
             this.owner = owner;
             this.current = current;
             this.previous = previous;
             this.queuePublication = queuePublication;
+            this.deferPublication = deferPublication;
         }
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref disposed, 1) == 0)
             {
-                owner.CompleteCollectionMutationScope(current, previous, queuePublication);
-            }
-        }
-    }
-
-    private sealed class PendingEstimateExecutionScope(SemaphoreSlim gate) : IDisposable
-    {
-        private SemaphoreSlim gate = gate;
-
-        public void Dispose()
-        {
-            Interlocked.Exchange(ref gate, null)?.Release();
-        }
-    }
-
-    private sealed class PendingOperationAdmission
-    {
-        private object activeToken;
-
-        internal bool TryEnter(out IDisposable lease)
-        {
-            object token = new();
-            if (Interlocked.CompareExchange(ref activeToken, token, null) != null)
-            {
-                lease = null;
-                return false;
-            }
-
-            lease = new AdmissionLease(this, token);
-            return true;
-        }
-
-        private void Release(object token)
-        {
-            Interlocked.CompareExchange(ref activeToken, null, token);
-        }
-
-        private sealed class AdmissionLease(PendingOperationAdmission owner, object token) : IDisposable
-        {
-            private PendingOperationAdmission owner = owner;
-
-            private readonly object token = token;
-
-            public void Dispose()
-            {
-                Interlocked.Exchange(ref owner, null)?.Release(token);
+                owner.CompleteCollectionMutationScope(current, previous, queuePublication, deferPublication);
             }
         }
     }
@@ -963,37 +854,11 @@ internal sealed partial class PackageLifecycleOwner
         return collection;
     }
 
-    internal bool TryEnqueuePendingEstimateBatch(
-        PendingInstallEstimateBatchRequest request,
-        Func<string, string, bool> shouldSkipForShutdown,
-        Action requestAccepted = null)
-    {
-        if (request == null || request.PackageCount == 0)
-        {
-            return false;
-        }
-        if (shouldSkipForShutdown != null
-            && shouldSkipForShutdown("pending_estimate_batch", request.Source.ToString()))
-        {
-            return false;
-        }
 
-        pendingEstimateQueueProcessor.Enqueue(request, requestAccepted);
-        return true;
-    }
 
-    internal void CancelPendingEstimateQueue()
-    {
-        pendingEstimateQueueProcessor.CancelAll();
-    }
 
-    internal PendingInstallEstimateQueueStatusSnapshot GetPendingEstimateQueueStatusSnapshot()
-    {
-        lock (queueStatusLock)
-        {
-            return pendingEstimateQueueStatus?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
-        }
-    }
+
+
 
     internal InstallEstimationProgressSnapshot GetInstallEstimationProgressSnapshot()
     {
@@ -1024,41 +889,13 @@ internal sealed partial class PackageLifecycleOwner
         UpdateInstallEstimationProgress(new InstallEstimationProgressSnapshot());
     }
 
-    internal void ReportPendingEstimateBatchProgress(int completedPackageCount)
-    {
-        pendingEstimateQueueProcessor.ReportActiveBatchProgress(completedPackageCount);
-    }
 
-    internal void RunPendingEstimateExclusive(Action action)
-    {
-        using (EnterPendingEstimateExecutionScope())
-        {
-            action?.Invoke();
-        }
-    }
 
-    internal IDisposable EnterPendingEstimateExecutionScope()
-    {
-        estimationExecutionGate.Wait();
-        return new PendingEstimateExecutionScope(estimationExecutionGate);
-    }
 
-    private void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
-    {
-        lock (queueStatusLock)
-        {
-            PendingInstallEstimateQueueStatusSnapshot nextSnapshot = snapshot?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
-            if (nextSnapshot.Sequence < latestPendingEstimateQueueStatusSequence)
-            {
-                return;
-            }
 
-            latestPendingEstimateQueueStatusSequence = nextSnapshot.Sequence;
-            pendingEstimateQueueStatus = nextSnapshot;
-            pendingEstimateQueueStatusVersion++;
-            QueuePropertyChanged("PendingEstimateQueueStatusVersion");
-        }
-    }
+
+
+
 
     private void UpdateInstallEstimationProgress(InstallEstimationProgressSnapshot snapshot)
     {

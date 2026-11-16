@@ -9,6 +9,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal static class PlaylistDetailPresentationService
 {
+    /// <summary>元行へ検索・共通モード判定・整列を適用し、各段階の件数と所要時間を返します。</summary>
     internal static List<PlaylistDetailSourceRow> ApplySourceRows(
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         string keywordFilter,
@@ -40,28 +41,7 @@ internal static class PlaylistDetailPresentationService
         List<PlaylistDetailSourceRow> modeRows;
         if (modeFilter != ChartModeFilter.All)
         {
-            List<int?> modeFlag = [null];
-            if ((modeFilter & ChartModeFilter._5KEYS) == ChartModeFilter._5KEYS)
-            {
-                modeFlag.Add(5);
-            }
-            if ((modeFilter & ChartModeFilter._7KEYS) == ChartModeFilter._7KEYS)
-            {
-                modeFlag.Add(7);
-            }
-            if ((modeFilter & ChartModeFilter._9KEYS) == ChartModeFilter._9KEYS)
-            {
-                modeFlag.Add(9);
-            }
-            if ((modeFilter & ChartModeFilter._10KEYS) == ChartModeFilter._10KEYS)
-            {
-                modeFlag.Add(10);
-            }
-            if ((modeFilter & ChartModeFilter._14KEYS) == ChartModeFilter._14KEYS)
-            {
-                modeFlag.Add(14);
-            }
-            modeRows = [.. keywordRows.Where(file => modeFlag.Contains(file.mode))];
+            modeRows = [.. keywordRows.Where(row => modeFilter.Matches(row.mode))];
         }
         else
         {
@@ -106,6 +86,7 @@ internal static class PlaylistDetailPresentationService
         return viewRows;
     }
 
+    /// <summary>初回または明示条件変更の全範囲を評価し、確定identityと局所順序観測先を仮想表示へ接続します。</summary>
     internal static PlaylistDetailVirtualView ApplyVirtualViewFromSource(
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         string keywordFilter,
@@ -117,10 +98,12 @@ internal static class PlaylistDetailPresentationService
         out long keywordStageMs,
         out long modeStageMs,
         out long sortStageMs,
-        out long viewMaterializeMs)
+        out long viewMaterializeMs,
+        bool onlyNotOwned = false, System.Action<string> observeWork = null, PlaylistRequestIdentity? identity = null)
     {
+        IReadOnlyList<PlaylistDetailSourceRow> visibleInput = onlyNotOwned ? [.. sourceRows.Where(row => !row.IsOwned)] : sourceRows;
         List<PlaylistDetailSourceRow> sortedSourceRows = ApplySourceRows(
-            sourceRows,
+            visibleInput,
             keywordFilter,
             modeFilter,
             sortParameters,
@@ -133,7 +116,7 @@ internal static class PlaylistDetailPresentationService
         var stageStopwatch = Stopwatch.StartNew();
         var viewRows = new PlaylistDetailVirtualView(
             sortedSourceRows,
-            CountDistinctFolders(sortedSourceRows));
+            CountDistinctFolders(sortedSourceRows), observeWork, identity);
         viewMaterializeMs = stageStopwatch.ElapsedMilliseconds;
         return viewRows;
     }
