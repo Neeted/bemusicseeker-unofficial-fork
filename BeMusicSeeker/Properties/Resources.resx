@@ -995,6 +995,21 @@ PEAK正規化を選び、追加増幅率を1.0にして再実行してくださ�
   <data name="AudioConversionOmittedSourcesRemainingFormat" xml:space="preserve">
     <value>音源を省略した譜面は合計{0}件です。残り{1}件の詳細はログを参照してください。</value>
   </data>
+  <data name="AudioConversionStageStoppingPlayback" xml:space="preserve">
+    <value>再生の停止</value>
+  </data>
+  <data name="AudioConversionStageAnalyzing" xml:space="preserve">
+    <value>譜面の解析</value>
+  </data>
+  <data name="AudioConversionStageLoadingSources" xml:space="preserve">
+    <value>音源の読込み</value>
+  </data>
+  <data name="AudioConversionStageSynthesizing" xml:space="preserve">
+    <value>音声の合成</value>
+  </data>
+  <data name="AudioConversionStageWriting" xml:space="preserve">
+    <value>ファイルの書出し</value>
+  </data>
   <data name="AudioConversionEncoderUnavailableConfirmFormat" xml:space="preserve">
     <value>保存形式 {0} のエンコーダ（{1}）が見つかりません。
 OK を選ぶと、今回の変換を WAVE で続行します。キャンセルを選ぶと変換を中止します。

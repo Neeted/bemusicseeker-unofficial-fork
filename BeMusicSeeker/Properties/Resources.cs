@@ -498,6 +498,16 @@ public class Resources
 
     public static string AudioConversionOmittedSourcesRemainingFormat => ResourceManager.GetString("AudioConversionOmittedSourcesRemainingFormat", resourceCulture);
 
+    public static string AudioConversionStageStoppingPlayback => ResourceManager.GetString("AudioConversionStageStoppingPlayback", resourceCulture);
+
+    public static string AudioConversionStageAnalyzing => ResourceManager.GetString("AudioConversionStageAnalyzing", resourceCulture);
+
+    public static string AudioConversionStageLoadingSources => ResourceManager.GetString("AudioConversionStageLoadingSources", resourceCulture);
+
+    public static string AudioConversionStageSynthesizing => ResourceManager.GetString("AudioConversionStageSynthesizing", resourceCulture);
+
+    public static string AudioConversionStageWriting => ResourceManager.GetString("AudioConversionStageWriting", resourceCulture);
+
     public static string AudioConversionEncoderUnavailableConfirmFormat => ResourceManager.GetString("AudioConversionEncoderUnavailableConfirmFormat", resourceCulture);
 
     public static string AudioConversionOutputFormatFormat => ResourceManager.GetString("AudioConversionOutputFormatFormat", resourceCulture);

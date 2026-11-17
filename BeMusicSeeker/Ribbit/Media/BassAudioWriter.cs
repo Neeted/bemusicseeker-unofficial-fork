@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
 using ManagedBass;
@@ -365,7 +366,9 @@ public class BassAudioWriter : BassAudioPlayer
     }
 
     /// <summary>完成済みinterleaved float PCMをencoder handleへ手動供給します。</summary>
-    internal static void WritePcm(float[] interleavedPcm)
+    /// <param name="interleavedPcm">供給するPCMです。</param>
+    /// <param name="cancellationToken">一定量の供給ごとに確認する取消トークンです。取消時は残りを供給せず <see cref="OperationCanceledException"/> を返します。</param>
+    internal static void WritePcm(float[] interleavedPcm, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(interleavedPcm);
         using BassAudioOperationLease operation = Ribbit.Media.Audio.BassAudioRuntime.EnterAudioOperation();
@@ -378,7 +381,45 @@ public class BassAudioWriter : BassAudioPlayer
             throw new InvalidOperationException("Encoder is not set");
         }
 
-        encoder.EncodeWrite(interleavedPcm, 0, interleavedPcm.Length);
+        // 取消の確認間隔です。完全なinterleaved frameの境界で区切り、encoderの検証・量子化は区切りをまたいで連続します。
+        int slice = checked(WritePcmSliceFrames * encoder.ChannelCount);
+        for (int offset = 0; offset < interleavedPcm.Length; offset += slice)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            encoder.EncodeWrite(interleavedPcm, offset, System.Math.Min(slice, interleavedPcm.Length - offset));
+        }
+    }
+
+    private const int WritePcmSliceFrames = 1 << 18;
+
+    /// <summary>
+    /// 完全に書き出せなかった現在のencoderの出力を破棄します。encoderを解放してから、
+    /// その出力ファイルだけを削除します。出力名は作成時に未使用だったものを採番しているため、既存の完成ファイルは消えません。
+    /// </summary>
+    /// <returns>encoderを解放できた場合だけtrueです。解放を確認できない場合は、ファイルを削除せず所有を保持します。</returns>
+    internal static bool TryDiscardIncompleteOutput()
+    {
+        string outputFile = encoder?.OutputFile;
+        if (!TryReleaseEncoder())
+        {
+            return false;
+        }
+        if (outputFile != null)
+        {
+            try
+            {
+                if (LongPathFileSystem.FileExists(outputFile))
+                {
+                    LongPathFileSystem.DeleteFile(outputFile);
+                }
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // 削除できない未完成ファイルは残りますが、呼出元の取消結果を変えません。
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, "Failed to delete an incomplete audio output: " + outputFile);
+            }
+        }
+        return true;
     }
 
     /// <summary>encoderを終了し、native終了失敗時は所有状態を保持します。</summary>

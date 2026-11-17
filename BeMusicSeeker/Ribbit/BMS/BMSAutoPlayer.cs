@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Threading;
 using Ribbit.Logging;
 using Ribbit.Media;
 using Ribbit.Media.Audio;
@@ -334,11 +335,20 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     /// <summary>再生に使う音源を事前に復号します。</summary>
     public override void LoadResources()
     {
-        AdoptPreparedSong(PreparedBmsSong.Prepare(base.Chart, ResourceSourceGain));
+        LoadResources(CancellationToken.None);
+    }
+
+    /// <summary>再生に使う音源を、取消トークンを確認しながら事前に復号します。</summary>
+    /// <param name="cancellationToken">音源の探索・復号と短い発音の波形の作成の境界で確認します。取消時は <see cref="OperationCanceledException"/> を返し、曲の状態を採用しません。</param>
+    public void LoadResources(CancellationToken cancellationToken)
+    {
+        AdoptPreparedSong(PreparedBmsSong.Prepare(base.Chart, ResourceSourceGain, cancellationToken), cancellationToken);
     }
 
     /// <summary>解析済み譜面とPCMを一回採用し、現在の実効出力レートでscheduleを構築します。</summary>
-    internal void AdoptPreparedSong(PreparedBmsSong prepared)
+    /// <param name="prepared">一回だけ採用できる準備結果です。</param>
+    /// <param name="cancellationToken">短い発音の波形の作成中に確認する取消トークンです。取消は音源障害へ包まず、そのまま返します。</param>
+    internal void AdoptPreparedSong(PreparedBmsSong prepared, CancellationToken cancellationToken = default)
     {
         if (!ReferenceEquals(base.Chart, prepared.Chart) && !(base.Bms != null && ReferenceEquals(base.Bms, prepared.Chart.Bms)))
         {
@@ -417,9 +427,13 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                 schedule = BmsAudioFrameSchedule.Create(base.Chart, mixerInfo.Frequency, result.ResourcesByIndex);
             }
             // 短い発音の変換済み波形は、予約表と同じ寿命で曲の準備時に一度だけ作る。通常の読込みと先読みの採用の両方がここを通る。
-            voiceTable = BmsDirectVoiceTable.Create(schedule, result.ResourcesByIndex, session);
+            voiceTable = BmsDirectVoiceTable.Create(schedule, result.ResourcesByIndex, session, cancellationToken);
         }
         catch (AudioSourceFatalException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }

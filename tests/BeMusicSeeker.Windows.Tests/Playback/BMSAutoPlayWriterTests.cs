@@ -301,6 +301,69 @@ public sealed class BMSAutoPlayWriterTests
         }
     }
 
+    /// <summary>
+    /// エンコーダーの作成と開始の後に取消済みの状態でPCMを供給すると供給が取消で終わり、未完成出力の破棄が採番した出力だけを削除することを確認します。
+    /// 出力先には同名の既存ファイルがあり、内容も含めて保全され、エンコーダーが解放されます。
+    /// </summary>
+    /// <remarks>
+    /// 書出し段階の取消で未完成ファイルを削除する経路(WritePcmの取消と出力の破棄)を、実encoderで直接通します。
+    /// 合成中の取消ではencoder未作成のため通らない経路です。未完成ファイルの残留、既存ファイルの削除、encoderの解放漏れを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void WriterCancelledWhileWritingPcmDiscardsOnlyTheNumberedIncompleteOutput()
+    {
+        using var directory = new TemporaryDirectory();
+        byte[] existingBytes = [1, 2, 3, 4];
+        File.WriteAllBytes(directory.File("X.wav"), existingBytes);
+        string numbered = directory.File("X (2).wav");
+
+        BassAudioWriter.CreateEncoderWAV(directory.File("X"));
+        BassAudioWriter.StartRecording();
+        Assert.IsTrue(File.Exists(numbered), "開始後は採番した出力が作られている必要があります。");
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        Assert.ThrowsExactly<OperationCanceledException>(
+            () => BassAudioWriter.WritePcm(new float[2 * 4800], cancellation.Token));
+
+        Assert.IsTrue(BassAudioWriter.TryDiscardIncompleteOutput());
+
+        Assert.IsFalse(File.Exists(numbered));
+        CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(directory.File("X.wav")));
+        Assert.IsNull(BassAudioWriter.EncoderCommandLine);
+        Assert.AreEqual(PlayState.Stopped, BassAudioWriter.RecordState);
+    }
+
+    /// <summary>
+    /// 変換の書出しへ進む通知で取り消すと、<see cref="BMSAutoPlayWriter.Write"/> が取消で終わり、出力が作られず、同名の既存ファイルが保全されエンコーダーが解放されることを確認します。
+    /// </summary>
+    /// <remarks>書出し段階の取消の入口(Writeの取消の捕捉と破棄)を通し、取消で出力や所有が残る誤りを検出します。</remarks>
+    [TestMethod]
+    public void WriterCancelledAtTheWritingStageLeavesNoOutputAndKeepsTheExistingFile()
+    {
+        using var directory = new TemporaryDirectory();
+        byte[] existingBytes = [1, 2, 3, 4];
+        File.WriteAllBytes(directory.File("X.wav"), existingBytes);
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(48000, 4800, _ => 0.125f));
+        string chartPath = directory.File("chart.bmson");
+        File.WriteAllText(chartPath, "{\"info\":{\"init_bpm\":120},\"sound_channels\":[{\"name\":\"audio.wav\",\"notes\":[{\"y\":0}]}]}");
+        using var cancellation = new CancellationTokenSource();
+        using var writer = new BMSAutoPlayWriter(PlaybackChart.Load(chartPath));
+        writer.LoadResources();
+
+        Assert.ThrowsExactly<OperationCanceledException>(() => writer.Write(
+            EncoderType.WAVE,
+            0.4f,
+            directory.File("X"),
+            BMSAutoPlayWriter.Normalization.NONE,
+            1f,
+            cancellation.Token,
+            reportWriting: cancellation.Cancel));
+
+        CollectionAssert.AreEqual(existingBytes, File.ReadAllBytes(directory.File("X.wav")));
+        Assert.IsFalse(File.Exists(directory.File("X (2).wav")));
+        Assert.IsNull(BassAudioWriter.EncoderCommandLine);
+    }
+
     private static AudioTestWaveFile WriteBmsonOutput(TemporaryDirectory directory, string name, string json)
     {
         string path = directory.File(name + ".bmson");

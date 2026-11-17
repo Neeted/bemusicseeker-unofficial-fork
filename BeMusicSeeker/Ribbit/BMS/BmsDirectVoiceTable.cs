@@ -83,11 +83,13 @@ internal sealed class BmsDirectVoiceTable
     /// <param name="schedule">実効mixer rateで量子化済みのscheduleです。</param>
     /// <param name="resourcesByIndex">WAV index順の復号済み音源です。</param>
     /// <param name="session">入力ミキサーを所有するactiveなsessionです。</param>
+    /// <param name="cancellationToken">波形ごとの境界で確認する取消トークンです。取消時は作成済みの一時資源を解放して <see cref="OperationCanceledException"/> を返します。</param>
     /// <returns>対象がなければ波形を持たない表を返します。</returns>
     internal static BmsDirectVoiceTable Create(
         BmsAudioFrameSchedule schedule,
         IReadOnlyList<BmsAudioResource?> resourcesByIndex,
-        BassAudioSession session)
+        BassAudioSession session,
+        System.Threading.CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(schedule);
         ArgumentNullException.ThrowIfNull(resourcesByIndex);
@@ -155,6 +157,7 @@ internal sealed class BmsDirectVoiceTable
         var matrices = new Dictionary<uint, float[,]>();
         foreach ((WaveKey key, (BmsAudioResource resource, int frames)) in requiredFrames)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             waves.Add(key, RenderWave(key, resource, frames, session, native, renderer, info.Channels, matrices));
         }
         return new BmsDirectVoiceTable(sampleRate, info.Channels, maximumVoiceFrames, waves);

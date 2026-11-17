@@ -4,7 +4,6 @@
 
 | 計画 | 内容 |
 | --- | --- |
-| [高密度な短音譜面の再生・変換](dense-short-voice-audio.md) | 予約の上限と時間予算、短い発音の直接合成、音声変換の進捗画面。 |
 | [テスト基盤の残課題](test-platform-migration.md) | 追加速度目標、環境不足で未実行の条件、テスト側の改善候補。 |
 | [既知の課題・未採用の任意改善](release-follow-up-candidates.md) | 今回着手しない改善・検討項目。共有URLのBMTと標準偏差0のT-SCOREを含む。 |
 
