@@ -621,18 +621,56 @@ public class BassAudioPlayer : IAudioPlayer, IDisposable
         sourceMatrixConfigured = false;
     }
 
-    /// <summary>UIの現行voice数を予約区間に合わせて更新します。</summary>
-    internal void UpdateScheduledVoiceState(bool active)
+    /// <summary>
+    /// 直接合成の表を作るため、session入力mixerと別の一時decode mixerへ接続したpaused sourceのSRC・matrix設定を確認します。
+    /// </summary>
+    /// <param name="temporaryMixerHandle">一時decode mixerのhandleです。</param>
+    /// <param name="preparedMatrix">session入力mixerと同じ出力形式で作ったspeaker matrixです。</param>
+    internal void ConfigureRenderVoice(int temporaryMixerHandle, float[,] preparedMatrix)
     {
-        if (active)
+        ArgumentNullException.ThrowIfNull(preparedMatrix);
+        BassAudioSession session = GetOwningSessionForOperation();
+        FloatWaveSource sourceAdapter = _floatWaveSource
+            ?? throw new ObjectDisposedException(nameof(BassAudioPlayer), "The render source has been released.");
+        mixerSourceController.ConfigurePausedSource(
+            temporaryMixerHandle,
+            _handle,
+            sourceAdapter.ChannelLayout,
+            FileName,
+            session.SampleRateConversionQuality,
+            preparedMatrix);
+    }
+
+    /// <summary>直接合成の表を作った一時decode mixerからsourceを外します。</summary>
+    /// <param name="temporaryMixerHandle">sourceを接続した一時decode mixerのhandleです。</param>
+    internal void RemoveRenderVoiceFromMixer(int temporaryMixerHandle)
+    {
+        _ = GetOwningSessionForOperation();
+        mixerSourceController.RemoveFromExpectedMixer(temporaryMixerHandle, _handle, FileName);
+    }
+
+    /// <summary>
+    /// 予約区間の論理的な発音数の増減を、UIが読む現行・最大voice数へ反映します。
+    /// </summary>
+    /// <param name="delta">直前に反映した論理発音数との差です。</param>
+    /// <remarks>
+    /// 予約を所有するmixerが標本点ごとに数えた論理発音数だけを受け取ります。session解放で現行値が0へ戻った後の
+    /// 遅れた減算は、既存のvoice数と同じく0未満にしません。
+    /// </remarks>
+    internal static void AdjustScheduledVoiceCount(int delta)
+    {
+        if (delta == 0)
         {
-            MarkVoiceAttachedOnce();
-            playState = PlayState.Playing;
+            return;
         }
-        else
+
+        lock (StaticLockObject)
         {
-            MarkVoiceDetachedOnce();
-            playState = PlayState.Stopped;
+            CurrentVoices = System.Math.Max(0, CurrentVoices + delta);
+            if (MaxVoices < CurrentVoices)
+            {
+                MaxVoices = CurrentVoices;
+            }
         }
     }
 

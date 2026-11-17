@@ -19,6 +19,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
     private readonly Func<long> getTimestamp;
     private readonly BmsAudioFrameSchedule schedule;
     private readonly IReadOnlyList<BmsAudioResource?> resourcesByIndex;
+    private readonly BmsDirectVoiceTable? directVoices;
     private readonly BassAudioSession session;
     private readonly IBassScheduledMixerNativeBoundary native;
     private readonly long durationSongFrame;
@@ -47,6 +48,7 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
     /// <param name="playbackRate">この区間の再生速度です。</param>
     /// <param name="generation">区間世代です。</param>
     /// <param name="getTimestamp">同一のStopwatch tick単位を使う時計です。省略時は実時計を使います。</param>
+    /// <param name="directVoices">短い発音を直接合成するための変換済み波形の表です。省略時はすべての発音をnative voiceとして予約します。</param>
     internal BmsRealtimeAudioScheduler(
         BmsAudioFrameSchedule schedule,
         IReadOnlyList<BmsAudioResource?> resourcesByIndex,
@@ -56,8 +58,10 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
         long segmentStartSongFrame,
         float playbackRate,
         int generation,
-        Func<long>? getTimestamp = null)
+        Func<long>? getTimestamp = null,
+        BmsDirectVoiceTable? directVoices = null)
     {
+        this.directVoices = directVoices;
         this.getTimestamp = getTimestamp ?? Stopwatch.GetTimestamp;
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         this.resourcesByIndex = resourcesByIndex ?? throw new ArgumentNullException(nameof(resourcesByIndex));
@@ -276,7 +280,8 @@ internal sealed class BmsRealtimeAudioScheduler : IDisposable
             session,
             native,
             originMixerFrame,
-            checked((int)generation));
+            checked((int)generation),
+            directVoices);
 
         long horizon = System.Math.Min(
             checked(durationSongFrame + 1),

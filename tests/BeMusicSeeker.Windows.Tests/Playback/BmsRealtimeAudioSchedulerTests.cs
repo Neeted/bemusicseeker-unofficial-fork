@@ -202,8 +202,10 @@ public sealed class BmsRealtimeAudioSchedulerTests
         File.WriteAllText(
             chartPath,
             "#PLAYER 1\n#TITLE tempo look-ahead\n#ARTIST test\n#BPM 480\n"
-                + "#WAV01 long.wav\n#00011:"
-                + string.Concat(Enumerable.Repeat("01", eventSubdivisions))
+                // 各発音に別のWAV indexを与え、打切り後の短い発音の直接合成ではなく発音ごとのnative voiceの経路に保つ。
+                + string.Concat(Enumerable.Range(1, eventSubdivisions).Select(index => $"#WAV{Base36Index(index)} long.wav\n"))
+                + "#00011:"
+                + string.Concat(Enumerable.Range(1, eventSubdivisions).Select(Base36Index))
                 + "\n",
             Encoding.ASCII);
 
@@ -235,7 +237,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
                                player.Duration,
                                segmentStartSongFrame: 0,
                                playbackRate: rate,
-                               generation: generation++))
+                               generation: generation++,
+                               directVoices: player.DirectVoices))
                     {
                         Assert.AreEqual(mixerFrameAtStart, scheduler.OriginMixerFrame,
                             "予約余裕をsong frame 0の原点へ加えません。");
@@ -1404,11 +1407,14 @@ public sealed class BmsRealtimeAudioSchedulerTests
     }
 
     /// <summary>bmsonの継続音をrunの起点から復元し、出力レートが異なる場合も物理EOFの半開区間でvoiceを終了することを確認します。</summary>
-    /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
+    /// <remarks>
+    /// 短い発音は直接合成の対象で、復元は変換済みの波形の該当する出力frameから行うため、音源格子の位置ではなく、
+    /// シーク後のPCMがシークなしの出力のシークframe以降と一致すること、論理発音数、終端での予約なしを確認します。
+    /// </remarks>
     [TestMethod]
-    [DataRow(93L, 1, 101L)]
-    [DataRow(919L, 0, 0L)]
-    public void BmsonSeekAfterContinuationUsesTheRunOriginAndHalfOpenPhysicalEof(long seekFrame, int activeVoices, long sourceFrame)
+    [DataRow(93L, 1)]
+    [DataRow(919L, 0)]
+    public void BmsonSeekAfterContinuationUsesTheRunOriginAndHalfOpenPhysicalEof(long seekFrame, int activeVoices)
     {
         Assert.IsTrue(BassAudioPlayer.Free(ownedSession));
         ownedSession = null;
@@ -1422,17 +1428,26 @@ public sealed class BmsRealtimeAudioSchedulerTests
         using var player = new BMSAutoPlayer(PlaybackChart.Load(path));
         player.LoadResources();
         Assert.AreEqual(919L, player.AudioSchedule.Events.Single().EndFrame);
+        const int frames = 920;
+        float[] unseeked = RenderSegment(player, new RecordingScheduledNativeBoundary(), 0, frames, 44100, out _);
         var native = new RecordingScheduledNativeBoundary();
-        using var scheduler = new BmsRealtimeAudioScheduler(player.AudioSchedule, player.AudioResourcesByIndex,
-            player.ResourceSession, native, player.Duration, seekFrame, 1f, 3);
-        CollectionAssert.AreEqual(activeVoices == 0 ? Array.Empty<long>() : new[] { sourceFrame * 2 * sizeof(float) },
-            native.SnapshotSourcePositions());
-        if (activeVoices != 0)
+        float[] seeked = RenderSegment(player, native, seekFrame, frames - (int)seekFrame, 44100, out int active,
+            songFrame => songFrame < 919 ? 1 : 0);
+        Assert.AreEqual(activeVoices, active);
+        Assert.AreEqual(0f, unseeked[919 * 2], "物理EOFの半開区間の終端frameは無音です。");
+        Assert.AreNotEqual(0f, unseeked[918 * 2], "最終frameまで非零のPCMを残します。");
+        if (activeVoices == 0)
         {
-            var renderer = new AudioPcmRenderer(player.ResourceSession.MixerHandle, 44100, 2);
-            Assert.AreEqual(1, renderer.ReadFrames(new float[2], 1).FramesRead);
+            Assert.AreEqual(0, native.SnapshotReservations().Length, "終端では予約しません。");
         }
-        Assert.AreEqual(activeVoices, scheduler.ScheduledMixerDiagnostics.ActiveVoiceCount);
+        for (int frame = 0; frame < seeked.Length / 2; frame++)
+        {
+            for (int channel = 0; channel < 2; channel++)
+            {
+                Assert.AreEqual(unseeked[(seekFrame + frame) * 2 + channel], seeked[frame * 2 + channel], 1e-6f,
+                    $"seek {seekFrame} frame {frame} channel {channel}");
+            }
+        }
     }
 
     /// <summary>bmsonで二つのrestart runが重なる位置へseekし、各起点に基づくnative位置と両音源のPCM加算を確認します。</summary>
@@ -1501,7 +1516,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
                    player.Duration,
                    seekSongFrame,
                    playbackRate: 1f,
-                   generation: 3))
+                   generation: 3,
+                   directVoices: player.DirectVoices))
         {
             var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
             Assert.AreEqual(mixerFrameAtSeek, scheduler.OriginMixerFrame + seekSongFrame,
@@ -2245,6 +2261,7 @@ public sealed class BmsRealtimeAudioSchedulerTests
         var native = new CommitCountingScheduledNativeBoundary();
         BassAudioSession session = ownedSession!;
         int baselineOwnedHandles = session.OwnedStreamCount;
+        int baselineVoices = BassAudioPlayer.CurrentVoices;
         session.SetCallbackOutputPaused(true);
         BmsRealtimeAudioScheduler? scheduler = null;
         try
@@ -2293,6 +2310,8 @@ public sealed class BmsRealtimeAudioSchedulerTests
                 Assert.AreEqual(handlesBeforeEntry, session.OwnedStreamCount,
                     "Every source created before the budget failure must be released.");
                 Assert.IsTrue(session.HasCallbackOutputFailure);
+                Assert.AreEqual(baselineVoices, BassAudioPlayer.CurrentVoices,
+                    "予算超過の失敗の後に、論理的な発音数を残しません。");
             }
             else
             {
@@ -2481,6 +2500,326 @@ public sealed class BmsRealtimeAudioSchedulerTests
             player.DisposeAudioSourcesAfterUse();
         }
     }
+
+    /// <summary>1フレーム音源の連続、64フレーム音源の毎フレームの重なり、BGMの長い音源を混ぜた高密度な短音譜面について、Writerとリアルタイム出力が独立に直接加算したPCMと一致し、予約範囲の境界を跨ぐ尾部が欠けず二重にもならないことを確認します。</summary>
+    /// <remarks>
+    /// Writerは出力gain 0.16、リアルタイムは音源gain 0.5と不規則なpull区切りで読み、期待値は譜面の構成から二進で正確に表せる値の和として独立に求めます。
+    /// 表の作成と再生の後に、一時的に作ったnative handleが残らないことも確認します。
+    /// </remarks>
+    [TestMethod]
+    public void DenseShortVoices_MatchIndependentDirectSumInWriterAndRealtime()
+    {
+        using var directory = new TemporaryDirectory();
+        DenseChart dense = BuildDenseChart(directory);
+        BassAudioSession session = ownedSession!;
+        int baselineHandles = session.OwnedStreamCount;
+
+        string outputPath = directory.File("dense-output");
+        using (var writer = new BMSAutoPlayWriter(new BMSFile(dense.ChartPath)))
+        {
+            writer.LoadResources();
+            Assert.AreEqual(2, writer.DirectVoices!.WaveCount, "1フレーム音源と64フレーム音源の二つだけを直接合成の対象にします。");
+            Assert.AreEqual(baselineHandles, session.OwnedStreamCount, "表の作成でnative handleを残しません。");
+            writer.Write(EncoderType.WAVE, 0.4f, outputPath, BMSAutoPlayWriter.Normalization.NONE);
+        }
+        AudioTestWaveFile wave = AudioTestWaveFileReader.Read(File.ReadAllBytes(outputPath + ".wav"));
+        int totalFrames = wave.DataLength / (wave.Channels * sizeof(float));
+        Assert.IsTrue(totalFrames >= DenseChart.LongEnd);
+        float[] expected = dense.Expected(totalFrames);
+        for (int frame = 0; frame < totalFrames; frame++)
+        {
+            for (int channel = 0; channel < 2; channel++)
+            {
+                Assert.AreEqual((float)(expected[frame * 2 + channel] * 0.16d), ReadFloatSample(wave, frame, channel), 1e-6f,
+                    $"Writer frame {frame} channel {channel}");
+            }
+        }
+        Assert.AreEqual(baselineHandles, session.OwnedStreamCount);
+
+        BassAudioPlayer.DefaultVolume = 0.5f;
+        int baselineVoices = BassAudioPlayer.CurrentVoices;
+        using var player = new BMSAutoPlayer(new BMSFile(dense.ChartPath));
+        player.LoadResources();
+        Assert.AreEqual(baselineHandles, session.OwnedStreamCount, "表の作成でnative handleを残しません。");
+        BassAudioPlayer.SetBmsTempoChange(1f);
+        session.SetCallbackOutputPaused(true);
+        session.ObserveCallbackPullSize(2048);
+        var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
+        float[] actual = new float[totalFrames * 2];
+        using (var scheduler = new BmsRealtimeAudioScheduler(
+                   player.AudioSchedule, player.AudioResourcesByIndex, session, new BassMixerSourceNativeBoundary(),
+                   player.Duration, segmentStartSongFrame: 0, playbackRate: 1f, generation: 7,
+                   directVoices: player.DirectVoices))
+        {
+            int[] pullPattern = [127, 1009, 73, 2048, 399, 1531];
+            int patternIndex = 0;
+            int rendered = 0;
+            while (rendered < totalFrames)
+            {
+                scheduler.TickWithoutNullOutputAdvance();
+                int frames = Math.Min(pullPattern[patternIndex++ % pullPattern.Length], totalFrames - rendered);
+                Assert.AreEqual(frames, renderer.ReadFrames(actual.AsSpan(rendered * 2, frames * 2), frames).FramesRead);
+                rendered += frames;
+            }
+        }
+        for (int frame = 0; frame < totalFrames; frame++)
+        {
+            for (int channel = 0; channel < 2; channel++)
+            {
+                Assert.AreEqual(expected[frame * 2 + channel] * 0.5f, actual[frame * 2 + channel], 1e-6f,
+                    $"Realtime frame {frame} channel {channel}");
+            }
+        }
+        Assert.AreEqual(baselineVoices, BassAudioPlayer.CurrentVoices, "区間の破棄の後に論理的な発音数を残しません。");
+        Assert.AreEqual(baselineHandles, session.OwnedStreamCount);
+    }
+
+    /// <summary>高密度な短音譜面を小さな区間ごとに予約し、一回の予約で直接合成のブロックを入れるnative voiceが高々一つであること、各tickの後の論理的な発音数が対象・対象外の両方の半開区間の数と一致することを確認します。</summary>
+    /// <remarks>mixer位置をframe単位で進める決定的な読出しで、native境界のcommit数と、診断・UI表示用の現行発音数を比較します。</remarks>
+    [TestMethod]
+    public void DenseShortVoices_ReserveOneNativeVoicePerReservationAndCountLogicalVoices()
+    {
+        using var directory = new TemporaryDirectory();
+        DenseChart dense = BuildDenseChart(directory);
+        BassAudioSession session = ownedSession!;
+        int baselineHandles = session.OwnedStreamCount;
+        int baselineVoices = BassAudioPlayer.CurrentVoices;
+        using var player = new BMSAutoPlayer(new BMSFile(dense.ChartPath));
+        player.LoadResources();
+        var native = new CommitCountingScheduledNativeBoundary();
+        var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
+        const int step = 300;
+        int expectedMaximum = 0;
+        int maximumNativeVoices = 0;
+        using (var mixer = new BmsScheduledAudioMixer(
+                   player.AudioSchedule, player.AudioResourcesByIndex, session, native,
+                   directVoices: player.DirectVoices))
+        {
+            float[] pcm = new float[step * 2];
+            for (long position = 0; position < DenseChart.LongEnd + step; position += step)
+            {
+                int before = native.VoicesCommitted;
+                mixer.ReserveBeforeFrame(position + step, position);
+                int committed = native.VoicesCommitted - before;
+                int allowed = position <= DenseChart.LongStart && DenseChart.LongStart < position + step ? 2 : 1;
+                Assert.IsTrue(committed <= allowed, $"position {position}: {committed} native voices for one reservation.");
+                mixer.AdvanceAndRetire();
+                maximumNativeVoices = Math.Max(maximumNativeVoices, mixer.ReservedVoiceCount);
+
+                int expectedCount = dense.CountAt(position);
+                expectedMaximum = Math.Max(expectedMaximum, expectedCount);
+                Assert.AreEqual(expectedCount, mixer.ActiveVoiceCount, $"position {position}");
+                Assert.AreEqual(baselineVoices + expectedCount, BassAudioPlayer.CurrentVoices, $"position {position}");
+                Assert.AreEqual(step, renderer.ReadFrames(pcm, step).FramesRead);
+            }
+            Assert.AreEqual(expectedMaximum, mixer.MaximumActiveVoiceCount);
+            Assert.IsTrue(expectedMaximum > 64, "論理的な発音数はブロックの数ではなく、重なった発音の数です。");
+            Assert.IsTrue(maximumNativeVoices < 8, $"native voices: {maximumNativeVoices}");
+        }
+        Assert.AreEqual(baselineVoices, BassAudioPlayer.CurrentVoices, "区間の破棄の後に論理的な発音数を残しません。");
+        Assert.AreEqual(baselineHandles, session.OwnedStreamCount);
+    }
+
+    /// <summary>予約の失敗の後に、既に数えた論理的な発音数を残さないことを確認します。</summary>
+    /// <remarks>予約済みの発音が発音中として数えられた状態から、予約期限切れの失敗を起こして観測します。</remarks>
+    [TestMethod]
+    public void DenseShortVoices_ClearLogicalVoicesAfterReservationFailure()
+    {
+        using var directory = new TemporaryDirectory();
+        DenseChart dense = BuildDenseChart(directory);
+        BassAudioSession session = ownedSession!;
+        int baselineVoices = BassAudioPlayer.CurrentVoices;
+        using var player = new BMSAutoPlayer(new BMSFile(dense.ChartPath));
+        player.LoadResources();
+        using var mixer = new BmsScheduledAudioMixer(
+            player.AudioSchedule, player.AudioResourcesByIndex, session, new BassMixerSourceNativeBoundary(),
+            directVoices: player.DirectVoices);
+        mixer.ReserveSegmentBeforeFrame(0, 100);
+        mixer.AdvanceAndRetire();
+        Assert.AreEqual(dense.CountAt(0), mixer.ActiveVoiceCount);
+        Assert.AreEqual(baselineVoices + dense.CountAt(0), BassAudioPlayer.CurrentVoices);
+
+        BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(
+            () => mixer.ReserveBeforeFrame(exclusiveSongFrame: 200, currentSongFrame: 150));
+
+        Assert.AreEqual("missed look-ahead deadline", failure.Stage);
+        Assert.AreEqual(0, mixer.ActiveVoiceCount);
+        Assert.AreEqual(baselineVoices, BassAudioPlayer.CurrentVoices);
+    }
+
+    /// <summary>44.1kHzの短い音源を密に置いた譜面で区間の開始frameへseekし、開始frameを跨ぐ・開始する・終わる発音が、シークなしの出力の開始frame以降のPCMと一致し、論理発音数が開始frameで区間内にある数になることを確認します。</summary>
+    /// <remarks>SRCが入る音源を対象に、変換済みの波形の該当する出力frameから最初のブロックへ入れる復元を、シークなしの出力と比較して検出します。</remarks>
+    [TestMethod]
+    public void DenseShortVoices_SeekRestoresCrossingVoicesFromTheirOutputFrame()
+    {
+        const long seekFrame = 150;
+        const int totalFrames = 400;
+        using var directory = new TemporaryDirectory();
+        float[] samples = new float[100 * 2];
+        for (int frame = 0; frame < 100; frame++)
+        {
+            samples[frame * 2] = ((frame * 7 % 64) + 1) / 256f;
+            samples[frame * 2 + 1] = -((frame * 5 % 64) + 1) / 512f;
+        }
+        File.WriteAllBytes(directory.File("short.wav"), BuildFloatWave(44100, samples));
+        // 各発音は約109出力frameです。0: 終了済み、41: seek frameで終わる、100: seek frameを跨ぐ、150: seek frameで始まる、200: 未来。
+        static string Line(string channel, int frame, string index) =>
+            "#000" + channel + ":"
+            + string.Concat(Enumerable.Range(0, DenseMeasureFrames).Select(slot => slot == frame ? index : "00")) + "\n";
+        string chartPath = directory.File("seek-dense.bms");
+        WriteChart(chartPath,
+            string.Concat(Enumerable.Range(1, 5).Select(index => $"#WAV0{index} short.wav\n"))
+            + "#00002:0.02\n"
+            + Line("01", 0, "01") + Line("11", 41, "02") + Line("12", 100, "03")
+            + Line("13", 150, "04") + Line("14", 200, "05"));
+        using var player = new BMSAutoPlayer(new BMSFile(chartPath));
+        player.LoadResources();
+        Assert.AreEqual(1, player.DirectVoices!.WaveCount);
+        long[] starts = player.AudioSchedule.Events.Select(item => item.StartFrame).Order().ToArray();
+        CollectionAssert.AreEqual(new long[] { 0, 41, 100, 150, 200 }, starts);
+
+        float[] unseeked = RenderSegment(player, new RecordingScheduledNativeBoundary(), 0, totalFrames, 48000, out _);
+        float[] seeked = RenderSegment(
+            player, new RecordingScheduledNativeBoundary(), seekFrame, totalFrames - (int)seekFrame, 48000, out int active,
+            songFrame => starts.Count(start => start <= songFrame && songFrame < start + 109));
+
+        Assert.AreEqual(2, active, "開始frameを跨ぐ発音と開始frameで始まる発音だけが区間内にあります。");
+        Assert.IsTrue(unseeked.Any(value => value != 0f));
+        for (int frame = 0; frame < seeked.Length / 2; frame++)
+        {
+            for (int channel = 0; channel < 2; channel++)
+            {
+                Assert.AreEqual(unseeked[(seekFrame + frame) * 2 + channel], seeked[frame * 2 + channel], 1e-6f,
+                    $"frame {seekFrame + frame} channel {channel}");
+            }
+        }
+    }
+
+    private const int DenseMeasureFrames = 1920;
+
+    private static string Base36Index(int value) =>
+        new(["0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[value / 36], "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"[value % 36]]);
+
+    /// <summary>指定した曲内frameからschedulerを構成し、不規則なpull区切りでinput mixerのPCMを取り出します。</summary>
+    private static float[] RenderSegment(
+        BMSAutoPlayer player,
+        IBassScheduledMixerNativeBoundary native,
+        long startFrame,
+        int frames,
+        int sampleRate,
+        out int activeVoices,
+        Func<long, int>? expectedActiveVoicesAt = null)
+    {
+        BassAudioSession session = player.ResourceSession;
+        using var scheduler = new BmsRealtimeAudioScheduler(
+            player.AudioSchedule, player.AudioResourcesByIndex, session, native, player.Duration,
+            startFrame, 1f, 3, directVoices: player.DirectVoices);
+        activeVoices = scheduler.ScheduledMixerDiagnostics.ActiveVoiceCount;
+        var renderer = new AudioPcmRenderer(session.MixerHandle, sampleRate, 2);
+        float[] pcm = new float[frames * 2];
+        int[] pulls = [37, 101, 64, 211, 17];
+        int position = 0;
+        int pullIndex = 0;
+        while (position < frames)
+        {
+            scheduler.TickWithoutNullOutputAdvance();
+            if (expectedActiveVoicesAt != null)
+            {
+                // 各Tickの後の論理発音数は、発音の半開区間から独立に求めた数と一致する。
+                Assert.AreEqual(expectedActiveVoicesAt(startFrame + position), scheduler.ScheduledMixerDiagnostics.ActiveVoiceCount,
+                    $"active voices at song frame {startFrame + position}");
+            }
+            int count = Math.Min(pulls[pullIndex++ % pulls.Length], frames - position);
+            Assert.AreEqual(count, renderer.ReadFrames(pcm.AsSpan(position * 2, count * 2), count).FramesRead);
+            position += count;
+        }
+        return pcm;
+    }
+
+    /// <summary>1フレーム音源・64フレーム音源・長い音源を高密度に置いた譜面と、各発音の独立した期待値です。</summary>
+    private sealed class DenseChart
+    {
+        internal const int LongStart = 960;
+        internal const int LongEnd = LongStart + 4800;
+
+        private readonly List<(long Start, long End, float[] Source)> voices = [];
+
+        internal string ChartPath { get; private init; } = string.Empty;
+
+        /// <summary>曲内frameに <c>Start ≤ frame &lt; End</c> で含まれる発音の数を数えます。</summary>
+        internal int CountAt(long frame) => voices.Count(voice => voice.Start <= frame && frame < voice.End);
+
+        /// <summary>全発音を単位gainで直接加算したinterleaved PCMを返します。</summary>
+        internal float[] Expected(int totalFrames)
+        {
+            float[] sum = new float[totalFrames * 2];
+            foreach ((long start, long end, float[] source) in voices)
+            {
+                for (long frame = start; frame < end && frame < totalFrames; frame++)
+                {
+                    sum[frame * 2] += source[(frame - start) * 2];
+                    sum[frame * 2 + 1] += source[(frame - start) * 2 + 1];
+                }
+            }
+            return sum;
+        }
+
+        internal static DenseChart Create(string chartPath, string directoryPath)
+        {
+            float[] one = [0.125f, -0.0625f];
+            float[] block = new float[64 * 2];
+            for (int frame = 0; frame < 64; frame++)
+            {
+                block[frame * 2] = (frame + 1) / 1024f;
+                block[frame * 2 + 1] = -(frame + 1) / 2048f;
+            }
+            float[] longSource = new float[4800 * 2];
+            for (int frame = 0; frame < 4800; frame++)
+            {
+                longSource[frame * 2] = (frame % 251 + 1) / 2048f;
+                longSource[frame * 2 + 1] = -(frame % 241 + 1) / 4096f;
+            }
+            File.WriteAllBytes(Path.Combine(directoryPath, "one.wav"), BuildFloatWave(48000, one));
+            File.WriteAllBytes(Path.Combine(directoryPath, "block.wav"), BuildFloatWave(48000, block));
+            File.WriteAllBytes(Path.Combine(directoryPath, "long.wav"), BuildFloatWave(48000, longSource));
+
+            var chart = new DenseChart { ChartPath = chartPath };
+            var text = new StringBuilder("#PLAYER 1\n#TITLE dense\n#ARTIST test\n#BPM 120\n#WAV01 one.wav\n");
+            for (int k = 0; k < 64; k++)
+            {
+                text.Append("#WAV").Append(Base36Index(2 + k)).Append(" block.wav\n");
+            }
+            text.Append("#WAV").Append(Base36Index(66)).Append(" long.wav\n");
+            // 1小節を1920フレームに縮め、1 slotを1フレームにする。
+            text.Append("#00002:0.02\n");
+            text.Append("#00001:").Append(string.Concat(Enumerable.Repeat("01", DenseMeasureFrames))).Append('\n');
+            for (int frame = 0; frame < DenseMeasureFrames; frame++)
+            {
+                chart.voices.Add((frame, frame + 1, one));
+            }
+            for (int k = 0; k < 64; k++)
+            {
+                string[] slots = new string[DenseMeasureFrames];
+                Array.Fill(slots, "00");
+                for (int frame = k; frame < DenseMeasureFrames; frame += 64)
+                {
+                    slots[frame] = Base36Index(2 + k);
+                    chart.voices.Add((frame, frame + 64, block));
+                }
+                text.Append("#00001:").Append(string.Concat(slots)).Append('\n');
+            }
+            string[] longSlots = new string[DenseMeasureFrames];
+            Array.Fill(longSlots, "00");
+            longSlots[LongStart] = Base36Index(66);
+            chart.voices.Add((LongStart, LongEnd, longSource));
+            text.Append("#00001:").Append(string.Concat(longSlots)).Append('\n');
+            File.WriteAllText(chartPath, text.ToString(), Encoding.ASCII);
+            return chart;
+        }
+    }
+
+    private static DenseChart BuildDenseChart(TemporaryDirectory directory) =>
+        DenseChart.Create(directory.File("dense.bms"), Path.GetDirectoryName(directory.File("dense.bms"))!);
 
     private static long GetMixerFrame(BassAudioSession session, int channelCount)
     {

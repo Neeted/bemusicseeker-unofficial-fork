@@ -17,6 +17,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     private IReadOnlyList<BmsAudioResource?> audioResourcesByIndex;
     private BassAudioSession? resourceSession;
     private BmsAudioFrameSchedule? audioSchedule;
+    private BmsDirectVoiceTable? directVoices;
     private BmsRealtimeAudioScheduler? realtimeScheduler;
     private readonly IBassScheduledMixerNativeBoundary realtimeMixerNative;
     private int playbackGeneration;
@@ -53,6 +54,12 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
     /// <summary>譜面の発音scheduleを捕捉した実効mixer rateで取得します。</summary>
     internal BmsAudioFrameSchedule AudioSchedule =>
         audioSchedule ?? throw new InvalidOperationException("BMS audio resources have not been loaded.");
+
+    /// <summary>
+    /// 短い発音を直接合成するための変換済み波形の表を取得します。予約表(schedule、resource)と同じ寿命で、
+    /// <see cref="DisposeAudioSourcesAfterUse"/>で参照を外します。読込み前はnullです。
+    /// </summary>
+    internal BmsDirectVoiceTable? DirectVoices => directVoices;
 
     /// <summary>resourceとscheduleを作成したnative mixer sessionを取得します。</summary>
     internal BassAudioSession ResourceSession =>
@@ -167,7 +174,8 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                     Duration,
                     segmentStartFrame,
                     base.PlaybackRate,
-                    checked(playbackGeneration++));
+                    checked(playbackGeneration++),
+                    directVoices: directVoices);
                 session.SetCallbackOutputPaused(false);
             }
             catch
@@ -297,7 +305,8 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                     Duration,
                     songFrame,
                     base.PlaybackRate,
-                    checked(playbackGeneration++));
+                    checked(playbackGeneration++),
+                    directVoices: directVoices);
                 realtimeScheduler.ResetControlInterval();
                 if (resumeAfterSeek)
                 {
@@ -383,6 +392,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
 
         BassAudioSession session;
         BmsAudioFrameSchedule schedule;
+        BmsDirectVoiceTable voiceTable;
         try
         {
             using (BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation())
@@ -406,6 +416,8 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
                 session = currentSession;
                 schedule = BmsAudioFrameSchedule.Create(base.Chart, mixerInfo.Frequency, result.ResourcesByIndex);
             }
+            // 短い発音の変換済み波形は、予約表と同じ寿命で曲の準備時に一度だけ作る。通常の読込みと先読みの採用の両方がここを通る。
+            voiceTable = BmsDirectVoiceTable.Create(schedule, result.ResourcesByIndex, session);
         }
         catch (AudioSourceFatalException)
         {
@@ -422,6 +434,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
         audioResourcesByIndex = Array.AsReadOnly(result.ResourcesByIndex);
         resourceSession = session;
         audioSchedule = schedule;
+        directVoices = voiceTable;
         durationProvider = () => base.MusicDuration;
         base.MusicDuration = base.Bms != null
             ? base.Bms.Measures.SelectMany(measure =>
@@ -461,6 +474,7 @@ public class BMSAutoPlayer : BMSPlayer<NullImageLoader>
 
         audioResourcesByIndex = Array.AsReadOnly(Array.Empty<BmsAudioResource?>());
         audioSchedule = null;
+        directVoices = null;
         resourceSession = null;
     }
 

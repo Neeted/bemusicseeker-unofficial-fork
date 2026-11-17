@@ -103,7 +103,8 @@ public class BMSAutoPlayWriter : BMSAutoPlayer
                    base.AudioSchedule,
                    base.AudioResourcesByIndex,
                    base.ResourceSession,
-                   new BassMixerSourceNativeBoundary()))
+                   new BassMixerSourceNativeBoundary(),
+                   directVoices: base.DirectVoices))
         {
             long renderedFrames = 0;
             while (renderedFrames < totalFrames)

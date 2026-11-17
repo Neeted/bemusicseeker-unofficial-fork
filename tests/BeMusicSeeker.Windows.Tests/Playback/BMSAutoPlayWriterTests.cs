@@ -480,15 +480,16 @@ public sealed class BMSAutoPlayWriterTests
     /// <summary>BGM・可視・LN開始の各音声groupを品質2～6で描画し、有限sourceの切上げ出力長と最終frameを残す。</summary>
     /// <remarks>実NULL_DEVICEの共通譜面読込み・描画・encoder保存を接続し、native PCMと出力副作用を検査するため共有native状態を直列所有する。</remarks>
     [TestMethod]
-    [DataRow("01", 2)] // BGM。
-    [DataRow("11", 3)] // 1P可視音符。
-    [DataRow("21", 4)] // 2P可視音符。
-    [DataRow("51", 5)] // 1P LN開始。
-    [DataRow("61", 6)] // 2P LN開始。
-    public void Write_UsesCeilingFiniteSourceFramesForEveryAudioEventGroup(string channel, int sampleRateConversionQuality)
+    [DataRow("01", 2, 4411)] // BGM。
+    [DataRow("11", 3, 4411)] // 1P可視音符。
+    [DataRow("21", 4, 4411)] // 2P可視音符。
+    [DataRow("51", 5, 4411)] // 1P LN開始。
+    [DataRow("61", 6, 4411)] // 2P LN開始。
+    [DataRow("01", 2, 441)] // 50ms以下で直接合成の対象になる短い音源。
+    [DataRow("01", 6, 441)]
+    public void Write_UsesCeilingFiniteSourceFramesForEveryAudioEventGroup(string channel, int sampleRateConversionQuality, int sourceFrames)
     {
         const int sourceRate = 44100;
-        const int sourceFrames = 4411;
         const int outputRate = 48000;
         ReinitializeAudioRuntime(
             SampleFormat.SAMPLE_FLOAT_32BIT,
@@ -508,6 +509,45 @@ public sealed class BMSAutoPlayWriterTests
         int expectedFrames = CeilingFrameRatio(sourceFrames, outputRate, sourceRate);
         Assert.AreEqual(expectedFrames, wave.DataLength / (wave.Channels * sizeof(float)));
         Assert.AreNotEqual(0f, ReadFloatSample(wave, expectedFrames - 1, 0));
+    }
+
+    /// <summary>同じindexの再発音で50ms以下に打ち切られた長い音源の出力の先頭Tフレームが、同じ音源を単独で鳴らした出力の先頭Tフレームと一致することを確認します。</summary>
+    /// <remarks>打切り後の短い発音は直接合成の対象になるため、SRCが入る44.1kHzモノラルから48kHzへの変換でも、現行の経路と同じ波形になることを検出します。T以降の再発音は照合しません。</remarks>
+    [TestMethod]
+    public void Write_DirectlyMixesAShortCutVoiceWithTheSamePcmAsAFreshVoice()
+    {
+        const int sourceRate = 44100;
+        const int sourceFrames = 44100;
+        const int outputRate = 48000;
+        const int cutFrames = 1920; // 48kHzで50ms(2400frame)以下。
+        ReinitializeAudioRuntime(SampleFormat.SAMPLE_FLOAT_32BIT, SampleRate.SAMPLE_RATE_48000Hz);
+        using var directory = new TemporaryDirectory();
+        float Sample(int frame) => 0.25f * MathF.Sin(frame * 0.05f);
+        File.WriteAllBytes(directory.File("audio.wav"), BuildFloatWave(sourceRate, sourceFrames, Sample));
+        // 1小節を3840フレームに縮め、1 slotを1フレームにします。Dは1920 slot後に置きます。
+        string line = "#00002:0.04\n#00001:" + "01" + new string('0', 2 * (cutFrames - 1)) + "01" + new string('0', 2 * (3840 - cutFrames - 1));
+        string chartName = "cut-voice";
+        File.WriteAllText(
+            directory.File(chartName + ".bms"),
+            "#PLAYER 1\n#TITLE cut\n#ARTIST test\n#BPM 120\n#WAV01 audio.wav\n" + line + "\n",
+            Encoding.ASCII);
+        AudioTestWaveFile cut = WriteOutputChart(directory, chartName, null);
+
+        // 期待値: 同じ音源を一回だけ鳴らした出力の先頭Tフレーム。
+        string singleName = "single-voice";
+        File.WriteAllText(
+            directory.File(singleName + ".bms"),
+            "#PLAYER 1\n#TITLE single\n#ARTIST test\n#BPM 120\n#WAV01 audio.wav\n#00001:01\n",
+            Encoding.ASCII);
+        AudioTestWaveFile single = WriteOutputChart(directory, singleName, null);
+
+        int singleFrames = single.DataLength / (single.Channels * sizeof(float));
+        int cutTotalFrames = cut.DataLength / (cut.Channels * sizeof(float));
+        Assert.AreEqual(cutFrames + singleFrames, cutTotalFrames);
+        for (int frame = 0; frame < cutFrames; frame++)
+        {
+            Assert.AreEqual(ReadFloatSample(single, frame, 0), ReadFloatSample(cut, frame, 0), 1e-6f, $"frame {frame}");
+        }
     }
 
     /// <summary>各発音の絶対時刻を独立丸めし、downsample後の先頭・再発音・最終frameを欠落させない。</summary>

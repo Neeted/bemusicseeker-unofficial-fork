@@ -325,7 +325,8 @@ public sealed class AudioMixerPerformanceTests
                 player.Duration,
                 segmentStartSongFrame: 0,
                 playbackRate: 1f,
-                generation: 23);
+                generation: 23,
+                directVoices: player.DirectVoices);
             BmsScheduledAudioMixer scheduledMixer = scheduler.ScheduledMixerDiagnostics;
 
             var prepareDistribution = new List<long>();
@@ -407,7 +408,7 @@ public sealed class AudioMixerPerformanceTests
             int afterPlaybackHandleCount = session.OwnedStreamCount;
 
             Assert.IsTrue(minimumMarginFrames >= 0);
-            Assert.IsTrue(preparedVoices > 1000);
+            Assert.IsTrue(scheduledMixer.ReservedLogicalVoiceCount > 1000);
             Assert.AreEqual(0, preparationFailures);
             Assert.AreEqual(0, commitFailures);
             Assert.IsFalse(session.HasCallbackOutputFailure);
@@ -420,6 +421,9 @@ public sealed class AudioMixerPerformanceTests
             BassAudioPlayer.SetBmsTempoChange(50f);
             int tempoOutputHandle = BassAudioPlayer.OutputMixerHandle;
             Assert.AreNotEqual(0, tempoOutputHandle);
+            // 入力mixerを8channelから2channelへ戻したため、直接合成の表も同じ形式で作り直す。
+            var tempoVoices = BmsDirectVoiceTable.Create(
+                player.AudioSchedule, player.AudioResourcesByIndex, session);
             tempoScheduler = new BmsRealtimeAudioScheduler(
                 player.AudioSchedule,
                 player.AudioResourcesByIndex,
@@ -428,7 +432,8 @@ public sealed class AudioMixerPerformanceTests
                 player.Duration,
                 segmentStartSongFrame: 0,
                 playbackRate: 50f,
-                generation: 24);
+                generation: 24,
+                directVoices: tempoVoices);
             var tempoRenderer = new AudioPcmRenderer(tempoOutputHandle, 48000, 2);
             float[] tempoPcm = new float[pullFrames * 2];
             long tempoRenderedFrames = 0;
@@ -461,7 +466,7 @@ public sealed class AudioMixerPerformanceTests
             Assert.AreEqual(baselineOwnedHandleCount, afterCleanupHandleCount);
 
             TestContext.WriteLine(
-                $"condition: workload=high-density-short-long-retrigger-alias, events={player.AudioSchedule.Events.Count}, measures={measureCount}, objectSlotsPerChannel={objectCount}, sourceRates=44100,48000, outputRate=48000, scheduledSongFrames={durationSongFrames}, scheduledInputChannels=8, actualScheduledMixerThreads={actualScheduledMixerThreadCount}, requestedRealtimeMixerThreads={realtimeMixerThreadCount}, actualTempoOutputChannels=2, playbackRateForLookAhead=50, tempoPhase=production-stereo-scheduler, tempoOutputRendered=true, tempoOutputHandle={tempoOutputHandle}, tempoFramesForDuration={tempoFramesForDuration}, tempoInputReadAheadFrames={tempoInputReadAheadFrames}, tempoRenderedFrames={tempoRenderedFrames}, tempoInputFramesConsumed={tempoInputFramesConsumed}, tempoManagedAllocatedBytes={tempoManagedAllocatedBytes}, callbackPullFrames={pullFrames}, scheduledInputPullPattern={string.Join('+', scheduledInputPullPattern)}, sharedDecodedPcmBytes={sharedDecodedPcmBytes}, pcmCopiedPerVoiceBytes=0, FloatWaveSourceBackingPayloadPerMonoVoiceBytes={80 + sizeof(int)}, managedAllocatedBytes={managedAllocatedBytes}, managedAllocatedBytesPerPreparedVoice={(double)managedAllocatedBytes / preparedVoices:F2}, minimumReservationMarginFrames={minimumMarginFrames}, preparationCount={scheduledMixer.PreparationOperationCount}, preparationTicks={scheduledMixer.PreparationTicks}, preparationDistribution={DescribeDistribution(prepareDistribution)}, commitCount={scheduledMixer.CommitOperationCount}, commitTicks={scheduledMixer.CommitTicks}, commitDistribution={DescribeDistribution(commitDistribution)}, maximumCommitTicks={maximumCommitTicks}, nativeLockTicks={scheduledMixer.NativeLockTicks}, nativeLockDistribution={DescribeDistribution(nativeLockDistribution)}, maximumNativeLockTicks={maximumNativeLockTicks}, maximumReservationTickTicks={maximumReservationTicks}, maximumControlIntervalTicks={maximumTickIntervalTicks}, preparedVoices={preparedVoices}, retiredVoices={retiredVoices}, maximumReservedVoices={maximumReservedVoices}, maximumActiveVoices={maximumActiveVoices}, sessionTrackedHandlesBaseline={baselineOwnedHandleCount}, sessionTrackedHandlesPeak={maximumTrackedHandleCount}, sessionTrackedHandlesAfterPlayback={afterPlaybackHandleCount}, sessionTrackedHandlesAfterCleanup={afterCleanupHandleCount}, renderedFrames={renderedFrames}, preparationFailures={preparationFailures}, commitFailures={commitFailures}, callbackFailure={session.HasCallbackOutputFailure}, underruns=0 (reservation failures abort this measurement), timingSource=Stopwatch ticks, noFixedPerformanceThreshold=true.");
+                $"condition: workload=high-density-short-long-retrigger-alias, events={player.AudioSchedule.Events.Count}, measures={measureCount}, objectSlotsPerChannel={objectCount}, sourceRates=44100,48000, outputRate=48000, scheduledSongFrames={durationSongFrames}, scheduledInputChannels=8, actualScheduledMixerThreads={actualScheduledMixerThreadCount}, requestedRealtimeMixerThreads={realtimeMixerThreadCount}, actualTempoOutputChannels=2, playbackRateForLookAhead=50, tempoPhase=production-stereo-scheduler, tempoOutputRendered=true, tempoOutputHandle={tempoOutputHandle}, tempoFramesForDuration={tempoFramesForDuration}, tempoInputReadAheadFrames={tempoInputReadAheadFrames}, tempoRenderedFrames={tempoRenderedFrames}, tempoInputFramesConsumed={tempoInputFramesConsumed}, tempoManagedAllocatedBytes={tempoManagedAllocatedBytes}, callbackPullFrames={pullFrames}, scheduledInputPullPattern={string.Join('+', scheduledInputPullPattern)}, sharedDecodedPcmBytes={sharedDecodedPcmBytes}, pcmCopiedPerVoiceBytes=0, FloatWaveSourceBackingPayloadPerMonoVoiceBytes={80 + sizeof(int)}, managedAllocatedBytes={managedAllocatedBytes}, managedAllocatedBytesPerPreparedVoice={(double)managedAllocatedBytes / preparedVoices:F2}, minimumReservationMarginFrames={minimumMarginFrames}, preparationCount={scheduledMixer.PreparationOperationCount}, preparationTicks={scheduledMixer.PreparationTicks}, preparationDistribution={DescribeDistribution(prepareDistribution)}, commitCount={scheduledMixer.CommitOperationCount}, commitTicks={scheduledMixer.CommitTicks}, commitDistribution={DescribeDistribution(commitDistribution)}, maximumCommitTicks={maximumCommitTicks}, nativeLockTicks={scheduledMixer.NativeLockTicks}, nativeLockDistribution={DescribeDistribution(nativeLockDistribution)}, maximumNativeLockTicks={maximumNativeLockTicks}, maximumReservationTickTicks={maximumReservationTicks}, maximumControlIntervalTicks={maximumTickIntervalTicks}, preparedNativeVoices={preparedVoices}, reservedLogicalVoices={scheduledMixer.ReservedLogicalVoiceCount}, directVoiceWaves={player.DirectVoices!.WaveCount}, retiredVoices={retiredVoices}, maximumReservedVoices={maximumReservedVoices}, maximumActiveVoices={maximumActiveVoices}, sessionTrackedHandlesBaseline={baselineOwnedHandleCount}, sessionTrackedHandlesPeak={maximumTrackedHandleCount}, sessionTrackedHandlesAfterPlayback={afterPlaybackHandleCount}, sessionTrackedHandlesAfterCleanup={afterCleanupHandleCount}, renderedFrames={renderedFrames}, preparationFailures={preparationFailures}, commitFailures={commitFailures}, callbackFailure={session.HasCallbackOutputFailure}, underruns=0 (reservation failures abort this measurement), timingSource=Stopwatch ticks, noFixedPerformanceThreshold=true.");
         }
         catch (Exception exception)
         {
@@ -530,6 +535,162 @@ public sealed class AudioMixerPerformanceTests
             CaptureCleanup(ref failure, () => BassAudioPlayer.Frequency = previousFrequency);
             CaptureCleanup(ref failure, () => BassAudioPlayer.Format = previousFormat);
             // native回収に失敗したときは入力領域を成功回収として消さず、診断に残します。
+            if (failure != null) { directory.PreserveArtifacts(); }
+            CaptureCleanup(ref failure, directory.Dispose);
+        }
+
+        failure?.Throw();
+    }
+
+    /// <summary>
+    /// 1フレーム音源を毎フレーム、16個の64フレーム音源を重ねて鳴らす高密度な短音譜面を、Writerの合成とリアルタイムの予約に通し、合成時間・tickあたりの予約時間・native voice数・論理発音数を記録する。
+    /// </summary>
+    /// <remarks>本番の実BASS/BASSmix・無音機器graphを使う明示性能測定。譜面は小節ごとに1920frame・1 slot 1frameで構成する。共有native sessionと静的音声設定の所有のため非並列とし、固定時間の合否は設けない。</remarks>
+    [TestMethod]
+    [TestCategory("Suite.audio")]
+    public void DenseShortVoiceWorkload_ReportsWriterSynthesisReservationAndVoiceCounts()
+    {
+        const int measureFrames = 1920;
+        const int measureCount = 100;
+        const int blockVoices = 16;
+        const int pullFrames = 1024;
+        SampleRate previousFrequency = BassAudioPlayer.Frequency;
+        SampleFormat previousFormat = BassAudioPlayer.Format;
+        float previousDefaultVolume = BassAudioPlayer.DefaultVolume;
+        float previousDeviceVolume = BassAudioPlayer.DeviceVolume;
+        bool previousDeviceMuted = BassAudioPlayer.IsDeviceMuted;
+        BassAudioSession? ownedSession = null;
+        ExceptionDispatchInfo? failure = null;
+        var directory = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+
+        try
+        {
+            BassAudioPlayer.Free();
+            BassAudioRuntime.Shutdown();
+            BassAudioPlayer.Frequency = SampleRate.SAMPLE_RATE_48000Hz;
+            BassAudioPlayer.Format = SampleFormat.SAMPLE_FLOAT_32BIT;
+            BassAudioWriter.InitializeOwnedSession(out BassAudioSession activeSession);
+            ownedSession = activeSession;
+            BassAudioPlayer.DefaultVolume = 1f;
+            BassAudioPlayer.IsDeviceMuted = false;
+            BassAudioPlayer.DeviceVolume = 1f;
+
+            using var oneWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 1, _ => 0.0625f);
+            using var blockWave = AudioMixerSignalFixture.TemporaryFloatWave.Create(48000, 64, frame => (frame + 1) / 4096f);
+            File.Copy(oneWave.Path, directory.GetPath("one.wav"));
+            File.Copy(blockWave.Path, directory.GetPath("block.wav"));
+            const string digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+            string Index(int value) => new([digits[value / 36], digits[value % 36]]);
+            var chart = new StringBuilder("#PLAYER 1\n#TITLE dense short voices\n#BPM 120\n#WAV01 one.wav\n");
+            for (int voice = 0; voice < blockVoices; voice++)
+            {
+                chart.Append("#WAV").Append(Index(voice + 2)).Append(" block.wav\n");
+            }
+            string oneLine = string.Concat(Enumerable.Repeat("01", measureFrames));
+            for (int measure = 0; measure < measureCount; measure++)
+            {
+                string number = measure.ToString("D3");
+                chart.Append('#').Append(number).Append("02:0.02\n");
+                chart.Append('#').Append(number).Append("01:").Append(oneLine).Append('\n');
+                for (int voice = 0; voice < blockVoices; voice++)
+                {
+                    string[] slots = new string[measureFrames];
+                    Array.Fill(slots, "00");
+                    for (int frame = voice * 4; frame < measureFrames; frame += 64)
+                    {
+                        slots[frame] = Index(voice + 2);
+                    }
+                    chart.Append('#').Append(number).Append("01:").Append(string.Concat(slots)).Append('\n');
+                }
+            }
+            string chartPath = directory.GetPath("dense.bms");
+            File.WriteAllText(chartPath, chart.ToString(), Encoding.ASCII);
+
+            var loadWatch = Stopwatch.StartNew();
+            using var writer = new BMSAutoPlayWriter(new BMSFile(chartPath));
+            writer.LoadResources();
+            loadWatch.Stop();
+            int eventCount = writer.AudioSchedule.Events.Count;
+            int waveCount = writer.DirectVoices!.WaveCount;
+            var writeWatch = Stopwatch.StartNew();
+            writer.Write(EncoderType.WAVE, 0.4f, directory.GetPath("dense-output"), BMSAutoPlayWriter.Normalization.NONE);
+            writeWatch.Stop();
+            writer.DisposeAudioSourcesAfterUse();
+
+            using var player = new BMSAutoPlayer(new BMSFile(chartPath));
+            player.LoadResources();
+            BassAudioSession session = player.ResourceSession;
+            int baselineHandles = session.OwnedStreamCount;
+            session.SetCallbackOutputPaused(true);
+            session.ObserveCallbackPullSize(pullFrames);
+            BassAudioPlayer.SetBmsTempoChange(1f);
+            var renderer = new AudioPcmRenderer(session.MixerHandle, 48000, 2);
+            float[] pcm = new float[pullFrames * 2];
+            long durationFrames = AudioFrameMath.TimeToFrame(player.Duration, 48000);
+            var tickTicks = new List<long>();
+            int maximumReserved;
+            int maximumActive;
+            long reservedLogical;
+            using (var scheduler = new BmsRealtimeAudioScheduler(
+                       player.AudioSchedule, player.AudioResourcesByIndex, session, new BassMixerSourceNativeBoundary(),
+                       player.Duration, segmentStartSongFrame: 0, playbackRate: 1f, generation: 31,
+                       directVoices: player.DirectVoices))
+            {
+                long rendered = 0;
+                while (rendered < durationFrames)
+                {
+                    long before = Stopwatch.GetTimestamp();
+                    scheduler.TickWithoutNullOutputAdvance();
+                    tickTicks.Add(Stopwatch.GetTimestamp() - before);
+                    int frames = (int)Math.Min(pullFrames, durationFrames - rendered);
+                    Assert.AreEqual(frames, renderer.ReadFrames(pcm, frames).FramesRead);
+                    rendered += frames;
+                }
+                BmsScheduledAudioMixer mixer = scheduler.ScheduledMixerDiagnostics;
+                maximumReserved = mixer.MaximumReservedVoiceCount;
+                maximumActive = mixer.MaximumActiveVoiceCount;
+                reservedLogical = mixer.ReservedLogicalVoiceCount;
+                Assert.AreEqual(0, mixer.PreparationFailureCount);
+                Assert.AreEqual(0, mixer.CommitFailureCount);
+            }
+            Assert.IsFalse(session.HasCallbackOutputFailure);
+            Assert.AreEqual(baselineHandles, session.OwnedStreamCount);
+            Assert.IsTrue(maximumActive > maximumReserved, "論理発音数は予約したnative voice数より多くなります。");
+
+            TestContext.WriteLine(
+                $"condition: workload=dense-short-voice-direct-mix, events={eventCount}, songFrames={durationFrames}, measures={measureCount}, measureFrames={measureFrames}, oneFrameSourceEveryFrame=true, overlappingBlockSources={blockVoices}x64frames, outputRate=48000, directVoiceWaves={waveCount}, tableBuildAndLoadMs={loadWatch.Elapsed.TotalMilliseconds:F3}, writerSynthesisAndWriteMs={writeWatch.Elapsed.TotalMilliseconds:F3}, tickCount={tickTicks.Count}, reservationPerTick={DescribeDistribution(tickTicks)}, maximumNativeVoices={maximumReserved}, maximumLogicalVoices={maximumActive}, reservedLogicalVoices={reservedLogical}, pullFrames={pullFrames}, timingSource=Stopwatch ticks, noFixedPerformanceThreshold=true.");
+        }
+        catch (Exception exception)
+        {
+            failure = ExceptionDispatchInfo.Capture(exception);
+        }
+        finally
+        {
+            CaptureCleanup(ref failure, BassAudioPlayer.ResetTempoChange);
+            CaptureCleanup(ref failure, () =>
+            {
+                if (!BassAudioWriter.TryReleaseEncoder())
+                {
+                    throw new InvalidOperationException("The benchmark encoder did not release.");
+                }
+            });
+            CaptureCleanup(ref failure, () =>
+            {
+                if (ownedSession == null)
+                {
+                    BassAudioPlayer.Free();
+                }
+                else if (!BassAudioPlayer.Free(ownedSession))
+                {
+                    throw new InvalidOperationException("The benchmark audio session did not release.");
+                }
+            });
+            CaptureCleanup(ref failure, BassAudioRuntime.Shutdown);
+            CaptureCleanup(ref failure, () => BassAudioPlayer.IsDeviceMuted = previousDeviceMuted);
+            CaptureCleanup(ref failure, () => BassAudioPlayer.DeviceVolume = previousDeviceVolume);
+            CaptureCleanup(ref failure, () => BassAudioPlayer.DefaultVolume = previousDefaultVolume);
+            CaptureCleanup(ref failure, () => BassAudioPlayer.Frequency = previousFrequency);
+            CaptureCleanup(ref failure, () => BassAudioPlayer.Format = previousFormat);
             if (failure != null) { directory.PreserveArtifacts(); }
             CaptureCleanup(ref failure, directory.Dispose);
         }

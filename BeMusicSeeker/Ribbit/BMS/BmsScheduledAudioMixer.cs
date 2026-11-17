@@ -109,9 +109,15 @@ internal readonly record struct BmsReservationBudget(Func<long> GetTimestamp, lo
 }
 
 /// <summary>WriterとRealtimeが共有する有限発音区間の生成・予約・回収処理です。</summary>
+/// <remarks>
+/// 打切り後の実効出力長が短い発音は、<see cref="BmsDirectVoiceTable"/>の変換済み波形を一回の予約につき一つのブロックへ加算し、
+/// ブロックを有限voiceとして予約します。対象外の発音は発音ごとのnative voiceのままです。
+/// 発音数は予約済みの論理的な発音を標本点で数え、native voice数とは別に報告します。
+/// </remarks>
 internal sealed class BmsScheduledAudioMixer : IDisposable
 {
-    private const BassFlags ScheduledSourceFlags =
+    /// <summary>絶対位置予約するsourceに共通して指定するmixer channel flagsです。</summary>
+    internal const BassFlags ScheduledSourceFlags =
         BassFlags.MixerChanAbsolute
         | BassFlags.MixerChanPause
         | BassFlags.MixerChanMatrix
@@ -119,12 +125,21 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
 
     private const BassFlags PauseFlag = BassFlags.MixerChanPause;
 
+    private const string DirectBlockSourceName = "BMS direct voice block";
+
     private readonly object sync = new();
     private readonly BmsAudioFrameSchedule schedule;
     private readonly IReadOnlyList<BmsAudioResource?> resourcesByIndex;
     private readonly BassAudioSession session;
     private readonly IBassScheduledMixerNativeBoundary native;
+    private readonly BmsDirectVoiceTable? directVoices;
     private readonly List<ScheduledVoice> voices = [];
+    // 予約済みの論理的な発音を、開始frame昇順の未開始queueと、終了frameのminimum heapに分けて持つ。
+    // 予約は開始frameの昇順に確定するため、未開始queueの先頭から順に開始する。
+    private readonly Queue<LogicalVoice> logicalPending = new();
+    private readonly PriorityQueue<long, long> logicalActiveEnds = new();
+    private int publishedLogicalVoiceCount;
+    private long reservedLogicalVoiceCount;
     private readonly int mixerHandle;
     private readonly int sampleRate;
     private readonly int channelCount;
@@ -161,21 +176,29 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
     /// <param name="native">絶対予約と同一thread lockを実装するnative境界。</param>
     /// <param name="originMixerFrame">省略時は現在mixer位置を曲frame 0にします。</param>
     /// <param name="generation">restart／seekごとに増加する区間世代。</param>
+    /// <param name="directVoices">短い発音を直接合成するための変換済み波形の表。省略時はすべての発音をnative voiceとして予約します。</param>
     internal BmsScheduledAudioMixer(
         BmsAudioFrameSchedule schedule,
         IReadOnlyList<BmsAudioResource?> resourcesByIndex,
         BassAudioSession session,
         IBassScheduledMixerNativeBoundary native,
         long? originMixerFrame = null,
-        int generation = 0)
+        int generation = 0,
+        BmsDirectVoiceTable? directVoices = null)
     {
         this.schedule = schedule ?? throw new ArgumentNullException(nameof(schedule));
         this.resourcesByIndex = resourcesByIndex ?? throw new ArgumentNullException(nameof(resourcesByIndex));
         this.session = session ?? throw new ArgumentNullException(nameof(session));
         this.native = native ?? throw new ArgumentNullException(nameof(native));
+        this.directVoices = directVoices;
         if (session.State != BassAudioSessionState.Active || session.MixerHandle == 0)
         {
             throw new InvalidOperationException("An active input mixer session is required for BMS scheduling.");
+        }
+        if (directVoices != null && directVoices.SampleRate != schedule.SampleRate)
+        {
+            throw new InvalidOperationException(
+                "The direct voice table rate does not match the schedule rate.");
         }
 
         using BassAudioOperationLease operation = BassAudioRuntime.EnterAudioOperation();
@@ -196,6 +219,11 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
         {
             throw new InvalidOperationException(
                 "The BMS schedule rate does not match the active input mixer rate.");
+        }
+        if (directVoices != null && directVoices.WaveCount != 0 && directVoices.ChannelCount != info.Channels)
+        {
+            throw new InvalidOperationException(
+                "The direct voice table channel count does not match the active input mixer.");
         }
 
         sampleRate = info.Frequency;
@@ -221,7 +249,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
     /// <summary>Float32 output frameあたりのnative byte数。</summary>
     internal long BytesPerFrame => bytesPerFrame;
 
-    /// <summary>現在追跡中のnative voice数を取得します。</summary>
+    /// <summary>現在追跡中のnative voice数を取得します。直接合成のブロックは一つのvoiceとして数えます。</summary>
     internal int ReservedVoiceCount
     {
         get
@@ -233,17 +261,23 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
         }
     }
 
-    /// <summary>native mixer位置で発音中のvoice数を取得します。</summary>
+    /// <summary>
+    /// 直近の標本点で <c>Start ≤ 現在位置 &lt; EndExclusive</c> にある論理的な発音数を取得します。
+    /// 直接合成の対象と対象外の両方を数え、ブロックの数ではありません。
+    /// </summary>
     internal int ActiveVoiceCount
     {
         get
         {
             lock (sync)
             {
-                return voices.Count(voice => voice.IsActive);
+                return logicalActiveEnds.Count;
             }
         }
     }
+
+    /// <summary>予約を確定した論理的な発音の累計数です。直接合成の対象と対象外の両方を含み、native voice数ではありません。</summary>
+    internal long ReservedLogicalVoiceCount => Interlocked.Read(ref reservedLogicalVoiceCount);
 
     /// <summary>source準備に失敗した回数。</summary>
     internal int PreparationFailureCount => Volatile.Read(ref preparationFailureCount);
@@ -263,7 +297,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
     /// <summary>区間中に同時追跡した最大native voice数。</summary>
     internal int MaximumReservedVoiceCount => Volatile.Read(ref maximumReservedVoiceCount);
 
-    /// <summary>区間中に実際に発音中となった最大voice数。</summary>
+    /// <summary>区間中に標本した論理的な発音数の最大。</summary>
     internal int MaximumActiveVoiceCount => Volatile.Read(ref maximumActiveVoiceCount);
 
     /// <summary>回収処理へ渡したvoice数。</summary>
@@ -329,50 +363,68 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
         lock (sync)
         {
             ThrowIfDisposed();
-            var pending = new List<PendingVoice>();
-            IReadOnlyList<BmsAudioFrameEvent> events = schedule.Events;
-            while (nextEventIndex < events.Count && events[nextEventIndex].StartFrame < exclusiveSongFrame)
+            try
             {
-                BmsAudioFrameEvent audioEvent = events[nextEventIndex++];
-                if (includeEvent != null && !includeEvent(audioEvent))
-                {
-                    continue;
-                }
-                if ((uint)audioEvent.WavIndex >= (uint)resourcesByIndex.Count)
-                {
-                    throw CreateFailure(
-                        "resource index",
-                        audioEvent,
-                        0,
-                        GetMixerFrameIfRepresentable(currentSongFrame));
-                }
+                ReserveBeforeFrameCore(exclusiveSongFrame, currentSongFrame, includeEvent, budget);
+            }
+            catch
+            {
+                // 失敗した区間は破棄されるため、論理的な発音数を残さない。
+                ClearLogicalVoices();
+                throw;
+            }
+        }
+    }
 
-                BmsAudioResource? resource = resourcesByIndex[audioEvent.WavIndex];
-                if (resource == null || resource.IsEmpty)
-                {
-                    continue;
-                }
-
-                long endFrame = GetEndFrame(audioEvent, resource);
-                if (endFrame <= audioEvent.StartFrame)
-                {
-                    continue;
-                }
-                if (audioEvent.StartFrame < currentSongFrame)
-                {
-                    long expectedMixerFrame = checked(originMixerFrame + audioEvent.StartFrame);
-                    throw RecordAndCreateFailure(
-                        "missed look-ahead deadline",
-                        audioEvent,
-                        expectedMixerFrame,
-                        GetMixerFrameIfRepresentable(currentSongFrame),
-                        null);
-                }
-                pending.Add(new PendingVoice(audioEvent, resource, audioEvent.StartFrame, endFrame, audioEvent.SourceStartFrame));
+    private void ReserveBeforeFrameCore(
+        long exclusiveSongFrame,
+        long currentSongFrame,
+        Func<BmsAudioFrameEvent, bool>? includeEvent,
+        BmsReservationBudget? budget)
+    {
+        var pending = new List<PendingVoice>();
+        IReadOnlyList<BmsAudioFrameEvent> events = schedule.Events;
+        while (nextEventIndex < events.Count && events[nextEventIndex].StartFrame < exclusiveSongFrame)
+        {
+            BmsAudioFrameEvent audioEvent = events[nextEventIndex++];
+            if (includeEvent != null && !includeEvent(audioEvent))
+            {
+                continue;
+            }
+            if ((uint)audioEvent.WavIndex >= (uint)resourcesByIndex.Count)
+            {
+                throw CreateFailure(
+                    "resource index",
+                    audioEvent,
+                    0,
+                    GetMixerFrameIfRepresentable(currentSongFrame));
             }
 
-            PrepareAndCommit(pending, budget);
+            BmsAudioResource? resource = resourcesByIndex[audioEvent.WavIndex];
+            if (resource == null || resource.IsEmpty)
+            {
+                continue;
+            }
+
+            long endFrame = GetEndFrame(audioEvent, resource);
+            if (endFrame <= audioEvent.StartFrame)
+            {
+                continue;
+            }
+            if (audioEvent.StartFrame < currentSongFrame)
+            {
+                long expectedMixerFrame = checked(originMixerFrame + audioEvent.StartFrame);
+                throw RecordAndCreateFailure(
+                    "missed look-ahead deadline",
+                    audioEvent,
+                    expectedMixerFrame,
+                    GetMixerFrameIfRepresentable(currentSongFrame),
+                    null);
+            }
+            pending.Add(CreatePending(audioEvent, resource, audioEvent.StartFrame, endFrame, audioEvent.SourceStartFrame));
         }
+
+        PrepareAndCommit(pending, budget);
     }
 
     /// <summary>新しい再生区間のactive voiceと先行範囲を共通予約処理で構成します。</summary>
@@ -397,63 +449,80 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
             {
                 throw new InvalidOperationException("A new playback segment requires an unused scheduled mixer.");
             }
-            long segmentMixerFrame = checked(originMixerFrame + segmentStartSongFrame);
-            this.segmentStartSongFrame = segmentStartSongFrame;
-            segmentStartMixerFrame = segmentMixerFrame;
-
-            var pending = new List<PendingVoice>();
-            // BMSでは次の同index発音で打切り済み、bmsonでは同channelのEOF tailも重なります。
-            // 最後のpriorだけを選ばず、半開区間に含まれるすべての独立voiceを復元します。
-            foreach (BmsAudioFrameEvent activeEvent in schedule.Events)
+            try
             {
-                if (activeEvent.StartFrame >= segmentStartSongFrame)
-                {
-                    break;
-                }
-
-                if ((uint)activeEvent.WavIndex >= (uint)resourcesByIndex.Count)
-                {
-                    throw CreateFailure("resource index", activeEvent, 0, currentMixerFrame: null);
-                }
-
-                BmsAudioResource? resource = resourcesByIndex[activeEvent.WavIndex];
-                if (resource == null || resource.IsEmpty)
-                {
-                    continue;
-                }
-
-                long endFrame = GetEndFrame(activeEvent, resource);
-                if (segmentStartSongFrame < endFrame)
-                {
-                    long sourceFrame = checked(activeEvent.SourceStartFrame + AudioFrameMath.SourceFrameFromMixerFrames(
-                        segmentStartSongFrame - activeEvent.StartFrame, resource.Audio.SampleRate, sampleRate));
-                    pending.Add(new PendingVoice(activeEvent, resource, segmentStartSongFrame, endFrame, sourceFrame));
-                }
+                ReserveSegmentCore(segmentStartSongFrame, exclusiveSongFrame, budget);
             }
-
-            nextEventIndex = schedule.LowerBoundStartFrame(segmentStartSongFrame);
-            IReadOnlyList<BmsAudioFrameEvent> events = schedule.Events;
-            while (nextEventIndex < events.Count && events[nextEventIndex].StartFrame < exclusiveSongFrame)
+            catch
             {
-                BmsAudioFrameEvent audioEvent = events[nextEventIndex++];
-                if ((uint)audioEvent.WavIndex >= (uint)resourcesByIndex.Count)
-                {
-                    throw CreateFailure("resource index", audioEvent, 0, currentMixerFrame: null);
-                }
-                BmsAudioResource? resource = resourcesByIndex[audioEvent.WavIndex];
-                if (resource == null || resource.IsEmpty)
-                {
-                    continue;
-                }
-                long endFrame = GetEndFrame(audioEvent, resource);
-                if (endFrame > audioEvent.StartFrame)
-                {
-                    pending.Add(new PendingVoice(audioEvent, resource, audioEvent.StartFrame, endFrame, audioEvent.SourceStartFrame));
-                }
+                // 失敗した区間は破棄されるため、論理的な発音数を残さない。
+                ClearLogicalVoices();
+                throw;
             }
-
-            PrepareAndCommit(pending, budget);
         }
+    }
+
+    private void ReserveSegmentCore(
+        long segmentStartSongFrame,
+        long exclusiveSongFrame,
+        BmsReservationBudget? budget)
+    {
+        long segmentMixerFrame = checked(originMixerFrame + segmentStartSongFrame);
+        this.segmentStartSongFrame = segmentStartSongFrame;
+        segmentStartMixerFrame = segmentMixerFrame;
+
+        var pending = new List<PendingVoice>();
+        // BMSでは次の同index発音で打切り済み、bmsonでは同channelのEOF tailも重なります。
+        // 最後のpriorだけを選ばず、半開区間に含まれるすべての独立voiceを復元します。
+        foreach (BmsAudioFrameEvent activeEvent in schedule.Events)
+        {
+            if (activeEvent.StartFrame >= segmentStartSongFrame)
+            {
+                break;
+            }
+
+            if ((uint)activeEvent.WavIndex >= (uint)resourcesByIndex.Count)
+            {
+                throw CreateFailure("resource index", activeEvent, 0, currentMixerFrame: null);
+            }
+
+            BmsAudioResource? resource = resourcesByIndex[activeEvent.WavIndex];
+            if (resource == null || resource.IsEmpty)
+            {
+                continue;
+            }
+
+            long endFrame = GetEndFrame(activeEvent, resource);
+            if (segmentStartSongFrame < endFrame)
+            {
+                long sourceFrame = checked(activeEvent.SourceStartFrame + AudioFrameMath.SourceFrameFromMixerFrames(
+                    segmentStartSongFrame - activeEvent.StartFrame, resource.Audio.SampleRate, sampleRate));
+                pending.Add(CreatePending(activeEvent, resource, segmentStartSongFrame, endFrame, sourceFrame));
+            }
+        }
+
+        nextEventIndex = schedule.LowerBoundStartFrame(segmentStartSongFrame);
+        IReadOnlyList<BmsAudioFrameEvent> events = schedule.Events;
+        while (nextEventIndex < events.Count && events[nextEventIndex].StartFrame < exclusiveSongFrame)
+        {
+            BmsAudioFrameEvent audioEvent = events[nextEventIndex++];
+            if ((uint)audioEvent.WavIndex >= (uint)resourcesByIndex.Count)
+            {
+                throw CreateFailure("resource index", audioEvent, 0, currentMixerFrame: null);
+            }
+            BmsAudioResource? resource = resourcesByIndex[audioEvent.WavIndex];
+            if (resource == null || resource.IsEmpty)
+            {
+                continue;
+            }
+            long endFrame = GetEndFrame(audioEvent, resource);
+            if (endFrame > audioEvent.StartFrame)
+            {
+                pending.Add(CreatePending(audioEvent, resource, audioEvent.StartFrame, endFrame, audioEvent.SourceStartFrame));
+            }
+        }
+
+        PrepareAndCommit(pending, budget);
     }
 
     /// <summary>mixer時計に合わせてvoice数を更新し、終了区間をnativeから回収します。</summary>
@@ -464,7 +533,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
             ThrowIfDisposed();
             long currentFrame = GetCurrentMixerFrame();
             RetireCompletedVoices(currentFrame);
-            UpdateVoiceStates(currentFrame);
+            SampleLogicalVoices(currentFrame);
         }
     }
 
@@ -675,56 +744,65 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
 
         voices.AddRange(prepared);
         UpdateMaximum(ref maximumReservedVoiceCount, voices.Count);
-        UpdateVoiceStates(GetCurrentMixerFrame());
     }
 
     private void PrepareAndCommit(IReadOnlyList<PendingVoice> pending, BmsReservationBudget? budget)
     {
         if (pending.Count == 0)
         {
-            UpdateVoiceStates(GetCurrentMixerFrame());
+            SampleLogicalVoices(GetCurrentMixerFrame());
             return;
         }
 
-        var prepared = new List<ScheduledVoice>(pending.Count);
-        var createdPlayers = new List<BassAudioPlayer>(pending.Count);
-        Interlocked.Add(ref preparedVoiceCount, pending.Count);
+        int nativeCount = 0;
+        foreach (PendingVoice voice in pending)
+        {
+            if (voice.Wave == null)
+            {
+                nativeCount++;
+            }
+        }
+        // 直接合成の対象は、予約一回につき一つのブロックvoiceへ加算する。
+        int blockCount = nativeCount == pending.Count ? 0 : 1;
+        int voiceCount = nativeCount + blockCount;
+        var prepared = new List<ScheduledVoice>(voiceCount);
+        var createdPlayers = new List<BassAudioPlayer>(voiceCount);
+        Interlocked.Add(ref preparedVoiceCount, voiceCount);
         long preparationStart = Stopwatch.GetTimestamp();
         Interlocked.Increment(ref preparationOperationCount);
-        UpdateMaximum(ref maximumPreparedVoiceCount, pending.Count);
-        int pendingIndex = 0;
+        UpdateMaximum(ref maximumPreparedVoiceCount, voiceCount);
+        int preparedIndex = 0;
         PendingVoice failedVoice = pending[0];
         bool budgetExceeded = false;
         try
         {
-            for (; pendingIndex < pending.Count; pendingIndex++)
+            foreach (PendingVoice voice in pending)
             {
-                PendingVoice voice = pending[pendingIndex];
+                if (voice.Wave != null)
+                {
+                    continue;
+                }
                 failedVoice = voice;
                 // 全voiceを準備してから判定せず、音源作成の合間で予算超過を検出して残りの作成を省く。
-                if (budget is { IsExceeded: true })
-                {
-                    budgetExceeded = true;
-                    throw new TimeoutException(
-                        "The BMS reservation exceeded its " + BmsReservationBudget.BudgetSeconds
-                        + " second time budget after preparing " + pendingIndex + " of " + pending.Count + " voices.");
-                }
+                ThrowIfBudgetExceeded(budget, preparedIndex, voiceCount, ref budgetExceeded);
                 var player = new BassAudioPlayer(voice.Resource.Path, voice.Resource.Audio, session, native, voice.Event.SourceEndFrame);
                 createdPlayers.Add(player);
                 long startMixerFrame = checked(originMixerFrame + voice.PlaybackStartSongFrame);
                 long endMixerFrame = checked(originMixerFrame + voice.EndSongFrame);
-                uint speakerMask = player.ScheduledSourceSpeakerMask;
-                if (!matricesBySpeakerMask.TryGetValue(speakerMask, out float[,]? matrix))
-                {
-                    matrix = player.CreateScheduledMatrix(channelCount);
-                    matricesBySpeakerMask.Add(speakerMask, matrix);
-                }
+                float[,] matrix = GetMatrix(player);
                 prepared.Add(new ScheduledVoice(voice.Event, player, startMixerFrame, endMixerFrame, matrix));
                 player.Volume = voice.Resource.SourceGain;
                 if (voice.SourceStartFrame != 0)
                 {
                     player.SetScheduledSourceFrame(voice.SourceStartFrame);
                 }
+                preparedIndex++;
+            }
+
+            if (blockCount != 0)
+            {
+                prepared.Add(CreateDirectBlockVoice(
+                    pending, budget, preparedIndex, voiceCount, createdPlayers, ref failedVoice, ref budgetExceeded));
             }
         }
         catch (Exception exception)
@@ -761,20 +839,144 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
         }
 
         CommitPrepared(prepared);
+        EnqueueLogicalVoices(pending);
+        SampleLogicalVoices(GetCurrentMixerFrame());
     }
 
-    private long GetEndFrame(BmsAudioFrameEvent audioEvent, BmsAudioResource resource)
+    private static void ThrowIfBudgetExceeded(
+        BmsReservationBudget? budget,
+        int preparedCount,
+        int totalCount,
+        ref bool budgetExceeded)
     {
-        if (audioEvent.EndFrame is long resolvedEnd)
+        if (budget is { IsExceeded: true })
         {
-            return resolvedEnd;
+            budgetExceeded = true;
+            throw new TimeoutException(
+                "The BMS reservation exceeded its " + BmsReservationBudget.BudgetSeconds
+                + " second time budget after preparing " + preparedCount + " of " + totalCount + " voices.");
+        }
+    }
+
+    private float[,] GetMatrix(BassAudioPlayer player)
+    {
+        uint speakerMask = player.ScheduledSourceSpeakerMask;
+        if (!matricesBySpeakerMask.TryGetValue(speakerMask, out float[,]? matrix))
+        {
+            matrix = player.CreateScheduledMatrix(channelCount);
+            matricesBySpeakerMask.Add(speakerMask, matrix);
+        }
+        return matrix;
+    }
+
+    /// <summary>
+    /// 一回の予約に含まれる直接合成の発音を、各発音の打切り後の波形全体で一つのブロックへ加算し、
+    /// ミキサーと同じレート・チャンネル配置、ゲイン1の有限voiceにします。
+    /// </summary>
+    /// <remarks>ブロック同士の重なりは許し、次の予約へ繰り越す状態は持ちません。</remarks>
+    private ScheduledVoice CreateDirectBlockVoice(
+        IReadOnlyList<PendingVoice> pending,
+        BmsReservationBudget? budget,
+        int preparedCount,
+        int voiceCount,
+        List<BassAudioPlayer> createdPlayers,
+        ref PendingVoice failedVoice,
+        ref bool budgetExceeded)
+    {
+        long blockStartSongFrame = long.MaxValue;
+        long blockEndSongFrame = long.MinValue;
+        PendingVoice first = default;
+        bool hasFirst = false;
+        foreach (PendingVoice voice in pending)
+        {
+            if (voice.Wave == null)
+            {
+                continue;
+            }
+            if (!hasFirst || voice.PlaybackStartSongFrame < blockStartSongFrame)
+            {
+                first = voice;
+                hasFirst = true;
+            }
+            blockStartSongFrame = System.Math.Min(blockStartSongFrame, voice.PlaybackStartSongFrame);
+            blockEndSongFrame = System.Math.Max(blockEndSongFrame, voice.EndSongFrame);
         }
 
-        long naturalEnd = checked(audioEvent.StartFrame + resource.GetOutputFrameCount(sampleRate));
-        return audioEvent.NextSameIndexStartFrame is long nextStart
-            ? System.Math.Min(naturalEnd, nextStart)
-            : naturalEnd;
+        failedVoice = first;
+        int frameCount = checked((int)(blockEndSongFrame - blockStartSongFrame));
+        float[] block = new float[checked(frameCount * channelCount)];
+        foreach (PendingVoice voice in pending)
+        {
+            BmsDirectVoiceTable.DirectVoiceWave? wave = voice.Wave;
+            if (wave == null)
+            {
+                continue;
+            }
+            failedVoice = voice;
+            ThrowIfBudgetExceeded(budget, preparedCount, voiceCount, ref budgetExceeded);
+            // シーク復元では、区間開始frameを跨ぐ発音を変換済み波形の該当する出力frameから入れる。
+            int waveOffsetFrames = checked((int)(voice.PlaybackStartSongFrame - voice.Event.StartFrame));
+            int frames = checked((int)(voice.EndSongFrame - voice.PlaybackStartSongFrame));
+            if (waveOffsetFrames < 0 || frames <= 0 || waveOffsetFrames + frames > wave.FrameCount)
+            {
+                throw new InvalidOperationException(
+                    "The direct voice waveform is shorter than the effective output length of WAV index "
+                    + voice.Event.WavIndex + ".");
+            }
+            int destination = checked((int)(voice.PlaybackStartSongFrame - blockStartSongFrame) * channelCount);
+            int source = checked(waveOffsetFrames * channelCount);
+            int length = checked(frames * channelCount);
+            float[] samples = wave.Samples;
+            for (int index = 0; index < length; index++)
+            {
+                block[destination + index] += samples[source + index];
+            }
+        }
+
+        failedVoice = first;
+        ThrowIfBudgetExceeded(budget, preparedCount, voiceCount, ref budgetExceeded);
+        var decoded = new DecodedAudio(sampleRate, AudioChannelLayout.CreateBassOutput(channelCount), block);
+        var player = new BassAudioPlayer(DirectBlockSourceName, decoded, session, native);
+        createdPlayers.Add(player);
+        float[,] matrix = GetMatrix(player);
+        var blockVoice = new ScheduledVoice(
+            first.Event,
+            player,
+            checked(originMixerFrame + blockStartSongFrame),
+            checked(originMixerFrame + blockEndSongFrame),
+            matrix);
+        // 波形には音源ゲインを含めてあるため、ブロックのゲインは1にする。
+        player.Volume = 1f;
+        return blockVoice;
     }
+
+    private void EnqueueLogicalVoices(IReadOnlyList<PendingVoice> pending)
+    {
+        Interlocked.Add(ref reservedLogicalVoiceCount, pending.Count);
+        foreach (PendingVoice voice in pending)
+        {
+            logicalPending.Enqueue(new LogicalVoice(
+                checked(originMixerFrame + voice.PlaybackStartSongFrame),
+                checked(originMixerFrame + voice.EndSongFrame)));
+        }
+    }
+
+    private PendingVoice CreatePending(
+        in BmsAudioFrameEvent audioEvent,
+        BmsAudioResource resource,
+        long playbackStartSongFrame,
+        long endSongFrame,
+        long sourceStartFrame)
+    {
+        BmsDirectVoiceTable.DirectVoiceWave? wave = directVoices != null
+            && directVoices.IsDirect(endSongFrame - audioEvent.StartFrame)
+                ? directVoices.GetWave(resource, audioEvent)
+                : null;
+        return new PendingVoice(audioEvent, resource, playbackStartSongFrame, endSongFrame, sourceStartFrame, wave);
+    }
+
+    private long GetEndFrame(BmsAudioFrameEvent audioEvent, BmsAudioResource resource) =>
+        BmsAudioFrameSchedule.GetEndFrame(audioEvent, resource, sampleRate);
 
     private void RetireCompletedVoices(long currentFrame)
     {
@@ -809,7 +1011,6 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                 {
                     removalFailures.Add(exception);
                 }
-                voice.Player.UpdateScheduledVoiceState(active: false);
             }
         }
         finally
@@ -858,19 +1059,48 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
         }
     }
 
-    private void UpdateVoiceStates(long currentFrame)
+    /// <summary>
+    /// 標本点で <c>Start ≤ 現在位置 &lt; EndExclusive</c> にある論理的な発音を数え、現行・最大の発音数へ反映します。
+    /// </summary>
+    /// <remarks>
+    /// 計数は予約済みの発音の開始・終了だけを時刻順に進めるため、保持数に比例した全件走査をしません。
+    /// </remarks>
+    private void SampleLogicalVoices(long currentFrame)
     {
-        foreach (ScheduledVoice voice in voices)
+        while (logicalPending.TryPeek(out LogicalVoice next) && next.StartMixerFrame <= currentFrame)
         {
-            bool active = voice.StartMixerFrame <= currentFrame && currentFrame < voice.EndMixerFrame;
-            if (voice.IsActive != active)
+            logicalPending.Dequeue();
+            if (next.EndMixerFrame > currentFrame)
             {
-                voice.Player.UpdateScheduledVoiceState(active);
-                voice.IsActive = active;
+                logicalActiveEnds.Enqueue(next.EndMixerFrame, next.EndMixerFrame);
             }
         }
-        int activeCount = voices.Count(voice => voice.IsActive);
-        UpdateMaximum(ref maximumActiveVoiceCount, activeCount);
+        while (logicalActiveEnds.TryPeek(out long end, out _) && end <= currentFrame)
+        {
+            logicalActiveEnds.Dequeue();
+        }
+
+        int count = logicalActiveEnds.Count;
+        PublishLogicalVoiceCount(count);
+        UpdateMaximum(ref maximumActiveVoiceCount, count);
+    }
+
+    /// <summary>区間の破棄・予約の失敗の後に、論理的な発音数を残さないよう取り除きます。</summary>
+    private void ClearLogicalVoices()
+    {
+        logicalPending.Clear();
+        logicalActiveEnds.Clear();
+        PublishLogicalVoiceCount(0);
+    }
+
+    private void PublishLogicalVoiceCount(int count)
+    {
+        int delta = count - publishedLogicalVoiceCount;
+        if (delta != 0)
+        {
+            BassAudioPlayer.AdjustScheduledVoiceCount(delta);
+            publishedLogicalVoiceCount = count;
+        }
     }
 
     private long GetMixerPositionBytes(string stage)
@@ -1041,6 +1271,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                 return;
             }
             disposed = true;
+            ClearLogicalVoices();
             ScheduledVoice[] remaining = voices.ToArray();
             if (remaining.Length == 0)
             {
@@ -1077,7 +1308,6 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                         {
                             failures.Add(exception);
                         }
-                        voice.Player.UpdateScheduledVoiceState(active: false);
                     }
                 }
             }
@@ -1138,14 +1368,17 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
         internal long EndMixerFrame { get; } = endMixerFrame;
 
         internal float[,] Matrix { get; } = matrix;
-
-        internal bool IsActive { get; set; }
     }
 
+    /// <summary>予約待ちの一つの論理的な発音です。<see cref="Wave"/>があれば直接合成の対象です。</summary>
     private readonly record struct PendingVoice(
         BmsAudioFrameEvent Event,
         BmsAudioResource Resource,
         long PlaybackStartSongFrame,
         long EndSongFrame,
-        long SourceStartFrame);
+        long SourceStartFrame,
+        BmsDirectVoiceTable.DirectVoiceWave? Wave);
+
+    /// <summary>標本点での発音数の計数に使う、絶対mixer frame上の半開区間です。</summary>
+    private readonly record struct LogicalVoice(long StartMixerFrame, long EndMixerFrame);
 }

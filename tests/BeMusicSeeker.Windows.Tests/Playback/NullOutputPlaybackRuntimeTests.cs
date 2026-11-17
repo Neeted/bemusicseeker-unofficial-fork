@@ -466,6 +466,117 @@ public sealed class NullOutputPlaybackRuntimeTests
         public int ChannelGetData(int channel, float[] buffer, int lengthBytes) => -1;
     }
 
+    /// <summary>1フレーム音源の連続、64フレーム音源の毎フレームの重なり、BGMの長い音源を混ぜた高密度な短音譜面を、本番の明示無音の実時間再生で最後まで流し、再生Taskが自然終了して出力の故障がなく、表示の発音数が譜面から求めた一定値になり終了後は0へ戻ることを確認します。</summary>
+    /// <remarks>
+    /// 譜面は約1秒で、1フレーム音源を毎フレーム(毎秒48000回)、64個のWAV indexの64フレーム音源を各64フレーム周期で位相をずらして鳴らします。
+    /// 64フレーム音源は常に64個が重なり、1フレーム音源は標本時点で1個、BGMの長い音源(0.5秒)が加わる区間の論理的な発音数は一定の66です。
+    /// 発音ごとにnative voiceを作る経路では期限内に予約できない密度です。値は表示の通知を再生Taskを生成元として待ち、時間のしきい値は置きません。
+    /// </remarks>
+    [TestMethod]
+    public async Task DenseShortVoices_PlayToTheEndWithoutFailureAndShowTheLogicalVoiceCount()
+    {
+        const int measureFrames = 1920;
+        const int measureCount = 25;
+        const int blockVoices = 64;
+        const int longFrames = 24000;
+        const int expectedDenseCount = blockVoices + 1 + 1;
+        int rate = (int)settings.PlayerSampleRate;
+        Assert.AreEqual(48000, rate);
+        void WritePcm16(string name, int frames, Func<int, short> sample)
+        {
+            byte[] wave = new byte[44 + frames * 4];
+            using (var writer = new BinaryWriter(new MemoryStream(wave), Encoding.ASCII))
+            {
+                writer.Write(Encoding.ASCII.GetBytes("RIFF"));
+                writer.Write(wave.Length - 8);
+                writer.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+                writer.Write(16);
+                writer.Write((ushort)1);
+                writer.Write((ushort)2);
+                writer.Write(rate);
+                writer.Write(rate * 4);
+                writer.Write((ushort)4);
+                writer.Write((ushort)16);
+                writer.Write(Encoding.ASCII.GetBytes("data"));
+                writer.Write(frames * 4);
+                for (int frame = 0; frame < frames; frame++)
+                {
+                    writer.Write(sample(frame));
+                    writer.Write((short)-sample(frame));
+                }
+            }
+            File.WriteAllBytes(FilePath(name), wave);
+        }
+        WritePcm16("one.wav", 1, _ => 64);
+        WritePcm16("block.wav", 64, frame => (short)(frame + 1));
+        WritePcm16("long.wav", longFrames, frame => (short)(frame % 128 + 1));
+        const string digits = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        string Index(int value) => new([digits[value / 36], digits[value % 36]]);
+        var text = new StringBuilder("#PLAYER 1\n#TITLE dense null output\n#BPM 120\n#WAV01 one.wav\n");
+        for (int voice = 0; voice < blockVoices; voice++)
+        {
+            text.Append("#WAV").Append(Index(voice + 2)).Append(" block.wav\n");
+        }
+        text.Append("#WAV").Append(Index(blockVoices + 2)).Append(" long.wav\n");
+        string oneLine = string.Concat(Enumerable.Repeat("01", measureFrames));
+        for (int measure = 0; measure < measureCount; measure++)
+        {
+            string number = measure.ToString("D3");
+            // 1小節を1920フレームに縮め、1 slotを1フレームにする。
+            text.Append('#').Append(number).Append("02:0.02\n");
+            text.Append('#').Append(number).Append("01:").Append(oneLine).Append('\n');
+            for (int voice = 0; voice < blockVoices; voice++)
+            {
+                string[] slots = new string[measureFrames];
+                Array.Fill(slots, "00");
+                for (int frame = voice; frame < measureFrames; frame += 64)
+                {
+                    slots[frame] = Index(voice + 2);
+                }
+                text.Append('#').Append(number).Append("01:").Append(string.Concat(slots)).Append('\n');
+            }
+            if (measure == 0)
+            {
+                string[] slots = new string[measureFrames];
+                Array.Fill(slots, "00");
+                slots[0] = Index(blockVoices + 2);
+                text.Append('#').Append(number).Append("01:").Append(string.Concat(slots)).Append('\n');
+            }
+        }
+        string chart = FilePath("dense.bms");
+        File.WriteAllText(chart, text.ToString(), Encoding.ASCII);
+
+        NullOutputPlaybackRuntime output = Output;
+        output.Initialize(Snapshot);
+        BassAudioSession session = Session;
+        internalPlayer = new InternalBMSAutoPlayerSoundOnly(new SettingsPlayerSettingsGateway(() => settings), output);
+        InternalBMSAutoPlayerSoundOnly player = internalPlayer;
+        TaskCompletionSource dense = Signal();
+        var observed = new List<int>();
+        player.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName != nameof(InternalBMSAutoPlayerSoundOnly.CurrentVoices))
+            {
+                return;
+            }
+            int value = player.CurrentVoices;
+            lock (observed) { observed.Add(value); }
+            if (value == expectedDenseCount) { dense.TrySetResult(); }
+        };
+        PlaybackStartOperation operation = player.BeginStart(chart, null, allowPreload: true);
+        await operation.Ready.WaitAsync(TimeSpan.FromSeconds(30));
+        await TestUiDispatcherHost.AwaitNotificationAsync(dense.Task, operation.Completion, "dense logical voice count");
+        await operation.Completion.WaitAsync(TimeSpan.FromSeconds(60));
+
+        Assert.IsFalse(session.HasCallbackOutputFailure, "再生の途中で出力の故障を記録しません。");
+        int[] values;
+        lock (observed) { values = observed.ToArray(); }
+        Assert.AreEqual(expectedDenseCount, values.Max(), "密な区間の表示は譜面から求めた論理的な発音数です。");
+        await player.CloseAsync();
+        Assert.AreEqual(0, player.CurrentVoices, "終了後の表示は0です。");
+        Assert.AreEqual(0, BassAudioPlayer.CurrentVoices);
+    }
+
     private NullOutputPlaybackRuntime Output => runtime ?? throw new InvalidOperationException("runtime is not initialized");
     private PlayerSettingsSnapshot Snapshot => new SettingsPlayerSettingsGateway(() => settings).CaptureSnapshot();
     private static BassAudioSession Session => BassAudioPlayer.ActiveSession ?? throw new AssertFailedException("実sessionが必要です。");

@@ -115,9 +115,9 @@ pwsh -NoProfile -File scripts/format-code.ps1 -Scope All -NoRestore
 | row-cache | `ChartFile`／`PackageChartEntry` 各5反復 | 180秒 |
 | playlist-summary | 500表・58万エントリー・21万所持、全5経路の各5反復 | 300秒 |
 | install-estimation | 全3規模・全方針・cold/warm・既存の全反復 | 600秒 |
-| audio | 実NULL_DEVICEの4負荷と先読み切替18条件 | 300秒 |
+| audio | 実NULL_DEVICEの5負荷と先読み切替18条件 | 300秒 |
 
-各suiteの内部の規模・経路・周波数条件を維持します。`BMS_NET10_PERF_SCALES` による縮小はなく、正式suiteは全3規模に固定します。秒数は運用上の監視上限であり、速度の合否基準や改善目標ではありません。性能suiteは既存の保証を移したもので、新しい業務上の期待や負荷は追加しません。
+各suiteの内部の規模・経路・周波数条件を維持します。`BMS_NET10_PERF_SCALES` による縮小はなく、正式suiteは全3規模に固定します。秒数は運用上の監視上限であり、速度の合否基準や改善目標ではありません。性能suiteは所要時間と資源の記録を目的とし、新しい業務上の期待は追加しません。
 
 - 起動・前提・本体・通常の回収・実際の終了にsuiteの一つの期限を共有し、Compatibilityと同じ子プロセス環境の共有期限を渡します。親の失敗検知から一回だけ開始する回収10秒は既存のrunnerが担当します。子プロセスが失敗した瞬間を親へ通知する追加のプロセス間通信の保証はありません。
 - 直接MTP実行のPredecodeは300秒の有限の既定値を使い、明示された不正・期限切れのsuite期限を既定値へ置き換えません。
