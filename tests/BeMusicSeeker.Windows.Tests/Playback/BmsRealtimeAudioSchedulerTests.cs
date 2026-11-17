@@ -2166,6 +2166,264 @@ public sealed class BmsRealtimeAudioSchedulerTests
         Assert.AreEqual(baselineOwnedHandles, ownedSession.AdditionalStreamHandles.Count);
     }
 
+    /// <summary>制御間隔が極端に長くても、先行予約幅の制御間隔・予約処理時間の項は実時間1秒(速度を掛けた曲内時間)で頭打ちになり、他の項は変わらないことを確認します。</summary>
+    /// <remarks>偽の時計で制御間隔を5秒にし、別indexの長い音源を0.5秒間隔で置き、実NULL deviceのmixerへ予約された開始frameを観測します。</remarks>
+    [TestMethod]
+    [DataRow(1f)]
+    [DataRow(2f)]
+    public void ControlIntervalAndPreparationLeadIsCappedAtOneSecondOfWallClock(float rate)
+    {
+        using var directory = new TemporaryDirectory();
+        (BmsAudioFrameSchedule schedule, BmsAudioResource?[] resources) = BuildBudgetFixture(directory);
+        var clock = new BudgetClock();
+        var native = new RecordingScheduledNativeBoundary();
+        BassAudioSession session = ownedSession!;
+        session.SetCallbackOutputPaused(true);
+        try
+        {
+            double latencyFrames = Math.Ceiling(session.NegotiationResult.LatencyMilliseconds * 48000d / 1000d);
+            double otherTermFrames = Math.Ceiling((latencyFrames + session.MaximumCallbackFrames) * rate)
+                + Math.Max(4096d, Math.Ceiling(33d * rate * 48000d / 1000d));
+            Assert.IsTrue(otherTermFrames < 24000d,
+                "The other look-ahead terms must stay below half a second of song time for this expectation.");
+
+            using var scheduler = new BmsRealtimeAudioScheduler(
+                schedule, resources, session, native, TimeSpan.FromSeconds(10),
+                segmentStartSongFrame: 0, playbackRate: rate, generation: 51, getTimestamp: clock.GetTimestamp);
+            scheduler.TickWithoutNullOutputAdvance();
+            clock.Advance(5d);
+            scheduler.TickWithoutNullOutputAdvance();
+
+            long[] reservedSongFrames = native.SnapshotReservations()
+                .Select(reservation => reservation.StartBytes / (2 * sizeof(float)) - scheduler.OriginMixerFrame)
+                .Distinct()
+                .Order()
+                .ToArray();
+            long[] expected = rate == 1f
+                ? [0, 24000, 48000]
+                : [0, 24000, 48000, 72000, 96000];
+            CollectionAssert.AreEqual(expected, reservedSongFrames,
+                "The 5 second control interval must reserve only one second of wall clock (times the rate).");
+        }
+        finally
+        {
+            session.SetCallbackOutputPaused(false);
+        }
+    }
+
+    /// <summary>各予約入口で準備中に時間予算(実時間1秒)を超えると、準備の途中でBmsScheduledAudioExceptionとして失敗し、作成済み音源を回収して出力の故障を記録することを確認します。</summary>
+    /// <remarks>偽の時計は、準備中に最初の音源が作成された(session所有handleが増えた)時点から読みを1.1秒進めます。準備にはnative境界を通る発音ごとの呼出しがないため、作成結果そのものに連動させます。入口は区間開始・シーク復元・制御周期の補充・速度変更・一時停止解除です。</remarks>
+    [TestMethod]
+    [DataRow("start", 2)]
+    [DataRow("seek", 3)]
+    [DataRow("tick", 2)]
+    [DataRow("rate", 2)]
+    [DataRow("resume", 2)]
+    public void ReservationExceedingTheTimeBudgetFailsMidPreparationAndReleasesCreatedSources(string entry, int pendingVoices)
+    {
+        RunBudgetScenario(entry, pendingVoices, advanceSeconds: 1.1d, expectFailure: true);
+    }
+
+    /// <summary>準備中の時間の進みが予算内(0.9秒)なら、各予約入口が失敗せず全voiceを予約することを確認します。</summary>
+    /// <remarks>時間予算の判定が閾値の手前で誤って失敗しないことを、失敗側と同じ入口・同じ偽の時計で観測します。</remarks>
+    [TestMethod]
+    [DataRow("start", 2)]
+    [DataRow("seek", 3)]
+    [DataRow("tick", 2)]
+    [DataRow("rate", 2)]
+    [DataRow("resume", 2)]
+    public void ReservationWithinTheTimeBudgetSucceeds(string entry, int pendingVoices)
+    {
+        RunBudgetScenario(entry, pendingVoices, advanceSeconds: 0.9d, expectFailure: false);
+    }
+
+    private void RunBudgetScenario(string entry, int pendingVoices, double advanceSeconds, bool expectFailure)
+    {
+        using var directory = new TemporaryDirectory();
+        (BmsAudioFrameSchedule schedule, BmsAudioResource?[] resources) = BuildBudgetFixture(directory);
+        var clock = new BudgetClock();
+        var native = new CommitCountingScheduledNativeBoundary();
+        BassAudioSession session = ownedSession!;
+        int baselineOwnedHandles = session.OwnedStreamCount;
+        session.SetCallbackOutputPaused(true);
+        BmsRealtimeAudioScheduler? scheduler = null;
+        try
+        {
+            BmsRealtimeAudioScheduler Create(long startFrame) => new(
+                schedule, resources, session, native, TimeSpan.FromSeconds(10),
+                startFrame, playbackRate: 1f, generation: 52, getTimestamp: clock.GetTimestamp);
+
+            Action act;
+            if (entry == "start" || entry == "seek")
+            {
+                long startFrame = entry == "start" ? 0 : 36000;
+                act = () => scheduler = Create(startFrame);
+            }
+            else
+            {
+                scheduler = Create(0);
+                scheduler.TickWithoutNullOutputAdvance();
+                clock.Advance(1d);
+                if (entry != "tick")
+                {
+                    // 制御間隔1秒を記録し、次の入口が複数voiceを新たに予約する状態にする。
+                    scheduler.TickWithoutNullOutputAdvance();
+                }
+                BmsRealtimeAudioScheduler active = scheduler;
+                act = entry switch
+                {
+                    "tick" => active.TickWithoutNullOutputAdvance,
+                    "rate" => () => active.ApplyPlaybackRate(2f, static () => { }),
+                    "resume" => () => active.EnsureLeadForRate(2f),
+                    _ => throw new ArgumentOutOfRangeException(nameof(entry))
+                };
+            }
+
+            int handlesBeforeEntry = session.OwnedStreamCount;
+            native.ResetCommittedVoices();
+            // 準備中の最初の音源が作成された時点から、以後の時計の読みを指定秒だけ進める。
+            clock.ArmAfterFirstSourceCreated(() => session.OwnedStreamCount, advanceSeconds);
+            if (expectFailure)
+            {
+                BmsScheduledAudioException failure = Assert.ThrowsExactly<BmsScheduledAudioException>(act);
+                Assert.AreEqual("reservation time budget", failure.Stage);
+                Assert.IsTrue(clock.MaximumSourcesCreated >= 1 && clock.MaximumSourcesCreated < pendingVoices,
+                    $"Preparation must stop midway: created {clock.MaximumSourcesCreated} of {pendingVoices}.");
+                Assert.AreEqual(0, native.VoicesCommitted);
+                Assert.AreEqual(handlesBeforeEntry, session.OwnedStreamCount,
+                    "Every source created before the budget failure must be released.");
+                Assert.IsTrue(session.HasCallbackOutputFailure);
+            }
+            else
+            {
+                act();
+                Assert.AreEqual(pendingVoices, native.VoicesCommitted);
+                Assert.IsFalse(session.HasCallbackOutputFailure);
+            }
+        }
+        finally
+        {
+            scheduler?.Dispose();
+            session.SetCallbackOutputPaused(false);
+        }
+        Assert.AreEqual(baselineOwnedHandles, session.OwnedStreamCount);
+    }
+
+    /// <summary>0, 0.5, 1.0, 1.5, 2.0, 2.5秒に別indexの長い音源を置き、0秒には同時にもう一つ置いた予約予算確認用の譜面を作ります。</summary>
+    private static (BmsAudioFrameSchedule Schedule, BmsAudioResource?[] Resources) BuildBudgetFixture(TemporaryDirectory directory)
+    {
+        string chartPath = directory.File("budget.bms");
+        WriteChart(chartPath,
+            string.Concat(Enumerable.Range(1, 7).Select(index => $"#WAV0{index} s{index}.wav\n"))
+            + "#00011:01020304\n"
+            + "#00111:05060000\n"
+            + "#00012:07000000\n");
+        var schedule = BmsAudioFrameSchedule.Create(new BMSFile(chartPath), 48000);
+        var layout = new AudioChannelLayout([AudioSpeakerPosition.FrontLeft, AudioSpeakerPosition.FrontRight]);
+        float[] samples = BuildConstantSamples(48000 * 12, 0.0625f);
+        var resources = new BmsAudioResource?[8];
+        for (int index = 1; index <= 7; index++)
+        {
+            resources[index] = new BmsAudioResource($"s{index}.wav", new DecodedAudio(48000, layout, samples), 1f);
+        }
+        return (schedule, resources);
+    }
+
+    /// <summary>schedulerの時計の代わりに使う偽の時計です。準備中の音源作成に連動して読みを進められます。</summary>
+    private sealed class BudgetClock
+    {
+        private long now = 1000;
+        private Func<int>? sourceCount;
+        private int baselineSources;
+        private long jumpTicks;
+        private int maximumSourcesCreated;
+
+        /// <summary>武装後に観測した、準備中に作成済みの音源数の最大値です。</summary>
+        internal int MaximumSourcesCreated => Volatile.Read(ref maximumSourcesCreated);
+
+        internal long GetTimestamp()
+        {
+            long value = Interlocked.Read(ref now);
+            if (sourceCount != null)
+            {
+                int created = sourceCount() - baselineSources;
+                if (created > maximumSourcesCreated)
+                {
+                    maximumSourcesCreated = created;
+                }
+                if (created > 0)
+                {
+                    value += jumpTicks;
+                }
+            }
+            return value;
+        }
+
+        internal void Advance(double seconds) =>
+            Interlocked.Add(ref now, (long)(seconds * System.Diagnostics.Stopwatch.Frequency));
+
+        /// <summary>この後に最初の音源が作成された時点から、時計の読みを指定秒だけ進めます。</summary>
+        internal void ArmAfterFirstSourceCreated(Func<int> currentSourceCount, double seconds)
+        {
+            baselineSources = currentSourceCount();
+            jumpTicks = (long)(seconds * System.Diagnostics.Stopwatch.Frequency);
+            maximumSourcesCreated = 0;
+            sourceCount = currentSourceCount;
+        }
+    }
+
+    /// <summary>mixerへ確定したvoice数を数える、予約準備専用の境界です。</summary>
+    private sealed class CommitCountingScheduledNativeBoundary : IBassScheduledMixerNativeBoundary
+    {
+        private readonly BassMixerSourceNativeBoundary inner = new();
+        private int voicesCommitted;
+
+        internal int VoicesCommitted => Volatile.Read(ref voicesCommitted);
+
+        internal void ResetCommittedVoices() => Interlocked.Exchange(ref voicesCommitted, 0);
+
+        public int GetMixer(int sourceHandle) => inner.GetMixer(sourceHandle);
+
+        public bool AddChannel(int mixerHandle, int sourceHandle, BassFlags flags) =>
+            inner.AddChannel(mixerHandle, sourceHandle, flags);
+
+        public bool AddChannelAt(int mixerHandle, int sourceHandle, BassFlags flags, long startBytes, long lengthBytes)
+        {
+            bool added = inner.AddChannelAt(mixerHandle, sourceHandle, flags, startBytes, lengthBytes);
+            if (added)
+            {
+                Interlocked.Increment(ref voicesCommitted);
+            }
+            return added;
+        }
+
+        public bool LockChannel(int mixerHandle, bool locked) => inner.LockChannel(mixerHandle, locked);
+
+        public long GetPosition(int mixerHandle, PositionFlags mode) => inner.GetPosition(mixerHandle, mode);
+
+        public BassFlags SetMixerChannelFlags(int sourceHandle, BassFlags flags, BassFlags mask) =>
+            inner.SetMixerChannelFlags(sourceHandle, flags, mask);
+
+        public BassMixerChannelInfo GetChannelInfo(int channelHandle) => inner.GetChannelInfo(channelHandle);
+
+        public bool SetSampleRateConversion(int sourceHandle, float quality) =>
+            inner.SetSampleRateConversion(sourceHandle, quality);
+
+        public bool GetSampleRateConversion(int sourceHandle, out float quality) =>
+            inner.GetSampleRateConversion(sourceHandle, out quality);
+
+        public bool SetMatrix(int sourceHandle, float[,] matrix) => inner.SetMatrix(sourceHandle, matrix);
+
+        public bool RemoveChannel(int sourceHandle) => inner.RemoveChannel(sourceHandle);
+
+        public bool FreeStream(int sourceHandle) => inner.FreeStream(sourceHandle);
+
+        public bool SetPosition(int sourceHandle, long position, PositionFlags mode) =>
+            inner.SetPosition(sourceHandle, position, mode);
+
+        public Errors GetError() => inner.GetError();
+    }
+
     /// <summary>予約のunlockが失敗した場合は出力失敗を保持し、所有者のないvoiceを残さずcallbackの全バッファを無音にすることを確認します。</summary>
     /// <remarks>実NULL deviceのmixer・tempo・音源所有を通すため、nativeの時計・PCM・回収まで観測します。</remarks>
     [TestMethod]

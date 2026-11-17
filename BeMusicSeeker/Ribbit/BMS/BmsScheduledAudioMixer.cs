@@ -88,6 +88,26 @@ internal sealed class BmsScheduledAudioException : InvalidOperationException
     internal int Generation { get; }
 }
 
+/// <summary>リアルタイムの一回の予約処理に許す時間予算です。</summary>
+/// <remarks>
+/// 予約処理は再生制御のロックを保持して行われるため、準備が長引くと停止・次の再生・終了が待たされます。
+/// 予算を超えた準備は途中で打ち切って失敗として扱います。音声変換(Writer)は時計も期限も持たないため、予算を適用しません。
+/// </remarks>
+/// <param name="GetTimestamp">Stopwatch tick単位の時計です。</param>
+/// <param name="DeadlineTimestamp">この時刻を超えたら予算超過とみなすStopwatch tickです。</param>
+internal readonly record struct BmsReservationBudget(Func<long> GetTimestamp, long DeadlineTimestamp)
+{
+    /// <summary>リアルタイム一回の予約処理に許す実時間(秒)です。</summary>
+    internal const long BudgetSeconds = 1;
+
+    /// <summary>現在時刻から実時間1秒の予算を開始します。</summary>
+    internal static BmsReservationBudget Start(Func<long> getTimestamp) =>
+        new(getTimestamp, checked(getTimestamp() + BudgetSeconds * Stopwatch.Frequency));
+
+    /// <summary>予算を使い切ったか取得します。</summary>
+    internal bool IsExceeded => GetTimestamp() > DeadlineTimestamp;
+}
+
 /// <summary>WriterとRealtimeが共有する有限発音区間の生成・予約・回収処理です。</summary>
 internal sealed class BmsScheduledAudioMixer : IDisposable
 {
@@ -299,10 +319,12 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
     /// <param name="exclusiveSongFrame">このframeより前に開始するイベントを予約する上限。</param>
     /// <param name="currentSongFrame">直前に観測したsong mixer frame。</param>
     /// <param name="includeEvent">Writerなどが適用する契約上のevent filter。</param>
+    /// <param name="budget">リアルタイムの時間予算。省略(Writer)時は時間で打ち切りません。</param>
     internal void ReserveBeforeFrame(
         long exclusiveSongFrame,
         long currentSongFrame,
-        Func<BmsAudioFrameEvent, bool>? includeEvent = null)
+        Func<BmsAudioFrameEvent, bool>? includeEvent = null,
+        BmsReservationBudget? budget = null)
     {
         lock (sync)
         {
@@ -349,14 +371,18 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                 pending.Add(new PendingVoice(audioEvent, resource, audioEvent.StartFrame, endFrame, audioEvent.SourceStartFrame));
             }
 
-            PrepareAndCommit(pending);
+            PrepareAndCommit(pending, budget);
         }
     }
 
     /// <summary>新しい再生区間のactive voiceと先行範囲を共通予約処理で構成します。</summary>
     /// <param name="segmentStartSongFrame">seek後の整数song frame。</param>
     /// <param name="exclusiveSongFrame">最初に予約する先行範囲の終端。</param>
-    internal void ReserveSegmentBeforeFrame(long segmentStartSongFrame, long exclusiveSongFrame)
+    /// <param name="budget">リアルタイムの時間予算。省略(Writer)時は時間で打ち切りません。</param>
+    internal void ReserveSegmentBeforeFrame(
+        long segmentStartSongFrame,
+        long exclusiveSongFrame,
+        BmsReservationBudget? budget = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(segmentStartSongFrame);
         if (exclusiveSongFrame <= segmentStartSongFrame)
@@ -426,7 +452,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                 }
             }
 
-            PrepareAndCommit(pending);
+            PrepareAndCommit(pending, budget);
         }
     }
 
@@ -652,7 +678,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
         UpdateVoiceStates(GetCurrentMixerFrame());
     }
 
-    private void PrepareAndCommit(IReadOnlyList<PendingVoice> pending)
+    private void PrepareAndCommit(IReadOnlyList<PendingVoice> pending, BmsReservationBudget? budget)
     {
         if (pending.Count == 0)
         {
@@ -668,12 +694,21 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
         UpdateMaximum(ref maximumPreparedVoiceCount, pending.Count);
         int pendingIndex = 0;
         PendingVoice failedVoice = pending[0];
+        bool budgetExceeded = false;
         try
         {
             for (; pendingIndex < pending.Count; pendingIndex++)
             {
                 PendingVoice voice = pending[pendingIndex];
                 failedVoice = voice;
+                // 全voiceを準備してから判定せず、音源作成の合間で予算超過を検出して残りの作成を省く。
+                if (budget is { IsExceeded: true })
+                {
+                    budgetExceeded = true;
+                    throw new TimeoutException(
+                        "The BMS reservation exceeded its " + BmsReservationBudget.BudgetSeconds
+                        + " second time budget after preparing " + pendingIndex + " of " + pending.Count + " voices.");
+                }
                 var player = new BassAudioPlayer(voice.Resource.Path, voice.Resource.Audio, session, native, voice.Event.SourceEndFrame);
                 createdPlayers.Add(player);
                 long startMixerFrame = checked(originMixerFrame + voice.PlaybackStartSongFrame);
@@ -711,7 +746,7 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
             }
 
             throw RecordAndCreateFailure(
-                "prepare source voice",
+                budgetExceeded ? "reservation time budget" : "prepare source voice",
                 failedVoice.Event,
                 expectedMixerFrame,
                 currentMixerFrame: null,
@@ -775,11 +810,22 @@ internal sealed class BmsScheduledAudioMixer : IDisposable
                     removalFailures.Add(exception);
                 }
                 voice.Player.UpdateScheduledVoiceState(active: false);
-                voices.Remove(voice);
             }
         }
         finally
         {
+            // 管理リストは一回の走査で詰め直す。個別のRemoveは保持数に比例して全体が二乗に増える。
+            int keep = 0;
+            for (int index = 0; index < voices.Count; index++)
+            {
+                ScheduledVoice voice = voices[index];
+                if (currentFrame < voice.EndMixerFrame)
+                {
+                    voices[keep++] = voice;
+                }
+            }
+            voices.RemoveRange(keep, voices.Count - keep);
+
             if (!native.LockChannel(mixerHandle, locked: false))
             {
                 Errors error = native.GetError();
