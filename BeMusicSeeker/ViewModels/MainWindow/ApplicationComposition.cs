@@ -908,6 +908,7 @@ internal sealed class MainWindowChildComposition
             externalShellGateway.OpenDirectory,
             MaintenanceTree.CaptureNextDuplicateGroupSelection,
             exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync);
+        ProgressHub.AttachDuplicateMaintenanceProgressSource(DuplicateMaintenanceWorkflow);
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,

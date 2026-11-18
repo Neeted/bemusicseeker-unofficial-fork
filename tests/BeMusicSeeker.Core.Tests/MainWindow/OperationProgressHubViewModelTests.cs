@@ -226,6 +226,44 @@ public sealed class OperationProgressHubViewModelTests
             fixture.Folder));
     }
 
+    /// <summary>
+    /// 重複保守の実行中は、現在語の行名・対象フォルダ・不定進捗を持ち、行固有操作と親を持たない行を一つだけ表示し、終端で行を消してRowsの変更を通知します。
+    /// 件数ゲージや取消の付与、終端後の残留、二重接続による重複購読を検出します。
+    /// </summary>
+    [TestMethod]
+    public void DuplicateMaintenancePresentation_ShowsSingleIndeterminateRowWithTargetUntilEnd()
+    {
+        var hub = new OperationProgressHubViewModel(TestStartupProgressOwnerFactory.Create());
+        int rowsNotifications = 0;
+        hub.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(hub.Rows)) { Interlocked.Increment(ref rowsNotifications); } };
+        Assert.IsFalse(hub.HasRows);
+
+        using (var merge = DuplicateMaintenanceWorkflowOwnerTestSupport.BlockedDuplicateMergeProgress.Start(hub, @"C:\Songs\Source"))
+        {
+            Assert.AreEqual(1, Volatile.Read(ref rowsNotifications));
+            OperationProgressRow row = hub.Rows.Single();
+            Assert.AreEqual("duplicate_maintenance", row.Key);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Statusbar_progress_task_duplicate_maintenance, row.Label);
+            Assert.AreEqual(merge.SourceDirectory, row.Detail);
+            Assert.IsTrue(row.IsIndeterminate);
+            Assert.IsTrue(row.HasGauge);
+            Assert.AreEqual(OperationProgressAction.None, row.Action);
+            Assert.AreEqual(string.Empty, row.ParentKey);
+            Assert.IsTrue(hub.HasRows);
+
+            merge.Complete();
+
+            Assert.AreEqual(2, Volatile.Read(ref rowsNotifications));
+            Assert.AreEqual(0, hub.Rows.Count);
+            Assert.IsFalse(hub.HasRows);
+        }
+
+        var second = new DuplicateMaintenanceWorkflowOwner(UninitializedBmsLibrary.Create, new ChartFileOperationSynchronizer(),
+            new ChartMutationActivityOwner(), new NoOpChartMutationPlaybackPort(), DuplicateMaintenanceWorkflowOwnerTestSupport.AcceptedDialogs(),
+            () => false, _ => true, _ => new BeMusicSeeker.Models.Utils.ExplorerOpenResult(), _ => null);
+        Assert.ThrowsExactly<InvalidOperationException>(() => hub.AttachDuplicateMaintenanceProgressSource(second));
+    }
+
     /// <summary>完了件数が総数を超えた同期通知を総数へclampし、現対象表と正規化した件数を通知付きで表示します。</summary>
     [TestMethod]
     public void PlaylistSyncPresentation_UsesNormalizedValuesAndCurrentTableName()

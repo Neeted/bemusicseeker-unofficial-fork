@@ -1,6 +1,7 @@
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 
@@ -113,10 +114,10 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
         public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease? lease)
         { PhysicalMutationStarts++; lease = null; return PhysicalMutationAdmitted; }
 
-        public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
+        public virtual LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
             => new(charts, WholeFolderCandidates, [], charts.Count, 0, registeredUserRoots: RegisteredUserRoots);
 
-        public LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action? publication)
+        public virtual LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action? publication)
         {
             publication = null;
             IReadOnlyList<ChartFile> charts = prepared.Targets;
@@ -152,6 +153,66 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
             MergeWithReceiptCallCount++;
             AddEvent("store-merge-with-receipt");
             return receipt;
+        }
+    }
+
+    /// <summary>
+    /// 進捗ハブへ本番と同じ接続で重複保守の実行中を入力します。確認を表示しない統合を保存処理で止め、
+    /// <see cref="Complete"/> または破棄で解放して操作の終端まで回収します。
+    /// </summary>
+    internal sealed class BlockedDuplicateMergeProgress : IDisposable
+    {
+        private readonly ManualResetEventSlim release = new(false);
+        private readonly Task<DuplicateMaintenanceMutationResult> operation;
+
+        private BlockedDuplicateMergeProgress(OperationProgressHubViewModel hub, string sourceDirectory)
+        {
+            SourceDirectory = sourceDirectory;
+            var events = new List<string>();
+            var owner = new DuplicateMaintenanceWorkflowOwner(
+                UninitializedBmsLibrary.Create,
+                new ChartFileOperationSynchronizer(),
+                new ChartMutationActivityOwner(),
+                new NoOpChartMutationPlaybackPort(),
+                AcceptedDialogs(),
+                () => false,
+                _ => true,
+                _ => new ExplorerOpenResult(),
+                _ => null,
+                new BlockingStore(events, release));
+            hub.AttachDuplicateMaintenanceProgressSource(owner);
+            string destination = sourceDirectory + "_destination";
+            operation = owner.RunFolderMergeAsync(sourceDirectory, destination, new DuplicateGroup([], [sourceDirectory, destination]));
+        }
+
+        /// <summary>行の詳細に表示される統合元フォルダです。</summary>
+        internal string SourceDirectory { get; }
+
+        /// <summary>統合を開始し、進捗の開始通知が届いた状態で返します。</summary>
+        internal static BlockedDuplicateMergeProgress Start(OperationProgressHubViewModel hub, string sourceDirectory)
+            => new(hub, sourceDirectory);
+
+        /// <summary>保存処理を解放し、進捗の終了通知を含む操作の終端まで待ちます。</summary>
+        internal void Complete()
+        {
+            release.Set();
+            operation.GetAwaiter().GetResult();
+        }
+
+        public void Dispose()
+        {
+            try { Complete(); }
+            finally { release.Dispose(); }
+        }
+
+        private sealed class BlockingStore(List<string> events, ManualResetEventSlim release) : RecordingStore(events)
+        {
+            public override DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
+                BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId, LibraryOperationNotices notices)
+            {
+                release.Wait();
+                return base.MergeFolderWithReceipt(library, sourceDirectory, destinationDirectory, operationId, notices);
+            }
         }
     }
 

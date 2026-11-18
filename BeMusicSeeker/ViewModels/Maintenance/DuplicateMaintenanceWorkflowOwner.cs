@@ -29,6 +29,14 @@ internal sealed class DuplicateMaintenanceRefreshSuppressionChangedEventArgs : D
     internal bool IsSuppressed { get; }
 }
 
+/// <summary>
+/// 重複保守（フォルダ統合・同一フォルダ内の重複削除）の背景の変更処理が実行中かどうかを表す事実です。
+/// 表示文言は持たず、受け手が現在の表示言語で行へ投影します。
+/// </summary>
+/// <param name="IsActive">背景の変更処理を開始する直前にtrue、その終端でfalseになります。</param>
+/// <param name="TargetPath">統合では統合元フォルダ、重複削除では対象フォルダです。終了時は空です。</param>
+internal sealed record DuplicateMaintenanceProgressSnapshot(bool IsActive, string TargetPath);
+
 internal enum DuplicateFolderKeyboardActionKind
 {
     None,
@@ -264,6 +272,35 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
     }
 
     internal event EventHandler<DuplicateMaintenanceWorkflowChangedEventArgs> WorkflowChanged;
+
+    /// <summary>
+    /// 背景の変更処理の開始と終端を通知します。開始は全確認の承認後・背景処理の開始前、終端は結果の報告と返却の前です。
+    /// 受付や確認で終わった操作は通知しません。通知は操作を呼び出した文脈（標準構成ではUIスレッド）で行います。
+    /// </summary>
+    internal event Action<DuplicateMaintenanceProgressSnapshot> ProgressChanged;
+
+    /// <summary>任意の進捗表示の失敗で、操作の結果・受付の解放・報告を変えないよう、受け手ごとに例外を隔離します。</summary>
+    private void PublishProgress(bool isActive, string targetPath)
+    {
+        Action<DuplicateMaintenanceProgressSnapshot> handlers = ProgressChanged;
+        if (handlers == null)
+        {
+            return;
+        }
+        var snapshot = new DuplicateMaintenanceProgressSnapshot(isActive, isActive ? targetPath ?? string.Empty : string.Empty);
+        foreach (Action<DuplicateMaintenanceProgressSnapshot> handler in handlers.GetInvocationList().Cast<Action<DuplicateMaintenanceProgressSnapshot>>())
+        {
+            try
+            {
+                handler(snapshot);
+            }
+            catch (Exception exception)
+            {
+                try { Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, "duplicate_maintenance progress notification failed"); }
+                catch { /* 任意表示の診断失敗を再通知しません。 */ }
+            }
+        }
+    }
 
     private sealed class FolderMergeRequest
     {
@@ -515,19 +552,29 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
                 return DuplicateMaintenanceMutationResult.Rejected(request.SelectionContext);
             }
 
-            Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
-                request.SelectionContext,
-                mutation: null,
-                mutationWithReceipt: (library, operationStore, notices) => operationStore.MergeFolderWithReceipt(
-                    library,
-                    request.SourceDirectory,
-                    request.DestinationDirectory,
-                    Stopwatch.GetTimestamp(),
-                    notices),
-                acquiredOperationGate: operationGate,
-                physicalPaths: [request.SourceDirectory, request.DestinationDirectory]));
-            operationGateTransferred = true;
-            DuplicateMaintenanceMutationResult result = await mutationTask;
+            DuplicateMaintenanceMutationResult result;
+            PublishProgress(isActive: true, request.SourceDirectory);
+            try
+            {
+                Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
+                    request.SelectionContext,
+                    mutation: null,
+                    mutationWithReceipt: (library, operationStore, notices) => operationStore.MergeFolderWithReceipt(
+                        library,
+                        request.SourceDirectory,
+                        request.DestinationDirectory,
+                        Stopwatch.GetTimestamp(),
+                        notices),
+                    acquiredOperationGate: operationGate,
+                    physicalPaths: [request.SourceDirectory, request.DestinationDirectory]));
+                operationGateTransferred = true;
+                result = await mutationTask;
+            }
+            finally
+            {
+                // どの終端でも、結果の報告・終了処理・返却より前に行を閉じます。
+                PublishProgress(isActive: false, null);
+            }
             if (result.Busy)
             {
                 return await NotifyPhysicalAdmissionBusyAsync(result);
@@ -656,18 +703,24 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
             LibraryChartRemovalOutcome removalOutcome = null;
             Action pendingPublication = null;
-            Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
-                plan.SelectionContext,
-                (library, operationStore, notices) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths, notices, out pendingPublication),
-                removedChartCount: 0,
-                acquiredOperationGate: operationGate,
-                physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths),
-                stopPlayback: prepared.Targets.Count > 0));
-            operationGateTransferred = true;
             DuplicateMaintenanceMutationResult result;
-            try { result = await mutationTask; }
+            PublishProgress(isActive: true, plan.FolderPath);
+            try
+            {
+                Task<DuplicateMaintenanceMutationResult> mutationTask = Task.Run(() => ExecuteMutation(
+                    plan.SelectionContext,
+                    (library, operationStore, notices) => removalOutcome = operationStore.RemoveCharts(library, prepared, approvedPaths, notices, out pendingPublication),
+                    removedChartCount: 0,
+                    acquiredOperationGate: operationGate,
+                    physicalPaths: prepared.Targets.Select(chart => chart.Path).Concat(approvedPaths),
+                    stopPlayback: prepared.Targets.Count > 0));
+                operationGateTransferred = true;
+                result = await mutationTask;
+            }
             finally
             {
+                // どの終端でも、結果の報告と返却より前に行を閉じます。
+                PublishProgress(isActive: false, null);
                 if (pendingPublication != null) { FileDbMutationReport.NotifyBestEffort(pendingPublication); }
             }
             if (result.Busy)

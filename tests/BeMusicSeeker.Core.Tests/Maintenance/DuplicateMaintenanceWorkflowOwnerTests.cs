@@ -807,6 +807,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             int exits = 0;
             bool releasedAtExit = false;
             Exception? exitFailure = null;
+            var progress = new List<DuplicateMaintenanceProgressSnapshot>();
+            bool progressClosedAtExit = false;
             FakeUiDialogService dialogs = AcceptedDialogs();
             var owner = new DuplicateMaintenanceWorkflowOwner(() => library, gate, activity,
                 new NoOpChartMutationPlaybackPort(), dialogs, () => false, Directory.Exists,
@@ -815,8 +817,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                     exits++;
                     exitFailure = failure;
                     releasedAtExit = !gate.IsActive && !playlist.IsActive && !activity.IsActive;
+                    lock (progress) { progressClosedAtExit = progress.Count == 2 && !progress[1].IsActive; }
                     return Task.CompletedTask;
                 });
+            owner.ProgressChanged += snapshot => { lock (progress) { progress.Add(snapshot); } };
             operation = owner.RunFolderMergeAsync(source, destination, new DuplicateGroup(charts.ToList(), [source, destination]));
             Assert.AreSame(cleanupReached.Task, await Task.WhenAny(cleanupReached.Task, operation));
             Assert.AreEqual(0, exits);
@@ -831,6 +835,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             Assert.IsFalse(result.MutationReceipt.SessionReceipt.DurableCommit);
             Assert.AreEqual(1, exits);
             Assert.IsTrue(releasedAtExit);
+            Assert.IsTrue(progressClosedAtExit, "進捗行は終了処理の呼出しより前に閉じます。");
+            Assert.AreEqual(source, progress[0].TargetPath);
             Assert.AreSame(result.MutationReceipt.SessionReceipt.PrimaryFailure, exitFailure);
             Assert.AreEqual(2, files.FailedMoveCount);
             Assert.IsNotNull(files.BackupPath);
@@ -1045,6 +1051,197 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.AreEqual(0, await NestedFolderCounter.CountAsync(empty));
         await Assert.ThrowsExactlyAsync<DirectoryNotFoundException>(
             () => NestedFolderCounter.CountAsync(workspace.GetPath("Missing")));
+    }
+
+    /// <summary>
+    /// フォルダ統合と重複削除の進捗の事実は、全確認の承認後・背景の変更処理（対象別受付・活動・再生停止・抑制・物理変更）の開始前に一度始まり、
+    /// 背景処理の終端（成功・対象別受付の使用中・失敗）の後、結果の報告と返却より前に一度終わる。詳細は統合では統合元、削除では対象フォルダ。
+    /// 確認中の開始、統合先や譜面パスの表示、終端による行の残留、報告後の終了を検出する。確認を表示しない設定でも同じ開始・終了を通知する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("merge", "success", true)]
+    [DataRow("hash", "success", true)]
+    [DataRow("merge", "physicalBusy", true)]
+    [DataRow("hash", "physicalBusy", true)]
+    [DataRow("merge", "failure", true)]
+    [DataRow("hash", "failure", true)]
+    [DataRow("merge", "success", false)]
+    [DataRow("hash", "success", false)]
+    public async Task ProgressFacts_StartAfterApprovalAndEndBeforeReportOnEveryTerminal(string operation, string terminal, bool showConfirmation)
+    {
+        var events = new List<string>();
+        RecordingStore store = terminal == "failure" ? new ThrowingStore(events) : new RecordingStore(events);
+        store.PhysicalMutationAdmitted = terminal != "physicalBusy";
+        store.WholeFolderCandidates = operation == "hash" ? [@"C:\One", @"C:\Two"] : [];
+        var gate = new ChartFileOperationSynchronizer();
+        var activity = new ChartMutationActivityOwner();
+        int answered = 0;
+        var dialogs = new FakeUiDialogService
+        {
+            // 件数確認はOK、フォルダ単位の確認は一件目Yes・二件目Noで、最後の回答まで開始しないことを確かめる。
+            ConfirmationHandler = request => Task.FromResult(UiDialogResult.FromMessageBoxResult(
+                request.Button == MessageBoxButton.OKCancel ? MessageBoxResult.OK
+                    : ++answered == 1 ? MessageBoxResult.Yes : MessageBoxResult.No))
+        };
+        int prompts = 0;
+        Func<UiConfirmationRequest, Task<UiDialogResult>> answer = dialogs.ConfirmationHandler;
+        dialogs.ConfirmationHandler = request => { Interlocked.Increment(ref prompts); return answer(request); };
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store,
+            showConfirmation: showConfirmation, gate: gate, activity: activity);
+        int expectedPrompts = (showConfirmation ? 1 : 0) + (operation == "hash" ? 2 : 0);
+        var progress = new List<(DuplicateMaintenanceProgressSnapshot Snapshot, int Prompts, int PhysicalStarts, string[] Events, int Messages)>();
+        owner.ProgressChanged += snapshot =>
+        {
+            string[] seen;
+            lock (events) { seen = [.. events]; }
+            lock (progress) { progress.Add((snapshot, Volatile.Read(ref prompts), store.PhysicalMutationStarts, seen, dialogs.Messages.Count)); }
+        };
+
+        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation);
+
+        Assert.AreEqual(2, progress.Count, "開始と終了を一度ずつ通知します。");
+        (DuplicateMaintenanceProgressSnapshot Snapshot, int Prompts, int PhysicalStarts, string[] Events, int Messages) start = progress[0];
+        Assert.IsTrue(start.Snapshot.IsActive);
+        Assert.AreEqual(operation == "merge" ? @"C:\Songs\Source" : @"C:\Songs", start.Snapshot.TargetPath);
+        Assert.AreEqual(expectedPrompts, start.Prompts, "全確認への回答後に開始します。");
+        Assert.AreEqual(0, start.PhysicalStarts, "対象別受付の取得より前に開始します。");
+        Assert.AreEqual(0, start.Events.Length, "活動・再生停止・抑制・変更より前に開始します。");
+        (DuplicateMaintenanceProgressSnapshot Snapshot, int Prompts, int PhysicalStarts, string[] Events, int Messages) end = progress[1];
+        Assert.IsFalse(end.Snapshot.IsActive);
+        Assert.AreEqual(1, end.PhysicalStarts);
+        Assert.AreEqual(0, end.Messages, "結果の報告より前に終了します。");
+        if (terminal == "physicalBusy")
+        {
+            Assert.AreEqual(0, end.Events.Length);
+            AssertBusyWarning(dialogs, result);
+        }
+        else
+        {
+            CollectionAssert.Contains(end.Events, "suppression-end");
+            CollectionAssert.Contains(end.Events, "activity-end");
+            Assert.AreEqual(terminal == "success", result.Succeeded, result.Failure?.ToString());
+        }
+        Assert.IsTrue(gate.CanEnter);
+    }
+
+    /// <summary>
+    /// 共通受付の拒否（使用中・受付閉鎖）、確認の取消・表示失敗（件数確認とフォルダ単位の確認）、重複削除の事前準備の失敗、削除対象なしでは、
+    /// 進捗の開始も終了も通知しない。背景処理を始めない経路での行の表示と、開始のない終了通知を検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("merge", "busy")]
+    [DataRow("hash", "busy")]
+    [DataRow("merge", "closed")]
+    [DataRow("hash", "closed")]
+    [DataRow("merge", "cancel")]
+    [DataRow("hash", "cancel")]
+    [DataRow("merge", "confirmFailed")]
+    [DataRow("hash", "confirmFailed")]
+    [DataRow("hash", "folderCancel")]
+    [DataRow("hash", "folderFailed")]
+    [DataRow("hash", "prepareFailed")]
+    [DataRow("hash", "noWork")]
+    public async Task ProgressFacts_NotPublishedWhenOperationEndsBeforeBackgroundMutation(string operation, string condition)
+    {
+        var events = new List<string>();
+        RecordingStore store = condition == "prepareFailed" ? new ThrowingStore(events) { ThrowOnPrepare = true } : new RecordingStore(events);
+        store.WholeFolderCandidates = condition.StartsWith("folder", StringComparison.Ordinal) ? [@"C:\One"] : [];
+        var gate = new ChartFileOperationSynchronizer();
+        var dialogs = new FakeUiDialogService
+        {
+            ConfirmationHandler = request =>
+            {
+                bool countConfirmation = request.Button == MessageBoxButton.OKCancel;
+                return Task.FromResult(condition switch
+                {
+                    "cancel" when countConfirmation => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel),
+                    "confirmFailed" when countConfirmation => UiDialogResult.Failed(new IOException("confirmation failed")),
+                    "folderCancel" when !countConfirmation => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel),
+                    "folderFailed" when !countConfirmation => UiDialogResult.Failed(new IOException("folder confirmation failed")),
+                    _ => UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+                });
+            }
+        };
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate);
+        int notifications = 0;
+        owner.ProgressChanged += _ => Interlocked.Increment(ref notifications);
+        IDisposable? held = null;
+        if (condition == "busy") { Assert.IsTrue(gate.TryEnter(out held)); }
+        if (condition == "closed") { gate.CloseAdmission(); }
+
+        DuplicateMaintenanceMutationResult result;
+        using (held)
+        {
+            result = condition == "noWork"
+                ? await owner.RunHashCleanupAsync(new DuplicateGroup([CreateChart(@"C:\Songs\a.bms", "hash")], [@"C:\Songs"]), @"C:\Songs")
+                : await RunDuplicateOperationAsync(owner, operation);
+        }
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual(0, Volatile.Read(ref notifications));
+        Assert.AreEqual(0, store.PhysicalMutationStarts);
+        Assert.AreEqual(0, events.Count);
+    }
+
+    /// <summary>
+    /// 進捗の受け手が開始時・終了時に例外を投げても、操作の結果・受付と活動の解放・報告の回数は変わらず、他の受け手は開始と終了の両方を受け取る。
+    /// 任意の表示の失敗で処理が止まる誤りと、開始の例外で終了通知が欠けて行が残る誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    [DataRow("merge", "success", true, true)]
+    [DataRow("hash", "physicalBusy", false, true)]
+    [DataRow("merge", "failure", true, false)]
+    public async Task ProgressSubscriberFailure_KeepsResultReleaseAndReport(string operation, string terminal, bool throwOnStart, bool throwOnEnd)
+    {
+        async Task<(DuplicateMaintenanceMutationResult Result, int Messages, int Received, bool Released)> RunAsync(bool subscriberThrows)
+        {
+            var events = new List<string>();
+            RecordingStore store = terminal == "failure" ? new ThrowingStore(events) : new RecordingStore(events);
+            store.PhysicalMutationAdmitted = terminal != "physicalBusy";
+            var gate = new ChartFileOperationSynchronizer();
+            var activity = new ChartMutationActivityOwner();
+            FakeUiDialogService dialogs = AcceptedDialogs();
+            DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
+            int received = 0;
+            if (subscriberThrows)
+            {
+                owner.ProgressChanged += snapshot =>
+                {
+                    if (snapshot.IsActive ? throwOnStart : throwOnEnd) { throw new InvalidOperationException("progress presentation failed"); }
+                };
+            }
+            owner.ProgressChanged += _ => Interlocked.Increment(ref received);
+            DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation);
+            Assert.AreEqual(1, store.PhysicalMutationStarts);
+            return (result, dialogs.Messages.Count, Volatile.Read(ref received), gate.CanEnter && !activity.IsActive);
+        }
+
+        (DuplicateMaintenanceMutationResult Result, int Messages, int Received, bool Released) expected = await RunAsync(subscriberThrows: false);
+        (DuplicateMaintenanceMutationResult Result, int Messages, int Received, bool Released) actual = await RunAsync(subscriberThrows: true);
+
+        Assert.AreEqual(2, actual.Received, "例外を投げる受け手の後ろの受け手も開始と終了を受け取ります。");
+        Assert.AreEqual(expected.Result.Succeeded, actual.Result.Succeeded);
+        Assert.AreEqual(expected.Result.Busy, actual.Result.Busy);
+        Assert.AreEqual(expected.Result.Failure?.GetType(), actual.Result.Failure?.GetType());
+        Assert.AreEqual(expected.Messages, actual.Messages);
+        Assert.IsTrue(actual.Released);
+    }
+
+    /// <summary>保存処理または事前準備の例外で、背景の変更処理の失敗終端と準備失敗を再現します。</summary>
+    private sealed class ThrowingStore(List<string> events) : RecordingStore(events)
+    {
+        internal bool ThrowOnPrepare { get; init; }
+
+        public override DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(
+            BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId, LibraryOperationNotices notices)
+            => throw new IOException("merge failed");
+
+        public override LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared,
+            IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action? publication)
+            => throw new IOException("remove failed");
+
+        public override LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
+            => ThrowOnPrepare ? throw new IOException("prepare failed") : base.PrepareChartRemoval(library, charts);
     }
 
     private static Task<DuplicateMaintenanceMutationResult> RunDuplicateOperationAsync(

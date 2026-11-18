@@ -1301,6 +1301,7 @@
   "Statusbar_progress_operation_failed_format": "{0} 실패",
   "Statusbar_progress_task_playlist_property_update": "플레이리스트 속성 갱신",
   "Statusbar_progress_task_folder_rename": "폴더 이름 자동 변경",
+  "Statusbar_progress_task_duplicate_maintenance": "중복 파일 정리",
   "Statusbar_progress_task_playlist_external_property_initialization": "외부 데이터로 플레이리스트 속성 초기화",
   "Error_PreparedChartTargetMismatch": "준비된 차트 대상이 현재 보유 항목, 형식 또는 위치와 일치하지 않습니다. 변경은 실행되지 않았습니다.",
   "Details_require_complete_used_resources_for_auto_install": "자동 새로 설치 시 사용 리소스 전체 요구",

@@ -194,7 +194,7 @@ public sealed class OperationProgressHubLanguageTests
         return cases;
     }
 
-    /// <summary>全 playlist 種別、StartupProgress、DetailRows、推定、背景、追加処理の親、LR2を同時に投入し、日本語→英語→日本語で全行の文言が現在語の資源と保持事実から作られ、事実と呼出し回数が変わらないことを確認します。</summary>
+    /// <summary>全 playlist 種別、StartupProgress、DetailRows、推定、背景、追加処理の親、LR2、重複保守を同時に投入し、日本語→英語→日本語で全行の文言が現在語の資源と保持事実から作られ、事実と呼出し回数が変わらないことを確認します。</summary>
     [TestMethod]
     public void HubRows_LanguageRoundTripRefreshesEveryProjectionWithoutChangingFacts()
     {
@@ -244,6 +244,8 @@ public sealed class OperationProgressHubLanguageTests
 
             List<PlaylistCase> cases = CreatePlaylistCases();
             foreach (PlaylistCase item in cases) { workspace.ReportPlaylistSyncProgress(item.CreateSnapshot(1)); }
+            // 重複保守の行は実行中の事実と対象フォルダだけを保持し、行名は読取りのたびに現在語で作ります。
+            using var duplicateMerge = DuplicateMaintenanceWorkflowOwnerTestSupport.BlockedDuplicateMergeProgress.Start(hub, @"C:\bms\重複元");
 
             string ExpectedLr2Tooltip() => string.Join(Environment.NewLine, DateTimeDisplayFormatter.FormatTimestamp(checkedAt),
                 string.Format(Resources.Lr2_song_db_sync_saved_position, 10, 100), Resources.Lr2_song_db_sync_stage_song_rows);
@@ -273,6 +275,8 @@ public sealed class OperationProgressHubLanguageTests
                 Assert.AreEqual(Resources.Lr2_song_db_sync_stage_song_rows + " [2/5]", lr2Row.Detail, stage);
                 Assert.AreEqual(ExpectedLr2Tooltip(), lr2Row.ToolTip, stage);
                 Assert.AreEqual(lr2Row.Label + " " + lr2Row.Detail + "\n" + lr2Row.ToolTip, lr2Row.FullText, stage);
+                Assert.AreEqual(Resources.Statusbar_progress_task_duplicate_maintenance, Row("duplicate_maintenance").Label, stage);
+                Assert.AreEqual(duplicateMerge.SourceDirectory, Row("duplicate_maintenance").Detail, stage);
                 foreach (PlaylistCase item in cases)
                 {
                     OperationProgressRow row = Row(item.Key);

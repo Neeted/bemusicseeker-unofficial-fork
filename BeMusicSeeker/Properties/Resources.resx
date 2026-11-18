@@ -3565,6 +3565,9 @@ uBMplayが正常に動作するか確認してください。</value>
   <data name="Statusbar_progress_task_folder_rename" xml:space="preserve">
     <value>フォルダ名の自動変更</value>
   </data>
+  <data name="Statusbar_progress_task_duplicate_maintenance" xml:space="preserve">
+    <value>重複ファイルの整理</value>
+  </data>
   <data name="Statusbar_progress_task_playlist_external_property_initialization" xml:space="preserve">
     <value>プレイリストの外部プロパティ初期化</value>
   </data>

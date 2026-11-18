@@ -3036,6 +3036,9 @@ public class Resources
     /// <summary>フォルダ名の自動変更を表す進捗行名を取得します。</summary>
     public static string Statusbar_progress_task_folder_rename => ResourceManager.GetString("Statusbar_progress_task_folder_rename", resourceCulture);
 
+    /// <summary>重複ファイルチェックのフォルダ統合・重複削除の実行中を表す進捗行名を取得します。</summary>
+    public static string Statusbar_progress_task_duplicate_maintenance => ResourceManager.GetString("Statusbar_progress_task_duplicate_maintenance", resourceCulture);
+
     /// <summary>サマリーから実行するプレイリスト外部プロパティ初期化の進捗名です。</summary>
     public static string Statusbar_progress_task_playlist_external_property_initialization => ResourceManager.GetString("Statusbar_progress_task_playlist_external_property_initialization", resourceCulture);
 

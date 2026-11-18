@@ -2507,10 +2507,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         Assert.IsFalse(library.OperationAdmission.TryEnter(out IDisposable rejected));
                         Assert.IsNull(rejected);
                         Assert.IsFalse(library.IsWriteLockHeldInitializeMin || library.IsWriteLockHeldInitializeBMSFiles || library.IsWriteLockHeldDuplicateChartGroups);
+                        Assert.AreEqual(sourceCharts[0].Directory, viewModel.ProgressHub.Rows.Single(row => row.Key == "duplicate_maintenance").Detail,
+                            "標準構成の統合の実行中は、統合元を示す進捗行を一つ表示します。");
                     }
                     finally { release.Set(); }
                 });
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(viewModel.ProgressHub.Rows.Any(row => row.Key == "duplicate_maintenance"), "統合の終端で進捗行を消します。");
                 var tree = (TreeView)window.FindName("treeView");
                 Assert.IsInstanceOfType(tree.SelectedItem, typeof(DuplicateGroup));
                 CollectionAssert.AreEquivalent(nextFolders, ((DuplicateGroup)tree.SelectedItem).Folders);
@@ -2579,6 +2582,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             "real hash file deletion"), "hash physical gate");
                         Assert.IsTrue(library.OperationAdmission.IsActive);
                         Assert.IsFalse(handler.IsCompleted);
+                        Assert.AreEqual(source.Folders[0], viewModel.ProgressHub.Rows.Single(row => row.Key == "duplicate_maintenance").Detail,
+                            "標準構成の重複削除の実行中は、対象フォルダを示す進捗行を一つ表示します。");
                         viewModel.ChartFilters.KeywordFilter = "same";
                         SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => normal.IsSelected = true, expectedPaths, null,
                             MainViewUpdateMode.FullScanAllChartsFilterSelected);
@@ -2588,6 +2593,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     finally { release.Set(); }
                 }, MainViewUpdateMode.DuplicateFilterSelected);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.IsFalse(viewModel.ProgressHub.Rows.Any(row => row.Key == "duplicate_maintenance"), "重複削除の終端で進捗行を消します。");
                 Assert.AreEqual(1, mutations.FileDeleteCalls);
                 Assert.AreEqual(1, original.Count(chart => File.Exists(chart.Path)));
                 string removed = original.Single(chart => !File.Exists(chart.Path)).Path;

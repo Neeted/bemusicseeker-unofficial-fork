@@ -20,6 +20,8 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private MaintenanceWorkflowProgress maintenanceProgress;
     private FolderAutoRenameProgressSnapshot renameProgress;
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
+    private DuplicateMaintenanceProgressSnapshot duplicateMaintenanceProgress;
+    private bool duplicateMaintenanceProgressSourceAttached;
     private bool workflowProgressSourcesAttached;
     private bool playlistProgressSourcesAttached;
     private long startupBackgroundOperationToken;
@@ -69,6 +71,22 @@ public sealed class OperationProgressHubViewModel : ViewModel
         packageInstallWorkflow.StatusChanged += status => { dropInstallQueueStatus = status ?? new(); RaiseRowsChanged(); };
         maintenanceRescanWorkflow.ProgressChanged += status => { maintenanceProgress = status; RaiseRowsChanged(); };
         folderAutoRenameWorkflow.ProgressChanged += status => { renameProgress = status; RaiseRowsChanged(); };
+    }
+
+    /// <summary>
+    /// 重複保守（フォルダ統合・同一フォルダ内の重複削除）の実行中の事実を、件数のない一行へ接続します。
+    /// 通知は管理主体が操作の呼出し文脈（標準構成ではUIスレッド）で行うため、受信時に配送し直しません。
+    /// </summary>
+    internal void AttachDuplicateMaintenanceProgressSource(DuplicateMaintenanceWorkflowOwner duplicateMaintenanceWorkflow)
+    {
+        ArgumentNullException.ThrowIfNull(duplicateMaintenanceWorkflow);
+        if (duplicateMaintenanceProgressSourceAttached)
+        {
+            throw new InvalidOperationException("Duplicate maintenance progress source is already attached.");
+        }
+
+        duplicateMaintenanceProgressSourceAttached = true;
+        duplicateMaintenanceWorkflow.ProgressChanged += status => { duplicateMaintenanceProgress = status; RaiseRowsChanged(); };
     }
 
     /// <summary>プレイリストの生産元別通知を、その画面の排出先へ接続します。</summary>
@@ -453,6 +471,11 @@ public sealed class OperationProgressHubViewModel : ViewModel
                 int processed = Math.Clamp(rename.ProcessedCount, 0, Math.Max(1, total));
                 rows.Add(new("rename", BeMusicSeeker.Properties.Resources.Statusbar_progress_task_folder_rename + " " + processed + "/" + total,
                     rename.CurrentPath ?? string.Empty, processed, Math.Max(1, total), total <= 0));
+            }
+            if (duplicateMaintenanceProgress is { IsActive: true } duplicateMaintenance)
+            {
+                rows.Add(new("duplicate_maintenance", BeMusicSeeker.Properties.Resources.Statusbar_progress_task_duplicate_maintenance,
+                    duplicateMaintenance.TargetPath ?? string.Empty, IsIndeterminate: true));
             }
             if (latestLr2SongDbSyncStatus.HasWarningStatus)
             {
