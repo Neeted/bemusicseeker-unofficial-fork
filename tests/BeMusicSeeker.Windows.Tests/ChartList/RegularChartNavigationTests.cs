@@ -621,6 +621,85 @@ public sealed class RegularChartNavigationTests
         }
     }
 
+    /// <summary>
+    /// 保証：重複表示中の実移動で結果が失効しても、重複データの準備が未完了の間は重複ツリーの項目を移動前の結果のまま維持し、
+    /// 準備が新しい結果を作って完了すれば項目はその結果と各位置で一致し、結果を作らずに終われば項目は空になる。項目の変更はすべてUIスレッドで起きる。
+    /// 検出する誤り：準備中の項目の消去（展開状態の消失）、結果なしの終了後に旧項目が残る誤り、UIスレッド外でのコレクション変更。
+    /// </summary>
+    /// <remarks>
+    /// "noResult" は、準備スレッド上のグループ変更通知で結果を失効させて止める。解放後は結果を作れない準備の失敗が操作結果へ合成される。
+    /// 実移動・実準備・実Bindingのコレクション通知を使い、保留の開始と解放は通知の到達と終端で待ち合わせる（固定時間待機なし）。
+    /// </remarks>
+    [TestMethod]
+    [DataRow("noResult")]
+    [DataRow("completed")]
+    [DoNotParallelize]
+    public void DuplicateTreeItems_AcceptedMovePreparationKeepsItemsOnUiAndClearsWhenNoResult(string condition)
+    {
+        using var release = new ManualResetEventSlim(false);
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dialogs = new FileDbReportRecordingDialogs();
+        BMSLibrary? library = null;
+        int armed = 0;
+        int claimed = 0;
+        PropertyChangedEventHandler intercept = (_, args) =>
+        {
+            if (condition != "noResult" || args.PropertyName != nameof(BMSLibrary.DuplicateChartGroups) || library?.DuplicateChartGroups == null
+                || Volatile.Read(ref armed) == 0 || Interlocked.Exchange(ref claimed, 1) != 0) { return; }
+            library.DuplicateChartGroups = null;
+            reached.TrySetResult();
+            release.Wait();
+        };
+        RunColdDuplicateFixture(fixture =>
+        {
+            library = fixture.Library;
+            MainWindowViewModel vm = fixture.ViewModel;
+            fixture.AwaitOwned(fixture.NavigateDuplicate(MainViewUpdateMode.DuplicateFilterSelected, null), "initial real duplicate root");
+            fixture.CompleteDuplicate();
+            ObservableCollection<DuplicateGroup> items = vm.MaintenanceTree.DuplicateTreeItems;
+            DuplicateGroup[] before = [.. items];
+            Assert.IsTrue(before.Length > 0);
+            CollectionAssert.AreEqual(library.DuplicateChartGroups!.ToArray(), before, "移動前は項目が結果と一致する前提");
+            int offUi = 0;
+            items.CollectionChanged += (_, _) => { if (!TestUiDispatcherHost.Dispatcher.CheckAccess()) { Interlocked.Increment(ref offUi); } };
+            ChartFile original = library.BmsCharts.Single(chart => chart.Path == fixture.Duplicates[0].Path);
+            string destination = Path.Combine(Path.GetDirectoryName(original.Directory) ?? throw new AssertFailedException(), "moved");
+            Directory.CreateDirectory(destination);
+            Volatile.Write(ref armed, 1);
+            var target = new ChartOperationTarget(original, null, ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary);
+            Task<SelectedChartMutationResult> operation = vm.SelectedChartMutations.MoveAsync(new SelectedChartMoveRequest([target], destination));
+            try
+            {
+                if (condition == "noResult")
+                {
+                    fixture.AwaitOwned(TestUiDispatcherHost.AwaitNotificationAsync(reached.Task, operation, "intercepted group notification"), "preparation reached the intercepted notification");
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.IsNull(library.DuplicateChartGroups, "結果が失効している前提");
+                    Assert.IsFalse(operation.IsCompleted, "準備は未完了の前提");
+                    Assert.AreEqual(before.Length, items.Count, "準備が未完了の間は項目を維持します。");
+                    for (int i = 0; i < before.Length; i++) { Assert.AreSame(before[i], items[i], "位置" + i); }
+                    release.Set();
+                }
+                fixture.AwaitOwned(operation, "real move and duplicate preparation terminal");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                if (condition == "noResult")
+                {
+                    Assert.IsNotNull(operation.Result.Failure, "結果を作らない準備の失敗が操作結果へ合成されます。");
+                    Assert.AreEqual(0, items.Count, "結果を作らずに終わった準備の後は項目を空にします。");
+                }
+                else
+                {
+                    Assert.IsNull(operation.Result.Failure, operation.Result.Failure?.ToString());
+                    List<DuplicateGroup> groups = library.DuplicateChartGroups ?? throw new AssertFailedException("準備が結果を作る前提");
+                    Assert.AreEqual(groups.Count, items.Count);
+                    for (int i = 0; i < groups.Count; i++) { Assert.AreSame(groups[i], items[i], "位置" + i); }
+                }
+                Assert.AreEqual(0, Volatile.Read(ref offUi), "コレクションの変更はUIスレッドだけで行います。");
+            }
+            finally { release.Set(); }
+        }, intercept, dialogs: dialogs);
+    }
+
     /// <summary>準備済み表示のUI配送を保留しても、実移動の仕上げは親Lで新しい解析と必要通知を完了します。非表示なら失効だけを残し、新規解析をBusyで拒んだ後も予約せず、次の明示表示で最新化します。</summary>
     [TestMethod]
     [DataRow(false)]
@@ -1076,10 +1155,10 @@ public sealed class RegularChartNavigationTests
                     if (args.NotificationBatch.CatalogCommits.Any(commit => commit.Changes.Any(change => change.After?.Path == added.Path
                             && change.After.Warnings.Any(warning => warning.Kind == ChartWarningKind.DuplicateChart)))) { warningApplied.TrySetResult(); }
                 };
-                PropertyChangedEventHandler groupChanged = (_, args) =>
+                // 合図は、UIで重複ツリーの項目に追加した譜面が現れたことの観測。
+                System.Collections.Specialized.NotifyCollectionChangedEventHandler groupChanged = (_, _) =>
                 {
-                    if (args.PropertyName == nameof(MaintenanceTreeViewModel.DuplicateChartGroups)
-                        && vm.MaintenanceTree.DuplicateChartGroups?.SelectMany(group => group.ChartFiles).Any(chart => chart.Path == added.Path) == true) { groupsApplied.TrySetResult(); }
+                    if (vm.MaintenanceTree.DuplicateTreeItems.SelectMany(group => group.ChartFiles).Any(chart => chart.Path == added.Path)) { groupsApplied.TrySetResult(); }
                 };
                 PropertyChangedEventHandler companion = (_, args) =>
                 { if (Volatile.Read(ref enabled) != 0 && args.PropertyName == nameof(BMSLibrary.DuplicateChartGroupsInvalidationVersion)) { companionConsumed.TrySetResult(); } };
@@ -1087,7 +1166,7 @@ public sealed class RegularChartNavigationTests
                 vm.MainChartList.AppliedColumnModeCommitted += modeApplied;
                 vm.PlaylistWorkspace.PropertyChanged += summaryChanged;
                 vm.RegularChartList.NormalLibraryRefreshApplied += applied;
-                vm.MaintenanceTree.PropertyChanged += groupChanged;
+                vm.MaintenanceTree.DuplicateTreeItems.CollectionChanged += groupChanged;
                 fixture.Library.PropertyChanged += companion;
                 var coordinator = Task.Run(async () =>
                 {
@@ -1268,7 +1347,7 @@ public sealed class RegularChartNavigationTests
                         vm.MainChartList.AppliedColumnModeCommitted -= modeApplied;
                         vm.PlaylistWorkspace.PropertyChanged -= summaryChanged;
                         vm.RegularChartList.NormalLibraryRefreshApplied -= applied;
-                        vm.MaintenanceTree.PropertyChanged -= groupChanged;
+                        vm.MaintenanceTree.DuplicateTreeItems.CollectionChanged -= groupChanged;
                         fixture.Library.PropertyChanged -= companion;
                     }
                 }
@@ -1372,15 +1451,14 @@ public sealed class RegularChartNavigationTests
             { if (args.NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged)) { sourceApplied.TrySetResult(args.NotificationBatch); } };
             PropertyChangedEventHandler delivered = (_, args) =>
             { if (args.PropertyName == nameof(BMSLibrary.DuplicateChartGroupsInvalidationVersion) && Volatile.Read(ref hold) != 0) { companionConsumed.TrySetResult(); } };
-            PropertyChangedEventHandler groups = (_, args) =>
+            System.Collections.Specialized.NotifyCollectionChangedEventHandler groups = (_, _) =>
             {
-                if (args.PropertyName == nameof(MaintenanceTreeViewModel.DuplicateChartGroups)
-                    && vm.MaintenanceTree.DuplicateChartGroups?.SelectMany(group => group.ChartFiles).Any(chart => chart.Path == added.Path) == true) { groupsApplied.TrySetResult(); }
+                if (vm.MaintenanceTree.DuplicateTreeItems.SelectMany(group => group.ChartFiles).Any(chart => chart.Path == added.Path)) { groupsApplied.TrySetResult(); }
             };
             vm.MainChartList.PropertyChanged += rowsChanged;
             vm.RegularChartList.NormalLibraryRefreshApplied += applied;
             fixture.Library.PropertyChanged += delivered;
-            vm.MaintenanceTree.PropertyChanged += groups;
+            vm.MaintenanceTree.DuplicateTreeItems.CollectionChanged += groups;
             var actions = new List<Task>();
             var coordinator = Task.Run(async () =>
             {
@@ -1478,7 +1556,7 @@ public sealed class RegularChartNavigationTests
                     vm.MainChartList.PropertyChanged -= rowsChanged;
                     vm.RegularChartList.NormalLibraryRefreshApplied -= applied;
                     fixture.Library.PropertyChanged -= delivered;
-                    vm.MaintenanceTree.PropertyChanged -= groups;
+                    vm.MaintenanceTree.DuplicateTreeItems.CollectionChanged -= groups;
                 }
             }
         }, publication, scheduler);

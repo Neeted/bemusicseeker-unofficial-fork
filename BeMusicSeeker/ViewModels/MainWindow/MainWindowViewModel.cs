@@ -2281,6 +2281,7 @@ public partial class MainWindowViewModel : ViewModel,
         InstallTree.PresentationChanged += InstallTreePresentationChanged;
         MaintenanceTree = childComposition.MaintenanceTree;
         MaintenanceTree.DuplicatePresentationChanged += MaintenanceTreeDuplicatePresentationChanged;
+        MaintenanceTree.DuplicatePreparationProvider = () => regularChartListOwner?.PrepareDuplicateDataAsync("duplicate_tree");
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         UpdateChartKeywordSearchContext();

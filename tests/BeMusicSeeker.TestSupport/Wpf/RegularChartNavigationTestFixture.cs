@@ -216,7 +216,7 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
     private readonly TaskCompletionSource groupsApplied = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource summaryReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly PropertyChangedEventHandler libraryChanged;
-    private readonly PropertyChangedEventHandler treeChanged;
+    private readonly System.Collections.Specialized.NotifyCollectionChangedEventHandler treeChanged;
     private readonly PropertyChangedEventHandler summaryChanged;
     private readonly PropertyChangedEventHandler rowsChanged;
     private readonly EventHandler rowsCanceled;
@@ -282,12 +282,9 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
         };
         Library.PropertyChanged += libraryChanged;
         if (beforeOwnerNotification != null) { Library.PropertyChanged += beforeOwnerNotification; }
-        treeChanged = (_, args) =>
-        {
-            if (args.PropertyName == nameof(MaintenanceTreeViewModel.DuplicateChartGroups) && Library.DuplicateChartGroups != null)
-            { groupsApplied.TrySetResult(); }
-        };
-        viewModel.MaintenanceTree.PropertyChanged += treeChanged;
+        // 合図は、UIで重複ツリーの項目の列が現在の結果と一致したことの観測（項目の変更はUIスレッドだけで起きる）。
+        treeChanged = (_, _) => SignalGroupsAppliedIfItemsMatch();
+        viewModel.MaintenanceTree.DuplicateTreeItems.CollectionChanged += treeChanged;
         summaryChanged = (_, _) =>
         {
             if (viewModel.PlaylistWorkspace.IsPlaylistSummaryMode
@@ -421,9 +418,17 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
         await drainPresentations().ConfigureAwait(false);
     }
 
+    private void SignalGroupsAppliedIfItemsMatch()
+    {
+        List<DuplicateGroup> groups = Library.DuplicateChartGroups;
+        if (groups != null && ViewModel.MaintenanceTree.DuplicateTreeItems.SequenceEqual(groups))
+        { groupsApplied.TrySetResult(); }
+    }
+
     /// <summary>解析の確定通知を保留したまま、グループ変更が実際にUIへ届いたことを確認します。</summary>
     internal void AwaitGroupsWhileGated()
     {
+        SignalGroupsAppliedIfItemsMatch();
         Task<bool> active = duplicate ?? throw new AssertFailedException("cold要求を開始していません。");
         Assert.IsFalse(active.IsCompleted, "groups受信は最初のAが未完了の間に確認します。");
         TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(groupsApplied.Task,
@@ -445,6 +450,7 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
         release.Set();
         AwaitOwned(AwaitReadyAsync(), "duplicate data and ready presentation terminals");
         if (duplicate != null) { AwaitNavigation(); }
+        SignalGroupsAppliedIfItemsMatch();
         TestUiDispatcherHost.AwaitTaskOnDispatcher(groupsApplied.Task, "duplicate groups actual UI notification");
         TestUiDispatcherHost.AwaitTaskOnDispatcher(ViewModel.RegularChartList.DeliverPendingLibraryChangesAsync(Library, CancellationToken.None),
             "duplicate necessary catalog delivery");
@@ -471,7 +477,7 @@ internal sealed class DuplicateNavigationTestFixture : IDisposable
         {
             Library.PropertyChanged -= libraryChanged;
             if (beforeOwnerNotification != null) { Library.PropertyChanged -= beforeOwnerNotification; }
-            ViewModel.MaintenanceTree.PropertyChanged -= treeChanged;
+            ViewModel.MaintenanceTree.DuplicateTreeItems.CollectionChanged -= treeChanged;
             ViewModel.PlaylistWorkspace.PropertyChanged -= summaryChanged;
             ViewModel.MainChartList.PropertyChanged -= rowsChanged;
             ViewModel.MainChartList.RowsReplacementCanceled -= rowsCanceled;

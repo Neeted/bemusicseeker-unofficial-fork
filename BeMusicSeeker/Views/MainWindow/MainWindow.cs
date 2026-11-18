@@ -6062,9 +6062,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             return;
         }
-        // グループの変更通知はワーカースレッドから届き、Bindingは反映をDispatcherへ予約して、その間の同スレッド通知を無視する。
-        // 結果の受取り時点ではツリーが旧結果のままの場合があるため、現在値を読み直す。後から届く反映は同じ参照なので再構築しない。
-        BindingOperations.GetBindingExpression(treeViewItemSearchDuplicated, ItemsControl.ItemsSourceProperty)?.UpdateTarget();
+        // グループの変更通知はワーカースレッドから届き、ツリー項目の同期はUIスレッドへ予約される。
+        // 結果の受取り時点ではツリーが旧結果のままの場合があるため、UIスレッド上でその時点の結果へ同期する。後から届く同期は同じ結果なので何も変えない。
+        viewModel.MaintenanceTree.SynchronizeDuplicateTreeItems();
         DuplicateGroup targetGroup = selection.ResolveGroup(viewModel.MaintenanceTree.DuplicateChartGroups);
         if (targetGroup == null)
         {

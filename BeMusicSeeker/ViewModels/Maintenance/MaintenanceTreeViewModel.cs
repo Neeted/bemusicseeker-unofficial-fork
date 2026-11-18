@@ -1,5 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using Livet;
 using Livet.EventListeners;
@@ -15,13 +18,42 @@ public sealed class MaintenanceTreeViewModel : ViewModel
 
     private PropertyChangedEventListener presentationStatePropertyChangedListener;
 
+    private readonly IUiScheduler uiScheduler;
+
+    private readonly ObservableCollection<DuplicateGroup> duplicateTreeItems = [];
+
+    private Task observedPreparation;
+
+    /// <summary>未接続の窓口です。項目の同期はその場で行います。</summary>
+    public MaintenanceTreeViewModel()
+    {
+    }
+
+    /// <param name="uiScheduler">項目の同期を実行するUIの窓口。未指定ならその場で同期します。</param>
+    internal MaintenanceTreeViewModel(IUiScheduler uiScheduler)
+    {
+        this.uiScheduler = uiScheduler;
+    }
+
     internal event EventHandler<MaintenanceTreeDuplicatePresentationChangedEventArgs> DuplicatePresentationChanged;
+
+    /// <summary>
+    /// 接続中ライブラリで開始済みの重複データ準備を返す窓口です。未完了のTaskが返る間は、結果が失効していても直前の項目を維持します。
+    /// 新しい解析は開始しません。未設定なら失効した結果は空として扱います。
+    /// </summary>
+    internal Func<Task> DuplicatePreparationProvider { get; set; }
 
     /// <summary>
     /// Gets the canonical duplicate-group collection exposed to the maintenance tree.
     /// </summary>
     public List<DuplicateGroup> DuplicateChartGroups
         => presentationState?.DuplicateChartGroups;
+
+    /// <summary>
+    /// 重複ツリーの項目です。コレクションのインスタンスは接続・解除・同期を通じて変えず、
+    /// 新しい結果にも含まれる同じグループの項目は除去・置換しないため、ツリーの展開状態を保ちます。変更はUIスレッドだけで行います。
+    /// </summary>
+    public ObservableCollection<DuplicateGroup> DuplicateTreeItems => duplicateTreeItems;
 
     /// <summary>
     /// Gets whether health maintenance initialization is still holding its write lock.
@@ -98,6 +130,7 @@ public sealed class MaintenanceTreeViewModel : ViewModel
                 RaisePropertyChanged(nameof(IsWriteLockHeldDuplicateChartGroups));
             });
         RaiseBusyStateProperties();
+        ApplyDuplicateGroupsPresentation();
         PublishDuplicatePresentationChanged("maintenance_tree_attached");
     }
 
@@ -125,15 +158,90 @@ public sealed class MaintenanceTreeViewModel : ViewModel
         }
         presentationState = null;
         RaiseBusyStateProperties();
+        ApplyDuplicateGroupsPresentation();
         PublishDuplicatePresentationChanged("maintenance_tree_detached");
     }
 
     /// <summary>
-    /// Applies the terminal duplicate-list notification after shell suppression decisions.
+    /// 更新抑制の判断後に、重複ツリーの項目を現在の結果へ同期します。通知はワーカースレッドから届き得るため、UIスレッドへ配送します。
     /// </summary>
     internal void ApplyDuplicateGroupsPresentation()
     {
-        RaisePropertyChanged(nameof(DuplicateChartGroups));
+        if (uiScheduler == null || uiScheduler.CanExecuteInline || uiScheduler.CheckAccess())
+        {
+            SynchronizeDuplicateTreeItems();
+            return;
+        }
+        uiScheduler.Schedule(SynchronizeDuplicateTreeItems);
+    }
+
+    /// <summary>
+    /// 重複ツリーの項目を、その時点の結果へ同期します。呼出し側がUIスレッドであることを保証します。
+    /// 結果が失効中でも、接続中ライブラリの重複データ準備が未完了なら直前の項目を維持し、準備の完了で再び同期します。
+    /// 準備が進行中でない失効と、ライブラリの解除では項目を空にします。
+    /// </summary>
+    internal void SynchronizeDuplicateTreeItems()
+    {
+        List<DuplicateGroup> groups = presentationState?.DuplicateChartGroups;
+        if (groups != null)
+        {
+            SynchronizeItems(groups);
+            return;
+        }
+        if (presentationState != null && TryGetActivePreparation(out Task preparation))
+        {
+            if (!ReferenceEquals(observedPreparation, preparation))
+            {
+                observedPreparation = preparation;
+                _ = preparation.ContinueWith(
+                    _ => ApplyDuplicateGroupsPresentation(),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+            }
+            return;
+        }
+        duplicateTreeItems.Clear();
+    }
+
+    private bool TryGetActivePreparation(out Task preparation)
+    {
+        preparation = DuplicatePreparationProvider?.Invoke();
+        return preparation != null && !preparation.IsCompleted;
+    }
+
+    /// <summary>
+    /// 結果に含まれない項目だけを除き、新しい項目を結果の位置へ挿入します。
+    /// 同じインスタンスの項目は除去・置換せず、位置が違う場合だけ移動します。Resetは使いません。
+    /// </summary>
+    private void SynchronizeItems(IReadOnlyList<DuplicateGroup> target)
+    {
+        var wanted = new HashSet<DuplicateGroup>(target);
+        for (int i = duplicateTreeItems.Count - 1; i >= 0; i--)
+        {
+            if (!wanted.Contains(duplicateTreeItems[i]))
+            {
+                duplicateTreeItems.RemoveAt(i);
+            }
+        }
+        var present = new HashSet<DuplicateGroup>(duplicateTreeItems);
+        for (int i = 0; i < target.Count; i++)
+        {
+            DuplicateGroup group = target[i];
+            if (i < duplicateTreeItems.Count && ReferenceEquals(duplicateTreeItems[i], group))
+            {
+                continue;
+            }
+            if (present.Contains(group))
+            {
+                duplicateTreeItems.Move(duplicateTreeItems.IndexOf(group), i);
+            }
+            else
+            {
+                duplicateTreeItems.Insert(i, group);
+                present.Add(group);
+            }
+        }
     }
 
     /// <summary>操作前の現在順序から次グループの所属を値で捕捉します。末尾や退役した入力には対象を返しません。</summary>
