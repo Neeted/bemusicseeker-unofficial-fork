@@ -1280,6 +1280,8 @@ When the source folder contains subfolders, the confirmation also shows the numb
 
 BMS / bmson and bundled resources are merged. Same-hash charts are deduplicated; different charts with the same filename are retained under adjusted names. The source folder is deleted when empty or containing only already-owned charts. It remains when unidentifiable files or similar items are left.
 
+The merge is not performed and the reason is shown when any of the following is a symbolic link or junction: the folder being merged away and the files and folders inside it, the folder to keep itself, or a file or folder in the folder to keep at the same position as one in the folder being merged away. Remove the link and try again.
+
 #### Continuous Cleanup with `Ctrl + G`
 
 > [!CAUTION]
@@ -1296,6 +1298,69 @@ For duplicate-hash cleanup inside the same folder, one file is kept for each has
 After a two-folder merge or cleanup within one folder, the next duplicate group is selected if one remains. After a merge involving three or more folders, selection returns to the same group heading. Using `Ctrl + G` while checking from top to bottom lets you organize many duplicates with relatively few operations.
 
 For failed moves or merges, see [File Moving or Merging Fails](#file-moving-or-merging-fails).
+
+#### Organize Multiple Groups from Merge Candidates
+
+> [!CAUTION]
+> `Organize selected groups` moves the files in every folder other than `KEEP` into the `KEEP` folder and deletes the source folders. This cannot be undone. For same-name audio, BGA, and other files with different content, only one remains according to [Smart Overwrite](#smart-overwrite). Review groups whose `STATUS` is `Caution` or `Unchecked` before organizing them.
+
+Selecting `Merge candidates` at the top of the duplicate-file-check tree shows duplicate groups as a list of folders. Each row is one folder, and rows of the same group share a background color. You can check whether merging several groups looks safe and then organize them together.
+
+| Column | Description |
+| --- | --- |
+| `SELECT` | Check mark for the groups to verify or organize. One per group. |
+| `STATUS` | Result of the safety check. Hover to see the reasons and the files involved. |
+| `KEEP` | The folder to keep. Choose one per group. The default is the folder with the most charts. |
+| `PATH` / `FOLDER` | Folder path and folder name. |
+| `TITLE` / `ARTIST` | Representative title and artist of the folder. |
+
+The basic steps are as follows.
+
+1. Press `Select all shown`, or check the target groups in `SELECT`.
+2. Press `Verify selected groups`. When verification finishes, only the `Safe` groups stay checked.
+3. Change `KEEP` if needed.
+4. Press `Organize selected groups`, review the confirmation dialog, and proceed.
+
+`Verify selected groups` only reads and compares the contents of each folder; it does not change any file. The result is shown in `STATUS`.
+
+| `STATUS` | Meaning |
+| --- | --- |
+| `Unchecked` | Not verified yet. |
+| `Safe` | Nothing was found that gets in the way of merging. `Safe (protected file name collision)` means that same-name `.bmx`, `.pmx`, or `.txt` files exist in more than one folder. |
+| `Caution` | The group can be merged, but there is something you may want to review. |
+| `Cannot merge` | The group cannot be organized. `SELECT` cannot be checked. |
+
+The reasons are as follows. `STATUS` shows the first reason, such as `Caution: files with different content`, and adds a count such as `and 1 more` when there are several.
+
+| Reason | Level | Description |
+| --- | --- | --- |
+| `parent directory reference` | `Caution` | A chart to be moved refers to audio or other files outside its folder with `..`. The reference may break after merging. |
+| `same audio name, different extension` | `Caution` | Audio files with the same name exist in different formats, such as `.wav` and `.ogg`, in different folders. Both remain after merging, and the audio used for playback may change. |
+| `files with different content` | `Caution` | Files with the same name have different content. The folders may be works that use different audio. |
+| `no identical files shared` | `Caution` | When folders that share a file with identical content are connected to each other, the folders in the group do not all connect and split into separate sets. Unrelated works may be mixed in. Folders that have no files other than charts and `.bmx`, `.pmx`, and `.txt` files are not considered. |
+| `chart folder inside` | `Caution` | A folder to be moved contains another folder with charts. That folder is moved as well. |
+| `contains a link` | `Cannot merge` | A folder contains a symbolic link or junction. |
+| `registered root` | `Cannot merge` | Two or more folders in the group are registered as BMS directories. When there is only one, that folder is fixed as `KEEP`. |
+| `nested folders` / `overlaps another group` | `Cannot merge` | Folders in the group, or a folder in another group, are in a parent-child relationship. |
+| `file/folder name conflict` | `Cannot merge` | The same name is a file in one folder and a folder in another. |
+| `unreadable items` | `Cannot merge` | Some items could not be checked because of permissions or read failures. Use `Verify this group` from the context menu to check again. |
+
+When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. For files larger than 192 KiB, only the beginning, middle, and end are read. Checking `Treat files with the same size and modified time as identical without reading them` skips reading those files and makes verification faster.
+
+> [!CAUTION]
+> Content comparison does not guarantee that whole files are identical. For files larger than 192 KiB, differences in the parts that are not read are not detected, and when `Treat files with the same size and modified time as identical without reading them` is checked, files with different content may be judged identical.
+
+`Organize selected groups` processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than `KEEP` is merged into the `KEEP` folder. Files are moved and overwritten by the same rules as [Merge Duplicate Folders](#merge-duplicate-folders). Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in [Continuous Cleanup with `Ctrl + G`](#continuous-cleanup-with-ctrl--g).
+
+A progress dialog is shown during processing, and other operations are unavailable. Pressing `Cancel` stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept.
+
+Other operations are as follows.
+
+- Filtering with the search box shows every row of a group when at least one row matches. You can use `path:`, `folder:`, `title:`, `artist:`, and `status:`. `Select all shown`, `Verify selected groups`, and `Organize selected groups` apply only to the shown groups.
+- Clicking a column header sorts by group. Rows inside a group are always in path order.
+- When you register folders with `Preferred destinations...` and confirm, for every group, a folder that is the same as or under one of them becomes `KEEP` when it is the only such folder in its group. The registered folders are kept until you close the application.
+- Double-clicking a row moves to that folder in the duplicate-file-check tree.
+- From the context menu, you can `Check`, `Uncheck`, or `Verify this group` for the groups of the selected rows, and `Open in Explorer` for the folders. The `Space` key also toggles the check mark.
 
 ### Full Resource Scan
 

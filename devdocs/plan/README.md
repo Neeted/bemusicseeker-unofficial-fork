@@ -4,7 +4,6 @@
 
 | 計画 | 内容 |
 | --- | --- |
-| [重複グループの統合候補一覧と一括整理](duplicate-merge-candidates.md) | 重複グループの安全性確認と一括整理、手動統合のリンク拒否。 |
 | [テスト基盤の残課題](test-platform-migration.md) | 追加速度目標、環境不足で未実行の条件、テスト側の改善候補。 |
 | [既知の課題・未採用の任意改善](release-follow-up-candidates.md) | 今回着手しない改善・検討項目。共有URLのBMTと標準偏差0のT-SCOREを含む。 |
 
