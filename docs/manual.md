@@ -1330,7 +1330,7 @@ The basic steps are as follows.
 | `Caution` | The group can be merged, but there is something you may want to review. |
 | `Cannot merge` | The group cannot be organized. `SELECT` cannot be checked. |
 
-The reasons are as follows. `STATUS` shows the first reason, such as `Caution: files with different content`, and adds a count such as `and 1 more` when there are several.
+The reasons are as follows. `STATUS` lists every applicable reason separated by commas, such as `Caution: parent directory reference, files with different content`.
 
 | Reason | Level | Description |
 | --- | --- | --- |
@@ -1345,10 +1345,10 @@ The reasons are as follows. `STATUS` shows the first reason, such as `Caution: f
 | `file/folder name conflict` | `Cannot merge` | The same name is a file in one folder and a folder in another. |
 | `unreadable items` | `Cannot merge` | Some items could not be checked because of permissions or read failures. Use `Verify this group` from the context menu to check again. |
 
-When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. For files larger than 192 KiB, only the beginning, middle, and end are read. Checking `Treat files with the same size and modified time as identical without reading them` skips reading those files and makes verification faster.
+When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. For files larger than 192 KiB, only the beginning, middle, and end are read. `Treat files with the same size and modified time as identical without reading them` is enabled by default; files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster. When you uncheck it, those files are also read and compared.
 
 > [!CAUTION]
-> Content comparison does not guarantee that whole files are identical. For files larger than 192 KiB, differences in the parts that are not read are not detected, and when `Treat files with the same size and modified time as identical without reading them` is checked, files with different content may be judged identical.
+> Content comparison does not guarantee that whole files are identical. For files larger than 192 KiB, differences in the parts that are not read are not detected, and while `Treat files with the same size and modified time as identical without reading them` is enabled, files with different content may be judged identical.
 
 `Organize selected groups` processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than `KEEP` is merged into the `KEEP` folder. Files are moved and overwritten by the same rules as [Merge Duplicate Folders](#merge-duplicate-folders). Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in [Continuous Cleanup with `Ctrl + G`](#continuous-cleanup-with-ctrl--g).
 
@@ -1356,11 +1356,11 @@ A progress dialog is shown during processing, and other operations are unavailab
 
 Other operations are as follows.
 
-- Filtering with the search box shows every row of a group when at least one row matches. You can use `path:`, `folder:`, `title:`, `artist:`, and `status:`. `Select all shown`, `Verify selected groups`, and `Organize selected groups` apply only to the shown groups.
+- Filtering with the search box shows every row of a group when at least one row matches. Entering a condition in the exclude box to its right removes every row of a group from the list when at least one row matches. Both accept `path:`, `folder:`, `title:`, `artist:`, and `status:`. `Select all shown`, `Verify selected groups`, and `Organize selected groups` apply only to the shown groups.
 - Clicking a column header sorts by group. Rows inside a group are always in path order.
 - When you register folders with `Preferred destinations...` and confirm, for every group, a folder that is the same as or under one of them becomes `KEEP` when it is the only such folder in its group. The registered folders are kept until you close the application.
 - Double-clicking a row moves to that folder in the duplicate-file-check tree.
-- From the context menu, you can `Check`, `Uncheck`, or `Verify this group` for the groups of the selected rows, and `Open in Explorer` for the folders. The `Space` key also toggles the check mark.
+- From the context menu, you can `Check`, `Uncheck`, or `Verify this group` for the groups of the selected rows, and `Open in Explorer` for the folders. The `Space` key also toggles the check mark. Clicking a `SELECT` or `STATUS` cell selects every row of that group.
 
 ### Full Resource Scan
 

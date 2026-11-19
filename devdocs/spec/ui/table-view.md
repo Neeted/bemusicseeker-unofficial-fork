@@ -267,7 +267,7 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 | 上下キー（現在セルが結合列） | 隣のグループへ移り、移動先のグループの全行を選ぶ。主行と現在セルは、方向によらず移動先のグループの先頭行。Shift付きは、基点と移動先を、それぞれのグループの境界まで広げ、基点を保つ（主行は広げた先のグループの先頭行）。先頭のグループの上と末尾のグループの下では動かず、通知しない。 |
 | 左右キーで結合列へ入る | 現在の行のグループを右クリックと同じ規則で選ぶ（全行が選択済みなら集合を保つ）。結合列から出るときは、選択・主行・基点を保ち、通知しない。 |
 
-結合列以外の操作セル（チェックボックス・ラジオボタン）の修飾なしのクリックは、提供元を持つ表では、押した行だけを選びます（結合列で選んだグループの全行を残しません）。結合列を右クリックして「エクスプローラで開く」を選ぶと、利用先の規則どおり、選択したグループの全フォルダが対象になります。Enterは主行で `RowActivated` を送ります。選択の通知は一入力につき一回で、変化がなければ送りません。
+結合列以外の操作セル（チェックボックス・ラジオボタンなど）の修飾なしのクリックは、提供元を持つ表では、押した行だけを選びます（結合列で選んだグループの全行を残しません）。結合列を右クリックして「エクスプローラで開く」を選ぶと、利用先の規則どおり、選択したグループの全フォルダが対象になります。Enterは主行で `RowActivated` を送ります。選択の通知は一入力につき一回で、変化がなければ送りません。
 
 #### チェックボックスとラジオボタン
 
@@ -1116,7 +1116,7 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 | 結合列のツールチップ・コピー・TSV | `CustomTableView.ResolveCellToolTip`・`UpdateCellToolTip`、`CustomTableDataTransfer` | 同クラスの `MergedColumn_TooltipCopyAndTsvUseTheValuesOfTheClickedRow` は、先頭でない行の値が出ることを確認する。`MergedColumnToolTip_StaysOpenInsideOneCellAndReopensForAnotherCell` は窓ありの枠組みで、マウスの移動が使う入口へ明示したヒットを渡し、同じ結合セルの中の移動で閉じず出し直さないこと、別のグループ・別の列で出し直すこと、内容、提供元のない表が行ごとであることを確認する。 |
 | UI Automationのトグル・選択・有効状態、結合列の値と編集不可、提供元のない表の不変 | `CustomTableView.Automation.cs` の `CustomTableCellAutomationPeer`、`CustomTableView.CanEditAutomationCell` | [`CustomTableAutomationPeerTests.RowGroupCells_ExposeToggleSelectionAndEnabledStateOfTheirOwnRow`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableAutomationPeerTests.cs) は先頭でない行のセルの値・トグル状態・選択状態・有効状態、操作後の要求の回数・行・列、無効のセル、提供元のない表の公開内容を確認する。 |
 | 問合せ回数と行の読取りがグループの大きさに依存しない | `CustomTableSurface.DrawRows` | [`CustomTablePhase6CacheTests.RowGroups_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) は20万行の中ほどで、グループの大きさ1,000と199,990の問合せ回数と行の読取り回数が等しく、結合列の値の取得が一回であることを確認する。 |
-| 結合列の選択でも問合せ回数と行の読取りがグループの大きさに依存しない、通知の選択行数、列挙しない | `CustomTableView.TryGetRowGroupSpan`・`MoveGroupSelection`、`CustomTableSelectionModel` の区間の操作 | `CustomTablePhase6CacheTests.RowGroupSelection_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize` は同じ20万行の入力で、クリック・Ctrl・Shift・再描画・通常の列から右で結合列へ入る操作・下の各操作について、問合せ回数と（移動を伴わない操作の）行の読取り回数が大きさによらず等しく少数であること、通知の選択行数がグループの大きさと等しいこと、行集合を列挙しないことを確認する。 |
+| 結合列の選択でも問合せ回数と行の読取りがグループの大きさに依存しない、通知の選択行数、列挙しない | `CustomTableView.TryGetRowGroupSpan`・`MoveGroupSelection`、`CustomTableSelectionModel` の区間の操作 | `CustomTablePhase6CacheTests.RowGroupSelection_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize` は同じ20万行の入力で、クリック・Ctrl・Shift・再描画・通常の列から右で結合列へ入る操作・下・Shift+上の各操作について、問合せ回数が大きさによらず等しく少数であること、行の読取り回数が等しいこと（先頭へ戻る距離が大きさで異なる Shift+上 だけは上限で確認する）、通知の選択行数がグループの大きさと等しいこと、行集合を列挙しないことを確認する。 |
 
 提供元を持たない表の不変は、既存の表示・操作・UI Automationのテストを変えずに通すことで確認します。
 
