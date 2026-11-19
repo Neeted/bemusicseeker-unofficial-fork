@@ -247,21 +247,40 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 | 値 | 値・チェック状態・ツールチップ・操作可否をグループ内の全行で一致させることは行の供給側の責任です。表は各行の値をそのまま使い、描画には表示中の範囲にあるそのグループの最初の行の値を使います。グループの先頭行が画面外でも、先頭行を別に読み込みません。 |
 | 罫線 | グループの内部の横罫線をその列には描かず、グループの下端の罫線は描きます。右の縦罫線は各行が描き、途切れません。他の列の罫線は行ごとのままです。 |
 | 内容 | 文字・チェックボックス・ラジオボタンを、グループの範囲のうち表示中の部分の縦中央に一度だけ描きます。グループの下端が見えるときは、下端の罫線を除いた範囲の中央です。先頭行が画面外のときも、グループが表示行数より大きいときも、最後の行が部分表示のときも同じです。 |
-| 背景と色 | 背景は行ごとの行背景（選択色を含む）のままです。列のセル背景の選択子は使いません。現在セルの強調は、当該行の部分だけに塗ります。内容の文字色は通常の前景色で、選択・現在セルでは反転しません。 |
-| 編集・キー | セル編集の対象外です。上下左右・Enter・F2などのキー操作は、行×列のまま変わりません。 |
+| 背景と色 | 行ごとの選択色は塗りません。グループの全行が選択済みのとき（画面外の行を含めて判定します）だけ、表示中の結合セル全体を選択色で塗り、行の境目に隙間を作りません。一部の行だけが選択されたグループの結合セルは、グループの交互色のままです。現在セルが結合列にあるときは、結合セル全体を現在セルの強調で塗ります。列のセル背景の選択子は使いません。警告行の背景は結合列では使いません。文字は、塗りの状態（現在セル、全選択）に応じた前景色（`CurrentCellForeground`、`SelectedForeground`）で描き、塗りと同じ色で消えません。色付きの区間は自身の色を使います。チェックボックスとラジオボタンの印の色は[印の色](#チェックボックスとラジオボタン)に従います。結合列以外の列は、行ごとに選択の背景と現在セルの強調を描きます。 |
+| 編集・キー | セル編集の対象外です。選択とキー操作は[結合列の選択](#結合列の選択)に従います。 |
 
-コピー・TSV・ツールチップは行×列のモデルを保ち、結合列でもクリックした行・選択した行の値を使います。
+コピー・TSV・ツールチップの内容は行×列のモデルを保ち、結合列でもクリックした行・選択した行の値を使います。結合列のツールチップは、グループの範囲全体で一つの当たり判定を持ちます。同じ結合セルの中で別の行へマウスを動かしても、閉じず出し直さず、同じツールチップを保ちます。別のグループの結合セルや別の列へ移ったときは出し直します。提供元を持たない表は行ごとに出し直します。
+
+#### 結合列の選択
+
+行グループの提供元を持つ表だけに適用します。提供元を持たない表と、結合列以外の列は、行単位の選択のままです。グループの全行の選択は、行を一件ずつ扱わず、一つの区間として行います。提供元への問合せはグループの端を求める数回だけで、問合せ回数と行の読取りは、グループの大きさに依存しません。通知のために主行以外の行を実体化しません。
+
+| 操作（結合列のセル） | 結果 |
+| --- | --- |
+| 通常クリック | 選択をそのグループの全行へ置き換える。主行・現在セル・範囲基点はクリックした行。マウスを離しても一行へ絞らない。 |
+| Ctrl+クリック | そのグループの全行が選択済みなら全行を外し、そうでなければ全行を加える。全行を外した場合の主行と現在セルは、通常のCtrlの解除と同じ規則（残りの末尾の行へ押した列を引き継ぎ、選択が空なら解除）。 |
+| Shift+クリック | 範囲の基点とクリックした行の両端を、それぞれの行のグループの境界まで広げて選ぶ。主行はクリックした行で、基点は保つ。 |
+| 右クリック | そのグループの全行が選択済みなら選択集合と基点を保ち、主行だけをクリックした行へ移す。そうでなければグループの全行へ置き換える。選択の通知が先で、その後にメニューを要求する。 |
+| チェックボックスのクリック | 修飾なしの単クリックは、操作の要求（`CellActionRequested`）を一度送り、選択は右クリックと同じ規則。ダブルクリックは要求二回で `RowActivated` を送らない。修飾キー付きは要求を送らず、Ctrl・Shiftの規則で選ぶ。 |
+| 文字セルのダブルクリック | クリックした行で `RowActivated` を一回送る。 |
+| 上下キー（現在セルが結合列） | 隣のグループへ移り、移動先のグループの全行を選ぶ。主行と現在セルは、方向によらず移動先のグループの先頭行。Shift付きは、基点と移動先を、それぞれのグループの境界まで広げ、基点を保つ（主行は広げた先のグループの先頭行）。先頭のグループの上と末尾のグループの下では動かず、通知しない。 |
+| 左右キーで結合列へ入る | 現在の行のグループを右クリックと同じ規則で選ぶ（全行が選択済みなら集合を保つ）。結合列から出るときは、選択・主行・基点を保ち、通知しない。 |
+
+結合列以外の操作セル（チェックボックス・ラジオボタン）の修飾なしのクリックは、提供元を持つ表では、押した行だけを選びます（結合列で選んだグループの全行を残しません）。結合列を右クリックして「エクスプローラで開く」を選ぶと、利用先の規則どおり、選択したグループの全フォルダが対象になります。Enterは主行で `RowActivated` を送ります。選択の通知は一入力につき一回で、変化がなければ送りません。
 
 #### チェックボックスとラジオボタン
 
 ラジオボタン（`CustomTableCellKind.RadioButton`）は、trueを選択済み（円の輪郭と中央の塗りの円）、falseを未選択（円の輪郭）で描き、nullは何も描きません。大きさと色はチェックボックスと同じパレットです。
+
+チェックボックスのチェックとラジオボタンの中央の塗りは、行の選択・現在セルかどうか、行グループの提供元の有無、結合列かどうかによらず、有効なら `CustomTablePalette.CheckBoxCheck`、無効なら `CheckBoxDisabledCheck` の色（印の色）で描きます。列の前景色と、行や現在セルの強調で使う文字色（選択時・現在セルの前景色）は印へ適用しません。ライト系のテーマで、セルを選んだときに印が背景と同化して消えないようにするためです。枠と内側の背景は従来どおりパレットの色です。
 
 列定義の `enabledSelector`（操作可否）がfalseを返す行では、チェックボックスとラジオボタンを同じ図形のまま、背景を塗らず、枠とチェック（ラジオボタンは中央の塗り）を無効色で描きます。無効色は `CustomTablePalette.CheckBoxDisabledBorder` と `CheckBoxDisabledCheck` で、テーマの `Table.SubtleTextBrush` から導きます。無効のセルのクリックは `CellActionRequested` を送りません。`enabledSelector` は、行グループの提供元の有無によらず、描画とクリックの判定に効きます。選択子のない列は常に操作できます。
 
 | 操作 | 提供元を持つ表 | 提供元を持たない表（現行の挙動） |
 | --- | --- | --- |
 | 当たり判定 | クリックした行のその列のセル全体。結合列では、図形の有無によらずグループ内のどの行のセルでも同じで、クリックした行と列を伴う。 | セル全体。 |
-| クリック | 操作できるセル（値が非nullで、操作可）で、押した行の `CellActionRequested` を一度送る。行の選択は通常のクリックと同じ規則で、クリックした行に作用する。複数行の選択中に操作できるセルを押しても、選択を押した行だけへ絞らない。 | 同じ。 |
+| クリック | 操作できるセル（値が非nullで、操作可）で、押した行の `CellActionRequested` を一度送る。修飾キー付きのクリックは要求を送らない。行の選択は、結合列では[結合列の選択](#結合列の選択)、結合列以外の列では押した行だけ（複数行の選択中でも押した行だけへ絞る）。 | `CellActionRequested` を一度送る（修飾キー付きは送らない）。行の選択は通常のクリックと同じ規則で、複数行の選択中に操作できるセルを押しても、選択を押した行だけへ絞らない。 |
 | ダブルクリック | 操作できるチェックボックス・ラジオボタンのセルは、二回目の押下も `CellActionRequested` を送り（合計二回）、`RowActivated` を送らない。無効または値なしのセルは、通常どおり `RowActivated` を送る。 | `CellActionRequested` 一回の後に `RowActivated`。 |
 | UI Automation | チェックボックスのセルは `Toggle`（ControlTypeはCheckBox）、ラジオボタンのセルは `SelectionItem`（ControlTypeはRadioButton）を公開する。操作は `CellActionRequested` を一度送り、値や選択を直接変えない。無効のセルは `IsEnabled=false` で、操作は `ElementNotEnabledException` になり要求を送らない。値なしのセルの操作は `InvalidOperationException` になる。ラジオボタンの `RemoveFromSelection` は `InvalidOperationException` になる。 | セルは `Value` だけを公開し、トグルを公開しない。 |
 
@@ -278,6 +297,8 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 | Shift+クリック | 範囲選択 |
 | 右クリック | 対象行を選択へ含めてメニューを要求する。選択済みの行なら、選択集合と範囲基点を保ち、主行だけを対象行へ移す。 |
 | 空白・スクロールバーの操作 | 選択と現在セルを変えない。 |
+
+[行グループの結合列](#結合列の選択)のセルは、上の規則をグループの全行を単位として適用します。
 
 画面の状態は `CustomTableSelectionModel` と双方向の `SelectedIndex` で同期します。
 
@@ -335,7 +356,7 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 
 | キー | 操作 |
 | --- | --- |
-| 上下 | 行の移動 |
+| 上下 | 行の移動。現在セルが行グループの結合列にあるときはグループの移動（[結合列の選択](#結合列の選択)） |
 | Enter | 現在行の操作 |
 | F2・文字入力 | 編集の開始 |
 | Ctrl+A | 全選択 |
@@ -354,7 +375,7 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 - 非表示の列を飛ばします。現在行に対応する現存の列の現在セルがなければ、右は先頭の列、左は末尾の列から始めます。古い行のセルは起点にせず、列・データの差替えを越えて現在の列を復元する状態は持ちません。
 - 端から外向きの左右は受理しますが、折り返しやスクロールをしません。端のセルが手動のスクロールで画面外にあっても再表示しません。
 - 未選択・0行・0表示列では受理せず、現在セルとスクロールを変えません。
-- 行の選択集合・主行・`SelectedIndex`・範囲基点を保ち、`SelectionChanged` を送りません。
+- 行の選択集合・主行・`SelectedIndex`・範囲基点を保ち、`SelectionChanged` を送りません。ただし行グループの結合列へ入るときは、[結合列の選択](#結合列の選択)に従い、そのグループを選びます。
 
 上下・Shift+上下は行の選択を行い、移動前の列が現存すればその列を引き継ぎ、なければ先頭の表示列へ戻ります。0表示列では現在セルを設定しません。手動のスクロールでは現在セルの識別を保ち、次の左右の起点にします。実際に別の列へ移る場合は現在行も可視範囲へ戻します。描画・単一セルのコピー・F2と文字入力による編集は同じ現在セルを参照します。
 
@@ -1085,12 +1106,17 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
 | グループの序数による交互背景、選択・警告の優先、スクロール後 | `ICustomTableRowGroupSource`、`CustomTableSurface.DrawRows` | [`CustomTableRenderingTests.RowGroups_AlternateBackgroundByGroupOrdinalWithSelectionAndWarningPriority`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableRenderingTests.cs) は大きさ [2,1,3,2,1,3,2,1,3] で行番号と序数の偶奇が食い違う行の背景と、選択・警告の優先を、先頭行0・2・5の各スクロール位置で確認する。 |
-| 結合列は一グループ一セル（内部罫線なし、下端罫線あり、内容は表示中の部分の縦中央に一度、背景は行ごと、強調は当該行だけ） | `CustomTableColumn.MergesRowGroup`、`CustomTableSurface.DrawMergedCells`・`FillRowBottomBorder`・`DrawRowCells` | 同クラスの `RowGroups_MergedColumnsDrawOneCellPerGroupCenteredOnTheVisiblePart` は倍率1.0と1.25で、罫線の有無、文字とチェックボックスの縦中央（±1画素）、先頭行が画面外・1000行のグループの中ほど・最後の行が部分表示の各場合、選択と現在セルの強調と文字色を確認する。 |
-| ラジオボタンの図形、無効色 | `CustomTableSurface.DrawRadioButton`・`DrawCheckBox`、`CustomTablePalette.CheckBoxDisabledBorder`・`CheckBoxDisabledCheck` | 同クラスの `Icons_AreDrawnPerKindInsideTheCell` は、既存の表明に加え、ラジオボタンの true・false・null の図形、チェックボックスとの形の違いと大きさ、無効のチェックボックス・ラジオボタンが有効時と異なる画素で前景色を使わないことを確認する。 |
-| クリック・ダブルクリック、当たり判定、行の選択、提供元のない表の対照 | `CustomTableView.HandleCellMouseDown`・`IsActionCell` | [`CustomTableNavigationTests.ActionCells_ClickAndDoubleClickFollowTheRowGroupContract`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableNavigationTests.cs) はデータ駆動で、結合列の先頭でない行のクリックとダブルクリックの要求の行・列・回数、`RowActivated`、選択、無効・値なしのセル、提供元のないチェックボックス列（要求の後に `RowActivated`）を確認する。 |
-| 結合列のツールチップ・コピー・TSV | `CustomTableView.ResolveCellToolTip`、`CustomTableDataTransfer` | 同クラスの `MergedColumn_TooltipCopyAndTsvUseTheValuesOfTheClickedRow` は、先頭でない行の値が出ることを確認する。 |
+| 結合列は一グループ一セル（内部罫線なし、下端罫線あり、内容は表示中の部分の縦中央に一度） | `CustomTableColumn.MergesRowGroup`、`CustomTableSurface.DrawMergedCells`・`FillRowBottomBorder`・`DrawRowCells` | 同クラスの `RowGroups_MergedColumnsDrawOneCellPerGroupCenteredOnTheVisiblePart` は倍率1.0と1.25で、罫線の有無、文字とチェックボックスの縦中央（±1画素）、先頭行が画面外・1000行のグループの中ほど・最後の行が部分表示の各場合を確認する。 |
+| 結合セルの選択・現在セルの強調（全選択のときだけ結合セル全体を選択色、一部選択は交互色、現在セルは結合セル全体、画面外の行を含む全選択の判定、行の境目の隙間なし、罫線の保持、文字が消えない） | `CustomTableSurface.DrawRows`・`DrawMergedCells`、`CustomTableView.IsRowSpanSelected`・`GetCurrentCellColumnInRange` | `CustomTableRenderingTests.MergedColumns_PaintSelectionAndCurrentCellOverTheWholeMergedCell` は倍率1.0と1.25で、全選択で現在セルが結合列以外、一部選択、先頭行が画面外のまま表示中の行だけを選んだ場合（塗らない）と画面外を含め全行を選んだ場合（塗る）、全選択・一部選択で現在セルが結合列の各場面について、結合列の全画素の色、下端の罫線と右の縦罫線、通常の列の行ごとの色、文字の色を確認する。 |
+| ラジオボタンの図形、無効色 | `CustomTableSurface.DrawRadioButton`・`DrawCheckBox`、`CustomTablePalette.CheckBoxDisabledBorder`・`CheckBoxDisabledCheck` | 同クラスの `Icons_AreDrawnPerKindInsideTheCell` は、既存の表明に加え、ラジオボタンの true・false・null の図形、チェックボックスとの形の違いと大きさ、オンのチェックと選択済みラジオボタンの中央がパレットのチェックの色（列の前景色ではない）であること、無効のチェックボックス・ラジオボタンが有効時と異なる画素で無効色を使うことを確認する。 |
+| 印の色（行の選択・現在セルでも変わらない、結合列を含む、提供元の有無によらない） | `CustomTableSurface.ResolveCheckMark` | `CustomTableRenderingTests.CheckAndRadioMarks_UseThePaletteColorInEverySelectionState` は提供元の有無と有効・無効を切り替え、未選択・行の選択・現在セルで、ラジオボタンの中心画素と印の画素がパレットの色で、枠の内側が未選択と画素単位で一致することを、選択時・現在セルの文字色が印の色と異なる前提とともに確認する。 |
+| クリック・ダブルクリック、当たり判定、行の選択、提供元のない表の対照 | `CustomTableView.HandleCellMouseDown`・`IsActionCell` | [`CustomTableNavigationTests.ActionCells_ClickAndDoubleClickFollowTheRowGroupContract`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableNavigationTests.cs) はデータ駆動で、結合列の先頭でない行のクリックとダブルクリックの要求の行・列・回数、`RowActivated`、選択（結合列はグループの全行、主行はクリックした行）、無効・値なしのセル、提供元のないチェックボックス列（要求の後に `RowActivated`）を確認する。 |
+| 結合列のクリックの選択（置換・Ctrl・Shift・右クリック・チェックボックスの単クリックとダブルクリックと修飾付き・文字セルのダブルクリック・マウスを離しても絞らない、結合列以外と提供元のない表の行単位、操作セルの選択） | `CustomTableView.HandleCellMouseDown`・`ApplyMouseSelection`・`ApplyMergedColumnMouseSelection`・`SelectGroupAlignedRange`、`CustomTableSelectionModel` の区間の操作 | `CustomTableNavigationTests.MergedColumnClicks_SelectWholeGroupsAndOtherColumnsStayRowWise` は、グループ [2,4,2] で、選択された行、選択の通知の回数と値、操作の要求、`RowActivated`、メニュー要求の順序を操作ごとに確認する。`CustomTableSelectionModelTests.SpanOperations_MergeSplitAndReportChangesAsIntervals` は区間の置換・併合・重なり・分割・全選択の判定・変化の有無を確認する。統合候補一覧での接続は `MainWindowDuplicateCandidateListWpfTests.CandidateList_CellsKeyMenuAndToolbarActOnGroupsAndExplorerOpensExistingFoldersOnce` が、SELECTのクリック後はグループの全行、KEEPのクリック後はその行だけであることを確認する。 |
+| 結合列のキー操作（上下、Shift+上下、端、左右で結合列へ入る・出る、結合列以外は行単位、Enter） | `CustomTableView.MoveKeyboardSelection`・`MoveGroupSelection`・`MoveCurrentCellHorizontally` | `CustomTableNavigationTests.MergedColumnKeys_MoveAndExtendByGroupAndOtherColumnsStayRowWise` が、移動先の主行・現在セル・通知・端の無通知・Enterの行を確認する。 |
+| 結合列のツールチップ・コピー・TSV | `CustomTableView.ResolveCellToolTip`・`UpdateCellToolTip`、`CustomTableDataTransfer` | 同クラスの `MergedColumn_TooltipCopyAndTsvUseTheValuesOfTheClickedRow` は、先頭でない行の値が出ることを確認する。`MergedColumnToolTip_StaysOpenInsideOneCellAndReopensForAnotherCell` は窓ありの枠組みで、マウスの移動が使う入口へ明示したヒットを渡し、同じ結合セルの中の移動で閉じず出し直さないこと、別のグループ・別の列で出し直すこと、内容、提供元のない表が行ごとであることを確認する。 |
 | UI Automationのトグル・選択・有効状態、結合列の値と編集不可、提供元のない表の不変 | `CustomTableView.Automation.cs` の `CustomTableCellAutomationPeer`、`CustomTableView.CanEditAutomationCell` | [`CustomTableAutomationPeerTests.RowGroupCells_ExposeToggleSelectionAndEnabledStateOfTheirOwnRow`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableAutomationPeerTests.cs) は先頭でない行のセルの値・トグル状態・選択状態・有効状態、操作後の要求の回数・行・列、無効のセル、提供元のない表の公開内容を確認する。 |
 | 問合せ回数と行の読取りがグループの大きさに依存しない | `CustomTableSurface.DrawRows` | [`CustomTablePhase6CacheTests.RowGroups_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) は20万行の中ほどで、グループの大きさ1,000と199,990の問合せ回数と行の読取り回数が等しく、結合列の値の取得が一回であることを確認する。 |
+| 結合列の選択でも問合せ回数と行の読取りがグループの大きさに依存しない、通知の選択行数、列挙しない | `CustomTableView.TryGetRowGroupSpan`・`MoveGroupSelection`、`CustomTableSelectionModel` の区間の操作 | `CustomTablePhase6CacheTests.RowGroupSelection_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize` は同じ20万行の入力で、クリック・Ctrl・Shift・再描画・通常の列から右で結合列へ入る操作・下の各操作について、問合せ回数と（移動を伴わない操作の）行の読取り回数が大きさによらず等しく少数であること、通知の選択行数がグループの大きさと等しいこと、行集合を列挙しないことを確認する。 |
 
 提供元を持たない表の不変は、既存の表示・操作・UI Automationのテストを変えずに通すことで確認します。
 

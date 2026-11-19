@@ -484,6 +484,91 @@ public sealed class CustomTableSelectionModelTests
         return (isSelected, isToggledOut, shrunk, model.SelectedCount);
     }
 
+    /// <summary>
+    /// 区間の選択（グループ単位の選択に使う）が、行を一件ずつ扱わず区間として、置換・併合・重なり・隣接・分割・全選択の判定ができ、
+    /// 集合と主行の変化の有無を正しく返すことを確認します。同じ区間・主行の反復は変化なしで、範囲外は選択を解除します。
+    /// </summary>
+    /// <remarks>
+    /// 隣接する区間を併合せず選択数が重複する誤り、重なる区間で選択数を二重に数える誤り、区間の途中を外したときに両側を残さない誤り、
+    /// 同じ入力の反復を変化として返す誤り、全選択の判定を区間の途中までで済ませる誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void SpanOperations_MergeSplitAndReportChangesAsIntervals()
+    {
+        CustomTableSelectionModel model = CreateModel(20);
+
+        Assert.IsTrue(model.SelectSpan(2, 5, 3, 3));
+        AssertSelection(model, 20, 2, 3, 4, 5);
+        Assert.AreEqual(3, model.CurrentIndex);
+        Assert.AreEqual(3, model.AnchorIndex);
+        Assert.IsFalse(model.SelectSpan(2, 5, 3, 3), "同じ区間・主行の反復は変化なし");
+        Assert.IsTrue(model.SelectSpan(2, 5, 4, 4), "区間が同じでも主行が移れば変化");
+        Assert.IsTrue(model.IsSpanSelected(2, 5));
+        Assert.IsTrue(model.IsSpanSelected(3, 4));
+        Assert.IsFalse(model.IsSpanSelected(2, 6), "一行でも欠ければ全選択ではない");
+        Assert.IsFalse(model.IsSpanSelected(1, 5));
+        Assert.IsFalse(model.IsSpanSelected(5, 2), "逆順の区間は選択済みと見なさない");
+        Assert.IsFalse(model.IsSpanSelected(-1, 3));
+        Assert.IsFalse(model.IsSpanSelected(18, 20));
+
+        // 併合: 隣接・重なり・離れた区間。
+        Assert.IsTrue(model.AddSpan(6, 8, 7));
+        AssertSelection(model, 20, 2, 3, 4, 5, 6, 7, 8);
+        Assert.IsTrue(model.IsSpanSelected(2, 8), "隣接する区間は一つへ併合される");
+        Assert.IsTrue(model.AddSpan(12, 14, 13));
+        AssertSelection(model, 20, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14);
+        Assert.IsFalse(model.IsSpanSelected(2, 14));
+        Assert.IsTrue(model.AddSpan(7, 12, 9), "二つの区間にまたがる重なり");
+        AssertSelection(model, 20, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+        Assert.AreEqual(13, model.SelectedCount);
+        Assert.IsTrue(model.IsSpanSelected(2, 14));
+        Assert.IsFalse(model.AddSpan(3, 4, 9), "選択済みの区間を同じ主行で加えても変化なし");
+        Assert.IsTrue(model.AddSpan(3, 4, 4), "選択済みでも主行が移れば変化");
+        Assert.AreEqual(4, model.AnchorIndex);
+
+        // 分割: 区間の途中・端・全体を外す。
+        Assert.IsTrue(model.RemoveSpan(5, 8, 6));
+        AssertSelection(model, 20, 2, 3, 4, 9, 10, 11, 12, 13, 14);
+        Assert.AreEqual(14, model.CurrentIndex, "外した後の主行は、残りの末尾の行（Toggleと同じ規則）");
+        Assert.AreEqual(6, model.AnchorIndex);
+        Assert.IsTrue(model.RemoveSpan(0, 2, 2), "先頭の端を外す");
+        AssertSelection(model, 20, 3, 4, 9, 10, 11, 12, 13, 14);
+        Assert.IsTrue(model.RemoveSpan(13, 19, 13), "末尾の端を外す");
+        AssertSelection(model, 20, 3, 4, 9, 10, 11, 12);
+        Assert.IsFalse(model.RemoveSpan(6, 7, 6), "選択がない区間を外しても変化なし");
+        Assert.IsTrue(model.RemoveSpan(0, 19, 0));
+        AssertSelection(model, 20);
+        Assert.AreEqual(-1, model.CurrentIndex, "全て外れたら主行も解除");
+
+        // 範囲基点を保つ区間の選択と、右クリックと同じ規則。
+        model.SelectSingle(3);
+        Assert.IsTrue(model.SelectSpanKeepingAnchor(3, 9, 9));
+        Assert.AreEqual(3, model.AnchorIndex, "基点は保つ");
+        Assert.AreEqual(9, model.CurrentIndex);
+        Assert.IsFalse(model.SelectSpanKeepingAnchor(3, 9, 9));
+        model.Clear();
+        Assert.IsTrue(model.SelectSpanKeepingAnchor(4, 6, 5));
+        Assert.AreEqual(5, model.AnchorIndex, "基点がなければ主行を基点にする");
+
+        Assert.IsTrue(model.SelectSpan(10, 13, 10, 10));
+        Assert.IsFalse(model.SelectSpanForRightClick(10, 13, 10), "全選択済み・同じ主行は変化なし");
+        Assert.IsTrue(model.SelectSpanForRightClick(10, 13, 12), "全選択済みなら集合を保ち主行だけ移る");
+        AssertSelection(model, 20, 10, 11, 12, 13);
+        Assert.AreEqual(10, model.AnchorIndex, "集合を保つときは基点も保つ");
+        Assert.IsTrue(model.AddSpan(16, 17, 16));
+        Assert.IsTrue(model.SelectSpanForRightClick(10, 13, 11), "他の選択があっても、全選択済みなら集合（他の選択を含む）を保つ");
+        AssertSelection(model, 20, 10, 11, 12, 13, 16, 17);
+        Assert.IsTrue(model.SelectSpanForRightClick(14, 15, 14), "全選択でなければ区間へ置き換える");
+        AssertSelection(model, 20, 14, 15);
+        Assert.AreEqual(14, model.AnchorIndex);
+
+        // 範囲外は解除する。
+        Assert.IsTrue(model.SelectSpan(-1, 3, 0, 0));
+        AssertSelection(model, 20);
+        Assert.IsFalse(model.SelectSpan(5, 25, 5, 5), "範囲外を含む区間は選択を解除する（変化なし）");
+        Assert.IsFalse(model.AddSpan(5, 25, 5));
+    }
+
     /// <summary>列挙・件数・範囲前後の添字を含む判定が、期待する集合と一致することを確認します。</summary>
     private static void AssertSelection(CustomTableSelectionModel model, int itemCount, params int[] expected)
     {

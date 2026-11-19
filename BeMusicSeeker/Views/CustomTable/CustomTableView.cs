@@ -720,6 +720,20 @@ public sealed partial class CustomTableView : Grid
         return selectionModel.IsSelected(rowIndex);
     }
 
+    /// <summary>行番号の範囲 [<paramref name="firstRowIndex"/>, <paramref name="endRowIndex"/>) の全行が選択済みかを返します。画面外の行も含め、区間として判定します。</summary>
+    internal bool IsRowSpanSelected(int firstRowIndex, int endRowIndex)
+    {
+        return selectionModel.IsSpanSelected(firstRowIndex, endRowIndex - 1);
+    }
+
+    /// <summary>現在セルの行が行番号の範囲 [<paramref name="firstRowIndex"/>, <paramref name="endRowIndex"/>) にあれば、その列を返します。なければnullです。</summary>
+    internal CustomTableColumn GetCurrentCellColumnInRange(int firstRowIndex, int endRowIndex)
+    {
+        return currentCellHit?.Kind == CustomTableHitKind.Cell && currentCellHit.RowIndex >= firstRowIndex && currentCellHit.RowIndex < endRowIndex
+            ? currentCellHit.Column
+            : null;
+    }
+
     /// <summary>指定位置の行に属する現在セルの列を返します。</summary>
     internal CustomTableColumn GetCurrentCellColumn(int rowIndex)
     {
@@ -1676,7 +1690,10 @@ public sealed partial class CustomTableView : Grid
         if (button == MouseButton.Right)
         {
             Focus();
-            bool changed = selectionModel.SelectForRightClick(hit.RowIndex);
+            selectionModel.SetItemCount(RowCount);
+            bool changed = TryGetRowGroupSpan(hit.Column, hit.RowIndex, out int groupFirst, out int groupLast)
+                ? selectionModel.SelectSpanForRightClick(groupFirst, groupLast, hit.RowIndex)
+                : selectionModel.SelectForRightClick(hit.RowIndex);
             currentCellHit = hit;
             UpdateSelectedIndexFromSelectionModel();
             if (changed)
@@ -1691,14 +1708,25 @@ public sealed partial class CustomTableView : Grid
         {
             bool plainSingleClick = clickCount == 1
                 && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            // 結合列のクリックはグループの全行を選ぶため、マウスを離したときに一行へ絞らない。
             bool delaySingleSelectionUntilMouseUp = plainSingleClick
+                && !IsMergedColumn(hit.Column)
                 && selectionModel.SelectedCount > 1
                 && selectionModel.IsSelected(hit.RowIndex);
             bool shouldBeginEditOnRepeatClick = clickCount == 1
                 && IsSameEditableCell(currentCellHit, hit)
                 && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
             currentCellHit = hit;
-            bool changed = ApplyMouseSelection(hit.RowIndex, modifiers);
+            // 行グループの提供元を持つ表では、操作できるチェックボックス・ラジオボタンのダブルクリックを、
+            // 二回目の押下も操作として扱い、行の起動（RowActivated）にしない。提供元のない表は、従来どおり二回目の押下で行を起動する。
+            bool repeatableAction = RowGroupSource != null
+                && hit.Column?.CellKind is CustomTableCellKind.CheckBox or CustomTableCellKind.RadioButton;
+            bool actionClick = (clickCount == 1 || (clickCount >= 2 && repeatableAction))
+                && IsActionCell(hit)
+                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None;
+            // 行グループの提供元を持つ表の操作セルは、ドラッグの起点にならないため、複数選択の中の行でも押した行だけを即座に選ぶ。
+            // 結合列のクリックでグループの全行を選んだ後に、結合列でない操作セル（KEEP）を押したとき、全行の選択が残らないようにするためです。
+            bool changed = ApplyMouseSelection(hit, modifiers, narrowToClickedRow: actionClick && RowGroupSource != null);
             if (changed)
             {
                 RaiseSelectionChanged();
@@ -1706,13 +1734,7 @@ public sealed partial class CustomTableView : Grid
             rowDragStartPoint = clickCount == 1 ? dragStartPoint : null;
             rowDragStartHit = clickCount == 1 ? hit : null;
             pendingSingleSelectionOnMouseUpRowIndex = delaySingleSelectionUntilMouseUp ? hit.RowIndex : -1;
-            // 行グループの提供元を持つ表では、操作できるチェックボックス・ラジオボタンのダブルクリックを、
-            // 二回目の押下も操作として扱い、行の起動（RowActivated）にしない。提供元のない表は、従来どおり二回目の押下で行を起動する。
-            bool repeatableAction = RowGroupSource != null
-                && hit.Column?.CellKind is CustomTableCellKind.CheckBox or CustomTableCellKind.RadioButton;
-            if ((clickCount == 1 || (clickCount >= 2 && repeatableAction))
-                && IsActionCell(hit)
-                && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
+            if (actionClick)
             {
                 ClearDragState();
                 CellActionRequested?.Invoke(this, new CustomTableCellActionRequestedEventArgs(hit));
@@ -2017,14 +2039,25 @@ public sealed partial class CustomTableView : Grid
         }
     }
 
-    private bool ApplyMouseSelection(int rowIndex, ModifierKeys modifiers)
+    private bool ApplyMouseSelection(CustomTableHitTestResult hit, ModifierKeys modifiers, bool narrowToClickedRow)
     {
+        int rowIndex = hit.RowIndex;
         selectionModel.SetItemCount(RowCount);
-        bool changed = (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift
-            ? selectionModel.SelectRange(rowIndex)
-            : (modifiers & ModifierKeys.Control) == ModifierKeys.Control
-                ? selectionModel.Toggle(rowIndex)
-                : selectionModel.SelectForLeftMouseDownDragCandidate(rowIndex);
+        bool changed;
+        if (TryGetRowGroupSpan(hit.Column, rowIndex, out int groupFirst, out int groupLast))
+        {
+            changed = ApplyMergedColumnMouseSelection(hit, modifiers, groupFirst, groupLast);
+        }
+        else
+        {
+            changed = (modifiers & ModifierKeys.Shift) == ModifierKeys.Shift
+                ? selectionModel.SelectRange(rowIndex)
+                : (modifiers & ModifierKeys.Control) == ModifierKeys.Control
+                    ? selectionModel.Toggle(rowIndex)
+                    : narrowToClickedRow
+                        ? selectionModel.SelectSingle(rowIndex)
+                        : selectionModel.SelectForLeftMouseDownDragCandidate(rowIndex);
+        }
         UpdateSelectedIndexFromSelectionModel();
         int currentRowIndex = selectionModel.CurrentIndex;
         if (currentRowIndex != rowIndex)
@@ -2035,6 +2068,76 @@ public sealed partial class CustomTableView : Grid
         }
         RequestSelectionRedraw();
         return changed;
+    }
+
+    /// <summary>
+    /// 結合列の左クリックの選択を、行グループの全行を単位として決めます。修飾なしはグループの全行へ置き換え、Ctrlは全行が選択済みなら全行を外してそうでなければ全行を加え、
+    /// Shiftは範囲の基点とクリックした行の両端を、それぞれのグループの境界まで広げます。
+    /// 操作できるチェックボックス・ラジオボタンの修飾なしのクリックだけは右クリックと同じ規則で、全行が選択済みなら選択集合を保ちます。
+    /// </summary>
+    private bool ApplyMergedColumnMouseSelection(CustomTableHitTestResult hit, ModifierKeys modifiers, int groupFirst, int groupLast)
+    {
+        int rowIndex = hit.RowIndex;
+        if ((modifiers & ModifierKeys.Shift) == ModifierKeys.Shift)
+        {
+            int anchor = selectionModel.AnchorIndex >= 0 && selectionModel.AnchorIndex < RowCount ? selectionModel.AnchorIndex : rowIndex;
+            return SelectGroupAlignedRange(Math.Min(anchor, rowIndex), Math.Max(anchor, rowIndex), rowIndex);
+        }
+        if ((modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+        {
+            return selectionModel.IsSpanSelected(groupFirst, groupLast)
+                ? selectionModel.RemoveSpan(groupFirst, groupLast, rowIndex)
+                : selectionModel.AddSpan(groupFirst, groupLast, rowIndex);
+        }
+        bool toggleKind = hit.Column.CellKind is CustomTableCellKind.CheckBox or CustomTableCellKind.RadioButton;
+        return toggleKind && IsActionCell(hit)
+            ? selectionModel.SelectSpanForRightClick(groupFirst, groupLast, rowIndex)
+            : selectionModel.SelectSpan(groupFirst, groupLast, rowIndex, rowIndex);
+    }
+
+    /// <summary>
+    /// 行番号 <paramref name="lowRow"/> から <paramref name="highRow"/> までの範囲を、両端がそれぞれの行のグループの境界になるよう広げて選び、
+    /// 主行を <paramref name="currentRow"/> にします。範囲の基点は保ちます。
+    /// </summary>
+    private bool SelectGroupAlignedRange(int lowRow, int highRow, int currentRow)
+    {
+        TryGetRowGroupSpan(lowRow, out int start, out int lowGroupLast);
+        int end = lowGroupLast;
+        if (highRow > lowGroupLast)
+        {
+            TryGetRowGroupSpan(highRow, out _, out end);
+        }
+        return selectionModel.SelectSpanKeepingAnchor(start, end, currentRow);
+    }
+
+    /// <summary>
+    /// 列が行グループの結合列なら、行が属するグループの両端を含む行番号の範囲を返します。提供元のない表と、結合列以外の列はfalseです。
+    /// 提供元への問合せは一回だけで、グループの行を走査しません。
+    /// </summary>
+    private bool TryGetRowGroupSpan(CustomTableColumn column, int rowIndex, out int first, out int last)
+    {
+        if (!IsMergedColumn(column))
+        {
+            first = last = -1;
+            return false;
+        }
+        return TryGetRowGroupSpan(rowIndex, out first, out last);
+    }
+
+    /// <summary>行が属するグループの、両端を含む行番号の範囲を返します。提供元のない表と範囲外の行はfalseです。表の行数の範囲へ収めます。</summary>
+    private bool TryGetRowGroupSpan(int rowIndex, out int first, out int last)
+    {
+        first = last = -1;
+        ICustomTableRowGroupSource groups = RowGroupSource;
+        int rowCount = RowCount;
+        if (groups == null || rowIndex < 0 || rowIndex >= rowCount)
+        {
+            return false;
+        }
+        CustomTableRowGroup group = groups.GetRowGroup(rowIndex);
+        first = Math.Max(0, Math.Min(group.FirstRowIndex, rowIndex));
+        last = Math.Min(rowCount - 1, Math.Max(group.EndRowIndex - 1, rowIndex));
+        return true;
     }
 
     private bool CommitPendingSingleSelectionOnMouseUp()
@@ -2080,7 +2183,9 @@ public sealed partial class CustomTableView : Grid
     private bool MoveKeyboardSelection(int delta, bool extendRange)
     {
         selectionModel.SetItemCount(RowCount);
-        bool changed = extendRange ? selectionModel.ExtendRangeBy(delta) : selectionModel.MoveCurrent(delta);
+        bool changed = IsCurrentCellInMergedColumn()
+            ? MoveGroupSelection(delta, extendRange)
+            : extendRange ? selectionModel.ExtendRangeBy(delta) : selectionModel.MoveCurrent(delta);
         UpdateSelectedIndexFromSelectionModel();
         EnsureRowVisible(selectionModel.CurrentIndex);
         EnsureCurrentCellForCurrentRow();
@@ -2090,6 +2195,37 @@ public sealed partial class CustomTableView : Grid
         }
         RequestSelectionRedraw();
         return RowCount > 0;
+    }
+
+    /// <summary>現在セルが、行グループの結合列にあるかを返します。</summary>
+    private bool IsCurrentCellInMergedColumn()
+    {
+        return currentCellHit?.Kind == CustomTableHitKind.Cell
+            && IsMergedColumn(currentCellHit.Column)
+            && selectionModel.CurrentIndex >= 0;
+    }
+
+    /// <summary>
+    /// 現在セルが結合列にあるときの上下の移動を、行グループを単位として行います。主行は移動先のグループの先頭行で、
+    /// Shift付きは範囲の基点と移動先を、それぞれのグループの境界まで広げます。先頭のグループの上と末尾のグループの下では動きません。
+    /// </summary>
+    private bool MoveGroupSelection(int delta, bool extendRange)
+    {
+        if (!TryGetRowGroupSpan(selectionModel.CurrentIndex, out int currentFirst, out int currentLast))
+        {
+            return false;
+        }
+        int targetRow = delta > 0 ? currentLast + 1 : currentFirst - 1;
+        if (targetRow < 0 || targetRow >= RowCount || !TryGetRowGroupSpan(targetRow, out int targetFirst, out int targetLast))
+        {
+            return false;
+        }
+        if (!extendRange)
+        {
+            return selectionModel.SelectSpan(targetFirst, targetLast, targetFirst, targetFirst);
+        }
+        int anchor = selectionModel.AnchorIndex >= 0 && selectionModel.AnchorIndex < RowCount ? selectionModel.AnchorIndex : currentFirst;
+        return SelectGroupAlignedRange(Math.Min(anchor, targetFirst), Math.Max(anchor, targetFirst), targetFirst);
     }
 
     private bool CopySelectedRowsToClipboard()
@@ -2204,6 +2340,18 @@ public sealed partial class CustomTableView : Grid
         }
         currentCellHit = hit;
         CloseCellToolTip();
+        if (TryGetRowGroupSpan(target.Column, rowIndex, out int groupFirst, out int groupLast))
+        {
+            // 結合列へ入ったときは、右クリックと同じ規則でそのグループの全行を選ぶ。結合列から出るときは選択を保つ。
+            selectionModel.SetItemCount(RowCount);
+            if (selectionModel.SelectSpanForRightClick(groupFirst, groupLast, rowIndex))
+            {
+                UpdateSelectedIndexFromSelectionModel();
+                RaiseSelectionChanged();
+            }
+            RequestSelectionRedraw();
+            return true;
+        }
         RequestRedraw("current_cell");
         return true;
     }
@@ -2985,7 +3133,12 @@ public sealed partial class CustomTableView : Grid
         RequestRedraw("column_resize");
     }
 
-    private void UpdateCellToolTip(CustomTableHitTestResult hit)
+    /// <summary>セルのツールチップです。開閉の回数と内容を、窓の有無によらず観測するために公開します。</summary>
+    internal ToolTip CellToolTip => cellToolTip;
+
+    /// <summary>マウスの下のセルに合わせて、セルのツールチップを開く・保つ・出し直す・閉じるを決めます。マウスの移動が使う入口です。</summary>
+    /// <param name="hit">マウスの下の実ヒット。</param>
+    internal void UpdateCellToolTip(CustomTableHitTestResult hit)
     {
         if (isResizingColumn || hit == null || hit.Kind != CustomTableHitKind.Cell || hit.Column == null)
         {
@@ -2998,7 +3151,9 @@ public sealed partial class CustomTableView : Grid
             CloseCellToolTip();
             return;
         }
-        bool movedToAnotherCell = toolTipRowIndex != hit.RowIndex || !string.Equals(toolTipColumnId, hit.Column.Id, StringComparison.Ordinal);
+        // 結合列のセルはグループの範囲全体で一つの当たり判定とし、同じグループの別の行へ動いても出し直さない。
+        int toolTipCellKey = TryGetRowGroupSpan(hit.Column, hit.RowIndex, out int groupFirst, out _) ? groupFirst : hit.RowIndex;
+        bool movedToAnotherCell = toolTipRowIndex != toolTipCellKey || !string.Equals(toolTipColumnId, hit.Column.Id, StringComparison.Ordinal);
         if (movedToAnotherCell && cellToolTip.IsOpen)
         {
             cellToolTip.IsOpen = false;
@@ -3010,7 +3165,7 @@ public sealed partial class CustomTableView : Grid
             toolTipText = tooltip;
             toolTipTextWidth = tooltipTextWidth;
         }
-        toolTipRowIndex = hit.RowIndex;
+        toolTipRowIndex = toolTipCellKey;
         toolTipColumnId = hit.Column.Id;
         if (!cellToolTip.IsOpen)
         {

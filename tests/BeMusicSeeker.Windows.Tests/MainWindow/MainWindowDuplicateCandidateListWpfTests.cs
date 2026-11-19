@@ -238,6 +238,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             // クリック：先頭でない行（行1）のSELECT・KEEPでも、そのグループの値を切り替える。
             Click(table, 1, "Select");
             Assert.IsTrue(rows[0].State.IsSelected && rows[1].State.IsSelected && !rows[2].State.IsSelected);
+            Assert.AreEqual(1, table.SelectedIndex, "主行はクリックした行です。");
+            CollectionAssert.AreEquivalent(new[] { rows[0], rows[1] }, table.GetSelectedRowsSnapshot().ToArray(), "SELECTのクリックは、そのグループの全行を選びます。");
             Click(table, 1, "Select", clickCount: 2);
             Assert.IsTrue(rows[0].State.IsSelected, "ダブルクリックは操作として二回数え、元の状態へ戻ります。");
             Assert.AreEqual(requestsBefore, navigation.Count, "有効なSELECTのダブルクリックは遷移を起こしません。");
@@ -246,6 +248,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Click(table, 1, "Keep");
             Assert.AreEqual(rows[1].Path, rows[0].State.KeepFolder);
             Assert.IsFalse(rows[0].IsKeep);
+            CollectionAssert.AreEqual(new[] { rows[1] }, table.GetSelectedRowsSnapshot().ToArray(), "KEEPのクリックは、結合列で選んだグループの全行ではなく、押した行だけを選びます。");
             Click(table, 1, "Keep", clickCount: 2);
             Assert.AreEqual(requestsBefore, navigation.Count, "有効なKEEPのダブルクリックは遷移を起こしません。");
 

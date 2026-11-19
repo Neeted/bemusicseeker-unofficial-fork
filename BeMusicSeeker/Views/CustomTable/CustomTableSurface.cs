@@ -356,18 +356,25 @@ internal sealed partial class CustomTableSurface : FrameworkElement
         int drawnRows = 0;
         // 行グループの提供元を持つ表だけが使う、描画中のグループの状態です。問合せは、表示範囲に現れるグループごとに一回だけです。
         ICustomTableRowGroupSource groups = owner.RowGroupSource;
+        int groupFirst = 0;
         int groupEnd = -1;
         int groupOrdinal = 0;
         int segmentTop = y;
         object segmentFirstRow = null;
+        bool groupFullySelected = false;
+        CustomTableColumn groupCurrentColumn = null;
         for (int rowIndex = firstRowIndex; rowIndex < lastRowExclusive && y < heightPx; rowIndex++)
         {
             object row = owner.GetRowForRender(rowIndex);
             if (groups != null && rowIndex >= groupEnd)
             {
                 CustomTableRowGroup group = groups.GetRowGroup(rowIndex);
+                groupFirst = Math.Min(group.FirstRowIndex, rowIndex);
                 groupEnd = Math.Max(group.EndRowIndex, rowIndex + 1);
                 groupOrdinal = group.Ordinal;
+                // 結合セルの選択と現在セルの強調は、画面外の行を含むグループ全体で決める。区間として一度だけ調べ、行を一件ずつ読まない。
+                groupFullySelected = owner.IsRowSpanSelected(groupFirst, groupEnd);
+                groupCurrentColumn = owner.GetCurrentCellColumnInRange(groupFirst, groupEnd);
                 // 結合列の値は、表示中の範囲にあるグループの最初の行から読む。先頭行が画面外でも、先頭行を別に読み込まない。
                 segmentFirstRow = row;
                 segmentTop = y;
@@ -401,7 +408,8 @@ internal sealed partial class CustomTableSurface : FrameworkElement
             if (groups != null && (lastInGroup || rowIndex + 1 >= lastRowExclusive || rowBottom >= heightPx))
             {
                 // 表示中の部分の最後の行まで背景を塗り終えてから、結合列の内容を一度だけ描く。
-                DrawMergedCells(layout, segmentFirstRow, segmentTop, rowBottom, lastInGroup && rowBottom <= heightPx);
+                Brush groupBackground = (groupOrdinal & 1) == 1 ? palette.AlternatingRowBackground : palette.RowBackground;
+                DrawMergedCells(layout, segmentFirstRow, segmentTop, rowBottom, lastInGroup && rowBottom <= heightPx, groupBackground, groupFullySelected, groupCurrentColumn);
             }
             y += rowHeightPx;
             drawnRows++;
@@ -467,10 +475,20 @@ internal sealed partial class CustomTableSurface : FrameworkElement
     }
 
     /// <summary>
-    /// グループの全行にまたがる結合列の内容を、グループの範囲のうち表示中の部分の縦中央に一度だけ描きます。
-    /// 値は表示中の部分の最初の行から読み、色は選択・現在セルで変えません。グループの下端が見えるときは、下端の罫線を除いた範囲の中央です。
+    /// グループの全行にまたがる結合列を、グループの範囲のうち表示中の部分へ、背景と内容を一度だけ描きます。
+    /// 背景は、現在セルが結合列にあれば結合セル全体の現在セルの強調、グループの全行が選択済みなら結合セル全体の選択色、それ以外はグループの交互色です。
+    /// 行ごとの選択色は結合列に残さないため、一部だけが選択されたグループの結合セルは交互色のままです。
+    /// 値は表示中の部分の最初の行から読み、グループの下端が見えるときは、下端の罫線を除いた範囲の縦中央に内容を描きます。
     /// </summary>
-    private void DrawMergedCells(CustomTableColumnLayoutSnapshot layout, object firstRow, int top, int segmentBottom, bool bottomBorderDrawn)
+    private void DrawMergedCells(
+        CustomTableColumnLayoutSnapshot layout,
+        object firstRow,
+        int top,
+        int segmentBottom,
+        bool bottomBorderDrawn,
+        Brush groupBackground,
+        bool groupFullySelected,
+        CustomTableColumn currentColumn)
     {
         int interiorBottom = bottomBorderDrawn ? segmentBottom - gridLinePx : Math.Min(segmentBottom, heightPx);
         if (interiorBottom <= top)
@@ -486,6 +504,13 @@ internal sealed partial class CustomTableSurface : FrameworkElement
                 continue;
             }
             (int left, int right) = GetSlotPixels(entry);
+            bool currentCell = currentColumn != null && string.Equals(currentColumn.Id, column.Id, StringComparison.Ordinal);
+            Brush fill = currentCell
+                ? palette.CurrentCellBackground
+                : groupFullySelected
+                    ? palette.SelectedRowBackground
+                    : groupBackground;
+            FillRect(Math.Max(0, left), top, Math.Min(widthPx, right - gridLinePx), interiorBottom, fill);
             firstEntry ??= owner.GetRowEntry(firstRow);
             long cellValueStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
             CustomTableCellValue cellValue = firstEntry.GetValue(column, out _);
@@ -493,7 +518,15 @@ internal sealed partial class CustomTableSurface : FrameworkElement
             {
                 renderCellValueTicks += Stopwatch.GetTimestamp() - cellValueStart;
             }
-            DrawCellContent(cellValue, new PixelRect(left, top, right - gridLinePx, interiorBottom), left, right, cellValue.Foreground);
+            // 結合セルの文字は、塗りの上で読めるよう、結合セルを塗る状態の文字色にする。色付きの区間は自身の色を使う。
+            Brush foreground = cellValue.TextRuns.Count > 0
+                ? cellValue.Foreground
+                : currentCell
+                    ? palette.CurrentCellForeground
+                    : groupFullySelected
+                        ? palette.SelectedForeground
+                        : cellValue.Foreground;
+            DrawCellContent(cellValue, new PixelRect(left, top, right - gridLinePx, interiorBottom), left, right, foreground);
         }
     }
 
@@ -509,10 +542,10 @@ internal sealed partial class CustomTableSurface : FrameworkElement
                 DrawStatusIcon(cellValue.Text, interior, foreground);
                 break;
             case CustomTableCellKind.CheckBox:
-                DrawCheckBox(cellValue.IsChecked, cellValue.IsEnabled, interior, foreground);
+                DrawCheckBox(cellValue.IsChecked, cellValue.IsEnabled, interior);
                 break;
             case CustomTableCellKind.RadioButton:
-                DrawRadioButton(cellValue.IsChecked, cellValue.IsEnabled, interior, foreground);
+                DrawRadioButton(cellValue.IsChecked, cellValue.IsEnabled, interior);
                 break;
             default:
                 CustomTableTextStyle textStyle = cellValue.TextStyle ?? CustomTableTextStyle.Normal;
@@ -535,12 +568,7 @@ internal sealed partial class CustomTableSurface : FrameworkElement
             bool currentCell = currentColumn != null && string.Equals(currentColumn.Id, column.Id, StringComparison.Ordinal);
             if (hasRowGroups && column.MergesRowGroup)
             {
-                // 結合列は、行ごとの行背景をそのまま見せ、列のセル背景は使わない。内容はグループの最後の行で一度だけ描く。
-                // 現在セルの強調は、その行の部分だけに塗る。
-                if (currentCell)
-                {
-                    FillRect(Math.Max(0, interior.Left), interior.Top, Math.Min(widthPx, interior.Right), interior.Bottom, palette.CurrentCellBackground);
-                }
+                // 結合列の背景（選択・現在セルの強調を含む）と内容は、グループの表示中の部分をまとめて一度だけ描く。ここでは縦罫線だけを行ごとに描く。
                 if (right <= widthPx && interior.Right >= 0)
                 {
                     FillRect(interior.Right, y, right, y + rowHeightPx, palette.CellBorder);

@@ -152,9 +152,9 @@ internal sealed partial class CustomTableSurface
 
     /// <summary>
     /// チェックボックスを描きます。無効（<paramref name="enabled"/> がfalse）なら、背景を塗らず、枠とチェックを無効色で描きます。
-    /// 前景色が既定でなければ、有効なチェックだけがその色になります。
+    /// チェックの色は、行や現在セルの強調による文字色・列の前景色によらず、有効ならパレットのチェックの色です。
     /// </summary>
-    private void DrawCheckBox(bool? isChecked, bool enabled, PixelRect interior, Brush foreground)
+    private void DrawCheckBox(bool? isChecked, bool enabled, PixelRect interior)
     {
         Rect cellRect = ToDip(interior);
         if (!isChecked.HasValue || cellRect.Width <= 8d || cellRect.Height <= 8d)
@@ -185,7 +185,7 @@ internal sealed partial class CustomTableSurface
             }
             if (isChecked.Value)
             {
-                (D2D.ID2D1SolidColorBrush checkBrush, float thickness) = ResolveCheckMark(enabled, foreground);
+                (D2D.ID2D1SolidColorBrush checkBrush, float thickness) = ResolveCheckMark(enabled);
                 target.DrawLine(ToVector(rect.Left + 2.5d, rect.Top + size * 0.55d), ToVector(rect.Left + size * 0.43d, rect.Bottom - 2.5d), checkBrush, thickness);
                 target.DrawLine(ToVector(rect.Left + size * 0.43d, rect.Bottom - 2.5d), ToVector(rect.Right - 2d, rect.Top + 2.5d), checkBrush, thickness);
             }
@@ -199,8 +199,9 @@ internal sealed partial class CustomTableSurface
     /// <summary>
     /// ラジオボタンを描きます。選択済みは円の輪郭と中央の塗りの円、未選択は円の輪郭だけで、nullは何も描きません。
     /// 大きさと色はチェックボックスと同じパレットで、無効なら背景を塗らず、枠と塗りを無効色で描きます。
+    /// 中央の塗りは、行や現在セルの強調による文字色によらず、有効ならパレットのチェックの色です。
     /// </summary>
-    private void DrawRadioButton(bool? isChecked, bool enabled, PixelRect interior, Brush foreground)
+    private void DrawRadioButton(bool? isChecked, bool enabled, PixelRect interior)
     {
         Rect cellRect = ToDip(interior);
         if (!isChecked.HasValue || cellRect.Width <= 8d || cellRect.Height <= 8d)
@@ -232,7 +233,7 @@ internal sealed partial class CustomTableSurface
             }
             if (isChecked.Value)
             {
-                (D2D.ID2D1SolidColorBrush dotBrush, _) = ResolveCheckMark(enabled, foreground);
+                (D2D.ID2D1SolidColorBrush dotBrush, _) = ResolveCheckMark(enabled);
                 float dotRadius = (float)(size * 0.25d);
                 target.FillEllipse(new D2D.Ellipse(ToVector(centerX, centerY), dotRadius, dotRadius), dotBrush);
             }
@@ -243,18 +244,12 @@ internal sealed partial class CustomTableSurface
         }
     }
 
-    /// <summary>チェックと、ラジオボタンの中央の塗りに使うブラシと線の太さを返します。無効なら前景色によらず無効色です。</summary>
-    private (D2D.ID2D1SolidColorBrush Brush, float Thickness) ResolveCheckMark(bool enabled, Brush foreground)
+    /// <summary>チェックと、ラジオボタンの中央の塗りに使うブラシと線の太さを返します。有効ならパレットのチェックの色、無効なら無効色です。</summary>
+    private (D2D.ID2D1SolidColorBrush Brush, float Thickness) ResolveCheckMark(bool enabled)
     {
-        if (!enabled)
-        {
-            D2D.ID2D1SolidColorBrush disabled = display.GetBrush(palette.CheckBoxDisabledCheck.Brush) ?? ResolveTextBrush(null);
-            return (disabled, (float)palette.CheckBoxDisabledCheck.Thickness);
-        }
-        bool defaultCheck = foreground == null || ReferenceEquals(foreground, palette.DefaultForeground);
-        D2D.ID2D1SolidColorBrush checkBrush = defaultCheck ? display.GetBrush(palette.CheckBoxCheck.Brush) : ResolveTextBrush(foreground);
-        checkBrush ??= ResolveTextBrush(null);
-        return (checkBrush, defaultCheck ? (float)palette.CheckBoxCheck.Thickness : 1.8f);
+        Pen pen = enabled ? palette.CheckBoxCheck : palette.CheckBoxDisabledCheck;
+        D2D.ID2D1SolidColorBrush brush = display.GetBrush(pen.Brush) ?? ResolveTextBrush(null);
+        return (brush, (float)pen.Thickness);
     }
 
     private void DrawRefreshIcon(D2D.ID2D1Brush brush, Rect rect)
