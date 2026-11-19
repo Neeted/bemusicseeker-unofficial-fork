@@ -9484,6 +9484,29 @@ public partial class BMSLibrary : ObservableObject
         return libraryMutationOwner.MergeChartDirectory(src, dst, operationId, notices, reportAtTerminal, capability);
     }
 
+    /// <summary>
+    /// 重複グループを、一つの受付と変更セッションでまとめて整理します。
+    /// 二フォルダ以上のグループは移動元を順に KEEP へ統合して KEEP 直下の重複を整理し、一フォルダのグループはそのフォルダ直下の重複を整理します。
+    /// カタログ・DB・索引・LR2同期・通知への反映と必須保守は、全グループの物理処理の後に一回だけ行います。
+    /// </summary>
+    /// <param name="request">処理するグループ。順序が処理順です。</param>
+    /// <param name="operationId">診断識別子。</param>
+    /// <param name="notices">この操作の案内を集める入れ物。操作全体の拒否の案内だけを加えます。</param>
+    /// <param name="progress">グループの開始ごとの進捗の受け手。省略できます。</param>
+    /// <param name="cancellationToken">取消の合図。グループの開始前にだけ効きます。</param>
+    /// <param name="capability">同じ受付の生存権限。省略時は新規受付を取得し、必須保守・後片付けまで保持します。</param>
+    /// <returns>操作全体の受取り、要求と同じ順のグループ結果、取消されたかどうか。</returns>
+    internal DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+        DuplicateBatchOrganizeRequest request,
+        long operationId,
+        LibraryOperationNotices notices,
+        Action<DuplicateBatchOrganizeProgress> progress,
+        CancellationToken cancellationToken,
+        LibraryFileMutationCapability capability = null)
+    {
+        return libraryMutationOwner.OrganizeDuplicateGroups(request, operationId, notices, progress, cancellationToken, capability);
+    }
+
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
     {
         return catalogOwnedCollectionOwner.GetDuplicateInstallRepairPaths(

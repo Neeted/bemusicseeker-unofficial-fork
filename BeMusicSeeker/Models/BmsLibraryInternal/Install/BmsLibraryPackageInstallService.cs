@@ -2219,8 +2219,9 @@ internal sealed partial class BmsLibraryPackageInstallService
     /// <summary>
     /// operation 開始時 snapshot に、同じ install session で実際に physical success した chart だけを重ねる lookup です。
     /// 未実行予約や failed/skipped package は追加しません。
+    /// 保留導入に加えて、重複グループの一括整理が、全予定移動元を除いた基準へ同じ操作で成功した譜面だけを重ねるために使います。
     /// </summary>
-    private sealed class SessionSuccessOwnershipOverlay : IInstalledChartLookupIndex
+    internal sealed class SessionSuccessOwnershipOverlay : IInstalledChartLookupIndex
     {
         private readonly IInstalledChartLookupIndex ownershipBaseline;
         private readonly IPrimaryHashLookup hashBaseline;
@@ -2315,7 +2316,7 @@ internal sealed partial class BmsLibraryPackageInstallService
     }
 
     /// <summary>operation 開始時 snapshot に success overlay を重ねた install lookup を作成します。</summary>
-    internal IInstalledChartLookupIndex CreateSessionSuccessOwnershipOverlay(
+    internal SessionSuccessOwnershipOverlay CreateSessionSuccessOwnershipOverlay(
         IInstalledChartLookupIndex ownershipBaseline,
         IPrimaryHashLookup hashBaseline = null)
     {
@@ -3603,7 +3604,11 @@ internal sealed partial class BmsLibraryPackageInstallService
         return result;
     }
 
-    private static FileDbMutationReceipt RecordUnexpectedInstallSessionFailure(
+    /// <summary>
+    /// 予期しない例外を物理失敗の証票として変更セッションへ記録し、残りの対象を未処理として止めます。
+    /// 保留導入と重複グループの一括整理が、同じ形で停止を記録するために使います。
+    /// </summary>
+    internal static FileDbMutationReceipt RecordUnexpectedInstallSessionFailure(
         LibraryMutationOwner.LibraryMutationSession mutationSession,
         string sourcePath,
         string destinationPath,

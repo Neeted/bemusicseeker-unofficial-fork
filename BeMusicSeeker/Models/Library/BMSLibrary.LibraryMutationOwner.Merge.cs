@@ -114,32 +114,16 @@ internal sealed partial class LibraryMutationOwner
                     "duplicate_merge_catalog_transition op=" + operationId,
                     postLeaseNotifications,
                     notices);
-                LibraryCatalogMutationFacts catalogFacts = null;
-                PackageInstallSessionMoveResult physicalMove = packageInstallService.MovePackageFilesForInstallSession(
-                    detachedPackage.Package,
+                PackageInstallSessionMoveResult physicalMove = MoveMergeSourceForSession(
+                    detachedPackage,
+                    preparedSourceCharts,
                     destinationDirectory,
-                    lr2SynchronizationOwner.CurrentOptionsSnapshot,
-                    createChartFolderPathFromCharts,
-                    DisplayedExceptionMessage.Format,
-                    fileMutationService,
                     notices,
-                    targetOnlyFileMutationOptions,
-                    recursiveDirectoryTreeFileMutationOptions,
-                    LogInstallPerformance,
-                    sourceCleanupPolicy: PackageSourceCleanupPolicy.MergeOwnedSourceContents,
-                    showMessageBoxOnInstallFail: false,
-                    existingHashes: existingHashes,
-                    independentOwnershipLookup: independentOwnershipLookup,
-                    onPreflightPrepared: installResult =>
-                    {
-                        // 採番済み destination を変更前に固定し、storage owner の一時的な
-                        // path 差替えや、physical success 後の destination 再計算を避けます。
-                        catalogFacts = BuildMergeCatalogFacts(
-                            preparedSourceCharts,
-                            detachedPackage,
-                            installResult.AddedCharts);
-                    },
-                    enqueueDiagnosticEffect: postLeaseNotifications.Add);
+                    postLeaseNotifications,
+                    existingHashes,
+                    independentOwnershipLookup,
+                    onMutationScopePrepared: null,
+                    out LibraryCatalogMutationFacts catalogFacts);
                 if (physicalMove.Succeeded)
                 {
                     session.AppendFolderMerge(
@@ -172,21 +156,8 @@ internal sealed partial class LibraryMutationOwner
                 {
                     // 必須保守は同じ受理操作の生存権限を借用します。通知を既存の延期先へ
                     // 集め、確定済み統合と後片付けの事実は保守失敗でも保持します。
-                    var readFailures = new MaintenanceReadFailureCollector();
-                    try
-                    {
-                        maintenanceResult = applyMergeFolderMaintenance(destinationMaintenanceCharts, mutationCapability, postLeaseNotifications.Add, readFailures);
-                        if (maintenanceResult.Canceled)
-                        {
-                            sessionReceipt = sessionReceipt.WithFinalizationFailure(
-                                new OperationCanceledException(Resources.Error_MergePostCommitMaintenanceIncomplete));
-                        }
-                    }
-                    catch (Exception exception)
-                    {
-                        sessionReceipt = sessionReceipt.WithFinalizationFailure(exception);
-                    }
-                    NotifyMaintenanceReadFailures(readFailures, notices);
+                    maintenanceResult = RunMergeFolderMaintenance(
+                        destinationMaintenanceCharts, mutationCapability, postLeaseNotifications, notices, ref sessionReceipt);
                 }
             }
 
@@ -214,6 +185,89 @@ internal sealed partial class LibraryMutationOwner
             LogInstallPerformanceWarning("duplicate_merge_model failed op=" + operationId + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds + " exception=" + ex.GetType().Name);
             throw;
         }
+    }
+
+    /// <summary>
+    /// 一つの統合元の物理処理（保留導入と同じ共通のパッケージ処理）を実行します。単体の統合と一括整理が同じ処理・設定を使います。
+    /// 案内は積まず、採番済みの移動先から作ったカタログ事実を、変更前に固定して返します。
+    /// </summary>
+    /// <param name="existingHashes">既に所持している主ハッシュの判定。該当する譜面は移動しません。</param>
+    /// <param name="independentOwnershipLookup">入力元の残存物を削除してよい裏付けとなる、独立した所持の判定。</param>
+    /// <param name="onMutationScopePrepared">読み取りだけの事前確認の後、最初の物理変更の前に呼びます。false を返すと変更せずに事前拒否として戻ります。</param>
+    /// <param name="catalogFacts">採番済みの移動先から作ったカタログ事実。事前確認の前に拒否した場合は null です。</param>
+    private PackageInstallSessionMoveResult MoveMergeSourceForSession(
+        DetachedMergePackage detachedPackage,
+        IEnumerable<ChartFile> preparedSourceCharts,
+        string destinationDirectory,
+        LibraryOperationNotices notices,
+        ICollection<Action> postLeaseNotifications,
+        IPrimaryHashLookup existingHashes,
+        IInstalledChartLookupIndex independentOwnershipLookup,
+        Func<string, string, bool> onMutationScopePrepared,
+        out LibraryCatalogMutationFacts catalogFacts)
+    {
+        LibraryCatalogMutationFacts facts = null;
+        PackageInstallSessionMoveResult physicalMove = packageInstallService.MovePackageFilesForInstallSession(
+            detachedPackage.Package,
+            destinationDirectory,
+            lr2SynchronizationOwner.CurrentOptionsSnapshot,
+            createChartFolderPathFromCharts,
+            DisplayedExceptionMessage.Format,
+            fileMutationService,
+            notices,
+            targetOnlyFileMutationOptions,
+            recursiveDirectoryTreeFileMutationOptions,
+            LogInstallPerformance,
+            sourceCleanupPolicy: PackageSourceCleanupPolicy.MergeOwnedSourceContents,
+            showMessageBoxOnInstallFail: false,
+            existingHashes: existingHashes,
+            independentOwnershipLookup: independentOwnershipLookup,
+            onPreflightPrepared: installResult =>
+            {
+                // 採番済み destination を変更前に固定し、storage owner の一時的な
+                // path 差替えや、physical success 後の destination 再計算を避けます。
+                facts = BuildMergeCatalogFacts(
+                    preparedSourceCharts,
+                    detachedPackage,
+                    installResult.AddedCharts);
+            },
+            enqueueDiagnosticEffect: postLeaseNotifications.Add,
+            onMutationScopePrepared: onMutationScopePrepared);
+        catalogFacts = facts;
+        return physicalMove;
+    }
+
+    /// <summary>
+    /// 確定後の必須保守を、統合と同じ生存権限で一回だけ実行します。取消は渡しません。
+    /// 保守の失敗・取消は確定済みの統合を取り消さず、完全成功として報告しないよう終端の証票へ必須失敗として加えます。
+    /// </summary>
+    /// <param name="destinationMaintenanceCharts">統合先の保守対象。後片付けの前に固定した現在値です。</param>
+    /// <param name="sessionReceipt">保守の失敗を必須失敗として加える、この操作の変更セッションの証票。</param>
+    /// <returns>保守の結果。保守が例外で終わった場合は null です。</returns>
+    private MaintenanceWorkflowResult RunMergeFolderMaintenance(
+        IEnumerable<ChartFile> destinationMaintenanceCharts,
+        LibraryFileMutationCapability mutationCapability,
+        ICollection<Action> postLeaseNotifications,
+        LibraryOperationNotices notices,
+        ref LibraryMutationSessionReceipt sessionReceipt)
+    {
+        MaintenanceWorkflowResult maintenanceResult = null;
+        var readFailures = new MaintenanceReadFailureCollector();
+        try
+        {
+            maintenanceResult = applyMergeFolderMaintenance(destinationMaintenanceCharts, mutationCapability, postLeaseNotifications.Add, readFailures);
+            if (maintenanceResult.Canceled)
+            {
+                sessionReceipt = sessionReceipt.WithFinalizationFailure(
+                    new OperationCanceledException(Resources.Error_MergePostCommitMaintenanceIncomplete));
+            }
+        }
+        catch (Exception exception)
+        {
+            sessionReceipt = sessionReceipt.WithFinalizationFailure(exception);
+        }
+        NotifyMaintenanceReadFailures(readFailures, notices);
+        return maintenanceResult;
     }
 
     private static DetachedMergePackage CreateDetachedMergePackage(

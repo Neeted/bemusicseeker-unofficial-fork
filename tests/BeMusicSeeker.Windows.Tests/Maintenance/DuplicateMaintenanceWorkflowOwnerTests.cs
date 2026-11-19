@@ -704,6 +704,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(BMSLibrary target, string sourceDirectory, string destinationDirectory, long operationId, LibraryOperationNotices notices)
             => inner.MergeFolderWithReceipt(target, sourceDirectory, destinationDirectory, operationId, notices);
 
+        public DuplicateBatchOrganizeResult OrganizeDuplicateGroups(BMSLibrary target, DuplicateBatchOrganizeRequest request, long operationId, LibraryOperationNotices notices, Action<DuplicateBatchOrganizeProgress>? progress, CancellationToken cancellationToken)
+            => inner.OrganizeDuplicateGroups(target, request, operationId, notices, progress, cancellationToken);
+
         public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary target, IReadOnlyList<ChartFile> charts)
             => inner.PrepareChartRemoval(target, charts);
 
@@ -736,6 +739,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         /// <summary>生存権限を内側の実storeへ転送し、観測だけを元wrapperへ集約します。</summary>
         public IDuplicateMaintenanceStore ForAcceptedOperation(LibraryFileMutationCapability capability)
             => new DelegatingPreparedStore(observations, inner.ForAcceptedOperation(capability));
+
+        public DuplicateBatchOrganizeResult OrganizeDuplicateGroups(BMSLibrary library, DuplicateBatchOrganizeRequest request, long operationId, LibraryOperationNotices notices, Action<DuplicateBatchOrganizeProgress>? progress, CancellationToken cancellationToken)
+            => inner.OrganizeDuplicateGroups(library, request, operationId, notices, progress, cancellationToken);
 
         public LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
         {

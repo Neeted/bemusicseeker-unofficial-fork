@@ -102,6 +102,15 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
                 LibraryMutationSessionReceipt.Empty);
         }
 
+        /// <summary>一括整理の要求を記録し、全グループを未処理（操作全体の拒否）として返します。一括整理の結果を観測するケースは、継承して差し替えます。</summary>
+        public virtual DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+            BMSLibrary library, DuplicateBatchOrganizeRequest request, long operationId,
+            LibraryOperationNotices notices, Action<DuplicateBatchOrganizeProgress>? progress, CancellationToken cancellationToken)
+        {
+            events.Add("store-organize");
+            return DuplicateBatchOrganizeResult.NotAdmitted(request);
+        }
+
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
         internal IReadOnlyList<string> WholeFolderCandidates { get; set; } = [];
         internal IReadOnlyList<string> RegisteredUserRoots { get; set; } = [];

@@ -125,6 +125,66 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 
 同一フォルダ内ではMD5ごとに一件を残します。更新日時が古いもの、同日時ならファイル名が短いものを優先します。設定に応じて確認し、`RemoveLibraryCharts` からごみ箱へ送ります。削除数は計画件数ではなく、削除APIの成功で確認した対象数です。個別の物理削除失敗後の独立対象は処理できますが、カタログ・必須反映の失敗では次グループへの成功時選択を行いません。
 
+### 重複グループの一括整理（モデルの入口）
+
+複数の重複グループを一回の操作で整理する入口です。`BMSLibrary.OrganizeDuplicateGroups` と保存窓口 `IDuplicateMaintenanceStore.OrganizeDuplicateGroups` が、要求と結果の値までを扱います。確認・進捗や結果の表示・表示文言は画面側の工程が担い、この節は定めません。
+
+要求は、順序付きのグループの列、取消の合図（`CancellationToken`）、進捗の受け手（任意）です。グループは KEEP のフォルダ一つと、移動元のフォルダの列（PATH 昇順、0 件以上）を持ち、移動元が 0 件のグループを一フォルダのグループと呼びます。
+
+#### 一つの操作
+
+一回の一括整理は、一つの共通受付と一つの変更セッションで行います。カタログ・DB・索引・LR2同期・通知への反映と必須保守は、全グループの物理処理の後に一回だけ行い、確定・索引反映・必須保守の回数はグループ数・移動元数に比例しません。Busy・カタログ未収束・管理出力の保護を取れない場合は、物理変更の前に操作全体を未適用で返し、全グループを「未処理」にします。案内は既存の拒否の案内だけで、グループごとの理由を案内に積みません（共通受付の使用中はモデルが案内を出さず、受付を取る入口が表示します）。管理出力の保護は、要求の全フォルダの和集合を、最初の物理変更の前に一回だけ取ります。
+
+#### グループの処理
+
+- 二フォルダ以上のグループは、移動元を与えられた順に KEEP へ統合します。ファイルの移動・譜面名の採番・リソースの上書き・入力元の後片付けは、単体の統合と同じ共通のパッケージ処理と設定を使い、一括用の規則を持ちません。
+- 移動元ごとに、実際に KEEP へ移る主ハッシュ（今回の所持判定に該当しないもの）に限って、移動元直下の同じ主ハッシュの譜面を、移動の前に一件へ整理して余分をごみ箱へ送ります。KEEP に既にある主ハッシュは整理せず、既存の統合の入力元の後片付けに任せます。ごみ箱へ送れた譜面は統合の入力とカタログ事実の両方から除き、送れなかった譜面は一緒に移します。型の衝突などで事前に拒否する移動元では、重複を整理しません。
+- 全移動元の後に、KEEP 直下に元からある同じ主ハッシュの譜面を一件にします。一フォルダのグループは、そのフォルダ直下の同じ主ハッシュの譜面を一件にします。
+- 重複整理は、同一フォルダ内の整理と同じ一つの選定規則（`DuplicateChartCleanupSelector`。更新日時が古いものを残し、同日時ならファイル名が短いものを残す。同点は列挙順で、順序を契約にしない）を使い、主ハッシュごとに必ず一件を残します。フォルダを削除せず、確認を求めず、フォルダ全体の削除を行いません。削除の確定事実は、行パス変更通知の方針を抑止で操作全体の変更セッションへ加えます。個別の削除の失敗は停止の理由にせず、その譜面を残して数えます。
+
+#### 最後のコピーの保護
+
+「既に所持している」の判定と、入力元の残存物を削除してよい裏付けには、次だけを使います。
+
+1. 要求に含まれる全移動元（拒否・未処理・失敗になるグループの移動元を含む）の配下を除いた、操作開始時の確定済みの所持。
+2. 今回の操作で実際に配置へ成功した譜面。
+
+未着手・失敗・拒否・取消で残る移動元の譜面と、予約しただけの宛先を裏付けにしません。KEEP に譜面 X、移動元 A に X と Y、移動元 B に Y があるとき、Y は KEEP にちょうど一件残り、A と B の Y が両方失われません。B が別のグループの移動元で、そのグループが拒否・取消・未処理・失敗になる場合も同じです。同じ譜面が複数の移動元にだけある場合は、与えられた順で最初の移動元のコピーが KEEP に残ります。手動で順に統合した場合との差として許容します。別のグループの移動元の譜面が、この操作で先に別の KEEP へ配置済みなら、その譜面は移しません。操作前に所持していた譜面のコピーは、確定の失敗・途中の物理失敗・取消でも、どの主ハッシュについても一件も残らない結果になりません。
+
+#### 書込み前の拒否
+
+次のグループは、そのグループの物理変更の前に理由付きで「スキップ」にします。ファイル・DB・登録を変えず、変更セッションに失敗の事実を残さず、独立した次のグループへ進みます。
+
+| 理由（`DuplicateBatchOrganizeSkipReason`） | 条件 |
+| --- | --- |
+| `LinkFound`・`LinkCheckFailed` | 移動元ごとに、手動統合と同じ検査（`FolderLinkInspector.InspectMerge`）でリンクが見つかる、または確認できない。一フォルダのグループは、フォルダ本体だけを `FolderLinkInspector.InspectFolder` で検査し、配下のリンクは配置を動かさないため対象にしない。二フォルダ以上のグループも、KEEP 直下の重複整理を移動元の有無や結果によらず行うため、KEEP 本体を同じ方法で必ず検査する（移動元がすべて欠落していても検査する）。 |
+| `RegisteredRoot` | 移動元が、登録 BMS ルート本体、または空の登録子ルートを含む祖先。KEEP が登録ルートの場合は統合できる。 |
+| `NestedFolders` | 同じグループのフォルダ同士が同一または親子。 |
+| `OverlapsOtherGroup` | 二フォルダ以上のグループのいずれかのフォルダが、要求内の別のグループのいずれかのフォルダと同一または親子。別のグループの移動元の中にある一フォルダのグループは、そのグループ自身は処理する。 |
+| `FolderMissing`・`InvalidPath` | 一フォルダのグループのフォルダが存在しない。フォルダのパスが空、または正規化できない。 |
+
+#### 部分失敗と取消
+
+型の衝突・移動元の欠落・KEEP の欠落・所持譜面なしの移動元は、その移動元を理由付き（`DuplicateBatchOrganizeSourceReason`）で残して、同じグループの次の移動元へ進みます。予期しない物理失敗（例外・受取りの失敗を含む）が起きたら、その移動元を物理失敗として残し、そのグループの残りの移動元と後続の全グループを未処理として止め、それまでに成功した分だけを確定します。既存宛先を復元できなかった事実は、既存の統合と同じ形で操作の結果に残ります。
+
+取消はグループの開始前にだけ確認します。処理中のグループは最後まで進み、残りのグループは未処理になります。取消は失敗として扱わず、確定・入力元の後片付け・必須保守は取消の対象にしません。
+
+確定（永続化）に失敗した場合は入力元の後片付けを行わず、物理的に成功していたグループ（統合した移動元またはごみ箱へ送った譜面があるもの）を失敗にし、統合した移動元は確定していない扱い（`NotCommitted`）で残した側へ移します。スキップしたグループは変わりません。ごみ箱へ送った数は削除の成功を確認した実数で、確定に失敗しても変わりません。
+
+#### 状態と結果
+
+| 状態 | 条件 |
+| --- | --- |
+| 完了 | 二フォルダ以上のグループは、移動元をすべて統合でき、重複整理の削除にも失敗がない。一フォルダのグループは削除に失敗がない（削除対象が 0 件でも完了）。 |
+| 一部完了 | 統合できた移動元が一つ以上あり、残った移動元がある。または統合はすべてできたが、重複整理の個別の削除に失敗がある。一フォルダのグループで個別の削除に失敗がある場合も同じ。 |
+| スキップ | 書込み前の拒否。 |
+| 失敗 | 二フォルダ以上のグループで、移動元を一つも統合できなかった。ごみ箱へ送った数は別に報告する。確定に失敗した操作では、物理的に成功していたグループも失敗。 |
+| 未処理 | 取消、または予期しない物理失敗による停止で、開始しなかった。 |
+
+進捗は、取消の確認の後、グループの開始ごとに 1 始まりの番号・総数・KEEP を同期で受け手へ渡します。モデルのロックを保持したまま呼ばず、受け手の例外で結果を変えません。最新値への集約は呼出し側が行います。結果は、操作全体の受取り（既存の統合と同じ、変更セッションの終端と必須保守の結果）、要求と同じ順のグループ結果（KEEP・状態・スキップ理由・統合した移動元・残した移動元とその理由・ごみ箱へ送った数・送れなかった数）、取消されたか、受付を取って処理を始めたかです。グループごとの KEEP・移動元・結果は、受付の解放後にログへ記録します。
+
+統合が一件以上成功したら、成功した全 KEEP を対象に、既存の統合と同じ必須保守を一回だけ行います。保守の失敗・取消は確定を取り消さず、完全成功として報告しません。単体のフォルダ統合と同一フォルダ内の重複整理の利用者に見える挙動は変えません。
+
 ### 初回解析中の画面移動
 
 新しい重複解析は、画面選択を受理する前に共通のライブラリ変更受付を非待機で取得します。競合時は既存のBusy案内で未開始とし、有効な表示と検索条件を保ちます。解放後の予約や自動再試行は行いません。準備済み結果の表示と、進行中の同じ解析結果を参照する表示には新しい受付を要求しません。
@@ -198,6 +258,7 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 | 重複ツリー項目の維持と失効中の保持 | [`MaintenanceTreeViewModel`](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs) の `DuplicateTreeItems`、`MainWindow.xaml` の `treeViewItemSearchDuplicated` | [`MaintenanceTreeViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/MaintenanceTreeViewModelTests.cs) の `DuplicateTreeItems_SyncKeepsSameInstancesAndFollowsResultOrder` は同じインスタンスの維持と結果順・Reset なしを、`DuplicateTreeItems_InvalidationKeepsItemsOnlyWhilePreparationRuns` は準備中の維持・結果ありの完了・結果なしの終了・準備なしの失効・解除を確認する。[`RegularChartNavigationTests.DuplicateTreeItems_AcceptedMovePreparationKeepsItemsOnUiAndClearsWhenNoResult`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.cs) は実移動・実準備でUIスレッドだけの変更と結果なしでの空表示を確認する。 |
 | 統合先候補の同一・親子除外、兄弟保持、大小文字の重複排除とCtrl+Gの元件数分岐 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) の `CaptureDuplicateFolderMergeDestinations`、`CaptureDuplicateFolderKeyboardAction` | [`DuplicateMaintenanceWorkflowOwnerTests.DuplicateFolderInteractionQueries_PreserveDestinationAndKeyboardPolicy`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) は管理主体の実装で候補の件数付き集合一致、末尾区切り文字・大小文字・親子・接頭辞だけが同じ兄弟、二件／三件以上の候補ゼロ、有効一件時の元件数分岐と単一フォルダ整理を確認する。存在確認は呼出し失敗の代替にし、物理資源を使わない。実メニューとショートカットからの対象受渡し・単一フォルダ整理への接続は [`MainWindowPackageMaintenanceWpfTests.CompiledDuplicateContextAndShortcutRoutesUseOneTypedTerminal`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) が分担する。 |
 | 統合、後続保守、受付解放、失敗と通知 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) | [`DuplicateMaintenanceWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) / [`DuplicateMaintenanceWorkflowOwnerTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs)、[`BmsLibraryDuplicateServiceTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) / [`BmsLibraryDuplicateServiceTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs)。同一・子・祖先の宛先を物理変更前に拒否して元入力を保つ保証は [`BmsLibraryPackageInstallServiceTests.MovePackageFilesWithReceipt_RejectsOverlappingDirectoryDestinationBeforeMutation`](../../../tests/BeMusicSeeker.Core.Tests/Install/BmsLibraryPackageInstallServiceTests.cs) が分担する。 |
+| 重複グループの一括整理（一つの受付と変更セッション、単体の統合との一致、重複整理の選定、最後のコピーの保護、書込み前の拒否、移動元ごとの拒否、予期しない物理失敗、取消と進捗、確定失敗、反映回数、操作全体の拒否） | [`LibraryMutationOwner.OrganizeDuplicateGroups`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.BatchOrganize.cs)、[`DuplicateChartCleanupSelector`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/DuplicateChartCleanupSelector.cs)、[`SourceExcludingInstalledChartLookup`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/SourceExcludingInstalledChartLookup.cs)、[`DuplicateBatchOrganize`（要求・結果）](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/DuplicateBatchOrganize.cs)、`FolderLinkInspector.InspectFolder`、`BmsLibraryDuplicateMaintenanceStore.OrganizeDuplicateGroups` | [`DuplicateBatchOrganizeTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateBatchOrganizeTests.cs) が実ファイル・SQLite・実ライブラリで確認する。`OrganizeDuplicateGroups_MatchesSequentialSingleMerges` は、スマート上書きと保護対象名の別名保持の全組合せで、採番・資源の衝突・二階層の配下・保護対象名を含む入力の結果（相対パス・バイト列・DB 行）が単体の統合を順に適用した結果と一致し、反映が一回であることを、`OrganizeDuplicateGroups_KeepDirectDuplicates_KeepsOldestThenShortestName`・`OrganizeDuplicateGroups_SourceDuplicates_AreCleanedOnlyForHashesThatMove`・`OrganizeDuplicateGroups_SingleFolderGroup_TrashesOnlyDirectDuplicates` は選定規則・BMSON・移る主ハッシュに限る移動元の整理・ごみ箱の記録・確認と案内が 0 件であることを、`OrganizeDuplicateGroups_NeverLosesTheLastCopy` は同じグループ・別グループの成功／スキップ／取消／物理失敗・型の衝突での最後のコピーの保護を、`OrganizeDuplicateGroups_RefusesBeforeAnyChangeAndContinues` は書込み前の拒否の各理由と変更なし・案内なし・次のグループの完了を、`OrganizeDuplicateGroups_SourceRefusals_AreRetainedWithReasonsAndTheGroupContinues` と `OrganizeDuplicateGroups_MissingDestination_FailsTheGroupAndKeepsEverySource` は移動元ごとの拒否と宛先の欠落を、`OrganizeDuplicateGroups_UnexpectedPhysicalFailure_CommitsPrecedingWorkAndLeavesTheRestUnprocessed` と `OrganizeDuplicateGroups_UnrestoredExistingDestination_IsReportedInTheSessionReceipt` は予期しない物理失敗と既存宛先の復元不能を、`OrganizeDuplicateGroups_CanceledBeforeStart_ProcessesNothing`・`OrganizeDuplicateGroups_CancelOnSecondGroupStart_FinishesTheStartedGroupAndMaintainsIt`・`OrganizeDuplicateGroups_ProgressReceiverFailure_DoesNotChangeTheResult` は取消・進捗の順序・受け手でのロック非保持・受け手の例外を、`OrganizeDuplicateGroups_CommitFailure_FailsPhysicallySuccessfulGroupsAndKeepsEveryFact` は確定失敗の状態と実数の保持を、`OrganizeDuplicateGroups_ApplyAndPublicationCountsDoNotGrowWithGroupCount` は反映・公開の回数がグループ数に比例せず全 KEEP が保守済みであることを、`OrganizeDuplicateGroups_BusyAdmission_RejectsTheWholeOperationWithOneNotice`・`OrganizeDuplicateGroups_CatalogNotConverged_RejectsTheWholeOperationWithOneNotice`・`OrganizeDuplicateGroups_ManagedOutputBusy_RejectsTheWholeOperationWithOneNotice` は操作全体の拒否を確認する。列挙が共有違反になる移動元のスキップは [`BmsLibraryDuplicateServiceTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/Maintenance/BmsLibraryDuplicateServiceTests.cs) の `OrganizeDuplicateGroups_UncheckableSourceTree_SkipsTheGroupWithoutNoticesAndContinues`、実ジャンクションは `Suite.Junction` の [`FolderMergeJunctionRefusalTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Maintenance/FolderMergeJunctionRefusalTests.cs) の `OrganizeDuplicateGroups_JunctionIsSkippedOrIgnoredPerGroupKindAndOtherGroupSucceeds`（移動元の深い位置のジャンクション、一フォルダのグループのフォルダ本体のジャンクションはスキップ、一フォルダのグループの配下のジャンクションは処理してリンクとリンク先を変えない）が確認する。選定規則の古さ優先の行は [`DuplicateMaintenanceWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount` が分担する。画面側の接続は後続の工程が追加する。 |
 | 実行中の進捗行の開始・終了と通知しない経路 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) の `ProgressChanged`、[`OperationProgressHubViewModel.AttachDuplicateMaintenanceProgressSource`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs)、`ApplicationComposition` | [`DuplicateMaintenanceWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `ProgressFacts_StartAfterApprovalAndEndBeforeReportOnEveryTerminal` は、統合と重複削除の成功・対象別受付の使用中・失敗と確認を表示しない設定で、全確認の回答後かつ背景処理の開始前の開始、終端後かつ報告前の終了、対象フォルダを確認する。`ProgressFacts_NotPublishedWhenOperationEndsBeforeBackgroundMutation` は受付の拒否・確認の取消と表示失敗・事前準備の失敗・対象なしで通知しないことを、`ProgressSubscriberFailure_KeepsResultReleaseAndReport` は受け手の例外で結果・解放・報告が変わらず終了通知が欠けないことを確認する。`RunFolderMergeAsync_UnrestoredDestinationExitsAfterOwnedTerminal` は復元不能で終了への接続より前に閉じることを確認する。標準構成の接続は [`MainWindowPackageMaintenanceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `DuplicateSelections_ActualMergeSelectsCapturedNextGroupThroughCompiledTree` と `DuplicateSelections_ActualHashCleanupSelectsCapturedNextGroupAfterLaterView` が、実行中の一行と終端後の消去で確認する。行の内容と言語追従は[ステータスバーの対応表](../runtime/statusbar-progress.md#実装とテストの対応)を参照する。 |
 | 削除の確認件数とカタログ反映 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`OwnedChartCollectionLibraryMutationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs)、[`BmsLibraryFolderRenameRefreshTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) |
 | 終端の分類と多言語表示 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) | [`FileDbMutationReportTests`](../../../tests/BeMusicSeeker.Core.Tests/ChartOperations/FileDbMutationReportTests.cs)、[`LocalizationResourceParityTests`](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs) |

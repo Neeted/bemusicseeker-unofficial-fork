@@ -49,6 +49,12 @@ internal sealed class FolderMergeLinkFixture : IDisposable
     internal DuplicateMergeMaintenanceReceipt Merge(string source, string destination, LibraryOperationNotices notices)
         => Library.MergeChartDirectory(source, destination, 1, notices);
 
+    /// <summary>モデル入口で重複グループの一括整理を要求します。グループごとの理由は案内に積まないため、案内の収集先は空のままです。</summary>
+    internal DuplicateBatchOrganizeResult Organize(IEnumerable<(string Keep, string[] Sources)> groups, LibraryOperationNotices notices)
+        => Library.OrganizeDuplicateGroups(
+            new DuplicateBatchOrganizeRequest(groups.Select(group => new DuplicateBatchOrganizeGroup(group.Keep, group.Sources))),
+            1, notices, null, CancellationToken.None);
+
     /// <summary>拒否後に、所持譜面・保存したDBの行・登録ルートが操作前と同じであることを確認します。</summary>
     internal void AssertCatalogUnchanged()
     {

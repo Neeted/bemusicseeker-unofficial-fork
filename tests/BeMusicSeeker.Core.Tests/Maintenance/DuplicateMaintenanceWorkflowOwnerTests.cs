@@ -245,13 +245,15 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 同一ハッシュの最短ファイル名を残し、確認済み削除だけの件数と保存後失敗を返して、未実行対象の成功集計や保持対象の削除を検出する。
+    /// 同一ハッシュで更新日時が古い譜面（同日時なら最短ファイル名）を残し、確認済み削除だけの件数と保存後失敗を返して、未実行対象の成功集計や保持対象の削除、名前の短さを古さより優先する選定を検出する。
     /// </summary>
-    // falseは正常保存反映、trueは削除確定後の必須カタログ反映失敗。
+    // catalogFailure: falseは正常保存反映、trueは削除確定後の必須カタログ反映失敗。
+    // longerIsOlder: trueは名前が長い方が更新日時の古い実ファイルで、名前の短さより古さを優先して長い方を残す行。
     [TestMethod]
-    [DataRow(false)]
-    [DataRow(true)]
-    public async Task RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount(bool catalogFailure)
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(false, true)]
+    public async Task RunHashCleanupAsync_ChoosesShortestNameAndReturnsRemovalCount(bool catalogFailure, bool longerIsOlder)
     {
         using var caseWorkspace1 = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string root = Path.Combine(
@@ -263,6 +265,16 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             ChartFile keeper = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
             ChartFile duplicate = CreateChart(Path.Combine(root, "long-name.bms"), "same-hash");
             ChartFile missing = CreateChart(Path.Combine(root, "missing-long-name.bms"), "same-hash");
+            if (longerIsOlder)
+            {
+                // 更新日時が古い方を残す。名前が長い方が古ければ、短い名前を優先せず長い方を残す。
+                File.WriteAllText(keeper.Path, "short name, newer");
+                File.WriteAllText(duplicate.Path, "long name, older");
+                File.WriteAllText(missing.Path, "longest name, newest");
+                File.SetLastWriteTimeUtc(missing.Path, new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+                File.SetLastWriteTimeUtc(keeper.Path, new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+                File.SetLastWriteTimeUtc(duplicate.Path, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            }
             var outcome = new LibraryChartRemovalOutcome([
                 new(duplicate.Path, LibraryChartRemovalState.Confirmed),
                 new(missing.Path, LibraryChartRemovalState.NotExecuted)], true, true,
@@ -319,7 +331,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             DuplicateGroup selected = result.SelectionContext.ResolveGroup(state.DuplicateChartGroups);
             Assert.IsNotNull(selected);
             CollectionAssert.AreEqual(new[] { expected.Path }, selected.ChartFiles.Select(chart => chart.Path).ToArray());
-            CollectionAssert.AreEqual(new[] { duplicate, missing }, (System.Collections.ICollection)store.Charts);
+            CollectionAssert.AreEqual(longerIsOlder ? new[] { keeper, missing } : new[] { duplicate, missing }, (System.Collections.ICollection)store.Charts);
             Assert.IsNotNull(dialogs.ConfirmationRequest);
             StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, "2");
             Assert.IsTrue(releasedAtReport);

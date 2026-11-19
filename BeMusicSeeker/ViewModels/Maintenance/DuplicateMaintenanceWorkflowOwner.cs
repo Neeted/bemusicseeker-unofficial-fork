@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -76,6 +77,20 @@ internal interface IDuplicateMaintenanceStore
         string destinationDirectory,
         long operationId,
         LibraryOperationNotices notices);
+
+    /// <summary>
+    /// 重複グループの一括整理を、一つの受付と変更セッションで実行します。確認は求めません。
+    /// 操作全体の拒否（Busy・カタログ未収束）の案内は操作の収集先へ一件だけ加え、グループごとの理由は案内に積みません。
+    /// </summary>
+    /// <param name="progress">グループの開始ごとに呼ぶ進捗の受け手。待たずに戻る前提で、例外は結果を変えません。</param>
+    /// <param name="cancellationToken">取消の合図。グループの開始前にだけ効き、処理中のグループは最後まで進みます。</param>
+    DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+        BMSLibrary library,
+        DuplicateBatchOrganizeRequest request,
+        long operationId,
+        LibraryOperationNotices notices,
+        Action<DuplicateBatchOrganizeProgress> progress,
+        CancellationToken cancellationToken);
 
     /// <summary>最初の件数確認前に、モデルの現在値と安全属性を固定します。</summary>
     LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts);
@@ -967,37 +982,9 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
             new DuplicateMaintenanceRefreshSuppressionChangedEventArgs(isSuppressed));
     }
 
+    /// <summary>単体の同一フォルダ内の整理と一括整理が共有する選定規則（<see cref="DuplicateChartCleanupSelector"/>）で削除対象を選びます。</summary>
     private static List<ChartFile> BuildHashCleanupDeletionList(IEnumerable<ChartFile> charts)
-    {
-        var deletionList = new List<ChartFile>();
-        foreach (var hashGroup in (charts ?? [])
-            .Select(chart => new { Chart = chart, LookupHash = ChartLookupKey.GetPrimaryHash(chart) })
-            .Where(item => !string.IsNullOrWhiteSpace(item.LookupHash))
-            .GroupBy(item => item.LookupHash, StringComparer.OrdinalIgnoreCase))
-        {
-            List<ChartFile> grouped = [.. hashGroup.Select(item => item.Chart)];
-            if (grouped.Count <= 1)
-            {
-                continue;
-            }
-            ChartFile keeper = grouped
-                .OrderBy(chart =>
-                {
-                    try
-                    {
-                        return LongPathFileSystem.GetLastWriteTime(chart.Path, isDirectory: false);
-                    }
-                    catch
-                    {
-                        return DateTime.MaxValue;
-                    }
-                })
-                .ThenBy(chart => Path.GetFileName(chart.Path).Length)
-                .First();
-            deletionList.AddRange(grouped.Where(chart => !ReferenceEquals(chart, keeper)));
-        }
-        return deletionList;
-    }
+        => DuplicateChartCleanupSelector.SelectDeletions(charts);
 
     private static bool IsChartInFolder(ChartFile chart, string folderPath)
     {
@@ -1082,6 +1069,18 @@ internal sealed class BmsLibraryDuplicateMaintenanceStore : IDuplicateMaintenanc
             operationId,
             notices,
             reportAtTerminal: true, capability: capability);
+    }
+
+    /// <summary>受理済みの生存権限を使い、重複グループの一括整理をモデルへ渡します。</summary>
+    public DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+        BMSLibrary library,
+        DuplicateBatchOrganizeRequest request,
+        long operationId,
+        LibraryOperationNotices notices,
+        Action<DuplicateBatchOrganizeProgress> progress,
+        CancellationToken cancellationToken)
+    {
+        return library.OrganizeDuplicateGroups(request, operationId, notices, progress, cancellationToken, capability);
     }
 
     /// <summary>件数確認前に、モデルで現在値・安全属性・フォルダ候補を固定します。</summary>

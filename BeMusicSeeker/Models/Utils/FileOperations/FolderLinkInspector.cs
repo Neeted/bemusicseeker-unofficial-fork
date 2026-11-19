@@ -88,6 +88,43 @@ internal static class FolderLinkInspector
         }
     }
 
+    /// <summary>
+    /// フォルダ本体だけがリンクかを検査します。配下の項目は調べません。
+    /// 配置を動かさない処理（一フォルダ内の重複整理）が、リンク先のファイルを削除しないための前提です。
+    /// 存在しないフォルダは <see cref="FolderLinkInspection.Clear"/> を返し、存在の判断は呼出元が行います。
+    /// </summary>
+    /// <param name="directory">検査するフォルダです。</param>
+    internal static FolderLinkInspection InspectFolder(string directory)
+    {
+        ArgumentNullException.ThrowIfNull(directory);
+        try
+        {
+            FileAttributes attributes;
+            try
+            {
+                attributes = LongPathFileSystem.GetAttributes(directory);
+            }
+            catch (Exception failure) when (LongPathFileSystem.IsNotFoundFailure(failure))
+            {
+                return FolderLinkInspection.Clear;
+            }
+            if ((attributes & FileAttributes.ReparsePoint) == 0)
+            {
+                return FolderLinkInspection.Clear;
+            }
+            string extendedPath = LongPathFileSystem.ToExtendedPath(directory);
+            FileSystemInfo info = (attributes & FileAttributes.Directory) != 0 ? new DirectoryInfo(extendedPath) : new FileInfo(extendedPath);
+            return info.LinkTarget != null
+                ? FolderLinkInspection.ForLink(ToDisplayPath(directory))
+                : FolderLinkInspection.Clear;
+        }
+        catch (Exception failure) when (failure is IOException or UnauthorizedAccessException or ArgumentException
+            or NotSupportedException or System.Security.SecurityException)
+        {
+            return FolderLinkInspection.ForUnverifiable(ToDisplayPath(directory), failure);
+        }
+    }
+
     /// <summary>列挙で得た拡張パスの接頭辞を除き、利用者へ示す通常のパスにします。整えられない入力はそのまま返します。</summary>
     private static string ToDisplayPath(string path)
     {
