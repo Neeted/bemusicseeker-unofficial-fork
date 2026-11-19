@@ -915,6 +915,12 @@ internal sealed class MainWindowChildComposition
             MaintenanceTree.CaptureNextDuplicateGroupSelection,
             exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync);
         ProgressHub.AttachDuplicateMaintenanceProgressSource(DuplicateMaintenanceWorkflow);
+        DuplicateMergeVerification = new DuplicateMergeVerificationWorkflowOwner(
+            DuplicateMergeCandidateList,
+            () => new DuplicateMergeSafetyInspector(
+                duplicateMaintenanceLibraryProvider() ?? throw new InvalidOperationException("The library is not available for duplicate merge verification.")),
+            chartFileOperations,
+            dialogService);
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,
@@ -991,6 +997,9 @@ internal sealed class MainWindowChildComposition
     internal PackageCatalogWorkflowOwner PackageCatalogWorkflow { get; }
 
     internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; }
+
+    /// <summary>統合候補一覧の安全性確認の手順を管理します。</summary>
+    internal DuplicateMergeVerificationWorkflowOwner DuplicateMergeVerification { get; }
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; }
 

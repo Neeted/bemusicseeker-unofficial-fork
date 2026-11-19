@@ -27,6 +27,10 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
     private static DuplicateGroup Group(params string[] folders) => Group([.. folders.Select(folder => (folder, 1))]);
 
+    /// <summary>登録ルートによる統合不可のSTATUSの文言を、現在の表示言語のリソースから作ります。</summary>
+    private static string UnmergeableRegisteredRootStatus
+        => string.Format(Resources.Duplicate_merge_candidate_status_unmergeable_format, Resources.Duplicate_merge_candidate_reason_registered_root);
+
     /// <summary>解決と登録範囲の捕捉の呼出しを記録する入力の代替です。</summary>
     private sealed class Source : IDuplicateMergeCandidateListSource
     {
@@ -145,7 +149,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     /// <summary>
     /// 保証：初期のKEEPは、グループの譜面（兄弟譜面を含む）のうちそのフォルダ直下にある所持譜面数が最多のフォルダで、同数ならPATH昇順（大文字小文字を無視）の先頭。
     /// 登録範囲のフォルダが一つならKEEPをそこへ固定し、SELECTは操作できる。二つ以上なら、PATH昇順の先頭へ固定し、
-    /// STATUSを「統合不可（登録ルート）」、SELECTをオフかつ無効にする。一フォルダのグループはKEEP固定。
+    /// STATUSを「統合不可：登録ルート」、SELECTをオフかつ無効にする。一フォルダのグループはKEEP固定。
     /// 検出する誤り：登録順の先頭を選ぶ、同数で大文字小文字を区別して並べる、兄弟譜面を数えない、固定の漏れ、統合不可の見落とし。
     /// </summary>
     [TestMethod]
@@ -176,7 +180,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(!expectedUnmergeable, state.CanSelect);
         Assert.IsFalse(state.IsSelected, "SELECTの初期値はオフです。");
         Assert.AreEqual(
-            expectedUnmergeable ? Resources.Duplicate_merge_candidate_status_unmergeable_registered_root : Resources.Duplicate_merge_candidate_status_unverified,
+            expectedUnmergeable ? UnmergeableRegisteredRootStatus : Resources.Duplicate_merge_candidate_status_unverified,
             fixture.Rows[0].StatusText);
         Assert.AreEqual(1, fixture.Rows.Count(row => row.IsKeep), "KEEPはグループで常に一つです。");
         Assert.AreEqual(expectedUnmergeable, !fixture.Owner.ToggleSelect(fixture.Rows[0]), "統合不可はオンにできません。");
@@ -188,7 +192,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     /// STATUSは、統合不可のグループ（グループ2）と未確認のグループを混ぜ、期待の順を現在の表示言語の文言の比較から求める。
     /// 検出する誤り：行単位の並べ替え（グループが分かれる）、全行の値で並べる、同値で順が入れ替わる、降順での同値の逆転、KEEPでの並べ替え、
     /// STATUSを並べ替えない（結果順のまま）誤り、STATUSの降順で同値の結果順を崩す誤り。
-    /// 限界：既定の表示言語（日本語）では「未確認」が「統合不可（登録ルート）」より前で、段階の宣言順と同じ向きのため、文言ではなく段階で並べる誤りは区別しない。
+    /// 限界：既定の表示言語（日本語）では「未確認」が「統合不可：登録ルート」より前で、段階の宣言順と同じ向きのため、文言ではなく段階で並べる誤りは区別しない。
     /// </summary>
     [TestMethod]
     [DataRow("Path", false, new[] { 1, 0, 3, 2 })]
@@ -219,12 +223,12 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         // グループ2は登録範囲のフォルダを二つ持つため統合不可（SELECTはオフのまま）。STATUS以外の列の期待順には影響しない。
         fixture.Source.RegisteredRoots.UnionWith([@"C:\S\Z\aa", @"C:\S\Z\ab"]);
         fixture.Adopt(groups);
-        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unmergeable_registered_root, fixture.Row(@"C:\S\Z\aa").StatusText, "前提：グループ2は統合不可です。");
+        Assert.AreEqual(UnmergeableRegisteredRootStatus, fixture.Row(@"C:\S\Z\aa").StatusText, "前提：グループ2は統合不可です。");
         if (expectedOrder == null)
         {
             // 未確認（0・1・3）と統合不可（2）の二値。同値の未確認は昇順・降順とも結果順を保つ。
             bool unmergeableFirst = StringComparer.OrdinalIgnoreCase.Compare(
-                Resources.Duplicate_merge_candidate_status_unmergeable_registered_root, Resources.Duplicate_merge_candidate_status_unverified) < 0;
+                UnmergeableRegisteredRootStatus, Resources.Duplicate_merge_candidate_status_unverified) < 0;
             expectedOrder = unmergeableFirst != descending ? [2, 0, 1, 3] : [0, 1, 3, 2];
         }
         // SELECT：グループ0と1をオン。昇順はオフが先、降順はオンが先。
@@ -481,7 +485,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         fixture.Owner.SetKeep(fixture.Row(@"C:\S\k1"));
         fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\r1"));
         var verification = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, []);
-        Assert.IsTrue(fixture.Owner.TryWriteVerification(kept, verification));
+        Assert.AreEqual(1, fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(kept, verification)]).Count);
         fixture.Owner.RequestSort("Path", ListSortDirection.Descending);
         fixture.Owner.SearchText = "S";
         DuplicateMergeCandidateGroupState keptState = fixture.Row(@"C:\S\k1").State;
@@ -495,7 +499,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreSame(verification, keptState.Verification);
         Assert.IsFalse(fixture.Owner.TryGetState(vanished, out _), "消えたグループの状態は破棄します。");
         Assert.IsFalse(fixture.Owner.TryGetState(replaced, out _));
-        Assert.IsFalse(fixture.Owner.TryWriteVerification(vanished, verification), "現在の状態表になければ捨てます。");
+        Assert.AreEqual(0, fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(vanished, verification)]).Count, "現在の状態表になければ捨てます。");
         Assert.IsTrue(fixture.Owner.TryGetState(replacement, out DuplicateMergeCandidateGroupState? fresh));
         Assert.IsFalse(fresh!.IsSelected, "同じフォルダ構成でも新しいインスタンスは初期値です。");
         Assert.AreEqual(("Path", ListSortDirection.Descending, "S"), (fixture.Owner.SortColumnName, fixture.Owner.SortDirection, fixture.Owner.SearchText));
@@ -562,9 +566,9 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
         var unmergeable = new DuplicateMergeVerificationResult(
             DuplicateMergeVerificationStage.Unmergeable,
-            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.RegisteredRoot, [@"C:\S\b1"])]);
+            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.RegisteredRoot, [new DuplicateMergeFinding(@"C:\S\b1", string.Empty)])]);
         fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\b1"));
-        Assert.IsTrue(fixture.Owner.TryWriteVerification(b, unmergeable));
+        Assert.AreEqual(1, fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(b, unmergeable)]).Count);
         Assert.IsFalse(fixture.Row(@"C:\S\b1").State.IsSelected, "統合不可を書き込んだグループのSELECTはオフです。");
         Assert.IsFalse(fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\b1")));
         Assert.AreSame(unmergeable, fixture.Row(@"C:\S\b2").State.Verification);
@@ -607,5 +611,282 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         fixture.Owner.OpenInExplorer([fixture.Row(@"C:\S\a1"), fixture.Row(@"C:\S\a1"), fixture.Row(@"C:\S\a2")]);
 
         CollectionAssert.AreEqual(new[] { @"C:\S\a1" }, fixture.Opened);
+    }
+
+    private static DuplicateMergeVerificationResult Result(
+        DuplicateMergeVerificationStage stage, params (DuplicateMergeVerificationReasonKind Kind, int Findings)[] reasons)
+        => new(stage, [.. reasons.Select(reason => new DuplicateMergeVerificationReason(
+            reason.Kind, [.. Enumerable.Range(0, reason.Findings).Select(index => new DuplicateMergeFinding(@"C:\S\f", "item" + index.ToString("00")))]))]);
+
+    /// <summary>
+    /// 保証：複数グループの確認結果は一括の窓口で書き込み、SELECTは安全ならオン、それ以外（要注意・統合不可）はオフに置き換え、行集合の差し替えは全体で一回になる。
+    /// STATUSの文言による検索は書き込み後の一覧に反映し、並べ替えも新しい値で当て直す。現在の状態表にないグループの結果は捨て、書き込んだ結果だけを返す。
+    /// 検出する誤り：グループごとの行集合の差し替え（複数回）、検索・並べ替えの当て直しの漏れ、安全以外のSELECTの残留、消えたグループの書込み。
+    /// </summary>
+    [TestMethod]
+    public void WriteVerifications_ReplacesSelectInOneRowSetReplacementAndReappliesSearchAndSort()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup safe = Group(@"C:\S\a1", @"C:\S\a2"), caution = Group(@"C:\S\b1", @"C:\S\b2"), blocked = Group(@"C:\S\c1", @"C:\S\c2");
+        DuplicateGroup vanished = Group(@"C:\S\v1", @"C:\S\v2");
+        fixture.Adopt(safe, caution, blocked);
+        fixture.Owner.SelectVisible();
+        fixture.Owner.SearchText = "status:" + Resources.Duplicate_merge_candidate_status_safe;
+        Assert.AreEqual(0, fixture.Rows.Length, "前提：書込み前は、どのグループも「安全」ではありません。");
+        fixture.Owner.SearchText = string.Empty;
+        fixture.Owner.RequestSort("Select", ListSortDirection.Descending);
+        fixture.Owner.SearchText = "status:" + Resources.Duplicate_merge_candidate_status_safe;
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        IReadOnlyList<DuplicateMergeVerificationWrite> accepted = fixture.Owner.WriteVerifications(
+        [
+            new(safe, Result(DuplicateMergeVerificationStage.Safe)),
+            new(caution, Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1))),
+            new(blocked, Result(DuplicateMergeVerificationStage.Unmergeable, (DuplicateMergeVerificationReasonKind.Link, 1))),
+            new(vanished, Result(DuplicateMergeVerificationStage.Safe))
+        ]);
+
+        Assert.AreEqual(3, accepted.Count, "状態表にないグループの結果は捨てます。");
+        Assert.AreEqual(1, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.Rows)), "行集合の差し替えは全体で一回です。");
+        CollectionAssert.AreEqual(new[] { safe }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray(), "STATUSの検索は書込み後の一覧に反映します。");
+        Assert.IsTrue(fixture.Row(@"C:\S\a1").State.IsSelected);
+        Assert.IsFalse(fixture.Owner.TryGetState(caution, out DuplicateMergeCandidateGroupState? cautionState) && cautionState!.IsSelected, "要注意のSELECTはオフです。");
+        Assert.IsFalse(fixture.Owner.TryGetState(blocked, out DuplicateMergeCandidateGroupState? blockedState) && blockedState!.IsSelected, "統合不可のSELECTはオフです。");
+        Assert.AreEqual(1, fixture.Owner.SelectedGroupCount);
+
+        fixture.Owner.SearchText = string.Empty;
+        fixture.Owner.RequestSort("Status", ListSortDirection.Ascending);
+        string[] statuses = [.. fixture.Rows.Select(row => row.StatusText).Distinct()];
+        CollectionAssert.AreEqual(statuses.OrderBy(text => text, StringComparer.OrdinalIgnoreCase).ToArray(), statuses, "並べ替えは新しいSTATUSの値で当て直します。");
+    }
+
+    /// <summary>
+    /// 保証：検索と並べ替えがSTATUS・SELECTに依存しないときは、書き込んでも行集合を差し替えず、表示の無効化を一回だけ通知する。
+    /// 検出する誤り：不要な行集合の作り直し（選択状態・スクロールの崩れ）、無効化の通知の欠落。
+    /// </summary>
+    [TestMethod]
+    public void WriteVerifications_WithoutStatusDependentViewOnlyInvalidatesDisplay()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2");
+        fixture.Adopt(a, b);
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        int invalidated = 0;
+        fixture.Owner.DisplayInvalidated += (_, _) => invalidated++;
+
+        fixture.Owner.WriteVerifications([new(a, Result(DuplicateMergeVerificationStage.Safe)), new(b, Result(DuplicateMergeVerificationStage.Safe))]);
+
+        Assert.AreEqual(0, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.Rows)));
+        Assert.AreEqual(1, invalidated);
+        Assert.AreEqual(2, fixture.Owner.SelectedGroupCount);
+    }
+
+    /// <summary>
+    /// 保証：確認で統合不可（解析不能）になったグループを再確認して安全を書き込むと、SELECTはオンで操作できる状態（無効でない）に戻り、STATUSは安全になる。
+    /// 登録範囲のフォルダを持たないグループで確かめ、登録ルート由来の統合不可（安全で上書きされない）とは区別する。
+    /// 検出する誤り：確認結果の代入より前に操作可否を評価して、統合不可だったグループのSELECTをオフかつ無効のまま残す、前の確認結果のSTATUSが残る。
+    /// </summary>
+    [TestMethod]
+    public void WriteVerifications_SafeAfterUnreadableReenablesAndSelectsTheGroup()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup group = Group(@"C:\S\a1", @"C:\S\a2");
+        fixture.Adopt(group);
+        DuplicateMergeCandidateGroupState state = fixture.Row(@"C:\S\a1").State;
+        Assert.IsTrue(state.CanSelect, "前提：登録範囲のフォルダがなく、構築時は統合不可ではありません。");
+
+        Assert.AreEqual(1, fixture.Owner.WriteVerifications(
+            [new(group, Result(DuplicateMergeVerificationStage.Unmergeable, (DuplicateMergeVerificationReasonKind.Unreadable, 1)))]).Count);
+        Assert.IsFalse(state.IsSelected, "前提：解析不能の統合不可でSELECTはオフです。");
+        Assert.IsFalse(state.CanSelect, "前提：解析不能の統合不可でSELECTは無効です。");
+        Assert.IsFalse(fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\a1")), "前提：無効のSELECTは操作できません。");
+
+        Assert.AreEqual(1, fixture.Owner.WriteVerifications([new(group, Result(DuplicateMergeVerificationStage.Safe))]).Count);
+
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, fixture.Row(@"C:\S\a1").StatusText);
+        Assert.IsTrue(state.CanSelect, "再確認で安全になれば、SELECTは有効に戻ります。");
+        Assert.IsTrue(state.IsSelected, "再確認で安全になれば、SELECTはオンになります。");
+        Assert.AreEqual(1, fixture.Owner.SelectedGroupCount);
+        Assert.IsTrue(fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\a1")), "有効に戻ったSELECTは操作できます。");
+        Assert.IsFalse(state.IsSelected);
+    }
+
+    /// <summary>
+    /// 保証：KEEPを変えると、確認済みのグループは走査の事実からSTATUSを導き直し（親ディレクトリ参照を持つフォルダをKEEPにすれば安全へ、持たないフォルダをKEEPにすれば要注意へ）、
+    /// SELECTは変えず、並べ替え・検索の当て直しはしない。表示は無効化して再描画する。
+    /// 検出する誤り：KEEPの変更後に古いSTATUSが残る、KEEPの変更でSELECTが外れる、利用者操作での行集合の差し替え（並べ直し）。
+    /// </summary>
+    [TestMethod]
+    public void SetKeep_RederivesVerificationFromInspectionWithoutChangingSelectOrRows()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup group = Group((@"C:\S\a", 1), (@"C:\S\b", 1));
+        fixture.Adopt(group);
+        var inspection = new DuplicateMergeGroupInspection(
+            new Dictionary<DuplicateMergeVerificationReasonKind, IReadOnlyList<DuplicateMergeFinding>>(),
+            [],
+            DuplicateMergeComparisonSummary.None,
+            new Dictionary<string, DuplicateMergeKeepDependentFacts>(StringComparer.OrdinalIgnoreCase)
+            {
+                [@"C:\S\a"] = new([new DuplicateMergeFinding(@"C:\S\a", "c.bms", "../x.wav")], []),
+                [@"C:\S\b"] = DuplicateMergeKeepDependentFacts.Empty
+            });
+        Assert.AreEqual(@"C:\S\a", fixture.Row(@"C:\S\a").State.KeepFolder, "前提：既定のKEEPはPATH昇順の先頭です。");
+        fixture.Owner.WriteVerifications([new(group, inspection.Evaluate(@"C:\S\a"), inspection)]);
+        Assert.IsTrue(fixture.Row(@"C:\S\a").State.IsSelected, "前提：KEEP側の参照は該当せず、安全でSELECTはオンです。");
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        int invalidated = 0;
+        fixture.Owner.DisplayInvalidated += (_, _) => invalidated++;
+
+        Assert.IsTrue(fixture.Owner.SetKeep(fixture.Row(@"C:\S\b")));
+
+        DuplicateMergeCandidateGroupState state = fixture.Row(@"C:\S\a").State;
+        Assert.AreEqual(DuplicateMergeVerificationStage.Caution, state.Verification.Stage);
+        Assert.AreEqual(
+            string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_parent_reference),
+            fixture.Row(@"C:\S\a").StatusText);
+        Assert.IsTrue(state.IsSelected, "KEEPの変更で段階が変わっても、SELECTは変えません。");
+        Assert.AreEqual(0, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.Rows)), "利用者操作では並べ直しません。");
+        Assert.AreEqual(1, invalidated);
+
+        Assert.IsTrue(fixture.Owner.SetKeep(fixture.Row(@"C:\S\a")));
+        Assert.AreEqual(DuplicateMergeVerificationStage.Safe, state.Verification.Stage, "元のフォルダをKEEPにすれば安全へ戻ります。");
+    }
+
+    /// <summary>
+    /// 保証：STATUSの文言は、未確認「未確認」、安全「安全」（保護対象名の衝突があれば付記つき）、要注意・統合不可「（段階）：（最初の理由）」で、理由が複数なら「ほか{n}件」を添える。
+    /// 理由の順は結果の並びのままで、最初の理由だけを要約に出し、保護対象名の衝突は要注意・統合不可の要約へ出さない。
+    /// 検出する誤り：最初でない理由の要約、残りの件数の誤り、段階と書式の取り違え、保護対象名の衝突の要約への混入。
+    /// </summary>
+    [TestMethod]
+    public void StatusText_FollowsStageFirstReasonAndRemainingCount()
+    {
+        var withNote = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, [], ["readme.txt"]);
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, DuplicateMergeVerificationResult.Unverified.FormatStatus());
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, Result(DuplicateMergeVerificationStage.Safe).FormatStatus());
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe_protected_collision, withNote.FormatStatus());
+
+        DuplicateMergeVerificationResult one = Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.AudioExtension, 1));
+        Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_audio_extension), one.FormatStatus());
+        DuplicateMergeVerificationResult many = Result(
+            DuplicateMergeVerificationStage.Caution,
+            (DuplicateMergeVerificationReasonKind.ParentReference, 1), (DuplicateMergeVerificationReasonKind.ContentConflict, 2), (DuplicateMergeVerificationReasonKind.NestedChartFolder, 1)) with
+        { ProtectedNameCollisions = ["readme.txt"] };
+        Assert.AreEqual(
+            string.Format(Resources.Duplicate_merge_candidate_status_caution_more_format, Resources.Duplicate_merge_candidate_reason_parent_reference, 2),
+            many.FormatStatus());
+        DuplicateMergeVerificationResult blocked = Result(
+            DuplicateMergeVerificationStage.Unmergeable, (DuplicateMergeVerificationReasonKind.RegisteredRoot, 2), (DuplicateMergeVerificationReasonKind.Unreadable, 1));
+        Assert.AreEqual(
+            string.Format(Resources.Duplicate_merge_candidate_status_unmergeable_more_format, Resources.Duplicate_merge_candidate_reason_registered_root, 1),
+            blocked.FormatStatus());
+        Assert.AreEqual(
+            string.Format(Resources.Duplicate_merge_candidate_status_unmergeable_format, Resources.Duplicate_merge_candidate_reason_registered_root),
+            DuplicateMergeVerificationResult.UnmergeableRegisteredRoot([@"C:\S\a", @"C:\S\b"]).FormatStatus());
+    }
+
+    /// <summary>
+    /// 保証：STATUSのツールチップは、理由ごとに説明と該当するフォルダ・相対パスを出し、一つの理由につき10件を超える分は「ほか{n}件」と省略する。
+    /// 別内容ファイル衝突は上書きの注意を添え、保護対象名の衝突はファイル名と注意を付記として出す（要注意でも出る）。未確認はツールチップを持たない。
+    /// 検出する誤り：件数の省略の誤り（11件目の混入、省略の注記の欠落）、理由の説明の欠落、注意の欠落、付記の脱落。
+    /// </summary>
+    [TestMethod]
+    public void StatusTooltip_ListsReasonsWithOmissionNoteAndProtectedCollisions()
+    {
+        Assert.IsNull(DuplicateMergeVerificationResult.Unverified.FormatTooltip());
+        DuplicateMergeVerificationResult conflict = Result(
+            DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ContentConflict, 12), (DuplicateMergeVerificationReasonKind.NoSharedContent, 1)) with
+        { ProtectedNameCollisions = ["Data.BMX", "readme.txt"] };
+
+        string[] lines = conflict.FormatTooltip()!.Split(Environment.NewLine);
+
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_reason_content_conflict_description, lines[0]);
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_content_conflict_note, lines[1]);
+        string[] items = [.. lines.Skip(2).TakeWhile(line => line.StartsWith("- ", StringComparison.Ordinal))];
+        Assert.AreEqual(10, items.Length, "一つの理由につき10件までです。");
+        Assert.AreEqual(@"- C:\S\f\item00", items[0]);
+        Assert.AreEqual(@"- C:\S\f\item09", items[9]);
+        Assert.IsFalse(lines.Any(line => line.Contains("item10", StringComparison.Ordinal)), "11件目以降は出しません。");
+        Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_tooltip_more_format, 2), lines[2 + 10]);
+        CollectionAssert.Contains(lines, Resources.Duplicate_merge_candidate_reason_no_shared_content_description);
+        CollectionAssert.Contains(lines, Resources.Duplicate_merge_candidate_protected_collision_description);
+        CollectionAssert.Contains(lines, Resources.Duplicate_merge_candidate_protected_collision_note);
+        CollectionAssert.Contains(lines, "- Data.BMX");
+        CollectionAssert.Contains(lines, "- readme.txt");
+    }
+
+    /// <summary>
+    /// 保証：安全のツールチップは、比較した同名の資源の組の数と方法を出し、方法が混在する場合は方法ごとの件数を出す。比較がなければその旨を出す。
+    /// 検出する誤り：比較の数・方法の欠落、混在時の件数の合算、比較がないときの空のツールチップ。
+    /// </summary>
+    [TestMethod]
+    public void SafeTooltip_ReportsComparedCountAndMethods()
+    {
+        string Tooltip(int sizeAndTime, int full, int partial)
+            => new DuplicateMergeVerificationResult(
+                DuplicateMergeVerificationStage.Safe, [], null, new DuplicateMergeComparisonSummary(sizeAndTime, full, partial)).FormatTooltip()!;
+
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_safe_not_compared, Tooltip(0, 0, 0));
+        Assert.AreEqual(
+            string.Format(Resources.Duplicate_merge_candidate_safe_compared_single_format, 3, Resources.Duplicate_merge_candidate_method_full), Tooltip(0, 3, 0));
+        Assert.AreEqual(
+            string.Format(Resources.Duplicate_merge_candidate_safe_compared_single_format, 2, Resources.Duplicate_merge_candidate_method_size_and_time), Tooltip(2, 0, 0));
+        string[] mixed = Tooltip(2, 3, 1).Split(Environment.NewLine);
+        Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_safe_compared_header_format, 6), mixed[0]);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "- " + string.Format(Resources.Duplicate_merge_candidate_safe_compared_method_format, Resources.Duplicate_merge_candidate_method_size_and_time, 2),
+                "- " + string.Format(Resources.Duplicate_merge_candidate_safe_compared_method_format, Resources.Duplicate_merge_candidate_method_full, 3),
+                "- " + string.Format(Resources.Duplicate_merge_candidate_safe_compared_method_format, Resources.Duplicate_merge_candidate_method_partial, 1)
+            },
+            mixed.Skip(1).ToArray());
+    }
+
+    /// <summary>
+    /// 保証：簡易確認の値は既定でオフで、変更を通知し、ライブラリを交換しても保つ（アプリの起動中だけの値）。
+    /// 検出する誤り：ライブラリの交換での値の消失、既定がオン、変更の通知の欠落。
+    /// </summary>
+    [TestMethod]
+    public void QuickCompare_DefaultsOffAndSurvivesLibraryExchange()
+    {
+        var fixture = new Fixture();
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        Assert.IsFalse(fixture.Owner.QuickCompareEnabled);
+
+        fixture.Owner.QuickCompareEnabled = true;
+        fixture.Owner.AttachLibrary(new object());
+
+        Assert.IsTrue(fixture.Owner.QuickCompareEnabled, "ライブラリの交換後も残ります。");
+        Assert.AreEqual(1, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.QuickCompareEnabled)));
+    }
+
+    /// <summary>
+    /// 保証：確認の入力の捕捉は、行が属するグループをグループごとに一度、SELECTの状態によらず行の順で返し、現在の状態表にない行は除く。
+    /// 全グループのフォルダの捕捉は、検索で非表示のグループも含む。対象は登録範囲のフォルダを持つ。
+    /// 検出する誤り：同じグループの重複捕捉、SELECTによる絞込み、非表示のグループの欠落（別のグループとの重なりの見落とし）、登録範囲の欠落。
+    /// </summary>
+    [TestMethod]
+    public void Capture_ReturnsGroupsOfRowsOnceAndAllGroupFoldersIncludingHidden()
+    {
+        var fixture = new Fixture();
+        fixture.Source.RegisteredRoots.UnionWith([@"C:\S\a1", @"C:\S\a2"]);
+        DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2");
+        fixture.Adopt(a, b);
+        fixture.Owner.SearchText = "folder:a";
+
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets =
+            fixture.Owner.CaptureGroupsOfRows([fixture.Row(@"C:\S\a2"), fixture.Row(@"C:\S\a1"), fixture.Row(@"C:\S\a2")]);
+        IReadOnlyList<DuplicateMergeCandidateGroupFolders> all = fixture.Owner.CaptureAllGroupFolders();
+
+        Assert.AreEqual(1, targets.Count);
+        Assert.AreSame(a, targets[0].Group);
+        CollectionAssert.AreEqual(new[] { @"C:\S\a1", @"C:\S\a2" }, targets[0].RegisteredFolders.ToArray());
+        Assert.IsFalse(fixture.Row(@"C:\S\a1").State.IsSelected, "SELECTの状態によらず対象になります。");
+        CollectionAssert.AreEquivalent(new[] { a, b }, all.Select(group => group.Group).ToArray(), "非表示のグループも含みます。");
     }
 }

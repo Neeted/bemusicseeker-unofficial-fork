@@ -190,7 +190,8 @@ Redistribution Notes:
 ================================================================================
 Status: GREEN
 Component: System.Resources.Extensions.dll, System.Memory.dll, System.Buffers.dll,
-           System.Numerics.Vectors.dll, System.Runtime.CompilerServices.Unsafe.dll
+           System.Numerics.Vectors.dll, System.Runtime.CompilerServices.Unsafe.dll,
+           System.IO.Hashing.dll (10.0.15)
 Copyright: .NET Foundation and contributors
 License: MIT
 Source: https://www.nuget.org/packages/System.Resources.Extensions/8.0.0

@@ -24,7 +24,7 @@ internal interface IDuplicateMergeCandidateListSource
     Func<string, bool> CaptureRegisteredBmsRootPredicate();
 }
 
-public partial class BMSLibrary : IDuplicateMergeCandidateListSource
+public partial class BMSLibrary : IDuplicateMergeCandidateListSource, IDuplicateMergeOwnedChartSource
 {
     /// <summary>
     /// 読取りロックの保持を長くしないため、このフォルダ数ごとにロックを取り直します。
@@ -63,6 +63,31 @@ public partial class BMSLibrary : IDuplicateMergeCandidateListSource
 
     internal Func<string, bool> CaptureDuplicateMergeCandidateRegisteredPredicate()
         => libraryMutationOwner.CaptureRegisteredBmsRootPredicate();
+
+    IReadOnlyList<ChartFile> IDuplicateMergeOwnedChartSource.CaptureOwnedCharts(string folder)
+        => CaptureDuplicateMergeOwnedCharts(folder);
+
+    /// <summary>
+    /// インターフェースの実装の本体です。所持集合の実パス索引から、指定フォルダの直下と配下の所持譜面だけを、リソース参照を含めて捕捉します。
+    /// 読取りロックは捕捉の間だけ保持し、譜面ファイルの読取りは呼出し側がロックの外で行います。
+    /// </summary>
+    internal IReadOnlyList<ChartFile> CaptureDuplicateMergeOwnedCharts(string folder)
+    {
+        string normalized = NormalizeInstallDestinationDirectoryForLookup(folder);
+        if (string.IsNullOrWhiteSpace(normalized)) { return []; }
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            lock (lockOwnedChartCollection)
+            {
+                return catalogOwnedCollectionOwner.Collection.CreateSnapshotForSubtreeDirectory(
+                    normalized,
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: true,
+                    includeScoreSnapshot: false);
+            }
+        }
+    }
 
     private void ResolveDuplicateMergeCandidateChunk(
         List<string> chunk, Dictionary<string, (string Title, string Artist)> result, CancellationToken cancellationToken)

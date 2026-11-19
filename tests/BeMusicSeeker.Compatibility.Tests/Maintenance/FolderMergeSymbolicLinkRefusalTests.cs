@@ -4,6 +4,7 @@ using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryDuplicateServiceTestSupport;
+using static BeMusicSeeker.TestSupport.Components.DuplicateMergeSafetyTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -96,5 +97,54 @@ public sealed class FolderMergeSymbolicLinkRefusalTests
             Assert.AreEqual(0, otherNotices.Snapshot().Count);
             Assert.IsTrue(File.Exists(Path.Combine(otherDestination, "other.bms")));
         });
+    }
+
+    /// <summary>
+    /// 統合候補一覧の安全性確認の検査器は、深い位置のファイルのシンボリックリンクとディレクトリのシンボリックリンクのどちらも、リンクとして検出して統合不可にし、
+    /// リンクの位置を相対パスで返す。リンク先へは入らず、リンク先は変わらない。この環境のように作成の権限がなければ失敗にする。
+    /// 検出する誤り：シンボリックリンクの見逃し（ジャンクションだけの検出）、リンク先への立入り、リンクを通常のファイル・ディレクトリとして比較する誤り。
+    /// </summary>
+    [TestMethod]
+    [DataRow("file")]
+    [DataRow("directory")]
+    [TestCategory("EnvironmentIntegration")]
+    public void DuplicateMergeSafety_SymbolicLinkMakesGroupUnmergeable(string kind)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string a = Path.Combine(workspace.RootDirectory, "g", "a"), b = Path.Combine(workspace.RootDirectory, "g", "b");
+        string externalDirectory = Path.Combine(workspace.RootDirectory, "external");
+        string externalFile = Path.Combine(externalDirectory, "target.wav");
+        Directory.CreateDirectory(Path.Combine(a, "Pack", "Deep"));
+        Directory.CreateDirectory(b);
+        Directory.CreateDirectory(externalDirectory);
+        File.WriteAllText(externalFile, "linked audio");
+        string link, relative;
+        try
+        {
+            if (kind == "file")
+            {
+                link = Path.Combine(a, "Pack", "Deep", "linked.wav");
+                relative = @"Pack\Deep\linked.wav";
+                File.CreateSymbolicLink(link, externalFile);
+            }
+            else
+            {
+                link = Path.Combine(a, "Pack", "DirectoryLink");
+                relative = @"Pack\DirectoryLink";
+                Directory.CreateSymbolicLink(link, externalDirectory);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            Assert.Fail("実シンボリックリンクを作成できない環境のため、専用環境の準備が不足しています: " + exception.Message);
+            return;
+        }
+
+        DuplicateMergeVerificationResult result = Inspect([a, b]).Evaluate(b);
+
+        Assert.AreEqual(DuplicateMergeVerificationStage.Unmergeable, result.Stage);
+        DuplicateMergeVerificationReason reason = Reason(result, DuplicateMergeVerificationReasonKind.Link)!;
+        Assert.AreEqual(new DuplicateMergeFinding(a, relative), reason.Findings.Single());
+        Assert.AreEqual("linked audio", File.ReadAllText(externalFile), "リンク先は変わりません。");
     }
 }

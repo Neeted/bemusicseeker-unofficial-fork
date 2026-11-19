@@ -77,6 +77,9 @@ public partial class MainWindowViewModel : ViewModel,
 
     internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; private set; }
 
+    /// <summary>統合候補一覧の安全性確認の手順です。ボタン・メニュー・チェックの操作を受けます。</summary>
+    internal DuplicateMergeVerificationWorkflowOwner DuplicateMergeVerification { get; private set; }
+
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; private set; }
 
     internal SelectedChartExternalActionWorkflowOwner SelectedChartExternalActions { get; private set; }
@@ -163,7 +166,7 @@ public partial class MainWindowViewModel : ViewModel,
     public MaintenanceTreeViewModel MaintenanceTree { get; }
 
     /// <summary>
-    /// Gets the duplicate merge candidate list owner. The list is shown by the first node of the duplicate tree.
+    /// 統合候補一覧の管理主体を取得します。重複ツリーの先頭のノードで選んだ画面が、この一覧を表示します。
     /// </summary>
     public DuplicateMergeCandidateListOwner DuplicateMergeCandidateList { get; }
 
@@ -2311,6 +2314,7 @@ public partial class MainWindowViewModel : ViewModel,
         PackageCatalog = childComposition.PackageCatalogWorkflow;
         PackageCatalog.MutationPhasePublished += PackageCatalogMutationPhasePublished;
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
+        DuplicateMergeVerification = childComposition.DuplicateMergeVerification;
         DuplicateMaintenanceWorkflow.WorkflowChanged += DuplicateMaintenanceWorkflowChanged;
         SelectedChartMutations = childComposition.SelectedChartMutations;
         SelectedChartMutations.WorkflowChanged += SelectedChartMutationWorkflowChanged;

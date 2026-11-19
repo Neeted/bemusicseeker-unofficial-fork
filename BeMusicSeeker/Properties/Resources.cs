@@ -3341,8 +3341,6 @@ public class Resources
     public static string Duplicate_merge_candidate_list => ResourceManager.GetString("Duplicate_merge_candidate_list", resourceCulture);
     /// <summary>統合候補一覧のSTATUS列で、安全性を確認していないグループに表示する文言です。</summary>
     public static string Duplicate_merge_candidate_status_unverified => ResourceManager.GetString("Duplicate_merge_candidate_status_unverified", resourceCulture);
-    /// <summary>統合候補一覧のSTATUS列で、登録ルートのフォルダが二つ以上あるため統合できないグループに表示する文言です。</summary>
-    public static string Duplicate_merge_candidate_status_unmergeable_registered_root => ResourceManager.GetString("Duplicate_merge_candidate_status_unmergeable_registered_root", resourceCulture);
     /// <summary>統合候補一覧のツールバーで、表示中のグループをすべて選択するボタンの文言です。</summary>
     public static string Duplicate_merge_candidate_select_visible => ResourceManager.GetString("Duplicate_merge_candidate_select_visible", resourceCulture);
     /// <summary>統合候補一覧のツールバーで、表示中のグループの選択をすべて解除するボタンの文言です。</summary>
@@ -3357,6 +3355,104 @@ public class Resources
     public static string Duplicate_merge_candidate_summary => ResourceManager.GetString("Duplicate_merge_candidate_summary", resourceCulture);
     /// <summary>統合候補一覧の検索欄の名前です。</summary>
     public static string Duplicate_merge_candidate_search => ResourceManager.GetString("Duplicate_merge_candidate_search", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列で、安全と判断したグループに表示する文言です。</summary>
+    public static string Duplicate_merge_candidate_status_safe => ResourceManager.GetString("Duplicate_merge_candidate_status_safe", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列で、安全だが保護対象のファイル名が複数のフォルダで衝突しているグループに表示する文言です。</summary>
+    public static string Duplicate_merge_candidate_status_safe_protected_collision => ResourceManager.GetString("Duplicate_merge_candidate_status_safe_protected_collision", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列で、要注意のグループに表示する書式です。{0}は最初の理由の名前です。</summary>
+    public static string Duplicate_merge_candidate_status_caution_format => ResourceManager.GetString("Duplicate_merge_candidate_status_caution_format", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列で、理由が複数ある要注意のグループに表示する書式です。{0}は最初の理由の名前、{1}は残りの理由の数です。</summary>
+    public static string Duplicate_merge_candidate_status_caution_more_format => ResourceManager.GetString("Duplicate_merge_candidate_status_caution_more_format", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列で、統合不可のグループに表示する書式です。{0}は最初の理由の名前です。</summary>
+    public static string Duplicate_merge_candidate_status_unmergeable_format => ResourceManager.GetString("Duplicate_merge_candidate_status_unmergeable_format", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列で、理由が複数ある統合不可のグループに表示する書式です。{0}は最初の理由の名前、{1}は残りの理由の数です。</summary>
+    public static string Duplicate_merge_candidate_status_unmergeable_more_format => ResourceManager.GetString("Duplicate_merge_candidate_status_unmergeable_more_format", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、フォルダの本体または配下にリンクがある理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_link => ResourceManager.GetString("Duplicate_merge_candidate_reason_link", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、登録範囲のフォルダがグループ内に二つ以上ある理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_registered_root => ResourceManager.GetString("Duplicate_merge_candidate_reason_registered_root", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、グループ内のフォルダ同士が同一か親子である理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_parent_child => ResourceManager.GetString("Duplicate_merge_candidate_reason_parent_child", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、同じ相対パスがファイルとフォルダで衝突する理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_type_conflict => ResourceManager.GetString("Duplicate_merge_candidate_reason_type_conflict", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、別のグループのフォルダと同一か親子である理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_other_group => ResourceManager.GetString("Duplicate_merge_candidate_reason_other_group", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、権限や読取りの失敗により確認できない項目がある理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_unreadable => ResourceManager.GetString("Duplicate_merge_candidate_reason_unreadable", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、移動元の譜面が親ディレクトリ参照を持つ理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_parent_reference => ResourceManager.GetString("Duplicate_merge_candidate_reason_parent_reference", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、同名の音源が別のフォルダに異なる拡張子である理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_audio_extension => ResourceManager.GetString("Duplicate_merge_candidate_reason_audio_extension", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、同じ相対パスのファイルの内容が異なる理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_content_conflict => ResourceManager.GetString("Duplicate_merge_candidate_reason_content_conflict", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、ファイルを持つフォルダの間に同一内容のファイルがない理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_no_shared_content => ResourceManager.GetString("Duplicate_merge_candidate_reason_no_shared_content", resourceCulture);
+    /// <summary>統合候補一覧の確認結果で、移動元の配下に譜面を持つ別のフォルダがある理由の短い名前です。</summary>
+    public static string Duplicate_merge_candidate_reason_nested_chart_folder => ResourceManager.GetString("Duplicate_merge_candidate_reason_nested_chart_folder", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、リンクがある理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_link_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_link_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、登録範囲のフォルダが二つ以上ある理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_registered_root_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_registered_root_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、グループ内のフォルダ同士が同一か親子である理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_parent_child_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_parent_child_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、同じ相対パスがファイルとフォルダで衝突する理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_type_conflict_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_type_conflict_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、別のグループのフォルダと同一か親子である理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_other_group_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_other_group_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、確認できない項目がある理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_unreadable_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_unreadable_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、移動元の譜面が親ディレクトリ参照を持つ理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_parent_reference_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_parent_reference_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、同名の音源が別のフォルダに異なる拡張子である理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_audio_extension_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_audio_extension_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、同じ相対パスのファイルの内容が異なる理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_content_conflict_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_content_conflict_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、ファイルを持つフォルダの間に同一内容のファイルがない理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_no_shared_content_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_no_shared_content_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、移動元の配下に譜面を持つ別のフォルダがある理由の説明です。</summary>
+    public static string Duplicate_merge_candidate_reason_nested_chart_folder_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_nested_chart_folder_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、保護対象のファイル名が複数のフォルダにある旨の見出しです。</summary>
+    public static string Duplicate_merge_candidate_protected_collision_description => ResourceManager.GetString("Duplicate_merge_candidate_protected_collision_description", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、保護対象のファイル名の衝突に添える注意です。</summary>
+    public static string Duplicate_merge_candidate_protected_collision_note => ResourceManager.GetString("Duplicate_merge_candidate_protected_collision_note", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、別内容のファイル衝突に添える注意です。</summary>
+    public static string Duplicate_merge_candidate_content_conflict_note => ResourceManager.GetString("Duplicate_merge_candidate_content_conflict_note", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、安全のグループに比較が必要な同名ファイルがなかった旨の文言です。</summary>
+    public static string Duplicate_merge_candidate_safe_not_compared => ResourceManager.GetString("Duplicate_merge_candidate_safe_not_compared", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、安全のグループで比較した同名ファイルの組の数と比較方法が一つの場合の書式です。{0}は組の数、{1}は比較方法の名前です。</summary>
+    public static string Duplicate_merge_candidate_safe_compared_single_format => ResourceManager.GetString("Duplicate_merge_candidate_safe_compared_single_format", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、比較方法が混在する場合の見出しの書式です。{0}は比較した同名ファイルの組の数です。</summary>
+    public static string Duplicate_merge_candidate_safe_compared_header_format => ResourceManager.GetString("Duplicate_merge_candidate_safe_compared_header_format", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、比較方法ごとの組の数の書式です。{0}は比較方法の名前、{1}は組の数です。</summary>
+    public static string Duplicate_merge_candidate_safe_compared_method_format => ResourceManager.GetString("Duplicate_merge_candidate_safe_compared_method_format", resourceCulture);
+    /// <summary>統合候補一覧の比較方法で、サイズと更新日時の一致だけで同一とみなす方法の名前です。</summary>
+    public static string Duplicate_merge_candidate_method_size_and_time => ResourceManager.GetString("Duplicate_merge_candidate_method_size_and_time", resourceCulture);
+    /// <summary>統合候補一覧の比較方法で、ファイルの全量を読んで比べる方法の名前です。</summary>
+    public static string Duplicate_merge_candidate_method_full => ResourceManager.GetString("Duplicate_merge_candidate_method_full", resourceCulture);
+    /// <summary>統合候補一覧の比較方法で、ファイルの先頭・中央・末尾の区間を読んで比べる方法の名前です。</summary>
+    public static string Duplicate_merge_candidate_method_partial => ResourceManager.GetString("Duplicate_merge_candidate_method_partial", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、一つの理由につき表示する件数を超えた分を省略する書式です。{0}は省略した件数です。</summary>
+    public static string Duplicate_merge_candidate_tooltip_more_format => ResourceManager.GetString("Duplicate_merge_candidate_tooltip_more_format", resourceCulture);
+    /// <summary>統合候補一覧のツールバーで、表示中でSELECTがオンのグループの安全性を確認するボタンの文言です。</summary>
+    public static string Duplicate_merge_candidate_verify_selected => ResourceManager.GetString("Duplicate_merge_candidate_verify_selected", resourceCulture);
+    /// <summary>統合候補一覧の右クリックメニューで、選択行のグループの安全性を確認する項目の文言です。</summary>
+    public static string Duplicate_merge_candidate_verify_group => ResourceManager.GetString("Duplicate_merge_candidate_verify_group", resourceCulture);
+    /// <summary>統合候補一覧のツールバーで、サイズと更新日時が同じファイルを読まずに同一とみなすチェックボックスの文言です。</summary>
+    public static string Duplicate_merge_candidate_quick_compare => ResourceManager.GetString("Duplicate_merge_candidate_quick_compare", resourceCulture);
+    /// <summary>サイズと更新日時が同じファイルを読まずに同一とみなす設定をオンにしたときに案内する、判定が不正確になりうる旨の文言です。</summary>
+    public static string Duplicate_merge_candidate_quick_compare_notice => ResourceManager.GetString("Duplicate_merge_candidate_quick_compare_notice", resourceCulture);
+    /// <summary>統合候補一覧の安全性確認の進捗画面の題名です。</summary>
+    public static string Duplicate_merge_candidate_verify_progress_title => ResourceManager.GetString("Duplicate_merge_candidate_verify_progress_title", resourceCulture);
+    /// <summary>統合候補一覧の安全性確認の進捗画面で、処理の内容を示す文言です。</summary>
+    public static string Duplicate_merge_candidate_verify_progress_label => ResourceManager.GetString("Duplicate_merge_candidate_verify_progress_label", resourceCulture);
+    /// <summary>統合候補一覧の安全性確認の終了時の案内です。{0}は確認した数、{1}は安全、{2}は要注意、{3}は統合不可の数で、安全なグループにチェックを入れた旨を含みます。</summary>
+    public static string Duplicate_merge_candidate_verify_result_format => ResourceManager.GetString("Duplicate_merge_candidate_verify_result_format", resourceCulture);
+    /// <summary>統合候補一覧の安全性確認の終了時の案内で、安全なグループがない場合の書式です。{0}は確認した数、{1}は安全、{2}は要注意、{3}は統合不可の数です。</summary>
+    public static string Duplicate_merge_candidate_verify_result_no_safe_format => ResourceManager.GetString("Duplicate_merge_candidate_verify_result_no_safe_format", resourceCulture);
+    /// <summary>統合候補一覧の安全性確認を取り消したときの案内です。{4}は着手しなかった数で、安全なグループにチェックを入れた旨を含みます。</summary>
+    public static string Duplicate_merge_candidate_verify_result_cancelled_format => ResourceManager.GetString("Duplicate_merge_candidate_verify_result_cancelled_format", resourceCulture);
+    /// <summary>統合候補一覧の安全性確認を取り消したときの案内で、安全なグループがない場合の書式です。{4}は着手しなかった数です。</summary>
+    public static string Duplicate_merge_candidate_verify_result_cancelled_no_safe_format => ResourceManager.GetString("Duplicate_merge_candidate_verify_result_cancelled_no_safe_format", resourceCulture);
     /// <summary>優先統合先のウィンドウの題名です。</summary>
     public static string Duplicate_merge_preferred_destination_title => ResourceManager.GetString("Duplicate_merge_preferred_destination_title", resourceCulture);
     /// <summary>優先統合先のウィンドウで、登録の意味を説明する文言です。</summary>

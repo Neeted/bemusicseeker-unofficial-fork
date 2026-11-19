@@ -2,6 +2,7 @@ using System.Reflection;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryDuplicateServiceTestSupport;
 
@@ -158,6 +159,81 @@ public sealed class DuplicateMergeCandidateListLibraryTests
                 Assert.AreSame(library, preparation.Library);
             }
             finally { library.RequestShutdown("duplicate-merge-candidate-prepare"); }
+        });
+    }
+
+    /// <summary>
+    /// 保証：所持譜面の取得口は、指定フォルダの直下と配下の所持譜面だけを返し、名前の先頭が同じ兄弟・別のフォルダ・所持していない譜面ファイルを含まない。
+    /// 実ライブラリの取得口を実検査器へ渡し、実際のBMS解析（使用中の <c>#WAV01 ../x.wav</c>）から、KEEP以外のフォルダの親ディレクトリ参照を原文つきで、
+    /// 子孫の所持フォルダを相対パスで返す。使用していない定義は該当せず、実ファイルのない所持譜面は解析不能になる。
+    /// 検出する誤り：範囲外の譜面の混入（兄弟・別フォルダ）、所持していない譜面の混入、未使用の定義の誤検出、解析の失敗の黙殺、KEEP側の事実の誤検出。
+    /// </summary>
+    [TestMethod]
+    public void CaptureOwnedCharts_FeedsInspectorWithRealParsingAndOnlyTheFolderScope()
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.GetPath("bms");
+        string a = Path.Combine(root, "A"), b = Path.Combine(root, "B"), c = Path.Combine(root, "C"), a2 = Path.Combine(root, "A2"), other = Path.Combine(root, "Other");
+        string Write(string folder, string name, string text)
+        {
+            Directory.CreateDirectory(folder);
+            string path = Path.Combine(folder, name);
+            File.WriteAllText(path, text);
+            return path;
+        }
+        const string parentReference = "#TITLE parent\n#WAV01 ../x.wav\n#00111:01\n";
+        const string unusedParentReference = "#TITLE unused\n#WAV01 ../y.wav\n#00111:00\n";
+        string aParent = Write(a, "parent.bms", parentReference);
+        string aUnused = Write(a, "unused.bms", unusedParentReference);
+        string aNested = Write(Path.Combine(a, "sub"), "nested.bms", "#TITLE nested\n#WAV01 ok.wav\n#00111:01\n");
+        Write(a, "unowned.bms", parentReference);
+        string bOk = Write(b, "ok.bms", "#TITLE ok\n#WAV01 snd/a.wav\n#00111:01\n");
+        string a2Chart = Write(a2, "sibling.bms", parentReference);
+        string otherChart = Write(other, "out.bms", parentReference);
+        Directory.CreateDirectory(c);
+        string cGone = Path.Combine(c, "gone.bms");
+        ChartFile Owned(string path, string md5) => Chart(path, md5, "T", "A");
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            TestBmsLibrary library = CreateLibrary(songDbPath, [root],
+                Owned(aParent, "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"), Owned(aUnused, "a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2"),
+                Owned(aNested, "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"), Owned(bOk, "b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1b1"),
+                Owned(a2Chart, "a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4a4"), Owned(otherChart, "c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1"),
+                Owned(cGone, "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1"));
+            try
+            {
+                var source = (IDuplicateMergeOwnedChartSource)library;
+
+                string[] captured = [.. source.CaptureOwnedCharts(a).Select(chart => chart.Path).Order(StringComparer.OrdinalIgnoreCase)];
+
+                CollectionAssert.AreEqual(new[] { aNested, aParent, aUnused }.Order(StringComparer.OrdinalIgnoreCase).ToArray(), captured,
+                    "直下と配下の所持譜面だけです（兄弟・別フォルダ・所持していない譜面を含みません）。");
+
+                var inspector = new DuplicateMergeSafetyInspector(library);
+                object ownerGroup = new object();
+                DuplicateMergeGroupInspection inspection = inspector.Inspect(new DuplicateMergeInspectionRequest(
+                    [a, b], [], new DuplicateMergeFolderIndex([(ownerGroup, [a, b])]), ownerGroup, SizeAndTimeOnly: false));
+                DuplicateMergeVerificationResult keepB = inspection.Evaluate(b);
+                DuplicateMergeVerificationResult keepA = inspection.Evaluate(a);
+
+                CollectionAssert.AreEqual(
+                    new[] { new DuplicateMergeFinding(a, "parent.bms", "../x.wav") },
+                    keepB.Reasons.Single(reason => reason.Kind == DuplicateMergeVerificationReasonKind.ParentReference).Findings.ToArray(),
+                    "使用中の親ディレクトリ参照だけを、譜面とその原文で返します（未使用の定義と、所持していない・範囲外の譜面は含みません）。");
+                CollectionAssert.AreEqual(
+                    new[] { new DuplicateMergeFinding(a, "sub") },
+                    keepB.Reasons.Single(reason => reason.Kind == DuplicateMergeVerificationReasonKind.NestedChartFolder).Findings.ToArray());
+                Assert.IsFalse(keepA.Reasons.Any(reason => reason.Kind is DuplicateMergeVerificationReasonKind.ParentReference or DuplicateMergeVerificationReasonKind.NestedChartFolder),
+                    "KEEP側の事実は該当しません。");
+
+                DuplicateMergeGroupInspection stale = inspector.Inspect(new DuplicateMergeInspectionRequest(
+                    [b, c], [], new DuplicateMergeFolderIndex([(ownerGroup, [b, c])]), ownerGroup, SizeAndTimeOnly: false));
+                CollectionAssert.AreEqual(
+                    new[] { new DuplicateMergeFinding(c, "gone.bms") },
+                    stale.Evaluate(b).Reasons.Single(reason => reason.Kind == DuplicateMergeVerificationReasonKind.Unreadable).Findings.ToArray(),
+                    "実ファイルのない所持譜面は、成功へ読み替えず解析不能です。");
+            }
+            finally { library.RequestShutdown("duplicate-merge-owned-chart-source"); }
         });
     }
 }

@@ -172,6 +172,20 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
 
         internal string LastMessage { get; private set; } = string.Empty;
 
+        /// <summary>案内として要求された内容を、要求の順に保持します。</summary>
+        internal List<UiMessageRequest> Messages { get; } = [];
+
+        /// <summary>案内の要求を受けた時点で呼ぶ通知です。要求の時点の状態（受付の解放など）を観測するために使います。</summary>
+        internal Action<UiMessageRequest>? MessageObserver { get; set; }
+
+        /// <summary>直近の進捗画面の要求です。題名・ラベル・所有者を観測するために使います。</summary>
+        internal UiProgressRequest? ProgressRequest { get; private set; }
+
+        private DoWorkEventArgs? progressArguments;
+
+        /// <summary>進捗画面の操作が取消を実際に検知した（取消の確認が取消として観測された）かです。</summary>
+        internal bool ProgressCancellationObserved => Volatile.Read(ref progressArguments)?.Cancel == true;
+
         internal int PickerCalls { get; private set; }
 
         internal Func<Task<UiFolderPickerResult>>? FolderPickerHandler { get; set; }
@@ -212,6 +226,8 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
             events.Add("message");
             MessageCalls++;
             LastMessage = request.MessageBoxText;
+            Messages.Add(request);
+            MessageObserver?.Invoke(request);
             if (MessageFailure != null) { throw MessageFailure; }
             return Task.FromResult(MessageResult);
         }
@@ -250,6 +266,7 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
             CancellationToken cancellationToken = default)
         {
             ProgressLabel = request.Label;
+            ProgressRequest = request;
             events.Add("progress");
             if (!ProgressDisplayed)
             {
@@ -263,7 +280,9 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
                 lock (progressReports) { progressReports.Add(report); }
                 ProgressReported?.Invoke(report.ProgressPercentage, report.Item2);
             };
-            Task operationTask = operation(new UiProgressContext(new ProgressDialogContext(worker, new DoWorkEventArgs(null))));
+            var arguments = new DoWorkEventArgs(null);
+            Volatile.Write(ref progressArguments, arguments);
+            Task operationTask = operation(new UiProgressContext(new ProgressDialogContext(worker, arguments)));
             if (ProgressHandler != null)
             {
                 return await ProgressHandler(operationTask);

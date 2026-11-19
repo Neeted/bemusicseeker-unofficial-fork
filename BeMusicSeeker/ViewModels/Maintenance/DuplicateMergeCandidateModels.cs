@@ -2,7 +2,6 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
@@ -10,52 +9,6 @@ namespace BeMusicSeeker.ViewModels;
 /// <summary>重複ツリーの先頭に置く「統合候補一覧」のノードです。ノード自身は状態を持たず、選択した画面の種別だけを表します。</summary>
 internal sealed class DuplicateMergeCandidateListNode
 {
-}
-
-/// <summary>統合候補一覧のグループごとの確認結果の段階です。この単位で現れるのは <see cref="Unverified"/> と、登録ルートによる <see cref="Unmergeable"/> だけです。</summary>
-internal enum DuplicateMergeVerificationStage
-{
-    /// <summary>確認していません。</summary>
-    Unverified,
-    /// <summary>統合できません。SELECTをオンにできません。</summary>
-    Unmergeable,
-    /// <summary>統合できますが、確認が必要な点があります。</summary>
-    Caution,
-    /// <summary>統合しても作品として意味が崩れないと判断しました。</summary>
-    Safe
-}
-
-/// <summary>確認結果の理由の種類です。後続の安全性確認が種類を追加します。</summary>
-internal enum DuplicateMergeVerificationReasonKind
-{
-    /// <summary>グループ内に登録範囲（登録BMSルート本体、または空の登録子ルートを含む祖先）のフォルダが二つ以上あります。</summary>
-    RegisteredRoot
-}
-
-/// <summary>確認結果の一つの理由と、該当するパスです。</summary>
-internal sealed record DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind Kind, IReadOnlyList<string> Paths);
-
-/// <summary>グループごとの確認結果です。段階と理由の一覧を不変の値として持ちます。</summary>
-internal sealed record DuplicateMergeVerificationResult(
-    DuplicateMergeVerificationStage Stage, IReadOnlyList<DuplicateMergeVerificationReason> Reasons)
-{
-    /// <summary>未確認の結果です。新しいグループの初期値です。</summary>
-    internal static DuplicateMergeVerificationResult Unverified { get; } = new(DuplicateMergeVerificationStage.Unverified, []);
-
-    /// <summary>登録範囲のフォルダが二つ以上あるため統合できない結果を作ります。</summary>
-    internal static DuplicateMergeVerificationResult UnmergeableRegisteredRoot(IReadOnlyList<string> registeredFolders)
-        => new(DuplicateMergeVerificationStage.Unmergeable,
-            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.RegisteredRoot, registeredFolders)]);
-
-    /// <summary>
-    /// STATUSの表示文言を、読取りのたびに現在の表示言語で返します。後続の単位が段階・理由を追加するときは、ここへ対応を足します。
-    /// 未対応の組合せは「未確認」を返します。
-    /// </summary>
-    internal string FormatStatus()
-        => Stage == DuplicateMergeVerificationStage.Unmergeable
-            && Reasons.Count > 0 && Reasons[0].Kind == DuplicateMergeVerificationReasonKind.RegisteredRoot
-            ? Resources.Duplicate_merge_candidate_status_unmergeable_registered_root
-            : Resources.Duplicate_merge_candidate_status_unverified;
 }
 
 /// <summary>
@@ -70,6 +23,7 @@ internal sealed class DuplicateMergeCandidateGroupState
         Folders = initial.Folders;
         KeepFolder = initial.KeepFolder;
         KeepFixed = initial.KeepFixed;
+        RegisteredFolders = initial.RegisteredFolders;
         Verification = initial.Unmergeable
             ? DuplicateMergeVerificationResult.UnmergeableRegisteredRoot(initial.RegisteredFolders)
             : DuplicateMergeVerificationResult.Unverified;
@@ -90,8 +44,16 @@ internal sealed class DuplicateMergeCandidateGroupState
     /// <summary>処理対象としてチェックされているかです。初期値はオフです。</summary>
     internal bool IsSelected { get; set; }
 
+    /// <summary>グループ内の登録範囲のフォルダです。一覧の構築時に捕捉した値で、確認の後も統合不可の理由として保ちます。</summary>
+    internal IReadOnlyList<string> RegisteredFolders { get; }
+
     /// <summary>確認結果です。初期値は未確認で、登録範囲が二つ以上ある場合は統合不可です。</summary>
     internal DuplicateMergeVerificationResult Verification { get; set; }
+
+    /// <summary>
+    /// 確認で走査した事実です。確認前はnullです。KEEPが変わったときは、再走査せず、この事実から <see cref="Verification"/> を導き直します。
+    /// </summary>
+    internal DuplicateMergeGroupInspection Inspection { get; set; }
 
     /// <summary>SELECTを操作できるかです。統合不可のグループはオンにできません。</summary>
     internal bool CanSelect => Verification.Stage != DuplicateMergeVerificationStage.Unmergeable;
@@ -107,8 +69,22 @@ internal sealed record DuplicateMergeCandidateGroupInitial(
 /// <param name="Folders">グループのフォルダ。PATHの昇順（大文字小文字を無視）。</param>
 /// <param name="KeepFolder">残すフォルダ。</param>
 /// <param name="KeepFixed">KEEPが固定かどうか。</param>
+/// <param name="RegisteredFolders">グループ内の登録範囲のフォルダ。一覧の構築時に捕捉した値です。</param>
 internal sealed record DuplicateMergeCandidateGroupTarget(
-    DuplicateGroup Group, IReadOnlyList<string> Folders, string KeepFolder, bool KeepFixed);
+    DuplicateGroup Group, IReadOnlyList<string> Folders, string KeepFolder, bool KeepFixed,
+    IReadOnlyList<string> RegisteredFolders);
+
+/// <summary>現在の状態表の一グループの識別とフォルダです。別のグループとの重なりを判定する入力です。</summary>
+/// <param name="Group">グループ。</param>
+/// <param name="Folders">グループのフォルダ。</param>
+internal sealed record DuplicateMergeCandidateGroupFolders(DuplicateGroup Group, IReadOnlyList<string> Folders);
+
+/// <summary>確認の結果を状態表へ書き込む一件です。</summary>
+/// <param name="Group">書き込むグループ。</param>
+/// <param name="Result">確認結果。</param>
+/// <param name="Inspection">KEEPの変更で結果を導き直すための走査の事実。null の場合は、KEEPを変えても結果を変えません。</param>
+internal sealed record DuplicateMergeVerificationWrite(
+    DuplicateGroup Group, DuplicateMergeVerificationResult Result, DuplicateMergeGroupInspection Inspection = null);
 
 /// <summary>一覧の一行（一フォルダ）です。不変で、状態の変化は <see cref="State"/> から読みます。</summary>
 internal sealed class DuplicateMergeCandidateRow
@@ -151,6 +127,9 @@ internal sealed class DuplicateMergeCandidateRow
 
     /// <summary>グループのSTATUSの表示文言です。読取りのたびに現在の表示言語で作ります。</summary>
     internal string StatusText => State.Verification.FormatStatus();
+
+    /// <summary>グループのSTATUSのツールチップです。読取りのたびに現在の表示言語で作ります。未確認はnullです。</summary>
+    internal string StatusTooltipText => State.Verification.FormatTooltip();
 }
 
 /// <summary>

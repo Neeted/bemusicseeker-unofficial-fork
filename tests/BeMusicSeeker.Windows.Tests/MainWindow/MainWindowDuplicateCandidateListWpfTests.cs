@@ -12,6 +12,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.Tests.TreeSelectionDisplayTestSupport;
+using ConversionTestSupport = BeMusicSeeker.TestSupport.Components.SelectedChartAudioConversionWorkflowOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -230,20 +231,22 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
             // メニュー。
             var menu = (ContextMenu)window.FindResource("duplicateCandidateContextMenu");
-            MenuItem[] items = [.. menu.Items.OfType<MenuItem>()];
-            CollectionAssert.AreEqual(
-                new[] { Resources.Duplicate_merge_candidate_check_on, Resources.Duplicate_merge_candidate_check_off, Resources.Open_file_explorer },
-                items.Select(item => (string)item.Header).ToArray());
+            // 項目は見出しのリソースで特定する（並びは固定しない）。
+            MenuItem MenuItemOf(string header) => menu.Items.OfType<MenuItem>().Single(item => (string)item.Header == header);
+            MenuItem checkOn = MenuItemOf(Resources.Duplicate_merge_candidate_check_on);
+            MenuItem checkOff = MenuItemOf(Resources.Duplicate_merge_candidate_check_off);
+            MenuItem openExplorer = MenuItemOf(Resources.Open_file_explorer);
+            Assert.IsNotNull(MenuItemOf(Resources.Duplicate_merge_candidate_verify_group), "「このグループを確認」の項目があります。");
             table.SelectRowsByPredicate(row => row is DuplicateMergeCandidateRow { Index: 0 or 1 });
-            RaiseMenuClick(items[0]);
+            RaiseMenuClick(checkOn);
             Assert.IsTrue(rows[0].State.IsSelected && !rows[2].State.IsSelected);
-            RaiseMenuClick(items[1]);
+            RaiseMenuClick(checkOff);
             Assert.IsFalse(rows[0].State.IsSelected);
 
             // エクスプローラー：存在するフォルダごとに一度。
             Directory.Delete(rows[3].Path, recursive: true);
             table.SelectRowsByPredicate(row => true);
-            RaiseMenuClick(items[2]);
+            RaiseMenuClick(openExplorer);
             CollectionAssert.AreEquivalent(new[] { rows[0].Path, rows[1].Path, rows[2].Path }, gateway.OpenedDirectoryPaths.ToArray(),
                 "存在するフォルダだけを、一度ずつ開きます。");
 
@@ -364,10 +367,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
             var summary = (TextBlock)window.FindName("duplicateCandidateSummaryText");
             var select = (Button)window.FindName("duplicateCandidateSelectVisibleButton");
+            var verify = (Button)window.FindName("duplicateCandidateVerifyButton");
+            var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
             var menu = (ContextMenu)window.FindResource("duplicateCandidateContextMenu");
             DuplicateMergeCandidateListOwner candidates = viewModel.DuplicateMergeCandidateList;
             TreeViewItem node = RealizeCandidateListNode(root);
             SelectCandidateListAndAwaitView(viewModel, navigation, node);
+            // 確認済みのグループ（要注意、理由に該当の一覧あり）を書き込み、STATUSとツールチップの追従も確かめる。
+            DuplicateMergeVerificationResult cautionResult = new(
+                DuplicateMergeVerificationStage.Caution,
+                [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ParentReference, [new DuplicateMergeFinding(candidates.RowSet[0].Path, "c.bms", "../x.wav")])]);
+            candidates.WriteVerifications([new DuplicateMergeVerificationWrite(candidates.RowSet[0].State.Group, cautionResult)]);
             Click(table, 0, "Select");
             string previous = Resources.Culture?.Name ?? "ja-JP";
             string other = previous == "en-US" ? "ja-JP" : "en-US";
@@ -380,7 +390,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 1), summary.Text);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_select_visible, select.Content);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_check_on, menu.Items.OfType<MenuItem>().First().Header);
-                Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, candidates.RowSet[0].StatusText);
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_verify_selected, verify.Content);
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare, quickCompare.Content);
+                Assert.IsTrue(menu.Items.OfType<MenuItem>().Any(item => Equals(item.Header, Resources.Duplicate_merge_candidate_verify_group)));
+                Assert.AreEqual(
+                    string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_parent_reference),
+                    candidates.RowSet[0].StatusText, "確認済みのSTATUSは現在の言語で作り直します。");
+                string tooltip = ResolveStatusTooltip(table, 0);
+                StringAssert.StartsWith(tooltip, Resources.Duplicate_merge_candidate_reason_parent_reference_description, "ツールチップも現在の言語です。");
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, candidates.RowSet[2].StatusText, "未確認のグループは未確認のままです。");
                 Assert.AreEqual(1, candidates.SelectedGroupCount, "言語の変更で状態は失われません。");
             }
             finally { ResourceService.Current.ChangeCulture(previous); }
@@ -388,6 +406,107 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 1), summary.Text);
         });
     }
+
+    /// <summary>STATUS列のセルに出る説明（ツールチップ）を、実のヒット判定から取得します。</summary>
+    private static string ResolveStatusTooltip(CustomTableView table, int rowIndex)
+    {
+        CustomTableHitTestResult hit = HitCell(table, rowIndex, "Status", out _);
+        return table.ResolveCellToolTip(hit) ?? string.Empty;
+    }
+
+    /// <summary>
+    /// 保証：実画面の「選択グループを確認」ボタンと右クリックメニューの「このグループを確認」が、実ファイルの確認を通じてSTATUS・SELECT・件数表示・ツールチップを更新し、
+    /// 進捗の要求はメインウィンドウを所有者として出して、結果の案内を一件だけ出す。簡易確認のチェックは、オンにしたときだけ案内を一件出して管理主体へ値を渡す。
+    /// 実ファイルの衝突（別内容の資源）のグループは要注意でSELECTがオフになり、衝突を解消して右クリックで再確認すれば安全でオンに戻る。
+    /// 標準構成の接続は、共通の受付が使用中なら確認がBusyの案内で未開始になることで確かめる。条件の網羅は検査器・管理主体のケースが担当する。
+    /// 検出する誤り：ボタン・メニュー・チェックの未接続、進捗の所有者の欠落、案内の重複・欠落、SELECT・件数表示・STATUSの更新漏れ、標準構成の受付への未接続。
+    /// </summary>
+    [TestMethod]
+    public void CandidateList_VerifyButtonMenuAndQuickCompareCheckActThroughRealFiles()
+    {
+        var events = new ConversionTestSupport.EventLog();
+        var dialogs = new ConversionTestSupport.RecordingDialogService(events);
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+            var summary = (TextBlock)window.FindName("duplicateCandidateSummaryText");
+            var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
+            var menu = (ContextMenu)window.FindResource("duplicateCandidateContextMenu");
+            DuplicateMergeCandidateListOwner candidates = viewModel.DuplicateMergeCandidateList;
+            SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(root));
+            DuplicateMergeCandidateRow[] rows = [.. candidates.RowSet];
+            Assert.AreEqual(4, rows.Length);
+            // グループ1（行2・3）のフォルダに、同じ相対パスで内容が異なる資源を置く。グループ0は同一内容の譜面だけで衝突しない。
+            File.WriteAllBytes(Path.Combine(rows[2].Path, "x.bin"), [1, 2, 3, 4]);
+            File.WriteAllBytes(Path.Combine(rows[3].Path, "x.bin"), [5, 6, 7, 8]);
+            // 同一内容の資源を共有させ、連結の不足（同一内容ファイルなし）を別の理由として混ぜない。
+            File.WriteAllBytes(Path.Combine(rows[2].Path, "shared.bin"), [9, 9, 9]);
+            File.WriteAllBytes(Path.Combine(rows[3].Path, "shared.bin"), [9, 9, 9]);
+            Click(table, 0, "Select");
+            Click(table, 2, "Select");
+            Assert.AreEqual(2, candidates.SelectedGroupCount);
+            int messagesBefore = dialogs.Messages.Count;
+
+            // 標準構成の受付が使用中なら、確認はBusyの案内で未開始になる。
+            Assert.IsTrue(MainWindowViewModelTestFactory.GetComposition(viewModel).OperationAdmission.TryEnter(out IDisposable? lease));
+            try
+            {
+                AwaitHandler(() => ClickButton(window, "duplicateCandidateVerifyButton"), "verify-busy");
+                Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count);
+                Assert.AreEqual(Resources.Warn_LibraryOperationBusy, dialogs.Messages[^1].MessageBoxText);
+                Assert.IsNull(dialogs.ProgressRequest, "未開始のため進捗を出しません。");
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, rows[0].StatusText);
+            }
+            finally { lease?.Dispose(); }
+
+            // ツールバー：実際の確認。
+            messagesBefore = dialogs.Messages.Count;
+            AwaitHandler(() => ClickButton(window, "duplicateCandidateVerifyButton"), "verify-toolbar");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, rows[0].StatusText);
+            Assert.AreEqual(
+                string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_content_conflict), rows[2].StatusText);
+            Assert.IsTrue(rows[0].State.IsSelected, "安全のSELECTはオンです。");
+            Assert.IsFalse(rows[2].State.IsSelected, "要注意のSELECTはオフです。");
+            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 1), summary.Text);
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_verify_progress_title, dialogs.ProgressRequest!.Title);
+            Assert.AreSame(window, dialogs.ProgressRequest.Owner, "進捗の所有者はメインウィンドウです。");
+            Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count, "結果の案内は一件です。");
+            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_verify_result_format, 2, 1, 1, 0), dialogs.Messages[^1].MessageBoxText);
+            string tooltip = ResolveStatusTooltip(table, 2);
+            StringAssert.Contains(tooltip, Resources.Duplicate_merge_candidate_reason_content_conflict_description);
+            StringAssert.Contains(tooltip, Path.Combine(rows[2].Path, "x.bin"));
+            StringAssert.Contains(ResolveStatusTooltip(table, 0), Resources.Duplicate_merge_candidate_safe_not_compared);
+
+            // 右クリックメニュー：衝突を解消してグループ1だけを再確認する。SELECTの状態によらず対象になり、安全ならオンになる。
+            File.WriteAllBytes(Path.Combine(rows[3].Path, "x.bin"), [1, 2, 3, 4]);
+            table.SelectRowsByPredicate(row => row is DuplicateMergeCandidateRow { Index: 2 });
+            MenuItem verifyGroup = menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Duplicate_merge_candidate_verify_group));
+            messagesBefore = dialogs.Messages.Count;
+            AwaitHandler(() => RaiseMenuClick(verifyGroup), "verify-menu");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, rows[2].StatusText);
+            Assert.IsTrue(rows[2].State.IsSelected, "再確認で安全になればオンになります。");
+            Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count);
+            StringAssert.Contains(ResolveStatusTooltip(table, 2), string.Format(Resources.Duplicate_merge_candidate_safe_compared_single_format, 2, Resources.Duplicate_merge_candidate_method_full));
+
+            // 簡易確認のチェック：オンにしたときだけ案内を一件出し、管理主体の値を変える。
+            messagesBefore = dialogs.Messages.Count;
+            quickCompare.IsChecked = true;
+            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "quick-compare-on");
+            Assert.IsTrue(candidates.QuickCompareEnabled);
+            Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count);
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_notice, dialogs.Messages[^1].MessageBoxText);
+            quickCompare.IsChecked = false;
+            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "quick-compare-off");
+            Assert.IsFalse(candidates.QuickCompareEnabled);
+            Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count, "オフにするときは案内しません。");
+        }, dialogService: dialogs);
+    }
+
+    /// <summary>実Dispatcherへ配送するasync voidのハンドラーを起こし、その終端まで待ちます。</summary>
+    private static void AwaitHandler(Action raise, string name)
+        => TestUiDispatcherHost.AwaitTaskOnDispatcher(MainWindowEventCompletion.CaptureAsyncEventCompletion(raise), name);
 
     private static TreeViewItem RealizeCandidateListNode(TreeViewItem root)
     {

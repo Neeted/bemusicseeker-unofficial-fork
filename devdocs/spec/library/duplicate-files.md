@@ -74,7 +74,7 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 
 ### 統合候補一覧
 
-重複ツリーの子の先頭に「統合候補一覧」のノードを置きます。ノードは重複検索結果が一件以上あるときだけ現れ、未解析・0件・準備が走っていない失効・ライブラリの解除では現れません。結果が失効して準備が走っている間は、グループ項目と同じ規則で残し、結果が一件以上ある間の同期ではノードを除去・置換しません。ツリーの子は、ノードの項目（`DuplicateMergeCandidateListNode`、0〜1件）とグループ項目を連結した一覧（`MaintenanceTreeViewModel.DuplicateTreeChildren`）で、元の集合の変更を位置を補正した個別の変更として中継し、Resetを使いません。`DuplicateTreeItems` は変えません。
+重複ツリーの子の先頭に「統合候補一覧」のノードを置きます。ノードは重複検索結果が一件以上あるときだけ現れ、未解析・0件・準備が走っていない失効・ライブラリの解除では現れません。結果が失効して準備が走っている間は、グループ項目と同じ規則で残し、結果が一件以上ある間の同期ではノードを除去・置換しません。ツリーの子は、ノードの項目（`DuplicateMergeCandidateListNode`、0〜1件）とグループ項目を連結した一覧（`MaintenanceTreeViewModel.DuplicateTreeChildren`）で、元の集合の個別の変更を位置を補正した個別の変更として中継し、Resetへ置き換えません。元の集合のResetはResetとして中継します。`DuplicateTreeItems` は変えません。
 
 ノードの選択は、画面受付を他の重複表示と同じ入口（`DuplicateViewContext.ForCandidateList`）に乗せます。未解析なら共通受付を非待機で取得して競合時は既存のBusy案内で未開始とし、実行中の準備へ合流し、準備済みなら新しい受付を取らず、後から選んだ画面を優先し、旧ライブラリの候補を採用せず、失敗は一度だけ通知し、取消は通知しません。譜面一覧の入力は明示的に空で、一覧の構築（TITLE・ARTISTの解決を含む）はUIスレッド外の画面構築で行い、採用は空の譜面一覧の採用と合わせて、その画面受付と入力の重複結果が現在のものである場合だけ行います。構築はノードの選択時に行い、事前計算しません。
 
@@ -83,12 +83,12 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 | 列 | 内容 |
 | --- | --- |
 | SELECT | グループ結合のチェックボックス。初期値はオフ。統合不可は操作できない。 |
-| STATUS | グループ結合の文字。この時点では「未確認」と「統合不可（登録ルート）」だけ。 |
+| STATUS | グループ結合の文字。「未確認」、または[安全性確認](#安全性確認)の結果（段階と最初の理由）。ツールチップに理由と該当を出す。 |
 | KEEP | 残すフォルダのラジオボタン。グループで常に一つ。 |
 | PATH、FOLDER | フォルダのパスと名前。 |
 | TITLE、ARTIST | そのフォルダ（子孫を含む所持範囲）の導入先候補プロフィールの実在最頻ペアの表示値。有効なペアがなければ両方空。 |
 
-列の幅と順序は起動中だけ保持し、設定へ保存しません。初期のKEEPは、グループの譜面（兄弟譜面を含む）のうちそのフォルダ直下にある所持譜面数が最多のフォルダで、同数ならPATH昇順の先頭です。登録範囲（手動統合が移動元として拒否するのと同じ判定。構築ごとに登録を一度捕捉）のフォルダが一つならKEEPをそこへ固定し、二つ以上ならPATH昇順の先頭へ固定して「統合不可（登録ルート）」とし、SELECTをオフかつ無効にします。一フォルダのグループはKEEP固定です。固定のKEEPと統合不可のSELECTは操作しても変わりません。
+列の幅と順序は起動中だけ保持し、設定へ保存しません。初期のKEEPは、グループの譜面（兄弟譜面を含む）のうちそのフォルダ直下にある所持譜面数が最多のフォルダで、同数ならPATH昇順の先頭です。登録範囲（手動統合が移動元として拒否するのと同じ判定。構築ごとに登録を一度捕捉）のフォルダが一つならKEEPをそこへ固定し、二つ以上ならPATH昇順の先頭へ固定して「統合不可：登録ルート」とし、SELECTをオフかつ無効にします。一フォルダのグループはKEEP固定です。固定のKEEPと統合不可のSELECTは操作しても変わりません。
 
 状態（SELECT、KEEP、確認結果）は `DuplicateGroup` のインスタンスに対応付けて持ちます。重複結果の再検索で同じインスタンスが維持されたグループは状態を保ち、新しいインスタンスは初期値、消えたグループの状態は採用時に破棄します。ライブラリの解除・交換ですべて破棄し、永続化しません。別の画面へ移って戻っても、状態・並べ替え・検索語を保ち、再検索で結果が変わっても並べ替えと検索語を新しい結果へ当て直します。
 
@@ -99,13 +99,64 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 | 操作 | 結果 |
 | --- | --- |
 | SELECT・KEEPのセルのクリック | そのグループのオン・オフ、またはそのフォルダのKEEP。結合列では先頭でない行でも同じ。有効なSELECT・KEEPのダブルクリックは遷移しない。 |
-| それ以外のセルのダブルクリック | 重複ツリーの対応するグループを展開し、そのフォルダノードを選択して既存のフォルダ表示へ移る。画面外で未生成のグループでも同じ。現在の結果で解決できなければ何もしない。 |
+| それ以外のセルのダブルクリック、行でのEnterキー | 重複ツリーの対応するグループを展開し、そのフォルダノードを選択して既存のフォルダ表示へ移る。画面外で未生成のグループでも同じ。現在の結果で解決できなければ何もしない。 |
 | Space | 選択行が属するグループごとに一度。統合不可を除いてオンとオフが混在していればすべてオン。 |
-| 右クリック | 「チェックを入れる」「チェックを外す」（グループごとに一度、統合不可は変えない）、「エクスプローラーで開く」（存在する選択フォルダごとに一度）。 |
+| 右クリック | 「チェックを入れる」「チェックを外す」（グループごとに一度、統合不可は変えない）、「このグループを確認」（[安全性確認](#安全性確認)）、「エクスプローラーで開く」（存在する選択フォルダごとに一度）。 |
 | 「表示中をすべて選択」「表示中をすべて解除」 | 検索で表示中のグループだけに作用する。統合不可は選択しない。 |
 | 「優先統合先…」 | ディレクトリを追加・削除するウィンドウ。OKで全グループ（非表示を含む）へ適用し、優先先と同じかその配下にあるフォルダがグループ内でちょうど一つならKEEPにする。該当なし・二つ以上・固定のグループは変えない。判定はパス成分の境界で行い、大文字小文字と末尾の区切りを無視する。登録内容は起動中だけ保持し、キャンセルは何も変えない。 |
 
-後続の単位は、`DuplicateMergeCandidateListOwner.CaptureSelectedGroups`（表示中でSELECTがオンのグループを、グループ・PATH昇順のフォルダ・KEEP・固定の有無を持つ変更不能な対象として捕捉）と `TryWriteVerification`（UIスレッドで確認結果を書き込み、現在の状態表にないグループは捨てる）を使います。
+#### 安全性確認
+
+グループごとに、統合しても作品として意味が崩れないかを、読み取りだけで確認します。ファイルとDBは変更せず、結果（段階と理由）を一覧の状態へ書き込みます。ファイルを動かす一括整理は含みません。
+
+| 入口 | 動作 |
+| --- | --- |
+| ツールバー「選択グループを確認」 | 表示中でSELECTがオンのグループを対象にする。対象が0件なら、受付・進捗・案内なしで何もしない。 |
+| 右クリック「このグループを確認」 | 選択行が属するグループを、グループごとに一度、SELECTの状態によらず対象にする。解析不能で統合不可になったグループの再確認もここから行う。 |
+| ツールバー「サイズと更新日時が同じファイルは読まずに同一とみなす」 | 既定はオフで、アプリの起動中だけ保持する（ライブラリを交換しても残る）。確認の開始時の値を使う。オンにするたびに、内容が異なるファイルを同一と判定することがある旨を一件案内し、オフにするときは案内しない。 |
+
+確認は、共通のライブラリ変更受付を非待機で取得します（[操作の競合ポリシー](../core/operation-concurrency-policy.md)）。競合時は既存のBusy案内を一件だけ出して未開始とし、検査・進捗・状態を変えません。受付が閉じている（終了の要求中など）ための不成立は案内せずに未開始とし、検査・進捗・状態を変えません。検査の開始から結果の書込みまで受付を保持し、書込みの後、結果の案内の前に解放します。確認中はモーダルの進捗（既存の進捗画面。所有者はメインウィンドウ）に「[何番目/総数] 代表フォルダ名」を示し、他のアプリ内操作を受け付けません。代表フォルダ名はグループのKEEPのフォルダ名です。取消は、処理中のグループを最後まで処理して書き込んでから止まり、着手しなかったグループの確認結果とSELECTは変えません。入出力以外の予期しない例外は、完了済みのグループの結果を書き込み、受付を解放した後に、既存の操作失敗の通知を一度出します。
+
+検査の対象は、グループの各フォルダの本体と配下の全階層（隠し・システム属性を含む）です。リンク（シンボリックリンクとジャンクション）の先へは入らず、フォルダごとの列挙は一回で、走査と読取りはUIスレッド外でグループごとに逐次行います。モデルのロックとDBトランザクションを保持したままファイルを読みません。一フォルダだけのグループは、フォルダ本体のリンクと解析不能だけを検査し、配下を走査しません（それ以外は安全です）。確認時にグループのフォルダが存在しなければ解析不能です。
+
+確認結果は、段階（安全／要注意／統合不可）と、同時に成立し得る理由の一覧で、理由ごとに該当するフォルダと相対パス（または譜面名と参照の原文）を保ちます。統合不可の理由が一つでもあれば統合不可、なければ要注意の理由が一つでもあれば要注意、どちらもなければ安全です。理由は次の順に並びます。
+
+| 段階 | 理由 | 条件 |
+| --- | --- | --- |
+| 統合不可 | リンク | いずれかのフォルダの本体または配下にリンクがある（KEEP側も含む）。一フォルダのグループは、本体がリンクの場合だけ。 |
+| 統合不可 | 登録ルート | 登録範囲のフォルダが二つ以上ある。一覧の構築時に付き、確認の後も保つ（確認の結果で上書きせず、SELECTは無効のまま）。 |
+| 統合不可 | 親子関係 | グループ内のフォルダ同士が同一または親子。名前の先頭が同じだけの兄弟は該当しない。 |
+| 統合不可 | 型の衝突 | 同じ相対パスが、あるフォルダではファイル、別のフォルダではディレクトリ（大文字小文字を無視）。 |
+| 統合不可 | 別グループを巻き込む | 二フォルダ以上のグループのいずれかのフォルダが、現在の重複結果の別のグループ（確認対象外・検索で非表示・一フォルダのグループを含む）のフォルダと同一または親子。 |
+| 統合不可 | 解析不能 | 権限・列挙・読取りの失敗（共有違反・削除保留のディレクトリ、比較が必要なファイルの読取りの失敗、読めない所持譜面）。該当するパスを持つ。 |
+| 要注意 | 親ディレクトリ参照 | 移動元になるフォルダ（KEEP以外）の直下・配下の所持譜面が、使用中のリソース参照に親ディレクトリ参照（`ChartResourceReference.RestrictsAutomaticDestination` と同じ判定）を持つ。 |
+| 要注意 | 同名音源の拡張子違い | 同じ相対ディレクトリ・同じ拡張子なしの名前の音源が、グループ内の別のフォルダに異なる拡張子である。同じフォルダ内、別ディレクトリ、同じ拡張子は該当しない。 |
+| 要注意 | 別内容ファイル衝突 | 同じ相対パスの資源が、グループ内の二つのフォルダで別内容と判定される。 |
+| 要注意 | 同一内容ファイルなし | 資源を持つフォルダが二つ以上あり、「同じ相対パスで同一内容と判定された資源を共有する」関係で一つに連結しない（全フォルダに共通する一ファイルは要求しない）。資源を持たないフォルダは外し、保護対象だけの一致は数えない。内容を比較できなかった組は、連結しているものとして扱う。 |
+| 要注意 | 配下に別の譜面フォルダ | 移動元になるフォルダの配下の子孫フォルダに、所持譜面がある。 |
+
+譜面ファイルは拡張子 `.bms`・`.bme`・`.bml`・`.pms`・`.bmson`、保護対象は `.bmx`・`.pmx`・`.txt`、資源はそれらを除くファイル、音源は `.wav`・`.ogg`・`.mp3`・`.flac` です。拡張子と相対パスの比較は大文字小文字を区別しません。所持譜面はライブラリの所持集合にある譜面だけで、所持していない譜面ファイルは該当しません。同じ相対パスの保護対象が二つ以上のフォルダにある場合は、段階を変えずに「保護対象名の衝突」を付記します。
+
+同じ相対パスの二つの資源は、次の順で内容を比較します。
+
+1. サイズが異なれば別内容（読まない）。
+2. 簡易確認がオンで、サイズと更新日時（最終書込み時刻）が完全に一致すれば、読まずに同一内容。
+3. サイズが全量読取りの上限（192 KiB）以下なら全量、超えるなら先頭・中央（ファイルの中心をまたぐ）・末尾の各64 KiBの区間を読み、XXH3（128ビット）の値が等しければ同一内容、異なれば別内容。
+
+一回の確認の中で、同じファイルを相手ごとに読み直さず、ハッシュを確認の外へ保存しません。相手のいないファイルは読みません。大きいファイルの未読領域にだけ差がある場合は同一内容と判定されます（全バイトを比べる経路は持ちません）。確認結果は使った比較方法（全量／部分／サイズと更新日時）の組の数を保ちます。上限と区間長は `DuplicateMergeSafetyPolicy` で一か所に定めます。
+
+KEEPに依存する理由（親ディレクトリ参照、配下に別の譜面フォルダ）は、確認時にフォルダ別の事実として保持し、KEEPが変わっても再走査せず、段階と理由を導き直します（SELECTは変えません）。それ以外の理由はKEEPによりません。所持譜面は、既存の索引から対象フォルダの範囲だけを取得し、リソース参照が未取得の譜面は、ロックの外で譜面ファイルを解析して得ます。参照を得られない譜面は解析不能です。
+
+結果は次のとおり反映します。
+
+- 確認を終えたグループのSELECTを「安全ならオン、それ以外はオフ」に置き換えます（統合不可はオフで無効）。解析不能で統合不可になったグループは、再確認で安全になればオンで有効に戻ります。
+- 複数グループの書込みは一括の窓口（`DuplicateMergeCandidateListOwner.WriteVerifications`）で行い、検索・並べ替えがSTATUS・SELECTに依存するときだけ、行集合の差し替えを全体で一回にして新しい値で当て直します。SELECT・KEEPの利用者操作では並べ直しません。
+- 確認中に状態表から消えたグループの結果は捨て、結果の案内のどの件数にも数えません。
+- 確認の終端で、結果を一度だけ案内します。「{n}グループを確認しました。安全 {a}／要注意 {b}／統合不可 {c}。安全な{a}グループにチェックを入れました。」で、取消で着手しなかったグループがあれば「未確認 {d}」を加えます。安全が0件なら「チェックを入れました」の文を、確認を終えたグループが0件なら案内を出しません。
+- STATUSは、未確認が「未確認」、安全が「安全」（付記があれば「安全（保護対象名の衝突）」）、要注意・統合不可が「要注意：<最初の理由>」「統合不可：<最初の理由>」で、理由が複数なら「ほか{n}件」を添えます。保護対象名の衝突は、要注意・統合不可でもツールチップにだけ付記します。
+- STATUSのツールチップは、理由ごとに説明と該当（フォルダのPATH昇順、次に相対パスまたは譜面名の昇順。どちらも大文字小文字を無視）を出し、一つの理由につき10件を超える分は「ほか{n}件」と省略します。別内容ファイル衝突は「統合すると、上書きの設定に従って一方だけが残ります」、保護対象名の衝突はファイル名と「上書きの設定によっては、内容が異なっていても一方だけが残ります」を添えます。安全のツールチップは、比較した同名の資源の組の数と比較方法（混在すれば方法ごとの件数）を出します。
+
+後続の単位（一括整理）は、`DuplicateMergeCandidateListOwner.CaptureSelectedGroups`（表示中でSELECTがオンのグループを、グループ・PATH昇順のフォルダ・KEEP・固定の有無・登録範囲のフォルダを持つ変更不能な対象として捕捉）と `WriteVerifications`（UIスレッドで確認結果を書き込み、現在の状態表にないグループは捨てる）、確認の手順の `DuplicateMergeVerificationWorkflowOwner` を使います。
 
 ### 実行中の進捗行
 
@@ -266,6 +317,12 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 | 統合候補一覧の構築・行の順・初期KEEP・並べ替え・検索・件数・操作・優先統合先・状態の寿命・後続向けの窓口・解決回数 | [`DuplicateMergeCandidateListOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeCandidateListOwner.cs)、[`DuplicateMergeCandidateModels`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeCandidateModels.cs) | [`DuplicateMergeCandidateListOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeCandidateListOwnerTests.cs) が、メモリ上のグループと解決・登録範囲の代替で各項目を確認する |
 | TITLE・ARTISTの一括解決、登録範囲の判定、構築前にプロフィールを作らない | [`BMSLibrary.DuplicateMergeCandidates`](../../../BeMusicSeeker/Models/Library/BMSLibrary.DuplicateMergeCandidates.cs)、`LibraryMutationOwner.CaptureRegisteredBmsRootPredicate` | [`DuplicateMergeCandidateListLibraryTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeCandidateListLibraryTests.cs) が実検索・実登録で確認する |
 | ノードの選択、専用の表への切替、状態の保持、セル・Space・メニュー・ツールバー・ダブルクリック遷移・優先統合先のウィンドウ・表示言語 | `MainWindow.DuplicateMergeCandidateList.cs`、`MainWindow.xaml`、[`DuplicatePreferredDestinationDialog`](../../../BeMusicSeeker/Views/Dialogs/DuplicatePreferredDestinationDialog.xaml.cs)、`CustomTableColumnFactory.CreateDuplicateCandidateColumns` | [`MainWindowDuplicateCandidateListWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowDuplicateCandidateListWpfTests.cs) の `CandidateList_` で始まるケース。`CandidateList_NodeSwitchesToDedicatedTableAndKeepsStateAcrossScreens` は、専用の検索欄の表示と入力からの束縛による絞込み・再訪での復元、表示中にメインの件数表示・保留譜面の操作バー・プレイログの集計バーを出さないこと、表の操作で変えた列幅が行き来で保たれ保存される側の列設定を変えないことを確認する。`CandidateList_LeavingForPendingOrPlayHistoryShowsThatScreensOwnBars` は、保留とプレイログの画面へ移るとその画面のバーと件数表示が元の条件で出て、一覧へ戻ると隠れることを確認する |
+| 安全性確認の検査（段階の集約、親子関係・型の衝突・別グループ・登録ルート・解析不能、親ディレクトリ参照・配下の別の譜面フォルダ・同名音源・別内容・同一内容の連結・保護対象名の付記、読まない経路、簡易確認と全量・部分の境界、KEEPの導き直し） | [`DuplicateMergeSafetyInspector`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeSafetyInspector.cs)、[`DuplicateMergeFolderScan`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeFolderScan.cs)、[`DuplicateMergeContentComparer`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeContentComparer.cs)、[`DuplicateMergeFolderIndex`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeFolderIndex.cs)、[`DuplicateMergeGroupInspection`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeGroupInspection.cs)、[`DuplicateMergeSafetyPolicy`](../../../BeMusicSeeker/Models/Library/DuplicateMerge/DuplicateMergeSafetyPolicy.cs) | [`DuplicateMergeSafetyInspectorTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeSafetyInspectorTests.cs) が、テスト用の作業領域の実ファイルと実ディレクトリを一グループの検査の入口へ渡し、所持譜面の情報だけをメモリ上で代替して、段階・理由・該当パス・比較方法を確認する。サイズは本番の定数から計算し、読まない経路は排他ロックしたファイルが解析不能になるかで区別する |
+| 所持譜面の情報の取得口（対象フォルダの範囲、実際のBMS解析による親ディレクトリ参照、所持していない譜面・範囲外の除外、解析不能） | [`BMSLibrary.DuplicateMergeCandidates`](../../../BeMusicSeeker/Models/Library/BMSLibrary.DuplicateMergeCandidates.cs)（`CaptureOwnedCharts`） | [`DuplicateMergeCandidateListLibraryTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeCandidateListLibraryTests.cs) の `CaptureOwnedCharts_FeedsInspectorWithRealParsingAndOnlyTheFolderScope` が、実ライブラリと実際のBMS解析で確認する |
+| 確認結果の一括書込み（SELECTの置換え、行集合の差し替え一回、検索・並べ替えの当て直し）、KEEP変更によるSTATUSの導き直し、STATUS・ツールチップの書式、簡易確認の値の寿命 | `DuplicateMergeCandidateListOwner`、[`DuplicateMergeVerificationPresentation`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeVerificationPresentation.cs) | `DuplicateMergeCandidateListOwnerTests` の `WriteVerifications_`、`SetKeep_Rederives`、`StatusText_`、`StatusTooltip_`、`SafeTooltip_`、`QuickCompare_`、`Capture_` で始まるケース |
+| 確認の手順（受付の保持と解放の順序、Busy、受付の閉鎖、対象0件、進捗の報告、取消、確認中に消えたグループ、予期しない例外、UIスレッド外の走査、全グループのフォルダの受渡し、登録ルートの保持、簡易確認の案内と値の受渡し） | [`DuplicateMergeVerificationWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeVerificationWorkflowOwner.cs) | [`DuplicateMergeVerificationWorkflowOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeVerificationWorkflowOwnerTests.cs) が、本番の受付と実際の管理主体で確認する。時機の制御が要るケースは、グループ単位で待合せできる検査器の代替を使い、全グループのフォルダの受渡しは実検査器と実ファイルで確認する |
+| 確認のボタン・メニュー・チェック・進捗の要求・ツールチップ・標準構成の受付への接続 | `MainWindow.DuplicateMergeCandidateList.cs`、`MainWindow.xaml`、`CustomTableColumnFactory.CreateDuplicateCandidateColumns`、`ApplicationComposition` | `MainWindowDuplicateCandidateListWpfTests` の `CandidateList_VerifyButtonMenuAndQuickCompareCheckActThroughRealFiles` が、実ファイルの衝突から実ボタン・メニュー・チェックの操作で、STATUS・ツールチップ・SELECT・件数表示・進捗の所有者・案内一件・Busyを確認する。`CandidateList_PresentationFollowsDisplayLanguageRoundTrip` が表示言語の往復を確認する |
+| 実ジャンクション・シンボリックリンクの検出とリンク先へ入らないこと | `DuplicateMergeFolderScan` | [`DuplicateMergeSafetyJunctionTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Maintenance/DuplicateMergeSafetyJunctionTests.cs)（`Suite.Junction`）と [`FolderMergeSymbolicLinkRefusalTests`](../../../tests/BeMusicSeeker.Compatibility.Tests/Maintenance/FolderMergeSymbolicLinkRefusalTests.cs)（`Suite.DirectorySymbolicLink`）が、実リンクで確認する |
 | 統合候補一覧の画面受付（未解析のBusy、実行中の準備への合流、準備済みの受付なし、後発画面の優先、再構築での状態の保持、ライブラリ交換での旧構築の不採用） | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)（`DuplicateCandidateList`、`PrepareRegularView`）、`DuplicateMergeCandidateListOwner.Adopt` | [`RegularChartNavigationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.CandidateList.cs) の `CandidateList_ColdBusyKeepsViewAndNotifiesOnce`、`CandidateList_JoinsRunningPreparationOrUsesPreparedResultWithoutAdmission`、`CandidateList_LaterSelectedScreenWins`、`CandidateList_RebuildKeepsUnaffectedGroupStateAndResetsAffectedGroup`、`CandidateList_LibraryReplacementRejectsOldBuild`。構築の保留は構築の中の到達の待合せで行う。再構築のケースは、結果の差替え後に一覧を選び直す経路で確認し、表示中に受理済みの変更が入る内部継続は、このテストでは確認していない |
 | 統合候補一覧の構築の失敗・取消・停止 | `RegularChartListOwner.PresentDuplicateData` | [`RegularChartCommitAndLifecycleTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartCommitAndLifecycleTests.CandidateList.cs) の `CandidateListBuild_FailureNotifiesOnceCancelIsSilentAndStopCollectsBuild` が、解決の例外で通知が一度、停止による取消で通知なし、構築中の停止で構築Taskの回収を確認する |
 

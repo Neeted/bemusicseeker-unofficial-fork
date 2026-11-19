@@ -189,7 +189,8 @@ NET10で保持するx64セット: bass_fx.dll 2.4.12.6（API 0x02040C06、SHA-25
 ================================================================================
 ステータス: GREEN
 コンポーネント: System.Resources.Extensions.dll, System.Memory.dll, System.Buffers.dll,
-           System.Numerics.Vectors.dll, System.Runtime.CompilerServices.Unsafe.dll
+           System.Numerics.Vectors.dll, System.Runtime.CompilerServices.Unsafe.dll,
+           System.IO.Hashing.dll (10.0.15)
 著作権所有者: .NET Foundation およびコントリビューター
 ライセンス: MIT
 ソース: https://www.nuget.org/packages/System.Resources.Extensions/8.0.0

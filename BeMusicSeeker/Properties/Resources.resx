@@ -4177,9 +4177,6 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_merge_candidate_status_unverified" xml:space="preserve">
     <value>未確認</value>
   </data>
-  <data name="Duplicate_merge_candidate_status_unmergeable_registered_root" xml:space="preserve">
-    <value>統合不可（登録ルート）</value>
-  </data>
   <data name="Duplicate_merge_candidate_select_visible" xml:space="preserve">
     <value>表示中をすべて選択</value>
   </data>
@@ -4200,6 +4197,153 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   </data>
   <data name="Duplicate_merge_candidate_search" xml:space="preserve">
     <value>統合候補を検索</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_safe" xml:space="preserve">
+    <value>安全</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_safe_protected_collision" xml:space="preserve">
+    <value>安全（保護対象名の衝突）</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_caution_format" xml:space="preserve">
+    <value>要注意：{0}</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_caution_more_format" xml:space="preserve">
+    <value>要注意：{0} ほか{1}件</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_unmergeable_format" xml:space="preserve">
+    <value>統合不可：{0}</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_unmergeable_more_format" xml:space="preserve">
+    <value>統合不可：{0} ほか{1}件</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_link" xml:space="preserve">
+    <value>リンクあり</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_registered_root" xml:space="preserve">
+    <value>登録ルート</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_parent_child" xml:space="preserve">
+    <value>フォルダの親子関係</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_type_conflict" xml:space="preserve">
+    <value>ファイルとフォルダの名前の衝突</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_other_group" xml:space="preserve">
+    <value>別のグループと重複</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_unreadable" xml:space="preserve">
+    <value>確認できない項目あり</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_parent_reference" xml:space="preserve">
+    <value>親ディレクトリ参照</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_audio_extension" xml:space="preserve">
+    <value>同名音源の拡張子違い</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_content_conflict" xml:space="preserve">
+    <value>別内容のファイル衝突</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_no_shared_content" xml:space="preserve">
+    <value>同一内容のファイルなし</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_nested_chart_folder" xml:space="preserve">
+    <value>配下に別の譜面フォルダ</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_link_description" xml:space="preserve">
+    <value>フォルダの本体または配下に、リンク（シンボリックリンク・ジャンクション）があります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_registered_root_description" xml:space="preserve">
+    <value>登録範囲（登録BMSルート、または空の登録子ルートを含む祖先）のフォルダが、グループ内に二つ以上あります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_parent_child_description" xml:space="preserve">
+    <value>グループ内のフォルダ同士が、同一か親子の関係にあります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_type_conflict_description" xml:space="preserve">
+    <value>同じ相対パスが、あるフォルダではファイル、別のフォルダではフォルダです。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_other_group_description" xml:space="preserve">
+    <value>別のグループのフォルダと、同一か親子の関係にあります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_unreadable_description" xml:space="preserve">
+    <value>権限や読取りの失敗などにより、確認できなかった項目があります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_parent_reference_description" xml:space="preserve">
+    <value>移動元になるフォルダの譜面が、使用中のリソースに親ディレクトリ参照（..）を持ちます。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_audio_extension_description" xml:space="preserve">
+    <value>同じ名前の音源が、別のフォルダに異なる拡張子で存在します。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_content_conflict_description" xml:space="preserve">
+    <value>同じ相対パスのファイルの内容が、フォルダ間で異なります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_no_shared_content_description" xml:space="preserve">
+    <value>ファイルを持つフォルダの間で、同一内容のファイルが共有されていません。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_reason_nested_chart_folder_description" xml:space="preserve">
+    <value>移動元になるフォルダの配下に、譜面を持つ別のフォルダがあります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_protected_collision_description" xml:space="preserve">
+    <value>保護対象のファイル名が、複数のフォルダにあります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_protected_collision_note" xml:space="preserve">
+    <value>上書きの設定によっては、内容が異なっていても一方だけが残ります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_content_conflict_note" xml:space="preserve">
+    <value>統合すると、上書きの設定に従って一方だけが残ります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_safe_not_compared" xml:space="preserve">
+    <value>比較が必要な同名ファイルはありません。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_safe_compared_single_format" xml:space="preserve">
+    <value>比較した同名ファイル：{0}組（比較方法：{1}）</value>
+  </data>
+  <data name="Duplicate_merge_candidate_safe_compared_header_format" xml:space="preserve">
+    <value>比較した同名ファイル：{0}組</value>
+  </data>
+  <data name="Duplicate_merge_candidate_safe_compared_method_format" xml:space="preserve">
+    <value>{0}：{1}組</value>
+  </data>
+  <data name="Duplicate_merge_candidate_method_size_and_time" xml:space="preserve">
+    <value>サイズと更新日時</value>
+  </data>
+  <data name="Duplicate_merge_candidate_method_full" xml:space="preserve">
+    <value>全量</value>
+  </data>
+  <data name="Duplicate_merge_candidate_method_partial" xml:space="preserve">
+    <value>部分（先頭・中央・末尾）</value>
+  </data>
+  <data name="Duplicate_merge_candidate_tooltip_more_format" xml:space="preserve">
+    <value>ほか{0}件</value>
+  </data>
+  <data name="Duplicate_merge_candidate_verify_selected" xml:space="preserve">
+    <value>選択グループを確認</value>
+  </data>
+  <data name="Duplicate_merge_candidate_verify_group" xml:space="preserve">
+    <value>このグループを確認</value>
+  </data>
+  <data name="Duplicate_merge_candidate_quick_compare" xml:space="preserve">
+    <value>サイズと更新日時が同じファイルは読まずに同一とみなす</value>
+  </data>
+  <data name="Duplicate_merge_candidate_quick_compare_notice" xml:space="preserve">
+    <value>内容が異なるファイルを同一と判定することがあります。サイズと更新日時が完全に同じファイルは、内容を読まずに同一とみなします。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_verify_progress_title" xml:space="preserve">
+    <value>統合の安全性を確認中</value>
+  </data>
+  <data name="Duplicate_merge_candidate_verify_progress_label" xml:space="preserve">
+    <value>グループごとに、フォルダの内容を確認しています。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_verify_result_format" xml:space="preserve">
+    <value>{0}グループを確認しました。安全 {1}／要注意 {2}／統合不可 {3}。安全な{1}グループにチェックを入れました。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_verify_result_no_safe_format" xml:space="preserve">
+    <value>{0}グループを確認しました。安全 {1}／要注意 {2}／統合不可 {3}。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_verify_result_cancelled_format" xml:space="preserve">
+    <value>{0}グループを確認しました。安全 {1}／要注意 {2}／統合不可 {3}／未確認 {4}。安全な{1}グループにチェックを入れました。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_verify_result_cancelled_no_safe_format" xml:space="preserve">
+    <value>{0}グループを確認しました。安全 {1}／要注意 {2}／統合不可 {3}／未確認 {4}。</value>
   </data>
   <data name="Duplicate_merge_preferred_destination_title" xml:space="preserve">
     <value>優先統合先</value>

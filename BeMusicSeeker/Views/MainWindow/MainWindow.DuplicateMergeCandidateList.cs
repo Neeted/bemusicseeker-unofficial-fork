@@ -135,6 +135,62 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>右クリックメニューの「このグループを確認」です。選択行が属するグループを、SELECTの状態によらず、グループごとに一度確認します。</summary>
+    private async void duplicateCandidateContextMenuVerifyClick(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("duplicate_candidate_verify_group")
+            || (base.DataContext as MainWindowViewModel)?.DuplicateMergeVerification is not { } workflow)
+        {
+            return;
+        }
+        try
+        {
+            await workflow.VerifyGroupsOfRowsAsync(GetSelectedDuplicateCandidateRows(), this);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "duplicateCandidateContextMenuVerifyClick");
+        }
+    }
+
+    /// <summary>ツールバーの「選択グループを確認」です。表示中でSELECTがオンのグループを確認します。対象が0件なら何もしません。</summary>
+    private async void duplicateCandidateVerifyClick(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("duplicate_candidate_verify_selected")
+            || (base.DataContext as MainWindowViewModel)?.DuplicateMergeVerification is not { } workflow)
+        {
+            return;
+        }
+        try
+        {
+            await workflow.VerifySelectedAsync(this);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "duplicateCandidateVerifyClick");
+        }
+    }
+
+    /// <summary>
+    /// 「サイズと更新日時が同じファイルは読まずに同一とみなす」のチェックです。値の保持は管理主体が担い、オンにしたときの案内もそちらが一件出します。
+    /// </summary>
+    private async void duplicateCandidateQuickCompareClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox checkBox
+            || (base.DataContext as MainWindowViewModel)?.DuplicateMergeVerification is not { } workflow)
+        {
+            return;
+        }
+        try
+        {
+            await workflow.SetQuickCompareAsync(checkBox.IsChecked == true);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "duplicateCandidateQuickCompareClick");
+        }
+    }
+
     /// <summary>Spaceキーは、選択中の行が属するグループのSELECTを切り替えます。複数行選択ではグループごとに一度です。</summary>
     private void customTableDuplicateCandidates_KeyDown(object sender, KeyEventArgs e)
     {

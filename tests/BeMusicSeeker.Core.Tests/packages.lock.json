@@ -207,6 +207,7 @@
           "Newtonsoft.Json": "[13.0.4, )",
           "SQLitePCLRaw.bundle_e_sqlite3": "[3.0.4, )",
           "SevenZipExtractor": "[1.0.19, )",
+          "System.IO.Hashing": "[10.0.15, )",
           "Vortice.Direct2D1": "[3.8.3, )",
           "Vortice.Direct3D11": "[3.8.3, )",
           "Vortice.Direct3D9": "[3.8.3, )",
@@ -354,6 +355,12 @@
           "SQLitePCLRaw.config.e_sqlite3": "3.0.4",
           "SourceGear.sqlite3": "3.53.3"
         }
+      },
+      "System.IO.Hashing": {
+        "type": "CentralTransitive",
+        "requested": "[10.0.15, )",
+        "resolved": "10.0.15",
+        "contentHash": "8dyz8adVemyDILwoEFTCq2NsB6XgqOgVHbnv0XgnttQac76XUR3S5L2qcIkJJqOw97mjQttCTWccyk4DKtfm3Q=="
       },
       "Vortice.Direct2D1": {
         "type": "CentralTransitive",

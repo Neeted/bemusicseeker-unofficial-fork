@@ -61,6 +61,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     private ListSortDirection sortDirection = ListSortDirection.Ascending;
     private int visibleGroupCount;
     private int selectedGroupCount;
+    private bool quickCompareEnabled;
     private IReadOnlyList<string> preferredDestinations = [];
 
     /// <param name="directoryExists">フォルダの存在を確認する窓口です。エクスプローラーで開く対象の判定に使います。</param>
@@ -142,6 +143,21 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
 
     /// <summary>優先統合先として登録したディレクトリです。アプリの起動中だけ保持し、ライブラリの交換後も残ります。</summary>
     internal IReadOnlyList<string> PreferredDestinations => preferredDestinations;
+
+    /// <summary>
+    /// 安全性の確認で、サイズと更新日時が完全に一致するファイルを、内容を読まずに同一とみなすかです。既定はオフで、アプリの起動中だけ保持し、
+    /// ライブラリの交換後も残ります。確認の開始時に一度だけ読み、確認の途中の変更は進行中の確認へ影響しません。
+    /// </summary>
+    public bool QuickCompareEnabled
+    {
+        get => quickCompareEnabled;
+        internal set
+        {
+            if (quickCompareEnabled == value) { return; }
+            quickCompareEnabled = value;
+            RaisePropertyChanged(nameof(QuickCompareEnabled));
+        }
+    }
 
     /// <summary>
     /// 接続中のライブラリを知らせます。別のライブラリへ交換した場合と解除した場合は、すべてのグループの状態と採用済みの行を破棄して非表示にします。
@@ -296,9 +312,19 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         if (!IsCurrent(row) || row.State.KeepFixed || row.IsKeep) { return false; }
         string folder = row.State.Folders.FirstOrDefault(candidate => string.Equals(candidate, row.Path, StringComparison.OrdinalIgnoreCase));
         if (folder == null) { return false; }
-        row.State.KeepFolder = folder;
+        ChangeKeep(row.State, folder);
         NotifyStateChanged();
         return true;
+    }
+
+    /// <summary>
+    /// KEEPを変えます。確認済みなら、KEEPに依存する理由だけを再走査せずに導き直します。
+    /// SELECTは変えず、並べ替え・検索も当て直しません。
+    /// </summary>
+    private static void ChangeKeep(DuplicateMergeCandidateGroupState state, string folder)
+    {
+        state.KeepFolder = folder;
+        if (state.Inspection != null) { state.Verification = state.Inspection.Evaluate(folder); }
     }
 
     /// <summary>
@@ -391,7 +417,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
                 matched = folder;
             }
             if (matchCount != 1 || string.Equals(state.KeepFolder, matched, StringComparison.OrdinalIgnoreCase)) { continue; }
-            state.KeepFolder = matched;
+            ChangeKeep(state, matched);
             changed = true;
         }
         if (changed) { NotifyStateChanged(); }
@@ -423,28 +449,61 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     }
 
     /// <summary>
-    /// 後続の単位が使う窓口です。表示中でSELECTがオンのグループを、グループ・PATH昇順のフォルダ・KEEP・固定の有無を持つ変更不能な対象として、表示順に捕捉します。
-    /// 以後の状態の変更は捕捉した値へ影響しません。
+    /// 表示中でSELECTがオンのグループを、グループ・PATH昇順のフォルダ・KEEP・固定の有無・登録範囲のフォルダを持つ変更不能な対象として、表示順に捕捉します。
+    /// 以後の状態の変更は捕捉した値へ影響しません。後続の単位も使う窓口です。
     /// </summary>
     internal IReadOnlyList<DuplicateMergeCandidateGroupTarget> CaptureSelectedGroups()
-        => [.. visibleStates
-            .Where(state => state.IsSelected)
-            .Select(state => new DuplicateMergeCandidateGroupTarget(state.Group, [.. state.Folders], state.KeepFolder, state.KeepFixed))];
+        => [.. visibleStates.Where(state => state.IsSelected).Select(CaptureTarget)];
 
     /// <summary>
-    /// 後続の単位が使う窓口です。グループの確認結果をUIスレッドで書き込みます。そのグループが現在の状態表になければ捨ててfalseを返します。
-    /// 統合不可を書き込んだグループはSELECTをオフにします。
+    /// 指定した行が属するグループを、グループごとに一度、行の順で捕捉します。SELECTの状態によらず、現在の状態表にあるグループだけが対象です。
     /// </summary>
-    internal bool TryWriteVerification(DuplicateGroup group, DuplicateMergeVerificationResult result)
+    internal IReadOnlyList<DuplicateMergeCandidateGroupTarget> CaptureGroupsOfRows(IEnumerable<DuplicateMergeCandidateRow> targetRows)
     {
-        ArgumentNullException.ThrowIfNull(result);
-        if (group == null || !states.TryGetValue(group, out DuplicateMergeCandidateGroupState state)) { return false; }
-        state.Verification = result;
-        if (!state.CanSelect) { state.IsSelected = false; }
-        // STATUSは検索と並べ替えの対象のため、それらが有効なときは行集合を当て直す。
+        var seen = new HashSet<DuplicateMergeCandidateGroupState>(ReferenceEqualityComparer.Instance);
+        var targets = new List<DuplicateMergeCandidateGroupTarget>();
+        foreach (DuplicateMergeCandidateRow row in targetRows ?? [])
+        {
+            if (!IsCurrent(row) || !seen.Add(row.State)) { continue; }
+            targets.Add(CaptureTarget(row.State));
+        }
+        return targets;
+    }
+
+    private static DuplicateMergeCandidateGroupTarget CaptureTarget(DuplicateMergeCandidateGroupState state)
+        => new(state.Group, [.. state.Folders], state.KeepFolder, state.KeepFixed, [.. state.RegisteredFolders]);
+
+    /// <summary>
+    /// 現在の状態表の全グループ（検索で非表示のグループと確認対象外のグループを含む）のフォルダを捕捉します。
+    /// 別のグループのフォルダとの重なりの判定に使います。
+    /// </summary>
+    internal IReadOnlyList<DuplicateMergeCandidateGroupFolders> CaptureAllGroupFolders()
+        => [.. states.Values.Select(state => new DuplicateMergeCandidateGroupFolders(state.Group, [.. state.Folders]))];
+
+    /// <summary>
+    /// 確認結果を、複数のグループ分まとめてUIスレッドで書き込みます。現在の状態表にないグループの結果は捨てます。
+    /// 書き込んだグループのSELECTは、安全ならオン、それ以外はオフに置き換えます（統合不可はオフで無効）。
+    /// 行集合の差し替えは、検索・並べ替えがSTATUS・SELECTに依存するときだけ、全体で一回です。
+    /// </summary>
+    /// <returns>書き込んだ結果。捨てた結果は含みません。</returns>
+    internal IReadOnlyList<DuplicateMergeVerificationWrite> WriteVerifications(IEnumerable<DuplicateMergeVerificationWrite> writes)
+    {
+        ArgumentNullException.ThrowIfNull(writes);
+        var accepted = new List<DuplicateMergeVerificationWrite>();
+        foreach (DuplicateMergeVerificationWrite write in writes)
+        {
+            ArgumentNullException.ThrowIfNull(write);
+            if (write.Group == null || !states.TryGetValue(write.Group, out DuplicateMergeCandidateGroupState state)) { continue; }
+            state.Verification = write.Result;
+            state.Inspection = write.Inspection;
+            state.IsSelected = write.Result.Stage == DuplicateMergeVerificationStage.Safe;
+            accepted.Add(write);
+        }
+        if (accepted.Count == 0) { return accepted; }
+        // STATUSは検索と並べ替えの対象のため、それらが有効なときは新しい値で行集合を当て直す。
         if (searchQuery.HasTokens || sortColumnName is "Status" or "Select") { RebuildView(); }
         else { NotifyStateChanged(); }
-        return true;
+        return accepted;
     }
 
     /// <summary>現在の状態表にあるグループの状態を返します。後続の単位と画面が、状態表を介さずに参照する窓口です。</summary>
