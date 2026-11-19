@@ -213,6 +213,59 @@ public sealed class DialogPresentationTests
         }
     }
 
+    /// <summary>共通のメッセージのダイアログは、空白でない警告用の本文を警告色(App.WarningTextBrush)で本文とは別の行として表示し、空・空白・nullでは表示しません。</summary>
+    /// <remarks>表示せずに組み立てる既存の入口(BuildDialogForPresentation)から実描画の最小の一件で確認し、確認ダイアログが警告の行を警告色で出す接続を保証します。警告用の本文の内容は呼出し側のケースが担当します。アイコンは警告色を使わない情報にそろえ、アイコンの色と区別します。</remarks>
+    [TestMethod]
+    public void ThemedMessageBox_ShowsNonBlankWarningTextInWarningBrushAndOmitsEmptyOrNull()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            string[] shown = ["警告の一行目" + Environment.NewLine + "警告の二行目"];
+            foreach ((string? warning, bool expected) in new (string?, bool)[]
+            {
+                (shown[0], true),
+                (string.Empty, false),
+                ("   ", false),
+                (null, false)
+            })
+            {
+                Window dialog = ThemedMessageBox.BuildDialogForPresentation(
+                    owner: null,
+                    messageBoxText: "Presentation contract message",
+                    caption: "Presentation",
+                    button: MessageBoxButton.OKCancel,
+                    icon: MessageBoxImage.Information,
+                    initialResult: MessageBoxResult.Cancel,
+                    warningMessageBoxText: warning,
+                    setResult: _ => { });
+                try
+                {
+                    windowTest.ShowAndWaitForContentRendered(dialog);
+                    dialog.UpdateLayout();
+                    object warningBrush = dialog.FindResource("App.WarningTextBrush");
+                    TextBlock[] warningBlocks = [.. FindVisualDescendants<TextBlock>(dialog)
+                        .Where(block => block.TemplatedParent == null && ReferenceEquals(block.Foreground, warningBrush))];
+                    if (expected)
+                    {
+                        Assert.AreEqual(1, warningBlocks.Length, "警告用の本文は警告色の行として一つだけ表示します。");
+                        Assert.AreEqual(warning, warningBlocks[0].Text);
+                        Assert.IsTrue(
+                            FindVisualDescendants<TextBlock>(dialog).Any(block => block.Text == "Presentation contract message" && !ReferenceEquals(block.Foreground, warningBrush)),
+                            "通常の本文は警告色にしません。");
+                    }
+                    else
+                    {
+                        Assert.AreEqual(0, warningBlocks.Length, $"空・空白・nullの警告用の本文（'{warning}'）は表示しません。");
+                    }
+                }
+                finally
+                {
+                    if (dialog.IsVisible) { dialog.Close(); }
+                }
+            }
+        });
+    }
+
     /// <summary>各dialogの実表示で役割別styleと外部sentinel・Applicationへの非波及を確認します。設定の環境カードと通常ラジオを区別し、BMS/BMT・選択recordの確定はPrimary、取消とroot/scoreの再試行はQuietとして確認します。</summary>
     [TestMethod]
     [DataRow("SettingsWindow")]

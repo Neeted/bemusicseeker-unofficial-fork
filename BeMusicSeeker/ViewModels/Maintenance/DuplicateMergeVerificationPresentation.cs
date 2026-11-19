@@ -16,10 +16,14 @@ internal static class DuplicateMergeVerificationPresentation
     /// <summary>ツールチップで、一つの理由につき表示する該当の最大件数です。</summary>
     internal const int MaxTooltipFindingsPerReason = 10;
 
+    /// <summary>STATUSで理由を区切る文字列です。譜面一覧のWARNING列と同じく、表示言語によらず「, 」です。</summary>
+    internal const string ReasonSeparator = ", ";
+
     /// <summary>
     /// STATUSの表示文言です。未確認は「未確認」、安全は「安全」（保護対象名の衝突があれば付記つき）、
-    /// 要注意と統合不可は「要注意：（最初の理由）」「統合不可：（最初の理由）」で、理由が複数なら「ほか{n}件」を添えます。
-    /// 理由の順は <see cref="DuplicateMergeVerificationReasonKind"/> の宣言順です。
+    /// 要注意と統合不可は「要注意：（理由, 理由…）」「統合不可：（理由, 理由…）」で、成立した理由をすべて結果の順に並べます。
+    /// 区切りは表示言語によらない「, 」で、譜面一覧のWARNING列と同じです。理由の順は <see cref="DuplicateMergeVerificationReasonKind"/> の宣言順（結果が保つ順）です。
+    /// 保護対象名の衝突は含めません。
     /// </summary>
     internal static string FormatStatus(this DuplicateMergeVerificationResult result)
     {
@@ -32,18 +36,12 @@ internal static class DuplicateMergeVerificationPresentation
                     : Resources.Duplicate_merge_candidate_status_safe;
             case DuplicateMergeVerificationStage.Caution:
             case DuplicateMergeVerificationStage.Unmergeable:
-                bool unmergeable = result.Stage == DuplicateMergeVerificationStage.Unmergeable;
                 if (result.Reasons.Count == 0) { break; }
-                string first = ReasonName(result.Reasons[0].Kind);
-                if (result.Reasons.Count == 1)
-                {
-                    return string.Format(unmergeable
+                return string.Format(
+                    result.Stage == DuplicateMergeVerificationStage.Unmergeable
                         ? Resources.Duplicate_merge_candidate_status_unmergeable_format
-                        : Resources.Duplicate_merge_candidate_status_caution_format, first);
-                }
-                return string.Format(unmergeable
-                    ? Resources.Duplicate_merge_candidate_status_unmergeable_more_format
-                    : Resources.Duplicate_merge_candidate_status_caution_more_format, first, result.Reasons.Count - 1);
+                        : Resources.Duplicate_merge_candidate_status_caution_format,
+                    string.Join(ReasonSeparator, result.Reasons.Select(reason => ReasonName(reason.Kind))));
         }
         return Resources.Duplicate_merge_candidate_status_unverified;
     }

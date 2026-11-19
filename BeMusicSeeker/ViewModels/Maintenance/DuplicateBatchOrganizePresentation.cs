@@ -51,11 +51,14 @@ internal static class DuplicateBatchOrganizePresentation
             GetRepresentativeFolderName(progress.KeepDirectory));
 
     /// <summary>
-    /// 確認文を作ります。グループ数の行とごみ箱の行は常に含み、移動元を統合するグループがあるときだけ統合の行、
-    /// 未確認・要注意のグループがあるときだけ0件でない側の件数の行（このとき警告）、確認結果に別内容ファイルの衝突か保護対象名の衝突があるときだけ衝突の行を加えます。
+    /// 確認文を作ります。通常の本文は、グループ数の行、移動元を統合するグループがあるときだけ統合の行、ごみ箱の行の順です。
+    /// 警告用の本文（警告色で表示する部分）は、未確認・要注意のグループがあるときだけ0件でない側の件数の行（このとき警告のアイコン）、
+    /// 確認結果に別内容ファイルの衝突か保護対象名の衝突があるときだけ衝突の行を、この順に並べ、該当がなければnullです。
     /// </summary>
     /// <param name="hasWarning">未確認または要注意のグループを含む（確認ダイアログのアイコンを警告にする）場合はtrueです。</param>
-    internal static string CreateConfirmationMessage(IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets, out bool hasWarning)
+    /// <param name="warningMessage">警告用の本文です。該当する行がなければnullです。</param>
+    internal static string CreateConfirmationMessage(
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets, out bool hasWarning, out string warningMessage)
     {
         ArgumentNullException.ThrowIfNull(targets);
         var lines = new List<string> { string.Format(Resources.Duplicate_batch_organize_confirm_groups_format, targets.Count) };
@@ -91,22 +94,24 @@ internal static class DuplicateBatchOrganizePresentation
         }
         lines.Add(Resources.Duplicate_batch_organize_confirm_trash);
         hasWarning = unverified + caution > 0;
+        var warnings = new List<string>();
         if (unverified > 0 && caution > 0)
         {
-            lines.Add(string.Format(Resources.Duplicate_batch_organize_confirm_unverified_caution_format, unverified, caution));
+            warnings.Add(string.Format(Resources.Duplicate_batch_organize_confirm_unverified_caution_format, unverified, caution));
         }
         else if (unverified > 0)
         {
-            lines.Add(string.Format(Resources.Duplicate_batch_organize_confirm_unverified_format, unverified));
+            warnings.Add(string.Format(Resources.Duplicate_batch_organize_confirm_unverified_format, unverified));
         }
         else if (caution > 0)
         {
-            lines.Add(string.Format(Resources.Duplicate_batch_organize_confirm_caution_format, caution));
+            warnings.Add(string.Format(Resources.Duplicate_batch_organize_confirm_caution_format, caution));
         }
         if (collision)
         {
-            lines.Add(Resources.Duplicate_batch_organize_confirm_collision);
+            warnings.Add(Resources.Duplicate_batch_organize_confirm_collision);
         }
+        warningMessage = warnings.Count == 0 ? null : string.Join(Environment.NewLine, warnings);
         return string.Join(Environment.NewLine, lines);
     }
 

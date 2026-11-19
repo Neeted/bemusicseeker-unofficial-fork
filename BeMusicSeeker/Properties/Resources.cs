@@ -3355,18 +3355,18 @@ public class Resources
     public static string Duplicate_merge_candidate_summary => ResourceManager.GetString("Duplicate_merge_candidate_summary", resourceCulture);
     /// <summary>統合候補一覧の検索欄の名前です。</summary>
     public static string Duplicate_merge_candidate_search => ResourceManager.GetString("Duplicate_merge_candidate_search", resourceCulture);
+    /// <summary>統合候補一覧の除外用の検索欄の名前（アクセシブル名とツールチップ）です。</summary>
+    public static string Duplicate_merge_candidate_exclude_search => ResourceManager.GetString("Duplicate_merge_candidate_exclude_search", resourceCulture);
+    /// <summary>統合候補一覧の除外用の検索欄が空のときに表示するプレースホルダーです。</summary>
+    public static string Duplicate_merge_candidate_exclude_placeholder => ResourceManager.GetString("Duplicate_merge_candidate_exclude_placeholder", resourceCulture);
     /// <summary>統合候補一覧のSTATUS列で、安全と判断したグループに表示する文言です。</summary>
     public static string Duplicate_merge_candidate_status_safe => ResourceManager.GetString("Duplicate_merge_candidate_status_safe", resourceCulture);
     /// <summary>統合候補一覧のSTATUS列で、安全だが保護対象のファイル名が複数のフォルダで衝突しているグループに表示する文言です。</summary>
     public static string Duplicate_merge_candidate_status_safe_protected_collision => ResourceManager.GetString("Duplicate_merge_candidate_status_safe_protected_collision", resourceCulture);
-    /// <summary>統合候補一覧のSTATUS列で、要注意のグループに表示する書式です。{0}は最初の理由の名前です。</summary>
+    /// <summary>統合候補一覧のSTATUS列で、要注意のグループに表示する書式です。{0}は成立した理由の名前を「, 」で結んだものです。</summary>
     public static string Duplicate_merge_candidate_status_caution_format => ResourceManager.GetString("Duplicate_merge_candidate_status_caution_format", resourceCulture);
-    /// <summary>統合候補一覧のSTATUS列で、理由が複数ある要注意のグループに表示する書式です。{0}は最初の理由の名前、{1}は残りの理由の数です。</summary>
-    public static string Duplicate_merge_candidate_status_caution_more_format => ResourceManager.GetString("Duplicate_merge_candidate_status_caution_more_format", resourceCulture);
-    /// <summary>統合候補一覧のSTATUS列で、統合不可のグループに表示する書式です。{0}は最初の理由の名前です。</summary>
+    /// <summary>統合候補一覧のSTATUS列で、統合不可のグループに表示する書式です。{0}は成立した理由の名前を「, 」で結んだものです。</summary>
     public static string Duplicate_merge_candidate_status_unmergeable_format => ResourceManager.GetString("Duplicate_merge_candidate_status_unmergeable_format", resourceCulture);
-    /// <summary>統合候補一覧のSTATUS列で、理由が複数ある統合不可のグループに表示する書式です。{0}は最初の理由の名前、{1}は残りの理由の数です。</summary>
-    public static string Duplicate_merge_candidate_status_unmergeable_more_format => ResourceManager.GetString("Duplicate_merge_candidate_status_unmergeable_more_format", resourceCulture);
     /// <summary>統合候補一覧の確認結果で、フォルダの本体または配下にリンクがある理由の短い名前です。</summary>
     public static string Duplicate_merge_candidate_reason_link => ResourceManager.GetString("Duplicate_merge_candidate_reason_link", resourceCulture);
     /// <summary>統合候補一覧の確認結果で、登録範囲のフォルダがグループ内に二つ以上ある理由の短い名前です。</summary>

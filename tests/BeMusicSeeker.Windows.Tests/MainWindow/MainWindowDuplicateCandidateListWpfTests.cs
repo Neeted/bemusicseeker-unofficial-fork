@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
@@ -23,12 +24,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 {
     /// <summary>
     /// 保証：重複ツリーの子の先頭に統合候補一覧のノードが現れ、選ぶと専用の表へ切り替わる。表示中は譜面一覧の表・メインの検索欄・メインの件数表示・
-    /// 保留譜面の操作バー・プレイログの集計バーを出さず、専用の検索欄を出す。譜面一覧は行0件・選択なし、ツリーの選択表示は一つだけで、
-    /// 件数表示は「表示中 n グループ／選択 m グループ」になる。専用の検索欄への入力は束縛を通って一覧を絞り込む。
+    /// 保留譜面の操作バー・プレイログの集計バーを出さず、専用の検索欄と除外欄を出す。譜面一覧は行0件・選択なし、ツリーの選択表示は一つだけで、
+    /// 件数表示は「表示中 n グループ／選択 m グループ」になる。専用の検索欄・除外欄への入力は束縛を通って一覧を絞り込み、件数表示へ反映する。
     /// 表の操作で変えた列幅は一覧の列設定だけに入り、保存される側の列設定（設定の全列設定と、表示中の譜面一覧の列設定）を変えない。
-    /// 別の画面へ移ると専用の表・検索欄を隠し、メインの表・検索欄・件数表示を移動先の元の条件で表示し、戻っても状態・並べ替え・検索語（検索欄の文字）・列幅を保つ。
-    /// 検出する誤り：ノードの位置・欠落、切り替わらない表示、表示中に残るメインの件数表示・バー、検索欄と一覧の束縛の欠落、
-    /// 隠れた譜面一覧の行の残り、選択表示の二重化、別画面へ移った後の一覧・検索欄の残り、列幅の保存側への書込み・共有、再訪での状態・検索欄・列幅の消失。
+    /// 別の画面へ移ると専用の表・検索欄を隠し、メインの表・検索欄・件数表示を移動先の元の条件で表示し、戻っても状態・並べ替え・検索語・除外語（欄の文字）・列幅を保つ。
+    /// 検出する誤り：ノードの位置・欠落、切り替わらない表示、表示中に残るメインの件数表示・バー、検索欄・除外欄と一覧の束縛の欠落、
+    /// 隠れた譜面一覧の行の残り、選択表示の二重化、別画面へ移った後の一覧・検索欄・除外欄の残り、列幅の保存側への書込み・共有、再訪での状態・検索欄・除外欄・列幅の消失。
     /// </summary>
     [TestMethod]
     public void CandidateList_NodeSwitchesToDedicatedTableAndKeepsStateAcrossScreens()
@@ -43,6 +44,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var search = (Border)window.FindName("KeywordSearchComposite");
             var candidateSearch = (Border)window.FindName("duplicateCandidateSearchComposite");
             var candidateEditor = (TextBox)window.FindName("duplicateCandidateSearchEditor");
+            var candidateExclude = (Border)window.FindName("duplicateCandidateExcludeComposite");
+            var excludeEditor = (TextBox)window.FindName("duplicateCandidateExcludeEditor");
             var bar = (Border)window.FindName("duplicateCandidateOperationBar");
             var summary = (TextBlock)window.FindName("duplicateCandidateSummaryText");
             var pendingBar = (Border)window.FindName("pendingInstallOperationBar");
@@ -56,6 +59,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsFalse(candidates.IsViewActive);
             Assert.AreEqual(Visibility.Collapsed, table.Visibility);
             Assert.AreEqual(Visibility.Collapsed, candidateSearch.Visibility, "専用の検索欄は一覧の表示中だけ出します。");
+            Assert.AreEqual(Visibility.Collapsed, candidateExclude.Visibility, "除外欄は一覧の表示中だけ出します。");
             Assert.AreEqual(Visibility.Visible, main.Visibility);
             Assert.AreEqual(Visibility.Visible, mainSummary.Visibility);
             Assert.AreEqual(Resources.Duplicate_merge_candidate_list, node.Header);
@@ -65,6 +69,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(Visibility.Visible, table.Visibility);
             Assert.AreEqual(Visibility.Visible, bar.Visibility);
             Assert.AreEqual(Visibility.Visible, candidateSearch.Visibility, "専用の検索欄を表示します。");
+            Assert.AreEqual(Visibility.Visible, candidateExclude.Visibility, "除外欄を表示します。");
             Assert.AreEqual(Visibility.Collapsed, main.Visibility, "譜面一覧の表は表示しません。");
             Assert.AreEqual(Visibility.Collapsed, search.Visibility, "メインの検索欄は表示しません。");
             AssertCandidateListHidesMainBars(mainSummary, pendingBar, historyBar);
@@ -83,8 +88,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             DuplicateGroup first = library.DuplicateChartGroups[0];
             DuplicateGroup second = library.DuplicateChartGroups[1];
 
+            // 除外欄への入力は、束縛（遅延あり）を通って、条件に当たる行を持つグループを一覧から除く。選択済みのグループ0は表示外になり、件数の選択数から外れる。
+            EnterCandidateText(candidates, excludeEditor, "group0", nameof(DuplicateMergeCandidateListOwner.ExcludeText), () => candidates.ExcludeText);
+            Assert.AreEqual(1, candidates.VisibleGroupCount);
+            CollectionAssert.AreEqual(new[] { second, second }, table.ItemsSource.Cast<DuplicateMergeCandidateRow>().Select(row => row.State.Group).ToArray(),
+                "表は除外後の行集合を表示します。");
+            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 1, 0), summary.Text, "件数表示は除外後の表示中のグループを数えます。");
+            EnterCandidateText(candidates, excludeEditor, string.Empty, nameof(DuplicateMergeCandidateListOwner.ExcludeText), () => candidates.ExcludeText);
+            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 1), summary.Text, "除外を解除すると、非表示だったグループの選択も戻ります。");
+
             // 専用の検索欄への入力は、束縛（遅延あり）を通って一覧を絞り込む。選択済みのグループ0は表示外になり、件数の選択数から外れる。
-            EnterCandidateSearch(candidates, candidateEditor, "group1");
+            EnterCandidateText(candidates, candidateEditor, "group1", nameof(DuplicateMergeCandidateListOwner.SearchText), () => candidates.SearchText);
             Assert.AreEqual(1, candidates.VisibleGroupCount);
             CollectionAssert.AreEqual(new[] { second, second }, table.ItemsSource.Cast<DuplicateMergeCandidateRow>().Select(row => row.State.Group).ToArray(),
                 "表は絞り込んだ行集合を表示します。");
@@ -97,6 +111,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(statusWidth, candidates.ColumnsSettings.Status.Width, "一覧の列設定へ反映します。");
             CollectionAssert.AreEqual(savedBefore, SnapshotSavedColumnLayouts(viewModel), "保存される側の列設定は変えません。");
 
+            // 検索で残ったグループ1を除外欄の語でも除く（検索で残り、かつ除外で除かれないグループが表示される）。別の画面から戻った後も保たれる。
+            EnterCandidateText(candidates, excludeEditor, "group1", nameof(DuplicateMergeCandidateListOwner.ExcludeText), () => candidates.ExcludeText);
+            Assert.AreEqual((0, 0), (candidates.VisibleGroupCount, candidates.SelectedGroupCount));
+
             // 別の画面（重複グループ）へ移る。専用の表・検索欄を隠し、メインの表・検索欄・件数表示を元の条件で表示する。
             TreeViewItem groupItem = RealizeDuplicateGroupItem(root, second);
             SelectDuplicateTreeAndAwaitRows(viewModel, window, navigation, () => groupItem.IsSelected = true,
@@ -106,6 +124,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(Visibility.Collapsed, table.Visibility);
             Assert.AreEqual(Visibility.Collapsed, bar.Visibility);
             Assert.AreEqual(Visibility.Collapsed, candidateSearch.Visibility, "専用の検索欄を隠します。");
+            Assert.AreEqual(Visibility.Collapsed, candidateExclude.Visibility, "除外欄を隠します。");
             Assert.AreEqual(Visibility.Visible, main.Visibility);
             Assert.AreEqual(Visibility.Visible, search.Visibility, "メインの検索欄は移動先の元の条件で表示されます。");
             Assert.AreEqual(Visibility.Visible, mainSummary.Visibility, "メインの件数表示は移動先の元の条件で表示されます。");
@@ -117,14 +136,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             TestUiDispatcherHost.ProcessQueuedPresentation();
             AssertCandidateListHidesMainBars(mainSummary, pendingBar, historyBar);
             Assert.AreEqual("group1", candidateEditor.Text, "再訪で検索欄の文字が戻ります。");
-            Assert.AreEqual((1, 0), (candidates.VisibleGroupCount, candidates.SelectedGroupCount), "再訪しても検索の絞込みを保ちます。");
-            Assert.AreEqual(("Path", ListSortDirection.Descending, "group1"),
-                (candidates.SortColumnName, candidates.SortDirection, candidates.SearchText));
+            Assert.AreEqual("group1", excludeEditor.Text, "再訪で除外欄の文字が戻ります。");
+            Assert.AreEqual((0, 0), (candidates.VisibleGroupCount, candidates.SelectedGroupCount), "再訪しても検索の絞込みと除外を保ちます。");
+            Assert.AreEqual(("Path", ListSortDirection.Descending, "group1", "group1"),
+                (candidates.SortColumnName, candidates.SortDirection, candidates.SearchText, candidates.ExcludeText));
             Assert.AreEqual(statusWidth, candidates.ColumnsSettings.Status.Width, "列幅は起動中だけ保持します。");
             Assert.AreEqual(statusWidth, table.Columns.Single(column => column.Id == "Status").Width, "再訪した表も変更後の列幅を使います。");
 
-            // 検索欄を空にすると、保っていた状態（グループ0のSELECT）と降順の並べ替えが全グループに現れる。
-            EnterCandidateSearch(candidates, candidateEditor, string.Empty);
+            // 除外欄、続いて検索欄を空にすると、保っていた状態（グループ0のSELECT）と降順の並べ替えが全グループに現れる。
+            EnterCandidateText(candidates, excludeEditor, string.Empty, nameof(DuplicateMergeCandidateListOwner.ExcludeText), () => candidates.ExcludeText);
+            Assert.AreEqual(1, candidates.VisibleGroupCount, "除外を解除すると、検索で残っているグループが現れます。");
+            EnterCandidateText(candidates, candidateEditor, string.Empty, nameof(DuplicateMergeCandidateListOwner.SearchText), () => candidates.SearchText);
             Assert.AreEqual(2, candidates.VisibleGroupCount);
             Assert.AreEqual(1, candidates.SelectedGroupCount, "別の画面へ移って戻っても状態を保ちます。");
             Assert.IsTrue(candidates.RowSet.Where(row => row.State.Group == first).All(row => row.State.IsSelected));
@@ -149,6 +171,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var historyRoot = (TreeViewItem)window.FindName("treeViewItemPlayHistory");
             var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
             var candidateSearch = (Border)window.FindName("duplicateCandidateSearchComposite");
+            var candidateExclude = (Border)window.FindName("duplicateCandidateExcludeComposite");
             var bar = (Border)window.FindName("duplicateCandidateOperationBar");
             var pendingBar = (Border)window.FindName("pendingInstallOperationBar");
             var historyBar = (Border)window.FindName("playHistorySummaryBar");
@@ -164,7 +187,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 MainViewUpdateMode.PendingInstallFolderSelected);
             TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.IsFalse(candidates.IsViewActive);
-            AssertCandidateListHidden(table, candidateSearch, bar);
+            AssertCandidateListHidden(table, candidateSearch, candidateExclude, bar);
             Assert.AreEqual(Visibility.Visible, pendingBar.Visibility, "保留の画面は保留譜面の操作バーを出します。");
             Assert.AreEqual(Visibility.Collapsed, historyBar.Visibility);
             Assert.AreEqual(Visibility.Visible, mainSummary.Visibility, "保留の画面はメインの件数表示を出します。");
@@ -176,7 +199,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             // プレイログの画面へ移る。
             SelectPlayHistoryAndAwaitView(viewModel, historyRoot);
             Assert.IsFalse(candidates.IsViewActive);
-            AssertCandidateListHidden(table, candidateSearch, bar);
+            AssertCandidateListHidden(table, candidateSearch, candidateExclude, bar);
             Assert.AreEqual(Visibility.Visible, historyBar.Visibility, "プレイログの画面は集計バーを出します。");
             Assert.AreEqual(Visibility.Collapsed, pendingBar.Visibility);
             Assert.AreEqual(Visibility.Collapsed, mainSummary.Visibility, "プレイログの画面はメインの件数表示を出しません。");
@@ -187,6 +210,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             AssertCandidateListHidesMainBars(mainSummary, pendingBar, historyBar);
             Assert.AreEqual(Visibility.Visible, table.Visibility);
             Assert.AreEqual(Visibility.Visible, candidateSearch.Visibility);
+            Assert.AreEqual(Visibility.Visible, candidateExclude.Visibility);
             Assert.AreEqual(Visibility.Visible, bar.Visibility);
         });
     }
@@ -357,8 +381,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     }
 
     /// <summary>
-    /// 保証：表示言語を変えると、ノードの見出し・STATUS・件数・ボタン・メニューが現在の言語に追従する。終わったら元の言語へ戻す。
-    /// 検出する誤り：起動時の言語のまま残る文言、言語の変更で一覧の状態（SELECT）が失われる誤り。
+    /// 保証：ツールバーの五つのボタンとチェックボックスは共通スタイルの見た目を保つ。表示言語を変えると、ノードの見出し・STATUS・件数・ボタン・メニュー・除外欄の名前と
+    /// プレースホルダーが現在の言語に追従する。終わったら元の言語へ戻す。
+    /// 検出する誤り：画面内の旧スタイル（個別の配色・テンプレート・無効時の不透明度）の残り、標準部品のままのチェックボックス、
+    /// 起動時の言語のまま残る文言、言語の変更で一覧の状態（SELECT）が失われる誤り。
     /// </summary>
     [TestMethod]
     public void CandidateList_PresentationFollowsDisplayLanguageRoundTrip()
@@ -372,10 +398,23 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var select = (Button)window.FindName("duplicateCandidateSelectVisibleButton");
             var verify = (Button)window.FindName("duplicateCandidateVerifyButton");
             var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
+            var excludeEditor = (TextBox)window.FindName("duplicateCandidateExcludeEditor");
+            var excludePlaceholder = (TextBlock)window.FindName("duplicateCandidateExcludePlaceholder");
             var menu = (ContextMenu)window.FindResource("duplicateCandidateContextMenu");
             DuplicateMergeCandidateListOwner candidates = viewModel.DuplicateMergeCandidateList;
             TreeViewItem node = RealizeCandidateListNode(root);
             SelectCandidateListAndAwaitView(viewModel, navigation, node);
+            // ツールバーの五つのボタンとチェックボックスは、共通スタイルの見た目（配色・テンプレート）を保つ。
+            AssertToolbarKeepsCanonicalPresentation(
+                [
+                    select,
+                    (Button)window.FindName("duplicateCandidateClearVisibleButton"),
+                    (Button)window.FindName("duplicateCandidatePreferredDestinationsButton"),
+                    verify,
+                    (Button)window.FindName("duplicateCandidateOrganizeButton")
+                ],
+                quickCompare);
+            Assert.IsTrue(quickCompare.IsChecked, "簡易確認のチェックは既定で入っています。");
             // 確認済みのグループ（要注意、理由に該当の一覧あり）を書き込み、STATUSとツールチップの追従も確かめる。
             DuplicateMergeVerificationResult cautionResult = new(
                 DuplicateMergeVerificationStage.Caution,
@@ -395,6 +434,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_check_on, menu.Items.OfType<MenuItem>().First().Header);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_verify_selected, verify.Content);
                 Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare, quickCompare.Content);
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_exclude_search, AutomationProperties.GetName(excludeEditor), "除外欄のアクセシブル名は現在の言語です。");
+                Assert.AreEqual(Resources.Duplicate_merge_candidate_exclude_placeholder, excludePlaceholder.Text, "除外欄のプレースホルダーは現在の言語です。");
                 Assert.IsTrue(menu.Items.OfType<MenuItem>().Any(item => Equals(item.Header, Resources.Duplicate_merge_candidate_verify_group)));
                 Assert.AreEqual(
                     string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_parent_reference),
@@ -419,10 +460,11 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     /// <summary>
     /// 保証：実画面の「選択グループを確認」ボタンと右クリックメニューの「このグループを確認」が、実ファイルの確認を通じてSTATUS・SELECT・件数表示・ツールチップを更新し、
-    /// 進捗の要求はメインウィンドウを所有者として出して、結果の案内を一件だけ出す。簡易確認のチェックは、オンにしたときだけ案内を一件出して管理主体へ値を渡す。
+    /// 進捗の要求はメインウィンドウを所有者として出して、結果の案内を一件だけ出す。簡易確認のチェックは、開始時にオンで案内がなく、外す操作では案内せず、入れる操作で案内を一件出して管理主体へ値を渡す。
     /// 実ファイルの衝突（別内容の資源）のグループは要注意でSELECTがオフになり、衝突を解消して右クリックで再確認すれば安全でオンに戻る。
     /// 標準構成の接続は、共通の受付が使用中なら確認がBusyの案内で未開始になることで確かめる。条件の網羅は検査器・管理主体のケースが担当する。
-    /// 検出する誤り：ボタン・メニュー・チェックの未接続、進捗の所有者の欠落、案内の重複・欠落、SELECT・件数表示・STATUSの更新漏れ、標準構成の受付への未接続。
+    /// 検出する誤り：ボタン・メニュー・チェックの未接続、進捗の所有者の欠落、案内の重複・欠落、SELECT・件数表示・STATUSの更新漏れ、標準構成の受付への未接続、
+    /// チェックの既定がオフ・起動時の案内。
     /// </summary>
     [TestMethod]
     public void CandidateList_VerifyButtonMenuAndQuickCompareCheckActThroughRealFiles()
@@ -451,6 +493,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Click(table, 2, "Select");
             Assert.AreEqual(2, candidates.SelectedGroupCount);
             int messagesBefore = dialogs.Messages.Count;
+            Assert.IsTrue(quickCompare.IsChecked, "開始時はチェックが入っています。");
+            Assert.IsTrue(candidates.QuickCompareEnabled);
+            Assert.IsFalse(dialogs.Messages.Any(message => message.MessageBoxText == Resources.Duplicate_merge_candidate_quick_compare_notice), "起動から開始までに注意の案内は出ません。");
+
+            // 同じサイズで書いたファイルの更新日時が一致すると判定が変わり得るため、確認の前にチェックを外し、全量の比較で確かめる（最後に入れ直す）。
+            quickCompare.IsChecked = false;
+            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "quick-compare-off");
+            Assert.IsFalse(candidates.QuickCompareEnabled);
+            Assert.AreEqual(messagesBefore, dialogs.Messages.Count, "外す操作では案内しません。");
 
             // 標準構成の受付が使用中なら、確認はBusyの案内で未開始になる。
             Assert.IsTrue(MainWindowViewModelTestFactory.GetComposition(viewModel).OperationAdmission.TryEnter(out IDisposable? lease));
@@ -493,17 +544,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count);
             StringAssert.Contains(ResolveStatusTooltip(table, 2), string.Format(Resources.Duplicate_merge_candidate_safe_compared_single_format, 2, Resources.Duplicate_merge_candidate_method_full));
 
-            // 簡易確認のチェック：オンにしたときだけ案内を一件出し、管理主体の値を変える。
+            // 簡易確認のチェックを入れ直す：入れる操作で案内を一件出し、管理主体の値を有効にする。
             messagesBefore = dialogs.Messages.Count;
             quickCompare.IsChecked = true;
             AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "quick-compare-on");
             Assert.IsTrue(candidates.QuickCompareEnabled);
             Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count);
             Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_notice, dialogs.Messages[^1].MessageBoxText);
-            quickCompare.IsChecked = false;
-            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "quick-compare-off");
-            Assert.IsFalse(candidates.QuickCompareEnabled);
-            Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count, "オフにするときは案内しません。");
         }, dialogService: dialogs);
     }
 
@@ -541,33 +588,104 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         Assert.AreEqual(Visibility.Collapsed, historyBar.Visibility, "一覧の表示中はプレイログの集計バーを出しません。");
     }
 
-    private static void AssertCandidateListHidden(CustomTableView table, Border candidateSearch, Border bar)
+    private static void AssertCandidateListHidden(CustomTableView table, Border candidateSearch, Border candidateExclude, Border bar)
     {
         Assert.AreEqual(Visibility.Collapsed, table.Visibility, "一覧の表を隠します。");
         Assert.AreEqual(Visibility.Collapsed, candidateSearch.Visibility, "専用の検索欄を隠します。");
+        Assert.AreEqual(Visibility.Collapsed, candidateExclude.Visibility, "除外欄を隠します。");
         Assert.AreEqual(Visibility.Collapsed, bar.Visibility, "一覧のツールバーを隠します。");
     }
 
     /// <summary>
-    /// 専用の検索欄へ文字を入れ、束縛（遅延あり）が一覧の検索語へ届くまで待ちます。固定時間は待たず、検索語の変更通知を待ちます。
-    /// 検索語の設定は行集合の作り直しまで同期で行うため、通知の後は絞り込んだ行集合を読めます。
+    /// 専用の検索欄または除外欄へ文字を入れ、束縛（遅延あり）が一覧の対応する語へ届くまで待ちます。固定時間は待たず、そのプロパティの変更通知を待ちます。
+    /// 語の設定は行集合の作り直しまで同期で行うため、通知の後は絞り込んだ行集合を読めます。
     /// </summary>
-    private static void EnterCandidateSearch(DuplicateMergeCandidateListOwner owner, TextBox editor, string text)
+    /// <param name="propertyName">対象の語のプロパティ名（検索語または除外語）。</param>
+    /// <param name="currentValue">対象の語の現在値の取得。</param>
+    private static void EnterCandidateText(
+        DuplicateMergeCandidateListOwner owner, TextBox editor, string text, string propertyName, Func<string> currentValue)
     {
         var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         PropertyChangedEventHandler changed = (_, args) =>
         {
-            if (args.PropertyName == nameof(DuplicateMergeCandidateListOwner.SearchText) && owner.SearchText == text) { applied.TrySetResult(); }
+            if (args.PropertyName == propertyName && currentValue() == text) { applied.TrySetResult(); }
         };
         owner.PropertyChanged += changed;
         try
         {
-            Assert.AreNotEqual(text, owner.SearchText, "前提：入力前の検索語は異なります。");
+            Assert.AreNotEqual(text, currentValue(), "前提：入力前の語は異なります。");
             editor.Text = text;
-            TestUiDispatcherHost.AwaitPresentationOnDispatcher(applied.Task, "candidate search binding");
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(applied.Task, "candidate text binding " + propertyName);
         }
         finally { owner.PropertyChanged -= changed; }
         TestUiDispatcherHost.ProcessQueuedPresentation();
+    }
+
+    /// <summary>
+    /// ツールバーのボタンとチェックボックスが、共通スタイルの見た目を保つことを確かめます。スタイルの継承元に共通スタイルを含み、実際に使うテンプレートが共通のものと同じで、
+    /// 共通スタイルより上の派生スタイル（Setter・Trigger）とコントロールへの直接指定が、テンプレート・配色・無効時の不透明度などを上書きしていないことを見ます。
+    /// 高さ・余白・Margin・有効条件の差は許容します。実際の配色とテーマへの追従は、共通スタイルの既存テストが担当します。
+    /// </summary>
+    private static void AssertToolbarKeepsCanonicalPresentation(IEnumerable<Button> buttons, CheckBox? checkBox = null)
+    {
+        foreach (Button button in buttons)
+        {
+            AssertKeepsCanonicalPresentation(
+                button, "App.Canonical.CompactButtonStyle", "App.Canonical.ButtonTemplate",
+                [Control.TemplateProperty, Control.BackgroundProperty, Control.ForegroundProperty, Control.BorderBrushProperty, UIElement.OpacityProperty]);
+        }
+        if (checkBox != null)
+        {
+            AssertKeepsCanonicalPresentation(
+                checkBox, "App.Canonical.CheckBoxStyle", "App.Canonical.CheckBoxTemplate",
+                [Control.TemplateProperty, Control.BackgroundProperty, Control.BorderBrushProperty]);
+        }
+    }
+
+    private static void AssertKeepsCanonicalPresentation(
+        Control control, string canonicalStyleKey, string canonicalTemplateKey, DependencyProperty[] protectedProperties)
+    {
+        string label = $"{control.Name}（{canonicalStyleKey}）";
+        var canonical = (Style)control.FindResource(canonicalStyleKey);
+        var canonicalTemplate = (ControlTemplate)control.FindResource(canonicalTemplateKey);
+        var derived = new List<Style>();
+        Style? current = control.Style;
+        while (current != null && !ReferenceEquals(current, canonical))
+        {
+            derived.Add(current);
+            current = current.BasedOn;
+        }
+        Assert.IsNotNull(current, $"{label}: スタイルの継承元に共通スタイルを含みます。");
+        Assert.AreSame(canonicalTemplate, control.Template, $"{label}: 実際に使うテンプレートは共通スタイルのものです。");
+        foreach (Style style in derived)
+        {
+            foreach (Setter setter in EnumerateSetters(style))
+            {
+                Assert.IsFalse(protectedProperties.Contains(setter.Property), $"{label}: 派生スタイルが {setter.Property?.Name} を上書きしています。");
+            }
+        }
+        foreach (DependencyProperty property in protectedProperties)
+        {
+            Assert.AreEqual(DependencyProperty.UnsetValue, control.ReadLocalValue(property), $"{label}: {property.Name} の直接指定があります。");
+        }
+    }
+
+    /// <summary>スタイルが直接持つSetterと、Trigger・DataTrigger・MultiTrigger・MultiDataTriggerのSetterを列挙します。</summary>
+    private static IEnumerable<Setter> EnumerateSetters(Style style)
+    {
+        foreach (Setter setter in style.Setters.OfType<Setter>()) { yield return setter; }
+        foreach (TriggerBase trigger in style.Triggers)
+        {
+            SetterBaseCollection? setters = trigger switch
+            {
+                Trigger t => t.Setters,
+                DataTrigger t => t.Setters,
+                MultiTrigger t => t.Setters,
+                MultiDataTrigger t => t.Setters,
+                _ => null
+            };
+            foreach (Setter setter in (setters ?? []).OfType<Setter>()) { yield return setter; }
+        }
     }
 
     /// <summary>表の見出しの右境界を実のヒット判定で捕まえ、幅変更の入力（開始・移動・終了）で列幅を変えます。</summary>

@@ -319,8 +319,8 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
 
     /// <summary>
     /// 保証：右クリックメニューの確認は、選択行が属するグループを、グループごとに一度、SELECTの状態によらず確認する。登録範囲のフォルダと、
-    /// 簡易確認の値（確認の開始時の値）を検査器へ渡し、確認後のSELECTは安全ならオンになる。
-    /// 検出する誤り：同じグループの重複確認、SELECTがオンのグループへの絞込み、登録範囲・簡易確認の値の受渡しの欠落。
+    /// 簡易確認の値（確認の開始時の値。既定の有効と異なる無効を設定する）を、案内なしですべての要求で検査器へ渡し、確認後のSELECTは安全ならオンになる。
+    /// 検出する誤り：同じグループの重複確認、SELECTがオンのグループへの絞込み、登録範囲・簡易確認の値の受渡しの欠落（既定値のままの受渡し）、無効にする操作での案内。
     /// </summary>
     [TestMethod]
     public async Task VerifyGroupsOfRows_ChecksEachGroupOnceWithRegisteredFoldersAndQuickCompareValue()
@@ -328,15 +328,15 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         var inspector = new ScriptedInspector();
         DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2");
         using var fixture = new Fixture(inspector, new Source([@"C:\S\a1", @"C:\S\a2"]), a, b);
-        await fixture.Workflow.SetQuickCompareAsync(true);
-        Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
+        await fixture.Workflow.SetQuickCompareAsync(false);
+        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "無効にする操作では案内しません。");
 
         DuplicateMergeVerificationRunResult result = await fixture.UiAsync(() => fixture.Workflow.VerifyGroupsOfRowsAsync(
             [fixture.Owner.RowSet[0], fixture.Owner.RowSet[1], fixture.Owner.RowSet[2]]));
 
         Assert.AreEqual(2, result.Checked, "選択した三行は二つのグループに属し、SELECTの状態によらず確認します。");
         Assert.AreEqual(2, inspector.Calls.Count);
-        Assert.IsTrue(inspector.Calls.All(call => call.Request.SizeAndTimeOnly), "簡易確認の値を渡します。");
+        Assert.IsTrue(inspector.Calls.All(call => !call.Request.SizeAndTimeOnly), "簡易確認の値（無効）をすべての要求へ渡します。");
         DuplicateMergeInspectionRequest registeredRequest = inspector.Calls.Select(call => call.Request).Single(request => request.RegisteredFolders.Count == 2);
         CollectionAssert.AreEqual(new[] { @"C:\S\a1", @"C:\S\a2" }, registeredRequest.RegisteredFolders.ToArray());
         Assert.IsTrue(fixture.State(a).IsSelected);
@@ -344,25 +344,51 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 保証：簡易確認のチェックは、オンにするたびに案内を一件出し、オフにするときは出さない。値は管理主体が保持し、次の確認へ渡す。
-    /// 検出する誤り：案内の欠落・オフでの案内・重複、値の不保持。
+    /// 保証：簡易確認の値は、管理主体を新しく作った直後に有効で、組立てまでに注意の案内を出さない。チェックを外す操作では案内せず、入れる操作のたびに一件案内する。
+    /// 検出する誤り：既定がオフ、起動時の既定の有効での案内、外す操作での案内、入れる操作での案内の欠落・重複、値の不保持。
     /// </summary>
     [TestMethod]
-    public async Task QuickCompare_NotifiesOncePerEnableAndNotOnDisable()
+    public async Task QuickCompare_DefaultsOnWithoutNoticeAndNotifiesOnlyWhenTheCheckIsTurnedOn()
     {
         var inspector = new ScriptedInspector();
         using var fixture = new Fixture(inspector, Group(@"C:\S\a1", @"C:\S\a2"));
+        Assert.IsTrue(fixture.Owner.QuickCompareEnabled, "生成直後の値は有効です。");
+        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "起動から構成の組立てまでに注意の案内を出しません。");
 
-        await fixture.Workflow.SetQuickCompareAsync(true);
-        await fixture.Workflow.SetQuickCompareAsync(false);
-        await fixture.Workflow.SetQuickCompareAsync(true);
-
-        Assert.AreEqual(2, fixture.Dialogs.Messages.Count);
-        Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_notice, fixture.Dialogs.Messages[0].MessageBoxText);
-        Assert.IsTrue(fixture.Owner.QuickCompareEnabled);
         await fixture.Workflow.SetQuickCompareAsync(false);
         Assert.IsFalse(fixture.Owner.QuickCompareEnabled);
-        Assert.AreEqual(2, fixture.Dialogs.Messages.Count, "オフにするときは案内しません。");
+        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "外す操作では案内しません。");
+
+        await fixture.Workflow.SetQuickCompareAsync(true);
+        Assert.IsTrue(fixture.Owner.QuickCompareEnabled);
+        Assert.AreEqual(1, fixture.Dialogs.Messages.Count, "入れる操作では一件案内します。");
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_notice, fixture.Dialogs.Messages[0].MessageBoxText);
+
+        await fixture.Workflow.SetQuickCompareAsync(false);
+        await fixture.Workflow.SetQuickCompareAsync(true);
+        Assert.AreEqual(2, fixture.Dialogs.Messages.Count, "入れる操作のたびに一件です。");
+    }
+
+    /// <summary>
+    /// 保証：チェックに触れずに確認を実行すると、すべての要求で簡易確認が有効（既定値）として検査器へ渡り、確認の実行では注意の案内を出さない。
+    /// 検出する誤り：既定のオフのまま検査器へ渡す、既定の値を確認の入力へ反映しない、確認で注意の案内を出す。
+    /// </summary>
+    [TestMethod]
+    public async Task Verify_WithoutTouchingTheCheck_PassesTheEnabledDefaultToEveryRequest()
+    {
+        var inspector = new ScriptedInspector();
+        DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2");
+        using var fixture = new Fixture(inspector, a, b);
+        fixture.Ui(() => fixture.Owner.SelectVisible());
+
+        DuplicateMergeVerificationRunResult result = await fixture.UiAsync(() => fixture.Workflow.VerifySelectedAsync());
+
+        Assert.AreEqual(2, result.Checked);
+        Assert.AreEqual(2, inspector.Calls.Count);
+        Assert.IsTrue(inspector.Calls.All(call => call.Request.SizeAndTimeOnly), "既定の有効をすべての要求へ渡します。");
+        Assert.IsFalse(
+            fixture.Dialogs.Messages.Any(message => message.MessageBoxText == Resources.Duplicate_merge_candidate_quick_compare_notice),
+            "確認の実行は注意の案内を出しません。");
     }
 
     /// <summary>

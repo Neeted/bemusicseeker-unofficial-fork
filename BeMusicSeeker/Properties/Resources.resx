@@ -4198,6 +4198,12 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_merge_candidate_search" xml:space="preserve">
     <value>統合候補を検索</value>
   </data>
+  <data name="Duplicate_merge_candidate_exclude_search" xml:space="preserve">
+    <value>条件に一致する統合候補を除外</value>
+  </data>
+  <data name="Duplicate_merge_candidate_exclude_placeholder" xml:space="preserve">
+    <value>除外する条件</value>
+  </data>
   <data name="Duplicate_merge_candidate_status_safe" xml:space="preserve">
     <value>安全</value>
   </data>
@@ -4207,14 +4213,8 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_merge_candidate_status_caution_format" xml:space="preserve">
     <value>要注意：{0}</value>
   </data>
-  <data name="Duplicate_merge_candidate_status_caution_more_format" xml:space="preserve">
-    <value>要注意：{0} ほか{1}件</value>
-  </data>
   <data name="Duplicate_merge_candidate_status_unmergeable_format" xml:space="preserve">
     <value>統合不可：{0}</value>
-  </data>
-  <data name="Duplicate_merge_candidate_status_unmergeable_more_format" xml:space="preserve">
-    <value>統合不可：{0} ほか{1}件</value>
   </data>
   <data name="Duplicate_merge_candidate_reason_link" xml:space="preserve">
     <value>リンクあり</value>
@@ -4259,7 +4259,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>グループ内のフォルダ同士が、同一か親子の関係にあります。</value>
   </data>
   <data name="Duplicate_merge_candidate_reason_type_conflict_description" xml:space="preserve">
-    <value>同じ相対パスが、あるフォルダではファイル、別のフォルダではフォルダです。</value>
+    <value>同じ名前が、あるフォルダではファイル、別のフォルダではフォルダです。</value>
   </data>
   <data name="Duplicate_merge_candidate_reason_other_group_description" xml:space="preserve">
     <value>別のグループのフォルダと、同一か親子の関係にあります。</value>
@@ -4274,7 +4274,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>同じ名前の音源が、別のフォルダに異なる拡張子で存在します。</value>
   </data>
   <data name="Duplicate_merge_candidate_reason_content_conflict_description" xml:space="preserve">
-    <value>同じ相対パスのファイルの内容が、フォルダ間で異なります。</value>
+    <value>同じ名前のファイルの内容が、フォルダ間で異なります。</value>
   </data>
   <data name="Duplicate_merge_candidate_reason_no_shared_content_description" xml:space="preserve">
     <value>ファイルを持つフォルダの間で、同一内容のファイルが共有されていません。</value>

@@ -1462,7 +1462,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.AreEqual(0, fixture.BottomProgress.Count, "画面下部の進捗行を出してはいけません。");
     }
 
-    private static string[] Lines(string message) => message.Split(Environment.NewLine);
+    private static string[] Lines(string? message) => string.IsNullOrEmpty(message) ? [] : message.Split(Environment.NewLine);
 
     /// <summary>
     /// 対象は表示中でSELECTがオンのグループだけで、0件なら受付・確認・Busy案内・再生停止・進捗・モデル呼出しのどれも行わない。
@@ -1710,9 +1710,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 確認文は、グループ数の行とごみ箱の行を常に含み、二フォルダ以上のグループがあるときだけ統合の行（m：そのグループ数、k：移動元の合計）、
-    /// 未確認・要注意があるときだけ0件でない側の件数の行（このときアイコンは警告、どちらも0なら質問）を加える。
-    /// 検出する誤り：行の欠落・過剰、0件の側を出す、件数の取り違え、アイコンの取り違え。
+    /// 通常の本文は、グループ数の行、二フォルダ以上のグループがあるときだけ統合の行（m：そのグループ数、k：移動元の合計）、ごみ箱の行の順。
+    /// 警告用の本文（警告色で表示する部分）は、未確認・要注意があるときだけ0件でない側の件数の行（このときアイコンは警告、どちらも0なら質問）で、該当がなければ出さない。
+    /// 検出する誤り：行の欠落・過剰、0件の側を出す、件数の取り違え、アイコンの取り違え、警告の行の通常の本文への残留・重複。
     /// </summary>
     [TestMethod]
     [DataRow(0, 2, 0, 0, DisplayName = "二フォルダ以上なし・全て安全")]
@@ -1747,23 +1747,27 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             expected.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_merge_format, mergeGroups, mergeGroups * 2));
         }
         expected.Add(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_trash);
-        if (unverified > 0 && caution > 0) { expected.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_caution_format, unverified, caution)); }
-        else if (unverified > 0) { expected.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_format, unverified)); }
-        else if (caution > 0) { expected.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_caution_format, caution)); }
+        var expectedWarning = new List<string>();
+        if (unverified > 0 && caution > 0) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_caution_format, unverified, caution)); }
+        else if (unverified > 0) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_unverified_format, unverified)); }
+        else if (caution > 0) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_caution_format, caution)); }
         UiConfirmationRequest request = fixture.Dialogs.ConfirmationRequest!;
-        CollectionAssert.AreEqual(expected, Lines(request.MessageBoxText));
+        CollectionAssert.AreEqual(expected, Lines(request.MessageBoxText), "警告の行は通常の本文へ残しません。");
+        CollectionAssert.AreEqual(expectedWarning, Lines(request.WarningMessageBoxText), "警告用の本文は、該当する行だけです。");
         Assert.AreEqual(unverified + caution > 0 ? MessageBoxImage.Warning : MessageBoxImage.Question, request.Icon);
     }
 
     /// <summary>
-    /// 確認結果に別内容ファイルの衝突（要注意の理由）または保護対象名の衝突（安全への付記）を持つグループがあるときだけ、衝突の行を加える。
-    /// 検出する誤り：衝突の行の欠落（どちらの種類でも）、衝突のないグループでの過剰表示。
+    /// 確認結果に別内容ファイルの衝突（要注意の理由）または保護対象名の衝突（安全への付記）を持つグループがあるときだけ、衝突の行を警告用の本文へ加える。
+    /// 要注意の別内容ファイル衝突は［要注意の行、衝突の行］、保護対象名の衝突だけ（安全）は［衝突の行］の順で、該当なしは警告用の本文なし。
+    /// 衝突の行は通常の本文へ出さず、アイコンは未確認・要注意を含むときだけ警告のままである。
+    /// 検出する誤り：衝突の行の欠落（どちらの種類でも）、衝突のないグループでの過剰表示、衝突の行の通常の本文への残留・重複、行の順の入れ替え、アイコンの変化。
     /// </summary>
     [TestMethod]
-    [DataRow("none", false)]
-    [DataRow("content", true)]
-    [DataRow("protected", true)]
-    public async Task OrganizeSelectedGroups_ConfirmationMentionsOverwriteOnlyWhenACollisionIsRecorded(string kind, bool expectLine)
+    [DataRow("none", false, false)]
+    [DataRow("content", true, true)]
+    [DataRow("protected", true, false)]
+    public async Task OrganizeSelectedGroups_ConfirmationMentionsOverwriteOnlyWhenACollisionIsRecorded(string kind, bool expectLine, bool expectCautionLine)
     {
         DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
         using var fixture = new BatchFixture([group]);
@@ -1779,8 +1783,14 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         await fixture.Owner.OrganizeSelectedGroupsAsync();
 
-        string[] lines = Lines(fixture.Dialogs.ConfirmationRequest!.MessageBoxText);
-        Assert.AreEqual(expectLine, lines.Contains(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision));
+        UiConfirmationRequest request = fixture.Dialogs.ConfirmationRequest!;
+        string collisionLine = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision;
+        Assert.IsFalse(Lines(request.MessageBoxText).Contains(collisionLine), "衝突の行は通常の本文へ出しません。");
+        var expectedWarning = new List<string>();
+        if (expectCautionLine) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_caution_format, 1)); }
+        if (expectLine) { expectedWarning.Add(collisionLine); }
+        CollectionAssert.AreEqual(expectedWarning, Lines(request.WarningMessageBoxText));
+        Assert.AreEqual(expectCautionLine ? MessageBoxImage.Warning : MessageBoxImage.Question, request.Icon, "アイコンの条件は変えません。");
     }
 
     /// <summary>

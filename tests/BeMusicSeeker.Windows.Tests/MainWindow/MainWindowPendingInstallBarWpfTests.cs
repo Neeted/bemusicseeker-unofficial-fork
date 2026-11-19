@@ -230,8 +230,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             installTreeTerminal: new MainWindowInstallTreeTerminal((_, _) => Task.FromResult(true)));
     }
 
-    /// <summary>6言語の実切替で短縮名と正式tooltip/Automation名が更新され、Light/Darkの意味brushが実controlへ反映されます。</summary>
-    /// <remarks>辞書のキー/非空/整合はLocalizationResourceParityTestsへ分担し、ここではResourceServiceとthemeからcompiled Bindingへの接続だけを確認します。</remarks>
+    /// <summary>6言語の実切替で短縮名と正式tooltip/Automation名が更新され、バー自身の背景がLight/Darkの意味brushへ追従し、ボタンが共通の省スペースボタンスタイルの見た目を保ちます。</summary>
+    /// <remarks>辞書のキー/非空/整合はLocalizationResourceParityTestsへ分担し、ここではResourceServiceとthemeからcompiled Bindingへの接続だけを確認します。ボタンの配色・状態のテーマ追従は共通スタイルの既存テスト(SettingsControlPresentationTests・DialogPresentationTests)が担当し、画面内に旧スタイル（個別の配色・テンプレート・無効時の不透明度）を残さないことをここで確認します。</remarks>
     [TestMethod]
     public void PendingInstallBar_UpdatesLocalizedNamesAndThemeBrushes()
     {
@@ -247,6 +247,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Button[] buttons = PendingBarButtons(window);
                 PresentPendingBarRows(vm, [LibraryChartRow.FromPackageChartEntry(CreatePendingBarEntry("A"))]);
                 table.SelectRowsByPredicate(_ => true);
+                AssertToolbarKeepsCanonicalPresentation(buttons);
                 try
                 {
                     foreach (string culture in new[] { "ja-JP", "en-US", "fr-FR", "ko-KR", "zh-CN", "zh-TW" })
@@ -267,12 +268,6 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                         AppThemeService.ApplyTheme(theme);
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         Assert.AreSame(bar.FindResource("App.SurfaceBrush"), bar.Background);
-                        foreach (Button button in buttons)
-                        {
-                            Assert.AreSame(button.FindResource("App.ControlBackgroundBrush"), button.Background);
-                            Assert.AreSame(button.FindResource("App.TextBrush"), button.Foreground);
-                            Assert.AreSame(button.FindResource("App.StrongBorderBrush"), button.BorderBrush);
-                        }
                     }
                 }
                 finally

@@ -37,12 +37,12 @@ internal sealed class DuplicateMergeCandidateListPreparation
 
 /// <summary>
 /// 統合候補一覧の状態と判断を持つ管理主体です。グループごとのSELECT・KEEP・確認結果（状態表）、採用済みの行集合、並べ替え、検索語、
-/// 優先統合先、表示中かどうか、件数を所有します。状態表と行集合の読み書きはUIスレッドだけで行い、構築（<see cref="Prepare"/>）だけがUIスレッド外で動きます。
+/// 除外語、優先統合先、表示中かどうか、件数を所有します。状態表と行集合の読み書きはUIスレッドだけで行い、構築（<see cref="Prepare"/>）だけがUIスレッド外で動きます。
 /// </summary>
 /// <remarks>
 /// 状態は <see cref="DuplicateGroup"/> のインスタンスに対応付けます。重複結果の再検索で同じインスタンスが維持されたグループは状態を保ち、
 /// 新しいインスタンスは初期値になり、消えたグループの状態は採用時に破棄します。永続化しません。
-/// 並べ替え・検索・SELECT・KEEPの操作は、構築済みの値だけを使い、TITLE・ARTISTの解決を呼びません。
+/// 並べ替え・検索・除外・SELECT・KEEPの操作は、構築済みの値だけを使い、TITLE・ARTISTの解決を呼びません。
 /// </remarks>
 public sealed class DuplicateMergeCandidateListOwner : ViewModel
 {
@@ -57,11 +57,13 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     private List<DuplicateMergeCandidateGroupState> visibleStates = [];
     private GridKeywordSearchQuery searchQuery = GridKeywordSearchQuery.Parse(null);
     private string searchText = string.Empty;
+    private GridKeywordSearchQuery excludeQuery = GridKeywordSearchQuery.Parse(null);
+    private string excludeText = string.Empty;
     private string sortColumnName;
     private ListSortDirection sortDirection = ListSortDirection.Ascending;
     private int visibleGroupCount;
     private int selectedGroupCount;
-    private bool quickCompareEnabled;
+    private bool quickCompareEnabled = true;
     private IReadOnlyList<string> preferredDestinations = [];
 
     /// <param name="directoryExists">フォルダの存在を確認する窓口です。エクスプローラーで開く対象の判定に使います。</param>
@@ -96,7 +98,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         }
     }
 
-    /// <summary>表示中（検索で残った）のグループ数です。</summary>
+    /// <summary>表示中（検索で残り、除外で除かれなかった）のグループ数です。</summary>
     public int VisibleGroupCount
     {
         get => visibleGroupCount;
@@ -135,6 +137,25 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         }
     }
 
+    /// <summary>
+    /// 除外用の検索欄の入力です。検索欄と同じ構文を行単位で評価し、条件を満たす行を一つでも持つグループを全行まとめて一覧から除きます。
+    /// 空なら何も除きません。検索語と同じく、画面の行き来・重複結果の変更・ライブラリの交換の後も保ち、新しい結果へ当て直します。
+    /// 除外で非表示になったグループの状態（SELECT・KEEP・確認結果）は保ちます。
+    /// </summary>
+    public string ExcludeText
+    {
+        get => excludeText;
+        set
+        {
+            string next = value ?? string.Empty;
+            if (string.Equals(excludeText, next, StringComparison.Ordinal)) { return; }
+            excludeText = next;
+            excludeQuery = GridKeywordSearchQuery.Parse(next);
+            RaisePropertyChanged(nameof(ExcludeText));
+            RebuildView();
+        }
+    }
+
     /// <summary>並べ替えの列の識別子です。並べ替えていなければnullです。</summary>
     public string SortColumnName => sortColumnName;
 
@@ -145,7 +166,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     internal IReadOnlyList<string> PreferredDestinations => preferredDestinations;
 
     /// <summary>
-    /// 安全性の確認で、サイズと更新日時が完全に一致するファイルを、内容を読まずに同一とみなすかです。既定はオフで、アプリの起動中だけ保持し、
+    /// 安全性の確認で、サイズと更新日時が完全に一致するファイルを、内容を読まずに同一とみなすかです。既定はオンで、アプリの起動中だけ保持し、
     /// ライブラリの交換後も残ります。確認の開始時に一度だけ読み、確認の途中の変更は進行中の確認へ影響しません。
     /// </summary>
     public bool QuickCompareEnabled
@@ -161,7 +182,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
 
     /// <summary>
     /// 接続中のライブラリを知らせます。別のライブラリへ交換した場合と解除した場合は、すべてのグループの状態と採用済みの行を破棄して非表示にします。
-    /// 優先統合先・並べ替え・検索語は保ちます。
+    /// 優先統合先・並べ替え・検索語・除外語は保ちます。
     /// </summary>
     internal void AttachLibrary(object value)
     {
@@ -256,7 +277,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     /// <summary>
     /// 構築済みの一覧を採用します。UIスレッドで呼びます。構築時のライブラリが現在のものでなければ何も変えずfalseを返します。
     /// 採用する結果にないグループの状態は破棄し、同じインスタンスのグループは状態を保ち、新しいインスタンスは初期値にします。
-    /// 並べ替えと検索語は保ち、新しい結果へ当て直します。
+    /// 並べ替え・検索語・除外語は保ち、新しい結果へ当て直します。
     /// </summary>
     internal bool Adopt(DuplicateMergeCandidateListPreparation value)
     {
@@ -280,7 +301,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
 
     /// <summary>
     /// 新しい重複結果にないグループ（整理で解消したグループ）の状態と行を、画面の表示中かによらず取り除きます。UIスレッドで呼びます。
-    /// 結果が空なら、一覧の行は0件になります。結果に残るグループの状態（SELECT・KEEP・確認結果）と、並べ替え・検索語は変えません。
+    /// 結果が空なら、一覧の行は0件になります。結果に残るグループの状態（SELECT・KEEP・確認結果）と、並べ替え・検索語・除外語は変えません。
     /// 新しい結果の採用（<see cref="Adopt"/>）は、この後に別に行います。解消したグループを持たなければ何もしません。
     /// </summary>
     /// <param name="currentGroups">新しい重複結果のグループです。</param>
@@ -379,10 +400,10 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         return changed;
     }
 
-    /// <summary>ツールバーの「表示中をすべて選択」です。検索で表示中のグループだけに作用し、非表示のグループと統合不可は変えません。</summary>
+    /// <summary>ツールバーの「表示中をすべて選択」です。検索と除外を当てた後の表示中のグループだけに作用し、非表示のグループと統合不可は変えません。</summary>
     internal bool SelectVisible() => SetVisible(selected: true);
 
-    /// <summary>ツールバーの「表示中をすべて解除」です。検索で表示中のグループだけに作用し、非表示のグループは変えません。</summary>
+    /// <summary>ツールバーの「表示中をすべて解除」です。検索と除外を当てた後の表示中のグループだけに作用し、非表示のグループは変えません。</summary>
     internal bool ClearVisible() => SetVisible(selected: false);
 
     private bool SetVisible(bool selected)
@@ -506,7 +527,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     /// <summary>
     /// 確認結果を、複数のグループ分まとめてUIスレッドで書き込みます。現在の状態表にないグループの結果は捨てます。
     /// 書き込んだグループのSELECTは、安全ならオン、それ以外はオフに置き換えます（統合不可はオフで無効）。
-    /// 行集合の差し替えは、検索・並べ替えがSTATUS・SELECTに依存するときだけ、全体で一回です。
+    /// 行集合の差し替えは、検索・除外・並べ替えがSTATUS・SELECTに依存するときだけ、全体で一回です。
     /// </summary>
     /// <returns>書き込んだ結果。捨てた結果は含みません。</returns>
     internal IReadOnlyList<DuplicateMergeVerificationWrite> WriteVerifications(IEnumerable<DuplicateMergeVerificationWrite> writes)
@@ -523,8 +544,8 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             accepted.Add(write);
         }
         if (accepted.Count == 0) { return accepted; }
-        // STATUSは検索と並べ替えの対象のため、それらが有効なときは新しい値で行集合を当て直す。
-        if (searchQuery.HasTokens || sortColumnName is "Status" or "Select") { RebuildView(); }
+        // STATUSは検索・除外・並べ替えの対象のため、それらが有効なときは新しい値で行集合を当て直す。
+        if (searchQuery.HasTokens || excludeQuery.HasTokens || sortColumnName is "Status" or "Select") { RebuildView(); }
         else { NotifyStateChanged(); }
         return accepted;
     }
@@ -551,7 +572,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         SelectedGroupCount = visibleStates.Count(state => state.IsSelected);
     }
 
-    /// <summary>採用済みの結果・検索語・並べ替えから、表示する行集合を作り直します。TITLE・ARTISTの解決は呼びません。</summary>
+    /// <summary>採用済みの結果・検索語・除外語・並べ替えから、表示する行集合を作り直します。TITLE・ARTISTの解決は呼びません。</summary>
     private void RebuildView()
     {
         if (preparation == null) { return; }
@@ -560,17 +581,23 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             => pairs.TryGetValue(folder, out (string Title, string Artist) pair) ? pair : (string.Empty, string.Empty);
 
         IEnumerable<DuplicateMergeCandidateGroupState> candidates = preparation.Groups.Select(initial => states[initial.Group]);
+        // 検索で残るグループのうち、除外で除かれないグループを表示する。どちらも行単位で評価し、一行でも一致すればグループ単位で作用する。
+        bool HasMatchingRow(GridKeywordSearchQuery query, DuplicateMergeCandidateGroupState state)
+        {
+            string status = state.Verification.FormatStatus();
+            return state.Folders.Any(folder =>
+            {
+                (string title, string artist) = PairOf(folder);
+                return query.MatchesDuplicateMergeCandidate(folder, GetFolderName(folder), title, artist, status);
+            });
+        }
         if (searchQuery.HasTokens)
         {
-            candidates = candidates.Where(state =>
-            {
-                string status = state.Verification.FormatStatus();
-                return state.Folders.Any(folder =>
-                {
-                    (string title, string artist) = PairOf(folder);
-                    return searchQuery.MatchesDuplicateMergeCandidate(folder, GetFolderName(folder), title, artist, status);
-                });
-            });
+            candidates = candidates.Where(state => HasMatchingRow(searchQuery, state));
+        }
+        if (excludeQuery.HasTokens)
+        {
+            candidates = candidates.Where(state => !HasMatchingRow(excludeQuery, state));
         }
         List<DuplicateMergeCandidateGroupState> ordered = [.. candidates];
         if (sortColumnName != null)
