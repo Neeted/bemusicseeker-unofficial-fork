@@ -847,6 +847,8 @@
   "Warn_DriveRootBmsSkipped": "ドライブ直下にあるBMSファイルはスキップされます。",
   "Error_RenameFailed": "リネーム中に下記のエラーが発生しました。\n操作をスキップします\n\n対象: {0}\n{1}",
   "Warn_CannotMoveRegisteredBmsRoot": "登録BMSルート本体を含むフォルダは移動できません。\n対象: {0}",
+  "Warn_BmsFolderMergeLinkFound": "シンボリックリンクまたはジャンクションが含まれるため、フォルダを統合できません。\nリンク: {0}",
+  "Warn_BmsFolderMergeLinkCheckFailed": "フォルダの内容を確認できないため、統合を中止しました。\n対象: {0}",
   "Warn_CannotRenameRootFolder": "ルートフォルダをリネームすることはできません\n\n対象: {0}",
   "Warn_RenameFolderNotExists": "対象のフォルダが存在しないためリネームを中止しました。\n対象: {0}",
   "Error_MoveDestRootNotFound": "移動先ルートフォルダが存在しません。\n{0}",

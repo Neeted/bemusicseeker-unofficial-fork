@@ -14,6 +14,8 @@ internal sealed partial class LibraryMutationOwner
     /// <summary>
     /// merge の確定事実を返し、必要に応じて receipt に基づく失敗表示を操作終端へ委ねます。
     /// 確定利用者登録本体や空の登録子を含む祖先を元にする要求は、物理準備・変更セッションの開始前に拒否します。
+    /// 統合元の本体と配下の全階層、統合先の本体、統合元の項目と同じ相対パスにある統合先の既存項目がリンク
+    /// （シンボリックリンク・ジャンクション）の場合と、それを確認できない場合も、同じ時点で案内一件だけを加えて拒否します。
     /// </summary>
     /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory,
@@ -62,6 +64,19 @@ internal sealed partial class LibraryMutationOwner
                 using LibraryFileMutationCapability playlistCapability = playlistLease?.CreateMutationCapability();
                 using LibraryFileMutationCapability mutationCapability = primaryCapability.WithPlaylistCapability(playlistCapability);
                 mutationCapability.Validate(lr2SynchronizationOwner.OperationAdmission);
+                // リンクのファイルを作品の一部として移動・削除しないよう、準備・変更セッションの開始・物理変更より前に拒否します。
+                // 受付とBusyの拒否の後で行い、拒否は案内一件だけで統合失敗の案内・変更セッションの事実を作りません。
+                FolderLinkInspection linkInspection = FolderLinkInspector.InspectMerge(sourceDirectory, destinationDirectory);
+                if (linkInspection.Outcome != FolderLinkInspectionOutcome.Clear)
+                {
+                    AddMergeLinkRefusalNotice(notices, linkInspection);
+                    LogInstallPerformanceWarning("duplicate_merge_model refused op=" + operationId
+                        + " reason=" + (linkInspection.Outcome == FolderLinkInspectionOutcome.LinkFound ? "link" : "link_check_failed")
+                        + " path=" + linkInspection.Path
+                        + (linkInspection.Failure == null ? string.Empty : " exception=" + linkInspection.Failure.GetType().Name)
+                        + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                    return DuplicateMergeMaintenanceReceipt.NotApplied;
+                }
                 bool mergePrepared = false;
                 List<ChartFile> preparedSourceCharts = [];
                 IPrimaryHashLookup existingHashes = EmptyPrimaryHashLookup.Instance;
@@ -306,6 +321,18 @@ internal sealed partial class LibraryMutationOwner
         }
         return new LibraryCatalogMutationFacts(removalRequests, pathChanges, []);
     }
+
+    /// <summary>リンクを含む、またはリンクの有無を確認できない統合の拒否理由を、この操作の収集先へ一件だけ加えます。</summary>
+    private static void AddMergeLinkRefusalNotice(LibraryOperationNotices notices, FolderLinkInspection inspection)
+        => AddNotice(
+            notices,
+            string.Format(
+                inspection.Outcome == FolderLinkInspectionOutcome.LinkFound
+                    ? Resources.Warn_BmsFolderMergeLinkFound
+                    : Resources.Warn_BmsFolderMergeLinkCheckFailed,
+                inspection.Path),
+            Resources.MessageBoxTitle_Warning,
+            MessageBoxImage.Exclamation);
 
     private static void AddFolderMergeFailedNotice(LibraryOperationNotices notices, string sourceDirectory, string destinationDirectory)
         => AddNotice(notices, string.Format(Resources.Error_BmsFolderMergeFailed, sourceDirectory, destinationDirectory),

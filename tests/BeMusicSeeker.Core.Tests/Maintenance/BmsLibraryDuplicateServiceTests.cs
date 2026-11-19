@@ -656,6 +656,53 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// リンクのない統合は、隠しフォルダ・二階層の入れ子フォルダ・統合先の対応する通常ディレクトリを含んでも従来どおり成功し、
+    /// 配下を相対配置のまま統合先へ移して案内を出さない。リンクの検査が隠し属性の項目や通常のディレクトリを拒否する誤り、
+    /// 入れ子や既存の統合先を壊す誤り、成功する統合へ案内を出す誤りを検出する。
+    /// </summary>
+    /// <remarks>リンクを含む統合の拒否は、実リンクを作れる専用環境のsuiteが担当する。ここは日常検証でリンクのない通常の経路を保つ。</remarks>
+    [TestMethod]
+    public void MergeChartDirectory_HiddenAndNestedDirectoriesWithoutLinksMergeWithoutNotice()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            ChartFile[] charts = [LibraryResourceIndexTestSupport.CreateChart(source, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(source, "unique.bms"), LibraryResourceIndexTestSupport.CreateChart(destination, "same.bms")];
+            string hidden = Path.Combine(source, ".hidden");
+            Directory.CreateDirectory(hidden);
+            File.WriteAllText(Path.Combine(hidden, "hidden.wav"), "hidden audio");
+            File.SetAttributes(hidden, File.GetAttributes(hidden) | FileAttributes.Hidden);
+            Directory.CreateDirectory(Path.Combine(source, "Nested", "Level2"));
+            File.WriteAllText(Path.Combine(source, "Nested", "Level2", "deep.wav"), "deep audio");
+            Directory.CreateDirectory(Path.Combine(destination, "Nested", "Level2"));
+            File.WriteAllText(Path.Combine(destination, "Nested", "Level2", "existing.wav"), "existing audio");
+            File.WriteAllText(Path.Combine(destination, "Nested", "existing.txt"), "existing text");
+            Settings settings = TestBmsFactory.CreateRootSettings([root]);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), settings: settings)
+            { BmsCharts = charts };
+            new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath).UpsertSongs(charts);
+            var notices = new LibraryOperationNotices();
+            try
+            {
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, destination, 1, notices, reportAtTerminal: true);
+
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.AreEqual(0, notices.Snapshot().Count);
+                Assert.AreEqual("hidden audio", File.ReadAllText(Path.Combine(destination, ".hidden", "hidden.wav")));
+                Assert.AreEqual("deep audio", File.ReadAllText(Path.Combine(destination, "Nested", "Level2", "deep.wav")));
+                Assert.AreEqual("existing audio", File.ReadAllText(Path.Combine(destination, "Nested", "Level2", "existing.wav")));
+                Assert.AreEqual("existing text", File.ReadAllText(Path.Combine(destination, "Nested", "existing.txt")));
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "unique.bms")));
+                Assert.IsFalse(Directory.Exists(source));
+            }
+            finally { library.RequestShutdown("hidden-nested-merge"); }
+        });
+    }
+
     /// <summary>実統合とsource後片付けの終端で旧新祖先の六分類・reverseを揃え、cleanup失敗時の実残存資源も親へ反映します。</summary>
     /// <remarks>本番session・小実DB・実FSを使い、cleanupだけを既存物理portで制御します。既存の確定/保守失敗行列は別caseに維持します。</remarks>
     [TestMethod]

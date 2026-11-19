@@ -6,6 +6,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.TestSupport.Files;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
@@ -143,6 +144,90 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 activity.ActivityChanged -= presentation.OnActivityChanged;
                 library.RequestShutdown("registered-merge-workflow");
             }
+        });
+    }
+
+    /// <summary>
+    /// 統合元の配下の列挙が実OSの失敗（共有違反・削除保留によるアクセス拒否）になるとき、リンクの有無を確認できないとして物理変更の前に拒否し、
+    /// 案内を一件だけ受付の解放後に依頼する。ファイル・DB・所持・登録は変わらず、汎用の統合失敗の案内と変更セッションの報告は出ない。
+    /// 失敗の列挙を成功へ読み替えて統合へ進む誤り、アクセス拒否だけを飛ばす誤り、拒否後に受付や活動を解放しない誤り、
+    /// 拒否と汎用の失敗の案内を重ねる誤りを検出する。ロック解放後は同じ統合が成功する。
+    /// </summary>
+    /// <remarks>判断・物理処理・SQLiteは実装を使い、列挙の失敗はOSのハンドルで再現する。再現できなければ補助がケースを失敗にする。</remarks>
+    [TestMethod]
+    [DataRow("sharing-violation")]
+    [DataRow("delete-pending")]
+    public async Task RunFolderMergeAsync_UncheckableFolderIsRefusedWithOneNoticeAndNextMergeSucceeds(string shape)
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            string blocked = Path.Combine(source, "Blocked");
+            ChartFile[] charts = [LibraryResourceIndexTestSupport.CreateChart(source, "same.bms"), LibraryResourceIndexTestSupport.CreateChart(source, "unique.bms"), LibraryResourceIndexTestSupport.CreateChart(destination, "same.bms")];
+            Directory.CreateDirectory(blocked);
+            File.WriteAllText(Path.Combine(source, "kept.wav"), "source audio");
+            File.WriteAllText(Path.Combine(destination, "existing.wav"), "destination audio");
+            string[] files = [.. charts.Select(chart => chart.Path), Path.Combine(source, "kept.wav"), Path.Combine(destination, "existing.wav")];
+            Dictionary<string, byte[]> originalBytes = files.ToDictionary(path => path, path => File.ReadAllBytes(path));
+            var modelDialogs = new FileDbReportRecordingDialogs();
+            Settings settings = TestBmsFactory.CreateRootSettings([root]);
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), modelDialogs, settings: settings)
+            { BmsCharts = charts };
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            gateway.UpsertSongs(charts);
+            string[] registrations = [.. new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots()];
+            string[] chartPaths = [.. charts.Select(chart => chart.Path)];
+            ChartFileOperationSynchronizer gate = library.OperationAdmission;
+            var probe = new OperationNoticeRequestProbe(() => false, () =>
+            {
+                if (!gate.TryEnter(out IDisposable lease)) { return false; }
+                lease.Dispose();
+                return true;
+            })
+            { HoldDisplay = false };
+            var activity = new ChartMutationActivityOwner();
+            var owner = new DuplicateMaintenanceWorkflowOwner(() => library, gate, activity, new RecordingPresentation([]), probe,
+                () => false, Directory.Exists, _ => new ExplorerOpenResult(), _ => DuplicateViewContext.ForGroup(@"C:\Songs\next"), new BmsLibraryDuplicateMaintenanceStore());
+            try
+            {
+                using (shape == "sharing-violation" ? DirectoryEnumerationBlocker.HoldSharingViolation(blocked) : DirectoryEnumerationBlocker.HoldDeletePending(blocked))
+                {
+                    DuplicateMaintenanceMutationResult refused = await owner.RunFolderMergeAsync(source, destination, new DuplicateGroup(charts.ToList(), [source, destination]));
+
+                    Assert.IsFalse(refused.Succeeded);
+                    Assert.IsNull(refused.Failure);
+                    Assert.IsNotNull(refused.MutationReceipt);
+                    Assert.IsFalse(refused.MutationReceipt.MergeApplied);
+                    Assert.IsNull(refused.MutationReceipt.SessionReceipt.PrimaryFailure);
+                    Assert.AreEqual(0, refused.MutationReceipt.SessionReceipt.ConfirmedChangeCount);
+                    Assert.AreEqual(0, refused.MutationReceipt.SessionReceipt.ApplyCounts.CatalogApplyCount);
+                    foreach (KeyValuePair<string, byte[]> item in originalBytes) { CollectionAssert.AreEqual(item.Value, File.ReadAllBytes(item.Key)); }
+                    Assert.IsTrue(Directory.Exists(blocked));
+                    CollectionAssert.AreEquivalent(chartPaths, library.BmsCharts.Select(chart => chart.Path).ToArray());
+                    using (LR2SongDBExtended db = gateway.OpenSongDbReadOnly()) { CollectionAssert.AreEquivalent(chartPaths, db.Table<LR2SongDB.song>().Select(row => row.path).ToArray()); }
+                    CollectionAssert.AreEqual(registrations, new BmsRootRegistrationStore(settings, () => library.FixtureLr2Owner).CaptureUserRoots().ToArray());
+                    OperationNoticeRequestProbe.Request notice = probe.Requests.Single();
+                    Assert.AreEqual(string.Format(BeMusicSeeker.Properties.Resources.Warn_BmsFolderMergeLinkCheckFailed, blocked), notice.Message.MessageBoxText);
+                    Assert.AreEqual(BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, notice.Message.Caption);
+                    Assert.IsTrue(notice.AdmissionsWereFree, "案内は受付の解放後に依頼する。");
+                    Assert.AreEqual(0, modelDialogs.ModelMessages);
+                    Assert.IsFalse(gate.IsActive);
+                    Assert.IsFalse(activity.IsActive);
+                }
+
+                DuplicateMaintenanceMutationResult accepted = await owner.RunFolderMergeAsync(source, destination, new DuplicateGroup(charts.ToList(), [source, destination]));
+                Assert.IsTrue(accepted.Succeeded, accepted.Failure?.ToString());
+                Assert.IsTrue(accepted.MutationReceipt.MergeApplied);
+                Assert.IsTrue(File.Exists(Path.Combine(destination, "unique.bms")));
+                Assert.AreEqual("source audio", File.ReadAllText(Path.Combine(destination, "kept.wav")));
+                Assert.AreEqual("destination audio", File.ReadAllText(Path.Combine(destination, "existing.wav")));
+                Assert.AreEqual(1, probe.Requests.Count, "成功した統合は拒否の案内を重ねない。");
+                Assert.IsFalse(gate.IsActive);
+                Assert.IsFalse(activity.IsActive);
+            }
+            finally { library.RequestShutdown("uncheckable-merge-workflow"); }
         });
     }
 

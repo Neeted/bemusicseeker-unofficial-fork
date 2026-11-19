@@ -2482,6 +2482,14 @@ OK を選ぶと、今回の変換を WAVE で続行します。キャンセル�
     <value>登録BMSルート本体を含むフォルダは移動できません。
 対象: {0}</value>
   </data>
+  <data name="Warn_BmsFolderMergeLinkFound" xml:space="preserve">
+    <value>シンボリックリンクまたはジャンクションが含まれるため、フォルダを統合できません。
+リンク: {0}</value>
+  </data>
+  <data name="Warn_BmsFolderMergeLinkCheckFailed" xml:space="preserve">
+    <value>フォルダの内容を確認できないため、統合を中止しました。
+対象: {0}</value>
+  </data>
   <data name="Warn_CannotRenameRootFolder" xml:space="preserve">
     <value>ルートフォルダをリネームすることはできません
 

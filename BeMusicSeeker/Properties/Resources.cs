@@ -1897,6 +1897,13 @@ public class Resources
     public static string Error_RenameFailed => ResourceManager.GetString("Error_RenameFailed", resourceCulture);
 
 
+    /// <summary>統合元・統合先にリンク（シンボリックリンク・ジャンクション）が含まれるため統合を拒否する理由です。{0}はリンクのパスです。</summary>
+    public static string Warn_BmsFolderMergeLinkFound => ResourceManager.GetString("Warn_BmsFolderMergeLinkFound", resourceCulture);
+
+    /// <summary>統合の前にリンクの有無を確認できなかったため統合を拒否する理由です。{0}は確認できなかった位置のパスです。</summary>
+    public static string Warn_BmsFolderMergeLinkCheckFailed => ResourceManager.GetString("Warn_BmsFolderMergeLinkCheckFailed", resourceCulture);
+
+
     public static string Warn_CannotRenameRootFolder => ResourceManager.GetString("Warn_CannotRenameRootFolder", resourceCulture);
 
     /// <summary>利用者登録BMSルート本体を含む移動元scopeを移動できない理由です。</summary>

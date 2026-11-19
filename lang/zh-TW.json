@@ -847,6 +847,8 @@
   "Warn_DriveRootBmsSkipped": "位於磁碟根目錄的BMS檔案將被略過。",
   "Error_RenameFailed": "重新命名過程中發生錯誤。\n將略過此操作。\n\n目標: {0}\n{1}",
   "Warn_CannotMoveRegisteredBmsRoot": "無法移動包含已註冊 BMS 根目錄本體的資料夾。\n目標: {0}",
+  "Warn_BmsFolderMergeLinkFound": "包含符號連結或連接點，無法合併資料夾。\n連結: {0}",
+  "Warn_BmsFolderMergeLinkCheckFailed": "無法確認資料夾的內容，已中止合併。\n目標: {0}",
   "Warn_CannotRenameRootFolder": "無法重新命名根資料夾。\n\n目標: {0}",
   "Warn_RenameFolderNotExists": "由於目標資料夾不存在，重新命名已取消。\n目標: {0}",
   "Error_MoveDestRootNotFound": "目標根資料夾不存在。\n{0}",

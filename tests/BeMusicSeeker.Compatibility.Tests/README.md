@@ -13,9 +13,9 @@
 | chart-info-archive | 1 | 公式Export build出力、導入済み7-Zip、実native抽出 |
 | chartstring-java | 1 | [固定参照と準備JSON](../../tools/chartstring-dump/README.md) |
 | DriveRoot | 10 | 専有・非Z drive alias、必要caseの専有HKCU領域、実WPF、updater |
-| DirectorySymbolicLink | 6 | 実directory symlinkとfile symlinkを作成できる権限 |
+| DirectorySymbolicLink | 9 | 実directory symlinkとfile symlinkを作成できる権限 |
 | CrossVolume | 4 | 異なる実volume上の既存入力rootを明示 |
-| Junction | 10 | PowerShell 7と実junction作成能力 |
+| Junction | 17 | PowerShell 7と実junction作成能力 |
 | install-acl | 2 | 専有container/rootのDACLを変更・復旧できるWindows環境 |
 | everything-native-path-identity | 2 | 明示した固定Everything SDK 3.0.0.9とpath identity fixture DLL |
 | audio-encoders | 1 | 明示opt-in、対象encoderと必要decoderの実exe |
@@ -45,7 +45,7 @@ JavaとExport CLIは子孫を含む単一Jobで所有し、操作30秒、失敗�
 
 Compatibility全体は既存UiModuleLifetimeのsession lease・専有profile・日本語辞書を使用します。WPF hostは実際に必要なcaseで遅延生成します。正式runnerは単調時計の始点と期限を `BMS_TEST_SUITE_DEADLINE` で子だけへ渡し、lease待機・updater・probe・junctionの小上限を共有cutoffで制限します。他module・準備processには同変数を渡さず、親環境も変更しません。未指定の直接MTPだけ有限の局所既定を使い、明示空・不正・期限切れは失敗です。
 
-CrossVolumeには `BMS_TEST_CROSS_VOLUME_SOURCE_ROOT` と `BMS_TEST_CROSS_VOLUME_DESTINATION_ROOT` に既存の絶対local drive配下を指定します。volume GUIDが異なることを実照会し、各基点の専有子だけを回収します。drive文字やaliasだけの違いでは代用できません。DirectorySymbolicLinkにはfile linkの2条件も含みます。Junctionは作成process30秒・pipe5秒・失敗回収5秒を維持し、全終端後にリンクを解除します。未回収なら媒体を保持します。
+CrossVolumeには `BMS_TEST_CROSS_VOLUME_SOURCE_ROOT` と `BMS_TEST_CROSS_VOLUME_DESTINATION_ROOT` に既存の絶対local drive配下を指定します。volume GUIDが異なることを実照会し、各基点の専有子だけを回収します。drive文字やaliasだけの違いでは代用できません。DirectorySymbolicLinkにはfile linkの条件も含みます。Junctionは作成process30秒・pipe5秒・失敗回収5秒を維持し、全終端後にリンクを解除します。未回収なら媒体を保持します。
 
 DriveRootのCLI入力は `BMS_SCD_UPDATER_PUBLISH_ROOT` の明示指定、または未指定時の通常build出力です。明示した入力が欠ければ失敗します。再起動失敗callbackは別のmanaged fixtureを使います。実Everything service/indexのSC-07は、これらのsuiteや固定native fixtureでは検証しません。
 
