@@ -642,11 +642,17 @@ public sealed partial class RegularChartNavigationTests
         BMSLibrary? library = null;
         int armed = 0;
         int claimed = 0;
+        // 結果の通知までの間、UI外から予約される同期（ツリー項目の同期）を保留します。保留しないと、UIが新しい結果へ項目を同期した後に
+        // 割込みが結果を失効させ得て、項目が同じインスタンスのままかを検査する前提（失効中の準備）が、UIと準備側スレッドの時機に依存します。
+        var holdBackground = new BackgroundScheduleHold(new TestUiScheduler(() => TestUiDispatcherHost.Dispatcher));
         PropertyChangedEventHandler intercept = (_, args) =>
         {
             if (condition != "noResult" || args.PropertyName != nameof(BMSLibrary.DuplicateChartGroups) || library?.DuplicateChartGroups == null
                 || Volatile.Read(ref armed) == 0 || Interlocked.Exchange(ref claimed, 1) != 0) { return; }
             library.DuplicateChartGroups = null;
+            // 失効させた後、到達の通知より前に、保留した同期をDispatcherへ積みます。通知後にテストが項目の維持を検査する時点で、
+            // 失効後の同期が必ず積まれており、同期が走らないまま検査が合格する実行順を作りません。同期は失効中の結果を読み、準備が未完了なので項目を維持します。
+            holdBackground.ReleaseHeld();
             reached.TrySetResult();
             release.Wait();
         };
@@ -665,6 +671,7 @@ public sealed partial class RegularChartNavigationTests
             ChartFile original = library.BmsCharts.Single(chart => chart.Path == fixture.Duplicates[0].Path);
             string destination = Path.Combine(Path.GetDirectoryName(original.Directory) ?? throw new AssertFailedException(), "moved");
             Directory.CreateDirectory(destination);
+            if (condition == "noResult") { holdBackground.HoldBackgroundSchedules(); }
             Volatile.Write(ref armed, 1);
             var target = new ChartOperationTarget(original, null, ChartOperationSourceScope.Library, true, false, false, ChartOperationCapabilities.MoveInLibrary);
             Task<SelectedChartMutationResult> operation = vm.SelectedChartMutations.MoveAsync(new SelectedChartMoveRequest([target], destination));
@@ -696,8 +703,68 @@ public sealed partial class RegularChartNavigationTests
                 }
                 Assert.AreEqual(0, Volatile.Read(ref offUi), "コレクションの変更はUIスレッドだけで行います。");
             }
-            finally { release.Set(); }
-        }, intercept, dialogs: dialogs);
+            finally
+            {
+                // 割込みに届く前にテストが失敗しても、保留した予約を残しません。
+                holdBackground.ReleaseHeld();
+                release.Set();
+            }
+        }, intercept, scheduler: condition == "noResult" ? holdBackground : null, dialogs: dialogs);
+    }
+
+    /// <summary>UI外から予約された同期だけを、解放まで保留する窓口です。UIスレッドからの呼出しと、同期呼出し・非同期呼出しは素通しします。</summary>
+    private sealed class BackgroundScheduleHold(IUiScheduler scheduler) : IUiScheduler
+    {
+        private sealed class DeferredOperation : IUiScheduledOperation
+        {
+            private readonly TaskCompletionSource completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            internal Action? Forward { get; set; }
+            public bool IsAccepted => true;
+            public bool IsCompleted => completion.Task.IsCompleted;
+            public bool IsAborted { get; private set; }
+            public string RejectionReason => string.Empty;
+            public Task Completion => completion.Task;
+            public void Abort() { IsAborted = true; completion.TrySetCanceled(); }
+            internal void Attach(IUiScheduledOperation inner) => _ = inner.Completion.ContinueWith(task =>
+            {
+                if (task.IsFaulted) { completion.TrySetException(task.Exception!.InnerExceptions); }
+                else if (task.IsCanceled) { completion.TrySetCanceled(); }
+                else { completion.TrySetResult(); }
+            }, TaskScheduler.Default);
+        }
+        private readonly object gate = new();
+        private readonly List<(Action Action, UiSchedulePriority Priority, DeferredOperation Operation)> held = [];
+        private bool holding;
+        internal void HoldBackgroundSchedules() { lock (gate) { holding = true; } }
+        internal void ReleaseHeld()
+        {
+            (Action Action, UiSchedulePriority Priority, DeferredOperation Operation)[] captured;
+            lock (gate) { holding = false; captured = [.. held]; held.Clear(); }
+            foreach ((Action action, UiSchedulePriority priority, DeferredOperation operation) in captured)
+            {
+                if (!operation.IsAborted) { operation.Attach(scheduler.Schedule(action, priority)); }
+            }
+        }
+        public bool IsAvailable => scheduler.IsAvailable;
+        public bool CanExecuteInline => scheduler.CanExecuteInline;
+        public bool CheckAccess() => scheduler.CheckAccess();
+        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            lock (gate)
+            {
+                if (holding && !scheduler.CheckAccess())
+                {
+                    var operation = new DeferredOperation();
+                    held.Add((action, priority, operation));
+                    return operation;
+                }
+            }
+            return scheduler.Schedule(action, priority);
+        }
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => scheduler.Invoke(action, priority);
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => scheduler.Invoke(action, priority);
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => scheduler.InvokeAsync(action, priority);
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => scheduler.InvokeAsync(action, priority);
     }
 
     /// <summary>準備済み表示のUI配送を保留しても、実移動の仕上げは親Lで新しい解析と必要通知を完了します。非表示なら失効だけを残し、新規解析をBusyで拒んだ後も予約せず、次の明示表示で最新化します。</summary>
