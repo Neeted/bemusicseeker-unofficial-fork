@@ -20,7 +20,7 @@ namespace BeMusicSeeker.Tests;
 /// <summary>通常一覧ownerの画面遷移と編集要求の配送をWindowなしで確認します。</summary>
 /// <remarks>実libraryを使う重複caseはgroup構築から通知までを担当し、compiledセル・treeの接続はMainWindowの実画面caseが分担します。</remarks>
 [TestClass]
-public sealed class RegularChartNavigationTests
+public sealed partial class RegularChartNavigationTests
 {
     /// <summary>後発選択と表示失敗の診断を、MSTestが指定する結果ディレクトリへ保存します。</summary>
     public TestContext? TestContext { get; set; }

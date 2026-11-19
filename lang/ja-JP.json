@@ -1421,5 +1421,17 @@
   "Confirm_RightClickRestoreDefaults": "右クリック設定のWeb項目とプログラム項目を既定値に置き換えて保存します。登録済みの項目と未確定の入力は失われます。\n\n続行しますか？",
   "Confirm_RightClickDeleteActionFormat": "右クリック項目「{0}」を削除して保存します。\n\n続行しますか？",
   "Confirm_RightClickDeleteActionUnnamed": "選択中の右クリック項目を削除して保存します。\n\n続行しますか？",
-  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "プレイログ FOLDER 表示プリセット「{0}」を削除して保存します。\n\n続行しますか？"
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "プレイログ FOLDER 表示プリセット「{0}」を削除して保存します。\n\n続行しますか？",
+  "Duplicate_merge_candidate_list": "統合候補一覧",
+  "Duplicate_merge_candidate_status_unverified": "未確認",
+  "Duplicate_merge_candidate_status_unmergeable_registered_root": "統合不可（登録ルート）",
+  "Duplicate_merge_candidate_select_visible": "表示中をすべて選択",
+  "Duplicate_merge_candidate_clear_visible": "表示中をすべて解除",
+  "Duplicate_merge_candidate_preferred_destinations": "優先統合先…",
+  "Duplicate_merge_candidate_check_on": "チェックを入れる",
+  "Duplicate_merge_candidate_check_off": "チェックを外す",
+  "Duplicate_merge_candidate_summary": "表示中 {0} グループ／選択 {1} グループ",
+  "Duplicate_merge_candidate_search": "統合候補を検索",
+  "Duplicate_merge_preferred_destination_title": "優先統合先",
+  "Duplicate_merge_preferred_destination_description": "グループ内のフォルダのうち、登録したディレクトリと同じかその配下にあるフォルダがちょうど一つなら、そのフォルダを残す先（KEEP）にします。"
 }

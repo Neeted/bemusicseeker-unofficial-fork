@@ -1421,5 +1421,17 @@
   "Confirm_RightClickRestoreDefaults": "Les éléments Web et Programme des paramètres du clic droit seront remplacés par les valeurs par défaut et enregistrés. Les éléments enregistrés et les saisies non confirmées seront perdus.\n\nContinuer ?",
   "Confirm_RightClickDeleteActionFormat": "L'élément de clic droit « {0} » sera supprimé et la modification enregistrée.\n\nContinuer ?",
   "Confirm_RightClickDeleteActionUnnamed": "L'élément de clic droit sélectionné sera supprimé et la modification enregistrée.\n\nContinuer ?",
-  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "Le préréglage d'affichage FOLDER du journal de jeu « {0} » sera supprimé et la modification enregistrée.\n\nContinuer ?"
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "Le préréglage d'affichage FOLDER du journal de jeu « {0} » sera supprimé et la modification enregistrée.\n\nContinuer ?",
+  "Duplicate_merge_candidate_list": "Candidats à la fusion",
+  "Duplicate_merge_candidate_status_unverified": "Non vérifié",
+  "Duplicate_merge_candidate_status_unmergeable_registered_root": "Fusion impossible (racine enregistrée)",
+  "Duplicate_merge_candidate_select_visible": "Tout sélectionner (affichés)",
+  "Duplicate_merge_candidate_clear_visible": "Tout désélectionner (affichés)",
+  "Duplicate_merge_candidate_preferred_destinations": "Destinations prioritaires…",
+  "Duplicate_merge_candidate_check_on": "Cocher",
+  "Duplicate_merge_candidate_check_off": "Décocher",
+  "Duplicate_merge_candidate_summary": "{0} groupes affichés / {1} sélectionnés",
+  "Duplicate_merge_candidate_search": "Rechercher des candidats à la fusion",
+  "Duplicate_merge_preferred_destination_title": "Destinations de fusion prioritaires",
+  "Duplicate_merge_preferred_destination_description": "Lorsqu’un seul dossier d’un groupe est identique à un répertoire enregistré ou se trouve dessous, ce dossier devient le dossier à conserver (KEEP)."
 }

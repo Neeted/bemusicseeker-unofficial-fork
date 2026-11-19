@@ -572,6 +572,59 @@ internal static class CustomTableColumnFactory
         ];
     }
 
+    /// <summary>統合候補一覧の表示列を作成します。列の並びは、表示位置の指定がなければ既定の順です。</summary>
+    internal static IReadOnlyList<CustomTableColumn> CreateDuplicateCandidateColumns(DuplicateMergeCandidateColumnSettings settings)
+    {
+        if (settings == null)
+        {
+            return [];
+        }
+        return [.. CreateAllDuplicateCandidateColumns(settings)
+            .Where(column => column.IsVisible)
+            .OrderBy(column => column.DisplayIndex >= 0 ? column.DisplayIndex : int.MaxValue)
+            .ThenBy(column => column.FallbackOrder)];
+    }
+
+    internal static IEnumerable<PlaylistSummaryColumnSettings.ColumnLayout> EnumerateDuplicateCandidateColumnLayouts(DuplicateMergeCandidateColumnSettings settings)
+    {
+        if (settings == null)
+        {
+            yield break;
+        }
+        foreach (CustomTableColumn column in CreateAllDuplicateCandidateColumns(settings))
+        {
+            if (column.Layout is PlaylistSummaryColumnSettings.ColumnLayout layout)
+            {
+                yield return layout;
+            }
+        }
+    }
+
+    /// <summary>
+    /// SELECTとSTATUSはグループの全行にまたがる結合列、KEEPはラジオボタンの列です。値は行（不変）が指すグループの状態から読みます。
+    /// 固定のKEEPと統合不可のSELECTは無効表示で、操作できません。KEEPは並べ替えの対象外です。
+    /// </summary>
+    private static CustomTableColumn[] CreateAllDuplicateCandidateColumns(DuplicateMergeCandidateColumnSettings settings)
+    {
+        return
+        [
+            new CustomTableColumn("Select", "SELECT", settings.Select, 0, "Select", TextAlignment.Center, row => string.Empty,
+                checkedSelector: row => (row as DuplicateMergeCandidateRow)?.State.IsSelected,
+                cellKind: CustomTableCellKind.CheckBox, autoTrimTooltip: false, mergesRowGroup: true,
+                enabledSelector: row => (row as DuplicateMergeCandidateRow)?.State.CanSelect == true),
+            new CustomTableColumn("Status", "STATUS", settings.Status, 1, "Status", TextAlignment.Left,
+                row => (row as DuplicateMergeCandidateRow)?.StatusText ?? string.Empty, mergesRowGroup: true),
+            new CustomTableColumn("Keep", "KEEP", settings.Keep, 2, null, TextAlignment.Center, row => string.Empty,
+                checkedSelector: row => (row as DuplicateMergeCandidateRow)?.IsKeep,
+                cellKind: CustomTableCellKind.RadioButton, autoTrimTooltip: false,
+                enabledSelector: row => (row as DuplicateMergeCandidateRow)?.State.KeepFixed == false),
+            new CustomTableColumn("Path", "PATH", settings.Path, 3, "Path", TextAlignment.Left, row => (row as DuplicateMergeCandidateRow)?.Path ?? string.Empty),
+            new CustomTableColumn("Folder", "FOLDER", settings.Folder, 4, "Folder", TextAlignment.Left, row => (row as DuplicateMergeCandidateRow)?.FolderName ?? string.Empty),
+            new CustomTableColumn("Title", "TITLE", settings.Title, 5, "Title", TextAlignment.Left, row => (row as DuplicateMergeCandidateRow)?.Title ?? string.Empty),
+            new CustomTableColumn("Artist", "ARTIST", settings.Artist, 6, "Artist", TextAlignment.Left, row => (row as DuplicateMergeCandidateRow)?.Artist ?? string.Empty)
+        ];
+    }
+
     private static string GetString(object row, string propertyName)
     {
         if (row == null)

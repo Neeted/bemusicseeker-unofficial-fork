@@ -3337,4 +3337,28 @@ public class Resources
     public static string Confirm_RightClickDeleteActionUnnamed => ResourceManager.GetString("Confirm_RightClickDeleteActionUnnamed", resourceCulture);
     /// <summary>プレイログ FOLDER 表示プリセットの削除を保存する前の確認の書式です。{0}はプリセット名です。</summary>
     public static string Confirm_RemovePlayHistoryFolderDisplayPresetFormat => ResourceManager.GetString("Confirm_RemovePlayHistoryFolderDisplayPresetFormat", resourceCulture);
+    /// <summary>重複ツリーの先頭に置く、統合候補一覧のノードの見出しです。</summary>
+    public static string Duplicate_merge_candidate_list => ResourceManager.GetString("Duplicate_merge_candidate_list", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列で、安全性を確認していないグループに表示する文言です。</summary>
+    public static string Duplicate_merge_candidate_status_unverified => ResourceManager.GetString("Duplicate_merge_candidate_status_unverified", resourceCulture);
+    /// <summary>統合候補一覧のSTATUS列で、登録ルートのフォルダが二つ以上あるため統合できないグループに表示する文言です。</summary>
+    public static string Duplicate_merge_candidate_status_unmergeable_registered_root => ResourceManager.GetString("Duplicate_merge_candidate_status_unmergeable_registered_root", resourceCulture);
+    /// <summary>統合候補一覧のツールバーで、表示中のグループをすべて選択するボタンの文言です。</summary>
+    public static string Duplicate_merge_candidate_select_visible => ResourceManager.GetString("Duplicate_merge_candidate_select_visible", resourceCulture);
+    /// <summary>統合候補一覧のツールバーで、表示中のグループの選択をすべて解除するボタンの文言です。</summary>
+    public static string Duplicate_merge_candidate_clear_visible => ResourceManager.GetString("Duplicate_merge_candidate_clear_visible", resourceCulture);
+    /// <summary>統合候補一覧のツールバーで、優先統合先のウィンドウを開くボタンの文言です。</summary>
+    public static string Duplicate_merge_candidate_preferred_destinations => ResourceManager.GetString("Duplicate_merge_candidate_preferred_destinations", resourceCulture);
+    /// <summary>統合候補一覧の右クリックメニューで、選択行のグループのSELECTをオンにする項目の文言です。</summary>
+    public static string Duplicate_merge_candidate_check_on => ResourceManager.GetString("Duplicate_merge_candidate_check_on", resourceCulture);
+    /// <summary>統合候補一覧の右クリックメニューで、選択行のグループのSELECTをオフにする項目の文言です。</summary>
+    public static string Duplicate_merge_candidate_check_off => ResourceManager.GetString("Duplicate_merge_candidate_check_off", resourceCulture);
+    /// <summary>統合候補一覧の件数表示の書式です。{0}は表示中のグループ数、{1}は表示中でSELECTがオンのグループ数です。</summary>
+    public static string Duplicate_merge_candidate_summary => ResourceManager.GetString("Duplicate_merge_candidate_summary", resourceCulture);
+    /// <summary>統合候補一覧の検索欄の名前です。</summary>
+    public static string Duplicate_merge_candidate_search => ResourceManager.GetString("Duplicate_merge_candidate_search", resourceCulture);
+    /// <summary>優先統合先のウィンドウの題名です。</summary>
+    public static string Duplicate_merge_preferred_destination_title => ResourceManager.GetString("Duplicate_merge_preferred_destination_title", resourceCulture);
+    /// <summary>優先統合先のウィンドウで、登録の意味を説明する文言です。</summary>
+    public static string Duplicate_merge_preferred_destination_description => ResourceManager.GetString("Duplicate_merge_preferred_destination_description", resourceCulture);
 }

@@ -240,6 +240,16 @@ internal sealed partial class LibraryMutationOwner
         => BmsLibraryLibraryFileOperationsService.ContainsRegisteredBmsRoot(sourceDirectory,
             BmsRootRegistrationStore.CaptureUserRoots(lr2SynchronizationOwner.CurrentOptionsSnapshot));
 
+    /// <summary>
+    /// 呼出し時点の確定登録を一度だけ捕捉し、<see cref="ContainsRegisteredBmsRoot(string)"/> と同じ判定を行う述語を返します。
+    /// 多数のフォルダを判定する呼出し側が、フォルダごとに登録を取り直さず、同じ登録の組で判定するために使います。
+    /// </summary>
+    internal Func<string, bool> CaptureRegisteredBmsRootPredicate()
+    {
+        IReadOnlyList<string> roots = BmsRootRegistrationStore.CaptureUserRoots(lr2SynchronizationOwner.CurrentOptionsSnapshot);
+        return directory => BmsLibraryLibraryFileOperationsService.ContainsRegisteredBmsRoot(directory, roots);
+    }
+
     /// <summary>登録範囲を消費する要求の拒否理由を、この操作の収集先へ加えます。</summary>
     internal static void AddCannotMoveRegisteredBmsRootNotice(LibraryOperationNotices notices, string sourceDirectory)
         => AddNotice(notices, string.Format(Resources.Warn_CannotMoveRegisteredBmsRoot, sourceDirectory),

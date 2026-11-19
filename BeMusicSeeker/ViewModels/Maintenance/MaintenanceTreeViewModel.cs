@@ -22,17 +22,25 @@ public sealed class MaintenanceTreeViewModel : ViewModel
 
     private readonly ObservableCollection<DuplicateGroup> duplicateTreeItems = [];
 
+    private readonly ObservableCollection<DuplicateMergeCandidateListNode> candidateListNodeItems = [];
+
+    private readonly DuplicateMergeCandidateListNode candidateListNode = new();
+
+    private readonly DuplicateTreeChildCollection duplicateTreeChildren;
+
     private Task observedPreparation;
 
     /// <summary>未接続の窓口です。項目の同期はその場で行います。</summary>
     public MaintenanceTreeViewModel()
     {
+        duplicateTreeChildren = new DuplicateTreeChildCollection(candidateListNodeItems, duplicateTreeItems);
     }
 
     /// <param name="uiScheduler">項目の同期を実行するUIの窓口。未指定ならその場で同期します。</param>
     internal MaintenanceTreeViewModel(IUiScheduler uiScheduler)
     {
         this.uiScheduler = uiScheduler;
+        duplicateTreeChildren = new DuplicateTreeChildCollection(candidateListNodeItems, duplicateTreeItems);
     }
 
     internal event EventHandler<MaintenanceTreeDuplicatePresentationChangedEventArgs> DuplicatePresentationChanged;
@@ -54,6 +62,16 @@ public sealed class MaintenanceTreeViewModel : ViewModel
     /// 新しい結果にも含まれる同じグループの項目は除去・置換しないため、ツリーの展開状態を保ちます。変更はUIスレッドだけで行います。
     /// </summary>
     public ObservableCollection<DuplicateGroup> DuplicateTreeItems => duplicateTreeItems;
+
+    /// <summary>
+    /// 重複ツリーの子として表示する項目です。先頭に統合候補一覧のノード（重複検索結果が一件以上あるときだけ現れる）を置き、
+    /// その後ろに <see cref="DuplicateTreeItems"/> のグループ項目を並べます。インスタンスは接続・解除・同期を通じて変えず、
+    /// 元の集合の変更を位置を補正した個別の変更として通知するため、グループ項目の同一性とツリーの展開状態を保ちます。変更はUIスレッドだけで行います。
+    /// </summary>
+    public System.Collections.IList DuplicateTreeChildren => duplicateTreeChildren;
+
+    /// <summary>重複ツリーの先頭に置く統合候補一覧のノードです。項目の有無とは別に、常に同じインスタンスを返します。</summary>
+    internal DuplicateMergeCandidateListNode DuplicateMergeCandidateListNodeItem => candidateListNode;
 
     /// <summary>
     /// Gets whether health maintenance initialization is still holding its write lock.
@@ -186,6 +204,7 @@ public sealed class MaintenanceTreeViewModel : ViewModel
         if (groups != null)
         {
             SynchronizeItems(groups);
+            SynchronizeCandidateListNode(groups.Count > 0);
             return;
         }
         if (presentationState != null && TryGetActivePreparation(out Task preparation))
@@ -202,6 +221,20 @@ public sealed class MaintenanceTreeViewModel : ViewModel
             return;
         }
         duplicateTreeItems.Clear();
+        SynchronizeCandidateListNode(present: false);
+    }
+
+    /// <summary>
+    /// 統合候補一覧のノードを、重複検索結果が一件以上あるときだけ置きます。結果が一件以上ある間の同期では、置いたノードを除去・置換しません。
+    /// </summary>
+    private void SynchronizeCandidateListNode(bool present)
+    {
+        if (present)
+        {
+            if (candidateListNodeItems.Count == 0) { candidateListNodeItems.Add(candidateListNode); }
+            return;
+        }
+        if (candidateListNodeItems.Count > 0) { candidateListNodeItems.RemoveAt(0); }
     }
 
     private bool TryGetActivePreparation(out Task preparation)

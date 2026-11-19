@@ -2,7 +2,7 @@
 
 ## 目的と適用範囲
 
-譜面、プレイリスト詳細、履歴、プレイリスト一覧で使う `CustomTableView` と、その行を供給する一覧の管理主体の契約を定めます。表示・選択・キー操作・セル編集・スクロールと、大規模な一覧を可視範囲だけで扱うための入力の捕捉・局所更新・採用の境界を扱います。
+譜面、プレイリスト詳細、履歴、プレイリスト一覧、[統合候補一覧](../library/duplicate-files.md#統合候補一覧)で使う `CustomTableView` と、その行を供給する一覧の管理主体の契約を定めます。表示・選択・キー操作・セル編集・スクロールと、大規模な一覧を可視範囲だけで扱うための入力の捕捉・局所更新・採用の境界を扱います。
 
 列の保存値と既定値は[列と既定値](table-columns.md)、データの正本と更新は[譜面モデル](../library/chart-model.md)と[データと索引](../core/data-and-indexes.md)、プレイリストの保存は[保存仕様](../playlist/storage-and-export.md)、外観の共通部品は[外観](appearance.md)に従います。
 
@@ -27,14 +27,15 @@
 
 ### 表示の構成
 
-`CustomTableView` は可視範囲をコードで描画する表です。表示面（`CustomTableSurface`）は、背景・見出し・行・挿入線の全面を、物理画素の寸法の描画先へDirect2D・DirectWriteで描き、WPFへ一枚の画像として置きます。画像はGPU合成（Direct3D 11の共有テクスチャを D3DImage へ渡す）を基本とし、GPUが使えない環境ではCPU側のビットマップ（WriteableBitmap）で置きます。経路の選択と復旧は[表示経路の選択と復旧](#表示経路の選択と復旧)に従います。画面には次の二つの表があり、表示先に応じて切り替えます。
+`CustomTableView` は可視範囲をコードで描画する表です。表示面（`CustomTableSurface`）は、背景・見出し・行・挿入線の全面を、物理画素の寸法の描画先へDirect2D・DirectWriteで描き、WPFへ一枚の画像として置きます。画像はGPU合成（Direct3D 11の共有テクスチャを D3DImage へ渡す）を基本とし、GPUが使えない環境ではCPU側のビットマップ（WriteableBitmap）で置きます。経路の選択と復旧は[表示経路の選択と復旧](#表示経路の選択と復旧)に従います。画面には次の三つの表があり、表示先に応じて切り替えます。
 
 | 表 | 行 | 列設定 |
 | --- | --- | --- |
 | メインの `customTableView` | `MainChartList.Rows` | `MainChartList.ColumnsSettings` |
 | プレイリスト一覧の `customTablePlaylistSummary` | `PlaylistSummaryView` | 専用の列設定 |
+| [統合候補一覧](../library/duplicate-files.md#統合候補一覧)の `customTableDuplicateCandidates` | `DuplicateMergeCandidateListOwner.Rows`（[行グループ](#行グループとチェックラジオボタンのセル)の提供元を兼ねる） | 専用の列設定。起動中だけ保持し、設定へ保存しない |
 
-行の高さは19、見出しは22、文字サイズは11が既定です。外観設定は両方の表へ反映します。通常の文字と見出しのフォントは[表示フォント](appearance.md#表示フォント)に従います。メイン一覧のスコア表示には `SovjetBox` を使い、クリア、DJ LEVEL、難易度、判定、履歴のクリアとBEST DJは、`CustomTableTextStyle.Score`、現在の文字サイズ、縦補正 `1d` を共用します。
+行の高さは19、見出しは22、文字サイズは11が既定です。外観設定（行の高さ、見出しの高さ、文字サイズ）はすべての表へ反映します。通常の文字と見出しのフォントは[表示フォント](appearance.md#表示フォント)に従います。メイン一覧のスコア表示には `SovjetBox` を使い、クリア、DJ LEVEL、難易度、判定、履歴のクリアとBEST DJは、`CustomTableTextStyle.Score`、現在の文字サイズ、縦補正 `1d` を共用します。
 
 表示面の描画は、再描画の要求ごとに `OnRender` の中で同期的に完結します。表示経路の用意、Direct2Dでの全面の描画、描画の終端（`EndDraw`）、WPFが読める状態への反映、画像の配置を順に行い、窓のない表（`Measure` と `Arrange` だけ）でも配置の確定（`UpdateLayout`）で描けます。描画の内容は経路によらず同じ描画先（`ID2D1RenderTarget`）への呼出しで、経路ごとに複製しません。`CompositionTarget.Rendering` の購読や非同期の描画は使いません。当たり判定・セル編集欄・スクロールバー・ツールチップ・ドラッグ・UI Automationは、従来どおりWPFの要素が受け持ちます。
 
@@ -47,7 +48,7 @@
 | GPUのデバイス（Direct3D 11のデバイスとコンテキスト、Direct2Dのデバイス、Direct3D 9Exの本体とデバイス） | `CustomTableGpuDevices`（プロセスで一組を共有する静的クラス。UIスレッドだけで使い、世代を持つ） | 最初に面が必要になったときに作り、プロセスの終了まで保つ。終了専用の解放は持たない。消失のときだけ、検出した表が手放して世代を進める |
 | 文字のレイアウト | `CustomTableTextLayoutCache`。`CustomTableSurface` が表ごとに所有する | 追い出すとき、全体の破棄のとき、上と同じ解放の経路で `Dispose` する |
 
-並べ替え状態は、通常一覧と履歴で共通の `MainChartList.SortParameters`（`MainChartListSortPresentation`）として公開し、表示先（通常一覧・プレイリスト詳細、履歴）ごとに設定します。プレイリスト一覧は独立した `PlaylistSummarySortParameters` を使います。
+並べ替え状態は、通常一覧と履歴で共通の `MainChartList.SortParameters`（`MainChartListSortPresentation`）として公開し、表示先（通常一覧・プレイリスト詳細、履歴）ごとに設定します。プレイリスト一覧は独立した `PlaylistSummarySortParameters` を使います。統合候補一覧は `DuplicateMergeCandidateListOwner` の `SortColumnName` と `SortDirection` を使い、グループ単位の並べ替えは一覧の管理主体が行います。
 
 #### 表示経路の選択と復旧
 
@@ -226,7 +227,7 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 
 コードで描画する部分は、`CustomTablePalette` がテーマのリソースを描画用の色と線へ変換します。テーマを変更すると描画色と文字のレイアウトを更新します。内蔵スクロールバーも共通の `ScrollBar.*` リソースに従い、一覧用の不透明な背景は `ScrollBar.TrackBackgroundBrush` の切替に追随します。表・行・列を作り直さず、選択・現在セル・スクロール位置・編集中の入力を保ちます。
 
-一覧の見出しの上端には `Table.HeaderGridLineBrush` による1 DIPの線（[行と見出しの高さの丸め](#行と見出しの高さの丸め)の幅）を表示幅全体に描きます。線は上端の内側に置き、端で欠けないようにします。通常一覧とプレイリスト一覧とも、保留・プレイログの追加のツールバーや、表示列・データ行の有無によらず上枠を表示し、追加のツールバー側には下枠を重ねません。データ行の罫線・行の高さ・スクロールの計算は変えません。
+一覧の見出しの上端には `Table.HeaderGridLineBrush` による1 DIPの線（[行と見出しの高さの丸め](#行と見出しの高さの丸め)の幅）を表示幅全体に描きます。線は上端の内側に置き、端で欠けないようにします。上枠は表示面が表の種類によらず同じ処理で描き、通常一覧・プレイリスト一覧・統合候補一覧とも、保留・プレイログ・統合候補一覧の追加のツールバーや、表示列・データ行の有無によらず表示します。追加のツールバー側には下枠を重ねません。データ行の罫線・行の高さ・スクロールの計算は変えません。
 
 ### 行グループとチェック・ラジオボタンのセル
 
@@ -255,12 +256,12 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 
 ラジオボタン（`CustomTableCellKind.RadioButton`）は、trueを選択済み（円の輪郭と中央の塗りの円）、falseを未選択（円の輪郭）で描き、nullは何も描きません。大きさと色はチェックボックスと同じパレットです。
 
-列定義の `enabledSelector`（操作可否）がfalseを返す行では、チェックボックスとラジオボタンを同じ図形のまま、背景を塗らず、枠とチェック（ラジオボタンは中央の塗り）を無効色で描きます。無効色は `CustomTablePalette.CheckBoxDisabledBorder` と `CheckBoxDisabledCheck` で、テーマの `Table.SubtleTextBrush` から導きます。無効のセルのクリックは `CellActionRequested` を送りません。選択子のない列は常に操作できます。
+列定義の `enabledSelector`（操作可否）がfalseを返す行では、チェックボックスとラジオボタンを同じ図形のまま、背景を塗らず、枠とチェック（ラジオボタンは中央の塗り）を無効色で描きます。無効色は `CustomTablePalette.CheckBoxDisabledBorder` と `CheckBoxDisabledCheck` で、テーマの `Table.SubtleTextBrush` から導きます。無効のセルのクリックは `CellActionRequested` を送りません。`enabledSelector` は、行グループの提供元の有無によらず、描画とクリックの判定に効きます。選択子のない列は常に操作できます。
 
 | 操作 | 提供元を持つ表 | 提供元を持たない表（現行の挙動） |
 | --- | --- | --- |
 | 当たり判定 | クリックした行のその列のセル全体。結合列では、図形の有無によらずグループ内のどの行のセルでも同じで、クリックした行と列を伴う。 | セル全体。 |
-| クリック | 操作できるセル（値が非nullで、操作可）で、押した行の `CellActionRequested` を一度送る。行の選択は通常のクリックと同じ規則で、クリックした行に作用する。 | 同じ。 |
+| クリック | 操作できるセル（値が非nullで、操作可）で、押した行の `CellActionRequested` を一度送る。行の選択は通常のクリックと同じ規則で、クリックした行に作用する。複数行の選択中に操作できるセルを押しても、選択を押した行だけへ絞らない。 | 同じ。 |
 | ダブルクリック | 操作できるチェックボックス・ラジオボタンのセルは、二回目の押下も `CellActionRequested` を送り（合計二回）、`RowActivated` を送らない。無効または値なしのセルは、通常どおり `RowActivated` を送る。 | `CellActionRequested` 一回の後に `RowActivated`。 |
 | UI Automation | チェックボックスのセルは `Toggle`（ControlTypeはCheckBox）、ラジオボタンのセルは `SelectionItem`（ControlTypeはRadioButton）を公開する。操作は `CellActionRequested` を一度送り、値や選択を直接変えない。無効のセルは `IsEnabled=false` で、操作は `ElementNotEnabledException` になり要求を送らない。値なしのセルの操作は `InvalidOperationException` になる。ラジオボタンの `RemoveFromSelection` は `InvalidOperationException` になる。 | セルは `Value` だけを公開し、トグルを公開しない。 |
 

@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Data;
 
@@ -210,12 +211,47 @@ internal sealed class mainSummaryVisibilityConverter : IMultiValueConverter
 {
     public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
     {
-        if (values.Length != 2 || values[0] is not bool playlistSummaryMode || values[1] is not bool playHistoryActive)
+        // 第三の値（統合候補一覧の表示中）は省略できる。表示中は、譜面一覧の件数表示を出さない。
+        if (values.Length is not (2 or 3) || values[0] is not bool playlistSummaryMode || values[1] is not bool playHistoryActive)
+        {
+            return DependencyProperty.UnsetValue;
+        }
+        bool duplicateCandidateListActive = values.Length == 3 && values[2] is true;
+
+        return !playlistSummaryMode && !playHistoryActive && !duplicateCandidateListActive ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+    {
+        throw new NotSupportedException();
+    }
+}
+
+/// <summary>真の値が一つもなければ表示し、一つでもあれば折りたたみます。値が真偽値でない間（未解決）は表示します。</summary>
+internal sealed class hiddenWhenAnyTrueVisibilityConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        return values.Any(value => value is true) ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+    {
+        throw new NotSupportedException();
+    }
+}
+
+/// <summary>統合候補一覧の件数表示を、現在の表示言語の書式で整形します。第一の値は言語変更で再評価するための現在の資源（値は使用しません）です。</summary>
+internal sealed class duplicateMergeCandidateSummaryConverter : IMultiValueConverter
+{
+    public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values.Length != 3 || values[1] is not int visibleGroups || values[2] is not int selectedGroups)
         {
             return DependencyProperty.UnsetValue;
         }
 
-        return !playlistSummaryMode && !playHistoryActive ? Visibility.Visible : Visibility.Collapsed;
+        return string.Format(CultureInfo.CurrentCulture, BeMusicSeeker.Properties.Resources.Duplicate_merge_candidate_summary, visibleGroups, selectedGroups);
     }
 
     public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)

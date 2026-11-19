@@ -162,6 +162,11 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     public MaintenanceTreeViewModel MaintenanceTree { get; }
 
+    /// <summary>
+    /// Gets the duplicate merge candidate list owner. The list is shown by the first node of the duplicate tree.
+    /// </summary>
+    public DuplicateMergeCandidateListOwner DuplicateMergeCandidateList { get; }
+
     internal RegularChartListOwner RegularChartList => regularChartListOwner;
 
     public PlayHistoryWorkflowOwner PlayHistory { get; }
@@ -2282,6 +2287,7 @@ public partial class MainWindowViewModel : ViewModel,
         MaintenanceTree = childComposition.MaintenanceTree;
         MaintenanceTree.DuplicatePresentationChanged += MaintenanceTreeDuplicatePresentationChanged;
         MaintenanceTree.DuplicatePreparationProvider = () => regularChartListOwner?.PrepareDuplicateDataAsync("duplicate_tree");
+        DuplicateMergeCandidateList = childComposition.DuplicateMergeCandidateList;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         UpdateChartKeywordSearchContext();
@@ -2761,6 +2767,7 @@ public partial class MainWindowViewModel : ViewModel,
             treeViewFilterParameterSelected = null;
             appliedNavigation = navigation;
         }
+        DuplicateMergeCandidateList.SetTreeSelected(false);
 
         var refresh = Task.Run(() => RefreshChartRowsViewCaptured(MainViewUpdateMode.PlayHistorySelected, request, navigation: navigation));
         refresh.ObserveFault("playHistoryPeriodSelect");
@@ -3207,6 +3214,7 @@ public partial class MainWindowViewModel : ViewModel,
             MaintenanceRescanWorkflow.AttachLibrary(files);
             FolderAutoRenameWorkflow.AttachLibrary(files);
             regularChartListOwner.AttachNormalLibraryRefreshSource(files);
+            DuplicateMergeCandidateList.AttachLibrary(files);
             PlaybackPanel.AttachLibrary(files, attachmentCapability);
         }
     }
@@ -3696,6 +3704,7 @@ public partial class MainWindowViewModel : ViewModel,
             LibraryFolderTree.AttachLibrary(files);
             InstallTree.AttachLibrary(files);
             MaintenanceTree.AttachLibrary(files);
+            DuplicateMergeCandidateList.AttachLibrary(files);
             IBMSPlayer configuredBmsPlayer = applicationComposition.CreateBmsPlayer(
                 startupSettings,
                 () => CreateLR2PlayerConfig(startupSettings));
@@ -4328,6 +4337,8 @@ public partial class MainWindowViewModel : ViewModel,
                 appliedNavigation = navigation;
             }
         });
+        DuplicateMergeCandidateList.SetTreeSelected(
+            mode == MainViewUpdateMode.DuplicateFilterSelected && parameter is DuplicateViewContext { Kind: DuplicateViewContextKind.CandidateList });
         playHistoryWorkflowOwner.ClearSummaryFilters();
     }
 

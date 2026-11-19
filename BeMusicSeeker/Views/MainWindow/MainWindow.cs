@@ -593,6 +593,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         InitializeComponent();
         customTableView.ConfigureDialogs(dialogService);
         customTablePlaylistSummary.ConfigureDialogs(dialogService);
+        ConnectDuplicateMergeCandidateList(viewModel);
         KeywordSearchEditor.Configure(viewModel.ChartFilters.KeywordSearchAssistanceOwner);
         PlaylistSummaryKeywordSearchEditor.Configure(
             viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchAssistanceOwner);
@@ -4517,6 +4518,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         else if (treeViewItem.DataContext is DuplicateGroup)
         {
             parameter = treeViewItem.DataContext;
+        }
+        else if (treeViewItem.DataContext is DuplicateMergeCandidateListNode)
+        {
+            parameter = DuplicateViewContext.ForCandidateList();
         }
         else
         {

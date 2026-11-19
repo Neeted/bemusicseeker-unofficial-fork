@@ -1421,5 +1421,17 @@
   "Confirm_RightClickRestoreDefaults": "오른쪽 클릭 설정의 웹 항목과 프로그램 항목을 기본값으로 바꾸고 저장합니다. 등록된 항목과 확정되지 않은 입력은 사라집니다.\n\n계속하시겠습니까?",
   "Confirm_RightClickDeleteActionFormat": "오른쪽 클릭 항목 \"{0}\"을(를) 삭제하고 저장합니다.\n\n계속하시겠습니까?",
   "Confirm_RightClickDeleteActionUnnamed": "선택한 오른쪽 클릭 항목을 삭제하고 저장합니다.\n\n계속하시겠습니까?",
-  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "플레이 로그 FOLDER 표시 프리셋 \"{0}\"을(를) 삭제하고 저장합니다.\n\n계속하시겠습니까?"
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "플레이 로그 FOLDER 표시 프리셋 \"{0}\"을(를) 삭제하고 저장합니다.\n\n계속하시겠습니까?",
+  "Duplicate_merge_candidate_list": "통합 후보 목록",
+  "Duplicate_merge_candidate_status_unverified": "미확인",
+  "Duplicate_merge_candidate_status_unmergeable_registered_root": "통합 불가(등록 루트)",
+  "Duplicate_merge_candidate_select_visible": "표시 중인 항목 모두 선택",
+  "Duplicate_merge_candidate_clear_visible": "표시 중인 항목 모두 해제",
+  "Duplicate_merge_candidate_preferred_destinations": "우선 통합 대상…",
+  "Duplicate_merge_candidate_check_on": "체크",
+  "Duplicate_merge_candidate_check_off": "체크 해제",
+  "Duplicate_merge_candidate_summary": "표시 중 {0}그룹 / 선택 {1}그룹",
+  "Duplicate_merge_candidate_search": "통합 후보 검색",
+  "Duplicate_merge_preferred_destination_title": "우선 통합 대상",
+  "Duplicate_merge_preferred_destination_description": "그룹 안의 폴더 중 등록한 디렉터리와 같거나 그 아래에 있는 폴더가 정확히 하나이면, 그 폴더를 남길 폴더(KEEP)로 지정합니다."
 }

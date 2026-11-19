@@ -799,6 +799,9 @@ internal sealed class MainWindowChildComposition
             libraryFolderTreeLogWarning);
         InstallTree = new InstallTreeViewModel();
         MaintenanceTree = new MaintenanceTreeViewModel(uiScheduler);
+        DuplicateMergeCandidateList = new DuplicateMergeCandidateListOwner(
+            LongPathFileSystem.DirectoryExists,
+            path => externalShellGateway.OpenDirectory(path));
         PlayHistory = new PlayHistoryWorkflowOwner();
         // 当該操作の所有権解放後にだけ呼び、通常Shell終端の保存・一時領域回収へは進めません。
         Task ExitForUnrestoredDestinationAsync(Exception failure) => uiScheduler.InvokeAsync(() =>
@@ -829,7 +832,10 @@ internal sealed class MainWindowChildComposition
             ChartMutationActivity,
             (IChartMutationPlaybackPort)PlaybackPanel,
             uiScheduler,
-            dialogService);
+            dialogService)
+        {
+            DuplicateCandidateList = DuplicateMergeCandidateList
+        };
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             dialogService,
             chartFileOperations,
@@ -958,6 +964,9 @@ internal sealed class MainWindowChildComposition
     internal InstallTreeViewModel InstallTree { get; }
 
     internal MaintenanceTreeViewModel MaintenanceTree { get; }
+
+    /// <summary>統合候補一覧の状態と判断を持つ管理主体です。重複ツリーの先頭のノードで選ぶ画面が表示します。</summary>
+    internal DuplicateMergeCandidateListOwner DuplicateMergeCandidateList { get; }
 
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
 

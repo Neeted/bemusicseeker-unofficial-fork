@@ -1421,5 +1421,17 @@
   "Confirm_RightClickRestoreDefaults": "The Web and Program items of the right-click settings will be replaced with the defaults and saved. Registered items and unconfirmed input will be lost.\n\nContinue?",
   "Confirm_RightClickDeleteActionFormat": "The right-click item \"{0}\" will be deleted and the change saved.\n\nContinue?",
   "Confirm_RightClickDeleteActionUnnamed": "The selected right-click item will be deleted and the change saved.\n\nContinue?",
-  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "The play log FOLDER display preset \"{0}\" will be deleted and the change saved.\n\nContinue?"
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "The play log FOLDER display preset \"{0}\" will be deleted and the change saved.\n\nContinue?",
+  "Duplicate_merge_candidate_list": "Merge candidates",
+  "Duplicate_merge_candidate_status_unverified": "Unchecked",
+  "Duplicate_merge_candidate_status_unmergeable_registered_root": "Cannot merge (registered root)",
+  "Duplicate_merge_candidate_select_visible": "Select all shown",
+  "Duplicate_merge_candidate_clear_visible": "Clear all shown",
+  "Duplicate_merge_candidate_preferred_destinations": "Preferred destinations...",
+  "Duplicate_merge_candidate_check_on": "Check",
+  "Duplicate_merge_candidate_check_off": "Uncheck",
+  "Duplicate_merge_candidate_summary": "Showing {0} groups / {1} selected",
+  "Duplicate_merge_candidate_search": "Search merge candidates",
+  "Duplicate_merge_preferred_destination_title": "Preferred merge destinations",
+  "Duplicate_merge_preferred_destination_description": "When exactly one folder in a group is the same as or under a registered directory, that folder becomes the folder to keep (KEEP)."
 }

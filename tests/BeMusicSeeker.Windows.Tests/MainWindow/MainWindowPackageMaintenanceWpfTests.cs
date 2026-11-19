@@ -2526,7 +2526,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreSame(automatic, tree.SelectedItem, "捕捉した次グループは同じインスタンスのまま選択されます。");
                 Assert.IsFalse(library.DuplicateChartGroups!.Contains(source));
                 Assert.IsTrue(library.DuplicateChartGroups.Contains(automatic) && library.DuplicateChartGroups.Contains(unrelated), "無関係な群は同じインスタンスで維持します。");
-                CollectionAssert.AreEqual(library.DuplicateChartGroups.ToArray(), root.Items.Cast<DuplicateGroup>().ToArray(), "ツリーの項目は結果と同じ順序です。");
+                CollectionAssert.AreEqual(library.DuplicateChartGroups.ToArray(), root.Items.OfType<DuplicateGroup>().ToArray(), "ツリーの項目は結果と同じ順序です。");
                 Assert.AreSame(nextItem, root.ItemContainerGenerator.ContainerFromItem(automatic), "次グループの入れ物を作り直しません。");
                 Assert.AreSame(unrelatedItem, root.ItemContainerGenerator.ContainerFromItem(unrelated), "無関係な群の入れ物を作り直しません。");
                 Assert.IsTrue(unrelatedItem.IsExpanded, "無関係な群の展開状態を保ちます。");
@@ -2834,7 +2834,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow, TestBmsLibrary, ChartFile[], DuplicateSelectionNavigationTasks> test,
         MainWindowDuplicateMaintenanceTerminal? terminal = null, bool hashSource = false,
         OwnedChartCollectionTestSupport.TestFileMutationService? fileMutations = null,
-        int fillerGroups = 0, int largeGroupFolders = 0)
+        int fillerGroups = 0, int largeGroupFolders = 0,
+        IUiDialogService? dialogService = null, IExternalShellGateway? externalShellGateway = null)
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         string directory = Path.Combine(migrationWorkspace.RootDirectory, "BeMusicSeeker_DuplicateSelection_" + Guid.NewGuid().ToString("N"));
@@ -2845,6 +2846,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         var navigationTerminal = new MainWindowMaintenanceTreeTerminal((mode, parameter) =>
             navigation.Record((attachedViewModel ?? throw new AssertFailedException("実owner未接続です。"))
                 .RegularChartList.NavigateMaintenanceAsync(mode, parameter)));
+        // 保留ツリーの選択も同じ記録へ集め、重複表示から保留の画面へ移る要求を回収できるようにする。配送先は標準構成と同じ実ownerです。
+        var installNavigationTerminal = new MainWindowInstallTreeTerminal((mode, parameter) =>
+            navigation.Record((attachedViewModel ?? throw new AssertFailedException("実owner未接続です。"))
+                .RegularChartList.NavigateInstallAsync(mode, parameter)));
         ChartFile[] charts = [];
         Settings settings = TestBmsFactory.CreateRootSettings([directory]);
         settings.StartupSelectInstallPending = false;
@@ -2858,7 +2863,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     window.Width = 900d;
                     window.Height = 700d;
                     test(scope, viewModel, window, library, charts, navigation);
-                }, duplicateMaintenanceTerminal: terminal, maintenanceTreeTerminal: navigationTerminal,
+                }, duplicateMaintenanceTerminal: terminal, maintenanceTreeTerminal: navigationTerminal, installTreeTerminal: installNavigationTerminal,
+                dialogService: dialogService, externalShellGateway: externalShellGateway,
                 prepareViewModel: viewModel =>
                 {
                     attachedViewModel = viewModel;
@@ -3054,6 +3060,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         int index = root.Items.IndexOf(group);
         Assert.IsTrue(index >= 0);
         var item = root.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
+        if (item == null)
+        {
+            // 先頭にノードが加わった分、画面外のグループは仮想化で未生成になるため、公開APIで生成する。
+            FindItemsHostPanel(root).BringIndexIntoViewPublic(index);
+            root.UpdateLayout();
+            item = root.ItemContainerGenerator.ContainerFromIndex(index) as TreeViewItem;
+        }
         Assert.IsNotNull(item);
         item.IsExpanded = true;
         item.UpdateLayout();
@@ -3063,7 +3076,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     private static TreeViewItem RealizeDuplicateFolderItem(TreeViewItem root, DuplicateGroup group, string folder)
     {
         TreeViewItem parent = RealizeDuplicateGroupItem(root, group);
-        var item = parent.ItemContainerGenerator.ContainerFromIndex(parent.Items.IndexOf(folder)) as TreeViewItem;
+        int folderIndex = parent.Items.IndexOf(folder);
+        var item = parent.ItemContainerGenerator.ContainerFromIndex(folderIndex) as TreeViewItem;
+        if (item == null)
+        {
+            // 先頭にノードが加わった分、画面外の子は仮想化で未生成になるため、公開APIで生成する。
+            FindItemsHostPanel(parent).BringIndexIntoViewPublic(folderIndex);
+            parent.UpdateLayout();
+            item = parent.ItemContainerGenerator.ContainerFromIndex(folderIndex) as TreeViewItem;
+        }
         Assert.IsNotNull(item);
         return item;
     }

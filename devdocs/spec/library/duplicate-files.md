@@ -43,6 +43,7 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 | 重複ルート | 全グループの譜面 |
 | グループ | そのグループの譜面 |
 | フォルダ | そのパス配下の譜面 |
+| 統合候補一覧 | 専用の表（[統合候補一覧](#統合候補一覧)） |
 
 グループは現在の検索結果内で一意な所属フォルダを値として捕捉し、手動選択と整理後の自動選択で共用します。見出しは表示用であり、同名・空名の別グループを同一視しません。捕捉した所属が現在の結果にない場合は空一覧とし、別グループや全件へ広げません。全件表示は明示的な重複ルート選択だけです。フォルダ配下の選択はグループ全体の選択と区別します。
 
@@ -70,6 +71,41 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 統合先にある、統合元と対応しないリンクと、統合元・統合先の祖先のリンクは拒否しません。検査はリンク先へ入らず、リンク自身の属性と再解析タグで判定します。リンク先が消えたリンクもリンクとして拒否し、統合元本体がリンクなら「入力元の欠落による終了」より先に拒否します。リンクでなく存在しない統合元は、従来の欠落による終了のままです。拒否では、統合元・統合先・リンク先のファイル、DB、カタログ、BMSルートの登録を変えず、変更セッションの失敗の事実を持たない未適用として返し、案内を一件だけ出します。汎用の統合失敗の案内と変更セッションの報告は重ねません。列挙や属性取得の失敗（アクセス拒否を含む）でリンクの有無を確認できない場合も、同じ保全で拒否し、確認できないことを伝える別の案内を一件だけ出します。拒否の後は受付を解放し、次の統合を受け付けます。変更セッション開始前の既存の拒否（Busy、カタログ未収束、登録ルートを含む統合元）は、リンクの拒否より先に働きます。検査は[`FolderLinkInspector`](../../../BeMusicSeeker/Models/Utils/FileOperations/FolderLinkInspector.cs)がモデル側の独立した部品として持ち、統合先メニュー・Ctrl+G・モデル入口のすべてに同じ経路で適用します。
 
 入力元を除く所持集合に同じMD5が残る譜面は移動対象から除きます。譜面名だけの衝突は採番し、リソースの衝突は既存の上書き設定に従います。残存物の削除には[確認済みコピーの条件](file-db-consistency.md#入力元の後片付け)を適用します。
+
+### 統合候補一覧
+
+重複ツリーの子の先頭に「統合候補一覧」のノードを置きます。ノードは重複検索結果が一件以上あるときだけ現れ、未解析・0件・準備が走っていない失効・ライブラリの解除では現れません。結果が失効して準備が走っている間は、グループ項目と同じ規則で残し、結果が一件以上ある間の同期ではノードを除去・置換しません。ツリーの子は、ノードの項目（`DuplicateMergeCandidateListNode`、0〜1件）とグループ項目を連結した一覧（`MaintenanceTreeViewModel.DuplicateTreeChildren`）で、元の集合の変更を位置を補正した個別の変更として中継し、Resetを使いません。`DuplicateTreeItems` は変えません。
+
+ノードの選択は、画面受付を他の重複表示と同じ入口（`DuplicateViewContext.ForCandidateList`）に乗せます。未解析なら共通受付を非待機で取得して競合時は既存のBusy案内で未開始とし、実行中の準備へ合流し、準備済みなら新しい受付を取らず、後から選んだ画面を優先し、旧ライブラリの候補を採用せず、失敗は一度だけ通知し、取消は通知しません。譜面一覧の入力は明示的に空で、一覧の構築（TITLE・ARTISTの解決を含む）はUIスレッド外の画面構築で行い、採用は空の譜面一覧の採用と合わせて、その画面受付と入力の重複結果が現在のものである場合だけ行います。構築はノードの選択時に行い、事前計算しません。
+
+一覧は専用の表で、一行は一フォルダ、最小単位は重複グループです。一フォルダだけのグループも表示します。グループ内の行はPATHの昇順（大文字小文字を無視）、グループの既定の並びは重複検索結果の順で、背景はグループごとに交互になります。表示中は、譜面一覧の表、メインの件数表示、メインの検索欄、保留譜面の操作バー、プレイログの集計バーを表示せず、隠れた譜面一覧は行0件・選択なしです。
+
+| 列 | 内容 |
+| --- | --- |
+| SELECT | グループ結合のチェックボックス。初期値はオフ。統合不可は操作できない。 |
+| STATUS | グループ結合の文字。この時点では「未確認」と「統合不可（登録ルート）」だけ。 |
+| KEEP | 残すフォルダのラジオボタン。グループで常に一つ。 |
+| PATH、FOLDER | フォルダのパスと名前。 |
+| TITLE、ARTIST | そのフォルダ（子孫を含む所持範囲）の導入先候補プロフィールの実在最頻ペアの表示値。有効なペアがなければ両方空。 |
+
+列の幅と順序は起動中だけ保持し、設定へ保存しません。初期のKEEPは、グループの譜面（兄弟譜面を含む）のうちそのフォルダ直下にある所持譜面数が最多のフォルダで、同数ならPATH昇順の先頭です。登録範囲（手動統合が移動元として拒否するのと同じ判定。構築ごとに登録を一度捕捉）のフォルダが一つならKEEPをそこへ固定し、二つ以上ならPATH昇順の先頭へ固定して「統合不可（登録ルート）」とし、SELECTをオフかつ無効にします。一フォルダのグループはKEEP固定です。固定のKEEPと統合不可のSELECTは操作しても変わりません。
+
+状態（SELECT、KEEP、確認結果）は `DuplicateGroup` のインスタンスに対応付けて持ちます。重複結果の再検索で同じインスタンスが維持されたグループは状態を保ち、新しいインスタンスは初期値、消えたグループの状態は採用時に破棄します。ライブラリの解除・交換ですべて破棄し、永続化しません。別の画面へ移って戻っても、状態・並べ替え・検索語を保ち、再検索で結果が変わっても並べ替えと検索語を新しい結果へ当て直します。
+
+- 並べ替え: 列見出しで、グループの先頭行の値を使ってグループ単位に並べます。SELECTはオフが先、STATUSは表示文言の比較で、KEEPは対象外です。同値は既定の結果順で、グループ内の行順は変えません。
+- 検索: 専用の検索欄で既存のキーワード検索の構文を使います。項目は path、folder、title、artist、status で、条件は行単位で評価し、一致した行を一つでも持つグループの全行を残します。
+- 件数表示: 「表示中 n グループ／選択 m グループ」。m は表示中でSELECTがオンのグループ数です。
+
+| 操作 | 結果 |
+| --- | --- |
+| SELECT・KEEPのセルのクリック | そのグループのオン・オフ、またはそのフォルダのKEEP。結合列では先頭でない行でも同じ。有効なSELECT・KEEPのダブルクリックは遷移しない。 |
+| それ以外のセルのダブルクリック | 重複ツリーの対応するグループを展開し、そのフォルダノードを選択して既存のフォルダ表示へ移る。画面外で未生成のグループでも同じ。現在の結果で解決できなければ何もしない。 |
+| Space | 選択行が属するグループごとに一度。統合不可を除いてオンとオフが混在していればすべてオン。 |
+| 右クリック | 「チェックを入れる」「チェックを外す」（グループごとに一度、統合不可は変えない）、「エクスプローラーで開く」（存在する選択フォルダごとに一度）。 |
+| 「表示中をすべて選択」「表示中をすべて解除」 | 検索で表示中のグループだけに作用する。統合不可は選択しない。 |
+| 「優先統合先…」 | ディレクトリを追加・削除するウィンドウ。OKで全グループ（非表示を含む）へ適用し、優先先と同じかその配下にあるフォルダがグループ内でちょうど一つならKEEPにする。該当なし・二つ以上・固定のグループは変えない。判定はパス成分の境界で行い、大文字小文字と末尾の区切りを無視する。登録内容は起動中だけ保持し、キャンセルは何も変えない。 |
+
+後続の単位は、`DuplicateMergeCandidateListOwner.CaptureSelectedGroups`（表示中でSELECTがオンのグループを、グループ・PATH昇順のフォルダ・KEEP・固定の有無を持つ変更不能な対象として捕捉）と `TryWriteVerification`（UIスレッドで確認結果を書き込み、現在の状態表にないグループは捨てる）を使います。
 
 ### 実行中の進捗行
 
@@ -165,6 +201,12 @@ BMSの警告は同じ所持項目の識別の共通現在値へ反映し、BMSON
 | 実行中の進捗行の開始・終了と通知しない経路 | [`DuplicateMaintenanceWorkflowOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs) の `ProgressChanged`、[`OperationProgressHubViewModel.AttachDuplicateMaintenanceProgressSource`](../../../BeMusicSeeker/ViewModels/MainWindow/OperationProgressHubViewModel.cs)、`ApplicationComposition` | [`DuplicateMaintenanceWorkflowOwnerTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerTests.cs) の `ProgressFacts_StartAfterApprovalAndEndBeforeReportOnEveryTerminal` は、統合と重複削除の成功・対象別受付の使用中・失敗と確認を表示しない設定で、全確認の回答後かつ背景処理の開始前の開始、終端後かつ報告前の終了、対象フォルダを確認する。`ProgressFacts_NotPublishedWhenOperationEndsBeforeBackgroundMutation` は受付の拒否・確認の取消と表示失敗・事前準備の失敗・対象なしで通知しないことを、`ProgressSubscriberFailure_KeepsResultReleaseAndReport` は受け手の例外で結果・解放・報告が変わらず終了通知が欠けないことを確認する。`RunFolderMergeAsync_UnrestoredDestinationExitsAfterOwnedTerminal` は復元不能で終了への接続より前に閉じることを確認する。標準構成の接続は [`MainWindowPackageMaintenanceWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の `DuplicateSelections_ActualMergeSelectsCapturedNextGroupThroughCompiledTree` と `DuplicateSelections_ActualHashCleanupSelectsCapturedNextGroupAfterLaterView` が、実行中の一行と終端後の消去で確認する。行の内容と言語追従は[ステータスバーの対応表](../runtime/statusbar-progress.md#実装とテストの対応)を参照する。 |
 | 削除の確認件数とカタログ反映 | [`LibraryMutationOwner`](../../../BeMusicSeeker/Models/Library/BMSLibrary.LibraryMutationOwner.cs) | [`OwnedChartCollectionLibraryMutationTests`](../../../tests/BeMusicSeeker.Windows.Tests/Catalog/OwnedChartCollectionLibraryMutationTests.cs)、[`BmsLibraryFolderRenameRefreshTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibraryFolderRenameRefreshTests.cs) |
 | 終端の分類と多言語表示 | [`FileDbMutationReport`](../../../BeMusicSeeker/ViewModels/ChartOperations/FileDbMutationReport.cs) | [`FileDbMutationReportTests`](../../../tests/BeMusicSeeker.Core.Tests/ChartOperations/FileDbMutationReportTests.cs)、[`LocalizationResourceParityTests`](../../../tests/BeMusicSeeker.Core.Tests/Localization/LocalizationResourceParityTests.cs) |
+| 統合候補一覧のノード（有無、位置、同一性、Resetなし） | [`MaintenanceTreeViewModel`](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs)、[`DuplicateTreeChildCollection`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateTreeChildCollection.cs)、`MainWindow.xaml` の `duplicateTreeItemContainerStyleSelector` | [`MaintenanceTreeViewModelTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/MaintenanceTreeViewModelTests.cs) の `CandidateListNode_ExistsOnlyWhileResultsExist` と `CandidateListNode_KeepsInstanceAndRelaysGroupChangesWithoutReset` |
+| 統合候補一覧の構築・行の順・初期KEEP・並べ替え・検索・件数・操作・優先統合先・状態の寿命・後続向けの窓口・解決回数 | [`DuplicateMergeCandidateListOwner`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeCandidateListOwner.cs)、[`DuplicateMergeCandidateModels`](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeCandidateModels.cs) | [`DuplicateMergeCandidateListOwnerTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeCandidateListOwnerTests.cs) が、メモリ上のグループと解決・登録範囲の代替で各項目を確認する |
+| TITLE・ARTISTの一括解決、登録範囲の判定、構築前にプロフィールを作らない | [`BMSLibrary.DuplicateMergeCandidates`](../../../BeMusicSeeker/Models/Library/BMSLibrary.DuplicateMergeCandidates.cs)、`LibraryMutationOwner.CaptureRegisteredBmsRootPredicate` | [`DuplicateMergeCandidateListLibraryTests`](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeCandidateListLibraryTests.cs) が実検索・実登録で確認する |
+| ノードの選択、専用の表への切替、状態の保持、セル・Space・メニュー・ツールバー・ダブルクリック遷移・優先統合先のウィンドウ・表示言語 | `MainWindow.DuplicateMergeCandidateList.cs`、`MainWindow.xaml`、[`DuplicatePreferredDestinationDialog`](../../../BeMusicSeeker/Views/Dialogs/DuplicatePreferredDestinationDialog.xaml.cs)、`CustomTableColumnFactory.CreateDuplicateCandidateColumns` | [`MainWindowDuplicateCandidateListWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowDuplicateCandidateListWpfTests.cs) の `CandidateList_` で始まるケース。`CandidateList_NodeSwitchesToDedicatedTableAndKeepsStateAcrossScreens` は、専用の検索欄の表示と入力からの束縛による絞込み・再訪での復元、表示中にメインの件数表示・保留譜面の操作バー・プレイログの集計バーを出さないこと、表の操作で変えた列幅が行き来で保たれ保存される側の列設定を変えないことを確認する。`CandidateList_LeavingForPendingOrPlayHistoryShowsThatScreensOwnBars` は、保留とプレイログの画面へ移るとその画面のバーと件数表示が元の条件で出て、一覧へ戻ると隠れることを確認する |
+| 統合候補一覧の画面受付（未解析のBusy、実行中の準備への合流、準備済みの受付なし、後発画面の優先、再構築での状態の保持、ライブラリ交換での旧構築の不採用） | [`RegularChartListOwner`](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)（`DuplicateCandidateList`、`PrepareRegularView`）、`DuplicateMergeCandidateListOwner.Adopt` | [`RegularChartNavigationTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.CandidateList.cs) の `CandidateList_ColdBusyKeepsViewAndNotifiesOnce`、`CandidateList_JoinsRunningPreparationOrUsesPreparedResultWithoutAdmission`、`CandidateList_LaterSelectedScreenWins`、`CandidateList_RebuildKeepsUnaffectedGroupStateAndResetsAffectedGroup`、`CandidateList_LibraryReplacementRejectsOldBuild`。構築の保留は構築の中の到達の待合せで行う。再構築のケースは、結果の差替え後に一覧を選び直す経路で確認し、表示中に受理済みの変更が入る内部継続は、このテストでは確認していない |
+| 統合候補一覧の構築の失敗・取消・停止 | `RegularChartListOwner.PresentDuplicateData` | [`RegularChartCommitAndLifecycleTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartCommitAndLifecycleTests.CandidateList.cs) の `CandidateListBuild_FailureNotifiesOnceCancelIsSilentAndStopCollectsBuild` が、解決の例外で通知が一度、停止による取消で通知なし、構築中の停止で構築Taskの回収を確認する |
 
 ## 関連資料
 

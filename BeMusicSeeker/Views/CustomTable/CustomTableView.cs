@@ -101,6 +101,13 @@ public sealed partial class CustomTableView : Grid
         typeof(CustomTableView),
         new FrameworkPropertyMetadata(null, OnPlaylistSummaryColumnsSettingsChanged));
 
+    /// <summary>統合候補一覧の列設定です。起動中だけの設定で、設定へ保存しません。指定すると、この表は統合候補一覧の列を持ちます。</summary>
+    public static readonly DependencyProperty DuplicateCandidateColumnsSettingsProperty = DependencyProperty.Register(
+        nameof(DuplicateCandidateColumnsSettings),
+        typeof(DuplicateMergeCandidateColumnSettings),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(null, OnDuplicateCandidateColumnsSettingsChanged));
+
     public static readonly DependencyProperty RowHeightProperty = DependencyProperty.Register(
         nameof(RowHeight),
         typeof(double),
@@ -618,6 +625,12 @@ public sealed partial class CustomTableView : Grid
         set => SetValue(PlaylistSummaryColumnsSettingsProperty, value);
     }
 
+    public DuplicateMergeCandidateColumnSettings DuplicateCandidateColumnsSettings
+    {
+        get => (DuplicateMergeCandidateColumnSettings)GetValue(DuplicateCandidateColumnsSettingsProperty);
+        set => SetValue(DuplicateCandidateColumnsSettingsProperty, value);
+    }
+
     public double RowHeight
     {
         get => (double)GetValue(RowHeightProperty);
@@ -795,6 +808,16 @@ public sealed partial class CustomTableView : Grid
     }
 
     private static void OnPlaylistSummaryColumnsSettingsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var view = (CustomTableView)d;
+        view.CommitActiveEdit();
+        view.currentCellHit = null;
+        view.DetachColumnLayoutHandlers();
+        view.AttachColumnLayoutHandlers();
+        view.RebuildColumns();
+    }
+
+    private static void OnDuplicateCandidateColumnsSettingsChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
     {
         var view = (CustomTableView)d;
         view.CommitActiveEdit();
@@ -1027,7 +1050,9 @@ public sealed partial class CustomTableView : Grid
 
     private void AttachColumnLayoutHandlers()
     {
-        IEnumerable<ICustomTableColumnLayout> layouts = PlaylistSummaryColumnsSettings != null
+        IEnumerable<ICustomTableColumnLayout> layouts = DuplicateCandidateColumnsSettings != null
+            ? CustomTableColumnFactory.EnumerateDuplicateCandidateColumnLayouts(DuplicateCandidateColumnsSettings).Cast<ICustomTableColumnLayout>()
+            : PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.EnumeratePlaylistSummaryColumnLayouts(PlaylistSummaryColumnsSettings).Cast<ICustomTableColumnLayout>()
             : CustomTableColumnFactory.EnumerateMainColumnLayouts(ColumnsSettings).Cast<ICustomTableColumnLayout>();
         foreach (ICustomTableColumnLayout layoutCandidate in layouts)
@@ -1086,7 +1111,9 @@ public sealed partial class CustomTableView : Grid
 
     private void RebuildColumns()
     {
-        Columns = PlaylistSummaryColumnsSettings != null
+        Columns = DuplicateCandidateColumnsSettings != null
+            ? CustomTableColumnFactory.CreateDuplicateCandidateColumns(DuplicateCandidateColumnsSettings).ToArray()
+            : PlaylistSummaryColumnsSettings != null
             ? CustomTableColumnFactory.CreatePlaylistSummaryColumns(PlaylistSummaryColumnsSettings).ToArray()
             : [.. CustomTableColumnFactory.CreateMainColumns(ColumnsSettings, CanEditInstallDestination)];
         InvalidateColumnLayoutSnapshot();

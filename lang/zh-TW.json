@@ -1421,5 +1421,17 @@
   "Confirm_RightClickRestoreDefaults": "右鍵設定的 Web 項目與程式項目將被取代為預設值並儲存。已登錄的項目與未確認的輸入將會遺失。\n\n要繼續嗎？",
   "Confirm_RightClickDeleteActionFormat": "將刪除右鍵項目「{0}」並儲存。\n\n要繼續嗎？",
   "Confirm_RightClickDeleteActionUnnamed": "將刪除所選的右鍵項目並儲存。\n\n要繼續嗎？",
-  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "將刪除遊玩記錄 FOLDER 顯示預設「{0}」並儲存。\n\n要繼續嗎？"
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "將刪除遊玩記錄 FOLDER 顯示預設「{0}」並儲存。\n\n要繼續嗎？",
+  "Duplicate_merge_candidate_list": "合併候選清單",
+  "Duplicate_merge_candidate_status_unverified": "未檢查",
+  "Duplicate_merge_candidate_status_unmergeable_registered_root": "無法合併（已登錄根目錄）",
+  "Duplicate_merge_candidate_select_visible": "選取全部顯示項目",
+  "Duplicate_merge_candidate_clear_visible": "取消全部顯示項目",
+  "Duplicate_merge_candidate_preferred_destinations": "優先合併目標…",
+  "Duplicate_merge_candidate_check_on": "勾選",
+  "Duplicate_merge_candidate_check_off": "取消勾選",
+  "Duplicate_merge_candidate_summary": "顯示 {0} 組 / 已選 {1} 組",
+  "Duplicate_merge_candidate_search": "搜尋合併候選",
+  "Duplicate_merge_preferred_destination_title": "優先合併目標",
+  "Duplicate_merge_preferred_destination_description": "當群組內恰有一個資料夾與已登錄的目錄相同或位於其下時，該資料夾將成為保留的資料夾（KEEP）。"
 }

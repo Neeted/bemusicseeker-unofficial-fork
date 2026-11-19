@@ -4171,4 +4171,40 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Confirm_RemovePlayHistoryFolderDisplayPresetFormat" xml:space="preserve"><value>プレイログ FOLDER 表示プリセット「{0}」を削除して保存します。
 
 続行しますか？</value></data>
+  <data name="Duplicate_merge_candidate_list" xml:space="preserve">
+    <value>統合候補一覧</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_unverified" xml:space="preserve">
+    <value>未確認</value>
+  </data>
+  <data name="Duplicate_merge_candidate_status_unmergeable_registered_root" xml:space="preserve">
+    <value>統合不可（登録ルート）</value>
+  </data>
+  <data name="Duplicate_merge_candidate_select_visible" xml:space="preserve">
+    <value>表示中をすべて選択</value>
+  </data>
+  <data name="Duplicate_merge_candidate_clear_visible" xml:space="preserve">
+    <value>表示中をすべて解除</value>
+  </data>
+  <data name="Duplicate_merge_candidate_preferred_destinations" xml:space="preserve">
+    <value>優先統合先…</value>
+  </data>
+  <data name="Duplicate_merge_candidate_check_on" xml:space="preserve">
+    <value>チェックを入れる</value>
+  </data>
+  <data name="Duplicate_merge_candidate_check_off" xml:space="preserve">
+    <value>チェックを外す</value>
+  </data>
+  <data name="Duplicate_merge_candidate_summary" xml:space="preserve">
+    <value>表示中 {0} グループ／選択 {1} グループ</value>
+  </data>
+  <data name="Duplicate_merge_candidate_search" xml:space="preserve">
+    <value>統合候補を検索</value>
+  </data>
+  <data name="Duplicate_merge_preferred_destination_title" xml:space="preserve">
+    <value>優先統合先</value>
+  </data>
+  <data name="Duplicate_merge_preferred_destination_description" xml:space="preserve">
+    <value>グループ内のフォルダのうち、登録したディレクトリと同じかその配下にあるフォルダがちょうど一つなら、そのフォルダを残す先（KEEP）にします。</value>
+  </data>
 </root>

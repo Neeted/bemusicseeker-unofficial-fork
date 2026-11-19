@@ -1,5 +1,6 @@
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.ViewModels;
@@ -35,9 +36,10 @@ internal static class MainWindowPackageMaintenanceTestHarness
         IUiDialogService? playlistWorkspaceDialogService = null,
         Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null,
         Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
-        MainWindowInstallTreeTerminal? installTreeTerminal = null, IUiScheduler? uiScheduler = null)
+        MainWindowInstallTreeTerminal? installTreeTerminal = null, IUiScheduler? uiScheduler = null,
+        IUiDialogService? dialogService = null, IExternalShellGateway? externalShellGateway = null)
         => RunConstructorOnly(settings, (_, viewModel, window) => test(viewModel, window),
-            folderAutoRenameTerminal, duplicateMaintenanceTerminal, maintenanceRescanTerminal, maintenanceTreeTerminal, packageCatalogTerminal, pendingInstallEstimationTerminal, pendingInstallationTerminal, installedLocationRepairTerminal, pendingBulkMaintenanceTerminal, mainChartCellEditTerminal, selectedChartContextMenuTerminals, playbackTerminal, playlistWorkspaceTerminals, pendingPackageMutationViewTerminal, prepareViewModel, playlistWorkspaceDialogService, prepareWindowForPresentation, chartPropertiesManagerFactory, installTreeTerminal, uiScheduler);
+            folderAutoRenameTerminal, duplicateMaintenanceTerminal, maintenanceRescanTerminal, maintenanceTreeTerminal, packageCatalogTerminal, pendingInstallEstimationTerminal, pendingInstallationTerminal, installedLocationRepairTerminal, pendingBulkMaintenanceTerminal, mainChartCellEditTerminal, selectedChartContextMenuTerminals, playbackTerminal, playlistWorkspaceTerminals, pendingPackageMutationViewTerminal, prepareViewModel, playlistWorkspaceDialogService, prepareWindowForPresentation, chartPropertiesManagerFactory, installTreeTerminal, uiScheduler, dialogService: dialogService, externalShellGateway: externalShellGateway);
 
     /// <summary>親子Windowに同じ表示scopeを渡し、実MainWindow寿命を共通補助で回収します。</summary>
     /// <param name="installTreeTerminal">保留ツリーの実選択と表示反映を、導入表示構築から分けて観測する場合の終端です。</param>
@@ -65,7 +67,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
         Action<TestWindowPresentationScope, MainWindow>? prepareWindowForPresentation = null,
         Func<TestWindowPresentationScope, Window, ChartPropertiesWindowManager>? chartPropertiesManagerFactory = null,
         MainWindowInstallTreeTerminal? installTreeTerminal = null, IUiScheduler? uiScheduler = null,
-        MainWindowRegularLibraryTreeTerminal? regularLibraryTreeTerminal = null)
+        MainWindowRegularLibraryTreeTerminal? regularLibraryTreeTerminal = null,
+        IUiDialogService? dialogService = null, IExternalShellGateway? externalShellGateway = null)
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -77,7 +80,8 @@ internal static class MainWindowPackageMaintenanceTestHarness
                 applicationLifetime: lifetime,
                 cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
                 playlistWorkspaceDialogService: playlistWorkspaceDialogService,
-                dialogService: UndeclaredDialogs.Create())
+                dialogService: dialogService ?? UndeclaredDialogs.Create(),
+                externalShellGateway: externalShellGateway)
                 .CreateMainWindowViewModelForTest();
             var ownership = new MainWindowTestLifetime(viewModel, lifetime.ShutdownRequested.Task);
             ownership.Run(() =>

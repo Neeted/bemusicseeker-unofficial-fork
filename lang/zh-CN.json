@@ -1421,5 +1421,17 @@
   "Confirm_RightClickRestoreDefaults": "右键设置的 Web 项目和程序项目将被替换为默认值并保存。已登记的项目和未确认的输入将丢失。\n\n要继续吗？",
   "Confirm_RightClickDeleteActionFormat": "将删除右键项目“{0}”并保存。\n\n要继续吗？",
   "Confirm_RightClickDeleteActionUnnamed": "将删除所选的右键项目并保存。\n\n要继续吗？",
-  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "将删除游玩记录 FOLDER 显示预设“{0}”并保存。\n\n要继续吗？"
+  "Confirm_RemovePlayHistoryFolderDisplayPresetFormat": "将删除游玩记录 FOLDER 显示预设“{0}”并保存。\n\n要继续吗？",
+  "Duplicate_merge_candidate_list": "合并候选列表",
+  "Duplicate_merge_candidate_status_unverified": "未检查",
+  "Duplicate_merge_candidate_status_unmergeable_registered_root": "无法合并（已登记根目录）",
+  "Duplicate_merge_candidate_select_visible": "选择全部显示项",
+  "Duplicate_merge_candidate_clear_visible": "取消全部显示项",
+  "Duplicate_merge_candidate_preferred_destinations": "优先合并目标…",
+  "Duplicate_merge_candidate_check_on": "勾选",
+  "Duplicate_merge_candidate_check_off": "取消勾选",
+  "Duplicate_merge_candidate_summary": "显示 {0} 组 / 已选 {1} 组",
+  "Duplicate_merge_candidate_search": "搜索合并候选",
+  "Duplicate_merge_preferred_destination_title": "优先合并目标",
+  "Duplicate_merge_preferred_destination_description": "当组内恰有一个文件夹与已登记的目录相同或位于其下时，该文件夹将成为保留的文件夹（KEEP）。"
 }

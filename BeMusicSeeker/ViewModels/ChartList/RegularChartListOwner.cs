@@ -718,6 +718,18 @@ internal sealed partial class RegularChartListOwner : IDisposable
         }
     }
 
+    private DuplicateMergeCandidateListOwner duplicateCandidateList;
+
+    /// <summary>
+    /// 統合候補一覧の管理主体です。未設定なら、統合候補一覧の画面受付は空の譜面一覧を表示するだけで、一覧は構築しません。
+    /// 構築はUIスレッド外の画面構築の中で行い、採用は、その画面受付と入力の重複結果が現在のものである場合だけ行います。
+    /// </summary>
+    internal DuplicateMergeCandidateListOwner DuplicateCandidateList
+    {
+        get => duplicateCandidateList;
+        set => duplicateCandidateList = value;
+    }
+
     /// <summary>選択命令を持たないデータ完成通知です。VMが現在の選択をUIで解決して表示を開始します。</summary>
     internal event EventHandler<RegularDuplicateDataReadyEventArgs> DuplicateDataReady;
 
@@ -2926,6 +2938,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             input.DetailSourceRetirement = retirement;
             mainChartList.RowProjection.CaptureVersions(request.Library);
             RegularVirtualChartSubsetApplyResult result = default;
+            DuplicateMergeCandidateListPreparation candidatePreparation = null;
             return new PreparedRegularView(lease, () =>
             {
                 RegularChartListSubsetSource subset;
@@ -2941,12 +2954,20 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 input.SourceProjectionMode = subset.SourceProjectionMode;
                 input.ApplyResourceHealthProjection = subset.ApplyResourceHealthProjection;
                 input.SubsetName = subset.Name;
+                if (duplicateView && duplicateInput != null && duplicateCandidateList != null && subsetParameter is DuplicateViewContext { Kind: DuplicateViewContextKind.CandidateList })
+                {
+                    // 統合候補一覧の構築（TITLE・ARTISTの解決を含む）はUIスレッド外で行い、採用は空の譜面一覧の採用と合わせてUIで行う。
+                    candidatePreparation = DuplicateMergeCandidateListOwner.Prepare(request.Library, duplicateInput.Groups, request.Library, lease.Token);
+                }
                 result = BuildVirtualChartSubset(input, lease, out RegularChartListPresentationResult presentation);
                 return presentation;
             }, terminal =>
             {
                 result = result.WithTerminal(terminal);
                 LogSubsetVirtualEntry(request, sort, input.SubsetName, result, sortWasReset);
+                if (terminal.WasCommitted && candidatePreparation != null
+                    && duplicateInput.IsCurrent && (request.Navigation == null || IsCurrentNavigation(request.Navigation)))
+                { duplicateCandidateList.Adopt(candidatePreparation); }
                 if (terminal.WasCommitted && sortWasReset) { ResetSortIfCurrent(lease, sort); }
                 return new RegularChartListEntryResult(terminal.WasCommitted, RegularChartListEntryRoute.SubsetVirtual, sortWasReset);
             })
@@ -3208,6 +3229,13 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 source = RegularChartListSubsetSource.ForCharts(
                     [.. groups.SelectMany(group => group.ChartFiles)],
                     "duplicate_all", ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true);
+                return true;
+            }
+            if (context.Kind == DuplicateViewContextKind.CandidateList)
+            {
+                // 統合候補一覧では、隠れた譜面一覧の入力を明示的に空にする。一覧は専用の表が持つ。
+                source = RegularChartListSubsetSource.ForCharts(
+                    [], "duplicate_candidate_list", ChartListSourceProjectionMode.DuplicateCurrent, applyResourceHealthProjection: true);
                 return true;
             }
             if (context.Kind == DuplicateViewContextKind.GroupFolder)

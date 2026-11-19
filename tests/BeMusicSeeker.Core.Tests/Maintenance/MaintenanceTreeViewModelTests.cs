@@ -269,6 +269,102 @@ public sealed class MaintenanceTreeViewModelTests
         }
     }
 
+    /// <summary>
+    /// 保証：重複ツリーの子の先頭に置く「統合候補一覧」のノードは、重複検索結果が一件以上あるときだけ現れ、
+    /// 未解析・0件・準備が走っていない失効・解除では現れず、準備が走っている失効の間は直前の状態を保つ。
+    /// ノードの後ろには、グループ項目を結果の順に並べる。
+    /// 検出する誤り：0件でもノードが残る、未解析でノードが現れる、準備中のノードの消去（選択表示の消失）、ノードがグループ項目の後ろに回る。
+    /// </summary>
+    [TestMethod]
+    [DataRow("unanalyzed", false)]
+    [DataRow("zeroResult", false)]
+    [DataRow("oneResult", true)]
+    [DataRow("invalidatedWhilePreparing", true)]
+    [DataRow("invalidatedNotPreparing", false)]
+    [DataRow("detached", false)]
+    public void CandidateListNode_ExistsOnlyWhileResultsExist(string condition, bool expectedNode)
+    {
+        var a = new DuplicateGroup([], [@"C:\Songs\A"]) { Header = "a" };
+        List<DuplicateGroup>? groups = condition switch
+        {
+            "unanalyzed" => null,
+            "zeroResult" => [],
+            _ => [a]
+        };
+        var state = new MaintenanceTreePresentationStateFake(groups);
+        var preparation = new TaskCompletionSource();
+        var owner = new MaintenanceTreeViewModel
+        {
+            DuplicatePreparationProvider = () => condition == "invalidatedWhilePreparing" ? preparation.Task : Task.CompletedTask
+        };
+        owner.AttachPresentationState(state);
+        switch (condition)
+        {
+            case "invalidatedWhilePreparing":
+            case "invalidatedNotPreparing":
+                state.InvalidateDuplicateChartGroups();
+                owner.ApplyDuplicateGroupsPresentation();
+                break;
+            case "detached":
+                owner.DetachLibrary();
+                break;
+        }
+
+        object[] children = [.. owner.DuplicateTreeChildren.Cast<object>()];
+        Assert.AreEqual(expectedNode, children.Contains(owner.DuplicateMergeCandidateListNodeItem), "ノードの有無");
+        if (expectedNode)
+        {
+            Assert.AreSame(owner.DuplicateMergeCandidateListNodeItem, children[0], "ノードは先頭です。");
+            CollectionAssert.AreEqual(new object[] { owner.DuplicateMergeCandidateListNodeItem, a }, children);
+        }
+        else
+        {
+            Assert.AreEqual(0, children.Count(child => child is DuplicateMergeCandidateListNode));
+        }
+        preparation.TrySetResult();
+    }
+
+    /// <summary>
+    /// 保証：結果が一件以上ある間の同期では、ノード項目を除去・置換せず（同じインスタンスを保ち）、グループ項目の変更はノードの分だけ位置を補正した個別の変更として届き、
+    /// Resetを使わない。結果が0件になるとノードを一件だけ除去し、再び結果が現れるとノードを先頭へ挿入する。
+    /// 検出する誤り：同期のたびにノードを作り直してツリーの展開・選択を失う、位置の補正漏れ、Resetへの置換。
+    /// </summary>
+    [TestMethod]
+    public void CandidateListNode_KeepsInstanceAndRelaysGroupChangesWithoutReset()
+    {
+        DuplicateGroup Group(string folder) => new([], [@"C:\Songs\" + folder]) { Header = folder };
+        DuplicateGroup a = Group("A"), b = Group("B"), c = Group("C");
+        var state = new MaintenanceTreePresentationStateFake([a, b]);
+        var owner = new MaintenanceTreeViewModel();
+        owner.AttachPresentationState(state);
+        var changes = new List<NotifyCollectionChangedEventArgs>();
+        ((INotifyCollectionChanged)owner.DuplicateTreeChildren).CollectionChanged += (_, args) => changes.Add(args);
+        object node = owner.DuplicateMergeCandidateListNodeItem;
+
+        state.ReplaceDuplicateChartGroups([b, c, a]);
+        owner.ApplyDuplicateGroupsPresentation();
+
+        Assert.IsFalse(changes.Any(change => change.Action == NotifyCollectionChangedAction.Reset), "Resetは使いません。");
+        Assert.IsTrue(changes.All(change => change.NewStartingIndex != 0 && change.OldStartingIndex != 0),
+            "グループ項目の変更はノードの分だけ位置を補正し、先頭（ノードの位置）へ届けません。");
+        CollectionAssert.AreEqual(new object[] { node, b, c, a }, owner.DuplicateTreeChildren.Cast<object>().ToArray());
+        Assert.AreSame(node, owner.DuplicateTreeChildren[0], "ノードは同じインスタンスを保ちます。");
+
+        changes.Clear();
+        state.ReplaceDuplicateChartGroups([]);
+        owner.ApplyDuplicateGroupsPresentation();
+        Assert.AreEqual(0, owner.DuplicateTreeChildren.Count, "0件ではノードも消えます。");
+        Assert.IsTrue(changes.Any(change => change.Action == NotifyCollectionChangedAction.Remove && change.OldItems!.Contains(node)),
+            "ノードは個別の除去として届きます。");
+
+        changes.Clear();
+        state.ReplaceDuplicateChartGroups([a]);
+        owner.ApplyDuplicateGroupsPresentation();
+        Assert.IsTrue(changes.Any(change => change.Action == NotifyCollectionChangedAction.Add && change.NewItems!.Contains(node) && change.NewStartingIndex == 0),
+            "結果が現れるとノードを先頭へ挿入します。");
+        CollectionAssert.AreEqual(new object[] { node, a }, owner.DuplicateTreeChildren.Cast<object>().ToArray());
+    }
+
     /// <summary>同名・空名の次群を操作前の所属値で固定し、後の可変Foldersや順序・見出しの変化に置き換えません。末尾と退役した群は対象なしです。</summary>
     [TestMethod]
     [DataRow("same")]
