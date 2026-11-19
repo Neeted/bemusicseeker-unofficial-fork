@@ -354,9 +354,24 @@ internal sealed partial class CustomTableSurface : FrameworkElement
         int firstRowIndex = owner.FirstVisibleRowIndex;
         int lastRowExclusive = Math.Min(rowCount, firstRowIndex + drawableRowCapacity);
         int drawnRows = 0;
+        // 行グループの提供元を持つ表だけが使う、描画中のグループの状態です。問合せは、表示範囲に現れるグループごとに一回だけです。
+        ICustomTableRowGroupSource groups = owner.RowGroupSource;
+        int groupEnd = -1;
+        int groupOrdinal = 0;
+        int segmentTop = y;
+        object segmentFirstRow = null;
         for (int rowIndex = firstRowIndex; rowIndex < lastRowExclusive && y < heightPx; rowIndex++)
         {
             object row = owner.GetRowForRender(rowIndex);
+            if (groups != null && rowIndex >= groupEnd)
+            {
+                CustomTableRowGroup group = groups.GetRowGroup(rowIndex);
+                groupEnd = Math.Max(group.EndRowIndex, rowIndex + 1);
+                groupOrdinal = group.Ordinal;
+                // 結合列の値は、表示中の範囲にあるグループの最初の行から読む。先頭行が画面外でも、先頭行を別に読み込まない。
+                segmentFirstRow = row;
+                segmentTop = y;
+            }
             CustomTableRowEntry rowEntry = owner.GetRowEntry(row);
             bool selected = owner.IsRowSelected(rowIndex);
             CustomTableColumn currentColumn = owner.GetCurrentCellColumn(rowIndex);
@@ -370,15 +385,23 @@ internal sealed partial class CustomTableSurface : FrameworkElement
                 ? palette.SelectedRowBackground
                 : highlightedWarning
                     ? palette.WarningRowBackground
-                    : (rowIndex & 1) == 1
+                    : ((groups == null ? rowIndex : groupOrdinal) & 1) == 1
                         ? palette.AlternatingRowBackground
                         : palette.RowBackground;
             FillRect(0f, y, widthPx, Math.Min(y + rowHeightPx, heightPx), rowBackground);
-            DrawRowCells(layout, rowEntry, selected, currentColumn, y);
+            DrawRowCells(layout, rowEntry, selected, currentColumn, y, groups != null);
+            int rowBottom = y + rowHeightPx;
+            bool lastInGroup = groups == null || rowIndex + 1 >= groupEnd;
             // 横罫線は完全に見えるときだけ描く。部分表示の行は、罫線を描かず中身だけを見せる。
-            if (y + rowHeightPx <= heightPx)
+            // グループの内部の境界は、結合列には描かず、グループの下端の罫線だけを全幅に描く。
+            if (rowBottom <= heightPx)
             {
-                FillRect(0f, y + rowHeightPx - gridLinePx, widthPx, y + rowHeightPx, palette.CellBorder);
+                FillRowBottomBorder(layout, rowBottom - gridLinePx, rowBottom, skipMergedColumns: !lastInGroup);
+            }
+            if (groups != null && (lastInGroup || rowIndex + 1 >= lastRowExclusive || rowBottom >= heightPx))
+            {
+                // 表示中の部分の最後の行まで背景を塗り終えてから、結合列の内容を一度だけ描く。
+                DrawMergedCells(layout, segmentFirstRow, segmentTop, rowBottom, lastInGroup && rowBottom <= heightPx);
             }
             y += rowHeightPx;
             drawnRows++;
@@ -415,7 +438,90 @@ internal sealed partial class CustomTableSurface : FrameworkElement
         FillRect(0f, y - thickness / 2, widthPx, y - thickness / 2 + thickness, palette.ColumnReorderInsert);
     }
 
-    private void DrawRowCells(CustomTableColumnLayoutSnapshot layout, CustomTableRowEntry row, bool selected, CustomTableColumn currentColumn, int y)
+    /// <summary>
+    /// 行の下端の横罫線を描きます。<paramref name="skipMergedColumns"/> がtrueなら、行グループの結合列の幅には描かず、グループの内部の境界にします。
+    /// 結合列の右の縦罫線は、各行が描くため途切れません。
+    /// </summary>
+    private void FillRowBottomBorder(CustomTableColumnLayoutSnapshot layout, int top, int bottom, bool skipMergedColumns)
+    {
+        int x = 0;
+        if (skipMergedColumns)
+        {
+            foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
+            {
+                if (entry.Column == null || !entry.Column.MergesRowGroup)
+                {
+                    continue;
+                }
+                (int left, int right) = GetSlotPixels(entry);
+                int skipLeft = Math.Max(x, left);
+                int skipRight = Math.Min(widthPx, right - gridLinePx);
+                if (skipRight > skipLeft)
+                {
+                    FillRect(x, top, skipLeft, bottom, palette.CellBorder);
+                    x = skipRight;
+                }
+            }
+        }
+        FillRect(x, top, widthPx, bottom, palette.CellBorder);
+    }
+
+    /// <summary>
+    /// グループの全行にまたがる結合列の内容を、グループの範囲のうち表示中の部分の縦中央に一度だけ描きます。
+    /// 値は表示中の部分の最初の行から読み、色は選択・現在セルで変えません。グループの下端が見えるときは、下端の罫線を除いた範囲の中央です。
+    /// </summary>
+    private void DrawMergedCells(CustomTableColumnLayoutSnapshot layout, object firstRow, int top, int segmentBottom, bool bottomBorderDrawn)
+    {
+        int interiorBottom = bottomBorderDrawn ? segmentBottom - gridLinePx : Math.Min(segmentBottom, heightPx);
+        if (interiorBottom <= top)
+        {
+            return;
+        }
+        CustomTableRowEntry firstEntry = null;
+        foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
+        {
+            CustomTableColumn column = entry.Column;
+            if (column == null || !column.MergesRowGroup)
+            {
+                continue;
+            }
+            (int left, int right) = GetSlotPixels(entry);
+            firstEntry ??= owner.GetRowEntry(firstRow);
+            long cellValueStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
+            CustomTableCellValue cellValue = firstEntry.GetValue(column, out _);
+            if (measureRenderDetails)
+            {
+                renderCellValueTicks += Stopwatch.GetTimestamp() - cellValueStart;
+            }
+            DrawCellContent(cellValue, new PixelRect(left, top, right - gridLinePx, interiorBottom), left, right, cellValue.Foreground);
+        }
+    }
+
+    /// <summary>セルの種類ごとの内容（文字、アイコン、チェックボックス、ラジオボタン）を描きます。</summary>
+    private void DrawCellContent(CustomTableCellValue cellValue, PixelRect interior, int slotLeft, int slotRight, Brush foreground)
+    {
+        switch (cellValue.CellKind)
+        {
+            case CustomTableCellKind.DownloadIcon:
+                DrawDownloadIcon(cellValue.Text, interior, foreground);
+                break;
+            case CustomTableCellKind.StatusIcon:
+                DrawStatusIcon(cellValue.Text, interior, foreground);
+                break;
+            case CustomTableCellKind.CheckBox:
+                DrawCheckBox(cellValue.IsChecked, cellValue.IsEnabled, interior, foreground);
+                break;
+            case CustomTableCellKind.RadioButton:
+                DrawRadioButton(cellValue.IsChecked, cellValue.IsEnabled, interior, foreground);
+                break;
+            default:
+                CustomTableTextStyle textStyle = cellValue.TextStyle ?? CustomTableTextStyle.Normal;
+                DrawCellText(cellValue.Text, interior, slotLeft, slotRight, foreground, cellValue.TextRuns, cellValue.Alignment, textStyle.Kind, textStyle.VerticalOffset);
+                break;
+        }
+    }
+
+    private void DrawRowCells(CustomTableColumnLayoutSnapshot layout, CustomTableRowEntry row, bool selected, CustomTableColumn currentColumn, int y, bool hasRowGroups)
     {
         foreach (CustomTableColumnLayoutEntry entry in layout.VisibleEntries)
         {
@@ -427,6 +533,20 @@ internal sealed partial class CustomTableSurface : FrameworkElement
             (int left, int right) = GetSlotPixels(entry);
             var interior = new PixelRect(left, y, right - gridLinePx, y + rowHeightPx - gridLinePx);
             bool currentCell = currentColumn != null && string.Equals(currentColumn.Id, column.Id, StringComparison.Ordinal);
+            if (hasRowGroups && column.MergesRowGroup)
+            {
+                // 結合列は、行ごとの行背景をそのまま見せ、列のセル背景は使わない。内容はグループの最後の行で一度だけ描く。
+                // 現在セルの強調は、その行の部分だけに塗る。
+                if (currentCell)
+                {
+                    FillRect(Math.Max(0, interior.Left), interior.Top, Math.Min(widthPx, interior.Right), interior.Bottom, palette.CurrentCellBackground);
+                }
+                if (right <= widthPx && interior.Right >= 0)
+                {
+                    FillRect(interior.Right, y, right, y + rowHeightPx, palette.CellBorder);
+                }
+                continue;
+            }
             long cellValueStart = measureRenderDetails ? Stopwatch.GetTimestamp() : 0L;
             CustomTableCellValue cellValue = row.GetValue(column, out _);
             if (measureRenderDetails)
@@ -452,23 +572,7 @@ internal sealed partial class CustomTableSurface : FrameworkElement
                     : selected
                         ? palette.SelectedForeground
                         : cellValue.Foreground;
-            if (cellValue.CellKind == CustomTableCellKind.DownloadIcon)
-            {
-                DrawDownloadIcon(cellValue.Text, interior, foreground);
-            }
-            else if (cellValue.CellKind == CustomTableCellKind.StatusIcon)
-            {
-                DrawStatusIcon(cellValue.Text, interior, foreground);
-            }
-            else if (cellValue.CellKind == CustomTableCellKind.CheckBox)
-            {
-                DrawCheckBox(cellValue.IsChecked, interior, foreground);
-            }
-            else
-            {
-                CustomTableTextStyle textStyle = cellValue.TextStyle ?? CustomTableTextStyle.Normal;
-                DrawCellText(cellValue.Text, interior, left, right, foreground, cellValue.TextRuns, cellValue.Alignment, textStyle.Kind, textStyle.VerticalOffset);
-            }
+            DrawCellContent(cellValue, interior, left, right, foreground);
             if (right <= widthPx && interior.Right >= 0)
             {
                 FillRect(interior.Right, y, right, y + rowHeightPx, palette.CellBorder);

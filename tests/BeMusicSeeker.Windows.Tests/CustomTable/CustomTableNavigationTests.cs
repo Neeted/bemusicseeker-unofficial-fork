@@ -853,6 +853,128 @@ public sealed class CustomTableNavigationTests
         });
     }
 
+    /// <summary>
+    /// 行グループの提供元を持つ表で、操作できるチェックボックス・ラジオボタンのセルのクリックが、クリックした行と列を伴う <c>CellActionRequested</c> を一度送り、
+    /// その行が選択されること、ダブルクリックが <c>CellActionRequested</c> 二回で <c>RowActivated</c> を送らないことを確認します。
+    /// 結合列では、先頭でない行（グループ [2..5] の行4）をクリックしても同じです。無効（操作可否がfalse）のセルと値なしのセルは要求を送らず、ダブルクリックは <c>RowActivated</c> を送ります。
+    /// 提供元のない表のチェックボックス列は従来どおり、一回目の押下で要求を一度、二回目の押下で <c>RowActivated</c> を送ります。
+    /// </summary>
+    /// <remarks>
+    /// 結合列で先頭行へ要求を送る誤り、図形の有無でヒットを変える誤り、ダブルクリックで <c>RowActivated</c> を送る誤りと要求が一回にとどまる誤り、
+    /// 無効・値なしのセルで要求を送る誤りと、そのダブルクリックから <c>RowActivated</c> を奪う誤り、提供元のない表の挙動を変える誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, true, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, false, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, true, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, false, false, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, true, true, 2, 2, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, true, true, 2, 2, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, false, true, true, 2, 2, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, true, false, 1, 0, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, true, false, 2, 0, 1)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, true, false, 2, 0, 1)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, null, true, 1, 0, 0)]
+    [DataRow(CustomTableCellKind.RadioButton, true, true, null, true, 2, 0, 1)]
+    [DataRow(CustomTableCellKind.CheckBox, true, true, null, true, 2, 0, 1)]
+    [DataRow(CustomTableCellKind.CheckBox, false, false, true, true, 1, 1, 0)]
+    [DataRow(CustomTableCellKind.CheckBox, false, false, true, true, 2, 1, 1)]
+    public void ActionCells_ClickAndDoubleClickFollowTheRowGroupContract(
+        CustomTableCellKind kind, bool grouped, bool merged, bool? isChecked, bool enabled, int clicks, int expectedActions, int expectedActivations)
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            object[] rows = grouped ? new GroupedRowList([2, 4, 2]).ToArray() : [.. Enumerable.Range(0, 8).Select(_ => new object())];
+            System.Collections.IList source = grouped ? new GroupedRowList([2, 4, 2], rows) : rows;
+            CustomTableColumn[] columns = new[]
+            {
+                new CustomTableColumn("Text", "Text", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 0, string.Empty, TextAlignment.Left, _ => string.Empty),
+                new CustomTableColumn("Action", "Action", new CustomTableColumnSettings.ColumnLayout { Width = 60 }, 1, string.Empty, TextAlignment.Center, _ => string.Empty,
+                    checkedSelector: _ => isChecked, cellKind: kind, mergesRowGroup: merged, enabledSelector: _ => enabled)
+            };
+            var table = new CustomTableView { Width = 200d, Height = 260d, Columns = columns, ItemsSource = source };
+            table.Measure(new Size(200d, 260d));
+            table.Arrange(new Rect(0d, 0d, 200d, 260d));
+            table.UpdateLayout();
+            var actions = new List<CustomTableCellActionRequestedEventArgs>();
+            var activations = new List<int>();
+            table.CellActionRequested += (_, args) => actions.Add(args);
+            table.RowActivated += (_, args) => activations.Add(args.RowIndex);
+            try
+            {
+                const int clickedRow = 4;
+                var point = new Point(90d, table.HeaderHeight + (clickedRow + 0.5d) * table.RowHeight);
+                CustomTableHitTestResult hit = table.HitTestTable(point);
+                Assert.AreEqual(CustomTableHitKind.Cell, hit.Kind);
+                Assert.AreEqual(clickedRow, hit.RowIndex);
+                Assert.AreSame(columns[1], hit.Column);
+                for (int clickCount = 1; clickCount <= clicks; clickCount++)
+                {
+                    Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, clickCount, point));
+                }
+                Assert.AreEqual(expectedActions, actions.Count, "CellActionRequestedの回数");
+                foreach (CustomTableCellActionRequestedEventArgs action in actions)
+                {
+                    Assert.AreEqual(clickedRow, action.RowIndex);
+                    Assert.AreSame(rows[clickedRow], action.Row);
+                    Assert.AreSame(columns[1], action.Column);
+                }
+                CollectionAssert.AreEqual(Enumerable.Repeat(clickedRow, expectedActivations).ToArray(), activations, "RowActivatedの回数と行");
+                Assert.AreEqual(clickedRow, table.SelectedIndex, "クリックした行が通常のクリックと同じ規則で選択される");
+                CollectionAssert.AreEqual(new[] { rows[clickedRow] }, table.GetSelectedRowsSnapshot().ToArray());
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
+    /// <summary>
+    /// 結合列の先頭でない行（グループ [2..5] の行4）で、ツールチップ・Ctrl+Cの現在セルのコピー・Ctrl+Shift+Cの選択行のTSVが、その行の値（グループの先頭行ではない）を使うことを確認します。
+    /// 行ごとに値が異なる行を使い、コピーはクリップボードへ書く前に専用の例外で止めます。
+    /// </summary>
+    /// <remarks>結合列のツールチップやコピーをグループの先頭行へ読み替える誤り、TSVの行を結合して一行にまとめる誤りを検出します。</remarks>
+    [TestMethod]
+    public void MergedColumn_TooltipCopyAndTsvUseTheValuesOfTheClickedRow()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            TextRow[] rowValues = [.. Enumerable.Range(0, 8).Select(index => new TextRow("value " + index))];
+            var rows = new GroupedRowList([2, 4, 2], rowValues);
+            var visits = new List<TextRow>();
+            TextRow? stopAt = null;
+            var sentinel = new InvalidOperationException("コピーの対象を観測したため、クリップボードへ書く前に停止します。");
+            var column = new CustomTableColumn("Merged", "Merged", new CustomTableColumnSettings.ColumnLayout { Width = 120 }, 0, string.Empty, TextAlignment.Left,
+                row => ((TextRow)row).Text, tooltipSelector: row => "tip " + ((TextRow)row).Text, mergesRowGroup: true,
+                editTextSelector: row =>
+                {
+                    visits.Add((TextRow)row);
+                    if (ReferenceEquals(row, stopAt)) { throw sentinel; }
+                    return ((TextRow)row).Text;
+                });
+            var table = new CustomTableView { Width = 200d, Height = 260d, Columns = [column], ItemsSource = rows };
+            table.Measure(new Size(200d, 260d));
+            table.Arrange(new Rect(0d, 0d, 200d, 260d));
+            table.UpdateLayout();
+            try
+            {
+                var point = new Point(50d, table.HeaderHeight + 4.5d * table.RowHeight);
+                CustomTableHitTestResult hit = table.HitTestTable(point);
+                Assert.AreEqual(4, hit.RowIndex);
+                Assert.AreEqual("tip value 4", table.ResolveCellToolTip(hit), "ツールチップはクリックした行の値");
+                Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point));
+                stopAt = rowValues[4];
+                visits.Clear();
+                Assert.AreSame(sentinel, Assert.ThrowsExactly<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control)));
+                CollectionAssert.AreEqual(new[] { rowValues[4] }, visits, "現在セルのコピーはその行の値");
+
+                table.SelectRowsByPredicate(row => ReferenceEquals(row, rowValues[3]) || ReferenceEquals(row, rowValues[4]), row => ReferenceEquals(row, rowValues[4]));
+                visits.Clear();
+                Assert.AreSame(sentinel, Assert.ThrowsExactly<InvalidOperationException>(() => table.HandleKeyDown(Key.C, ModifierKeys.Control | ModifierKeys.Shift)));
+                CollectionAssert.AreEqual(new[] { rowValues[3], rowValues[4] }, visits, "TSVは選択した各行の値");
+            }
+            finally { table.ItemsSource = null; }
+        });
+    }
+
     /// <summary>OSの設定の行数です。-1（一画面ずつ）は完全表示行容量、0は動かしません。</summary>
     private static int ExpectedWheelLines(CustomTableView table)
     {
@@ -896,6 +1018,38 @@ public sealed class CustomTableNavigationTests
         Assert.AreEqual(rowIndex, hit.RowIndex);
         Assert.AreSame(table.VisibleColumns[columnIndex], hit.Column);
         return table.HandleCellMouseDown(hit, button, modifiers, 1, point);
+    }
+
+    /// <summary>行ごとに異なる文字を持つ行です。</summary>
+    private sealed class TextRow(string text)
+    {
+        internal string Text { get; } = text;
+    }
+
+    /// <summary>グループの大きさの並びから、連続したグループを返す行集合です。行を渡さなければ、行ごとに新しいobjectを作ります。</summary>
+    private sealed class GroupedRowList : System.Collections.ObjectModel.Collection<object>, ICustomTableRowGroupSource
+    {
+        private readonly int[] starts;
+
+        internal GroupedRowList(int[] sizes, IEnumerable<object>? rows = null)
+        {
+            starts = new int[sizes.Length];
+            int total = 0;
+            for (int i = 0; i < sizes.Length; i++)
+            {
+                starts[i] = total;
+                total += sizes[i];
+            }
+            foreach (object row in rows ?? Enumerable.Range(0, total).Select(_ => new object())) { Add(row); }
+        }
+
+        public CustomTableRowGroup GetRowGroup(int rowIndex)
+        {
+            int ordinal = Array.BinarySearch(starts, rowIndex);
+            if (ordinal < 0) { ordinal = ~ordinal - 1; }
+            int end = ordinal + 1 < starts.Length ? starts[ordinal + 1] : Count;
+            return new CustomTableRowGroup(starts[ordinal], end - starts[ordinal], ordinal);
+        }
     }
 
     // 添字アクセスを記録し、列挙・探索・複写を失敗にする行集合です。選択の処理が触れた行だけを観測するために使います。

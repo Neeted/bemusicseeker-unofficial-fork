@@ -228,6 +228,44 @@ DPIは変更通知と描画開始時の確認で追従します。配色・DPI�
 
 一覧の見出しの上端には `Table.HeaderGridLineBrush` による1 DIPの線（[行と見出しの高さの丸め](#行と見出しの高さの丸め)の幅）を表示幅全体に描きます。線は上端の内側に置き、端で欠けないようにします。通常一覧とプレイリスト一覧とも、保留・プレイログの追加のツールバーや、表示列・データ行の有無によらず上枠を表示し、追加のツールバー側には下枠を重ねません。データ行の罫線・行の高さ・スクロールの計算は変えません。
 
+### 行グループとチェック・ラジオボタンのセル
+
+表は任意で行グループを扱えます。`ItemsSource` が `ICustomTableRowGroupSource`（行番号から、グループの先頭行番号・行数・グループの序数（0始まり）を返す提供元）を実装する表だけが、グループ単位の交互背景、同一列の縦結合、無効セルの操作を持ちます。提供元は行集合と同じ一覧が持つため、行集合の差替えでグループの境界だけが古いまま残りません。提供元を持たない表（既存の全用途）の描画・操作・UI Automationは変わりません。グループの並べ替え・検索と、グループ内の値の一致は行の供給側が担います。
+
+- グループは連続した行です。提供元の返値が不整合な場合は契約外で、表は検査も保証もしません。
+- 提供元への問合せは、描画の一回ごとに、表示範囲に現れるグループの数だけです。表示範囲の最初の行と、グループの終端の次の行だけを問い合わせ、グループの範囲を一行ずつ走査しません。問合せ回数と行の読取りは、同じ画面なら、グループの大きさと総行数に依存しません。
+
+#### グループの背景と結合列
+
+背景は[保持範囲と文字のレイアウトの再利用](#保持範囲と文字のレイアウトの再利用)の優先（選択、警告、交互色）のまま、交互色だけをグループの序数の偶奇で決めます。偶数は `RowBackground`、奇数は `AlternatingRowBackground` です。スクロール後も先頭からの序数を使い、表示中の先頭行や画面上の位置から数え直しません。
+
+列定義の `mergesRowGroup` が真の列（グループ結合列）は、グループの全行にまたがる一つのセルとして描きます。
+
+| 項目 | 契約 |
+| --- | --- |
+| 値 | 値・チェック状態・ツールチップ・操作可否をグループ内の全行で一致させることは行の供給側の責任です。表は各行の値をそのまま使い、描画には表示中の範囲にあるそのグループの最初の行の値を使います。グループの先頭行が画面外でも、先頭行を別に読み込みません。 |
+| 罫線 | グループの内部の横罫線をその列には描かず、グループの下端の罫線は描きます。右の縦罫線は各行が描き、途切れません。他の列の罫線は行ごとのままです。 |
+| 内容 | 文字・チェックボックス・ラジオボタンを、グループの範囲のうち表示中の部分の縦中央に一度だけ描きます。グループの下端が見えるときは、下端の罫線を除いた範囲の中央です。先頭行が画面外のときも、グループが表示行数より大きいときも、最後の行が部分表示のときも同じです。 |
+| 背景と色 | 背景は行ごとの行背景（選択色を含む）のままです。列のセル背景の選択子は使いません。現在セルの強調は、当該行の部分だけに塗ります。内容の文字色は通常の前景色で、選択・現在セルでは反転しません。 |
+| 編集・キー | セル編集の対象外です。上下左右・Enter・F2などのキー操作は、行×列のまま変わりません。 |
+
+コピー・TSV・ツールチップは行×列のモデルを保ち、結合列でもクリックした行・選択した行の値を使います。
+
+#### チェックボックスとラジオボタン
+
+ラジオボタン（`CustomTableCellKind.RadioButton`）は、trueを選択済み（円の輪郭と中央の塗りの円）、falseを未選択（円の輪郭）で描き、nullは何も描きません。大きさと色はチェックボックスと同じパレットです。
+
+列定義の `enabledSelector`（操作可否）がfalseを返す行では、チェックボックスとラジオボタンを同じ図形のまま、背景を塗らず、枠とチェック（ラジオボタンは中央の塗り）を無効色で描きます。無効色は `CustomTablePalette.CheckBoxDisabledBorder` と `CheckBoxDisabledCheck` で、テーマの `Table.SubtleTextBrush` から導きます。無効のセルのクリックは `CellActionRequested` を送りません。選択子のない列は常に操作できます。
+
+| 操作 | 提供元を持つ表 | 提供元を持たない表（現行の挙動） |
+| --- | --- | --- |
+| 当たり判定 | クリックした行のその列のセル全体。結合列では、図形の有無によらずグループ内のどの行のセルでも同じで、クリックした行と列を伴う。 | セル全体。 |
+| クリック | 操作できるセル（値が非nullで、操作可）で、押した行の `CellActionRequested` を一度送る。行の選択は通常のクリックと同じ規則で、クリックした行に作用する。 | 同じ。 |
+| ダブルクリック | 操作できるチェックボックス・ラジオボタンのセルは、二回目の押下も `CellActionRequested` を送り（合計二回）、`RowActivated` を送らない。無効または値なしのセルは、通常どおり `RowActivated` を送る。 | `CellActionRequested` 一回の後に `RowActivated`。 |
+| UI Automation | チェックボックスのセルは `Toggle`（ControlTypeはCheckBox）、ラジオボタンのセルは `SelectionItem`（ControlTypeはRadioButton）を公開する。操作は `CellActionRequested` を一度送り、値や選択を直接変えない。無効のセルは `IsEnabled=false` で、操作は `ElementNotEnabledException` になり要求を送らない。値なしのセルの操作は `InvalidOperationException` になる。ラジオボタンの `RemoveFromSelection` は `InvalidOperationException` になる。 | セルは `Value` だけを公開し、トグルを公開しない。 |
+
+行×列のUI Automationのモデルは保ち、各行のセルがその行の値を公開します。
+
 ### 選択とキー操作
 
 #### マウスによる選択
@@ -1039,6 +1077,20 @@ BMTのドラッグだけは、実際に適用したドラッグ対象のIDの集
 | 概要STATUS列とtooltipの言語追従 | `PlaylistSummaryRow.Status` / `StatusDetail`、`PlaylistSyncRuntimeStatus`、`PlaylistSyncStatusMapper`、`CustomTableView.ResourceServicePropertyChanged` | [`CustomTablePhase6CacheTests.ColumnHeaderLanguage_AdditionalDictionaryRoundTripKeepsColumnsRowsAndEdit`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) の概要では、Http404と未読込みの行について、追加辞書を含む往復の明示的な描画失効なしにSTATUSセル値とtooltipが現在値になることを確認する。[`PlaylistWorkspacePresentationStateTests.PlaylistSummaryStatusLanguage_SameRowsAndRawCacheReuseFollowLanguageWithoutRebuild`](../../../tests/BeMusicSeeker.Windows.Tests/Playlist/PlaylistWorkspacePresentationStateTests.cs) は実の概要buildを通した同じ行で、読込み済み・未読込み・状態なしの言語往復、raw cache再利用と整列後の現在語、buildとデータ世代の不変を確認する。 |
 
 導入済み現在値の局所通知は [`PackageLifecycleOwner.CurrentCharts`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Install/PackageLifecycleOwner.CurrentCharts.cs)、[`NormalLibraryRefreshPublisher`](../../../BeMusicSeeker/Models/BmsLibraryInternal/Catalog/NormalLibraryRefreshPublisher.cs)、`RegularChartListOwner` と `MainViewRefreshDecisionService` が担当します。[`OwnedChartCollectionRefreshTests`](../../../tests/BeMusicSeeker.Windows.Tests/Catalog/OwnedChartCollectionRefreshTests.cs) は正式適用結果からの先行依存保持、[`RegularChartNormalLibraryRefreshTests`（Core）](../../../tests/BeMusicSeeker.Core.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs)、[`RegularChartNormalLibraryRefreshTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNormalLibraryRefreshTests.cs) は条件表・一表示要求・Title順の最終表示を確認します。[`MainWindowPackageMaintenanceWpfTests`（Windows）](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.cs) の混在純移転は実DB・current・索引・entryから行・選択・編集の保持まで、[`MainWindowTreePresentationWpfTests`](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowTreePresentationWpfTests.cs) はcompiled headerの解放後更新を確認します。
+
+### 行グループとチェック・ラジオボタンのセル
+
+| 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
+| --- | --- | --- |
+| グループの序数による交互背景、選択・警告の優先、スクロール後 | `ICustomTableRowGroupSource`、`CustomTableSurface.DrawRows` | [`CustomTableRenderingTests.RowGroups_AlternateBackgroundByGroupOrdinalWithSelectionAndWarningPriority`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableRenderingTests.cs) は大きさ [2,1,3,2,1,3,2,1,3] で行番号と序数の偶奇が食い違う行の背景と、選択・警告の優先を、先頭行0・2・5の各スクロール位置で確認する。 |
+| 結合列は一グループ一セル（内部罫線なし、下端罫線あり、内容は表示中の部分の縦中央に一度、背景は行ごと、強調は当該行だけ） | `CustomTableColumn.MergesRowGroup`、`CustomTableSurface.DrawMergedCells`・`FillRowBottomBorder`・`DrawRowCells` | 同クラスの `RowGroups_MergedColumnsDrawOneCellPerGroupCenteredOnTheVisiblePart` は倍率1.0と1.25で、罫線の有無、文字とチェックボックスの縦中央（±1画素）、先頭行が画面外・1000行のグループの中ほど・最後の行が部分表示の各場合、選択と現在セルの強調と文字色を確認する。 |
+| ラジオボタンの図形、無効色 | `CustomTableSurface.DrawRadioButton`・`DrawCheckBox`、`CustomTablePalette.CheckBoxDisabledBorder`・`CheckBoxDisabledCheck` | 同クラスの `Icons_AreDrawnPerKindInsideTheCell` は、既存の表明に加え、ラジオボタンの true・false・null の図形、チェックボックスとの形の違いと大きさ、無効のチェックボックス・ラジオボタンが有効時と異なる画素で前景色を使わないことを確認する。 |
+| クリック・ダブルクリック、当たり判定、行の選択、提供元のない表の対照 | `CustomTableView.HandleCellMouseDown`・`IsActionCell` | [`CustomTableNavigationTests.ActionCells_ClickAndDoubleClickFollowTheRowGroupContract`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableNavigationTests.cs) はデータ駆動で、結合列の先頭でない行のクリックとダブルクリックの要求の行・列・回数、`RowActivated`、選択、無効・値なしのセル、提供元のないチェックボックス列（要求の後に `RowActivated`）を確認する。 |
+| 結合列のツールチップ・コピー・TSV | `CustomTableView.ResolveCellToolTip`、`CustomTableDataTransfer` | 同クラスの `MergedColumn_TooltipCopyAndTsvUseTheValuesOfTheClickedRow` は、先頭でない行の値が出ることを確認する。 |
+| UI Automationのトグル・選択・有効状態、結合列の値と編集不可、提供元のない表の不変 | `CustomTableView.Automation.cs` の `CustomTableCellAutomationPeer`、`CustomTableView.CanEditAutomationCell` | [`CustomTableAutomationPeerTests.RowGroupCells_ExposeToggleSelectionAndEnabledStateOfTheirOwnRow`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTableAutomationPeerTests.cs) は先頭でない行のセルの値・トグル状態・選択状態・有効状態、操作後の要求の回数・行・列、無効のセル、提供元のない表の公開内容を確認する。 |
+| 問合せ回数と行の読取りがグループの大きさに依存しない | `CustomTableSurface.DrawRows` | [`CustomTablePhase6CacheTests.RowGroups_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize`](../../../tests/BeMusicSeeker.Windows.Tests/CustomTable/CustomTablePhase6CacheTests.cs) は20万行の中ほどで、グループの大きさ1,000と199,990の問合せ回数と行の読取り回数が等しく、結合列の値の取得が一回であることを確認する。 |
+
+提供元を持たない表の不変は、既存の表示・操作・UI Automationのテストを変えずに通すことで確認します。
 
 ## 関連資料
 

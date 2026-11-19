@@ -690,6 +690,12 @@ public sealed partial class CustomTableView : Grid
 
     internal int RowCount => ItemsSource?.Count ?? 0;
 
+    /// <summary>
+    /// 行グループの提供元です。<see cref="ItemsSource"/> が <see cref="ICustomTableRowGroupSource"/> を実装する表だけが持ち、
+    /// 行集合の差替えと同時に切り替わります。持たない表（既存の全用途）はnullで、描画・操作・UI Automationは変わりません。
+    /// </summary>
+    internal ICustomTableRowGroupSource RowGroupSource => ItemsSource as ICustomTableRowGroupSource;
+
     /// <summary>バー背後を含む全面の実描画幅です。スクロール用の有効表示幅とは区別します。</summary>
     internal double SurfaceWidth => surface.ActualWidth;
 
@@ -1673,7 +1679,11 @@ public sealed partial class CustomTableView : Grid
             rowDragStartPoint = clickCount == 1 ? dragStartPoint : null;
             rowDragStartHit = clickCount == 1 ? hit : null;
             pendingSingleSelectionOnMouseUpRowIndex = delaySingleSelectionUntilMouseUp ? hit.RowIndex : -1;
-            if (clickCount == 1
+            // 行グループの提供元を持つ表では、操作できるチェックボックス・ラジオボタンのダブルクリックを、
+            // 二回目の押下も操作として扱い、行の起動（RowActivated）にしない。提供元のない表は、従来どおり二回目の押下で行を起動する。
+            bool repeatableAction = RowGroupSource != null
+                && hit.Column?.CellKind is CustomTableCellKind.CheckBox or CustomTableCellKind.RadioButton;
+            if ((clickCount == 1 || (clickCount >= 2 && repeatableAction))
                 && IsActionCell(hit)
                 && (modifiers & (ModifierKeys.Control | ModifierKeys.Shift | ModifierKeys.Alt)) == ModifierKeys.None)
             {
@@ -1696,6 +1706,12 @@ public sealed partial class CustomTableView : Grid
         return false;
     }
 
+    /// <summary>行グループの提供元を持つ表で、グループの全行にまたがる列かを返します。</summary>
+    private bool IsMergedColumn(CustomTableColumn column)
+    {
+        return column != null && column.MergesRowGroup && RowGroupSource != null;
+    }
+
     private static bool IsActionCell(CustomTableHitTestResult hit)
     {
         if (hit?.Column == null)
@@ -1705,7 +1721,7 @@ public sealed partial class CustomTableView : Grid
         return hit.Column.CellKind switch
         {
             CustomTableCellKind.DownloadIcon or CustomTableCellKind.ActionText => !string.IsNullOrWhiteSpace(hit.Column.GetText(hit.Row)),
-            CustomTableCellKind.CheckBox => hit.Column.GetChecked(hit.Row).HasValue,
+            CustomTableCellKind.CheckBox or CustomTableCellKind.RadioButton => hit.Column.GetChecked(hit.Row).HasValue && hit.Column.GetEnabled(hit.Row),
             _ => false,
         };
     }
@@ -2467,6 +2483,11 @@ public sealed partial class CustomTableView : Grid
     private bool BeginCellEdit(CustomTableHitTestResult hit, string replacementText)
     {
         if (hit?.Kind != CustomTableHitKind.Cell || string.IsNullOrWhiteSpace(hit.Column?.EditPropertyName))
+        {
+            return false;
+        }
+        // 行グループの結合列は、行をまたぐ一つのセルとして描くため、行ごとの編集欄を重ねない。
+        if (IsMergedColumn(hit.Column))
         {
             return false;
         }

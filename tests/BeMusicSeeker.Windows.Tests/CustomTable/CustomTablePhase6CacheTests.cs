@@ -1446,6 +1446,114 @@ public sealed class CustomTablePhase6CacheTests
         });
     }
 
+    /// <summary>
+    /// 20万行の中ほど（行100500）を表示したとき、行グループの提供元への問合せ回数と、行集合の読取り回数が、グループの大きさ（1,000行と199,990行）によらず等しいことを確認します。
+    /// 表示範囲は一つのグループの内部に収まるため、問合せは一回で、結合列の値の取得は表示中の部分の最初の行だけ（一回）、通常の列は表示行ごとです。
+    /// </summary>
+    /// <remarks>
+    /// グループの範囲を一行ずつ走査する誤り（問合せや読取りがグループの大きさに比例する）、描く行ごとに提供元へ問い合わせる誤り、
+    /// グループの先頭行が画面の外にあるとき、その先頭行を別に読み込んで結合列の値を得る誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void RowGroups_ProviderQueriesAndRowReadsDoNotDependOnTheGroupSize()
+    {
+        TestUiDispatcherHost.Invoke(() =>
+        {
+            const int RowTotal = 200_000;
+            (int Queries, int Reads, int MergedCalls, int PlainCalls) Measure(int groupSize)
+            {
+                var rows = new GroupedCountingRows(RowTotal, groupSize);
+                int plainCalls = 0, mergedCalls = 0;
+                var plain = new CustomTableColumn("Plain", "PLAIN", new CustomTableColumnSettings.ColumnLayout { Width = 100, Visibility = Visibility.Visible }, 0, null,
+                    TextAlignment.Left, _ => { plainCalls++; return "p"; });
+                var merged = new CustomTableColumn("Merged", "MERGED", new CustomTableColumnSettings.ColumnLayout { Width = 100, Visibility = Visibility.Visible }, 1, null,
+                    TextAlignment.Left, _ => { mergedCalls++; return "m"; }, mergesRowGroup: true);
+                var table = new CustomTableView { Width = 240d, Height = 120d, HeaderHeight = 20d, RowHeight = 20d, Columns = [plain, merged], ItemsSource = rows };
+                CustomTableRenderProbe.SetDpi(table, 1d);
+                table.Measure(new Size(240d, 120d));
+                table.Arrange(new Rect(0d, 0d, 240d, 120d));
+                table.UpdateLayout();
+                table.ApplyVisibilityChanged(true);
+                try
+                {
+                    ScrollBar bar = table.Children.OfType<ScrollBar>().Single(item => item.Orientation == Orientation.Vertical);
+                    table.UpdateLayout();
+                    rows.ResetCounts();
+                    plainCalls = mergedCalls = 0;
+                    bar.Value = 100_500;
+                    table.UpdateLayout();
+                    Assert.AreEqual(100_500, table.FirstVisibleRowIndex);
+                    return (rows.Queries, rows.Reads, mergedCalls, plainCalls);
+                }
+                finally { ReleaseTable(table); }
+            }
+
+            (int Queries, int Reads, int MergedCalls, int PlainCalls) small = Measure(1_000);
+            (int Queries, int Reads, int MergedCalls, int PlainCalls) large = Measure(199_990);
+            Assert.AreEqual(1, small.Queries, "表示範囲が一つのグループに収まるなら、問合せは一回");
+            Assert.AreEqual(small.Queries, large.Queries, "問合せ回数がグループの大きさに依存する");
+            Assert.AreEqual(small.Reads, large.Reads, "行集合の読取り回数がグループの大きさに依存する");
+            Assert.IsTrue(small.Reads is > 0 and < 100, "読取りは保持範囲の行だけ。読取り=" + small.Reads);
+            Assert.AreEqual(1, small.MergedCalls, "結合列の値は表示中の部分の最初の行だけから読む");
+            Assert.AreEqual(1, large.MergedCalls);
+            Assert.AreEqual(small.PlainCalls, large.PlainCalls);
+            Assert.IsTrue(small.PlainCalls > 1, "通常の列は表示行ごとに値を読む");
+        });
+    }
+
+    /// <summary>グループの大きさの連続したグループを返し、行集合の読取りと提供元への問合せを数える、20万行規模の行集合です。列挙を失敗にします。</summary>
+    private sealed class GroupedCountingRows(int count, int groupSize) : System.Collections.IList, ICustomTableRowGroupSource
+    {
+        private readonly object[] rows = [.. Enumerable.Range(0, count).Select(_ => new object())];
+
+        internal int Queries { get; private set; }
+
+        internal int Reads { get; private set; }
+
+        internal void ResetCounts() { Queries = 0; Reads = 0; }
+
+        public CustomTableRowGroup GetRowGroup(int rowIndex)
+        {
+            Queries++;
+            int first = rowIndex / groupSize * groupSize;
+            return new CustomTableRowGroup(first, Math.Min(groupSize, count - first), rowIndex / groupSize);
+        }
+
+        public object? this[int index]
+        {
+            get { Reads++; return rows[index]; }
+            set => throw new NotSupportedException();
+        }
+
+        public int Count => count;
+
+        public bool IsFixedSize => true;
+
+        public bool IsReadOnly => true;
+
+        public bool IsSynchronized => false;
+
+        public object SyncRoot => this;
+
+        public System.Collections.IEnumerator GetEnumerator() => throw new NotSupportedException("全行列挙は禁止です。");
+
+        public int Add(object? value) => throw new NotSupportedException();
+
+        public void Clear() => throw new NotSupportedException();
+
+        public bool Contains(object? value) => throw new NotSupportedException();
+
+        public int IndexOf(object? value) => throw new NotSupportedException();
+
+        public void Insert(int index, object? value) => throw new NotSupportedException();
+
+        public void Remove(object? value) => throw new NotSupportedException();
+
+        public void RemoveAt(int index) => throw new NotSupportedException();
+
+        public void CopyTo(Array array, int index) => throw new NotSupportedException();
+    }
+
     private sealed class ResettableRows : ObservableCollection<object>
     {
         internal void Reset() => OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));

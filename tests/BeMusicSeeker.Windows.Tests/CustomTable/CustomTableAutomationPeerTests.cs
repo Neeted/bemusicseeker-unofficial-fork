@@ -444,6 +444,98 @@ public sealed class CustomTableAutomationPeerTests
         }, [Column("Title", 120), Column("Second", 120)]);
     }
 
+    /// <summary>
+    /// 行グループの提供元を持つ表の、グループの先頭でない行（行2・行1）のセルが、その行の値・トグル状態（チェックボックス）・選択状態（ラジオボタン）・有効状態を公開し、
+    /// 操作が <c>CellActionRequested</c> を一度だけ、操作した行と列で送ることを確認します。無効のセルは <c>IsEnabled=false</c> で、操作は例外になり要求を送りません。
+    /// 結合列のセルは、各行がその行の値を公開し、編集の対象になりません。提供元を持たない表の同じ列は、従来どおり値だけを公開し、トグルを公開せず、操作可否の選択子で無効にもなりません。
+    /// </summary>
+    /// <remarks>
+    /// セルをグループの先頭行の値で公開する誤り、トグル・選択のパターンや種類（CheckBox・RadioButton）を公開しない誤り、操作で要求を送らない・二回送る誤り、
+    /// 無効のセルで要求を送る・有効と公開する誤り、結合列を編集可能にする誤り、提供元のない表の公開内容を変える誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void RowGroupCells_ExposeToggleSelectionAndEnabledStateOfTheirOwnRow()
+    {
+        CustomTableColumn[] Columns() =>
+        [
+            Column("Title", 80),
+            new CustomTableColumn("Merged", "Merged", new CustomTableColumnSettings.ColumnLayout { Width = 80, Visibility = Visibility.Visible }, 1, "value", TextAlignment.Left,
+                row => ((TestRow)row).Value, editPropertyName: "Value", mergesRowGroup: true),
+            new CustomTableColumn("Pick", "Pick", new CustomTableColumnSettings.ColumnLayout { Width = 40, Visibility = Visibility.Visible }, 2, null, TextAlignment.Center,
+                _ => string.Empty, cellKind: CustomTableCellKind.CheckBox, checkedSelector: _ => true, mergesRowGroup: true),
+            new CustomTableColumn("Keep", "Keep", new CustomTableColumnSettings.ColumnLayout { Width = 40, Visibility = Visibility.Visible }, 3, null, TextAlignment.Center,
+                _ => string.Empty, cellKind: CustomTableCellKind.RadioButton, checkedSelector: row => ((TestRow)row).Value == "value 2"),
+            new CustomTableColumn("Off", "Off", new CustomTableColumnSettings.ColumnLayout { Width = 40, Visibility = Visibility.Visible }, 4, null, TextAlignment.Center,
+                _ => string.Empty, cellKind: CustomTableCellKind.CheckBox, checkedSelector: _ => true, enabledSelector: _ => false),
+        ];
+        var requests = new List<(int Row, string Column)>();
+        void Record(object? sender, CustomTableCellActionRequestedEventArgs args) => requests.Add((args.RowIndex, args.Column!.Id));
+
+        WithTable(new GroupedRecordingSource(40, 4), (table, root) =>
+        {
+            table.CellActionRequested += Record;
+            try
+            {
+                AutomationPeer pick = Cell(root, "record:2", "cell:Pick");
+                Assert.AreEqual(AutomationControlType.CheckBox, pick.GetAutomationControlType());
+                IToggleProvider toggle = Pattern<IToggleProvider>(pick, PatternInterface.Toggle);
+                Assert.AreEqual(ToggleState.On, toggle.ToggleState);
+                Assert.IsTrue(pick.IsEnabled());
+                Assert.IsNull(pick.GetPattern(PatternInterface.SelectionItem));
+                Assert.IsNotNull(pick.GetPattern(PatternInterface.Value));
+                toggle.Toggle();
+                CollectionAssert.AreEqual(new[] { (2, "Pick") }, requests, "Toggleは操作した行と列の要求を一度だけ送る");
+                Assert.AreEqual(ToggleState.On, toggle.ToggleState, "状態の更新は利用先の責任で、部品は値を変えない");
+
+                AutomationPeer keep2 = Cell(root, "record:2", "cell:Keep");
+                AutomationPeer keep1 = Cell(root, "record:1", "cell:Keep");
+                Assert.AreEqual(AutomationControlType.RadioButton, keep2.GetAutomationControlType());
+                ISelectionItemProvider selected = Pattern<ISelectionItemProvider>(keep2, PatternInterface.SelectionItem);
+                ISelectionItemProvider unselected = Pattern<ISelectionItemProvider>(keep1, PatternInterface.SelectionItem);
+                Assert.IsTrue(selected.IsSelected);
+                Assert.IsFalse(unselected.IsSelected);
+                Assert.IsNull(keep2.GetPattern(PatternInterface.Toggle));
+                requests.Clear();
+                unselected.Select();
+                CollectionAssert.AreEqual(new[] { (1, "Keep") }, requests, "Selectは操作した行と列の要求を一度だけ送る");
+                selected.Select();
+                CollectionAssert.AreEqual(new[] { (1, "Keep"), (2, "Keep") }, requests);
+                Assert.ThrowsExactly<InvalidOperationException>(() => selected.RemoveFromSelection());
+
+                requests.Clear();
+                AutomationPeer off = Cell(root, "record:2", "cell:Off");
+                Assert.IsFalse(off.IsEnabled(), "操作可否がfalseのセルは無効");
+                Assert.AreEqual(ToggleState.On, Pattern<IToggleProvider>(off, PatternInterface.Toggle).ToggleState);
+                Assert.ThrowsExactly<ElementNotEnabledException>(() => Pattern<IToggleProvider>(off, PatternInterface.Toggle).Toggle());
+                Assert.AreEqual(0, requests.Count, "無効のセルは要求を送らない");
+
+                // 結合列のセルも行ごとで、その行の値を公開し、編集できない。
+                IValueProvider merged0 = Pattern<IValueProvider>(Cell(root, "record:0", "cell:Merged"), PatternInterface.Value);
+                IValueProvider merged2 = Pattern<IValueProvider>(Cell(root, "record:2", "cell:Merged"), PatternInterface.Value);
+                Assert.AreEqual("value 0", merged0.Value);
+                Assert.AreEqual("value 2", merged2.Value);
+                Assert.IsTrue(merged2.IsReadOnly, "結合列は編集の対象外");
+                Assert.IsFalse(Pattern<IValueProvider>(Cell(root, "record:2", "cell:Title"), PatternInterface.Value).IsReadOnly, "通常の列は編集できる");
+            }
+            finally { table.CellActionRequested -= Record; }
+        }, Columns());
+
+        // 提供元のない表では、同じ列が従来どおり値だけを公開する。
+        WithTable(new RecordingSource(40), (table, root) =>
+        {
+            foreach (string id in new[] { "Pick", "Keep", "Off" })
+            {
+                AutomationPeer cell = Cell(root, "record:2", "cell:" + id);
+                Assert.AreEqual(AutomationControlType.Custom, cell.GetAutomationControlType(), id);
+                Assert.IsNull(cell.GetPattern(PatternInterface.Toggle), id);
+                Assert.IsNull(cell.GetPattern(PatternInterface.SelectionItem), id);
+                Assert.IsNotNull(cell.GetPattern(PatternInterface.Value), id);
+                Assert.IsTrue(cell.IsEnabled(), id);
+            }
+            Assert.IsFalse(Pattern<IValueProvider>(Cell(root, "record:2", "cell:Merged"), PatternInterface.Value).IsReadOnly, "提供元がなければ通常の列");
+        }, Columns());
+    }
+
     private static void WithTable(RecordingSource source, Action<CustomTableView, AutomationPeer> action, CustomTableColumn[]? columns = null)
     {
         TestUiDispatcherHost.RunWindowTest(scope =>
@@ -489,7 +581,7 @@ public sealed class CustomTableAutomationPeerTests
     }
 
     /// <summary>消費側の非実体化を記録します。実sourceのdomain ID・生存識別の保証には使いません。</summary>
-    private sealed class RecordingSource : IList, INotifyCollectionChanged, ICustomTableAutomationSource
+    private class RecordingSource : IList, INotifyCollectionChanged, ICustomTableAutomationSource
     {
         private sealed class Token(int key) { internal int Key { get; } = key; internal object? Row; }
         private readonly List<Token> tokens;
@@ -550,4 +642,13 @@ public sealed class CustomTableAutomationPeerTests
         public void CopyTo(Array array, int index) => throw new NotSupportedException();
     }
 
+    /// <summary>連続した同じ大きさのグループを返す、行グループの提供元を持つ行集合です。提供元を持たない <see cref="RecordingSource"/> とは別の型にして、既存のケースの表を提供元なしのままにします。</summary>
+    private sealed class GroupedRecordingSource(int count, int groupSize) : RecordingSource(count), ICustomTableRowGroupSource
+    {
+        public CustomTableRowGroup GetRowGroup(int rowIndex)
+        {
+            int first = rowIndex / groupSize * groupSize;
+            return new CustomTableRowGroup(first, Math.Min(groupSize, Count - first), rowIndex / groupSize);
+        }
+    }
 }
