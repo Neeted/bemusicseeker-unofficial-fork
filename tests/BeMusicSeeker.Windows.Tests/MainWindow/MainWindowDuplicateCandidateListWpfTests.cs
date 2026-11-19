@@ -5,6 +5,8 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Wpf;
@@ -13,6 +15,7 @@ using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.Tests.TreeSelectionDisplayTestSupport;
 using ConversionTestSupport = BeMusicSeeker.TestSupport.Components.SelectedChartAudioConversionWorkflowOwnerTestSupport;
+using DuplicateSupport = BeMusicSeeker.TestSupport.Components.DuplicateMaintenanceWorkflowOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -755,6 +758,168 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         var args = new CustomTableRowRequestedEventArgs(hit, openAtMousePosition: true);
         typeof(MainWindow).GetMethod("customTableDuplicateCandidates_RowActivated", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
             .Invoke(window, [table, args]);
+    }
+
+    /// <summary>実Dispatcherで、統合候補一覧の行集合が指定の行数で採用されるまで待ちます。固定時間は待たず、行集合の入替え通知（Rows）を待ちます。</summary>
+    private static void AwaitCandidateRows(DuplicateMergeCandidateListOwner owner, int expectedRowCount)
+    {
+        var adopted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        PropertyChangedEventHandler changed = (_, args) =>
+        {
+            if (args.PropertyName == nameof(DuplicateMergeCandidateListOwner.Rows) && owner.RowSet.Count == expectedRowCount) { adopted.TrySetResult(); }
+        };
+        owner.PropertyChanged += changed;
+        try
+        {
+            if (owner.RowSet.Count == expectedRowCount) { adopted.TrySetResult(); }
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(adopted.Task, "candidate list rebuilt with " + expectedRowCount + " rows");
+        }
+        finally { owner.PropertyChanged -= changed; }
+    }
+
+    /// <summary>
+    /// 保証：実画面の「選択グループを整理」ボタンから、実ワークフロー・実際の保存窓口・実ファイル・SQLiteで、選択した二つのグループを一括整理する。
+    /// 実行の開始（再生停止とモデルの呼出しの前）では共通の受付を保持し、画面下部の進捗行は出さず、進捗画面は所有者つきで出す。
+    /// 終了後は、解消したグループが一覧の行から消え、影響しなかったグループは同じインスタンスのままSELECT・KEEP・確認結果を保ち、
+    /// 統合候補一覧のノードの選択と表示中の状態を保って譜面一覧を出さない。変更はファイル・DBへ反映され、Busy案内は出ず、結果は一回だけ案内し、受付と活動を解放する。
+    /// 一覧の作り直しは結果の案内との前後を固定せず、採用まで待って確かめる。
+    /// 受付の保持中の重複選択がBusyにならず準備へ合流する保証は、このケースでは直接確かめず（Busy案内が出ないことを確かめるだけ）、
+    /// <c>AcceptedChangeDuplicatePreparationTests</c> の一括整理の行が担う。
+    /// 検出する誤り：ボタンの未接続、受付の保持漏れ、下部の進捗行の表示、再構築での状態（SELECT・KEEP・確認結果）の消失・インスタンスの置換、
+    /// 解消したグループの行の残り、別の画面への自動移動、結果の重複、解放漏れ。
+    /// </summary>
+    [TestMethod]
+    public void CandidateList_OrganizeButtonMergesTheSelectedGroupsAndRebuildsTheListKeepingTheRest()
+    {
+        var dialogs = new DuplicateSupport.FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+        };
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+            var main = (CustomTableView)window.FindName("customTableView");
+            DuplicateMergeCandidateListOwner candidates = viewModel.DuplicateMergeCandidateList;
+            ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+            SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(root));
+            DuplicateMergeCandidateRow[] rows = [.. candidates.RowSet];
+            Assert.AreEqual(6, rows.Length, "二つの整理対象と、影響しない一つのグループ");
+            string firstKeep = rows[0].Path, firstSource = rows[1].Path, secondSource = rows[3].Path;
+            DuplicateMergeCandidateGroupState untouched = rows[4].State;
+
+            // 影響しない側（三つ目のグループ）は、KEEPを変え、要注意の確認結果を書いておく。整理する側（一・二つ目）だけSELECTをオンにする。
+            Click(table, 5, "Keep");
+            var cautionResult = new DuplicateMergeVerificationResult(
+                DuplicateMergeVerificationStage.Caution,
+                [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ParentReference, [new DuplicateMergeFinding(rows[4].Path, "c.bms", "../x.wav")])]);
+            candidates.WriteVerifications([new DuplicateMergeVerificationWrite(untouched.Group, cautionResult)]);
+            Click(table, 0, "Select");
+            Click(table, 2, "Select");
+            Assert.AreEqual(2, candidates.SelectedGroupCount);
+            string untouchedKeep = untouched.KeepFolder!;
+            Assert.AreEqual(rows[5].Path, untouchedKeep, "前提：影響しない側のKEEPを変えています。");
+            int progressRowsBefore = viewModel.ProgressHub.Rows.Count;
+
+            // 変更の活動の開始（実行側の最初の処理。再生停止とモデルの呼出しの前）で止める。このとき進捗画面は開いており、受付は保持され、確定の前である。
+            var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var release = new ManualResetEventSlim();
+            viewModel.ChartMutationActivity.ActivityChanged += (_, _) =>
+            {
+                if (viewModel.ChartMutationActivity.IsActive) { reached.TrySetResult(); release.Wait(TimeSpan.FromSeconds(60)); }
+            };
+            Task handler = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => ClickButton(window, "duplicateCandidateOrganizeButton"));
+            try
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(TestUiDispatcherHost.AwaitNotificationAsync(reached.Task, handler, "organize in progress"), "organize in progress");
+                Assert.IsFalse(handler.IsCompleted, "実行の途中では、操作は終わっていません。");
+                Assert.IsTrue(Directory.Exists(firstSource) && Directory.Exists(secondSource), "前提：確定の前で、統合元の後片付けはこれからです。");
+                Assert.IsFalse(composition.OperationAdmission.CanEnter, "実行の途中は、共通の受付を保持します。");
+                Assert.AreEqual(progressRowsBefore, viewModel.ProgressHub.Rows.Count, "画面下部の進捗行は出しません。");
+                Assert.AreEqual(1, dialogs.Progress.Runs);
+                Assert.AreSame(window, dialogs.Progress.Request!.Owner, "進捗画面の所有者はメインウィンドウです。");
+                Assert.AreEqual(Resources.Duplicate_batch_organize_title, dialogs.Progress.Request.Title);
+                Assert.IsNotNull(dialogs.ConfirmationRequest, "承認の後に実行しています。");
+                Assert.AreEqual(0, dialogs.Messages.Count, "結果は終了後に案内します。");
+            }
+            finally
+            {
+                release.Set();
+            }
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(handler, "organize handler terminal");
+            AwaitCandidateRows(candidates, 2);
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+
+            // 一覧：解消したグループは行から消え、影響しなかったグループは同じインスタンスで状態を保つ。
+            Assert.IsTrue(candidates.IsViewActive, "別の画面へ自動で移らず、一覧を表示したままです。");
+            DuplicateMergeCandidateRow[] after = [.. candidates.RowSet];
+            CollectionAssert.AreEqual(new[] { rows[4].Path, rows[5].Path }, after.Select(row => row.Path).ToArray());
+            Assert.AreSame(untouched, after[0].State, "影響しなかったグループは同じ状態のインスタンスです。");
+            Assert.AreEqual(untouchedKeep, untouched.KeepFolder, "KEEPを保ちます。");
+            Assert.AreSame(cautionResult, untouched.Verification, "確認結果を保ちます。");
+            Assert.IsFalse(untouched.IsSelected);
+            Assert.AreEqual(0, candidates.SelectedGroupCount);
+            Assert.AreEqual(Visibility.Visible, table.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, main.Visibility, "譜面一覧は出しません。");
+            Assert.AreEqual(0, viewModel.MainChartList.Rows.Count);
+            Assert.IsTrue(RealizeCandidateListNode(root).IsSelected, "統合候補一覧のノードの選択を保ちます。");
+
+            // 実ファイル・DB・受付・案内。
+            Assert.IsFalse(Directory.Exists(firstSource) || Directory.Exists(secondSource), "統合元のフォルダは削除されます。");
+            Assert.IsTrue(File.Exists(Path.Combine(firstKeep, "chart.bms")), "統合先の譜面は残ります。");
+            Assert.IsTrue(rows.Skip(4).All(row => Directory.Exists(row.Path) && File.Exists(Path.Combine(row.Path, "chart.bms"))), "影響しないグループのファイルは変わりません。");
+            string songDb = Path.Combine(Path.GetDirectoryName(firstKeep)!, "song.db");
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly())
+            {
+                string[] paths = [.. db.Table<LR2SongDB.song>().ToList().Select(song => song.path)];
+                Assert.AreEqual(4, paths.Length, "統合元の同一内容の譜面の行は、DBから除かれます。");
+                Assert.IsFalse(paths.Any(path => path.StartsWith(firstSource, StringComparison.OrdinalIgnoreCase) || path.StartsWith(secondSource, StringComparison.OrdinalIgnoreCase)));
+            }
+            UiMessageRequest result = dialogs.Messages.Single();
+            Assert.AreEqual(Resources.Duplicate_batch_organize_title, result.Caption, "結果は一回だけで、Busy案内を含みません。");
+            Assert.AreEqual(string.Format(Resources.Duplicate_batch_organize_result_format, 2, 2, 0, 0, 0, 0), result.MessageBoxText.Split(Environment.NewLine)[0]);
+            Assert.IsFalse(viewModel.ChartMutationActivity.IsActive);
+            Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable? next), "受付を解放します。");
+            next.Dispose();
+        }, dialogService: dialogs, fillerGroups: 1);
+    }
+
+    /// <summary>
+    /// 保証：全グループを整理して結果が0件になったとき、一覧の古い行を残さず、結果の案内は一回で、ほかの通知は出さず、受付を解放する。
+    /// 検出する誤り：解消済みのグループの行の残り、0件での失敗・Busyの通知、受付の解放漏れ。
+    /// </summary>
+    [TestMethod]
+    public void CandidateList_OrganizingEveryGroupLeavesNoStaleRows()
+    {
+        var dialogs = new DuplicateSupport.FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+        };
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            var root = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            DuplicateMergeCandidateListOwner candidates = viewModel.DuplicateMergeCandidateList;
+            ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+            SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(root));
+            Assert.AreEqual(4, candidates.RowSet.Count);
+            ClickButton(window, "duplicateCandidateSelectVisibleButton");
+            Assert.AreEqual(2, candidates.SelectedGroupCount);
+
+            AwaitHandler(() => ClickButton(window, "duplicateCandidateOrganizeButton"), "organize every group");
+            AwaitCandidateRows(candidates, 0);
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+
+            Assert.AreEqual(0, candidates.RowSet.Count, "古い行を残しません。");
+            Assert.AreEqual(0, candidates.VisibleGroupCount);
+            Assert.AreEqual(0, candidates.SelectedGroupCount);
+            UiMessageRequest result = dialogs.Messages.Single();
+            Assert.AreEqual(Resources.Duplicate_batch_organize_title, result.Caption, "通知は結果の案内だけです。");
+            Assert.AreEqual(string.Format(Resources.Duplicate_batch_organize_result_format, 2, 2, 0, 0, 0, 0), result.MessageBoxText);
+            Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable? next), "受付を解放します。");
+            next.Dispose();
+        }, dialogService: dialogs);
     }
 
     private sealed class RecordingCandidateShellGateway : IExternalShellGateway

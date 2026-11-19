@@ -139,4 +139,21 @@ internal sealed class UiProgressContext
     {
         innerContext.ReportWithCancellationCheck(percentProgress, format, arg);
     }
+
+    /// <summary>
+    /// 取消が要求されたかを、結果を取消へ確定させずに返します。取消の扱いを操作に任せる進捗（<see cref="Parago.Windows.ProgressDialogSettings.OperationOwnsCancellation"/>）で使います。
+    /// </summary>
+    internal bool CancellationRequested => innerContext.CancellationRequested;
+
+    /// <summary>取消の確認を伴わずに進捗を報告します。呼出し元は画面の完了を待たず、取消の要求後も表示は更新されます（取消を操作に任せる進捗の場合）。</summary>
+    internal void Report(int percentProgress, string message)
+    {
+        innerContext.Report(percentProgress, message);
+    }
+
+    /// <summary>取消ボタンを無効にします。操作が取消できない段階へ進んだことを、待たずに画面へ伝えます。</summary>
+    internal void DisableCancellation()
+    {
+        innerContext.DisableCancellation();
+    }
 }

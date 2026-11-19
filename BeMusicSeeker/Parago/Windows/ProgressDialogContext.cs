@@ -3,11 +3,21 @@ using System.ComponentModel;
 
 namespace Parago.Windows;
 
-public class ProgressDialogContext(BackgroundWorker worker, DoWorkEventArgs arguments)
+public class ProgressDialogContext(BackgroundWorker worker, DoWorkEventArgs arguments, Action disableCancellation = null)
 {
     public BackgroundWorker Worker { get; private set; } = worker ?? throw new ArgumentNullException("worker");
 
     public DoWorkEventArgs Arguments { get; private set; } = arguments ?? throw new ArgumentNullException("arguments");
+
+    /// <summary>
+    /// 取消が要求されたかを、操作の結果を変えずに返します。<see cref="CheckCancellationPending"/> と違い、取消済みの結果として確定させません。
+    /// </summary>
+    public bool CancellationRequested => Worker.WorkerSupportsCancellation && Worker.CancellationPending;
+
+    /// <summary>
+    /// 取消ボタンを無効にします。操作が取消できない段階へ進んだときに呼びます。呼出し元のスレッドで画面の完了を待ちません。
+    /// </summary>
+    public void DisableCancellation() => disableCancellation?.Invoke();
 
     public bool CheckCancellationPending()
     {

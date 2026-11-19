@@ -4351,4 +4351,124 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_merge_preferred_destination_description" xml:space="preserve">
     <value>グループ内のフォルダのうち、登録したディレクトリと同じかその配下にあるフォルダがちょうど一つなら、そのフォルダを残す先（KEEP）にします。</value>
   </data>
+  <data name="Duplicate_batch_organize_selected" xml:space="preserve">
+    <value>選択グループを整理</value>
+  </data>
+  <data name="Duplicate_batch_organize_title" xml:space="preserve">
+    <value>重複グループの整理</value>
+  </data>
+  <data name="Duplicate_batch_organize_progress_label" xml:space="preserve">
+    <value>選択したグループを整理しています。</value>
+  </data>
+  <data name="Duplicate_batch_organize_progress_group_format" xml:space="preserve">
+    <value>[{0}/{1}] {2}</value>
+  </data>
+  <data name="Duplicate_batch_organize_progress_applying" xml:space="preserve">
+    <value>ライブラリへ反映中</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_groups_format" xml:space="preserve">
+    <value>{0}グループを整理します。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_merge_format" xml:space="preserve">
+    <value>{0}グループは、移動元の{1}フォルダをKEEPのフォルダへ統合します。移動元のフォルダは削除され、元に戻せません。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_trash" xml:space="preserve">
+    <value>同じフォルダにある重複した譜面は、一つを残してごみ箱へ送ります。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_unverified_caution_format" xml:space="preserve">
+    <value>未確認 {0}グループ／要注意 {1}グループを含みます。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_unverified_format" xml:space="preserve">
+    <value>未確認 {0}グループを含みます。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_caution_format" xml:space="preserve">
+    <value>要注意 {0}グループを含みます。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_collision" xml:space="preserve">
+    <value>内容が異なる同名のファイルは、上書きの設定に従って一方だけが残ります。</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_format" xml:space="preserve">
+    <value>{0}グループを整理しました。完了 {1}／一部完了 {2}／スキップ {3}／失敗 {4}／未処理 {5}。</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_trashed_format" xml:space="preserve">
+    <value>重複した譜面 {0}件をごみ箱へ送りました。</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_canceled" xml:space="preserve">
+    <value>取り消されました。</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_more_format" xml:space="preserve">
+    <value>ほか{0}グループはログを確認してください。</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_group_format" xml:space="preserve">
+    <value>{0}：{1}</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_group_reason_format" xml:space="preserve">
+    <value>{0}：{1}（{2}）</value>
+  </data>
+  <data name="Duplicate_batch_organize_result_source_format" xml:space="preserve">
+    <value>  {0}：{1}</value>
+  </data>
+  <data name="Duplicate_batch_organize_status_completed" xml:space="preserve">
+    <value>完了</value>
+  </data>
+  <data name="Duplicate_batch_organize_status_partial" xml:space="preserve">
+    <value>一部完了</value>
+  </data>
+  <data name="Duplicate_batch_organize_status_skipped" xml:space="preserve">
+    <value>スキップ</value>
+  </data>
+  <data name="Duplicate_batch_organize_status_failed" xml:space="preserve">
+    <value>失敗</value>
+  </data>
+  <data name="Duplicate_batch_organize_status_unprocessed" xml:space="preserve">
+    <value>未処理</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_link" xml:space="preserve">
+    <value>リンクあり</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_link_unchecked" xml:space="preserve">
+    <value>リンクを確認できません</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_registered_root" xml:space="preserve">
+    <value>登録ルート</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_nested" xml:space="preserve">
+    <value>フォルダの親子関係</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_overlap" xml:space="preserve">
+    <value>別のグループを巻き込む</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_folder_missing" xml:space="preserve">
+    <value>フォルダがありません</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_invalid_path" xml:space="preserve">
+    <value>パスが正しくありません</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_source_missing" xml:space="preserve">
+    <value>移動元がありません</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_charts_missing" xml:space="preserve">
+    <value>所持譜面がありません</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_destination_missing" xml:space="preserve">
+    <value>統合先がありません</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_type_conflict" xml:space="preserve">
+    <value>ファイルとフォルダの名前の衝突</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_preflight" xml:space="preserve">
+    <value>事前確認で拒否</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_physical_failure" xml:space="preserve">
+    <value>物理処理の失敗</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_commit_failure" xml:space="preserve">
+    <value>確定の失敗</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_not_processed" xml:space="preserve">
+    <value>未処理</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_delete_failure" xml:space="preserve">
+    <value>削除の失敗</value>
+  </data>
 </root>

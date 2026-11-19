@@ -172,6 +172,27 @@ public partial class MainWindow
     }
 
     /// <summary>
+    /// ツールバーの「選択グループを整理」です。表示中でSELECTがオンのグループを、確認の後に一括で整理します。対象が0件なら何もしません。
+    /// 受付・確認・進捗・結果の案内と失敗の報告はワークフローの管理主体が一度ずつ行い、この部分は呼出しの接続と、想定外の例外の通知だけを担います。
+    /// </summary>
+    private async void duplicateCandidateOrganizeClick(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("duplicate_candidate_organize_selected")
+            || (base.DataContext as MainWindowViewModel)?.DuplicateMaintenanceWorkflow is not { } workflow)
+        {
+            return;
+        }
+        try
+        {
+            await workflow.OrganizeSelectedGroupsAsync(this);
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "duplicateCandidateOrganizeClick");
+        }
+    }
+
+    /// <summary>
     /// 「サイズと更新日時が同じファイルは読まずに同一とみなす」のチェックです。値の保持は管理主体が担い、オンにしたときの案内もそちらが一件出します。
     /// </summary>
     private async void duplicateCandidateQuickCompareClick(object sender, RoutedEventArgs e)

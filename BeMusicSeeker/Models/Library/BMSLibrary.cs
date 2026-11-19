@@ -9492,7 +9492,7 @@ public partial class BMSLibrary : ObservableObject
     /// <param name="request">処理するグループ。順序が処理順です。</param>
     /// <param name="operationId">診断識別子。</param>
     /// <param name="notices">この操作の案内を集める入れ物。操作全体の拒否の案内だけを加えます。</param>
-    /// <param name="progress">グループの開始ごとの進捗の受け手。省略できます。</param>
+    /// <param name="progress">グループの開始ごとと、全グループの物理処理の後・確定の前の反映段階への移行（<see cref="DuplicateBatchOrganizeProgressKind.Applying"/>。受理した操作は取消・停止の後も一回）の進捗の受け手。省略できます。</param>
     /// <param name="cancellationToken">取消の合図。グループの開始前にだけ効きます。</param>
     /// <param name="capability">同じ受付の生存権限。省略時は新規受付を取得し、必須保守・後片付けまで保持します。</param>
     /// <returns>操作全体の受取り、要求と同じ順のグループ結果、取消されたかどうか。</returns>

@@ -913,7 +913,8 @@ internal sealed class MainWindowChildComposition
             LongPathFileSystem.DirectoryExists,
             externalShellGateway.OpenDirectory,
             MaintenanceTree.CaptureNextDuplicateGroupSelection,
-            exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync);
+            exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync,
+            candidateList: DuplicateMergeCandidateList);
         ProgressHub.AttachDuplicateMaintenanceProgressSource(DuplicateMaintenanceWorkflow);
         DuplicateMergeVerification = new DuplicateMergeVerificationWorkflowOwner(
             DuplicateMergeCandidateList,

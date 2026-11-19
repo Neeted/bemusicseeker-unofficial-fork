@@ -3457,4 +3457,84 @@ public class Resources
     public static string Duplicate_merge_preferred_destination_title => ResourceManager.GetString("Duplicate_merge_preferred_destination_title", resourceCulture);
     /// <summary>優先統合先のウィンドウで、登録の意味を説明する文言です。</summary>
     public static string Duplicate_merge_preferred_destination_description => ResourceManager.GetString("Duplicate_merge_preferred_destination_description", resourceCulture);
+    /// <summary>統合候補一覧のツールバーで、表示中でSELECTがオンのグループを整理するボタンの文言です。</summary>
+    public static string Duplicate_batch_organize_selected => ResourceManager.GetString("Duplicate_batch_organize_selected", resourceCulture);
+    /// <summary>重複グループの一括整理の進捗画面と結果の案内の題名です。</summary>
+    public static string Duplicate_batch_organize_title => ResourceManager.GetString("Duplicate_batch_organize_title", resourceCulture);
+    /// <summary>重複グループの一括整理の進捗画面の本文です。</summary>
+    public static string Duplicate_batch_organize_progress_label => ResourceManager.GetString("Duplicate_batch_organize_progress_label", resourceCulture);
+    /// <summary>重複グループの一括整理の進捗の書式です。{0}は何番目か、{1}は総数、{2}はKEEPのフォルダ名です。</summary>
+    public static string Duplicate_batch_organize_progress_group_format => ResourceManager.GetString("Duplicate_batch_organize_progress_group_format", resourceCulture);
+    /// <summary>重複グループの一括整理で、全グループの物理処理の後、ライブラリへの反映と必須保守を行っている間の進捗の文言です。この間は取消できません。</summary>
+    public static string Duplicate_batch_organize_progress_applying => ResourceManager.GetString("Duplicate_batch_organize_progress_applying", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、整理するグループ数を示す行です。{0}はグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_groups_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_groups_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、二フォルダ以上のグループの統合を示す行です。{0}はそのグループ数、{1}は移動元のフォルダの合計です。</summary>
+    public static string Duplicate_batch_organize_confirm_merge_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_merge_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、同じフォルダにある重複した譜面をごみ箱へ送る旨の行です。</summary>
+    public static string Duplicate_batch_organize_confirm_trash => ResourceManager.GetString("Duplicate_batch_organize_confirm_trash", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、未確認と要注意のグループを含む旨の行です。{0}は未確認、{1}は要注意のグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_unverified_caution_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_unverified_caution_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、未確認のグループだけを含む旨の行です。{0}は未確認のグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_unverified_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_unverified_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、要注意のグループだけを含む旨の行です。{0}は要注意のグループ数です。</summary>
+    public static string Duplicate_batch_organize_confirm_caution_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_caution_format", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、内容が異なる同名のファイルの扱いを示す行です。</summary>
+    public static string Duplicate_batch_organize_confirm_collision => ResourceManager.GetString("Duplicate_batch_organize_confirm_collision", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の見出しです。{0}は整理したグループ数、{1}から{5}は完了・一部完了・スキップ・失敗・未処理の数です。</summary>
+    public static string Duplicate_batch_organize_result_format => ResourceManager.GetString("Duplicate_batch_organize_result_format", resourceCulture);
+    /// <summary>重複グループの一括整理の結果で、ごみ箱へ送った重複した譜面の数を示す行です。{0}は譜面の数です。</summary>
+    public static string Duplicate_batch_organize_result_trashed_format => ResourceManager.GetString("Duplicate_batch_organize_result_trashed_format", resourceCulture);
+    /// <summary>重複グループの一括整理を取り消した旨を、結果へ加える文言です。</summary>
+    public static string Duplicate_batch_organize_result_canceled => ResourceManager.GetString("Duplicate_batch_organize_result_canceled", resourceCulture);
+    /// <summary>重複グループの一括整理の結果で、詳細の最大件数を超えたグループをログへ案内する行です。{0}は超えたグループ数です。</summary>
+    public static string Duplicate_batch_organize_result_more_format => ResourceManager.GetString("Duplicate_batch_organize_result_more_format", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の詳細で、理由のないグループの行です。{0}はKEEPのパス、{1}はグループの状態です。</summary>
+    public static string Duplicate_batch_organize_result_group_format => ResourceManager.GetString("Duplicate_batch_organize_result_group_format", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の詳細で、理由のあるグループの行です。{0}はKEEPのパス、{1}はグループの状態、{2}は理由です。</summary>
+    public static string Duplicate_batch_organize_result_group_reason_format => ResourceManager.GetString("Duplicate_batch_organize_result_group_reason_format", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の詳細で、統合せずに残した移動元の行です。{0}は移動元のパス、{1}は理由です。</summary>
+    public static string Duplicate_batch_organize_result_source_format => ResourceManager.GetString("Duplicate_batch_organize_result_source_format", resourceCulture);
+    /// <summary>重複グループの一括整理の結果で、グループの状態「完了」の文言です。</summary>
+    public static string Duplicate_batch_organize_status_completed => ResourceManager.GetString("Duplicate_batch_organize_status_completed", resourceCulture);
+    /// <summary>重複グループの一括整理の結果で、グループの状態「一部完了」の文言です。</summary>
+    public static string Duplicate_batch_organize_status_partial => ResourceManager.GetString("Duplicate_batch_organize_status_partial", resourceCulture);
+    /// <summary>重複グループの一括整理の結果で、グループの状態「スキップ」の文言です。</summary>
+    public static string Duplicate_batch_organize_status_skipped => ResourceManager.GetString("Duplicate_batch_organize_status_skipped", resourceCulture);
+    /// <summary>重複グループの一括整理の結果で、グループの状態「失敗」の文言です。</summary>
+    public static string Duplicate_batch_organize_status_failed => ResourceManager.GetString("Duplicate_batch_organize_status_failed", resourceCulture);
+    /// <summary>重複グループの一括整理の結果で、グループの状態「未処理」の文言です。</summary>
+    public static string Duplicate_batch_organize_status_unprocessed => ResourceManager.GetString("Duplicate_batch_organize_status_unprocessed", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、リンク（シンボリックリンク・ジャンクション）が見つかったことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_link => ResourceManager.GetString("Duplicate_batch_organize_reason_link", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、リンクの有無を確認できなかったことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_link_unchecked => ResourceManager.GetString("Duplicate_batch_organize_reason_link_unchecked", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、移動元が登録ルートであることを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_registered_root => ResourceManager.GetString("Duplicate_batch_organize_reason_registered_root", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、同じグループのフォルダ同士が同一または親子であることを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_nested => ResourceManager.GetString("Duplicate_batch_organize_reason_nested", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、別のグループのフォルダを巻き込むことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_overlap => ResourceManager.GetString("Duplicate_batch_organize_reason_overlap", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、一フォルダのグループのフォルダがないことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_folder_missing => ResourceManager.GetString("Duplicate_batch_organize_reason_folder_missing", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、フォルダのパスが空または正規化できないことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_invalid_path => ResourceManager.GetString("Duplicate_batch_organize_reason_invalid_path", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、移動元がないことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_source_missing => ResourceManager.GetString("Duplicate_batch_organize_reason_source_missing", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、移動元の配下に所持譜面がないことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_charts_missing => ResourceManager.GetString("Duplicate_batch_organize_reason_charts_missing", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、統合先（KEEP）がないことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_destination_missing => ResourceManager.GetString("Duplicate_batch_organize_reason_destination_missing", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、同じ相対パスがファイルとフォルダで衝突することを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_type_conflict => ResourceManager.GetString("Duplicate_batch_organize_reason_type_conflict", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、変更の開始前の確認で拒否したことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_preflight => ResourceManager.GetString("Duplicate_batch_organize_reason_preflight", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、物理処理が予期せず失敗したことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_physical_failure => ResourceManager.GetString("Duplicate_batch_organize_reason_physical_failure", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、確定に失敗したことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_commit_failure => ResourceManager.GetString("Duplicate_batch_organize_reason_commit_failure", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、処理を始めなかったことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_not_processed => ResourceManager.GetString("Duplicate_batch_organize_reason_not_processed", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、重複した譜面の個別の削除に失敗があったことを示す文言です。</summary>
+    public static string Duplicate_batch_organize_reason_delete_failure => ResourceManager.GetString("Duplicate_batch_organize_reason_delete_failure", resourceCulture);
 }

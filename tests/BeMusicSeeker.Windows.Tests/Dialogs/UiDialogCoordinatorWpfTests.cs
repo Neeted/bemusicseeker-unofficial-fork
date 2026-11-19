@@ -152,6 +152,87 @@ public sealed class UiDialogCoordinatorWpfTests
         });
     }
 
+    /// <summary>
+    /// 取消を操作へ任せる進捗画面（<see cref="ProgressDialogSettings.OperationOwnsCancellation"/>）では、取消ボタンを無効にでき、取消を要求した後でも進捗の表示が更新され、
+    /// 操作の例外を取消へ置き換えずにFailedとして返す。取消の要求後に進捗の更新を捨てる誤り、反映中でも取消ボタンが有効なままの誤り、取消の要求中の操作の例外を握りつぶす誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void RunWithProgressAsyncOperationOwnsCancellationKeepsReportsDisablesCancelAndPreservesFailure()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            Window owner = CreateTestWindow("owner");
+            windowTest.ShowAndWaitForContentRendered(owner);
+            ProgressDialog? dialog = null;
+            var observations = new List<(string Label, bool CancelEnabled)>();
+            var failure = new InvalidOperationException("operation failure while cancellation is pending");
+            bool cancellationRequestedAfterClick = false;
+            var settings = new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false)
+            {
+                OperationOwnsCancellation = true
+            };
+
+            UiProgressResult result = CreateTestCoordinator(windowTest, captureDialog: window => dialog = (ProgressDialog)window).RunWithProgressAsync(
+                new UiProgressRequest("Progress", "Working", settings, owner),
+                context =>
+                {
+                    ProgressDialog shown = dialog ?? throw new InvalidOperationException("progress dialog was not created");
+                    void Observe() => shown.Dispatcher.Invoke(
+                        () => observations.Add((shown.SubLabel, shown.CancelButton.IsEnabled)), DispatcherPriority.Background);
+                    context.Report(10, "[1/2] first");
+                    Observe();
+                    context.DisableCancellation();
+                    Observe();
+                    // 取消ボタンを無効にした直後の押下の競合を模して、取消を要求します。
+                    shown.Dispatcher.Invoke(() => shown.CancelButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)));
+                    cancellationRequestedAfterClick = context.CancellationRequested;
+                    context.Report(100, "applying");
+                    Observe();
+                    throw failure;
+                }).GetAwaiter().GetResult();
+
+            Assert.AreEqual(UiDialogStatus.Failed, result.Status, "取消の要求中の操作の例外は、取消へ置き換えずに失敗として返します。");
+            Assert.AreSame(failure, result.Error);
+            Assert.IsTrue(cancellationRequestedAfterClick);
+            CollectionAssert.AreEqual(
+                new[] { ("[1/2] first", true), ("[1/2] first", false), ("applying", false) },
+                observations.ToArray(),
+                "取消ボタンは、無効にするまで有効で、取消の要求後も進捗の更新を表示します。");
+        });
+    }
+
+    /// <summary>
+    /// 既定の進捗画面（取消を操作へ任せない既存の利用先）は、取消の要求後に進捗の更新を捨てて取消の表示にとどまり、操作の例外を握りつぶして取消として返す。
+    /// 取消を操作へ任せる拡張が、既存の利用先の挙動を変える誤りを検出する。
+    /// </summary>
+    [TestMethod]
+    public void RunWithProgressAsyncDefaultCancellationStillDiscardsReportsAndSwallowsFailure()
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            Window owner = CreateTestWindow("owner");
+            windowTest.ShowAndWaitForContentRendered(owner);
+            ProgressDialog? dialog = null;
+            string? labelAfterLateReport = null;
+            var settings = new ProgressDialogSettings(showSubLabel: true, showCancelButton: true, showProgressBarIndeterminate: false);
+
+            UiProgressResult result = CreateTestCoordinator(windowTest, captureDialog: window => dialog = (ProgressDialog)window).RunWithProgressAsync(
+                new UiProgressRequest("Progress", "Working", settings, owner),
+                context =>
+                {
+                    ProgressDialog shown = dialog ?? throw new InvalidOperationException("progress dialog was not created");
+                    shown.Dispatcher.Invoke(() => shown.CancelButton.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)));
+                    context.Report(100, "late report");
+                    shown.Dispatcher.Invoke(() => labelAfterLateReport = shown.SubLabel, DispatcherPriority.Background);
+                    throw new InvalidOperationException("swallowed while cancellation is pending");
+                }).GetAwaiter().GetResult();
+
+            Assert.AreEqual(UiDialogStatus.CancelledByUser, result.Status);
+            Assert.IsNull(result.Error);
+            Assert.AreEqual("aborting ...", labelAfterLateReport);
+        });
+    }
+
     /// <summary>owner不在の通知・確認・進捗要求をOwnerUnavailableで終え、利用者による取消や正常完了へ置換しません。</summary>
     [TestMethod]
     public void MessageAndProgressRoutesPreserveOwnerUnavailableStatus()
@@ -396,12 +477,14 @@ public sealed class UiDialogCoordinatorWpfTests
     private static UiDialogCoordinator CreateTestCoordinator(
         TestWindowPresentationScope windowTest,
         UiDialogOwnerResolver? ownerResolver = null,
-        Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null)
+        Func<Window, UiMessageRequest, ThemedMessageBoxResponse>? messagePresenter = null,
+        Action<Window>? captureDialog = null)
     {
         return new UiDialogCoordinator(
             ownerResolver ?? new UiDialogOwnerResolver(),
             window =>
             {
+                captureDialog?.Invoke(window);
                 windowTest.PrepareForOwnedPresentation(window);
                 return UiDialogOwnerResolver.PushActiveModal(window);
             },

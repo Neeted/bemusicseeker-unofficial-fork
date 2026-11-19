@@ -25,7 +25,7 @@ internal sealed partial class LibraryMutationOwner
     /// <param name="request">処理するグループ。順序が処理順です。</param>
     /// <param name="operationId">診断識別子。</param>
     /// <param name="notices">この操作の案内を集める入れ物。操作全体の拒否の案内だけを加え、呼出元が受付の解放後に表示します。</param>
-    /// <param name="progress">グループの開始ごとに同期で呼ぶ進捗の受け手。待たずに戻る前提で、例外は結果を変えません。モデルのロックは保持しません。</param>
+    /// <param name="progress">グループの開始ごとと、全グループの物理処理の後・確定の前（反映段階への移行。受理した操作だけ、取消・停止の後も一回）に同期で呼ぶ進捗の受け手。待たずに戻る前提で、例外は結果を変えません。モデルのロックは保持しません。</param>
     /// <param name="cancellationToken">取消の合図。グループの開始前にだけ確認し、処理中のグループは最後まで進めます。確定・後片付け・必須保守は取消の対象にしません。</param>
     /// <param name="capability">同じ受付の生存権限。省略時は新規の非待機受付を取得し、必須保守・後片付けまで保持します。</param>
     internal DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
@@ -180,6 +180,7 @@ internal sealed partial class LibraryMutationOwner
                 postLeaseNotifications,
                 notices))
             {
+                int started = 0;
                 for (int index = 0; index < states.Length && !stopped; index++)
                 {
                     // 取消はグループの開始前にだけ確認します。処理中のグループは最後まで進めます。
@@ -188,6 +189,7 @@ internal sealed partial class LibraryMutationOwner
                         canceled = true;
                         break;
                     }
+                    started = index + 1;
                     ReportProgress(index + 1, states[index].Group.KeepDirectory);
                     try
                     {
@@ -201,6 +203,9 @@ internal sealed partial class LibraryMutationOwner
                     }
                 }
 
+                // 取消・停止の後でも、受理した操作は確定と必須保守へ進みます。進捗の受け手へ、反映段階へ入ったことを一回だけ知らせます。
+                ReportProgress(new DuplicateBatchOrganizeProgress(
+                    started, states.Length, null, DuplicateBatchOrganizeProgressKind.Applying));
                 LibraryMutationSessionReceipt sessionReceipt = session.Commit();
                 bool mergeApplied = sessionReceipt.DurableCommit && !sessionReceipt.HasDurableFinalizationFailure;
                 MaintenanceWorkflowResult maintenanceResult = null;
@@ -325,6 +330,9 @@ internal sealed partial class LibraryMutationOwner
         }
 
         private void ReportProgress(int number, string keepDirectory)
+            => ReportProgress(new DuplicateBatchOrganizeProgress(number, states.Length, keepDirectory));
+
+        private void ReportProgress(DuplicateBatchOrganizeProgress value)
         {
             if (progress == null)
             {
@@ -332,7 +340,7 @@ internal sealed partial class LibraryMutationOwner
             }
             try
             {
-                progress(new DuplicateBatchOrganizeProgress(number, states.Length, keepDirectory));
+                progress(value);
             }
             catch (Exception exception)
             {

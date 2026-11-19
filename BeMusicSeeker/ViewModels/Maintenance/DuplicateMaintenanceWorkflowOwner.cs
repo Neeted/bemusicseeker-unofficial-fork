@@ -82,7 +82,7 @@ internal interface IDuplicateMaintenanceStore
     /// 重複グループの一括整理を、一つの受付と変更セッションで実行します。確認は求めません。
     /// 操作全体の拒否（Busy・カタログ未収束）の案内は操作の収集先へ一件だけ加え、グループごとの理由は案内に積みません。
     /// </summary>
-    /// <param name="progress">グループの開始ごとに呼ぶ進捗の受け手。待たずに戻る前提で、例外は結果を変えません。</param>
+    /// <param name="progress">グループの開始ごと、と反映段階への移行（<see cref="DuplicateBatchOrganizeProgressKind.Applying"/>）で呼ぶ進捗の受け手。待たずに戻る前提で、例外は結果を変えません。</param>
     /// <param name="cancellationToken">取消の合図。グループの開始前にだけ効き、処理中のグループは最後まで進みます。</param>
     DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
         BMSLibrary library,
@@ -231,7 +231,7 @@ internal sealed class DuplicateMaintenanceMutationResult
     }
 }
 
-internal sealed class DuplicateMaintenanceWorkflowOwner
+internal sealed partial class DuplicateMaintenanceWorkflowOwner
 {
     private readonly Func<BMSLibrary> libraryProvider;
     private readonly ChartFileOperationSynchronizer chartFileOperations;
@@ -250,10 +250,12 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
 
     private readonly IDuplicateMaintenanceStore store;
     private readonly Func<Exception, Task> exitForUnrestoredDestination;
+    private readonly DuplicateMergeCandidateListOwner candidateList;
 
     /// <summary>重複保守の操作を所有し、既存宛先の復元不能を実終端後のアプリ終了へ接続します。</summary>
     /// <param name="duplicateGroupNextSelectionProvider">現在結果の次グループを所属値で操作前に捕捉する境界です。末尾ではnullを返します。</param>
     /// <param name="nestedFolderCountProvider">統合元の配下にあるフォルダの件数を、UIスレッドを塞がずに数える境界です。確認を表示する場合だけ呼び、省略時は実ファイルシステムを数えます。</param>
+    /// <param name="candidateList">統合候補一覧の管理主体です。一括整理（<see cref="OrganizeSelectedGroupsAsync"/>）が、表示中でSELECTがオンのグループを捕捉する入力です。省略時は一括整理を使えません。</param>
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -266,8 +268,10 @@ internal sealed class DuplicateMaintenanceWorkflowOwner
         Func<DuplicateGroup, DuplicateViewContext> duplicateGroupNextSelectionProvider,
         IDuplicateMaintenanceStore store = null,
         Func<Exception, Task> exitForUnrestoredDestination = null,
-        Func<string, Task<int>> nestedFolderCountProvider = null)
+        Func<string, Task<int>> nestedFolderCountProvider = null,
+        DuplicateMergeCandidateListOwner candidateList = null)
     {
+        this.candidateList = candidateList;
         this.nestedFolderCountProvider = nestedFolderCountProvider ?? NestedFolderCounter.CountAsync;
         this.exitForUnrestoredDestination = exitForUnrestoredDestination
             ?? (failure => Task.FromException(new InvalidOperationException("Unrestored destination exit is not connected.", failure)));

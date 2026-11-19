@@ -70,9 +70,10 @@ internal sealed record DuplicateMergeCandidateGroupInitial(
 /// <param name="KeepFolder">残すフォルダ。</param>
 /// <param name="KeepFixed">KEEPが固定かどうか。</param>
 /// <param name="RegisteredFolders">グループ内の登録範囲のフォルダ。一覧の構築時に捕捉した値です。</param>
+/// <param name="Verification">捕捉した時点の確認結果。一括整理の確認文が、未確認・要注意・衝突の有無を数える入力です。</param>
 internal sealed record DuplicateMergeCandidateGroupTarget(
     DuplicateGroup Group, IReadOnlyList<string> Folders, string KeepFolder, bool KeepFixed,
-    IReadOnlyList<string> RegisteredFolders);
+    IReadOnlyList<string> RegisteredFolders, DuplicateMergeVerificationResult Verification = null);
 
 /// <summary>現在の状態表の一グループの識別とフォルダです。別のグループとの重なりを判定する入力です。</summary>
 /// <param name="Group">グループ。</param>

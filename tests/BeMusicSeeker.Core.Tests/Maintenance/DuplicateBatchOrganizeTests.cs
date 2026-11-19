@@ -284,7 +284,7 @@ public sealed class DuplicateBatchOrganizeTests
                 HashSet<string> before = rig.ChartContents();
                 using var cancellation = new CancellationTokenSource();
                 DuplicateBatchOrganizeResult result = rig.Organize(groups,
-                    progress: progress => { if (scenario == "other-group-canceled" && progress.Number == 1) { cancellation.Cancel(); } },
+                    progress: progress => { if (scenario == "other-group-canceled" && progress.Kind == DuplicateBatchOrganizeProgressKind.GroupStarted && progress.Number == 1) { cancellation.Cancel(); } },
                     cancellationToken: cancellation.Token);
 
                 AssertContentsRemain(before, rig.ChartContents());
@@ -418,7 +418,8 @@ public sealed class DuplicateBatchOrganizeTests
                         AssertRowsUnchanged(beforeRows, rig.SongRows(), folders);
                     }
                 }
-                Assert.AreEqual(groups.Length, progress.Count);
+                Assert.AreEqual(groups.Length, progress.Count(value => value.Kind == DuplicateBatchOrganizeProgressKind.GroupStarted));
+                AssertApplyingNotifiedOnceLast(progress, groups.Length);
                 Assert.AreEqual(0, notices.Snapshot().Count);
                 Assert.AreEqual(0, result.Receipt.SessionReceipt.ItemFailures.Count);
                 Assert.IsNull(result.Receipt.SessionReceipt.PhysicalFailure);
@@ -631,7 +632,8 @@ public sealed class DuplicateBatchOrganizeTests
                 Assert.IsTrue(result.Canceled);
                 Assert.IsTrue(result.Admitted);
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Unprocessed, result.Groups.Single().Status);
-                Assert.AreEqual(0, progress.Count);
+                Assert.AreEqual(0, progress.Count(value => value.Kind == DuplicateBatchOrganizeProgressKind.GroupStarted), "取消済みなら、グループの開始は通知しません。");
+                AssertApplyingNotifiedOnceLast(progress, 0);
                 AssertSameTree(before, rig.Tree());
                 Assert.IsFalse(result.Receipt.SessionReceipt.HasRequiredFailure);
                 Assert.IsNull(result.Receipt.SessionReceipt.FinalizationFailure);
@@ -672,7 +674,7 @@ public sealed class DuplicateBatchOrganizeTests
                     {
                         progress.Add(value);
                         locksFreeInReceiver &= AreModelLocksFree(rig.Library);
-                        if (value.Number == 2)
+                        if (value.Kind == DuplicateBatchOrganizeProgressKind.GroupStarted && value.Number == 2)
                         {
                             cancellation.Cancel();
                         }
@@ -681,7 +683,9 @@ public sealed class DuplicateBatchOrganizeTests
 
                 CollectionAssert.AreEqual(
                     new[] { (1, 3, rig.At("K1")), (2, 3, rig.At("K2")) },
-                    progress.Select(value => (value.Number, value.Total, value.KeepDirectory)).ToArray());
+                    progress.Where(value => value.Kind == DuplicateBatchOrganizeProgressKind.GroupStarted)
+                        .Select(value => (value.Number, value.Total, value.KeepDirectory)).ToArray());
+                AssertApplyingNotifiedOnceLast(progress, 2);
                 Assert.IsTrue(locksFreeInReceiver, "進捗の受け手の中で、モデルのロックを保持してはいけません。");
                 Assert.IsTrue(result.Canceled);
                 Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[0].Status);
@@ -721,7 +725,7 @@ public sealed class DuplicateBatchOrganizeTests
                 DuplicateBatchOrganizeResult result = rig.Organize([("K1", ["A"]), ("K2", ["B"])],
                     _ => { calls++; throw new InvalidOperationException("receiver failure"); });
 
-                Assert.AreEqual(2, calls);
+                Assert.AreEqual(3, calls, "グループの開始（二回）と反映段階への移行（一回）の通知を、受け手の失敗の後も続けます。");
                 Assert.IsFalse(result.Canceled);
                 Assert.IsTrue(result.Groups.All(group => group.Status == DuplicateBatchOrganizeGroupStatus.Completed));
                 Assert.IsTrue(result.Receipt.MergeApplied);
@@ -989,6 +993,19 @@ public sealed class DuplicateBatchOrganizeTests
                 rig.Library.RequestShutdown("batch-managed-output-busy");
             }
         });
+    }
+
+    /// <summary>
+    /// 受理した操作は、物理処理のループの後（取消・停止の後を含む）に、反映段階への移行を一回だけ、最後の通知として知らせます。
+    /// 通知は開始したグループの数と総数を持ち、KEEPは持ちません。
+    /// </summary>
+    private static void AssertApplyingNotifiedOnceLast(List<DuplicateBatchOrganizeProgress> progress, int startedGroups)
+    {
+        DuplicateBatchOrganizeProgress[] applying = [.. progress.Where(value => value.Kind == DuplicateBatchOrganizeProgressKind.Applying)];
+        Assert.AreEqual(1, applying.Length, "反映段階への移行は一回だけ通知します。");
+        Assert.AreEqual(progress[^1], applying[0], "反映段階への移行は、グループの開始の通知より後です。");
+        Assert.AreEqual(startedGroups, applying[0].Number);
+        Assert.IsNull(applying[0].KeepDirectory);
     }
 
     private static void AssertWholeOperationRejected(DuplicateBatchOrganizeResult result, LibraryOperationNotices notices, List<DuplicateBatchOrganizeProgress> progress, int expectedNoticeCount = 1)

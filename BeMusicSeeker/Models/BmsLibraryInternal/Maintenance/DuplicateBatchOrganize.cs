@@ -46,11 +46,26 @@ internal sealed class DuplicateBatchOrganizeRequest
     internal IReadOnlyList<DuplicateBatchOrganizeGroup> Groups { get; }
 }
 
-/// <summary>グループの開始を受け手へ知らせる進捗です。</summary>
-/// <param name="Number">何番目のグループか。1 始まりです。</param>
+/// <summary>進捗の種類です。</summary>
+internal enum DuplicateBatchOrganizeProgressKind
+{
+    /// <summary>グループの物理処理を開始します。</summary>
+    GroupStarted,
+
+    /// <summary>
+    /// 物理処理のループを終え、確定（カタログ・DB・索引・LR2同期・通知への反映）と必須保守へ進みます。
+    /// 操作を受理して処理を始めた場合に、取消や停止の後でも一回だけ、ロックの外で通知します（グループが0件の要求は処理を始めないため通知しません）。この後は取消の対象になりません。
+    /// </summary>
+    Applying
+}
+
+/// <summary>グループの開始と、反映段階への移行を受け手へ知らせる進捗です。</summary>
+/// <param name="Number">グループの開始では何番目のグループか（1 始まり）。反映段階では、開始したグループの数です。</param>
 /// <param name="Total">グループの総数。</param>
-/// <param name="KeepDirectory">開始するグループの KEEP です。</param>
-internal readonly record struct DuplicateBatchOrganizeProgress(int Number, int Total, string KeepDirectory);
+/// <param name="KeepDirectory">開始するグループの KEEP です。反映段階では null です。</param>
+/// <param name="Kind">進捗の種類。省略時はグループの開始です。</param>
+internal readonly record struct DuplicateBatchOrganizeProgress(
+    int Number, int Total, string KeepDirectory, DuplicateBatchOrganizeProgressKind Kind = DuplicateBatchOrganizeProgressKind.GroupStarted);
 
 /// <summary>グループの処理結果の状態です。</summary>
 internal enum DuplicateBatchOrganizeGroupStatus

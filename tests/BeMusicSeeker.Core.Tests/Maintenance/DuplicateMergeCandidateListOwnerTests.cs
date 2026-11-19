@@ -575,6 +575,76 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     }
 
     /// <summary>
+    /// 保証：新しい重複結果にないグループ（整理で解消したグループ）の状態と行は、一覧が別の画面で隠れている間も取り除き、結果が空なら行は0件になる。
+    /// 結果に残るグループは同じ状態のインスタンスのまま、SELECT・KEEP・確認結果を保つ。解消したグループがなければ何も変えない。
+    /// 検出する誤り：解消したグループの行の残り（結果が0件のときの古い行を含む）、残るグループの状態の消失・置換、何も解消していないときの行集合の入替え。
+    /// </summary>
+    [TestMethod]
+    public void RemoveUnresolvedGroups_DropsResolvedGroupsWhileHiddenAndKeepsTheRest()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup resolved = Group(@"C:\S\a1", @"C:\S\a2"), surviving = Group(@"C:\S\b1", @"C:\S\b2");
+        fixture.Adopt(resolved, surviving);
+        var caution = new DuplicateMergeVerificationResult(
+            DuplicateMergeVerificationStage.Caution,
+            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.AudioExtension, [new DuplicateMergeFinding(@"C:\S\b1", "x.wav")])]);
+        fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(surviving, caution)]);
+        fixture.Owner.SetKeep(fixture.Row(@"C:\S\b2"));
+        fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\a1"));
+        DuplicateMergeCandidateGroupState survivingState = fixture.Row(@"C:\S\b1").State;
+        DuplicateMergeCandidateRowSet unchanged = fixture.Owner.RowSet;
+        fixture.Owner.RemoveUnresolvedGroups([resolved, surviving]);
+        Assert.AreSame(unchanged, fixture.Owner.RowSet, "解消したグループがなければ、行集合を入れ替えません。");
+
+        fixture.Owner.SetTreeSelected(false);
+        fixture.Owner.RemoveUnresolvedGroups([surviving]);
+
+        CollectionAssert.AreEqual(new[] { @"C:\S\b1", @"C:\S\b2" }, fixture.Paths, "別の画面で隠れていても、解消したグループの行を取り除きます。");
+        Assert.AreSame(survivingState, fixture.Rows[0].State, "残るグループは同じ状態のインスタンスです。");
+        Assert.AreEqual(@"C:\S\b2", survivingState.KeepFolder);
+        Assert.AreSame(caution, survivingState.Verification);
+        Assert.IsFalse(fixture.Owner.TryGetState(resolved, out _), "解消したグループの状態を破棄します。");
+        Assert.AreEqual((1, 0), (fixture.Owner.VisibleGroupCount, fixture.Owner.SelectedGroupCount), "件数は残るグループだけを数えます。");
+
+        fixture.Owner.RemoveUnresolvedGroups([]);
+
+        Assert.AreEqual(0, fixture.Owner.RowSet.Count, "結果が空なら、行は0件になります。");
+        Assert.AreEqual(0, fixture.Owner.VisibleGroupCount);
+        Assert.IsFalse(fixture.Owner.TryGetState(surviving, out _));
+    }
+
+    /// <summary>
+    /// 保証：後続の単位（一括整理）が使う捕捉は、並べ替えと検索を当てた後の表示順で対象を返し、各対象は捕捉した時点の確認結果を持つ。
+    /// 捕捉後に確認結果を書き換えても、捕捉した値は変わらない。
+    /// 検出する誤り：並べ替え前の結果順での捕捉（一括整理の要求の順序の誤り）、確認結果の欠落（確認文の未確認・要注意の件数の誤り）、捕捉後の状態の漏洩。
+    /// </summary>
+    [TestMethod]
+    public void Capture_FollowsSortedDisplayOrderAndCarriesTheVerificationOfTheMoment()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup first = Group(@"C:\S\c1", @"C:\S\c2"), second = Group(@"C:\S\a1", @"C:\S\a2"), third = Group(@"C:\S\b1", @"C:\S\b2");
+        fixture.Adopt(first, second, third);
+        fixture.Owner.SelectVisible();
+        var caution = new DuplicateMergeVerificationResult(
+            DuplicateMergeVerificationStage.Caution,
+            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.AudioExtension, [new DuplicateMergeFinding(@"C:\S\a1", "x.wav")])]);
+
+        fixture.Owner.RequestSort("Path", ListSortDirection.Ascending);
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> ascending = fixture.Owner.CaptureSelectedGroups();
+        fixture.Owner.RequestSort("Path", ListSortDirection.Descending);
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> descending = fixture.Owner.CaptureSelectedGroups();
+
+        CollectionAssert.AreEqual(new[] { second, third, first }, ascending.Select(target => target.Group).ToArray(), "並べ替えを当てた表示順（昇順）です。");
+        CollectionAssert.AreEqual(new[] { first, third, second }, descending.Select(target => target.Group).ToArray(), "並べ替えを当てた表示順（降順）です。");
+        Assert.IsTrue(ascending.All(target => ReferenceEquals(target.Verification, DuplicateMergeVerificationResult.Unverified)), "未確認の結果を持ちます。");
+
+        fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(second, caution)]);
+        fixture.Owner.SelectVisible();
+        Assert.AreSame(caution, fixture.Owner.CaptureSelectedGroups().Single(target => ReferenceEquals(target.Group, second)).Verification);
+        Assert.AreSame(DuplicateMergeVerificationResult.Unverified, ascending[0].Verification, "捕捉した値は、後の書込みに影響されません。");
+    }
+
+    /// <summary>
     /// 保証：並べ替え・検索・SELECT・KEEP・優先統合先の操作では、TITLE・ARTISTの解決も登録範囲の捕捉も呼ばない。
     /// 検出する誤り：操作のたびにライブラリへ問い合わせる（表示の遅延、ロックの長期保持）。
     /// </summary>

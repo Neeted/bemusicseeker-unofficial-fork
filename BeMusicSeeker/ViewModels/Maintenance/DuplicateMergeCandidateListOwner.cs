@@ -279,6 +279,29 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     }
 
     /// <summary>
+    /// 新しい重複結果にないグループ（整理で解消したグループ）の状態と行を、画面の表示中かによらず取り除きます。UIスレッドで呼びます。
+    /// 結果が空なら、一覧の行は0件になります。結果に残るグループの状態（SELECT・KEEP・確認結果）と、並べ替え・検索語は変えません。
+    /// 新しい結果の採用（<see cref="Adopt"/>）は、この後に別に行います。解消したグループを持たなければ何もしません。
+    /// </summary>
+    /// <param name="currentGroups">新しい重複結果のグループです。</param>
+    internal void RemoveUnresolvedGroups(IEnumerable<DuplicateGroup> currentGroups)
+    {
+        ArgumentNullException.ThrowIfNull(currentGroups);
+        if (preparation == null || states.Count == 0) { return; }
+        var current = new HashSet<DuplicateGroup>(currentGroups.Where(group => group != null), ReferenceEqualityComparer.Instance);
+        if (states.Keys.All(current.Contains)) { return; }
+        var remaining = new Dictionary<DuplicateGroup, DuplicateMergeCandidateGroupState>(ReferenceEqualityComparer.Instance);
+        foreach ((DuplicateGroup group, DuplicateMergeCandidateGroupState state) in states)
+        {
+            if (current.Contains(group)) { remaining[group] = state; }
+        }
+        states = remaining;
+        preparation = new DuplicateMergeCandidateListPreparation(
+            preparation.Library, [.. preparation.Groups.Where(initial => remaining.ContainsKey(initial.Group))], preparation.Pairs);
+        RebuildView();
+    }
+
+    /// <summary>
     /// 列見出しの指定で、グループの先頭行（PATH昇順の先頭）の値を使ってグループ単位に並べ替えます。
     /// SELECTとSTATUSはグループの値を使います。KEEPなど並べ替えの対象外の列は無視します。
     /// </summary>
@@ -471,7 +494,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     }
 
     private static DuplicateMergeCandidateGroupTarget CaptureTarget(DuplicateMergeCandidateGroupState state)
-        => new(state.Group, [.. state.Folders], state.KeepFolder, state.KeepFixed, [.. state.RegisteredFolders]);
+        => new(state.Group, [.. state.Folders], state.KeepFolder, state.KeepFixed, [.. state.RegisteredFolders], state.Verification);
 
     /// <summary>
     /// 現在の状態表の全グループ（検索で非表示のグループと確認対象外のグループを含む）のフォルダを捕捉します。

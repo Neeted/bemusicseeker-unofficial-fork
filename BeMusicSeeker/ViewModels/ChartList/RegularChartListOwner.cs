@@ -784,6 +784,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 await normalLibraryRefreshUiScheduler.InvokeAsync(() =>
                 {
                     lock (syncRoot) { if (disposed || !ReferenceEquals(normalLibraryRefreshSource, library)) { return Task.CompletedTask; } }
+                    // 統合候補一覧の状態表から、操作で解消して新しい結果にないグループを、画面の表示中かによらず取り除く（結果が空なら行は0件になる）。
+                    if (input.IsCurrent) { duplicateCandidateList?.RemoveUnresolvedGroups(input.Groups); }
                     var ready = new RegularDuplicateDataReadyEventArgs(library, input);
                     DuplicateDataReady?.Invoke(this, ready);
                     // 通知受信中の同期例外はデータ準備の失敗として返す。一覧表示は別のTaskとして所有する。

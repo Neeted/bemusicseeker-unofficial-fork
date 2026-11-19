@@ -12,6 +12,7 @@ using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using static BeMusicSeeker.TestSupport.Components.DuplicateMaintenanceWorkflowOwnerTestSupport;
 using static BeMusicSeeker.TestSupport.Components.OwnedChartCollectionTestSupport;
+using Lists = BeMusicSeeker.TestSupport.Components.DuplicateMergeCandidateListTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -235,10 +236,16 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [TestMethod]
     [DataRow("merge")]
     [DataRow("hash")]
+    [DataRow("batch")]
     public async Task ExplicitMaintenance_RequiredPreparationFailurePreservesFactsAndReleasesAdmission(string operationKind)
     {
         await WithTemporarySongDbAsync(async songDbPath =>
         {
+            if (operationKind == "batch")
+            {
+                await AssertBatchOrganizeRequiredPreparationFailureAsync(songDbPath);
+                return;
+            }
             string root = Path.GetDirectoryName(songDbPath) ?? throw new AssertFailedException();
             ChartFile keeper = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
             ChartFile duplicate = CreateChart(Path.Combine(root, "duplicate.bms"), "same-hash");
@@ -758,6 +765,329 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         }
         public DuplicateMergeMaintenanceReceipt MergeFolderWithReceipt(BMSLibrary library, string sourceDirectory, string destinationDirectory, long operationId, LibraryOperationNotices notices)
             => inner.MergeFolderWithReceipt(library, sourceDirectory, destinationDirectory, operationId, notices);
+    }
+
+    /// <summary>
+    /// 一括整理でも、必要な準備が失敗したときに、モデルが先に確定した受取りの失敗と準備の失敗を一つの失敗へ合成し、準備の終端まで受付を保持して最後に解放する。
+    /// 失敗は報告を一回、その後に結果を一回出す。合成した失敗は結果へ残す。
+    /// </summary>
+    private async Task AssertBatchOrganizeRequiredPreparationFailureAsync(string songDbPath)
+    {
+        var originalFailure = new IOException("required original finalization failure");
+        var preparationFailure = new IOException("required duplicate preparation failure");
+        var session = new LibraryMutationSessionReceipt([new LibraryMutationSessionTarget(@"C:\S\source", @"C:\S\keep")],
+            durableCommit: true, finalizationFailure: originalFailure);
+        using var rig = new BatchRig(databaseScope, songDbPath, new CompletingBatchStore([]) { Session = session });
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> prepare = (source, capability, requireGroups) =>
+        {
+            Assert.AreSame(rig.Library, source);
+            Assert.IsTrue(requireGroups, "明示保守は現在画面によらず成功後選択の準備を指定します。");
+            using (source.OperationAdmission.Borrow(capability)) { }
+            reached.TrySetResult();
+            return CompletePreparationAsync();
+        };
+        async Task CompletePreparationAsync()
+        {
+            await release.Task;
+            throw preparationFailure;
+        }
+        rig.Library.ConnectDuplicateDataPreparation(prepare);
+        Task<DuplicateBatchOrganizeRunResult>? operation = null;
+        try
+        {
+            operation = rig.Owner.OrganizeSelectedGroupsAsync();
+            Assert.AreSame(reached.Task, await Task.WhenAny(reached.Task, operation).WaitAsync(BatchDeadline));
+            Assert.IsFalse(operation.IsCompleted);
+            Assert.IsTrue(rig.Library.OperationAdmission.IsActive);
+            Assert.IsFalse(rig.Library.OperationAdmission.TryEnter(out IDisposable? rejected));
+            Assert.IsNull(rejected);
+            Assert.AreEqual(0, rig.Dialogs.Messages.Count, "準備の完了前は、報告も結果も出しません。");
+            release.TrySetResult();
+
+            DuplicateBatchOrganizeRunResult run = await operation.WaitAsync(BatchDeadline);
+
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status);
+            Assert.IsInstanceOfType(run.Failure, typeof(AggregateException));
+            CollectionAssert.AreEquivalent(new Exception[] { originalFailure, preparationFailure },
+                ((AggregateException)run.Failure!).Flatten().InnerExceptions.ToArray());
+            UiMessageRequest[] messages = [.. rig.Dialogs.Messages];
+            Assert.AreEqual(2, messages.Length, "報告を一回、その後に結果を一回出します。");
+            Assert.AreEqual(Resources.FileDbMutationReport_Title, messages[0].Caption);
+            Assert.AreEqual(Resources.Duplicate_batch_organize_title, messages[1].Caption);
+            Assert.IsFalse(rig.Activity.IsActive);
+            Assert.IsFalse(rig.Library.OperationAdmission.IsActive);
+            Assert.IsTrue(rig.Library.OperationAdmission.TryEnter(out IDisposable? next));
+            next.Dispose();
+        }
+        finally
+        {
+            release.TrySetResult();
+            try { if (operation != null) { await operation; } }
+            finally { rig.Library.DisconnectDuplicateDataPreparation(prepare); }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // 統合候補一覧からの一括整理（OrganizeSelectedGroupsAsync）の、実際の受付・SQLiteを使う保証。
+    // 判断の分岐は Core の同名クラスが担い、ここでは、実受付の保持と解放の順序、書込みロック、UIの文脈との関係だけを確かめる。
+    // ---------------------------------------------------------------------------------------------------------------
+
+    private static readonly TimeSpan BatchDeadline = TimeSpan.FromSeconds(30);
+
+    /// <summary>全グループを完了として返す保存窓口の代替です。受取りを差し替えられます。</summary>
+    private sealed class CompletingBatchStore(List<string> events) : RecordingStore(events)
+    {
+        internal LibraryMutationSessionReceipt Session { get; init; } = new([new LibraryMutationSessionTarget(@"C:\S\source", @"C:\S\keep")], durableCommit: true);
+
+        internal int Calls;
+
+        internal List<int> ThreadIds { get; } = [];
+
+        internal Action<Action<DuplicateBatchOrganizeProgress>?>? DuringModel { get; set; }
+
+        public override DuplicateBatchOrganizeResult OrganizeDuplicateGroups(
+            BMSLibrary library, DuplicateBatchOrganizeRequest request, long operationId,
+            LibraryOperationNotices notices, Action<DuplicateBatchOrganizeProgress>? progress, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref Calls);
+            lock (ThreadIds) { ThreadIds.Add(Environment.CurrentManagedThreadId); }
+            AddEvent("store-organize");
+            DuringModel?.Invoke(progress);
+            return new DuplicateBatchOrganizeResult(
+                new DuplicateMergeMaintenanceReceipt(true, ResourceHealthIndexUpdateMode.DeferOnUpdates, MaintenanceWorkflowResultFacts.From(null),
+                    false, false, false, false, false, Session),
+                request.Groups.Select(group => new DuplicateBatchOrganizeGroupResult(
+                    group.KeepDirectory, group.IsSingleFolder, DuplicateBatchOrganizeGroupStatus.Completed,
+                    DuplicateBatchOrganizeSkipReason.None, null, group.SourceDirectories, [], 0, 0)),
+                canceled: false, admitted: true);
+        }
+    }
+
+    /// <summary>実ライブラリ（受付・SQLite）と、選択済みの一グループを持つ一覧の管理主体から、一括整理の入口を組んだ検証用の一式です。</summary>
+    private sealed class BatchRig : IDisposable
+    {
+        private readonly SingleThreadSynchronizationContext ui = new();
+
+        internal BatchRig(ApplicationDatabaseScope databaseScope, string songDbPath, CompletingBatchStore? store = null)
+        {
+            string root = Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException();
+            string keep = Path.Combine(root, "keep"), source = Path.Combine(root, "source");
+            ChartFile first = CreateChart(Path.Combine(keep, "a.bms"), "same-hash");
+            ChartFile second = CreateChart(Path.Combine(source, "b.bms"), "same-hash");
+            Library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new FileDbReportRecordingDialogs(),
+                settings: TestBmsFactory.CreateRootSettings([root]))
+            { BmsCharts = [first, second] };
+            Store = store ?? new CompletingBatchStore(Events);
+            Dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK), Events = Events };
+            Dialogs.Progress.ReceiverContext = ui;
+            Presentation = new RecordingPresentation(Events);
+            List = new DuplicateMergeCandidateListOwner(_ => false, _ => { });
+            Group = new DuplicateGroup([first, second], [keep, source]);
+            Lists.Adopt(List, Library, [Group]);
+            List.SelectVisible();
+            Owner = new DuplicateMaintenanceWorkflowOwner(() => Library, Library.OperationAdmission, Activity, Presentation, Dialogs, () => false,
+                _ => true, _ => new ExplorerOpenResult(), _ => null, Store, candidateList: List);
+            Owner.WorkflowChanged += Presentation.OnWorkflowChanged;
+            Activity.ActivityChanged += Presentation.OnActivityChanged;
+        }
+
+        internal TestBmsLibrary Library { get; }
+
+        internal List<string> Events { get; } = [];
+
+        internal CompletingBatchStore Store { get; }
+
+        internal FakeUiDialogService Dialogs { get; }
+
+        internal RecordingPresentation Presentation { get; }
+
+        internal DuplicateMergeCandidateListOwner List { get; }
+
+        internal DuplicateGroup Group { get; }
+
+        internal ChartMutationActivityOwner Activity { get; } = new();
+
+        internal DuplicateMaintenanceWorkflowOwner Owner { get; }
+
+        internal SingleThreadSynchronizationContext Ui => ui;
+
+        public void Dispose()
+        {
+            ui.Dispose();
+            Library.RequestShutdown("batch-organize-workflow-rig");
+        }
+    }
+
+    /// <summary>別のスレッドから、モデルの短期ロック（譜面・保留・初期化）の排他取得が待たずにできることで、呼出元スレッドが保持していないことを確かめます。</summary>
+    private static bool AreModelWriteLocksFree(BMSLibrary library)
+    {
+        const System.Reflection.BindingFlags flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        ReaderWriterLockSlimWrapper[] locks =
+        [
+            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetProperty("rwlockBMSFiles", flags)!.GetValue(library)!,
+            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetField("rwlockPendingInstallCharts", flags)!.GetValue(library)!,
+            (ReaderWriterLockSlimWrapper)typeof(BMSLibrary).GetField("rwlockBMSFilesInitializedMin", flags)!.GetValue(library)!
+        ];
+        return Task.Run(() =>
+        {
+            foreach (ReaderWriterLockSlimWrapper gate in locks)
+            {
+                using (gate.GetWriterGuard()) { }
+            }
+        }).Wait(TimeSpan.FromSeconds(10));
+    }
+
+    /// <summary>
+    /// 一括整理は、受付を、モデルの終端・重複結果の準備（必須の内部継続）・画面更新の抑制の解除まで保持し、結果の案内より前に解放する。
+    /// 準備の完了前は結果を出さず、結果は解放後（受付も活動も解放済み）に一回だけ出す。準備は現在画面によらず、明示した保守として要求する（requireGroups）。
+    /// 検出する誤り：準備の完了前の受付の解放（別の変更の割込み）、準備の完了前の結果の案内、解放前の結果の案内、結果の重複、準備の要求の指定漏れ。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_HoldsAdmissionUntilRequiredPreparationEndsAndShowsTheResultOnceAfterRelease()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            using var rig = new BatchRig(databaseScope, songDbPath);
+            var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool? requireGroups = null;
+            Func<BMSLibrary, LibraryFileMutationCapability, bool, Task> prepare = (source, capability, required) =>
+            {
+                requireGroups = required;
+                using (source.OperationAdmission.Borrow(capability)) { }
+                reached.TrySetResult();
+                return release.Task;
+            };
+            rig.Library.ConnectDuplicateDataPreparation(prepare);
+            bool? releasedAtResult = null;
+            rig.Dialogs.OnMessage = () => releasedAtResult ??= !rig.Library.OperationAdmission.IsActive && !rig.Activity.IsActive;
+            Task<DuplicateBatchOrganizeRunResult>? operation = null;
+            try
+            {
+                operation = rig.Owner.OrganizeSelectedGroupsAsync();
+                Assert.AreSame(reached.Task, await Task.WhenAny(reached.Task, operation).WaitAsync(BatchDeadline), "準備に到達する前に操作が終わりました。");
+                Assert.IsFalse(operation.IsCompleted);
+                Assert.IsTrue(rig.Library.OperationAdmission.IsActive, "準備の完了前は受付を保持します。");
+                Assert.IsFalse(rig.Library.OperationAdmission.TryEnter(out IDisposable? rejected));
+                rejected?.Dispose();
+                Assert.AreEqual(0, rig.Dialogs.Messages.Count, "準備の完了前に結果を出してはいけません。");
+                Assert.AreEqual(true, requireGroups, "明示した保守として、現在画面によらず準備を要求します。");
+
+                release.TrySetResult();
+                DuplicateBatchOrganizeRunResult run = await operation.WaitAsync(BatchDeadline);
+
+                Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+                Assert.AreEqual(true, releasedAtResult, "結果の案内の時点では、受付も活動も解放済みです。");
+                Assert.AreEqual(1, rig.Dialogs.Messages.Count, "結果は解放後に一回だけです。");
+                Assert.AreEqual(1, rig.Store.Calls);
+                Assert.IsTrue(rig.Library.OperationAdmission.TryEnter(out IDisposable? next));
+                next.Dispose();
+            }
+            finally
+            {
+                release.TrySetResult();
+                try { if (operation != null) { await operation; } }
+                finally { rig.Library.DisconnectDuplicateDataPreparation(prepare); }
+            }
+        });
+    }
+
+    /// <summary>
+    /// 確認の表示中は、受付を保持したまま、モデルを呼ばず、ライブラリの書込みロックも保持しない。取消後は受付を解放し、物理変更へ進まない。
+    /// 検出する誤り：確認中のモデル呼出し、確認中の書込みロックの保持（他の読込みの長期ブロック）、確認中の受付の解放、取消後の受付の解放漏れ。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_WhileConfirmationIsShown_HoldsAdmissionWithoutWriteLocksOrModelCall()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            using var rig = new BatchRig(databaseScope, songDbPath);
+            var pending = new TaskCompletionSource<UiDialogResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reached = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            rig.Dialogs.PendingConfirmation = pending;
+            rig.Dialogs.ConfirmationReached = reached;
+            Task<DuplicateBatchOrganizeRunResult> operation = rig.Owner.OrganizeSelectedGroupsAsync();
+            try
+            {
+                await reached.Task.WaitAsync(BatchDeadline);
+                Assert.IsTrue(rig.Library.OperationAdmission.IsActive, "確認中は受付を保持します。");
+                Assert.IsTrue(AreModelWriteLocksFree(rig.Library), "確認中は、ライブラリの書込みロックを保持してはいけません。");
+                Assert.AreEqual(0, rig.Store.Calls, "確認中にモデルを呼んではいけません。");
+                Assert.AreEqual(0, rig.Dialogs.Progress.Runs);
+            }
+            finally
+            {
+                pending.TrySetResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+            }
+
+            DuplicateBatchOrganizeRunResult run = await operation.WaitAsync(BatchDeadline);
+
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Declined, run.Status);
+            Assert.AreEqual(0, rig.Store.Calls);
+            Assert.IsFalse(rig.Library.OperationAdmission.IsActive, "取消後は受付を解放します。");
+            Assert.AreEqual(0, rig.Dialogs.Messages.Count);
+        });
+    }
+
+    /// <summary>
+    /// モデルの保存窓口はUIの文脈の外で呼ぶ。進捗の受け手は、UIの文脈を塞がれていても待たずに戻り（グループの開始と反映段階への移行の三回）、
+    /// 塞ぎを解いた後の表示は、最後の値（ライブラリへ反映中）で終わる。UIの完了を同期的に待つと、塞がれた間は戻れずにこのケースが期限で失敗する。
+    /// 検出する誤り：UIの文脈でのモデル呼出し、進捗の受け手がUIの完了を待つ（受付を保持したままのUIの待機）、最後の値の取りこぼしや順序の逆転。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_ModelRunsOffTheUiContextAndProgressReceiversDoNotWaitForABlockedUi()
+    {
+        await WithTemporarySongDbAsync(async songDbPath =>
+        {
+            using var rig = new BatchRig(databaseScope, songDbPath);
+            int uiThreadId = await rig.Ui.RunAsync(() => Task.FromResult(Environment.CurrentManagedThreadId));
+            using var unblockUi = new ManualResetEventSlim();
+            var uiBlocked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var receiversReturned = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            rig.Store.DuringModel = progress =>
+            {
+                // UIの文脈が塞がっている間に、受け手を三回呼ぶ。待たずに戻れなければ、ここで止まる。
+                uiBlocked.Task.Wait(BatchDeadline);
+                progress?.Invoke(new DuplicateBatchOrganizeProgress(1, 2, Path.Combine("K", "first")));
+                progress?.Invoke(new DuplicateBatchOrganizeProgress(2, 2, Path.Combine("K", "second")));
+                progress?.Invoke(new DuplicateBatchOrganizeProgress(2, 2, null!, DuplicateBatchOrganizeProgressKind.Applying));
+                receiversReturned.TrySetResult();
+            };
+            Task blockUi = rig.Ui.RunAsync(() => { uiBlocked.TrySetResult(); unblockUi.Wait(BatchDeadline); });
+            Task<DuplicateBatchOrganizeRunResult>? operation = null;
+            try
+            {
+                await uiBlocked.Task.WaitAsync(BatchDeadline);
+                operation = rig.Owner.OrganizeSelectedGroupsAsync();
+                await receiversReturned.Task.WaitAsync(BatchDeadline);
+                Assert.AreEqual(0, rig.Dialogs.Progress.Reports.Count, "UIの文脈が塞がっている間は、表示は更新されません。");
+                Assert.IsFalse(operation.IsCompleted, "画面の完了（UIの文脈）は塞がれたままです。");
+            }
+            finally
+            {
+                unblockUi.Set();
+            }
+
+            DuplicateBatchOrganizeRunResult run = await operation.WaitAsync(BatchDeadline);
+            await blockUi;
+
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+            Assert.AreEqual(1, rig.Store.ThreadIds.Count);
+            Assert.AreNotEqual(uiThreadId, rig.Store.ThreadIds[0], "モデルはUIの文脈の外で呼びます。");
+            (int Percent, string Message)[] reports = [.. rig.Dialogs.Progress.Reports];
+            // 画面へは最新の値だけを渡すため、途中のグループ開始の値は欠けてよい。反映中の合図は、遅れた値に上書きされず最後に一回だけ表示される。
+            Assert.AreEqual((100, Resources.Duplicate_batch_organize_progress_applying), reports[^1], "塞ぎを解いた後の表示は、最後の値（反映中）で終わります。");
+            Assert.AreEqual(1, reports.Count(report => report.Message == Resources.Duplicate_batch_organize_progress_applying));
+            string[] groupMessages =
+            [
+                string.Format(Resources.Duplicate_batch_organize_progress_group_format, 1, 2, "first"),
+                string.Format(Resources.Duplicate_batch_organize_progress_group_format, 2, 2, "second")
+            ];
+            int[] indexes = [.. reports[..^1].Select(report => Array.IndexOf(groupMessages, report.Message))];
+            Assert.IsTrue(indexes.All(index => index >= 0) && indexes.Zip(indexes.Skip(1), (a, b) => a < b).All(ok => ok), "グループ開始の値は、番号が後退しない順です。");
+        });
     }
 
 }
