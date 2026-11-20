@@ -474,6 +474,82 @@ public sealed class UiDialogCoordinatorWpfTests
         }
     }
 
+    /// <summary>実際の確認窓口で、チェック欄を要求した場合だけOKが現在のチェック状態に従うことを確認します。</summary>
+    [TestMethod]
+    [DataRow("整理を続行する", true)]
+    [DataRow("", true)]
+    [DataRow(null, false)]
+    public void ConfirmAsyncRequiresRequestedAcknowledgmentBeforeAccepting(string? label, bool requireAcknowledgment)
+    {
+        TestUiDispatcherHost.RunWindowTest(windowTest =>
+        {
+            Window owner = CreateTestWindow("owner");
+            windowTest.ShowAndWaitForContentRendered(owner);
+            bool clickedOk = false;
+            Exception? inputFailure = null;
+            var coordinator = new UiDialogCoordinator(new UiDialogOwnerResolver(), window =>
+            {
+                windowTest.PrepareForOwnedPresentation(window);
+                window.ContentRendered += (_, _) =>
+                {
+                    try
+                    {
+                        Button[] buttons = LogicalDescendants<Button>(window).ToArray();
+                        Button ok = buttons.Single(button => AutomationProperties.GetAutomationId(button) == "ThemedMessageBoxOK");
+                        Button cancel = buttons.Single(button => button.IsCancel);
+                        Assert.IsTrue(cancel.IsDefault && cancel.IsEnabled);
+                        Assert.AreEqual(!requireAcknowledgment, ok.IsEnabled);
+                        CheckBox? acknowledgment = LogicalDescendants<CheckBox>(window).SingleOrDefault();
+                        if (requireAcknowledgment)
+                        {
+                            Assert.IsNotNull(acknowledgment);
+                            Assert.AreEqual(label, acknowledgment.Content);
+                            Assert.IsTrue(acknowledgment.IsEnabled);
+                            Assert.IsFalse(acknowledgment.IsChecked);
+                            acknowledgment.IsChecked = true;
+                            Assert.IsTrue(ok.IsEnabled);
+                            acknowledgment.IsChecked = false;
+                            Assert.IsFalse(ok.IsEnabled);
+                            acknowledgment.IsChecked = true;
+                        }
+                        else
+                        {
+                            Assert.IsNull(acknowledgment);
+                        }
+                        Assert.IsTrue(ok.IsEnabled);
+                        ok.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        clickedOk = true;
+                        Assert.IsFalse(window.IsVisible, "OKを押すと確認窓が閉じます。");
+                    }
+                    catch (Exception failure)
+                    {
+                        inputFailure = failure;
+                        if (window.IsVisible) { window.Close(); }
+                    }
+                };
+                return UiDialogOwnerResolver.PushActiveModal(window);
+            });
+            var request = new UiConfirmationRequest("確認", "確認", MessageBoxButton.OKCancel,
+                MessageBoxImage.Question, MessageBoxResult.Cancel, owner: owner, warningMessageBoxText: "注意")
+            {
+                AcknowledgmentText = label
+            };
+            UiDialogResult result = coordinator.ConfirmAsync(request).GetAwaiter().GetResult();
+            Assert.IsNull(inputFailure, inputFailure?.ToString());
+            Assert.IsTrue(clickedOk, "確認窓を描画し、OKを押してから整理を承認します。");
+            Assert.AreEqual(UiDialogStatus.Accepted, result.Status);
+        });
+
+        static IEnumerable<T> LogicalDescendants<T>(DependencyObject parent) where T : DependencyObject
+        {
+            foreach (DependencyObject child in LogicalTreeHelper.GetChildren(parent).OfType<DependencyObject>())
+            {
+                if (child is T match) { yield return match; }
+                foreach (T descendant in LogicalDescendants<T>(child)) { yield return descendant; }
+            }
+        }
+    }
+
     private static UiDialogCoordinator CreateTestCoordinator(
         TestWindowPresentationScope windowTest,
         UiDialogOwnerResolver? ownerResolver = null,

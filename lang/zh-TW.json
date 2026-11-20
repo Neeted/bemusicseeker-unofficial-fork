@@ -1494,6 +1494,7 @@
   "Duplicate_batch_organize_confirm_unverified_caution_format": "包含未檢查{0}個組／需注意{1}個組。",
   "Duplicate_batch_organize_confirm_unverified_format": "包含未檢查{0}個組。",
   "Duplicate_batch_organize_confirm_caution_format": "包含需注意{0}個組。",
+  "Duplicate_batch_organize_acknowledgment": "繼續整理需注意或未檢查的組",
   "Duplicate_batch_organize_confirm_collision": "同名但內容不同的檔案，將依覆寫設定只保留其中一個。",
   "Duplicate_batch_organize_result_format": "已整理{0}個組。完成 {1}／部分完成 {2}／略過 {3}／失敗 {4}／未處理 {5}。",
   "Duplicate_batch_organize_result_trashed_format": "已將{0}個重複譜面移至資源回收筒。",

@@ -3481,6 +3481,8 @@ public class Resources
     public static string Duplicate_batch_organize_confirm_unverified_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_unverified_format", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、要注意のグループだけを含む旨の行です。{0}は要注意のグループ数です。</summary>
     public static string Duplicate_batch_organize_confirm_caution_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_caution_format", resourceCulture);
+    /// <summary>要注意または未確認のグループを整理する際のチェック欄の文言です。</summary>
+    public static string Duplicate_batch_organize_acknowledgment => ResourceManager.GetString("Duplicate_batch_organize_acknowledgment", resourceCulture);
     /// <summary>重複グループの一括整理の確認文で、内容が異なる同名のファイルの扱いを示す行です。</summary>
     public static string Duplicate_batch_organize_confirm_collision => ResourceManager.GetString("Duplicate_batch_organize_confirm_collision", resourceCulture);
     /// <summary>重複グループの一括整理の結果の見出しです。{0}は整理したグループ数、{1}から{5}は完了・一部完了・スキップ・失敗・未処理の数です。</summary>

@@ -188,6 +188,9 @@ internal class UiMessageRequest
 /// </summary>
 internal sealed class UiConfirmationRequest : UiMessageRequest
 {
+    /// <summary>肯定ボタンを有効にするためのチェック欄の文言です。null はチェック不要を表します。空の訳文でもチェックは必要です。</summary>
+    internal string AcknowledgmentText { get; init; }
+
     /// <summary>
     /// 標準の OK/Cancel 確認要求を初期化します。
     /// </summary>

@@ -153,7 +153,7 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
 
     /// <summary>
     /// 一括整理の確認を表示します。確認を表示しない設定（<c>ShowDuplicateFileCheckConfirmMsg</c>）でも、常に一度表示します。
-    /// OKとキャンセルがあり、既定はキャンセルです。未確認または要注意のグループを含むときだけ、アイコンは警告です。
+    /// OKとキャンセルがあり、既定はキャンセルです。未確認または要注意のグループを含むときだけ、警告アイコンを表示し、チェックを入れるまでOKを無効にします。
     /// 未確認・要注意と内容が異なる同名のファイルの注意は、警告用の本文（警告色の部分）に表示します。
     /// </summary>
     private async Task<ConfirmationDecision> ConfirmBatchOrganizeAsync(IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets)
@@ -168,7 +168,11 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
                     MessageBoxButton.OKCancel,
                     hasWarning ? MessageBoxImage.Warning : MessageBoxImage.Question,
                     MessageBoxResult.Cancel,
-                    warningMessageBoxText: warningMessage),
+                    warningMessageBoxText: warningMessage)
+                {
+                    // 利用者の辞書が空でも、選択対象が必要とする確認を省略しません。
+                    AcknowledgmentText = hasWarning ? Resources.Duplicate_batch_organize_acknowledgment ?? string.Empty : null
+                },
                 "Duplicate batch organize confirmation");
         }
         catch (Exception exception)

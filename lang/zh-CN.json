@@ -1494,6 +1494,7 @@
   "Duplicate_batch_organize_confirm_unverified_caution_format": "包含未检查{0}个组／需注意{1}个组。",
   "Duplicate_batch_organize_confirm_unverified_format": "包含未检查{0}个组。",
   "Duplicate_batch_organize_confirm_caution_format": "包含需注意{0}个组。",
+  "Duplicate_batch_organize_acknowledgment": "继续整理需注意或未检查的组",
   "Duplicate_batch_organize_confirm_collision": "同名但内容不同的文件，将按覆盖设置只保留其中一个。",
   "Duplicate_batch_organize_result_format": "已整理{0}个组。完成 {1}／部分完成 {2}／跳过 {3}／失败 {4}／未处理 {5}。",
   "Duplicate_batch_organize_result_trashed_format": "已将{0}个重复谱面移至回收站。",

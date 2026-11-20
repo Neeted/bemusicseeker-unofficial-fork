@@ -1323,7 +1323,7 @@ The basic steps are as follows.
 1. Press `Select all shown`, or check the target groups in `SELECT`.
 2. Press `Verify selected groups`. When verification finishes, only the `Safe` groups stay checked.
 3. Change `KEEP` if needed.
-4. Press `Organize selected groups`, review the confirmation dialog, and proceed.
+4. Press `Organize selected groups`, review the confirmation dialog. If the selection includes a `Caution` or `Unchecked` group, check `Continue organizing caution or unchecked groups`. Press `OK` to proceed.
 
 `Verify selected groups` only reads and compares the contents of each folder; it does not change any file. The result is shown in `STATUS`.
 

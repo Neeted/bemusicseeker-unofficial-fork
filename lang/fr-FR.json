@@ -1494,6 +1494,7 @@
   "Duplicate_batch_organize_confirm_unverified_caution_format": "Comprend {0} groupe(s) non vérifié(s) / {1} groupe(s) à surveiller.",
   "Duplicate_batch_organize_confirm_unverified_format": "Comprend {0} groupe(s) non vérifié(s).",
   "Duplicate_batch_organize_confirm_caution_format": "Comprend {0} groupe(s) à surveiller.",
+  "Duplicate_batch_organize_acknowledgment": "Poursuivre l’organisation des groupes à surveiller ou non vérifiés",
   "Duplicate_batch_organize_confirm_collision": "Pour les fichiers de même nom au contenu différent, un seul est conservé selon le réglage d’écrasement.",
   "Duplicate_batch_organize_result_format": "{0} groupe(s) organisé(s). Terminés {1} / Partiellement terminés {2} / Ignorés {3} / Échecs {4} / Non traités {5}.",
   "Duplicate_batch_organize_result_trashed_format": "{0} chart(s) en double envoyé(s) à la Corbeille.",

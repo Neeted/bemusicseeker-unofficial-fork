@@ -4387,6 +4387,9 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_batch_organize_confirm_caution_format" xml:space="preserve">
     <value>要注意 {0}グループを含みます。</value>
   </data>
+  <data name="Duplicate_batch_organize_acknowledgment" xml:space="preserve">
+    <value>要注意・未確認グループの整理を続行する</value>
+  </data>
   <data name="Duplicate_batch_organize_confirm_collision" xml:space="preserve">
     <value>内容が異なる同名のファイルは、上書きの設定に従って一方だけが残ります。</value>
   </data>

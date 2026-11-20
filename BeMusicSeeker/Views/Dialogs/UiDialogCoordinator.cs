@@ -771,6 +771,7 @@ internal sealed class UiDialogCoordinator : IUiDialogService
             request.DefaultResult,
             request.Options,
             request.WarningMessageBoxText,
-            modalScopeFactory);
+            modalScopeFactory,
+            (request as UiConfirmationRequest)?.AcknowledgmentText);
     }
 }

@@ -1494,6 +1494,7 @@
   "Duplicate_batch_organize_confirm_unverified_caution_format": "미확인 {0}개 그룹 / 주의 필요 {1}개 그룹을 포함합니다.",
   "Duplicate_batch_organize_confirm_unverified_format": "미확인 {0}개 그룹을 포함합니다.",
   "Duplicate_batch_organize_confirm_caution_format": "주의 필요 {0}개 그룹을 포함합니다.",
+  "Duplicate_batch_organize_acknowledgment": "주의가 필요하거나 미확인인 그룹 정리 계속",
   "Duplicate_batch_organize_confirm_collision": "이름은 같지만 내용이 다른 파일은 덮어쓰기 설정에 따라 한쪽만 남습니다.",
   "Duplicate_batch_organize_result_format": "{0}개 그룹을 정리했습니다. 완료 {1} / 일부 완료 {2} / 건너뜀 {3} / 실패 {4} / 미처리 {5}.",
   "Duplicate_batch_organize_result_trashed_format": "중복된 채보 {0}개를 휴지통으로 보냈습니다.",

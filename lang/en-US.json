@@ -1494,6 +1494,7 @@
   "Duplicate_batch_organize_confirm_unverified_caution_format": "Includes {0} unchecked groups / {1} groups needing caution.",
   "Duplicate_batch_organize_confirm_unverified_format": "Includes {0} unchecked groups.",
   "Duplicate_batch_organize_confirm_caution_format": "Includes {0} groups needing caution.",
+  "Duplicate_batch_organize_acknowledgment": "Continue organizing caution or unchecked groups",
   "Duplicate_batch_organize_confirm_collision": "For files with the same name but different content, only one remains according to the overwrite setting.",
   "Duplicate_batch_organize_result_format": "Organized {0} groups. Completed {1} / Partially completed {2} / Skipped {3} / Failed {4} / Not processed {5}.",
   "Duplicate_batch_organize_result_trashed_format": "Sent {0} duplicate charts to the Recycle Bin.",

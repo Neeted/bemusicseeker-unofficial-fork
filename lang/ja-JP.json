@@ -1494,6 +1494,7 @@
   "Duplicate_batch_organize_confirm_unverified_caution_format": "未確認 {0}グループ／要注意 {1}グループを含みます。",
   "Duplicate_batch_organize_confirm_unverified_format": "未確認 {0}グループを含みます。",
   "Duplicate_batch_organize_confirm_caution_format": "要注意 {0}グループを含みます。",
+  "Duplicate_batch_organize_acknowledgment": "要注意・未確認グループの整理を続行する",
   "Duplicate_batch_organize_confirm_collision": "内容が異なる同名のファイルは、上書きの設定に従って一方だけが残ります。",
   "Duplicate_batch_organize_result_format": "{0}グループを整理しました。完了 {1}／一部完了 {2}／スキップ {3}／失敗 {4}／未処理 {5}。",
   "Duplicate_batch_organize_result_trashed_format": "重複した譜面 {0}件をごみ箱へ送りました。",
