@@ -8,7 +8,7 @@ namespace BeMusicSeeker.Tests;
 /// 統合の安全性確認の検査器を、テスト用の作業領域の実ファイルと実ディレクトリで確認します。所持譜面の情報だけをメモリ上の代替にし、
 /// 段階・理由・該当するパス・比較方法を結果から読みます。KEEPに依存しない事実は一グループの検査の入口から、
 /// KEEPに依存する事実は <see cref="DuplicateMergeGroupInspection.Evaluate"/> から確認します。
-/// サイズはすべて本番の定数から計算し、「読まない経路」は排他ロックしたファイルを置いて、読めば解析不能が出ることで区別します。
+/// 境界サイズと区間長は仕様値で指定し、「読まない経路」は排他ロックしたファイルを置いて、読めば解析不能が出ることで区別します。
 /// </summary>
 [TestClass]
 public sealed class DuplicateMergeSafetyInspectorTests
@@ -508,14 +508,15 @@ public sealed class DuplicateMergeSafetyInspectorTests
     /// 検出する誤り：境界の不等号の誤り（以上と超過の取り違え）、比較方法の誤記録。
     /// </summary>
     [TestMethod]
-    [DataRow(0, true)]
-    [DataRow(1, false)]
-    public void ContentComparison_UsesFullReadUpToTheLimitAndPartialAboveIt(int overLimit, bool expectedFull)
+    [DataRow("x.WEBM", 192 * 1024, true)]
+    [DataRow("x.WEBM", 192 * 1024 + 1, false)]
+    [DataRow("x.bin", 32 * 1024 * 1024, true)]
+    [DataRow("x.bin", 32 * 1024 * 1024 + 1, false)]
+    public void ContentComparison_UsesResourceSpecificLimit(string name, int size, bool expectedFull)
     {
         string a = Folder("g/a"), b = Folder("g/b");
-        byte[] content = PatternBytes(DuplicateMergeSafetyPolicy.FullReadLimit + overLimit, 11);
-        WriteFile(Path.Combine(a, "x.bin"), content);
-        WriteFile(Path.Combine(b, "x.bin"), content);
+        WriteSizedFile(Path.Combine(a, name), size);
+        WriteSizedFile(Path.Combine(b, name), size);
 
         DuplicateMergeVerificationResult result = Inspect([a, b]).Evaluate(a);
 
@@ -524,41 +525,66 @@ public sealed class DuplicateMergeSafetyInspectorTests
     }
 
     /// <summary>
-    /// 保証：大きいファイルは先頭・中央・末尾の固定長の区間を比べる。先頭の1バイト、末尾の1バイト、中央をまたぐ16バイトのどれが違っても別内容になり、
-    /// サイズの1/4の位置だけが違う場合は同一内容で、比較方法は「部分」である（これは仕様で、全バイトの比較は行わない）。
-    /// 検出する誤り：区間の取り違え（先頭だけ・末尾だけを読む）、中央の位置のずれ、未読領域の差を別内容とする全量比較。
+    /// 保証：512 KiBの動画では、先頭・中央・末尾の各64 KiBにある差を検出し、そのすぐ外側の差は部分一致となります。
+    /// 区間の長さや中央の位置のずれを、境界の前後1バイトで検出します。
     /// </summary>
     [TestMethod]
-    [DataRow("first", true)]
-    [DataRow("last", true)]
-    [DataRow("center-start", true)]
-    [DataRow("center-end", true)]
-    [DataRow("quarter", false)]
-    public void PartialRead_DetectsDifferencesOnlyInReadSegments(string position, bool expectedConflict)
+    [DataRow(0, true)]
+    [DataRow(64 * 1024 - 1, true)]
+    [DataRow(64 * 1024, false)]
+    [DataRow(224 * 1024 - 1, false)]
+    [DataRow(224 * 1024, true)]
+    [DataRow(288 * 1024 - 1, true)]
+    [DataRow(288 * 1024, false)]
+    [DataRow(448 * 1024 - 1, false)]
+    [DataRow(448 * 1024, true)]
+    [DataRow(512 * 1024 - 1, true)]
+    public void PartialRead_DetectsDifferencesOnlyInReadSegments(int index, bool expectedConflict)
     {
-        int size = Math.Max(DuplicateMergeSafetyPolicy.FullReadLimit + 1, 8 * DuplicateMergeSafetyPolicy.SegmentLength);
-        int index = position switch
-        {
-            "first" => 0,
-            "last" => size - 1,
-            "center-start" => size / 2 - 8,
-            "center-end" => size / 2 + 7,
-            _ => size / 4
-        };
+        const int size = 512 * 1024;
         string a = Folder("g/a"), b = Folder("g/b");
         byte[] first = PatternBytes(size, 21);
         byte[] second = [.. first];
         second[index] ^= 0xFF;
-        WriteFile(Path.Combine(a, "big.bin"), first);
-        WriteFile(Path.Combine(b, "big.bin"), second);
+        WriteFile(Path.Combine(a, "big.mp4"), first);
+        WriteFile(Path.Combine(b, "big.mp4"), second);
 
         DuplicateMergeVerificationResult result = Inspect([a, b]).Evaluate(a);
 
-        Assert.AreEqual(expectedConflict, Reason(result, DuplicateMergeVerificationReasonKind.ContentConflict) != null, position);
+        Assert.AreEqual(expectedConflict, Reason(result, DuplicateMergeVerificationReasonKind.ContentConflict) != null);
         if (!expectedConflict)
         {
             Assert.AreEqual(DuplicateMergeVerificationStage.Safe, result.Stage);
             Assert.AreEqual(1, result.Comparisons!.Partial, "未読領域だけの差は同一内容で、比較方法は「部分」です。");
+        }
+    }
+
+    /// <summary>32 MiB付近で部分比較の範囲外だけを変更し、その他の境界と音源・静止画に上限を誤適用する回帰を検出します。</summary>
+    [TestMethod]
+    [DataRow("x.bin", 32 * 1024 * 1024, true)]
+    [DataRow("x.bin", 32 * 1024 * 1024 + 1, false)]
+    [DataRow("x.FLAC", 32 * 1024 * 1024 + 1, true)]
+    [DataRow("x.JPEG", 32 * 1024 * 1024 + 1, true)]
+    public void ContentComparison_DetectsUnsampledDifferenceWhenReadingInFull(string name, int size, bool expectedConflict)
+    {
+        string a = Folder("g/a"), b = Folder("g/b");
+        WriteSizedFile(Path.Combine(a, name), size);
+        WriteSizedFile(Path.Combine(b, name), size, changeQuarter: true);
+
+        DuplicateMergeVerificationResult result = Inspect([a, b]).Evaluate(a);
+
+        Assert.AreEqual(expectedConflict, Reason(result, DuplicateMergeVerificationReasonKind.ContentConflict) != null);
+        if (!expectedConflict) { Assert.AreEqual(1, result.Comparisons!.Partial); }
+    }
+
+    private static void WriteSizedFile(string path, int size, bool changeQuarter = false)
+    {
+        using FileStream stream = File.Create(path);
+        stream.SetLength(size);
+        if (changeQuarter)
+        {
+            stream.Position = size / 4;
+            stream.WriteByte(1);
         }
     }
 }

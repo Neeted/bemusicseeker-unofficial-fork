@@ -18,7 +18,7 @@ internal enum DuplicateMergeContentComparison
 
 /// <summary>
 /// 同じ相対パスの二つのファイルが同一内容かを判定します。一回の確認の中で、同じファイルは一度だけ読み、ハッシュは確認の外へ保存しません。
-/// 大きいファイルの未読領域にだけ差がある場合は同一内容と判定されます。これは仕様で、全バイトを比べる経路は持ちません。
+/// 部分比較の未読領域にだけ差がある場合は同一内容と判定されます。
 /// </summary>
 internal sealed class DuplicateMergeContentComparer
 {
@@ -47,21 +47,20 @@ internal sealed class DuplicateMergeContentComparer
             method = DuplicateMergeComparisonMethod.SizeAndTime;
             return DuplicateMergeContentComparison.Same;
         }
-        method = first.Length <= DuplicateMergeSafetyPolicy.FullReadLimit
-            ? DuplicateMergeComparisonMethod.Full : DuplicateMergeComparisonMethod.Partial;
+        method = DuplicateMergeSafetyPolicy.GetReadMethod(first.RelativePath, first.Length);
         // 先に失敗したファイルがあれば、相手を読まずに判定不能とする。
-        if (!EnsureDigest(first) || !EnsureDigest(second)) { return DuplicateMergeContentComparison.Unreadable; }
+        if (!EnsureDigest(first, method) || !EnsureDigest(second, method)) { return DuplicateMergeContentComparison.Unreadable; }
         return first.Digest == second.Digest ? DuplicateMergeContentComparison.Same : DuplicateMergeContentComparison.Different;
     }
 
-    private bool EnsureDigest(DuplicateMergeScannedFile file)
+    private bool EnsureDigest(DuplicateMergeScannedFile file, DuplicateMergeComparisonMethod method)
     {
         if (!file.DigestAttempted)
         {
             file.DigestAttempted = true;
             try
             {
-                file.Digest = ComputeDigest(file);
+                file.Digest = ComputeDigest(file, method);
             }
             catch (Exception failure) when (DuplicateMergeFolderScan.IsInputOutputFailure(failure))
             {
@@ -71,11 +70,11 @@ internal sealed class DuplicateMergeContentComparer
         return file.DigestFailure == null;
     }
 
-    private UInt128 ComputeDigest(DuplicateMergeScannedFile file)
+    private UInt128 ComputeDigest(DuplicateMergeScannedFile file, DuplicateMergeComparisonMethod method)
     {
         using FileStream stream = LongPathFileSystem.OpenRead(file.FullPath);
         var hash = new XxHash128();
-        if (file.Length <= DuplicateMergeSafetyPolicy.FullReadLimit)
+        if (method == DuplicateMergeComparisonMethod.Full)
         {
             hash.Append(stream);
         }
@@ -84,7 +83,7 @@ internal sealed class DuplicateMergeContentComparer
             int segment = DuplicateMergeSafetyPolicy.SegmentLength;
             // 区間のバッファーは、部分読取りが必要になった時点で確保し、一回の確認の間で共有する。
             segmentBuffer ??= new byte[segment];
-            // 先頭・中央（ファイルの中心をまたぐ区間）・末尾。上限が区間長の3倍なので、上限を超える大きさでは三つの区間は重ならない。
+            // 先頭・中央（ファイルの中心をまたぐ区間）・末尾。部分比較を行うサイズでは三つの区間は重ならない。
             foreach (long offset in new[] { 0L, file.Length / 2 - segment / 2, file.Length - segment })
             {
                 stream.Seek(offset, SeekOrigin.Begin);

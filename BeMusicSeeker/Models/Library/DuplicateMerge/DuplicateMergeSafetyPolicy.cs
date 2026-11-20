@@ -8,15 +8,23 @@ namespace BeMusicSeeker.Models;
 /// <summary>統合の安全性確認が使う、ファイルの分類と内容比較の定数を一か所で定めます。</summary>
 internal static class DuplicateMergeSafetyPolicy
 {
-    /// <summary>
-    /// この大きさ以下のファイルは全量を読んで比べます。実測に基づいて確定した値です。
-    /// 実ライブラリの資源約8万件で、上限の候補 64／192／512／1024 KiB のうち 192 KiB で読取りの総量が最小になり、
-    /// 資源の約97%が 192 KiB 以下でした。所要時間は読取りの量よりファイルを開く回数が支配的です。
-    /// </summary>
-    internal const int FullReadLimit = 192 * 1024;
-
-    /// <summary>上限を超えるファイルで、先頭・中央・末尾から読む区間の長さです。上限と合わせて確定した値で、三区間の合計は全量読取りの上限と等しくなります。</summary>
+    /// <summary>部分比較では先頭・中央・末尾からそれぞれ64 KiBを読みます。</summary>
     internal const int SegmentLength = 64 * 1024;
+
+    /// <summary>内容を読む資源の比較方法を、共有の拡張子分類とサイズから決めます。</summary>
+    internal static DuplicateMergeComparisonMethod GetReadMethod(string fileName, long length)
+    {
+        const int movieLimit = 3 * SegmentLength;
+        const int otherLimit = 32 * 1024 * 1024;
+        if (length <= movieLimit) { return DuplicateMergeComparisonMethod.Full; }
+        string extension = Path.GetExtension(fileName);
+        if (ChartResourceExtensions.IsMovieExtension(extension)) { return DuplicateMergeComparisonMethod.Partial; }
+        if (length <= otherLimit || ChartResourceExtensions.IsAudioExtension(extension) || ChartResourceExtensions.IsImageExtension(extension))
+        {
+            return DuplicateMergeComparisonMethod.Full;
+        }
+        return DuplicateMergeComparisonMethod.Partial;
+    }
 
     private static readonly HashSet<string> ChartExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -28,11 +36,6 @@ internal static class DuplicateMergeSafetyPolicy
         ".bmx", ".pmx", ".txt"
     };
 
-    private static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".wav", ".ogg", ".mp3", ".flac"
-    };
-
     /// <summary>拡張子から、ファイルを分類します。大文字小文字を区別しません。</summary>
     internal static DuplicateMergeFileCategory Classify(string fileName)
     {
@@ -42,7 +45,7 @@ internal static class DuplicateMergeSafetyPolicy
     }
 
     /// <summary>音源の拡張子かを返します。</summary>
-    internal static bool IsAudio(string fileName) => AudioExtensions.Contains(Path.GetExtension(fileName));
+    internal static bool IsAudio(string fileName) => ChartResourceExtensions.IsAudioExtension(Path.GetExtension(fileName));
 
     /// <summary>
     /// フォルダのパスを、同一・親子の比較に使える形（絶対・末尾の区切りなし）にします。整えられないパスは、前後の空白と末尾の区切りだけを除きます。
