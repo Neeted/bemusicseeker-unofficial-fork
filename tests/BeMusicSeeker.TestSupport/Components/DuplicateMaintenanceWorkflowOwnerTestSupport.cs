@@ -128,8 +128,20 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
         public bool TryBeginPhysicalMutation(BMSLibrary library, IEnumerable<string> paths, bool recursive, out LibraryFileMutationLease? lease)
         { PhysicalMutationStarts++; lease = null; return PhysicalMutationAdmitted; }
 
+        /// <summary>削除の事前準備を呼ばれた回数です。準備の失敗で止める経路へ届いたことの観測に使います。</summary>
+        internal int PrepareChartRemovalCalls { get; private set; }
+
+        /// <summary>派生の保存窓口が準備を差し替える場合に、呼出しを記録へ加えます。</summary>
+        protected void CountPrepareChartRemoval() => PrepareChartRemovalCalls++;
+
         public virtual LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
-            => new(charts, WholeFolderCandidates, [], charts.Count, 0, registeredUserRoots: RegisteredUserRoots);
+            => PrepareCounted(charts);
+
+        private LibraryChartRemovalPreflight PrepareCounted(IReadOnlyList<ChartFile> charts)
+        {
+            PrepareChartRemovalCalls++;
+            return new(charts, WholeFolderCandidates, [], charts.Count, 0, registeredUserRoots: RegisteredUserRoots);
+        }
 
         public virtual LibraryChartRemovalOutcome RemoveCharts(BMSLibrary library, LibraryChartRemovalPreflight prepared, IReadOnlyList<string> approvedWholeFolderPaths, LibraryOperationNotices notices, out Action? publication)
         {

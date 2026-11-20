@@ -234,6 +234,62 @@ public sealed class DuplicateBatchOrganizeTests
     }
 
     /// <summary>
+    /// 同じ主ハッシュの譜面のうち実ファイルを確認できないもの（登録後に欠落したファイル）は、残す一件にも削除対象（ごみ箱へ送る対象）にもしません。
+    /// 一フォルダのグループでは、欠落と実在の二件だけの主ハッシュは何も送らず、欠落と実在二件（古い・新しい）の主ハッシュは実在する新しい一件だけを送ります。
+    /// 二フォルダのグループの KEEP 直下でも、欠落と実在の二件は何も送りません。いずれも削除の失敗はなく状態は完了で、実在する譜面のファイルとDB行を残します。
+    /// 欠落を残す一件に選んで実在する唯一のコピーをごみ箱へ送る誤りと、欠落を数えて確認できた譜面の選定を変える誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void OrganizeDuplicateGroups_UnconfirmedCharts_AreNeitherKeptNorTrashed()
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            // 主ハッシュX: aは欠落しbだけが実在。名前が最も短いaが、欠落しても残す一件に選ばれやすい配置にする。
+            string xMissing = rig.Chart("F", "a.bms", "x");
+            string xExisting = rig.Chart("F", "bb.bms", "x");
+            // 主ハッシュY: cは欠落し、dが古く、eが新しい。
+            string yMissing = rig.Chart("F", "c.bms", "y");
+            string yOlder = rig.Chart("F", "dd.bms", "y", BaseTime.AddDays(-5));
+            string yNewer = rig.Chart("F", "ee.bms", "y", BaseTime.AddDays(5));
+            // 二フォルダのグループ: KEEP直下の同じ主ハッシュは一方が欠落。移動元Sには固有の主ハッシュの譜面がある。
+            string keepMissing = rig.Chart("K", "k_a.bms", "k");
+            string keepExisting = rig.Chart("K", "k_bb.bms", "k");
+            rig.Chart("S", "s.bms", "s");
+            rig.Start();
+            try
+            {
+                string xExistingBytes = File.ReadAllText(xExisting), yOlderBytes = File.ReadAllText(yOlder), keepExistingBytes = File.ReadAllText(keepExisting);
+                File.Delete(xMissing);
+                File.Delete(yMissing);
+                File.Delete(keepMissing);
+
+                DuplicateBatchOrganizeResult result = rig.Organize([("F", []), ("K", ["S"])]);
+
+                Assert.IsTrue(result.Groups.All(group => group.Status == DuplicateBatchOrganizeGroupStatus.Completed));
+                Assert.AreEqual(1, result.Groups[0].TrashedChartCount);
+                Assert.AreEqual(0, result.Groups[0].TrashFailureCount);
+                Assert.AreEqual(0, result.Groups[1].TrashedChartCount);
+                Assert.AreEqual(0, result.Groups[1].TrashFailureCount);
+                CollectionAssert.AreEqual(new[] { yNewer }, rig.Mutations.ShellDeletedFiles.ToArray());
+                Assert.AreEqual(xExistingBytes, File.ReadAllText(xExisting));
+                Assert.AreEqual(yOlderBytes, File.ReadAllText(yOlder));
+                Assert.AreEqual(keepExistingBytes, File.ReadAllText(keepExisting));
+                string[] rows = [.. rig.SongRows().Select(pair => pair.Key)];
+                foreach (string kept in new[] { xMissing, xExisting, yMissing, yOlder })
+                {
+                    CollectionAssert.Contains(rows, Path.GetRelativePath(rig.Root, kept));
+                }
+                CollectionAssert.Contains(rows, Path.GetRelativePath(rig.Root, keepExisting));
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-unconfirmed-charts");
+            }
+        });
+    }
+
+    /// <summary>
     /// 移動元の予定がある別のグループの有無・結果によらず、操作前に所持していた譜面のバイト列が一件も残らない結果になりません。
     /// 同じグループの別の移動元・成功した別グループ・スキップした別グループ・取消で未処理の別グループ・物理失敗で止まった別グループ・
     /// 型の衝突で残る移動元のそれぞれで、未確定の別の移動元を「残るコピー」と数えて両方を失う誤りを検出します。

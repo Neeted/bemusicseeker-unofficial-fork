@@ -247,7 +247,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 同一ハッシュで更新日時が古い譜面（同日時なら最短ファイル名）を残し、確認済み削除だけの件数と保存後失敗を返して、未実行対象の成功集計や保持対象の削除、名前の短さを古さより優先する選定を検出する。
+    /// 実在する同一ハッシュの譜面のうち更新日時が古い譜面（同日時なら最短ファイル名）を残し、確認済み削除だけの件数と保存後失敗を返して、保存窓口の結果で未実行とされた対象の成功集計や保持対象の削除、名前の短さを古さより優先する選定を検出する。
     /// </summary>
     // catalogFailure: falseは正常保存反映、trueは削除確定後の必須カタログ反映失敗。
     // longerIsOlder: trueは名前が長い方が更新日時の古い実ファイルで、名前の短さより古さを優先して長い方を残す行。
@@ -266,20 +266,29 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         {
             ChartFile keeper = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
             ChartFile duplicate = CreateChart(Path.Combine(root, "long-name.bms"), "same-hash");
-            ChartFile missing = CreateChart(Path.Combine(root, "missing-long-name.bms"), "same-hash");
+            // 保存窓口の結果で未実行と注入される対象。実ファイルは存在する確認済みの候補で、選定規則では削除対象になる。
+            ChartFile notExecuted = CreateChart(Path.Combine(root, "unexecuted-long-name.bms"), "same-hash");
+            File.WriteAllText(keeper.Path, "short name");
+            File.WriteAllText(duplicate.Path, "long name");
+            File.WriteAllText(notExecuted.Path, "longest name");
             if (longerIsOlder)
             {
                 // 更新日時が古い方を残す。名前が長い方が古ければ、短い名前を優先せず長い方を残す。
-                File.WriteAllText(keeper.Path, "short name, newer");
-                File.WriteAllText(duplicate.Path, "long name, older");
-                File.WriteAllText(missing.Path, "longest name, newest");
-                File.SetLastWriteTimeUtc(missing.Path, new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+                File.SetLastWriteTimeUtc(notExecuted.Path, new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc));
                 File.SetLastWriteTimeUtc(keeper.Path, new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc));
                 File.SetLastWriteTimeUtc(duplicate.Path, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
             }
+            else
+            {
+                // 同日時なら最短のファイル名を残す。
+                var sameTime = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.SetLastWriteTimeUtc(keeper.Path, sameTime);
+                File.SetLastWriteTimeUtc(duplicate.Path, sameTime);
+                File.SetLastWriteTimeUtc(notExecuted.Path, sameTime);
+            }
             var outcome = new LibraryChartRemovalOutcome([
                 new(duplicate.Path, LibraryChartRemovalState.Confirmed),
-                new(missing.Path, LibraryChartRemovalState.NotExecuted)], true, true,
+                new(notExecuted.Path, LibraryChartRemovalState.NotExecuted)], true, true,
                 catalogFailure ? new IOException("required catalog finalization failure") : null);
             var store = new RecordingStore([]) { RemovalOutcome = outcome };
             FakeUiDialogService dialogs = AcceptedDialogs();
@@ -291,7 +300,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 releasedAtReport = gate.TryEnter(out IDisposable lease) && !activity.IsActive;
                 lease?.Dispose();
             };
-            var cleanupGroup = new DuplicateGroup([keeper, duplicate, missing], [root]);
+            var cleanupGroup = new DuplicateGroup([keeper, duplicate, notExecuted], [root]);
             ChartFile expected = CreateChart(@"C:\Songs\Next\chart.bms", "next");
             ChartFile other = CreateChart(@"C:\Songs\Other\chart.bms", "other");
             var next = new DuplicateGroup([expected], [@"C:\Songs\Next"]) { Header = string.Empty };
@@ -333,7 +342,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             DuplicateGroup selected = result.SelectionContext.ResolveGroup(state.DuplicateChartGroups);
             Assert.IsNotNull(selected);
             CollectionAssert.AreEqual(new[] { expected.Path }, selected.ChartFiles.Select(chart => chart.Path).ToArray());
-            CollectionAssert.AreEqual(longerIsOlder ? new[] { keeper, missing } : new[] { duplicate, missing }, (System.Collections.ICollection)store.Charts);
+            CollectionAssert.AreEqual(longerIsOlder ? new[] { keeper, notExecuted } : new[] { duplicate, notExecuted }, (System.Collections.ICollection)store.Charts);
             Assert.IsNotNull(dialogs.ConfirmationRequest);
             StringAssert.Contains(dialogs.ConfirmationRequest!.MessageBoxText, "2");
             Assert.IsTrue(releasedAtReport);
@@ -376,6 +385,70 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
+    /// 実在を確認できない譜面（欠落したファイル）は、残す一件にも削除対象にもならない。
+    /// 欠落1件と実在1件だけなら削除対象がなく、確認・活動・保存窓口の呼出しを始めず件数0で終わり、実在する唯一のコピーを削除する誤りを検出する。
+    /// 欠落1件と実在2件（古い・新しい）なら、確認を出して保存窓口へ渡す削除対象は実在する新しい一件だけになり、
+    /// 欠落した譜面を残す一件に選んで実在する古い方を削除する誤りや、欠落を削除対象に含める誤りを検出する。
+    /// </summary>
+    // existingCount: 欠落のほかに実在する譜面の件数。1は実在が一件だけ、2は古い順にb・cの二件。
+    [TestMethod]
+    [DataRow(1)]
+    [DataRow(2)]
+    public async Task RunHashCleanupAsync_UnconfirmedChartIsNeitherKeptNorRemoved(int existingCount)
+    {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        string root = workspace.GetPath("Songs");
+        Directory.CreateDirectory(root);
+        // 欠落するaは名前が最も短く、欠落の更新日時が古い値で読まれても残す一件に選ばれやすい配置にする。
+        ChartFile missing = CreateChart(Path.Combine(root, "a.bms"), "same-hash");
+        ChartFile older = CreateChart(Path.Combine(root, "bb.bms"), "same-hash");
+        File.WriteAllText(older.Path, "older");
+        File.SetLastWriteTimeUtc(older.Path, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        List<ChartFile> charts = [missing, older];
+        ChartFile? newer = null;
+        if (existingCount == 2)
+        {
+            newer = CreateChart(Path.Combine(root, "cc.bms"), "same-hash");
+            File.WriteAllText(newer.Path, "newer");
+            File.SetLastWriteTimeUtc(newer.Path, new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            charts.Add(newer);
+        }
+        var events = new List<string>();
+        var store = new RecordingStore(events);
+        FakeUiDialogService dialogs = AcceptedDialogs();
+        var presentation = new RecordingPresentation(events);
+        DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, presentation, dialogs, store);
+        try
+        {
+            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(new DuplicateGroup(charts, [root]), root);
+
+            Assert.IsTrue(File.Exists(older.Path));
+            if (existingCount == 1)
+            {
+                Assert.IsFalse(result.Succeeded);
+                Assert.IsNull(result.Failure);
+                Assert.AreEqual(0, result.RemovedChartCount);
+                Assert.IsNull(dialogs.ConfirmationRequest);
+                Assert.AreEqual(0, store.PhysicalMutationStarts);
+                Assert.AreEqual(0, store.Charts.Count);
+                CollectionAssert.AreEqual(Array.Empty<string>(), events);
+            }
+            else
+            {
+                Assert.IsTrue(result.Succeeded, result.Failure?.ToString());
+                Assert.IsNotNull(dialogs.ConfirmationRequest);
+                Assert.AreEqual(1, result.RemovedChartCount);
+                Assert.AreEqual(1, store.Charts.Count);
+                Assert.AreSame(newer, store.Charts[0]);
+            }
+        }
+        finally
+        {
+            owner.WorkflowChanged -= presentation.OnWorkflowChanged;
+        }
+    }
+
+    /// <summary>
     /// 初回確認のCancelは失敗なしの未実行、表示不能は元原因付きで返し、folder確認・停止・出力開始を防ぎます。
     /// </summary>
     [TestMethod]
@@ -411,14 +484,12 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             presentation,
             dialogs,
             store, gate: gate, activity: activity);
-        ChartFile first = CreateChart(@"C:\Songs\a.bms", "hash");
-        ChartFile second = CreateChart(@"C:\Songs\long-name.bms", "hash");
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        (DuplicateGroup group, string root) = CreateHashDuplicateGroup(workspace);
 
         try
         {
-            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(
-                new DuplicateGroup([first, second], [@"C:\Songs"]),
-                @"C:\Songs");
+            DuplicateMaintenanceMutationResult result = await owner.RunHashCleanupAsync(group, root);
 
             Assert.IsFalse(result.Succeeded);
             if (decision == "cancel") { Assert.IsNull(result.Failure); }
@@ -671,9 +742,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [TestMethod]
     public async Task RunHashCleanupAsync_ProtectedPreparedGroupDoesNotStopPlayback()
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+        (DuplicateGroup group, string root) = CreateHashDuplicateGroup(workspace);
         var events = new List<string>();
         var presentation = new RecordingPresentation(events);
-        var store = new RecordingStore(events) { WholeFolderCandidates = [@"C:\Songs"], RegisteredUserRoots = [@"C:\Songs"] };
+        var store = new RecordingStore(events) { WholeFolderCandidates = [root], RegisteredUserRoots = [root] };
         var gate = new ChartFileOperationSynchronizer();
         var activity = new ChartMutationActivityOwner();
         var dialogs = new FakeUiDialogService
@@ -684,8 +757,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, presentation, dialogs, store, gate: gate, activity: activity);
         try
         {
-            await owner.RunHashCleanupAsync(new DuplicateGroup([CreateChart(@"C:\Songs\a.bms", "hash"),
-                CreateChart(@"C:\Songs\long-name.bms", "hash")], [@"C:\Songs"]), @"C:\Songs");
+            await owner.RunHashCleanupAsync(group, root);
             Assert.AreEqual(1, events.Count(value => value == "store-remove"));
             Assert.AreEqual(0, store.Charts.Count);
             Assert.AreEqual(0, store.ApprovedPaths.Count);
@@ -909,6 +981,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [DataRow("hash")]
     public async Task BusyAdmission_RejectsExplicitMaintenanceWithOneWarningAndRunsNextRequestAfterRelease(string operation)
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var events = new List<string>();
         var store = new RecordingStore(events);
         var gate = new ChartFileOperationSynchronizer();
@@ -918,7 +991,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.IsTrue(gate.TryEnter(out IDisposable held));
         using (held)
         {
-            DuplicateMaintenanceMutationResult rejected = await RunDuplicateOperationAsync(owner, operation);
+            DuplicateMaintenanceMutationResult rejected = await RunDuplicateOperationAsync(owner, operation, workspace);
 
             AssertBusyWarning(dialogs, rejected);
             Assert.IsNull(dialogs.ConfirmationRequest, "使用中の要求では確認を表示しません。");
@@ -929,7 +1002,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         Assert.AreEqual(0, store.PhysicalMutationStarts, "解放だけでは拒否した要求を実行しません。");
         dialogs.Messages.Clear();
-        DuplicateMaintenanceMutationResult next = await RunDuplicateOperationAsync(owner, operation);
+        DuplicateMaintenanceMutationResult next = await RunDuplicateOperationAsync(owner, operation, workspace);
         Assert.IsTrue(next.Succeeded, next.Failure?.ToString());
         Assert.IsFalse(next.Busy);
         Assert.AreEqual(1, store.PhysicalMutationStarts);
@@ -946,6 +1019,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [DataRow("hash")]
     public async Task PhysicalAdmissionBusyAfterConfirmation_WarnsOnceAfterReleaseWithoutSuccess(string operation)
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var events = new List<string>();
         var store = new RecordingStore(events) { PhysicalMutationAdmitted = false };
         var gate = new ChartFileOperationSynchronizer();
@@ -955,7 +1029,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         dialogs.OnMessage = () => warnedAfterRelease = gate.CanEnter && !activity.IsActive;
         DuplicateMaintenanceWorkflowOwner owner = CreateOwner(events, new RecordingPresentation(events), dialogs, store, gate: gate, activity: activity);
 
-        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation);
+        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation, workspace);
 
         AssertBusyWarning(dialogs, result);
         Assert.IsTrue(warnedAfterRelease, "警告はLとPの解放後に表示します。");
@@ -1083,6 +1157,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [DataRow("hash", "success", false)]
     public async Task ProgressFacts_StartAfterApprovalAndEndBeforeReportOnEveryTerminal(string operation, string terminal, bool showConfirmation)
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var events = new List<string>();
         RecordingStore store = terminal == "failure" ? new ThrowingStore(events) : new RecordingStore(events);
         store.PhysicalMutationAdmitted = terminal != "physicalBusy";
@@ -1111,12 +1186,12 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             lock (progress) { progress.Add((snapshot, Volatile.Read(ref prompts), store.PhysicalMutationStarts, seen, dialogs.Messages.Count)); }
         };
 
-        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation);
+        DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation, workspace);
 
         Assert.AreEqual(2, progress.Count, "開始と終了を一度ずつ通知します。");
         (DuplicateMaintenanceProgressSnapshot Snapshot, int Prompts, int PhysicalStarts, string[] Events, int Messages) start = progress[0];
         Assert.IsTrue(start.Snapshot.IsActive);
-        Assert.AreEqual(operation == "merge" ? @"C:\Songs\Source" : @"C:\Songs", start.Snapshot.TargetPath);
+        Assert.AreEqual(operation == "merge" ? @"C:\Songs\Source" : workspace.GetPath("Songs"), start.Snapshot.TargetPath);
         Assert.AreEqual(expectedPrompts, start.Prompts, "全確認への回答後に開始します。");
         Assert.AreEqual(0, start.PhysicalStarts, "対象別受付の取得より前に開始します。");
         Assert.AreEqual(0, start.Events.Length, "活動・再生停止・抑制・変更より前に開始します。");
@@ -1157,15 +1232,19 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     [DataRow("hash", "noWork")]
     public async Task ProgressFacts_NotPublishedWhenOperationEndsBeforeBackgroundMutation(string operation, string condition)
     {
+        using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
         var events = new List<string>();
         RecordingStore store = condition == "prepareFailed" ? new ThrowingStore(events) { ThrowOnPrepare = true } : new RecordingStore(events);
         store.WholeFolderCandidates = condition.StartsWith("folder", StringComparison.Ordinal) ? [@"C:\One"] : [];
         var gate = new ChartFileOperationSynchronizer();
+        int countConfirmations = 0;
+        int folderConfirmations = 0;
         var dialogs = new FakeUiDialogService
         {
             ConfirmationHandler = request =>
             {
                 bool countConfirmation = request.Button == MessageBoxButton.OKCancel;
+                if (countConfirmation) { countConfirmations++; } else { folderConfirmations++; }
                 return Task.FromResult(condition switch
                 {
                     "cancel" when countConfirmation => UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel),
@@ -1188,13 +1267,30 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         {
             result = condition == "noWork"
                 ? await owner.RunHashCleanupAsync(new DuplicateGroup([CreateChart(@"C:\Songs\a.bms", "hash")], [@"C:\Songs"]), @"C:\Songs")
-                : await RunDuplicateOperationAsync(owner, operation);
+                : await RunDuplicateOperationAsync(owner, operation, workspace);
         }
 
         Assert.IsFalse(result.Succeeded);
         Assert.AreEqual(0, Volatile.Read(ref notifications));
         Assert.AreEqual(0, store.PhysicalMutationStarts);
         Assert.AreEqual(0, events.Count);
+        // 各行が意図した停止点へ届いたことを、その行が止める確認・準備の要求回数で確かめる。
+        // 譜面が実在しない等で無操作のまま成功し、途中の停止を通らずに保証だけが失われる誤りを検出する。
+        switch (condition)
+        {
+            case "cancel":
+            case "confirmFailed":
+                Assert.AreEqual(1, countConfirmations, "件数確認が一回要求されます。");
+                Assert.AreEqual(0, folderConfirmations);
+                break;
+            case "folderCancel":
+            case "folderFailed":
+                Assert.AreEqual(1, folderConfirmations, "フォルダ単位の確認が一回要求されます。");
+                break;
+            case "prepareFailed":
+                Assert.AreEqual(1, store.PrepareChartRemovalCalls, "準備処理が一回呼ばれます。");
+                break;
+        }
     }
 
     /// <summary>
@@ -1209,6 +1305,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     {
         async Task<(DuplicateMaintenanceMutationResult Result, int Messages, int Received, bool Released)> RunAsync(bool subscriberThrows)
         {
+            using var workspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
             var events = new List<string>();
             RecordingStore store = terminal == "failure" ? new ThrowingStore(events) : new RecordingStore(events);
             store.PhysicalMutationAdmitted = terminal != "physicalBusy";
@@ -1225,7 +1322,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
                 };
             }
             owner.ProgressChanged += _ => Interlocked.Increment(ref received);
-            DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation);
+            DuplicateMaintenanceMutationResult result = await RunDuplicateOperationAsync(owner, operation, workspace);
             Assert.AreEqual(1, store.PhysicalMutationStarts);
             return (result, dialogs.Messages.Count, Volatile.Read(ref received), gate.CanEnter && !activity.IsActive);
         }
@@ -1255,11 +1352,33 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             => throw new IOException("remove failed");
 
         public override LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts)
-            => ThrowOnPrepare ? throw new IOException("prepare failed") : base.PrepareChartRemoval(library, charts);
+        {
+            if (ThrowOnPrepare) { CountPrepareChartRemoval(); throw new IOException("prepare failed"); }
+            return base.PrepareChartRemoval(library, charts);
+        }
+    }
+
+    /// <summary>
+    /// 作業領域の直下に、同じ主ハッシュ・同じ更新日時の実ファイル2件（<c>a.bms</c>と<c>long-name.bms</c>）を作ります。
+    /// 同じフォルダ内の整理は実ファイルの実在を確認して削除対象を選ぶため、確認・準備の経路を調べるケースも実ファイルを使います。
+    /// </summary>
+    private static (DuplicateGroup Group, string Root) CreateHashDuplicateGroup(TestWorkspace workspace)
+    {
+        string root = workspace.GetPath("Songs");
+        Directory.CreateDirectory(root);
+        var sameTime = new DateTime(2021, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        string first = Path.Combine(root, "a.bms");
+        string second = Path.Combine(root, "long-name.bms");
+        foreach (string path in new[] { first, second })
+        {
+            File.WriteAllText(path, "same");
+            File.SetLastWriteTimeUtc(path, sameTime);
+        }
+        return (new DuplicateGroup([CreateChart(first, "hash"), CreateChart(second, "hash")], [root]), root);
     }
 
     private static Task<DuplicateMaintenanceMutationResult> RunDuplicateOperationAsync(
-        DuplicateMaintenanceWorkflowOwner owner, string operation)
+        DuplicateMaintenanceWorkflowOwner owner, string operation, TestWorkspace workspace)
     {
         if (operation == "merge")
         {
@@ -1267,9 +1386,8 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             string destination = @"C:\Songs\Destination";
             return owner.RunFolderMergeAsync(source, destination, new DuplicateGroup([], [source, destination]));
         }
-        ChartFile first = CreateChart(@"C:\Songs\a.bms", "hash");
-        ChartFile second = CreateChart(@"C:\Songs\long-name.bms", "hash");
-        return owner.RunHashCleanupAsync(new DuplicateGroup([first, second], [@"C:\Songs"]), @"C:\Songs");
+        (DuplicateGroup group, string root) = CreateHashDuplicateGroup(workspace);
+        return owner.RunHashCleanupAsync(group, root);
     }
 
     private static void AssertBusyWarning(FakeUiDialogService dialogs, DuplicateMaintenanceMutationResult result)

@@ -14,10 +14,13 @@ internal static class DuplicateChartCleanupSelector
 {
     /// <summary>
     /// 主ハッシュごとに一件だけを残し、残りを削除対象として返します。
-    /// 残すのは更新日時が古い譜面で、同日時ならファイル名が短い譜面です。更新日時を読めない譜面は最も新しいものとして扱います。
+    /// 同じ主ハッシュの譜面が二件以上あるときだけ、各譜面の実ファイルの実在と更新日時を確認します。
+    /// 実在を確認できない譜面（ファイルの欠落、属性取得の失敗、パスがファイルではないもの）は、残す一件にも削除対象にも選びません。
+    /// 確認できた譜面のうち更新日時が古い譜面を残し、同日時ならファイル名が短い譜面を残します。残す一件以外の確認できた譜面だけを削除対象にします。
+    /// 確認できた譜面が二件に満たない主ハッシュは削除対象を持ちません。実在する唯一のコピーを削除対象にしないためです。
     /// 同点（同日時かつ同じ名前の長さ）は列挙順に従い、順序を契約として保証しません。
-    /// 主ハッシュを持たない譜面と、同じ主ハッシュが一件だけの譜面は対象に含めません。
-    /// 主ハッシュごとに必ず一件を残すため、全件を削除対象にすることはありません。
+    /// 主ハッシュを持たない譜面と、同じ主ハッシュが一件だけの譜面は、ファイルを確認せず対象に含めません。
+    /// 主ハッシュごとの判定は独立しており、確認できた譜面から必ず一件を残すため、確認できた譜面を全件削除対象にすることはありません。
     /// </summary>
     /// <param name="charts">同じフォルダ直下の譜面。</param>
     /// <returns>削除する譜面。入力の同一インスタンスだけを返します。</returns>
@@ -34,22 +37,42 @@ internal static class DuplicateChartCleanupSelector
             {
                 continue;
             }
-            ChartFile keeper = grouped
-                .OrderBy(chart =>
+            List<(ChartFile Chart, DateTime LastWriteTimeUtc)> confirmed = [];
+            foreach (ChartFile chart in grouped)
+            {
+                if (TryConfirmFile(chart.Path, out DateTime lastWriteTimeUtc))
                 {
-                    try
-                    {
-                        return LongPathFileSystem.GetLastWriteTime(chart.Path, isDirectory: false);
-                    }
-                    catch
-                    {
-                        return DateTime.MaxValue;
-                    }
-                })
-                .ThenBy(chart => Path.GetFileName(chart.Path).Length)
-                .First();
-            deletionList.AddRange(grouped.Where(chart => !ReferenceEquals(chart, keeper)));
+                    confirmed.Add((chart, lastWriteTimeUtc));
+                }
+            }
+            if (confirmed.Count <= 1)
+            {
+                continue;
+            }
+            ChartFile keeper = confirmed
+                .OrderBy(item => item.LastWriteTimeUtc)
+                .ThenBy(item => Path.GetFileName(item.Chart.Path).Length)
+                .First().Chart;
+            deletionList.AddRange(confirmed.Where(item => !ReferenceEquals(item.Chart, keeper)).Select(item => item.Chart));
         }
         return deletionList;
+    }
+
+    /// <summary>
+    /// 実ファイルの実在と更新日時を一回の属性取得で確認します。
+    /// 欠落した場合に例外にならず古い日時を返す取得は使いません。取得に失敗した場合は、欠落と区別せず確認できなかったものとして扱います。
+    /// </summary>
+    private static bool TryConfirmFile(string path, out DateTime lastWriteTimeUtc)
+    {
+        try
+        {
+            lastWriteTimeUtc = LongPathFileSystem.GetFileMetadata(path).LastWriteTimeUtc;
+            return true;
+        }
+        catch
+        {
+            lastWriteTimeUtc = default;
+            return false;
+        }
     }
 }
