@@ -1303,6 +1303,8 @@ For failed moves or merges, see [File Moving or Merging Fails](#file-moving-or-m
 
 #### Organize Multiple Groups from Merge Candidates
 
+![Merge candidates](img/一覧_重複ファイルチェック_統合候補一覧.PNG)
+
 > [!CAUTION]
 > `Organize selected groups` moves the files in every folder other than `KEEP` into the `KEEP` folder and deletes the source folders. This cannot be undone. For same-name audio, BGA, and other files with different content, only one remains according to [Smart Overwrite](#smart-overwrite). Review groups whose `STATUS` is `Caution` or `Unchecked` before organizing them.
 
