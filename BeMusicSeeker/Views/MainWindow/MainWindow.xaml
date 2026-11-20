@@ -799,7 +799,7 @@
                   </Grid>
                 </Grid>
               </Border>
-               <TextBlock DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Bottom" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Text="{Binding MainChartList.SummaryText}">
+               <TextBlock DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Text="{Binding MainChartList.SummaryText}">
                  <TextBlock.Visibility>
                    <MultiBinding Converter="{StaticResource mainSummaryVisibilityConverter}">
                      <Binding Path="PlaylistWorkspace.IsPlaylistSummaryMode" />
@@ -808,7 +808,7 @@
                    </MultiBinding>
                  </TextBlock.Visibility>
                </TextBlock>
-              <TextBlock DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Bottom" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" Text="{Binding PlaylistWorkspace.PlaylistSummaryText}" />
+              <TextBlock DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding PlaylistWorkspace.IsPlaylistSummaryMode, Converter={StaticResource booleanToVisibilityCollapsedConverter}}" Text="{Binding PlaylistWorkspace.PlaylistSummaryText}" />
               <Border x:Name="duplicateCandidateExcludeComposite" DockPanel.Dock="Right" Height="24" BorderThickness="1" Width="180" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Background="{DynamicResource App.ControlBackgroundBrush}" BorderBrush="{DynamicResource App.SearchBorderBrush}" Visibility="{Binding DuplicateMergeCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
                 <Grid>
                   <TextBox x:Name="duplicateCandidateExcludeEditor" AutomationProperties.AutomationId="DuplicateCandidateExclude" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_exclude_search, Mode=OneWay}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" CaretBrush="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Padding="4,0" Text="{Binding DuplicateMergeCandidateList.ExcludeText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
@@ -829,7 +829,7 @@
               <Border x:Name="duplicateCandidateSearchComposite" DockPanel.Dock="Right" Height="24" BorderThickness="1" Width="260" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Background="{DynamicResource App.ControlBackgroundBrush}" BorderBrush="{DynamicResource App.SearchBorderBrush}" Visibility="{Binding DuplicateMergeCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
                 <TextBox x:Name="duplicateCandidateSearchEditor" AutomationProperties.AutomationId="DuplicateCandidateSearch" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Duplicate_merge_candidate_search, Mode=OneWay}" BorderThickness="0" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" CaretBrush="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Padding="4,0" Text="{Binding DuplicateMergeCandidateList.SearchText, Delay=300, UpdateSourceTrigger=PropertyChanged}" />
               </Border>
-              <TextBlock x:Name="duplicateCandidateSummaryText" DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Bottom" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding DuplicateMergeCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
+              <TextBlock x:Name="duplicateCandidateSummaryText" DockPanel.Dock="Right" FontSize="12" VerticalAlignment="Center" Margin="8,0,4,0" Foreground="{DynamicResource App.TextBrush}" HorizontalAlignment="Left" Visibility="{Binding DuplicateMergeCandidateList.IsViewActive, Converter={StaticResource booleanToVisibilityCollapsedConverter}}">
                 <TextBlock.Text>
                   <MultiBinding Converter="{StaticResource duplicateMergeCandidateSummaryConverter}">
                     <Binding Source="{x:Static vm:ResourceService.Current}" Path="Resources" Mode="OneWay" />
