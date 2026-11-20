@@ -109,7 +109,7 @@ internal static class CustomTableRenderResources
             }
             string familyName = names.Count > 0 && SystemFonts.FindFamilyName(names[0], out _)
                 ? names[0]
-                : AppFontService.DefaultFontFamilyName;
+                : AppFontService.DefaultTableFontFamilyName;
             resolved = new CustomTableResolvedFont(familyName, GetDefaultFallback());
             ResolvedFonts.Add(key, resolved);
             return resolved;
@@ -209,7 +209,7 @@ internal static class CustomTableRenderResources
                 return null;
             }
             using DWrite.IDWriteFontFallbackBuilder builder = factory2.CreateFontFallbackBuilder();
-            namePointer = Marshal.StringToHGlobalUni(AppFontService.DefaultFontFamilyName);
+            namePointer = Marshal.StringToHGlobalUni(AppFontService.DefaultTableFontFamilyName);
             arrayPointer = Marshal.AllocHGlobal(IntPtr.Size);
             Marshal.WriteIntPtr(arrayPointer, namePointer);
             // 選択されたフォントに字形がない文字は、全Unicode範囲を既定のフォントへ、それでも足りなければシステムの代替へ回す。

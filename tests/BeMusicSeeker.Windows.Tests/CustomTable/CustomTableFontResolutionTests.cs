@@ -20,12 +20,12 @@ public sealed class CustomTableFontResolutionTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            CollectionAssert.AreEqual(new[] { "Arial", "Meiryo UI" }, AppFontService.GetCandidateFamilyNames(AppFontService.CreateFontFamily("Arial")).ToArray());
-            CollectionAssert.AreEqual(new[] { "Meiryo UI" }, AppFontService.GetCandidateFamilyNames(AppFontService.DefaultFontFamily).ToArray());
-            CollectionAssert.AreEqual(new[] { "Meiryo UI" }, AppFontService.GetCandidateFamilyNames(AppFontService.CreateFontFamily(string.Empty)).ToArray());
+            CollectionAssert.AreEqual(new[] { "Arial", "Meiryo UI" }, AppFontService.GetCandidateFamilyNames(AppFontService.CreateFontFamily("Arial", AppFontRole.Table)).ToArray());
+            CollectionAssert.AreEqual(new[] { "Meiryo UI" }, AppFontService.GetCandidateFamilyNames(AppFontService.DefaultTableFontFamily).ToArray());
+            CollectionAssert.AreEqual(new[] { "Meiryo UI" }, AppFontService.GetCandidateFamilyNames(AppFontService.CreateFontFamily(string.Empty, AppFontRole.Table)).ToArray());
             CollectionAssert.AreEqual(new[] { "Arial" }, AppFontService.GetCandidateFamilyNames(new FontFamily("Arial")).ToArray());
             CollectionAssert.AreEqual(new[] { "Arial", "Times New Roman" }, AppFontService.GetCandidateFamilyNames(new FontFamily("Arial, Times New Roman")).ToArray());
-            CollectionAssert.AreEqual(new[] { "A,B", "Meiryo UI" }, AppFontService.GetCandidateFamilyNames(AppFontService.CreateFontFamily("A,B")).ToArray());
+            CollectionAssert.AreEqual(new[] { "A,B", "Meiryo UI" }, AppFontService.GetCandidateFamilyNames(AppFontService.CreateFontFamily("A,B", AppFontRole.Table)).ToArray());
             Assert.AreEqual(0, AppFontService.GetCandidateFamilyNames(null!).Count);
         });
     }
@@ -36,13 +36,13 @@ public sealed class CustomTableFontResolutionTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            Assert.AreEqual("Arial", CustomTableRenderResources.ResolveTextFont(AppFontService.CreateFontFamily("Arial")).FamilyName);
+            Assert.AreEqual("Arial", CustomTableRenderResources.ResolveTextFont(AppFontService.CreateFontFamily("Arial", AppFontRole.Table)).FamilyName);
             Assert.AreEqual("Arial", CustomTableRenderResources.ResolveTextFont(new FontFamily("Arial")).FamilyName);
-            Assert.AreEqual("Meiryo UI", CustomTableRenderResources.ResolveTextFont(AppFontService.DefaultFontFamily).FamilyName);
-            Assert.AreEqual("Meiryo UI", CustomTableRenderResources.ResolveTextFont(AppFontService.CreateFontFamily("BeMusicSeeker No Such Font")).FamilyName);
-            Assert.AreEqual("Meiryo UI", CustomTableRenderResources.ResolveTextFont(AppFontService.CreateFontFamily(string.Empty)).FamilyName);
+            Assert.AreEqual("Meiryo UI", CustomTableRenderResources.ResolveTextFont(AppFontService.DefaultTableFontFamily).FamilyName);
+            Assert.AreEqual("Meiryo UI", CustomTableRenderResources.ResolveTextFont(AppFontService.CreateFontFamily("BeMusicSeeker No Such Font", AppFontRole.Table)).FamilyName);
+            Assert.AreEqual("Meiryo UI", CustomTableRenderResources.ResolveTextFont(AppFontService.CreateFontFamily(string.Empty, AppFontRole.Table)).FamilyName);
             Assert.AreEqual("Meiryo UI", CustomTableRenderResources.ResolveTextFont(null!).FamilyName);
-            Assert.IsNotNull(CustomTableRenderResources.ResolveTextFont(AppFontService.CreateFontFamily("Arial")).Fallback, "字形のない文字を補う規則を持ちます。");
+            Assert.IsNotNull(CustomTableRenderResources.ResolveTextFont(AppFontService.CreateFontFamily("Arial", AppFontRole.Table)).Fallback, "字形のない文字を補う規則を持ちます。");
         });
     }
 
@@ -72,15 +72,15 @@ public sealed class CustomTableFontResolutionTests
                 }
                 finally { table.ItemsSource = null; }
             }
-            FontFamily arial = AppFontService.CreateFontFamily("Arial");
+            FontFamily arial = AppFontService.CreateFontFamily("Arial", AppFontRole.Table);
             (SurfacePixels arialKana, Int32Rect arialKanaInk) = Render(arial, "あ漢");
-            (SurfacePixels defaultKana, Int32Rect defaultKanaInk) = Render(AppFontService.DefaultFontFamily, "あ漢");
+            (SurfacePixels defaultKana, Int32Rect defaultKanaInk) = Render(AppFontService.DefaultTableFontFamily, "あ漢");
             Assert.AreEqual(defaultKanaInk.Width, arialKanaInk.Width);
             Assert.AreEqual(defaultKanaInk.Height, arialKanaInk.Height);
             Assert.IsTrue(defaultKana.RegionEquals(defaultKanaInk, arialKana, arialKanaInk.X, arialKanaInk.Y), "Arialにない文字は既定のフォントの字形で描かれます。");
 
             (SurfacePixels arialLatin, Int32Rect arialLatinInk) = Render(arial, "Rag");
-            (SurfacePixels defaultLatin, Int32Rect defaultLatinInk) = Render(AppFontService.DefaultFontFamily, "Rag");
+            (SurfacePixels defaultLatin, Int32Rect defaultLatinInk) = Render(AppFontService.DefaultTableFontFamily, "Rag");
             Assert.IsFalse(arialLatinInk.Width == defaultLatinInk.Width && defaultLatin.RegionEquals(defaultLatinInk, arialLatin, arialLatinInk.X, arialLatinInk.Y), "Arialにある文字はArialの字形で描かれます。");
         });
     }
@@ -98,7 +98,7 @@ public sealed class CustomTableFontResolutionTests
         {
             const double fontSize = 11d;
             CultureInfo culture = CultureInfo.CurrentCulture;
-            foreach (FontFamily font in new[] { AppFontService.DefaultFontFamily, AppFontService.CreateFontFamily("Arial"), AppFontService.CreateFontFamily("BeMusicSeeker No Such Font"), new FontFamily("Arial") })
+            foreach (FontFamily font in new[] { AppFontService.DefaultTableFontFamily, AppFontService.CreateFontFamily("Arial", AppFontRole.Table), AppFontService.CreateFontFamily("BeMusicSeeker No Such Font", AppFontRole.Table), new FontFamily("Arial") })
             {
                 using var cache = new CustomTableTextLayoutCache();
                 cache.Configure(new CustomTableTextEnvironment(font, null!, fontSize, pixelsPerDip, culture, culture));

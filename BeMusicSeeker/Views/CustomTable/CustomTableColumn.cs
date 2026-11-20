@@ -28,7 +28,7 @@ public enum CustomTableCellKind
 /// </summary>
 internal sealed class CustomTableTextStyle
 {
-    private static readonly FontFamily DefaultFontFamily = AppFontService.DefaultFontFamily;
+    private static readonly FontFamily DefaultFontFamily = AppFontService.DefaultTableFontFamily;
 
     private CustomTableTextStyle(FontFamily fontFamily, double fontSize, double verticalOffset, bool useBoldText, bool usesScoreFontFamily = false)
     {

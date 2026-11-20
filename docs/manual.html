@@ -596,6 +596,7 @@ hr {
 <li class="toc-level-3"><details open><summary><a href="#duplicate-file-check">Duplicate File Check</a></summary><ul>
 <li class="toc-level-4"><a href="#merge-duplicate-folders">Merge Duplicate Folders</a></li>
 <li class="toc-level-4"><a href="#continuous-cleanup-with-ctrl--g">Continuous Cleanup with Ctrl + G</a></li>
+<li class="toc-level-4"><a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a></li>
 </ul></details></li>
 <li class="toc-level-3"><a href="#full-resource-scan">Full Resource Scan</a></li>
 </ul></details></li>
@@ -884,8 +885,9 @@ Depending on library size, disk speed, and Everything availability, this may tak
 <h3 id="appearance">Appearance</h3>
 <p><img alt="Settings Appearance" src="img/設定_外観.PNG"/></p>
 <p>Change settings related to themes and display.</p>
-<p>Font selects the font used for text in lists, menus, Settings, dialogs, and more, from the fonts installed on Windows. The default is Meiryo UI. Characters that the selected font does not contain are shown in Meiryo UI. Icons and special text such as the clear lamp and DJ LEVEL in lists are not affected.</p>
-<p>The list appearance settings adjust the shared table display used by the library list, playlist detail, play log, and playlist summary. You can change the list font size, row height, and header height. The font size can be set in steps of 0.5.</p>
+<p>Use <strong>App font</strong> to choose the font for the tree, menus, settings, and dialogs. The default is Yu Gothic UI.</p>
+<p>Under <strong>List</strong>, choose <strong>Font</strong> to change the headers, cells, and cell editors in the chart, playlist, and merge candidate lists. The default is Meiryo UI. You can also adjust the font size in steps of 0.5, the row height, and the header height.</p>
+<p>Both settings use fonts installed on Windows. Characters missing from the selected font use the default for that setting. Icons, clear lamps, and DJ LEVEL indicators use their own fonts.</p>
 <h3 id="playback">Playback</h3>
 <p><img alt="Playback Settings" src="img/設定_再生.PNG"/></p>
 <p>Select the player used to play charts. The built-in player is for simple audio-only preview playback. When using external players such as uBMplay, BMIIDXView2015, or LR2, specify the executable path.</p>
@@ -2031,6 +2033,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>Select <strong>the folder you want to merge away</strong> in the duplicate-file-check tree and choose the folder to keep from <code>Merge to</code>. By default, confirm source and destination before proceeding. Turning OFF <code>Show a confirmation message when merging or cleaning up in “Duplicate file check”</code> in <code>Advanced settings</code> skips confirmation.</p>
 <p>When the source folder contains subfolders, the confirmation also shows the number of those folders and states that they are moved to the destination keeping their relative layout.</p>
 <p>BMS / bmson and bundled resources are merged. Same-hash charts are deduplicated; different charts with the same filename are retained under adjusted names. The source folder is deleted when empty or containing only already-owned charts. It remains when unidentifiable files or similar items are left.</p>
+<p>The merge is not performed and the reason is shown when any of the following is a symbolic link or junction: the folder being merged away and the files and folders inside it, the folder to keep itself, or a file or folder in the folder to keep at the same position as one in the folder being merged away. Remove the link and try again.</p>
 <h4 id="continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></h4>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Use <code>Ctrl + G</code> on the folder you want to merge away. Cleanup within one folder keeps one chart and moves the others to the Recycle Bin.</p></div>
 <p>When a folder item is selected, pressing <code>Ctrl + G</code> works as a duplicate-cleanup shortcut.</p>
@@ -2042,6 +2045,147 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>For duplicate-hash cleanup inside the same folder, one file is kept for each hash and the rest are moved to the Recycle Bin. The file to keep is chosen by preferring older modified timestamps, and if timestamps are equal, shorter filenames. By default, a confirmation dialog shows the number of files to be moved to the Recycle Bin before execution. Turn off <code>Show a confirmation message when merging or cleaning up in “Duplicate file check”</code> on the <code>Advanced settings</code> category to skip this confirmation.</p>
 <p>After a two-folder merge or cleanup within one folder, the next duplicate group is selected if one remains. After a merge involving three or more folders, selection returns to the same group heading. Using <code>Ctrl + G</code> while checking from top to bottom lets you organize many duplicates with relatively few operations.</p>
 <p>For failed moves or merges, see <a href="#file-moving-or-merging-fails">File Moving or Merging Fails</a>.</p>
+<h4 id="organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</h4>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p><code>Organize selected groups</code> moves the files in every folder other than <code>KEEP</code> into the <code>KEEP</code> folder and deletes the source folders. This cannot be undone. For same-name audio, BGA, and other files with different content, only one remains according to <a href="#smart-overwrite">Smart Overwrite</a>. Review groups whose <code>STATUS</code> is <code>Caution</code> or <code>Unchecked</code> before organizing them.</p></div>
+<p>Selecting <code>Merge candidates</code> at the top of the duplicate-file-check tree shows duplicate groups as a list of folders. Each row is one folder, and rows of the same group share a background color. You can check whether merging several groups looks safe and then organize them together.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SELECT</code></td>
+<td>Check mark for the groups to verify or organize. One per group.</td>
+</tr>
+<tr>
+<td><code>STATUS</code></td>
+<td>Result of the safety check. Hover to see the reasons and the files involved.</td>
+</tr>
+<tr>
+<td><code>KEEP</code></td>
+<td>The folder to keep. Choose one per group. The default is the folder with the most charts.</td>
+</tr>
+<tr>
+<td><code>PATH</code> / <code>FOLDER</code></td>
+<td>Folder path and folder name.</td>
+</tr>
+<tr>
+<td><code>TITLE</code> / <code>ARTIST</code></td>
+<td>Representative title and artist of the folder.</td>
+</tr>
+</tbody>
+</table></div>
+<p>The basic steps are as follows.</p>
+<ol>
+<li>Press <code>Select all shown</code>, or check the target groups in <code>SELECT</code>.</li>
+<li>Press <code>Verify selected groups</code>. When verification finishes, only the <code>Safe</code> groups stay checked.</li>
+<li>Change <code>KEEP</code> if needed.</li>
+<li>Press <code>Organize selected groups</code>, review the confirmation dialog, and proceed.</li>
+</ol>
+<p><code>Verify selected groups</code> only reads and compares the contents of each folder; it does not change any file. The result is shown in <code>STATUS</code>.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th><code>STATUS</code></th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Unchecked</code></td>
+<td>Not verified yet.</td>
+</tr>
+<tr>
+<td><code>Safe</code></td>
+<td>Nothing was found that gets in the way of merging. <code>Safe (protected file name collision)</code> means that same-name <code>.bmx</code>, <code>.pmx</code>, or <code>.txt</code> files exist in more than one folder.</td>
+</tr>
+<tr>
+<td><code>Caution</code></td>
+<td>The group can be merged, but there is something you may want to review.</td>
+</tr>
+<tr>
+<td><code>Cannot merge</code></td>
+<td>The group cannot be organized. <code>SELECT</code> cannot be checked.</td>
+</tr>
+</tbody>
+</table></div>
+<p>The reasons are as follows. <code>STATUS</code> lists every applicable reason separated by commas, such as <code>Caution: parent directory reference, files with different content</code>.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Reason</th>
+<th>Level</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>parent directory reference</code></td>
+<td><code>Caution</code></td>
+<td>A chart to be moved refers to audio or other files outside its folder with <code>..</code>. The reference may break after merging.</td>
+</tr>
+<tr>
+<td><code>same audio name, different extension</code></td>
+<td><code>Caution</code></td>
+<td>Audio files with the same name exist in different formats, such as <code>.wav</code> and <code>.ogg</code>, in different folders. Both remain after merging, and the audio used for playback may change.</td>
+</tr>
+<tr>
+<td><code>files with different content</code></td>
+<td><code>Caution</code></td>
+<td>Files with the same name have different content. The folders may be works that use different audio.</td>
+</tr>
+<tr>
+<td><code>no identical files shared</code></td>
+<td><code>Caution</code></td>
+<td>When folders that share a file with identical content are connected to each other, the folders in the group do not all connect and split into separate sets. Unrelated works may be mixed in. Folders that have no files other than charts and <code>.bmx</code>, <code>.pmx</code>, and <code>.txt</code> files are not considered.</td>
+</tr>
+<tr>
+<td><code>chart folder inside</code></td>
+<td><code>Caution</code></td>
+<td>A folder to be moved contains another folder with charts. That folder is moved as well.</td>
+</tr>
+<tr>
+<td><code>contains a link</code></td>
+<td><code>Cannot merge</code></td>
+<td>A folder contains a symbolic link or junction.</td>
+</tr>
+<tr>
+<td><code>registered root</code></td>
+<td><code>Cannot merge</code></td>
+<td>Two or more folders in the group are registered as BMS directories. When there is only one, that folder is fixed as <code>KEEP</code>.</td>
+</tr>
+<tr>
+<td><code>nested folders</code> / <code>overlaps another group</code></td>
+<td><code>Cannot merge</code></td>
+<td>Folders in the group, or a folder in another group, are in a parent-child relationship.</td>
+</tr>
+<tr>
+<td><code>file/folder name conflict</code></td>
+<td><code>Cannot merge</code></td>
+<td>The same name is a file in one folder and a folder in another.</td>
+</tr>
+<tr>
+<td><code>unreadable items</code></td>
+<td><code>Cannot merge</code></td>
+<td>Some items could not be checked because of permissions or read failures. Use <code>Verify this group</code> from the context menu to check again.</td>
+</tr>
+</tbody>
+</table></div>
+<p>When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. When content is read, audio files (WAV, OGG, MP3, FLAC) and still images (PNG, BMP, JPG, JPEG) are read in full. Videos up to 192 KiB and other files up to 32 MiB are also read in full. Above those limits, only the beginning, middle, and end are read. <code>Treat files with the same size and modified time as identical without reading them</code> is enabled by default; files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster. When you uncheck it, those files are also read and compared.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions, and while <code>Treat files with the same size and modified time as identical without reading them</code> is enabled, files with different content may be judged identical.</p></div>
+<p><code>Organize selected groups</code> processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than <code>KEEP</code> is merged into the <code>KEEP</code> folder. Files are moved and overwritten by the same rules as <a href="#merge-duplicate-folders">Merge Duplicate Folders</a>. Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in <a href="#continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></a>.</p>
+<p>A progress dialog is shown during processing, and other operations are unavailable. Pressing <code>Cancel</code> stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept.</p>
+<p>Other operations are as follows.</p>
+<ul>
+<li>Filtering with the search box shows every row of a group when at least one row matches. Entering a condition in the exclude box to its right removes every row of a group from the list when at least one row matches. Both accept <code>path:</code>, <code>folder:</code>, <code>title:</code>, <code>artist:</code>, and <code>status:</code>. <code>Select all shown</code>, <code>Verify selected groups</code>, and <code>Organize selected groups</code> apply only to the shown groups.</li>
+<li>Clicking a column header sorts by group. Rows inside a group are always in path order.</li>
+<li>When you register folders with <code>Preferred destinations...</code> and confirm, for every group, a folder that is the same as or under one of them becomes <code>KEEP</code> when it is the only such folder in its group. The registered folders are kept until you close the application.</li>
+<li>Double-clicking a row moves to that folder in the duplicate-file-check tree.</li>
+<li>From the context menu, you can <code>Check</code>, <code>Uncheck</code>, or <code>Verify this group</code> for the groups of the selected rows, and <code>Open in Explorer</code> for the folders. The <code>Space</code> key also toggles the check mark. Clicking a <code>SELECT</code> or <code>STATUS</code> cell selects every row of that group.</li>
+</ul>
 <h3 id="full-resource-scan">Full Resource Scan</h3>
 <p><img alt="Full Resource Scan" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
 <p>This view checks missing WAV, BGA, video, image, and similar resources.</p>

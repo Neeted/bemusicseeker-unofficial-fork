@@ -3282,8 +3282,8 @@ public sealed class SettingsWindowPresentationTests
         });
     }
 
-    /// <summary>実 Slider の値が main と playlist summary の実 table へ preview され、既定復元と取消で両 table が対応する設定値へ戻ることを確認します。実際の選択欄でフォントを選ぶと、その項目が保存され、メイン画面・設定画面・両 table のフォントが文字サイズを変えずに追随し、閉じても保存値を保ちます。</summary>
-    /// <remarks>フォントの選択から共通の表示フォントへの接続漏れと、フォントの変更で一覧の文字サイズが変わる誤りを検出します。</remarks>
+    /// <summary>実スライダーの寸法と一覧フォントが主画面の三つの一覧に反映され、通常UIのフォントは主画面と設定画面に反映されます。一覧のリセットは一覧フォントと寸法を既定に戻し、設定画面を閉じても確定値を保ちます。</summary>
+    /// <remarks>通常UIと一覧のフォントを共有する誤り、三つの一覧への接続漏れ、フォントの変更で寸法が変わる誤りを検出します。</remarks>
     [TestMethod]
     [DoNotParallelize]
     public void SettingsWindow_AppearanceControlsPersistThroughMainViewSettingsAndClose()
@@ -3297,8 +3297,6 @@ public sealed class SettingsWindowPresentationTests
             SettingsWindow? window = null;
             MainWindow? mainWindow = null;
             MainWindowViewModel? owner = null;
-            CustomTableView? mainTable = null;
-            CustomTableView? playlistSummaryTable = null;
             MainWindowTestLifetime? ownership = null;
             ExceptionDispatchInfo? bodyFailure = null;
             Exception? cleanupFailure = null;
@@ -3307,7 +3305,8 @@ public sealed class SettingsWindowPresentationTests
             {
                 var startupEvents = new List<string>();
                 startupLifetime = new DangerApplicationLifetime(startupEvents, firstStartup: true);
-                var startupSettingsSession = new DangerSettingsEditSession(TestSettingsFactory.CreateIsolatedSettings(), startupEvents);
+                string settingsPath = Path.Combine(CaseWorkspace.RootDirectory, "user.config");
+                var startupSettingsSession = new DangerSettingsEditSession(TestSettingsFactory.OpenSettings(settingsPath), startupEvents);
                 var composition = new ApplicationComposition(
                     runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(),
                     settingsEditSession: startupSettingsSession,
@@ -3317,25 +3316,54 @@ public sealed class SettingsWindowPresentationTests
                     dialogService: UndeclaredDialogs.Create());
                 owner = composition.CreateMainWindowViewModelForTest();
                 ownership = new MainWindowTestLifetime(owner, startupLifetime.ShutdownRequested.Task);
+                AppFontService.ApplyFontFamily(string.Empty, AppFontRole.Ui);
+                AppFontService.ApplyFontFamily(string.Empty, AppFontRole.Table);
                 mainWindow = ownership.CreateWindow(() => new MainWindow(owner));
                 windowTest.PrepareForOwnedPresentation(mainWindow);
                 mainWindow.Show();
                 mainWindow.UpdateLayout();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                mainTable = (CustomTableView)mainWindow.FindName("customTableView");
-                playlistSummaryTable = (CustomTableView)mainWindow.FindName("customTablePlaylistSummary");
-                Assert.IsNotNull(mainTable);
-                Assert.IsNotNull(playlistSummaryTable);
+                CustomTableView[] tables =
+                [
+                    (CustomTableView)mainWindow.FindName("customTableView"),
+                    (CustomTableView)mainWindow.FindName("customTablePlaylistSummary"),
+                    (CustomTableView)mainWindow.FindName("customTableDuplicateCandidates")
+                ];
+                System.Windows.Media.FontFamily scoreFont = tables[0].ScoreFontFamily;
+                Assert.IsNotNull(scoreFont);
 
                 SettingsDialogViewModel settings = owner.SettingDialog;
                 double savedFontSize = settings.CustomTableFontSize;
-                double savedRowHeight = settings.CustomTableRowHeight;
-                double savedHeaderHeight = settings.CustomTableHeaderHeight;
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = settings };
                 windowTest.ShowAndWaitForContentRendered(window);
                 ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var page = (AppearanceSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                void AssertFonts(string uiFont, string tableFont)
+                {
+                    string expectedUiGlyph = GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(uiFont), "A");
+                    string expectedTableGlyph = GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily(tableFont), "A");
+                    Assert.AreEqual(expectedUiGlyph, GlyphFontProbe.FontUri(mainWindow.FontFamily, "A"));
+                    Assert.AreEqual(expectedUiGlyph, GlyphFontProbe.FontUri(window.FontFamily, "A"));
+                    foreach (CustomTableView table in tables)
+                    {
+                        Assert.AreEqual(expectedTableGlyph, GlyphFontProbe.FontUri(table.TextFontFamily, "A"), table.Name);
+                    }
+                    Assert.AreSame(scoreFont, tables[0].ScoreFontFamily);
+                }
+
+                void AssertTableDimensions(double fontSize, double rowHeight, double headerHeight)
+                {
+                    Assert.AreEqual(fontSize, owner.ViewSettings.CustomTableFontSize);
+                    Assert.AreEqual(rowHeight, owner.ViewSettings.CustomTableRowHeight);
+                    Assert.AreEqual(headerHeight, owner.ViewSettings.CustomTableHeaderHeight);
+                    foreach (CustomTableView table in tables)
+                    {
+                        Assert.AreEqual(fontSize, table.TextFontSize, table.Name);
+                        Assert.AreEqual(rowHeight, table.RowHeight, table.Name);
+                        Assert.AreEqual(headerHeight, table.HeaderHeight, table.Name);
+                    }
+                }
 
                 var sliders = FindDescendants<Slider>(page)
                     .ToDictionary(
@@ -3360,59 +3388,49 @@ public sealed class SettingsWindowPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
                 Assert.AreEqual(14.5d, settings.CustomTableFontSize);
-                Assert.AreEqual(14.5d, owner.ViewSettings.CustomTableFontSize);
-                Assert.AreEqual(31d, owner.ViewSettings.CustomTableRowHeight);
-                Assert.AreEqual(37d, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(14.5d, mainTable!.TextFontSize);
-                Assert.AreEqual(31d, mainTable!.RowHeight);
-                Assert.AreEqual(37d, mainTable!.HeaderHeight);
-                Assert.AreEqual(14.5d, playlistSummaryTable!.TextFontSize);
-                Assert.AreEqual(31d, playlistSummaryTable!.RowHeight);
-                Assert.AreEqual(37d, playlistSummaryTable!.HeaderHeight);
+                AssertTableDimensions(14.5d, 31d, 37d);
+                AssertFonts("Yu Gothic UI", "Meiryo UI");
+
+                var fontComboBox = (ComboBox)page.FindName("appearanceFontComboBox");
+                var tableFontComboBox = (ComboBox)page.FindName("customTableFontComboBox");
+                Assert.AreEqual(string.Empty, settings.AppearanceFontFamily);
+                Assert.AreEqual(string.Empty, settings.CustomTableFontFamily);
+                fontComboBox.SelectedItem = settings.AppearanceFontOptions.Single(option => option.Key == "Arial");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Arial", settings.AppearanceFontFamily);
+                Assert.AreEqual(string.Empty, settings.CustomTableFontFamily);
+                AssertFonts("Arial", "Meiryo UI");
+                AssertTableDimensions(14.5d, 31d, 37d);
+
+                tableFontComboBox.SelectedItem = settings.CustomTableFontOptions.Single(option => option.Key == "Times New Roman");
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual("Arial", settings.AppearanceFontFamily);
+                Assert.AreEqual("Times New Roman", settings.CustomTableFontFamily);
+                Assert.AreEqual("Times New Roman", TestSettingsFactory.OpenSettings(settingsPath).CustomTableFontFamily);
+                AssertFonts("Arial", "Times New Roman");
+                AssertTableDimensions(14.5d, 31d, 37d);
 
                 Button reset = FindDescendants<Button>(page)
                     .Single(button => Equals(button.Content, Resources.Appearance_table_reset_defaults));
                 reset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, owner.ViewSettings.CustomTableFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, owner.ViewSettings.CustomTableRowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, mainTable!.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, mainTable!.HeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, playlistSummaryTable!.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, playlistSummaryTable!.HeaderHeight);
-
-                var fontComboBox = (ComboBox)page.FindName("appearanceFontComboBox");
-                Assert.AreEqual(string.Empty, settings.AppearanceFontFamily);
-                Assert.AreEqual(string.Empty, ((SettingsDialogViewModel.AppearanceFontOption)fontComboBox.SelectedItem).Key);
-                fontComboBox.SelectedItem = settings.AppearanceFontOptions.Single(option => option.Key == "Arial");
-                TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual("Arial", settings.AppearanceFontFamily);
-                var appliedFont = (System.Windows.Media.FontFamily)Application.Current.Resources[AppFontService.ResourceKey];
-                Assert.AreEqual(GlyphFontProbe.FontUri(new System.Windows.Media.FontFamily("Arial"), "A"), GlyphFontProbe.FontUri(appliedFont, "A"));
-                Assert.AreEqual(appliedFont, mainWindow.FontFamily);
-                Assert.AreEqual(appliedFont, window.FontFamily);
-                Assert.AreEqual(appliedFont, mainTable!.TextFontFamily);
-                Assert.AreEqual(appliedFont, playlistSummaryTable!.TextFontFamily);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
+                Assert.AreEqual(string.Empty, settings.CustomTableFontFamily);
+                Assert.AreEqual("Arial", fontComboBox.SelectedValue);
+                Assert.AreEqual(string.Empty, tableFontComboBox.SelectedValue);
+                AssertFonts("Arial", "Meiryo UI");
+                AssertTableDimensions(Settings.DefaultCustomTableFontSize, Settings.DefaultCustomTableRowHeight, Settings.DefaultCustomTableHeaderHeight);
 
                 ((Button)window.FindName("buttonCancel")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual("Arial", settings.AppearanceFontFamily);
-                Assert.AreEqual(appliedFont, mainTable!.TextFontFamily);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, owner.ViewSettings.CustomTableFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, owner.ViewSettings.CustomTableRowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, owner.ViewSettings.CustomTableHeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, mainTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, mainTable!.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, mainTable!.HeaderHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableFontSize, playlistSummaryTable!.TextFontSize);
-                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, playlistSummaryTable!.RowHeight);
-                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, playlistSummaryTable!.HeaderHeight);
-
+                Settings saved = TestSettingsFactory.OpenSettings(settingsPath);
+                Assert.AreEqual("Arial", saved.AppearanceFontFamily);
+                Assert.AreEqual(string.Empty, saved.CustomTableFontFamily);
+                Assert.AreEqual(Settings.DefaultCustomTableFontSize, saved.CustomTableFontSize);
+                Assert.AreEqual(Settings.DefaultCustomTableRowHeight, saved.CustomTableRowHeight);
+                Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, saved.CustomTableHeaderHeight);
+                AssertFonts("Arial", "Meiryo UI");
+                AssertTableDimensions(Settings.DefaultCustomTableFontSize, Settings.DefaultCustomTableRowHeight, Settings.DefaultCustomTableHeaderHeight);
             }
             catch (Exception exception)
             {
@@ -3662,6 +3680,7 @@ public sealed class SettingsWindowPresentationTests
                     ("navigationGeneral", page => (ListBox)page.FindName("bmsSearchRootPathListBox"), Resources.Standalone_BMSDirectories),
                     ("navigationAppearance", page => (ComboBox)page.FindName("appearanceThemeComboBox"), Resources.Appearance_theme),
                     ("navigationAppearance", page => (ComboBox)page.FindName("appearanceFontComboBox"), Resources.Appearance_font),
+                    ("navigationAppearance", page => (ComboBox)page.FindName("customTableFontComboBox"), Resources.Appearance_table_font),
                     ("navigationAppearance", page => FindDescendants<Slider>(page).Single(control => control.GetBindingExpression(RangeBase.ValueProperty)?.ParentBinding.Path?.Path == "CustomTableFontSize"), Resources.Appearance_table_font_size),
                     ("navigationPlayback", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedValueProperty)?.ParentBinding.Path?.Path == "LR2bodyResolution"), Resources.Player_LR2_wsize),
                     ("navigationAudio", page => FindDescendants<ComboBox>(page).Single(control => control.GetBindingExpression(Selector.SelectedIndexProperty)?.ParentBinding.Path?.Path == "PlayerDriverIndex"), Resources.Device_setting_driver),

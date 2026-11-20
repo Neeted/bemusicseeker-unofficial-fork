@@ -757,7 +757,7 @@ public sealed class CustomTableRenderingTests
     {
         TestUiDispatcherHost.Invoke(() =>
         {
-            FontFamily font = arial ? AppFontService.CreateFontFamily("Arial") : AppFontService.DefaultFontFamily;
+            FontFamily font = arial ? AppFontService.CreateFontFamily("Arial", AppFontRole.Table) : AppFontService.DefaultTableFontFamily;
             CustomTableView table = CreateTable(
                 [Column("L", 80, TextAlignment.Left, _ => "HHHH"), Column("C", 80, TextAlignment.Center, _ => "HHHH"), Column("R", 80, TextAlignment.Right, _ => "HHHH"),
                     Column("N", 40, TextAlignment.Left, _ => "HHHHHHHHHHHHHHHHHHHH"), Column("E", 60)],
@@ -812,7 +812,7 @@ public sealed class CustomTableRenderingTests
             using (var cache = new CustomTableTextLayoutCache())
             {
                 CultureInfo culture = CultureInfo.CurrentCulture;
-                cache.Configure(new CustomTableTextEnvironment(AppFontService.DefaultFontFamily, null!, BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize, dpi, culture, CultureInfo.CurrentUICulture));
+                cache.Configure(new CustomTableTextEnvironment(AppFontService.DefaultTableFontFamily, null!, BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize, dpi, culture, CultureInfo.CurrentUICulture));
                 natural = cache.GetOrCreate(text, CustomTableTextKind.Normal, TextAlignment.Left, 0, out _).NaturalWidth;
             }
             int pad = CustomTablePixelGeometry.TextPadding(dpi), lw = CustomTablePixelGeometry.GridLineWidth(dpi);
@@ -901,11 +901,11 @@ public sealed class CustomTableRenderingTests
                 try { return CustomTableRenderProbe.Redraw(table); }
                 finally { Release(table); }
             }
-            SurfacePixels defaultPixels = Render(AppFontService.DefaultFontFamily);
-            Assert.IsFalse(defaultPixels.SameAs(Render(AppFontService.CreateFontFamily("Arial"))), "選択したフォントでは画素が違います。");
+            SurfacePixels defaultPixels = Render(AppFontService.DefaultTableFontFamily);
+            Assert.IsFalse(defaultPixels.SameAs(Render(AppFontService.CreateFontFamily("Arial", AppFontRole.Table))), "選択したフォントでは画素が違います。");
             foreach (string name in new[] { "BeMusicSeeker No Such Font", string.Empty, "  " })
             {
-                Assert.IsTrue(defaultPixels.SameAs(Render(AppFontService.CreateFontFamily(name))), "名前 '" + name + "' は既定のフォントと同じ画素です。");
+                Assert.IsTrue(defaultPixels.SameAs(Render(AppFontService.CreateFontFamily(name, AppFontRole.Table))), "名前 '" + name + "' は既定のフォントと同じ画素です。");
             }
         });
     }

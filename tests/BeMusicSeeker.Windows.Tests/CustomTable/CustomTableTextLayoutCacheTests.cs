@@ -107,23 +107,23 @@ public sealed class CustomTableTextLayoutCacheTests
         TestUiDispatcherHost.Invoke(() =>
         {
             CultureInfo en = CultureInfo.GetCultureInfo("en-US"), ja = CultureInfo.GetCultureInfo("ja-JP");
-            FontFamily arial = AppFontService.CreateFontFamily("Arial");
-            CustomTableTextEnvironment baseline = Environment(AppFontService.DefaultFontFamily, null, 11d, 1d, en, en);
+            FontFamily arial = AppFontService.CreateFontFamily("Arial", AppFontRole.Table);
+            CustomTableTextEnvironment baseline = Environment(AppFontService.DefaultTableFontFamily, null, 11d, 1d, en, en);
             CustomTableTextEnvironment[] changes =
             [
                 Environment(arial, null, 11d, 1d, en, en),
-                Environment(AppFontService.DefaultFontFamily, null, 12d, 1d, en, en),
-                Environment(AppFontService.DefaultFontFamily, null, 11d, 1.25d, en, en),
-                Environment(AppFontService.DefaultFontFamily, null, 11d, 1d, en, ja),
-                Environment(AppFontService.DefaultFontFamily, null, 11d, 1d, ja, en),
-                Environment(AppFontService.DefaultFontFamily, ScoreFont, 11d, 1d, en, en)
+                Environment(AppFontService.DefaultTableFontFamily, null, 12d, 1d, en, en),
+                Environment(AppFontService.DefaultTableFontFamily, null, 11d, 1.25d, en, en),
+                Environment(AppFontService.DefaultTableFontFamily, null, 11d, 1d, en, ja),
+                Environment(AppFontService.DefaultTableFontFamily, null, 11d, 1d, ja, en),
+                Environment(AppFontService.DefaultTableFontFamily, ScoreFont, 11d, 1d, en, en)
             ];
             foreach (CustomTableTextEnvironment changed in changes)
             {
                 using CustomTableTextLayoutCache cache = Create();
                 cache.Configure(baseline);
                 CustomTableTextLayout layout = cache.GetOrCreate("AAA", CustomTableTextKind.Normal, TextAlignment.Left, 0, out _);
-                Assert.IsFalse(cache.Configure(Environment(AppFontService.DefaultFontFamily, null, 11d, 1d, en, en)), "同じ前提では破棄しません。");
+                Assert.IsFalse(cache.Configure(Environment(AppFontService.DefaultTableFontFamily, null, 11d, 1d, en, en)), "同じ前提では破棄しません。");
                 Assert.AreEqual(1, cache.Count);
                 Assert.IsTrue(cache.Configure(changed));
                 Assert.AreEqual(0, cache.Count);
@@ -224,7 +224,7 @@ public sealed class CustomTableTextLayoutCacheTests
     {
         var cache = new CustomTableTextLayoutCache(maxEntryCount);
         var culture = CultureInfo.GetCultureInfo("en-US");
-        cache.Configure(Environment(AppFontService.DefaultFontFamily, score, fontSize, pixelsPerDip, culture, culture));
+        cache.Configure(Environment(AppFontService.DefaultTableFontFamily, score, fontSize, pixelsPerDip, culture, culture));
         return cache;
     }
 

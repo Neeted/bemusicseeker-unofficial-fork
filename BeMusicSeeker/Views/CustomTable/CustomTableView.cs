@@ -133,7 +133,7 @@ public sealed partial class CustomTableView : Grid
         nameof(TextFontFamily),
         typeof(FontFamily),
         typeof(CustomTableView),
-        new FrameworkPropertyMetadata(AppFontService.DefaultFontFamily, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontFamily));
+        new FrameworkPropertyMetadata(AppFontService.DefaultTableFontFamily, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontFamily));
 
     public static readonly DependencyProperty SelectedIndexProperty = DependencyProperty.Register(
         nameof(SelectedIndex),
@@ -882,7 +882,7 @@ public sealed partial class CustomTableView : Grid
 
     private static object CoerceTextFontFamily(DependencyObject d, object baseValue)
     {
-        return baseValue as FontFamily ?? AppFontService.DefaultFontFamily;
+        return baseValue as FontFamily ?? AppFontService.DefaultTableFontFamily;
     }
 
     /// <summary>外部から実際に受理した主行変更だけで旧編集を一回確定し、同期再入後の最新主行へ現在セルと可視範囲を揃えます。</summary>

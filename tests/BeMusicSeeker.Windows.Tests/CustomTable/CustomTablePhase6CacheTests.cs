@@ -1003,8 +1003,8 @@ public sealed class CustomTablePhase6CacheTests
         TestUiDispatcherHost.RunWindowTest(scope =>
         {
             // 本番と同じく、名前を持たない合成フォントどうしを切り替える。
-            FontFamily arial = AppFontService.CreateFontFamily("Arial");
-            FontFamily meiryoUi = AppFontService.DefaultFontFamily;
+            FontFamily arial = AppFontService.CreateFontFamily("Arial", AppFontRole.Table);
+            FontFamily meiryoUi = AppFontService.DefaultTableFontFamily;
             double fontSize = BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
             // 表と同じ方式と表示倍率で測る。
             double pixelsPerDip = VisualTreeHelper.GetDpi(new Border()).PixelsPerDip;
@@ -2008,7 +2008,7 @@ public sealed class CustomTablePhase6CacheTests
                     Assert.AreEqual(0, hits, state);
                     Assert.AreEqual(lookups, misses, state + " 可視の全文字列を新しく整形します。");
                 }
-                AssertRebuilt("フォント", () => table.TextFontFamily = AppFontService.CreateFontFamily("Arial"));
+                AssertRebuilt("フォント", () => table.TextFontFamily = AppFontService.CreateFontFamily("Arial", AppFontRole.Table));
                 AssertRebuilt("文字サイズ", () => table.TextFontSize = table.TextFontSize + 1d);
                 AssertRebuilt("表示倍率", () => CustomTableRenderProbe.SetDpi(table, 1.25d));
                 CultureInfo other = culture.Name == "fr-FR" ? CultureInfo.GetCultureInfo("de-DE") : CultureInfo.GetCultureInfo("fr-FR");

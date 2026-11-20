@@ -437,7 +437,7 @@ public partial class SettingsDialogViewModel : ViewModel
 
 
     private readonly IReadOnlyList<AppearanceThemeOption> appearanceThemeOptions;
-    private IReadOnlyList<AppearanceFontOption> appearanceFontOptions;
+    private (IReadOnlyList<AppearanceFontOption> Ui, IReadOnlyList<AppearanceFontOption> Table)? fontOptions;
 
     private readonly IReadOnlyList<BeatorajaBmtHashOutputModeOption> beatorajaBmtHashOutputModeOptions;
 
@@ -2823,13 +2823,16 @@ public partial class SettingsDialogViewModel : ViewModel
     public sealed class AppearanceFontOption : ViewModel
     {
         private readonly string installedDisplayName;
+        private readonly AppFontRole role;
 
         private System.Windows.Media.FontFamily previewFontFamily;
 
-        internal AppearanceFontOption(string key, string installedDisplayName)
+        /// <summary>設定欄の用途に合わせて、既定の表示名とプレビューの代替フォントを選びます。</summary>
+        internal AppearanceFontOption(string key, string installedDisplayName, AppFontRole role)
         {
             Key = key;
             this.installedDisplayName = installedDisplayName;
+            this.role = role;
         }
 
         /// <summary>設定へ保存するフォント名です。</summary>
@@ -2841,7 +2844,7 @@ public partial class SettingsDialogViewModel : ViewModel
             get
             {
                 return Key.Length == 0
-                    ? string.Format(Resources.Appearance_font_default, AppFontService.DefaultFontFamilyName)
+                    ? string.Format(Resources.Appearance_font_default, AppFontService.GetDefaultFontFamilyName(role))
                     : installedDisplayName;
             }
         }
@@ -2849,52 +2852,65 @@ public partial class SettingsDialogViewModel : ViewModel
         /// <summary>
         /// 選択欄で表示名を描くフォントです。フォントの読込みを表示する候補だけに限るため、最初に要求されたときに作って保持します。
         /// </summary>
-        public System.Windows.Media.FontFamily PreviewFontFamily => previewFontFamily ??= AppFontService.CreatePreviewFontFamily(Key);
+        public System.Windows.Media.FontFamily PreviewFontFamily => previewFontFamily ??= AppFontService.CreatePreviewFontFamily(Key, role);
 
+        /// <summary>表示言語が変わったときに既定の候補の表示名を更新します。</summary>
         internal void RefreshDisplayName()
         {
             RaisePropertyChanged(nameof(DisplayName));
         }
     }
 
-    /// <summary>
-    /// 既定と、インストール済みのフォントの候補です。フォントの列挙は時間がかかるため、
-    /// 外観ページが最初に要求したときに一度だけ行います。
-    /// </summary>
-    public IReadOnlyList<AppearanceFontOption> AppearanceFontOptions
+    /// <summary>通常UIの既定と、インストール済み・保存済みのフォントの候補です。</summary>
+    public IReadOnlyList<AppearanceFontOption> AppearanceFontOptions => (fontOptions ??= BuildAppearanceFontOptions()).Ui;
+
+    /// <summary>主画面の一覧の既定と、インストール済み・保存済みのフォントの候補です。</summary>
+    public IReadOnlyList<AppearanceFontOption> CustomTableFontOptions => (fontOptions ??= BuildAppearanceFontOptions()).Table;
+
+    private (IReadOnlyList<AppearanceFontOption> Ui, IReadOnlyList<AppearanceFontOption> Table) BuildAppearanceFontOptions()
     {
-        get
+        // 外観ページが最初に必要としたときだけ列挙し、両方の選択欄で同じ時点の候補と表示言語を使う。
+        IReadOnlyList<AppInstalledFontFamily> installedFamilies = AppFontService.GetInstalledFontFamilies();
+        CultureInfo displayCulture = ResourceService.Current.DisplayCulture;
+        return (BuildOptions(AppFontRole.Ui, ApplicationSettings.AppearanceFontFamily),
+            BuildOptions(AppFontRole.Table, ApplicationSettings.CustomTableFontFamily));
+
+        AppearanceFontOption[] BuildOptions(AppFontRole role, string savedName)
         {
-            return appearanceFontOptions ??= AppFontService
-                .BuildFontChoices(AppFontService.GetInstalledFontFamilies(), ResourceService.Current.DisplayCulture, ApplicationSettings.AppearanceFontFamily)
-                .Select(choice => new AppearanceFontOption(choice.Name, choice.DisplayName))
-                .Prepend(new AppearanceFontOption(string.Empty, string.Empty))
+            return AppFontService.BuildFontChoices(installedFamilies, displayCulture, savedName)
+                .Select(choice => new AppearanceFontOption(choice.Name, choice.DisplayName, role))
+                .Prepend(new AppearanceFontOption(string.Empty, string.Empty, role))
                 .ToArray();
         }
     }
 
-    /// <summary>通常の文字に使うフォント名です。選択時にこの項目だけを保存し、保存の成功後に適用します。</summary>
+    /// <summary>通常UIのフォント名です。選択時にこの項目だけを保存し、保存の成功後に適用します。</summary>
     public string AppearanceFontFamily
     {
-        get
+        get => ApplicationSettings.AppearanceFontFamily;
+        set => SetAppearanceFontFamily(value, AppearanceFontFamily, AppFontRole.Ui, nameof(AppearanceFontFamily));
+    }
+
+    /// <summary>主画面の一覧のフォント名です。選択時にこの項目だけを保存し、保存の成功後に適用します。</summary>
+    public string CustomTableFontFamily
+    {
+        get => ApplicationSettings.CustomTableFontFamily;
+        set => SetAppearanceFontFamily(value, CustomTableFontFamily, AppFontRole.Table, nameof(CustomTableFontFamily));
+    }
+
+    private void SetAppearanceFontFamily(string value, string currentName, AppFontRole role, string propertyName)
+    {
+        if (value == null)
         {
-            return ApplicationSettings.AppearanceFontFamily;
+            // 選択欄が候補の入替え中に渡す一時的な未選択では、保存済みのフォントを既定へ戻さない。
+            RaisePropertyChanged(propertyName);
+            return;
         }
-        set
+        string normalizedName = AppFontService.NormalizeFontFamilyName(value);
+        if (currentName != normalizedName && TryCommitSetting(propertyName, (propertyName, normalizedName)))
         {
-            if (value == null)
-            {
-                // 選択欄が候補の入替え中に渡す一時的な未選択では、保存済みのフォントを既定へ戻さない。
-                RaisePropertyChanged(nameof(AppearanceFontFamily));
-                return;
-            }
-            string normalizedName = AppFontService.NormalizeFontFamilyName(value);
-            if (ApplicationSettings.AppearanceFontFamily != normalizedName)
-            {
-                if (!TryCommitSetting(nameof(AppearanceFontFamily), (nameof(Settings.AppearanceFontFamily), normalizedName))) { return; }
-                AppFontService.ApplyFontFamily(normalizedName);
-                RaisePropertyChanged(nameof(AppearanceFontFamily));
-            }
+            AppFontService.ApplyFontFamily(normalizedName, role);
+            RaisePropertyChanged(propertyName);
         }
     }
 
@@ -2949,8 +2965,10 @@ public partial class SettingsDialogViewModel : ViewModel
         }
     }
 
+    /// <summary>主画面の一覧のフォント、文字サイズ、行と見出しの高さをそれぞれ既定値へ戻します。</summary>
     public void ResetCustomTableAppearanceDefaults()
     {
+        CustomTableFontFamily = string.Empty;
         CustomTableFontSize = Settings.DefaultCustomTableFontSize;
         CustomTableRowHeight = Settings.DefaultCustomTableRowHeight;
         CustomTableHeaderHeight = Settings.DefaultCustomTableHeaderHeight;
@@ -3933,7 +3951,8 @@ public partial class SettingsDialogViewModel : ViewModel
                 option.RefreshDisplayName();
             }
             // 列挙済みのフォント名は列挙時の表示言語のまま保ち、既定の候補の文言だけを更新する。
-            settingDialogViewModel.appearanceFontOptions?[0].RefreshDisplayName();
+            settingDialogViewModel.fontOptions?.Ui[0].RefreshDisplayName();
+            settingDialogViewModel.fontOptions?.Table[0].RefreshDisplayName();
         });
         // 起動構成が捕捉する値は保存済み設定の読込み後に揃えます。画面の再表示では再読込みしません。
         this.settingsEditSession.Reload();

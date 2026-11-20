@@ -122,6 +122,40 @@ public sealed class PortableSettingsPersistenceTests
         finally { CultureInfo.CurrentCulture = previous; }
     }
 
+    /// <summary>旧ファイルのフォント名は通常UIだけに読み込み、新しい一覧用の値は既定になります。両方の保存では空白を除き、未知の名前と大文字小文字を保ちます。</summary>
+    [TestMethod]
+    public void FontFamilySettings_KeepLegacyUiValueAndNormalizeEachNameIndependently()
+    {
+        using var files = new SettingsFiles();
+        File.WriteAllText(files.Path, Config("AppearanceFontFamily", "  BeMusicSeeker No Such Font  "));
+        Settings settings = TestSettingsFactory.OpenSettings(files.Path);
+        Assert.AreEqual("BeMusicSeeker No Such Font", settings.AppearanceFontFamily);
+        Assert.AreEqual(string.Empty, settings.CustomTableFontFamily);
+
+        settings.AppearanceFontFamily = "  arial  ";
+        settings.CustomTableFontFamily = "  BeMusicSeeker Other Font  ";
+        settings.Save();
+        Settings fresh = TestSettingsFactory.OpenSettings(files.Path);
+        Assert.AreEqual("arial", (string)fresh["AppearanceFontFamily"]);
+        Assert.AreEqual("BeMusicSeeker Other Font", (string)fresh["CustomTableFontFamily"]);
+
+        settings.AppearanceFontFamily = "  BeMusicSeeker No Such Font  ";
+        settings.CustomTableFontFamily = "  meiryo ui  ";
+        settings.Save();
+        fresh = TestSettingsFactory.OpenSettings(files.Path);
+        Assert.AreEqual("BeMusicSeeker No Such Font", (string)fresh["AppearanceFontFamily"]);
+        Assert.AreEqual("meiryo ui", (string)fresh["CustomTableFontFamily"]);
+        fresh["CustomTableFontFamily"] = " Arial ";
+        Assert.AreEqual("Arial", fresh.CustomTableFontFamily);
+
+        settings.AppearanceFontFamily = null;
+        settings.CustomTableFontFamily = null;
+        settings.Save();
+        fresh = TestSettingsFactory.OpenSettings(files.Path);
+        Assert.AreEqual(string.Empty, fresh.AppearanceFontFamily);
+        Assert.AreEqual(string.Empty, fresh.CustomTableFontFamily);
+    }
+
     /// <summary>ファイルなしと旧ファイルの個別キー欠損で互換既定を利用し、確認設定や音声設定が未初期化になる誤りを検出します。</summary>
     [TestMethod]
     public void MissingFileAndIndividualKeyUseDefaults()

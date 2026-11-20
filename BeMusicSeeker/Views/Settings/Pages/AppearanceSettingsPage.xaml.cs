@@ -29,16 +29,20 @@ public partial class AppearanceSettingsPage : UserControl
 
     private void appearanceFontComboBoxSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        var comboBox = (ComboBox)sender;
         // 保存に失敗すると、Bindingは選択欄の値だけを確定値へ戻し、選択の変更中のため表示中の候補は戻さない。
         // 変更の完了後に、保存されなかった候補が表示に残っていれば、確定値の候補を選び直す。
         Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.DataBind, () =>
         {
-            if (DataContext is SettingsDialogViewModel viewModel
-                && appearanceFontComboBox.SelectedItem is SettingsDialogViewModel.AppearanceFontOption selected
-                && !string.Equals(selected.Key, viewModel.AppearanceFontFamily, StringComparison.Ordinal))
+            if (comboBox.DataContext is SettingsDialogViewModel viewModel)
             {
-                appearanceFontComboBox.SelectedItem = viewModel.AppearanceFontOptions
-                    .FirstOrDefault(option => string.Equals(option.Key, viewModel.AppearanceFontFamily, StringComparison.Ordinal));
+                string savedName = ReferenceEquals(comboBox, appearanceFontComboBox) ? viewModel.AppearanceFontFamily : viewModel.CustomTableFontFamily;
+                if (comboBox.SelectedItem is not SettingsDialogViewModel.AppearanceFontOption selected
+                    || !string.Equals(selected.Key, savedName, StringComparison.Ordinal))
+                {
+                    comboBox.SelectedItem = comboBox.Items.OfType<SettingsDialogViewModel.AppearanceFontOption>()
+                        .FirstOrDefault(option => string.Equals(option.Key, savedName, StringComparison.Ordinal));
+                }
             }
         });
     }

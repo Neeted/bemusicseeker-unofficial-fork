@@ -248,9 +248,11 @@ See [Managing beatoraja Difficulty Tables](#managing-beatoraja-difficulty-tables
 
 Change settings related to themes and display.
 
-Font selects the font used for text in lists, menus, Settings, dialogs, and more, from the fonts installed on Windows. The default is Meiryo UI. Characters that the selected font does not contain are shown in Meiryo UI. Icons and special text such as the clear lamp and DJ LEVEL in lists are not affected.
+Use **App font** to choose the font for the tree, menus, settings, and dialogs. The default is Yu Gothic UI.
 
-The list appearance settings adjust the shared table display used by the library list, playlist detail, play log, and playlist summary. You can change the list font size, row height, and header height. The font size can be set in steps of 0.5.
+Under **List**, choose **Font** to change the headers, cells, and cell editors in the chart, playlist, and merge candidate lists. The default is Meiryo UI. You can also adjust the font size in steps of 0.5, the row height, and the header height.
+
+Both settings use fonts installed on Windows. Characters missing from the selected font use the default for that setting. Icons, clear lamps, and DJ LEVEL indicators use their own fonts.
 
 ### Playback
 

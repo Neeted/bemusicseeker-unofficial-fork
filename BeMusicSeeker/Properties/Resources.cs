@@ -259,6 +259,8 @@ public class Resources
 
     public static string Appearance_font => ResourceManager.GetString("Appearance_font", resourceCulture);
 
+    public static string Appearance_table_font => ResourceManager.GetString("Appearance_table_font", resourceCulture);
+
     public static string Appearance_font_default => ResourceManager.GetString("Appearance_font_default", resourceCulture);
 
     public static string Appearance_table => ResourceManager.GetString("Appearance_table", resourceCulture);

@@ -27,7 +27,7 @@ public class ThemedWindow : Window
         titleBarController = new NativeWindowTitleBarController(titleBarGateway, titleBarThemeSource);
         SetResourceReference(BackgroundProperty, "App.DialogBackgroundBrush");
         SetResourceReference(ForegroundProperty, "App.TextBrush");
-        SetResourceReference(FontFamilyProperty, BeMusicSeeker.Models.AppFontService.ResourceKey);
+        SetResourceReference(FontFamilyProperty, BeMusicSeeker.Models.AppFontService.UiResourceKey);
     }
 
     /// <inheritdoc />
