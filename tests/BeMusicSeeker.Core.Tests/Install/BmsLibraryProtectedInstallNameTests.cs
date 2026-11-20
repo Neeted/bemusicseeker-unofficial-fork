@@ -149,6 +149,163 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持集合にない譜面拡張子（5種・大文字小文字違い）のファイルが、宛先の同名で内容の異なるファイルを、スマート上書き・保護改名の設定と更新日時の新・旧・同によらず上書きしません。
+    /// 入力元は「(1)」付きの空き名へ置かれ、双方のbytesが残ります。サイズと更新日時の一致を同内容とみなす誤り、保護拡張子の集合へ足すだけの実装（保護改名オン時のみ働く）、設定ごとに結果が変わる実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(".bms", false, false, "newer")]
+    [DataRow(".bms", false, true, "newer")]
+    [DataRow(".bms", true, false, "newer")]
+    [DataRow(".bms", true, true, "newer")]
+    [DataRow(".bms", false, false, "older")]
+    [DataRow(".bms", false, true, "older")]
+    [DataRow(".bms", true, false, "older")]
+    [DataRow(".bms", true, true, "older")]
+    [DataRow(".bms", false, false, "same")]
+    [DataRow(".bms", false, true, "same")]
+    [DataRow(".bms", true, false, "same")]
+    [DataRow(".bms", true, true, "same")]
+    [DataRow(".bme", true, false, "newer")]
+    [DataRow(".bml", true, false, "older")]
+    [DataRow(".pms", true, false, "same")]
+    [DataRow(".bmson", true, false, "older")]
+    [DataRow(".BMSON", true, false, "older")]
+    [DataRow(".BMS", false, false, "newer")]
+    public void BuildFinalComponentMovePlan_UnownedChartExtensionNeverOverwritesDifferentDestination(string extension, bool smart, bool rename, string timeKind)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            // 同サイズ・同更新日時でも内容が異なる入力で、サイズと日時だけの同一判定を検出する。
+            string destinationFile = WriteProtectedNameFile(destination, "extra" + extension, [1, 1], false);
+            string sourceFile = WriteProtectedNameFile(source, "extra" + extension, [2, 2], false);
+            File.SetLastWriteTimeUtc(destinationFile, new DateTime(2020, 1, 2, 0, 0, 0, DateTimeKind.Utc));
+            File.SetLastWriteTimeUtc(sourceFile, new DateTime(2020, 1, timeKind == "newer" ? 3 : timeKind == "older" ? 1 : 2, 0, 0, 0, DateTimeKind.Utc));
+            var service = new BmsLibraryPackageInstallService();
+            ComponentMovePlanBuildResult candidates = service.BuildComponentMovePlan([sourceFile], destination, null);
+
+            (IReadOnlyList<ComponentMovePlanItem> PlanItems, IReadOnlyList<string> SourceCleanupFiles) plan = service.BuildFinalComponentMovePlan(candidates.PlanItems, [], destination, SmartRenameOptions(smart, rename));
+
+            CollectionAssert.AreEqual(new[] { sourceFile + "=>" + Path.Combine(destination, "extra(1)" + extension) },
+                plan.PlanItems.Select(item => item.SourcePath + "=>" + item.DestinationPath).ToArray());
+            FileDbMutationReceipt receipt = ExecuteProtectedNamePlan(plan);
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+            AssertProtectedNameFiles(destination, new Dictionary<string, byte[]>
+            {
+                ["extra" + extension] = [1, 1],
+                ["extra(1)" + extension] = [2, 2]
+            });
+            Assert.IsFalse(File.Exists(sourceFile));
+        });
+    }
+
+    /// <summary>宛先に同名がない譜面拡張子のファイルは採番せず同じ名前のまま置きます。常に採番する誤りを検出します。</summary>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void BuildFinalComponentMovePlan_UnownedChartExtensionWithoutDestinationKeepsName(bool smart)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            Directory.CreateDirectory(destination);
+            string sourceFile = WriteProtectedNameFile(source, "extra.bmson", [2, 2], true);
+            var service = new BmsLibraryPackageInstallService();
+            ComponentMovePlanBuildResult candidates = service.BuildComponentMovePlan([sourceFile], destination, null);
+
+            (IReadOnlyList<ComponentMovePlanItem> PlanItems, IReadOnlyList<string> SourceCleanupFiles) plan = service.BuildFinalComponentMovePlan(candidates.PlanItems, [], destination, SmartRenameOptions(smart, false));
+
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, ExecuteProtectedNamePlan(plan).TerminalState);
+            AssertProtectedNameFiles(destination, new Dictionary<string, byte[]> { ["extra.bmson"] = [2, 2] });
+            Assert.IsFalse(File.Exists(sourceFile));
+        });
+    }
+
+    /// <summary>
+    /// 譜面拡張子でない「.bmsx」は通常の資源として従来どおり扱い、スマート上書きオフ・新しい入力は上書き、オンで古い入力は宛先を保って採番しません。
+    /// 前方一致で譜面拡張子とみなす誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, true, new byte[] { 2, 2 })]
+    [DataRow(true, true, new byte[] { 2, 2 })]
+    [DataRow(true, false, new byte[] { 1, 1 })]
+    public void BuildFinalComponentMovePlan_BmsxStaysOrdinaryResource(bool smart, bool sourceNewer, byte[] expected)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            WriteProtectedNameFile(destination, "extra.bmsx", [1, 1], !sourceNewer);
+            string sourceFile = WriteProtectedNameFile(source, "extra.bmsx", [2, 2], sourceNewer);
+            if (!sourceNewer) { File.SetLastWriteTimeUtc(sourceFile, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc)); File.SetLastWriteTimeUtc(Path.Combine(destination, "extra.bmsx"), new DateTime(2020, 1, 3, 0, 0, 0, DateTimeKind.Utc)); }
+            var service = new BmsLibraryPackageInstallService();
+            ComponentMovePlanBuildResult candidates = service.BuildComponentMovePlan([sourceFile], destination, null);
+
+            (IReadOnlyList<ComponentMovePlanItem> PlanItems, IReadOnlyList<string> SourceCleanupFiles) plan = service.BuildFinalComponentMovePlan(candidates.PlanItems, [], destination, SmartRenameOptions(smart, false));
+
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, ExecuteProtectedNamePlan(plan).TerminalState);
+            AssertProtectedNameFiles(destination, new Dictionary<string, byte[]> { ["extra.bmsx"] = expected });
+            Assert.IsFalse(File.Exists(sourceFile));
+        });
+    }
+
+    /// <summary>
+    /// 譜面拡張子の衝突の採番も、後続の通常の予定先・未作成の親ディレクトリ・渡された譜面の実宛先・宛先に既にある別内容の「(n)」を奪わず、入力の順序によらず同じ結果になります。
+    /// スマート上書きのオフ・オンの両方で、予約を無視した採番や処理済みだけを予約する実装を検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, false, false)]
+    [DataRow(false, false, true)]
+    [DataRow(true, false, false)]
+    [DataRow(true, true, true)]
+    public void BuildFinalComponentMovePlan_UnownedChartExtensionReservesAllNamesRegardlessOfOrder(bool smart, bool rename, bool reverse)
+    {
+        WithTemporaryDirectory(root =>
+        {
+            string source = Path.Combine(root, "Source");
+            string destination = Path.Combine(root, "Destination");
+            WriteProtectedNameFile(destination, "extra.bmson", [1], false);
+            WriteProtectedNameFile(destination, "extra(3).bmson", [9, 9, 9, 9], false);
+            string first = WriteProtectedNameFile(source, "extra.bmson", [2, 3], true);
+            string second = WriteProtectedNameFile(source, "extra(1).bmson", [4, 5, 6], true);
+            string tone = WriteProtectedNameFile(source, Path.Combine("extra(2).bmson", "Audio", "tone.wav"), [7, 8], true);
+            string chartDestination = Path.Combine(destination, "extra(4).bmson");
+            var service = new BmsLibraryPackageInstallService();
+            ComponentMovePlanBuildResult candidates = service.BuildComponentMovePlan([first, second, Path.Combine(source, "extra(2).bmson")], destination, null);
+            IReadOnlyList<ComponentMovePlanItem> ordered = reverse ? candidates.PlanItems.AsEnumerable().Reverse().ToList() : candidates.PlanItems;
+
+            (IReadOnlyList<ComponentMovePlanItem> PlanItems, IReadOnlyList<string> SourceCleanupFiles) plan = service.BuildFinalComponentMovePlan(
+                ordered, [new KeyValuePair<string, string>(Path.Combine(source, "chart.bms"), chartDestination)], destination, SmartRenameOptions(smart, rename));
+
+            CollectionAssert.AreEquivalent(new[]
+            {
+                first + "=>" + Path.Combine(destination, "extra(5).bmson"),
+                second + "=>" + Path.Combine(destination, "extra(1).bmson"),
+                tone + "=>" + Path.Combine(destination, "extra(2).bmson", "Audio", "tone.wav")
+            }, plan.PlanItems.Select(item => item.SourcePath + "=>" + item.DestinationPath).ToArray());
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, ExecuteProtectedNamePlan(plan).TerminalState);
+            AssertProtectedNameFiles(destination, new Dictionary<string, byte[]>
+            {
+                ["extra.bmson"] = [1],
+                ["extra(3).bmson"] = [9, 9, 9, 9],
+                ["extra(5).bmson"] = [2, 3],
+                ["extra(1).bmson"] = [4, 5, 6],
+                [Path.Combine("extra(2).bmson", "Audio", "tone.wav")] = [7, 8]
+            });
+        });
+    }
+
+    private static BmsLibraryOptionsSnapshot SmartRenameOptions(bool smart, bool rename) => new()
+    {
+        EnableSmartComponentOverwrite = smart,
+        KeepSmartOverwriteProtectedFilesByRenaming = rename,
+        OperationModeLR2DB = false,
+        DeletePendingPackageSourceAfterInstall = false
+    };
+
     private static BmsLibraryOptionsSnapshot ProtectedNameOptions() => new()
     {
         EnableSmartComponentOverwrite = true,

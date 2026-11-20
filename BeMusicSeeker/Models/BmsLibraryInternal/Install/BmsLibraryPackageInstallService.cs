@@ -339,7 +339,7 @@ internal sealed partial class BmsLibraryPackageInstallService
         return componentPlan;
     }
 
-    /// <summary>同じ型検査を通した捕捉済み候補・実譜面先と固定optionsから、一計画の最終component先と消費元を決めます。通常先・必要directory・譜面先・生成先を空き名に使わず、実在同内容の省略は保持します。参照探索や候補の再列挙は行いません。</summary>
+    /// <summary>同じ型検査を通した捕捉済み候補・実譜面先と固定optionsから、一計画の最終component先と消費元を決めます。通常先・必要directory・譜面先・生成先を空き名に使わず、実在同内容の省略は保持します。譜面拡張子（.bms/.bme/.bml/.pms/.bmson）の同梱ファイルは、スマート上書き・保護改名の設定や更新日時によらず宛先の既存同名ファイルを上書きせず、同内容なら省略、異なれば空き名へ採番します。参照探索や候補の再列挙は行いません。</summary>
     internal (IReadOnlyList<ComponentMovePlanItem> PlanItems, IReadOnlyList<string> SourceCleanupFiles) BuildFinalComponentMovePlan(
         IReadOnlyList<ComponentMovePlanItem> componentCandidates,
         IReadOnlyList<KeyValuePair<string, string>> chartDestinationPaths,
@@ -371,7 +371,20 @@ internal sealed partial class BmsLibraryPackageInstallService
                 throw new FileNotFoundException(Resources.Error_FileNotFound, component.SourcePath);
             }
             string finalPath = component.DestinationPath;
-            if (options?.EnableSmartComponentOverwrite == true)
+            if (IsUnownedChartExtensionCollision(component.SourcePath, finalPath))
+            {
+                // 所持・導入対象として扱われない譜面拡張子のファイルは、スマート上書き・保護改名の設定や更新日時に関わらず
+                // 宛先の同名ファイルを上書きしません。内容が同じなら宛先を保ち、違えば空き名へ置いて双方のbytesを残します。
+                FileCollisionResolutionResult chartResolution = libraryFileOperationsService.ResolveFileCollisionWithSuffix(
+                    component.SourcePath, finalPath, null, "chart_extension_collision", logInstallPerformance, unavailableDestinations.Contains);
+                if (chartResolution.DuplicateMatched)
+                {
+                    sourceCleanupFiles.Add(component.SourcePath);
+                    continue;
+                }
+                finalPath = chartResolution.FinalPath;
+            }
+            else if (options?.EnableSmartComponentOverwrite == true)
             {
                 bool samePath = IsSamePath(component.SourcePath, finalPath);
                 ComponentMoveDecision decision = samePath ? ComponentMoveDecision.SkipSame : DecideComponentMove(component.SourcePath, finalPath);
@@ -405,6 +418,14 @@ internal sealed partial class BmsLibraryPackageInstallService
             result.Add(new ComponentMovePlanItem { SourcePath = component.SourcePath, DestinationPath = finalPath });
         }
         return (result, sourceCleanupFiles);
+    }
+
+    /// <summary>一般の同梱ファイルとして扱う譜面拡張子（.bms/.bme/.bml/.pms/.bmson）のファイルが、宛先の既存の通常ファイルと衝突するかを返します。保護拡張子の集合（<see cref="IsSmartOverwriteProtectedExtension"/>）とは別の規則で、設定に依存しません。宛先がない・ディレクトリ・同一pathは対象外（型の衝突は事前検査が拒否）です。</summary>
+    private bool IsUnownedChartExtensionCollision(string sourcePath, string destinationPath)
+    {
+        return ChartFileKindResolver.IsSupportedChartFilePath(sourcePath)
+            && !IsSamePath(sourcePath, destinationPath)
+            && LongPathFileSystem.FileExists(destinationPath);
     }
 
     /// <summary>既知の配置pathから必要directoryをrootまで辿り、未存在の親をfile採番で奪わないようにします。FS列挙・存在確認は行いません。</summary>

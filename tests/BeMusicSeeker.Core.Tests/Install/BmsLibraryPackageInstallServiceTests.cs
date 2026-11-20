@@ -5594,9 +5594,12 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
     // smart上書きの有無の両方で、ファイルの宛先が既存フォルダなら拒否する。
     [TestMethod]
-    [DataRow(true)]
-    [DataRow(false)]
-    public void MovePackageFilesWithReceipt_RejectsBundledFileWhenDestinationIsDirectory(bool enableSmartOverwrite)
+    [DataRow(true, "BGA")]
+    [DataRow(false, "BGA")]
+    // 所持集合にない譜面拡張子のファイルも、宛先がフォルダなら採番で回避せず従来どおり事前拒否する。
+    [DataRow(true, "extra.bmson")]
+    [DataRow(false, "extra.bmson")]
+    public void MovePackageFilesWithReceipt_RejectsBundledFileWhenDestinationIsDirectory(bool enableSmartOverwrite, string bundledFileName)
     {
 
         WithTemporaryDirectory(delegate (string tempDirectoryPath)
@@ -5604,10 +5607,10 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingPkg");
             string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "Installed", "Pkg");
             string sourceChartPath = CreateBmsFile(sourceDirectoryPath, "chart.bms", "#TITLE Type conflict");
-            string sourceBundledFilePath = Path.Combine(sourceDirectoryPath, "BGA");
+            string sourceBundledFilePath = Path.Combine(sourceDirectoryPath, bundledFileName);
             File.WriteAllText(sourceBundledFilePath, "bundled-file");
             Directory.CreateDirectory(destinationDirectoryPath);
-            string destinationBundledDirectoryPath = Path.Combine(destinationDirectoryPath, "BGA");
+            string destinationBundledDirectoryPath = Path.Combine(destinationDirectoryPath, bundledFileName);
             Directory.CreateDirectory(destinationBundledDirectoryPath);
             string firstSentinelPath = Path.Combine(destinationBundledDirectoryPath, "first.sentinel");
             string secondSentinelPath = Path.Combine(destinationBundledDirectoryPath, "second.sentinel");
@@ -6589,6 +6592,57 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 });
                 Assert.IsFalse(File.Exists(otherSource));
             }
+        });
+    }
+    /// <summary>
+    /// 所持集合にない譜面拡張子のファイルが宛先の同名ファイルと内容も更新日時も異なっても、同内容の場合は宛先を保って採番せず、
+    /// 入力元をdurable確定の後にだけ消費します。スマート上書きのオン・オフに関わらず同じで、内容の同一を日時で代用する誤りと確定前の消費を検出します。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。</remarks>
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void MovePackageFilesWithReceipt_UnownedChartExtensionSameContentKeepsDestinationAndConsumesSourceAfterDurable(bool enableSmartOverwrite)
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            string sourceDirectoryPath = Path.Combine(tempDirectoryPath, "PendingChartSame");
+            string destinationDirectoryPath = Path.Combine(tempDirectoryPath, "InstalledChartSame");
+            string sourcePath = WriteProtectedNameFile(sourceDirectoryPath, "extra.bmson", [7, 8, 9], true);
+            WriteProtectedNameFile(destinationDirectoryPath, "extra.bmson", [7, 8, 9], false);
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(Enumerable.Empty<ChartFile>());
+            package.path = sourceDirectoryPath;
+            package.delete_parent = false;
+            bool callbackSawSource = false;
+
+            FileDbMutationReceipt receipt = new BmsLibraryPackageInstallService().MovePackageFilesWithReceipt(
+                package,
+                destinationDirectoryPath,
+                new BmsLibraryOptionsSnapshot
+                {
+                    EnableSmartComponentOverwrite = enableSmartOverwrite,
+                    KeepSmartOverwriteProtectedFilesByRenaming = false
+                },
+                (_, _) => throw new AssertFailedException("createFolderPath should not be called for an explicit destination."),
+                exception => exception.Message,
+                new RealFileMutationService(),
+                new LibraryOperationNotices(),
+                new FileMutationOptions(ReadOnlyNormalizationScope.TargetOnly),
+                new FileMutationOptions(ReadOnlyNormalizationScope.RecursiveDirectoryTree),
+                _ => { },
+                _ =>
+                {
+                    callbackSawSource = File.Exists(sourcePath);
+                    return FileDbMutationCommitResult.Durable();
+                },
+                sourceCleanupPolicy: PackageSourceCleanupPolicy.PreserveUnconsumedContents,
+                showMessageBoxOnInstallFail: false);
+
+            Assert.AreEqual(FileDbMutationTerminalState.Completed, receipt.TerminalState);
+            Assert.IsTrue(receipt.DurableCommit);
+            Assert.IsTrue(callbackSawSource);
+            Assert.IsFalse(File.Exists(sourcePath));
+            AssertProtectedNameFiles(destinationDirectoryPath, new Dictionary<string, byte[]> { ["extra.bmson"] = [7, 8, 9] });
         });
     }
     /// <summary>

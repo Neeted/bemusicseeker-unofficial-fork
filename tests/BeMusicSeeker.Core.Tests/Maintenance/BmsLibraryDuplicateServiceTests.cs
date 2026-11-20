@@ -2506,6 +2506,108 @@ public sealed class BmsLibraryDuplicateServiceTests
     }
 
     /// <summary>
+    /// 統合先が所持中の正常な「extra.bmson」を、移動元の所持集合にない新しい壊れた「extra.bmson」が上書きしません。
+    /// 統合先のbytes・song行のMD5・所持集合の現在値（パスとMD5）は変わらず、壊れた側は「extra(1).bmson」へ入り、統合は適用済み・必須失敗なしで移動元が消費されます。
+    /// スマート上書きオン・保護改名オフで、譜面拡張子を保護拡張子へ足すだけの実装や日時だけで上書きする実装を検出します。
+    /// </summary>
+    /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
+    [TestMethod]
+    public void MergeChartDirectory_UnownedBmsonDoesNotOverwriteOwnedDestinationBmson()
+    {
+        WithTemporarySongDb(databaseScope, delegate (string songDbPath)
+        {
+            using var caseWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
+            string tempRootPath = Path.Combine(caseWorkspace.RootDirectory, "BeMusicSeeker_DuplicateMergeUnownedBmson_" + System.Guid.NewGuid().ToString("N"));
+            string srcDir = Path.Combine(tempRootPath, "Src");
+            string dstDir = Path.Combine(tempRootPath, "Dst");
+            string srcChartPath = Path.Combine(srcDir, "chart.bmson");
+            string dstChartPath = Path.Combine(dstDir, "chart.bmson");
+            string srcExtraPath = Path.Combine(srcDir, "extra.bmson");
+            string dstExtraPath = Path.Combine(dstDir, "extra.bmson");
+            Directory.CreateDirectory(srcDir);
+            Directory.CreateDirectory(dstDir);
+            File.WriteAllText(srcChartPath, "{}");
+            File.WriteAllText(dstChartPath, "{}");
+            File.WriteAllText(dstExtraPath, "{ }");
+            File.WriteAllText(srcExtraPath, "{broken");
+            File.SetLastWriteTimeUtc(dstExtraPath, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            File.SetLastWriteTimeUtc(srcExtraPath, new DateTime(2022, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+            byte[] dstExtraBytes = File.ReadAllBytes(dstExtraPath);
+            byte[] dstChartBytes = File.ReadAllBytes(dstChartPath);
+            byte[] brokenBytes = File.ReadAllBytes(srcExtraPath);
+            string duplicateHash = ChartTestValues.ReadBmson(srcChartPath).Md5;
+            try
+            {
+                var library = new TestBmsLibrary(databaseScope,
+                    songDbPath,
+                    null,
+                    null,
+                    new TestFileMutationService(),
+                    new RecordingDialogService(),
+                    new TestUiScheduler(() => null),
+                    () => new BmsLibraryOptionsSnapshot
+                    {
+                        OperationModeLR2DB = false,
+                        EnableSmartComponentOverwrite = true,
+                        KeepSmartOverwriteProtectedFilesByRenaming = false,
+                        DeletePendingPackageSourceAfterInstall = false
+                    });
+                ChartFile sourceSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
+                {
+                    Path = srcChartPath,
+                    Folder = srcDir,
+                    RawTitle = "src duplicate",
+                    Md5 = duplicateHash
+                };
+                ChartFile destinationSong = ChartTestValues.Empty(ChartFileKind.Bmson) with
+                {
+                    Path = dstChartPath,
+                    Folder = dstDir,
+                    RawTitle = "dst duplicate",
+                    Md5 = duplicateHash
+                };
+                string extraMd5 = ChartTestValues.ReadBmson(dstExtraPath).Md5;
+                ChartFile destinationExtra = ChartTestValues.Empty(ChartFileKind.Bmson) with
+                {
+                    Path = dstExtraPath,
+                    Folder = dstDir,
+                    RawTitle = "dst extra",
+                    Md5 = extraMd5
+                };
+                library.BmsonCharts = [sourceSong, destinationSong, destinationExtra];
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongWrite(songDbPath))
+                {
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(sourceSong), typeof(LR2SongDBExtended.bmson_song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(destinationSong), typeof(LR2SongDBExtended.bmson_song));
+                    songDb.InsertOrReplace(ChartSongStorageMapping.ToBmsonRow(destinationExtra), typeof(LR2SongDBExtended.bmson_song));
+                }
+
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(srcDir, dstDir, notices: new LibraryOperationNotices(), operationId: 1);
+
+                Assert.IsTrue(receipt.MergeApplied, receipt.SessionReceipt.PrimaryFailure?.ToString());
+                Assert.IsFalse(receipt.SessionReceipt.HasRequiredFailure);
+                Assert.IsFalse(Directory.Exists(srcDir));
+                CollectionAssert.AreEqual(dstExtraBytes, File.ReadAllBytes(dstExtraPath));
+                CollectionAssert.AreEqual(dstChartBytes, File.ReadAllBytes(dstChartPath));
+                CollectionAssert.AreEqual(brokenBytes, File.ReadAllBytes(Path.Combine(dstDir, "extra(1).bmson")));
+                ChartFile ownedExtra = library.BmsonCharts.Single(chart => chart.Path == dstExtraPath);
+                Assert.AreEqual(extraMd5, ownedExtra.Md5);
+                using (LR2SongDBExtended songDb = databaseScope.OpenSongReadOnly(songDbPath))
+                {
+                    Assert.AreEqual(extraMd5, songDb.Find<LR2SongDBExtended.bmson_song>(dstExtraPath).md5);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    /// <summary>
     /// 対象譜面のない統合では実体と登録を保ち、冷えた索引の先行構築や温めた索引の無用な更新・再列挙を検出します。
     /// </summary>
     /// <remarks>実ファイルとSQLiteを通す確定・失敗境界を観測するため、局所フォルダと実ライブラリを使用します。</remarks>
