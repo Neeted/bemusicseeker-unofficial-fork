@@ -43,27 +43,39 @@
     <Setter Property="AutomationProperties.Name" Value="" />
   </Style>
 
+  <!--
+    キーボード操作の位置を示す共通のフォーカス枠。WPFのFocusVisualStyleは、キーボード操作でフォーカスが
+    移ったときだけ表示され、マウス操作では表示されない。部品の内側へ直角の二重線を描き、外側の2 DIPは
+    通常の背景で、その内側の1 DIPは強調色で塗った背景で見える。外側へ描かないのは、スクロール領域や
+    ペインの端で切り取られないようにするため。TreeViewItemFocusCueの見出し行の枠も同じ見た目に揃える。
+  -->
+  <Style x:Key="App.FocusVisualStyle" TargetType="{x:Type Control}">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="{x:Type Control}">
+          <Border BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
+                  BorderThickness="2"
+                  SnapsToDevicePixels="True">
+            <Border BorderBrush="{DynamicResource App.AccentFocusRingBrush}"
+                    BorderThickness="1" />
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <ControlTemplate x:Key="App.Canonical.ButtonTemplate" TargetType="{x:Type Button}">
-    <Grid SnapsToDevicePixels="True">
-      <Border x:Name="ButtonChrome"
-              Background="{TemplateBinding Background}"
-              BorderBrush="{TemplateBinding BorderBrush}"
-              BorderThickness="{TemplateBinding BorderThickness}">
-        <ContentPresenter Margin="{TemplateBinding Padding}"
-                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
-                          RecognizesAccessKey="True" />
-      </Border>
-      <Border x:Name="FocusBorder"
-              BorderBrush="{TemplateBinding Tag}"
-              BorderThickness="2"
-              IsHitTestVisible="False"
-              Visibility="Collapsed" />
-    </Grid>
+    <Border x:Name="ButtonChrome"
+            Background="{TemplateBinding Background}"
+            BorderBrush="{TemplateBinding BorderBrush}"
+            BorderThickness="{TemplateBinding BorderThickness}"
+            SnapsToDevicePixels="True">
+      <ContentPresenter Margin="{TemplateBinding Padding}"
+                        HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                        VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                        RecognizesAccessKey="True" />
+    </Border>
     <ControlTemplate.Triggers>
-      <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
-      </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter TargetName="ButtonChrome" Property="Opacity" Value="0.55" />
       </Trigger>
@@ -116,10 +128,6 @@
       </Trigger>
       <Trigger Property="IsSelected" Value="True">
         <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="ItemChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-        <Setter TargetName="ItemChrome" Property="BorderThickness" Value="1" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
@@ -206,9 +214,17 @@
         <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible" />
         <Setter TargetName="SelectionContent" Property="Visibility" Value="Collapsed" />
       </Trigger>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
+      <!--
+        入力状態の枠は編集型だけが持つ。非編集型はキーボード操作のフォーカス枠(FocusVisualStyle)を使う。
+        編集型ではフォーカスが内部のTextBoxにあるため、IsKeyboardFocusWithinで入力中を示す。
+      -->
+      <MultiTrigger>
+        <MultiTrigger.Conditions>
+          <Condition Property="IsEditable" Value="True" />
+          <Condition Property="IsKeyboardFocusWithin" Value="True" />
+        </MultiTrigger.Conditions>
         <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
-      </Trigger>
+      </MultiTrigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter TargetName="ComboChrome" Property="Opacity" Value="0.55" />
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
@@ -242,12 +258,6 @@
                         Margin="{TemplateBinding Padding}"
                         VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                         RecognizesAccessKey="True" />
-      <Border x:Name="FocusBorder"
-              Grid.ColumnSpan="2"
-              BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
-              BorderThickness="1"
-              IsHitTestVisible="False"
-              Visibility="Collapsed" />
     </Grid>
     <ControlTemplate.Triggers>
       <Trigger Property="IsChecked" Value="True">
@@ -262,9 +272,6 @@
       </Trigger>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter TargetName="CheckChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Opacity" Value="0.55" />
@@ -297,12 +304,6 @@
                         Margin="{TemplateBinding Padding}"
                         VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
                         RecognizesAccessKey="True" />
-      <Border x:Name="FocusBorder"
-              Grid.ColumnSpan="2"
-              BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
-              BorderThickness="1"
-              IsHitTestVisible="False"
-              Visibility="Collapsed" />
     </Grid>
     <ControlTemplate.Triggers>
       <Trigger Property="IsChecked" Value="True">
@@ -311,9 +312,6 @@
       </Trigger>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter TargetName="RadioChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Opacity" Value="0.55" />
@@ -710,10 +708,6 @@
       <Trigger Property="IsSelected" Value="True">
         <Setter TargetName="ItemChrome" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
       </Trigger>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="ItemChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-        <Setter TargetName="ItemChrome" Property="BorderThickness" Value="1" />
-      </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
         <Setter Property="Opacity" Value="0.55" />
@@ -733,9 +727,6 @@
       </ScrollViewer>
     </Border>
     <ControlTemplate.Triggers>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="ListChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-      </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
         <Setter TargetName="ListChrome" Property="Opacity" Value="0.55" />
@@ -771,11 +762,6 @@
               Background="{DynamicResource App.AccentBrush}"
               Visibility="Collapsed"
               IsHitTestVisible="False" />
-      <Border x:Name="FocusBorder"
-              BorderBrush="{DynamicResource App.InputFocusBorderBrush}"
-              BorderThickness="1"
-              Visibility="Collapsed"
-              IsHitTestVisible="False" />
     </Grid>
     <ControlTemplate.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
@@ -785,9 +771,6 @@
         <Setter TargetName="NavigationItemChrome" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
         <Setter TargetName="SelectionIndicator" Property="Visibility" Value="Visible" />
         <Setter Property="FontWeight" Value="SemiBold" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="FocusBorder" Property="Visibility" Value="Visible" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
@@ -813,9 +796,6 @@
       </ScrollViewer>
     </Border>
     <ControlTemplate.Triggers>
-      <Trigger Property="IsKeyboardFocusWithin" Value="True">
-        <Setter TargetName="TopNavigationChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-      </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
         <Setter TargetName="TopNavigationChrome" Property="Opacity" Value="0.55" />
@@ -864,10 +844,6 @@
       <Trigger Property="IsChecked" Value="True">
         <Setter TargetName="CollapsedGlyph" Property="Visibility" Value="Collapsed" />
         <Setter TargetName="ExpandedGlyph" Property="Visibility" Value="Visible" />
-      </Trigger>
-      <Trigger Property="IsKeyboardFocused" Value="True">
-        <Setter TargetName="HeaderChrome" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
-        <Setter TargetName="HeaderChrome" Property="BorderThickness" Value="1" />
       </Trigger>
       <Trigger Property="IsEnabled" Value="False">
         <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
@@ -957,8 +933,7 @@
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="Tag" Value="{DynamicResource App.InputFocusBorderBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ButtonTemplate}" />
     <Style.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
@@ -982,7 +957,6 @@
     <Setter Property="Background" Value="{DynamicResource App.AccentBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.AccentForegroundBrush}" />
-    <Setter Property="Tag" Value="{DynamicResource App.AccentFocusRingBrush}" />
     <Style.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter Property="Background" Value="{DynamicResource App.AccentHoverBrush}" />
@@ -1010,7 +984,6 @@
     <Setter Property="Background" Value="{DynamicResource App.DangerBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.DangerBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.DangerForegroundBrush}" />
-    <Setter Property="Tag" Value="{DynamicResource App.DangerForegroundBrush}" />
     <Style.Triggers>
       <Trigger Property="IsMouseOver" Value="True">
         <Setter Property="Background" Value="{DynamicResource App.DangerHoverBrush}" />
@@ -1174,6 +1147,7 @@
     </Setter>
   </Style>
 
+  <!-- 入力欄は操作の方法によらず、IsKeyboardFocusWithinによる入力状態の枠で示す。キーボード用のフォーカス枠は重ねない。 -->
   <Style x:Key="App.Canonical.TextBoxStyle" TargetType="{x:Type TextBox}" BasedOn="{x:Null}">
     <Setter Property="MinHeight" Value="32" />
     <Setter Property="Padding" Value="8,3" />
@@ -1194,10 +1168,16 @@
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="ScrollViewer.CanContentScroll" Value="True" />
     <Setter Property="ItemContainerStyle" Value="{DynamicResource App.Canonical.ComboBoxItemStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ComboBoxTemplate}" />
+    <Style.Triggers>
+      <!-- 編集型は内部のTextBoxが入力状態の枠を示すため、キーボード操作のフォーカス枠を重ねない。 -->
+      <Trigger Property="IsEditable" Value="True">
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+      </Trigger>
+    </Style.Triggers>
   </Style>
 
   <Style x:Key="App.Canonical.CompactComboBoxStyle" TargetType="{x:Type ComboBox}" BasedOn="{StaticResource App.Canonical.ComboBoxStyle}">
@@ -1219,7 +1199,7 @@
     <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.CheckBoxTemplate}" />
     <Setter Property="ContentTemplate">
       <Setter.Value>
@@ -1236,7 +1216,7 @@
     <Setter Property="HorizontalAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.RadioButtonTemplate}" />
     <Setter Property="ContentTemplate">
       <Setter.Value>
@@ -1248,7 +1228,7 @@
   </Style>
 
   <Style x:Key="App.Canonical.SliderStyle" TargetType="{x:Type Slider}" BasedOn="{x:Null}">
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.HorizontalSliderTemplate}" />
     <Style.Triggers>
       <Trigger Property="Orientation" Value="Vertical">
@@ -1304,11 +1284,13 @@
     <Setter Property="Padding" Value="8,5" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ListBoxItemTemplate}" />
   </Style>
 
   <Style x:Key="App.Canonical.ListBoxStyle" TargetType="{x:Type ListBox}" BasedOn="{x:Null}">
+    <!-- 位置はListBoxItemのフォーカス枠で示すため、一覧本体には枠を描かない。 -->
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
@@ -1325,11 +1307,13 @@
     <Setter Property="HorizontalContentAlignment" Value="Center" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.TopNavigationItemTemplate}" />
   </Style>
 
   <Style x:Key="App.Canonical.TopNavigationStyle" TargetType="{x:Type ListBox}" BasedOn="{x:Null}">
+    <!-- 位置は項目のフォーカス枠で示すため、一覧本体には枠を描かない。 -->
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Background" Value="{x:Null}" />
     <Setter Property="BorderBrush" Value="{x:Null}" />
     <Setter Property="BorderThickness" Value="0" />
@@ -1435,7 +1419,7 @@
     <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />
     <Setter Property="BorderThickness" Value="1" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template" Value="{StaticResource App.Canonical.ExpanderHeaderToggleTemplate}" />
   </Style>
 

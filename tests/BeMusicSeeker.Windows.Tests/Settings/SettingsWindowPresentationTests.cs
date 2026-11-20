@@ -2185,8 +2185,10 @@ public sealed class SettingsWindowPresentationTests
                         Assert.AreEqual(TextWrapping.Wrap, description.TextWrapping);
                         Border chrome = FindDescendants<Border>(radio).Single(border => border.Child is Grid);
                         AssertBrushColor(radio, radio.IsChecked == true ? "App.ControlSelectedBrush" : "App.SurfaceBrush", chrome.Background);
-                        AssertBrushColor(radio, radio.IsKeyboardFocused ? "App.InputFocusBorderBrush"
-                            : radio.IsChecked == true ? "App.AccentBrush" : "App.BorderBrush", chrome.BorderBrush);
+                        // 枠色はフォーカスと無関係に、選択中なら強調色、それ以外は通常の枠色。キーボード用の枠は共通のフォーカス枠が担う。
+                        AssertBrushColor(radio, radio.IsChecked == true ? "App.AccentBrush" : "App.BorderBrush", chrome.BorderBrush);
+                        FocusVisualAssert.AssertKeyboardFocusRing(radio);
+                        FocusVisualAssert.AssertNoFocusConditionedTriggers(radio);
                         // 角丸の外側は入力面ではない。描画面の四辺・中央・説明も同じRadioButtonへ到達する。
                         foreach (Point point in new[] { new Point(radio.ActualWidth / 2, 2), new Point(2, radio.ActualHeight / 2),
                             new Point(radio.ActualWidth - 2, radio.ActualHeight / 2), new Point(radio.ActualWidth / 2, radio.ActualHeight - 2),

@@ -35,16 +35,12 @@
   <SolidColorBrush x:Key="DisabledBorderBrush" Color="#AAA" />
   <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#FFF" />
   <views:MenuMaxHeightConverter x:Key="MenuMaxHeightConverter" />
-  <LinearGradientBrush x:Key="DefaultedBorderBrush" EndPoint="0,1" StartPoint="0,0">
-    <GradientStop Color="#777" Offset="0.0" />
-    <GradientStop Color="#000" Offset="1.0" />
-  </LinearGradientBrush>
   <SolidColorBrush x:Key="SolidBorderBrush" Color="#888" />
   <SolidColorBrush x:Key="LightBorderBrush" Color="#AAA" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#DDD" />
   <SolidColorBrush x:Key="GlyphBrush" Color="#444" />
   <Style x:Key="SimpleButton" TargetType="{x:Type Button}" BasedOn="{x:Null}">
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -56,9 +52,6 @@
             <ContentPresenter HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" Margin="{TemplateBinding Control.Padding}" VerticalAlignment="{TemplateBinding Control.VerticalContentAlignment}" RecognizesAccessKey="True" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
           </Grid>
           <ControlTemplate.Triggers>
-            <Trigger Property="UIElement.IsKeyboardFocused" Value="True">
-              <Setter Value="{DynamicResource DefaultedBorderBrush}" TargetName="Border" Property="Border.BorderBrush" />
-            </Trigger>
             <Trigger Property="UIElement.IsMouseOver" Value="True">
               <Setter Value="{DynamicResource MouseOverBrush}" TargetName="Border" Property="Border.Background" />
             </Trigger>
@@ -79,7 +72,7 @@
   </Style>
   <Style x:Key="SimpleCheckBox" TargetType="{x:Type CheckBox}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -124,7 +117,7 @@
   </Style>
   <Style x:Key="SimpleRadioButton" TargetType="{x:Type RadioButton}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Background" Value="{DynamicResource NormalBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -184,6 +177,8 @@
     <Setter Property="Template" Value="{DynamicResource App.Canonical.ScrollViewerTemplate}" />
   </Style>
   <Style x:Key="SimpleListBox" TargetType="{x:Type ListBox}">
+    <!-- 位置はListBoxItemのフォーカス枠で示すため、一覧本体には枠を描かない。 -->
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Padding" Value="4" />
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
     <Setter Property="Background" Value="{DynamicResource WindowBackgroundBrush}" />
@@ -218,7 +213,7 @@
   <Style x:Key="SimpleListBoxItem" TargetType="{x:Type ListBoxItem}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
     <Setter Property="FrameworkElement.OverridesDefaultStyle" Value="True" />
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="Template">
       <Setter.Value>
@@ -283,7 +278,7 @@
                   <ColumnDefinition Width="20" />
                   <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
-                <ToggleButton Template="{DynamicResource ExpanderToggleButton}" Background="{DynamicResource NormalBrush}" FocusVisualStyle="{x:Null}" OverridesDefaultStyle="True" IsChecked="{Binding Path=IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
+                <ToggleButton Template="{DynamicResource ExpanderToggleButton}" Background="{DynamicResource NormalBrush}" FocusVisualStyle="{DynamicResource App.FocusVisualStyle}" OverridesDefaultStyle="True" IsChecked="{Binding Path=IsExpanded, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
                 <ContentPresenter Grid.Column="1" Margin="4" RecognizesAccessKey="True" ContentSource="Header" TextElement.Foreground="{TemplateBinding Control.Foreground}" />
               </Grid>
             </Border>
@@ -335,7 +330,7 @@
   </ControlTemplate>
   <Style x:Key="SimpleComboBox" TargetType="{x:Type ComboBox}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="HorizontalContentAlignment" Value="Left" />
     <Setter Property="VerticalContentAlignment" Value="Center" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -379,7 +374,14 @@
         </ControlTemplate>
       </Setter.Value>
     </Setter>
+    <Style.Triggers>
+      <!-- 編集型は内部のTextBoxが入力を受けるため、ComboBox本体にはキーボード操作のフォーカス枠を描かない。 -->
+      <Trigger Property="ComboBox.IsEditable" Value="True">
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+      </Trigger>
+    </Style.Triggers>
   </Style>
+  <!-- 候補は強調表示だけで位置を示し、フォーカス枠を使わない。 -->
   <Style x:Key="SimpleComboBoxItem" TargetType="{x:Type ComboBoxItem}">
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
     <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
@@ -506,6 +508,7 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleMenu" TargetType="{x:Type Menu}">
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Background" Value="{DynamicResource LightBrush}" />
     <Setter Property="BorderBrush" Value="{DynamicResource NormalBorderBrush}" />
     <Setter Property="UIElement.SnapsToDevicePixels" Value="True" />
@@ -527,6 +530,7 @@
     </Setter>
   </Style>
   <Style x:Key="SimpleContextMenu" TargetType="{x:Type ContextMenu}">
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <!-- 標準スタイルはシステムのフォントを指定するため、表示フォントを明示して接続する。 -->
     <Setter Property="FontFamily" Value="{DynamicResource App.UiFontFamily}" />
     <Setter Property="Background" Value="{DynamicResource App.PopupBackgroundBrush}" />
@@ -548,7 +552,9 @@
     </Setter>
   </Style>
   <DropShadowBitmapEffect x:Key="PopupDropShadow" ShadowDepth="1.5" Softness="0.15" />
+  <!-- メニュー項目は強調表示(IsHighlighted)だけで位置を示し、フォーカス枠を使わない。 -->
   <Style x:Key="SimpleMenuItem" TargetType="{x:Type MenuItem}">
+    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="HorizontalContentAlignment" Value="{Binding Path=HorizontalContentAlignment, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" />
     <Setter Property="VerticalContentAlignment" Value="{Binding Path=VerticalContentAlignment, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" />
     <Setter Property="Background" Value="#00FFFFFF" />
@@ -652,7 +658,7 @@
   </Style>
   <Style x:Key="{x:Static MenuItem.SeparatorStyleKey}" TargetType="{x:Type Separator}" BasedOn="{StaticResource SimpleSeparator}" />
   <Style x:Key="SimpleTreeView" TargetType="{x:Type TreeView}">
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type TreeView}">
@@ -669,7 +675,6 @@
   </Style>
   <Style x:Key="SimpleTreeViewItemToggleButton" TargetType="{x:Type ToggleButton}">
     <Setter Property="Focusable" Value="False" />
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ToggleButton}">
@@ -710,9 +715,14 @@
             <Border Name="Selection_Border" Grid.Column="1" Background="{TemplateBinding Control.Background}" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" Padding="{TemplateBinding Control.Padding}">
               <ContentPresenter Name="PART_Header" HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" ContentSource="Header" />
             </Border>
+            <!-- 見出し行だけに重ねる枠。項目全体は子孫を含むためFocusVisualStyleを使わない。 -->
+            <Control Name="FocusCue" Grid.Column="1" Style="{DynamicResource App.FocusVisualStyle}" Focusable="False" IsTabStop="False" IsHitTestVisible="False" Visibility="Collapsed" />
             <ItemsPresenter Name="ItemsHost" Grid.Column="1" Grid.ColumnSpan="2" Grid.Row="1" />
           </Grid>
           <ControlTemplate.Triggers>
+            <Trigger Property="views:TreeViewItemFocusCue.IsVisible" Value="True">
+              <Setter TargetName="FocusCue" Property="Visibility" Value="Visible" />
+            </Trigger>
             <Trigger Property="TreeViewItem.IsExpanded" Value="False">
               <Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed" />
             </Trigger>
@@ -741,7 +751,7 @@
   </Style>
   <Style TargetType="{x:Type Button}" BasedOn="{StaticResource SimpleButton}" />
   <Style TargetType="{x:Type ToggleButton}">
-    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+    <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
   </Style>
   <Style TargetType="{x:Type CheckBox}" BasedOn="{StaticResource SimpleCheckBox}" />
   <Style TargetType="{x:Type RadioButton}" BasedOn="{StaticResource SimpleRadioButton}" />

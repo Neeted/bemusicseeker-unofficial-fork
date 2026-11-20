@@ -172,7 +172,6 @@
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
     <Setter Property="BorderThickness" Value="1" />
-    <Setter Property="FocusVisualStyle" Value="{x:Null}" />
     <Setter Property="Template">
       <Setter.Value>
         <ControlTemplate TargetType="{x:Type ListBoxItem}">
@@ -213,9 +212,6 @@
               <Setter TargetName="NavigationPill" Property="Background" Value="{DynamicResource App.ControlSelectedBrush}" />
               <Setter TargetName="SelectionIndicator" Property="Background" Value="{DynamicResource App.AccentBrush}" />
               <Setter Property="FontWeight" Value="SemiBold" />
-            </Trigger>
-            <Trigger Property="IsKeyboardFocusWithin" Value="True">
-              <Setter TargetName="NavigationPill" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />
@@ -424,9 +420,6 @@
               <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
               <Setter TargetName="RadioChrome" Property="BorderBrush" Value="{DynamicResource App.AccentBrush}" />
               <Setter TargetName="RadioGlyph" Property="Visibility" Value="Visible" />
-            </Trigger>
-            <Trigger Property="IsKeyboardFocused" Value="True">
-              <Setter TargetName="Card" Property="BorderBrush" Value="{DynamicResource App.InputFocusBorderBrush}" />
             </Trigger>
             <Trigger Property="IsEnabled" Value="False">
               <Setter Property="Foreground" Value="{DynamicResource App.DisabledTextBrush}" />

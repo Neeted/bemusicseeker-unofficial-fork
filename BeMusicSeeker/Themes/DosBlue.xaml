@@ -108,10 +108,6 @@
   <SolidColorBrush x:Key="DisabledBackgroundBrush" Color="#FF000080" />
   <SolidColorBrush x:Key="DisabledBorderBrush" Color="#FF8181D8" />
   <SolidColorBrush x:Key="WindowBackgroundBrush" Color="#FF0000AA" />
-  <LinearGradientBrush x:Key="DefaultedBorderBrush" EndPoint="0,1" StartPoint="0,0">
-    <GradientStop Color="#FFE6D94A" Offset="0.0" />
-    <GradientStop Color="#FFFFFF8A" Offset="1.0" />
-  </LinearGradientBrush>
   <SolidColorBrush x:Key="SolidBorderBrush" Color="#FF8181D8" />
   <SolidColorBrush x:Key="LightBorderBrush" Color="#FFFFFFFF" />
   <SolidColorBrush x:Key="LightColorBrush" Color="#FF3232BD" />

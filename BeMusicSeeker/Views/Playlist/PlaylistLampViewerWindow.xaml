@@ -43,6 +43,7 @@
       <SolidColorBrush x:Key="PlaylistLamp.Rank.NP" Color="#f3f4f6" />
 
       <Style x:Key="lampBarButtonStyle" TargetType="{x:Type Button}">
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="Margin" Value="0" />
         <Setter Property="BorderThickness" Value="0" />
@@ -80,7 +81,7 @@
       </Style>
       <Style x:Key="lampDisplayModeToggleStyle" TargetType="{x:Type RadioButton}" BasedOn="{StaticResource App.Canonical.RadioButtonStyle}">
         <Setter Property="MinHeight" Value="24" />
-        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
         <Setter Property="Padding" Value="8,2" />
         <Setter Property="Background" Value="{DynamicResource App.ControlBackgroundBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource App.BorderBrush}" />

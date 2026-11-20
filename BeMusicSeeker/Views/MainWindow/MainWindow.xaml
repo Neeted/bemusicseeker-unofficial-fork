@@ -98,7 +98,7 @@
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Background" Value="Transparent" />
         <Setter Property="Foreground" Value="{DynamicResource App.AccentBrush}" />
-        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
         <Setter Property="HorizontalContentAlignment" Value="Center" />
         <Setter Property="VerticalContentAlignment" Value="Center" />
       </Style>
@@ -109,7 +109,6 @@
       <Style x:Key="SidebarSplitterStyle" TargetType="{x:Type GridSplitter}">
         <Setter Property="Focusable" Value="False" />
         <Setter Property="IsTabStop" Value="False" />
-        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Background" Value="{DynamicResource App.SeparatorBrush}" />
         <Setter Property="BorderThickness" Value="0" />
         <Setter Property="Template">
@@ -496,7 +495,6 @@
       <PathGeometry x:Key="TreeArrow" Figures="M0,0 L0,6 L6,0 z" />
       <Style x:Key="ExpandCollapseToggleStyle" TargetType="{x:Type ToggleButton}">
         <Setter Property="Focusable" Value="False" />
-        <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Width" Value="16" />
         <Setter Property="Height" Value="16" />
         <Setter Property="Template">
@@ -551,9 +549,14 @@
           <Border Name="Bd" BorderBrush="{TemplateBinding Control.BorderBrush}" BorderThickness="{TemplateBinding Control.BorderThickness}" Background="{TemplateBinding Control.Background}" Grid.Column="1" Padding="{TemplateBinding Control.Padding}" SnapsToDevicePixels="True" Grid.ColumnSpan="2" TextElement.Foreground="{TemplateBinding Control.Foreground}">
             <ContentPresenter Name="PART_Header" ContentSource="Header" HorizontalAlignment="{TemplateBinding Control.HorizontalContentAlignment}" TextElement.Foreground="{TemplateBinding Control.Foreground}" SnapsToDevicePixels="{TemplateBinding UIElement.SnapsToDevicePixels}" />
           </Border>
+          <!-- 見出し行だけに重ねる枠。項目全体は子孫を含むためFocusVisualStyleを使わず、TreeViewItemFocusCueが表示を決める。 -->
+          <Control Name="FocusCue" Grid.Column="1" Grid.ColumnSpan="2" Style="{DynamicResource App.FocusVisualStyle}" Focusable="False" IsTabStop="False" IsHitTestVisible="False" Visibility="Collapsed" />
           <ItemsPresenter Name="ItemsHost" Grid.ColumnSpan="2" Grid.Column="1" Grid.Row="1" />
         </Grid>
         <ControlTemplate.Triggers>
+          <Trigger Property="v:TreeViewItemFocusCue.IsVisible" Value="True">
+            <Setter TargetName="FocusCue" Property="UIElement.Visibility" Value="Visible" />
+          </Trigger>
           <Trigger Property="TreeViewItem.IsExpanded" Value="False">
             <Setter TargetName="ItemsHost" Property="UIElement.Visibility" Value="Collapsed" />
           </Trigger>
@@ -660,6 +663,7 @@
                       <Button MinWidth="70" Margin="8,0,0,0" Padding="8,1" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Cancel, Mode=OneWay}" Click="progressRowActionClick">
                         <Button.Style>
                           <Style TargetType="Button">
+                            <Setter Property="FocusVisualStyle" Value="{DynamicResource App.FocusVisualStyle}" />
                             <Setter Property="Visibility" Value="Collapsed" />
                             <Style.Triggers><DataTrigger Binding="{Binding CanCancel}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
                           </Style>
@@ -716,7 +720,7 @@
                     <ColumnDefinition Width="20" />
                     <ColumnDefinition Width="20" />
                   </Grid.ColumnDefinitions>
-                  <v:DropDownMenuButton x:Name="KeyCountFilterButton" Grid.Column="0" Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonFilter}" Margin="2,0,0,0" Visibility="{Binding PlayHistory.IsViewActive, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
+                  <v:DropDownMenuButton x:Name="KeyCountFilterButton" Grid.Column="0" Width="20" Height="20" FocusVisualStyle="{DynamicResource App.FocusVisualStyle}" Template="{DynamicResource templateDropmenuButtonFilter}" Margin="2,0,0,0" Visibility="{Binding PlayHistory.IsViewActive, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
                     <v:DropDownMenuButton.DropDownContextMenu>
                       <ContextMenu Visibility="{Binding PlayHistory.IsViewActive, Source={StaticResource vm}, Converter={StaticResource notBooleanToVisibilityCollapsedConverter}}">
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 5KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_5KEYS, Converter={StaticResource modeFilterConverter}}" />
@@ -771,7 +775,7 @@
                     <ColumnDefinition Width="20" />
                     <ColumnDefinition Width="20" />
                   </Grid.ColumnDefinitions>
-                  <v:DropDownMenuButton Grid.Column="0" Width="20" Height="20" Template="{DynamicResource templateDropmenuButtonFilter}" Margin="2,0,0,0">
+                  <v:DropDownMenuButton Grid.Column="0" Width="20" Height="20" FocusVisualStyle="{DynamicResource App.FocusVisualStyle}" Template="{DynamicResource templateDropmenuButtonFilter}" Margin="2,0,0,0">
                     <v:DropDownMenuButton.DropDownContextMenu>
                       <ContextMenu>
                         <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="All" IsChecked="{Binding PlaylistWorkspace.PlaylistSummaryOwnedFilter, Source={StaticResource vm}, ConverterParameter=All, Converter={StaticResource playlistSummaryOwnedFilterConverter}}" />
@@ -1098,7 +1102,7 @@
     <RowDefinition Height="*" />
   </Grid.RowDefinitions>
   <Border Grid.RowSpan="2" BorderThickness="0" IsHitTestVisible="False" />
-  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" PreviewKeyDown="treeViewPreviewKeyDown" PreviewTextInput="treeViewPreviewTextInput" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeViewPlaylist" Grid.Row="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{DynamicResource App.FocusVisualStyle}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" PreviewKeyDown="treeViewPreviewKeyDown" PreviewTextInput="treeViewPreviewTextInput" SelectedItemChanged="treeViewSelectedItemChanged">
     <TreeView.Resources>
       <Style x:Key="App.Canonical.ScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowScrollBarStyle}" />
     </TreeView.Resources>
@@ -1215,7 +1219,7 @@
   </TreeView>
   <!-- 5px のドラッグ領域を境界に重ね、透明ヒットゾーンで上下 TreeView のレイアウトを削らない。 -->
   <GridSplitter Name="gridSplitterTree" Style="{StaticResource SidebarSplitterStyle}" Grid.Row="1" Height="5" HorizontalAlignment="Stretch" VerticalAlignment="Top" ResizeDirection="Rows" ResizeBehavior="PreviousAndCurrent" Margin="0,-2,0,0" Panel.ZIndex="1" />
-  <TreeView Name="treeView" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{x:Null}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" PreviewKeyDown="treeViewPreviewKeyDown" PreviewTextInput="treeViewPreviewTextInput" SelectedItemChanged="treeViewSelectedItemChanged">
+  <TreeView Name="treeView" Grid.Row="1" ScrollViewer.HorizontalScrollBarVisibility="Disabled" VirtualizingStackPanel.IsVirtualizing="True" VirtualizingStackPanel.VirtualizationMode="Recycling" BorderThickness="0" Padding="1,5" Background="{DynamicResource App.BackgroundBrush}" Foreground="{DynamicResource App.TextBrush}" FocusVisualStyle="{DynamicResource App.FocusVisualStyle}" ItemContainerStyle="{DynamicResource TreeViewItemFullWidthStyle}" MouseRightButtonDown="treeViewItemOnRightClick" PreviewMouseLeftButtonDown="treeViewLeftClick" PreviewKeyDown="treeViewPreviewKeyDown" PreviewTextInput="treeViewPreviewTextInput" SelectedItemChanged="treeViewSelectedItemChanged">
     <TreeView.Resources>
       <Style x:Key="App.Canonical.ScrollBarStyle" TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource MainWindowBottomEdgeScrollBarStyle}" />
     </TreeView.Resources>

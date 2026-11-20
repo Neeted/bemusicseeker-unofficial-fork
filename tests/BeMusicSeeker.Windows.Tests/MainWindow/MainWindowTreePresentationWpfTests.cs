@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
+using System.Windows.Media;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -895,6 +896,109 @@ public sealed class MainWindowTreePresentationWpfTests
         }
 
         return null;
+    }
+
+    /// <summary>実MainWindowのツリー項目テンプレートで、フォーカス枠の表示指定が見出し行だけへ二重線を重ね、展開した子の行・選択背景・文字色を変えず、偽では枠なしと同じ画素になることを確認します。</summary>
+    /// <remarks>
+    /// 最後の入力機器を作れないため、クラスハンドラーの判定ではなく添付プロパティの値を直接切り替えて、テンプレートの描画経路を観測します。
+    /// 項目全体へ枠が出る、枠が選択表示を隠す、見出し行の寸法が変わる誤りを検出します。
+    /// </remarks>
+    [TestMethod]
+    public void TreeItemFocusCue_DrawsRingOnHeaderRowOnlyAndKeepsSelection()
+    {
+        MainWindowPresentationTestHarness.RunConstructorOnly(TestSettingsFactory.CreateIsolatedSettings(), (scope, _, mainWindow) =>
+        {
+            var style = (Style)mainWindow.FindResource("TreeViewItemFullWidthStyle");
+            var child = new TreeViewItem { Header = "Child", Style = style };
+            var root = new TreeViewItem { Header = "Parent", Style = style, IsExpanded = true, Items = { child } };
+            var tree = new TreeView { Width = 240, Height = 120, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, FocusVisualStyle = ((TreeView)mainWindow.FindName("treeView")).FocusVisualStyle, Items = { root } };
+            var host = new Window { Resources = mainWindow.Resources, Content = tree, Width = 300, Height = 200, ShowInTaskbar = false };
+            scope.ShowAndWaitForContentRendered(host);
+            // 選択項目がないときはTab移動でツリー本体がフォーカスを受けるため、本体は共通のフォーカス枠を持つ。
+            FocusVisualAssert.AssertKeyboardFocusRing(tree);
+            try
+            {
+                foreach (bool selected in new[] { false, true })
+                {
+                    root.IsSelected = selected;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    host.UpdateLayout();
+                    Assert.IsNull(root.FocusVisualStyle);
+                    var cue = (FrameworkElement)root.Template.FindName("Bd", root);
+                    var childCue = (FrameworkElement)child.Template.FindName("Bd", child);
+                    Rect headerRect = cue.TransformToAncestor(tree).TransformBounds(new Rect(cue.RenderSize));
+                    Assert.IsTrue(headerRect.Height > 8 && headerRect.Height < tree.ActualHeight / 2, "見出し行だけの高さです。");
+                    Rect childRect = childCue.TransformToAncestor(tree).TransformBounds(new Rect(childCue.RenderSize));
+                    Assert.IsTrue(headerRect.Bottom <= childRect.Top + 0.5, "枠は子の行へ及びません。");
+
+                    TreeViewItemFocusCue.SetIsVisible(root, false);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    int[] without = RenderPixels(tree);
+                    TreeViewItemFocusCue.SetIsVisible(root, true);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    int[] with = RenderPixels(tree);
+                    TreeViewItemFocusCue.SetIsVisible(root, false);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    int[] restored = RenderPixels(tree);
+                    CollectionAssert.AreEqual(without, restored, "偽にすると枠なしと同じ画素へ戻ります。");
+
+                    int width = (int)Math.Ceiling(tree.ActualWidth);
+                    Color outer = ((SolidColorBrush)tree.FindResource("App.InputFocusBorderBrush")).Color;
+                    int left = (int)Math.Round(headerRect.Left), top = (int)Math.Round(headerRect.Top);
+                    int right = (int)Math.Round(headerRect.Right), bottom = (int)Math.Round(headerRect.Bottom);
+                    int changed = 0;
+                    for (int index = 0; index < with.Length; index++)
+                    {
+                        if (with[index] == without[index])
+                        {
+                            continue;
+                        }
+
+                        int x = index % width, y = index / width;
+                        changed++;
+                        int ring = Math.Min(Math.Min(x - left, y - top), Math.Min(right - 1 - x, bottom - 1 - y));
+                        Assert.IsTrue(ring >= 0 && ring < 3, $"差分は見出し行の枠(3 DIP)の内側に限ります: ({x},{y}) selected={selected} header={headerRect} with={with[index]:X8} without={without[index]:X8}");
+                    }
+
+                    Assert.IsTrue(changed > 0, "見出し行に枠が描かれます。");
+                    int midY = (top + bottom) / 2;
+                    Assert.AreEqual(
+                        (uint)(0xFF000000 | ((uint)outer.R << 16) | ((uint)outer.G << 8) | outer.B),
+                        (uint)with[(midY * width) + left],
+                        "見出し行の左端の外側の線は枠の色です。");
+                }
+            }
+            finally
+            {
+                host.Close();
+            }
+        });
+    }
+
+    private static int[] RenderPixels(FrameworkElement element)
+    {
+        int width = (int)Math.Ceiling(element.ActualWidth), height = (int)Math.Ceiling(element.ActualHeight);
+        // 親の中の位置に依存しないよう、要素自身の座標系を描画先の原点へ写して描く。
+        var rect = new Rect(0, 0, width, height);
+        var brush = new VisualBrush(element)
+        {
+            Stretch = Stretch.Fill,
+            ViewboxUnits = BrushMappingMode.Absolute,
+            Viewbox = new Rect((Point)VisualTreeHelper.GetOffset(element), rect.Size),
+            ViewportUnits = BrushMappingMode.Absolute,
+            Viewport = rect
+        };
+        var drawing = new DrawingVisual();
+        using (DrawingContext context = drawing.RenderOpen())
+        {
+            context.DrawRectangle(brush, null, rect);
+        }
+
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(width, height, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+        bitmap.Render(drawing);
+        int[] pixels = new int[width * height];
+        bitmap.CopyPixels(pixels, width * 4, 0);
+        return pixels;
     }
 
 }

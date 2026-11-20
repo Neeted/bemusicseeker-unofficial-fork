@@ -523,9 +523,11 @@ public sealed class MainWindowContextMenuResourceTests
             {
                 item.ApplyTemplate();
                 Assert.IsNotNull(item.Template.FindName("SelectionIndicator", item));
-                Assert.IsNotNull(item.Template.FindName("FocusBorder", item));
                 Assert.IsTrue(item.Focusable);
+                FocusVisualAssert.AssertKeyboardFocusRing(item);
+                FocusVisualAssert.AssertNoFocusConditionedTriggers(item);
             }
+            FocusVisualAssert.AssertNoFocusConditionedTriggers(navigation);
             Assert.AreEqual(
                 KeyboardNavigationMode.Continue,
                 KeyboardNavigation.GetDirectionalNavigation(navigation));

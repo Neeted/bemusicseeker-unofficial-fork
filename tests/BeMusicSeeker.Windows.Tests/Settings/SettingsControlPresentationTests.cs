@@ -187,7 +187,7 @@ public sealed class SettingsControlPresentationTests
         });
     }
 
-    /// <summary>通常／省スペースのButtonと縦横Sliderで寸法と意味色・一回の命令・目盛・標準変更コマンドを確認し、フォーカス枠の再導入や同じ部品のテーマ追従漏れを検出します。</summary>
+    /// <summary>通常／省スペースのButtonと縦横Sliderで寸法と意味色・一回の命令・目盛・標準変更コマンドを確認し、共通のフォーカス枠の欠落、フォーカス条件の描画の再導入、同じ部品のテーマ追従漏れを検出します。</summary>
     /// <remarks>実テンプレート、寸法と動的資源の接続を観測するためWPFを使い、OSのフォーカス取得自体は合否にしません。テーマ辞書は非並列の表示scopeで復元します。</remarks>
     [TestMethod]
     public void CanonicalControls_CompactVariantsSharePresentationAndPreserveSliderInput()
@@ -260,11 +260,10 @@ public sealed class SettingsControlPresentationTests
                 }
                 foreach (Slider slider in sliders)
                 {
-                    Assert.IsNull(slider.FocusVisualStyle);
+                    FocusVisualAssert.AssertKeyboardFocusRing(slider);
                     Assert.IsTrue(slider.Focusable && slider.IsTabStop);
                     // focusを条件とする専用描画が両方向のテンプレートへ戻っていないことを確認します。
-                    Assert.IsFalse(slider.Template.Triggers.OfType<Trigger>().Any(trigger =>
-                        trigger.Property == UIElement.IsKeyboardFocusedProperty || trigger.Property == UIElement.IsKeyboardFocusWithinProperty));
+                    FocusVisualAssert.AssertNoFocusConditionedTriggers(slider);
                     foreach (bool reversed in new[] { false, true })
                     {
                         slider.IsDirectionReversed = reversed;
@@ -319,6 +318,121 @@ public sealed class SettingsControlPresentationTests
                     Ellipse? thumb = FindDescendant<System.Windows.Shapes.Ellipse>(track.Thumb);
                     Assert.IsNotNull(thumb);
                     AssertBrushColor(host, "App.DisabledTextBrush", thumb.Fill);
+                }
+            }
+            finally
+            {
+                window?.Close();
+                application.Resources.MergedDictionaries.Clear();
+                foreach (ResourceDictionary dictionary in previous) { application.Resources.MergedDictionaries.Add(dictionary); }
+            }
+        });
+    }
+
+    /// <summary>共通スタイルの実部品で、キーボード用のフォーカス枠が明・暗・明のテーマで直角の二重線として内側に描かれ、入力欄は入力状態の枠だけを保つことを確認します。</summary>
+    /// <remarks>
+    /// OSのフォーカス取得や最後の入力機器は合否にせず、実効のFocusVisualStyleの描画と、スタイル・テンプレートのトリガーを観測するためWPFを使います。
+    /// 枠を一律に無効化する実装、フォーカスを条件とする専用描画、入力欄の入力状態の枠の欠落を検出します。
+    /// </remarks>
+    [TestMethod]
+    public void CanonicalFocusVisuals_DrawSquareInsetRingForKeyboardTargetsAndKeepInputBorders()
+    {
+        TestUiDispatcherHost.RunWindowTest(scope =>
+        {
+            Application application = Application.Current;
+            ResourceDictionary[] previous = application.Resources.MergedDictionaries.ToArray();
+            Window? window = null;
+            try
+            {
+                AppThemeService.ApplyTheme(AppThemeService.Light);
+                Grid host = CreateSettingsControlHost(useApplicationTheme: true);
+                Style Find(string key) => (Style)host.FindResource(key);
+                var panel = new StackPanel { Margin = new Thickness(8) };
+                var ringTargets = new List<Control>();
+                foreach (string key in new[]
+                {
+                    "App.Canonical.ButtonStyle", "App.Canonical.PrimaryButtonStyle", "App.Canonical.CompactButtonStyle",
+                    "App.Canonical.QuietButtonStyle", "App.Canonical.DangerButtonStyle", "App.Canonical.IconButtonStyle"
+                })
+                {
+                    ringTargets.Add(new Button { Content = key, Style = Find(key), Margin = new Thickness(2), Width = 200 });
+                }
+
+                ringTargets.Add(new CheckBox { Content = "check", Style = Find("App.Canonical.CheckBoxStyle"), Width = 200 });
+                ringTargets.Add(new RadioButton { Content = "radio", Style = Find("App.Canonical.RadioButtonStyle"), Width = 200 });
+                ringTargets.Add(new ComboBox
+                {
+                    ItemsSource = new[] { "A", "B" },
+                    SelectedIndex = 0,
+                    Width = 200,
+                    Style = Find("App.Canonical.ComboBoxStyle")
+                });
+                var listBox = new ListBox
+                {
+                    ItemsSource = new[] { "one", "two" },
+                    Width = 200,
+                    Height = 80,
+                    Style = Find("App.Canonical.ListBoxStyle")
+                };
+                ringTargets.Add(new ToggleButton { Content = "header", Style = Find("App.Canonical.ExpanderHeaderToggleStyle"), Width = 200 });
+                foreach (bool compact in new[] { false, true })
+                {
+                    foreach (Orientation orientation in new[] { Orientation.Horizontal, Orientation.Vertical })
+                    {
+                        ringTargets.Add(new Slider
+                        {
+                            Style = Find(compact ? "App.Canonical.CompactSliderStyle" : "App.Canonical.SliderStyle"),
+                            Orientation = orientation,
+                            Width = orientation == Orientation.Horizontal ? 180 : 40,
+                            Height = orientation == Orientation.Horizontal ? 40 : 100
+                        });
+                    }
+                }
+
+                var textBox = new TextBox { Text = "text", Width = 200, Style = Find("App.Canonical.TextBoxStyle") };
+                var datePicker = new DatePicker { Width = 200, Style = Find("App.Canonical.DatePickerStyle") };
+                var editableCombo = new ComboBox
+                {
+                    ItemsSource = new[] { "A", "B" },
+                    IsEditable = true,
+                    Width = 200,
+                    Style = Find("App.Canonical.ComboBoxStyle")
+                };
+                var comboBoxItem = new ComboBoxItem { Content = "item", Style = Find("App.Canonical.ComboBoxItemStyle"), Width = 200 };
+                foreach (Control control in ringTargets) { panel.Children.Add(control); }
+                panel.Children.Add(listBox);
+                panel.Children.Add(textBox);
+                panel.Children.Add(datePicker);
+                panel.Children.Add(editableCombo);
+                panel.Children.Add(comboBoxItem);
+                host.Children.Add(panel);
+                window = new Window { Content = host, Width = 360, Height = 900, ShowInTaskbar = false };
+                scope.ShowAndWaitForContentRendered(window);
+                window.UpdateLayout();
+                ListBoxItem? listBoxItem = FindDescendant<ListBoxItem>(listBox);
+                Assert.IsNotNull(listBoxItem);
+                ringTargets.Add(listBoxItem);
+
+                foreach (string theme in new[] { AppThemeService.Light, AppThemeService.Dark, AppThemeService.Light })
+                {
+                    AppThemeService.ApplyTheme(theme);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    window.UpdateLayout();
+                    foreach (Control control in ringTargets)
+                    {
+                        FocusVisualAssert.AssertKeyboardFocusRing(control);
+                        FocusVisualAssert.AssertNoFocusConditionedTriggers(control);
+                    }
+
+                    foreach (Control input in new Control[] { textBox, datePicker, editableCombo })
+                    {
+                        FocusVisualAssert.AssertInputFocusBorderRoute(input);
+                        FocusVisualAssert.AssertNoFocusConditionedTriggers(input, allowInputFocusWithin: true);
+                    }
+
+                    // 候補と一覧本体は枠を持たず、強調表示と選択項目の枠で示す。
+                    FocusVisualAssert.AssertNoFocusConditionedTriggers(comboBoxItem);
+                    FocusVisualAssert.AssertNoFocusConditionedTriggers(listBox);
                 }
             }
             finally

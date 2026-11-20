@@ -613,6 +613,11 @@ public sealed class PlaylistImportDialogTests
                     foreach (TextBlock text in FindVisualDescendants<TextBlock>(selected).Where(x => x.Name is "selectedName" or "selectedStatus"))
                     { AssertBrush(dialog, text.Name == "selectedStatus" ? "App.SubtleTextBrush" : "App.TextBrush", text.Foreground); }
                     TreeViewItem leafContainer = FindVisualDescendants<TreeViewItem>(externalTree).Single(x => x.DataContext is PlaylistImportItem { Candidate: { } cnd } && cnd.Uri == candidate.Uri);
+                    // 候補行は項目全体ではなく見出し行へ枠を重ねるため、FocusVisualStyleを持たずフォーカス条件のトリガーも持たない。
+                    Assert.IsNull(leafContainer.FocusVisualStyle);
+                    FocusVisualAssert.AssertNoFocusConditionedTriggers(leafContainer);
+                    // 選択項目がないときはTab移動でツリー本体がフォーカスを受けるため、本体は共通のフォーカス枠を持つ。
+                    FocusVisualAssert.AssertKeyboardFocusRing(externalTree);
                     var leafChrome = (Border)leafContainer.Template.FindName("CandidateRowChrome", leafContainer);
                     var selectedContainer = (ListBoxItem)selected.ItemContainerGenerator.ContainerFromIndex(0);
                     var selectedChrome = (Border)selectedContainer.Template.FindName("ItemChrome", selectedContainer);
