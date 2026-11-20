@@ -657,9 +657,9 @@ public sealed class SettingsDialogBehaviorTests
                 Assert.AreEqual(PlayerPanelState.TITLE_LARGE, playbackView.EffectivePlayerPanelState);
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = harness.Dialog };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlayback");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (BeMusicSeeker.Views.Settings.Pages.PlaybackSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (BeMusicSeeker.Views.Settings.Pages.PlaybackSettingsPage)SettingsTabs.SelectedPage(window);
                 ((RadioButton)page.FindName("radioButtonPlayBMIIDXView")).SetCurrentValue(ToggleButton.IsCheckedProperty, true);
                 Assert.IsTrue(TestSettingsFactory.OpenSettings(Path.Combine(directory.Path, "user.config")).UsePlayerBMIIDXView);
                 Assert.AreSame(current, owner.PlaybackPanel.NowPlayingChart);

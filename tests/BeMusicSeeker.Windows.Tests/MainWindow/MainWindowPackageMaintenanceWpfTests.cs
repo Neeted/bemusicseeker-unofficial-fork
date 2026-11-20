@@ -67,10 +67,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 scope.ShowAndWaitForContentRendered(settingsWindow);
                 try
                 {
-                    var navigation = (ListBox)settingsWindow.FindName("settingsNavigation");
+                    var navigation = (TabControl)settingsWindow.FindName("settingsNavigation");
                     navigation.SelectedItem = settingsWindow.FindName("navigationInstall");
                     TestUiDispatcherHost.ProcessQueuedPresentation(); settingsWindow.UpdateLayout();
-                    var page = (FrameworkElement)((ContentControl)settingsWindow.FindName("settingsPageContent")).Content;
+                    var page = (FrameworkElement)SettingsTabs.SelectedPage(settingsWindow);
                     ComboBox destination = Descendants(page).OfType<ComboBox>().Single(combo => System.Windows.Data.BindingOperations.GetBinding(combo, System.Windows.Controls.Primitives.Selector.SelectedItemProperty)?.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
                     Task select = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => destination.SelectedItem = b);
                     TestUiDispatcherHost.AwaitTaskOnDispatcher(select, "root-change-install-selection");
@@ -78,7 +78,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     Assert.AreEqual(b, settings.BMSInstallDir);
                     navigation.SelectedItem = settingsWindow.FindName("navigationGeneral");
                     TestUiDispatcherHost.ProcessQueuedPresentation(); settingsWindow.UpdateLayout();
-                    page = (FrameworkElement)((ContentControl)settingsWindow.FindName("settingsPageContent")).Content;
+                    page = (FrameworkElement)SettingsTabs.SelectedPage(settingsWindow);
                     ((ListBox)page.FindName("bmsSearchRootPathListBox")).SelectedItem = a;
                     var remove = (Button)page.FindName("removeBmsSearchRootButton");
                     Task removal = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => remove.RaiseEvent(new RoutedEventArgs(Button.ClickEvent, remove)));

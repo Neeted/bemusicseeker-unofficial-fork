@@ -196,10 +196,9 @@ public sealed class PlaylistSummaryBulkEditTests
 
                 FrameworkElement navigation = (FrameworkElement)view.FindName("propertyNavigation")
                     ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
-                var contentScrollViewer = (ScrollViewer)view.FindName("propertyContentScrollViewer");
+                ScrollViewer contentScrollViewer = PropertyBody(view);
                 Assert.IsNotNull(contentScrollViewer);
-                FrameworkElement contentHost = (FrameworkElement)view.FindName("propertyContent")
-                    ?? throw new AssertFailedException("Playlist property content host was not materialized.");
+                FrameworkElement contentHost = navigation;
                 PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
                 navigationState.ItemsByCategory[PropertyNavigationCategory.General].Provider.Select();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -246,6 +245,29 @@ public sealed class PlaylistSummaryBulkEditTests
                 Assert.AreEqual("draft playlist", nameEditor.Text);
                 Assert.AreEqual("draft playlist", fixture.name);
                 Assert.AreEqual(0, contentScrollViewer.VerticalOffset);
+
+                TabNavigationAssert.AssertReachableByAutomation(view, "PlaylistPropertyAccept", "PlaylistPropertyCancel");
+                // 選択中のタブを外す要求を送っても、選択・本文のページ・スクロール位置は変わらず、3カテゴリは同じ一つの本文領域を共有する。
+                var tabs = (TabControl)view.FindName("propertyNavigation");
+                contentScrollViewer.ScrollToVerticalOffset(contentScrollViewer.ScrollableHeight);
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                TabNavigationAssert.AssertSingleRequiredSelection(
+                    tabs,
+                    () => [tabs.SelectedItem, tabs.SelectedContent, contentScrollViewer.VerticalOffset]);
+                foreach ((PropertyNavigationCategory category, string pageName) in new[]
+                {
+                    (PropertyNavigationCategory.General, "generalPage"),
+                    (PropertyNavigationCategory.Folder, "folderPage"),
+                    (PropertyNavigationCategory.CustomFolder, "customPage")
+                })
+                {
+                    navigationState.ItemsByCategory[category].Provider.Select();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    var page = (FrameworkElement)view.FindName(pageName);
+                    Assert.IsTrue(IsDescendantOf(page, contentScrollViewer), pageName + " は共有の本文領域に入る。");
+                    Assert.AreSame(page, tabs.SelectedContent);
+                    Assert.AreEqual(0, contentScrollViewer.VerticalOffset);
+                }
             }
             finally
             {
@@ -416,8 +438,7 @@ public sealed class PlaylistSummaryBulkEditTests
 
                 FrameworkElement navigation = (FrameworkElement)view.FindName("propertyNavigation")
                     ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
-                FrameworkElement contentHost = (FrameworkElement)view.FindName("propertyContent")
-                    ?? throw new AssertFailedException("Playlist property content host was not materialized.");
+                FrameworkElement contentHost = navigation;
                 PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
                 PropertyNavigationItem customNavigationItem = navigationState.ItemsByCategory[PropertyNavigationCategory.CustomFolder];
                 Assert.IsTrue(customNavigationItem.Peer.IsEnabled(), "Custom Folder navigation must initially be available.");
@@ -498,12 +519,10 @@ public sealed class PlaylistSummaryBulkEditTests
                 windowTest.ShowAndWaitForContentRendered(view);
                 view.UpdateLayout();
 
-                ScrollViewer bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")
-                    ?? throw new AssertFailedException("Playlist property body viewport was not materialized.");
+                ScrollViewer bodyViewport = PropertyBody(view);
                 FrameworkElement navigation = (FrameworkElement)view.FindName("propertyNavigation")
                     ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
-                ContentControl contentHost = (ContentControl)view.FindName("propertyContent")
-                    ?? throw new AssertFailedException("Playlist property content host was not materialized.");
+                FrameworkElement contentHost = navigation;
                 PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
                 navigationState.ItemsByCategory[PropertyNavigationCategory.General].Provider.Select();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -649,12 +668,12 @@ public sealed class PlaylistSummaryBulkEditTests
                 windowTest.ShowAndWaitForContentRendered(view);
                 PropertyNavigationObservation navigationState = ObservePropertyNavigation(
                     (FrameworkElement)view.FindName("propertyNavigation"),
-                    (FrameworkElement)view.FindName("propertyContent"));
+                    (FrameworkElement)view.FindName("propertyNavigation"));
                 navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 view.UpdateLayout();
 
-                var bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")!;
+                ScrollViewer bodyViewport = PropertyBody(view);
                 ComboBox sortKey = FindBoundElement<ComboBox>(
                     view,
                     Selector.SelectedItemProperty,
@@ -706,6 +725,13 @@ public sealed class PlaylistSummaryBulkEditTests
                     "The Folder list must retain independent vertical extent at minimum window size.");
                 bodyViewport.ScrollToVerticalOffset(bodyViewport.ScrollableHeight);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
+                // フォルダ順の一覧の選択が上がってきても、本文のスクロール位置を先頭へ戻さない。
+                double bodyOffsetBeforeListSelection = bodyViewport.VerticalOffset;
+                Assert.IsTrue(bodyOffsetBeforeListSelection > 0d);
+                folderOrder.SelectedIndex = 1;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(bodyOffsetBeforeListSelection, bodyViewport.VerticalOffset, 0.01d, "一覧の選択で本文の位置を戻さない。");
+                Assert.AreSame(view.FindName("folderPage"), ((TabControl)view.FindName("propertyNavigation")).SelectedContent);
                 var presenter = (ScrollContentPresenter)bodyViewport.Template.FindName("PART_ScrollContentPresenter", bodyViewport);
                 Rect minimumMoveUpBounds = GetBounds(moveUp, presenter);
                 Rect minimumMoveDownBounds = GetBounds(moveDown, presenter);
@@ -747,12 +773,12 @@ public sealed class PlaylistSummaryBulkEditTests
                 view.Width = view.MinWidth;
                 PropertyNavigationObservation navigationState = ObservePropertyNavigation(
                     (FrameworkElement)view.FindName("propertyNavigation"),
-                    (FrameworkElement)view.FindName("propertyContent"));
+                    (FrameworkElement)view.FindName("propertyNavigation"));
                 navigationState.ItemsByCategory[PropertyNavigationCategory.CustomFolder].Provider.Select();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 view.UpdateLayout();
 
-                var bodyViewport = (ScrollViewer)view.FindName("propertyContentScrollViewer")!;
+                ScrollViewer bodyViewport = PropertyBody(view);
                 ComboBox outputBase = FindBoundElement<ComboBox>(
                     view,
                     Selector.SelectedItemProperty,
@@ -958,9 +984,9 @@ public sealed class PlaylistSummaryBulkEditTests
                 Height = 600
             };
             windowTest.ShowAndWaitForContentRendered(window);
-            ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+            ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
             TestUiDispatcherHost.ProcessQueuedPresentation();
-            var page = (PlaylistSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+            var page = (PlaylistSettingsPage)SettingsTabs.SelectedPage(window);
 
             var checkBoxes = FindDescendants<CheckBox>(page)
                 .Select(checkBox =>
@@ -1261,6 +1287,11 @@ public sealed class PlaylistSummaryBulkEditTests
             $"{propertyName} must use an effective OneWay binding; actual mode was {mode}.");
     }
 
+    /// <summary>プロパティ画面の全カテゴリが共有する本文の縦スクロール領域を返します。</summary>
+    private static ScrollViewer PropertyBody(FrameworkElement view)
+        => ((ScrollingTabControl)view.FindName("propertyNavigation")).PageScrollViewer
+            ?? throw new AssertFailedException("Playlist property body viewport was not materialized.");
+
     private static PropertyNavigationObservation ObservePropertyNavigation(
         FrameworkElement navigation,
         FrameworkElement contentHost)
@@ -1421,9 +1452,10 @@ public sealed class PlaylistSummaryBulkEditTests
             ?? throw new AssertFailedException(
                 "The authority-backed custom-folder availability host must expose the disabled SelectionItem provider.");
         Assert.AreEqual(
+            AutomationControlType.TabItem,
             expectedProvider.GetAutomationControlType(),
-            availabilityPeer.GetAutomationControlType(),
             "The disabled provider must retain the authority-backed custom-folder Automation role.");
+        Assert.IsFalse(availabilityPeer.IsEnabled(), "The authority-backed availability host must be disabled.");
         Assert.AreEqual(
             expectedProvider.GetBoundingRectangle(),
             availabilityPeer.GetBoundingRectangle(),
@@ -1495,7 +1527,7 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     private static void AssertNoVisiblePageEnclosingChrome(
-        ContentControl contentHost,
+        FrameworkElement contentHost,
         ScrollViewer bodyViewport,
         int categoryIndex)
     {

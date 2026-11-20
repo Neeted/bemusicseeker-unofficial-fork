@@ -84,7 +84,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                 presentation.CurrentWindow = window;
                 scope.ShowAndWaitForContentRendered(window);
                 var editor = (TextBox)GetCategoryControl(window, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
                 list.SelectedItem = original;
                 TestUiDispatcherHost.ProcessQueuedPresentation();
@@ -237,7 +237,7 @@ public sealed class SettingDialogCategoryPersistenceTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual("Next Charts", editor.Text);
                 Assert.AreEqual("Next Charts", dialog.SelectedCustomFolderAdditionalOutputBaseName);
-                page = (FrameworkElement)((ContentControl)reopened.FindName("settingsPageContent")).Content;
+                page = (FrameworkElement)SettingsTabs.SelectedPage(reopened);
                 list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
                 Assert.AreEqual(renamed, list.SelectedItem);
                 rename = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Rename_folder));
@@ -297,10 +297,10 @@ public sealed class SettingDialogCategoryPersistenceTests
                 SettingsDialogViewModel dialog = owner.SettingDialog;
                 window = new SettingsWindow(dialogs) { DataContext = dialog };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 var editor = (TextBox)GetCategoryControl(window, "Playlist", nameof(SettingsDialogViewModel.SelectedCustomFolderAdditionalOutputBaseName)).Control;
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 ListBox list = FindDescendants<ListBox>(page).Single(item => item.Name == "additionalOutputList");
                 Button rename = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Rename_folder));
                 Button add = FindDescendants<Button>((DependencyObject)list.Parent).Single(button => Equals(button.Content, Resources.Add));
@@ -654,12 +654,12 @@ public sealed class SettingDialogCategoryPersistenceTests
                 string staged = Directory.CreateDirectory(Path.Combine(root, "BmsDraft")).FullName;
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreEqual(0, failures.Count, "初期Bindingの同値通知では保存しません。");
                 owner.SettingDialog.AddBmsSearchRootPathsAsync([staged]).GetAwaiter().GetResult();
                 CollectionAssert.Contains(owner.SettingDialog.AvailableBMSDirectories, staged);
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 Button select;
                 BeMusicSeeker.Views.Settings.SettingsPathPicker? outputPicker = null;
                 if (section == "additional")
@@ -794,9 +794,9 @@ public sealed class SettingDialogCategoryPersistenceTests
                 if (!missingPreviousDirectories) { Assert.AreNotEqual(0, owner.SettingDialog.BuildDeficiencies().Count); }
                 window = new SettingsWindow(dialogs) { DataContext = owner.SettingDialog };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationPlaylist");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 string otherSection = firstSection == "normal" ? "root" : "normal";
                 var start = (Button)window.FindName("buttonOK");
                 var guidance = (FrameworkElement)window.FindName("settingsDeficiencyGuidance");
@@ -1243,9 +1243,9 @@ public sealed class SettingDialogCategoryPersistenceTests
                     Settings fresh = TestSettingsFactory.OpenSettings(Path.Combine(root, "user.config"));
                     Assert.AreEqual(31d, fresh.CustomTableRowHeight);
                     Assert.IsFalse(fresh.UseBeatorajaScoreDb);
-                    ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAbout");
+                    ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAbout");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
-                    var about = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                    var about = (FrameworkElement)SettingsTabs.SelectedPage(window);
                     System.Windows.Documents.Hyperlink inline = FindDescendants<TextBlock>(about)
                         .SelectMany(block => block.Inlines.OfType<System.Windows.Documents.Hyperlink>()).Single();
                     inline.RaiseEvent(new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left)
@@ -1426,9 +1426,9 @@ public sealed class SettingDialogCategoryPersistenceTests
     /// <summary>カテゴリを実navigationで材料化し、該当Bindingを持つ編集可能なcontrolを選びます。</summary>
     private static (FrameworkElement Control, DependencyProperty Property) GetCategoryControl(SettingsWindow window, string category, string path)
     {
-        ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigation" + category);
+        ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigation" + category);
         TestUiDispatcherHost.ProcessQueuedPresentation();
-        var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+        var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
         foreach (FrameworkElement control in FindDescendants<FrameworkElement>(page))
         {
             DependencyProperty? property = control switch

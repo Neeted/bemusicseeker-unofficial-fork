@@ -131,7 +131,7 @@ internal sealed partial class ApplicationScenarioDialogs : IUiDialogService
             if (values.MoveFolder is not null)
             {
                 model.is_auto_folder_sort = false;
-                ((ListBox)property.FindName("propertyNavigation")).SelectedIndex = 1;
+                ((TabControl)property.FindName("propertyNavigation")).SelectedIndex = 1;
                 property.UpdateLayout();
                 ((ListBox)property.FindName("foldersListBox")).SelectedItem = values.MoveFolder;
                 Click(property, values.MoveDown ? "PlaylistPropertyFolderMoveDown" : "PlaylistPropertyFolderMoveUp");

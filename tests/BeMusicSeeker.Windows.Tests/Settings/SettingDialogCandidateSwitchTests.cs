@@ -293,7 +293,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 SettingsDialogViewModel dialog = owner.SettingDialog;
                 window = new SettingsWindow(dialogs) { DataContext = dialog };
                 scope.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
                 navigation.SelectedItem = window.FindName("navigationInstall");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 ComboBox install = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
@@ -394,7 +394,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 scope.ShowAndWaitForContentRendered(window);
                 string staged = Directory.CreateDirectory(Path.Combine(root, "Staged")).FullName;
                 dialog.AddBmsSearchRootPathsAsync([staged]).GetAwaiter().GetResult();
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 ComboBox combo = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
                 CollectionAssert.Contains(combo.Items.Cast<string>().ToArray(), alternate);
@@ -503,7 +503,7 @@ public sealed class SettingDialogCandidateSwitchTests
                 scope.ShowAndWaitForContentRendered(window);
                 string staged = Directory.CreateDirectory(Path.Combine(root, "Staged")).FullName;
                 if (hasDraft) { TestUiDispatcherHost.AwaitTaskOnDispatcher(dialog.AddBmsSearchRootPathsAsync([staged]), "independent-install-bms-input"); }
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 ComboBox combo = FindDescendants<ComboBox>(window).Single(item => item.GetBindingExpression(Selector.SelectedItemProperty)?.ParentBinding.Path?.Path == nameof(SettingsDialogViewModel.BMSInstallDir));
                 Assert.IsTrue(combo.IsEnabled, "設定実操作を受け付けられる間は候補確認付きの選択も可能です。");
@@ -528,8 +528,8 @@ public sealed class SettingDialogCandidateSwitchTests
                 if (busy == "library")
                 {
                     dialog.StartupSortCachePrewarmPriority = 3;
-                    ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
-                    ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
+                    ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
+                    ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     held?.Dispose(); held = null;
                     Assert.AreEqual(original, TestSettingsFactory.OpenSettings(path).BMSInstallDir);

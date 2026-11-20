@@ -470,10 +470,10 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     /// <remarks>共有compiledテンプレートから標準Automationと実コントロール操作が届く境界をWPFで確認します。操作可否の判断網羅は下位ケースが担います。</remarks>
-    /// <summary>実ナビゲーションのAutomationで単一選択を変更し、無効項目と内容配置を保つことを確認し、標準選択操作や無枠内容hostの接続漏れを検出します。</summary>
+    /// <summary>共通の上部タブを実表示し、選択項目だけの下端線・フォーカス枠・無枠の本文・Automationの単一選択（外せない・無効項目は選べない）を確認して、旧ListBox型や既定テンプレートの残存を検出します。</summary>
     [TestMethod]
     [DoNotParallelize] // 共有Dispatcherの実Window一覧を表示scopeが所有する。
-    public void CanonicalTopNavigation_UsesSingleSelectionAndStandardAutomation()
+    public void CanonicalTopTabs_UseSingleSelectionAndStandardAutomation()
     {
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
@@ -482,55 +482,68 @@ public sealed class MainWindowContextMenuResourceTests
                 "/BeMusicSeeker;component/Themes/Light.xaml"));
             host.Resources.MergedDictionaries.Add(CreateResourceDictionary(
                 "/BeMusicSeeker;component/Themes/CanonicalControls.xaml"));
-            var navigation = new ListBox
+            TextBlock[] contentTexts = new[]
+            {
+                new TextBlock { Text = "General content" },
+                new TextBlock { Text = "Folder content" },
+                new TextBlock { Text = "Custom content" }
+            };
+            var tabs = new BeMusicSeeker.Views.NavigationTabControl
             {
                 Width = 360,
-                Height = 56,
-                ItemsSource = new[] { "General", "Folder", "Custom Folder" },
-                SelectedIndex = 0,
-                Style = (Style)host.Resources["App.Canonical.TopNavigationStyle"]
+                Height = 140,
+                Style = (Style)host.Resources["App.Canonical.TopTabControlStyle"]
             };
-            var contentText = new TextBlock { Text = "General content" };
-            var content = new ContentControl
+            string[] headers = ["General", "Folder", "Custom Folder"];
+            for (int index = 0; index < headers.Length; index++)
             {
-                Height = 80,
-                Content = contentText,
-                Style = (Style)host.Resources["App.Canonical.TopNavigationContentStyle"]
-            };
-            host.Children.Add(navigation);
-            host.Children.Add(content);
+                tabs.Items.Add(new TabItem { Header = headers[index], Content = contentTexts[index] });
+            }
+
+            tabs.SelectedIndex = 0;
+            host.Children.Add(tabs);
             var window = new Window
             {
                 Width = 420,
-                Height = 180,
+                Height = 220,
                 Content = host
             };
 
             windowTest.ShowAndWaitForContentRendered(window);
-            navigation.ApplyTemplate();
-            navigation.UpdateLayout();
-            Assert.AreEqual(SelectionMode.Single, navigation.SelectionMode);
-            Assert.AreEqual(0, navigation.SelectedIndex);
-            StackPanel itemPanel = FindVisualDescendants<StackPanel>(navigation)
-                .Single(panel => panel.Children.OfType<ListBoxItem>().Count() == navigation.Items.Count);
-            Assert.AreEqual(Orientation.Horizontal, itemPanel.Orientation);
-            ListBoxItem[] items = navigation.Items
-                .Cast<object>()
-                .Select((_, index) => (ListBoxItem)navigation.ItemContainerGenerator.ContainerFromIndex(index))
-                .ToArray();
-            Assert.IsTrue(items.All(item => item is not null));
-            foreach (ListBoxItem item in items)
+            tabs.ApplyTemplate();
+            tabs.UpdateLayout();
+            Assert.AreEqual(0, tabs.SelectedIndex);
+            Panel itemPanel = FindVisualDescendants<Panel>(tabs)
+                .Single(panel => panel.IsItemsHost && panel.Children.OfType<TabItem>().Count() == tabs.Items.Count);
+            Assert.IsTrue(itemPanel is StackPanel { Orientation: Orientation.Horizontal }, "上部タブは横一列に並ぶ（折り返しは専用の共通スタイルだけ）。");
+            Assert.AreEqual(KeyboardNavigationMode.Contained, KeyboardNavigation.GetDirectionalNavigation(itemPanel));
+            Assert.AreEqual(KeyboardNavigationMode.Once, KeyboardNavigation.GetTabNavigation(itemPanel), "タブ列は一度のTabで出入りし、項目ごとにTab停止しない。");
+            TabItem[] items = tabs.Items.Cast<TabItem>().ToArray();
+            foreach (TabItem item in items)
             {
                 item.ApplyTemplate();
                 Assert.IsNotNull(item.Template.FindName("SelectionIndicator", item));
-                Assert.IsTrue(item.Focusable);
+                Assert.IsTrue(item.Focusable, "タブ項目はフォーカスを受けて選択される。");
+                Assert.IsTrue(item.IsTabStop);
+                // 標準のテーマのスタイルは明示したStyleの下でも背景・枠を与え続けるため、共通スタイルが無効にしていることを確かめる。
+                Assert.IsNull(item.Background, "タブ項目は標準テーマの背景を持たない。");
+                Assert.IsNull(item.BorderBrush, "タブ項目は標準テーマの枠を持たない。");
+                Assert.AreEqual(new Thickness(0), item.BorderThickness);
                 FocusVisualAssert.AssertKeyboardFocusRing(item);
                 FocusVisualAssert.AssertNoFocusConditionedTriggers(item);
+                Assert.IsTrue(
+                    FindVisualDescendants<Border>(item).All(border => border.CornerRadius == new CornerRadius(0)),
+                    "タブ項目は直角です。");
             }
-            FocusVisualAssert.AssertNoFocusConditionedTriggers(navigation);
-            Assert.AreEqual(
-                KeyboardNavigationMode.Continue,
-                KeyboardNavigation.GetDirectionalNavigation(navigation));
+
+            FocusVisualAssert.AssertNoFocusConditionedTriggers(tabs);
+            Assert.IsNull(tabs.FocusVisualStyle, "枠は項目が持ち、タブ全体には重ねない。");
+            Assert.IsNull(tabs.Background, "タブ全体は標準テーマの背景を持たない。");
+            Assert.IsNull(tabs.BorderBrush, "タブ全体は標準テーマの枠を持たない。");
+            Assert.AreEqual(new Thickness(0), tabs.BorderThickness);
+            Color pageForeground = ((SolidColorBrush)contentTexts[0].Foreground).Color;
+            Assert.AreEqual(((SolidColorBrush)host.Resources["App.TextBrush"]).Color, pageForeground, "本文の文字色は標準テーマの前景ではなくアプリの文字色を継承する。");
+            Assert.AreEqual(FontWeights.Normal, contentTexts[0].FontWeight, "選択項目の太字は本文へ継承されない。");
             Assert.AreEqual(
                 Visibility.Visible,
                 ((Border)items[0].Template.FindName("SelectionIndicator", items[0])).Visibility);
@@ -538,29 +551,48 @@ public sealed class MainWindowContextMenuResourceTests
                 Visibility.Collapsed,
                 ((Border)items[1].Template.FindName("SelectionIndicator", items[1])).Visibility);
 
-            var navigationPeer = new ListBoxAutomationPeer(navigation);
-            var selectionProvider = (ISelectionProvider)navigationPeer.GetPattern(PatternInterface.Selection);
-            Assert.IsNotNull(selectionProvider);
-            Assert.IsFalse(selectionProvider.CanSelectMultiple);
-            Assert.AreEqual(1, selectionProvider.GetSelection().Length);
-            AutomationPeer folderPeer = navigationPeer.GetChildren()
-                .Single(peer => peer.GetName() == "Folder");
-            var folderSelection = (ISelectionItemProvider)folderPeer.GetPattern(PatternInterface.SelectionItem);
-            Assert.IsNotNull(folderSelection);
-            folderSelection.Select();
-            TestUiDispatcherHost.ProcessQueuedPresentation();
-            Assert.AreEqual(1, navigation.SelectedIndex);
-            Assert.IsTrue(folderSelection.IsSelected);
+            TabNavigationAssert.AssertSingleRequiredSelection(tabs, () => [tabs.SelectedItem, tabs.SelectedContent]);
+            TabNavigationAssert.SelectByAutomation(tabs, 1);
+            Assert.AreSame(contentTexts[1], tabs.SelectedContent);
+            Assert.AreEqual(
+                Visibility.Collapsed,
+                ((Border)items[0].Template.FindName("SelectionIndicator", items[0])).Visibility,
+                "選択項目だけが下端の線を持つ。");
+            Assert.AreEqual(
+                Visibility.Visible,
+                ((Border)items[1].Template.FindName("SelectionIndicator", items[1])).Visibility);
+            TabNavigationAssert.AssertSingleRequiredSelection(tabs, () => [tabs.SelectedItem, tabs.SelectedContent]);
 
             items[2].IsEnabled = false;
             TestUiDispatcherHost.ProcessQueuedPresentation();
             var disabledNavigationChrome = (Border)items[2].Template.FindName("NavigationItemChrome", items[2]);
             Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
-            content.ApplyTemplate();
-            content.UpdateLayout();
-            Assert.IsFalse(content.Focusable);
+            AutomationPeer tabsPeer = UIElementAutomationPeer.CreatePeerForElement(tabs);
+            AutomationPeer disabledPeer = tabsPeer.GetChildren()
+                .Single(peer => peer.GetAutomationControlType() == AutomationControlType.TabItem && !peer.IsEnabled());
+            var disabledSelection = (ISelectionItemProvider)disabledPeer.GetPattern(PatternInterface.SelectionItem);
+            Assert.IsNotNull(disabledSelection);
+            bool selectionRejected = false;
+            try
+            {
+                disabledSelection.Select();
+            }
+            catch (ElementNotEnabledException)
+            {
+                selectionRejected = true;
+            }
+
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.AreEqual(1, tabs.SelectedIndex, "無効な項目は選べない。");
+            Assert.IsTrue(
+                selectionRejected || !disabledSelection.IsSelected,
+                "A disabled top-tab item must reject or ignore public Automation selection.");
+
+            // 本文は枠も余白も描かず、余白はタブ列の周囲だけに足す。
+            ContentPresenter contentHost = FindVisualDescendants<ContentPresenter>(tabs)
+                .Single(presenter => presenter.Name == "PART_SelectedContentHost");
             Assert.IsFalse(
-                FindVisualDescendants<Border>(content).Any(border =>
+                FindVisualDescendants<Border>(contentHost).Any(border =>
                     border.BorderThickness.Left > 0d
                     || border.BorderThickness.Top > 0d
                     || border.BorderThickness.Right > 0d
@@ -569,21 +601,22 @@ public sealed class MainWindowContextMenuResourceTests
                     || border.CornerRadius.TopRight > 0d
                     || border.CornerRadius.BottomRight > 0d
                     || border.CornerRadius.BottomLeft > 0d),
-                "The shared top-navigation content role must be an unframed host.");
-            Assert.AreEqual(new Thickness(0), content.Padding, "既定では本文余白を所有しない。");
-            Point defaultOrigin = contentText.TransformToAncestor(content).Transform(new Point());
-            Assert.AreEqual(0d, defaultOrigin.X, 0.25d);
+                "The shared top-tab content area must be unframed.");
+            TextBlock selectedText = contentTexts[1];
+            Point defaultOrigin = selectedText.TransformToAncestor(contentHost).Transform(new Point());
+            Assert.AreEqual(0d, defaultOrigin.X, 0.25d, "本文は余白を二重に足さない。");
             Assert.AreEqual(0d, defaultOrigin.Y, 0.25d);
-            content.Padding = new Thickness(7, 9, 11, 13);
-            content.UpdateLayout();
-            Point contentOrigin = contentText.TransformToAncestor(content).Transform(new Point());
-            Assert.AreEqual(content.Padding.Left, contentOrigin.X, 0.25d);
-            Assert.AreEqual(content.Padding.Top, contentOrigin.Y, 0.25d);
-            Assert.AreEqual(
-                content.ActualWidth - content.Padding.Left - content.Padding.Right,
-                contentText.ActualWidth,
-                0.25d,
-                "The unframed content host must preserve horizontal padding and stretch alignment.");
+            Assert.AreEqual(tabs.ActualWidth, contentHost.ActualWidth, 0.25d, "本文の領域はタブの幅いっぱいに広がる。");
+            Assert.AreEqual(contentHost.ActualWidth, selectedText.ActualWidth, 0.25d, "本文は幅いっぱいに伸びる。");
+            double contentTopBefore = contentHost.TransformToAncestor(tabs).Transform(new Point()).Y;
+            tabs.Padding = new Thickness(7, 9, 11, 13);
+            tabs.UpdateLayout();
+            Point hostOrigin = contentHost.TransformToAncestor(tabs).Transform(new Point());
+            Assert.AreEqual(0d, hostOrigin.X, 0.25d, "Paddingはタブ列の周囲の余白で、本文を横へずらさない。");
+            Assert.AreEqual(contentTopBefore + 9d + 13d, hostOrigin.Y, 0.25d, "Paddingはタブ列の上下に足される。");
+            Point firstItemOrigin = items[0].TransformToAncestor(tabs).Transform(new Point());
+            Assert.AreEqual(7d, firstItemOrigin.X, 0.25d);
+            Assert.AreEqual(9d, firstItemOrigin.Y, 0.25d);
         });
     }
 

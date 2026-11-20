@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Xml.Linq;
 using BeMusicSeeker.Runtime;
 using BeMusicSeeker.TestSupport.Processes;
+using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Input;
@@ -266,6 +267,197 @@ internal static class DesktopScenarioUi
             timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
             timeoutMessage: "設定画面が終了して所有MainWindowへ戻りませんでした。");
         step("after MainWindow enabled/noModal wait");
+    }
+
+    /// <summary>設定画面の縦タブを実入力と外部クライアントの要求で操作し、選択が外れないことと、キー操作で選択とフォーカスが移ることを確認します。</summary>
+    /// <remarks>
+    /// 通常のWindows module（共有ホスト）は物理の修飾キーとフォーカス取得を合否にしないため、実入力はこのDesktop caseが担います。
+    /// 各入力の前に設定画面がforegroundであることと期限を確認し、修飾キーは例外時も必ず離します。
+    /// 否定の観測は、選択を変えない後続の確認点（フォーカスの移動）を待ってから表明します。
+    /// </remarks>
+    internal static void VerifySettingsTabInput(Window settings, int ownedPid, ProcessDeadline deadline, Action<string> step)
+    {
+        string[] ids =
+        [
+            "SettingsCategoryGeneral", "SettingsCategoryAppearance", "SettingsCategoryPlayback", "SettingsCategoryAudio",
+            "SettingsCategoryRecording", "SettingsCategoryPlaylist", "SettingsCategoryInstall", "SettingsCategoryBackup",
+            "SettingsCategoryAdvanced", "SettingsCategoryRightClick", "SettingsCategoryAbout"
+        ];
+        AutomationElement navigation = FindUnique(settings, "SettingsCategoryNavigation", deadline, step);
+        AutomationElement[] items = [.. ids.Select(id => FindUnique(settings, id, deadline, step))];
+        AutomationElement header = FindUnique(settings, "SettingsSelectedPageHeader", deadline, step);
+        nint settingsHandle = settings.Properties.NativeWindowHandle.Value;
+        Assert.AreEqual(ControlType.Tab, navigation.ControlType, "縦タブはTabとして公開される。");
+        Assert.IsTrue(items.All(item => item.ControlType == ControlType.TabItem), "項目はTabItemとして公開される。");
+        Assert.IsTrue(navigation.Patterns.Selection.Pattern.IsSelectionRequired.Value, "選択必須です。");
+        Assert.IsFalse(navigation.Patterns.Selection.Pattern.CanSelectMultiple.Value, "単一選択です。");
+
+        int SelectedIndex()
+        {
+            int[] selected = [.. Enumerable.Range(0, items.Length).Where(i => items[i].Patterns.SelectionItem.Pattern.IsSelected.Value)];
+            Assert.AreEqual(1, selected.Length, "有効なタブがちょうど一つ選ばれている。");
+            return selected[0];
+        }
+
+        void AssertSelected(int index, string phase)
+        {
+            Assert.AreEqual(index, SelectedIndex(), phase + ": 選択");
+            Assert.AreEqual(items[index].Name, header.Name, phase + ": 見出しは選択中のタブ名と一致する。");
+            Assert.AreEqual(1, navigation.Patterns.Selection.Pattern.Selection.Value.Length, phase + ": 選択は一件。");
+        }
+
+        void WaitSelectedOnly(int index, string phase)
+        {
+            _ = Retry.WhileFalse(() => items[index].Patterns.SelectionItem.Pattern.IsSelected.Value,
+                timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
+                timeoutMessage: phase + ": 期待したタブが選択されませんでした。");
+            AssertSelected(index, phase);
+        }
+
+        // タブ項目からの操作: 選択とともに、キーボードフォーカスが新しく選択したタブ項目へ移る。
+        void WaitSelected(int index, string phase)
+        {
+            WaitSelectedOnly(index, phase);
+            _ = Retry.WhileFalse(() => items[index].Properties.HasKeyboardFocus.Value,
+                timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
+                timeoutMessage: phase + ": 選択したタブ項目へキーボードフォーカスが移りませんでした。");
+        }
+
+        // ページ内容からの操作: 選択とともに、キーボードフォーカスは新しく選択したページの内側（WPF標準ではページ内の最初のフォーカス可能な要素）へ移り、タブ列には移らない。
+        // 移動先の要素はページの構成で変わるため、要素名ではなく、選択中のタブ項目が公開するページの子孫であることで判定する。
+        void WaitSelectedWithFocusInPage(int index, string phase)
+        {
+            WaitSelectedOnly(index, phase);
+            ITreeWalker walker = settings.Automation.TreeWalkerFactory.GetRawViewWalker();
+            string observed = "(none)";
+            _ = Retry.WhileFalse(() =>
+            {
+                AutomationElement? focused = settings.Automation.FocusedElement();
+                observed = focused == null ? "(none)" : $"{focused.ControlType} id={focused.Properties.AutomationId.ValueOrDefault}";
+                return focused != null && IsInsideSelectedPage(walker, focused, index);
+            }, timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
+                timeoutMessage: phase + ": 新しく選択したページの内側へキーボードフォーカスが移りませんでした。");
+            step($"settings tab {phase} focus in page: {observed}");
+            Assert.IsFalse(items.Any(item => item.Properties.HasKeyboardFocus.Value), phase + ": フォーカスはタブ列に残らない。");
+        }
+
+        // フォーカス要素から親へたどり、タブ項目より先に本文のページに出会い、そのページを公開するタブ項目が期待した項目であることを確かめる。
+        bool IsInsideSelectedPage(ITreeWalker walker, AutomationElement focused, int index)
+        {
+            bool insidePage = false;
+            for (AutomationElement? current = focused; current != null; current = walker.GetParent(current))
+            {
+                if (current.ControlType == ControlType.TabItem)
+                {
+                    return insidePage && current.Equals(items[index]);
+                }
+
+                if (current.Properties.AutomationId.ValueOrDefault == "SettingsSelectedPageContent")
+                {
+                    insidePage = true;
+                }
+
+                if (current.Equals(settings))
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        void WaitFocus(AutomationElement element, string phase)
+            => _ = Retry.WhileFalse(() => element.Properties.HasKeyboardFocus.Value,
+                timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
+                timeoutMessage: phase + ": 期待した要素へキーボードフォーカスが移りませんでした。");
+
+        void Gate(string phase)
+        {
+            EnsureInputDeadline(deadline);
+            nint foreground = GetForegroundWindow();
+            _ = GetWindowThreadProcessId(foreground, out uint foregroundPid);
+            step($"settings input gate phase={phase} foregroundIsSettings={foreground == settingsHandle} foregroundIsOwned={foregroundPid == (uint)ownedPid}");
+            if (foreground != settingsHandle || foregroundPid != (uint)ownedPid)
+            { throw new InvalidOperationException("設定画面がforegroundではないため実入力を送りません。"); }
+        }
+
+        // 修飾キーは例外時も必ず離す。
+        void WithModifier(VirtualKeyShort modifier, Action input)
+        {
+            using (Keyboard.Pressing(modifier)) { input(); }
+        }
+
+        const int appearance = 1;
+        const int about = 10;
+        items[appearance].Patterns.SelectionItem.Pattern.Select();
+        _ = Retry.WhileFalse(() => items[appearance].Patterns.SelectionItem.Pattern.IsSelected.Value,
+            timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false);
+        AssertSelected(appearance, "初期");
+        AutomationElement body = FindUnique(settings, "SettingsTheme", deadline, step);
+
+        // Ctrl+クリック: 事前にフォーカスを本文へ置き、クリックした項目へのフォーカス移動を待ってから、選択が外れていないことを確かめる。
+        body.Focus();
+        WaitFocus(body, "Ctrl+クリックの前");
+        Gate("before Ctrl+click");
+        WithModifier(VirtualKeyShort.CONTROL, () => items[appearance].Click());
+        WaitFocus(items[appearance], "Ctrl+クリック");
+        AssertSelected(appearance, "Ctrl+クリック");
+        step("settings tab Ctrl+click kept selection");
+
+        // Ctrl+Space: 直後のTabで本文側へフォーカスが移るのを待ってから、選択が外れていないことを確かめる。
+        items[appearance].Focus();
+        WaitFocus(items[appearance], "Ctrl+Spaceの前");
+        Gate("before Ctrl+Space");
+        WithModifier(VirtualKeyShort.CONTROL, () => Keyboard.Type(VirtualKeyShort.SPACE));
+        Gate("before Tab after Ctrl+Space");
+        Keyboard.Type(VirtualKeyShort.TAB);
+        _ = Retry.WhileFalse(() => !items[appearance].Properties.HasKeyboardFocus.Value,
+            timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false,
+            timeoutMessage: "Tabで本文側へフォーカスが移りませんでした。");
+        AssertSelected(appearance, "Ctrl+Space");
+        step("settings tab Ctrl+Space kept selection");
+
+        // 外部クライアントからの RemoveFromSelection は、拒否でも無操作でもよく、選択は外れない。
+        try { items[appearance].Patterns.SelectionItem.Pattern.RemoveFromSelection(); }
+        catch (Exception rejected) when (rejected is InvalidOperationException or System.Runtime.InteropServices.COMException)
+        {
+            step("settings tab RemoveFromSelection rejected: " + rejected.GetType().Name);
+        }
+        AssertSelected(appearance, "RemoveFromSelection");
+
+        // 矢印（縦タブは上下）、End、Home。
+        items[appearance].Focus();
+        WaitFocus(items[appearance], "矢印の前");
+        Gate("before Down");
+        Keyboard.Type(VirtualKeyShort.DOWN);
+        WaitSelected(appearance + 1, "Down");
+        Gate("before Up");
+        Keyboard.Type(VirtualKeyShort.UP);
+        WaitSelected(appearance, "Up");
+        Gate("before End");
+        Keyboard.Type(VirtualKeyShort.END);
+        WaitSelected(about, "End");
+        Gate("before Home");
+        Keyboard.Type(VirtualKeyShort.HOME);
+        WaitSelected(0, "Home");
+
+        // 本文から Ctrl+Tab / Ctrl+Shift+Tab: 次・前の有効なタブへ循環し、フォーカスは新しく選択したページの内側へ移る。
+        // Ctrl+Tab の後もフォーカスは本文にあるため、続く Ctrl+Shift+Tab も本文からの操作になる。
+        items[about].Patterns.SelectionItem.Pattern.Select();
+        _ = Retry.WhileFalse(() => items[about].Patterns.SelectionItem.Pattern.IsSelected.Value,
+            timeout: deadline.Remaining, throwOnTimeout: true, ignoreException: false);
+        AutomationElement content = FindUnique(settings, "SettingsSelectedPageContent", deadline, step);
+        AutomationElement contentButton = content.FindFirstDescendant(cf => cf.ByControlType(ControlType.Button))
+            ?? throw new InvalidOperationException("最後のページに本文のフォーカス先がありません。");
+        contentButton.Focus();
+        WaitFocus(contentButton, "Ctrl+Tabの前");
+        Gate("before Ctrl+Tab from content");
+        WithModifier(VirtualKeyShort.CONTROL, () => Keyboard.Type(VirtualKeyShort.TAB));
+        WaitSelectedWithFocusInPage(0, "本文からのCtrl+Tab（末尾の次は先頭）");
+        Gate("before Ctrl+Shift+Tab");
+        WithModifier(VirtualKeyShort.CONTROL, () => WithModifier(VirtualKeyShort.SHIFT, () => Keyboard.Type(VirtualKeyShort.TAB)));
+        WaitSelectedWithFocusInPage(about, "本文からのCtrl+Shift+Tab（先頭の前は末尾）");
+        step("settings tab keyboard navigation verified");
     }
 
     /// <summary>指定した親scopeの意味IDを厳密一件で取得します。</summary>

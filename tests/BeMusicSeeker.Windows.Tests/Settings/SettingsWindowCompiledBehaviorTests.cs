@@ -116,8 +116,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 Assert.AreEqual(1, logs.Logs.Count(message => message.Contains("settings_page_construct_start")));
                 Assert.AreEqual(1, logs.Logs.Count(message => message.Contains("settings_page_construct_end")));
 
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost content = SettingsTabs.PageHost(window);
                 int visitedCount = 0;
                 var pages = new List<FrameworkElement>();
                 foreach (object item in navigation.Items.Cast<object>().ToArray())
@@ -202,8 +202,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost content = SettingsTabs.PageHost(window);
                 navigation.SelectedItem = window.FindName("navigationPlayback");
                 Materialize(window);
 
@@ -254,9 +254,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 owner = MainWindowViewModelTestFactory.Create(values);
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = owner.SettingDialog, PlaybackPanel = owner.PlaybackPanel };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAdvanced");
                 Materialize(window);
-                var page = (AdvancedSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (AdvancedSettingsPage)SettingsTabs.SelectedPage(window);
                 ComboBox selector = FindLogicalDescendants<ComboBox>(page).Single(control => GetBindingPath(control, Selector.SelectedValueProperty) == nameof(SettingsDialogViewModel.StartupSortCachePrewarmPriority));
                 SettingsStatusBanner warning = FindLogicalDescendants<SettingsStatusBanner>(page).Single(control => GetBindingPath(control, ContentControl.ContentProperty) == nameof(SettingsDialogViewModel.StartupSortCachePrewarmWarning));
                 Assert.AreEqual(-1, selector.SelectedIndex);
@@ -318,7 +318,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 window = new SettingsWindow(dialogs) { DataContext = dialog };
                 scope.ShowAndWaitForContentRendered(window);
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 SettingsListEditor bms = FindLogicalDescendants<SettingsListEditor>(page).Single(item => SettingsDeficiencyTarget.GetField(item) == nameof(SettingsDeficiencyField.BmsDirectories));
                 var installField = (SettingsField)page.FindName("replacementInstallField");
                 var removedField = (SettingsField)page.FindName("removedInstallField");
@@ -407,10 +407,10 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     PlaybackPanel = owner.PlaybackPanel
                 };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationInstall");
                 Materialize(window);
 
-                var page = (InstallSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (InstallSettingsPage)SettingsTabs.SelectedPage(window);
                 CheckBox confirmation = FindLogicalDescendants<CheckBox>(page).Single(checkBox =>
                     GetBindingPath(checkBox, ToggleButton.IsCheckedProperty)
                         == nameof(SettingsDialogViewModel.ShowNewPackageInstallConfirmMsg));
@@ -481,8 +481,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             {
                 Materialize(window);
                 owner.SettingDialog.SetPresentationActive(active: false);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost content = SettingsTabs.PageHost(window);
                 navigation.SelectedItem = window.FindName("navigationAudio");
                 Materialize(window);
 
@@ -684,9 +684,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
             {
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
                 Materialize(window);
-                var page = (RecordingSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (RecordingSettingsPage)SettingsTabs.SelectedPage(window);
                 var encoder = (ComboBox)page.FindName("comboBoxEncoder");
                 Assert.IsTrue(BindingOperations.IsDataBound(encoder, Selector.SelectedIndexProperty));
                 Assert.AreEqual((int)EncoderType.MP3_LAME, encoder.SelectedIndex, "実行ファイル欠損で保存済みMP3をWAVE表示へ変えません。");
@@ -727,9 +727,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
 
                 window = new SettingsWindow(UndeclaredDialogs.Create()) { DataContext = dialog, PlaybackPanel = owner.PlaybackPanel };
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationRecording");
                 Materialize(window);
-                page = (RecordingSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                page = (RecordingSettingsPage)SettingsTabs.SelectedPage(window);
                 encoder = (ComboBox)page.FindName("comboBoxEncoder");
                 Assert.AreEqual((int)EncoderType.WAVE, encoder.SelectedIndex);
                 Assert.AreEqual(1, persistedRequests.SetRequests, "再表示で保存を追加しません。");
@@ -847,11 +847,11 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 scope.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
                 Materialize(window);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(queryApplied.Task, "exclusive-audio-capability-query");
 
-                var page = (AudioSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (AudioSettingsPage)SettingsTabs.SelectedPage(window);
                 var rates = (ComboBox)page.FindName("comboBoxPlayerSampleRate");
                 var formats = (ComboBox)page.FindName("comboBoxPlayerFormat");
                 Assert.AreEqual(nameof(SettingsDialogViewModel.PlayerSampleRateNames),
@@ -962,7 +962,7 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 scope.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
                 navigation.SelectedItem = window.FindName("navigationAudio");
                 Materialize(window);
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(queryApplied.Task, "visible-audio-page-capability-query");
@@ -1010,8 +1010,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost content = SettingsTabs.PageHost(window);
                 navigation.SelectedItem = window.FindName("navigationRightClick");
                 Materialize(window);
 
@@ -1062,8 +1062,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost content = SettingsTabs.PageHost(window);
                 navigation.SelectedItem = window.FindName("navigationRightClick");
                 Materialize(window);
 
@@ -1125,8 +1125,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 try
                 {
                     Materialize(window);
-                    var navigation = (ListBox)window.FindName("settingsNavigation");
-                    var content = (ContentControl)window.FindName("settingsPageContent");
+                    var navigation = (TabControl)window.FindName("settingsNavigation");
+                    SettingsPageHost content = SettingsTabs.PageHost(window);
                     navigation.SelectedItem = window.FindName("navigationRightClick");
                     Materialize(window);
 
@@ -1247,9 +1247,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 };
                 Materialize(window);
 
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
                 Materialize(window);
-                var generalPage = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var generalPage = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 var scoreDb = (CheckBox)generalPage.FindName("useBeatorajaScoreDbCheckBox");
                 var hashMode = (ComboBox)generalPage.FindName("beatorajaHashOutputModeComboBox");
                 var hashModeField = (SettingsField)generalPage.FindName("beatorajaHashOutputModeField");
@@ -1335,8 +1335,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost content = SettingsTabs.PageHost(window);
                 navigation.SelectedItem = window.FindName("navigationGeneral");
                 Materialize(window);
                 Assert.IsInstanceOfType<GeneralSettingsPage>(content.Content);
@@ -1386,9 +1386,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
                 Materialize(window);
-                var page = (GeneralSettingsPage)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (GeneralSettingsPage)SettingsTabs.SelectedPage(window);
                 Button resyncButton = FindLogicalDescendants<Button>(page).Single(button =>
                     GetBindingPath(button, ContentControl.ContentProperty) == "Resources.Lr2_song_db_sync_data_resync");
                 SettingsStatusBanner schemaBanner = FindLogicalDescendants<SettingsStatusBanner>(page).Single(banner =>
@@ -1439,8 +1439,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
             try
             {
                 Materialize(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost content = SettingsTabs.PageHost(window);
                 navigation.SelectedItem = window.FindName("navigationPlaylist");
                 Materialize(window);
                 var page = (PlaylistSettingsPage)content.Content;
@@ -1516,9 +1516,9 @@ public sealed class SettingsWindowCompiledBehaviorTests
                     PlaybackPanel = owner.PlaybackPanel
                 };
                 Materialize(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationGeneral");
                 Materialize(window);
-                var page = (FrameworkElement)((ContentControl)window.FindName("settingsPageContent")).Content;
+                var page = (FrameworkElement)SettingsTabs.SelectedPage(window);
                 var roots = (ListBox)page.FindName("bmsSearchRootPathListBox");
                 Assert.AreEqual(2, roots.Items.Count);
                 Assert.AreEqual(nameof(SettingsDialogViewModel.AvailableBMSDirectories),
@@ -1621,8 +1621,8 @@ public sealed class SettingsWindowCompiledBehaviorTests
                 };
                 Materialize(window);
 
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var content = (ContentControl)window.FindName("settingsPageContent");
+                var navigation = (TabControl)window.FindName("settingsNavigation");
+                SettingsPageHost content = SettingsTabs.PageHost(window);
 
                 navigation.SelectedItem = window.FindName("navigationBackup");
                 Materialize(window);

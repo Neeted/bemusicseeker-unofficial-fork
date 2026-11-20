@@ -32,30 +32,6 @@
             </DataTrigger>
           </Style.Triggers>
         </Style>
-        <Style x:Key="Page0" TargetType="Grid">
-          <Setter Property="Visibility" Value="Collapsed" />
-          <Style.Triggers>
-            <DataTrigger Binding="{Binding SelectedIndex, ElementName=categoryNavigation}" Value="0">
-              <Setter Property="Visibility" Value="Visible" />
-            </DataTrigger>
-          </Style.Triggers>
-        </Style>
-        <Style x:Key="Page1" TargetType="Grid">
-          <Setter Property="Visibility" Value="Collapsed" />
-          <Style.Triggers>
-            <DataTrigger Binding="{Binding SelectedIndex, ElementName=categoryNavigation}" Value="1">
-              <Setter Property="Visibility" Value="Visible" />
-            </DataTrigger>
-          </Style.Triggers>
-        </Style>
-        <Style x:Key="Page2" TargetType="Grid">
-          <Setter Property="Visibility" Value="Collapsed" />
-          <Style.Triggers>
-            <DataTrigger Binding="{Binding SelectedIndex, ElementName=categoryNavigation}" Value="2">
-              <Setter Property="Visibility" Value="Visible" />
-            </DataTrigger>
-          </Style.Triggers>
-        </Style>
       </ResourceDictionary>
     </Grid.Resources>
     <DockPanel LastChildFill="True" Margin="{StaticResource App.Layout.BodyPadding}">
@@ -74,33 +50,28 @@
       <TextBox x:Name="valueVerificationPath" Grid.Row="4" Grid.Column="1" Style="{StaticResource ReadOnlyValue}" Text="{Binding VerificationPath, Mode=OneWay}" />
         <TextBox x:Name="readStatus" Grid.Row="5" Grid.ColumnSpan="2" Style="{StaticResource FailureValue}" Text="{Binding Status, Mode=OneWay}" />
       </Grid>
-      <ListBox x:Name="categoryNavigation" DockPanel.Dock="Top" SelectedIndex="0" Margin="0,0,0,8"
-               Style="{StaticResource App.Canonical.TopNavigationStyle}">
-        <ListBox.ItemsPanel>
-          <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-        </ListBox.ItemsPanel>
-        <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesIssues, Mode=OneWay}" />
-        <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesUnusedDefinitions, Mode=OneWay}" />
-        <ListBoxItem Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesUndefinedReferences, Mode=OneWay}" />
-      </ListBox>
-      <ContentControl Style="{StaticResource App.Canonical.TopNavigationContentStyle}">
-        <Grid>
-          <Grid Style="{StaticResource Page0}">
+      <v:NavigationTabControl x:Name="categoryNavigation" Padding="0,0,0,8" Style="{StaticResource App.Canonical.TopTabWrapControlStyle}">
+        <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesIssues, Mode=OneWay}">
+          <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <TextBox x:Name="listIssues" Grid.Row="1" Style="{StaticResource ResourceList}" Text="{Binding Issues, Mode=OneWay}" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
           </Grid>
-          <Grid Style="{StaticResource Page1}">
+        </TabItem>
+        <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesUnusedDefinitions, Mode=OneWay}">
+          <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <TextBlock Margin="0,0,0,8" TextWrapping="Wrap" Text="{Binding UnusedDescription, Mode=OneWay}" />
             <TextBox x:Name="listUnusedDefinitions" Grid.Row="1" Style="{StaticResource ResourceList}" Text="{Binding UnusedDefinitions, Mode=OneWay}" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
           </Grid>
-          <Grid Style="{StaticResource Page2}">
+        </TabItem>
+        <TabItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.ChartPropertiesUndefinedReferences, Mode=OneWay}">
+          <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <TextBlock Margin="0,0,0,8" TextWrapping="Wrap" Text="{Binding UndefinedDescription, Mode=OneWay}" />
             <TextBox x:Name="listUndefinedReferences" Grid.Row="1" Style="{StaticResource ResourceList}" Text="{Binding UndefinedReferences, Mode=OneWay}" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
           </Grid>
-        </Grid>
-      </ContentControl>
+        </TabItem>
+      </v:NavigationTabControl>
     </DockPanel>
 
   </Grid>

@@ -26,9 +26,11 @@ public sealed class NormalStartupDesktopTests
     /// 条件: catalogのCurrentを専有コピーへ展開し、`config/user.config`に既定値と区別できるLang・テーマ・BMS登録と未知キーを置き、
     /// `data/`・旧設定・test session・control pipe・`BMS_TEST_*`なしで、appの外の空CWDから起動する。
     /// 期待結果: 起動が操作可能になり所有modalがなく、一覧に設定のrootの全譜面が並ぶ。検索入力で一致譜面だけに絞られ、
-    /// 設定画面は一つだけ開閉でき、外観ページの選択テーマが設定値と一致する。正常終了(exit 0)後、設定は値と未知キーを保持し、
+    /// 設定画面は一つだけ開閉でき、外観ページの選択テーマが設定値と一致する。設定画面の縦タブは、選択中の項目へのCtrl+クリック・Ctrl+Space・
+    /// 外部クライアントのRemoveFromSelectionで選択も見出しも変わらず、上下・End/Home・本文からのCtrl+Tab/Ctrl+Shift+Tabで選択とフォーカスが移る。
+    /// 正常終了(exit 0)後、設定は値と未知キーを保持し、
     /// 標準配置のDBに全譜面があり、CWDは空のままである。
-    /// 検出する誤り: test session前提でしか成立しない起動、設定の読込元違い、検索や設定画面が通常構成で動かない、
+    /// 検出する誤り: test session前提でしか成立しない起動、設定の読込元違い、検索や設定画面が通常構成で動かない、縦タブの選択が実入力で外れる・移らない、
     /// 終了保存での値・未知キーの消失、DBや設定の配置がCWDやapp外へ依存する誤り。
     /// </summary>
     [TestMethod(DisplayName = "[SC-16] 配布物を通常起動しportable設定を読んで検索と設定画面の開閉後に正常終了する")]
@@ -92,6 +94,8 @@ public sealed class NormalStartupDesktopTests
             Assert.AreEqual(1, window.ModalWindows.Length, "設定画面は所有modalとして一つだけ開く必要があります。");
             FindUnique(settings, "SettingsCategoryAppearance", session.Deadline, Step).Patterns.SelectionItem.Pattern.Select();
             AssertSelectedOption(FindUnique(settings, "SettingsTheme", session.Deadline, Step), themeName);
+            // 縦タブは標準のTabControlで、実入力（Ctrl+クリック・Ctrl+Space・矢印・Home/End・Ctrl+Tab）と外部クライアントの要求で選択が外れず移動する。
+            VerifySettingsTabInput(settings, process.Id, session.Deadline, Step);
             CloseSettings(window, settings, session.Deadline, Step);
             Assert.IsTrue(window.IsEnabled);
             Assert.AreEqual(0, window.ModalWindows.Length);

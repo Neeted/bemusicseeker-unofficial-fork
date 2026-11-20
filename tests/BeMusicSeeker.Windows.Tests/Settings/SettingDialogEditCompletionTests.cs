@@ -335,7 +335,7 @@ public sealed class SettingDialogEditCompletionTests
                 var closed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 window.Closed += (_, _) => closed.TrySetResult();
                 windowTest.ShowAndWaitForContentRendered(window);
-                ((ListBox)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
+                ((TabControl)window.FindName("settingsNavigation")).SelectedItem = window.FindName("navigationAudio");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Slider slider = FindDescendants<Slider>(window).Single(item => item.Name == "audioVolumeSlider");
                 TextBlock text = FindDescendants<TextBlock>(window).Single(item =>

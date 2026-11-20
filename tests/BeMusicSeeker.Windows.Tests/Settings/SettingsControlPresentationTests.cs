@@ -40,23 +40,21 @@ public sealed class SettingsControlPresentationTests
             try
             {
                 windowTest.ShowAndWaitForContentRendered(window);
-                var navigation = (ListBox)window.FindName("settingsNavigation");
-                var scroller = (ScrollViewer)window.FindName("settingsPageScrollViewer");
-                var header = (ContentControl)window.FindName("settingsPageHeader");
-                var pageHost = (ContentControl)window.FindName("settingsPageContent");
+                TabControl navigation = SettingsTabs.Navigation(window);
+                ScrollViewer scroller = SettingsTabs.Body(window);
+                TextBlock header = SettingsTabs.Header(window);
+                SettingsPageHost pageHost = SettingsTabs.PageHost(window);
+                Assert.IsInstanceOfType<GeneralSettingsPage>(pageHost.Content);
 
-
-                foreach (ListBoxItem item in navigation.Items)
+                foreach (TabItem item in navigation.Items)
                 {
                     Assert.IsFalse(
                         string.IsNullOrWhiteSpace(AutomationProperties.GetName(item)),
                         "Every settings category must expose a localized automation name.");
                 }
 
-                var navigationPeer = new ListBoxAutomationPeer(navigation);
-                var selectionProvider = (ISelectionProvider)navigationPeer.GetPattern(PatternInterface.Selection);
-                Assert.IsNotNull(selectionProvider);
-                Assert.IsFalse(selectionProvider.CanSelectMultiple);
+                AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation);
+                TabNavigationAssert.AssertSingleRequiredSelection(navigation, () => [navigation.SelectedItem, header.Text, pageHost.Content, scroller.VerticalOffset]);
                 AutomationPeer playbackPeer = navigationPeer.GetChildren()
                     .Single(peer => peer.GetAutomationId() == "SettingsCategoryPlayback");
                 var playbackSelection = (ISelectionItemProvider)playbackPeer.GetPattern(PatternInterface.SelectionItem);
@@ -65,13 +63,13 @@ public sealed class SettingsControlPresentationTests
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.AreSame(window.FindName("navigationPlayback"), navigation.SelectedItem);
                 Assert.IsInstanceOfType<PlaybackSettingsPage>(pageHost.Content);
-                Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
+                Assert.AreEqual(((TabItem)navigation.SelectedItem).Header, header.Text);
                 Assert.IsTrue(playbackSelection.IsSelected);
 
                 navigation.SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsInstanceOfType<AppearanceSettingsPage>(pageHost.Content);
-                Assert.AreEqual(((ListBoxItem)navigation.SelectedItem).Content, header.Content);
+                Assert.AreEqual(((TabItem)navigation.SelectedItem).Header, header.Text);
 
                 navigation.SelectedItem = window.FindName("navigationGeneral");
                 var selectedPage = (FrameworkElement)pageHost.Content;
@@ -89,9 +87,42 @@ public sealed class SettingsControlPresentationTests
                 var presenter = (ScrollContentPresenter)scroller.Template.FindName("PART_ScrollContentPresenter", scroller);
                 Rect pageEnd = selectedPage.TransformToAncestor(presenter).TransformBounds(new Rect(selectedPage.RenderSize));
                 Assert.AreEqual(presenter.ActualHeight, pageEnd.Bottom, 0.25d, "本文末尾まで到達する。");
-                navigation.SelectedItem = window.FindName("navigationAppearance");
+
+                // 選択中のタブを選択から外す要求を送っても、選択・見出し・ページ・本文の位置は変わらない。
+                double offsetBeforeRemove = scroller.VerticalOffset;
+                TabNavigationAssert.AssertSingleRequiredSelection(navigation, () => [navigation.SelectedItem, header.Text, pageHost.Content, scroller.VerticalOffset]);
+                Assert.AreEqual(offsetBeforeRemove, scroller.VerticalOffset, "選択を外す要求で本文の位置を戻さない。");
+
+                // ページ内の一覧の選択が上がってきても、タブの処理（ページの切替・本文を先頭へ戻す）は起きない。
+                var innerList = new ListBox { ItemsSource = new[] { "first", "second" }, Height = 60 };
+                FindDescendants<Panel>(selectedPage).First().Children.Add(innerList);
+                window.UpdateLayout();
+                scroller.ScrollToEnd();
                 TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(0d, scroller.VerticalOffset, "Changing categories must reset the shared body scroller.");
+                double offsetBeforeInner = scroller.VerticalOffset;
+                Assert.IsTrue(offsetBeforeInner > 0);
+                object tabBeforeInner = navigation.SelectedItem;
+                innerList.SelectedIndex = 1;
+                TestUiDispatcherHost.ProcessQueuedPresentation();
+                Assert.AreEqual(offsetBeforeInner, scroller.VerticalOffset, "ページ内の選択で本文を先頭へ戻さない。");
+                Assert.AreSame(tabBeforeInner, navigation.SelectedItem);
+                Assert.AreSame(selectedPage, pageHost.Content);
+
+                // 各カテゴリの本文は、同じ一つの ScrollViewer に入る。
+                foreach (TabItem item in navigation.Items)
+                {
+                    bool changed = !ReferenceEquals(navigation.SelectedItem, item);
+                    navigation.SelectedItem = item;
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    Assert.AreSame(scroller, SettingsTabs.FindVisualAncestor<ScrollViewer>((DependencyObject)pageHost.Content), item.Name);
+                    if (changed)
+                    {
+                        Assert.AreEqual(0d, scroller.VerticalOffset, "Changing categories must reset the shared body scroller.");
+                    }
+
+                    scroller.ScrollToEnd();
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                }
             }
             finally
             {
@@ -478,7 +509,6 @@ public sealed class SettingsControlPresentationTests
 
             Window? window = null;
             Window? sectionWindow = null;
-            Window? topNavigationWindow = null;
             try
             {
                 AppThemeService.ApplyTheme(AppThemeService.Light);
@@ -761,146 +791,11 @@ public sealed class SettingsControlPresentationTests
                     Assert.IsTrue(ContrastRatio(focusColor, stateColor) >= 3d, accentState);
                 }
 
-                // navigation は別 Window で実測します。同じ縦長 host へ足すと Expander の有限高さ条件まで変わるためです。
-                Grid topNavigationHost = CreateSettingsControlHost();
-                var topNavigation = new ListBox
-                {
-                    Width = 360,
-                    Height = 56,
-                    ItemsSource = new[] { "General", "Folder", "Custom Folder" },
-                    SelectedIndex = 0,
-                    Style = (Style)topNavigationHost.FindResource("App.Canonical.TopNavigationStyle")
-                };
-                var topNavigationContentText = new TextBlock { Text = "General content" };
-                var topNavigationContent = new ContentControl
-                {
-                    Height = 80,
-                    Content = topNavigationContentText,
-                    Style = (Style)topNavigationHost.FindResource("App.Canonical.TopNavigationContentStyle")
-                };
-                var topNavigationPanel = new StackPanel();
-                topNavigationPanel.Children.Add(topNavigation);
-                topNavigationPanel.Children.Add(topNavigationContent);
-                topNavigationHost.Children.Add(topNavigationPanel);
-                topNavigationWindow = new Window
-                {
-                    Content = topNavigationHost,
-                    Width = 420,
-                    Height = 180
-                };
-                windowTest.ShowAndWaitForContentRendered(
-                    topNavigationWindow);
-
-                topNavigation.ApplyTemplate();
-                topNavigationWindow.UpdateLayout();
-                StackPanel topNavigationItems = FindDescendant<StackPanel>(topNavigation)!;
-                Assert.AreEqual(Orientation.Horizontal, topNavigationItems.Orientation);
-                ListBoxItem[] topNavigationItemsByIndex = topNavigation.Items
-                    .Cast<object>()
-                    .Select((_, index) => (ListBoxItem)topNavigation.ItemContainerGenerator.ContainerFromIndex(index))
-                    .ToArray();
-                Assert.IsTrue(topNavigationItemsByIndex.All(item => item is not null));
-                foreach (ListBoxItem item in topNavigationItemsByIndex)
-                {
-                    item.ApplyTemplate();
-                    Assert.IsNotNull(item.Template.FindName("SelectionIndicator", item));
-                }
-                Assert.AreEqual(
-                    Visibility.Visible,
-                    ((Border)topNavigationItemsByIndex[0].Template.FindName("SelectionIndicator", topNavigationItemsByIndex[0])).Visibility);
-                Assert.AreEqual(
-                    Visibility.Collapsed,
-                    ((Border)topNavigationItemsByIndex[1].Template.FindName("SelectionIndicator", topNavigationItemsByIndex[1])).Visibility);
-                var topNavigationPeer = new ListBoxAutomationPeer(topNavigation);
-                var topNavigationSelection = (ISelectionProvider)topNavigationPeer.GetPattern(PatternInterface.Selection);
-                Assert.IsNotNull(topNavigationSelection);
-                Assert.IsFalse(topNavigationSelection.CanSelectMultiple);
-                Assert.AreEqual(1, topNavigationSelection.GetSelection().Length);
-                AutomationPeer topFolderPeer = topNavigationPeer.GetChildren()
-                    .Single(peer => peer.GetName() == "Folder");
-                var topFolderSelection = (ISelectionItemProvider)topFolderPeer.GetPattern(PatternInterface.SelectionItem);
-                Assert.IsNotNull(topFolderSelection);
-                topFolderSelection.Select();
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(1, topNavigation.SelectedIndex);
-                Assert.IsTrue(topFolderSelection.IsSelected);
-                topNavigationItemsByIndex[2].IsEnabled = false;
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                var disabledNavigationChrome = (Border)topNavigationItemsByIndex[2].Template.FindName("NavigationItemChrome", topNavigationItemsByIndex[2]);
-                Assert.IsTrue(disabledNavigationChrome.Opacity < 1d);
-                AutomationPeer disabledNavigationPeer = topNavigationPeer.GetChildren()
-                    .Single(peer => !peer.IsEnabled());
-                var disabledNavigationSelection = (ISelectionItemProvider)disabledNavigationPeer.GetPattern(PatternInterface.SelectionItem);
-                Assert.IsNotNull(disabledNavigationSelection);
-                int selectedBeforeDisabledAttempt = topNavigation.SelectedIndex;
-                bool selectionRejected = false;
-                try
-                {
-                    disabledNavigationSelection.Select();
-                }
-                catch (ElementNotEnabledException)
-                {
-                    selectionRejected = true;
-                }
-
-                TestUiDispatcherHost.ProcessQueuedPresentation();
-                Assert.AreEqual(selectedBeforeDisabledAttempt, topNavigation.SelectedIndex);
-                Assert.IsTrue(
-                    selectionRejected || !disabledNavigationSelection.IsSelected,
-                    "A disabled top-navigation item must reject or ignore public Automation selection.");
-                topNavigationContent.ApplyTemplate();
-                topNavigationContent.UpdateLayout();
-                Rect topNavigationContentBounds = new(
-                    0d,
-                    0d,
-                    topNavigationContent.ActualWidth,
-                    topNavigationContent.ActualHeight);
-                Border? visibleEnclosingSurface = FindDescendants<Border>(topNavigationContent)
-                    .FirstOrDefault(border =>
-                    {
-                        Rect borderBounds = border
-                            .TransformToAncestor(topNavigationContent)
-                            .TransformBounds(new Rect(0d, 0d, border.ActualWidth, border.ActualHeight));
-                        bool coversContent = borderBounds.Left <= topNavigationContentBounds.Left + 0.5d
-                            && borderBounds.Top <= topNavigationContentBounds.Top + 0.5d
-                            && borderBounds.Right >= topNavigationContentBounds.Right - 0.5d
-                            && borderBounds.Bottom >= topNavigationContentBounds.Bottom - 0.5d;
-                        bool hasVisibleBorder = (border.BorderThickness.Left > 0d
-                                || border.BorderThickness.Top > 0d
-                                || border.BorderThickness.Right > 0d
-                                || border.BorderThickness.Bottom > 0d)
-                            && border.BorderBrush is Brush borderBrush
-                            && borderBrush.Opacity > 0d
-                            && (borderBrush is not SolidColorBrush borderColor || borderColor.Color.A > 0);
-                        bool hasRoundedVisibleSurface = (border.CornerRadius.TopLeft > 0d
-                                || border.CornerRadius.TopRight > 0d
-                                || border.CornerRadius.BottomRight > 0d
-                                || border.CornerRadius.BottomLeft > 0d)
-                            && ((border.Background is Brush background
-                                    && background.Opacity > 0d
-                                    && (background is not SolidColorBrush backgroundColor || backgroundColor.Color.A > 0))
-                                || hasVisibleBorder);
-                        return coversContent && (hasVisibleBorder || hasRoundedVisibleSurface);
-                    });
-                Assert.IsNull(
-                    visibleEnclosingSurface,
-                    "The shared top-navigation content role must not render a visible enclosing surface.");
-                Point topNavigationContentOrigin = topNavigationContentText
-                    .TransformToAncestor(topNavigationContent)
-                    .Transform(new Point());
-                Assert.AreEqual(topNavigationContent.Padding.Left, topNavigationContentOrigin.X, 0.5);
-                Assert.AreEqual(topNavigationContent.Padding.Top, topNavigationContentOrigin.Y, 0.5);
-                Assert.AreEqual(
-                    topNavigationContent.ActualWidth - topNavigationContent.Padding.Left - topNavigationContent.Padding.Right,
-                    topNavigationContentText.ActualWidth,
-                    0.5,
-                    "The unframed content role must continue to own canonical content padding and stretch.");
             }
             finally
             {
                 try
                 {
-                    topNavigationWindow?.Close();
                     sectionWindow?.Close();
                     window?.Close();
                 }

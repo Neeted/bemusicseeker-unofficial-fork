@@ -3443,7 +3443,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 OpenPropertyDialog(fixture.Window, summary, row, "property-output-name", (dialog, _) =>
                 {
                     var draft = (PlaylistPropertyDialogViewModel)dialog.DataContext;
-                    var navigation = (ListBox)dialog.FindName("propertyNavigation");
+                    var navigation = (TabControl)dialog.FindName("propertyNavigation");
                     navigation.SelectedIndex = 2;
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     TextBox output = FindDescendants<TextBox>(dialog).Single(control => HasBindingPath(control, nameof(PlaylistPropertyDialogViewModel.output_dir)));
@@ -3592,7 +3592,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                     {
                         var draft = (PlaylistPropertyDialogViewModel)dialog.DataContext;
                         var navigation = (FrameworkElement)dialog.FindName("propertyNavigation");
-                        var content = (FrameworkElement)dialog.FindName("propertyContent");
+                        var content = (FrameworkElement)dialog.FindName("propertyNavigation");
                         ObservePropertyNavigation(navigation, content).ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
                         TestUiDispatcherHost.ProcessQueuedPresentation();
                         var list = (ListBox)dialog.FindName("foldersListBox");
@@ -3678,7 +3678,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 OpenPropertyDialog(fixture.Window, summary, freshRow, "property-natural-order-reopen", (dialog, _) =>
                 {
                     var navigation = (FrameworkElement)dialog.FindName("propertyNavigation");
-                    var content = (FrameworkElement)dialog.FindName("propertyContent");
+                    var content = (FrameworkElement)dialog.FindName("propertyNavigation");
                     ObservePropertyNavigation(navigation, content).ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
                     TestUiDispatcherHost.ProcessQueuedPresentation();
                     Assert.AreEqual(true, ((CheckBox)dialog.FindName("checkBoxFolderNatueralSort")).IsChecked);
@@ -4615,7 +4615,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         {
                             FrameworkElement navigation = (FrameworkElement)dialog.FindName("propertyNavigation")
                                 ?? throw new AssertFailedException("Playlist property navigation was not materialized.");
-                            FrameworkElement contentHost = (FrameworkElement)dialog.FindName("propertyContent")
+                            FrameworkElement contentHost = (FrameworkElement)dialog.FindName("propertyNavigation")
                                 ?? throw new AssertFailedException("Playlist property content host was not materialized.");
                             PropertyNavigationObservation navigationState = ObservePropertyNavigation(navigation, contentHost);
                             navigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
@@ -4641,9 +4641,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                         {
                             FrameworkElement reopenedNavigation = (FrameworkElement)dialog.FindName("propertyNavigation")
                                 ?? throw new AssertFailedException("Reopened playlist property navigation was not materialized.");
-                            FrameworkElement reopenedContent = (FrameworkElement)dialog.FindName("propertyContent")
+                            FrameworkElement reopenedContent = (FrameworkElement)dialog.FindName("propertyNavigation")
                                 ?? throw new AssertFailedException("Reopened playlist property content host was not materialized.");
                             PropertyNavigationObservation reopenedNavigationState = ObservePropertyNavigation(reopenedNavigation, reopenedContent);
+                            // 選択したカテゴリは保存せず、開き直した画面は全般から始まる。
+                            AssertSelectedPropertyCategory(reopenedNavigationState, PropertyNavigationCategory.General);
+                            Assert.AreEqual(PropertyNavigationCategory.General, IdentifyVisiblePropertyCategory(reopenedContent));
                             reopenedNavigationState.ItemsByCategory[PropertyNavigationCategory.Folder].Provider.Select();
                             TestUiDispatcherHost.ProcessQueuedPresentation();
                             AssertSelectedPropertyCategory(reopenedNavigationState, PropertyNavigationCategory.Folder);
@@ -8360,9 +8363,10 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
             ?? throw new AssertFailedException(
                 "The authority-backed custom-folder availability host must expose the disabled SelectionItem provider.");
         Assert.AreEqual(
+            AutomationControlType.TabItem,
             expectedProvider.GetAutomationControlType(),
-            availabilityPeer.GetAutomationControlType(),
             "The disabled provider must retain the authority-backed custom-folder Automation role.");
+        Assert.IsFalse(availabilityPeer.IsEnabled(), "The authority-backed availability host must be disabled.");
         Assert.AreEqual(
             expectedProvider.GetBoundingRectangle(),
             availabilityPeer.GetBoundingRectangle(),
