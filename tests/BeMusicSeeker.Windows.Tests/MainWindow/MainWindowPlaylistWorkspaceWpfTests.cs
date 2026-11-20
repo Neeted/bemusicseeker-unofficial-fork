@@ -6825,7 +6825,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 fixture.Table.Folder_order = ["normal"];
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
+                // 仮想化された通常フォルダを表示できる高さを確保し、表の親も展開します。
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                tree.Height = 300;
+                tree.UpdateLayout();
                 var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                playlistRoot.IsExpanded = true;
                 MaterializeTreeItems(playlistRoot);
                 var tableItem = playlistRoot.ItemContainerGenerator
                     .ContainerFromItem(fixture.Table) as TreeViewItem;
@@ -6834,7 +6839,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 MaterializeTreeItems(tableItem);
 
                 TreeViewItem? folderItem = FindDescendants<TreeViewItem>(tableItem)
-                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode);
+                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode { FolderName: "normal" });
                 Assert.IsNotNull(
                     folderItem,
                     "a playlist folder child must be materialized for the root-selection route");
@@ -6910,7 +6915,12 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 fixture.Table.Folder_order = ["normal"];
                 TestUiDispatcherHost.ProcessQueuedPresentation();
 
+                // 仮想化された通常フォルダを表示できる高さを確保し、表の親も展開します。
+                var tree = (TreeView)fixture.Window.FindName("treeViewPlaylist");
+                tree.Height = 300;
+                tree.UpdateLayout();
                 var playlistRoot = (TreeViewItem)fixture.Window.FindName("treeViewItemPlaylist");
+                playlistRoot.IsExpanded = true;
                 MaterializeTreeItems(playlistRoot);
                 var tableItem = playlistRoot.ItemContainerGenerator
                     .ContainerFromItem(fixture.Table) as TreeViewItem;
@@ -6919,7 +6929,7 @@ public sealed class MainWindowPlaylistWorkspaceWpfTests
                 MaterializeTreeItems(tableItem);
 
                 TreeViewItem? folderItem = FindDescendants<TreeViewItem>(tableItem)
-                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode);
+                    .FirstOrDefault(item => item.DataContext is PlaylistFolderNode { FolderName: "normal" });
                 Assert.IsNotNull(
                     folderItem,
                     "a playlist folder child must be materialized for the folder-selection route");
