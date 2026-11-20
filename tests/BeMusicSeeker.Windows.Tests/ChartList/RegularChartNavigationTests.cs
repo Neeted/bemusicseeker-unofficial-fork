@@ -629,6 +629,7 @@ public sealed partial class RegularChartNavigationTests
     /// <remarks>
     /// "noResult" は、準備スレッド上のグループ変更通知で結果を失効させて止める。解放後は結果を作れない準備の失敗が操作結果へ合成される。
     /// 実移動・実準備・実Bindingのコレクション通知を使い、保留の開始と解放は通知の到達と終端で待ち合わせる（固定時間待機なし）。
+    /// 結果なしの終了後の消去は移動操作の終端と順序を保証しないため、操作の終端後に項目が空になる通知を待ってから検査する。
     /// </remarks>
     [TestMethod]
     [DataRow("noResult")]
@@ -667,7 +668,14 @@ public sealed partial class RegularChartNavigationTests
             Assert.IsTrue(before.Length > 0);
             CollectionAssert.AreEqual(library.DuplicateChartGroups!.ToArray(), before, "移動前は項目が結果と一致する前提");
             int offUi = 0;
-            items.CollectionChanged += (_, _) => { if (!TestUiDispatcherHost.Dispatcher.CheckAccess()) { Interlocked.Increment(ref offUi); } };
+            // 結果なしの終了後の消去は、準備の終端から予約される同期で起き、移動操作のTaskの完了とは順序を保証しません。
+            // 操作の終端を待っただけで消去の到達を仮定せず、項目が空になった通知を待ってから検査します。
+            var cleared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            items.CollectionChanged += (_, _) =>
+            {
+                if (!TestUiDispatcherHost.Dispatcher.CheckAccess()) { Interlocked.Increment(ref offUi); }
+                if (items.Count == 0) { cleared.TrySetResult(); }
+            };
             ChartFile original = library.BmsCharts.Single(chart => chart.Path == fixture.Duplicates[0].Path);
             string destination = Path.Combine(Path.GetDirectoryName(original.Directory) ?? throw new AssertFailedException(), "moved");
             Directory.CreateDirectory(destination);
@@ -692,6 +700,7 @@ public sealed partial class RegularChartNavigationTests
                 if (condition == "noResult")
                 {
                     Assert.IsNotNull(operation.Result.Failure, "結果を作らない準備の失敗が操作結果へ合成されます。");
+                    TestUiDispatcherHost.AwaitTaskOnDispatcher(cleared.Task, "duplicate tree items cleared after preparation without result");
                     Assert.AreEqual(0, items.Count, "結果を作らずに終わった準備の後は項目を空にします。");
                 }
                 else
