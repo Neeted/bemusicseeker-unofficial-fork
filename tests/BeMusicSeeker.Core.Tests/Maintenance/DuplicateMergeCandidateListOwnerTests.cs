@@ -468,7 +468,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     }
 
     /// <summary>
-    /// 保証：状態は <see cref="DuplicateGroup"/> のインスタンスに対応付ける。再検索で同じインスタンスが維持されたグループはSELECT・KEEP・確認結果を保ち、
+    /// 保証：状態は <see cref="DuplicateGroup"/> のインスタンスに対応付ける。再検索で同じインスタンスが維持されたグループは、登録範囲の集合が変わらなければSELECT・KEEP・確認結果を保ち、
     /// 同じフォルダ構成でも新しいインスタンスは初期値になり、消えたグループの状態は破棄する。ライブラリの交換ですべて破棄し、旧ライブラリの構築は採用しない。
     /// 並べ替え・検索語・除外語は再検索で結果が変わってもライブラリを交換しても保ち、新しい結果へ当て直す（新しいインスタンスも除外の語で非表示になる）。
     /// 検出する誤り：フォルダ構成での照合、消えたグループの状態の残留、交換後の旧状態の復活、並べ替えの消失、除外語の消失・新しい結果への当て直しの漏れ。
@@ -522,6 +522,78 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(0, fixture.Owner.RowSet.Count);
         Assert.IsFalse(fixture.Owner.IsViewActive);
         Assert.AreEqual(("S", "x"), (fixture.Owner.SearchText, fixture.Owner.ExcludeText), "検索語・除外語はライブラリの交換後も保ちます。");
+    }
+
+    /// <summary>
+    /// 保証：同じインスタンスのグループでも、構築時に捕捉した登録範囲のフォルダの集合が変わると、採用時に利用者の状態（SELECT・KEEP・確認結果・走査の事実）を捨てて
+    /// 新しい初期状態にする。登録範囲が一つならKEEPをそこへ固定し、二つ以上ならPATH昇順の先頭へ固定して「統合不可：登録ルート」・SELECT無効にし、
+    /// なくなれば固定を解いて初期のKEEP（直下の所持譜面数が最多）に戻す。判定はグループごとで、同じ採用の中で登録範囲が変わらないグループは同じ状態を保つ。
+    /// 検出する誤り：新しいインスタンスにしか初期値を当てない、KEEPだけ更新してSELECT・確認結果・固定・走査の事実を残す、件数だけで集合を比べる、
+    /// 全グループを初期化する、固定が解けたKEEPをPATH昇順の先頭にする。
+    /// </summary>
+    [TestMethod]
+    [DataRow("", "a", "a", true, true)]
+    [DataRow("", "c,b", "b", true, false)]
+    [DataRow("a", "", "c", false, true)]
+    [DataRow("a,b", "", "c", false, true)]
+    [DataRow("a", "c", "c", true, true)]
+    [DataRow("a,b", "b", "b", true, true)]
+    [DataRow("b", "a,b", "a", true, false)]
+    public void StateLifetime_RegisteredRangeChangeAdoptsNewInitialStateAndUnchangedRangeKeepsState(
+        string before, string after, string expectedKeep, bool expectedFixed, bool expectedSelectable)
+    {
+        static string[] Folders(string names)
+            => [.. names.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(name => @"C:\S\" + name)];
+        var fixture = new Fixture();
+        DuplicateGroup changed = Group((@"C:\S\a", 1), (@"C:\S\b", 1), (@"C:\S\c", 3));
+        DuplicateGroup unchanged = Group(@"C:\S\u1", @"C:\S\u2");
+        fixture.Source.RegisteredRoots.Add(@"C:\S\u1");
+        fixture.Source.RegisteredRoots.UnionWith(Folders(before));
+        fixture.Adopt(changed, unchanged);
+        // 変更後の初期値と食い違う利用者の状態を、変更前の登録範囲が許す範囲で作ります。
+        fixture.Owner.SetKeep(fixture.Row(@"C:\S\b"));
+        var safe = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, []);
+        var inspection = new DuplicateMergeGroupInspection(
+            new Dictionary<DuplicateMergeVerificationReasonKind, IReadOnlyList<DuplicateMergeFinding>>(),
+            [],
+            DuplicateMergeComparisonSummary.None,
+            new Dictionary<string, DuplicateMergeKeepDependentFacts>(StringComparer.OrdinalIgnoreCase));
+        if (fixture.Row(@"C:\S\a").State.CanSelect)
+        {
+            fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(changed, safe, inspection)]);
+        }
+        fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(unchanged, safe)]);
+        DuplicateMergeCandidateGroupState unchangedState = fixture.Row(@"C:\S\u1").State;
+        Assert.IsTrue(unchangedState.IsSelected, "前提：安全の書込みでSELECTがオンになります。");
+        fixture.Source.RegisteredRoots.ExceptWith(Folders(before));
+        fixture.Source.RegisteredRoots.UnionWith(Folders(after));
+
+        fixture.Adopt(changed, unchanged);
+
+        DuplicateMergeCandidateGroupState state = fixture.Row(@"C:\S\a").State;
+        Assert.AreEqual(@"C:\S\" + expectedKeep, state.KeepFolder);
+        Assert.AreEqual(expectedFixed, state.KeepFixed);
+        Assert.IsFalse(state.IsSelected, "登録範囲が変わったグループのSELECTは初期値のオフです。");
+        Assert.AreEqual(
+            expectedSelectable ? Resources.Duplicate_merge_candidate_status_unverified : UnmergeableRegisteredRootStatus,
+            fixture.Row(@"C:\S\a").StatusText);
+        DuplicateMergeCandidateGroupTarget target = fixture.Owner.CaptureGroupsOfRows([fixture.Row(@"C:\S\a")]).Single();
+        CollectionAssert.AreEqual(Folders(after).Order(StringComparer.OrdinalIgnoreCase).ToArray(), target.RegisteredFolders.ToArray());
+        Assert.AreEqual(expectedFixed, target.KeepFixed);
+        DuplicateMergeCandidateRow other = fixture.Rows.First(row => ReferenceEquals(row.State, state) && !row.IsKeep);
+        Assert.AreEqual(!expectedFixed, fixture.Owner.SetKeep(other), "固定のKEEPは変えられず、固定が解ければ変えられます。");
+        if (expectedFixed) { Assert.AreEqual(@"C:\S\" + expectedKeep, state.KeepFolder); }
+        Assert.AreEqual(
+            expectedSelectable ? Resources.Duplicate_merge_candidate_status_unverified : UnmergeableRegisteredRootStatus,
+            fixture.Row(@"C:\S\a").StatusText, "古い走査の事実から確認結果を導き直しません。");
+
+        Assert.AreSame(unchangedState, fixture.Row(@"C:\S\u1").State, "登録範囲が変わらないグループは同じ状態を保ちます。");
+        Assert.IsTrue(unchangedState.IsSelected);
+        Assert.AreEqual(@"C:\S\u1", unchangedState.KeepFolder);
+        Assert.AreSame(safe, unchangedState.Verification);
+        Assert.AreEqual(1, fixture.Owner.SelectedGroupCount);
+        CollectionAssert.AreEqual(new[] { unchanged }, fixture.Owner.CaptureSelectedGroups().Select(item => item.Group).ToArray());
+        Assert.AreEqual(expectedSelectable, fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\a")), "統合不可はオンにできません。");
     }
 
     /// <summary>

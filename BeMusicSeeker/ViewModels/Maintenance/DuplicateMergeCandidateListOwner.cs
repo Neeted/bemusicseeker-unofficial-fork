@@ -41,7 +41,7 @@ internal sealed class DuplicateMergeCandidateListPreparation
 /// </summary>
 /// <remarks>
 /// 状態は <see cref="DuplicateGroup"/> のインスタンスに対応付けます。重複結果の再検索で同じインスタンスが維持されたグループは状態を保ち、
-/// 新しいインスタンスは初期値になり、消えたグループの状態は採用時に破棄します。永続化しません。
+/// 新しいインスタンスと、登録範囲のフォルダの集合が変わったグループは初期値になり、消えたグループの状態は採用時に破棄します。永続化しません。
 /// 並べ替え・検索・除外・SELECT・KEEPの操作は、構築済みの値だけを使い、TITLE・ARTISTの解決を呼びません。
 /// </remarks>
 public sealed class DuplicateMergeCandidateListOwner : ViewModel
@@ -277,6 +277,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     /// <summary>
     /// 構築済みの一覧を採用します。UIスレッドで呼びます。構築時のライブラリが現在のものでなければ何も変えずfalseを返します。
     /// 採用する結果にないグループの状態は破棄し、同じインスタンスのグループは状態を保ち、新しいインスタンスは初期値にします。
+    /// 同じインスタンスでも、構築時に捕捉した登録範囲のフォルダの集合が変わったグループは、状態を捨てて新しい初期値にします。
     /// 並べ替え・検索語・除外語は保ち、新しい結果へ当て直します。
     /// </summary>
     internal bool Adopt(DuplicateMergeCandidateListPreparation value)
@@ -286,7 +287,9 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         var next = new Dictionary<DuplicateGroup, DuplicateMergeCandidateGroupState>(ReferenceEqualityComparer.Instance);
         foreach (DuplicateMergeCandidateGroupInitial initial in value.Groups)
         {
-            if (!states.TryGetValue(initial.Group, out DuplicateMergeCandidateGroupState state))
+            // 登録範囲が変わるとKEEPの固定と統合不可の条件が変わるため、利用者の選択を引き継がず初期状態から始めます。
+            if (!states.TryGetValue(initial.Group, out DuplicateMergeCandidateGroupState state)
+                || !HasSameRegisteredFolders(state, initial))
             {
                 state = new DuplicateMergeCandidateGroupState(initial);
             }
@@ -298,6 +301,11 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         IsViewActive = treeSelected;
         return true;
     }
+
+    /// <summary>保持している状態と新しい初期状態で、登録範囲のフォルダの集合（大文字小文字を無視、順序によらない）が同じかです。</summary>
+    private static bool HasSameRegisteredFolders(DuplicateMergeCandidateGroupState state, DuplicateMergeCandidateGroupInitial initial)
+        => state.RegisteredFolders.Count == initial.RegisteredFolders.Count
+            && new HashSet<string>(state.RegisteredFolders, StringComparer.OrdinalIgnoreCase).SetEquals(initial.RegisteredFolders);
 
     /// <summary>
     /// 新しい重複結果にないグループ（整理で解消したグループ）の状態と行を、画面の表示中かによらず取り除きます。UIスレッドで呼びます。
