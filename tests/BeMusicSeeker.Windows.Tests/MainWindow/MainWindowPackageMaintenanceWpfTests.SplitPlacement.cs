@@ -402,6 +402,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(Resources.Split_placement_research, researchButton.Content);
             Assert.IsFalse(shareCombo.IsEditable || limitCombo.IsEditable || basisCombo.IsEditable, "選択式で、範囲の外の値を入力できない");
             Assert.AreEqual(80, shareCombo.SelectedItem);
+            // 共通のテンプレートは選択欄へ書式を渡さないため、閉じた状態の表示にも「%」が付くことを実際の表示要素で確かめる。
+            shareCombo.ApplyTemplate();
+            shareCombo.UpdateLayout();
+            var shareSelection = (ContentPresenter)shareCombo.Template.FindName("SelectionContent", shareCombo);
+            Assert.AreEqual("80%", ((TextBlock)System.Windows.Media.VisualTreeHelper.GetChild(shareSelection, 0)).Text,
+                "共有率は、閉じた状態でも「%」を付けて表示する");
             Assert.AreEqual(20, limitCombo.SelectedItem);
             Assert.AreEqual(SplitPlacementShareBasis.SmallerSide, basisCombo.SelectedValue);
             Assert.AreNotEqual(FontWeights.Bold, researchButton.FontWeight, "入力が適用中と同じ間は強調しない");

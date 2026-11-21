@@ -1012,7 +1012,14 @@
                   </Style>
                 </StackPanel.Resources>
                 <TextBlock Style="{StaticResource splitPlacementCriteriaLabelStyle}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_percent, Mode=OneWay}" />
-                <ComboBox x:Name="splitPlacementSharePercentComboBox" AutomationProperties.AutomationId="SplitPlacementSharePercent" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_percent, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" Width="64" IsEditable="False" ItemsSource="{Binding SplitPlacementSearch.SharePercentChoices, Mode=OneWay}" SelectedItem="{Binding SplitPlacementSearch.SharePercent, Mode=TwoWay}" ItemStringFormat="{}{0}%" />
+                <ComboBox x:Name="splitPlacementSharePercentComboBox" AutomationProperties.AutomationId="SplitPlacementSharePercent" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_percent, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" Width="64" IsEditable="False" ItemsSource="{Binding SplitPlacementSearch.SharePercentChoices, Mode=OneWay}" SelectedItem="{Binding SplitPlacementSearch.SharePercent, Mode=TwoWay}">
+                  <!-- 共通のテンプレートは選択欄へ書式を渡さないため、項目のテンプレートで「%」を付け、一覧と閉じた状態の表示を揃える。 -->
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding StringFormat={}{0}%}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
                 <TextBlock Style="{StaticResource splitPlacementCriteriaLabelStyle}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_generic_folder_limit, Mode=OneWay}" />
                 <ComboBox x:Name="splitPlacementGenericFolderLimitComboBox" AutomationProperties.AutomationId="SplitPlacementGenericFolderLimit" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_generic_folder_limit, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" Width="64" IsEditable="False" ItemsSource="{Binding SplitPlacementSearch.GenericFolderLimitChoices, Mode=OneWay}" SelectedItem="{Binding SplitPlacementSearch.GenericFolderLimit, Mode=TwoWay}" />
                 <TextBlock Style="{StaticResource splitPlacementCriteriaLabelStyle}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_basis, Mode=OneWay}" />
