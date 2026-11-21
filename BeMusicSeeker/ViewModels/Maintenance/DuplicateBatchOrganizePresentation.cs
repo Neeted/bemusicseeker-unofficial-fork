@@ -165,7 +165,7 @@ internal static class DuplicateBatchOrganizePresentation
             foreach (DuplicateBatchOrganizeRetainedSource retained in group.RetainedSources)
             {
                 lines.Add(string.Format(
-                    Resources.Duplicate_batch_organize_result_source_format, retained.Directory, SourceReasonText(retained.Reason)));
+                    Resources.Duplicate_batch_organize_result_source_format, retained.Directory, SourceReasonText(retained.Reason, retained.Detail)));
             }
         }
         if (incomplete.Length > MaxDetailGroups)
@@ -224,8 +224,10 @@ internal static class DuplicateBatchOrganizePresentation
     };
 
     /// <summary>統合せずに残した移動元の理由の文言です。</summary>
-    internal static string SourceReasonText(DuplicateBatchOrganizeSourceReason reason) => reason switch
+    /// <param name="detail">理由に含める譜面のパス。<see cref="DuplicateBatchOrganizeSourceReason.OwnedFileMissing"/> だけが使います。</param>
+    internal static string SourceReasonText(DuplicateBatchOrganizeSourceReason reason, string detail = null) => reason switch
     {
+        DuplicateBatchOrganizeSourceReason.OwnedFileMissing => string.Format(Resources.Duplicate_batch_organize_reason_owned_file_missing, detail),
         DuplicateBatchOrganizeSourceReason.SourceMissing => Resources.Duplicate_batch_organize_reason_source_missing,
         DuplicateBatchOrganizeSourceReason.DestinationMissing => Resources.Duplicate_batch_organize_reason_destination_missing,
         DuplicateBatchOrganizeSourceReason.TypeConflict => Resources.Duplicate_batch_organize_reason_type_conflict,

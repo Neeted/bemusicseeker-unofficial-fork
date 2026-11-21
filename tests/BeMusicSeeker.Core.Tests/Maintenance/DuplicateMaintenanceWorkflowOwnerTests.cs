@@ -2440,7 +2440,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     {
         string[] statuses = [.. Enum.GetValues<DuplicateBatchOrganizeGroupStatus>().Select(DuplicateBatchOrganizePresentation.StatusText)];
         string[] skips = [.. Enum.GetValues<DuplicateBatchOrganizeSkipReason>().Where(reason => reason != DuplicateBatchOrganizeSkipReason.None).Select(DuplicateBatchOrganizePresentation.SkipReasonText)];
-        string[] sources = [.. Enum.GetValues<DuplicateBatchOrganizeSourceReason>().Select(DuplicateBatchOrganizePresentation.SourceReasonText)];
+        string[] sources = [.. Enum.GetValues<DuplicateBatchOrganizeSourceReason>().Select(reason => DuplicateBatchOrganizePresentation.SourceReasonText(reason, @"C:\S\chart.bms"))];
         Assert.IsNull(DuplicateBatchOrganizePresentation.SkipReasonText(DuplicateBatchOrganizeSkipReason.None));
         foreach (string[] texts in new[] { statuses, skips, sources })
         {
@@ -2451,6 +2451,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         Assert.AreEqual(7, skips.Length);
         // 移動元の理由「確定の失敗」は、グループの理由「確定の失敗」と同じ文言を使う。
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_commit_failure, DuplicateBatchOrganizePresentation.SourceReasonText(DuplicateBatchOrganizeSourceReason.NotCommitted));
+        // 所持の実ファイルを確認できず見送った移動元の理由は、専用のリソースへ対応し、譜面のパスを含める。他の理由へ丸めない。
+        Assert.AreEqual(
+            string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_reason_owned_file_missing, @"C:\S\chart.bms"),
+            DuplicateBatchOrganizePresentation.SourceReasonText(DuplicateBatchOrganizeSourceReason.OwnedFileMissing, @"C:\S\chart.bms"));
+        StringAssert.Contains(DuplicateBatchOrganizePresentation.SourceReasonText(DuplicateBatchOrganizeSourceReason.OwnedFileMissing, @"C:\S\chart.bms"), @"C:\S\chart.bms");
     }
 
 }

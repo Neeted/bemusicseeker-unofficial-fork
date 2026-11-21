@@ -481,6 +481,117 @@ public sealed class BmsLibraryDuplicateServiceTests
         });
     }
 
+    /// <summary>
+    /// 所持側（統合先）に「既に所持」の記録があっても、その実ファイルが一件も実在しなければ、統合元の最後のコピーを消さずに統合を物理変更の前に見送ります。
+    /// 見送る場合は、統合元・統合先のファイルとバイト列・全DB行（欠落した行を含む）・所持を変えず、統合元の固有の譜面も移さず、専用の案内を一件だけ出し、
+    /// 汎用の統合失敗の案内・失敗の事実・確定を作りません。裏付けは、同じ主ハッシュの別名ファイル（欠落と実在の並びの順序によらず）・統合先以外のフォルダの実在でも成立し、
+    /// その場合は従来どおり統合して統合元を消します。統合元の配下の子フォルダにしか実在しないコピーは裏付けにしません。
+    /// DB行だけで所持を判定する誤り、移動元自身や配下のコピーを裏付けに数える誤り、一部だけ統合する誤り、最初の候補だけ・同名・統合先だけを確かめる誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("bms-missing", false)]
+    [DataRow("bmson-missing", false)]
+    [DataRow("under-source-only", false)]
+    [DataRow("alias-in-keep", true)]
+    [DataRow("present-last", true)]
+    [DataRow("present-first", true)]
+    [DataRow("elsewhere-only", true)]
+    public void MergeChartDirectory_AlreadyOwnedWithoutActualFile_RefusesBeforeAnyChangeUnlessBackedByAFile(string scenario, bool expectApplied)
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            string root = Path.Combine(Path.GetDirectoryName(songDbPath) ?? throw new InvalidOperationException(), "Library");
+            string source = Path.Combine(root, "Source"), keep = Path.Combine(root, "Keep");
+            bool bmson = scenario == "bmson-missing";
+            string ext = bmson ? ".bmson" : ".bms";
+            string Text(string id) => bmson
+                ? "{\"version\":\"1.0.0\",\"info\":{\"title\":\"" + id + "\",\"artist\":\"a\",\"mode_hint\":\"beat-7k\"},\"sound_channels\":[]}"
+                : "#PLAYER 1\r\n#TITLE T\r\n#BPM 120\r\n#COMMENT " + id + "\r\n#00111:01\r\n";
+            var registered = new List<string>();
+            var deleted = new List<string>();
+            void Add(string directory, string name, string id, bool exists = true)
+            {
+                Directory.CreateDirectory(directory);
+                string path = Path.Combine(directory, name);
+                File.WriteAllText(path, Text(id));
+                registered.Add(path);
+                if (!exists) { deleted.Add(path); }
+            }
+            string? backing = null;
+            string alias = Path.Combine(keep, "alias" + ext), expectedChart = Path.Combine(source, "x" + ext);
+            switch (scenario)
+            {
+                case "alias-in-keep": Add(keep, "x" + ext, "X", exists: false); Add(keep, "alias" + ext, "X"); backing = alias; break;
+                case "present-last": Add(keep, "a" + ext, "X", exists: false); Add(keep, "b" + ext, "X"); backing = Path.Combine(keep, "b" + ext); break;
+                case "present-first": Add(keep, "a" + ext, "X"); Add(keep, "b" + ext, "X", exists: false); backing = Path.Combine(keep, "a" + ext); break;
+                case "elsewhere-only": Add(keep, "x" + ext, "X", exists: false); Add(Path.Combine(root, "Other"), "x" + ext, "X"); backing = Path.Combine(root, "Other", "x" + ext); break;
+                case "under-source-only": Add(keep, "x" + ext, "X", exists: false); Add(Path.Combine(source, "Sub"), "x" + ext, "X"); expectedChart = Path.Combine(source, "Sub", "x" + ext); break;
+                default: Add(keep, "x" + ext, "X", exists: false); break;
+            }
+            Add(source, "x" + ext, "X");
+            Add(source, "y" + ext, "Y");
+            File.WriteAllText(Path.Combine(source, "s.wav"), "source audio");
+            ChartFile[] charts = [.. registered.Select(path => bmson
+                ? ChartTestValues.ReadBmson(path)
+                : BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)))];
+            ChartFile[] bmsCharts = [.. charts.Where(chart => chart.Kind == ChartFileKind.Bms)];
+            ChartFile[] bmsonCharts = [.. charts.Where(chart => chart.Kind == ChartFileKind.Bmson)];
+            var library = new TestBmsLibrary(databaseScope, songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService(),
+                new TestUiScheduler(() => null), () => new BmsLibraryOptionsSnapshot { OperationModeLR2DB = false, BMSInstallDir = root },
+                settings: TestBmsFactory.CreateRootSettings([root]))
+            { BmsCharts = bmsCharts, BmsonCharts = bmsonCharts };
+            var gateway = new BmsLibraryDbGateway(databaseScope, new BmsDatabaseLoadOptions(true, true, true), songDbPath);
+            gateway.UpsertSongs(bmsCharts);
+            gateway.UpsertBmsonSongs(bmsonCharts);
+            LibraryResourceIndexTestSupport.GetOwner(library).Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([root])));
+            foreach (string path in deleted) { File.Delete(path); }
+            SortedDictionary<string, byte[]> TreeNow() => new(Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)
+                .ToDictionary(path => path, File.ReadAllBytes, StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+            string[] RowsNow()
+            {
+                using LR2SongDBExtended db = gateway.OpenSongDbReadOnly();
+                return [.. db.Table<LR2SongDB.song>().Select(row => row.path + "|" + row.hash)
+                    .Concat(db.Table<LR2SongDBExtended.bmson_song>().Select(row => row.path + "|bmson"))
+                    .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)];
+            }
+            SortedDictionary<string, byte[]> treeBefore = TreeNow();
+            string[] rowsBefore = RowsNow();
+            string[] chartPathsBefore = [.. library.BmsCharts.Concat(library.BmsonCharts).Select(chart => chart.Path).OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+            var notices = new LibraryOperationNotices();
+            try
+            {
+                DuplicateMergeMaintenanceReceipt receipt = library.MergeChartDirectory(source, keep, notices: notices, operationId: 1);
+
+                if (expectApplied)
+                {
+                    Assert.IsTrue(receipt.MergeApplied);
+                    // 統合先の欠落した行は確定後の保守が読み込めず、その既存の案内だけが出ます。見送りの案内や汎用の統合失敗の案内は出しません。
+                    Assert.IsTrue(notices.Snapshot().All(notice => deleted.Any(path => notice.MessageBoxText.Contains(path))), "裏付けがあれば、従来どおり統合します。");
+                    Assert.IsFalse(Directory.Exists(source), "統合元は消えます。");
+                    Assert.IsTrue(File.Exists(Path.Combine(keep, "y" + ext)), "固有の譜面は移ります。");
+                    Assert.IsNotNull(backing);
+                    CollectionAssert.AreEqual(treeBefore[backing], File.ReadAllBytes(backing), "裏付けのファイルは変わりません。");
+                    return;
+                }
+
+                Assert.IsFalse(receipt.MergeApplied);
+                Assert.AreEqual(0, receipt.SessionReceipt.ConfirmedChangeCount);
+                Assert.AreEqual(0, receipt.SessionReceipt.ApplyCounts.CatalogApplyCount);
+                Assert.IsNull(receipt.SessionReceipt.PrimaryFailure, "失敗の事実を持たない未適用です。");
+                Assert.IsFalse(receipt.SessionReceipt.HasRequiredFailure);
+                BMSLibrary.OperationDialogMessage notice = notices.Snapshot().Single();
+                Assert.AreEqual(string.Format(Resources.Warn_BmsFolderMergeOwnedChartFileMissing, source, expectedChart), notice.MessageBoxText);
+                CollectionAssert.AreEqual(treeBefore.Keys.ToArray(), TreeNow().Keys.ToArray(), "どちらのフォルダのファイルの集合も変わりません。");
+                foreach (KeyValuePair<string, byte[]> item in TreeNow()) { CollectionAssert.AreEqual(treeBefore[item.Key], item.Value, item.Key); }
+                Assert.IsFalse(File.Exists(Path.Combine(keep, "y" + ext)), "固有の譜面も部分的に移しません。");
+                CollectionAssert.AreEqual(rowsBefore, RowsNow(), "所持側の欠落した行を含む全DB行が変わりません。");
+                CollectionAssert.AreEqual(chartPathsBefore,
+                    library.BmsCharts.Concat(library.BmsonCharts).Select(chart => chart.Path).OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray());
+            }
+            finally { library.RequestShutdown("merge-owned-file-missing"); }
+        });
+    }
+
     private static OwnedDuplicateChartRowSnapshot CreateDuplicateAnalysisSnapshot(
         IEnumerable<ChartFile> bmsFiles,
         IEnumerable<ChartFile> bmsonSongs)

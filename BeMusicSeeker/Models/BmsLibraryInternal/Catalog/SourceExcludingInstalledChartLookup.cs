@@ -54,6 +54,15 @@ internal sealed class SourceExcludingInstalledChartLookup : IInstalledChartLooku
             : [.. directories.Where(directory => !IsExcluded(directory))];
     }
 
+    /// <summary>除外フォルダの配下にある譜面のパスを落とし、残りを返します。</summary>
+    public IReadOnlyList<string> GetPathsByPrimaryHash(string lookupHash)
+    {
+        IReadOnlyList<string> paths = baseline.GetPathsByPrimaryHash(lookupHash);
+        return excludedDirectories.Count == 0 || paths.Count == 0
+            ? paths
+            : [.. paths.Where(path => !IsExcluded(System.IO.Path.GetDirectoryName(path)))];
+    }
+
     /// <summary>除外フォルダの配下のディレクトリは 0 件として返します。</summary>
     public int GetUniquePrimaryHashCountByDirectory(string directoryPath)
         => IsExcluded(directoryPath) ? 0 : baseline.GetUniquePrimaryHashCountByDirectory(directoryPath);

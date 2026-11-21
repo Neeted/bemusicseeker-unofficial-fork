@@ -1905,6 +1905,9 @@ public class Resources
     /// <summary>統合の前にリンクの有無を確認できなかったため統合を拒否する理由です。{0}は確認できなかった位置のパスです。</summary>
     public static string Warn_BmsFolderMergeLinkCheckFailed => ResourceManager.GetString("Warn_BmsFolderMergeLinkCheckFailed", resourceCulture);
 
+    /// <summary>所持済みと記録された同じ譜面の実ファイルを確認できないため統合を見送る理由です。{0}は統合元フォルダ、{1}は実ファイルを確認できなかった統合元側の譜面のパスです。</summary>
+    public static string Warn_BmsFolderMergeOwnedChartFileMissing => ResourceManager.GetString("Warn_BmsFolderMergeOwnedChartFileMissing", resourceCulture);
+
 
     public static string Warn_CannotRenameRootFolder => ResourceManager.GetString("Warn_CannotRenameRootFolder", resourceCulture);
 
@@ -3533,6 +3536,8 @@ public class Resources
     public static string Duplicate_batch_organize_reason_type_conflict => ResourceManager.GetString("Duplicate_batch_organize_reason_type_conflict", resourceCulture);
     /// <summary>重複グループの一括整理の結果の理由で、変更の開始前の確認で拒否したことを示す文言です。</summary>
     public static string Duplicate_batch_organize_reason_preflight => ResourceManager.GetString("Duplicate_batch_organize_reason_preflight", resourceCulture);
+    /// <summary>重複グループの一括整理の結果の理由で、所持済みと記録された同じ譜面の実ファイルを確認できず見送ったことを示す文言です。{0}は統合元側の譜面のパスです。</summary>
+    public static string Duplicate_batch_organize_reason_owned_file_missing => ResourceManager.GetString("Duplicate_batch_organize_reason_owned_file_missing", resourceCulture);
     /// <summary>重複グループの一括整理の結果の理由で、物理処理が予期せず失敗したことを示す文言です。</summary>
     public static string Duplicate_batch_organize_reason_physical_failure => ResourceManager.GetString("Duplicate_batch_organize_reason_physical_failure", resourceCulture);
     /// <summary>重複グループの一括整理の結果の理由で、確定に失敗したことを示す文言です。</summary>

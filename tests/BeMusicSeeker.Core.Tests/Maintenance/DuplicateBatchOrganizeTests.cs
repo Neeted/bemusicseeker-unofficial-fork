@@ -4,6 +4,7 @@ using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.TestSupport.Components;
+using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryDuplicateServiceTestSupport;
 
 namespace BeMusicSeeker.Tests;
@@ -349,6 +350,10 @@ public sealed class DuplicateBatchOrganizeTests
                     case "same-group":
                         Assert.AreEqual(1, rig.CountDirectCharts("K1", "y"), "最初の移動元のコピーが KEEP に一件だけ残ります。");
                         Assert.AreEqual(1, rig.CountDirectCharts("K1", "x"));
+                        // 先に配置に成功した A の KEEP 上のコピーは実在する裏付けになり、B の移動省略と統合は従来どおり完了します。
+                        Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[0].Status);
+                        CollectionAssert.AreEqual(new[] { rig.At("A"), rig.At("B") }, result.Groups[0].MergedSources.ToArray());
+                        Assert.AreEqual(0, result.Groups[0].RetainedSources.Count);
                         break;
                     case "same-group-type-conflict":
                         Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.PartiallyCompleted, result.Groups[0].Status);
@@ -385,6 +390,98 @@ public sealed class DuplicateBatchOrganizeTests
             finally
             {
                 rig.Library.RequestShutdown("batch-last-copy");
+            }
+        });
+    }
+
+    /// <summary>
+    /// 所持側の実ファイルが欠落した「既に所持」だけを根拠に移動を省く移動元は、物理変更の前に専用の理由で残し、ツリー・DB行・直下の重複（ごみ箱送り）を変えず、
+    /// 独立した次の移動元・グループは通常どおり処理し、操作全体を止めず案内も出しません。
+    /// 実在するコピーが別グループの移動元にしかない場合も、全移動元の配下を裏付けにせず、どちらの移動元も残します。
+    /// DB行だけで判定する誤り、直下の重複を先にごみ箱へ送る誤り、理由を事前確認の拒否へ丸める誤り、別グループの移動元を裏付けに数える誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    [DataRow("owned-file-missing")]
+    [DataRow("copy-only-in-other-group-source")]
+    public void OrganizeDuplicateGroups_AlreadyOwnedWithoutActualFile_RetainsTheSourceBeforeAnyChange(string scenario)
+    {
+        WithTemporarySongDb(databaseScope, songDbPath =>
+        {
+            using var rig = new Rig(databaseScope, songDbPath);
+            rig.Chart("K1", "kx.bms", "x");
+            rig.Chart("K2", "k2.bms", "k2");
+            rig.Chart("A", "ax.bms", "x");
+            rig.Chart("A", "ay.bms", "y");
+            (string Keep, string[] Sources)[] groups;
+            string[] retainedFolders;
+            if (scenario == "owned-file-missing")
+            {
+                rig.Chart("A", "am1.bms", "m");
+                rig.Chart("A", "am2.bms", "m");
+                rig.Chart("B", "bz.bms", "z");
+                rig.Chart("C", "cw.bms", "w");
+                groups = [("K1", ["A", "B"]), ("K2", ["C"])];
+                retainedFolders = ["A"];
+            }
+            else
+            {
+                rig.Chart("B", "bx.bms", "x");
+                rig.Chart("B", "by.bms", "by");
+                groups = [("K1", ["A"]), ("K2", ["B"])];
+                retainedFolders = ["A", "B"];
+            }
+            rig.Start();
+            File.Delete(rig.At("K1\\kx.bms"));
+            try
+            {
+                HashSet<string> contentsBefore = rig.ChartContents();
+                SortedDictionary<string, byte[]> before = rig.Tree();
+                List<KeyValuePair<string, string>> beforeRows = rig.SongRows();
+                var notices = new LibraryOperationNotices();
+                DuplicateBatchOrganizeResult result = rig.Organize(groups, notices: notices);
+
+                AssertContentsRemain(contentsBefore, rig.ChartContents());
+                AssertFoldersUnchanged(before, rig.Tree(), retainedFolders);
+                AssertRowsUnchanged(beforeRows, rig.SongRows(), retainedFolders);
+                Assert.AreEqual(0, rig.Mutations.ShellDeletedFiles.Count, "見送る移動元の直下の重複を、ごみ箱へ送りません。");
+                // 見送りの案内は積みません。統合先の欠落した行は、統合した移動元の確定後の保守が読み込めず、その既存の案内だけが出ます（見送りとは無関係）。
+                Assert.AreEqual(scenario == "owned-file-missing" ? 1 : 0, notices.Snapshot().Count);
+                Assert.IsTrue(notices.Snapshot().All(notice => notice.MessageBoxText.Contains(rig.At("K1\\kx.bms"))));
+                Assert.AreEqual(0, rig.Dialogs.Posted.Count);
+                Assert.IsFalse(result.Receipt.SessionReceipt.HasRequiredFailure);
+                Assert.IsTrue(result.Admitted);
+
+                DuplicateBatchOrganizeRetainedSource[] retained = [.. result.Groups.SelectMany(group => group.RetainedSources)];
+                Assert.AreEqual(retainedFolders.Length, retained.Length);
+                for (int index = 0; index < retainedFolders.Length; index++)
+                {
+                    Assert.AreEqual(rig.At(retainedFolders[index]), retained[index].Directory);
+                    Assert.AreEqual(DuplicateBatchOrganizeSourceReason.OwnedFileMissing, retained[index].Reason);
+                    Assert.AreEqual(rig.At(retainedFolders[index] + (retainedFolders[index] == "A" ? "\\ax.bms" : "\\bx.bms")), retained[index].Detail,
+                        "裏付けが取れなかった移動元側の譜面を一件示します。");
+                    Assert.AreEqual(
+                        string.Format(Resources.Duplicate_batch_organize_reason_owned_file_missing, retained[index].Detail),
+                        DuplicateBatchOrganizePresentation.SourceReasonText(retained[index].Reason, retained[index].Detail));
+                }
+                if (scenario == "owned-file-missing")
+                {
+                    Assert.AreEqual(2, rig.CountDirectCharts("A", "m"), "移る主ハッシュの重複も、整理せず二件とも残ります。");
+                    Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.PartiallyCompleted, result.Groups[0].Status);
+                    CollectionAssert.AreEqual(new[] { rig.At("B") }, result.Groups[0].MergedSources.ToArray(), "独立した次の移動元は統合します。");
+                    Assert.AreEqual(1, rig.CountDirectCharts("K1", "z"));
+                    Assert.AreEqual(DuplicateBatchOrganizeGroupStatus.Completed, result.Groups[1].Status);
+                    Assert.AreEqual(1, rig.CountDirectCharts("K2", "w"));
+                }
+                else
+                {
+                    Assert.AreEqual(1, rig.CountDirectCharts("A", "x"));
+                    Assert.AreEqual(1, rig.CountDirectCharts("B", "x"), "別グループの移動元のコピーを裏付けにして、両方を失いません。");
+                    Assert.IsTrue(result.Groups.All(group => group.Status == DuplicateBatchOrganizeGroupStatus.Failed));
+                }
+            }
+            finally
+            {
+                rig.Library.RequestShutdown("batch-owned-file-missing");
             }
         });
     }

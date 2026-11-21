@@ -2493,6 +2493,12 @@ OK を選ぶと、今回の変換を WAVE で続行します。キャンセル�
     <value>フォルダの内容を確認できないため、統合を中止しました。
 対象: {0}</value>
   </data>
+  <data name="Warn_BmsFolderMergeOwnedChartFileMissing" xml:space="preserve">
+    <value>同じ譜面を所持済みと記録していますが、その実ファイルを確認できないため、フォルダの統合を見送りました。
+ライブラリツリーの「フォルダ」を右クリックして「リロード」を実行してから、やり直してください。
+統合元: {0}
+譜面: {1}</value>
+  </data>
   <data name="Warn_CannotRenameRootFolder" xml:space="preserve">
     <value>ルートフォルダをリネームすることはできません
 
@@ -4464,6 +4470,9 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   </data>
   <data name="Duplicate_batch_organize_reason_preflight" xml:space="preserve">
     <value>事前確認で拒否</value>
+  </data>
+  <data name="Duplicate_batch_organize_reason_owned_file_missing" xml:space="preserve">
+    <value>所持済みの実ファイルを確認できず見送り（譜面: {0}）。ライブラリツリーの「フォルダ」の「リロード」を実行してからやり直してください</value>
   </data>
   <data name="Duplicate_batch_organize_reason_physical_failure" xml:space="preserve">
     <value>物理処理の失敗</value>

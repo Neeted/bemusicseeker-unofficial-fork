@@ -507,6 +507,17 @@ internal sealed partial class LibraryMutationOwner
                 return true;
             }
 
+            // 「既に所持」を理由に移動を省く主ハッシュは、所持側の実ファイルの裏付けを確かめます。取れなければ、移動元の最後のコピーを
+            // 消さないよう、直下の重複のごみ箱送りを含む物理変更の前にこの移動元を見送り、独立した次の移動元へ進みます。
+            // 所持の基準は全予定移動元の配下を除いてあり、操作内で配置に成功した譜面だけが加わります。存在確認はロックの外で行います。
+            string unverifiedChartPath = BmsLibraryPackageInstallService.FindUnverifiedAlreadyOwnedChartPath(
+                prepared.Charts, ownershipOverlay, ownershipOverlay, [source]);
+            if (unverifiedChartPath != null)
+            {
+                state.Retain(source, DuplicateBatchOrganizeSourceReason.OwnedFileMissing, unverifiedChartPath);
+                return true;
+            }
+
             List<ChartFile> duplicates = SelectSourceDuplicates(state, sourceIndex, prepared);
             if (duplicates.Count > 0)
             {
@@ -782,7 +793,8 @@ internal sealed partial class LibraryMutationOwner
                     + " status=" + result.Status
                     + (result.SkipReason == DuplicateBatchOrganizeSkipReason.None ? string.Empty : " skipReason=" + result.SkipReason + " skipPath=" + result.SkipPath)
                     + " merged=" + string.Join("|", result.MergedSources)
-                    + " retained=" + string.Join("|", result.RetainedSources.Select(retained => retained.Directory + ":" + retained.Reason))
+                    + " retained=" + string.Join("|", result.RetainedSources.Select(retained => retained.Directory + ":" + retained.Reason
+                        + (retained.Detail == null ? string.Empty : "(" + retained.Detail + ")")))
                     + " trashed=" + result.TrashedChartCount
                     + " trashFailed=" + result.TrashFailureCount);
             }
@@ -852,8 +864,8 @@ internal sealed partial class LibraryMutationOwner
                 SkipPath = path;
             }
 
-            internal void Retain(string source, DuplicateBatchOrganizeSourceReason reason)
-                => Retained.Add(new DuplicateBatchOrganizeRetainedSource(source, reason));
+            internal void Retain(string source, DuplicateBatchOrganizeSourceReason reason, string detail = null)
+                => Retained.Add(new DuplicateBatchOrganizeRetainedSource(source, reason, detail));
 
             /// <summary>統合できた移動元の数と、残った移動元・削除の失敗から、グループの状態を決めます。</summary>
             internal void CompleteMergeStatus()

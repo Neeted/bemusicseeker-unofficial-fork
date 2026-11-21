@@ -149,13 +149,20 @@ internal enum DuplicateBatchOrganizeSourceReason
     NotProcessed,
 
     /// <summary>物理的には統合しましたが、確定に失敗したため、結果として統合した扱いにしません。</summary>
-    NotCommitted
+    NotCommitted,
+
+    /// <summary>
+    /// 「既に所持」と記録された同じ譜面の実ファイルを所持側に確認できないため、移動元の最後のコピーを守るために見送りました。
+    /// 該当する移動元側の譜面は <see cref="DuplicateBatchOrganizeRetainedSource.Detail"/> に入ります。
+    /// </summary>
+    OwnedFileMissing
 }
 
 /// <summary>統合せずに残した移動元と、その理由です。</summary>
 /// <param name="Directory">残した移動元。</param>
 /// <param name="Reason">理由の分類。文言ではなく分類で比べます。</param>
-internal sealed record DuplicateBatchOrganizeRetainedSource(string Directory, DuplicateBatchOrganizeSourceReason Reason);
+/// <param name="Detail">理由に添える補足のパス。<see cref="DuplicateBatchOrganizeSourceReason.OwnedFileMissing"/> では、実ファイルの裏付けが取れなかった移動元側の譜面です。ないときは null です。</param>
+internal sealed record DuplicateBatchOrganizeRetainedSource(string Directory, DuplicateBatchOrganizeSourceReason Reason, string Detail = null);
 
 /// <summary>一つのグループの処理結果です。要求と同じ順に <see cref="DuplicateBatchOrganizeResult.Groups"/> へ並びます。</summary>
 internal sealed class DuplicateBatchOrganizeGroupResult

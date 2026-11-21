@@ -1151,15 +1151,19 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
     }
     /// <summary>
     /// 所持済みと新規譜面が混在する導入で新規行を確定し、元入力の削除設定に従って所持コピーを保持または削除して、設定を無視する入力削除を検出する。
+    /// 所持側の実ファイルが欠落している場合は、設定が有効でも元入力の所持済み譜面と元フォルダを削除せず、新規譜面の導入は成功する。
+    /// 本番の所持の重ね合わせ照会が実在確認につながっていない誤り（DB行だけを根拠に元入力を消す誤り）を検出する。
     /// </summary>
     /// <remarks>実ライブラリの保存・排他・通知経路に接続するため独立したSQLite DBと実フォルダを用いる。</remarks>
-    // 第一値は元入力削除の設定、第二値はその設定から期待する実削除。
+    // 第一値は元入力削除の設定、第二値はその設定から期待する実削除、第三値は所持側の実ファイルの実在。
     [TestMethod]
-    [DataRow(false, false)]
-    [DataRow(true, true)]
+    [DataRow(false, false, true)]
+    [DataRow(true, true, true)]
+    [DataRow(true, false, false)]
     public void InstallPendingPackagesToEstimatedDestinations_MixedPackageSourceCleanupHonorsSetting(
         bool deletePendingPackageSourceAfterInstall,
-        bool expectSourceCleanup)
+        bool expectSourceCleanup,
+        bool ownedFileExists)
     {
         var databaseScope = new ApplicationDatabaseScope();
 
@@ -1179,6 +1183,11 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
                 seedSongDb.InsertOrReplace(
                     ChartSongStorageMapping.ToBmsRow(installedChart),
                     typeof(LR2SongDB.song));
+            }
+            if (!ownedFileExists)
+            {
+                // DB上は所持済みのまま、所持側の実ファイルだけを欠落させます。
+                File.Delete(installedChartPath);
             }
 
             ChartPackage package = ChartPackageTestExtensions.CreatePackage(
@@ -1214,7 +1223,7 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
 
             Assert.IsTrue(result.HasDurableCommit);
             Assert.IsFalse(result.FailedPackages.Contains(package));
-            Assert.IsTrue(File.Exists(installedChartPath));
+            Assert.AreEqual(ownedFileExists, File.Exists(installedChartPath));
             Assert.IsTrue(File.Exists(Path.Combine(destinationDirectoryPath, "new.bms")));
             Assert.AreEqual(expectSourceCleanup, !File.Exists(sourceOwnedChartPath));
             Assert.AreEqual(expectSourceCleanup, !Directory.Exists(sourceDirectoryPath));
@@ -7168,6 +7177,61 @@ public sealed partial class BmsLibraryPackageInstallServiceTests
             Assert.IsTrue(File.Exists(Path.Combine(setup.DestinationDirectoryPath, "install-target.bms")));
             CollectionAssert.AreEqual(residualBytes, File.ReadAllBytes(independentlyOwnedPath));
             if (preserveResiduals) { CollectionAssert.AreEqual(residualBytes, File.ReadAllBytes(remainingChartPath)); }
+        });
+    }
+
+    /// <summary>
+    /// 残譜面の独立所持コピーは、実ファイルが実在する一件があって初めて元親の追加削除の根拠になる。DB上の所持だけ（実ファイル欠落）なら追加削除を行わず、
+    /// 元の親と残存物を残したまま導入自体は成功する。欠落と実在が並ぶ場合は、実在する一件で裏付けが成立し削除する（候補の並び順に依存しない）。
+    /// DB行だけで残存物を削除する誤り、最初の候補だけを確かめる誤り、導入ごと拒否する誤りを検出する。
+    /// </summary>
+    /// <remarks>実ファイルの存在・内容と物理操作の成否を観測するため独立した作業フォルダを用いる。所持の照会は、実在するファイルから作ってから削除したパスを使う。</remarks>
+    // 第一値は所持側の候補（missing=欠落、present=実在。名前の昇順に並ぶ）、第二値は追加削除が行われること。
+    [TestMethod]
+    [DataRow("missing-only", false)]
+    [DataRow("missing-then-present", true)]
+    [DataRow("present-then-missing", true)]
+    public void MovePackageFilesWithReceipt_RetainsResiduals_WhenIndependentOwnershipHasNoActualFile(string candidates, bool expectResidualCleanup)
+    {
+        WithTemporaryDirectory(delegate (string tempDirectoryPath)
+        {
+            SafeDeleteMoveSetup setup = CreateSingleChartParentDeleteSetup(tempDirectoryPath, "install-target", "#TITLE Installed");
+            string remainingChartPath = CreateBmsFile(setup.ParentDirectoryPath, "remain-installed.bms", "#TITLE Remain Installed");
+            byte[] residualBytes = File.ReadAllBytes(remainingChartPath);
+            string ownedDirectory = Path.Combine(tempDirectoryPath, "Installed", "Owned");
+            Directory.CreateDirectory(ownedDirectory);
+            List<ChartFile> owned = [];
+            List<string> missing = [];
+            string[] names = candidates switch
+            {
+                "missing-only" => ["a.bms"],
+                "missing-then-present" => ["a.bms", "b.bms"],
+                _ => ["a.bms", "b.bms"]
+            };
+            for (int index = 0; index < names.Length; index++)
+            {
+                string path = Path.Combine(ownedDirectory, names[index]);
+                File.Copy(remainingChartPath, path);
+                owned.Add(BmsChartFileParser.ParseSnapshot(ChartFileContentReader.ReadSnapshot(path)));
+                bool isMissing = candidates switch
+                {
+                    "missing-only" => true,
+                    "missing-then-present" => index == 0,
+                    _ => index == 1
+                };
+                if (isMissing) { missing.Add(path); }
+            }
+            InstalledChartLookupIndexSnapshot lookup = CreateInstalledChartLookup(owned);
+            foreach (string path in missing) { File.Delete(path); }
+
+            bool moved = ExecuteSingleChartParentDeleteMoveWithReceipt(setup, lookup);
+
+            Assert.IsTrue(moved, "導入自体は拒否しません。");
+            Assert.IsFalse(File.Exists(setup.SourceChartPath));
+            Assert.IsTrue(File.Exists(Path.Combine(setup.DestinationDirectoryPath, "install-target.bms")));
+            Assert.AreEqual(!expectResidualCleanup, Directory.Exists(setup.ParentDirectoryPath));
+            Assert.AreEqual(!expectResidualCleanup, File.Exists(remainingChartPath));
+            if (!expectResidualCleanup) { CollectionAssert.AreEqual(residualBytes, File.ReadAllBytes(remainingChartPath)); }
         });
     }
 

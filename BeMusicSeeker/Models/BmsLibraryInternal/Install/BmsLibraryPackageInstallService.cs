@@ -2204,8 +2204,10 @@ internal sealed partial class BmsLibraryPackageInstallService
             IReadOnlyList<string> independentDirectories = independentlyOwnedLookup?.GetDistinctDirectoriesByPrimaryHash(lookupKey) ?? [];
             bool hasOwnedContentInsideCleanupBoundary = independentDirectories
                 .Any(directory => IsPathWithinAnyCleanupBoundary(directory, cleanupBoundaryDirectories));
-            bool hasIndependentInstalledCopy = independentDirectories
-                .Any(directory => !IsPathWithinAnyCleanupBoundary(directory, cleanupBoundaryDirectories));
+            // DB上の所持だけでは、入力元の残存物を消してよい根拠にしません。所持側の実ファイルの存在まで確かめます。
+            // 今回の配置先に同じ譜面があれば結果は変わらないため、所持側の実ファイルの存在確認は省きます。
+            bool hasIndependentInstalledCopy = !hasPlannedDestinationCopy
+                && HasExistingOwnedChartFile(independentlyOwnedLookup, lookupKey, cleanupBoundaryDirectories);
             if (hasOwnedContentInsideCleanupBoundary
                 && sourceCleanupPolicy != PackageSourceCleanupPolicy.MergeOwnedSourceContents)
             {
@@ -2238,6 +2240,75 @@ internal sealed partial class BmsLibraryPackageInstallService
     }
 
     /// <summary>
+    /// 主ハッシュを持つ所持譜面の実ファイルが、指定した範囲の外に少なくとも一件実在するかを返します。
+    /// 所持索引が持つ候補パスの存在確認だけを行い、実在する一件が見つかれば止めます。再ハッシュ・走査・列挙順への依存はありません。
+    /// モデルのロックを保持した状態では呼びません（ファイルの存在確認を含むため）。
+    /// </summary>
+    /// <param name="ownership">所持譜面のパスを引く所持索引。</param>
+    /// <param name="lookupHash">確認する主ハッシュ。</param>
+    /// <param name="excludedBoundaryDirectories">削除され得る範囲。配下にあるコピーは裏付けにしません。</param>
+    internal static bool HasExistingOwnedChartFile(
+        IInstalledChartLookupIndex ownership,
+        string lookupHash,
+        IEnumerable<string> excludedBoundaryDirectories)
+    {
+        foreach (string path in ownership?.GetPathsByPrimaryHash(lookupHash) ?? [])
+        {
+            if (!string.IsNullOrWhiteSpace(path)
+                && !IsPathWithinAnyCleanupBoundary(path, excludedBoundaryDirectories)
+                && LongPathFileSystem.FileExists(path))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 「既に所持」を理由に移動を省く主ハッシュのうち、実ファイルの裏付けが取れないものがある移動元の譜面を探します。
+    /// 見つかれば、その移動元は物理変更の前に見送る必要があります（移動元の最後のコピーを、実体のない所持の記録を根拠に削除しないため）。
+    /// 主ハッシュごとに裏付けを一度だけ確認します。
+    /// </summary>
+    /// <param name="sourceCharts">移動元から移す予定の譜面。</param>
+    /// <param name="existingHashes">既に所持している主ハッシュの判定（移動元の譜面を除いたもの）。</param>
+    /// <param name="ownership">所持譜面のパスを引く所持索引。</param>
+    /// <param name="excludedBoundaryDirectories">この操作で削除され得る移動元。配下にあるコピーは裏付けにしません。</param>
+    /// <returns>裏付けが取れなかった移動元側の譜面のうち、絶対パスの昇順（大文字小文字を無視）で先頭のパス。すべて裏付けがあれば null。</returns>
+    internal static string FindUnverifiedAlreadyOwnedChartPath(
+        IEnumerable<ChartFile> sourceCharts,
+        IPrimaryHashLookup existingHashes,
+        IInstalledChartLookupIndex ownership,
+        IEnumerable<string> excludedBoundaryDirectories)
+    {
+        if (existingHashes == null)
+        {
+            return null;
+        }
+        string[] boundaries = [.. excludedBoundaryDirectories ?? []];
+        var verifiedByHash = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        string first = null;
+        foreach (ChartFile chart in sourceCharts ?? [])
+        {
+            string hash = ChartLookupKey.GetPrimaryHash(chart);
+            if (string.IsNullOrWhiteSpace(hash)
+                || string.IsNullOrWhiteSpace(chart?.Path)
+                || !existingHashes.ContainsPrimaryHash(hash))
+            {
+                continue;
+            }
+            if (!verifiedByHash.TryGetValue(hash, out bool verified))
+            {
+                verifiedByHash[hash] = verified = HasExistingOwnedChartFile(ownership, hash, boundaries);
+            }
+            if (!verified && (first == null || StringComparer.OrdinalIgnoreCase.Compare(chart.Path, first) < 0))
+            {
+                first = chart.Path;
+            }
+        }
+        return first;
+    }
+
+    /// <summary>
     /// operation 開始時 snapshot に、同じ install session で実際に physical success した chart だけを重ねる lookup です。
     /// 未実行予約や failed/skipped package は追加しません。
     /// 保留導入に加えて、重複グループの一括整理が、全予定移動元を除いた基準へ同じ操作で成功した譜面だけを重ねるために使います。
@@ -2248,6 +2319,8 @@ internal sealed partial class BmsLibraryPackageInstallService
         private readonly IPrimaryHashLookup hashBaseline;
         private readonly PrimaryHashSetLookup successfulPrimaryHashes = new();
         private readonly Dictionary<string, HashSet<string>> successfulDirectoriesByHash =
+            new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, HashSet<string>> successfulPathsByHash =
             new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>operation 開始時 snapshot に physical-success facts だけを重ねる lookup を作成します。</summary>
@@ -2291,6 +2364,19 @@ internal sealed partial class BmsLibraryPackageInstallService
             return [.. directories];
         }
 
+        /// <summary>baseline の所持譜面のパスに、この操作で配置に成功した譜面のパスを加えて返します。</summary>
+        public IReadOnlyList<string> GetPathsByPrimaryHash(string lookupHash)
+        {
+            IReadOnlyList<string> baselinePaths = ownershipBaseline?.GetPathsByPrimaryHash(lookupHash) ?? [];
+            if (string.IsNullOrWhiteSpace(lookupHash)
+                || !successfulPathsByHash.TryGetValue(lookupHash, out HashSet<string> successfulPaths))
+            {
+                return baselinePaths;
+            }
+            return [.. baselinePaths.Union(successfulPaths, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+        }
+
         public int GetUniquePrimaryHashCountByDirectory(string directoryPath)
         {
             int baselineCount = ownershipBaseline?.GetUniquePrimaryHashCountByDirectory(directoryPath) ?? 0;
@@ -2317,6 +2403,14 @@ internal sealed partial class BmsLibraryPackageInstallService
                     continue;
                 }
                 successfulPrimaryHashes.AddPrimaryHash(lookupHash);
+                if (!string.IsNullOrWhiteSpace(chart?.Path))
+                {
+                    if (!successfulPathsByHash.TryGetValue(lookupHash, out HashSet<string> paths))
+                    {
+                        successfulPathsByHash.Add(lookupHash, paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                    }
+                    paths.Add(chart.Path);
+                }
                 string chartDirectory = string.IsNullOrWhiteSpace(chart?.Path)
                     ? null
                     : Path.GetDirectoryName(chart.Path);

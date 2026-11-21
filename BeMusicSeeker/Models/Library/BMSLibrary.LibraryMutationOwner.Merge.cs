@@ -16,6 +16,7 @@ internal sealed partial class LibraryMutationOwner
     /// 確定利用者登録本体や空の登録子を含む祖先を元にする要求は、物理準備・変更セッションの開始前に拒否します。
     /// 統合元の本体と配下の全階層、統合先の本体、統合元の項目と同じ相対パスにある統合先の既存項目がリンク
     /// （シンボリックリンク・ジャンクション）の場合と、それを確認できない場合も、同じ時点で案内一件だけを加えて拒否します。
+    /// 所持済みを理由に移動を省く譜面の実ファイルが所持側に一件も確認できない場合も、変更セッションの開始前に案内一件だけで見送ります。
     /// </summary>
     /// <param name="notices">この操作の案内を集める入れ物。拒否・失敗の案内を加え、呼出元が受付の解放後に表示します。</param>
     internal DuplicateMergeMaintenanceReceipt MergeChartDirectory(string sourceDirectory, string destinationDirectory,
@@ -106,6 +107,20 @@ internal sealed partial class LibraryMutationOwner
                 if (!mergePrepared)
                 {
                     LogInstallPerformance("duplicate_merge_model skipped op=" + operationId + " reason=no_source_charts totalMs=" + totalStopwatch.ElapsedMilliseconds);
+                    return DuplicateMergeMaintenanceReceipt.NotApplied;
+                }
+
+                // 「既に所持」を理由に移動を省く主ハッシュは、所持側の実ファイルの裏付けを確かめます。取れなければ、
+                // 移動元の最後のコピーを消さないよう、変更セッションの開始・物理変更より前に案内一件だけで見送ります。
+                // 所持索引は上のロック内で不変のスナップショットとして固定済みで、候補パスの取得とファイルの存在確認はロックの外で行います。
+                string unverifiedChartPath = BmsLibraryPackageInstallService.FindUnverifiedAlreadyOwnedChartPath(
+                    preparedSourceCharts, existingHashes, independentOwnershipLookup, [sourceDirectory]);
+                if (unverifiedChartPath != null)
+                {
+                    AddMergeOwnedChartFileMissingNotice(notices, sourceDirectory, unverifiedChartPath);
+                    LogInstallPerformanceWarning("duplicate_merge_model refused op=" + operationId
+                        + " reason=owned_file_missing chart=" + unverifiedChartPath
+                        + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
                     return DuplicateMergeMaintenanceReceipt.NotApplied;
                 }
 
@@ -385,6 +400,14 @@ internal sealed partial class LibraryMutationOwner
                     ? Resources.Warn_BmsFolderMergeLinkFound
                     : Resources.Warn_BmsFolderMergeLinkCheckFailed,
                 inspection.Path),
+            Resources.MessageBoxTitle_Warning,
+            MessageBoxImage.Exclamation);
+
+    /// <summary>所持済みと記録された同じ譜面の実ファイルを確認できず統合を見送る理由を、この操作の収集先へ一件だけ加えます。</summary>
+    private static void AddMergeOwnedChartFileMissingNotice(LibraryOperationNotices notices, string sourceDirectory, string chartPath)
+        => AddNotice(
+            notices,
+            string.Format(Resources.Warn_BmsFolderMergeOwnedChartFileMissing, sourceDirectory, chartPath),
             Resources.MessageBoxTitle_Warning,
             MessageBoxImage.Exclamation);
 
