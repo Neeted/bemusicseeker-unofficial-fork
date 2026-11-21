@@ -1376,7 +1376,7 @@ This view finds songs whose files are split across several folders and lets you 
 
 Selecting `Split placement check` in the left tree starts the search. A progress dialog is shown during the search, and `Cancel` stops it. No result is shown when you cancel. When the search finishes, the candidate groups appear in the tree. Selecting `Split placement check` shows all candidates, selecting a group shows that group, and selecting a folder shows the charts in that folder.
 
-Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group.
+Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group. 80% and 20 folders are the default values and can be changed in [Adjust the Search Conditions](#adjust-the-search-conditions).
 
 - Each folder has at least 10 audio files that are used for the comparison.
 - At least 80% of the audio names in the folder with fewer audio files also exist in the other folder.
@@ -1399,6 +1399,20 @@ Folders are merged from `Merge candidates` at the top of the tree. Reading the l
 - The check marks, `KEEP`, verification results, the conditions in the search and exclude boxes, and the folders registered with `Preferred destinations...` are kept separately from the merge candidates list of duplicate file check.
 
 In the split-placement-check tree, `Merge to` in the folder context menu and `Ctrl + G` are not available.
+
+#### Adjust the Search Conditions
+
+When there are too many candidates, or a pair you expect does not become a candidate, change the search conditions above the operation buttons of the merge candidates list and search again. `Merge candidates` is shown even when there are no candidates.
+
+| Item | Default | Description |
+| --- | --- | --- |
+| `Share rate` | 80% | The share of audio names that must be common for a pair to become a candidate. Choose from 50 to 100% in steps of 5%. Raising it reduces the candidates; lowering it also finds versions where some audio files were replaced. |
+| `Folder count treated as generic names` | 20 | Audio names that exist in more folders than this number are not used for the comparison. Choose from 2 to 100. Raise it when you have many copies of the same song and that song does not become a candidate. Lower it when unrelated folders are put into one group. |
+| `Share rate basis` | `Folder with fewer audio files` | With `Folder with fewer audio files`, a pair becomes a candidate when the share rate is met for the folder that has fewer audio files. With `Both folders`, the share rate must be met from both folders. Choose it to exclude pairs where a large folder merely contains the audio of a small folder. |
+
+Choosing a value does not change the result. Press `Search again` to search with the chosen values. While the chosen values are not applied yet, `Search again` is shown in bold. After searching again, the check marks, `KEEP`, and verification results are kept for groups whose folders and charts did not change.
+
+The applied values are kept until you exit the app and return to the defaults at the next start. Searches started from the left tree and the search after organizing also use the applied values.
 
 ### Full Resource Scan
 

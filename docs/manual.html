@@ -600,6 +600,7 @@ hr {
 </ul></details></li>
 <li class="toc-level-3"><details open><summary><a href="#split-placement-check">Split Placement Check</a></summary><ul>
 <li class="toc-level-4"><a href="#merge-candidate-folders">Merge Candidate Folders</a></li>
+<li class="toc-level-4"><a href="#adjust-the-search-conditions">Adjust the Search Conditions</a></li>
 </ul></details></li>
 <li class="toc-level-3"><a href="#full-resource-scan">Full Resource Scan</a></li>
 </ul></details></li>
@@ -2195,7 +2196,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>This view finds songs whose files are split across several folders and lets you merge those folders together. Duplicate file check finds folders that contain the same chart (charts whose MD5 matches). Split placement check finds folders that share many audio file names even when they have no chart in common. It is useful, for example, when only the additional charts of a song are stored in a separate folder.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>The results are merge candidates. The check does not read the audio files and compares file names only, so different songs can appear as candidates. Before organizing, check the contents with <code>Verify selected groups</code> in the merge candidates list.</p></div>
 <p>Selecting <code>Split placement check</code> in the left tree starts the search. A progress dialog is shown during the search, and <code>Cancel</code> stops it. No result is shown when you cancel. When the search finishes, the candidate groups appear in the tree. Selecting <code>Split placement check</code> shows all candidates, selecting a group shows that group, and selecting a folder shows the charts in that folder.</p>
-<p>Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group.</p>
+<p>Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group. 80% and 20 folders are the default values and can be changed in <a href="#adjust-the-search-conditions">Adjust the Search Conditions</a>.</p>
 <ul>
 <li>Each folder has at least 10 audio files that are used for the comparison.</li>
 <li>At least 80% of the audio names in the folder with fewer audio files also exist in the other folder.</li>
@@ -2216,6 +2217,36 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <li>The check marks, <code>KEEP</code>, verification results, the conditions in the search and exclude boxes, and the folders registered with <code>Preferred destinations...</code> are kept separately from the merge candidates list of duplicate file check.</li>
 </ul>
 <p>In the split-placement-check tree, <code>Merge to</code> in the folder context menu and <code>Ctrl + G</code> are not available.</p>
+<h4 id="adjust-the-search-conditions">Adjust the Search Conditions</h4>
+<p>When there are too many candidates, or a pair you expect does not become a candidate, change the search conditions above the operation buttons of the merge candidates list and search again. <code>Merge candidates</code> is shown even when there are no candidates.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Item</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Share rate</code></td>
+<td>80%</td>
+<td>The share of audio names that must be common for a pair to become a candidate. Choose from 50 to 100% in steps of 5%. Raising it reduces the candidates; lowering it also finds versions where some audio files were replaced.</td>
+</tr>
+<tr>
+<td><code>Folder count treated as generic names</code></td>
+<td>20</td>
+<td>Audio names that exist in more folders than this number are not used for the comparison. Choose from 2 to 100. Raise it when you have many copies of the same song and that song does not become a candidate. Lower it when unrelated folders are put into one group.</td>
+</tr>
+<tr>
+<td><code>Share rate basis</code></td>
+<td><code>Folder with fewer audio files</code></td>
+<td>With <code>Folder with fewer audio files</code>, a pair becomes a candidate when the share rate is met for the folder that has fewer audio files. With <code>Both folders</code>, the share rate must be met from both folders. Choose it to exclude pairs where a large folder merely contains the audio of a small folder.</td>
+</tr>
+</tbody>
+</table></div>
+<p>Choosing a value does not change the result. Press <code>Search again</code> to search with the chosen values. While the chosen values are not applied yet, <code>Search again</code> is shown in bold. After searching again, the check marks, <code>KEEP</code>, and verification results are kept for groups whose folders and charts did not change.</p>
+<p>The applied values are kept until you exit the app and return to the defaults at the next start. Searches started from the left tree and the search after organizing also use the applied values.</p>
 <h3 id="full-resource-scan">Full Resource Scan</h3>
 <p><img alt="Full Resource Scan" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
 <p>This view checks missing WAV, BGA, video, image, and similar resources.</p>
