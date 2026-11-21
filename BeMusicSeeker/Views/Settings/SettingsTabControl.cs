@@ -84,6 +84,36 @@ public class SettingsTabControl : ScrollingTabControl
 }
 
 /// <summary>
+/// <see cref="SettingsTabControl"/> のテンプレートに置く、選択中のタブ名を表示するページ見出しです。
+/// </summary>
+/// <remarks>
+/// 標準の <see cref="TextBlockAutomationPeer"/> は、テンプレート内の <see cref="TextBlock"/> をコントロール要素から外します。
+/// その場合、見出しは UI Automation のコントロールビューに現れず、支援技術や UI Automation クライアントの既定の検索から見えません。
+/// 見出しはページの名前を伝える唯一の要素なので、<see cref="SettingsPageHeaderTextAutomationPeer"/> でコントロール要素として公開します。
+/// </remarks>
+public class SettingsPageHeaderText : TextBlock
+{
+    /// <inheritdoc />
+    protected override AutomationPeer OnCreateAutomationPeer() => new SettingsPageHeaderTextAutomationPeer(this);
+}
+
+/// <summary>
+/// <see cref="SettingsPageHeaderText"/> を、テンプレート内でもコントロール要素として公開する peer です。名前と種類は標準の <see cref="TextBlockAutomationPeer"/> のままです。
+/// </summary>
+internal sealed class SettingsPageHeaderTextAutomationPeer : TextBlockAutomationPeer
+{
+    /// <summary>ページ見出しの peer を作ります。</summary>
+    /// <param name="owner">peer が表す見出し。</param>
+    internal SettingsPageHeaderTextAutomationPeer(SettingsPageHeaderText owner)
+        : base(owner)
+    {
+    }
+
+    /// <inheritdoc />
+    protected override bool IsControlElementCore() => true;
+}
+
+/// <summary>
 /// <see cref="SettingsTabControl"/> の項目に加えて、テンプレート内の見出しと下部領域の要素を子として公開します。
 /// 選択・単一選択・TabItem の公開は標準の <see cref="TabControlAutomationPeer"/> のままです。
 /// </summary>

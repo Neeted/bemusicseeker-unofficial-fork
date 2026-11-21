@@ -273,7 +273,7 @@
           <RowDefinition Height="1" />
           <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <TextBlock x:Name="PART_PageHeader"
+        <settings:SettingsPageHeaderText x:Name="PART_PageHeader"
                    Grid.Row="0"
                    Margin="{StaticResource App.Layout.BodyPadding}"
                    AutomationProperties.AutomationId="SettingsSelectedPageHeader"
@@ -354,6 +354,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsSection}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="{StaticResource App.Layout.SectionMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="VerticalContentAlignment" Value="Stretch" />
@@ -398,6 +400,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsField}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />
@@ -511,6 +515,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsOptionRow}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="Padding" Value="{StaticResource App.Layout.BodyPadding}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
@@ -543,6 +549,8 @@
   </Style>
 
   <Style TargetType="{x:Type settings:SettingsPathPicker}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="{StaticResource App.Layout.FieldMargin}" />
     <Setter Property="HorizontalContentAlignment" Value="Stretch" />
     <Setter Property="AutomationProperties.ItemStatus" Value="{Binding ValidationStatus, RelativeSource={RelativeSource Self}}" />
@@ -619,6 +627,8 @@
   <Style TargetType="{x:Type settings:SettingsListEditor}"
          BasedOn="{StaticResource {x:Type settings:SettingsField}}" />
   <Style TargetType="{x:Type settings:SettingsStatusBanner}">
+    <Setter Property="Focusable" Value="False" />
+    <Setter Property="IsTabStop" Value="False" />
     <Setter Property="Margin" Value="0,8,0,16" />
     <Setter Property="Padding" Value="16,8" />
     <Setter Property="Foreground" Value="{DynamicResource App.TextBrush}" />

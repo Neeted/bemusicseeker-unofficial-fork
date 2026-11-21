@@ -102,20 +102,52 @@ internal static class TabNavigationAssert
     /// <param name="automationIds">到達できなければならない AutomationId。</param>
     public static void AssertReachableByAutomation(Window window, params string[] automationIds)
     {
+        var found = new HashSet<string>(StringComparer.Ordinal);
+        foreach (AutomationPeer peer in EnumerateAutomationTree(window))
+        {
+            string id = peer.GetAutomationId();
+            if (!string.IsNullOrEmpty(id))
+            {
+                found.Add(id);
+            }
+        }
+
+        foreach (string automationId in automationIds)
+        {
+            Assert.IsTrue(found.Contains(automationId), "UI Automation の木から " + automationId + " へ到達できません。");
+        }
+    }
+
+    /// <summary>
+    /// ウィンドウの Automation peer の木から、指定した AutomationId の要素がちょうど一つあり、コントロール要素として公開されることを確認して返します。
+    /// </summary>
+    /// <remarks>
+    /// 支援技術や UI Automation クライアントの既定の検索はコントロールビューを使い、コントロール要素でない要素を返しません。
+    /// テンプレート内の <see cref="TextBlock"/> のように、peer の木にはあってもコントロールビューから消える要素を検出します。
+    /// 外部クライアントからの実際の検索は Desktop E2E が確認し、この表明はプロバイダー側の公開だけを確認します。
+    /// </remarks>
+    /// <param name="window">表示済みのウィンドウ。</param>
+    /// <param name="automationId">探す AutomationId。</param>
+    /// <returns>見つかった要素の peer。</returns>
+    public static AutomationPeer FindControlElementByAutomation(Window window, string automationId)
+    {
+        AutomationPeer[] matches = [.. EnumerateAutomationTree(window).Where(peer => peer.GetAutomationId() == automationId)];
+        Assert.HasCount(1, matches, "UI Automation の木で " + automationId + " はちょうど一つです。");
+        Assert.IsTrue(matches[0].IsControlElement(), automationId + " はコントロールビューに公開されるコントロール要素です。");
+        return matches[0];
+    }
+
+    private static IEnumerable<AutomationPeer> EnumerateAutomationTree(Window window)
+    {
         ArgumentNullException.ThrowIfNull(window);
         AutomationPeer root = UIElementAutomationPeer.CreatePeerForElement(window)
             ?? throw new AssertFailedException("ウィンドウの Automation peer がありません。");
-        var found = new HashSet<string>(StringComparer.Ordinal);
         var pending = new Stack<AutomationPeer>();
         pending.Push(root);
         while (pending.Count > 0)
         {
             AutomationPeer current = pending.Pop();
-            string id = current.GetAutomationId();
-            if (!string.IsNullOrEmpty(id))
-            {
-                found.Add(id);
-            }
+            yield return current;
 
             // peer は子の一覧を保持し、テスト内ではタブの切替で作り直されないことがある。前回たどった時点の子（切替前のページ）を読まないよう作り直す。
             current.ResetChildrenCache();
@@ -123,11 +155,6 @@ internal static class TabNavigationAssert
             {
                 pending.Push(child);
             }
-        }
-
-        foreach (string automationId in automationIds)
-        {
-            Assert.IsTrue(found.Contains(automationId), "UI Automation の木から " + automationId + " へ到達できません。");
         }
     }
 

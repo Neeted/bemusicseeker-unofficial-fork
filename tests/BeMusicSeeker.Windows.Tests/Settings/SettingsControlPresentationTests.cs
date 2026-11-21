@@ -24,6 +24,11 @@ namespace BeMusicSeeker.Tests;
 public sealed class SettingsControlPresentationTests
 {
     /// <summary>実 navigation を Automation と named 項目で選択し、単一選択・ページと見出しの配送・カテゴリ切替でのスクロール復帰と本文末尾到達・固定見出し/操作の不動を確認します。</summary>
+    /// <remarks>
+    /// 見出しは、ウィンドウの peer の木でちょうど一つのコントロール要素として公開され、Name が選択中のタブ項目の Name に追随することも確認します。
+    /// テンプレート内の素の TextBlock のようにコントロールビューから消える見出しや、Name が最初のタブ名のまま変わらない見出しを検出します。
+    /// 外部の UI Automation クライアントからのコントロールビュー検索は Desktop E2E の [SC-16] が分担します。
+    /// </remarks>
     [TestMethod]
     public void SettingsWindow_NavigationAutomationSelectionSynchronizesPageAndResetsScroll()
     {
@@ -54,6 +59,7 @@ public sealed class SettingsControlPresentationTests
                 }
 
                 AutomationPeer navigationPeer = UIElementAutomationPeer.CreatePeerForElement(navigation);
+                AssertHeaderNamesSelectedCategory(window, navigation, "初期選択");
                 TabNavigationAssert.AssertSingleRequiredSelection(navigation, () => [navigation.SelectedItem, header.Text, pageHost.Content, scroller.VerticalOffset]);
                 AutomationPeer playbackPeer = navigationPeer.GetChildren()
                     .Single(peer => peer.GetAutomationId() == "SettingsCategoryPlayback");
@@ -65,11 +71,13 @@ public sealed class SettingsControlPresentationTests
                 Assert.IsInstanceOfType<PlaybackSettingsPage>(pageHost.Content);
                 Assert.AreEqual(((TabItem)navigation.SelectedItem).Header, header.Text);
                 Assert.IsTrue(playbackSelection.IsSelected);
+                AssertHeaderNamesSelectedCategory(window, navigation, "Automation の Select の後");
 
                 navigation.SelectedItem = window.FindName("navigationAppearance");
                 TestUiDispatcherHost.ProcessQueuedPresentation();
                 Assert.IsInstanceOfType<AppearanceSettingsPage>(pageHost.Content);
                 Assert.AreEqual(((TabItem)navigation.SelectedItem).Header, header.Text);
+                AssertHeaderNamesSelectedCategory(window, navigation, "名前付きの選択の後");
 
                 navigation.SelectedItem = window.FindName("navigationGeneral");
                 var selectedPage = (FrameworkElement)pageHost.Content;
@@ -1176,6 +1184,15 @@ public sealed class SettingsControlPresentationTests
         var expected = (SolidColorBrush)resourceOwner.TryFindResource(resourceKey);
         Assert.IsInstanceOfType<SolidColorBrush>(actual, resourceKey);
         Assert.AreEqual(expected.Color, ((SolidColorBrush)actual).Color, resourceKey);
+    }
+
+    // 見出しはコントロール要素として一つだけ公開され、UI Automation の Name が選択中のタブ項目の Name と一致する。
+    private static void AssertHeaderNamesSelectedCategory(Window window, TabControl navigation, string phase)
+    {
+        AutomationPeer header = TabNavigationAssert.FindControlElementByAutomation(window, "SettingsSelectedPageHeader");
+        AutomationPeer selected = UIElementAutomationPeer.CreatePeerForElement((TabItem)navigation.SelectedItem);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(selected.GetName()), phase + ": 選択中のタブ項目には名前がある。");
+        Assert.AreEqual(selected.GetName(), header.GetName(), phase + ": 見出しの名前は選択中のタブ項目の名前と一致する。");
     }
 
     private static double ContrastRatio(Color first, Color second)
