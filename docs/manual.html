@@ -598,6 +598,9 @@ hr {
 <li class="toc-level-4"><a href="#continuous-cleanup-with-ctrl--g">Continuous Cleanup with Ctrl + G</a></li>
 <li class="toc-level-4"><a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a></li>
 </ul></details></li>
+<li class="toc-level-3"><details open><summary><a href="#split-placement-check">Split Placement Check</a></summary><ul>
+<li class="toc-level-4"><a href="#merge-candidate-folders">Merge Candidate Folders</a></li>
+</ul></details></li>
 <li class="toc-level-3"><a href="#full-resource-scan">Full Resource Scan</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#play-log">Play Log</a></summary><ul>
@@ -765,6 +768,7 @@ hr {
 <li><a href="#parse-errors">Parse Errors</a></li>
 <li><a href="#garbled-text-check">Garbled Text Check</a></li>
 <li><a href="#duplicate-file-check">Duplicate File Check</a></li>
+<li><a href="#split-placement-check">Split Placement Check</a></li>
 <li><a href="#full-resource-scan">Full Resource Scan</a></li>
 </ul>
 </li>
@@ -2187,6 +2191,31 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <li>Double-clicking a row moves to that folder in the duplicate-file-check tree.</li>
 <li>From the context menu, you can <code>Check</code>, <code>Uncheck</code>, or <code>Verify this group</code> for the groups of the selected rows, and <code>Open in Explorer</code> for the folders. The <code>Space</code> key also toggles the check mark. Clicking a <code>SELECT</code> or <code>STATUS</code> cell selects every row of that group.</li>
 </ul>
+<h3 id="split-placement-check">Split Placement Check</h3>
+<p>This view finds songs whose files are split across several folders and lets you merge those folders together. Duplicate file check finds folders that contain the same chart (charts whose MD5 matches). Split placement check finds folders that share many audio file names even when they have no chart in common. It is useful, for example, when only the additional charts of a song are stored in a separate folder.</p>
+<div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>The results are merge candidates. The check does not read the audio files and compares file names only, so different songs can appear as candidates. Before organizing, check the contents with <code>Verify selected groups</code> in the merge candidates list.</p></div>
+<p>Selecting <code>Split placement check</code> in the left tree starts the search. A progress dialog is shown during the search, and <code>Cancel</code> stops it. No result is shown when you cancel. When the search finishes, the candidate groups appear in the tree. Selecting <code>Split placement check</code> shows all candidates, selecting a group shows that group, and selecting a folder shows the charts in that folder.</p>
+<p>Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group.</p>
+<ul>
+<li>Each folder has at least 10 audio files that are used for the comparison.</li>
+<li>At least 80% of the audio names in the folder with fewer audio files also exist in the other folder.</li>
+<li>The two folders have no chart in common. Use duplicate file check for folders that contain the same chart.</li>
+</ul>
+<p>Audio names are compared as the path relative to the folder, without the extension. <code>sound/kick.wav</code> and <code>sound/kick.ogg</code> are the same name; <code>kick.wav</code> and <code>sound/kick.wav</code> are different names. The following audio files are not used for the comparison.</p>
+<ul>
+<li><code>preview</code>, <code>_preview</code>, and <code>__preview</code> directly under the folder</li>
+<li>Audio names that exist in more than 20 folders. This keeps folders that only share names used by many works, such as <code>01.wav</code>, out of the candidates.</li>
+<li>Audio files inside a child folder that has its own charts</li>
+</ul>
+<p>When the library changes, for example by deleting or moving charts or by installing packages, the result is discarded and the groups disappear from the tree. Click <code>Split placement check</code> again to search again.</p>
+<h4 id="merge-candidate-folders">Merge Candidate Folders</h4>
+<p>Folders are merged from <code>Merge candidates</code> at the top of the tree. Reading the list and using <code>Verify selected groups</code> and <code>Organize selected groups</code> work the same way as in <a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a> for duplicate file check. Only the following points differ.</p>
+<ul>
+<li>Groups whose <code>STATUS</code> is <code>Unchecked</code> cannot be organized. If you press <code>Organize selected groups</code> while an <code>Unchecked</code> group is checked, a message asks you to verify first and nothing is organized. Run <code>Verify selected groups</code> before organizing.</li>
+<li>When organizing finishes, the search runs again automatically. The check marks, <code>KEEP</code>, and verification results of groups that were not affected are kept.</li>
+<li>The check marks, <code>KEEP</code>, verification results, the conditions in the search and exclude boxes, and the folders registered with <code>Preferred destinations...</code> are kept separately from the merge candidates list of duplicate file check.</li>
+</ul>
+<p>In the split-placement-check tree, <code>Merge to</code> in the folder context menu and <code>Ctrl + G</code> are not available.</p>
 <h3 id="full-resource-scan">Full Resource Scan</h3>
 <p><img alt="Full Resource Scan" src="img/一覧_構成ファイルフルスキャン.PNG"/></p>
 <p>This view checks missing WAV, BGA, video, image, and similar resources.</p>

@@ -82,6 +82,7 @@ This manual explains BeMusicSeeker Unofficial Fork, from registering your librar
     - [Parse Errors](#parse-errors)
     - [Garbled Text Check](#garbled-text-check)
     - [Duplicate File Check](#duplicate-file-check)
+    - [Split Placement Check](#split-placement-check)
     - [Full Resource Scan](#full-resource-scan)
 - [Play Log](#play-log)
     - [Displayed History](#displayed-history)
@@ -1365,6 +1366,39 @@ Other operations are as follows.
 - When you register folders with `Preferred destinations...` and confirm, for every group, a folder that is the same as or under one of them becomes `KEEP` when it is the only such folder in its group. The registered folders are kept until you close the application.
 - Double-clicking a row moves to that folder in the duplicate-file-check tree.
 - From the context menu, you can `Check`, `Uncheck`, or `Verify this group` for the groups of the selected rows, and `Open in Explorer` for the folders. The `Space` key also toggles the check mark. Clicking a `SELECT` or `STATUS` cell selects every row of that group.
+
+### Split Placement Check
+
+This view finds songs whose files are split across several folders and lets you merge those folders together. Duplicate file check finds folders that contain the same chart (charts whose MD5 matches). Split placement check finds folders that share many audio file names even when they have no chart in common. It is useful, for example, when only the additional charts of a song are stored in a separate folder.
+
+> [!CAUTION]
+> The results are merge candidates. The check does not read the audio files and compares file names only, so different songs can appear as candidates. Before organizing, check the contents with `Verify selected groups` in the merge candidates list.
+
+Selecting `Split placement check` in the left tree starts the search. A progress dialog is shown during the search, and `Cancel` stops it. No result is shown when you cancel. When the search finishes, the candidate groups appear in the tree. Selecting `Split placement check` shows all candidates, selecting a group shows that group, and selecting a folder shows the charts in that folder.
+
+Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group.
+
+- Each folder has at least 10 audio files that are used for the comparison.
+- At least 80% of the audio names in the folder with fewer audio files also exist in the other folder.
+- The two folders have no chart in common. Use duplicate file check for folders that contain the same chart.
+
+Audio names are compared as the path relative to the folder, without the extension. `sound/kick.wav` and `sound/kick.ogg` are the same name; `kick.wav` and `sound/kick.wav` are different names. The following audio files are not used for the comparison.
+
+- `preview`, `_preview`, and `__preview` directly under the folder
+- Audio names that exist in more than 20 folders. This keeps folders that only share names used by many works, such as `01.wav`, out of the candidates.
+- Audio files inside a child folder that has its own charts
+
+When the library changes, for example by deleting or moving charts or by installing packages, the result is discarded and the groups disappear from the tree. Click `Split placement check` again to search again.
+
+#### Merge Candidate Folders
+
+Folders are merged from `Merge candidates` at the top of the tree. Reading the list and using `Verify selected groups` and `Organize selected groups` work the same way as in [Organize Multiple Groups from Merge Candidates](#organize-multiple-groups-from-merge-candidates) for duplicate file check. Only the following points differ.
+
+- Groups whose `STATUS` is `Unchecked` cannot be organized. If you press `Organize selected groups` while an `Unchecked` group is checked, a message asks you to verify first and nothing is organized. Run `Verify selected groups` before organizing.
+- When organizing finishes, the search runs again automatically. The check marks, `KEEP`, and verification results of groups that were not affected are kept.
+- The check marks, `KEEP`, verification results, the conditions in the search and exclude boxes, and the folders registered with `Preferred destinations...` are kept separately from the merge candidates list of duplicate file check.
+
+In the split-placement-check tree, `Merge to` in the folder context menu and `Ctrl + G` are not available.
 
 ### Full Resource Scan
 
