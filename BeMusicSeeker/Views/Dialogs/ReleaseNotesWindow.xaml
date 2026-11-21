@@ -39,6 +39,23 @@
 </FrameworkContentElement.Resources>
 <List>
 <ListItem>
+<Paragraph FontWeight="Bold">3.3.0.0:</Paragraph>
+<List MarkerStyle="Box">
+<ListItem>
+<Paragraph>重複ファイルチェックに「統合候補一覧」を追加し、複数の重複グループを統合しても問題がないか確認してから、まとめて整理できるようにしました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>同じ楽曲が複数のフォルダに分かれて置かれている状態を、音源のファイル名から見つける「分裂配置チェック」を追加しました。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>ごく短い音を大量に並べる譜面を内蔵プレイヤーで再生できるようにし、音声ファイルへの変換を高速化しました。変換中は段階と進捗を表示し、途中でキャンセルできます。</Paragraph>
+</ListItem>
+<ListItem>
+<Paragraph>シンボリックリンクまたはジャンクションを含むフォルダは、右クリックの「マージ先」と Ctrl + G でマージせず、理由を表示するようにしました。</Paragraph>
+</ListItem>
+</List>
+</ListItem>
+<ListItem>
 <Paragraph FontWeight="Bold">3.2.0.0:</Paragraph>
 <List MarkerStyle="Box">
 <ListItem>
