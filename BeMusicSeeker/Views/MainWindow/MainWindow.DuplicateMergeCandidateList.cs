@@ -222,6 +222,30 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>
+    /// 分裂配置の探索条件の行の「再探索」です。入力中の探索条件での探索・適用・一覧の作り直しの手順は <see cref="SplitPlacementSearchWorkflowOwner"/> が持ち、
+    /// ここでは呼出しの接続と、想定外の例外の通知だけを行います。
+    /// </summary>
+    private async void splitPlacementResearchClick(object sender, RoutedEventArgs e)
+    {
+        if (ShouldBlockStartupUiInteraction("split_placement_research")
+            || base.DataContext is not MainWindowViewModel { SplitPlacementSearch: { } workflow })
+        {
+            return;
+        }
+        try
+        {
+            await workflow.ResearchAsync(this);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception)
+        {
+            await NotifyMainWindowOperationFailureAsync(exception, "splitPlacementResearchClick");
+        }
+    }
+
     /// <summary>Spaceキーは、選択中の行が属するグループのSELECTを切り替えます。複数行選択ではグループごとに一度です。</summary>
     private void customTableDuplicateCandidates_KeyDown(object sender, KeyEventArgs e)
     {

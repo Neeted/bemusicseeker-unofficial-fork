@@ -32,8 +32,12 @@ public sealed class BmsLibrarySplitPlacementTests
         });
     }
 
-    private static void Search(BMSLibrary library, IProgress<SplitPlacementSearchProgress>? progress = null, CancellationToken token = default)
-        => library.SearchSplitPlacementGroups(progress!, token);
+    private static void Search(
+        BMSLibrary library,
+        IProgress<SplitPlacementSearchProgress>? progress = null,
+        CancellationToken token = default,
+        SplitPlacementSearchCriteria? criteria = null)
+        => library.SearchSplitPlacementGroups(criteria ?? SplitPlacementSearchCriteria.Default, progress!, token);
 
     private static string[] FolderTexts(BMSLibrary library) => [.. library.SplitPlacementGroups!.Select(group => string.Join("|", group.Folders))];
 
@@ -539,23 +543,189 @@ public sealed class BmsLibrarySplitPlacementTests
         Run(TwoRelatedFolders(), library =>
         {
             SetTwoRelatedIndex(library);
-            Assert.IsFalse(library.HasCurrentSplitPlacementGroups, "探索前");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "探索前");
 
             Search(library);
-            Assert.IsTrue(library.HasCurrentSplitPlacementGroups, "探索後");
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "探索後");
 
             SetIndex(library, new(@"C:\BMS\A", Keys(1, 10)), new(@"C:\BMS\B", Keys(300, 10)));
             Assert.IsNotNull(library.SplitPlacementGroups, "世代が変わっても結果は保持する");
-            Assert.IsFalse(library.HasCurrentSplitPlacementGroups, "世代の変化");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "世代の変化");
 
             Search(library);
             Assert.AreEqual(0, library.SplitPlacementGroups!.Count);
-            Assert.IsTrue(library.HasCurrentSplitPlacementGroups, "0件の再探索");
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "0件の再探索");
 
             var log = new NotificationLog(library);
             library.BmsCharts = TwoRelatedFolders();
             WaitForInvalidation(library, log);
-            Assert.IsFalse(library.HasCurrentSplitPlacementGroups, "失効");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "失効");
+        });
+    }
+
+    private static readonly SplitPlacementSearchCriteria CriteriaEighty = SplitPlacementSearchCriteria.Default;
+
+    private static readonly SplitPlacementSearchCriteria CriteriaNinety = new(90, 20, SplitPlacementShareBasis.SmallerSide);
+
+    /// <summary>A・B・Cが一つの集まり（CはA・Bと10個中8個を共有）で、D1・D2が別の集まりになる、五フォルダの入力です。</summary>
+    private static ChartFile[] FiveFolderCharts() =>
+    [
+        Chart(@"C:\BMS\A\a.bms", 1, "A"), Chart(@"C:\BMS\B\b.bms", 2, "B"), Chart(@"C:\BMS\C\c.bms", 3, "C"),
+        Chart(@"C:\BMS\D1\d.bms", 4, "D1"), Chart(@"C:\BMS\D2\d.bms", 5, "D2"),
+    ];
+
+    private static void SetFiveFolderIndex(BMSLibrary library)
+        => SetIndex(
+            library,
+            new(@"C:\BMS\A", Keys(1, 10)), new(@"C:\BMS\B", Keys(1, 10)), new(@"C:\BMS\C", [.. Keys(1, 8), .. Keys(900, 2)]),
+            new(@"C:\BMS\D1", Keys(100, 10)), new(@"C:\BMS\D2", Keys(100, 10)));
+
+    /// <summary>
+    /// 探索条件の有効性の判定を確認します。探索した探索条件と値の等しい別インスタンスでは真、値の異なる探索条件では偽、
+    /// リソース索引の世代が進むと偽、所持集合の失効で偽になります。世代と結果の有無だけを見て探索条件を無視する誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void HasCurrentSplitPlacementGroups_RequiresEqualCriteria()
+    {
+        Run(FiveFolderCharts(), library =>
+        {
+            SetFiveFolderIndex(library);
+            Search(library, criteria: CriteriaEighty);
+
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(CriteriaEighty));
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(new SplitPlacementSearchCriteria(80, 20, SplitPlacementShareBasis.SmallerSide)), "値の等しい別インスタンス");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(CriteriaNinety), "共有率が違う");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(new SplitPlacementSearchCriteria(80, 21, SplitPlacementShareBasis.SmallerSide)), "汎用名の数が違う");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(new SplitPlacementSearchCriteria(80, 20, SplitPlacementShareBasis.BothSides)), "基準が違う");
+
+            SetFiveFolderIndex(library);
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(CriteriaEighty), "世代が進んだ");
+
+            Search(library, criteria: CriteriaEighty);
+            var log = new NotificationLog(library);
+            library.BmsCharts = FiveFolderCharts();
+            WaitForInvalidation(library, log);
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(CriteriaEighty), "失効");
+        });
+    }
+
+    /// <summary>
+    /// 世代も探索条件も同じ探索は、探索も通知も進捗の報告もせず、同じ結果のまま戻ることを確認します。
+    /// 値の等しい別インスタンスの探索条件でも同じです。
+    /// </summary>
+    [TestMethod]
+    public void Search_WithSameGenerationAndEqualCriteria_DoesNotSearchAgain()
+    {
+        Run(FiveFolderCharts(), library =>
+        {
+            SetFiveFolderIndex(library);
+            Search(library, criteria: CriteriaEighty);
+            List<DuplicateGroup> first = library.SplitPlacementGroups!;
+            var log = new NotificationLog(library);
+            int reports = 0;
+
+            Search(library, new Delegating(_ => reports++), criteria: new SplitPlacementSearchCriteria(80, 20, SplitPlacementShareBasis.SmallerSide));
+
+            Assert.AreSame(first, library.SplitPlacementGroups);
+            Assert.AreEqual(0, log.Count, "通知しない");
+            Assert.AreEqual(0, reports, "進捗を報告しない");
+        });
+    }
+
+    /// <summary>
+    /// 同じ世代で探索条件だけを変えると探索し直して通知を一回行い、結果が新しい探索条件に従うことを確認します。
+    /// 元の探索条件へ戻した探索も、有効な結果がないため再び探索します。
+    /// </summary>
+    [TestMethod]
+    public void Search_WithOtherCriteria_SearchesAgainAndFollowsCriteria()
+    {
+        Run(FiveFolderCharts(), library =>
+        {
+            SetFiveFolderIndex(library);
+            Search(library, criteria: CriteriaEighty);
+            Assert.AreEqual(3, library.SplitPlacementGroups!.Single(group => group.Folders.Count == 3).Folders.Count, "共有率80ではA・B・Cが一つのグループ");
+            var log = new NotificationLog(library);
+
+            Search(library, criteria: CriteriaNinety);
+
+            Assert.AreEqual(1, log.Count);
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(CriteriaNinety));
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(CriteriaEighty));
+            CollectionAssert.AreEqual(new[] { 2, 2 }, library.SplitPlacementGroups!.Select(group => group.Folders.Count).ToArray(), "共有率90ではCが外れる");
+
+            Search(library, criteria: CriteriaEighty);
+
+            Assert.AreEqual(2, log.Count);
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(CriteriaEighty));
+            Assert.IsTrue(library.SplitPlacementGroups!.Any(group => group.Folders.Count == 3));
+        });
+    }
+
+    /// <summary>
+    /// 探索条件を変えた探索の取消・失敗では、結果のインスタンス・探索条件（有効性）を保ち通知しないことと、
+    /// その後の成功が保持していた結果を基底にインスタンスを引き継ぐことを確認します。
+    /// </summary>
+    [TestMethod]
+    public void Search_CancelledOrFailedWithOtherCriteria_KeepsResultAndCriteria()
+    {
+        Run(FiveFolderCharts(), library =>
+        {
+            SetFiveFolderIndex(library);
+            Search(library, criteria: CriteriaEighty);
+            List<DuplicateGroup> held = library.SplitPlacementGroups!;
+            DuplicateGroup independent = held.Single(group => group.Folders.Count == 2);
+            var log = new NotificationLog(library);
+
+            using (var cancelled = new CancellationTokenSource())
+            {
+                cancelled.Cancel();
+                Assert.ThrowsExactly<OperationCanceledException>(() => Search(library, token: cancelled.Token, criteria: CriteriaNinety));
+            }
+            Assert.ThrowsExactly<InvalidOperationException>(() => Search(library, new Delegating(_ => throw new InvalidOperationException("receiver")), criteria: CriteriaNinety));
+
+            Assert.AreSame(held, library.SplitPlacementGroups);
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(CriteriaEighty), "探索条件も保つ");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(CriteriaNinety));
+            Assert.AreEqual(0, log.Count, "取消・失敗で通知しない");
+
+            Search(library, criteria: CriteriaNinety);
+
+            Assert.AreSame(independent, library.SplitPlacementGroups!.Single(group => group.Folders[0].EndsWith("D1", StringComparison.Ordinal)), "保持していた結果を基底に引き継ぐ");
+            Assert.AreEqual(1, log.Count);
+        });
+    }
+
+    /// <summary>
+    /// 探索条件を変えた再探索で、構成が同じグループ（D1・D2）は同じインスタンス、構成が変わったグループ（A・B・Cが A・B になる）は新しいインスタンスになることを確認します。
+    /// 失効した後の探索でも、失効前の結果を基底として引き継ぎます。
+    /// </summary>
+    [TestMethod]
+    public void Search_WithOtherCriteria_InheritsOnlyUnchangedGroups_AlsoAfterInvalidation()
+    {
+        Run(FiveFolderCharts(), library =>
+        {
+            SetFiveFolderIndex(library);
+            Search(library, criteria: CriteriaEighty);
+            DuplicateGroup[] first = [.. library.SplitPlacementGroups!];
+            DuplicateGroup firstThree = first.Single(group => group.Folders.Count == 3);
+            DuplicateGroup firstPair = first.Single(group => group.Folders.Count == 2);
+
+            Search(library, criteria: CriteriaNinety);
+
+            DuplicateGroup[] second = [.. library.SplitPlacementGroups!];
+            Assert.AreSame(firstPair, second.Single(group => group.Folders[0].EndsWith("D1", StringComparison.Ordinal)), "構成が同じグループは同じインスタンス");
+            Assert.IsFalse(second.Contains(firstThree));
+            Assert.IsFalse(first.Contains(second.Single(group => group.Folders[0].EndsWith(@"\A", StringComparison.Ordinal))), "構成が変わったグループは新しいインスタンス");
+
+            DuplicateGroup secondPair = second.Single(group => group.Folders[0].EndsWith("D1", StringComparison.Ordinal));
+            var log = new NotificationLog(library);
+            library.BmsCharts = [.. library.BmsCharts];
+            WaitForInvalidation(library, log);
+            Assert.IsNull(library.SplitPlacementGroups);
+
+            Search(library, criteria: CriteriaNinety);
+
+            Assert.AreSame(secondPair, library.SplitPlacementGroups!.Single(group => group.Folders[0].EndsWith("D1", StringComparison.Ordinal)), "失効後も直近の結果を基底にする");
         });
     }
 

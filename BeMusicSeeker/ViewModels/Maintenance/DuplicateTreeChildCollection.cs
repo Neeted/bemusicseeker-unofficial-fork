@@ -68,7 +68,8 @@ internal sealed class DuplicateTreeChildCollection : IList, IReadOnlyList<object
     }
 
     /// <summary>
-    /// 統合候補一覧のノードを、結果が一件以上あるときだけ置きます。結果が一件以上ある間の同期では、置いたノードを除去・置換しません。
+    /// 統合候補一覧のノードを、<paramref name="present"/> が真のときだけ置きます。真の間の同期では、置いたノードを除去・置換しません。
+    /// 重複のツリーは結果が一件以上あるとき、分裂配置のツリーは結果が <see langword="null"/> でないとき（0件を含む）に真を渡します。
     /// ノードを持たないツリーでは何もしません。
     /// </summary>
     internal void SynchronizeCandidateListNode(bool present)

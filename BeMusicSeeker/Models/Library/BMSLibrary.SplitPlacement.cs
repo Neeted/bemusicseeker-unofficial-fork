@@ -18,6 +18,9 @@ public partial class BMSLibrary
 
     private long splitPlacementGeneration;
 
+    /// <summary>現在の結果を探索したときの探索条件です。結果と一緒に格納し、取消・失敗では変えません。</summary>
+    private SplitPlacementSearchCriteria splitPlacementCriteria;
+
     /// <summary>失効した結果を含む、直近に格納した結果です。次の探索がグループのインスタンスを引き継ぐ基底で、失効では消しません。</summary>
     private List<DuplicateGroup> splitPlacementBase;
 
@@ -39,18 +42,19 @@ public partial class BMSLibrary
     }
 
     /// <summary>
-    /// 結果があり、その結果を探索したリソース索引の世代が現在の世代と等しいかを返します。画面が探索の要否を決めるための読取り専用の判定で、
-    /// 受付もライブラリのロックも取りません。0件の結果も有効です。
+    /// 結果があり、その結果を探索したリソース索引の世代が現在の世代と等しく、探索条件が <paramref name="criteria"/> と値として等しいかを返します。
+    /// 画面が探索の要否を決めるための読取り専用の判定で、受付もライブラリのロックも取りません。0件の結果も有効です。
     /// </summary>
-    internal bool HasCurrentSplitPlacementGroups
+    /// <param name="criteria">有効性を判定する探索条件。</param>
+    internal bool HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria criteria)
     {
-        get
+        ArgumentNullException.ThrowIfNull(criteria);
+        long currentGeneration = libraryResourceIndexOwner.CaptureSnapshot().Generation;
+        lock (splitPlacementGate)
         {
-            long currentGeneration = libraryResourceIndexOwner.CaptureSnapshot().Generation;
-            lock (splitPlacementGate)
-            {
-                return splitPlacementGroups != null && splitPlacementGeneration == currentGeneration;
-            }
+            return splitPlacementGroups != null
+                && splitPlacementGeneration == currentGeneration
+                && criteria.Equals(splitPlacementCriteria);
         }
     }
 
@@ -80,15 +84,20 @@ public partial class BMSLibrary
     /// </summary>
     /// <remarks>
     /// 呼出し側が共通のライブラリ変更受付を保持している間に呼びます。受付はこのメソッドでは取得・確認しません。
-    /// 有効な結果（現在のリソース索引の世代で探索した結果）があれば、探索も通知もせずに戻ります。
+    /// 有効な結果（現在のリソース索引の世代で、<paramref name="criteria"/> と等しい探索条件で探索した結果）があれば、探索も通知もせずに戻ります。
+    /// 世代が同じでも探索条件が異なれば探索し直します。
     /// 所持集合の行は既存の重複検索と同じロックの下で、リソース索引は一回だけ捕捉し、その一回の値を有効性の判定・探索の入力・結果の世代に使います。
     /// 捕捉の後はロックを保持せずに計算し、カタログを変更しません。新しい結果を格納したら、ロックの外・呼出しスレッドで変更を一回通知します。
-    /// 取消・失敗では保持している状態を変えず、通知もしません。
+    /// 取消・失敗では保持している状態（結果・世代・探索条件・基底）を変えず、通知もしません。
+    /// グループのインスタンスは、直近に格納した結果（基底）から、失効した後の探索でも探索条件だけを変えた探索でも引き継ぎます。
     /// </remarks>
+    /// <param name="criteria">探索条件。</param>
     /// <param name="progress">進捗の受け手。探索を実行するスレッドから同期に呼ばれます。</param>
     /// <param name="cancellationToken">取消の合図。<see cref="OperationCanceledException"/> を送出します。</param>
-    internal void SearchSplitPlacementGroups(IProgress<SplitPlacementSearchProgress> progress, CancellationToken cancellationToken)
+    internal void SearchSplitPlacementGroups(
+        SplitPlacementSearchCriteria criteria, IProgress<SplitPlacementSearchProgress> progress, CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(criteria);
         var totalStopwatch = Stopwatch.StartNew();
         LibraryResourceIndexSnapshot resourceSnapshot;
         OwnedDuplicateChartRowSnapshot rowSnapshot;
@@ -102,7 +111,8 @@ public partial class BMSLibrary
                     resourceSnapshot = libraryResourceIndexOwner.CaptureSnapshot();
                     lock (splitPlacementGate)
                     {
-                        if (splitPlacementGroups != null && splitPlacementGeneration == resourceSnapshot.Generation)
+                        if (splitPlacementGroups != null && splitPlacementGeneration == resourceSnapshot.Generation
+                            && criteria.Equals(splitPlacementCriteria))
                         {
                             LogInstallPerformance("SearchSplitPlacementGroups: cacheHit=true totalMs=" + totalStopwatch.ElapsedMilliseconds
                                 + " Groups=" + splitPlacementGroups.Count);
@@ -170,7 +180,7 @@ public partial class BMSLibrary
         }
 
         SplitPlacementSearchResult result = SplitPlacementSearch.Search(
-            inputs, SplitPlacementSearch.PreviewKeys, observed, cancellationToken);
+            inputs, SplitPlacementSearch.PreviewKeys, criteria, observed, cancellationToken);
         long groupStartMs = totalStopwatch.ElapsedMilliseconds;
         if (matchStartMs < 0)
         {
@@ -193,10 +203,14 @@ public partial class BMSLibrary
         {
             splitPlacementGroups = groups;
             splitPlacementGeneration = resourceSnapshot.Generation;
+            splitPlacementCriteria = criteria;
             splitPlacementBase = groups;
         }
         totalStopwatch.Stop();
         LogInstallPerformance("SearchSplitPlacementGroups: cacheHit=false"
+            + " sharePercent=" + criteria.SharePercent
+            + " genericFolderLimit=" + criteria.GenericFolderLimit
+            + " shareBasis=" + criteria.Basis
             + " totalMs=" + totalStopwatch.ElapsedMilliseconds
             + " captureMs=" + captureMs
             + " prepareMs=" + (matchStartMs - captureMs)

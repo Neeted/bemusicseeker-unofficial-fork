@@ -282,7 +282,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             DuplicateMergeCandidateListOwner duplicate = viewModel.DuplicateMergeCandidateList;
             Assert.AreNotSame(split, duplicate);
 
-            // ノード：結果が一件以上ある間だけ、子の先頭に、重複のノードとは別の項目として現れる。
+            // ノード：結果がある間、子の先頭に、重複のノードとは別の項目として現れる。
             SelectSplitPlacementRootAndSearch(splitRoot);
             Assert.AreEqual(3, splitRoot.Items.Count, "ノードと二つのグループ項目");
             Assert.AreSame(viewModel.MaintenanceTree.SplitPlacementCandidateListNodeItem, splitRoot.Items[0], "ノードは先頭");
@@ -361,6 +361,91 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             split.AttachLibrary(new object());
             Assert.IsFalse(split.TryGetState(group, out _), "ライブラリの交換でグループの状態を破棄する");
             Assert.IsFalse(split.IsViewActive);
+        }, dialogService: dialogs);
+    }
+
+    /// <summary>
+    /// 保証：コンパイル済みの統合候補一覧のツールバーで、探索条件の行は分裂配置の一覧の表示中だけ表示され（重複の一覧では非表示）、
+    /// 三つの入力は選択式（共有率は50〜100の5刻み、汎用名とみなすフォルダ数は2〜100、基準は二つの選択肢でリソースの文言）で、「再探索」はリソースの文言である。
+    /// 実際の入力で入力中の値だけが変わり（適用中の探索条件・一覧は変わらない）、「再探索」が強調され、画面の行き来の後も入力中の値を表示する。
+    /// 0件になる条件での「再探索」は、進捗の所有者がメインウィンドウで、適用中の探索条件を更新し、ノードが残って選択されたまま表は表示中で行0件になり、探索条件の行も表示中で、強調が解ける。
+    /// 検出する誤り：探索条件の行の表示条件の取り違え、選択肢の欠落・不正な値の入力、入力だけでの適用、強調の欠落や解除漏れ、行き来での入力の巻き戻し、0件での一覧の終了・ノードの除去。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementCandidateList_CriteriaRowAdjustsInputAndResearchKeepsTheListDisplayed()
+    {
+        var dialogs = new RecordingDialogService(new EventLog());
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            SetSplitPairsIndex(library, charts);
+            var splitRoot = (TreeViewItem)window.FindName("treeViewItemSearchSplitPlacement");
+            var duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+            var criteriaRow = (StackPanel)window.FindName("splitPlacementCriteriaRow");
+            var shareCombo = (ComboBox)window.FindName("splitPlacementSharePercentComboBox");
+            var limitCombo = (ComboBox)window.FindName("splitPlacementGenericFolderLimitComboBox");
+            var basisCombo = (ComboBox)window.FindName("splitPlacementShareBasisComboBox");
+            var researchButton = (Button)window.FindName("splitPlacementResearchButton");
+            SplitPlacementSearchWorkflowOwner search = viewModel.SplitPlacementSearch;
+            DuplicateMergeCandidateListOwner split = viewModel.SplitPlacementMergeCandidateList;
+
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: true);
+
+            // 表示と選択肢。
+            Assert.AreEqual(Visibility.Visible, criteriaRow.Visibility, "分裂配置の一覧では探索条件の行を表示する");
+            CollectionAssert.AreEqual(new[] { 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100 }, shareCombo.Items.Cast<int>().ToArray());
+            CollectionAssert.AreEqual(Enumerable.Range(2, 99).ToArray(), limitCombo.Items.Cast<int>().ToArray());
+            CollectionAssert.AreEqual(
+                new[] { Resources.Split_placement_criteria_basis_smaller, Resources.Split_placement_criteria_basis_both },
+                basisCombo.Items.Cast<ComboBoxItem>().Select(item => item.Content).ToArray());
+            Assert.AreEqual(Resources.Split_placement_research, researchButton.Content);
+            Assert.IsFalse(shareCombo.IsEditable || limitCombo.IsEditable || basisCombo.IsEditable, "選択式で、範囲の外の値を入力できない");
+            Assert.AreEqual(80, shareCombo.SelectedItem);
+            Assert.AreEqual(20, limitCombo.SelectedItem);
+            Assert.AreEqual(SplitPlacementShareBasis.SmallerSide, basisCombo.SelectedValue);
+            Assert.AreNotEqual(FontWeights.Bold, researchButton.FontWeight, "入力が適用中と同じ間は強調しない");
+
+            // 実際の入力：入力中の値だけが変わり、適用中の探索条件と一覧は変わらず、「再探索」が強調される。
+            List<DuplicateGroup> resultBefore = library.SplitPlacementGroups!;
+            shareCombo.SelectedItem = 100;
+            limitCombo.SelectedItem = 30;
+            basisCombo.SelectedValue = SplitPlacementShareBasis.BothSides;
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.AreEqual(new SplitPlacementSearchCriteria(100, 30, SplitPlacementShareBasis.BothSides), search.InputCriteria);
+            Assert.AreEqual(SplitPlacementSearchCriteria.Default, search.AppliedCriteria, "入力だけでは適用しない");
+            Assert.AreSame(resultBefore, library.SplitPlacementGroups);
+            Assert.AreEqual(4, table.ItemsSource.Count, "一覧は変わらない");
+            Assert.AreEqual(FontWeights.Bold, researchButton.FontWeight, "入力が適用中と異なる間は強調する");
+
+            // 重複の一覧では探索条件の行を表示せず、戻ると入力中の値と強調が保たれる。
+            SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(duplicateRoot));
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.AreEqual(Visibility.Collapsed, criteriaRow.Visibility, "重複の一覧では探索条件の行を表示しない");
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: false);
+            Assert.AreEqual(Visibility.Visible, criteriaRow.Visibility);
+            Assert.AreEqual(100, shareCombo.SelectedItem, "画面の行き来の後も入力中の値を表示する");
+            Assert.AreEqual(30, limitCombo.SelectedItem);
+            Assert.AreEqual(SplitPlacementShareBasis.BothSides, basisCombo.SelectedValue);
+            Assert.AreEqual(FontWeights.Bold, researchButton.FontWeight);
+
+            // 0件になる条件での「再探索」：一覧の表示とノードの選択を保つ。
+            SetIndex(library,
+                new(charts[0].Directory, Keys(1, 10)), new(charts[2].Directory, Keys(200, 10)),
+                new(charts[1].Directory, Keys(100, 10)), new(charts[3].Directory, Keys(300, 10)));
+            AwaitHandler(() => ClickButton(window, "splitPlacementResearchButton"), "split placement research with no groups");
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+
+            Assert.AreSame(window, dialogs.ProgressRequest!.Owner, "進捗画面の所有者はメインウィンドウ");
+            Assert.AreEqual(0, library.SplitPlacementGroups!.Count);
+            Assert.AreEqual(search.InputCriteria, search.AppliedCriteria, "適用中の探索条件が入力中の値になる");
+            Assert.AreEqual(1, splitRoot.Items.Count, "ノードだけが残る");
+            Assert.IsTrue(RealizeCandidateListNode(splitRoot).IsSelected, "ノードの選択を保つ");
+            Assert.IsTrue(split.IsViewActive, "一覧の表示を保つ");
+            Assert.AreEqual(Visibility.Visible, table.Visibility);
+            Assert.AreEqual(0, table.ItemsSource.Count, "表は行0件");
+            Assert.AreEqual(Visibility.Visible, criteriaRow.Visibility, "探索条件の行も表示中");
+            Assert.AreNotEqual(FontWeights.Bold, researchButton.FontWeight, "適用により強調が解ける");
         }, dialogService: dialogs);
     }
 
@@ -527,6 +612,16 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             DuplicateMergeCandidateListOwner split = viewModel.SplitPlacementMergeCandidateList;
             ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
             SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: true);
+            // 既定値以外の探索条件を、実際の入力と「再探索」ボタンで適用しておく（整理の後の探索し直しが、この値を使うことの前提）。
+            var shareCombo = (ComboBox)window.FindName("splitPlacementSharePercentComboBox");
+            shareCombo.SelectedItem = 75;
+            AwaitHandler(() => ClickButton(window, "splitPlacementResearchButton"), "split placement research with a non default criteria");
+            CandidateListAwaitSupport.AwaitActive(split, "split placement candidate list rebuilt by research");
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            SplitPlacementSearchCriteria applied = viewModel.SplitPlacementSearch.AppliedCriteria;
+            Assert.AreEqual(75, applied.SharePercent, "前提：既定値以外を適用している");
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(applied));
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "前提：結果は適用中の探索条件のもの");
             DuplicateMergeCandidateRow[] rows = [.. split.RowSet];
             Assert.AreEqual(4, rows.Length, "前提：二つのグループ（AとB）が表示される");
             DuplicateMergeCandidateGroupState groupA = rows[0].State, groupB = rows[2].State;
@@ -576,7 +671,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(keepB, groupB.KeepFolder, "KEEPを保つ");
             Assert.AreSame(cautionResult, groupB.Verification, "確認結果を保つ");
             Assert.AreSame(groupB.Group, library.SplitPlacementGroups!.Single(), "結果のグループのインスタンスも引き継がれる");
-            Assert.IsTrue(library.HasCurrentSplitPlacementGroups, "同じ受付の中で探索し直し、有効な結果がある");
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups(applied), "同じ受付の中で適用中の探索条件で探索し直し、有効な結果がある");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "既定値で探索し直していない");
             Assert.AreEqual(Visibility.Visible, table.Visibility);
             Assert.AreEqual(Visibility.Collapsed, main.Visibility, "譜面一覧は出さない");
             Assert.AreEqual(0, viewModel.MainChartList.Rows.Count);

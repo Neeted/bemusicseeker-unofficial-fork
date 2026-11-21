@@ -1087,7 +1087,7 @@ public sealed class RegularChartViewBuildAndOrderingTests
                 new(@"C:\BMS\BB", SplitPlacementTestSupport.Keys(100, 10)), new(@"C:\BMS\C", SplitPlacementTestSupport.Keys(100, 10)),
                 new(@"C:\BMS\B\Sub", SplitPlacementTestSupport.Keys(200, 10)), new(@"C:\BMS\D", SplitPlacementTestSupport.Keys(200, 10)),
                 new(@"C:\BMS\Z", SplitPlacementTestSupport.Keys(500, 10)));
-            if (!selection.EndsWith("WithoutResult", StringComparison.Ordinal)) { library.SearchSplitPlacementGroups(null, CancellationToken.None); }
+            if (!selection.EndsWith("WithoutResult", StringComparison.Ordinal)) { library.SearchSplitPlacementGroups(SplitPlacementSearchCriteria.Default, null, CancellationToken.None); }
             DuplicateGroup? first = library.SplitPlacementGroups?.SingleOrDefault(group => group.Folders.Contains(@"C:\BMS\A"));
             DuplicateViewContext context = selection switch
             {

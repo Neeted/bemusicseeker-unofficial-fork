@@ -93,12 +93,13 @@ internal interface IDuplicateMaintenanceStore
         CancellationToken cancellationToken);
 
     /// <summary>
-    /// 分裂配置の結果を探索し直します。呼出し側が受理済みの共通受付を保持している間に呼び、取消の合図は渡しません
+    /// 分裂配置の結果を、適用中の探索条件で探索し直します。呼出し側が受理済みの共通受付を保持している間に呼び、取消の合図は渡しません
     /// （整理を受理した後の結果の回復であり、取消の対象にしないため）。有効な結果があれば探索せずに戻ります。
     /// テストで失敗を注入できるよう、操作の窓口として分けています。
     /// </summary>
-    void SearchSplitPlacementGroups(BMSLibrary library)
-        => library.SearchSplitPlacementGroups(progress: null, CancellationToken.None);
+    /// <param name="criteria">適用中の探索条件。</param>
+    void SearchSplitPlacementGroups(BMSLibrary library, SplitPlacementSearchCriteria criteria)
+        => library.SearchSplitPlacementGroups(criteria, progress: null, CancellationToken.None);
 
     /// <summary>最初の件数確認前に、モデルの現在値と安全属性を固定します。</summary>
     LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts);
@@ -260,12 +261,15 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
     private readonly Func<Exception, Task> exitForUnrestoredDestination;
     private readonly DuplicateMergeCandidateListOwner candidateList;
     private readonly DuplicateMergeCandidateListOwner splitPlacementCandidateList;
+    private readonly Func<SplitPlacementSearchCriteria> splitPlacementCriteriaProvider;
 
     /// <summary>重複保守の操作を所有し、既存宛先の復元不能を実終端後のアプリ終了へ接続します。</summary>
     /// <param name="duplicateGroupNextSelectionProvider">現在結果の次グループを所属値で操作前に捕捉する境界です。末尾ではnullを返します。</param>
     /// <param name="nestedFolderCountProvider">統合元の配下にあるフォルダの件数を、UIスレッドを塞がずに数える境界です。確認を表示する場合だけ呼び、省略時は実ファイルシステムを数えます。</param>
     /// <param name="candidateList">統合候補一覧の管理主体です。一括整理（<see cref="OrganizeSelectedGroupsAsync"/>）が、表示中でSELECTがオンのグループを捕捉する入力です。省略時は一括整理を使えません。</param>
     /// <param name="splitPlacementCandidateList">分裂配置の統合候補一覧の管理主体です。分裂配置の一覧からの一括整理（<see cref="OrganizeSelectedSplitPlacementGroupsAsync"/>）の入力です。省略時はその入口を使えません。</param>
+    /// <param name="splitPlacementCriteriaProvider">適用中の分裂配置の探索条件を返します。値の所有は <see cref="SplitPlacementSearchWorkflowOwner"/> の一か所だけで、
+    /// 一括整理の後の有効性の判定と探索し直しが、実行の時点の値を読みます。省略時は既定の探索条件です。</param>
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -280,8 +284,10 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
         Func<Exception, Task> exitForUnrestoredDestination = null,
         Func<string, Task<int>> nestedFolderCountProvider = null,
         DuplicateMergeCandidateListOwner candidateList = null,
-        DuplicateMergeCandidateListOwner splitPlacementCandidateList = null)
+        DuplicateMergeCandidateListOwner splitPlacementCandidateList = null,
+        Func<SplitPlacementSearchCriteria> splitPlacementCriteriaProvider = null)
     {
+        this.splitPlacementCriteriaProvider = splitPlacementCriteriaProvider ?? (() => SplitPlacementSearchCriteria.Default);
         this.candidateList = candidateList;
         this.splitPlacementCandidateList = splitPlacementCandidateList;
         this.nestedFolderCountProvider = nestedFolderCountProvider ?? NestedFolderCounter.CountAsync;

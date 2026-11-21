@@ -4510,4 +4510,22 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Split_placement_batch_organize_unverified_notice" xml:space="preserve">
     <value>未確認のグループが選択されています。先に安全性確認を行ってください。</value>
   </data>
+  <data name="Split_placement_criteria_share_percent" xml:space="preserve">
+    <value>共有率</value>
+  </data>
+  <data name="Split_placement_criteria_generic_folder_limit" xml:space="preserve">
+    <value>汎用名とみなすフォルダ数</value>
+  </data>
+  <data name="Split_placement_criteria_share_basis" xml:space="preserve">
+    <value>共有率の基準</value>
+  </data>
+  <data name="Split_placement_criteria_basis_smaller" xml:space="preserve">
+    <value>音源の少ない方</value>
+  </data>
+  <data name="Split_placement_criteria_basis_both" xml:space="preserve">
+    <value>両方</value>
+  </data>
+  <data name="Split_placement_research" xml:space="preserve">
+    <value>再探索</value>
+  </data>
 </root>

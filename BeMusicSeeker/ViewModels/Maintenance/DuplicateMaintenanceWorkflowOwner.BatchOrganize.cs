@@ -298,7 +298,8 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
             followUp: run.SplitPlacement
                 ? (library, operationStore) =>
                 {
-                    if (!library.HasCurrentSplitPlacementGroups) { operationStore.SearchSplitPlacementGroups(library); }
+                    SplitPlacementSearchCriteria criteria = splitPlacementCriteriaProvider();
+                    if (!library.HasCurrentSplitPlacementGroups(criteria)) { operationStore.SearchSplitPlacementGroups(library, criteria); }
                 }
         : null));
         // 実行を開始できた後にだけ、受付の解放を実行側へ譲ります（開始できなければ呼出し側が解放します）。

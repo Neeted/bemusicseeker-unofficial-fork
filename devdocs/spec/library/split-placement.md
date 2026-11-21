@@ -15,7 +15,7 @@
 | 対象フォルダ | 所持譜面を直下に一件以上持つフォルダ。所持譜面は重複検索と同じ所持集合の行（パスとMD5を持つ行）です。 |
 | 音源キー | [リソース索引のキー](../core/data-and-indexes.md#キー)のうち音声のもの。拡張子を除いた譜面相対のパスを、大文字小文字を無視してハッシュ化した値です。 |
 | プレビュー名 | フォルダ直下の `preview`・`_preview`・`__preview` に当たる音源キー。 |
-| 汎用名 | 20個を超える対象フォルダが持つ音源キー。 |
+| 汎用名 | [探索条件](#探索条件)の「汎用名とみなすフォルダ数」（既定は20個）を超える数の対象フォルダが持つ音源キー。 |
 | 判定用の音源集合 | 対象フォルダが自身で所有する音源キーの集合から、プレビュー名と汎用名を除いた集合。 |
 | 候補フォルダ | 判定用の音源集合が10個以上の対象フォルダ。 |
 | グループ | 分裂配置の関係で連結した、二つ以上の候補フォルダの集合。 |
@@ -28,7 +28,7 @@
 
 1. リソース索引の項目から、そのフォルダが自身で所有する音声のキー（[`SelfOwned`](../core/data-and-indexes.md#祖先から見える集合と自身の所有分)）を取ります。子の譜面フォルダが所有する音源は含めません。索引に項目がないフォルダは空の集合です。
 2. プレビュー名を除きます。除くのは、フォルダ直下にあり、拡張子を除いた名前が `preview`・`_preview`・`__preview` のいずれかに大文字小文字を無視して一致するキーだけです。`preview2` のように一部だけが一致する名前と、サブフォルダの中の `preview` は除きません。
-3. 汎用名を除きます。手順2の後の集合について、各キーを持つ対象フォルダを数え、20個を超えるキーをすべての集合から除きます。`01` のような連番名だけを共有する無関係なフォルダを、候補から外すための規則です。
+3. 汎用名を除きます。手順2の後の集合について、各キーを持つ対象フォルダを数え、[探索条件](#探索条件)の「汎用名とみなすフォルダ数」（既定は20個）を超えるキーをすべての集合から除きます。`01` のような連番名だけを共有する無関係なフォルダを、候補から外すための規則です。
 4. 残ったキーが10個以上のフォルダを候補フォルダにします。
 
 音源の実ファイルは読みません。キーは32ビットのハッシュで照合するため、異なる名前が同じ値になる衝突はあり得ます。衝突による誤った一致は許容し、補正しません。
@@ -37,10 +37,22 @@
 
 二つの候補フォルダは、次の両方を満たすときに分裂配置の関係にあります。
 
-- 判定用の音源集合が小さい方（同数ならどちらでも同じ）のキーの80%以上が、他方の集合にあります。共有数を `s`、小さい方の個数を `n` として、`s × 5 ≥ n × 4` で判定します。
+- 共有数が、[探索条件](#探索条件)の共有率（既定は80%）以上です。基準が「音源の少ない方」（既定）なら、判定用の音源集合が小さい方（同数ならどちらでも同じ）の個数を `n`、「両方」なら大きい方の個数を `n` とし、共有数を `s`、共有率を `p`（百分率の整数）として、`s × 100 ≥ n × p` で判定します。「両方」は、どちらのフォルダから見ても共有率を満たすことを意味し、大きい方で満たせば小さい方でも満たします。
 - 両方のフォルダの直下に、同じ主ハッシュの所持譜面がありません。主ハッシュを共有する組は重複検索が扱うため、関係にしません。主ハッシュは重複検索と同じく、大文字小文字を無視して比べます。
 
 10個の条件は両方のフォルダに求めます。フォルダが親子関係にある組も同じ規則で判定し、探索では除きません（安全性確認が統合不可にします）。
+
+### 探索条件
+
+探索は、次の三つの値を入力に取ります（`SplitPlacementSearchCriteria`）。範囲の外の値と、刻みに合わない共有率は受け付けません。
+
+| 値 | 既定 | 範囲 |
+| --- | --- | --- |
+| 共有率 | 80% | 50〜100%、5%刻み |
+| 汎用名とみなすフォルダ数 | 20個 | 2〜100個。この数を超えるフォルダが持つ音源キーを汎用名にします。上限は、無関係なフォルダが連結した巨大なグループを防ぐために設けます。 |
+| 共有率の基準 | 音源の少ない方 | 「音源の少ない方」「両方」 |
+
+適用中の探索条件は `SplitPlacementSearchWorkflowOwner` が一つだけ保持し、アプリの起動中だけ有効で、設定へ保存しません。ライブラリを交換しても保ちます。ルートの選択による探索と、一括整理の後の探索し直しは、適用中の探索条件を使います。適用中の探索条件を変えるのは、[探索条件の調整と再探索](#探索条件の調整と再探索)が成功したときだけです。
 
 ### グループ
 
@@ -60,9 +72,9 @@
 
 ### 探索の実行
 
-モデルの入口は `BMSLibrary.SearchSplitPlacementGroups` です。呼出し側が共通のライブラリ変更受付を保持している間に呼びます。
+モデルの入口は `BMSLibrary.SearchSplitPlacementGroups` で、探索条件を引数に取ります。呼出し側が共通のライブラリ変更受付を保持している間に呼びます。
 
-- 有効な結果があれば、探索せずに戻ります。
+- 渡した探索条件に対する有効な結果があれば、探索せずに戻ります。
 - 所持集合の行とリソース索引のスナップショットを、探索の開始時に一回だけ捕捉します。捕捉の後は、ライブラリのロックを保持せずに計算します。
 - 取消の要求には、準備と照合の途中で応じ、`OperationCanceledException` を送出します。取消と失敗では、途中までの結果を公開せず、保持している状態を変えません。
 - 進捗は、準備の段階と、照合を終えた候補フォルダの数・候補フォルダの総数を報告します。報告は探索を実行するスレッド（呼出しスレッドとは限りません）から同期に呼び、受け手は待たずに戻る責任を持ちます。完了数の単調な増加と、最終値の報告は保証しません。受け手が送出した例外は探索の失敗として呼出し側へ伝え、取消と同じく状態を変えません。
@@ -73,23 +85,23 @@
 `BMSLibrary` は現在の結果を一つだけ保持し（`SplitPlacementGroups`）、保存しません。結果がない状態は `null` です。
 
 - 重複検索の結果が失効する契機（所持集合・フォルダ構成の変更、所持集合の全置換、ライブラリの解除）で、分裂配置の結果も失効し、変更を通知します。
-- 結果は、探索に使ったリソース索引の世代を持ちます。探索の要求時に現在の世代と異なれば、有効な結果とは扱わず、探索し直します。画面は、結果があり世代が現在と一致するかを `HasCurrentSplitPlacementGroups` で読みます。音源だけが変わった場合に、表示中のグループをその場で更新することは保証しません。
-- 失効した結果は、次の探索でグループのインスタンスを引き継ぐための基底として保持します。新しい結果のグループのうち、フォルダの集合（大文字小文字を無視）と、譜面の所持項目の識別・パス・順序が基底のグループと一致するものは、基底の `DuplicateGroup` インスタンスをそのまま使います。一致しないグループは新しいインスタンスです。引き継いだグループは捕捉時の見出しと譜面値を保ち、題名などの値だけの変更は反映しません。並びは各グループが保持する見出しで決めます。譜面のパスは完全一致（大文字小文字を区別）で比べます。
+- 結果は、探索に使ったリソース索引の世代を持ちます。結果は、探索に使った探索条件も持ちます。探索の要求時に、世代が現在と異なるか、探索条件が渡した値と異なれば、有効な結果とは扱わず、探索し直します。取消と失敗では、前の結果と、その結果の探索条件を保ちます。画面は、結果があり、世代が現在と一致し、探索条件が指定した値と一致するかを `HasCurrentSplitPlacementGroups` で読みます。音源だけが変わった場合に、表示中のグループをその場で更新することは保証しません。
+- 直近に格納した結果は、失効の有無によらず、次の探索でグループのインスタンスを引き継ぐための基底として保持します。失効した後の探索でも、探索条件だけを変えた探索でも、同じ基底を使います。新しい結果のグループのうち、フォルダの集合（大文字小文字を無視）と、譜面の所持項目の識別・パス・順序が基底のグループと一致するものは、基底の `DuplicateGroup` インスタンスをそのまま使います。一致しないグループは新しいインスタンスです。引き継いだグループは捕捉時の見出しと譜面値を保ち、題名などの値だけの変更は反映しません。並びは各グループが保持する見出しで決めます。譜面のパスは完全一致（大文字小文字を区別）で比べます。
 
 ### 性能
 
 [代表規模](../core/performance-and-scale.md#代表規模)で、フォルダの全対を総当たりで比べません。
 
 - 既存の逆引き（キーからフォルダのパスの列への対応）は使わず、探索の中だけで、キーと対象フォルダの番号の組を整列した索引を作ります。索引は探索の終了時に破棄します。
-- 汎用名を除いた後は、どのキーも20個以下のフォルダにしか属しません。候補フォルダごとに、自分のキーを持つフォルダを索引から数え上げて共有数を求め、照合の回数を「音源の登録数 × 20」以下に抑えます。
+- 汎用名を除いた後は、どのキーも「汎用名とみなすフォルダ数」（既定は20個、最大100個）以下のフォルダにしか属しません。候補フォルダごとに、自分のキーを持つフォルダを索引から数え上げて共有数を求め、照合の回数を「音源の登録数 × 汎用名とみなすフォルダ数」以下に抑えます。
 - 照合は候補フォルダの単位で並列に行います。
 - 主ハッシュの共有は、音源の条件を満たした組だけについて調べます。
 
-計測する完了範囲は、探索の要求から結果の公開までです。`SearchSplitPlacementGroups` は、対象フォルダ数、候補フォルダ数、音源の登録数、汎用名の数、関係の組数、グループ数、引き継いだグループ数と、捕捉・準備・照合・グループの構築の所要時間を診断へ記録します。
+計測する完了範囲は、探索の要求から結果の公開までです。`SearchSplitPlacementGroups` は、探索条件、対象フォルダ数、候補フォルダ数、音源の登録数、汎用名の数、関係の組数、グループ数、引き継いだグループ数と、捕捉・準備・照合・グループの構築の所要時間を診断へ記録します。
 
 ### ツリーと一覧
 
-メンテナンスのツリーの「重複ファイルチェック」の次に「分裂配置チェック」のルートを置きます。子は、重複のツリーと同じく、[統合候補一覧](duplicate-files.md#統合候補一覧)のノード（結果が一件以上あるときだけ）、グループ、フォルダです。
+メンテナンスのツリーの「重複ファイルチェック」の次に「分裂配置チェック」のルートを置きます。子は、重複のツリーと同じく、[統合候補一覧](duplicate-files.md#統合候補一覧)のノード（結果が `null` でないときだけ。0件の結果でも出します）、グループ、フォルダです。重複のツリーと違って0件でもノードを出すのは、探索条件を厳しくして候補がなくなった後も、統合候補一覧の[探索条件の調整](#探索条件の調整と再探索)へ戻れるようにするためです。
 
 | ツリーの選択 | 一覧 |
 | --- | --- |
@@ -124,14 +136,32 @@
 - モデルの整理が結果を返して終わった後に有効な結果（`HasCurrentSplitPlacementGroups`）がなければ、同じ受付と画面更新の抑制の内側で探索し直します。音源だけが変わって世代が古くなった場合も含みます。取消で途中で止まった場合と、モデルが操作全体を受理せず未適用で返した場合（Busy、管理出力の保護を取れない場合など）も同じ判定を行い、結果が有効なままなら探索しません。モデルの呼出しが例外で終わった場合は探索しません。この探索は取消の対象にしません。整理で解消したグループは一覧から消え、インスタンスを引き継いだグループはSELECT・KEEP・確認結果を保ち、新しいインスタンスのグループは初期値（未確認・SELECTオフ）になります。探索し直しの失敗は、整理の結果の案内とは別に一回だけ報告します。
 - 重複検索の結果は、重複の一覧を表示していないため、整理の後に準備し直しません（ほかのライブラリ変更と同じ扱いです）。
 
+### 探索条件の調整と再探索
+
+分裂配置の統合候補一覧の表示中は、一覧の操作のボタン（「表示中をすべて選択」など）の行の上に、探索条件の行を表示します。重複の統合候補一覧の表示中は表示しません。
+
+| 項目 | 内容 |
+| --- | --- |
+| 共有率 | 50〜100%を5%刻みで選びます。 |
+| 汎用名とみなすフォルダ数 | 2〜100の整数から選びます。 |
+| 共有率の基準 | 「音源の少ない方」「両方」から選びます。 |
+| 「再探索」 | 入力中の探索条件で探索し直します。 |
+
+- 三つの入力は選択式で、範囲の外の値を入力できません。入力欄の初期値は適用中の探索条件です。入力を変えただけでは適用せず、結果も一覧も変えません。入力中の値は、別の画面との行き来とライブラリの交換の後も、アプリの起動中は保ちます。
+- 入力中の値が適用中の探索条件と異なる間は、「再探索」を強調して表示します。
+- 「再探索」の入口は `SplitPlacementSearchWorkflowOwner.ResearchAsync` です。入力中の探索条件に対する有効な結果があれば、受付を取らず、何も変えません。なければ、ルートの選択による探索と同じ手順（共通受付の非待機取得、競合時のBusy案内一件、取消ボタンつきのモーダルの進捗、受付を探索の終端まで保持）で探索します。
+- 成功したら、入力中の値を適用中の探索条件にし、統合候補一覧を表示したまま作り直します。インスタンスを引き継いだグループはSELECT・KEEP・確認結果を保ち、新しいインスタンスのグループは初期値になり、結果にないグループの状態は破棄します。結果が0件でも、統合候補一覧の表示を保ちます。
+- 取消と失敗では、適用中の探索条件、結果、一覧、入力中の値を変えず、画面も遷移し直しません。取消は案内せず、失敗は一回だけ報告します。取消を要求しても探索が結果を格納して終わった場合は、成功として扱います。
+
 ## 実装とテストの対応
 
 | 仕様項目・主な条件 | 実装箇所 | テスト箇所・確認内容 |
 | --- | --- | --- |
-| 判定用の音源集合、分裂配置の関係、グループ | [探索部品](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/SplitPlacementSearch.cs)、[グループの組立て](../../../BeMusicSeeker/Models/Library/BMSLibrary.SplitPlacement.cs)、[自身の所有分の読取り口](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/DirectoryResourceLookupCache.cs) | [探索部品のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/SplitPlacementSearchTests.cs): プレビュー名・汎用名・10個・80%・主ハッシュ・連結の境界と、全組の比較による参照実装との一致。[入口のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibrarySplitPlacementTests.cs): 自身の所有分、フォルダの同一性と譜面の順、見出しと並び、実走査のプレビュー名 |
-| 探索の実行、結果の保持と失効、性能の診断 | [入口と失効・引継ぎ](../../../BeMusicSeeker/Models/Library/BMSLibrary.SplitPlacement.cs)、[失効の接続](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)（`InvalidateDuplicateChartGroupsCache`） | [入口のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibrarySplitPlacementTests.cs): 通知（呼出しスレッド・ロックなし・一回）、有効な結果の再利用、取消・失敗、照合中のロック、全置換・削除・統合での失効、索引の世代、インスタンスの引継ぎ。診断ログの文字列は固定しない |
-| ツリーと一覧：探索の入口、受付・進捗・取消・失敗、ツリーの子、一覧の部分集合、失効、重複との独立、フォルダ項目のメニュー | [探索の手順](../../../BeMusicSeeker/ViewModels/Maintenance/SplitPlacementSearchWorkflowOwner.cs)、[有効な結果の判定](../../../BeMusicSeeker/Models/Library/BMSLibrary.SplitPlacement.cs)（`HasCurrentSplitPlacementGroups`）、[ツリーの子と同期](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateTreeChildCollection.cs)、[分裂配置ツリーの保持](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs)、[一覧の部分集合](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)（`SplitPlacementFilterSelected`）、[ツリーの接続](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)、[選択の入口](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [探索の手順のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/SplitPlacementSearchWorkflowOwnerTests.cs)：有効な結果（0件を含む）での受付・進捗なしの遷移、世代の古い結果の再探索、Busy・閉鎖、探索中の受付の保持とUIスレッド外、進捗画面が先に閉じても探索の終端まで保持、取消・取消を要求しても完了した場合・失敗、遷移の文脈。[入口のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibrarySplitPlacementTests.cs)：`HasCurrentSplitPlacementGroups`。[ツリーのテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/MaintenanceTreeViewModelTests.cs)：子（結果が一件以上あるときだけ先頭に置く統合候補一覧のノードと、結果の順のグループ）、ノードとグループの同じインスタンスの維持・Resetなし・位置の補正、失効で即空、遅れた失効の通知、UIスレッドだけでの変更、重複との独立。[一覧の構築のテスト](../../../tests/BeMusicSeeker.Core.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs)：ルート・グループ・フォルダ・未解決・結果なしの譜面（BMSONと兄弟譜面を含み、結果にない譜面を足さない）。[画面受付の網羅](../../../tests/BeMusicSeeker.Core.Tests/ChartList/ChartListVirtualViewTests.cs)・[BMSON行の除外](../../../tests/BeMusicSeeker.Core.Tests/ChartList/LibraryChartRowSortEngineTests.cs)・[列設定](../../../tests/BeMusicSeeker.Core.Tests/ChartList/MainChartColumnSettingsBoundaryTests.cs)：新しい種別の位置づけと `DUPLICATE` の保存値。[実際の接続](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.SplitPlacement.cs)：選択からツリー・一覧への反映、失効、遅れた失効の通知、重複の解析を始めないこと。[画面の代表](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.SplitPlacement.cs)：ルートの見出し、進捗の所有者、フォルダ項目のメニューとショートカット、Busy案内、子が消えたときの自動の選び直しで探索も案内もしないこと（受付が空いている場合と他者が保持中の場合）、選択済みのルートのクリックとEnterキーによる探索（有効な結果があれば何もしない）。表示文言の辞書の整合は既存の `LocalizationResourceParityTests` |
-| 統合候補一覧と一括整理 | [ノードの同期](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs)（`SplitPlacementCandidateListNodeItem`）、[一覧主体と確認の主体の構成](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs)（重複とは別のインスタンス）、[表示中の一覧主体の参照口](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)（`DisplayedCandidateList`）、[共用の表の束縛とノード・行の活性化](../../../BeMusicSeeker/Views/MainWindow/MainWindow.DuplicateMergeCandidateList.cs)（[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)）、[一覧の構築と採用](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)（画面種別から組を選ぶ）、[結果なしの入口](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeCandidateListOwner.cs)（`ShowNoResult`）、[一括整理](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.BatchOrganize.cs)（`OrganizeSelectedSplitPlacementGroupsAsync`）と[再探索の接続](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs)（`followUp`・`IDuplicateMaintenanceStore.SearchSplitPlacementGroups`）、[未確認の案内の文言](../../../BeMusicSeeker/Properties/Resources.resx) | [一括整理のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerSplitPlacementTests.cs)：未確認を含む整理（三段階の混在・受付が他者に保持中でも案内一件だけで、受付・確認・モデル・探索に触れない）、対象0件・Busy・閉鎖、要注意と承認・分裂配置の一覧だけが対象・非表示の未確認が妨げないこと、再探索（受付の保持中・案内より前・取消を要求しても取り消されない・インスタンスの引継ぎ・重複結果を明示準備しない）、再探索の失敗の報告一回と結果の案内一回、重複の一覧からの整理の従来の挙動。[一覧主体のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeCandidateListOwnerTests.cs)：結果なしの入口と、その後の採用での引継ぎ・初期値・破棄。[ツリー](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/MaintenanceTreeViewModelTests.cs)・[探索の手順](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/SplitPlacementSearchWorkflowOwnerTests.cs)のテスト：ノードの有無と同一性、ノードの選択の文脈。[一覧の構築と採用](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.SplitPlacement.cs)：結果なしでの状態の保持と次の結果での引継ぎ・初期値・破棄（0件を含む）、古い構築を採用しないこと。[画面の代表](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.SplitPlacement.cs)：共用の表の束縛と二つの一覧の独立、実際の検査器による確認の行き先と基準、行の活性化、実際の整理ボタンからの整理と一覧の作り直し（実ファイル・DB）。表示文言の辞書の整合は既存の `LocalizationResourceParityTests` |
+| 判定用の音源集合、分裂配置の関係（共有率と基準）、探索条件の値、グループ | [探索部品](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/SplitPlacementSearch.cs)、[探索条件](../../../BeMusicSeeker/Models/BmsLibraryInternal/Maintenance/SplitPlacementSearchCriteria.cs)（`SplitPlacementSearchCriteria`）、[グループの組立て](../../../BeMusicSeeker/Models/Library/BMSLibrary.SplitPlacement.cs)、[自身の所有分の読取り口](../../../BeMusicSeeker/Models/BmsLibraryInternal/Resources/DirectoryResourceLookupCache.cs) | [探索部品のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/SplitPlacementSearchTests.cs): 既定値でのプレビュー名・汎用名（20個）・10個・80%・主ハッシュ・連結の境界。探索条件の値の検査（共有率の範囲と刻み・汎用名とみなすフォルダ数の範囲・基準の列挙、値の等価）。共有率と基準による整数演算の境界（`s×100≥n×p`、小さい方・大きい方の個数）と、汎用名とみなすフォルダ数の上限ちょうどと1つ上の境界（2・20・100）。複数の探索条件と生成した入力での、全組の比較による参照実装との一致（並列度に依存しないこと）。[入口のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibrarySplitPlacementTests.cs): 自身の所有分、フォルダの同一性と譜面の順、見出しと並び、実走査のプレビュー名 |
+| 探索の実行、結果の保持と失効（探索条件との組）、性能の診断 | [入口と失効・引継ぎ](../../../BeMusicSeeker/Models/Library/BMSLibrary.SplitPlacement.cs)、[失効の接続](../../../BeMusicSeeker/Models/Library/BMSLibrary.cs)（`InvalidateDuplicateChartGroupsCache`） | [入口のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibrarySplitPlacementTests.cs): 通知（呼出しスレッド・ロックなし・一回）、有効な結果の再利用、取消・失敗、照合中のロック、全置換・削除・統合での失効、索引の世代、インスタンスの引継ぎ。探索条件ごとの有効性（`HasCurrentSplitPlacementGroups`、値の等しい別インスタンスで有効・値が違えば無効）、同じ世代で同じ探索条件なら探索しないこと、探索条件だけを変えた探索の再探索と通知、取消・失敗で結果と探索条件を保つこと、探索条件を変えた再探索と失効後の探索でのインスタンスの引継ぎ。診断ログの文字列は固定しない |
+| ツリーと一覧：探索の入口、受付・進捗・取消・失敗、ツリーの子、一覧の部分集合、失効、重複との独立、フォルダ項目のメニュー | [探索の手順と適用中の探索条件](../../../BeMusicSeeker/ViewModels/Maintenance/SplitPlacementSearchWorkflowOwner.cs)（`SelectAsync`）、[有効な結果の判定](../../../BeMusicSeeker/Models/Library/BMSLibrary.SplitPlacement.cs)（`HasCurrentSplitPlacementGroups`）、[ツリーの子と同期](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateTreeChildCollection.cs)、[分裂配置ツリーの保持](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs)、[一覧の部分集合](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)（`SplitPlacementFilterSelected`）、[ツリーの接続](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)、[選択の入口](../../../BeMusicSeeker/Views/MainWindow/MainWindow.cs) | [探索の手順のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/SplitPlacementSearchWorkflowOwnerTests.cs)：有効な結果（0件を含む）での受付・進捗なしの遷移、世代の古い結果の再探索、ルートの選択が適用中の探索条件を使い入力中の値を使わないこと、Busy・閉鎖、探索中の受付の保持とUIスレッド外、進捗画面が先に閉じても探索の終端まで保持、取消・取消を要求しても完了した場合・失敗、遷移の文脈（受付の保持・UIスレッド外・解放後の遷移は、選択と再探索の両方の入口で確認する）。[入口のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/BmsLibrarySplitPlacementTests.cs)：`HasCurrentSplitPlacementGroups`。[ツリーのテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/MaintenanceTreeViewModelTests.cs)：子（結果が `null` でなければ0件でも先頭に置く統合候補一覧のノードと、結果の順のグループ。`null`・解除ではノードも空。重複のツリーは従来どおり1件以上のときだけ）、ノードとグループの同じインスタンスの維持・Resetなし・位置の補正、失効で即空、遅れた失効の通知、UIスレッドだけでの変更、重複との独立。[一覧の構築のテスト](../../../tests/BeMusicSeeker.Core.Tests/ChartList/RegularChartViewBuildAndOrderingTests.cs)：ルート・グループ・フォルダ・未解決・結果なしの譜面（BMSONと兄弟譜面を含み、結果にない譜面を足さない）。[画面受付の網羅](../../../tests/BeMusicSeeker.Core.Tests/ChartList/ChartListVirtualViewTests.cs)・[BMSON行の除外](../../../tests/BeMusicSeeker.Core.Tests/ChartList/LibraryChartRowSortEngineTests.cs)・[列設定](../../../tests/BeMusicSeeker.Core.Tests/ChartList/MainChartColumnSettingsBoundaryTests.cs)：新しい種別の位置づけと `DUPLICATE` の保存値。[実際の接続](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.SplitPlacement.cs)：選択からツリー・一覧への反映、失効、遅れた失効の通知、重複の解析を始めないこと。[画面の代表](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.SplitPlacement.cs)：ルートの見出し、進捗の所有者、フォルダ項目のメニューとショートカット、Busy案内、子が消えたときの自動の選び直しで探索も案内もしないこと（受付が空いている場合と他者が保持中の場合）、選択済みのルートのクリックとEnterキーによる探索（有効な結果があれば何もしない）。表示文言の辞書の整合は既存の `LocalizationResourceParityTests` |
+| 探索条件の調整と再探索：入力中の値と適用中の探索条件、「再探索」の受付・取消・失敗、成功時の一覧の作り直し、探索条件の行 | [探索の手順と探索条件の保持](../../../BeMusicSeeker/ViewModels/Maintenance/SplitPlacementSearchWorkflowOwner.cs)（`ResearchAsync`、`AppliedCriteria`、入力の三つのプロパティ、`HasUnappliedInput`）、[探索条件の行と「再探索」ボタン](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)（`splitPlacementCriteriaRow`）、[ボタンの接続](../../../BeMusicSeeker/Views/MainWindow/MainWindow.DuplicateMergeCandidateList.cs)（`splitPlacementResearchClick`）、[項目名・選択肢・ボタンの文言](../../../BeMusicSeeker/Properties/Resources.resx)（`Split_placement_criteria_*`、`Split_placement_research`と `lang/` の6言語） | [探索の手順のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/SplitPlacementSearchWorkflowOwnerTests.cs)：起動直後の既定値と強調なし、入力だけでは適用・探索・遷移をしないことと通知、不正な値の拒否、入力中の値に対する有効な結果があれば受付・進捗・遷移なし（受付が空き・他者が保持中・閉鎖）、世代だけが古ければ探索、Busy・閉鎖、成功での適用と統合候補一覧の文脈での解放後の一回の遷移、開始前の取消・取消を要求しても完了した場合・失敗、適用中の探索条件でのルートの選択、ライブラリの未接続・再接続と選択の繰返しでの保持。[実際の接続](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.SplitPlacement.cs)：再探索の成功での一覧の作り直し（引き継いだグループは SELECT・KEEP を保ち、新しいグループは初期値、結果にないグループの状態は破棄、0件でも表示とノードを保つ）。[画面の代表](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.SplitPlacement.cs)：探索条件の行の表示（重複の一覧では非表示）、選択肢、実際の入力での入力中の値だけの変化と「再探索」の強調、画面の行き来の後の入力中の値、0件になる条件での再探索（進捗の所有者・ノードの選択・表の行0件・強調の解除）。表示文言の辞書の整合は既存の `LocalizationResourceParityTests`。診断ログ・保存しないこと・性能・訳文の自然さは恒久テストにしない |
+| 統合候補一覧と一括整理 | [ノードの同期](../../../BeMusicSeeker/ViewModels/Maintenance/MaintenanceTreeViewModel.cs)（`SplitPlacementCandidateListNodeItem`）、[一覧主体と確認の主体の構成](../../../BeMusicSeeker/ViewModels/MainWindow/ApplicationComposition.cs)（重複とは別のインスタンス）、[表示中の一覧主体の参照口](../../../BeMusicSeeker/ViewModels/MainWindow/MainWindowViewModel.cs)（`DisplayedCandidateList`）、[共用の表の束縛とノード・行の活性化](../../../BeMusicSeeker/Views/MainWindow/MainWindow.DuplicateMergeCandidateList.cs)（[`MainWindow.xaml`](../../../BeMusicSeeker/Views/MainWindow/MainWindow.xaml)）、[一覧の構築と採用](../../../BeMusicSeeker/ViewModels/ChartList/RegularChartListOwner.cs)（画面種別から組を選ぶ）、[結果なしの入口](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMergeCandidateListOwner.cs)（`ShowNoResult`）、[一括整理](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.BatchOrganize.cs)（`OrganizeSelectedSplitPlacementGroupsAsync`）と[再探索の接続](../../../BeMusicSeeker/ViewModels/Maintenance/DuplicateMaintenanceWorkflowOwner.cs)（`followUp`・適用中の探索条件を返す `splitPlacementCriteriaProvider`・`IDuplicateMaintenanceStore.SearchSplitPlacementGroups`）、[未確認の案内の文言](../../../BeMusicSeeker/Properties/Resources.resx) | [一括整理のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMaintenanceWorkflowOwnerSplitPlacementTests.cs)：未確認を含む整理（三段階の混在・受付が他者に保持中でも案内一件だけで、受付・確認・モデル・探索に触れない）、対象0件・Busy・閉鎖、要注意と承認・分裂配置の一覧だけが対象・非表示の未確認が妨げないこと、再探索（受付の保持中・案内より前・取消を要求しても取り消されない・インスタンスの引継ぎ・重複結果を明示準備しない）、有効性の判定と探索し直しが適用中の探索条件を使うこと（既定値以外を適用中で、世代が古ければその値で探索し直し、有効な結果が残れば探索しない）、再探索の失敗の報告一回と結果の案内一回、重複の一覧からの整理の従来の挙動。[一覧主体のテスト](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/DuplicateMergeCandidateListOwnerTests.cs)：結果なしの入口と、その後の採用での引継ぎ・初期値・破棄。[ツリー](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/MaintenanceTreeViewModelTests.cs)・[探索の手順](../../../tests/BeMusicSeeker.Core.Tests/Maintenance/SplitPlacementSearchWorkflowOwnerTests.cs)のテスト：ノードの有無と同一性、ノードの選択の文脈。[一覧の構築と採用](../../../tests/BeMusicSeeker.Windows.Tests/ChartList/RegularChartNavigationTests.SplitPlacement.cs)：結果なしでの状態の保持と次の結果での引継ぎ・初期値・破棄（0件ではノードだけが残る）、古い構築を採用しないこと。[画面の代表](../../../tests/BeMusicSeeker.Windows.Tests/MainWindow/MainWindowPackageMaintenanceWpfTests.SplitPlacement.cs)：共用の表の束縛と二つの一覧の独立、実際の検査器による確認の行き先と基準、行の活性化、実際の整理ボタンからの整理と一覧の作り直し（実ファイル・DB。整理の前に既定値以外を適用しておき、整理の後に適用中の探索条件に対する結果が有効で既定値に対する結果ではないこと）。表示文言の辞書の整合は既存の `LocalizationResourceParityTests` |
 
 ## 関連資料
 

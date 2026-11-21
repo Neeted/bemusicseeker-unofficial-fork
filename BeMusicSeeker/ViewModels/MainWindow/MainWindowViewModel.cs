@@ -80,8 +80,8 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>統合候補一覧の安全性確認の手順です。ボタン・メニュー・チェックの操作を受けます。</summary>
     internal DuplicateMergeVerificationWorkflowOwner DuplicateMergeVerification { get; private set; }
 
-    /// <summary>分裂配置のツリーを選んだときの探索の手順を管理します。</summary>
-    internal SplitPlacementSearchWorkflowOwner SplitPlacementSearch { get; private set; }
+    /// <summary>分裂配置のツリーを選んだときの探索と、探索条件の調整・再探索の手順を管理します。探索条件の行の入力と「再探索」ボタンが接続します。</summary>
+    public SplitPlacementSearchWorkflowOwner SplitPlacementSearch { get; private set; }
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; private set; }
 
@@ -186,7 +186,7 @@ public partial class MainWindowViewModel : ViewModel,
     /// 現在の画面種別が分裂配置かです。統合候補一覧の共用の表と操作の行き先を、重複と分裂配置のどちらの管理主体にするかを決めます。
     /// 新しい独立した状態は持たず、画面種別から導きます。
     /// </summary>
-    internal bool DisplaysSplitPlacementCandidateList
+    public bool DisplaysSplitPlacementCandidateList
     {
         get
         {

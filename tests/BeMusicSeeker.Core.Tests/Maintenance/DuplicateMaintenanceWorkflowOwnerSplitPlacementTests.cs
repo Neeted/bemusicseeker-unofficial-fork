@@ -64,10 +64,11 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
             return Handler != null ? Handler(request, progress, cancellationToken) : Complete(request, progress);
         }
 
-        public override void SearchSplitPlacementGroups(BMSLibrary library)
+        public override void SearchSplitPlacementGroups(BMSLibrary library, SplitPlacementSearchCriteria criteria)
         {
             AddEvent("store-search-split");
             SearchCalls++;
+            SearchedSplitPlacementCriteria.Add(criteria);
             if (SearchFailure != null) { throw SearchFailure; }
             int callerThread = Environment.CurrentManagedThreadId;
             PropertyChangedEventHandler handler = (_, args) =>
@@ -78,7 +79,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
                 StoredNotifications.Add((AdmissionFree!(), MessageCount!()));
             };
             library.PropertyChanged += handler;
-            try { library.SearchSplitPlacementGroups(null, CancellationToken.None); }
+            try { library.SearchSplitPlacementGroups(criteria, null, CancellationToken.None); }
             finally { library.PropertyChanged -= handler; }
         }
 
@@ -113,7 +114,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
             Store = new SplitStore(Events) { AdmissionFree = () => Library.OperationAdmission.CanEnter, MessageCount = () => Dialogs.Messages.Count };
             Owner = new DuplicateMaintenanceWorkflowOwner(
                 () => Library, Library.OperationAdmission, Activity, Presentation, Dialogs, () => true, _ => true, _ => new ExplorerOpenResult(), _ => null, Store,
-                candidateList: DuplicateList, splitPlacementCandidateList: SplitList);
+                candidateList: DuplicateList, splitPlacementCandidateList: SplitList, splitPlacementCriteriaProvider: () => Applied);
             Owner.WorkflowChanged += Presentation.OnWorkflowChanged;
             Activity.ActivityChanged += Presentation.OnActivityChanged;
             PreparationCalls = [];
@@ -147,6 +148,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
 
         internal DuplicateGroup[] Groups { get; private set; } = [];
 
+        /// <summary>適用中の分裂配置の探索条件です。本番では <see cref="SplitPlacementSearchWorkflowOwner"/> が所有する値の代替で、一括整理の後の探索し直しが読みます。</summary>
+        internal SplitPlacementSearchCriteria Applied { get; set; } = SplitPlacementSearchCriteria.Default;
+
         internal Task<T> OnUi<T>(Func<Task<T>> operation) => ui.RunAsync(operation);
 
         /// <summary>現在の分裂配置の結果を、分裂配置の一覧へ採用します。</summary>
@@ -179,7 +183,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
         {
             Assert.IsFalse(Library.OperationAdmission.CanEnter, "モデルの呼出しの間は受付を保持している");
             SetIndex(Library, IndexFolders(changed: true));
-            Assert.IsFalse(Library.HasCurrentSplitPlacementGroups, "前提：世代が進んで、有効な結果がない");
+            Assert.IsFalse(Library.HasCurrentSplitPlacementGroups(Applied), "前提：世代が進んで、有効な結果がない");
             return SplitStore.Complete(request, progress);
         }
 
@@ -216,7 +220,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
             try
             {
                 SetIndex(library, IndexFolders(changed: false));
-                library.SearchSplitPlacementGroups(null, CancellationToken.None);
+                library.SearchSplitPlacementGroups(SplitPlacementSearchCriteria.Default, null, CancellationToken.None);
                 using var fixture = new Fixture(library);
                 fixture.AdoptSplitList();
                 Assert.AreEqual(3, fixture.Groups.Length, "前提：Alpha・Beta・Gamma の三グループが探索される");
@@ -418,6 +422,46 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
         });
     }
 
+    private static readonly SplitPlacementSearchCriteria AppliedNonDefault = new(75, 30, SplitPlacementShareBasis.BothSides);
+
+    /// <summary>
+    /// 保証：既定値以外の探索条件を適用中のとき、整理の後に世代が古ければ、適用中の探索条件で探索し直す。
+    /// 適用中の探索条件に対する有効な結果が残っていれば、既定値に対する結果でなくても探索しない。
+    /// 検出する誤り：探索し直しが既定値を使う（結果の探索条件が巻き戻る）、適用中の値に対して有効な結果があるのに探索する。
+    /// </summary>
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void Organize_AfterwardUsesAppliedCriteriaForValidityAndSearch(bool resultBecomesStale)
+    {
+        Run(fixture =>
+        {
+            fixture.Applied = AppliedNonDefault;
+            fixture.Library.SearchSplitPlacementGroups(AppliedNonDefault, null, CancellationToken.None);
+            Assert.IsFalse(fixture.Library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "前提：結果は適用中の探索条件のもの");
+            fixture.Write(fixture.Groups[0], Safe);
+            fixture.SplitList.ClearVisible();
+            fixture.SplitList.SetSelectOfRows([fixture.SplitList.RowSet.GetFirstRowOfGroup(0)], selected: true);
+            fixture.Store.Handler = (request, progress, _) => resultBecomesStale
+                ? fixture.MergeAlphaAndAddDelta(request, progress)
+                : SplitStore.Complete(request, progress);
+
+            DuplicateBatchOrganizeRunResult run = fixture.OnUi(async () => await fixture.Owner.OrganizeSelectedSplitPlacementGroupsAsync()).GetAwaiter().GetResult();
+
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+            Assert.IsTrue(fixture.Library.HasCurrentSplitPlacementGroups(AppliedNonDefault), "適用中の探索条件に対する有効な結果がある");
+            Assert.IsFalse(fixture.Library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default));
+            if (resultBecomesStale)
+            {
+                CollectionAssert.AreEqual(new[] { AppliedNonDefault }, fixture.Store.SearchedSplitPlacementCriteria, "適用中の探索条件で探索し直す");
+            }
+            else
+            {
+                Assert.AreEqual(0, fixture.Store.SearchCalls, "適用中の探索条件に対して有効な結果があれば探索しない");
+            }
+        });
+    }
+
     /// <summary>
     /// 保証：探索し直しが失敗しても、受付を解放し、失敗の報告を一回と結果の案内を一回出す。有効な結果はないままで、重複結果は明示的に準備されない。
     /// 検出する誤り：失敗の握りつぶし・重複報告、結果の案内の省略、受付の解放漏れ。
@@ -443,7 +487,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
             StringAssert.Contains(report.MessageBoxText, "split search failed");
             Assert.AreEqual(1, fixture.Dialogs.Messages.Count(message => message.Caption == Resources.Duplicate_batch_organize_title), "結果の案内は一回");
             Assert.IsTrue(fixture.Library.OperationAdmission.CanEnter, "受付は解放されている");
-            Assert.IsFalse(fixture.Library.HasCurrentSplitPlacementGroups, "有効な結果はないまま（探索が失敗した）");
+            Assert.IsFalse(fixture.Library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "有効な結果はないまま（探索が失敗した）");
             CollectionAssert.AreEqual(new[] { false }, fixture.PreparationCalls.ToArray());
         });
     }
@@ -472,7 +516,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
             Assert.AreEqual(Resources.Duplicate_batch_organize_title, fixture.Dialogs.Messages.Single().Caption);
             CollectionAssert.AreEqual(new[] { true }, fixture.PreparationCalls.ToArray(), "重複結果を明示的に準備する");
             Assert.AreEqual(0, fixture.Store.SearchCalls, "分裂配置の結果は自動で探索し直さない");
-            Assert.IsFalse(fixture.Library.HasCurrentSplitPlacementGroups, "有効な結果がないまま（自動では探索し直さない）");
+            Assert.IsFalse(fixture.Library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default), "有効な結果がないまま（自動では探索し直さない）");
         });
     }
 }

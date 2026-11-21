@@ -3560,4 +3560,16 @@ public class Resources
     public static string Split_placement_search_progress_match_format => ResourceManager.GetString("Split_placement_search_progress_match_format", resourceCulture);
     /// <summary>分裂配置の統合候補一覧からの一括整理で、選択した対象に未確認のグループがあるため整理を始めないことを案内する文言です。</summary>
     public static string Split_placement_batch_organize_unverified_notice => ResourceManager.GetString("Split_placement_batch_organize_unverified_notice", resourceCulture);
+    /// <summary>分裂配置の探索条件の行で、共有率の入力の項目名です。</summary>
+    public static string Split_placement_criteria_share_percent => ResourceManager.GetString("Split_placement_criteria_share_percent", resourceCulture);
+    /// <summary>分裂配置の探索条件の行で、汎用名とみなすフォルダ数の入力の項目名です。</summary>
+    public static string Split_placement_criteria_generic_folder_limit => ResourceManager.GetString("Split_placement_criteria_generic_folder_limit", resourceCulture);
+    /// <summary>分裂配置の探索条件の行で、共有率の基準の入力の項目名です。</summary>
+    public static string Split_placement_criteria_share_basis => ResourceManager.GetString("Split_placement_criteria_share_basis", resourceCulture);
+    /// <summary>分裂配置の探索条件の共有率の基準で、判定用の音源集合が小さい方を基準にする選択肢の文言です。</summary>
+    public static string Split_placement_criteria_basis_smaller => ResourceManager.GetString("Split_placement_criteria_basis_smaller", resourceCulture);
+    /// <summary>分裂配置の探索条件の共有率の基準で、どちらのフォルダから見ても共有率を満たす（大きい方を基準にする）選択肢の文言です。</summary>
+    public static string Split_placement_criteria_basis_both => ResourceManager.GetString("Split_placement_criteria_basis_both", resourceCulture);
+    /// <summary>分裂配置の探索条件の行で、入力中の探索条件で探索し直すボタンの文言です。</summary>
+    public static string Split_placement_research => ResourceManager.GetString("Split_placement_research", resourceCulture);
 }

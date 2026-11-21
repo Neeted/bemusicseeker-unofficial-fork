@@ -920,7 +920,8 @@ internal sealed class MainWindowChildComposition
             MaintenanceTree.CaptureNextDuplicateGroupSelection,
             exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync,
             candidateList: DuplicateMergeCandidateList,
-            splitPlacementCandidateList: SplitPlacementMergeCandidateList);
+            splitPlacementCandidateList: SplitPlacementMergeCandidateList,
+            splitPlacementCriteriaProvider: () => SplitPlacementSearch.AppliedCriteria);
         ProgressHub.AttachDuplicateMaintenanceProgressSource(DuplicateMaintenanceWorkflow);
         IDuplicateMergeSafetyInspector CreateMergeSafetyInspector()
             => new DuplicateMergeSafetyInspector(

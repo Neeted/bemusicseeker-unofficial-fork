@@ -116,12 +116,16 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
             return DuplicateBatchOrganizeResult.NotAdmitted(request);
         }
 
-        /// <summary>分裂配置の探索し直しの呼出しを記録し、実ライブラリの探索へ渡します。失敗を注入するケースは、継承して差し替えます。</summary>
-        public virtual void SearchSplitPlacementGroups(BMSLibrary library)
+        /// <summary>分裂配置の探索し直しの呼出しと渡された探索条件を記録し、実ライブラリの探索へ渡します。失敗を注入するケースは、継承して差し替えます。</summary>
+        public virtual void SearchSplitPlacementGroups(BMSLibrary library, SplitPlacementSearchCriteria criteria)
         {
             events.Add("store-search-split");
-            library.SearchSplitPlacementGroups(null, CancellationToken.None);
+            SearchedSplitPlacementCriteria.Add(criteria);
+            library.SearchSplitPlacementGroups(criteria, null, CancellationToken.None);
         }
+
+        /// <summary>探索し直しに渡された探索条件を、呼出しの順に記録します。</summary>
+        internal List<SplitPlacementSearchCriteria> SearchedSplitPlacementCriteria { get; } = [];
 
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
         internal IReadOnlyList<string> WholeFolderCandidates { get; set; } = [];

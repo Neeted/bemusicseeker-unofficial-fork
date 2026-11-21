@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using static BeMusicSeeker.TestSupport.Components.SelectedChartAudioConversionWorkflowOwnerTestSupport;
@@ -191,8 +192,8 @@ public sealed partial class RegularChartNavigationTests
     /// <summary>
     /// 保証：分裂配置の統合候補一覧を表示中に結果がなくなると、行0件・件数0・捕捉できる対象0件になり、グループの状態（SELECT・KEEP）・並べ替え・除外語を保ち、構築も探索もしない。
     /// 次の結果の採用では、引き継いだインスタンスは状態を保ち、フォルダの集合が変わった新しいインスタンスは初期値になって、結果にないグループの状態は破棄される。
-    /// 0件の結果では行0件でツリーのノードもない。重複の一覧主体と重複の解析は動かない。
-    /// 検出する誤り：結果なしでの状態の破棄（再探索の後に状態が戻らない）、行の残存、新しいインスタンスへの状態の引継ぎ、重複側への波及。
+    /// 0件の結果では行0件で、ツリーの子は統合候補一覧のノードだけが残る。重複の一覧主体と重複の解析は動かない。
+    /// 検出する誤り：結果なしでの状態の破棄（再探索の後に状態が戻らない）、行の残存、新しいインスタンスへの状態の引継ぎ、0件でのノードの除去、重複側への波及。
     /// </summary>
     [TestMethod]
     [DoNotParallelize]
@@ -260,7 +261,7 @@ public sealed partial class RegularChartNavigationTests
             Assert.AreEqual(DuplicateMergeVerificationStage.Unverified, fresh.Verification.Stage);
             Assert.IsFalse(list.TryGetState(first, out _), "結果にないグループの状態は破棄される");
 
-            // 0件の結果：行0件でノードもない。
+            // 0件の結果：行0件で、ツリーの子はノードだけが残る。
             fixture.Library.BmsCharts = [.. fixture.Library.BmsCharts]; // 所持の項目を保ったまま全置換して、結果を失効させる（インスタンスの引継ぎの前提）
             CandidateListAwaitSupport.AwaitRows(list, 0);
             AwaitIdleFence();
@@ -268,9 +269,83 @@ public sealed partial class RegularChartNavigationTests
             SelectSplitCandidateList(fixture, "split placement candidate list with no groups");
             Assert.AreEqual(0, fixture.Library.SplitPlacementGroups!.Count);
             Assert.AreEqual(0, list.RowSet.Count);
-            Assert.AreEqual(0, vm.MaintenanceTree.SplitPlacementTreeChildren.Count, "0件ではノードもない");
+            CollectionAssert.AreEqual(new object[] { vm.MaintenanceTree.SplitPlacementCandidateListNodeItem }, vm.MaintenanceTree.SplitPlacementTreeChildren.Cast<object>().ToArray(), "0件では子はノードだけ");
             Assert.IsNull(fixture.Library.DuplicateChartGroups, "重複の解析を始めない");
             Assert.IsFalse(vm.DuplicateMergeCandidateList.IsViewActive);
+            Assert.IsTrue(fixture.Library.OperationAdmission.CanEnter);
+        }, dialogs: dialogs);
+    }
+
+    /// <summary>
+    /// 保証：「再探索」（<c>ResearchAsync</c>）の成功で、分裂配置の統合候補一覧を表示したまま作り直す。引き継いだグループは SELECT・KEEP を保ち、
+    /// 構成が変わった新しいグループは初期値になって結果にないグループの状態は破棄され、0件の結果でも一覧の表示とノードを保って行0件になる。適用中の探索条件は入力した値へ変わる。
+    /// 検出する誤り：再探索での状態の全破棄・引継ぎ漏れ、新しいグループへの状態の引継ぎ、0件でのノードの除去や表示の終了、探索条件の未適用。
+    /// </summary>
+    [TestMethod]
+    [DoNotParallelize]
+    public void SplitPlacement_ResearchRebuildsCandidateListKeepingInheritedStateAndZeroResults()
+    {
+        var dialogs = new RecordingDialogService(new EventLog());
+        RunColdDuplicateFixture(fixture =>
+        {
+            MainWindowViewModel vm = fixture.ViewModel;
+            DuplicateMergeCandidateListOwner list = vm.SplitPlacementMergeCandidateList;
+            SplitPlacementSearchWorkflowOwner search = vm.SplitPlacementSearch;
+            string a = Path.GetDirectoryName(fixture.Duplicates[0].Path)!, b = Path.GetDirectoryName(fixture.Duplicates[1].Path)!;
+            string target = Path.GetDirectoryName(fixture.Target.Path)!;
+            // AとTargetは10個を共有し、Bは両方と10個中8個を共有する（共有率80ではBも同じグループ、90では外れる）。
+            void SetPartialIndex() => SetIndex(fixture.Library, new(a, Keys(1, 10)), new(b, [.. Keys(1, 8), .. Keys(900, 2)]), new(target, Keys(1, 10)));
+            void Research(string stage)
+            {
+                TestUiDispatcherHost.AwaitTaskOnDispatcher(search.ResearchAsync(), stage);
+                AwaitIdleFence();
+            }
+
+            SetPartialIndex();
+            SelectSplitCandidateList(fixture, "split placement candidate list selection");
+            CandidateListAwaitSupport.AwaitActive(list, "split placement candidate list adoption");
+            DuplicateGroup first = fixture.Library.SplitPlacementGroups!.Single();
+            Assert.AreEqual(3, list.RowSet.Count, "前提：共有率80では三つのフォルダが一つのグループ");
+            Assert.IsTrue(list.ToggleSelect(list.RowSet[0]), "前提：SELECTを変える");
+            Assert.IsTrue(list.TryGetState(first, out DuplicateMergeCandidateGroupState? firstState));
+            bool selected = firstState!.IsSelected;
+            string? keep = firstState.KeepFolder;
+
+            // 探索条件は同じで世代だけが古い：引き継いだグループは同じインスタンスで状態を保つ。
+            SetPartialIndex();
+            Assert.IsFalse(search.HasUnappliedInput);
+            Research("split placement research with a stale generation");
+            Assert.AreSame(first, fixture.Library.SplitPlacementGroups!.Single(), "構成が同じグループはインスタンスを引き継ぐ");
+            Assert.IsTrue(list.IsViewActive, "統合候補一覧を表示したまま作り直す");
+            Assert.AreEqual(3, list.RowSet.Count);
+            Assert.IsTrue(list.TryGetState(first, out DuplicateMergeCandidateGroupState? restored));
+            Assert.AreEqual((selected, keep), (restored!.IsSelected, restored.KeepFolder), "SELECT・KEEPを保つ");
+
+            // 共有率90：Bが外れた新しいグループは初期値で、古いグループの状態は破棄される。
+            search.SharePercent = 90;
+            Assert.IsTrue(search.HasUnappliedInput);
+            Assert.AreEqual(3, list.RowSet.Count, "入力を変えただけでは一覧を変えない");
+            Research("split placement research with a stricter share rate");
+            DuplicateGroup second = fixture.Library.SplitPlacementGroups!.Single();
+            Assert.AreNotSame(first, second);
+            Assert.AreEqual(2, list.RowSet.Count);
+            Assert.IsTrue(list.TryGetState(second, out DuplicateMergeCandidateGroupState? fresh));
+            Assert.IsFalse(fresh!.IsSelected, "新しいグループは初期値");
+            Assert.IsFalse(list.TryGetState(first, out _), "結果にないグループの状態は破棄される");
+            Assert.AreEqual(90, search.AppliedCriteria.SharePercent);
+            Assert.IsFalse(search.HasUnappliedInput);
+
+            // 0件の結果：一覧の表示とノードを保ち、行0件になる。
+            SetIndex(fixture.Library, new(a, Keys(1, 10)), new(b, Keys(100, 10)), new(target, Keys(200, 10)));
+            search.SharePercent = 95;
+            Research("split placement research with no groups");
+            Assert.AreEqual(0, fixture.Library.SplitPlacementGroups!.Count);
+            Assert.AreEqual(0, list.RowSet.Count);
+            Assert.IsTrue(vm.DisplaysSplitPlacementCandidateList);
+            Assert.IsTrue(list.IsViewActive, "0件でも統合候補一覧の表示を保つ");
+            CollectionAssert.AreEqual(new object[] { vm.MaintenanceTree.SplitPlacementCandidateListNodeItem }, vm.MaintenanceTree.SplitPlacementTreeChildren.Cast<object>().ToArray(), "ノードが残る");
+            Assert.AreEqual(95, search.AppliedCriteria.SharePercent);
+            Assert.IsNull(fixture.Library.DuplicateChartGroups, "重複の解析を始めない");
             Assert.IsTrue(fixture.Library.OperationAdmission.CanEnter);
         }, dialogs: dialogs);
     }
@@ -309,7 +384,7 @@ public sealed partial class RegularChartNavigationTests
                     case "resultReplaced":
                         // 結果を、関係のない（0件の）別の結果へ置き換える。後発の構築は0件を採用し、止めた構築は結果が置き換わったので採用しない。
                         SetSplitPlacementRelations(fixture, duplicateBToo: false, unrelated: true);
-                        fixture.Library.SearchSplitPlacementGroups(null, CancellationToken.None);
+                        fixture.Library.SearchSplitPlacementGroups(SplitPlacementSearchCriteria.Default, null, CancellationToken.None);
                         Assert.AreNotSame(stale, fixture.Library.SplitPlacementGroups!.FirstOrDefault());
                         CandidateListAwaitSupport.AwaitActive(list, "split placement candidate list adopts the replaced result");
                         break;

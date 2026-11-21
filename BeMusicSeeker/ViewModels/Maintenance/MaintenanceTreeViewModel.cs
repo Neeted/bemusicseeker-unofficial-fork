@@ -259,7 +259,8 @@ public sealed class MaintenanceTreeViewModel : ViewModel
 
     /// <summary>
     /// 分裂配置ツリーの項目を、その時点の現在の結果へ同期します。呼出し側がUIスレッドであることを保証します。
-    /// 結果が一件以上あるときだけ統合候補一覧のノードを先頭に置き、結果がない状態（失効・未探索・ライブラリの解除）では、ノードも含めて子を空にします。通知の時点ではなく同期の時点の現在値を読むため、
+    /// 結果が <see langword="null"/> でなければ（0件でも）統合候補一覧のノードを先頭に置き、結果がない状態（失効・未探索・ライブラリの解除）では、ノードも含めて子を空にします。
+    /// 0件でもノードを出すのは、探索条件を厳しくして候補がなくなった後も、探索条件の調整へ戻れるようにするためです。通知の時点ではなく同期の時点の現在値を読むため、
     /// 遅れて届いた失効の通知で、その後に格納された新しい結果を消しません。
     /// </summary>
     internal void SynchronizeSplitPlacementTreeItems()
@@ -271,7 +272,7 @@ public sealed class MaintenanceTreeViewModel : ViewModel
             if (groups != null)
             {
                 splitPlacementTree.SynchronizeItems(groups);
-                splitPlacementTree.SynchronizeCandidateListNode(groups.Count > 0);
+                splitPlacementTree.SynchronizeCandidateListNode(true);
                 return;
             }
             splitPlacementTree.Clear();

@@ -53,18 +53,16 @@ internal sealed class SplitPlacementSearchResult
 /// ライブラリ・ファイル・ロックに依存せず、渡された入力だけから結果を求めます。
 /// </summary>
 /// <remarks>
-/// 全フォルダの対を総当たりで比べません。キーと対象フォルダ番号の組を整列した索引を探索内だけで作り、汎用名（20個を超える対象フォルダが持つキー）を除くと、
-/// どのキーも20個以下のフォルダにしか属さないため、候補フォルダごとに自分のキーの所属フォルダを数え上げる照合の回数は「音源の登録数 × 20」以下になります。
+/// 全フォルダの対を総当たりで比べません。キーと対象フォルダ番号の組を整列した索引を探索内だけで作り、汎用名（探索条件の「汎用名とみなすフォルダ数」を超える対象フォルダが持つキー）を除くと、
+/// どのキーもその数以下のフォルダにしか属さないため、候補フォルダごとに自分のキーの所属フォルダを数え上げる照合の回数は「音源の登録数 × 汎用名とみなすフォルダ数」以下になります。
 /// 関係の判定は、自分より集合が大きい相手（同数なら番号が大きい相手）についてだけ行い、同じ組を二度数えません。
+/// 共有率は整数演算（<c>共有数 × 100 ≥ 基準の個数 × 共有率</c>）で判定し、浮動小数点の誤差を持ち込みません。
 /// 結果は並列度に依存しません。
 /// </remarks>
 internal static class SplitPlacementSearch
 {
     /// <summary>候補フォルダに必要な判定用の音源集合の最小の個数です。</summary>
     internal const int MinimumKeyCount = 10;
-
-    /// <summary>これを超える対象フォルダが持つキーを汎用名とします。</summary>
-    internal const int GenericFolderLimit = 20;
 
     private static readonly uint[] defaultPreviewKeys = CreateDefaultPreviewKeys();
 
@@ -84,18 +82,22 @@ internal static class SplitPlacementSearch
     /// <summary>分裂配置のグループを探索します。</summary>
     /// <param name="folders">対象フォルダの入力。</param>
     /// <param name="previewKeyValues">除くプレビュー名のキー値。</param>
+    /// <param name="criteria">探索条件（共有率、汎用名とみなすフォルダ数、共有率の基準）。</param>
     /// <param name="progress">進捗の受け手。探索を実行するスレッドから同期に呼びます。受け手の例外は探索の失敗として伝わります。</param>
     /// <param name="cancellationToken">取消の合図。準備と照合の途中で <see cref="OperationCanceledException"/> を送出します。</param>
     /// <param name="maxDegreeOfParallelism">照合の並列度。0以下は既定（論理プロセッサ数）です。</param>
     internal static SplitPlacementSearchResult Search(
         IReadOnlyList<SplitPlacementFolderInput> folders,
         IReadOnlyCollection<uint> previewKeyValues,
+        SplitPlacementSearchCriteria criteria,
         IProgress<SplitPlacementSearchProgress> progress = null,
         CancellationToken cancellationToken = default,
         int maxDegreeOfParallelism = 0)
     {
         ArgumentNullException.ThrowIfNull(folders);
         ArgumentNullException.ThrowIfNull(previewKeyValues);
+        ArgumentNullException.ThrowIfNull(criteria);
+        int genericFolderLimit = criteria.GenericFolderLimit;
         cancellationToken.ThrowIfCancellationRequested();
 
         int folderCount = folders.Count;
@@ -140,7 +142,7 @@ internal static class SplitPlacementSearch
         for (int start = 0; start < packed.Length;)
         {
             int end = FindRunEnd(packed, start);
-            if (end - start > GenericFolderLimit)
+            if (end - start > genericFolderLimit)
             {
                 genericCount++;
             }
@@ -163,7 +165,7 @@ internal static class SplitPlacementSearch
         for (int start = 0; start < packed.Length;)
         {
             int end = FindRunEnd(packed, start);
-            if (end - start <= GenericFolderLimit)
+            if (end - start <= genericFolderLimit)
             {
                 int begin = used;
                 for (int t = start; t < end; t++)
@@ -212,7 +214,7 @@ internal static class SplitPlacementSearch
         cancellationToken.ThrowIfCancellationRequested();
 
         // 5. 候補フォルダごとの照合。
-        var context = new MatchContext(size, [.. runStarts], runFolders, folderRunOffsets, folderRuns, folders);
+        var context = new MatchContext(size, [.. runStarts], runFolders, folderRunOffsets, folderRuns, folders, criteria);
         var relations = new List<long>();
         int done = 0;
         int step = Math.Max(1, candidates.Length / 200);
@@ -371,8 +373,12 @@ internal static class SplitPlacementSearch
         int[] runFolders,
         int[] folderRunOffsets,
         int[] folderRuns,
-        IReadOnlyList<SplitPlacementFolderInput> folders)
+        IReadOnlyList<SplitPlacementFolderInput> folders,
+        SplitPlacementSearchCriteria criteria)
     {
+        private readonly int sharePercent = criteria.SharePercent;
+        private readonly bool basedOnLargerSide = criteria.Basis == SplitPlacementShareBasis.BothSides;
+
         private readonly HashSet<string>[] hashSets = new HashSet<string>[folders.Count];
 
         /// <summary>候補フォルダ <paramref name="i"/> と、自分より後ろの相手との関係を判定します。</summary>
@@ -401,7 +407,9 @@ internal static class SplitPlacementSearch
             {
                 int shared = counts[other];
                 counts[other] = 0;
-                if ((long)shared * 5 >= (long)sizeI * 4 && !SharesPrimaryHash(i, other))
+                // 照合する相手は自分以上の大きさなので、基準が「両方」なら大きい方は相手、「音源の少ない方」なら自分の個数になる。
+                long baseline = basedOnLargerSide ? size[other] : sizeI;
+                if ((long)shared * 100 >= baseline * sharePercent && !SharesPrimaryHash(i, other))
                 {
                     worker.Relations.Add(((long)i << 32) | (uint)other);
                 }
