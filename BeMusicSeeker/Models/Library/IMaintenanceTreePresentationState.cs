@@ -19,6 +19,11 @@ internal interface IMaintenanceTreePresentationState : INotifyPropertyChanged
     int DuplicateChartGroupsInvalidationVersion { get; }
 
     /// <summary>
+    /// 分裂配置の現在の結果です。結果がない状態は <see langword="null"/>、0件は空の一覧です。変更は <c>SplitPlacementGroups</c> の通知で届きます。
+    /// </summary>
+    List<DuplicateGroup> SplitPlacementGroups { get; }
+
+    /// <summary>
     /// Gets whether health-status initialization currently holds its write lock.
     /// </summary>
     bool IsWriteLockHeldInitializdBMSFilesHealthStatus { get; }

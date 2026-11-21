@@ -2802,6 +2802,7 @@ public sealed class ChartListVirtualViewTests
             MainViewUpdateMode.FileMissingFilterSelected,
             MainViewUpdateMode.FileMissingIgnoredFilterSelected,
             MainViewUpdateMode.DuplicateFilterSelected,
+            MainViewUpdateMode.SplitPlacementFilterSelected,
             MainViewUpdateMode.GarbledFilterSelected,
             MainViewUpdateMode.GarbleFixedFilterSelected,
             MainViewUpdateMode.UnregisteredFilterSelected,

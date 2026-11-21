@@ -1526,5 +1526,10 @@
   "Duplicate_batch_organize_reason_physical_failure": "物理処理の失敗",
   "Duplicate_batch_organize_reason_commit_failure": "確定の失敗",
   "Duplicate_batch_organize_reason_not_processed": "未処理",
-  "Duplicate_batch_organize_reason_delete_failure": "削除の失敗"
+  "Duplicate_batch_organize_reason_delete_failure": "削除の失敗",
+  "Search_split_placement": "分裂配置チェック",
+  "Split_placement_search_progress_title": "分裂配置を探索中",
+  "Split_placement_search_progress_label": "音源の配置名を多く共有するフォルダを探しています。",
+  "Split_placement_search_progress_prepare": "準備中",
+  "Split_placement_search_progress_match_format": "照合中 {0}/{1}"
 }

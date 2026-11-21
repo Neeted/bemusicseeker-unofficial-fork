@@ -80,6 +80,9 @@ public partial class MainWindowViewModel : ViewModel,
     /// <summary>統合候補一覧の安全性確認の手順です。ボタン・メニュー・チェックの操作を受けます。</summary>
     internal DuplicateMergeVerificationWorkflowOwner DuplicateMergeVerification { get; private set; }
 
+    /// <summary>分裂配置のツリーを選んだときの探索の手順を管理します。</summary>
+    internal SplitPlacementSearchWorkflowOwner SplitPlacementSearch { get; private set; }
+
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; private set; }
 
     internal SelectedChartExternalActionWorkflowOwner SelectedChartExternalActions { get; private set; }
@@ -1472,6 +1475,25 @@ public partial class MainWindowViewModel : ViewModel,
         RefreshDuplicatePresentationAfterGroupsChanged(e?.Reason);
     }
 
+    /// <summary>
+    /// 分裂配置の結果の変更・失効を、ツリー（重複と同じ更新抑制のチャネル）と、分裂配置の一覧を表示中なら一覧へ反映します。
+    /// 一覧は構築時点の現在値を読むため、失効では空になり、自動で探索し直しません。
+    /// </summary>
+    private void MaintenanceTreeSplitPlacementPresentationChanged(
+        object sender,
+        MaintenanceTreeDuplicatePresentationChangedEventArgs e)
+    {
+        if (!TrySuppress(UiRefreshChannel.DuplicateTree))
+        {
+            MaintenanceTree.ApplySplitPlacementPresentation();
+        }
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.SplitPlacementFilterSelected
+            && !TrySuppress(UiRefreshChannel.LibraryMainView))
+        {
+            RefreshLibraryMainViewForCurrentFilter().ObserveFault("splitPlacementPresentation");
+        }
+    }
+
     private void FlushPendingUiRefresh(UiRefreshChannel mask)
     {
         FlushPendingUiRefresh(mask, startupProgressWorkflowOwner.GetActiveStartupProgressOperationToken());
@@ -1522,6 +1544,7 @@ public partial class MainWindowViewModel : ViewModel,
         {
             var stopwatch4 = Stopwatch.StartNew();
             MaintenanceTree.ApplyDuplicateGroupsPresentation();
+            MaintenanceTree.ApplySplitPlacementPresentation();
             stopwatch4.Stop();
             num4 = stopwatch4.ElapsedMilliseconds;
         }
@@ -2289,6 +2312,7 @@ public partial class MainWindowViewModel : ViewModel,
         InstallTree.PresentationChanged += InstallTreePresentationChanged;
         MaintenanceTree = childComposition.MaintenanceTree;
         MaintenanceTree.DuplicatePresentationChanged += MaintenanceTreeDuplicatePresentationChanged;
+        MaintenanceTree.SplitPlacementPresentationChanged += MaintenanceTreeSplitPlacementPresentationChanged;
         MaintenanceTree.DuplicatePreparationProvider = () => regularChartListOwner?.PrepareDuplicateDataAsync("duplicate_tree");
         DuplicateMergeCandidateList = childComposition.DuplicateMergeCandidateList;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
@@ -2315,6 +2339,7 @@ public partial class MainWindowViewModel : ViewModel,
         PackageCatalog.MutationPhasePublished += PackageCatalogMutationPhasePublished;
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
         DuplicateMergeVerification = childComposition.DuplicateMergeVerification;
+        SplitPlacementSearch = childComposition.SplitPlacementSearch;
         DuplicateMaintenanceWorkflow.WorkflowChanged += DuplicateMaintenanceWorkflowChanged;
         SelectedChartMutations = childComposition.SelectedChartMutations;
         SelectedChartMutations.WorkflowChanged += SelectedChartMutationWorkflowChanged;
@@ -4144,7 +4169,7 @@ public partial class MainWindowViewModel : ViewModel,
         }
         else if (mode < MainViewUpdateMode.KeywordFilterUpdated && mode != MainViewUpdateMode.PlayHistorySelected)
         {
-            if (mode == MainViewUpdateMode.DuplicateFilterSelected)
+            if (mode is MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected)
             {
                 parameter = NormalizeDuplicateViewParameter(parameter);
             }

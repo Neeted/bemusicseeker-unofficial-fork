@@ -39,6 +39,22 @@ public partial class BMSLibrary
     }
 
     /// <summary>
+    /// 結果があり、その結果を探索したリソース索引の世代が現在の世代と等しいかを返します。画面が探索の要否を決めるための読取り専用の判定で、
+    /// 受付もライブラリのロックも取りません。0件の結果も有効です。
+    /// </summary>
+    internal bool HasCurrentSplitPlacementGroups
+    {
+        get
+        {
+            long currentGeneration = libraryResourceIndexOwner.CaptureSnapshot().Generation;
+            lock (splitPlacementGate)
+            {
+                return splitPlacementGroups != null && splitPlacementGeneration == currentGeneration;
+            }
+        }
+    }
+
+    /// <summary>
     /// 分裂配置の結果を失効させ、直前まで結果があった場合だけ変更を非同期に一回通知します。
     /// 重複検索の結果の有無と通知の抑止には従いません。基底は保持します。
     /// </summary>

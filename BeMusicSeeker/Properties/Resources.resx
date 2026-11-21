@@ -4492,4 +4492,19 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_batch_organize_reason_delete_failure" xml:space="preserve">
     <value>削除の失敗</value>
   </data>
+  <data name="Search_split_placement" xml:space="preserve">
+    <value>分裂配置チェック</value>
+  </data>
+  <data name="Split_placement_search_progress_title" xml:space="preserve">
+    <value>分裂配置を探索中</value>
+  </data>
+  <data name="Split_placement_search_progress_label" xml:space="preserve">
+    <value>音源の配置名を多く共有するフォルダを探しています。</value>
+  </data>
+  <data name="Split_placement_search_progress_prepare" xml:space="preserve">
+    <value>準備中</value>
+  </data>
+  <data name="Split_placement_search_progress_match_format" xml:space="preserve">
+    <value>照合中 {0}/{1}</value>
+  </data>
 </root>

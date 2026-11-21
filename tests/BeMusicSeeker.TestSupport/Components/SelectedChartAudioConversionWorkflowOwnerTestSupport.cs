@@ -212,6 +212,11 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
 
         private readonly List<(int Percent, string Message)> progressReports = [];
 
+        /// <summary>
+        /// 操作を呼ぶ直前に、利用者が取消ボタンを押した状態にします。操作の開始前の取消の要求を、時機に依存せず確定的に作るために使います。
+        /// </summary>
+        internal bool CancelProgressBeforeOperation { get; set; }
+
         private BackgroundWorker? progressWorker;
 
         /// <summary>利用者が進捗画面の取消ボタンを押した状態にします。次の報告の取消確認で取消として観測されます。</summary>
@@ -282,6 +287,7 @@ internal static class SelectedChartAudioConversionWorkflowOwnerTestSupport
             };
             var arguments = new DoWorkEventArgs(null);
             Volatile.Write(ref progressArguments, arguments);
+            if (CancelProgressBeforeOperation) { worker.CancelAsync(); }
             Task operationTask = operation(new UiProgressContext(new ProgressDialogContext(worker, arguments)));
             if (ProgressHandler != null)
             {

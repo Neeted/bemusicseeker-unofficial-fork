@@ -18,6 +18,9 @@ internal static class MainChartColumnSettingsTestDoubles
 
         internal bool LastReset { get; private set; }
 
+        /// <summary>直近に要求された主表の列設定の種類です。</summary>
+        internal CustomTableColumnSettings.ViewKind? LastMainViewKind { get; private set; }
+
         internal bool LastEnsurePlaylistSummary { get; private set; }
 
         internal int ResetPlaylistSummaryCallCount { get; private set; }
@@ -25,6 +28,7 @@ internal static class MainChartColumnSettingsTestDoubles
         public CustomTableColumnSettings GetMain(CustomTableColumnSettings.ViewKind viewKind, bool reset)
         {
             LastReset = reset;
+            LastMainViewKind = viewKind;
             return MainColumns;
         }
 

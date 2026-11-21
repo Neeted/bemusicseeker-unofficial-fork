@@ -669,7 +669,8 @@ internal sealed partial class RegularChartListOwner : IDisposable
     }
 
     private static object CaptureMaintenanceParameter(MainViewUpdateMode mode, object parameter)
-        => mode == MainViewUpdateMode.DuplicateFilterSelected ? CaptureDuplicateContext(parameter) : parameter;
+        => mode is MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected
+            ? CaptureDuplicateContext(parameter) : parameter;
 
     /// <summary>重複ルート、グループ、フォルダの入力を共通の選択文脈へ変換し、それぞれの対象の意味を保ちます。</summary>
     internal static DuplicateViewContext CaptureDuplicateContext(object parameter)
@@ -887,6 +888,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
             or MainViewUpdateMode.FileMissingFilterSelected
             or MainViewUpdateMode.FileMissingIgnoredFilterSelected
             or MainViewUpdateMode.DuplicateFilterSelected
+            or MainViewUpdateMode.SplitPlacementFilterSelected
             or MainViewUpdateMode.GarbledFilterSelected
             or MainViewUpdateMode.GarbleFixedFilterSelected
             or MainViewUpdateMode.UnregisteredFilterSelected
@@ -3108,6 +3110,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         return mode == MainViewUpdateMode.FileMissingFilterSelected
             || mode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
             || mode == MainViewUpdateMode.DuplicateFilterSelected
+            || mode == MainViewUpdateMode.SplitPlacementFilterSelected
             || mode == MainViewUpdateMode.GarbledFilterSelected
             || mode == MainViewUpdateMode.GarbleFixedFilterSelected
             || mode == MainViewUpdateMode.UnregisteredFilterSelected
@@ -3159,7 +3162,7 @@ internal sealed partial class RegularChartListOwner : IDisposable
         BMSLibrary library,
         out RegularChartListSubsetSource source)
     {
-        object parameter = request.CurrentTreeMode == MainViewUpdateMode.DuplicateFilterSelected
+        object parameter = request.CurrentTreeMode is MainViewUpdateMode.DuplicateFilterSelected or MainViewUpdateMode.SplitPlacementFilterSelected
             ? request.TreeParameter ?? request.Parameter
             : request.Parameter;
         switch (request.CurrentTreeMode)
@@ -3172,6 +3175,9 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 return true;
             case MainViewUpdateMode.DuplicateFilterSelected:
                 return TryResolveDuplicateSource(library?.DuplicateChartGroups, parameter, out source);
+            case MainViewUpdateMode.SplitPlacementFilterSelected:
+                // 結果がない状態は空の列として解決し、別のグループや全件へ広げない。世代の有効性は一覧の側では判定しない。
+                return TryResolveDuplicateSource(library?.SplitPlacementGroups ?? [], parameter, out source);
             case MainViewUpdateMode.GarbledFilterSelected:
                 source = RegularChartListSubsetSource.ForCharts(library?.ChartFilesGarbled, "garbled", ChartListSourceProjectionMode.OwnerBacked);
                 return true;

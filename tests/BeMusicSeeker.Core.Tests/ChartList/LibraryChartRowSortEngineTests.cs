@@ -243,6 +243,7 @@ public sealed class LibraryChartRowSortEngineTests
             MainViewUpdateMode.FileMissingFilterSelected,
             MainViewUpdateMode.FileMissingIgnoredFilterSelected,
             MainViewUpdateMode.DuplicateFilterSelected,
+            MainViewUpdateMode.SplitPlacementFilterSelected,
             MainViewUpdateMode.GarbledFilterSelected,
             MainViewUpdateMode.GarbleFixedFilterSelected,
             MainViewUpdateMode.UnregisteredFilterSelected,

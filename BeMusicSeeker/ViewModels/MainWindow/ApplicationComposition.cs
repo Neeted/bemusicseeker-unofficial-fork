@@ -922,6 +922,11 @@ internal sealed class MainWindowChildComposition
                 duplicateMaintenanceLibraryProvider() ?? throw new InvalidOperationException("The library is not available for duplicate merge verification.")),
             chartFileOperations,
             dialogService);
+        SplitPlacementSearch = new SplitPlacementSearchWorkflowOwner(
+            duplicateMaintenanceLibraryProvider,
+            chartFileOperations,
+            dialogService,
+            context => RegularChartListOwner.NavigateMaintenanceAsync(MainViewUpdateMode.SplitPlacementFilterSelected, context));
         SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
             selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
             chartFileOperations,
@@ -1001,6 +1006,9 @@ internal sealed class MainWindowChildComposition
 
     /// <summary>統合候補一覧の安全性確認の手順を管理します。</summary>
     internal DuplicateMergeVerificationWorkflowOwner DuplicateMergeVerification { get; }
+
+    /// <summary>分裂配置のツリーを選んだときの探索の手順を管理します。</summary>
+    internal SplitPlacementSearchWorkflowOwner SplitPlacementSearch { get; }
 
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; }
 

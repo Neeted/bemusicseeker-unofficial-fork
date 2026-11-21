@@ -5,6 +5,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Files;
 using static BeMusicSeeker.TestSupport.Components.BmsLibraryDuplicateServiceTestSupport;
+using static BeMusicSeeker.TestSupport.Components.SplitPlacementTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -18,33 +19,6 @@ public sealed class BmsLibrarySplitPlacementTests
     private static readonly string[] GateNames = ["rwlockBMSFilesInitializedMin", "rwlockBMSFiles", "rwlockDuplicateChartGroups"];
 
     private readonly ApplicationDatabaseScope databaseScope = new();
-
-    private static string Md5(int n) => n.ToString("x32");
-
-    private static uint[] Keys(uint start, int count) => [.. Enumerable.Range(0, count).Select(i => start + (uint)i)];
-
-    private static ChartFile Chart(string path, int md5, string? title = null, ChartFileKind kind = ChartFileKind.Bms)
-    {
-        ChartFile chart = kind == ChartFileKind.Bms
-            ? CreateFile(Md5(md5), path)
-            : ChartTestValues.Empty(ChartFileKind.Bmson) with { Path = path, Md5 = Md5(md5), Token = new OwnedChartToken() };
-        return title == null ? chart : chart with { Title = title, RawTitle = title };
-    }
-
-    private sealed record IndexFolder(string Path, uint[] Self, uint[]? All = null);
-
-    /// <summary>指定した自身の所有分の音声キーを持つ索引を、実ライブラリの管理主体へ設定します。</summary>
-    private static LibraryResourceIndexSnapshot SetIndex(BMSLibrary library, params IndexFolder[] folders)
-    {
-        var scan = new ChartScanResult();
-        foreach (IndexFolder folder in folders)
-        {
-            scan.ChartDirectories.Add(folder.Path);
-            scan.SelfOwnedAudioRelativePathHashesByChartDirectory[folder.Path] = folder.Self;
-            scan.AudioRelativePathHashesByChartDirectory[folder.Path] = folder.All ?? folder.Self;
-        }
-        return LibraryResourceIndexTestSupport.GetOwner(library).Replace(LibraryResourceIndex.CreateFromScanResult(scan));
-    }
 
     private void Run(ChartFile[] bms, Action<TestBmsLibrary> test, ChartFile[]? bmson = null)
     {
@@ -97,12 +71,6 @@ public sealed class BmsLibrarySplitPlacementTests
 
         internal int Count { get { lock (Entries) { return Entries.Count; } } }
     }
-
-    private static ChartFile[] TwoRelatedFolders() =>
-        [Chart(@"C:\BMS\A\a.bms", 1, "A"), Chart(@"C:\BMS\B\b.bms", 2, "B"), Chart(@"C:\BMS\C\c.bms", 3, "C")];
-
-    private static void SetTwoRelatedIndex(BMSLibrary library)
-        => SetIndex(library, new(@"C:\BMS\A", Keys(1, 10)), new(@"C:\BMS\B", Keys(1, 10)), new(@"C:\BMS\C", Keys(500, 10)));
 
     /// <summary>探索前は結果なし（null）で、有効な結果がない状態を空の一覧と取り違えないことを確認します。</summary>
     [TestMethod]
@@ -534,7 +502,7 @@ public sealed class BmsLibrarySplitPlacementTests
 
     private static void WaitForInvalidation(BMSLibrary library, NotificationLog log)
     {
-        var never = new TaskCompletionSource().Task;
+        Task never = new TaskCompletionSource().Task;
         ConcurrencyProbe.WaitForSignal(log.Signal, never, "分裂配置の失効通知");
         Assert.IsNull(library.SplitPlacementGroups);
         Assert.IsTrue(log.Count >= 1);
@@ -558,6 +526,36 @@ public sealed class BmsLibrarySplitPlacementTests
             Assert.AreNotSame(first, library.SplitPlacementGroups);
             Assert.AreEqual(0, library.SplitPlacementGroups!.Count);
             Assert.AreEqual(1, log.Count);
+        });
+    }
+
+    /// <summary>
+    /// 画面が探索の要否を読む <c>HasCurrentSplitPlacementGroups</c> が、探索前は偽、探索後は0件を含めて真、リソース索引の世代が進むと偽、
+    /// 再探索で真、所持集合の失効で偽になることを確認します。結果の有無と世代の一致のどちらか一方だけを見る誤りを検出します。
+    /// </summary>
+    [TestMethod]
+    public void HasCurrentSplitPlacementGroups_FollowsResultPresenceAndIndexGeneration()
+    {
+        Run(TwoRelatedFolders(), library =>
+        {
+            SetTwoRelatedIndex(library);
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups, "探索前");
+
+            Search(library);
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups, "探索後");
+
+            SetIndex(library, new(@"C:\BMS\A", Keys(1, 10)), new(@"C:\BMS\B", Keys(300, 10)));
+            Assert.IsNotNull(library.SplitPlacementGroups, "世代が変わっても結果は保持する");
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups, "世代の変化");
+
+            Search(library);
+            Assert.AreEqual(0, library.SplitPlacementGroups!.Count);
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups, "0件の再探索");
+
+            var log = new NotificationLog(library);
+            library.BmsCharts = TwoRelatedFolders();
+            WaitForInvalidation(library, log);
+            Assert.IsFalse(library.HasCurrentSplitPlacementGroups, "失効");
         });
     }
 

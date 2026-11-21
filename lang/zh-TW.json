@@ -1526,5 +1526,10 @@
   "Duplicate_batch_organize_reason_physical_failure": "檔案操作失敗",
   "Duplicate_batch_organize_reason_commit_failure": "提交失敗",
   "Duplicate_batch_organize_reason_not_processed": "未處理",
-  "Duplicate_batch_organize_reason_delete_failure": "刪除失敗"
+  "Duplicate_batch_organize_reason_delete_failure": "刪除失敗",
+  "Search_split_placement": "分裂放置檢查",
+  "Split_placement_search_progress_title": "正在搜尋分裂放置",
+  "Split_placement_search_progress_label": "正在尋找共用大量音訊檔名的資料夾。",
+  "Split_placement_search_progress_prepare": "正在準備",
+  "Split_placement_search_progress_match_format": "正在比對 {0}/{1}"
 }

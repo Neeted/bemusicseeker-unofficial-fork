@@ -19,6 +19,7 @@ internal enum MainViewUpdateMode
     ZeroNoteFilterSelected = 39,
     ChartInfoParseErrorFilterSelected = 40,
     PlayHistorySelected = 41,
+    SplitPlacementFilterSelected = 42,
     NewlyInstalledFolderSelected = 49,
     PendingInstallFolderSelected = 50,
     KeywordFilterUpdated = 65,

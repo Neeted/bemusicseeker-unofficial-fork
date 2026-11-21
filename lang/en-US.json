@@ -1526,5 +1526,10 @@
   "Duplicate_batch_organize_reason_physical_failure": "file operation failed",
   "Duplicate_batch_organize_reason_commit_failure": "failed to commit",
   "Duplicate_batch_organize_reason_not_processed": "not processed",
-  "Duplicate_batch_organize_reason_delete_failure": "failed to delete"
+  "Duplicate_batch_organize_reason_delete_failure": "failed to delete",
+  "Search_split_placement": "Split placement check",
+  "Split_placement_search_progress_title": "Searching for split placements",
+  "Split_placement_search_progress_label": "Looking for folders that share many audio file names.",
+  "Split_placement_search_progress_prepare": "Preparing",
+  "Split_placement_search_progress_match_format": "Matching {0}/{1}"
 }

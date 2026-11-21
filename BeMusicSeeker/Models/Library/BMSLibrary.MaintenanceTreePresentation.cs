@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace BeMusicSeeker.Models;
 
 /// <summary>
@@ -7,4 +9,7 @@ public partial class BMSLibrary : IMaintenanceTreePresentationState
 {
     int IMaintenanceTreePresentationState.DuplicateChartGroupsInvalidationVersion
         => DuplicateChartGroupsInvalidationVersion;
+
+    List<DuplicateGroup> IMaintenanceTreePresentationState.SplitPlacementGroups
+        => SplitPlacementGroups;
 }

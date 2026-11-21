@@ -389,11 +389,234 @@ public sealed class MaintenanceTreeViewModelTests
         Assert.IsNull(captured.ResolveGroup(tree.DuplicateChartGroups));
     }
 
+    private static DuplicateGroup SplitGroup(string folder) => new([], [@"C:\Songs\" + folder]) { Header = folder };
+
+    /// <summary>
+    /// 保証：分裂配置ツリーの子は、結果の順のグループ項目だけで、統合候補一覧のノードを置かない（結果が一件以上あっても）。結果なし・0件・解除では子が空になる。
+    /// 検出する誤り：重複のツリーのノードの混入、結果の順とずれた並び、結果なしでの旧項目の残存。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementTreeChildren_AreOnlyGroupsInResultOrderWithoutCandidateListNode()
+    {
+        DuplicateGroup a = SplitGroup("A"), b = SplitGroup("B");
+        var state = new MaintenanceTreePresentationStateFake();
+        var owner = new MaintenanceTreeViewModel();
+        owner.AttachPresentationState(state);
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "結果なし（null）は空");
+
+        state.ReplaceSplitPlacementGroups([b, a]);
+        owner.ApplySplitPlacementPresentation();
+        CollectionAssert.AreEqual(new object[] { b, a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Cast<object>().Count(child => child is DuplicateMergeCandidateListNode));
+
+        state.ReplaceSplitPlacementGroups([]);
+        owner.ApplySplitPlacementPresentation();
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "0件は空");
+
+        state.ReplaceSplitPlacementGroups([a]);
+        owner.ApplySplitPlacementPresentation();
+        owner.DetachLibrary();
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "解除では空");
+    }
+
+    /// <summary>
+    /// 保証：同じ結果への再同期や、結果にも含まれるグループを保つ同期では、そのグループの項目を除去・置換せず、Resetを使わない。
+    /// 検出する誤り：同期のたびの全置換によるツリーの展開状態の消失。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementTreeChildren_SyncKeepsSameInstancesWithoutReset()
+    {
+        DuplicateGroup a = SplitGroup("A"), b = SplitGroup("B"), c = SplitGroup("C");
+        var state = new MaintenanceTreePresentationStateFake();
+        state.ReplaceSplitPlacementGroups([a, b]);
+        var owner = new MaintenanceTreeViewModel();
+        owner.AttachPresentationState(state);
+        var changes = new List<NotifyCollectionChangedEventArgs>();
+        ((INotifyCollectionChanged)owner.SplitPlacementTreeChildren).CollectionChanged += (_, args) => changes.Add(args);
+
+        owner.ApplySplitPlacementPresentation();
+        Assert.AreEqual(0, changes.Count, "同じ結果への再同期は何も変えません。");
+
+        state.ReplaceSplitPlacementGroups([a, c]);
+        owner.ApplySplitPlacementPresentation();
+
+        Assert.IsFalse(changes.Any(change => change.Action == NotifyCollectionChangedAction.Reset), "Resetは使いません。");
+        foreach (NotifyCollectionChangedEventArgs change in changes.Where(change => change.Action is NotifyCollectionChangedAction.Remove or NotifyCollectionChangedAction.Replace))
+        {
+            CollectionAssert.DoesNotContain(change.OldItems!.Cast<object>().ToArray(), a, "維持するグループの項目を除去・置換しました。");
+        }
+        Assert.AreSame(a, owner.SplitPlacementTreeChildren[0]);
+        CollectionAssert.AreEqual(new object[] { a, c }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+    }
+
+    /// <summary>
+    /// 保証：分裂配置の結果の失効で、重複のデータ準備が走っていても、子をすぐ空にする（準備中に直前の項目を保つ動作は重複だけのもの）。
+    /// 検出する誤り：重複の準備の動作を分裂配置へ持ち込み、失効した古い項目を表示し続ける。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementTreeChildren_InvalidationEmptiesChildrenImmediately()
+    {
+        DuplicateGroup a = SplitGroup("A");
+        var state = new MaintenanceTreePresentationStateFake();
+        state.ReplaceSplitPlacementGroups([a]);
+        var preparation = new TaskCompletionSource();
+        var owner = new MaintenanceTreeViewModel { DuplicatePreparationProvider = () => preparation.Task };
+        owner.AttachPresentationState(state);
+        CollectionAssert.AreEqual(new object[] { a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+
+        state.ReplaceSplitPlacementGroups(null);
+        owner.ApplySplitPlacementPresentation();
+
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count);
+        preparation.TrySetResult();
+    }
+
+    /// <summary>
+    /// 保証：失効の通知が、新しい結果の格納より後に（UIスレッドの配送が遅れて）届いても、通知を受けた時点ではなく同期の時点の現在の結果を読むため、
+    /// 新しい結果を表示したままにする。検出する誤り：通知の理由（失効）で子を空にし、直後に格納された新しい結果を消す。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementTreeChildren_LateInvalidationNotificationKeepsNewResult()
+    {
+        DuplicateGroup a = SplitGroup("A"), c = SplitGroup("C");
+        var state = new MaintenanceTreePresentationStateFake();
+        state.ReplaceSplitPlacementGroups([a]);
+        var scheduler = new QueueingUiScheduler();
+        var owner = new MaintenanceTreeViewModel(scheduler);
+        owner.AttachPresentationState(state);
+        scheduler.RunPending();
+        int notifications = 0;
+        owner.SplitPlacementPresentationChanged += (_, _) => notifications++;
+
+        state.ReplaceSplitPlacementGroupsWithoutNotification(null);
+        state.ReplaceSplitPlacementGroupsWithoutNotification([c]);
+        state.NotifySplitPlacementGroupsChanged();
+        owner.ApplySplitPlacementPresentation();
+        scheduler.RunPending();
+
+        Assert.AreEqual(1, notifications);
+        CollectionAssert.AreEqual(new object[] { c }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+    }
+
+    /// <summary>
+    /// 保証：ワーカースレッドからの反映要求は項目を変更せずUIスレッドへ配送して待たずに戻り、項目の変更はUIスレッド（配送先）でだけ行う。
+    /// 検出する誤り：ワーカースレッドでの項目の変更、UIの完了の同期的な待機。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementTreeChildren_MutatesOnlyOnUiThreadAndDoesNotWaitForIt()
+    {
+        DuplicateGroup a = SplitGroup("A");
+        var state = new MaintenanceTreePresentationStateFake();
+        var scheduler = new QueueingUiScheduler();
+        var owner = new MaintenanceTreeViewModel(scheduler);
+        owner.AttachPresentationState(state);
+        scheduler.RunPending();
+        var mutationThreads = new List<int>();
+        ((INotifyCollectionChanged)owner.SplitPlacementTreeChildren).CollectionChanged += (_, _) => mutationThreads.Add(Environment.CurrentManagedThreadId);
+        state.ReplaceSplitPlacementGroups([a]);
+
+        Task.Run(owner.ApplySplitPlacementPresentation).Wait();
+
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "ワーカースレッドでは項目を変更しません。");
+        Assert.AreEqual(1, scheduler.PendingCount, "UIスレッドへ配送します。");
+        scheduler.RunPending();
+        CollectionAssert.AreEqual(new object[] { a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+        CollectionAssert.AreEqual(new[] { Environment.CurrentManagedThreadId }, mutationThreads);
+    }
+
+    /// <summary>
+    /// 保証：重複と分裂配置の結果の変化・失効・（重複の）準備中は互いの子・通知へ影響しない。
+    /// 検出する誤り：二つのツリーが項目や通知を共有し、一方の操作でもう一方の表示が変わる。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementAndDuplicateTrees_AreIndependent()
+    {
+        DuplicateGroup d = SplitGroup("D"), s = SplitGroup("S");
+        var state = new MaintenanceTreePresentationStateFake([d]);
+        state.ReplaceSplitPlacementGroups([s]);
+        var preparation = new TaskCompletionSource();
+        var owner = new MaintenanceTreeViewModel { DuplicatePreparationProvider = () => preparation.Task };
+        owner.AttachPresentationState(state);
+        var duplicateReasons = new List<string>();
+        var splitReasons = new List<string>();
+        owner.DuplicatePresentationChanged += (_, args) => duplicateReasons.Add(args.Reason);
+        owner.SplitPlacementPresentationChanged += (_, args) => splitReasons.Add(args.Reason);
+
+        state.InvalidateDuplicateChartGroups();
+        owner.ApplyDuplicateGroupsPresentation();
+        state.ReplaceDuplicateChartGroups([]);
+        owner.ApplyDuplicateGroupsPresentation();
+        CollectionAssert.AreEqual(new object[] { s }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray(), "重複の変化・失効・準備中で分裂配置の子は変わらない");
+        Assert.AreEqual(0, splitReasons.Count, "重複の変化は分裂配置の通知を出さない");
+
+        state.ReplaceDuplicateChartGroups([d]);
+        owner.ApplyDuplicateGroupsPresentation();
+        duplicateReasons.Clear();
+        state.ReplaceSplitPlacementGroups(null);
+        owner.ApplySplitPlacementPresentation();
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count);
+        CollectionAssert.AreEqual(new[] { d }, owner.DuplicateTreeItems.ToArray(), "分裂配置の失効で重複の項目は変わらない");
+        CollectionAssert.AreEqual(new[] { "split_placement_groups_changed" }, splitReasons);
+        Assert.AreEqual(0, duplicateReasons.Count, "分裂配置の変化は重複の通知を出さない");
+        preparation.TrySetResult();
+    }
+
+    /// <summary>配送を溜めて、テストスレッドを「UIスレッド」として実行する代替です。溜めた間は呼出しを待たずに戻ります。</summary>
+    private sealed class QueueingUiScheduler : IUiScheduler
+    {
+        private readonly Queue<Action> pending = new();
+
+        internal int PendingCount { get { lock (pending) { return pending.Count; } } }
+
+        internal void RunPending()
+        {
+            while (true)
+            {
+                Action? action;
+                lock (pending) { if (!pending.TryDequeue(out action)) { return; } }
+                action();
+            }
+        }
+
+        public bool IsAvailable => true;
+
+        public bool CanExecuteInline => false;
+
+        /// <summary>呼出し元を常に「UIスレッドではない」とし、反映要求が必ず配送の列に入るようにします。</summary>
+        public bool CheckAccess() => false;
+
+        public IUiScheduledOperation Schedule(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal)
+        {
+            lock (pending) { pending.Enqueue(action); }
+            return new Operation();
+        }
+
+        public void Invoke(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => throw new NotSupportedException();
+
+        public T Invoke<T>(Func<T> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => throw new NotSupportedException();
+
+        public Task InvokeAsync(Action action, UiSchedulePriority priority = UiSchedulePriority.Normal) => throw new NotSupportedException();
+
+        public Task InvokeAsync(Func<Task> action, UiSchedulePriority priority = UiSchedulePriority.Normal) => throw new NotSupportedException();
+
+        private sealed class Operation : IUiScheduledOperation
+        {
+            public bool IsAccepted => true;
+            public bool IsCompleted => false;
+            public bool IsAborted => false;
+            public string RejectionReason => string.Empty;
+            public Task Completion => Task.CompletedTask;
+            public void Abort() { }
+        }
+    }
+
     private sealed class MaintenanceTreePresentationStateFake : IMaintenanceTreePresentationState
     {
         private List<DuplicateGroup> duplicateChartGroups = null!;
 
         private int duplicateChartGroupsInvalidationVersion;
+
+        private List<DuplicateGroup>? splitPlacementGroups;
 
         internal MaintenanceTreePresentationStateFake(
             List<DuplicateGroup>? duplicateChartGroups = null,
@@ -415,6 +638,8 @@ public sealed class MaintenanceTreeViewModelTests
 
         public int DuplicateChartGroupsInvalidationVersion => duplicateChartGroupsInvalidationVersion;
 
+        public List<DuplicateGroup>? SplitPlacementGroups => splitPlacementGroups;
+
         public bool IsWriteLockHeldInitializdBMSFilesHealthStatus { get; private set; }
 
         public bool IsWriteLockHeldInitializeBMSFilesEncodingInfo { get; private set; }
@@ -428,6 +653,19 @@ public sealed class MaintenanceTreeViewModelTests
             duplicateChartGroups = replacement;
             RaisePropertyChanged(nameof(DuplicateChartGroups));
         }
+
+        /// <summary>分裂配置の結果を差し替え、変更を通知します。</summary>
+        internal void ReplaceSplitPlacementGroups(List<DuplicateGroup>? replacement)
+        {
+            splitPlacementGroups = replacement;
+            RaisePropertyChanged(nameof(SplitPlacementGroups));
+        }
+
+        /// <summary>分裂配置の結果を、通知を送らずに差し替えます。通知が格納より遅れて届く状況を作ります。</summary>
+        internal void ReplaceSplitPlacementGroupsWithoutNotification(List<DuplicateGroup>? replacement) => splitPlacementGroups = replacement;
+
+        /// <summary>分裂配置の変更の通知だけを送ります。</summary>
+        internal void NotifySplitPlacementGroupsChanged() => RaisePropertyChanged(nameof(SplitPlacementGroups));
 
         internal void InvalidateDuplicateChartGroups()
         {

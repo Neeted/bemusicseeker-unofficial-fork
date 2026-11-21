@@ -3548,4 +3548,14 @@ public class Resources
     public static string Duplicate_batch_organize_reason_not_processed => ResourceManager.GetString("Duplicate_batch_organize_reason_not_processed", resourceCulture);
     /// <summary>重複グループの一括整理の結果の理由で、重複した譜面の個別の削除に失敗があったことを示す文言です。</summary>
     public static string Duplicate_batch_organize_reason_delete_failure => ResourceManager.GetString("Duplicate_batch_organize_reason_delete_failure", resourceCulture);
+    /// <summary>分裂配置のツリーのルートに表示する、分裂配置チェックの名称です。</summary>
+    public static string Search_split_placement => ResourceManager.GetString("Search_split_placement", resourceCulture);
+    /// <summary>分裂配置の探索の進捗画面の題名です。</summary>
+    public static string Split_placement_search_progress_title => ResourceManager.GetString("Split_placement_search_progress_title", resourceCulture);
+    /// <summary>分裂配置の探索の進捗画面で、処理の内容を示す文言です。</summary>
+    public static string Split_placement_search_progress_label => ResourceManager.GetString("Split_placement_search_progress_label", resourceCulture);
+    /// <summary>分裂配置の探索の進捗画面で、準備の段階を示す文言です。</summary>
+    public static string Split_placement_search_progress_prepare => ResourceManager.GetString("Split_placement_search_progress_prepare", resourceCulture);
+    /// <summary>分裂配置の探索の進捗画面で、照合の段階を示す書式です。{0}は照合を終えた候補フォルダの数、{1}は候補フォルダの総数です。</summary>
+    public static string Split_placement_search_progress_match_format => ResourceManager.GetString("Split_placement_search_progress_match_format", resourceCulture);
 }

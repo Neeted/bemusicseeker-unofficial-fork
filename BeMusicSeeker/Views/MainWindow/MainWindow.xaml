@@ -339,6 +339,9 @@
           </ItemsControl.ItemContainerStyle>
         </MenuItem>
       </ContextMenu>
+      <ContextMenu x:Key="treeViewSplitPlacementFolderContextMenu" HasDropShadow="True">
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="treeViewDuplicateFolderContextMenuOpenExplorerClick" />
+      </ContextMenu>
       <ContextMenu x:Key="treeViewLibraryFolderRootContextMenu" HasDropShadow="True">
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="treeViewLibraryFolderContextMenuItemReloadClick" />
         <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reinitialize_library, Mode=OneWay}" Click="treeViewLibraryFolderContextMenuItemReinitializeClick" />
@@ -1548,6 +1551,38 @@
                       <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="treeSelectionCleanUpVirtualizedItem" />
                     </Style>
                     <v:duplicateTreeItemContainerStyleSelector x:Key="duplicateTreeItemContainerStyleSelector" GroupStyle="{StaticResource styleDuplicateGroupTreeItem}" CandidateListStyle="{StaticResource styleDuplicateCandidateListTreeItem}" />
+                  </ResourceDictionary>
+                </FrameworkElement.Resources>
+              </TreeViewItem>
+              <TreeViewItem Name="treeViewItemSearchSplitPlacement" AutomationProperties.AutomationId="SplitPlacementTreeRoot" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Search_split_placement, Mode=OneWay}" ItemsSource="{Binding MaintenanceTree.SplitPlacementTreeChildren}" ItemContainerStyle="{DynamicResource styleSplitPlacementGroupTreeItem}" HeaderTemplate="{StaticResource ResourceKey=templateTreeViewItemHeaderMaintenance}" Selected="splitPlacementCheckFolderSelect" PreviewMouseLeftButtonDown="splitPlacementRootPreviewMouseLeftButtonDown" KeyDown="splitPlacementRootKeyDown" VirtualizingStackPanel.CleanUpVirtualizedItem="treeSelectionCleanUpVirtualizedItem">
+                <FrameworkElement.Resources>
+                  <ResourceDictionary>
+                    <DataTemplate x:Key="templateTreeViewItemHeaderSplitPlacementGroup">
+                      <StackPanel Orientation="Horizontal" DataContext="{Binding DataContext, RelativeSource={RelativeSource FindAncestor, AncestorType={x:Type TreeViewItem}}}">
+                        <v:AppFontIcon Style="{StaticResource styleTreeViewItemIconFolder}" />
+                        <TextBlock Style="{StaticResource styleTreeViewItemTextBlockCommon}" Text="{Binding Header}" />
+                      </StackPanel>
+                    </DataTemplate>
+                    <Style x:Key="styleSplitPlacementGroupTreeItem" TargetType="{x:Type TreeViewItem}">
+                      <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+                      <Setter Property="Header" Value="{Binding Header}" />
+                      <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderSplitPlacementGroup}" />
+                      <Setter Property="ItemsSource" Value="{Binding Folders}" />
+                      <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                      <EventSetter Event="VirtualizingStackPanel.CleanUpVirtualizedItem" Handler="treeSelectionCleanUpVirtualizedItem" />
+                      <Setter Property="ItemContainerStyle">
+                        <Setter.Value>
+                          <Style TargetType="{x:Type TreeViewItem}">
+                            <Setter Property="FrameworkElement.FocusVisualStyle" Value="{x:Null}" />
+                            <Setter Property="HeaderTemplate" Value="{StaticResource templateTreeViewItemHeaderMaintenanceSubFolder2}" />
+                            <Setter Property="Header" Value="{Binding Mode=OneWay, Converter={StaticResource fileNameConverter}}" />
+                            <Setter Property="FrameworkElement.ToolTip" Value="{Binding Mode=OneWay}" />
+                            <Setter Property="FrameworkElement.ContextMenu" Value="{StaticResource treeViewSplitPlacementFolderContextMenu}" />
+                            <Setter Property="Template" Value="{StaticResource TreeViewItemFullWidth}" />
+                          </Style>
+                        </Setter.Value>
+                      </Setter>
+                    </Style>
                   </ResourceDictionary>
                 </FrameworkElement.Resources>
               </TreeViewItem>

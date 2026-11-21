@@ -8,22 +8,85 @@ using BeMusicSeeker.Models;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// 重複ツリーの子として表示する、先頭の「統合候補一覧」ノード（0〜1件）と、その後ろのグループ項目を連結した読取り専用の一覧です。
+/// 重複・分裂配置のツリーの子として表示する、先頭の「統合候補一覧」ノード（0〜1件）と、その後ろのグループ項目を連結した読取り専用の一覧です。
 /// 二つの元の集合の変更を、位置を補正した個別の変更として中継します。元の集合の変更を保つため、Resetへ置き換えません。
+/// 結果への同期（<see cref="SynchronizeItems"/>、<see cref="SynchronizeCandidateListNode"/>）もこの型が担い、二つのツリーが同じ規則を共有します。
 /// WPFの <see cref="System.Windows.Data.CompositeCollection"/> は依存関係オブジェクトを使い、生成したスレッドに結び付くため使いません。
+/// 項目の変更はUIスレッドだけで行います。
 /// </summary>
 internal sealed class DuplicateTreeChildCollection : IList, IReadOnlyList<object>, INotifyCollectionChanged
 {
-    private readonly ObservableCollection<DuplicateMergeCandidateListNode> head;
-    private readonly ObservableCollection<DuplicateGroup> tail;
+    private readonly ObservableCollection<DuplicateMergeCandidateListNode> head = [];
+    private readonly ObservableCollection<DuplicateGroup> tail = [];
 
-    internal DuplicateTreeChildCollection(
-        ObservableCollection<DuplicateMergeCandidateListNode> head, ObservableCollection<DuplicateGroup> tail)
+    /// <param name="candidateListNode">先頭に置く統合候補一覧のノード。置かないツリーでは <see langword="null"/> です。</param>
+    internal DuplicateTreeChildCollection(DuplicateMergeCandidateListNode candidateListNode = null)
     {
-        this.head = head ?? throw new ArgumentNullException(nameof(head));
-        this.tail = tail ?? throw new ArgumentNullException(nameof(tail));
+        CandidateListNode = candidateListNode;
         head.CollectionChanged += (_, e) => Relay(e, 0);
-        tail.CollectionChanged += (_, e) => Relay(e, this.head.Count);
+        tail.CollectionChanged += (_, e) => Relay(e, head.Count);
+    }
+
+    /// <summary>グループ項目です。インスタンスは同期を通じて変わりません。</summary>
+    internal ObservableCollection<DuplicateGroup> Items => tail;
+
+    /// <summary>先頭に置く統合候補一覧のノードです。項目の有無とは別に常に同じインスタンスで、置かないツリーでは <see langword="null"/> です。</summary>
+    internal DuplicateMergeCandidateListNode CandidateListNode { get; }
+
+    /// <summary>
+    /// 結果に含まれない項目だけを除き、新しい項目を結果の位置へ挿入します。
+    /// 同じインスタンスの項目は除去・置換せず、位置が違う場合だけ移動します。Resetは使いません。
+    /// </summary>
+    internal void SynchronizeItems(IReadOnlyList<DuplicateGroup> target)
+    {
+        var wanted = new HashSet<DuplicateGroup>(target);
+        for (int i = tail.Count - 1; i >= 0; i--)
+        {
+            if (!wanted.Contains(tail[i]))
+            {
+                tail.RemoveAt(i);
+            }
+        }
+        var present = new HashSet<DuplicateGroup>(tail);
+        for (int i = 0; i < target.Count; i++)
+        {
+            DuplicateGroup group = target[i];
+            if (i < tail.Count && ReferenceEquals(tail[i], group))
+            {
+                continue;
+            }
+            if (present.Contains(group))
+            {
+                tail.Move(tail.IndexOf(group), i);
+            }
+            else
+            {
+                tail.Insert(i, group);
+                present.Add(group);
+            }
+        }
+    }
+
+    /// <summary>
+    /// 統合候補一覧のノードを、結果が一件以上あるときだけ置きます。結果が一件以上ある間の同期では、置いたノードを除去・置換しません。
+    /// ノードを持たないツリーでは何もしません。
+    /// </summary>
+    internal void SynchronizeCandidateListNode(bool present)
+    {
+        if (CandidateListNode == null) { return; }
+        if (present)
+        {
+            if (head.Count == 0) { head.Add(CandidateListNode); }
+            return;
+        }
+        if (head.Count > 0) { head.RemoveAt(0); }
+    }
+
+    /// <summary>項目とノードをすべて取り除きます。</summary>
+    internal void Clear()
+    {
+        tail.Clear();
+        SynchronizeCandidateListNode(present: false);
     }
 
     /// <inheritdoc />

@@ -1526,5 +1526,10 @@
   "Duplicate_batch_organize_reason_physical_failure": "文件操作失败",
   "Duplicate_batch_organize_reason_commit_failure": "提交失败",
   "Duplicate_batch_organize_reason_not_processed": "未处理",
-  "Duplicate_batch_organize_reason_delete_failure": "删除失败"
+  "Duplicate_batch_organize_reason_delete_failure": "删除失败",
+  "Search_split_placement": "分裂放置检查",
+  "Split_placement_search_progress_title": "正在搜索分裂放置",
+  "Split_placement_search_progress_label": "正在查找共享大量音频文件名的文件夹。",
+  "Split_placement_search_progress_prepare": "正在准备",
+  "Split_placement_search_progress_match_format": "正在比对 {0}/{1}"
 }

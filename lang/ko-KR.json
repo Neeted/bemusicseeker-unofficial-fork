@@ -1526,5 +1526,10 @@
   "Duplicate_batch_organize_reason_physical_failure": "파일 처리 실패",
   "Duplicate_batch_organize_reason_commit_failure": "확정 실패",
   "Duplicate_batch_organize_reason_not_processed": "미처리",
-  "Duplicate_batch_organize_reason_delete_failure": "삭제 실패"
+  "Duplicate_batch_organize_reason_delete_failure": "삭제 실패",
+  "Search_split_placement": "분할 배치 검사",
+  "Split_placement_search_progress_title": "분할 배치 검색 중",
+  "Split_placement_search_progress_label": "음원 파일 이름을 많이 공유하는 폴더를 찾고 있습니다.",
+  "Split_placement_search_progress_prepare": "준비 중",
+  "Split_placement_search_progress_match_format": "대조 중 {0}/{1}"
 }
