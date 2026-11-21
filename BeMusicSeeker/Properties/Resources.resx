@@ -4349,15 +4349,9 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>グループごとに、フォルダの内容を確認しています。</value>
   </data>
   <data name="Duplicate_merge_candidate_verify_result_format" xml:space="preserve">
-    <value>{0}グループを確認しました。安全 {1}／要注意 {2}／統合不可 {3}。安全な{1}グループにチェックを入れました。</value>
-  </data>
-  <data name="Duplicate_merge_candidate_verify_result_no_safe_format" xml:space="preserve">
     <value>{0}グループを確認しました。安全 {1}／要注意 {2}／統合不可 {3}。</value>
   </data>
   <data name="Duplicate_merge_candidate_verify_result_cancelled_format" xml:space="preserve">
-    <value>{0}グループを確認しました。安全 {1}／要注意 {2}／統合不可 {3}／未確認 {4}。安全な{1}グループにチェックを入れました。</value>
-  </data>
-  <data name="Duplicate_merge_candidate_verify_result_cancelled_no_safe_format" xml:space="preserve">
     <value>{0}グループを確認しました。安全 {1}／要注意 {2}／統合不可 {3}／未確認 {4}。</value>
   </data>
   <data name="Duplicate_merge_preferred_destination_title" xml:space="preserve">

@@ -52,6 +52,7 @@ internal sealed record DuplicateMergeVerificationRunResult(
 /// <remarks>
 /// 受付が使用中ならBusyを一度だけ案内し、受付が閉じている（終了の要求中など）なら案内せずに、どちらも状態を変えずに終えます。
 /// 取消は、処理中のグループを終えてから止まります。着手しなかったグループの確認結果とSELECTは変えません。
+/// 確認を終えたグループのSELECTは、段階によらずオフにします（確認で消費し、安全でも自動ではオンにしません）。
 /// 入出力以外の予期しない例外は、完了済みのグループの結果を書き込み、受付を解放した後に呼出元へ伝えます。
 /// 状態表の読み書きはUIスレッドで行い、走査の間はモデルのロックもDBトランザクションも保持しません。
 /// </remarks>
@@ -314,18 +315,12 @@ internal sealed class DuplicateMergeVerificationWorkflowOwner
             cancelled);
     }
 
-    /// <summary>結果の案内です。安全が0件なら「チェックを入れました」の文を含めず、未確認があれば件数を加えます。</summary>
+    /// <summary>結果の案内です。安全の件数によらず同じ書式で、取消で着手しなかったグループがあれば「未確認」の件数を加えます。</summary>
     private static string BuildResultMessage(DuplicateMergeVerificationRunResult result)
     {
-        bool hasUnverified = result.Unverified > 0;
-        bool hasSafe = result.Safe > 0;
-        string format = (hasUnverified, hasSafe) switch
-        {
-            (false, true) => Resources.Duplicate_merge_candidate_verify_result_format,
-            (false, false) => Resources.Duplicate_merge_candidate_verify_result_no_safe_format,
-            (true, true) => Resources.Duplicate_merge_candidate_verify_result_cancelled_format,
-            (true, false) => Resources.Duplicate_merge_candidate_verify_result_cancelled_no_safe_format
-        };
+        string format = result.Unverified > 0
+            ? Resources.Duplicate_merge_candidate_verify_result_cancelled_format
+            : Resources.Duplicate_merge_candidate_verify_result_format;
         return string.Format(format, result.Checked, result.Safe, result.Caution, result.Unmergeable, result.Unverified);
     }
 

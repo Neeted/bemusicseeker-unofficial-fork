@@ -16,6 +16,9 @@ public sealed class SplitPlacementSearchTests
     private const uint SimilarToPreview = 900004;
     private static readonly uint[] PreviewKeys = [PreviewA, PreviewB, PreviewC];
 
+    /// <summary>共有率80%・汎用名20個・音源の少ない方の探索条件です。既定値に依存せず、従来の境界を明示して確かめるために使います。</summary>
+    private static readonly SplitPlacementSearchCriteria EightyPercent = new(80, 20, SplitPlacementShareBasis.SmallerSide);
+
     private static IEnumerable<uint> Range(uint start, int count) => Enumerable.Range(0, count).Select(i => start + (uint)i);
 
     private static SplitPlacementFolderInput Folder(IEnumerable<uint> keys, params string[] hashes) => new(keys.ToArray(), hashes);
@@ -48,35 +51,6 @@ public sealed class SplitPlacementSearchTests
         Assert.AreEqual(2L * 10, similar.RegisteredKeyCount);
     }
 
-    /// <summary>
-    /// 既定値で、汎用名は、キーを持つ対象フォルダ（10個未満のフォルダも数える）が20個なら残り、21個なら全集合から除かれ、
-    /// 除いて9個になったフォルダが候補外になることを確認します。
-    /// </summary>
-    [TestMethod]
-    [DataRow(20, 0, 20, 0)]
-    [DataRow(21, 0, 0, 1)]
-    [DataRow(18, 2, 18, 0)]
-    [DataRow(19, 2, 0, 1)]
-    public void Search_RemovesKeysHeldByMoreThanTwentyFolders(int bigFolders, int smallFolders, int expectedCandidates, int expectedGeneric)
-    {
-        const uint generic = 777;
-        List<SplitPlacementFolderInput> folders = [];
-        for (int i = 0; i < bigFolders; i++)
-        {
-            folders.Add(Folder(Range((uint)(1000 * (i + 1)), 9).Append(generic)));
-        }
-        for (int i = 0; i < smallFolders; i++)
-        {
-            folders.Add(Folder([generic]));
-        }
-
-        SplitPlacementSearchResult result = Search(folders);
-
-        Assert.AreEqual(expectedCandidates, result.CandidateFolderCount);
-        Assert.AreEqual(expectedGeneric, result.GenericKeyCount);
-        Assert.AreEqual(0, result.GroupCount, "共有するのが汎用名だけなら関係にならない");
-    }
-
     /// <summary>10個の条件は両方のフォルダに課し、9個の集合が10個以上の集合に完全に含まれても関係にしないことを確認します。</summary>
     [TestMethod]
     public void Search_RequiresTenKeysInBothFolders()
@@ -89,7 +63,7 @@ public sealed class SplitPlacementSearchTests
     }
 
     /// <summary>
-    /// 既定値で、小さい方の集合の80%以上を他方が持つ組だけが関係になる境界（s×5≥n×4）を、集合の大きさを変えて確認します。
+    /// 共有率80%（明示）で、小さい方の集合の80%以上を他方が持つ組だけが関係になる境界（s×5≥n×4）を、集合の大きさを変えて確認します。
     /// 小さい方の個数で判定する誤りと、境界の一つ上下の取り違えを検出します。
     /// </summary>
     [TestMethod]
@@ -106,7 +80,7 @@ public sealed class SplitPlacementSearchTests
         uint[] first = [.. Range(1, smaller)];
         uint[] second = [.. first.Take(shared), .. Range(10000, larger - shared)];
 
-        SplitPlacementSearchResult result = Search([Folder(first), Folder(second)]);
+        SplitPlacementSearchResult result = Search([Folder(first), Folder(second)], criteria: EightyPercent);
 
         Assert.AreEqual(related ? 1L : 0L, result.RelationCount);
         Assert.AreEqual(related ? "0,1" : string.Empty, Describe(result));
@@ -126,25 +100,25 @@ public sealed class SplitPlacementSearchTests
     }
 
     /// <summary>
-    /// 連結を確認します。A-B、B-Cが関係でA-Cが関係でなければ三つが一つのグループです。
+    /// 共有率80%（明示）で連結を確認します。A-B、B-Cが関係でA-Cが関係でなければ三つが一つのグループです。
     /// A-Cが主ハッシュの共有で関係にならなくても、Bが両方と関係なら同じグループ、Bがなければグループなしです。
     /// 無関係な二つの成分は別のグループで、一フォルダだけのグループは作りません。
     /// </summary>
     [TestMethod]
     public void Search_ConnectsFoldersThroughRelations()
     {
-        SplitPlacementSearchResult chain = Search([Folder(Range(1, 10)), Folder(Range(3, 10)), Folder(Range(5, 10))]);
+        SplitPlacementSearchResult chain = Search([Folder(Range(1, 10)), Folder(Range(3, 10)), Folder(Range(5, 10))], criteria: EightyPercent);
         Assert.AreEqual("0,1,2", Describe(chain));
         Assert.AreEqual(2L, chain.RelationCount, "A-Cは6個の共有で関係にならない");
 
-        SplitPlacementSearchResult viaMiddle = Search([Folder(Range(1, 10), "same"), Folder(Range(2, 10)), Folder(Range(1, 10), "SAME")]);
+        SplitPlacementSearchResult viaMiddle = Search([Folder(Range(1, 10), "same"), Folder(Range(2, 10)), Folder(Range(1, 10), "SAME")], criteria: EightyPercent);
         Assert.AreEqual("0,1,2", Describe(viaMiddle));
         Assert.AreEqual(2L, viaMiddle.RelationCount, "A-Cは主ハッシュの共有で関係にならない");
 
-        SplitPlacementSearchResult withoutMiddle = Search([Folder(Range(1, 10), "same"), Folder(Range(1, 10), "SAME")]);
+        SplitPlacementSearchResult withoutMiddle = Search([Folder(Range(1, 10), "same"), Folder(Range(1, 10), "SAME")], criteria: EightyPercent);
         Assert.AreEqual(0, withoutMiddle.GroupCount);
 
-        SplitPlacementSearchResult separate = Search([Folder(Range(1, 10)), Folder(Range(1, 10)), Folder(Range(5000, 10)), Folder(Range(5000, 10)), Folder(Range(9000, 10))]);
+        SplitPlacementSearchResult separate = Search([Folder(Range(1, 10)), Folder(Range(1, 10)), Folder(Range(5000, 10)), Folder(Range(5000, 10)), Folder(Range(9000, 10))], criteria: EightyPercent);
         Assert.AreEqual("0,1 / 2,3", Describe(separate));
         Assert.AreEqual(5, separate.TargetFolderCount);
         Assert.AreEqual(5, separate.CandidateFolderCount);
@@ -220,9 +194,6 @@ public sealed class SplitPlacementSearchTests
         {
             Assert.AreEqual(limit, new SplitPlacementSearchCriteria(80, limit, SplitPlacementShareBasis.BothSides).GenericFolderLimit);
         }
-        Assert.AreEqual(80, SplitPlacementSearchCriteria.Default.SharePercent);
-        Assert.AreEqual(20, SplitPlacementSearchCriteria.Default.GenericFolderLimit);
-        Assert.AreEqual(SplitPlacementShareBasis.SmallerSide, SplitPlacementSearchCriteria.Default.Basis);
     }
 
     /// <summary>範囲の外・刻みに合わない共有率、範囲の外のフォルダ数、列挙の外の基準を、構築時に拒否することを確認します。</summary>
@@ -350,17 +321,17 @@ public sealed class SplitPlacementSearchTests
     }
 
     /// <summary>
-    /// 固定の種から作る入力と複数の探索条件（既定値、最小の共有率と最小の汎用名、基準「両方」、境界の組合せ）で、
+    /// 固定の種から作る入力と複数の探索条件（共有率80%・汎用名20個（明示）、最小の共有率と最小の汎用名、基準「両方」、境界の組合せ）で、
     /// 全組の比較で書いた参照実装とグループ・診断値が一致し、並列度1と既定値で順序まで一致することを確認します。
     /// 探索条件ごとに、共有率の境界の組（s×100=n×p と1足りない組）、汎用名の上限ちょうどと1つ上のフォルダが持つキー、
-    /// 基準で結果が分かれる組が入力に現れなければ失敗にし、境界を試さないまま一致することを防ぎます。既定値では従来の網羅項目（9個と10個の集合、主ハッシュの除外、三つ以上の連結）も維持します。
+    /// 基準で結果が分かれる組が入力に現れなければ失敗にし、境界を試さないまま一致することを防ぎます。共有率80%・汎用名20個では従来の網羅項目（9個と10個の集合、主ハッシュの除外、三つ以上の連結）も維持します。
     /// </summary>
     [TestMethod]
     public void Search_MatchesBruteForceReferenceOnGeneratedInputs()
     {
         SplitPlacementSearchCriteria[] criteriaList =
         [
-            SplitPlacementSearchCriteria.Default,
+            EightyPercent,
             new(50, 2, SplitPlacementShareBasis.SmallerSide),
             new(75, 20, SplitPlacementShareBasis.BothSides),
             new(55, 5, SplitPlacementShareBasis.BothSides),
@@ -399,9 +370,9 @@ public sealed class SplitPlacementSearchTests
             {
                 Assert.IsTrue(coverage.BasisDecides > 0, name + ": 基準で結果が分かれる組");
             }
-            if (criteria.Equals(SplitPlacementSearchCriteria.Default))
+            if (criteria.Equals(EightyPercent))
             {
-                Assert.IsTrue(coverage.GroupWithThreeOrMore > 0, "既定値: 三つ以上のフォルダの連結");
+                Assert.IsTrue(coverage.GroupWithThreeOrMore > 0, "共有率80%・汎用名20個: 三つ以上のフォルダの連結");
             }
         }
     }

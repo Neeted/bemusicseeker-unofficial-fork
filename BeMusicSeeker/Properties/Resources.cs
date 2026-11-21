@@ -3452,14 +3452,10 @@ public class Resources
     public static string Duplicate_merge_candidate_verify_progress_title => ResourceManager.GetString("Duplicate_merge_candidate_verify_progress_title", resourceCulture);
     /// <summary>統合候補一覧の安全性確認の進捗画面で、処理の内容を示す文言です。</summary>
     public static string Duplicate_merge_candidate_verify_progress_label => ResourceManager.GetString("Duplicate_merge_candidate_verify_progress_label", resourceCulture);
-    /// <summary>統合候補一覧の安全性確認の終了時の案内です。{0}は確認した数、{1}は安全、{2}は要注意、{3}は統合不可の数で、安全なグループにチェックを入れた旨を含みます。</summary>
+    /// <summary>統合候補一覧の安全性確認の終了時の案内です。{0}は確認した数、{1}は安全、{2}は要注意、{3}は統合不可の数です。</summary>
     public static string Duplicate_merge_candidate_verify_result_format => ResourceManager.GetString("Duplicate_merge_candidate_verify_result_format", resourceCulture);
-    /// <summary>統合候補一覧の安全性確認の終了時の案内で、安全なグループがない場合の書式です。{0}は確認した数、{1}は安全、{2}は要注意、{3}は統合不可の数です。</summary>
-    public static string Duplicate_merge_candidate_verify_result_no_safe_format => ResourceManager.GetString("Duplicate_merge_candidate_verify_result_no_safe_format", resourceCulture);
-    /// <summary>統合候補一覧の安全性確認を取り消したときの案内です。{4}は着手しなかった数で、安全なグループにチェックを入れた旨を含みます。</summary>
+    /// <summary>統合候補一覧の安全性確認を取り消したときの案内です。{0}は確認した数、{1}は安全、{2}は要注意、{3}は統合不可、{4}は着手しなかった数です。</summary>
     public static string Duplicate_merge_candidate_verify_result_cancelled_format => ResourceManager.GetString("Duplicate_merge_candidate_verify_result_cancelled_format", resourceCulture);
-    /// <summary>統合候補一覧の安全性確認を取り消したときの案内で、安全なグループがない場合の書式です。{4}は着手しなかった数です。</summary>
-    public static string Duplicate_merge_candidate_verify_result_cancelled_no_safe_format => ResourceManager.GetString("Duplicate_merge_candidate_verify_result_cancelled_no_safe_format", resourceCulture);
     /// <summary>優先統合先のウィンドウの題名です。</summary>
     public static string Duplicate_merge_preferred_destination_title => ResourceManager.GetString("Duplicate_merge_preferred_destination_title", resourceCulture);
     /// <summary>優先統合先のウィンドウで、登録の意味を説明する文言です。</summary>

@@ -1612,11 +1612,12 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 対象は表示中でSELECTがオンのグループで、未確認・要注意も承認後に対象にし、確認結果とSELECTを書き換えない。検索で非表示のSELECTオンは対象にしない。
-    /// 検出する誤り：非表示のグループを対象にする、未確認・要注意を除外する、整理の前後で確認結果・SELECT・KEEPを書き換える。
+    /// 対象は表示中でSELECTがオンのグループで、未確認・要注意も承認後に対象にし、整理で処理した対象のSELECTだけをオフにする（KEEPと確認結果は同じ参照のまま）。
+    /// 検索で非表示のSELECTオンと、SELECTがオフのグループは対象にせず、状態を変えない。
+    /// 検出する誤り：非表示のグループを対象にする、未確認・要注意を除外する、対象のSELECTの残留、対象外のSELECTの書換え、整理の前後でKEEP・確認結果を書き換える。
     /// </summary>
     [TestMethod]
-    public async Task OrganizeSelectedGroups_TargetsVisibleSelectedGroupsIncludingUnverifiedAndCautionWithoutChangingState()
+    public async Task OrganizeSelectedGroups_TargetsVisibleSelectedGroupsIncludingUnverifiedAndCautionAndClearsOnlyTheirSelect()
     {
         DuplicateGroup unverified = Lists.Group(@"C:\S\Visible-u1", @"C:\S\Visible-u2");
         DuplicateGroup caution = Lists.Group(@"C:\S\Visible-c1", @"C:\S\Visible-c2");
@@ -1640,9 +1641,74 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             fixture.Store.Requests.Single().Groups.Select(group => group.KeepDirectory).ToArray(),
             "表示中でSELECTがオンの三グループだけが、表示順で対象です。");
         (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] after = fixture.Snapshot();
-        CollectionAssert.AreEqual(before, after, "整理の前後で、SELECT・KEEP・確認結果は変わりません。");
+        CollectionAssert.AreEqual(
+            before.Select(item => (Selected: false, item.Keep, item.Verification)).ToArray(),
+            after.Select(item => (Selected: false, item.Keep, item.Verification)).ToArray(),
+            "整理の前後で、KEEPと確認結果（同じ参照）は変わりません。");
+        Assert.IsTrue(new[] { unverified, caution, safe, notSelected }.All(group => !fixture.State(group).IsSelected), "処理した対象のSELECTはオフで、対象外のSELECTオフは変わりません。");
+        Assert.IsTrue(fixture.State(hiddenSelected).IsSelected, "検索で非表示のグループは対象でなく、SELECTはオンのままです。");
         Assert.AreSame(cautionResult, fixture.State(caution).Verification);
+        Assert.AreSame(safeResult, fixture.State(safe).Verification);
         Assert.AreSame(DuplicateMergeVerificationResult.Unverified, fixture.State(unverified).Verification);
+        Assert.AreEqual(0, fixture.List.SelectedGroupCount, "表示中の選択件数は0です。");
+    }
+
+    /// <summary>
+    /// モデルが受理して結果を返したとき、対象のうち状態が「未処理」以外（完了・一部完了・スキップ・失敗）のグループは、一覧に残っていればSELECTをオフにし、
+    /// 「未処理」（取消で着手しなかった）のグループはオンのまま残す。対象でなかったグループ（検索で非表示でオン、未選択）のSELECT・KEEP・確認結果は変えず、
+    /// 対象のKEEPと確認結果は同じ値・同じ参照のままである。
+    /// 検出する誤り：状態ごとの取り違え（未処理のオフ、失敗・スキップのオン残り）、対象外の書換え、KEEP・確認結果の書換え。
+    /// </summary>
+    [TestMethod]
+    public async Task OrganizeSelectedGroups_ClearsSelectByResultStatusAndKeepsUnprocessedAndUntargetedGroups()
+    {
+        DuplicateGroup completed = Lists.Group(@"C:\S\Visible-1a", @"C:\S\Visible-1b");
+        DuplicateGroup partial = Lists.Group(@"C:\S\Visible-2a", @"C:\S\Visible-2b");
+        DuplicateGroup skipped = Lists.Group(@"C:\S\Visible-3a", @"C:\S\Visible-3b");
+        DuplicateGroup failed = Lists.Group(@"C:\S\Visible-4a", @"C:\S\Visible-4b");
+        DuplicateGroup unprocessed = Lists.Group(@"C:\S\Visible-5a", @"C:\S\Visible-5b");
+        DuplicateGroup hiddenSelected = Lists.Group(@"C:\S\Other-h1", @"C:\S\Other-h2");
+        DuplicateGroup notSelected = Lists.Group(@"C:\S\Visible-n1", @"C:\S\Visible-n2");
+        DuplicateGroup[] all = [completed, partial, skipped, failed, unprocessed, hiddenSelected, notSelected];
+        using var fixture = new BatchFixture(all);
+        var cautionResult = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Caution,
+            [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.AudioExtension, [new DuplicateMergeFinding(@"C:\S\Visible-1a", "a.wav")])]);
+        fixture.List.WriteVerifications([new DuplicateMergeVerificationWrite(completed, cautionResult)]);
+        Assert.IsTrue(fixture.List.SetKeep(fixture.List.RowSet.First(row => row.Path == @"C:\S\Visible-2b")));
+        fixture.Select(completed, partial, skipped, failed, unprocessed, hiddenSelected);
+        fixture.List.SearchText = "Visible";
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
+        fixture.Store.Handler = (request, progress, _, _) =>
+        {
+            DuplicateBatchOrganizeGroup[] g = [.. request.Groups];
+            progress?.Invoke(new DuplicateBatchOrganizeProgress(5, 5, null!, DuplicateBatchOrganizeProgressKind.Applying));
+            return Result(
+                [
+                    GroupResult(g[0].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Completed, merged: g[0].SourceDirectories),
+                    GroupResult(g[1].KeepDirectory, DuplicateBatchOrganizeGroupStatus.PartiallyCompleted,
+                        retained: [new(g[1].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.SourceMissing)]),
+                    GroupResult(g[2].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Skipped, DuplicateBatchOrganizeSkipReason.LinkFound),
+                    GroupResult(g[3].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Failed,
+                        retained: [new(g[3].SourceDirectories[0], DuplicateBatchOrganizeSourceReason.PhysicalFailure)]),
+                    GroupResult(g[4].KeepDirectory, DuplicateBatchOrganizeGroupStatus.Unprocessed)
+                ],
+                canceled: true);
+        };
+
+        DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
+
+        Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] after = fixture.Snapshot();
+        bool[] expectedSelected = [false, false, false, false, true, true, false];
+        CollectionAssert.AreEqual(expectedSelected, after.Select(item => item.Selected).ToArray(), "完了・一部完了・スキップ・失敗はオフ、未処理と非表示の対象外はオンのままです。");
+        CollectionAssert.AreEqual(before.Select(item => item.Keep).ToArray(), after.Select(item => item.Keep).ToArray(), "KEEPは書き換えません。");
+        for (int index = 0; index < all.Length; index++)
+        {
+            Assert.AreSame(before[index].Verification, after[index].Verification, "確認結果は同じ参照のままです。");
+        }
+        Assert.AreSame(cautionResult, fixture.State(completed).Verification);
+        Assert.AreEqual(@"C:\S\Visible-2b", fixture.State(partial).KeepFolder);
+        Assert.AreEqual(1, fixture.List.SelectedGroupCount, "表示中でオンなのは未処理のグループだけです。");
     }
 
     /// <summary>
@@ -1673,6 +1739,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         // 検索で絞った後の表示順だけが対象になる。
         fixture.Store.Requests.Clear();
         fixture.List.SearchText = "beta";
+        fixture.List.SelectVisible();
         await fixture.Owner.OrganizeSelectedGroupsAsync();
         Assert.AreEqual(@"C:\S\beta", fixture.Store.Requests.Single().Groups.Single().KeepDirectory);
     }
@@ -1965,12 +2032,14 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
         using var fixture = new BatchFixture([group]);
         fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
         fixture.Presentation.StopFailure = new IOException("playback stop failed");
 
         DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
 
         Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Failed, run.Status);
         Assert.AreEqual(0, fixture.Store.Requests.Count);
+        CollectionAssert.AreEqual(before, fixture.Snapshot(), "再生停止に失敗してモデルの結果がなければ、SELECT・KEEP・確認結果を変えません。");
         CollectionAssert.AreEqual(
             new[] { "confirm", "progress-start", "activity-start", "playback-stop", "activity-end", "progress-end", "message" },
             fixture.Events);
@@ -2095,6 +2164,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
         using var fixture = new BatchFixture([group]);
         fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
         fixture.Store.Handler = (request, _, _, notices) =>
         {
             notices.Add(new BMSLibrary.OperationDialogMessage("model notice", "model caption", UiDialogButton.OK, UiDialogIcon.Exclamation, UiDialogDefaultResult.OK));
@@ -2104,6 +2174,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
 
         Assert.AreEqual(DuplicateBatchOrganizeRunStatus.NotAdmitted, run.Status);
+        CollectionAssert.AreEqual(before, fixture.Snapshot(), "操作全体が受理されなければ、SELECT・KEEP・確認結果を変えません。");
         UiMessageRequest notice = fixture.Dialogs.Messages.Single();
         Assert.AreEqual("model notice", notice.MessageBoxText);
         Assert.IsTrue(fixture.Gate.CanEnter);
@@ -2183,12 +2254,14 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
         DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
         using var fixture = new BatchFixture([group]);
         fixture.List.SelectVisible();
+        (bool Selected, string? Keep, DuplicateMergeVerificationResult Verification)[] before = fixture.Snapshot();
         fixture.Store.Handler = (_, _, _, _) => throw new IOException("model exploded");
 
         DuplicateBatchOrganizeRunResult run = await fixture.Owner.OrganizeSelectedGroupsAsync();
 
         Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Failed, run.Status);
         Assert.IsNull(run.Result);
+        CollectionAssert.AreEqual(before, fixture.Snapshot(), "モデルの結果がなければ、SELECT・KEEP・確認結果を変えません。");
         UiMessageRequest report = fixture.Dialogs.Messages.Single();
         Assert.AreEqual(BeMusicSeeker.Properties.Resources.FileDbMutationReport_Title, report.Caption);
         StringAssert.Contains(report.MessageBoxText, "model exploded");

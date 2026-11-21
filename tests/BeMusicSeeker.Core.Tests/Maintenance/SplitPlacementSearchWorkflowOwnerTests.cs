@@ -437,19 +437,21 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
         });
     }
 
-    private static readonly SplitPlacementSearchCriteria Strict = new(90, 20, SplitPlacementShareBasis.SmallerSide);
+    /// <summary>既定値から共有率だけを100%へ変えた探索条件です。既定値の数値に依存せず、既定値との差で適用中と入力中を区別します。</summary>
+    private static readonly SplitPlacementSearchCriteria Strict = new(100, SplitPlacementSearchCriteria.Default.GenericFolderLimit, SplitPlacementSearchCriteria.Default.Basis);
 
-    private static readonly SplitPlacementSearchCriteria Loose = new(75, 20, SplitPlacementShareBasis.SmallerSide);
+    /// <summary>既定値から共有率だけを75%へ変えた探索条件です。</summary>
+    private static readonly SplitPlacementSearchCriteria Loose = new(75, SplitPlacementSearchCriteria.Default.GenericFolderLimit, SplitPlacementSearchCriteria.Default.Basis);
 
-    /// <summary>AとBが10個中8個を共有する索引です。共有率80%（既定値）では関係があり、90%では関係がありません。</summary>
+    /// <summary>AとBが20個中19個（95%）を共有する索引です。共有率95%（既定値）では関係があり、100%では関係がありません。</summary>
     private static void SetPartialIndex(BMSLibrary library)
-        => SetIndex(library, new(@"C:\BMS\A", Keys(1, 10)), new(@"C:\BMS\B", [.. Keys(1, 8), .. Keys(900, 2)]), new(@"C:\BMS\C", Keys(500, 10)));
+        => SetIndex(library, new(@"C:\BMS\A", Keys(1, 20)), new(@"C:\BMS\B", [.. Keys(1, 19), .. Keys(900, 1)]), new(@"C:\BMS\C", Keys(500, 20)));
 
     private static void SearchWith(BMSLibrary library, SplitPlacementSearchCriteria criteria)
         => library.SearchSplitPlacementGroups(criteria, null, CancellationToken.None);
 
     /// <summary>
-    /// 保証：起動直後は適用中の探索条件も入力中の値も既定値（共有率80、汎用名20、音源の少ない方）で、入力は適用中と同じなので強調しない。
+    /// 保証：起動直後は適用中の探索条件も入力中の値も既定値（共有率95、汎用名10、音源の少ない方）で、入力は適用中と同じなので強調しない。
     /// 検出する誤り：既定値の取り違え、起動直後からの強調。
     /// </summary>
     [TestMethod]
@@ -459,8 +461,8 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
         {
             Assert.AreEqual(SplitPlacementSearchCriteria.Default, fixture.Workflow.AppliedCriteria);
             Assert.AreEqual(SplitPlacementSearchCriteria.Default, fixture.Workflow.InputCriteria);
-            Assert.AreEqual(80, fixture.Workflow.SharePercent);
-            Assert.AreEqual(20, fixture.Workflow.GenericFolderLimit);
+            Assert.AreEqual(95, fixture.Workflow.SharePercent);
+            Assert.AreEqual(10, fixture.Workflow.GenericFolderLimit);
             Assert.AreEqual(SplitPlacementShareBasis.SmallerSide, fixture.Workflow.Basis);
             Assert.IsFalse(fixture.Workflow.HasUnappliedInput);
         });
@@ -502,9 +504,9 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
             Assert.AreEqual(60, fixture.Workflow.SharePercent, "不正な値は入力を変えない。");
 
             changed.Clear();
-            fixture.Workflow.SharePercent = 80;
-            fixture.Workflow.GenericFolderLimit = 20;
-            fixture.Workflow.Basis = SplitPlacementShareBasis.SmallerSide;
+            fixture.Workflow.SharePercent = SplitPlacementSearchCriteria.Default.SharePercent;
+            fixture.Workflow.GenericFolderLimit = SplitPlacementSearchCriteria.Default.GenericFolderLimit;
+            fixture.Workflow.Basis = SplitPlacementSearchCriteria.Default.Basis;
 
             Assert.IsFalse(fixture.Workflow.HasUnappliedInput, "適用中と同じ値へ戻すと強調を解く。");
             Assert.AreEqual(1, changed.Count(name => name == nameof(SplitPlacementSearchWorkflowOwner.HasUnappliedInput)), "最後の入力で一回通知する。");
@@ -629,7 +631,7 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
         Run(fixture =>
         {
             SetPartialIndex(fixture.Library);
-            fixture.Workflow.SharePercent = 90;
+            fixture.Workflow.SharePercent = 100;
             Assert.IsTrue(fixture.Workflow.HasUnappliedInput);
             var changed = new List<string?>();
             fixture.Workflow.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
@@ -642,7 +644,7 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
             Assert.AreEqual(1, fixture.Navigations.Count);
             Assert.AreEqual(DuplicateViewContextKind.CandidateList, fixture.Navigations[0].Context.Kind);
             Assert.IsTrue(fixture.Navigations[0].AdmissionFree, "受付を解放してから遷移する。");
-            Assert.AreEqual(0, fixture.Navigations[0].Groups?.Count, "入力中の値（共有率90）に従う結果（0件）を格納してから遷移する。");
+            Assert.AreEqual(0, fixture.Navigations[0].Groups?.Count, "入力中の値（共有率100）に従う結果（0件）を格納してから遷移する。");
             Assert.IsTrue(fixture.Workflow.HasCurrentResult);
             Assert.AreEqual(0, fixture.Dialogs.Messages.Count);
         });
@@ -729,7 +731,7 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
         Run(fixture =>
         {
             SetPartialIndex(fixture.Library);
-            fixture.Workflow.SharePercent = 90;
+            fixture.Workflow.SharePercent = 100;
             SearchWith(fixture.Library, Strict);
             Assert.IsFalse(fixture.Workflow.HasCurrentResult, "入力中の値に対する結果は、適用中の結果として扱わない。");
 
@@ -737,7 +739,7 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
 
             Assert.IsNotNull(fixture.Dialogs.ProgressRequest, "適用中の探索条件で探索する。");
             Assert.IsTrue(fixture.Library.HasCurrentSplitPlacementGroups(SplitPlacementSearchCriteria.Default));
-            Assert.AreEqual(1, fixture.Library.SplitPlacementGroups!.Count, "既定値（共有率80）では関係がある。");
+            Assert.AreEqual(1, fixture.Library.SplitPlacementGroups!.Count, "既定値（共有率95）では関係がある。");
             Assert.IsTrue(fixture.Workflow.HasCurrentResult);
             Assert.AreEqual(SplitPlacementSearchCriteria.Default, fixture.Workflow.AppliedCriteria);
             Assert.AreEqual(Strict, fixture.Workflow.InputCriteria);

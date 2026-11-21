@@ -487,6 +487,8 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\r1"));
         var verification = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, []);
         Assert.AreEqual(1, fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(kept, verification)]).Count);
+        Assert.IsFalse(fixture.Row(@"C:\S\k1").State.IsSelected, "前提：確認結果の書込みでSELECTはオフになります。");
+        fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\k1"));
         fixture.Owner.RequestSort("Path", ListSortDirection.Descending);
         fixture.Owner.SearchText = "S";
         fixture.Owner.ExcludeText = "x";
@@ -564,7 +566,11 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         }
         fixture.Owner.WriteVerifications([new DuplicateMergeVerificationWrite(unchanged, safe)]);
         DuplicateMergeCandidateGroupState unchangedState = fixture.Row(@"C:\S\u1").State;
-        Assert.IsTrue(unchangedState.IsSelected, "前提：安全の書込みでSELECTがオンになります。");
+        Assert.IsFalse(unchangedState.IsSelected, "前提：確認結果の書込みでSELECTはオフになります。");
+        // 書込みの後に利用者がオンにした状態を作り、登録範囲の変更が捨てる状態と保つ状態を区別する。
+        fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\u1"));
+        if (fixture.Row(@"C:\S\a").State.CanSelect) { fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\a")); }
+        Assert.IsTrue(unchangedState.IsSelected);
         fixture.Source.RegisteredRoots.ExceptWith(Folders(before));
         fixture.Source.RegisteredRoots.UnionWith(Folders(after));
 
@@ -772,12 +778,12 @@ public sealed class DuplicateMergeCandidateListOwnerTests
             reason.Kind, [.. Enumerable.Range(0, reason.Findings).Select(index => new DuplicateMergeFinding(@"C:\S\f", "item" + index.ToString("00")))]))]);
 
     /// <summary>
-    /// 保証：複数グループの確認結果は一括の窓口で書き込み、SELECTは安全ならオン、それ以外（要注意・統合不可）はオフに置き換え、行集合の差し替えは全体で一回になる。
+    /// 保証：複数グループの確認結果は一括の窓口で書き込み、SELECTは段階によらず（安全・要注意・統合不可のどれでも）オフになり、行集合の差し替えは全体で一回になる。
     /// STATUSの文言による検索は書き込み後の一覧に反映し、並べ替えも新しい値で当て直す。現在の状態表にないグループの結果は捨て、書き込んだ結果だけを返す。
-    /// 検出する誤り：グループごとの行集合の差し替え（複数回）、検索・並べ替えの当て直しの漏れ、安全以外のSELECTの残留、消えたグループの書込み。
+    /// 検出する誤り：グループごとの行集合の差し替え（複数回）、検索・並べ替えの当て直しの漏れ、安全のSELECTの残留・自動のオン、消えたグループの書込み。
     /// </summary>
     [TestMethod]
-    public void WriteVerifications_ReplacesSelectInOneRowSetReplacementAndReappliesSearchAndSort()
+    public void WriteVerifications_ClearsSelectOfEveryStageInOneRowSetReplacementAndReappliesSearchAndSort()
     {
         var fixture = new Fixture();
         DuplicateGroup safe = Group(@"C:\S\a1", @"C:\S\a2"), caution = Group(@"C:\S\b1", @"C:\S\b2"), blocked = Group(@"C:\S\c1", @"C:\S\c2");
@@ -803,10 +809,12 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(3, accepted.Count, "状態表にないグループの結果は捨てます。");
         Assert.AreEqual(1, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.Rows)), "行集合の差し替えは全体で一回です。");
         CollectionAssert.AreEqual(new[] { safe }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray(), "STATUSの検索は書込み後の一覧に反映します。");
-        Assert.IsTrue(fixture.Row(@"C:\S\a1").State.IsSelected);
-        Assert.IsFalse(fixture.Owner.TryGetState(caution, out DuplicateMergeCandidateGroupState? cautionState) && cautionState!.IsSelected, "要注意のSELECTはオフです。");
-        Assert.IsFalse(fixture.Owner.TryGetState(blocked, out DuplicateMergeCandidateGroupState? blockedState) && blockedState!.IsSelected, "統合不可のSELECTはオフです。");
-        Assert.AreEqual(1, fixture.Owner.SelectedGroupCount);
+        Assert.IsFalse(fixture.Row(@"C:\S\a1").State.IsSelected, "安全のSELECTもオフです。");
+        Assert.IsTrue(fixture.Owner.TryGetState(caution, out DuplicateMergeCandidateGroupState? cautionState));
+        Assert.IsFalse(cautionState!.IsSelected, "要注意のSELECTはオフです。");
+        Assert.IsTrue(fixture.Owner.TryGetState(blocked, out DuplicateMergeCandidateGroupState? blockedState));
+        Assert.IsFalse(blockedState!.IsSelected, "統合不可のSELECTはオフです。");
+        Assert.AreEqual(0, fixture.Owner.SelectedGroupCount);
 
         fixture.Owner.SearchText = string.Empty;
         fixture.Owner.RequestSort("Status", ListSortDirection.Ascending);
@@ -815,8 +823,8 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     }
 
     /// <summary>
-    /// 保証：検索と並べ替えがSTATUS・SELECTに依存しないときは、書き込んでも行集合を差し替えず、表示の無効化を一回だけ通知する。
-    /// 検出する誤り：不要な行集合の作り直し（選択状態・スクロールの崩れ）、無効化の通知の欠落。
+    /// 保証：検索と並べ替えがSTATUS・SELECTに依存しないときは、書き込んでも行集合を差し替えず、表示の無効化を一回だけ通知し、オンだったグループの選択件数が0になる。
+    /// 検出する誤り：不要な行集合の作り直し（選択状態・スクロールの崩れ）、無効化の通知の欠落、選択件数の更新の漏れ（オンのままの表示）。
     /// </summary>
     [TestMethod]
     public void WriteVerifications_WithoutStatusDependentViewOnlyInvalidatesDisplay()
@@ -824,6 +832,8 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         var fixture = new Fixture();
         DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2");
         fixture.Adopt(a, b);
+        fixture.Owner.SelectVisible();
+        Assert.AreEqual(2, fixture.Owner.SelectedGroupCount, "前提：書込みの前は、表示中のグループがすべてオンです。");
         var changed = new List<string?>();
         fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
         int invalidated = 0;
@@ -833,16 +843,16 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
         Assert.AreEqual(0, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.Rows)));
         Assert.AreEqual(1, invalidated);
-        Assert.AreEqual(2, fixture.Owner.SelectedGroupCount);
+        Assert.AreEqual(0, fixture.Owner.SelectedGroupCount, "オンだったグループの選択件数が0になります。");
     }
 
     /// <summary>
-    /// 保証：確認で統合不可（解析不能）になったグループを再確認して安全を書き込むと、SELECTはオンで操作できる状態（無効でない）に戻り、STATUSは安全になる。
+    /// 保証：確認で統合不可（解析不能）になったグループを再確認して安全を書き込むと、SELECTはオフのまま操作できる状態（無効でない）に戻り、STATUSは安全になる。
     /// 登録範囲のフォルダを持たないグループで確かめ、登録ルート由来の統合不可（安全で上書きされない）とは区別する。
-    /// 検出する誤り：確認結果の代入より前に操作可否を評価して、統合不可だったグループのSELECTをオフかつ無効のまま残す、前の確認結果のSTATUSが残る。
+    /// 検出する誤り：確認結果の代入より前に操作可否を評価して、統合不可だったグループを無効のまま残す、再確認で安全になったグループのSELECTを自動でオンにする、前の確認結果のSTATUSが残る。
     /// </summary>
     [TestMethod]
-    public void WriteVerifications_SafeAfterUnreadableReenablesAndSelectsTheGroup()
+    public void WriteVerifications_SafeAfterUnreadableReenablesTheGroupWithSelectOff()
     {
         var fixture = new Fixture();
         DuplicateGroup group = Group(@"C:\S\a1", @"C:\S\a2");
@@ -860,10 +870,11 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, fixture.Row(@"C:\S\a1").StatusText);
         Assert.IsTrue(state.CanSelect, "再確認で安全になれば、SELECTは有効に戻ります。");
-        Assert.IsTrue(state.IsSelected, "再確認で安全になれば、SELECTはオンになります。");
-        Assert.AreEqual(1, fixture.Owner.SelectedGroupCount);
+        Assert.IsFalse(state.IsSelected, "再確認で安全になっても、SELECTはオフのままです。");
+        Assert.AreEqual(0, fixture.Owner.SelectedGroupCount);
         Assert.IsTrue(fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\a1")), "有効に戻ったSELECTは操作できます。");
-        Assert.IsFalse(state.IsSelected);
+        Assert.IsTrue(state.IsSelected);
+        Assert.AreEqual(1, fixture.Owner.SelectedGroupCount);
     }
 
     /// <summary>
@@ -888,7 +899,9 @@ public sealed class DuplicateMergeCandidateListOwnerTests
             });
         Assert.AreEqual(@"C:\S\a", fixture.Row(@"C:\S\a").State.KeepFolder, "前提：既定のKEEPはPATH昇順の先頭です。");
         fixture.Owner.WriteVerifications([new(group, inspection.Evaluate(@"C:\S\a"), inspection)]);
-        Assert.IsTrue(fixture.Row(@"C:\S\a").State.IsSelected, "前提：KEEP側の参照は該当せず、安全でSELECTはオンです。");
+        Assert.IsFalse(fixture.Row(@"C:\S\a").State.IsSelected, "前提：KEEP側の参照は該当せず安全で、確認の書込みでSELECTはオフです。");
+        fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\a"));
+        Assert.IsTrue(fixture.Row(@"C:\S\a").State.IsSelected, "前提：確認の後に利用者がSELECTをオンにします。");
         var changed = new List<string?>();
         fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
         int invalidated = 0;
@@ -907,6 +920,78 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
         Assert.IsTrue(fixture.Owner.SetKeep(fixture.Row(@"C:\S\a")));
         Assert.AreEqual(DuplicateMergeVerificationStage.Safe, state.Verification.Stage, "元のフォルダをKEEPにすれば安全へ戻ります。");
+    }
+
+    /// <summary>
+    /// 保証：一括整理で処理したグループのSELECTをオフにする入口は、指定したグループだけをオフにし、表示中かどうかによらず（検索で非表示でも指定すれば）作用し、
+    /// 指定しなかったグループ（非表示でオンのものを含む）は変えない。KEEPと確認結果は同じ参照のまま、状態表にないグループは捨てて状態を作らず、
+    /// 選択件数の変更を通知する。SELECTで並べ替えていなければ、行集合は差し替えない。
+    /// 検出する誤り：指定外のグループのSELECT・KEEP・確認結果の書換え、状態表にないグループの状態の生成、選択件数の通知の欠落、不要な行集合の差し替え。
+    /// </summary>
+    [TestMethod]
+    public void ClearSelectOfGroups_ClearsOnlyTheGivenGroupsAndKeepsKeepAndVerification()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2"), hidden = Group(@"C:\S\h1");
+        DuplicateGroup vanished = Group(@"C:\S\v1", @"C:\S\v2");
+        fixture.Adopt(a, b, hidden);
+        DuplicateMergeVerificationResult caution = Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1));
+        fixture.Owner.WriteVerifications([new(a, caution)]);
+        fixture.Owner.SetKeep(fixture.Row(@"C:\S\a2"));
+        fixture.Owner.SelectVisible();
+        fixture.Owner.SearchText = "-folder:h1";
+        DuplicateMergeCandidateGroupState aState = fixture.Row(@"C:\S\a1").State, bState = fixture.Row(@"C:\S\b1").State;
+        Assert.IsTrue(fixture.Owner.TryGetState(hidden, out DuplicateMergeCandidateGroupState? hiddenState));
+        Assert.IsTrue(aState.IsSelected && bState.IsSelected && hiddenState!.IsSelected, "前提：三グループともSELECTがオンです。");
+        Assert.AreEqual(2, fixture.Owner.SelectedGroupCount, "前提：非表示のグループは選択件数に数えません。");
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+        int invalidated = 0;
+        fixture.Owner.DisplayInvalidated += (_, _) => invalidated++;
+        DuplicateMergeCandidateRowSet rowsBefore = fixture.Owner.RowSet;
+
+        Assert.IsTrue(fixture.Owner.ClearSelectOfGroups([a, vanished]));
+
+        Assert.IsFalse(aState.IsSelected, "指定したグループはオフです。");
+        Assert.IsTrue(bState.IsSelected, "指定しなかったグループは変えません。");
+        Assert.IsTrue(hiddenState!.IsSelected, "非表示でオンの、指定しなかったグループは変えません。");
+        Assert.AreEqual(@"C:\S\a2", aState.KeepFolder, "KEEPは書き換えません。");
+        Assert.AreSame(caution, aState.Verification, "確認結果は同じ参照のままです。");
+        Assert.IsFalse(fixture.Owner.TryGetState(vanished, out _), "状態表にないグループは捨て、状態を作りません。");
+        Assert.AreEqual(1, fixture.Owner.SelectedGroupCount);
+        CollectionAssert.Contains(changed, nameof(DuplicateMergeCandidateListOwner.SelectedGroupCount));
+        Assert.AreEqual(1, invalidated, "表示の無効化を通知します。");
+        Assert.AreSame(rowsBefore, fixture.Owner.RowSet, "SELECTで並べ替えていなければ、行集合を差し替えません。");
+
+        Assert.IsFalse(fixture.Owner.ClearSelectOfGroups([a, vanished]), "すでにオフなら変えず、通知しません。");
+        Assert.AreEqual(1, invalidated);
+        Assert.IsTrue(fixture.Owner.ClearSelectOfGroups([hidden]), "表示中かどうかによらず、指定したグループをオフにします。");
+        Assert.IsFalse(hiddenState.IsSelected);
+        Assert.AreEqual(1, fixture.Owner.SelectedGroupCount, "非表示のグループは選択件数に数えません。");
+        Assert.AreEqual(@"C:\S\a2", aState.KeepFolder);
+    }
+
+    /// <summary>
+    /// 保証：SELECTで並べ替えている間は、整理で処理したグループのSELECTをオフにする書込みで、行集合の差し替えが全体で一回になり、新しい値で並び直す。
+    /// 検出する誤り：並べ替えの当て直しの漏れ（オフにしたグループが先頭に残る）、グループごとの行集合の差し替え。
+    /// </summary>
+    [TestMethod]
+    public void ClearSelectOfGroups_WhileSortedBySelectReplacesRowSetOnceAndReappliesSort()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2"), c = Group(@"C:\S\c1", @"C:\S\c2");
+        fixture.Adopt(a, b, c);
+        Assert.IsTrue(fixture.Owner.SetSelectOfRows([fixture.Row(@"C:\S\b1")], selected: true));
+        fixture.Owner.RequestSort("Select", ListSortDirection.Descending);
+        Assert.AreSame(b, fixture.Rows[0].State.Group, "前提：オンのグループが先頭です。");
+        var changed = new List<string?>();
+        fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
+
+        Assert.IsTrue(fixture.Owner.ClearSelectOfGroups([a, b, c]));
+
+        Assert.AreEqual(1, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.Rows)), "行集合の差し替えは全体で一回です。");
+        CollectionAssert.AreEqual(new[] { a, b, c }, fixture.Rows.Select(row => row.State.Group).Distinct().ToArray(), "同値は結果の順を保ちます。");
+        Assert.AreEqual(0, fixture.Owner.SelectedGroupCount);
     }
 
     /// <summary>
@@ -1034,12 +1119,14 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         fixture.Source.Pairs[@"C:\S\gamma"] = ("Moon Song", "Luna");
         fixture.Source.Pairs[@"C:\S\epsilon"] = ("Sun Song", "Sol");
         fixture.Adopt(groups);
-        // 除外の前の状態：全グループをSELECTし、g1のKEEPを変え、g2を安全・g3を要注意にする（要注意はSELECTがオフになる）。
+        // 除外の前の状態：g1のKEEPを変え、g2を安全・g3を要注意にする（確認の書込みでどちらもSELECTがオフになる）。
+        // その後にg2をSELECTし、g1・g2がオン、g3だけがオフの状態にする。
         fixture.Owner.SelectVisible();
         fixture.Owner.SetKeep(fixture.Row(@"C:\S\beta1"));
         DuplicateMergeVerificationResult safe = Result(DuplicateMergeVerificationStage.Safe);
         DuplicateMergeVerificationResult caution = Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ParentReference, 1));
         fixture.Owner.WriteVerifications([new(groups[1], safe), new(groups[2], caution)]);
+        Assert.IsTrue(fixture.Owner.SetSelectOfRows([fixture.Row(@"C:\S\gamma")], selected: true));
         bool[] selected = [true, true, false];
         DuplicateMergeCandidateGroupState[] states =
         [

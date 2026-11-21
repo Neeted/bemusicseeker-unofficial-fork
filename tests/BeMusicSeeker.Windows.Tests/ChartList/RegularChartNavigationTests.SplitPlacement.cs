@@ -293,8 +293,8 @@ public sealed partial class RegularChartNavigationTests
             SplitPlacementSearchWorkflowOwner search = vm.SplitPlacementSearch;
             string a = Path.GetDirectoryName(fixture.Duplicates[0].Path)!, b = Path.GetDirectoryName(fixture.Duplicates[1].Path)!;
             string target = Path.GetDirectoryName(fixture.Target.Path)!;
-            // AとTargetは10個を共有し、Bは両方と10個中8個を共有する（共有率80ではBも同じグループ、90では外れる）。
-            void SetPartialIndex() => SetIndex(fixture.Library, new(a, Keys(1, 10)), new(b, [.. Keys(1, 8), .. Keys(900, 2)]), new(target, Keys(1, 10)));
+            // AとTargetは20個を共有し、Bは両方と20個中19個（95%）を共有する（既定値の共有率95ではBも同じグループ、100では外れる）。
+            void SetPartialIndex() => SetIndex(fixture.Library, new(a, Keys(1, 20)), new(b, [.. Keys(1, 19), .. Keys(900, 1)]), new(target, Keys(1, 20)));
             void Research(string stage)
             {
                 TestUiDispatcherHost.AwaitTaskOnDispatcher(search.ResearchAsync(), stage);
@@ -305,7 +305,7 @@ public sealed partial class RegularChartNavigationTests
             SelectSplitCandidateList(fixture, "split placement candidate list selection");
             CandidateListAwaitSupport.AwaitActive(list, "split placement candidate list adoption");
             DuplicateGroup first = fixture.Library.SplitPlacementGroups!.Single();
-            Assert.AreEqual(3, list.RowSet.Count, "前提：共有率80では三つのフォルダが一つのグループ");
+            Assert.AreEqual(3, list.RowSet.Count, "前提：既定値の共有率では三つのフォルダが一つのグループ");
             Assert.IsTrue(list.ToggleSelect(list.RowSet[0]), "前提：SELECTを変える");
             Assert.IsTrue(list.TryGetState(first, out DuplicateMergeCandidateGroupState? firstState));
             bool selected = firstState!.IsSelected;
@@ -321,8 +321,8 @@ public sealed partial class RegularChartNavigationTests
             Assert.IsTrue(list.TryGetState(first, out DuplicateMergeCandidateGroupState? restored));
             Assert.AreEqual((selected, keep), (restored!.IsSelected, restored.KeepFolder), "SELECT・KEEPを保つ");
 
-            // 共有率90：Bが外れた新しいグループは初期値で、古いグループの状態は破棄される。
-            search.SharePercent = 90;
+            // 共有率100：Bが外れた新しいグループは初期値で、古いグループの状態は破棄される。
+            search.SharePercent = 100;
             Assert.IsTrue(search.HasUnappliedInput);
             Assert.AreEqual(3, list.RowSet.Count, "入力を変えただけでは一覧を変えない");
             Research("split placement research with a stricter share rate");
@@ -332,7 +332,7 @@ public sealed partial class RegularChartNavigationTests
             Assert.IsTrue(list.TryGetState(second, out DuplicateMergeCandidateGroupState? fresh));
             Assert.IsFalse(fresh!.IsSelected, "新しいグループは初期値");
             Assert.IsFalse(list.TryGetState(first, out _), "結果にないグループの状態は破棄される");
-            Assert.AreEqual(90, search.AppliedCriteria.SharePercent);
+            Assert.AreEqual(100, search.AppliedCriteria.SharePercent);
             Assert.IsFalse(search.HasUnappliedInput);
 
             // 0件の結果：一覧の表示とノードを保ち、行0件になる。

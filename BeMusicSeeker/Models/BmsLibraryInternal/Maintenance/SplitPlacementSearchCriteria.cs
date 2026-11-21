@@ -36,8 +36,8 @@ internal sealed record SplitPlacementSearchCriteria
     /// <summary>汎用名とみなすフォルダ数の最大値です。無関係なフォルダが連結した巨大なグループを防ぐ上限です。</summary>
     internal const int MaximumGenericFolderLimit = 100;
 
-    /// <summary>既定の探索条件（共有率80%、汎用名とみなすフォルダ数20、基準は音源の少ない方）です。</summary>
-    internal static SplitPlacementSearchCriteria Default { get; } = new(80, 20, SplitPlacementShareBasis.SmallerSide);
+    /// <summary>既定の探索条件（共有率95%、汎用名とみなすフォルダ数10、基準は音源の少ない方）です。</summary>
+    internal static SplitPlacementSearchCriteria Default { get; } = new(95, 10, SplitPlacementShareBasis.SmallerSide);
 
     /// <param name="sharePercent">共有率（百分率の整数）。50〜100で5刻みです。</param>
     /// <param name="genericFolderLimit">この数を超える対象フォルダが持つ音源キーを汎用名とします。2〜100です。</param>

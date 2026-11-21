@@ -329,8 +329,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
     /// <summary>
     /// 保証：未確認がなく要注意を含む対象は、重複と同じ確認を一回出す（警告のアイコン、警告用の本文は要注意の件数だけ、承認チェック必須）。承認後に整理し、
     /// 要求は分裂配置の一覧の表示順の対象だけで、重複の一覧の選択を含めない。検索で非表示の未確認グループ（SELECTオン）は対象外で整理を妨げない。
-    /// モデルが所持集合を変えなければ有効な結果が残るため、探索し直さない。
-    /// 検出する誤り：要注意での確認の省略・種類違い、重複の一覧の選択の混入、非表示の未確認による拒否、不要な探索。
+    /// モデルが所持集合を変えなければ有効な結果が残るため、探索し直さない。処理した対象のSELECTは分裂配置の一覧でだけオフになり、
+    /// 非表示の未確認グループ（SELECTオン）と、重複の一覧の選択は変わらない。
+    /// 検出する誤り：要注意での確認の省略・種類違い、重複の一覧の選択の混入・書換え、非表示の未確認による拒否、不要な探索、対象外のSELECTの書換え、処理した対象のSELECTの残留。
     /// </summary>
     [TestMethod]
     public void Organize_WithCautionTarget_ConfirmsOnceAndUsesOnlyTheSplitPlacementList()
@@ -362,6 +363,57 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
                 fixture.Store.Requests.Single().Groups.Select(group => group.KeepDirectory).ToArray(),
                 "要求は分裂配置の一覧の表示順で、重複の一覧の選択を含まない");
             Assert.AreEqual(0, fixture.Store.SearchCalls, "有効な結果が残っていれば探索し直さない");
+            Assert.IsFalse(fixture.State(safe).IsSelected, "処理した安全の対象のSELECTはオフ");
+            Assert.IsFalse(fixture.State(caution).IsSelected, "処理した要注意の対象のSELECTはオフ");
+            Assert.IsTrue(fixture.State(hiddenUnverified).IsSelected, "対象でなかった非表示の未確認グループのSELECTはオンのまま");
+            Assert.AreEqual(DuplicateMergeVerificationStage.Unverified, fixture.State(hiddenUnverified).Verification.Stage);
+            Assert.AreSame(Safe, fixture.State(safe).Verification, "確認結果は書き換えない");
+            Assert.AreEqual(1, fixture.DuplicateList.CaptureSelectedGroups().Count, "重複の一覧の選択は変わらない");
+            Assert.AreSame(duplicate, fixture.DuplicateList.CaptureSelectedGroups().Single().Group);
+        });
+    }
+
+    /// <summary>
+    /// 保証：整理の後の探索し直しでインスタンスを引き継いだグループは、整理の対象だったものはSELECTがオフで、対象でなかったもの（検索で非表示でオン）はオンのまま、
+    /// KEEPと確認結果は保つ。解消したグループの状態は一覧の採用で破棄され、新しいインスタンスのグループは初期値（未確認・SELECTオフ）になる。
+    /// 検出する誤り：引き継いだ対象のSELECTの残留、対象外のSELECTの消去、KEEP・確認結果の消失、新しいインスタンスへの状態の持込み、解消したグループの状態の残留。
+    /// </summary>
+    [TestMethod]
+    public void Organize_AfterSearchAgain_InheritedTargetsAreOffUntargetedStayOnAndNewGroupsStartFresh()
+    {
+        Run(fixture =>
+        {
+            DuplicateGroup alpha = fixture.Groups[0], beta = fixture.Groups[1], gamma = fixture.Groups[2];
+            fixture.Write(alpha, Safe);
+            fixture.Write(beta, Caution(Beta1));
+            fixture.SplitList.SelectVisible();
+            fixture.SplitList.SearchText = "Show";
+            Assert.IsTrue(fixture.State(gamma).IsSelected, "前提：検索で非表示でも、SELECTはオン");
+            Assert.AreEqual(2, fixture.SplitList.CaptureSelectedGroups().Count, "前提：対象は表示中の二グループ");
+            string betaKeep = fixture.State(beta).KeepFolder!;
+            DuplicateMergeVerificationResult betaVerification = fixture.State(beta).Verification;
+            DuplicateMergeCandidateGroupState betaState = fixture.State(beta), gammaState = fixture.State(gamma);
+            fixture.Store.Handler = (request, progress, _) => fixture.MergeAlphaAndAddDelta(request, progress);
+
+            DuplicateBatchOrganizeRunResult run = fixture.OnUi(async () => await fixture.Owner.OrganizeSelectedSplitPlacementGroupsAsync()).GetAwaiter().GetResult();
+
+            Assert.AreEqual(DuplicateBatchOrganizeRunStatus.Completed, run.Status, run.Failure?.ToString());
+            Assert.AreEqual(1, fixture.Store.SearchCalls, "前提：整理の後に探索し直した");
+            // 探索し直した結果を、本番の画面と同じく一覧へ採用する。
+            DuplicateGroup[] after = [.. fixture.Library.SplitPlacementGroups!];
+            Assert.IsTrue(fixture.SplitList.Adopt(DuplicateMergeCandidateListOwner.Prepare(fixture.Library, after, fixture.Library, CancellationToken.None)));
+
+            Assert.AreSame(betaState, fixture.State(beta), "引き継いだグループは同じ状態");
+            Assert.IsFalse(betaState.IsSelected, "引き継いだ対象のSELECTはオフ");
+            Assert.AreEqual(betaKeep, betaState.KeepFolder);
+            Assert.AreSame(betaVerification, betaState.Verification, "確認結果は保つ");
+            Assert.AreSame(gammaState, fixture.State(gamma));
+            Assert.IsTrue(gammaState.IsSelected, "対象でなかった非表示のグループのSELECTはオンのまま");
+            Assert.IsFalse(fixture.SplitList.TryGetState(alpha, out _), "解消したグループは状態を持たない");
+            DuplicateGroup added = after.Single(group => group != beta && group != gamma);
+            DuplicateMergeCandidateGroupState addedState = fixture.State(added);
+            Assert.IsFalse(addedState.IsSelected, "新しいインスタンスはSELECTオフの初期値");
+            Assert.AreEqual(DuplicateMergeVerificationStage.Unverified, addedState.Verification.Stage, "新しいインスタンスは未確認の初期値");
         });
     }
 

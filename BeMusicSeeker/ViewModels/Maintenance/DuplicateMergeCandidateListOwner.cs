@@ -553,7 +553,8 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
 
     /// <summary>
     /// 確認結果を、複数のグループ分まとめてUIスレッドで書き込みます。現在の状態表にないグループの結果は捨てます。
-    /// 書き込んだグループのSELECTは、安全ならオン、それ以外はオフに置き換えます（統合不可はオフで無効）。
+    /// 書き込んだグループのSELECTは、段階によらずオフにします（統合不可はオフで無効）。SELECTは確認の対象を指定する状態で、確認を終えると消費され、
+    /// 安全なグループを自動ではオンにしません。解析不能で統合不可だったグループが再確認で統合不可でなくなれば、オフのまま操作できる状態に戻ります。
     /// 行集合の差し替えは、検索・除外・並べ替えがSTATUS・SELECTに依存するときだけ、全体で一回です。
     /// </summary>
     /// <returns>書き込んだ結果。捨てた結果は含みません。</returns>
@@ -567,7 +568,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             if (write.Group == null || !states.TryGetValue(write.Group, out DuplicateMergeCandidateGroupState state)) { continue; }
             state.Verification = write.Result;
             state.Inspection = write.Inspection;
-            state.IsSelected = write.Result.Stage == DuplicateMergeVerificationStage.Safe;
+            state.IsSelected = false;
             accepted.Add(write);
         }
         if (accepted.Count == 0) { return accepted; }
@@ -575,6 +576,28 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         if (searchQuery.HasTokens || excludeQuery.HasTokens || sortColumnName is "Status" or "Select") { RebuildView(); }
         else { NotifyStateChanged(); }
         return accepted;
+    }
+
+    /// <summary>
+    /// 一括整理で処理したグループのSELECTを、まとめてオフにします。UIスレッドで呼びます。現在の状態表にないグループは捨て、状態を作りません。
+    /// KEEPと確認結果は書き換えません。行集合の差し替えは、SELECTでの並べ替えが有効なときだけ、全体で一回です。
+    /// </summary>
+    /// <param name="groups">SELECTをオフにするグループ。表示中かどうかによらず、状態表にあるものだけが対象です。</param>
+    /// <returns>SELECTが変わったときは true。</returns>
+    internal bool ClearSelectOfGroups(IEnumerable<DuplicateGroup> groups)
+    {
+        ArgumentNullException.ThrowIfNull(groups);
+        bool changed = false;
+        foreach (DuplicateGroup group in groups)
+        {
+            if (group == null || !states.TryGetValue(group, out DuplicateMergeCandidateGroupState state) || !state.IsSelected) { continue; }
+            state.IsSelected = false;
+            changed = true;
+        }
+        if (!changed) { return false; }
+        if (sortColumnName == "Select") { RebuildView(); }
+        else { NotifyStateChanged(); }
+        return true;
     }
 
     /// <summary>現在の状態表にあるグループの状態を返します。後続の単位と画面が、状態表を介さずに参照する窓口です。</summary>

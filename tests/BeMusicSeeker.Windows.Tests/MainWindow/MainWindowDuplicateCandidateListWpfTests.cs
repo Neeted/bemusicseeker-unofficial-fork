@@ -463,8 +463,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     /// <summary>
     /// 保証：実画面の「選択グループを確認」ボタンと右クリックメニューの「このグループを確認」が、実ファイルの確認を通じてSTATUS・SELECT・件数表示・ツールチップを更新し、
-    /// 進捗の要求はメインウィンドウを所有者として出して、結果の案内を一件だけ出す。簡易確認のチェックは、開始時にオンで案内がなく、外す操作では案内せず、入れる操作で案内を一件出して管理主体へ値を渡す。
-    /// 実ファイルの衝突（別内容の資源）のグループは要注意でSELECTがオフになり、衝突を解消して右クリックで再確認すれば安全でオンに戻る。
+    /// 確認を終えたグループのSELECTは段階によらずオフになり（件数表示の選択は0）、進捗の要求はメインウィンドウを所有者として出して、結果の案内を一件だけ出す（「チェックを入れました」の文を含まない）。簡易確認のチェックは、開始時にオンで案内がなく、外す操作では案内せず、入れる操作で案内を一件出して管理主体へ値を渡す。
+    /// 実ファイルの衝突（別内容の資源）のグループは要注意になり、衝突を解消して右クリックで再確認すれば安全になるが、SELECTはオフのまま操作できる。
     /// 標準構成の接続は、共通の受付が使用中なら確認がBusyの案内で未開始になることで確かめる。条件の網羅は検査器・管理主体のケースが担当する。
     /// 検出する誤り：ボタン・メニュー・チェックの未接続、進捗の所有者の欠落、案内の重複・欠落、SELECT・件数表示・STATUSの更新漏れ、標準構成の受付への未接続、
     /// チェックの既定がオフ・起動時の案内。
@@ -524,26 +524,33 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, rows[0].StatusText);
             Assert.AreEqual(
                 string.Format(Resources.Duplicate_merge_candidate_status_caution_format, Resources.Duplicate_merge_candidate_reason_content_conflict), rows[2].StatusText);
-            Assert.IsTrue(rows[0].State.IsSelected, "安全のSELECTはオンです。");
+            Assert.IsFalse(rows[0].State.IsSelected, "安全のSELECTも確認で消費してオフにします。");
             Assert.IsFalse(rows[2].State.IsSelected, "要注意のSELECTはオフです。");
-            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 1), summary.Text);
+            Assert.AreEqual(0, candidates.SelectedGroupCount);
+            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 0), summary.Text, "件数表示の選択は0です。");
             Assert.AreEqual(Resources.Duplicate_merge_candidate_verify_progress_title, dialogs.ProgressRequest!.Title);
             Assert.AreSame(window, dialogs.ProgressRequest.Owner, "進捗の所有者はメインウィンドウです。");
             Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count, "結果の案内は一件です。");
             Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_verify_result_format, 2, 1, 1, 0), dialogs.Messages[^1].MessageBoxText);
+            Assert.AreEqual("2グループを確認しました。安全 1／要注意 1／統合不可 0。", dialogs.Messages[^1].MessageBoxText, "ja-JP の案内は「チェックを入れました」の文を含みません。");
             string tooltip = ResolveStatusTooltip(table, 2);
             StringAssert.Contains(tooltip, Resources.Duplicate_merge_candidate_reason_content_conflict_description);
             StringAssert.Contains(tooltip, Path.Combine(rows[2].Path, "x.bin"));
             StringAssert.Contains(ResolveStatusTooltip(table, 0), Resources.Duplicate_merge_candidate_safe_not_compared);
 
-            // 右クリックメニュー：衝突を解消してグループ1だけを再確認する。SELECTの状態によらず対象になり、安全ならオンになる。
+            // 右クリックメニュー：衝突を解消してグループ1だけを再確認する。SELECTの状態によらず対象になり、安全になってもSELECTはオフのまま操作できる。
             File.WriteAllBytes(Path.Combine(rows[3].Path, "x.bin"), [1, 2, 3, 4]);
             table.SelectRowsByPredicate(row => row is DuplicateMergeCandidateRow { Index: 2 });
             MenuItem verifyGroup = menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Duplicate_merge_candidate_verify_group));
             messagesBefore = dialogs.Messages.Count;
             AwaitHandler(() => RaiseMenuClick(verifyGroup), "verify-menu");
             Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, rows[2].StatusText);
-            Assert.IsTrue(rows[2].State.IsSelected, "再確認で安全になればオンになります。");
+            Assert.IsFalse(rows[2].State.IsSelected, "再確認で安全になっても、SELECTはオフのままです。");
+            Assert.IsTrue(rows[2].State.CanSelect, "再確認の後も操作できる状態です。");
+            Click(table, 2, "Select");
+            Assert.IsTrue(rows[2].State.IsSelected, "オフのSELECTを利用者の操作でオンにできます。");
+            Click(table, 2, "Select");
+            Assert.IsFalse(rows[2].State.IsSelected);
             Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count);
             StringAssert.Contains(ResolveStatusTooltip(table, 2), string.Format(Resources.Duplicate_merge_candidate_safe_compared_single_format, 2, Resources.Duplicate_merge_candidate_method_full));
 

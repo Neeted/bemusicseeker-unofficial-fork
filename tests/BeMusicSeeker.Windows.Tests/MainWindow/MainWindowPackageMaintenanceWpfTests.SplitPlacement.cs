@@ -401,15 +401,18 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 basisCombo.Items.Cast<ComboBoxItem>().Select(item => item.Content).ToArray());
             Assert.AreEqual(Resources.Split_placement_research, researchButton.Content);
             Assert.IsFalse(shareCombo.IsEditable || limitCombo.IsEditable || basisCombo.IsEditable, "選択式で、範囲の外の値を入力できない");
-            Assert.AreEqual(80, shareCombo.SelectedItem);
+            Assert.AreEqual(SplitPlacementSearchCriteria.Default.SharePercent, shareCombo.SelectedItem, "初期表示は既定値から導く");
             // 共通のテンプレートは選択欄へ書式を渡さないため、閉じた状態の表示にも「%」が付くことを実際の表示要素で確かめる。
             shareCombo.ApplyTemplate();
             shareCombo.UpdateLayout();
             var shareSelection = (ContentPresenter)shareCombo.Template.FindName("SelectionContent", shareCombo);
-            Assert.AreEqual("80%", ((TextBlock)System.Windows.Media.VisualTreeHelper.GetChild(shareSelection, 0)).Text,
+            Assert.AreEqual("95%", ((TextBlock)System.Windows.Media.VisualTreeHelper.GetChild(shareSelection, 0)).Text,
                 "共有率は、閉じた状態でも「%」を付けて表示する");
-            Assert.AreEqual(20, limitCombo.SelectedItem);
-            Assert.AreEqual(SplitPlacementShareBasis.SmallerSide, basisCombo.SelectedValue);
+            Assert.AreEqual(SplitPlacementSearchCriteria.Default.GenericFolderLimit, limitCombo.SelectedItem);
+            Assert.AreEqual(SplitPlacementSearchCriteria.Default.Basis, basisCombo.SelectedValue);
+            Assert.AreEqual("10", ((TextBlock)System.Windows.Media.VisualTreeHelper.GetChild(
+                (ContentPresenter)limitCombo.Template.FindName("SelectionContent", limitCombo), 0)).Text, "初期表示の汎用名とみなすフォルダ数は「10」");
+            Assert.AreEqual(Resources.Split_placement_criteria_basis_smaller, basisCombo.Text, "初期表示の基準は「音源の少ない方」の文言");
             Assert.AreNotEqual(FontWeights.Bold, researchButton.FontWeight, "入力が適用中と同じ間は強調しない");
 
             // 実際の入力：入力中の値だけが変わり、適用中の探索条件と一覧は変わらず、「再探索」が強調される。
@@ -486,7 +489,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             AwaitHandler(() => ClickButton(window, "duplicateCandidateVerifyButton"), "split placement verify toolbar");
             Assert.AreEqual(DuplicateMergeVerificationStage.Safe, rows[0].State.Verification.Stage,
                 "分裂配置の一覧の全グループを基準にするため、重複検索のグループと重なるフォルダでも巻き込みにならない");
-            Assert.IsTrue(rows[0].State.IsSelected);
+            Assert.IsFalse(rows[0].State.IsSelected, "確認を終えたグループのSELECTはオフ");
             Assert.AreEqual(DuplicateMergeVerificationStage.Unverified, rows[2].State.Verification.Stage, "選択していないグループは確認しない");
             Assert.AreEqual(Resources.Duplicate_merge_candidate_verify_progress_title, dialogs.ProgressRequest!.Title);
             Assert.AreSame(window, dialogs.ProgressRequest.Owner);
@@ -501,6 +504,74 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsTrue(duplicate.RowSet.All(row => row.State.Verification.Stage == DuplicateMergeVerificationStage.Unverified),
                 "重複の一覧の確認結果は変わらない");
             Assert.IsFalse(duplicate.IsViewActive);
+        }, dialogService: dialogs);
+    }
+
+    /// <summary>
+    /// 保証：探索条件の三つの入力は、ja-JPとen-USのそれぞれで、すべての選択肢を選んだ閉じた状態の表示が実際に配置された幅に切れずに収まり、
+    /// 入力の幅は選択中の値によらず等しい。基準の入力は、en-USの文言がja-JPより長く、表示言語を切り替えると新しい文言に合わせて広がる。
+    /// 検出する誤り：固定の幅による選択肢の欠け、選択中の値で変わる幅、表示言語の切替への非追従、共有率の「%」の欠け。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementCandidateList_CriteriaInputsFitTheirLongestChoiceAndKeepOneWidthAcrossSelectionsAndLanguages()
+    {
+        var dialogs = new RecordingDialogService(new EventLog());
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            SetSplitPairsIndex(library, charts);
+            var splitRoot = (TreeViewItem)window.FindName("treeViewItemSearchSplitPlacement");
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: true);
+            (string Name, ComboBox Combo)[] inputs =
+            [
+                ("共有率", (ComboBox)window.FindName("splitPlacementSharePercentComboBox")),
+                ("汎用名とみなすフォルダ数", (ComboBox)window.FindName("splitPlacementGenericFolderLimitComboBox")),
+                ("共有率の基準", (ComboBox)window.FindName("splitPlacementShareBasisComboBox"))
+            ];
+            var basisWidthByCulture = new Dictionary<string, double>();
+            string previous = Resources.Culture?.Name ?? "ja-JP";
+            try
+            {
+                foreach (string culture in new[] { "ja-JP", "en-US" })
+                {
+                    ResourceService.Current.ChangeCulture(culture);
+                    TestUiDispatcherHost.ProcessQueuedPresentation();
+                    foreach ((string name, ComboBox combo) in inputs)
+                    {
+                        double? width = null;
+                        for (int index = 0; index < combo.Items.Count; index++)
+                        {
+                            combo.SelectedIndex = index;
+                            window.UpdateLayout();
+                            double actual = combo.ActualWidth;
+                            Assert.IsTrue(actual > 0d, $"{culture} {name} #{index}: 配置されている");
+                            width ??= actual;
+                            Assert.AreEqual(width.Value, actual, 0.5, $"{culture} {name} #{index}: 幅は選択中の値によらず等しい");
+                            var selection = (ContentPresenter)combo.Template.FindName("SelectionContent", combo);
+                            var shown = (TextBlock)System.Windows.Media.VisualTreeHelper.GetChild(selection, 0);
+                            // 閉じた状態の表示が収まる幅は、枠・矢印の列（30）・余白を除いた配置済みの幅です。表示の文言を同じ書体で測り直して比べます。
+                            double available = actual - combo.BorderThickness.Left - combo.BorderThickness.Right - 30d - combo.Padding.Left - combo.Padding.Right;
+                            var probe = new TextBlock
+                            {
+                                Text = shown.Text,
+                                FontFamily = shown.FontFamily,
+                                FontSize = shown.FontSize,
+                                FontStyle = shown.FontStyle,
+                                FontWeight = shown.FontWeight,
+                                FontStretch = shown.FontStretch
+                            };
+                            probe.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                            Assert.IsTrue(probe.DesiredSize.Width <= available + 0.5,
+                                $"{culture} {name} #{index}: 「{shown.Text}」（{probe.DesiredSize.Width}）が配置された幅（{available}）に収まる");
+                            if (combo == inputs[0].Combo) { Assert.IsTrue(shown.Text.EndsWith('%'), "共有率は閉じた状態でも「%」を付けて表示する"); }
+                        }
+                        if (combo == inputs[2].Combo) { basisWidthByCulture[culture] = width!.Value; }
+                    }
+                }
+                Assert.IsTrue(basisWidthByCulture["en-US"] > basisWidthByCulture["ja-JP"],
+                    $"基準の入力は、長くなった文言に合わせて広がる（ja-JP {basisWidthByCulture["ja-JP"]}、en-US {basisWidthByCulture["en-US"]}）");
+            }
+            finally { ResourceService.Current.ChangeCulture(previous); }
         }, dialogService: dialogs);
     }
 
@@ -660,7 +731,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             // 確認済み（安全）にして整理する。
             var safe = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, []);
             split.WriteVerifications([new DuplicateMergeVerificationWrite(groupA.Group, safe)]);
-            Assert.IsTrue(groupA.IsSelected, "安全のSELECTはオン");
+            Assert.IsFalse(groupA.IsSelected, "安全を書き込んでも、SELECTはオフ（自動でオンにしない）");
+            Click(table, 0, "Select");
+            Assert.IsTrue(groupA.IsSelected, "安全の確認の後に、利用者が選択し直す");
             Assert.IsFalse(groupB.IsSelected);
             bool? gateFreeAtResult = null;
             dialogs.OnMessage = () => gateFreeAtResult ??= composition.OperationAdmission.CanEnter && !viewModel.ChartMutationActivity.IsActive;
@@ -675,6 +748,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             CollectionAssert.AreEqual(new[] { rows[2].Path, rows[3].Path }, after.Select(row => row.Path).ToArray(), "解消したグループの行は消える");
             Assert.AreSame(groupB, after[0].State, "引き継いだグループは同じ状態のインスタンス");
             Assert.AreEqual(keepB, groupB.KeepFolder, "KEEPを保つ");
+            Assert.IsFalse(groupB.IsSelected, "対象でなかったグループのSELECTはオフのまま");
+            Assert.IsFalse(split.TryGetState(groupA.Group, out _), "解消した対象のグループは状態を持たない");
+            Assert.AreEqual(0, split.SelectedGroupCount, "整理で処理した対象のSELECTは消費され、選択件数は0");
             Assert.AreSame(cautionResult, groupB.Verification, "確認結果を保つ");
             Assert.AreSame(groupB.Group, library.SplitPlacementGroups!.Single(), "結果のグループのインスタンスも引き継がれる");
             Assert.IsTrue(library.HasCurrentSplitPlacementGroups(applied), "同じ受付の中で適用中の探索条件で探索し直し、有効な結果がある");

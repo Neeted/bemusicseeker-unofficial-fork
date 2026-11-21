@@ -1008,25 +1008,73 @@
                   <Style x:Key="splitPlacementCriteriaComboBoxStyle" TargetType="{x:Type ComboBox}" BasedOn="{StaticResource App.Canonical.CompactComboBoxStyle}">
                     <Setter Property="VerticalAlignment" Value="Center" />
                     <Setter Property="FontSize" Value="12" />
+                  </Style>
+                  <!--
+                    入力の幅は固定せず、選択肢のうち表示が最も長いものが収まる幅にする。選択中の値は幅へ影響させず、表示言語の切替にも追従する。
+                    閉じた状態の幅は選択中の値で決まるため、同じ選択肢を非表示で重ねて並べた要素を同じ表の中に置き、その最大幅（共通のテンプレートの
+                    余白6+6、矢印の列30、枠2を加えた値）を表の幅にして、入力を表の幅へ広げる。共通のテンプレートとほかの画面の入力は変えない。
+                  -->
+                  <Style x:Key="splitPlacementCriteriaChoiceHostStyle" TargetType="{x:Type Grid}">
+                    <Setter Property="VerticalAlignment" Value="Center" />
                     <Setter Property="Margin" Value="0,0,12,0" />
+                  </Style>
+                  <Style x:Key="splitPlacementCriteriaWidthProbeStyle" TargetType="{x:Type ItemsControl}">
+                    <Setter Property="Visibility" Value="Hidden" />
+                    <Setter Property="IsHitTestVisible" Value="False" />
+                    <Setter Property="Focusable" Value="False" />
+                    <Setter Property="IsTabStop" Value="False" />
+                    <Setter Property="FontSize" Value="12" />
+                    <Setter Property="Margin" Value="6,0,38,0" />
+                    <Setter Property="VerticalAlignment" Value="Center" />
+                    <Setter Property="ItemsPanel">
+                      <Setter.Value>
+                        <ItemsPanelTemplate>
+                          <Grid />
+                        </ItemsPanelTemplate>
+                      </Setter.Value>
+                    </Setter>
                   </Style>
                 </StackPanel.Resources>
                 <TextBlock Style="{StaticResource splitPlacementCriteriaLabelStyle}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_percent, Mode=OneWay}" />
-                <ComboBox x:Name="splitPlacementSharePercentComboBox" AutomationProperties.AutomationId="SplitPlacementSharePercent" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_percent, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" Width="64" IsEditable="False" ItemsSource="{Binding SplitPlacementSearch.SharePercentChoices, Mode=OneWay}" SelectedItem="{Binding SplitPlacementSearch.SharePercent, Mode=TwoWay}">
-                  <!-- 共通のテンプレートは選択欄へ書式を渡さないため、項目のテンプレートで「%」を付け、一覧と閉じた状態の表示を揃える。 -->
-                  <ComboBox.ItemTemplate>
-                    <DataTemplate>
-                      <TextBlock Text="{Binding StringFormat={}{0}%}" />
-                    </DataTemplate>
-                  </ComboBox.ItemTemplate>
-                </ComboBox>
+                <Grid Style="{StaticResource splitPlacementCriteriaChoiceHostStyle}">
+                  <ItemsControl Style="{StaticResource splitPlacementCriteriaWidthProbeStyle}" ItemsSource="{Binding SplitPlacementSearch.SharePercentChoices, Mode=OneWay}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding StringFormat={}{0}%}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <ComboBox x:Name="splitPlacementSharePercentComboBox" AutomationProperties.AutomationId="SplitPlacementSharePercent" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_percent, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" IsEditable="False" ItemsSource="{Binding SplitPlacementSearch.SharePercentChoices, Mode=OneWay}" SelectedItem="{Binding SplitPlacementSearch.SharePercent, Mode=TwoWay}">
+                    <!-- 共通のテンプレートは選択欄へ書式を渡さないため、項目のテンプレートで「%」を付け、一覧と閉じた状態の表示を揃える。 -->
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding StringFormat={}{0}%}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </Grid>
                 <TextBlock Style="{StaticResource splitPlacementCriteriaLabelStyle}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_generic_folder_limit, Mode=OneWay}" />
-                <ComboBox x:Name="splitPlacementGenericFolderLimitComboBox" AutomationProperties.AutomationId="SplitPlacementGenericFolderLimit" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_generic_folder_limit, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" Width="64" IsEditable="False" ItemsSource="{Binding SplitPlacementSearch.GenericFolderLimitChoices, Mode=OneWay}" SelectedItem="{Binding SplitPlacementSearch.GenericFolderLimit, Mode=TwoWay}" />
+                <Grid Style="{StaticResource splitPlacementCriteriaChoiceHostStyle}">
+                  <ItemsControl Style="{StaticResource splitPlacementCriteriaWidthProbeStyle}" ItemsSource="{Binding SplitPlacementSearch.GenericFolderLimitChoices, Mode=OneWay}">
+                    <ItemsControl.ItemTemplate>
+                      <DataTemplate>
+                        <TextBlock Text="{Binding}" />
+                      </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                  </ItemsControl>
+                  <ComboBox x:Name="splitPlacementGenericFolderLimitComboBox" AutomationProperties.AutomationId="SplitPlacementGenericFolderLimit" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_generic_folder_limit, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" IsEditable="False" ItemsSource="{Binding SplitPlacementSearch.GenericFolderLimitChoices, Mode=OneWay}" SelectedItem="{Binding SplitPlacementSearch.GenericFolderLimit, Mode=TwoWay}" />
+                </Grid>
                 <TextBlock Style="{StaticResource splitPlacementCriteriaLabelStyle}" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_basis, Mode=OneWay}" />
-                <ComboBox x:Name="splitPlacementShareBasisComboBox" AutomationProperties.AutomationId="SplitPlacementShareBasis" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_basis, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" Width="140" IsEditable="False" SelectedValuePath="Tag" SelectedValue="{Binding SplitPlacementSearch.Basis, Mode=TwoWay}">
-                  <ComboBoxItem Tag="{x:Static lib:SplitPlacementShareBasis.SmallerSide}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_basis_smaller, Mode=OneWay}" />
-                  <ComboBoxItem Tag="{x:Static lib:SplitPlacementShareBasis.BothSides}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_basis_both, Mode=OneWay}" />
-                </ComboBox>
+                <Grid Style="{StaticResource splitPlacementCriteriaChoiceHostStyle}">
+                  <ItemsControl Style="{StaticResource splitPlacementCriteriaWidthProbeStyle}">
+                    <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_basis_smaller, Mode=OneWay}" />
+                    <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_basis_both, Mode=OneWay}" />
+                  </ItemsControl>
+                  <ComboBox x:Name="splitPlacementShareBasisComboBox" AutomationProperties.AutomationId="SplitPlacementShareBasis" AutomationProperties.Name="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_share_basis, Mode=OneWay}" Style="{StaticResource splitPlacementCriteriaComboBoxStyle}" IsEditable="False" SelectedValuePath="Tag" SelectedValue="{Binding SplitPlacementSearch.Basis, Mode=TwoWay}">
+                    <ComboBoxItem Tag="{x:Static lib:SplitPlacementShareBasis.SmallerSide}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_basis_smaller, Mode=OneWay}" />
+                    <ComboBoxItem Tag="{x:Static lib:SplitPlacementShareBasis.BothSides}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_criteria_basis_both, Mode=OneWay}" />
+                  </ComboBox>
+                </Grid>
                 <Button x:Name="splitPlacementResearchButton" AutomationProperties.AutomationId="SplitPlacementResearch" Style="{StaticResource splitPlacementResearchButtonStyle}" Click="splitPlacementResearchClick" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Split_placement_research, Mode=OneWay}" />
               </StackPanel>
               <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">

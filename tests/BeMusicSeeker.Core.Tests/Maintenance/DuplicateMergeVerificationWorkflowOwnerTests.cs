@@ -175,8 +175,9 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
 
     /// <summary>
     /// 保証：確認中は共通の受付を保持して（他の取得が失敗する）、進捗に「何番目／総数」と代表フォルダ名（グループのKEEPのフォルダ名）を示し、
-    /// 結果の書込み（UIスレッド）の時点ではまだ受付を保持し、その後に解放してから、結果を一度だけ案内する。走査はUIスレッド以外で、書込みでSELECTを「安全ならオン、それ以外はオフ」に置き換える。
-    /// 検出する誤り：受付の取得漏れ、書込みより前の解放（書込みの前に別の変更が受理される）、遅すぎる解放（案内の時点で保持している）、進捗の欠落、KEEPでない代表名、UIスレッドでの走査、書込みのUIスレッド外実行、案内の重複。
+    /// 結果の書込み（UIスレッド）の時点ではまだ受付を保持し、その後に解放してから、結果を一度だけ案内する。走査はUIスレッド以外で、書込みで確認を終えたグループのSELECTを段階によらずオフにする（三グループとも前提でオン）。
+    /// 検出する誤り：受付の取得漏れ、書込みより前の解放（書込みの前に別の変更が受理される）、遅すぎる解放（案内の時点で保持している）、進捗の欠落、KEEPでない代表名、UIスレッドでの走査、書込みのUIスレッド外実行、案内の重複、
+    /// 安全のSELECTを残す・オンにする、案内に「チェックを入れました」の文を含める、確認の後に選択件数と捕捉件数が0にならない。
     /// </summary>
     [TestMethod]
     public async Task Verify_HoldsAdmissionWhileCheckingAndReleasesBeforeTheSingleResultNotice()
@@ -225,13 +226,17 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         Assert.AreEqual(new DuplicateMergeVerificationRunResult(DuplicateMergeVerificationRunStatus.Completed, 3, 1, 1, 1, 0), result);
         Assert.AreEqual(true, admissionFreeAtNotice, "案内の時点では受付を解放済みです。");
         Assert.AreEqual(1, fixture.Dialogs.Messages.Count, "結果の案内は一度だけです。");
+        Assert.AreEqual("3グループを確認しました。安全 1／要注意 1／統合不可 1。", fixture.Dialogs.Messages[0].MessageBoxText, "ja-JP の書式は「チェックを入れました」の文を含みません。");
         Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_verify_result_format, 3, 1, 1, 1), fixture.Dialogs.Messages[0].MessageBoxText);
         Assert.IsTrue(inspector.Calls.All(call => call.ThreadId != fixture.UiThreadId), "走査はUIスレッド以外です。");
         Assert.IsTrue(writeThreads.Count > 0 && writeThreads.All(id => id == fixture.UiThreadId), "書込みはUIスレッドです。");
         Assert.IsTrue(admissionHeldAtWrite.Count > 0 && admissionHeldAtWrite.All(held => held), "結果の書込みの時点では受付を保持しています（他の取得が失敗します）。");
-        Assert.IsTrue(fixture.State(g1).IsSelected);
+        Assert.IsFalse(fixture.State(g1).IsSelected, "安全のSELECTも確認で消費してオフにします。");
         Assert.IsFalse(fixture.State(g2).IsSelected, "要注意のSELECTはオフです。");
         Assert.IsFalse(fixture.State(g3).IsSelected, "統合不可のSELECTはオフです。");
+        Assert.IsFalse(fixture.State(g3).CanSelect, "統合不可は無効のままです。");
+        Assert.AreEqual(0, fixture.Owner.SelectedGroupCount);
+        Assert.AreEqual(0, fixture.Ui(() => fixture.Owner.CaptureSelectedGroups().Count), "続けて整理を押しても対象がありません。");
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, fixture.State(g1).Verification.FormatStatus());
         Assert.IsTrue(fixture.Admission.CanEnter, "終端後は次の確認を受け付けます。");
     }
@@ -319,7 +324,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
 
     /// <summary>
     /// 保証：右クリックメニューの確認は、選択行が属するグループを、グループごとに一度、SELECTの状態によらず確認する。登録範囲のフォルダと、
-    /// 簡易確認の値（確認の開始時の値。既定の有効と異なる無効を設定する）を、案内なしですべての要求で検査器へ渡し、確認後のSELECTは安全ならオンになる。
+    /// 簡易確認の値（確認の開始時の値。既定の有効と異なる無効を設定する）を、案内なしですべての要求で検査器へ渡し、確認前にオンのグループも、確認後のSELECTはオフになる。
     /// 検出する誤り：同じグループの重複確認、SELECTがオンのグループへの絞込み、登録範囲・簡易確認の値の受渡しの欠落（既定値のままの受渡し）、無効にする操作での案内。
     /// </summary>
     [TestMethod]
@@ -330,6 +335,9 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         using var fixture = new Fixture(inspector, new Source([@"C:\S\a1", @"C:\S\a2"]), a, b);
         await fixture.Workflow.SetQuickCompareAsync(false);
         Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "無効にする操作では案内しません。");
+        Assert.IsFalse(fixture.State(a).CanSelect, "前提：登録範囲を二つ持つグループは統合不可で、SELECTできません。");
+        fixture.Ui(() => fixture.Owner.ToggleSelect(fixture.Owner.RowSet[2]));
+        Assert.IsTrue(fixture.State(b).IsSelected, "前提：確認の前にbだけがオンです。");
 
         DuplicateMergeVerificationRunResult result = await fixture.UiAsync(() => fixture.Workflow.VerifyGroupsOfRowsAsync(
             [fixture.Owner.RowSet[0], fixture.Owner.RowSet[1], fixture.Owner.RowSet[2]]));
@@ -339,8 +347,8 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         Assert.IsTrue(inspector.Calls.All(call => !call.Request.SizeAndTimeOnly), "簡易確認の値（無効）をすべての要求へ渡します。");
         DuplicateMergeInspectionRequest registeredRequest = inspector.Calls.Select(call => call.Request).Single(request => request.RegisteredFolders.Count == 2);
         CollectionAssert.AreEqual(new[] { @"C:\S\a1", @"C:\S\a2" }, registeredRequest.RegisteredFolders.ToArray());
-        Assert.IsTrue(fixture.State(a).IsSelected);
-        Assert.IsTrue(fixture.State(b).IsSelected);
+        Assert.IsFalse(fixture.State(b).IsSelected, "確認前にオンでも、確認後はオフです。");
+        Assert.IsFalse(fixture.State(a).IsSelected, "統合不可のグループは確認後もオフ（安全でもオンにしません）で、無効のままです。");
     }
 
     /// <summary>
@@ -392,7 +400,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 保証：取消は、処理中のグループを最後まで処理して書き込み、着手しなかったグループの確認結果とSELECTは確認前のままにする。結果の案内は「未確認」の件数を加える。
+    /// 保証：取消は、処理中のグループを最後まで処理して書き込み（SELECTはオフ）、着手しなかったグループの確認結果とSELECTは確認前のままにする。結果の案内は「未確認」の件数を加える。
     /// 検出する誤り：処理中のグループの破棄、未着手のグループの書込み・SELECTの変更、案内の未確認の欠落、取消後も走査を続ける。
     /// </summary>
     [TestMethod]
@@ -421,7 +429,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         Assert.AreEqual(new DuplicateMergeVerificationRunResult(DuplicateMergeVerificationRunStatus.Cancelled, 1, 1, 0, 0, 2), result);
         Assert.AreEqual(1, inspector.Calls.Count, "取消後は新しいグループを始めません。");
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, fixture.State(g1).Verification.FormatStatus(), "処理中のグループは最後まで処理して書き込みます。");
-        Assert.IsTrue(fixture.State(g1).IsSelected);
+        Assert.IsFalse(fixture.State(g1).IsSelected, "処理したグループのSELECTはオフです。");
         foreach (DuplicateGroup untouched in new[] { g2, g3 })
         {
             Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, fixture.State(untouched).Verification.FormatStatus());
@@ -429,6 +437,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         }
         Assert.AreEqual(1, fixture.Dialogs.Messages.Count);
         Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_verify_result_cancelled_format, 1, 1, 0, 0, 2), fixture.Dialogs.Messages[0].MessageBoxText);
+        Assert.AreEqual("1グループを確認しました。安全 1／要注意 0／統合不可 0／未確認 2。", fixture.Dialogs.Messages[0].MessageBoxText);
         Assert.IsTrue(fixture.Admission.CanEnter);
     }
 
@@ -458,8 +467,8 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
 
         Assert.AreEqual(new DuplicateMergeVerificationRunResult(DuplicateMergeVerificationRunStatus.Completed, 1, 0, 1, 0, 0), result);
         Assert.IsFalse(fixture.Owner.TryGetState(g1, out _));
-        Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_verify_result_no_safe_format, 1, 0, 1, 0), fixture.Dialogs.Messages.Single().MessageBoxText,
-            "安全が0件なら「チェックを入れました」の文を出しません。");
+        Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_verify_result_format, 1, 0, 1, 0), fixture.Dialogs.Messages.Single().MessageBoxText,
+            "消えたグループの結果は案内の件数へ数えません。");
     }
 
     /// <summary>
@@ -482,6 +491,9 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_safe, fixture.State(g1).Verification.FormatStatus(), "完了済みのグループの結果は書き込みます。");
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, fixture.State(g2).Verification.FormatStatus());
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, fixture.State(g3).Verification.FormatStatus());
+        Assert.IsFalse(fixture.State(g1).IsSelected, "完了済みのグループのSELECTはオフです。");
+        Assert.IsTrue(fixture.State(g2).IsSelected, "例外を出したグループのSELECTは変えません。");
+        Assert.IsTrue(fixture.State(g3).IsSelected, "未着手のグループのSELECTは変えません。");
         Assert.IsTrue(fixture.Admission.CanEnter, "受付を解放します。");
         Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "結果の案内は出しません。");
     }
@@ -501,7 +513,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         using var fixture = new Fixture(new DuplicateMergeSafetyInspector(new MemoryOwnedChartSource()), target, hidden);
         fixture.Ui(() =>
         {
-            fixture.Owner.ToggleSelect(fixture.Owner.RowSet.First(row => ReferenceEquals(row.State.Group, target)));
+            fixture.Owner.SelectVisible();
             fixture.Owner.SearchText = "folder:" + Path.GetFileName(b);
         });
         Assert.IsFalse(fixture.Owner.RowSet.Any(row => ReferenceEquals(row.State.Group, hidden)), "前提：別のグループは検索で非表示です。");
@@ -514,6 +526,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
             fixture.State(target).Verification.FormatStatus());
         Assert.IsFalse(fixture.State(target).IsSelected);
         Assert.AreEqual(Resources.Duplicate_merge_candidate_status_unverified, fixture.State(hidden).Verification.FormatStatus(), "確認対象外のグループは変えません。");
+        Assert.IsTrue(fixture.State(hidden).IsSelected, "検索で非表示で確認対象外のグループは、SELECTがオンのまま変わりません。");
     }
 
     /// <summary>

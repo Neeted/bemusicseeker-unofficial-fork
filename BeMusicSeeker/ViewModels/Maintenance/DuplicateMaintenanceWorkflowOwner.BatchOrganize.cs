@@ -75,6 +75,7 @@ internal sealed record DuplicateBatchOrganizeRunResult(
 /// 受付は、モデルの終端・重複結果の準備・画面更新の抑制の解除まで保持し、結果の案内より前に解放します。
 /// 確定・反映・保守の失敗は単体の統合と同じ報告を一度出し、その後に結果を一度だけ案内します。
 /// 取消は、処理中のグループを終えてから止まり、反映段階へ入った後は取消できません（進捗画面は取消の扱いを操作へ任せます）。
+/// モデルが操作を受理して結果を返したら、対象のうち「未処理」以外のグループのSELECTを、整理を始めた一覧でオフにします（SELECTは整理で消費されます）。既存宛先を復元できなかった場合は終了手順へ進み、SELECTの扱いは規定しません。
 /// </remarks>
 internal sealed partial class DuplicateMaintenanceWorkflowOwner
 {
@@ -158,7 +159,7 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
         try
         {
             // 要求の作成が例外で終わっても、下の finally が受付を解放します。
-            run = new BatchRun(DuplicateBatchOrganizePresentation.CreateRequest(targets), splitPlacement);
+            run = new BatchRun(DuplicateBatchOrganizePresentation.CreateRequest(targets), splitPlacement, list, targets);
             ConfirmationDecision confirmation = await ConfirmBatchOrganizeAsync(targets);
             if (confirmation.Failure != null)
             {
@@ -409,6 +410,7 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
         {
             return new DuplicateBatchOrganizeRunResult(DuplicateBatchOrganizeRunStatus.NotAdmitted, model, failure);
         }
+        ConsumeSelectOfProcessedGroups(run, model);
         await ShowBatchOrganizeResultAsync(model);
         return new DuplicateBatchOrganizeRunResult(DuplicateBatchOrganizeRunStatus.Completed, model, failure);
     }
@@ -435,6 +437,22 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
     private static Exception CombineFailures(Exception first, Exception second)
         => first == null ? second : second == null ? first : new AggregateException(first, second);
 
+    /// <summary>
+    /// モデルが操作を受理して結果を返したとき、対象のグループのうち「未処理」以外（完了・一部完了・スキップ・失敗）のSELECTを、整理を始めた一覧でオフにします。
+    /// SELECTは整理で消費されます。取消や停止で着手しなかった「未処理」のグループは変えず、KEEPと確認結果も書き換えません。UIスレッドで呼びます。既存宛先を復元できなかった経路では呼びません。
+    /// 一覧の状態表にないグループ（整理で解消し、作り直しで消えたものなど）の書込みは捨てます。
+    /// </summary>
+    private static void ConsumeSelectOfProcessedGroups(BatchRun run, DuplicateBatchOrganizeResult model)
+    {
+        int count = Math.Min(run.Targets.Count, model.Groups.Count);
+        var processed = new List<DuplicateGroup>(count);
+        for (int index = 0; index < count; index++)
+        {
+            if (model.Groups[index].Status != DuplicateBatchOrganizeGroupStatus.Unprocessed) { processed.Add(run.Targets[index].Group); }
+        }
+        run.List.ClearSelectOfGroups(processed);
+    }
+
     /// <summary>結果を一度だけ案内します。表示の失敗は診断へ残すだけで、整理の結果を変えません。</summary>
     private async Task ShowBatchOrganizeResultAsync(DuplicateBatchOrganizeResult model)
     {
@@ -457,9 +475,19 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
             dialogs, Resources.Duplicate_batch_organize_title, LibraryMutationSessionReceipt.Empty, failure, mergeOperation: true);
 
     /// <summary>一回の一括整理の実行状態です。進捗画面の別スレッドと呼出し側が共有するため、読み書きは明示的に行います。</summary>
-    private sealed class BatchRun(DuplicateBatchOrganizeRequest request, bool splitPlacement)
+    private sealed class BatchRun(
+        DuplicateBatchOrganizeRequest request,
+        bool splitPlacement,
+        DuplicateMergeCandidateListOwner list,
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets)
     {
         internal DuplicateBatchOrganizeRequest Request { get; } = request;
+
+        /// <summary>整理を始めた一覧の管理主体です。整理で処理したグループのSELECTをオフにする書込み先で、画面に出ているかによりません。</summary>
+        internal DuplicateMergeCandidateListOwner List { get; } = list;
+
+        /// <summary>整理を始めたときに捕捉した対象です。モデルの結果のグループと同じ順です。</summary>
+        internal IReadOnlyList<DuplicateMergeCandidateGroupTarget> Targets { get; } = targets;
 
         /// <summary>分裂配置の一覧からの整理かです。整理後の再探索と、重複結果の準備の要否を決めます。</summary>
         internal bool SplitPlacement { get; } = splitPlacement;

@@ -192,7 +192,7 @@ public sealed class BmsLibrarySplitPlacementTests
     }
 
     /// <summary>
-    /// 汎用名の数に、所持譜面のない索引項目を含めないことを確認します。
+    /// 汎用名の数に、所持譜面のない索引項目を含めないことを確認します。汎用名とみなすフォルダ数を20個と明示します。
     /// キーを持つ対象フォルダが20個なら、所持譜面のない索引項目が一つあっても汎用名にならず、関係が残ります。
     /// </summary>
     [TestMethod]
@@ -211,7 +211,7 @@ public sealed class BmsLibrarySplitPlacementTests
         {
             SetIndex(library, [.. index]);
 
-            Search(library);
+            Search(library, criteria: CriteriaEighty);
 
             CollectionAssert.AreEqual(new[] { @"C:\BMS\F1|C:\BMS\F2" }, FolderTexts(library));
         });
@@ -563,7 +563,7 @@ public sealed class BmsLibrarySplitPlacementTests
         });
     }
 
-    private static readonly SplitPlacementSearchCriteria CriteriaEighty = SplitPlacementSearchCriteria.Default;
+    private static readonly SplitPlacementSearchCriteria CriteriaEighty = new(80, 20, SplitPlacementShareBasis.SmallerSide);
 
     private static readonly SplitPlacementSearchCriteria CriteriaNinety = new(90, 20, SplitPlacementShareBasis.SmallerSide);
 
@@ -806,6 +806,7 @@ public sealed class BmsLibrarySplitPlacementTests
     /// <summary>
     /// 実走査のプレビュー名を確認します。直下の preview・PREVIEW・_Preview・__preview（拡張子は問わない）だけを除き、
     /// preview2・x_preview・___preview・サブフォルダの preview は残します。除外の有無で各フォルダが9個か10個になります。
+    /// フォルダ同士の共有は9個（90%）のため、共有率90%を明示します。
     /// </summary>
     [TestMethod]
     public void Search_ExcludesOnlyDirectPreviewNamesFromRealScan()
@@ -842,7 +843,7 @@ public sealed class BmsLibrarySplitPlacementTests
             {
                 LibraryResourceIndexTestSupport.GetOwner(library).Replace(LibraryResourceIndex.CreateFromScanResult(ChartDirectoryScanBuilder.BuildFromRoots([root])));
 
-                Search(library);
+                Search(library, criteria: CriteriaNinety);
 
                 string[] names = [.. library.SplitPlacementGroups!.Single().Folders.Select(folder => Path.GetFileName(folder))];
                 CollectionAssert.AreEqual(new[] { "W1", "Y1", "Z1", "Z2" }, names);
