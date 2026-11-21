@@ -1239,6 +1239,8 @@ public partial class BMSLibrary : ObservableObject
 
     private bool InvalidateDuplicateChartGroupsCache(bool publishNotification = true)
     {
+        // 分裂配置の結果は、重複検索の結果の有無と通知の抑止に関係なく、同じ契機で失効させる。
+        InvalidateSplitPlacementGroups();
         if (_DuplicateChartGroups == null)
         {
             return false;
