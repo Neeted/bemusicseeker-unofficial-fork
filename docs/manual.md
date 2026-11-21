@@ -1322,9 +1322,10 @@ Selecting `Merge candidates` at the top of the duplicate-file-check tree shows d
 The basic steps are as follows.
 
 1. Press `Select all shown`, or check the target groups in `SELECT`.
-2. Press `Verify selected groups`. When verification finishes, only the `Safe` groups stay checked.
-3. Change `KEEP` if needed.
-4. Press `Organize selected groups`, review the confirmation dialog. If the selection includes a `Caution` or `Unchecked` group, check `Continue organizing caution or unchecked groups`. Press `OK` to proceed.
+2. Press `Verify selected groups`. When verification finishes, the result is shown in `STATUS` and the verified groups are unchecked.
+3. Check the groups to organize. To organize only the `Safe` groups, enter `status:Safe` in the search box to filter the list, then press `Select all shown`.
+4. Change `KEEP` if needed.
+5. Press `Organize selected groups`, review the confirmation dialog. If the selection includes a `Caution` or `Unchecked` group, check `Continue organizing caution or unchecked groups`. Press `OK` to proceed.
 
 `Verify selected groups` only reads and compares the contents of each folder; it does not change any file. The result is shown in `STATUS`.
 
@@ -1357,7 +1358,7 @@ When comparing content, same-name files with different sizes are treated as diff
 
 `Organize selected groups` processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than `KEEP` is merged into the `KEEP` folder. Files are moved and overwritten by the same rules as [Merge Duplicate Folders](#merge-duplicate-folders). Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in [Continuous Cleanup with `Ctrl + G`](#continuous-cleanup-with-ctrl--g).
 
-A progress dialog is shown during processing, and other operations are unavailable. Pressing `Cancel` stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept.
+A progress dialog is shown during processing, and other operations are unavailable. Pressing `Cancel` stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept. The organized groups are unchecked, even when they remain in the list.
 
 Other operations are as follows.
 
@@ -1376,16 +1377,16 @@ This view finds songs whose files are split across several folders and lets you 
 
 Selecting `Split placement check` in the left tree starts the search. A progress dialog is shown during the search, and `Cancel` stops it. No result is shown when you cancel. When the search finishes, the candidate groups appear in the tree. Selecting `Split placement check` shows all candidates, selecting a group shows that group, and selecting a folder shows the charts in that folder.
 
-Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group. 80% and 20 folders are the default values and can be changed in [Adjust the Search Conditions](#adjust-the-search-conditions).
+Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group. 95% and 10 folders are the default values and can be changed in [Adjust the Search Conditions](#adjust-the-search-conditions).
 
 - Each folder has at least 10 audio files that are used for the comparison.
-- At least 80% of the audio names in the folder with fewer audio files also exist in the other folder.
+- At least 95% of the audio names in the folder with fewer audio files also exist in the other folder.
 - The two folders have no chart in common. Use duplicate file check for folders that contain the same chart.
 
 Audio names are compared as the path relative to the folder, without the extension. `sound/kick.wav` and `sound/kick.ogg` are the same name; `kick.wav` and `sound/kick.wav` are different names. The following audio files are not used for the comparison.
 
 - `preview`, `_preview`, and `__preview` directly under the folder
-- Audio names that exist in more than 20 folders. This keeps folders that only share names used by many works, such as `01.wav`, out of the candidates.
+- Audio names that exist in more than 10 folders. This keeps folders that only share names used by many works, such as `01.wav`, out of the candidates.
 - Audio files inside a child folder that has its own charts
 
 When the library changes, for example by deleting or moving charts or by installing packages, the result is discarded and the groups disappear from the tree. Click `Split placement check` again to search again.
@@ -1395,7 +1396,7 @@ When the library changes, for example by deleting or moving charts or by install
 Folders are merged from `Merge candidates` at the top of the tree. Reading the list and using `Verify selected groups` and `Organize selected groups` work the same way as in [Organize Multiple Groups from Merge Candidates](#organize-multiple-groups-from-merge-candidates) for duplicate file check. Only the following points differ.
 
 - Groups whose `STATUS` is `Unchecked` cannot be organized. If you press `Organize selected groups` while an `Unchecked` group is checked, a message asks you to verify first and nothing is organized. Run `Verify selected groups` before organizing.
-- When organizing finishes, the search runs again automatically. The check marks, `KEEP`, and verification results of groups that were not affected are kept.
+- When organizing finishes, the search runs again automatically. `KEEP` and the verification results of groups that were not affected are kept.
 - The check marks, `KEEP`, verification results, the conditions in the search and exclude boxes, and the folders registered with `Preferred destinations...` are kept separately from the merge candidates list of duplicate file check.
 
 In the split-placement-check tree, `Merge to` in the folder context menu and `Ctrl + G` are not available.
@@ -1406,8 +1407,8 @@ When there are too many candidates, or a pair you expect does not become a candi
 
 | Item | Default | Description |
 | --- | --- | --- |
-| `Share rate` | 80% | The share of audio names that must be common for a pair to become a candidate. Choose from 50 to 100% in steps of 5%. Raising it reduces the candidates; lowering it also finds versions where some audio files were replaced. |
-| `Folder count treated as generic names` | 20 | Audio names that exist in more folders than this number are not used for the comparison. Choose from 2 to 100. Raise it when you have many copies of the same song and that song does not become a candidate. Lower it when unrelated folders are put into one group. |
+| `Share rate` | 95% | The share of audio names that must be common for a pair to become a candidate. Choose from 50 to 100% in steps of 5%. Raising it reduces the candidates; lowering it also finds versions where some audio files were replaced. |
+| `Folder count treated as generic names` | 10 | Audio names that exist in more folders than this number are not used for the comparison. Choose from 2 to 100. Raise it when you have many copies of the same song and that song does not become a candidate. Lower it when unrelated folders are put into one group. |
 | `Share rate basis` | `Folder with fewer audio files` | With `Folder with fewer audio files`, a pair becomes a candidate when the share rate is met for the folder that has fewer audio files. With `Both folders`, the share rate must be met from both folders. Choose it to exclude pairs where a large folder merely contains the audio of a small folder. |
 
 Choosing a value does not change the result. Press `Search again` to search with the chosen values. While the chosen values are not applied yet, `Search again` is shown in bold. After searching again, the check marks, `KEEP`, and verification results are kept for groups whose folders and charts did not change.

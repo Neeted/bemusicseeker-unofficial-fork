@@ -2087,7 +2087,8 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>The basic steps are as follows.</p>
 <ol>
 <li>Press <code>Select all shown</code>, or check the target groups in <code>SELECT</code>.</li>
-<li>Press <code>Verify selected groups</code>. When verification finishes, only the <code>Safe</code> groups stay checked.</li>
+<li>Press <code>Verify selected groups</code>. When verification finishes, the result is shown in <code>STATUS</code> and the verified groups are unchecked.</li>
+<li>Check the groups to organize. To organize only the <code>Safe</code> groups, enter <code>status:Safe</code> in the search box to filter the list, then press <code>Select all shown</code>.</li>
 <li>Change <code>KEEP</code> if needed.</li>
 <li>Press <code>Organize selected groups</code>, review the confirmation dialog. If the selection includes a <code>Caution</code> or <code>Unchecked</code> group, check <code>Continue organizing caution or unchecked groups</code>. Press <code>OK</code> to proceed.</li>
 </ol>
@@ -2183,7 +2184,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. When content is read, audio files (WAV, OGG, MP3, FLAC) and still images (PNG, BMP, JPG, JPEG) are read in full. Videos up to 192 KiB and other files up to 32 MiB are also read in full. Above those limits, only the beginning, middle, and end are read. <code>Treat files with the same size and modified time as identical without reading them</code> is enabled by default; files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster. When you uncheck it, those files are also read and compared.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions, and while <code>Treat files with the same size and modified time as identical without reading them</code> is enabled, files with different content may be judged identical.</p></div>
 <p><code>Organize selected groups</code> processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than <code>KEEP</code> is merged into the <code>KEEP</code> folder. Files are moved and overwritten by the same rules as <a href="#merge-duplicate-folders">Merge Duplicate Folders</a>. Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in <a href="#continuous-cleanup-with-ctrl--g">Continuous Cleanup with <code>Ctrl + G</code></a>.</p>
-<p>A progress dialog is shown during processing, and other operations are unavailable. Pressing <code>Cancel</code> stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept.</p>
+<p>A progress dialog is shown during processing, and other operations are unavailable. Pressing <code>Cancel</code> stops after the group being processed is finished. When processing ends, the numbers of completed, partially completed, skipped, failed, and unprocessed groups are shown, together with the number of charts moved to the Recycle Bin. Up to 20 groups other than completed ones are listed, with the reason for a skip or failure. Verification results of groups that were not affected by the operation are kept. The organized groups are unchecked, even when they remain in the list.</p>
 <p>Other operations are as follows.</p>
 <ul>
 <li>Filtering with the search box shows every row of a group when at least one row matches. Entering a condition in the exclude box to its right removes every row of a group from the list when at least one row matches. Both accept <code>path:</code>, <code>folder:</code>, <code>title:</code>, <code>artist:</code>, and <code>status:</code>. <code>Select all shown</code>, <code>Verify selected groups</code>, and <code>Organize selected groups</code> apply only to the shown groups.</li>
@@ -2196,16 +2197,16 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>This view finds songs whose files are split across several folders and lets you merge those folders together. Duplicate file check finds folders that contain the same chart (charts whose MD5 matches). Split placement check finds folders that share many audio file names even when they have no chart in common. It is useful, for example, when only the additional charts of a song are stored in a separate folder.</p>
 <div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>The results are merge candidates. The check does not read the audio files and compares file names only, so different songs can appear as candidates. Before organizing, check the contents with <code>Verify selected groups</code> in the merge candidates list.</p></div>
 <p>Selecting <code>Split placement check</code> in the left tree starts the search. A progress dialog is shown during the search, and <code>Cancel</code> stops it. No result is shown when you cancel. When the search finishes, the candidate groups appear in the tree. Selecting <code>Split placement check</code> shows all candidates, selecting a group shows that group, and selecting a folder shows the charts in that folder.</p>
-<p>Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group. 80% and 20 folders are the default values and can be changed in <a href="#adjust-the-search-conditions">Adjust the Search Conditions</a>.</p>
+<p>Two folders become candidates when all of the following are true. Folders connected through candidates are put into one group. 95% and 10 folders are the default values and can be changed in <a href="#adjust-the-search-conditions">Adjust the Search Conditions</a>.</p>
 <ul>
 <li>Each folder has at least 10 audio files that are used for the comparison.</li>
-<li>At least 80% of the audio names in the folder with fewer audio files also exist in the other folder.</li>
+<li>At least 95% of the audio names in the folder with fewer audio files also exist in the other folder.</li>
 <li>The two folders have no chart in common. Use duplicate file check for folders that contain the same chart.</li>
 </ul>
 <p>Audio names are compared as the path relative to the folder, without the extension. <code>sound/kick.wav</code> and <code>sound/kick.ogg</code> are the same name; <code>kick.wav</code> and <code>sound/kick.wav</code> are different names. The following audio files are not used for the comparison.</p>
 <ul>
 <li><code>preview</code>, <code>_preview</code>, and <code>__preview</code> directly under the folder</li>
-<li>Audio names that exist in more than 20 folders. This keeps folders that only share names used by many works, such as <code>01.wav</code>, out of the candidates.</li>
+<li>Audio names that exist in more than 10 folders. This keeps folders that only share names used by many works, such as <code>01.wav</code>, out of the candidates.</li>
 <li>Audio files inside a child folder that has its own charts</li>
 </ul>
 <p>When the library changes, for example by deleting or moving charts or by installing packages, the result is discarded and the groups disappear from the tree. Click <code>Split placement check</code> again to search again.</p>
@@ -2213,7 +2214,7 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <p>Folders are merged from <code>Merge candidates</code> at the top of the tree. Reading the list and using <code>Verify selected groups</code> and <code>Organize selected groups</code> work the same way as in <a href="#organize-multiple-groups-from-merge-candidates">Organize Multiple Groups from Merge Candidates</a> for duplicate file check. Only the following points differ.</p>
 <ul>
 <li>Groups whose <code>STATUS</code> is <code>Unchecked</code> cannot be organized. If you press <code>Organize selected groups</code> while an <code>Unchecked</code> group is checked, a message asks you to verify first and nothing is organized. Run <code>Verify selected groups</code> before organizing.</li>
-<li>When organizing finishes, the search runs again automatically. The check marks, <code>KEEP</code>, and verification results of groups that were not affected are kept.</li>
+<li>When organizing finishes, the search runs again automatically. <code>KEEP</code> and the verification results of groups that were not affected are kept.</li>
 <li>The check marks, <code>KEEP</code>, verification results, the conditions in the search and exclude boxes, and the folders registered with <code>Preferred destinations...</code> are kept separately from the merge candidates list of duplicate file check.</li>
 </ul>
 <p>In the split-placement-check tree, <code>Merge to</code> in the folder context menu and <code>Ctrl + G</code> are not available.</p>
@@ -2230,12 +2231,12 @@ For example, a differential chart by itself is typically added to <code>Pending<
 <tbody>
 <tr>
 <td><code>Share rate</code></td>
-<td>80%</td>
+<td>95%</td>
 <td>The share of audio names that must be common for a pair to become a candidate. Choose from 50 to 100% in steps of 5%. Raising it reduces the candidates; lowering it also finds versions where some audio files were replaced.</td>
 </tr>
 <tr>
 <td><code>Folder count treated as generic names</code></td>
-<td>20</td>
+<td>10</td>
 <td>Audio names that exist in more folders than this number are not used for the comparison. Choose from 2 to 100. Raise it when you have many copies of the same song and that song does not become a candidate. Lower it when unrelated folders are put into one group.</td>
 </tr>
 <tr>
