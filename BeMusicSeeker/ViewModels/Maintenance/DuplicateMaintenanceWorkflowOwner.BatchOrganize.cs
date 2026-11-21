@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
@@ -18,6 +20,12 @@ internal enum DuplicateBatchOrganizeRunStatus
 {
     /// <summary>対象のグループが0件で、受付・確認・案内・進捗なしに終えました。</summary>
     NoTargets,
+
+    /// <summary>
+    /// 分裂配置の一覧からの整理で、対象に未確認のグループがあったため、先に安全性確認を行う案内を一件だけ出して終えました。
+    /// 受付の取得・確認・再生停止・モデルの呼出し・探索を行わず、状態を変えていません。
+    /// </summary>
+    UnverifiedTargets,
 
     /// <summary>共通のライブラリ変更受付が使用中で取得できず、Busyを案内して状態を変えずに終えました。</summary>
     Busy,
@@ -50,6 +58,8 @@ internal sealed record DuplicateBatchOrganizeRunResult(
 {
     internal static DuplicateBatchOrganizeRunResult NoTargets { get; } = new(DuplicateBatchOrganizeRunStatus.NoTargets);
 
+    internal static DuplicateBatchOrganizeRunResult UnverifiedTargets { get; } = new(DuplicateBatchOrganizeRunStatus.UnverifiedTargets);
+
     internal static DuplicateBatchOrganizeRunResult Busy { get; } = new(DuplicateBatchOrganizeRunStatus.Busy);
 
     internal static DuplicateBatchOrganizeRunResult NotStarted { get; } = new(DuplicateBatchOrganizeRunStatus.NotStarted);
@@ -72,17 +82,55 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
     private static readonly TimeSpan BatchCancellationPollInterval = TimeSpan.FromMilliseconds(50);
 
     /// <summary>
-    /// ツールバーの「選択グループを整理」です。対象が0件なら、受付・確認・案内・再生停止・進捗・モデルの呼出しのどれも行いません。
+    /// 重複の統合候補一覧のツールバーの「選択グループを整理」です。対象が0件なら、受付・確認・案内・再生停止・進捗・モデルの呼出しのどれも行いません。
+    /// 未確認のグループも、確認ダイアログの承認で対象にします。整理の後は重複結果を明示的に準備し直します。
     /// </summary>
     /// <param name="owner">進捗画面の所有者です。メインウィンドウを渡します。</param>
-    internal async Task<DuplicateBatchOrganizeRunResult> OrganizeSelectedGroupsAsync(System.Windows.Window owner = null)
+    internal Task<DuplicateBatchOrganizeRunResult> OrganizeSelectedGroupsAsync(System.Windows.Window owner = null)
+        => OrganizeCandidateListAsync(
+            candidateList
+                ?? throw new InvalidOperationException("The duplicate merge candidate list is not connected to the duplicate maintenance workflow."),
+            splitPlacement: false,
+            owner);
+
+    /// <summary>
+    /// 分裂配置の統合候補一覧のツールバーの「選択グループを整理」です。対象が0件なら何もしません。
+    /// 対象に未確認のグループが一つでもあれば、受付の取得より前に、先に安全性確認を行う案内を一件だけ出して終わります。
+    /// 整理の後に有効な分裂配置の結果がなければ、同じ受付の中で取消の対象にせず探索し直し、重複結果は明示的に準備しません。
+    /// </summary>
+    /// <param name="owner">進捗画面の所有者です。メインウィンドウを渡します。</param>
+    internal Task<DuplicateBatchOrganizeRunResult> OrganizeSelectedSplitPlacementGroupsAsync(System.Windows.Window owner = null)
+        => OrganizeCandidateListAsync(
+            splitPlacementCandidateList
+                ?? throw new InvalidOperationException("The split placement candidate list is not connected to the duplicate maintenance workflow."),
+            splitPlacement: true,
+            owner);
+
+    /// <summary>重複と分裂配置の一覧からの一括整理が共有する手順です。違いは、対象の一覧主体、未確認の拒否、整理後の再探索と重複結果の準備だけです。</summary>
+    private async Task<DuplicateBatchOrganizeRunResult> OrganizeCandidateListAsync(
+        DuplicateMergeCandidateListOwner list, bool splitPlacement, System.Windows.Window owner)
     {
-        DuplicateMergeCandidateListOwner list = candidateList
-            ?? throw new InvalidOperationException("The duplicate merge candidate list is not connected to the duplicate maintenance workflow.");
         IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets = list.CaptureSelectedGroups();
         if (targets.Count == 0)
         {
             return DuplicateBatchOrganizeRunResult.NoTargets;
+        }
+        if (splitPlacement
+            && targets.Any(target => (target.Verification ?? DuplicateMergeVerificationResult.Unverified).Stage == DuplicateMergeVerificationStage.Unverified))
+        {
+            // 状態を変えず、受付も取らずに案内だけで終える。
+            try
+            {
+                UiDialogResult notice = await dialogs.ShowMessageAsync(UiMessageRequest.CreateWarning(
+                    Resources.Split_placement_batch_organize_unverified_notice, Resources.Warning));
+                UiDialogRoute.ThrowIfNotShown(notice, "Split placement batch organize unverified notification");
+                return DuplicateBatchOrganizeRunResult.UnverifiedTargets;
+            }
+            catch (Exception exception)
+            {
+                await ReportBatchFailureAsync(exception);
+                return new DuplicateBatchOrganizeRunResult(DuplicateBatchOrganizeRunStatus.Failed, Failure: exception);
+            }
         }
         if (!chartFileOperations.TryEnter(out IDisposable operationGate))
         {
@@ -110,7 +158,7 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
         try
         {
             // 要求の作成が例外で終わっても、下の finally が受付を解放します。
-            run = new BatchRun(DuplicateBatchOrganizePresentation.CreateRequest(targets));
+            run = new BatchRun(DuplicateBatchOrganizePresentation.CreateRequest(targets), splitPlacement);
             ConfirmationDecision confirmation = await ConfirmBatchOrganizeAsync(targets);
             if (confirmation.Failure != null)
             {
@@ -243,7 +291,16 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
                 return result.Receipt;
             },
             acquiredOperationGate: operationGate,
-            physicalPaths: null));
+            physicalPaths: null,
+            // 分裂配置の一覧からの整理は、重複の一覧を表示していないため、重複結果を明示的に準備しない（他のライブラリ変更と同じ扱い）。
+            requireDuplicateGroups: !run.SplitPlacement,
+            // 受理した変更の後に有効な分裂配置の結果がなければ（世代だけが古い場合を含む）、同じ受付と画面更新の抑制の内側で、取消の対象にせず探索し直す。
+            followUp: run.SplitPlacement
+                ? (library, operationStore) =>
+                {
+                    if (!library.HasCurrentSplitPlacementGroups) { operationStore.SearchSplitPlacementGroups(library); }
+                }
+        : null));
         // 実行を開始できた後にだけ、受付の解放を実行側へ譲ります（開始できなければ呼出し側が解放します）。
         Volatile.Write(ref run.Execution, execution);
         run.GateTransferred = true;
@@ -399,9 +456,12 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
             dialogs, Resources.Duplicate_batch_organize_title, LibraryMutationSessionReceipt.Empty, failure, mergeOperation: true);
 
     /// <summary>一回の一括整理の実行状態です。進捗画面の別スレッドと呼出し側が共有するため、読み書きは明示的に行います。</summary>
-    private sealed class BatchRun(DuplicateBatchOrganizeRequest request)
+    private sealed class BatchRun(DuplicateBatchOrganizeRequest request, bool splitPlacement)
     {
         internal DuplicateBatchOrganizeRequest Request { get; } = request;
+
+        /// <summary>分裂配置の一覧からの整理かです。整理後の再探索と、重複結果の準備の要否を決めます。</summary>
+        internal bool SplitPlacement { get; } = splitPlacement;
 
         /// <summary>変更の実行のTaskです。進捗画面が操作を呼んだ後にだけ設定されます。</summary>
         internal Task<DuplicateMaintenanceMutationResult> Execution;

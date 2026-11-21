@@ -173,6 +173,35 @@ public partial class MainWindowViewModel : ViewModel,
     /// </summary>
     public DuplicateMergeCandidateListOwner DuplicateMergeCandidateList { get; }
 
+    /// <summary>
+    /// 分裂配置の統合候補一覧の管理主体を取得します。分裂配置ツリーの先頭のノードで選んだ画面が、この一覧を表示します。
+    /// 状態は重複の統合候補一覧とは独立です。
+    /// </summary>
+    public DuplicateMergeCandidateListOwner SplitPlacementMergeCandidateList { get; }
+
+    /// <summary>分裂配置の統合候補一覧の安全性確認の手順です。</summary>
+    internal DuplicateMergeVerificationWorkflowOwner SplitPlacementMergeVerification { get; private set; }
+
+    /// <summary>
+    /// 現在の画面種別が分裂配置かです。統合候補一覧の共用の表と操作の行き先を、重複と分裂配置のどちらの管理主体にするかを決めます。
+    /// 新しい独立した状態は持たず、画面種別から導きます。
+    /// </summary>
+    internal bool DisplaysSplitPlacementCandidateList
+    {
+        get
+        {
+            lock (playHistoryViewRequestLock) { return treeViewFilterTypeSelected == MainViewUpdateMode.SplitPlacementFilterSelected; }
+        }
+    }
+
+    /// <summary>共用の統合候補一覧の表・検索欄・件数・操作が束縛される、表示中の統合候補一覧の管理主体です。画面種別が変わると変更を通知します。</summary>
+    public DuplicateMergeCandidateListOwner DisplayedCandidateList
+        => DisplaysSplitPlacementCandidateList ? SplitPlacementMergeCandidateList : DuplicateMergeCandidateList;
+
+    /// <summary>表示中の統合候補一覧に対応する、安全性確認の手順です。</summary>
+    internal DuplicateMergeVerificationWorkflowOwner DisplayedCandidateVerification
+        => DisplaysSplitPlacementCandidateList ? SplitPlacementMergeVerification : DuplicateMergeVerification;
+
     internal RegularChartListOwner RegularChartList => regularChartListOwner;
 
     public PlayHistoryWorkflowOwner PlayHistory { get; }
@@ -2315,6 +2344,7 @@ public partial class MainWindowViewModel : ViewModel,
         MaintenanceTree.SplitPlacementPresentationChanged += MaintenanceTreeSplitPlacementPresentationChanged;
         MaintenanceTree.DuplicatePreparationProvider = () => regularChartListOwner?.PrepareDuplicateDataAsync("duplicate_tree");
         DuplicateMergeCandidateList = childComposition.DuplicateMergeCandidateList;
+        SplitPlacementMergeCandidateList = childComposition.SplitPlacementMergeCandidateList;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         UpdateChartKeywordSearchContext();
@@ -2339,6 +2369,7 @@ public partial class MainWindowViewModel : ViewModel,
         PackageCatalog.MutationPhasePublished += PackageCatalogMutationPhasePublished;
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
         DuplicateMergeVerification = childComposition.DuplicateMergeVerification;
+        SplitPlacementMergeVerification = childComposition.SplitPlacementMergeVerification;
         SplitPlacementSearch = childComposition.SplitPlacementSearch;
         DuplicateMaintenanceWorkflow.WorkflowChanged += DuplicateMaintenanceWorkflowChanged;
         SelectedChartMutations = childComposition.SelectedChartMutations;
@@ -2797,6 +2828,8 @@ public partial class MainWindowViewModel : ViewModel,
             appliedNavigation = navigation;
         }
         DuplicateMergeCandidateList.SetTreeSelected(false);
+        SplitPlacementMergeCandidateList.SetTreeSelected(false);
+        RaiseDisplayedCandidateListChanged();
 
         var refresh = Task.Run(() => RefreshChartRowsViewCaptured(MainViewUpdateMode.PlayHistorySelected, request, navigation: navigation));
         refresh.ObserveFault("playHistoryPeriodSelect");
@@ -3244,6 +3277,7 @@ public partial class MainWindowViewModel : ViewModel,
             FolderAutoRenameWorkflow.AttachLibrary(files);
             regularChartListOwner.AttachNormalLibraryRefreshSource(files);
             DuplicateMergeCandidateList.AttachLibrary(files);
+            SplitPlacementMergeCandidateList.AttachLibrary(files);
             PlaybackPanel.AttachLibrary(files, attachmentCapability);
         }
     }
@@ -3734,6 +3768,7 @@ public partial class MainWindowViewModel : ViewModel,
             InstallTree.AttachLibrary(files);
             MaintenanceTree.AttachLibrary(files);
             DuplicateMergeCandidateList.AttachLibrary(files);
+            SplitPlacementMergeCandidateList.AttachLibrary(files);
             IBMSPlayer configuredBmsPlayer = applicationComposition.CreateBmsPlayer(
                 startupSettings,
                 () => CreateLR2PlayerConfig(startupSettings));
@@ -4366,9 +4401,18 @@ public partial class MainWindowViewModel : ViewModel,
                 appliedNavigation = navigation;
             }
         });
-        DuplicateMergeCandidateList.SetTreeSelected(
-            mode == MainViewUpdateMode.DuplicateFilterSelected && parameter is DuplicateViewContext { Kind: DuplicateViewContextKind.CandidateList });
+        bool candidateListSelected = parameter is DuplicateViewContext { Kind: DuplicateViewContextKind.CandidateList };
+        DuplicateMergeCandidateList.SetTreeSelected(mode == MainViewUpdateMode.DuplicateFilterSelected && candidateListSelected);
+        SplitPlacementMergeCandidateList.SetTreeSelected(mode == MainViewUpdateMode.SplitPlacementFilterSelected && candidateListSelected);
+        RaiseDisplayedCandidateListChanged();
         playHistoryWorkflowOwner.ClearSummaryFilters();
+    }
+
+    /// <summary>画面種別の変化で、共用の統合候補一覧の表と操作の行き先が切り替わることを通知します。</summary>
+    private void RaiseDisplayedCandidateListChanged()
+    {
+        RaisePropertyChanged(nameof(DisplayedCandidateList));
+        RaisePropertyChanged(nameof(DisplaysSplitPlacementCandidateList));
     }
 
     /// <summary>公開済み成績と同じ取得組を捕捉します。表示時に設定・ファイル状態で取得元を変更しません。</summary>

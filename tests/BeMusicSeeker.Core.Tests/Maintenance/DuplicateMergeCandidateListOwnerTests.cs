@@ -1187,4 +1187,80 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.IsFalse(fixture.Row(@"C:\S\a1").State.IsSelected, "SELECTの状態によらず対象になります。");
         CollectionAssert.AreEquivalent(new[] { a, b }, all.Select(group => group.Group).ToArray(), "非表示のグループも含みます。");
     }
+
+    /// <summary>
+    /// 保証：結果なしの入口は、状態（SELECT・KEEP・確認結果）・並べ替え・検索語・除外語を保ったまま、行を0件・件数0・捕捉できる対象0件にして表示中でない状態にする。
+    /// 構築も採用もしない。ライブラリが異なる呼出しは何も変えない。
+    /// 検出する誤り：結果なしでの状態の破棄（再探索で引き継いだ状態が戻らない）、行の残存、並べ替え・検索語の消失、別ライブラリの呼出しによる変更。
+    /// </summary>
+    [TestMethod]
+    public void ShowNoResult_EmptiesRowsAndKeepsStateSortSearchAndExclude()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2");
+        DuplicateGroup b = Group(@"C:\S\b1", @"C:\S\b2");
+        fixture.Adopt(a, b);
+        fixture.Owner.SetKeep(fixture.Row(@"C:\S\a2"));
+        fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\a1"));
+        fixture.Owner.RequestSort("Path", ListSortDirection.Descending);
+        fixture.Owner.SearchText = "S";
+        fixture.Owner.ExcludeText = "zzz";
+        int resolveCalls = fixture.Source.ResolveCalls;
+        int captureCalls = fixture.Source.CaptureCalls;
+
+        Assert.IsFalse(fixture.Owner.ShowNoResult(new object()), "別のライブラリの呼出しは何も変えない");
+        Assert.AreEqual(4, fixture.Owner.Rows.Count);
+        Assert.IsTrue(fixture.Owner.ShowNoResult(fixture.Library));
+
+        Assert.AreEqual(0, fixture.Owner.Rows.Count, "行は0件");
+        Assert.AreEqual(0, fixture.Owner.VisibleGroupCount);
+        Assert.AreEqual(0, fixture.Owner.SelectedGroupCount);
+        Assert.IsFalse(fixture.Owner.IsViewActive, "表示中でない状態");
+        Assert.AreEqual(0, fixture.Owner.CaptureSelectedGroups().Count, "捕捉できる対象も0件");
+        Assert.AreEqual("Path", fixture.Owner.SortColumnName);
+        Assert.AreEqual(ListSortDirection.Descending, fixture.Owner.SortDirection);
+        Assert.AreEqual("S", fixture.Owner.SearchText);
+        Assert.AreEqual("zzz", fixture.Owner.ExcludeText);
+        Assert.AreEqual(resolveCalls, fixture.Source.ResolveCalls, "構築しない");
+        Assert.AreEqual(captureCalls, fixture.Source.CaptureCalls, "構築しない");
+        Assert.IsTrue(fixture.Owner.TryGetState(a, out DuplicateMergeCandidateGroupState? state), "状態は保つ");
+        Assert.AreEqual(@"C:\S\a2", state!.KeepFolder);
+    }
+
+    /// <summary>
+    /// 保証：結果なしの後の採用で、引き継いだインスタンスは状態（SELECT・KEEP）を保ち、新しいインスタンスは初期値になり、結果にないグループの状態は破棄される。
+    /// 0件の結果の採用は行0件で、通常の採用として状態を捨てる。
+    /// 検出する誤り：結果なしの間の状態の消失、新しいインスタンスへの状態の誤った引継ぎ、消えたグループの状態の残存、並べ替え・検索語の消失。
+    /// </summary>
+    [TestMethod]
+    public void AdoptAfterNoResult_RestoresStateOfKeptInstancesAndDiscardsTheRest()
+    {
+        var fixture = new Fixture();
+        DuplicateGroup kept = Group(@"C:\S\k1", @"C:\S\k2");
+        DuplicateGroup gone = Group(@"C:\S\g1", @"C:\S\g2");
+        fixture.Adopt(kept, gone);
+        fixture.Owner.SetKeep(fixture.Row(@"C:\S\k2"));
+        fixture.Owner.ToggleSelect(fixture.Row(@"C:\S\k1"));
+        fixture.Owner.RequestSort("Path", ListSortDirection.Descending);
+        Assert.IsTrue(fixture.Owner.ShowNoResult(fixture.Library));
+
+        DuplicateGroup added = Group(@"C:\S\n1", @"C:\S\n2");
+        fixture.Adopt(kept, added);
+
+        Assert.IsTrue(fixture.Owner.IsViewActive);
+        Assert.AreEqual(4, fixture.Owner.Rows.Count);
+        Assert.IsTrue(fixture.Owner.TryGetState(kept, out DuplicateMergeCandidateGroupState? keptState));
+        Assert.AreEqual(@"C:\S\k2", keptState!.KeepFolder, "引き継いだグループのKEEPを保つ");
+        Assert.IsTrue(keptState.IsSelected, "引き継いだグループのSELECTを保つ");
+        Assert.IsTrue(fixture.Owner.TryGetState(added, out DuplicateMergeCandidateGroupState? addedState));
+        Assert.IsFalse(addedState!.IsSelected, "新しいインスタンスは初期値（SELECTオフ）");
+        Assert.AreEqual(DuplicateMergeVerificationStage.Unverified, addedState.Verification.Stage, "新しいインスタンスは未確認");
+        Assert.IsFalse(fixture.Owner.TryGetState(gone, out _), "結果にないグループの状態は破棄する");
+        Assert.AreEqual("Path", fixture.Owner.SortColumnName, "並べ替えを保つ");
+
+        Assert.IsTrue(fixture.Owner.ShowNoResult(fixture.Library));
+        fixture.Adopt();
+        Assert.AreEqual(0, fixture.Owner.Rows.Count, "0件の結果は行0件");
+        Assert.IsFalse(fixture.Owner.TryGetState(kept, out _), "0件の結果の採用は通常どおり状態を捨てる");
+    }
 }

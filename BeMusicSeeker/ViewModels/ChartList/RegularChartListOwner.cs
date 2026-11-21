@@ -731,6 +731,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
         set => duplicateCandidateList = value;
     }
 
+    /// <summary>
+    /// 分裂配置の統合候補一覧の管理主体です。重複の一覧とは別のインスタンスで、状態を独立に持ちます。
+    /// 未設定なら、分裂配置の統合候補一覧の画面受付は空の譜面一覧を表示するだけで、一覧は構築しません。
+    /// </summary>
+    internal DuplicateMergeCandidateListOwner SplitPlacementCandidateList { get; set; }
+
     /// <summary>選択命令を持たないデータ完成通知です。VMが現在の選択をUIで解決して表示を開始します。</summary>
     internal event EventHandler<RegularDuplicateDataReadyEventArgs> DuplicateDataReady;
 
@@ -2943,6 +2949,23 @@ internal sealed partial class RegularChartListOwner : IDisposable
             mainChartList.RowProjection.CaptureVersions(request.Library);
             RegularVirtualChartSubsetApplyResult result = default;
             DuplicateMergeCandidateListPreparation candidatePreparation = null;
+            // 画面種別から「グループ列・一覧主体・現在判定」の組を選び、重複と分裂配置が同じ構築・採用の処理を使う。
+            DuplicateMergeCandidateListOwner candidateOwner = null;
+            Func<bool> candidateInputIsCurrent = null;
+            List<DuplicateGroup> candidateGroups = null;
+            bool candidateNoResult = false;
+            if (subsetParameter is DuplicateViewContext { Kind: DuplicateViewContextKind.CandidateList })
+            {
+                if (duplicateView && duplicateInput != null && duplicateCandidateList != null)
+                {
+                    candidateOwner = duplicateCandidateList;
+                    candidateInputIsCurrent = () => duplicateInput.IsCurrent;
+                }
+                else if (request.CurrentTreeMode == MainViewUpdateMode.SplitPlacementFilterSelected && SplitPlacementCandidateList != null)
+                {
+                    candidateOwner = SplitPlacementCandidateList;
+                }
+            }
             return new PreparedRegularView(lease, () =>
             {
                 RegularChartListSubsetSource subset;
@@ -2958,10 +2981,25 @@ internal sealed partial class RegularChartListOwner : IDisposable
                 input.SourceProjectionMode = subset.SourceProjectionMode;
                 input.ApplyResourceHealthProjection = subset.ApplyResourceHealthProjection;
                 input.SubsetName = subset.Name;
-                if (duplicateView && duplicateInput != null && duplicateCandidateList != null && subsetParameter is DuplicateViewContext { Kind: DuplicateViewContextKind.CandidateList })
+                if (candidateOwner != null)
                 {
                     // 統合候補一覧の構築（TITLE・ARTISTの解決を含む）はUIスレッド外で行い、採用は空の譜面一覧の採用と合わせてUIで行う。
-                    candidatePreparation = DuplicateMergeCandidateListOwner.Prepare(request.Library, duplicateInput.Groups, request.Library, lease.Token);
+                    if (duplicateView)
+                    {
+                        candidatePreparation = DuplicateMergeCandidateListOwner.Prepare(request.Library, duplicateInput.Groups, request.Library, lease.Token);
+                    }
+                    else
+                    {
+                        // 分裂配置の現在判定は、捕捉したグループ列が現在の結果と同じ参照であること。
+                        // 結果がない間は構築せず、状態を保ったまま行を空にする入口を使う（空の結果の採用は状態を捨てるため）。
+                        candidateGroups = request.Library.SplitPlacementGroups;
+                        if (candidateGroups == null) { candidateNoResult = true; }
+                        else
+                        {
+                            candidatePreparation = DuplicateMergeCandidateListOwner.Prepare(request.Library, candidateGroups, request.Library, lease.Token);
+                        }
+                        candidateInputIsCurrent = () => ReferenceEquals(request.Library.SplitPlacementGroups, candidateGroups);
+                    }
                 }
                 result = BuildVirtualChartSubset(input, lease, out RegularChartListPresentationResult presentation);
                 return presentation;
@@ -2969,9 +3007,12 @@ internal sealed partial class RegularChartListOwner : IDisposable
             {
                 result = result.WithTerminal(terminal);
                 LogSubsetVirtualEntry(request, sort, input.SubsetName, result, sortWasReset);
-                if (terminal.WasCommitted && candidatePreparation != null
-                    && duplicateInput.IsCurrent && (request.Navigation == null || IsCurrentNavigation(request.Navigation)))
-                { duplicateCandidateList.Adopt(candidatePreparation); }
+                if (terminal.WasCommitted && candidateOwner != null && (candidatePreparation != null || candidateNoResult)
+                    && candidateInputIsCurrent() && (request.Navigation == null || IsCurrentNavigation(request.Navigation)))
+                {
+                    if (candidatePreparation != null) { candidateOwner.Adopt(candidatePreparation); }
+                    else { candidateOwner.ShowNoResult(request.Library); }
+                }
                 if (terminal.WasCommitted && sortWasReset) { ResetSortIfCurrent(lease, sort); }
                 return new RegularChartListEntryResult(terminal.WasCommitted, RegularChartListEntryRoute.SubsetVirtual, sortWasReset);
             })

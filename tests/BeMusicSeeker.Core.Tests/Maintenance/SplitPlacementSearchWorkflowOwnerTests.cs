@@ -122,13 +122,16 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
     /// 検出する誤り：有効な結果があるのに受付を要求してBusyや未開始になる、再探索、不要な進捗・案内、遷移の欠落・重複。
     /// </summary>
     [TestMethod]
-    [DataRow(false, "free")]
-    [DataRow(false, "held")]
-    [DataRow(false, "closed")]
-    [DataRow(true, "free")]
-    [DataRow(true, "held")]
-    [DataRow(true, "closed")]
-    public void Select_WithCurrentResult_NavigatesOnceWithoutAdmissionProgressSearchOrNotice(bool empty, string admission)
+    [DataRow(false, "free", false)]
+    [DataRow(false, "held", false)]
+    [DataRow(false, "closed", false)]
+    [DataRow(true, "free", false)]
+    [DataRow(true, "held", false)]
+    [DataRow(true, "closed", false)]
+    [DataRow(false, "free", true)]
+    [DataRow(false, "held", true)]
+    [DataRow(false, "closed", true)]
+    public void Select_WithCurrentResult_NavigatesOnceWithoutAdmissionProgressSearchOrNotice(bool empty, string admission, bool candidateList)
     {
         Run(fixture =>
         {
@@ -140,10 +143,10 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
             if (admission == "held") { Assert.IsTrue(fixture.Admission.TryEnter(out held)); }
             if (admission == "closed") { fixture.Admission.CloseAdmission(); }
 
-            fixture.Select(null).GetAwaiter().GetResult();
+            fixture.Select(candidateList ? DuplicateViewContext.ForCandidateList() : null).GetAwaiter().GetResult();
 
             Assert.AreEqual(1, fixture.Navigations.Count);
-            Assert.AreEqual(DuplicateViewContextKind.Root, fixture.Navigations[0].Context.Kind);
+            Assert.AreEqual(candidateList ? DuplicateViewContextKind.CandidateList : DuplicateViewContextKind.Root, fixture.Navigations[0].Context.Kind);
             Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "案内しません。");
             Assert.IsNull(fixture.Dialogs.ProgressRequest, "進捗を表示しません。");
             Assert.AreEqual(0, log.Entries.Count, "探索しません。");
@@ -311,6 +314,7 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
     [DataRow("root")]
     [DataRow("group")]
     [DataRow("folder")]
+    [DataRow("candidateList")]
     public void Select_OnSuccess_NavigatesOnceWithCapturedContextAfterReleasingAdmission(string selection)
     {
         Run(fixture =>
@@ -319,6 +323,7 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
             {
                 "group" => new DuplicateGroup([], [@"C:\BMS\A"]),
                 "folder" => @"C:\BMS\B",
+                "candidateList" => DuplicateViewContext.ForCandidateList(),
                 _ => null
             };
 
@@ -332,6 +337,7 @@ public sealed class SplitPlacementSearchWorkflowOwnerTests
             {
                 "group" => DuplicateViewContextKind.GroupFolder,
                 "folder" => DuplicateViewContextKind.FolderPath,
+                "candidateList" => DuplicateViewContextKind.CandidateList,
                 _ => DuplicateViewContextKind.Root
             }, navigation.Context.Kind);
             Assert.AreEqual(selection switch { "group" => @"C:\BMS\A", "folder" => @"C:\BMS\B", _ => string.Empty }, navigation.Context.Value);

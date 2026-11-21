@@ -18,17 +18,21 @@ namespace BeMusicSeeker.Views;
 public partial class MainWindow
 {
     private DuplicateMergeCandidateListOwner DuplicateCandidateList
-        => (base.DataContext as MainWindowViewModel)?.DuplicateMergeCandidateList;
+        => (base.DataContext as MainWindowViewModel)?.DisplayedCandidateList;
 
     /// <summary>管理主体の表示内容の変更（SELECT・STATUS・KEEP）を表の再描画へ接続します。行集合の入替えは、ItemsSourceの束縛が担います。</summary>
     private void ConnectDuplicateMergeCandidateList(MainWindowViewModel viewModel)
     {
         customTableDuplicateCandidates.ConfigureDialogs(dialogService);
         viewModel.DuplicateMergeCandidateList.DisplayInvalidated += DuplicateMergeCandidateListDisplayInvalidated;
+        viewModel.SplitPlacementMergeCandidateList.DisplayInvalidated += DuplicateMergeCandidateListDisplayInvalidated;
     }
 
+    /// <summary>共用の表は、表示中の一覧の変更だけを再描画します。</summary>
     private void DuplicateMergeCandidateListDisplayInvalidated(object sender, EventArgs e)
-        => customTableDuplicateCandidates?.RefreshDisplay();
+    {
+        if (ReferenceEquals(sender, DuplicateCandidateList)) { customTableDuplicateCandidates?.RefreshDisplay(); }
+    }
 
     private void customTableDuplicateCandidates_SortRequested(object sender, CustomTableSortRequestedEventArgs e)
     {
@@ -78,13 +82,17 @@ public partial class MainWindow
     /// </summary>
     private void SelectDuplicateFolderInTree(MainWindowViewModel viewModel, DuplicateMergeCandidateRow row)
     {
+        // 表示中の一覧が分裂配置なら分裂配置のツリー、そうでなければ重複のツリーの対応するグループを選ぶ。
+        bool splitPlacement = viewModel.DisplaysSplitPlacementCandidateList;
         DuplicateGroup group = row.State.Group;
-        List<DuplicateGroup> currentGroups = viewModel.MaintenanceTree.DuplicateChartGroups;
+        List<DuplicateGroup> currentGroups = splitPlacement
+            ? viewModel.MaintenanceTree.SplitPlacementChartGroups : viewModel.MaintenanceTree.DuplicateChartGroups;
         if (currentGroups == null || !currentGroups.Contains(group)) { return; }
         int folderIndex = group.Folders.FindIndex(folder => string.Equals(folder, row.Path, StringComparison.OrdinalIgnoreCase));
         if (folderIndex < 0) { return; }
-        viewModel.MaintenanceTree.SynchronizeDuplicateTreeItems();
-        TreeViewItem groupItem = RealizeDuplicateGroupTreeItem(group);
+        if (splitPlacement) { viewModel.MaintenanceTree.SynchronizeSplitPlacementTreeItems(); }
+        else { viewModel.MaintenanceTree.SynchronizeDuplicateTreeItems(); }
+        TreeViewItem groupItem = RealizeGroupTreeItem(splitPlacement ? treeViewItemSearchSplitPlacement : treeViewItemSearchDuplicated, group);
         if (groupItem == null) { return; }
         groupItem.IsExpanded = true;
         groupItem.UpdateLayout();
@@ -139,7 +147,7 @@ public partial class MainWindow
     private async void duplicateCandidateContextMenuVerifyClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("duplicate_candidate_verify_group")
-            || (base.DataContext as MainWindowViewModel)?.DuplicateMergeVerification is not { } workflow)
+            || (base.DataContext as MainWindowViewModel)?.DisplayedCandidateVerification is not { } workflow)
         {
             return;
         }
@@ -157,7 +165,7 @@ public partial class MainWindow
     private async void duplicateCandidateVerifyClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("duplicate_candidate_verify_selected")
-            || (base.DataContext as MainWindowViewModel)?.DuplicateMergeVerification is not { } workflow)
+            || (base.DataContext as MainWindowViewModel)?.DisplayedCandidateVerification is not { } workflow)
         {
             return;
         }
@@ -178,13 +186,15 @@ public partial class MainWindow
     private async void duplicateCandidateOrganizeClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("duplicate_candidate_organize_selected")
-            || (base.DataContext as MainWindowViewModel)?.DuplicateMaintenanceWorkflow is not { } workflow)
+            || base.DataContext is not MainWindowViewModel { DuplicateMaintenanceWorkflow: { } workflow } viewModel)
         {
             return;
         }
         try
         {
-            await workflow.OrganizeSelectedGroupsAsync(this);
+            // 共用の表の操作は、表示中の一覧（重複または分裂配置）の整理へ行く。
+            if (viewModel.DisplaysSplitPlacementCandidateList) { await workflow.OrganizeSelectedSplitPlacementGroupsAsync(this); }
+            else { await workflow.OrganizeSelectedGroupsAsync(this); }
         }
         catch (Exception exception)
         {
@@ -198,7 +208,7 @@ public partial class MainWindow
     private async void duplicateCandidateQuickCompareClick(object sender, RoutedEventArgs e)
     {
         if (sender is not CheckBox checkBox
-            || (base.DataContext as MainWindowViewModel)?.DuplicateMergeVerification is not { } workflow)
+            || (base.DataContext as MainWindowViewModel)?.DisplayedCandidateVerification is not { } workflow)
         {
             return;
         }

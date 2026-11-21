@@ -116,6 +116,13 @@ internal static class DuplicateMaintenanceWorkflowOwnerTestSupport
             return DuplicateBatchOrganizeResult.NotAdmitted(request);
         }
 
+        /// <summary>分裂配置の探索し直しの呼出しを記録し、実ライブラリの探索へ渡します。失敗を注入するケースは、継承して差し替えます。</summary>
+        public virtual void SearchSplitPlacementGroups(BMSLibrary library)
+        {
+            events.Add("store-search-split");
+            library.SearchSplitPlacementGroups(null, CancellationToken.None);
+        }
+
         internal LibraryChartRemovalOutcome RemovalOutcome { get; set; } = null!;
         internal IReadOnlyList<string> WholeFolderCandidates { get; set; } = [];
         internal IReadOnlyList<string> RegisteredUserRoots { get; set; } = [];

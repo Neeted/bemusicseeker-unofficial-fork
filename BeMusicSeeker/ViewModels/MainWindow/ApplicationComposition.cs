@@ -802,6 +802,10 @@ internal sealed class MainWindowChildComposition
         DuplicateMergeCandidateList = new DuplicateMergeCandidateListOwner(
             LongPathFileSystem.DirectoryExists,
             path => externalShellGateway.OpenDirectory(path));
+        // 分裂配置の統合候補一覧は、重複と同じクラスの別のインスタンスで、状態を独立に持つ。
+        SplitPlacementMergeCandidateList = new DuplicateMergeCandidateListOwner(
+            LongPathFileSystem.DirectoryExists,
+            path => externalShellGateway.OpenDirectory(path));
         PlayHistory = new PlayHistoryWorkflowOwner();
         // 当該操作の所有権解放後にだけ呼び、通常Shell終端の保存・一時領域回収へは進めません。
         Task ExitForUnrestoredDestinationAsync(Exception failure) => uiScheduler.InvokeAsync(() =>
@@ -834,7 +838,8 @@ internal sealed class MainWindowChildComposition
             uiScheduler,
             dialogService)
         {
-            DuplicateCandidateList = DuplicateMergeCandidateList
+            DuplicateCandidateList = DuplicateMergeCandidateList,
+            SplitPlacementCandidateList = SplitPlacementMergeCandidateList
         };
         PackageInstallWorkflow = new PackageInstallWorkflowOwner(
             dialogService,
@@ -914,12 +919,20 @@ internal sealed class MainWindowChildComposition
             externalShellGateway.OpenDirectory,
             MaintenanceTree.CaptureNextDuplicateGroupSelection,
             exitForUnrestoredDestination: ExitForUnrestoredDestinationAsync,
-            candidateList: DuplicateMergeCandidateList);
+            candidateList: DuplicateMergeCandidateList,
+            splitPlacementCandidateList: SplitPlacementMergeCandidateList);
         ProgressHub.AttachDuplicateMaintenanceProgressSource(DuplicateMaintenanceWorkflow);
+        IDuplicateMergeSafetyInspector CreateMergeSafetyInspector()
+            => new DuplicateMergeSafetyInspector(
+                duplicateMaintenanceLibraryProvider() ?? throw new InvalidOperationException("The library is not available for duplicate merge verification."));
         DuplicateMergeVerification = new DuplicateMergeVerificationWorkflowOwner(
             DuplicateMergeCandidateList,
-            () => new DuplicateMergeSafetyInspector(
-                duplicateMaintenanceLibraryProvider() ?? throw new InvalidOperationException("The library is not available for duplicate merge verification.")),
+            CreateMergeSafetyInspector,
+            chartFileOperations,
+            dialogService);
+        SplitPlacementMergeVerification = new DuplicateMergeVerificationWorkflowOwner(
+            SplitPlacementMergeCandidateList,
+            CreateMergeSafetyInspector,
             chartFileOperations,
             dialogService);
         SplitPlacementSearch = new SplitPlacementSearchWorkflowOwner(
@@ -980,6 +993,9 @@ internal sealed class MainWindowChildComposition
     /// <summary>統合候補一覧の状態と判断を持つ管理主体です。重複ツリーの先頭のノードで選ぶ画面が表示します。</summary>
     internal DuplicateMergeCandidateListOwner DuplicateMergeCandidateList { get; }
 
+    /// <summary>分裂配置の統合候補一覧の状態と判断を持つ管理主体です。重複の一覧とは独立で、分裂配置ツリーの先頭のノードで選ぶ画面が表示します。</summary>
+    internal DuplicateMergeCandidateListOwner SplitPlacementMergeCandidateList { get; }
+
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
 
     internal PendingPackageWorkflowOwner PendingPackageWorkflow { get; }
@@ -1006,6 +1022,9 @@ internal sealed class MainWindowChildComposition
 
     /// <summary>統合候補一覧の安全性確認の手順を管理します。</summary>
     internal DuplicateMergeVerificationWorkflowOwner DuplicateMergeVerification { get; }
+
+    /// <summary>分裂配置の統合候補一覧の安全性確認の手順を管理します。</summary>
+    internal DuplicateMergeVerificationWorkflowOwner SplitPlacementMergeVerification { get; }
 
     /// <summary>分裂配置のツリーを選んだときの探索の手順を管理します。</summary>
     internal SplitPlacementSearchWorkflowOwner SplitPlacementSearch { get; }

@@ -1531,5 +1531,6 @@
   "Split_placement_search_progress_title": "Searching for split placements",
   "Split_placement_search_progress_label": "Looking for folders that share many audio file names.",
   "Split_placement_search_progress_prepare": "Preparing",
-  "Split_placement_search_progress_match_format": "Matching {0}/{1}"
+  "Split_placement_search_progress_match_format": "Matching {0}/{1}",
+  "Split_placement_batch_organize_unverified_notice": "Unchecked groups are selected. Run the safety check first."
 }

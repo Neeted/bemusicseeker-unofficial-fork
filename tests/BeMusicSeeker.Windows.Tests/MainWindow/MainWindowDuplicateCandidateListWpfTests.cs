@@ -569,6 +569,13 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         root.Arrange(new Rect(0d, 0d, 900d, 700d));
         root.UpdateLayout();
         var node = root.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+        if (node == null)
+        {
+            // 子の項目の選択でツリーがスクロールした後は、先頭のノードが仮想化で未生成になるため、公開APIで生成する。
+            FindItemsHostPanel(root).BringIndexIntoViewPublic(0);
+            root.UpdateLayout();
+            node = root.ItemContainerGenerator.ContainerFromIndex(0) as TreeViewItem;
+        }
         Assert.IsNotNull(node);
         Assert.IsInstanceOfType<DuplicateMergeCandidateListNode>(node.DataContext);
         return node;
@@ -883,20 +890,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     /// <summary>実Dispatcherで、統合候補一覧の行集合が指定の行数で採用されるまで待ちます。固定時間は待たず、行集合の入替え通知（Rows）を待ちます。</summary>
     private static void AwaitCandidateRows(DuplicateMergeCandidateListOwner owner, int expectedRowCount)
-    {
-        var adopted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        PropertyChangedEventHandler changed = (_, args) =>
-        {
-            if (args.PropertyName == nameof(DuplicateMergeCandidateListOwner.Rows) && owner.RowSet.Count == expectedRowCount) { adopted.TrySetResult(); }
-        };
-        owner.PropertyChanged += changed;
-        try
-        {
-            if (owner.RowSet.Count == expectedRowCount) { adopted.TrySetResult(); }
-            TestUiDispatcherHost.AwaitPresentationOnDispatcher(adopted.Task, "candidate list rebuilt with " + expectedRowCount + " rows");
-        }
-        finally { owner.PropertyChanged -= changed; }
-    }
+        => CandidateListAwaitSupport.AwaitRows(owner, expectedRowCount);
 
     /// <summary>
     /// 保証：実画面の「選択グループを整理」ボタンから、実ワークフロー・実際の保存窓口・実ファイル・SQLiteで、選択した二つのグループを一括整理する。
@@ -1100,7 +1094,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();
 
+        /// <summary>分裂配置の探索の進捗は、実際の背景実行で動かします。</summary>
+        private readonly DuplicateSupport.BackgroundProgressRunner progress = new();
+
         public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default)
-            => throw new NotSupportedException();
+            => progress.RunAsync(request, operation);
     }
 }

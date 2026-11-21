@@ -302,6 +302,25 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
         return true;
     }
 
+    /// <summary>
+    /// 一覧の元になる結果がない間（分裂配置の結果の失効・未探索）の入口です。UIスレッドで呼びます。
+    /// グループの状態・並べ替え・検索語・除外語・優先統合先は保ったまま、行を0件にして表示中でない状態にします。
+    /// 空の結果を <see cref="Adopt"/> すると状態が捨てられ、再探索でインスタンスを引き継いでも状態が戻らないため、別の入口にしています。
+    /// 次の <see cref="Adopt"/> で、引き継いだインスタンスは状態を保ち、新しいインスタンスは初期値になり、結果にないグループの状態は破棄されます。
+    /// </summary>
+    /// <param name="libraryToken">構築時のライブラリ。現在のライブラリと一致しなければ何も変えずfalseを返します。</param>
+    internal bool ShowNoResult(object libraryToken)
+    {
+        if (!ReferenceEquals(libraryToken, library)) { return false; }
+        preparation = null;
+        visibleStates = [];
+        rows = DuplicateMergeCandidateRowSet.Empty;
+        IsViewActive = false;
+        RaisePropertyChanged(nameof(Rows));
+        RefreshCounts();
+        return true;
+    }
+
     /// <summary>保持している状態と新しい初期状態で、登録範囲のフォルダの集合（大文字小文字を無視、順序によらない）が同じかです。</summary>
     private static bool HasSameRegisteredFolders(DuplicateMergeCandidateGroupState state, DuplicateMergeCandidateGroupInitial initial)
         => state.RegisteredFolders.Count == initial.RegisteredFolders.Count

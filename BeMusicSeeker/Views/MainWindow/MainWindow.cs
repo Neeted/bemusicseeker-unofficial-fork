@@ -4573,6 +4573,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
         {
             parameter = treeViewItem.DataContext;
         }
+        else if (treeViewItem.DataContext is DuplicateMergeCandidateListNode)
+        {
+            // 統合候補一覧のノードも、他の子と同じ入口（探索の要否の判断を含む）へ、専用の表を出す文脈で入る。
+            parameter = DuplicateViewContext.ForCandidateList();
+        }
         else
         {
             return;
@@ -6225,8 +6230,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector, 
 
     /// <summary>重複ルートを展開し、仮想化で未生成のグループ項目を公開APIで生成して返します。現在のツリーに無いグループにはnullを返します。</summary>
     private TreeViewItem RealizeDuplicateGroupTreeItem(DuplicateGroup group)
+        => RealizeGroupTreeItem(treeViewItemSearchDuplicated, group);
+
+    /// <summary>指定したルート（重複または分裂配置）を展開し、仮想化で未生成のグループ項目を公開APIで生成して返します。現在のツリーに無いグループにはnullを返します。</summary>
+    private TreeViewItem RealizeGroupTreeItem(TreeViewItem root, DuplicateGroup group)
     {
-        TreeViewItem root = treeViewItemSearchDuplicated;
         root.IsExpanded = true;
         root.UpdateLayout();
         int index = root.Items.IndexOf(group);

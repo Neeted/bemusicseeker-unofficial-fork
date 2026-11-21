@@ -22,7 +22,7 @@ public sealed class MaintenanceTreeViewModel : ViewModel
 
     private readonly DuplicateTreeChildCollection duplicateTree = new(new DuplicateMergeCandidateListNode());
 
-    private readonly DuplicateTreeChildCollection splitPlacementTree = new();
+    private readonly DuplicateTreeChildCollection splitPlacementTree = new(new DuplicateMergeCandidateListNode());
 
     private Task observedPreparation;
 
@@ -71,10 +71,18 @@ public sealed class MaintenanceTreeViewModel : ViewModel
     internal DuplicateMergeCandidateListNode DuplicateMergeCandidateListNodeItem => duplicateTree.CandidateListNode;
 
     /// <summary>
-    /// 分裂配置ツリーの子として表示するグループ項目です。統合候補一覧のノードは置きません。
-    /// インスタンスは接続・解除・同期を通じて変えず、新しい結果にも含まれる同じグループの項目は除去・置換しません。変更はUIスレッドだけで行います。
+    /// 分裂配置ツリーの子として表示する項目です。先頭に統合候補一覧のノード（分裂配置の結果が一件以上あるときだけ現れる、重複のノードとは別の項目）を置き、
+    /// その後ろにグループ項目を結果の順に並べます。インスタンスは接続・解除・同期を通じて変えず、新しい結果にも含まれる同じグループの項目は除去・置換しません。
+    /// 変更はUIスレッドだけで行います。
     /// </summary>
     public System.Collections.IList SplitPlacementTreeChildren => splitPlacementTree;
+
+    /// <summary>分裂配置ツリーの先頭に置く統合候補一覧のノードです。項目の有無とは別に、常に同じインスタンスを返します。</summary>
+    internal DuplicateMergeCandidateListNode SplitPlacementCandidateListNodeItem => splitPlacementTree.CandidateListNode;
+
+    /// <summary>分裂配置の現在の結果です。結果がない状態は <see langword="null"/> です。</summary>
+    internal List<DuplicateGroup> SplitPlacementChartGroups
+        => presentationState?.SplitPlacementGroups;
 
     /// <summary>
     /// Gets whether health maintenance initialization is still holding its write lock.
@@ -251,7 +259,7 @@ public sealed class MaintenanceTreeViewModel : ViewModel
 
     /// <summary>
     /// 分裂配置ツリーの項目を、その時点の現在の結果へ同期します。呼出し側がUIスレッドであることを保証します。
-    /// 結果がない状態（失効・未探索・ライブラリの解除）では子を空にします。通知の時点ではなく同期の時点の現在値を読むため、
+    /// 結果が一件以上あるときだけ統合候補一覧のノードを先頭に置き、結果がない状態（失効・未探索・ライブラリの解除）では、ノードも含めて子を空にします。通知の時点ではなく同期の時点の現在値を読むため、
     /// 遅れて届いた失効の通知で、その後に格納された新しい結果を消しません。
     /// </summary>
     internal void SynchronizeSplitPlacementTreeItems()
@@ -263,6 +271,7 @@ public sealed class MaintenanceTreeViewModel : ViewModel
             if (groups != null)
             {
                 splitPlacementTree.SynchronizeItems(groups);
+                splitPlacementTree.SynchronizeCandidateListNode(groups.Count > 0);
                 return;
             }
             splitPlacementTree.Clear();

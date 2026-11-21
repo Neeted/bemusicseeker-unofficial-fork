@@ -1531,5 +1531,6 @@
   "Split_placement_search_progress_title": "正在搜尋分裂放置",
   "Split_placement_search_progress_label": "正在尋找共用大量音訊檔名的資料夾。",
   "Split_placement_search_progress_prepare": "正在準備",
-  "Split_placement_search_progress_match_format": "正在比對 {0}/{1}"
+  "Split_placement_search_progress_match_format": "正在比對 {0}/{1}",
+  "Split_placement_batch_organize_unverified_notice": "已選取未檢查的組。請先進行安全性檢查。"
 }

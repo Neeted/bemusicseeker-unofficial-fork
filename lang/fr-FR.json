@@ -1531,5 +1531,6 @@
   "Split_placement_search_progress_title": "Recherche des placements fractionnés",
   "Split_placement_search_progress_label": "Recherche des dossiers qui partagent de nombreux noms de fichiers audio.",
   "Split_placement_search_progress_prepare": "Préparation",
-  "Split_placement_search_progress_match_format": "Comparaison {0}/{1}"
+  "Split_placement_search_progress_match_format": "Comparaison {0}/{1}",
+  "Split_placement_batch_organize_unverified_notice": "Des groupes non vérifiés sont sélectionnés. Effectuez d’abord la vérification de sécurité."
 }

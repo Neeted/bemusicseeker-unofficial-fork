@@ -1,15 +1,22 @@
 using System.Collections;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.TestSupport.Components;
 using BeMusicSeeker.TestSupport.Wpf;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
+using BeMusicSeeker.Views.Dialogs;
+using static BeMusicSeeker.Tests.TreeSelectionDisplayTestSupport;
 using static BeMusicSeeker.TestSupport.Components.SelectedChartAudioConversionWorkflowOwnerTestSupport;
 using static BeMusicSeeker.TestSupport.Components.SplitPlacementTestSupport;
+using ConversionTestSupport = BeMusicSeeker.TestSupport.Components.SelectedChartAudioConversionWorkflowOwnerTestSupport;
+using DuplicateSupport = BeMusicSeeker.TestSupport.Components.DuplicateMaintenanceWorkflowOwnerTestSupport;
 
 namespace BeMusicSeeker.Tests;
 
@@ -48,10 +55,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(Resources.Split_placement_search_progress_title, dialogs.ProgressRequest.Title);
             CollectionAssert.AreEquivalent(new[] { charts[0].Path, charts[2].Path },
                 viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).ToArray(), "グループの譜面だけを表示する。");
-            Assert.AreEqual(1, root.Items.Count);
+            Assert.AreEqual(2, root.Items.Count, "統合候補一覧のノードとグループ。");
             DuplicateGroup group = library.SplitPlacementGroups!.Single();
             TreeViewItem folderItem = RealizeDuplicateFolderItem(root, group, related);
-            var groupItem = (TreeViewItem)root.ItemContainerGenerator.ContainerFromIndex(0);
+            var groupItem = (TreeViewItem)root.ItemContainerGenerator.ContainerFromIndex(root.Items.IndexOf(group));
             folderItem.Style = groupItem.ItemContainerStyle;
             ContextMenu menu = folderItem.ContextMenu;
             Assert.IsNotNull(menu, "フォルダ項目のメニュー。");
@@ -155,7 +162,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             TestUiDispatcherHost.AwaitTaskOnDispatcher(select, "split placement child selection handler");
             TestUiDispatcherHost.ProcessQueuedPresentation();
             Assert.IsTrue(item.IsSelected);
-            var progressBefore = dialogs.ProgressRequest;
+            UiProgressRequest? progressBefore = dialogs.ProgressRequest;
             int messagesBefore = dialogs.Messages.Count;
             IDisposable? lease = null;
             if (held) { Assert.IsTrue(library.OperationAdmission.TryEnter(out lease)); }
@@ -200,7 +207,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             SetIndex(library, new(charts[0].Directory, Keys(1, 10)), new(charts[2].Directory, Keys(1, 10)));
             var root = (TreeViewItem)window.FindName("treeViewItemSearchSplitPlacement");
             SelectSplitPlacementRootAndSearch(root);
-            var firstProgress = dialogs.ProgressRequest;
+            UiProgressRequest? firstProgress = dialogs.ProgressRequest;
 
             RaiseSplitPlacementRootEnter(root);
             RaiseSplitPlacementRootClick(root);
@@ -217,6 +224,384 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.IsNotNull(library.SplitPlacementGroups);
             Assert.AreEqual(2, viewModel.MainChartList.Rows.Count);
         }, dialogService: dialogs);
+    }
+
+    // ---------------------------------------------------------------------------------------------------------------
+    // 分裂配置の統合候補一覧（ノード、共用の表の束縛、重複の一覧との独立、行の活性化、実際の整理）。
+    // 重複の画面の準備データ（四つのフォルダ。同じグループの二つは同一内容）を使い、別のグループのフォルダ同士が音源を共有する二つの分裂配置のグループを作る。
+    // ---------------------------------------------------------------------------------------------------------------
+
+    /// <summary>
+    /// 二つの分裂配置のグループの音源の関係を設定します。グループAは<c>group0-0</c>と<c>group1-0</c>、グループBは<c>group0-1</c>と<c>group1-1</c>です
+    /// （同じ重複グループの二つは主ハッシュが同じため、別の重複グループのフォルダ同士で関係を作ります）。
+    /// </summary>
+    private static void SetSplitPairsIndex(TestBmsLibrary library, ChartFile[] charts)
+        => SetIndex(library,
+            new(charts[0].Directory, Keys(1, 10)), new(charts[2].Directory, Keys(1, 10)),
+            new(charts[1].Directory, Keys(100, 10)), new(charts[3].Directory, Keys(100, 10)));
+
+    /// <summary>分裂配置のルートを選んで探索し、統合候補一覧のノードを選んで、一覧の採用（表示中への遷移）まで待ちます。</summary>
+    private static TreeViewItem SelectSplitPlacementCandidateList(MainWindowViewModel viewModel, TreeViewItem root, bool searchFirst)
+    {
+        if (searchFirst) { SelectSplitPlacementRootAndSearch(root); }
+        TreeViewItem node = RealizeCandidateListNode(root);
+        AwaitHandler(() => node.IsSelected = true, "split placement candidate list node selection");
+        CandidateListAwaitSupport.AwaitActive(viewModel.SplitPlacementMergeCandidateList, "split placement candidate list adoption");
+        TestUiDispatcherHost.ProcessQueuedPresentation();
+        return node;
+    }
+
+    /// <summary>
+    /// 保証：分裂配置のツリーの子の先頭に統合候補一覧のノード（リソースの見出し）が現れ、選ぶと共用の専用の表が分裂配置の一覧主体へ束縛される。
+    /// 表示中は譜面一覧の表・メインの検索欄・件数表示・保留の操作バー・プレイログの集計バーを出さない。
+    /// 検索欄・除外欄・SELECTのセル・簡易確認のチェック・優先統合先は分裂配置の一覧主体にだけ作用し、重複の一覧へ切り替えると重複の値、戻ると分裂配置の値が現れる。
+    /// 検出する誤り：ノードの欠落・位置・見出し、重複の一覧主体への束縛の残り、二つの一覧の状態の共有、切替えでの値の取り違え、ライブラリの交換での状態の残存。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementCandidateList_SharedTableFollowsTheDisplayedListAndKeepsBothStatesIndependent()
+    {
+        var dialogs = new RecordingPreferredDestinationDialogs();
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            SetSplitPairsIndex(library, charts);
+            var splitRoot = (TreeViewItem)window.FindName("treeViewItemSearchSplitPlacement");
+            var duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var main = (CustomTableView)window.FindName("customTableView");
+            var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+            var search = (Border)window.FindName("KeywordSearchComposite");
+            var candidateSearch = (Border)window.FindName("duplicateCandidateSearchComposite");
+            var candidateEditor = (TextBox)window.FindName("duplicateCandidateSearchEditor");
+            var excludeEditor = (TextBox)window.FindName("duplicateCandidateExcludeEditor");
+            var summary = (TextBlock)window.FindName("duplicateCandidateSummaryText");
+            var quickCompare = (CheckBox)window.FindName("duplicateCandidateQuickCompareCheckBox");
+            var pendingBar = (Border)window.FindName("pendingInstallOperationBar");
+            var historyBar = (Border)window.FindName("playHistorySummaryBar");
+            TextBlock mainSummary = FindMainSummaryText(window);
+            DuplicateMergeCandidateListOwner split = viewModel.SplitPlacementMergeCandidateList;
+            DuplicateMergeCandidateListOwner duplicate = viewModel.DuplicateMergeCandidateList;
+            Assert.AreNotSame(split, duplicate);
+
+            // ノード：結果が一件以上ある間だけ、子の先頭に、重複のノードとは別の項目として現れる。
+            SelectSplitPlacementRootAndSearch(splitRoot);
+            Assert.AreEqual(3, splitRoot.Items.Count, "ノードと二つのグループ項目");
+            Assert.AreSame(viewModel.MaintenanceTree.SplitPlacementCandidateListNodeItem, splitRoot.Items[0], "ノードは先頭");
+            Assert.AreNotSame(viewModel.MaintenanceTree.DuplicateMergeCandidateListNodeItem, splitRoot.Items[0]);
+            Assert.IsInstanceOfType<DuplicateGroup>(splitRoot.Items[1]);
+            TreeViewItem node = RealizeCandidateListNode(splitRoot);
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_list, node.Header);
+            Assert.IsTrue(viewModel.DisplaysSplitPlacementCandidateList, "分裂配置の画面種別");
+
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: false);
+            Assert.AreSame(split, viewModel.DisplayedCandidateList);
+            Assert.AreSame(split, table.DataContext, "共用の表は分裂配置の一覧主体へ束縛される");
+            Assert.AreEqual(Visibility.Visible, table.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, main.Visibility, "譜面一覧の表は出さない");
+            Assert.AreEqual(Visibility.Collapsed, search.Visibility, "メインの検索欄は出さない");
+            AssertCandidateListHidesMainBars(mainSummary, pendingBar, historyBar);
+            Assert.AreEqual(0, viewModel.MainChartList.Rows.Count, "譜面一覧は行0件");
+            Assert.AreEqual(-1, viewModel.MainChartList.SelectedIndex);
+            Assert.AreEqual(4, table.ItemsSource.Count);
+            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 0), summary.Text, "件数表示は分裂配置の一覧の値");
+            Assert.IsFalse(duplicate.IsViewActive);
+
+            // 分裂配置の一覧の操作：セル・検索欄・除外欄・簡易確認・優先統合先は、分裂配置の一覧主体にだけ作用する。
+            Click(table, 0, "Select");
+            Assert.AreEqual(1, split.SelectedGroupCount);
+            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 1), summary.Text);
+            EnterCandidateText(split, candidateEditor, "group0-0", nameof(DuplicateMergeCandidateListOwner.SearchText), () => split.SearchText);
+            EnterCandidateText(split, excludeEditor, "group1-1", nameof(DuplicateMergeCandidateListOwner.ExcludeText), () => split.ExcludeText);
+            split.RequestSort("Path", System.ComponentModel.ListSortDirection.Descending);
+            quickCompare.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false); // 利用者のクリックと同じく、束縛を残して現在値を変える
+            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "split quick compare off");
+            Assert.IsFalse(split.QuickCompareEnabled);
+            string preferred = charts[2].Directory;
+            dialogs.NextResult = new UiWindowDialogResult<IReadOnlyList<string>>(UiDialogStatus.Accepted, [preferred], true);
+            ClickButton(window, "duplicateCandidatePreferredDestinationsButton");
+            CollectionAssert.AreEqual(new[] { preferred }, split.PreferredDestinations.ToArray());
+            Assert.AreEqual(preferred, split.RowSet.First(row => row.Path == preferred).State.KeepFolder, "優先統合先が分裂配置の一覧のKEEPへ適用される");
+
+            // 重複の一覧へ切り替える：重複の一覧主体の値（独立した状態）が現れ、分裂配置の一覧の値は変わらない。
+            SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(duplicateRoot));
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.AreSame(duplicate, viewModel.DisplayedCandidateList);
+            Assert.AreSame(duplicate, table.DataContext);
+            Assert.IsFalse(split.IsViewActive, "分裂配置の一覧は表示中でない");
+            Assert.AreEqual(string.Empty, candidateEditor.Text, "重複の一覧の検索語");
+            Assert.AreEqual(string.Empty, excludeEditor.Text);
+            Assert.IsNull(duplicate.SortColumnName);
+            Assert.AreEqual(0, duplicate.PreferredDestinations.Count);
+            Assert.IsTrue(quickCompare.IsChecked, "重複の一覧の簡易確認は既定のまま");
+            Assert.IsTrue(duplicate.QuickCompareEnabled);
+            Assert.AreEqual(4, table.ItemsSource.Count);
+            Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 0), summary.Text, "重複の一覧の件数");
+            Click(table, 2, "Select");
+            Assert.AreEqual(1, duplicate.SelectedGroupCount);
+            Assert.AreEqual(1, split.SelectedGroupCount, "重複の一覧の操作で分裂配置の一覧は変わらない");
+            Assert.AreEqual("group0-0", split.SearchText);
+            Assert.AreEqual("group1-1", split.ExcludeText);
+            Assert.AreEqual("Path", split.SortColumnName);
+            Assert.IsFalse(split.QuickCompareEnabled);
+
+            // 分裂配置の一覧へ戻る：分裂配置の値が現れる（重複の一覧の値は変わらない）。
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: false);
+            Assert.AreSame(split, viewModel.DisplayedCandidateList);
+            Assert.AreSame(split, table.DataContext);
+            Assert.AreEqual("group0-0", candidateEditor.Text);
+            Assert.AreEqual("group1-1", excludeEditor.Text);
+            Assert.IsFalse(quickCompare.IsChecked);
+            Assert.AreEqual(1, split.SelectedGroupCount);
+            Assert.AreEqual(1, duplicate.SelectedGroupCount);
+            Assert.AreEqual(0, duplicate.PreferredDestinations.Count);
+            Assert.IsTrue(duplicate.QuickCompareEnabled);
+
+            // ライブラリの交換：分裂配置の一覧のグループの状態も破棄される。
+            DuplicateGroup group = library.SplitPlacementGroups![0];
+            Assert.IsTrue(split.TryGetState(group, out _));
+            split.AttachLibrary(new object());
+            Assert.IsFalse(split.TryGetState(group, out _), "ライブラリの交換でグループの状態を破棄する");
+            Assert.IsFalse(split.IsViewActive);
+        }, dialogService: dialogs);
+    }
+
+    /// <summary>
+    /// 保証：分裂配置の一覧のツールバーの確認と右クリックの確認は、実際の検査器を実フォルダへ動かし、結果を分裂配置の一覧主体にだけ書く。
+    /// 「別のグループを巻き込む」の基準は分裂配置の一覧の全グループで、重複検索のグループ（同じフォルダを別の組み合わせで含む）は基準に入らない。
+    /// 検出する誤り：確認結果の重複の一覧主体への書込み、重複検索のグループを基準にした統合不可・要注意の誤判定、メニューの確認の行き先の取り違え。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementCandidateList_VerificationWritesOnlyTheSplitPlacementListUsingItsOwnGroupsAsBaseline()
+    {
+        var events = new ConversionTestSupport.EventLog();
+        var dialogs = new ConversionTestSupport.RecordingDialogService(events);
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            SetSplitPairsIndex(library, charts);
+            var splitRoot = (TreeViewItem)window.FindName("treeViewItemSearchSplitPlacement");
+            var duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+            var menu = (ContextMenu)window.FindResource("duplicateCandidateContextMenu");
+            DuplicateMergeCandidateListOwner split = viewModel.SplitPlacementMergeCandidateList;
+            DuplicateMergeCandidateListOwner duplicate = viewModel.DuplicateMergeCandidateList;
+            // 重複の一覧も採用しておき、確認の前後で状態が変わらないことを確かめる。
+            SelectCandidateListAndAwaitView(viewModel, navigation, RealizeCandidateListNode(duplicateRoot));
+            Assert.IsTrue(duplicate.RowSet.All(row => row.State.Verification.Stage == DuplicateMergeVerificationStage.Unverified));
+
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: true);
+            DuplicateMergeCandidateRow[] rows = [.. split.RowSet];
+            Assert.AreEqual(4, rows.Length);
+            Click(table, 0, "Select");
+            AwaitHandler(() => ClickButton(window, "duplicateCandidateVerifyButton"), "split placement verify toolbar");
+            Assert.AreEqual(DuplicateMergeVerificationStage.Safe, rows[0].State.Verification.Stage,
+                "分裂配置の一覧の全グループを基準にするため、重複検索のグループと重なるフォルダでも巻き込みにならない");
+            Assert.IsTrue(rows[0].State.IsSelected);
+            Assert.AreEqual(DuplicateMergeVerificationStage.Unverified, rows[2].State.Verification.Stage, "選択していないグループは確認しない");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_verify_progress_title, dialogs.ProgressRequest!.Title);
+            Assert.AreSame(window, dialogs.ProgressRequest.Owner);
+            Assert.AreEqual(1, dialogs.Messages.Count(message => message.Caption == dialogs.Messages[^1].Caption), "結果の案内は一件");
+
+            // 右クリックの確認：選択行のグループを確認する。
+            table.SelectRowsByPredicate(row => row is DuplicateMergeCandidateRow { Index: 2 });
+            MenuItem verifyGroup = menu.Items.OfType<MenuItem>().Single(item => Equals(item.Header, Resources.Duplicate_merge_candidate_verify_group));
+            AwaitHandler(() => RaiseMenuClick(verifyGroup), "split placement verify menu");
+            Assert.AreEqual(DuplicateMergeVerificationStage.Safe, rows[2].State.Verification.Stage);
+
+            Assert.IsTrue(duplicate.RowSet.All(row => row.State.Verification.Stage == DuplicateMergeVerificationStage.Unverified),
+                "重複の一覧の確認結果は変わらない");
+            Assert.IsFalse(duplicate.IsViewActive);
+        }, dialogService: dialogs);
+    }
+
+    /// <summary>行（グループのフォルダ）のダブルクリックまたはEnterの後に、メインの譜面一覧が期待のパス集合を表示するまで待ちます。</summary>
+    private static void AwaitMainRows(MainWindowViewModel viewModel, MainWindow window, string[] expectedPaths)
+    {
+        var main = (CustomTableView)window.FindName("customTableView");
+        var bound = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        bool Matches() => ReferenceEquals(main.ItemsSource, viewModel.MainChartList.Rows)
+            && viewModel.MainChartList.Rows.Cast<LibraryChartRow>().Select(row => row.Chart.Path).Order(StringComparer.Ordinal)
+                .SequenceEqual(expectedPaths.Order(StringComparer.Ordinal));
+        var itemsSource = System.ComponentModel.DependencyPropertyDescriptor.FromProperty(CustomTableView.ItemsSourceProperty, typeof(CustomTableView));
+        EventHandler changed = (_, _) => { if (Matches()) { bound.TrySetResult(); } };
+        itemsSource.AddValueChanged(main, changed);
+        try
+        {
+            if (Matches()) { bound.TrySetResult(); }
+            TestUiDispatcherHost.AwaitPresentationOnDispatcher(bound.Task, "split placement folder rows");
+        }
+        finally { itemsSource.RemoveValueChanged(main, changed); }
+    }
+
+    /// <summary>
+    /// 保証：分裂配置の一覧の行のダブルクリック（有効なSELECT・KEEP以外のセル）とEnterは、分裂配置のツリーの対応するグループを展開してフォルダノードを選び、
+    /// そのフォルダの譜面一覧へ移る。同じパスが重複のツリーにあっても、重複のツリーのノードは選ばない。有効なSELECTのダブルクリックは遷移しない。
+    /// 検出する誤り：重複のツリーのノードの選択、グループ全体の選択、遷移しない行、SELECTのダブルクリックでの遷移。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementCandidateList_RowActivationSelectsTheFolderNodeInTheSplitPlacementTree()
+    {
+        var dialogs = new RecordingDialogService(new EventLog());
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            SetSplitPairsIndex(library, charts);
+            var splitRoot = (TreeViewItem)window.FindName("treeViewItemSearchSplitPlacement");
+            var duplicateRoot = (TreeViewItem)window.FindName("treeViewItemSearchDuplicated");
+            var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+            DuplicateMergeCandidateListOwner split = viewModel.SplitPlacementMergeCandidateList;
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: true);
+            DuplicateMergeCandidateRow target = split.RowSet[3];
+            string expected = charts.Single(chart => string.Equals(chart.Directory, target.Path, StringComparison.OrdinalIgnoreCase)).Path;
+            Assert.IsTrue(library.DuplicateChartGroups.Any(group => group.Folders.Contains(target.Path, StringComparer.OrdinalIgnoreCase)),
+                "前提：同じパスが重複のツリーにもある");
+
+            // 有効なSELECTのセルのダブルクリックは遷移しない。
+            CustomTableHitTestResult selectHit = HitCell(table, target.Index, "Select", out Point selectPoint);
+            Assert.IsTrue(table.HandleCellMouseDown(selectHit, MouseButton.Left, ModifierKeys.None, 1, selectPoint));
+            Assert.IsTrue(table.HandleCellMouseDown(selectHit, MouseButton.Left, ModifierKeys.None, 2, selectPoint));
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            Assert.IsTrue(split.IsViewActive, "SELECTのダブルクリックは遷移しない");
+
+            // PATH列のダブルクリック：フォルダノードを選び、そのフォルダの譜面一覧へ移る。
+            table.SelectedIndex = target.Index;
+            CustomTableHitTestResult hit = HitCell(table, target.Index, "Path", out Point point);
+            AwaitHandler(() =>
+            {
+                Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 1, point));
+                Assert.IsTrue(table.HandleCellMouseDown(hit, MouseButton.Left, ModifierKeys.None, 2, point));
+            }, "split placement row double click");
+            AwaitMainRows(viewModel, window, [expected]);
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            AssertSplitFolderNodeSelected(splitRoot, duplicateRoot, library, target);
+            Assert.IsFalse(split.IsViewActive, "フォルダの譜面一覧へ移り、専用の表を隠す");
+            Assert.AreEqual(Visibility.Visible, ((CustomTableView)window.FindName("customTableView")).Visibility);
+
+            // Enter：一覧へ戻って、別の行で同じ遷移をする。
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: false);
+            DuplicateMergeCandidateRow other = split.RowSet[0];
+            string otherExpected = charts.Single(chart => string.Equals(chart.Directory, other.Path, StringComparison.OrdinalIgnoreCase)).Path;
+            AwaitHandler(() => InvokeRowActivated(window, table, other), "split placement row Enter");
+            AwaitMainRows(viewModel, window, [otherExpected]);
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+            AssertSplitFolderNodeSelected(splitRoot, duplicateRoot, library, other);
+        }, dialogService: dialogs);
+    }
+
+    private static void AssertSplitFolderNodeSelected(
+        TreeViewItem splitRoot, TreeViewItem duplicateRoot, TestBmsLibrary library, DuplicateMergeCandidateRow row)
+    {
+        DuplicateGroup group = row.State.Group;
+        var groupItem = (TreeViewItem)splitRoot.ItemContainerGenerator.ContainerFromItem(group);
+        Assert.IsNotNull(groupItem, "対応するグループの項目");
+        Assert.IsTrue(groupItem.IsExpanded, "グループを展開する");
+        TreeViewItem folderItem = FindDescendants<TreeViewItem>(groupItem)
+            .Single(item => item.DataContext is string path && string.Equals(path, row.Path, StringComparison.OrdinalIgnoreCase));
+        Assert.IsTrue(folderItem.IsSelected, "フォルダノードを選ぶ");
+        Assert.IsFalse(groupItem.IsSelected, "グループ全体は選ばない");
+        Assert.IsTrue(FindDescendants<TreeViewItem>(duplicateRoot).All(item => !item.IsSelected), "重複のツリーのノードは選ばない");
+        Assert.IsTrue(library.SplitPlacementGroups!.Contains(group));
+    }
+
+    /// <summary>
+    /// 保証：実画面の「選択グループを整理」ボタンから、分裂配置の一覧の対象に未確認のグループがあると、案内を一件だけ出して何も始めない。
+    /// 確認済み（安全）にして整理すると、実ファイル・SQLiteで統合し、整理後の有効な結果がないため同じ受付の中で探索し直す。
+    /// 分裂配置の統合候補一覧を表示したまま作り直し（別の画面へ移らない）、解消したグループの行は消え、引き継いだグループは同じインスタンスでSELECT・KEEP・確認結果を保つ。
+    /// 重複結果は明示的に準備されない。結果は一回だけ案内し、Busy案内は出ず、受付と活動を解放する。
+    /// 整理の前後で、引き継ぐはずのグループ（グループB）が存在することを前提として表明する。
+    /// 検出する誤り：未確認の整理の続行・案内の欠落や重複、再探索の欠落、状態の消失・インスタンスの置換、別の画面への移動、重複結果の明示準備、解放漏れ。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementCandidateList_OrganizeButtonRejectsUnverifiedThenMergesAndRebuildsTheList()
+    {
+        var dialogs = new DuplicateSupport.FakeUiDialogService
+        {
+            ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK)
+        };
+        RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
+        {
+            MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
+            SetSplitPairsIndex(library, charts);
+            var splitRoot = (TreeViewItem)window.FindName("treeViewItemSearchSplitPlacement");
+            var table = (CustomTableView)window.FindName("customTableDuplicateCandidates");
+            var main = (CustomTableView)window.FindName("customTableView");
+            DuplicateMergeCandidateListOwner split = viewModel.SplitPlacementMergeCandidateList;
+            ApplicationComposition composition = MainWindowViewModelTestFactory.GetComposition(viewModel);
+            SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: true);
+            DuplicateMergeCandidateRow[] rows = [.. split.RowSet];
+            Assert.AreEqual(4, rows.Length, "前提：二つのグループ（AとB）が表示される");
+            DuplicateMergeCandidateGroupState groupA = rows[0].State, groupB = rows[2].State;
+            Assert.AreNotSame(groupA, groupB);
+            List<DuplicateGroup> resultBefore = library.SplitPlacementGroups!;
+            string keepA = rows[0].Path, sourceA = rows[1].Path;
+            int progressRuns = dialogs.Progress.Runs;
+
+            // グループBに目印（KEEPの変更と要注意の確認結果）を付け、整理しない側にする。
+            Click(table, 3, "Keep");
+            var cautionResult = new DuplicateMergeVerificationResult(
+                DuplicateMergeVerificationStage.Caution,
+                [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ParentReference, [new DuplicateMergeFinding(rows[2].Path, "c.bms", "../x.wav")])]);
+            split.WriteVerifications([new DuplicateMergeVerificationWrite(groupB.Group, cautionResult)]);
+            string keepB = groupB.KeepFolder!;
+            Assert.AreEqual(rows[3].Path, keepB, "前提：グループBのKEEPを変えている");
+
+            // 未確認のグループが対象：案内を一件だけ出して何も始めない。
+            Click(table, 0, "Select");
+            Assert.AreEqual(1, split.SelectedGroupCount);
+            AwaitHandler(() => ClickButton(window, "duplicateCandidateOrganizeButton"), "split placement organize with unverified target");
+            Assert.AreEqual(Resources.Split_placement_batch_organize_unverified_notice, dialogs.Messages.Single().MessageBoxText, "新しい案内が一件だけ");
+            Assert.IsNull(dialogs.ConfirmationRequest, "確認を出さない");
+            Assert.AreEqual(progressRuns, dialogs.Progress.Runs, "進捗を開かない");
+            Assert.IsTrue(composition.OperationAdmission.CanEnter, "受付を取らない");
+            Assert.IsTrue(Directory.Exists(sourceA), "何も変えない");
+            Assert.AreSame(resultBefore, library.SplitPlacementGroups);
+            Assert.IsTrue(groupA.IsSelected && ReferenceEquals(DuplicateMergeVerificationResult.Unverified, groupA.Verification));
+
+            // 確認済み（安全）にして整理する。
+            var safe = new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, []);
+            split.WriteVerifications([new DuplicateMergeVerificationWrite(groupA.Group, safe)]);
+            Assert.IsTrue(groupA.IsSelected, "安全のSELECTはオン");
+            Assert.IsFalse(groupB.IsSelected);
+            bool? gateFreeAtResult = null;
+            dialogs.OnMessage = () => gateFreeAtResult ??= composition.OperationAdmission.CanEnter && !viewModel.ChartMutationActivity.IsActive;
+            Task handler = MainWindowEventCompletion.CaptureAsyncEventCompletion(() => ClickButton(window, "duplicateCandidateOrganizeButton"));
+            TestUiDispatcherHost.AwaitTaskOnDispatcher(handler, "split placement organize handler terminal");
+            AwaitCandidateRows(split, 2);
+            TestUiDispatcherHost.ProcessQueuedPresentation();
+
+            // 一覧：別の画面へ移らず作り直し、解消したグループの行は消え、引き継いだグループは同じインスタンスで状態を保つ。
+            Assert.IsTrue(split.IsViewActive, "別の画面へ自動で移らず、一覧を表示したまま");
+            DuplicateMergeCandidateRow[] after = [.. split.RowSet];
+            CollectionAssert.AreEqual(new[] { rows[2].Path, rows[3].Path }, after.Select(row => row.Path).ToArray(), "解消したグループの行は消える");
+            Assert.AreSame(groupB, after[0].State, "引き継いだグループは同じ状態のインスタンス");
+            Assert.AreEqual(keepB, groupB.KeepFolder, "KEEPを保つ");
+            Assert.AreSame(cautionResult, groupB.Verification, "確認結果を保つ");
+            Assert.AreSame(groupB.Group, library.SplitPlacementGroups!.Single(), "結果のグループのインスタンスも引き継がれる");
+            Assert.IsTrue(library.HasCurrentSplitPlacementGroups, "同じ受付の中で探索し直し、有効な結果がある");
+            Assert.AreEqual(Visibility.Visible, table.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, main.Visibility, "譜面一覧は出さない");
+            Assert.AreEqual(0, viewModel.MainChartList.Rows.Count);
+            Assert.IsTrue(RealizeCandidateListNode(splitRoot).IsSelected, "ノードの選択を保つ");
+
+            // 実ファイル・DB・重複結果・案内。
+            Assert.IsFalse(Directory.Exists(sourceA), "統合元のフォルダは削除される");
+            Assert.IsTrue(File.Exists(Path.Combine(keepA, "chart-0-0.bms")), "統合先の譜面は残る");
+            Assert.IsTrue(Directory.Exists(rows[2].Path) && Directory.Exists(rows[3].Path), "グループBのフォルダは変わらない");
+            string songDb = Path.Combine(Path.GetDirectoryName(keepA)!, "song.db");
+            using (LR2SongDBExtended db = new BmsLibraryDbGateway(library.DatabaseScope, new BmsDatabaseLoadOptions(true, true, true), songDb).OpenSongDbReadOnly())
+            {
+                string[] paths = [.. db.Table<LR2SongDB.song>().ToList().Select(song => song.path)];
+                Assert.IsFalse(paths.Any(path => path.StartsWith(sourceA, StringComparison.OrdinalIgnoreCase)), "統合元の譜面の行はDBから除かれる");
+            }
+            Assert.IsNull(library.DuplicateChartGroups, "重複結果は明示的に準備されず、失効したまま");
+            UiMessageRequest result = dialogs.Messages.Last();
+            Assert.AreEqual(2, dialogs.Messages.Count, "未確認の案内と結果の案内だけ（Busy案内を含まない）");
+            Assert.AreEqual(Resources.Duplicate_batch_organize_title, result.Caption);
+            Assert.AreEqual(string.Format(Resources.Duplicate_batch_organize_result_format, 1, 1, 0, 0, 0, 0), result.MessageBoxText.Split(Environment.NewLine)[0]);
+            Assert.AreEqual(true, gateFreeAtResult, "結果の案内の時点では受付も活動も解放済み");
+            Assert.IsFalse(viewModel.ChartMutationActivity.IsActive);
+            Assert.IsTrue(composition.OperationAdmission.TryEnter(out IDisposable? next), "受付を解放する");
+            next.Dispose();
+        }, dialogService: dialogs, uniqueChartNames: true);
     }
 
     /// <summary>進捗の要求の参照を、後で同一性を比べるために保持します。</summary>

@@ -4507,4 +4507,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Split_placement_search_progress_match_format" xml:space="preserve">
     <value>照合中 {0}/{1}</value>
   </data>
+  <data name="Split_placement_batch_organize_unverified_notice" xml:space="preserve">
+    <value>未確認のグループが選択されています。先に安全性確認を行ってください。</value>
+  </data>
 </root>

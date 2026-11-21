@@ -392,31 +392,75 @@ public sealed class MaintenanceTreeViewModelTests
     private static DuplicateGroup SplitGroup(string folder) => new([], [@"C:\Songs\" + folder]) { Header = folder };
 
     /// <summary>
-    /// 保証：分裂配置ツリーの子は、結果の順のグループ項目だけで、統合候補一覧のノードを置かない（結果が一件以上あっても）。結果なし・0件・解除では子が空になる。
-    /// 検出する誤り：重複のツリーのノードの混入、結果の順とずれた並び、結果なしでの旧項目の残存。
+    /// 保証：分裂配置ツリーの子は、結果が一件以上あるときだけ統合候補一覧のノードを先頭に置き、その後ろに結果の順でグループ項目を並べる。
+    /// 結果なし（null）・0件・解除ではノードも含めて子が空になる。ノードは重複のツリーのノードとは別のインスタンスである。
+    /// 検出する誤り：結果がないときのノードの残存、ノードの欠落、結果の順とずれた並び、重複のノードの流用。
     /// </summary>
     [TestMethod]
-    public void SplitPlacementTreeChildren_AreOnlyGroupsInResultOrderWithoutCandidateListNode()
+    public void SplitPlacementTreeChildren_HaveCandidateListNodeFirstOnlyWhileResultsExist()
     {
         DuplicateGroup a = SplitGroup("A"), b = SplitGroup("B");
         var state = new MaintenanceTreePresentationStateFake();
         var owner = new MaintenanceTreeViewModel();
         owner.AttachPresentationState(state);
+        object node = owner.SplitPlacementCandidateListNodeItem;
         Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "結果なし（null）は空");
+        Assert.AreNotSame(owner.DuplicateMergeCandidateListNodeItem, node, "重複のノードとは別の項目");
 
         state.ReplaceSplitPlacementGroups([b, a]);
         owner.ApplySplitPlacementPresentation();
-        CollectionAssert.AreEqual(new object[] { b, a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
-        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Cast<object>().Count(child => child is DuplicateMergeCandidateListNode));
+        CollectionAssert.AreEqual(new object[] { node, b, a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
 
         state.ReplaceSplitPlacementGroups([]);
         owner.ApplySplitPlacementPresentation();
-        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "0件は空");
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "0件はノードも含めて空");
 
         state.ReplaceSplitPlacementGroups([a]);
         owner.ApplySplitPlacementPresentation();
+        CollectionAssert.AreEqual(new object[] { node, a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
         owner.DetachLibrary();
-        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "解除では空");
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "解除ではノードも含めて空");
+    }
+
+    /// <summary>
+    /// 保証：結果が一件以上ある間の同期ではノードを同じインスタンスのまま維持してResetを使わず、グループ項目の変更の位置はノードの分だけ補正される。
+    /// 0件でノードを除去し、結果が再び現れると先頭へ挿入する。
+    /// 検出する誤り：同期のたびのノードの除去・再挿入、位置の補正漏れ（ノードの位置への変更の混入）、Resetによる展開状態の消失。
+    /// </summary>
+    [TestMethod]
+    public void SplitPlacementTreeChildren_KeepCandidateListNodeInstanceAndCorrectPositions()
+    {
+        DuplicateGroup a = SplitGroup("A"), b = SplitGroup("B"), c = SplitGroup("C");
+        var state = new MaintenanceTreePresentationStateFake();
+        state.ReplaceSplitPlacementGroups([a, b]);
+        var owner = new MaintenanceTreeViewModel();
+        owner.AttachPresentationState(state);
+        object node = owner.SplitPlacementCandidateListNodeItem;
+        var changes = new List<NotifyCollectionChangedEventArgs>();
+        ((INotifyCollectionChanged)owner.SplitPlacementTreeChildren).CollectionChanged += (_, args) => changes.Add(args);
+
+        state.ReplaceSplitPlacementGroups([c, a, b]);
+        owner.ApplySplitPlacementPresentation();
+
+        Assert.IsFalse(changes.Any(change => change.Action == NotifyCollectionChangedAction.Reset), "Resetは使いません。");
+        Assert.IsTrue(changes.All(change => change.NewStartingIndex != 0 && change.OldStartingIndex != 0),
+            "グループ項目の変更はノードの分だけ位置を補正し、先頭（ノードの位置）へ届けません。");
+        Assert.AreSame(node, owner.SplitPlacementTreeChildren[0], "ノードは同じインスタンスを保ちます。");
+        CollectionAssert.AreEqual(new object[] { node, c, a, b }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+
+        changes.Clear();
+        state.ReplaceSplitPlacementGroups([]);
+        owner.ApplySplitPlacementPresentation();
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "0件ではノードも消えます。");
+        Assert.IsTrue(changes.Any(change => change.Action == NotifyCollectionChangedAction.Remove && change.OldItems!.Contains(node)),
+            "ノードは個別の除去として届きます。");
+
+        changes.Clear();
+        state.ReplaceSplitPlacementGroups([a]);
+        owner.ApplySplitPlacementPresentation();
+        Assert.IsTrue(changes.Any(change => change.Action == NotifyCollectionChangedAction.Add && change.NewItems!.Contains(node) && change.NewStartingIndex == 0),
+            "結果が現れるとノードを先頭へ挿入します。");
+        CollectionAssert.AreEqual(new object[] { node, a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
     }
 
     /// <summary>
@@ -431,6 +475,7 @@ public sealed class MaintenanceTreeViewModelTests
         state.ReplaceSplitPlacementGroups([a, b]);
         var owner = new MaintenanceTreeViewModel();
         owner.AttachPresentationState(state);
+        object node = owner.SplitPlacementCandidateListNodeItem;
         var changes = new List<NotifyCollectionChangedEventArgs>();
         ((INotifyCollectionChanged)owner.SplitPlacementTreeChildren).CollectionChanged += (_, args) => changes.Add(args);
 
@@ -445,8 +490,9 @@ public sealed class MaintenanceTreeViewModelTests
         {
             CollectionAssert.DoesNotContain(change.OldItems!.Cast<object>().ToArray(), a, "維持するグループの項目を除去・置換しました。");
         }
-        Assert.AreSame(a, owner.SplitPlacementTreeChildren[0]);
-        CollectionAssert.AreEqual(new object[] { a, c }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+        Assert.AreSame(node, owner.SplitPlacementTreeChildren[0]);
+        Assert.AreSame(a, owner.SplitPlacementTreeChildren[1]);
+        CollectionAssert.AreEqual(new object[] { node, a, c }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
     }
 
     /// <summary>
@@ -462,12 +508,12 @@ public sealed class MaintenanceTreeViewModelTests
         var preparation = new TaskCompletionSource();
         var owner = new MaintenanceTreeViewModel { DuplicatePreparationProvider = () => preparation.Task };
         owner.AttachPresentationState(state);
-        CollectionAssert.AreEqual(new object[] { a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+        CollectionAssert.AreEqual(new object[] { owner.SplitPlacementCandidateListNodeItem, a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
 
         state.ReplaceSplitPlacementGroups(null);
         owner.ApplySplitPlacementPresentation();
 
-        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count);
+        Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "ノードも含めてすぐ空になる");
         preparation.TrySetResult();
     }
 
@@ -495,7 +541,7 @@ public sealed class MaintenanceTreeViewModelTests
         scheduler.RunPending();
 
         Assert.AreEqual(1, notifications);
-        CollectionAssert.AreEqual(new object[] { c }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+        CollectionAssert.AreEqual(new object[] { owner.SplitPlacementCandidateListNodeItem, c }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
     }
 
     /// <summary>
@@ -520,8 +566,8 @@ public sealed class MaintenanceTreeViewModelTests
         Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count, "ワーカースレッドでは項目を変更しません。");
         Assert.AreEqual(1, scheduler.PendingCount, "UIスレッドへ配送します。");
         scheduler.RunPending();
-        CollectionAssert.AreEqual(new object[] { a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
-        CollectionAssert.AreEqual(new[] { Environment.CurrentManagedThreadId }, mutationThreads);
+        CollectionAssert.AreEqual(new object[] { owner.SplitPlacementCandidateListNodeItem, a }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray());
+        Assert.IsTrue(mutationThreads.Count > 0 && mutationThreads.All(thread => thread == Environment.CurrentManagedThreadId));
     }
 
     /// <summary>
@@ -546,7 +592,9 @@ public sealed class MaintenanceTreeViewModelTests
         owner.ApplyDuplicateGroupsPresentation();
         state.ReplaceDuplicateChartGroups([]);
         owner.ApplyDuplicateGroupsPresentation();
-        CollectionAssert.AreEqual(new object[] { s }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray(), "重複の変化・失効・準備中で分裂配置の子は変わらない");
+        CollectionAssert.AreEqual(new object[] { owner.SplitPlacementCandidateListNodeItem, s }, owner.SplitPlacementTreeChildren.Cast<object>().ToArray(),
+            "重複の変化・失効・準備中で分裂配置の子（ノードを含む）は変わらない");
+        Assert.AreEqual(0, owner.DuplicateTreeChildren.Count, "重複側は0件でノードも空（分裂配置のノードの有無に影響されない）");
         Assert.AreEqual(0, splitReasons.Count, "重複の変化は分裂配置の通知を出さない");
 
         state.ReplaceDuplicateChartGroups([d]);
@@ -555,7 +603,8 @@ public sealed class MaintenanceTreeViewModelTests
         state.ReplaceSplitPlacementGroups(null);
         owner.ApplySplitPlacementPresentation();
         Assert.AreEqual(0, owner.SplitPlacementTreeChildren.Count);
-        CollectionAssert.AreEqual(new[] { d }, owner.DuplicateTreeItems.ToArray(), "分裂配置の失効で重複の項目は変わらない");
+        CollectionAssert.AreEqual(new object[] { owner.DuplicateMergeCandidateListNodeItem, d }, owner.DuplicateTreeChildren.Cast<object>().ToArray(),
+            "分裂配置の失効で重複の項目とノードは変わらない");
         CollectionAssert.AreEqual(new[] { "split_placement_groups_changed" }, splitReasons);
         Assert.AreEqual(0, duplicateReasons.Count, "分裂配置の変化は重複の通知を出さない");
         preparation.TrySetResult();

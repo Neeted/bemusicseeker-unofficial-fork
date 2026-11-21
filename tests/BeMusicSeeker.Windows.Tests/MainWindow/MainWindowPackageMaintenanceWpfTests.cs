@@ -2834,7 +2834,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         Action<TestWindowPresentationScope, MainWindowViewModel, MainWindow, TestBmsLibrary, ChartFile[], DuplicateSelectionNavigationTasks> test,
         MainWindowDuplicateMaintenanceTerminal? terminal = null, bool hashSource = false,
         OwnedChartCollectionTestSupport.TestFileMutationService? fileMutations = null,
-        int fillerGroups = 0, int largeGroupFolders = 0,
+        int fillerGroups = 0, int largeGroupFolders = 0, bool uniqueChartNames = false,
         IUiDialogService? dialogService = null, IExternalShellGateway? externalShellGateway = null)
     {
         using var migrationWorkspace = TestWorkspace.Create(TestRunDirectory.RootDirectory);
@@ -2876,7 +2876,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                             bool sameFolder = hashSource && group == 0;
                             string folder = Path.Combine(directory, "group" + group + "-" + (sameFolder ? 0 : member));
                             Directory.CreateDirectory(folder);
-                            string path = Path.Combine(folder, sameFolder && member == 1 ? "duplicate.bms" : "chart.bms");
+                            string path = Path.Combine(folder, sameFolder && member == 1 ? "duplicate.bms" : uniqueChartNames ? "chart-" + group + "-" + member + ".bms" : "chart.bms");
                             string title = sameFolder ? "0 cleanup" : "same";
                             File.WriteAllText(path, "#PLAYER 1\n#TITLE " + title + "\n#ARTIST group" + group + "\n#BPM 120\n");
                             paths.Add(path);

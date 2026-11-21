@@ -92,6 +92,14 @@ internal interface IDuplicateMaintenanceStore
         Action<DuplicateBatchOrganizeProgress> progress,
         CancellationToken cancellationToken);
 
+    /// <summary>
+    /// 分裂配置の結果を探索し直します。呼出し側が受理済みの共通受付を保持している間に呼び、取消の合図は渡しません
+    /// （整理を受理した後の結果の回復であり、取消の対象にしないため）。有効な結果があれば探索せずに戻ります。
+    /// テストで失敗を注入できるよう、操作の窓口として分けています。
+    /// </summary>
+    void SearchSplitPlacementGroups(BMSLibrary library)
+        => library.SearchSplitPlacementGroups(progress: null, CancellationToken.None);
+
     /// <summary>最初の件数確認前に、モデルの現在値と安全属性を固定します。</summary>
     LibraryChartRemovalPreflight PrepareChartRemoval(BMSLibrary library, IReadOnlyList<ChartFile> charts);
 
@@ -251,11 +259,13 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
     private readonly IDuplicateMaintenanceStore store;
     private readonly Func<Exception, Task> exitForUnrestoredDestination;
     private readonly DuplicateMergeCandidateListOwner candidateList;
+    private readonly DuplicateMergeCandidateListOwner splitPlacementCandidateList;
 
     /// <summary>重複保守の操作を所有し、既存宛先の復元不能を実終端後のアプリ終了へ接続します。</summary>
     /// <param name="duplicateGroupNextSelectionProvider">現在結果の次グループを所属値で操作前に捕捉する境界です。末尾ではnullを返します。</param>
     /// <param name="nestedFolderCountProvider">統合元の配下にあるフォルダの件数を、UIスレッドを塞がずに数える境界です。確認を表示する場合だけ呼び、省略時は実ファイルシステムを数えます。</param>
     /// <param name="candidateList">統合候補一覧の管理主体です。一括整理（<see cref="OrganizeSelectedGroupsAsync"/>）が、表示中でSELECTがオンのグループを捕捉する入力です。省略時は一括整理を使えません。</param>
+    /// <param name="splitPlacementCandidateList">分裂配置の統合候補一覧の管理主体です。分裂配置の一覧からの一括整理（<see cref="OrganizeSelectedSplitPlacementGroupsAsync"/>）の入力です。省略時はその入口を使えません。</param>
     internal DuplicateMaintenanceWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
         ChartFileOperationSynchronizer chartFileOperations,
@@ -269,9 +279,11 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
         IDuplicateMaintenanceStore store = null,
         Func<Exception, Task> exitForUnrestoredDestination = null,
         Func<string, Task<int>> nestedFolderCountProvider = null,
-        DuplicateMergeCandidateListOwner candidateList = null)
+        DuplicateMergeCandidateListOwner candidateList = null,
+        DuplicateMergeCandidateListOwner splitPlacementCandidateList = null)
     {
         this.candidateList = candidateList;
+        this.splitPlacementCandidateList = splitPlacementCandidateList;
         this.nestedFolderCountProvider = nestedFolderCountProvider ?? NestedFolderCounter.CountAsync;
         this.exitForUnrestoredDestination = exitForUnrestoredDestination
             ?? (failure => Task.FromException(new InvalidOperationException("Unrestored destination exit is not connected.", failure)));
@@ -866,7 +878,9 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
         Func<BMSLibrary, IDuplicateMaintenanceStore, LibraryOperationNotices, DuplicateMergeMaintenanceReceipt> mutationWithReceipt = null,
         IDisposable acquiredOperationGate = null,
         IEnumerable<string> physicalPaths = null,
-        bool stopPlayback = true)
+        bool stopPlayback = true,
+        bool requireDuplicateGroups = true,
+        Action<BMSLibrary, IDuplicateMaintenanceStore> followUp = null)
     {
         ArgumentNullException.ThrowIfNull(acquiredOperationGate);
         var failures = new List<ExceptionDispatchInfo>();
@@ -913,6 +927,13 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
             {
                 mutationReceipt = mutationWithReceipt(library, operationStore, notices)
                     ?? throw new InvalidOperationException("Duplicate folder merge returned no receipt.");
+                if (followUp != null)
+                {
+                    // 受理した変更の後に、同じ受付と画面更新の抑制の内側で行う後続の処理です。失敗は受理済みの結果を失わず、
+                    // 重複結果の準備の失敗と同じく、後続の失敗として結果へ合成します。
+                    try { followUp(library, operationStore); }
+                    catch (Exception failure) { failures.Add(ExceptionDispatchInfo.Capture(failure)); }
+                }
             }
         }
         catch (Exception exception)
@@ -924,7 +945,7 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
             // 実変更を開始した明示保守は、途中の画面移動によらず成功後選択の準備まで親Lで回収する。
             // 抑制解除で流れる失効ツリーの反映からの重複選択を準備へ合流させるため、解除の通知より前に登録する。
             Task acceptedPreparation = suppressionStarted && library != null && capability != null
-                ? library.CompleteAcceptedDuplicateDataAsync(capability, requireGroups: true)
+                ? library.CompleteAcceptedDuplicateDataAsync(capability, requireGroups: requireDuplicateGroups)
                 : Task.CompletedTask;
             if (suppressionStarted)
             {

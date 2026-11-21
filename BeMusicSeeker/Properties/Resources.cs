@@ -3558,4 +3558,6 @@ public class Resources
     public static string Split_placement_search_progress_prepare => ResourceManager.GetString("Split_placement_search_progress_prepare", resourceCulture);
     /// <summary>分裂配置の探索の進捗画面で、照合の段階を示す書式です。{0}は照合を終えた候補フォルダの数、{1}は候補フォルダの総数です。</summary>
     public static string Split_placement_search_progress_match_format => ResourceManager.GetString("Split_placement_search_progress_match_format", resourceCulture);
+    /// <summary>分裂配置の統合候補一覧からの一括整理で、選択した対象に未確認のグループがあるため整理を始めないことを案内する文言です。</summary>
+    public static string Split_placement_batch_organize_unverified_notice => ResourceManager.GetString("Split_placement_batch_organize_unverified_notice", resourceCulture);
 }

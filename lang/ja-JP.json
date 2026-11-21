@@ -1531,5 +1531,6 @@
   "Split_placement_search_progress_title": "分裂配置を探索中",
   "Split_placement_search_progress_label": "音源の配置名を多く共有するフォルダを探しています。",
   "Split_placement_search_progress_prepare": "準備中",
-  "Split_placement_search_progress_match_format": "照合中 {0}/{1}"
+  "Split_placement_search_progress_match_format": "照合中 {0}/{1}",
+  "Split_placement_batch_organize_unverified_notice": "未確認のグループが選択されています。先に安全性確認を行ってください。"
 }
