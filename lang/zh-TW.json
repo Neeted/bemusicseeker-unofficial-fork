@@ -927,6 +927,7 @@
   "Label_PreviousRootOutputBase": "變更前的根資料夾輸出目標",
   "Validation_OutputBaseNestedWithBmsRootFormat": "{0}不能指定為已登錄 BMS 目錄的父資料夾或子資料夾。\n輸出目標：{1}\n已登錄目錄：{2}",
   "Validation_NestedBmsSearchRootPathsFormat": "LR2 <jukebox> 中註冊的 BMS 目錄之間存在父子關係。\n請檢查 BMS 目錄列表或 LR2 的 config.xml，並移除存在重疊關係的其中一項註冊。\n\n{0}",
+  "Validation_NestedStandaloneBmsRootPathsFormat": "已註冊的 BMS 目錄之間存在父子關係。\n請檢查 BMS 目錄列表，並移除存在重疊關係的其中一項註冊。\n\n{0}",
   "Validation_NestedBmsSearchRootPathLineFormat": "- 父目錄：{0}\n  子目錄：{1}",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat": "將使用以下位置輸出自訂資料夾。\n\n{0}\n\n輸出目標由本應用程式管理。更新輸出、變更設定或刪除播放清單時，播放清單輸出資料夾內的檔案和資料夾可能會被刪除。\n請勿在其中存放歌曲等重要資料。",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat": "- {0}: {1}\n  <jukebox>: {2}",

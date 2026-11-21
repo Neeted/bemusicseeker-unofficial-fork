@@ -927,6 +927,7 @@
   "Label_PreviousRootOutputBase": "変更前のルートフォルダ出力先",
   "Validation_OutputBaseNestedWithBmsRootFormat": "{0}には、登録済みBMSディレクトリの親・子フォルダを指定できません。\n出力先: {1}\n登録済み: {2}",
   "Validation_NestedBmsSearchRootPathsFormat": "LR2 の <jukebox> に登録されている BMS ディレクトリ同士が親子関係になっています。\nBMS ディレクトリ一覧または LR2 の config.xml を見直し、親子関係になっている登録のどちらか一方を外してください。\n\n{0}",
+  "Validation_NestedStandaloneBmsRootPathsFormat": "登録されている BMS ディレクトリ同士が親子関係になっています。\nBMS ディレクトリ一覧を見直し、親子関係になっている登録のどちらか一方を外してください。\n\n{0}",
   "Validation_NestedBmsSearchRootPathLineFormat": "- 親: {0}\n  子: {1}",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat": "次の場所を、カスタムフォルダ出力先として使用します。\n\n{0}\n\n出力先は本アプリの管理領域です。プレイリストの出力フォルダ内のファイルやフォルダは、出力更新・設定変更・プレイリスト削除に伴い削除される場合があります。\n楽曲などの大切なデータは置かないでください。",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat": "- {0}: {1}\n  <jukebox>: {2}",

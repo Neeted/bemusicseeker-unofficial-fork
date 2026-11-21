@@ -927,6 +927,7 @@
   "Label_PreviousRootOutputBase": "변경 전 루트 폴더 출력 대상",
   "Validation_OutputBaseNestedWithBmsRootFormat": "{0}에는 등록된 BMS 디렉터리의 부모 또는 자식 폴더를 지정할 수 없습니다.\n출력 대상: {1}\n등록된 디렉터리: {2}",
   "Validation_NestedBmsSearchRootPathsFormat": "LR2 <jukebox>에 등록된 BMS 디렉터리끼리 부모/자식 관계가 있습니다.\nBMS 디렉터리 목록 또는 LR2 config.xml을 확인하고, 겹치는 등록 중 하나를 제거하십시오.\n\n{0}",
+  "Validation_NestedStandaloneBmsRootPathsFormat": "등록된 BMS 디렉터리끼리 부모/자식 관계가 있습니다.\nBMS 디렉터리 목록을 확인하고, 겹치는 등록 중 하나를 제거하십시오.\n\n{0}",
   "Validation_NestedBmsSearchRootPathLineFormat": "- 부모: {0}\n  자식: {1}",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat": "다음 위치를 사용자 지정 폴더 출력 대상으로 사용합니다.\n\n{0}\n\n출력 대상은 이 앱의 관리 영역입니다. 플레이리스트 출력 폴더 안의 파일과 폴더는 출력 갱신, 설정 변경 또는 플레이리스트 삭제 시 삭제될 수 있습니다.\n곡이나 중요한 데이터를 저장하지 마세요.",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat": "- {0}: {1}\n  <jukebox>: {2}",

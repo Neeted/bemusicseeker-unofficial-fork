@@ -927,6 +927,7 @@
   "Label_PreviousRootOutputBase": "previous root-folder output destination",
   "Validation_OutputBaseNestedWithBmsRootFormat": "{0} cannot be a parent or child of a registered BMS directory.\nOutput destination: {1}\nRegistered directory: {2}",
   "Validation_NestedBmsSearchRootPathsFormat": "BMS directories registered in LR2 <jukebox> contain a parent/child overlap.\nReview the BMS directory list or LR2 config.xml, and remove one side of each overlapping registration.\n\n{0}",
+  "Validation_NestedStandaloneBmsRootPathsFormat": "Registered BMS directories contain a parent/child overlap.\nReview the BMS directory list, and remove one side of each overlapping registration.\n\n{0}",
   "Validation_NestedBmsSearchRootPathLineFormat": "- Parent: {0}\n  Child: {1}",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat": "The following locations will be used for custom folder output.\n\n{0}\n\nOutput destinations are managed by this application. Files and folders inside a playlist output folder may be deleted when output is updated, settings are changed, or the playlist is deleted.\nDo not store songs or other important data there.",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat": "- {0}: {1}\n  <jukebox>: {2}",

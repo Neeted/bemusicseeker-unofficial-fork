@@ -927,6 +927,7 @@
   "Label_PreviousRootOutputBase": "ancienne destination de sortie du dossier racine",
   "Validation_OutputBaseNestedWithBmsRootFormat": "{0} ne peut pas être un dossier parent ou enfant d’un répertoire BMS enregistré.\nDestination de sortie : {1}\nRépertoire enregistré : {2}",
   "Validation_NestedBmsSearchRootPathsFormat": "Les répertoires BMS enregistrés dans le <jukebox> LR2 contiennent une relation parent/enfant.\nVérifiez la liste des répertoires BMS ou le fichier config.xml de LR2, puis retirez l’un des deux enregistrements qui se chevauchent.\n\n{0}",
+  "Validation_NestedStandaloneBmsRootPathsFormat": "Les répertoires BMS enregistrés contiennent une relation parent/enfant.\nVérifiez la liste des répertoires BMS, puis retirez l’un des deux enregistrements qui se chevauchent.\n\n{0}",
   "Validation_NestedBmsSearchRootPathLineFormat": "- Parent : {0}\n  Enfant : {1}",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat": "Les emplacements suivants seront utilisés pour la sortie des dossiers personnalisés.\n\n{0}\n\nCes emplacements sont gérés par cette application. Les fichiers et dossiers contenus dans le dossier de sortie d’une playlist peuvent être supprimés lors de la mise à jour de la sortie, d’un changement de paramètres ou de la suppression de la playlist.\nN’y placez pas de morceaux ni d’autres données importantes.",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat": "- {0} : {1}\n  <jukebox>: {2}",

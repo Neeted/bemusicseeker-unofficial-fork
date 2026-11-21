@@ -2822,6 +2822,12 @@ BMS ディレクトリ一覧または LR2 の config.xml を見直し、親子�
 
 {0}</value>
   </data>
+  <data name="Validation_NestedStandaloneBmsRootPathsFormat" xml:space="preserve">
+    <value>登録されている BMS ディレクトリ同士が親子関係になっています。
+BMS ディレクトリ一覧を見直し、親子関係になっている登録のどちらか一方を外してください。
+
+{0}</value>
+  </data>
   <data name="Validation_NestedBmsSearchRootPathLineFormat" xml:space="preserve">
     <value>- 親: {0}
   子: {1}</value>

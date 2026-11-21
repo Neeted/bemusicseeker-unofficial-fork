@@ -2320,7 +2320,8 @@ public partial class SettingsDialogViewModel : ViewModel
         return conflicts;
     }
 
-    private static string BuildNestedBmsSearchRootConflictMessage(IReadOnlyList<NestedBmsSearchRootConflict> conflicts)
+    /// <summary>親子登録の理由を組み立てます。LR2連携は設定XMLの見直しを案内する文言、単独モードはBMSディレクトリ一覧だけを案内する文言を使います。</summary>
+    private static string BuildNestedBmsSearchRootConflictMessage(IReadOnlyList<NestedBmsSearchRootConflict> conflicts, bool standalone)
     {
         const int maxVisibleConflictCount = 10;
         IReadOnlyList<NestedBmsSearchRootConflict> safeConflicts = conflicts ?? [];
@@ -2338,7 +2339,11 @@ public partial class SettingsDialogViewModel : ViewModel
             conflictLines += Environment.NewLine
                 + FormatResource(BeMusicSeeker.Properties.Resources.Confirm_CustomFolderOutputBaseJukeboxAdoptionOmittedLineFormat, omittedCount);
         }
-        return FormatResource(BeMusicSeeker.Properties.Resources.Validation_NestedBmsSearchRootPathsFormat, conflictLines);
+        return FormatResource(
+            standalone
+                ? BeMusicSeeker.Properties.Resources.Validation_NestedStandaloneBmsRootPathsFormat
+                : BeMusicSeeker.Properties.Resources.Validation_NestedBmsSearchRootPathsFormat,
+            conflictLines);
     }
 
     private IReadOnlyList<CustomFolderOutputBaseCandidate> CreateCurrentCustomFolderOutputBaseCandidates(CustomFolderOutputSettingsSnapshot target = null)
@@ -5097,12 +5102,25 @@ public partial class SettingsDialogViewModel : ViewModel
     /// <summary>単独モードのBMS候補を検証・確認後に追加し、確定値は変更しません。</summary>
     public Task AddStandaloneBmsRootPathsAsync(IEnumerable<string> paths) => RunSettingsOperationAsync(() => AddStandaloneBmsRootPathsCoreAsync(paths));
 
-    /// <summary>受理済みの単独BMS候補編集を、設定受付を取り直さず実行します。</summary>
+    /// <summary>
+    /// 追加するBMS登録が、現在の候補一覧および同じ追加内の他の登録と同一または親子になる場合に拒否します。
+    /// LR2連携モードと単独モードで同じ条件を使います。比較相手は確定一覧ではなく候補一覧で、一組でも該当すれば追加の全件を拒否します。
+    /// </summary>
+    private void ThrowIfBmsRootAdditionOverlaps(IReadOnlyList<string> requestedPaths)
+    {
+        if (requestedPaths.Any(path => BmsRootPathList.Any(existing => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, existing)))
+            || requestedPaths.Any(path => requestedPaths.Any(other => !string.Equals(path, other, StringComparison.OrdinalIgnoreCase)
+                && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, other))))
+        {
+            throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_BmsSearchDirectoriesOverlap);
+        }
+    }
+
+    /// <summary>受理済みの単独BMS候補編集を、設定受付を取り直さず実行します。同一・親子の登録はLR2連携モードと同じく拒否します。</summary>
     private async Task AddStandaloneBmsRootPathsCoreAsync(IEnumerable<string> paths)
     {
         try
         {
-            string before = SerializeBmsRootPathsForChangeTracking(BmsRootPathList);
             List<string> requestedPaths = [.. NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(paths ?? [])];
             ThrowIfLr2IncompatibleStandaloneBmsRoots(requestedPaths);
             string requestedPath = requestedPaths.FirstOrDefault();
@@ -5110,23 +5128,20 @@ public partial class SettingsDialogViewModel : ViewModel
             {
                 return;
             }
-            if (!requestedPaths.Any(path => !BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase)) || !await PrepareBmsCandidateEditAsync()) { return; }
+            ThrowIfBmsRootAdditionOverlaps(requestedPaths);
+            if (!await PrepareBmsCandidateEditAsync()) { return; }
             requestedPaths = [.. NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(requestedPaths)];
             if (requestedPaths.Count == 0) { return; }
             requestedPath = requestedPaths[0];
-            if (!requestedPaths.Any(path => !BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase))) { return; }
+            ThrowIfBmsRootAdditionOverlaps(requestedPaths);
             DiscardConflictingCandidates(ConflictingCandidates.Lr2Details);
             foreach (string path in requestedPaths)
             {
-                if (!BmsRootPathList.Contains(path, StringComparer.OrdinalIgnoreCase))
-                {
-                    BmsRootPathList.Add(path);
-                }
+                BmsRootPathList.Add(path);
             }
             SelectedStandaloneBmsRootPath = BmsRootPathList.FirstOrDefault(path => string.Equals(path, requestedPath, StringComparison.OrdinalIgnoreCase))
                 ?? BmsRootPathList.FirstOrDefault(path => CustomFolderOutputBaseSearchRootSyncService.IsSameOrChildDirectory(requestedPath, path))
                 ?? BmsRootPathList.FirstOrDefault();
-            string after = SerializeBmsRootPathsForChangeTracking(BmsRootPathList);
             RaisePropertyChanged(nameof(BmsRootPathList));
             RaiseBmsListPropertyChanged(nameof(AvailableBMSDirectories));
             RaisePropertyChanged(nameof(SelectedBmsSearchRootPath));
@@ -5167,10 +5182,7 @@ public partial class SettingsDialogViewModel : ViewModel
                 {
                     throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_ManagedCustomFolderOutputCannotBeAddedAsBmsRoot + Environment.NewLine + conflictingPath);
                 }
-                if (requestedPaths.Any(path => BmsRootPathList.Any(existing => CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, existing)))
-                    || requestedPaths.Any(path => requestedPaths.Any(other => !string.Equals(path, other, StringComparison.OrdinalIgnoreCase)
-                        && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(path, other))))
-                { throw new ArgumentException(BeMusicSeeker.Properties.Resources.Error_BmsSearchDirectoriesOverlap); }
+                ThrowIfBmsRootAdditionOverlaps(requestedPaths);
             }
             ValidateAddition();
             if (!await PrepareBmsCandidateEditAsync()) { return; }

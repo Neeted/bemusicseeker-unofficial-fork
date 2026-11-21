@@ -927,6 +927,7 @@
   "Label_PreviousRootOutputBase": "变更前的根文件夹输出目标",
   "Validation_OutputBaseNestedWithBmsRootFormat": "{0}不能指定为已注册 BMS 目录的父文件夹或子文件夹。\n输出目标：{1}\n已注册目录：{2}",
   "Validation_NestedBmsSearchRootPathsFormat": "LR2 <jukebox> 中注册的 BMS 目录之间存在父子关系。\n请检查 BMS 目录列表或 LR2 的 config.xml，并移除存在重叠关系的其中一项注册。\n\n{0}",
+  "Validation_NestedStandaloneBmsRootPathsFormat": "已注册的 BMS 目录之间存在父子关系。\n请检查 BMS 目录列表，并移除存在重叠关系的其中一项注册。\n\n{0}",
   "Validation_NestedBmsSearchRootPathLineFormat": "- 父目录：{0}\n  子目录：{1}",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat": "将使用以下位置输出自定义文件夹。\n\n{0}\n\n输出目标由本应用管理。更新输出、更改设置或删除播放列表时，播放列表输出文件夹内的文件和文件夹可能会被删除。\n请勿在其中存放歌曲等重要数据。",
   "Confirm_CustomFolderOutputBaseJukeboxAdoptionConflictLineFormat": "- {0}: {1}\n  <jukebox>: {2}",

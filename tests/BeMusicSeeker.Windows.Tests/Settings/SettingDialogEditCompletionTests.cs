@@ -1852,6 +1852,69 @@ public sealed class SettingDialogEditCompletionTests
         }
     }
 
+    /// <summary>
+    /// 条件：初回起動ではない通常起動で、単独モードの確定登録に実在する親子（P と P\C）がある。
+    /// 期待結果：起動は設定不備で止まり（InitializeAsync は false）、警告は一件で見出しと「一般: 親子の理由」の行と一致し、表示要求は警告、設定画面の順になる。不備の一覧はBMSディレクトリ欄の一行だけで、portable song.db を作らず、プロファイルを持たず、設定の保存は0回で保存値は変わらない。
+    /// 検出する誤り：単独モードで親子を受理して起動を続ける、起動時検査が不備の一覧と別の判定を使う、読込み時に親子を自動補正して保存する。
+    /// </summary>
+    [TestMethod]
+    public async Task InitializeAsync_StandaloneNestedRootsStopWithBmsDirectoryDeficiencyAndKeepSettings()
+    {
+        string root = CreateTemporaryRoot(CaseWorkspace);
+        string applicationRoot = Path.Combine(root, "application");
+        string parent = Path.Combine(root, "bms");
+        string child = Path.Combine(parent, "child");
+        Directory.CreateDirectory(applicationRoot);
+        Directory.CreateDirectory(child);
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(parent);
+            settings.BMSRootPath = parent;
+            settings.StandaloneBmsRootPaths = string.Join(Environment.NewLine, parent, child);
+            string savedRoots = settings.StandaloneBmsRootPaths;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            var dialogs = new RecordingRootDialogService();
+            var sequence = new List<string>();
+            dialogs.MessageObserved = () => sequence.Add("warning");
+            var applicationPath = ApplicationPathSnapshot.FromExecutablePath(
+                Path.Combine(applicationRoot, "BeMusicSeeker.exe"));
+            MainWindowViewModel viewModel = new ApplicationComposition(
+                settingsEditSession: settingsSession,
+                uiScheduler: new WpfUiScheduler(() => Dispatcher.CurrentDispatcher),
+                applicationLifetime: TestApplicationContext.CreateLifetime(firstStartup: false),
+                cultureCatalog: TestApplicationContext.CreateCultureCatalog(),
+                runtimeOptions: MainWindowViewModelTestFactory.CreateRuntimeOptions(applicationPath),
+                fileDbMutationDialogService: dialogs,
+                dialogService: UndeclaredDialogs.Create())
+                .CreateMainWindowViewModel();
+            var presentation = new RecordingSettingsDialogPresentationPort(sequence.Add);
+            viewModel.SettingDialog.AttachPresentationPort(presentation);
+
+            bool initialized = await viewModel.InitializeAsync();
+
+            Assert.IsFalse(initialized);
+            Assert.AreEqual(1, dialogs.MessageCount);
+            CollectionAssert.AreEqual(new[] { "warning", "open" }, sequence);
+            string reason = string.Format(CultureInfo.CurrentCulture, Resources.Validation_NestedStandaloneBmsRootPathsFormat,
+                string.Format(CultureInfo.CurrentCulture, Resources.Validation_NestedBmsSearchRootPathLineFormat, parent, child));
+            Assert.AreEqual(string.Join(Environment.NewLine,
+                Resources.Msg_init_settings_check,
+                string.Format(CultureInfo.CurrentCulture, Resources.SettingValidation_SectionMessageFormat, Resources.General, reason)),
+                dialogs.LastMessageText);
+            CollectionAssert.AreEqual(
+                new[] { (SettingsCategory.General, SettingsDeficiencyField.BmsDirectories) },
+                viewModel.SettingDialog.Deficiencies.Select(item => (item.Category, item.Field)).ToArray());
+            Assert.IsFalse(File.Exists(applicationPath.StandaloneSongDbPath));
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+            Assert.AreEqual(0, settingsSession.SaveCount);
+            Assert.AreEqual(savedRoots, settings.StandaloneBmsRootPaths);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     /// <summary>LR2 config の登録 root が欠損すると警告と設定案内に終端し、実 config／DB を保って出力先修復を始めないことを確認します。</summary>
     [TestMethod]
     public async Task InitializeAsync_LinkedMissingRootStopsBeforeOutputRepairAndPreservesConfig()

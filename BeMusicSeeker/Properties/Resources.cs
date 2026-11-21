@@ -2145,6 +2145,8 @@ public class Resources
 
     public static string Validation_NestedBmsSearchRootPathsFormat => ResourceManager.GetString("Validation_NestedBmsSearchRootPathsFormat", resourceCulture);
 
+    public static string Validation_NestedStandaloneBmsRootPathsFormat => ResourceManager.GetString("Validation_NestedStandaloneBmsRootPathsFormat", resourceCulture);
+
     public static string Validation_NestedBmsSearchRootPathLineFormat => ResourceManager.GetString("Validation_NestedBmsSearchRootPathLineFormat", resourceCulture);
 
     public static string Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat => ResourceManager.GetString("Confirm_CustomFolderOutputBaseJukeboxAdoptionFormat", resourceCulture);

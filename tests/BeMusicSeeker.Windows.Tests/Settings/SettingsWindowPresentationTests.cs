@@ -4859,7 +4859,10 @@ public sealed class SettingsWindowPresentationTests
         TestUiDispatcherHost.RunWindowTest(windowTest =>
         {
             string root = Path.Combine(CaseWorkspace.RootDirectory, "BmsSavedSettings-" + Guid.NewGuid().ToString("N"));
+            // 登録済みのルートの配下に追加候補を置くと追加が拒否されるため、登録ルートと追加候補は兄弟の位置に置きます。
+            string library = Path.Combine(root, "library");
             string added = Path.Combine(root, "added");
+            Directory.CreateDirectory(library);
             Directory.CreateDirectory(added);
             using var release = new ManualResetEventSlim();
             var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -4869,7 +4872,7 @@ public sealed class SettingsWindowPresentationTests
             Settings values = TestSettingsFactory.CreateIsolatedSettings(value =>
             {
                 value.OperationModeLR2DB = false;
-                value.BMSRootPath = root; value.StandaloneBmsRootPaths = root; value.BMSInstallDir = root;
+                value.BMSRootPath = library; value.StandaloneBmsRootPaths = library; value.BMSInstallDir = library;
                 value.TableListURL = UnreachableHttpEndpoint.TableListUrl;
                 value.EnablePlaylistUrlCompletion = false; value.ScanBmsFilesOnStartup = false; value.SkipInitPlaylistLoad = true;
                 value.UseBeatorajaScoreDb = false; value.EnableBeatorajaBmtOutput = false; value.UseExternalPanelImage = false;
@@ -4900,7 +4903,7 @@ public sealed class SettingsWindowPresentationTests
                 Assert.IsTrue(owner.IsInitializationCompleted);
                 string chart = Path.Combine(added, "normal.bms");
                 File.WriteAllText(chart, "#PLAYER 1\n#TITLE Modal Folder\n#BPM 120\n#00111:01\n");
-                var next = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [added] = [] }, [root]);
+                var next = CapturedChartFileScanner.FromFixture([chart], new Dictionary<string, IEnumerable<string>> { [added] = [] }, [library]);
                 next.ScanObserved = () => { entered.TrySetResult(); release.Wait(); };
                 scanner.Current = next;
                 main = ownership.CreateWindow(() => new MainWindow(owner, window =>
