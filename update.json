@@ -1,19 +1,19 @@
 {
   "schemaVersion": 1,
-  "version": "3.2.0.0",
-  "releaseTag": "v3.2.0.0",
-  "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v3.2.0.0",
+  "version": "3.3.0.0",
+  "releaseTag": "v3.3.0.0",
+  "releasePageUrl": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/tag/v3.3.0.0",
   "packageFormatVersion": 1,
-  "publishedAt": "2026-11-16T13:39:49Z",
+  "publishedAt": "2026-11-22T15:40:10Z",
   "minimumUpdaterVersion": "1",
   "assets": [
     {
       "kind": "app",
       "label": "App with metadata bundle",
-      "fileName": "bemusicseeker-unofficial-fork-v3.2.0.0-with-metadata.zip",
-      "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v3.2.0.0/bemusicseeker-unofficial-fork-v3.2.0.0-with-metadata.zip",
-      "sha256": "70d410f9efaf0114f7d4f41dd2cc19b5101001e4f2397af98c5b71c400281597",
-      "sizeBytes": 163893509,
+      "fileName": "bemusicseeker-unofficial-fork-v3.3.0.0-with-metadata.zip",
+      "url": "https://github.com/Neeted/bemusicseeker-unofficial-fork/releases/download/v3.3.0.0/bemusicseeker-unofficial-fork-v3.3.0.0-with-metadata.zip",
+      "sha256": "30682a718a8a2b3ce35c179dad53997e8e5ff74272a9c101d7d488dbb346a882",
+      "sizeBytes": 164846755,
       "includesChartInfoMetadata": true
     }
   ]
