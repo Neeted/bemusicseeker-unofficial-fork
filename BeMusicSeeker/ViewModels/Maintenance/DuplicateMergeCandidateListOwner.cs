@@ -48,6 +48,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
 {
     private readonly Func<string, bool> directoryExists;
     private readonly Action<string> openDirectory;
+    private readonly Func<DuplicateMergeOverwriteSettings> overwriteSettings;
     private Dictionary<DuplicateGroup, DuplicateMergeCandidateGroupState> states = new(ReferenceEqualityComparer.Instance);
     private DuplicateMergeCandidateListPreparation preparation;
     private object library;
@@ -63,16 +64,22 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     private ListSortDirection sortDirection = ListSortDirection.Ascending;
     private int visibleGroupCount;
     private int selectedGroupCount;
-    private bool quickCompareEnabled = true;
+    private bool quickCompareEnabled;
     private IReadOnlyList<string> preferredDestinations = [];
 
     /// <param name="directoryExists">フォルダの存在を確認する窓口です。エクスプローラーで開く対象の判定に使います。</param>
     /// <param name="openDirectory">フォルダをエクスプローラーで開く窓口です。</param>
-    internal DuplicateMergeCandidateListOwner(Func<string, bool> directoryExists, Action<string> openDirectory)
+    /// <param name="overwriteSettings">統合が使う現在の上書きの設定を返します。衝突の説明を読むたびに呼び、値を保持しません。</param>
+    internal DuplicateMergeCandidateListOwner(
+        Func<string, bool> directoryExists, Action<string> openDirectory, Func<DuplicateMergeOverwriteSettings> overwriteSettings)
     {
         this.directoryExists = directoryExists ?? throw new ArgumentNullException(nameof(directoryExists));
         this.openDirectory = openDirectory ?? throw new ArgumentNullException(nameof(openDirectory));
+        this.overwriteSettings = overwriteSettings ?? throw new ArgumentNullException(nameof(overwriteSettings));
     }
+
+    /// <summary>統合が使う現在の上書きの設定です。読むたびに取得し、STATUSのツールチップと一括整理の確認文の衝突の説明に使います。</summary>
+    internal DuplicateMergeOverwriteSettings OverwriteSettings => overwriteSettings();
 
     /// <summary>表示内容（SELECT・STATUS・KEEP）が変わり、表が再描画する必要があるときに通知します。行集合は変わりません。</summary>
     internal event EventHandler DisplayInvalidated;
@@ -166,7 +173,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
     internal IReadOnlyList<string> PreferredDestinations => preferredDestinations;
 
     /// <summary>
-    /// 安全性の確認で、サイズと更新日時が完全に一致するファイルを、内容を読まずに同一とみなすかです。既定はオンで、アプリの起動中だけ保持し、
+    /// 安全性の確認で、サイズと更新日時が完全に一致するファイルを、内容を読まずに同一とみなすか（高速化のための簡易チェック）です。既定はオフで、アプリの起動中だけ保持し、
     /// ライブラリの交換後も残ります。確認の開始時に一度だけ読み、確認の途中の変更は進行中の確認へ影響しません。
     /// </summary>
     public bool QuickCompareEnabled
@@ -668,7 +675,7 @@ public sealed class DuplicateMergeCandidateListOwner : ViewModel
             foreach (string folder in state.Folders)
             {
                 (string title, string artist) = PairOf(folder);
-                builtRows[index] = new DuplicateMergeCandidateRow(state, folder, GetFolderName(folder), title, artist, index, groupIndex);
+                builtRows[index] = new DuplicateMergeCandidateRow(state, folder, GetFolderName(folder), title, artist, index, groupIndex, overwriteSettings);
                 index++;
             }
         }

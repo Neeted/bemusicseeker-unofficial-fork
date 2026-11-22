@@ -322,8 +322,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             var orphanGroup = new DuplicateGroup([], [@"C:\Nowhere\a", @"C:\Nowhere\b"]);
             var orphanState = new DuplicateMergeCandidateGroupState(new DuplicateMergeCandidateGroupInitial(
                 orphanGroup, orphanGroup.Folders, orphanGroup.Folders[0], false, false, []));
-            DuplicateMergeCandidateRow vanishedGroup = new(orphanState, @"C:\Nowhere\a", "a", string.Empty, string.Empty, 0, 0);
-            DuplicateMergeCandidateRow vanishedFolder = new(candidates.RowSet[0].State, @"C:\Nowhere\other", "other", string.Empty, string.Empty, 0, 0);
+            DuplicateMergeCandidateRow vanishedGroup = new(orphanState, @"C:\Nowhere\a", "a", string.Empty, string.Empty, 0, 0, () => default);
+            DuplicateMergeCandidateRow vanishedFolder = new(candidates.RowSet[0].State, @"C:\Nowhere\other", "other", string.Empty, string.Empty, 0, 0, () => default);
             int requests = navigation.Count;
             InvokeRowActivated(window, table, vanishedGroup);
             InvokeRowActivated(window, table, vanishedFolder);
@@ -417,7 +417,6 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                     (Button)window.FindName("duplicateCandidateOrganizeButton")
                 ],
                 quickCompare);
-            Assert.IsTrue(quickCompare.IsChecked, "簡易確認のチェックは既定で入っています。");
             // 確認済みのグループ（要注意、理由に該当の一覧あり）を書き込み、STATUSとツールチップの追従も確かめる。
             DuplicateMergeVerificationResult cautionResult = new(
                 DuplicateMergeVerificationStage.Caution,
@@ -463,11 +462,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
 
     /// <summary>
     /// 保証：実画面の「選択グループを確認」ボタンと右クリックメニューの「このグループを確認」が、実ファイルの確認を通じてSTATUS・SELECT・件数表示・ツールチップを更新し、
-    /// 確認を終えたグループのSELECTは段階によらずオフになり（件数表示の選択は0）、進捗の要求はメインウィンドウを所有者として出して、結果の案内を一件だけ出す（「チェックを入れました」の文を含まない）。簡易確認のチェックは、開始時にオンで案内がなく、外す操作では案内せず、入れる操作で案内を一件出して管理主体へ値を渡す。
-    /// 実ファイルの衝突（別内容の資源）のグループは要注意になり、衝突を解消して右クリックで再確認すれば安全になるが、SELECTはオフのまま操作できる。
+    /// 確認を終えたグループのSELECTは段階によらずオフになり（件数表示の選択は0）、進捗の要求はメインウィンドウを所有者として出して、結果の案内を一件だけ出す（「チェックを入れました」の文を含まない）。簡易チェックは、開始時にオフで案内がなく、入れる操作で警告を一件出して管理主体へ値を渡し、外す操作では案内しない。
+    /// チェックに触れずに確認すると、サイズと更新日時が同じで内容が異なる資源のグループは要注意になり（既定のオフが検査器へ届く）、そのツールチップは標準構成の上書きの設定に合った扱いを添える。
+    /// 衝突を解消して右クリックで再確認すれば安全になるが、SELECTはオフのまま操作できる。
     /// 標準構成の接続は、共通の受付が使用中なら確認がBusyの案内で未開始になることで確かめる。条件の網羅は検査器・管理主体のケースが担当する。
     /// 検出する誤り：ボタン・メニュー・チェックの未接続、進捗の所有者の欠落、案内の重複・欠落、SELECT・件数表示・STATUSの更新漏れ、標準構成の受付への未接続、
-    /// チェックの既定がオフ・起動時の案内。
+    /// チェックの既定がオン・起動時の案内、既定の値が検査器へ届かない、ツールチップが構成の設定を読まない。
     /// </summary>
     [TestMethod]
     public void CandidateList_VerifyButtonMenuAndQuickCompareCheckActThroughRealFiles()
@@ -489,6 +489,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             // グループ1（行2・3）のフォルダに、同じ相対パスで内容が異なる資源を置く。グループ0は同一内容の譜面だけで衝突しない。
             File.WriteAllBytes(Path.Combine(rows[2].Path, "x.bin"), [1, 2, 3, 4]);
             File.WriteAllBytes(Path.Combine(rows[3].Path, "x.bin"), [5, 6, 7, 8]);
+            // サイズと更新日時をそろえる。簡易チェックが有効なら読まずに同一内容になるため、要注意になれば既定のオフが検査器へ届いている。
+            DateTime sameTime = new(2024, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(Path.Combine(rows[2].Path, "x.bin"), sameTime);
+            File.SetLastWriteTimeUtc(Path.Combine(rows[3].Path, "x.bin"), sameTime);
             // 同一内容の資源を共有させ、連結の不足（同一内容ファイルなし）を別の理由として混ぜない。
             File.WriteAllBytes(Path.Combine(rows[2].Path, "shared.bin"), [9, 9, 9]);
             File.WriteAllBytes(Path.Combine(rows[3].Path, "shared.bin"), [9, 9, 9]);
@@ -496,15 +500,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Click(table, 2, "Select");
             Assert.AreEqual(2, candidates.SelectedGroupCount);
             int messagesBefore = dialogs.Messages.Count;
-            Assert.IsTrue(quickCompare.IsChecked, "開始時はチェックが入っています。");
-            Assert.IsTrue(candidates.QuickCompareEnabled);
-            Assert.IsFalse(dialogs.Messages.Any(message => message.MessageBoxText == Resources.Duplicate_merge_candidate_quick_compare_notice), "起動から開始までに注意の案内は出ません。");
-
-            // 同じサイズで書いたファイルの更新日時が一致すると判定が変わり得るため、確認の前にチェックを外し、全量の比較で確かめる（最後に入れ直す）。
-            quickCompare.IsChecked = false;
-            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "quick-compare-off");
+            Assert.IsFalse(quickCompare.IsChecked, "開始時はチェックが外れています。");
             Assert.IsFalse(candidates.QuickCompareEnabled);
-            Assert.AreEqual(messagesBefore, dialogs.Messages.Count, "外す操作では案内しません。");
+            Assert.IsFalse(dialogs.Messages.Any(message => message.MessageBoxText == Resources.Duplicate_merge_candidate_quick_compare_notice), "起動から開始までに警告の案内は出ません。");
 
             // 標準構成の受付が使用中なら、確認はBusyの案内で未開始になる。
             Assert.IsTrue(MainWindowViewModelTestFactory.GetComposition(viewModel).OperationAdmission.TryEnter(out IDisposable? lease));
@@ -536,6 +534,10 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             string tooltip = ResolveStatusTooltip(table, 2);
             StringAssert.Contains(tooltip, Resources.Duplicate_merge_candidate_reason_content_conflict_description);
             StringAssert.Contains(tooltip, Path.Combine(rows[2].Path, "x.bin"));
+            // 標準構成は、統合が使うのと同じ設定をツールチップへ渡す。この構成の設定はスマート上書きがオン（既定）で、設定ごとの分岐は管理主体のケースが担当する。
+            Assert.IsTrue(MainWindowViewModelTestFactory.GetComposition(viewModel).BmsLibraryOptionsProvider().EnableSmartComponentOverwrite, "前提：構成の設定はスマート上書きがオンです。");
+            StringAssert.Contains(tooltip, Resources.Duplicate_merge_candidate_overwrite_note_newer);
+            Assert.IsFalse(tooltip.Contains(Resources.Duplicate_merge_candidate_overwrite_note_source, StringComparison.Ordinal));
             StringAssert.Contains(ResolveStatusTooltip(table, 0), Resources.Duplicate_merge_candidate_safe_not_compared);
 
             // 右クリックメニュー：衝突を解消してグループ1だけを再確認する。SELECTの状態によらず対象になり、安全になってもSELECTはオフのまま操作できる。
@@ -554,13 +556,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count);
             StringAssert.Contains(ResolveStatusTooltip(table, 2), string.Format(Resources.Duplicate_merge_candidate_safe_compared_single_format, 2, Resources.Duplicate_merge_candidate_method_full));
 
-            // 簡易確認のチェックを入れ直す：入れる操作で案内を一件出し、管理主体の値を有効にする。
+            // 簡易チェックを入れる：入れる操作で警告を一件出し、管理主体の値を有効にする。外す操作では案内しない。
             messagesBefore = dialogs.Messages.Count;
             quickCompare.IsChecked = true;
             AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "quick-compare-on");
             Assert.IsTrue(candidates.QuickCompareEnabled);
             Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count);
             Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_notice, dialogs.Messages[^1].MessageBoxText);
+            quickCompare.IsChecked = false;
+            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "quick-compare-off");
+            Assert.IsFalse(candidates.QuickCompareEnabled);
+            Assert.AreEqual(messagesBefore + 1, dialogs.Messages.Count, "外す操作では案内しません。");
         }, dialogService: dialogs);
     }
 
@@ -937,6 +943,9 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 DuplicateMergeVerificationStage.Caution,
                 [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ParentReference, [new DuplicateMergeFinding(rows[4].Path, "c.bms", "../x.wav")])]);
             candidates.WriteVerifications([new DuplicateMergeVerificationWrite(untouched.Group, cautionResult)]);
+            // 整理する側の一つ目へ、安全で.bmx/.txtの衝突の付記を持つ確認結果を書く。確認文の衝突の行が、標準構成の上書きの設定に接続していることを確かめる。
+            candidates.WriteVerifications(
+                [new DuplicateMergeVerificationWrite(rows[0].State.Group, new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, [], ["readme.txt"]))]);
             Click(table, 0, "Select");
             Click(table, 2, "Select");
             Assert.AreEqual(2, candidates.SelectedGroupCount);
@@ -963,6 +972,17 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
                 Assert.AreSame(window, dialogs.Progress.Request!.Owner, "進捗画面の所有者はメインウィンドウです。");
                 Assert.AreEqual(Resources.Duplicate_batch_organize_title, dialogs.Progress.Request.Title);
                 Assert.IsNotNull(dialogs.ConfirmationRequest, "承認の後に実行しています。");
+                BmsLibraryOptionsSnapshot options = composition.BmsLibraryOptionsProvider();
+                Assert.IsTrue(options.EnableSmartComponentOverwrite && !options.KeepSmartOverwriteProtectedFilesByRenaming, "前提：構成の設定はスマート上書きだけがオンです。");
+                // もう一方の整理対象は未確認なので、警告用の本文は［未確認の行、衝突の行］です。
+                CollectionAssert.AreEqual(
+                    new[]
+                    {
+                        string.Format(Resources.Duplicate_batch_organize_confirm_unverified_format, 1),
+                        Resources.Duplicate_batch_organize_confirm_collision_newer
+                    },
+                    dialogs.ConfirmationRequest.WarningMessageBoxText!.Split(Environment.NewLine),
+                    "確認文の衝突の行は、統合が使うのと同じ構成の設定で決まります。");
                 Assert.AreEqual(0, dialogs.Messages.Count, "結果は終了後に案内します。");
             }
             finally
@@ -1089,8 +1109,15 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
         public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
             => Task.FromResult(new UiFolderPickerResult(UiDialogStatus.Accepted, NextFolders));
 
+        /// <summary>案内を記録する先です。null（既定）のケースでは、案内を出すこと自体が失敗です。</summary>
+        internal List<UiMessageRequest>? Messages { get; set; }
+
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
-            => throw new AssertFailedException("案内は出しません。");
+        {
+            if (Messages == null) { throw new AssertFailedException("案内は出しません。"); }
+            Messages.Add(request);
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
 
         public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
             => throw new NotSupportedException();

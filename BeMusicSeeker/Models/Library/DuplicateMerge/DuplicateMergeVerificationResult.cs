@@ -85,7 +85,7 @@ internal sealed record DuplicateMergeComparisonSummary(int SizeAndTime, int Full
 /// <summary>グループごとの確認結果です。段階と理由の一覧を不変の値として持ちます。</summary>
 /// <param name="Stage">段階。</param>
 /// <param name="Reasons">同時に成立した理由。<see cref="DuplicateMergeVerificationReasonKind"/> の宣言順です。</param>
-/// <param name="ProtectedNameCollisions">同じ相対パスの保護対象が複数のフォルダにある場合の、その相対パスです。段階を変えない付記です。</param>
+/// <param name="ProtectedNameCollisions">同じ相対パスの保護対象（.bmx・.pmx・.txt）が複数のフォルダにあり、別内容と判定された組がある場合の、その相対パスです。段階を変えない付記です。</param>
 /// <param name="Comparisons">同一内容と判定した同名の資源の組の数です。安全の説明に使います。</param>
 internal sealed record DuplicateMergeVerificationResult(
     DuplicateMergeVerificationStage Stage,
@@ -108,6 +108,6 @@ internal sealed record DuplicateMergeVerificationResult(
         ]);
     }
 
-    /// <summary>保護対象名の衝突があるかです。</summary>
+    /// <summary>別内容の保護対象の衝突（.bmx/.txtの衝突）があるかです。</summary>
     internal bool HasProtectedNameCollision => ProtectedNameCollisions is { Count: > 0 };
 }

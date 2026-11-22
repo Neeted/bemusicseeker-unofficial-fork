@@ -883,7 +883,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             Dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK), Events = Events };
             Dialogs.Progress.ReceiverContext = ui;
             Presentation = new RecordingPresentation(Events);
-            List = new DuplicateMergeCandidateListOwner(_ => false, _ => { });
+            List = new DuplicateMergeCandidateListOwner(_ => false, _ => { }, () => default);
             Group = new DuplicateGroup([first, second], [keep, source]);
             Lists.Adopt(List, Library, [Group]);
             List.SelectVisible();

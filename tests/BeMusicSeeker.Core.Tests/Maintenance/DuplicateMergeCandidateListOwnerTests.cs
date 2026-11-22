@@ -76,9 +76,12 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
         internal DuplicateMergeCandidateListOwner Owner { get; }
 
+        /// <summary>管理主体が読むたびに取得する上書きの設定です。既定はアプリの既定（スマート上書きだけがオン）です。</summary>
+        internal DuplicateMergeOverwriteSettings Overwrite { get; set; } = new(SmartOverwrite: true, KeepProtectedByRenaming: false);
+
         internal Fixture()
         {
-            Owner = new DuplicateMergeCandidateListOwner(path => ExistingFolders.Contains(path), Opened.Add);
+            Owner = new DuplicateMergeCandidateListOwner(path => ExistingFolders.Contains(path), Opened.Add, () => Overwrite);
             Owner.AttachLibrary(Library);
             Owner.SetTreeSelected(true);
         }
@@ -995,10 +998,10 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     }
 
     /// <summary>
-    /// 保証：STATUSの文言は、未確認「未確認」、安全「安全」（保護対象名の衝突があれば付記つき）、要注意・統合不可「（段階）：（理由, 理由…）」で、
-    /// 成立した理由をすべて結果の順に、表示言語によらない「, 」で並べる（理由が一つなら一つだけ）。保護対象名の衝突は要注意・統合不可の文言へ出さない。
+    /// 保証：STATUSの文言は、未確認「未確認」、安全「安全」（.bmx/.txtの衝突があれば付記つき）、要注意・統合不可「（段階）：（理由, 理由…）」で、
+    /// 成立した理由をすべて結果の順に、表示言語によらない「, 」で並べる（理由が一つなら一つだけ）。.bmx/.txtの衝突は要注意・統合不可の文言へ出さない。
     /// 統合不可と要注意の理由が混在する結果は、段階は統合不可のまま両方の理由を並べる。
-    /// 検出する誤り：最初の理由だけの表示・「ほか{n}件」への省略、理由の順の入れ替え、区切りの取り違え、段階と書式の取り違え、保護対象名の衝突の混入。
+    /// 検出する誤り：最初の理由だけの表示・「ほか{n}件」への省略、理由の順の入れ替え、区切りの取り違え、段階と書式の取り違え、.bmx/.txtの衝突の混入。
     /// </summary>
     [TestMethod]
     public void StatusText_ListsAllReasonsInResultOrder()
@@ -1175,21 +1178,23 @@ public sealed class DuplicateMergeCandidateListOwnerTests
 
     /// <summary>
     /// 保証：STATUSのツールチップは、理由ごとに説明と該当するフォルダ・相対パスを出し、一つの理由につき10件を超える分は「ほか{n}件」と省略する。
-    /// 別内容ファイル衝突は上書きの注意を添え、保護対象名の衝突はファイル名と注意を付記として出す（要注意でも出る）。未確認はツールチップを持たない。
-    /// 検出する誤り：件数の省略の誤り（11件目の混入、省略の注記の欠落）、理由の説明の欠落、注意の欠落、付記の脱落。
+    /// 別内容ファイル衝突は統合したときの扱いを添え、.bmx/.txtの衝突はファイル名と扱いを付記として出す（要注意でも出る）。未確認はツールチップを持たない。
+    /// 上書きの設定は一つ（スマート上書きがオフ）に固定し、設定ごとの分岐は <see cref="StatusTooltip_OverwriteNotesFollowTheSettingsAtReadTime"/> が確認する。
+    /// 検出する誤り：件数の省略の誤り（11件目の混入、省略の注記の欠落）、理由の説明の欠落、扱いの説明の欠落、付記の脱落。
     /// </summary>
     [TestMethod]
     public void StatusTooltip_ListsReasonsWithOmissionNoteAndProtectedCollisions()
     {
-        Assert.IsNull(DuplicateMergeVerificationResult.Unverified.FormatTooltip());
+        var overwrite = new DuplicateMergeOverwriteSettings(SmartOverwrite: false, KeepProtectedByRenaming: false);
+        Assert.IsNull(DuplicateMergeVerificationResult.Unverified.FormatTooltip(overwrite));
         DuplicateMergeVerificationResult conflict = Result(
             DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ContentConflict, 12), (DuplicateMergeVerificationReasonKind.NoSharedContent, 1)) with
         { ProtectedNameCollisions = ["Data.BMX", "readme.txt"] };
 
-        string[] lines = conflict.FormatTooltip()!.Split(Environment.NewLine);
+        string[] lines = conflict.FormatTooltip(overwrite)!.Split(Environment.NewLine);
 
         Assert.AreEqual(Resources.Duplicate_merge_candidate_reason_content_conflict_description, lines[0]);
-        Assert.AreEqual(Resources.Duplicate_merge_candidate_content_conflict_note, lines[1]);
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_overwrite_note_source, lines[1]);
         string[] items = [.. lines.Skip(2).TakeWhile(line => line.StartsWith("- ", StringComparison.Ordinal))];
         Assert.AreEqual(10, items.Length, "一つの理由につき10件までです。");
         Assert.AreEqual(@"- C:\S\f\item00", items[0]);
@@ -1198,9 +1203,60 @@ public sealed class DuplicateMergeCandidateListOwnerTests
         Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_tooltip_more_format, 2), lines[2 + 10]);
         CollectionAssert.Contains(lines, Resources.Duplicate_merge_candidate_reason_no_shared_content_description);
         CollectionAssert.Contains(lines, Resources.Duplicate_merge_candidate_protected_collision_description);
-        CollectionAssert.Contains(lines, Resources.Duplicate_merge_candidate_protected_collision_note);
+        int protectedHeading = Array.IndexOf(lines, Resources.Duplicate_merge_candidate_protected_collision_description);
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_overwrite_note_source, lines[protectedHeading + 1]);
         CollectionAssert.Contains(lines, "- Data.BMX");
         CollectionAssert.Contains(lines, "- readme.txt");
+    }
+
+    /// <summary>
+    /// 保証：STATUSのツールチップで、別内容ファイル衝突と.bmx/.txtの衝突に添える統合したときの扱いは、ツールチップを読む時点の上書きの設定で決まる。
+    /// スマート上書きがオフなら両方が「移動元のファイルで上書き」（連番名での保持がオンでも同じ）、オンなら両方が「更新日時の新しい方」で、
+    /// スマート上書きと連番名での保持がどちらもオンのときだけ、.bmx/.txtの衝突が「連番名で両方残る」になる。確認結果を書き直さずに設定だけを変えて行を読み直すと、新しい設定の扱いになる。
+    /// 検出する誤り：連番名での保持の値だけでの分岐、確認結果の書込み時・構築時の設定の保持、別内容ファイル衝突への連番名の説明、設定によらない一つの文言。
+    /// </summary>
+    [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(false, true)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public void StatusTooltip_OverwriteNotesFollowTheSettingsAtReadTime(bool smart, bool keepByRenaming)
+    {
+        // 書込みの時点では、行の値と反対の設定にしておく。
+        var fixture = new Fixture { Overwrite = new(!smart, !keepByRenaming) };
+        DuplicateGroup group = Group(@"C:\S\a", @"C:\S\b");
+        fixture.Adopt(group);
+        fixture.Owner.WriteVerifications(
+        [
+            new(group, Result(DuplicateMergeVerificationStage.Caution, (DuplicateMergeVerificationReasonKind.ContentConflict, 1)) with
+            {
+                ProtectedNameCollisions = ["readme.txt"]
+            })
+        ]);
+        DuplicateMergeCandidateRow row = fixture.Owner.RowSet[0];
+        Assert.IsNotNull(row.StatusTooltipText);
+
+        fixture.Overwrite = new(smart, keepByRenaming);
+        string[] lines = row.StatusTooltipText!.Split(Environment.NewLine);
+
+        string onlyOneRemains = smart
+            ? Resources.Duplicate_merge_candidate_overwrite_note_newer
+            : Resources.Duplicate_merge_candidate_overwrite_note_source;
+        string protectedNote = smart && keepByRenaming ? Resources.Duplicate_merge_candidate_overwrite_note_renamed : onlyOneRemains;
+        Assert.AreEqual(Resources.Duplicate_merge_candidate_reason_content_conflict_description, lines[0]);
+        Assert.AreEqual(onlyOneRemains, lines[1], "別内容ファイル衝突は、連番名での保持によらず一方だけが残ります。");
+        int protectedHeading = Array.IndexOf(lines, Resources.Duplicate_merge_candidate_protected_collision_description);
+        Assert.IsTrue(protectedHeading > 1);
+        Assert.AreEqual(protectedNote, lines[protectedHeading + 1]);
+        Assert.AreEqual("- readme.txt", lines[protectedHeading + 2]);
+        string[] notes =
+        [
+            Resources.Duplicate_merge_candidate_overwrite_note_source,
+            Resources.Duplicate_merge_candidate_overwrite_note_newer,
+            Resources.Duplicate_merge_candidate_overwrite_note_renamed
+        ];
+        Assert.AreEqual(3, notes.Distinct().Count(), "三つの扱いは別の文言です。");
+        Assert.AreEqual(2, lines.Count(line => notes.Contains(line)), "扱いの説明は、衝突ごとに一つだけです。");
     }
 
     /// <summary>
@@ -1212,7 +1268,7 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     {
         string Tooltip(int sizeAndTime, int full, int partial)
             => new DuplicateMergeVerificationResult(
-                DuplicateMergeVerificationStage.Safe, [], null, new DuplicateMergeComparisonSummary(sizeAndTime, full, partial)).FormatTooltip()!;
+                DuplicateMergeVerificationStage.Safe, [], null, new DuplicateMergeComparisonSummary(sizeAndTime, full, partial)).FormatTooltip(default)!;
 
         Assert.AreEqual(Resources.Duplicate_merge_candidate_safe_not_compared, Tooltip(0, 0, 0));
         Assert.AreEqual(
@@ -1232,21 +1288,21 @@ public sealed class DuplicateMergeCandidateListOwnerTests
     }
 
     /// <summary>
-    /// 保証：簡易確認の値は既定でオンで、無効にして変更を一回通知し、ライブラリを交換しても無効を保つ（アプリの起動中だけの値）。
-    /// 検出する誤り：既定がオフ、ライブラリの交換での値の消失・既定への復帰、変更の通知の欠落・重複。
+    /// 保証：簡易チェックの値は既定でオフで、有効にして変更を一回通知し、ライブラリを交換しても有効を保つ（アプリの起動中だけの値）。
+    /// 検出する誤り：既定がオン、ライブラリの交換での値の消失・既定への復帰、変更の通知の欠落・重複。
     /// </summary>
     [TestMethod]
-    public void QuickCompare_DefaultsOnAndKeepsDisabledValueAcrossLibraryExchange()
+    public void QuickCompare_DefaultsOffAndKeepsEnabledValueAcrossLibraryExchange()
     {
         var fixture = new Fixture();
         var changed = new List<string?>();
         fixture.Owner.PropertyChanged += (_, args) => changed.Add(args.PropertyName);
-        Assert.IsTrue(fixture.Owner.QuickCompareEnabled, "既定は有効です。");
+        Assert.IsFalse(fixture.Owner.QuickCompareEnabled, "既定は無効です。");
 
-        fixture.Owner.QuickCompareEnabled = false;
+        fixture.Owner.QuickCompareEnabled = true;
         fixture.Owner.AttachLibrary(new object());
 
-        Assert.IsFalse(fixture.Owner.QuickCompareEnabled, "ライブラリの交換後も無効のまま残ります。");
+        Assert.IsTrue(fixture.Owner.QuickCompareEnabled, "ライブラリの交換後も有効のまま残ります。");
         Assert.AreEqual(1, changed.Count(name => name == nameof(DuplicateMergeCandidateListOwner.QuickCompareEnabled)));
     }
 

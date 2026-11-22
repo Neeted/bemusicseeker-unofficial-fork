@@ -1332,7 +1332,7 @@ The basic steps are as follows.
 | `STATUS` | Meaning |
 | --- | --- |
 | `Unchecked` | Not verified yet. |
-| `Safe` | Nothing was found that gets in the way of merging. `Safe (protected file name collision)` means that same-name `.bmx`, `.pmx`, or `.txt` files exist in more than one folder. |
+| `Safe` | Nothing was found that gets in the way of merging. `Safe (.bmx/.txt collision)` means that same-name `.bmx`, `.pmx`, or `.txt` files exist in more than one folder and differ in content. The `STATUS` tooltip explains what happens to them when the folders are merged. |
 | `Caution` | The group can be merged, but there is something you may want to review. |
 | `Cannot merge` | The group cannot be organized. `SELECT` cannot be checked. |
 
@@ -1351,10 +1351,12 @@ The reasons are as follows. `STATUS` lists every applicable reason separated by 
 | `file/folder name conflict` | `Cannot merge` | The same name is a file in one folder and a folder in another. |
 | `unreadable items` | `Cannot merge` | Some items could not be checked because of permissions or read failures. Use `Verify this group` from the context menu to check again. |
 
-When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. When content is read, audio files (WAV, OGG, MP3, FLAC) and still images (PNG, BMP, JPG, JPEG) are read in full. Videos up to 192 KiB and other files up to 32 MiB are also read in full. Above those limits, only the beginning, middle, and end are read. `Treat files with the same size and modified time as identical without reading them` is enabled by default; files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster. When you uncheck it, those files are also read and compared.
+When comparing content, same-name files with different sizes are treated as different; files with the same size are read and compared. When content is read, audio files (WAV, OGG, MP3, FLAC) and still images (PNG, BMP, JPG, JPEG) are read in full. Videos up to 192 KiB and other files up to 32 MiB are also read in full. Above those limits, only the beginning, middle, and end are read. `.bmx`, `.pmx`, and `.txt` files are compared in the same way.
+
+`Quick check for speed (treat files with the same size and modified time as identical without reading them)` is disabled by default. When you check it, files whose size and modified time are exactly the same are treated as identical without being read, which makes verification faster.
 
 > [!CAUTION]
-> Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions, and while `Treat files with the same size and modified time as identical without reading them` is enabled, files with different content may be judged identical.
+> Content comparison does not guarantee that whole files are identical. Partial comparisons can miss differences outside the sampled regions. While `Quick check for speed` is enabled, files with different content may be judged identical. Files with the same name, size, and modified time almost always have the same content, but a file whose content has changed through corruption is missed. With old BMS packages, mismatches that appear to be audio files corrupted by a single flipped bit have actually been found, depending on where the files were obtained. Leaving it disabled is recommended when you handle old BMS packages.
 
 `Organize selected groups` processes the shown, checked groups in order. The confirmation before it runs is shown even when confirmation messages are turned off. For a group with two or more folders, every folder other than `KEEP` is merged into the `KEEP` folder. Files are moved and overwritten by the same rules as [Merge Duplicate Folders](#merge-duplicate-folders). Then, for duplicate charts in the same folder, one is kept and the rest are moved to the Recycle Bin. For a group with only one folder, only this duplicate-chart cleanup is performed. The chart to keep is chosen in the same way as in [Continuous Cleanup with `Ctrl + G`](#continuous-cleanup-with-ctrl--g).
 

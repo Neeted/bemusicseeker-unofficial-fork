@@ -286,7 +286,7 @@ public sealed class AcceptedChangeDuplicatePreparationTests
                 case BatchOrganize:
                     {
                         var events = new List<string>();
-                        var list = new DuplicateMergeCandidateListOwner(_ => false, _ => { });
+                        var list = new DuplicateMergeCandidateListOwner(_ => false, _ => { }, () => default);
                         Lists.Adopt(list, library, [new DuplicateGroup([first, second], [firstDirectory, secondDirectory])]);
                         list.SelectVisible();
                         var owner = new DuplicateMaintenanceWorkflowOwner(() => library, library.OperationAdmission, activity,

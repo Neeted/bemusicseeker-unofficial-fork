@@ -139,9 +139,9 @@ public sealed class DuplicateMaintenanceWorkflowOwnerSplitPlacementTests
 
         internal DuplicateMaintenanceWorkflowOwner Owner { get; }
 
-        internal DuplicateMergeCandidateListOwner SplitList { get; } = new(_ => false, _ => { });
+        internal DuplicateMergeCandidateListOwner SplitList { get; } = new(_ => false, _ => { }, () => default);
 
-        internal DuplicateMergeCandidateListOwner DuplicateList { get; } = new(_ => false, _ => { });
+        internal DuplicateMergeCandidateListOwner DuplicateList { get; } = new(_ => false, _ => { }, () => default);
 
         /// <summary>重複結果の準備の窓口が受けた、明示準備の要否（<c>requireGroups</c>）の記録です。</summary>
         internal List<bool> PreparationCalls { get; }

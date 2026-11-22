@@ -53,12 +53,15 @@ internal static class DuplicateBatchOrganizePresentation
     /// <summary>
     /// 確認文を作ります。通常の本文は、グループ数の行、移動元を統合するグループがあるときだけ統合の行、ごみ箱の行の順です。
     /// 警告用の本文（警告色で表示する部分）は、未確認・要注意のグループがあるときだけ0件でない側の件数の行（このとき警告のアイコン）、
-    /// 確認結果に別内容ファイルの衝突か保護対象名の衝突があるときだけ衝突の行を、この順に並べ、該当がなければnullです。
+    /// 一方だけが残る衝突（別内容ファイルの衝突、または連番名で保持されない.bmx/.txtの衝突）があるときだけ上書きの行、
+    /// 連番名で保持される.bmx/.txtの衝突があるときだけ連番名の行を、この順に並べ、該当がなければnullです。
     /// </summary>
+    /// <param name="overwrite">確認文を作る時点の上書きの設定です。衝突の行の文言を決めます。</param>
     /// <param name="hasWarning">未確認または要注意のグループを含む（確認ダイアログのアイコンを警告にする）場合はtrueです。</param>
     /// <param name="warningMessage">警告用の本文です。該当する行がなければnullです。</param>
     internal static string CreateConfirmationMessage(
-        IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets, out bool hasWarning, out string warningMessage)
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets, DuplicateMergeOverwriteSettings overwrite,
+        out bool hasWarning, out string warningMessage)
     {
         ArgumentNullException.ThrowIfNull(targets);
         var lines = new List<string> { string.Format(Resources.Duplicate_batch_organize_confirm_groups_format, targets.Count) };
@@ -66,7 +69,8 @@ internal static class DuplicateBatchOrganizePresentation
         int sourceFolders = 0;
         int unverified = 0;
         int caution = 0;
-        bool collision = false;
+        bool contentConflict = false;
+        bool protectedCollision = false;
         foreach (DuplicateMergeCandidateGroupTarget target in targets)
         {
             int sources = target.Folders.Count(folder => !string.Equals(folder, target.KeepFolder, StringComparison.OrdinalIgnoreCase));
@@ -85,8 +89,8 @@ internal static class DuplicateBatchOrganizePresentation
                     caution++;
                     break;
             }
-            collision |= verification.HasProtectedNameCollision
-                || verification.Reasons.Any(reason => reason.Kind == DuplicateMergeVerificationReasonKind.ContentConflict);
+            protectedCollision |= verification.HasProtectedNameCollision;
+            contentConflict |= verification.Reasons.Any(reason => reason.Kind == DuplicateMergeVerificationReasonKind.ContentConflict);
         }
         if (mergeGroups > 0)
         {
@@ -107,9 +111,15 @@ internal static class DuplicateBatchOrganizePresentation
         {
             warnings.Add(string.Format(Resources.Duplicate_batch_organize_confirm_caution_format, caution));
         }
-        if (collision)
+        if (contentConflict || (protectedCollision && !overwrite.KeepsBothProtectedFiles))
         {
-            warnings.Add(Resources.Duplicate_batch_organize_confirm_collision);
+            warnings.Add(overwrite.SmartOverwrite
+                ? Resources.Duplicate_batch_organize_confirm_collision_newer
+                : Resources.Duplicate_batch_organize_confirm_collision_source);
+        }
+        if (protectedCollision && overwrite.KeepsBothProtectedFiles)
+        {
+            warnings.Add(Resources.Duplicate_batch_organize_confirm_collision_renamed);
         }
         warningMessage = warnings.Count == 0 ? null : string.Join(Environment.NewLine, warnings);
         return string.Join(Environment.NewLine, lines);

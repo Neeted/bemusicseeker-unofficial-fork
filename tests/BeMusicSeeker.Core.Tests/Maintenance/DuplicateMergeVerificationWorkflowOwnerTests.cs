@@ -88,7 +88,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         {
             Inspector = inspector;
             Dialogs = new RecordingDialogService(Events);
-            Owner = new DuplicateMergeCandidateListOwner(_ => false, _ => { });
+            Owner = new DuplicateMergeCandidateListOwner(_ => false, _ => { }, () => default);
             Workflow = new DuplicateMergeVerificationWorkflowOwner(Owner, () => Inspector, Admission, Dialogs);
             UiThreadId = Ui(() => Environment.CurrentManagedThreadId);
             Ui(() =>
@@ -324,8 +324,8 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
 
     /// <summary>
     /// 保証：右クリックメニューの確認は、選択行が属するグループを、グループごとに一度、SELECTの状態によらず確認する。登録範囲のフォルダと、
-    /// 簡易確認の値（確認の開始時の値。既定の有効と異なる無効を設定する）を、案内なしですべての要求で検査器へ渡し、確認前にオンのグループも、確認後のSELECTはオフになる。
-    /// 検出する誤り：同じグループの重複確認、SELECTがオンのグループへの絞込み、登録範囲・簡易確認の値の受渡しの欠落（既定値のままの受渡し）、無効にする操作での案内。
+    /// 簡易チェックの値（確認の開始時の値。既定の無効と異なる有効を設定する）を、すべての要求で検査器へ渡し、確認前にオンのグループも、確認後のSELECTはオフになる。
+    /// 検出する誤り：同じグループの重複確認、SELECTがオンのグループへの絞込み、登録範囲・簡易チェックの値の受渡しの欠落（既定値のままの受渡し）。
     /// </summary>
     [TestMethod]
     public async Task VerifyGroupsOfRows_ChecksEachGroupOnceWithRegisteredFoldersAndQuickCompareValue()
@@ -333,8 +333,8 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         var inspector = new ScriptedInspector();
         DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2");
         using var fixture = new Fixture(inspector, new Source([@"C:\S\a1", @"C:\S\a2"]), a, b);
-        await fixture.Workflow.SetQuickCompareAsync(false);
-        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "無効にする操作では案内しません。");
+        await fixture.Workflow.SetQuickCompareAsync(true);
+        Assert.AreEqual(1, fixture.Dialogs.Messages.Count, "前提：有効にする操作の案内が一件です。");
         Assert.IsFalse(fixture.State(a).CanSelect, "前提：登録範囲を二つ持つグループは統合不可で、SELECTできません。");
         fixture.Ui(() => fixture.Owner.ToggleSelect(fixture.Owner.RowSet[2]));
         Assert.IsTrue(fixture.State(b).IsSelected, "前提：確認の前にbだけがオンです。");
@@ -344,7 +344,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
 
         Assert.AreEqual(2, result.Checked, "選択した三行は二つのグループに属し、SELECTの状態によらず確認します。");
         Assert.AreEqual(2, inspector.Calls.Count);
-        Assert.IsTrue(inspector.Calls.All(call => !call.Request.SizeAndTimeOnly), "簡易確認の値（無効）をすべての要求へ渡します。");
+        Assert.IsTrue(inspector.Calls.All(call => call.Request.SizeAndTimeOnly), "簡易チェックの値（既定と異なる有効）をすべての要求へ渡します。");
         DuplicateMergeInspectionRequest registeredRequest = inspector.Calls.Select(call => call.Request).Single(request => request.RegisteredFolders.Count == 2);
         CollectionAssert.AreEqual(new[] { @"C:\S\a1", @"C:\S\a2" }, registeredRequest.RegisteredFolders.ToArray());
         Assert.IsFalse(fixture.State(b).IsSelected, "確認前にオンでも、確認後はオフです。");
@@ -352,20 +352,20 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 保証：簡易確認の値は、管理主体を新しく作った直後に有効で、組立てまでに注意の案内を出さない。チェックを外す操作では案内せず、入れる操作のたびに一件案内する。
-    /// 検出する誤り：既定がオフ、起動時の既定の有効での案内、外す操作での案内、入れる操作での案内の欠落・重複、値の不保持。
+    /// 保証：簡易チェックの値は、管理主体を新しく作った直後に無効で、組立てまでに警告の案内を出さない。チェックを外す操作（すでに無効のときを含む）では案内せず、入れる操作のたびに警告を一件案内する。
+    /// 検出する誤り：既定がオン、起動時の案内、外す操作での案内、入れる操作での案内の欠落・重複、値の不保持。
     /// </summary>
     [TestMethod]
-    public async Task QuickCompare_DefaultsOnWithoutNoticeAndNotifiesOnlyWhenTheCheckIsTurnedOn()
+    public async Task QuickCompare_DefaultsOffWithoutNoticeAndNotifiesOnlyWhenTheCheckIsTurnedOn()
     {
         var inspector = new ScriptedInspector();
         using var fixture = new Fixture(inspector, Group(@"C:\S\a1", @"C:\S\a2"));
-        Assert.IsTrue(fixture.Owner.QuickCompareEnabled, "生成直後の値は有効です。");
-        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "起動から構成の組立てまでに注意の案内を出しません。");
+        Assert.IsFalse(fixture.Owner.QuickCompareEnabled, "生成直後の値は無効です。");
+        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "起動から構成の組立てまでに警告の案内を出しません。");
 
         await fixture.Workflow.SetQuickCompareAsync(false);
         Assert.IsFalse(fixture.Owner.QuickCompareEnabled);
-        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "外す操作では案内しません。");
+        Assert.AreEqual(0, fixture.Dialogs.Messages.Count, "すでに無効のときに外す操作でも案内しません。");
 
         await fixture.Workflow.SetQuickCompareAsync(true);
         Assert.IsTrue(fixture.Owner.QuickCompareEnabled);
@@ -373,16 +373,18 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
         Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_notice, fixture.Dialogs.Messages[0].MessageBoxText);
 
         await fixture.Workflow.SetQuickCompareAsync(false);
+        Assert.IsFalse(fixture.Owner.QuickCompareEnabled);
+        Assert.AreEqual(1, fixture.Dialogs.Messages.Count, "外す操作では案内しません。");
         await fixture.Workflow.SetQuickCompareAsync(true);
         Assert.AreEqual(2, fixture.Dialogs.Messages.Count, "入れる操作のたびに一件です。");
     }
 
     /// <summary>
-    /// 保証：チェックに触れずに確認を実行すると、すべての要求で簡易確認が有効（既定値）として検査器へ渡り、確認の実行では注意の案内を出さない。
-    /// 検出する誤り：既定のオフのまま検査器へ渡す、既定の値を確認の入力へ反映しない、確認で注意の案内を出す。
+    /// 保証：チェックに触れずに確認を実行すると、すべての要求で簡易チェックが無効（既定値）として検査器へ渡り、確認の実行では警告の案内を出さない。
+    /// 検出する誤り：既定のオンのまま検査器へ渡す、既定の値を確認の入力へ反映しない、確認で警告の案内を出す。
     /// </summary>
     [TestMethod]
-    public async Task Verify_WithoutTouchingTheCheck_PassesTheEnabledDefaultToEveryRequest()
+    public async Task Verify_WithoutTouchingTheCheck_PassesTheDisabledDefaultToEveryRequest()
     {
         var inspector = new ScriptedInspector();
         DuplicateGroup a = Group(@"C:\S\a1", @"C:\S\a2"), b = Group(@"C:\S\b1", @"C:\S\b2");
@@ -393,7 +395,7 @@ public sealed class DuplicateMergeVerificationWorkflowOwnerTests
 
         Assert.AreEqual(2, result.Checked);
         Assert.AreEqual(2, inspector.Calls.Count);
-        Assert.IsTrue(inspector.Calls.All(call => call.Request.SizeAndTimeOnly), "既定の有効をすべての要求へ渡します。");
+        Assert.IsTrue(inspector.Calls.All(call => !call.Request.SizeAndTimeOnly), "既定の無効をすべての要求へ渡します。");
         Assert.IsFalse(
             fixture.Dialogs.Messages.Any(message => message.MessageBoxText == Resources.Duplicate_merge_candidate_quick_compare_notice),
             "確認の実行は注意の案内を出しません。");

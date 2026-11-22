@@ -4223,7 +4223,7 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>安全</value>
   </data>
   <data name="Duplicate_merge_candidate_status_safe_protected_collision" xml:space="preserve">
-    <value>安全（保護対象名の衝突）</value>
+    <value>安全（.bmx/.txtの衝突）</value>
   </data>
   <data name="Duplicate_merge_candidate_status_caution_format" xml:space="preserve">
     <value>要注意：{0}</value>
@@ -4298,13 +4298,16 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>移動元になるフォルダの配下に、譜面を持つ別のフォルダがあります。</value>
   </data>
   <data name="Duplicate_merge_candidate_protected_collision_description" xml:space="preserve">
-    <value>保護対象のファイル名が、複数のフォルダにあります。</value>
+    <value>同じ名前の .bmx・.pmx・.txt が複数のフォルダにあり、内容が異なります。</value>
   </data>
-  <data name="Duplicate_merge_candidate_protected_collision_note" xml:space="preserve">
-    <value>上書きの設定によっては、内容が異なっていても一方だけが残ります。</value>
+  <data name="Duplicate_merge_candidate_overwrite_note_renamed" xml:space="preserve">
+    <value>スマート上書きと連番名での保持がONのため、統合すると移動元のファイルは連番付きの名前で保存され、両方が残ります（サイズと更新日時が同じ場合は統合先のファイルだけが残ります）。</value>
   </data>
-  <data name="Duplicate_merge_candidate_content_conflict_note" xml:space="preserve">
-    <value>統合すると、上書きの設定に従って一方だけが残ります。</value>
+  <data name="Duplicate_merge_candidate_overwrite_note_source" xml:space="preserve">
+    <value>スマート上書きがOFFのため、統合すると移動元のファイルで上書きされ、一方だけが残ります。</value>
+  </data>
+  <data name="Duplicate_merge_candidate_overwrite_note_newer" xml:space="preserve">
+    <value>スマート上書きがONのため、統合すると更新日時の新しい方だけが残ります（差がなければ統合先のファイルが残ります）。</value>
   </data>
   <data name="Duplicate_merge_candidate_safe_not_compared" xml:space="preserve">
     <value>比較が必要な同名ファイルはありません。</value>
@@ -4337,10 +4340,14 @@ ON：すべての使用リソースを要求し、不足時は保留にします
     <value>このグループを確認</value>
   </data>
   <data name="Duplicate_merge_candidate_quick_compare" xml:space="preserve">
-    <value>サイズと更新日時が同じファイルは読まずに同一とみなす</value>
+    <value>高速化のための簡易チェック（サイズと更新日時が同じファイルは読まずに同一とみなす）</value>
   </data>
   <data name="Duplicate_merge_candidate_quick_compare_notice" xml:space="preserve">
-    <value>内容が異なるファイルを同一と判定することがあります。サイズと更新日時が完全に同じファイルは、内容を読まずに同一とみなします。</value>
+    <value>高速化のための簡易チェックです。サイズと更新日時が完全に同じファイルは、内容を読まずに同一とみなすため、内容が異なるファイルを同一と判定することがあります。
+
+通常は、名前・サイズ・更新日時がすべて同じファイルは、内容も一致することがほとんどです。ただし、ファイルの破損で内容が一致しなくなっている場合は見逃します。
+
+古いBMSでは、入手経路によって、1ビットの反転による音源ファイルの破損と推定される不一致が実際に見つかっています。古いBMSを扱う場合は特に注意が必要です。この設定はOFFのままにすることを推奨します。</value>
   </data>
   <data name="Duplicate_merge_candidate_verify_progress_title" xml:space="preserve">
     <value>統合の安全性を確認中</value>
@@ -4396,8 +4403,14 @@ ON：すべての使用リソースを要求し、不足時は保留にします
   <data name="Duplicate_batch_organize_acknowledgment" xml:space="preserve">
     <value>要注意・未確認グループの整理を続行する</value>
   </data>
-  <data name="Duplicate_batch_organize_confirm_collision" xml:space="preserve">
-    <value>内容が異なる同名のファイルは、上書きの設定に従って一方だけが残ります。</value>
+  <data name="Duplicate_batch_organize_confirm_collision_source" xml:space="preserve">
+    <value>内容が異なる同名のファイルは、スマート上書きがOFFのため、移動元のファイルで上書きされ、一方だけが残ります。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_collision_newer" xml:space="preserve">
+    <value>内容が異なる同名のファイルは、スマート上書きがONのため、更新日時の新しい方だけが残ります（差がなければ統合先のファイルが残ります）。</value>
+  </data>
+  <data name="Duplicate_batch_organize_confirm_collision_renamed" xml:space="preserve">
+    <value>内容が異なる同名の .bmx・.pmx・.txt は、移動元のファイルが連番付きの名前で保存され、両方が残ります。</value>
   </data>
   <data name="Duplicate_batch_organize_result_format" xml:space="preserve">
     <value>{0}グループを整理しました。完了 {1}／一部完了 {2}／スキップ {3}／失敗 {4}／未処理 {5}。</value>

@@ -90,9 +90,14 @@ internal sealed record DuplicateMergeVerificationWrite(
 /// <summary>一覧の一行（一フォルダ）です。不変で、状態の変化は <see cref="State"/> から読みます。</summary>
 internal sealed class DuplicateMergeCandidateRow
 {
+    private readonly Func<DuplicateMergeOverwriteSettings> overwriteSettings;
+
+    /// <param name="overwriteSettings">統合が使う現在の上書きの設定を返します。ツールチップを読むたびに呼びます。</param>
     internal DuplicateMergeCandidateRow(
-        DuplicateMergeCandidateGroupState state, string path, string folderName, string title, string artist, int index, int groupIndex)
+        DuplicateMergeCandidateGroupState state, string path, string folderName, string title, string artist, int index, int groupIndex,
+        Func<DuplicateMergeOverwriteSettings> overwriteSettings)
     {
+        this.overwriteSettings = overwriteSettings ?? throw new ArgumentNullException(nameof(overwriteSettings));
         State = state;
         Path = path;
         FolderName = folderName;
@@ -129,8 +134,8 @@ internal sealed class DuplicateMergeCandidateRow
     /// <summary>グループのSTATUSの表示文言です。読取りのたびに現在の表示言語で作ります。</summary>
     internal string StatusText => State.Verification.FormatStatus();
 
-    /// <summary>グループのSTATUSのツールチップです。読取りのたびに現在の表示言語で作ります。未確認はnullです。</summary>
-    internal string StatusTooltipText => State.Verification.FormatTooltip();
+    /// <summary>グループのSTATUSのツールチップです。読取りのたびに現在の表示言語と現在の上書きの設定で作ります。未確認はnullです。</summary>
+    internal string StatusTooltipText => State.Verification.FormatTooltip(overwriteSettings());
 }
 
 /// <summary>

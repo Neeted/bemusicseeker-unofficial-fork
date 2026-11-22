@@ -8,6 +8,17 @@ using BeMusicSeeker.Properties;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
+/// 統合が同名のファイルを扱うときの上書きの設定です。衝突の説明を、設定によって変わると述べるだけにせず、実際の扱いで示すために使います。
+/// </summary>
+/// <param name="SmartOverwrite">スマート上書きが有効かです。無効なら移動元のファイルで上書きし、有効なら更新日時の新しい方を残します。</param>
+/// <param name="KeepProtectedByRenaming">スマート上書き時に、同名の .bmx・.pmx・.txt を連番名で保持する設定が有効かです。スマート上書きが無効なら効きません。</param>
+internal readonly record struct DuplicateMergeOverwriteSettings(bool SmartOverwrite, bool KeepProtectedByRenaming)
+{
+    /// <summary>内容が異なる同名の .bmx・.pmx・.txt を、連番付きの名前で両方残すかです。</summary>
+    internal bool KeepsBothProtectedFiles => SmartOverwrite && KeepProtectedByRenaming;
+}
+
+/// <summary>
 /// グループの確認結果を、STATUSの文言とそのツールチップへ書式化します。書式化は読取りのたびに現在の表示言語で行い、
 /// 表示言語の変更を、状態を作り直さずに反映します。
 /// </summary>
@@ -20,10 +31,10 @@ internal static class DuplicateMergeVerificationPresentation
     internal const string ReasonSeparator = ", ";
 
     /// <summary>
-    /// STATUSの表示文言です。未確認は「未確認」、安全は「安全」（保護対象名の衝突があれば付記つき）、
+    /// STATUSの表示文言です。未確認は「未確認」、安全は「安全」（.bmx/.txtの衝突があれば付記つき）、
     /// 要注意と統合不可は「要注意：（理由, 理由…）」「統合不可：（理由, 理由…）」で、成立した理由をすべて結果の順に並べます。
     /// 区切りは表示言語によらない「, 」で、譜面一覧のWARNING列と同じです。理由の順は <see cref="DuplicateMergeVerificationReasonKind"/> の宣言順（結果が保つ順）です。
-    /// 保護対象名の衝突は含めません。
+    /// .bmx/.txtの衝突は、要注意と統合不可の文言には含めません。
     /// </summary>
     internal static string FormatStatus(this DuplicateMergeVerificationResult result)
     {
@@ -48,9 +59,10 @@ internal static class DuplicateMergeVerificationPresentation
 
     /// <summary>
     /// STATUSのツールチップです。理由ごとに説明と該当するフォルダ・相対パスを出し、一つの理由につき10件を超える分は「ほか{n}件」と省略します。
-    /// 安全では比較した同名の資源の数と方法、保護対象名の衝突ではファイル名と注意を出します。未確認はnullです。
+    /// 安全では比較した同名の資源の数と方法を出します。別内容ファイル衝突と.bmx/.txtの衝突（ファイル名を併記）には、統合したときの扱いを添えます。未確認はnullです。
     /// </summary>
-    internal static string FormatTooltip(this DuplicateMergeVerificationResult result)
+    /// <param name="overwrite">読む時点の上書きの設定です。衝突に添える扱いの説明を決めます。</param>
+    internal static string FormatTooltip(this DuplicateMergeVerificationResult result, DuplicateMergeOverwriteSettings overwrite)
     {
         ArgumentNullException.ThrowIfNull(result);
         if (result.Stage == DuplicateMergeVerificationStage.Unverified) { return null; }
@@ -60,7 +72,7 @@ internal static class DuplicateMergeVerificationPresentation
             var lines = new List<string> { ReasonDescription(reason.Kind) };
             if (reason.Kind == DuplicateMergeVerificationReasonKind.ContentConflict)
             {
-                lines.Add(Resources.Duplicate_merge_candidate_content_conflict_note);
+                lines.Add(OverwriteNote(overwrite));
             }
             AppendFindings(lines, reason.Findings.Select(FormatFinding));
             sections.Add(string.Join(Environment.NewLine, lines));
@@ -70,7 +82,7 @@ internal static class DuplicateMergeVerificationPresentation
             var lines = new List<string>
             {
                 Resources.Duplicate_merge_candidate_protected_collision_description,
-                Resources.Duplicate_merge_candidate_protected_collision_note
+                overwrite.KeepsBothProtectedFiles ? Resources.Duplicate_merge_candidate_overwrite_note_renamed : OverwriteNote(overwrite)
             };
             AppendFindings(lines, result.ProtectedNameCollisions);
             sections.Add(string.Join(Environment.NewLine, lines));
@@ -81,6 +93,11 @@ internal static class DuplicateMergeVerificationPresentation
         }
         return sections.Count == 0 ? null : string.Join(Environment.NewLine + Environment.NewLine, sections);
     }
+
+    /// <summary>内容が異なる同名のファイルの一方だけが残る場合の、統合したときの扱いの説明です。</summary>
+    private static string OverwriteNote(DuplicateMergeOverwriteSettings overwrite) => overwrite.SmartOverwrite
+        ? Resources.Duplicate_merge_candidate_overwrite_note_newer
+        : Resources.Duplicate_merge_candidate_overwrite_note_source;
 
     private static void AppendFindings(List<string> lines, IEnumerable<string> items)
     {

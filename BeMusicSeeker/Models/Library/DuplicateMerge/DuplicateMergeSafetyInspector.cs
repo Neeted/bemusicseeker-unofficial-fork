@@ -46,7 +46,7 @@ internal interface IDuplicateMergeSafetyInspector
 /// </summary>
 /// <remarks>
 /// 入出力の失敗は解析不能の理由へ変換し、それ以外の予期しない例外は呼出元へ伝えます。
-/// フォルダごとの列挙は一回で、資源の読取りは比較が必要な同名の資源に限ります。モデルのロックを保持したまま、ファイルを読みません。
+/// フォルダごとの列挙は一回で、ファイルの読取りは比較が必要な同名の資源と保護対象に限ります。モデルのロックを保持したまま、ファイルを読みません。
 /// </remarks>
 internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspector
 {
@@ -139,8 +139,8 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
     }
 
     /// <summary>
-    /// 同じ相対パスの項目を集め、型の衝突・同名音源の拡張子違い・別内容ファイル衝突・同一内容ファイルの連結・保護対象名の衝突を調べます。
-    /// 各ファイルの内容は、比較が必要な場合に一度だけ読みます。
+    /// 同じ相対パスの項目を集め、型の衝突・同名音源の拡張子違い・別内容ファイル衝突・同一内容ファイルの連結・保護対象の別内容の衝突を調べます。
+    /// 各ファイルの内容は、比較が必要な場合に一度だけ読みます。保護対象は資源と同じ手順で比べますが、連結と比較の組の数には数えません。
     /// </summary>
     private static (IReadOnlyList<string> ProtectedCollisions, DuplicateMergeComparisonSummary Comparisons) InspectContents(
         DuplicateMergeInspectionRequest request, IReadOnlyList<string> folders, DuplicateMergeFolderScan[] scans,
@@ -184,8 +184,9 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
                 }
             }
             Entry[] files = [.. entries.Where(entry => !entry.IsDirectory)];
+            // 保護対象: 資源と同じく全ての組を比べ、別内容と判定された組が一つでもあれば付記する。読めない組は解析不能の理由だけを残し、付記の判定に使わない。
             if (files.Length >= 2 && files[0].File.Category == DuplicateMergeFileCategory.Protected
-                && files.Select(entry => entry.FolderIndex).Distinct().Count() >= 2)
+                && HasDifferentContentPair(files, comparer))
             {
                 protectedCollisions.Add(files[0].RelativePath);
             }
@@ -253,6 +254,28 @@ internal sealed class DuplicateMergeSafetyInspector : IDuplicateMergeSafetyInspe
         return (
             [.. protectedCollisions.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase)],
             new DuplicateMergeComparisonSummary(sizeAndTime, full, partial));
+    }
+
+    /// <summary>
+    /// 同じ相対パスのファイルのうち、別のフォルダにある組が一つでも別内容と判定されるかを返します。
+    /// 別内容の組が見つかった後も全ての組を比べます。途中で打ち切ると、未読のファイルの読取り失敗が解析不能の理由に載らないためです。
+    /// 各ファイルは比較器が一度だけ読むので、続けて比べても追加の読取りは未読のファイルに限ります。
+    /// </summary>
+    private static bool HasDifferentContentPair(Entry[] files, DuplicateMergeContentComparer comparer)
+    {
+        bool different = false;
+        for (int first = 0; first < files.Length; first++)
+        {
+            for (int second = first + 1; second < files.Length; second++)
+            {
+                if (files[first].FolderIndex != files[second].FolderIndex
+                    && comparer.Compare(files[first].File, files[second].File, out _) == DuplicateMergeContentComparison.Different)
+                {
+                    different = true;
+                }
+            }
+        }
+        return different;
     }
 
     private static void Add(Dictionary<string, List<Entry>> map, string key, Entry entry)

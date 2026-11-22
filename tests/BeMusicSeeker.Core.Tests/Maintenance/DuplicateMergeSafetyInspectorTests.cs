@@ -287,9 +287,9 @@ public sealed class DuplicateMergeSafetyInspectorTests
     }
 
     /// <summary>
-    /// 保証：別内容ファイル衝突は資源だけが対象で、譜面ファイルと保護対象（拡張子の大文字小文字を問わない）は対象外であり、隠し属性のディレクトリの中の資源は対象になる。
-    /// 同じ相対パスの保護対象が複数のフォルダにあると、段階を変えずに保護対象名の衝突として相対パスを一覧する。
-    /// 検出する誤り：譜面・保護対象の内容比較、隠しディレクトリの見落とし、保護対象名の衝突による段階の変更・付記の欠落、拡張子の大文字小文字の区別。
+    /// 保証：別内容ファイル衝突の理由は資源だけが対象で、譜面ファイルと保護対象（拡張子の大文字小文字を問わない）は理由にならず、隠し属性のディレクトリの中の資源は対象になる。
+    /// 同じ相対パスの別内容の保護対象は、内容を比べたうえで、段階を変えずに付記として相対パスを一覧する。
+    /// 検出する誤り：譜面・保護対象を別内容ファイル衝突の理由にする、隠しディレクトリの見落とし、保護対象の付記による段階の変更・付記の欠落、拡張子の大文字小文字の区別。
     /// </summary>
     [TestMethod]
     public void ContentConflict_ExcludesChartsAndProtectedAndIncludesHiddenDirectories()
@@ -316,27 +316,107 @@ public sealed class DuplicateMergeSafetyInspectorTests
         CollectionAssert.AreEqual(new[] { DuplicateMergeVerificationReasonKind.ContentConflict }, Kinds(result));
         CollectionAssert.AreEqual(new[] { Finding(a, @"hid\x.bin"), Finding(b, @"hid\x.bin") },
             Reason(result, DuplicateMergeVerificationReasonKind.ContentConflict)!.Findings.ToArray(), "隠しディレクトリの中の資源だけです。");
-        CollectionAssert.AreEqual(new[] { "Data.BMX", "readme.txt" }, result.ProtectedNameCollisions!.ToArray(), "保護対象名の衝突は相対パスで一覧します。");
+        CollectionAssert.AreEqual(new[] { "Data.BMX", "readme.txt" }, result.ProtectedNameCollisions!.ToArray(), "別内容の保護対象は相対パスで一覧します。");
     }
 
     /// <summary>
-    /// 保証：保護対象名の衝突は安全の付記で、段階を変えない。別内容のファイルがなく、資源が連結していれば安全のままである。
-    /// 検出する誤り：保護対象名の衝突で安全が要注意になる、付記の欠落。
+    /// 保証：同じ相対パスの保護対象（.bmx・.pmx・.txt。大文字小文字を無視）は資源と同じ手順で比べ、別内容と判定された組が一つでもある相対パスだけを、段階を変えずに付記する。
+    /// 全組が同一内容なら付記しない。サイズが違えば読まずに別内容、簡易チェックではサイズと更新日時が同じなら読まずに同一内容とする。
+    /// 読めない組は解析不能の理由になり、付記の判定には使わないが、同じ相対パスの読める組が別内容なら付記する。
+    /// 別内容の組が見つかった後も全ての組を比べるため、後のフォルダの読めないファイルも解析不能の理由になる。保護対象の比較は、資源の組の数に数えない。
+    /// 検出する誤り：名前の一致だけの付記、同サイズ・同更新日時を読まずに同一とする（簡易チェックなし）、簡易チェックの値が保護対象へ届かない、サイズ違いの読取り、
+    /// 一つの別内容で全部の名前を出す、全組が別内容のときだけ付記する、読めない組を別内容として付記する、一組の失敗で付記を止める、
+    /// 別内容の組が見つかった後の読取り失敗の見落とし、保護対象の組を数える。
     /// </summary>
+    /// <param name="unreadableFolder">解析不能の該当になるフォルダ（"a" または "c"）。空なら解析不能にならない。</param>
     [TestMethod]
-    public void ProtectedNameCollision_KeepsSafeStageAndAddsNote()
+    [DataRow("same-content", false, "", "")]
+    [DataRow("same-metadata-different-content", false, "r.txt", "")]
+    [DataRow("same-metadata-different-content", true, "", "")]
+    [DataRow("size-differs-locked", false, "Y.PMX", "")]
+    [DataRow("one-of-two-names-differs", false, "diff.bmx", "")]
+    [DataRow("three-folders-one-differs", false, "r.txt", "")]
+    [DataRow("unreadable-pair", false, "", "a")]
+    [DataRow("unreadable-and-different-pairs", false, "r.txt", "a")]
+    [DataRow("different-then-unreadable", false, "r.txt", "c")]
+    public void ProtectedFiles_AnnotateOnlyPathsWithDifferentContentAndStayOutOfResourceCounts(
+        string scenario, bool quick, string expectedNotes, string unreadableFolder)
     {
-        string a = Folder("g/a"), b = Folder("g/b");
-        WriteFile(Path.Combine(a, "shared.bin"), PatternBytes(32, 1));
-        WriteFile(Path.Combine(b, "shared.bin"), PatternBytes(32, 1));
-        WriteFile(Path.Combine(a, "readme.txt"), PatternBytes(10, 1));
-        WriteFile(Path.Combine(b, "readme.txt"), PatternBytes(10, 2));
+        string a = Folder("g/a"), b = Folder("g/b"), c = Folder("g/c");
+        string[] folders = scenario is "three-folders-one-differs" or "unreadable-and-different-pairs" or "different-then-unreadable" ? [a, b, c] : [a, b];
+        // 資源の連結を満たし、資源の組の数が全量の一組（三フォルダでは三組）に決まるよう、同一内容で更新日時の違う資源を置く。
+        for (int index = 0; index < folders.Length; index++)
+        {
+            WriteFile(Path.Combine(folders[index], "shared.bin"), PatternBytes(32, 1), FixedTime.AddHours(index));
+        }
+        string? locked = null;
+        switch (scenario)
+        {
+            case "same-content":
+                WriteFile(Path.Combine(a, "r.txt"), PatternBytes(10, 1), FixedTime);
+                WriteFile(Path.Combine(b, "r.txt"), PatternBytes(10, 1), FixedTime.AddHours(1));
+                break;
+            case "same-metadata-different-content":
+                WriteFile(Path.Combine(a, "r.txt"), PatternBytes(10, 1), FixedTime);
+                WriteFile(Path.Combine(b, "r.txt"), PatternBytes(10, 2), FixedTime);
+                break;
+            case "size-differs-locked":
+                locked = WriteFile(Path.Combine(a, "Y.PMX"), PatternBytes(10, 1), FixedTime);
+                WriteFile(Path.Combine(b, "y.pmx"), PatternBytes(11, 1), FixedTime);
+                break;
+            case "one-of-two-names-differs":
+                WriteFile(Path.Combine(a, "same.txt"), PatternBytes(10, 1));
+                WriteFile(Path.Combine(b, "same.txt"), PatternBytes(10, 1));
+                WriteFile(Path.Combine(a, "diff.bmx"), PatternBytes(10, 1));
+                WriteFile(Path.Combine(b, "diff.bmx"), PatternBytes(10, 2));
+                break;
+            case "three-folders-one-differs":
+                WriteFile(Path.Combine(a, "r.txt"), PatternBytes(10, 1));
+                WriteFile(Path.Combine(b, "r.txt"), PatternBytes(10, 1));
+                WriteFile(Path.Combine(c, "r.txt"), PatternBytes(10, 2));
+                break;
+            case "unreadable-pair":
+                locked = WriteFile(Path.Combine(a, "r.txt"), PatternBytes(10, 1));
+                WriteFile(Path.Combine(b, "r.txt"), PatternBytes(10, 2));
+                break;
+            case "unreadable-and-different-pairs":
+                locked = WriteFile(Path.Combine(a, "r.txt"), PatternBytes(10, 1));
+                WriteFile(Path.Combine(b, "r.txt"), PatternBytes(10, 2));
+                WriteFile(Path.Combine(c, "r.txt"), PatternBytes(10, 3));
+                break;
+            default:
+                // 先頭の組 (a,b) が別内容で、最後尾の c だけが読めない。サイズを揃え、c を読まないと失敗が分からないようにする。
+                WriteFile(Path.Combine(a, "r.txt"), PatternBytes(10, 1));
+                WriteFile(Path.Combine(b, "r.txt"), PatternBytes(10, 2));
+                locked = WriteFile(Path.Combine(c, "r.txt"), PatternBytes(10, 3));
+                break;
+        }
 
-        DuplicateMergeVerificationResult result = Inspect([a, b]).Evaluate(a);
+        DuplicateMergeVerificationResult result;
+        using (locked == null ? null : new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            result = Inspect(folders, sizeAndTimeOnly: quick).Evaluate(a);
+        }
 
-        Assert.AreEqual(DuplicateMergeVerificationStage.Safe, result.Stage);
-        Assert.IsTrue(result.HasProtectedNameCollision);
-        CollectionAssert.AreEqual(new[] { "readme.txt" }, result.ProtectedNameCollisions!.ToArray());
+        string label = scenario + (quick ? " (quick)" : string.Empty) + ": " + string.Join(",", Kinds(result));
+        CollectionAssert.AreEqual(
+            expectedNotes.Length == 0 ? [] : new[] { expectedNotes }, (result.ProtectedNameCollisions ?? []).ToArray(), label);
+        if (unreadableFolder.Length > 0)
+        {
+            Assert.AreEqual(DuplicateMergeVerificationStage.Unmergeable, result.Stage, label);
+            CollectionAssert.AreEqual(new[] { DuplicateMergeVerificationReasonKind.Unreadable }, Kinds(result), label);
+            CollectionAssert.AreEqual(
+                new[] { Finding(unreadableFolder == "c" ? c : a, "r.txt") },
+                Reason(result, DuplicateMergeVerificationReasonKind.Unreadable)!.Findings.ToArray(), label);
+        }
+        else
+        {
+            Assert.AreEqual(DuplicateMergeVerificationStage.Safe, result.Stage, label);
+            Assert.IsEmpty(Kinds(result), label);
+            int pairs = folders.Length == 3 ? 3 : 1;
+            Assert.AreEqual((0, pairs, 0), (result.Comparisons!.SizeAndTime, result.Comparisons.Full, result.Comparisons.Partial),
+                label + " 保護対象の比較は、資源の組の数に数えません。");
+        }
     }
 
     /// <summary>
@@ -448,8 +528,8 @@ public sealed class DuplicateMergeSafetyInspectorTests
 
     /// <summary>
     /// 保証：読まない経路を使う条件では、読めないファイル（排他ロック）があっても解析不能にならない。相手のいないファイル、サイズの違う同名ファイル（別内容）、
-    /// 簡易確認がオンでサイズと更新日時が完全に一致するファイル（同一内容、比較方法は「サイズと更新日時」）である。
-    /// 検出する誤り：相手のいないファイルの読取り、サイズの違う組の読取り、簡易確認での読取り、簡易確認の比較方法の誤記録。
+    /// 簡易チェックがオンでサイズと更新日時が完全に一致するファイル（同一内容、比較方法は「サイズと更新日時」）である。
+    /// 検出する誤り：相手のいないファイルの読取り、サイズの違う組の読取り、簡易チェックでの読取り、簡易チェックの比較方法の誤記録。
     /// </summary>
     [TestMethod]
     [DataRow("no-partner")]
@@ -458,7 +538,7 @@ public sealed class DuplicateMergeSafetyInspectorTests
     public void ReadAvoidance_DoesNotReadLockedFilesWhenDecidedWithoutContent(string scenario)
     {
         string a = Folder("g/a"), b = Folder("g/b");
-        // 更新日時を明示し、簡易確認でも共通のファイルは更新日時が違うため、内容を読んで比べる（比較方法の件数を決定的にする）。
+        // 更新日時を明示し、簡易チェックでも共通のファイルは更新日時が違うため、内容を読んで比べる（比較方法の件数を決定的にする）。
         WriteFile(Path.Combine(a, "common.bin"), PatternBytes(16, 1), FixedTime);
         WriteFile(Path.Combine(b, "common.bin"), PatternBytes(16, 1), FixedTime.AddSeconds(7));
         string locked = scenario switch
@@ -484,8 +564,8 @@ public sealed class DuplicateMergeSafetyInspectorTests
     }
 
     /// <summary>
-    /// 保証：簡易確認の境界。オンでも更新日時が1秒違えば内容を読んで判定し、オフならサイズと更新日時が一致しても内容を読む。読んだかどうかは、排他ロックしたファイルが解析不能になるかで区別する。
-    /// 検出する誤り：更新日時の一致を粗い精度で比べる、簡易確認のオフでの省略、更新日時の違いでの省略。
+    /// 保証：簡易チェックの境界。オンでも更新日時が1秒違えば内容を読んで判定し、オフならサイズと更新日時が一致しても内容を読む。読んだかどうかは、排他ロックしたファイルが解析不能になるかで区別する。
+    /// 検出する誤り：更新日時の一致を粗い精度で比べる、簡易チェックのオフでの省略、更新日時の違いでの省略。
     /// </summary>
     [TestMethod]
     [DataRow(true, 1, true)]

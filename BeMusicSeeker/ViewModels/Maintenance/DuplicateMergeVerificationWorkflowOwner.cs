@@ -94,8 +94,8 @@ internal sealed class DuplicateMergeVerificationWorkflowOwner
         => RunAsync(list.CaptureGroupsOfRows(rows), owner);
 
     /// <summary>
-    /// 「サイズと更新日時が同じファイルは読まずに同一とみなす」のチェックの変更です。値は一覧の管理主体が保持します。
-    /// オンにするたびに、内容が異なるファイルを同一と判定することがある旨を一度だけ案内し、オフにするときは案内しません。
+    /// 「高速化のための簡易チェック」（サイズと更新日時が同じファイルは読まずに同一とみなす）のチェックの変更です。値は一覧の管理主体が保持します。
+    /// オンにするたびに、内容が異なるファイルを同一と判定することがあり、破損による不一致を見逃す旨の警告を一度だけ案内し、オフにするときは案内しません。
     /// </summary>
     internal async Task SetQuickCompareAsync(bool enabled)
     {

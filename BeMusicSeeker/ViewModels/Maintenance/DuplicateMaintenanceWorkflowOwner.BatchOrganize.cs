@@ -160,7 +160,7 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
         {
             // 要求の作成が例外で終わっても、下の finally が受付を解放します。
             run = new BatchRun(DuplicateBatchOrganizePresentation.CreateRequest(targets), splitPlacement, list, targets);
-            ConfirmationDecision confirmation = await ConfirmBatchOrganizeAsync(targets);
+            ConfirmationDecision confirmation = await ConfirmBatchOrganizeAsync(targets, list.OverwriteSettings);
             if (confirmation.Failure != null)
             {
                 early = new DuplicateBatchOrganizeRunResult(DuplicateBatchOrganizeRunStatus.Failed, Failure: confirmation.Failure);
@@ -203,13 +203,15 @@ internal sealed partial class DuplicateMaintenanceWorkflowOwner
     /// <summary>
     /// 一括整理の確認を表示します。確認を表示しない設定（<c>ShowDuplicateFileCheckConfirmMsg</c>）でも、常に一度表示します。
     /// OKとキャンセルがあり、既定はキャンセルです。未確認または要注意のグループを含むときだけ、警告アイコンを表示し、チェックを入れるまでOKを無効にします。
-    /// 未確認・要注意と内容が異なる同名のファイルの注意は、警告用の本文（警告色の部分）に表示します。
+    /// 未確認・要注意と、内容が異なる同名のファイルの扱い（確認文を作る時点の上書きの設定に合わせた説明）は、警告用の本文（警告色の部分）に表示します。
     /// </summary>
-    private async Task<ConfirmationDecision> ConfirmBatchOrganizeAsync(IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets)
+    private async Task<ConfirmationDecision> ConfirmBatchOrganizeAsync(
+        IReadOnlyList<DuplicateMergeCandidateGroupTarget> targets, DuplicateMergeOverwriteSettings overwrite)
     {
         try
         {
-            string message = DuplicateBatchOrganizePresentation.CreateConfirmationMessage(targets, out bool hasWarning, out string warningMessage);
+            string message = DuplicateBatchOrganizePresentation.CreateConfirmationMessage(
+                targets, overwrite, out bool hasWarning, out string warningMessage);
             return await ConfirmAsync(
                 new UiConfirmationRequest(
                     message,

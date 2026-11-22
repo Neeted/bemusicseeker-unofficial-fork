@@ -254,13 +254,14 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
     /// <summary>
     /// 保証：分裂配置のツリーの子の先頭に統合候補一覧のノード（リソースの見出し）が現れ、選ぶと共用の専用の表が分裂配置の一覧主体へ束縛される。
     /// 表示中は譜面一覧の表・メインの検索欄・件数表示・保留の操作バー・プレイログの集計バーを出さない。
-    /// 検索欄・除外欄・SELECTのセル・簡易確認のチェック・優先統合先は分裂配置の一覧主体にだけ作用し、重複の一覧へ切り替えると重複の値、戻ると分裂配置の値が現れる。
+    /// 検索欄・除外欄・SELECTのセル・簡易チェックのチェック・優先統合先は分裂配置の一覧主体にだけ作用し、重複の一覧へ切り替えると重複の値、戻ると分裂配置の値が現れる。
     /// 検出する誤り：ノードの欠落・位置・見出し、重複の一覧主体への束縛の残り、二つの一覧の状態の共有、切替えでの値の取り違え、ライブラリの交換での状態の残存。
     /// </summary>
     [TestMethod]
     public void SplitPlacementCandidateList_SharedTableFollowsTheDisplayedListAndKeepsBothStatesIndependent()
     {
-        var dialogs = new RecordingPreferredDestinationDialogs();
+        // 簡易チェックを入れる操作の警告だけを記録する。
+        var dialogs = new RecordingPreferredDestinationDialogs { Messages = [] };
         RunDuplicateSelectionFixture((scope, viewModel, window, library, charts, navigation) =>
         {
             MainWindowPresentationTestHarness.ShowCompiledContent(scope, viewModel, window);
@@ -305,16 +306,19 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 0), summary.Text, "件数表示は分裂配置の一覧の値");
             Assert.IsFalse(duplicate.IsViewActive);
 
-            // 分裂配置の一覧の操作：セル・検索欄・除外欄・簡易確認・優先統合先は、分裂配置の一覧主体にだけ作用する。
+            // 分裂配置の一覧の操作：セル・検索欄・除外欄・簡易チェック・優先統合先は、分裂配置の一覧主体にだけ作用する。
             Click(table, 0, "Select");
             Assert.AreEqual(1, split.SelectedGroupCount);
             Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 1), summary.Text);
             EnterCandidateText(split, candidateEditor, "group0-0", nameof(DuplicateMergeCandidateListOwner.SearchText), () => split.SearchText);
             EnterCandidateText(split, excludeEditor, "group1-1", nameof(DuplicateMergeCandidateListOwner.ExcludeText), () => split.ExcludeText);
             split.RequestSort("Path", System.ComponentModel.ListSortDirection.Descending);
-            quickCompare.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, false); // 利用者のクリックと同じく、束縛を残して現在値を変える
-            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "split quick compare off");
-            Assert.IsFalse(split.QuickCompareEnabled);
+            Assert.IsFalse(quickCompare.IsChecked, "前提：簡易チェックは既定で外れています。");
+            quickCompare.SetCurrentValue(System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty, true); // 利用者のクリックと同じく、束縛を残して現在値を変える
+            AwaitHandler(() => quickCompare.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)), "split quick compare on");
+            Assert.IsTrue(split.QuickCompareEnabled);
+            Assert.AreEqual(1, dialogs.Messages!.Count, "入れる操作の警告が一件です。");
+            Assert.AreEqual(Resources.Duplicate_merge_candidate_quick_compare_notice, dialogs.Messages[0].MessageBoxText);
             string preferred = charts[2].Directory;
             dialogs.NextResult = new UiWindowDialogResult<IReadOnlyList<string>>(UiDialogStatus.Accepted, [preferred], true);
             ClickButton(window, "duplicateCandidatePreferredDestinationsButton");
@@ -331,8 +335,8 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual(string.Empty, excludeEditor.Text);
             Assert.IsNull(duplicate.SortColumnName);
             Assert.AreEqual(0, duplicate.PreferredDestinations.Count);
-            Assert.IsTrue(quickCompare.IsChecked, "重複の一覧の簡易確認は既定のまま");
-            Assert.IsTrue(duplicate.QuickCompareEnabled);
+            Assert.IsFalse(quickCompare.IsChecked, "重複の一覧の簡易チェックは既定のまま");
+            Assert.IsFalse(duplicate.QuickCompareEnabled);
             Assert.AreEqual(4, table.ItemsSource.Count);
             Assert.AreEqual(string.Format(Resources.Duplicate_merge_candidate_summary, 2, 0), summary.Text, "重複の一覧の件数");
             Click(table, 2, "Select");
@@ -341,7 +345,7 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreEqual("group0-0", split.SearchText);
             Assert.AreEqual("group1-1", split.ExcludeText);
             Assert.AreEqual("Path", split.SortColumnName);
-            Assert.IsFalse(split.QuickCompareEnabled);
+            Assert.IsTrue(split.QuickCompareEnabled);
 
             // 分裂配置の一覧へ戻る：分裂配置の値が現れる（重複の一覧の値は変わらない）。
             SelectSplitPlacementCandidateList(viewModel, splitRoot, searchFirst: false);
@@ -349,11 +353,12 @@ public sealed partial class MainWindowPackageMaintenanceWpfTests
             Assert.AreSame(split, table.DataContext);
             Assert.AreEqual("group0-0", candidateEditor.Text);
             Assert.AreEqual("group1-1", excludeEditor.Text);
-            Assert.IsFalse(quickCompare.IsChecked);
+            Assert.IsTrue(quickCompare.IsChecked);
             Assert.AreEqual(1, split.SelectedGroupCount);
             Assert.AreEqual(1, duplicate.SelectedGroupCount);
             Assert.AreEqual(0, duplicate.PreferredDestinations.Count);
-            Assert.IsTrue(duplicate.QuickCompareEnabled);
+            Assert.IsFalse(duplicate.QuickCompareEnabled);
+            Assert.AreEqual(1, dialogs.Messages.Count, "切替えでは警告を出しません。");
 
             // ライブラリの交換：分裂配置の一覧のグループの状態も破棄される。
             DuplicateGroup group = library.SplitPlacementGroups![0];

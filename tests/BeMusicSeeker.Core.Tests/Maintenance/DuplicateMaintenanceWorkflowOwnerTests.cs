@@ -1514,6 +1514,7 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
             Presentation = new RecordingPresentation(Events);
             Dialogs = new FakeUiDialogService { ConfirmationResult = UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK), Events = Events };
             Dialogs.Progress.ReceiverContext = ui;
+            List = new DuplicateMergeCandidateListOwner(_ => false, _ => { }, () => Overwrite);
             Lists.Adopt(List, Library, groups);
             Owner = new DuplicateMaintenanceWorkflowOwner(
                 CreateLibrary, Gate, Activity, Presentation, Dialogs, () => showConfirmation, _ => true, _ => new ExplorerOpenResult(), _ => null, Store,
@@ -1531,7 +1532,10 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
 
         internal List<DuplicateMaintenanceProgressSnapshot> BottomProgress { get; } = [];
 
-        internal DuplicateMergeCandidateListOwner List { get; } = new(_ => false, _ => { });
+        internal DuplicateMergeCandidateListOwner List { get; }
+
+        /// <summary>一覧の管理主体が読むたびに取得する上書きの設定です。</summary>
+        internal DuplicateMergeOverwriteSettings Overwrite { get; set; }
 
         internal BatchStore Store { get; }
 
@@ -1946,44 +1950,62 @@ public sealed class DuplicateMaintenanceWorkflowOwnerTests
     }
 
     /// <summary>
-    /// 確認結果に別内容ファイルの衝突（要注意の理由）または保護対象名の衝突（安全への付記）を持つグループがあるときだけ、衝突の行を警告用の本文へ加える。
-    /// 要注意の別内容ファイル衝突は［要注意の行、衝突の行］、保護対象名の衝突だけ（安全）は［衝突の行］の順で、該当なしは警告用の本文なし。
+    /// 確認文の警告用の本文の衝突の行は、確認文を作る時点の上書きの設定で決まる。一方だけが残る衝突（別内容ファイルの衝突、または連番名で保持されない.bmx/.txtの衝突）があれば上書きの行を一行だけ
+    /// （スマート上書きがオフなら「移動元のファイルで上書き」、オンなら「更新日時の新しい方」）、スマート上書きと連番名での保持がどちらもオンで.bmx/.txtの衝突があれば連番名の行を、
+    /// ［要注意の行、上書きの行、連番名の行］の順に並べ、該当なしは警告用の本文なし。確認結果は行の設定と反対の設定で書き込み、整理の直前に行の設定へ変える。
     /// 衝突の行は通常の本文へ出さず、アイコンは未確認・要注意を含むときだけ警告のままである。
-    /// 安全な対象の衝突警告だけではチェック欄を要求せず、非表示または未選択の未確認グループも判定から除く。
-    /// 検出する誤り：衝突の行の欠落（どちらの種類でも）、衝突のないグループでの過剰表示、衝突の行の通常の本文への残留・重複、行の順の入れ替え、アイコンの変化。
+    /// 安全な対象の衝突の行だけではチェック欄を要求せず、非表示または未選択の未確認グループも判定から除く。
+    /// 検出する誤り：衝突の行の欠落・過剰表示、設定と合わない行、確認結果の書込み時の設定の使用、連番名での保持の値だけでの分岐、別内容ファイル衝突だけでの連番名の行、
+    /// 上書きの行の重複、行の順の入れ替え、衝突の行の通常の本文への残留、アイコンの変化。
     /// </summary>
     [TestMethod]
-    [DataRow("none", false, false)]
-    [DataRow("content", true, true)]
-    [DataRow("protected", true, false)]
-    public async Task OrganizeSelectedGroups_ConfirmationMentionsOverwriteOnlyWhenACollisionIsRecorded(string kind, bool expectLine, bool expectCautionLine)
+    [DataRow("none", false, false, "")]
+    [DataRow("none", true, true, "")]
+    [DataRow("content", false, false, "source")]
+    [DataRow("content", true, false, "newer")]
+    [DataRow("content", true, true, "newer")]
+    [DataRow("protected", false, false, "source")]
+    [DataRow("protected", false, true, "source")]
+    [DataRow("protected", true, false, "newer")]
+    [DataRow("protected", true, true, "renamed")]
+    [DataRow("both", false, false, "source")]
+    [DataRow("both", true, true, "newer|renamed")]
+    public async Task OrganizeSelectedGroups_ConfirmationCollisionLinesFollowOverwriteSettingsAtConfirmation(
+        string kind, bool smart, bool keepByRenaming, string expectedLines)
     {
         DuplicateGroup group = Lists.Group(@"C:\S\one", @"C:\S\two");
         DuplicateGroup hidden = Lists.Group(@"C:\Hidden");
         DuplicateGroup unselected = Lists.Group(@"C:\S\unselected");
-        using var fixture = new BatchFixture([group, hidden, unselected]);
-        DuplicateMergeVerificationResult result = kind switch
-        {
-            "content" => new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Caution,
-                [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ContentConflict, [new DuplicateMergeFinding(@"C:\S\one", "a.wav")])]),
-            "protected" => new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, [], ["BMSEARCH.exe"]),
-            _ => new DuplicateMergeVerificationResult(DuplicateMergeVerificationStage.Safe, [])
-        };
+        using var fixture = new BatchFixture([group, hidden, unselected]) { Overwrite = new(!smart, !keepByRenaming) };
+        bool content = kind is "content" or "both";
+        var result = new DuplicateMergeVerificationResult(
+            content ? DuplicateMergeVerificationStage.Caution : DuplicateMergeVerificationStage.Safe,
+            content
+                ? [new DuplicateMergeVerificationReason(DuplicateMergeVerificationReasonKind.ContentConflict, [new DuplicateMergeFinding(@"C:\S\one", "a.wav")])]
+                : [],
+            kind is "protected" or "both" ? ["readme.txt"] : null);
         fixture.List.WriteVerifications([new DuplicateMergeVerificationWrite(group, result)]);
         fixture.Select(group, hidden);
         fixture.List.SearchText = @"C:\S\";
+        fixture.Overwrite = new(smart, keepByRenaming);
 
         await fixture.Owner.OrganizeSelectedGroupsAsync();
 
         UiConfirmationRequest request = fixture.Dialogs.ConfirmationRequest!;
-        string collisionLine = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision;
-        Assert.IsFalse(Lines(request.MessageBoxText).Contains(collisionLine), "衝突の行は通常の本文へ出しません。");
+        var collisionLines = new Dictionary<string, string>
+        {
+            ["source"] = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision_source,
+            ["newer"] = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision_newer,
+            ["renamed"] = BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_collision_renamed
+        };
+        Assert.AreEqual(3, collisionLines.Values.Distinct().Count(), "三つの行は別の文言です。");
+        Assert.IsFalse(Lines(request.MessageBoxText).Any(collisionLines.Values.Contains), "衝突の行は通常の本文へ出しません。");
         var expectedWarning = new List<string>();
-        if (expectCautionLine) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_caution_format, 1)); }
-        if (expectLine) { expectedWarning.Add(collisionLine); }
-        CollectionAssert.AreEqual(expectedWarning, Lines(request.WarningMessageBoxText));
-        Assert.AreEqual(expectCautionLine, request.AcknowledgmentText != null);
-        Assert.AreEqual(expectCautionLine ? MessageBoxImage.Warning : MessageBoxImage.Question, request.Icon, "アイコンの条件は変えません。");
+        if (content) { expectedWarning.Add(string.Format(BeMusicSeeker.Properties.Resources.Duplicate_batch_organize_confirm_caution_format, 1)); }
+        expectedWarning.AddRange(expectedLines.Split('|', StringSplitOptions.RemoveEmptyEntries).Select(name => collisionLines[name]));
+        CollectionAssert.AreEqual(expectedWarning, Lines(request.WarningMessageBoxText), $"{kind} smart={smart} rename={keepByRenaming}");
+        Assert.AreEqual(content, request.AcknowledgmentText != null);
+        Assert.AreEqual(content ? MessageBoxImage.Warning : MessageBoxImage.Question, request.Icon, "アイコンの条件は変えません。");
     }
 
     /// <summary>

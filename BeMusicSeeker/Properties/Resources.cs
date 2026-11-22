@@ -3418,12 +3418,14 @@ public class Resources
     public static string Duplicate_merge_candidate_reason_no_shared_content_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_no_shared_content_description", resourceCulture);
     /// <summary>統合候補一覧のSTATUSのツールチップで、移動元の配下に譜面を持つ別のフォルダがある理由の説明です。</summary>
     public static string Duplicate_merge_candidate_reason_nested_chart_folder_description => ResourceManager.GetString("Duplicate_merge_candidate_reason_nested_chart_folder_description", resourceCulture);
-    /// <summary>統合候補一覧のSTATUSのツールチップで、保護対象のファイル名が複数のフォルダにある旨の見出しです。</summary>
+    /// <summary>統合候補一覧のSTATUSのツールチップで、同じ名前の .bmx・.pmx・.txt が複数のフォルダにあり内容が異なる旨の見出しです。</summary>
     public static string Duplicate_merge_candidate_protected_collision_description => ResourceManager.GetString("Duplicate_merge_candidate_protected_collision_description", resourceCulture);
-    /// <summary>統合候補一覧のSTATUSのツールチップで、保護対象のファイル名の衝突に添える注意です。</summary>
-    public static string Duplicate_merge_candidate_protected_collision_note => ResourceManager.GetString("Duplicate_merge_candidate_protected_collision_note", resourceCulture);
-    /// <summary>統合候補一覧のSTATUSのツールチップで、別内容のファイル衝突に添える注意です。</summary>
-    public static string Duplicate_merge_candidate_content_conflict_note => ResourceManager.GetString("Duplicate_merge_candidate_content_conflict_note", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、スマート上書きと連番名での保持が有効なときに、内容が異なる同名の .bmx・.pmx・.txt が両方残る旨の説明です。</summary>
+    public static string Duplicate_merge_candidate_overwrite_note_renamed => ResourceManager.GetString("Duplicate_merge_candidate_overwrite_note_renamed", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、スマート上書きが無効なときに、内容が異なる同名のファイルが移動元のファイルで上書きされる旨の説明です。</summary>
+    public static string Duplicate_merge_candidate_overwrite_note_source => ResourceManager.GetString("Duplicate_merge_candidate_overwrite_note_source", resourceCulture);
+    /// <summary>統合候補一覧のSTATUSのツールチップで、スマート上書きが有効なときに、内容が異なる同名のファイルは更新日時の新しい方だけが残る旨の説明です。</summary>
+    public static string Duplicate_merge_candidate_overwrite_note_newer => ResourceManager.GetString("Duplicate_merge_candidate_overwrite_note_newer", resourceCulture);
     /// <summary>統合候補一覧のSTATUSのツールチップで、安全のグループに比較が必要な同名ファイルがなかった旨の文言です。</summary>
     public static string Duplicate_merge_candidate_safe_not_compared => ResourceManager.GetString("Duplicate_merge_candidate_safe_not_compared", resourceCulture);
     /// <summary>統合候補一覧のSTATUSのツールチップで、安全のグループで比較した同名ファイルの組の数と比較方法が一つの場合の書式です。{0}は組の数、{1}は比較方法の名前です。</summary>
@@ -3444,9 +3446,9 @@ public class Resources
     public static string Duplicate_merge_candidate_verify_selected => ResourceManager.GetString("Duplicate_merge_candidate_verify_selected", resourceCulture);
     /// <summary>統合候補一覧の右クリックメニューで、選択行のグループの安全性を確認する項目の文言です。</summary>
     public static string Duplicate_merge_candidate_verify_group => ResourceManager.GetString("Duplicate_merge_candidate_verify_group", resourceCulture);
-    /// <summary>統合候補一覧のツールバーで、サイズと更新日時が同じファイルを読まずに同一とみなすチェックボックスの文言です。</summary>
+    /// <summary>統合候補一覧のツールバーで、高速化のための簡易チェック（サイズと更新日時が同じファイルを読まずに同一とみなす）のチェックボックスの文言です。</summary>
     public static string Duplicate_merge_candidate_quick_compare => ResourceManager.GetString("Duplicate_merge_candidate_quick_compare", resourceCulture);
-    /// <summary>サイズと更新日時が同じファイルを読まずに同一とみなす設定をオンにしたときに案内する、判定が不正確になりうる旨の文言です。</summary>
+    /// <summary>高速化のための簡易チェックをオンにしたときに案内する警告です。内容が異なるファイルを同一と判定しうること、破損による不一致を見逃すこと、オフのままを推奨することを伝えます。</summary>
     public static string Duplicate_merge_candidate_quick_compare_notice => ResourceManager.GetString("Duplicate_merge_candidate_quick_compare_notice", resourceCulture);
     /// <summary>統合候補一覧の安全性確認の進捗画面の題名です。</summary>
     public static string Duplicate_merge_candidate_verify_progress_title => ResourceManager.GetString("Duplicate_merge_candidate_verify_progress_title", resourceCulture);
@@ -3484,8 +3486,12 @@ public class Resources
     public static string Duplicate_batch_organize_confirm_caution_format => ResourceManager.GetString("Duplicate_batch_organize_confirm_caution_format", resourceCulture);
     /// <summary>要注意または未確認のグループを整理する際のチェック欄の文言です。</summary>
     public static string Duplicate_batch_organize_acknowledgment => ResourceManager.GetString("Duplicate_batch_organize_acknowledgment", resourceCulture);
-    /// <summary>重複グループの一括整理の確認文で、内容が異なる同名のファイルの扱いを示す行です。</summary>
-    public static string Duplicate_batch_organize_confirm_collision => ResourceManager.GetString("Duplicate_batch_organize_confirm_collision", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、スマート上書きが無効なときに、内容が異なる同名のファイルが移動元のファイルで上書きされる旨の行です。</summary>
+    public static string Duplicate_batch_organize_confirm_collision_source => ResourceManager.GetString("Duplicate_batch_organize_confirm_collision_source", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、スマート上書きが有効なときに、内容が異なる同名のファイルは更新日時の新しい方だけが残る旨の行です。</summary>
+    public static string Duplicate_batch_organize_confirm_collision_newer => ResourceManager.GetString("Duplicate_batch_organize_confirm_collision_newer", resourceCulture);
+    /// <summary>重複グループの一括整理の確認文で、内容が異なる同名の .bmx・.pmx・.txt が連番名で両方残る旨の行です。</summary>
+    public static string Duplicate_batch_organize_confirm_collision_renamed => ResourceManager.GetString("Duplicate_batch_organize_confirm_collision_renamed", resourceCulture);
     /// <summary>重複グループの一括整理の結果の見出しです。{0}は整理したグループ数、{1}から{5}は完了・一部完了・スキップ・失敗・未処理の数です。</summary>
     public static string Duplicate_batch_organize_result_format => ResourceManager.GetString("Duplicate_batch_organize_result_format", resourceCulture);
     /// <summary>重複グループの一括整理の結果で、ごみ箱へ送った重複した譜面の数を示す行です。{0}は譜面の数です。</summary>

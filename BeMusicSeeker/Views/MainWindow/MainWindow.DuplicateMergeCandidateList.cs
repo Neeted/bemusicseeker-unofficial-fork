@@ -203,7 +203,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// 「サイズと更新日時が同じファイルは読まずに同一とみなす」のチェックです。値の保持は管理主体が担い、オンにしたときの案内もそちらが一件出します。
+    /// 「高速化のための簡易チェック」（サイズと更新日時が同じファイルは読まずに同一とみなす）のチェックです。値の保持は管理主体が担い、オンにしたときの案内もそちらが一件出します。
     /// </summary>
     private async void duplicateCandidateQuickCompareClick(object sender, RoutedEventArgs e)
     {

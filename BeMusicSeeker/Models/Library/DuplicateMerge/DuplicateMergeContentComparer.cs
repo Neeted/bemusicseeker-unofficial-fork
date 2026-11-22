@@ -32,7 +32,7 @@ internal sealed class DuplicateMergeContentComparer
     }
 
     /// <summary>
-    /// 判定します。サイズが異なれば読まずに別内容、簡易確認でサイズと更新日時が一致すれば読まずに同一内容、それ以外は全量または区間のXXH3を比べます。
+    /// 判定します。サイズが異なれば読まずに別内容、簡易チェックでサイズと更新日時が一致すれば読まずに同一内容、それ以外は全量または区間のXXH3を比べます。
     /// </summary>
     /// <param name="first">一方のファイル。</param>
     /// <param name="second">他方のファイル。</param>
